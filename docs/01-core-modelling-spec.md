@@ -709,7 +709,7 @@ flowchart LR
     S2 --> S3["3. Whitespace Trimming\n- TRIM(val)\n- Convert empty '' to NULL"]
     S3 --> S4["4. Case Normalization\n- _hk (Business Keys): UPPER()\n- hash_diff (Payloads): PRESERVE CASE"]
     S4 --> S5["5. Delimiter & Token Escaping\n- Escape '\\' -> '\\\\'\n- Escape '||' -> '\\||'\n- Escape '^^' -> '\\^^'\n(or Length-Prefixed <len>:<val>)"]
-    S5 --> S6["6. Null Token Substitution &\nDelimiter Concatenation\n- COALESCE(val, '^^')\n- Join with '||' & SHA-256"]
+    S5 --> S6["6. Null Token Substitution &\nDelimiter Concatenation\n- NULL -> '-1:^^' (or '^^' escaped)\n- All-NULL BK -> Zero Key\n- Join with '||' & SHA-256"]
 ```
 
 #### Formal Specification of Each Canonicalization Stage
@@ -733,40 +733,49 @@ flowchart LR
    - **For Descriptive Payloads (`hash_diff` in Satellites):** **NEVER apply `UPPER()` or `LOWER()`!** Case must be preserved so that a legitimate payload correction from `'mcdonald'` to `'McDonald'` generates a new `hash_diff` and inserts a new Satellite version.
 
 5. **Stage 5: Delimiter and Null-Token Escaping (or Length-Prefixed Injection)**
-   - Define structural column delimiter $D = \texttt{'||'}$ and null replacement token $N = \texttt{'\^\^'}$ (or `'-1:^^'` in length-prefixed mode).
+   - Define structural column delimiter $D = \texttt{'||'}$ and null replacement token $N = \texttt{'-1:\^\^'}$ in the default length-prefixed mode (`encoding_scheme: LENGTH_PREFIXED`, emitted by Gate 2), or $N = \texttt{'\^\^'}$ in the alternative escaped mode (`encoding_scheme: DELIMITER_ESCAPED`).
    - Without escaping or length prefixing, `('A||B', 'C')` and `('A', 'B||C')` both concatenate to `'A||B||C'`, and `(NULL, 'A')` collides with literal `('^^', 'A')`.
    - **Escaped Mode (AutomateDV-compatible):** For every non-null string $s$, escape the escape character `\`, the delimiter `||`, and the null token `^^` before substitution:
      $$\text{escape}(s) = \text{REPLACE}\Big(\text{REPLACE}\big(\text{REPLACE}(s, \texttt{'\\'}, \texttt{'\\\\'}), \texttt{'||'}, \texttt{'\\||'}\big), \texttt{'\^\^'}, \texttt{'\\\^\^'}\Big)$$
    - **Length-Prefixed Mode (Bijective `<byte_len>:<val>`):** Prefix every non-null normalized string with its octet length and a colon (`OCTET_LENGTH(s) || ':' || s`) and map `NULL` to `'-1:^^'`. (See [Section 3.2 of `02-schema-stability-and-evolution.md`](02-schema-stability-and-evolution.md#32-proof-of-hash-collisions-in-naive-concatenation--the-canonical-hashing-formula) for the mathematical proof of injectivity).
 
 6. **Stage 6: Null Substitution & Cryptographic Digest**
-   - Wrap each escaped column expression in `COALESCE(escaped_col, '^^')` (never pass raw `NULL` into `CONCAT_WS`, which silently skips `NULL` arguments and shifts column positions!).
-   - Concatenate all columns with `'||'` and pass UTF-8 bytes to `SHA2_BINARY(..., 256)`.
+   - Substitute every `NULL` position with the encoding's null token (`'-1:^^'` in the default length-prefixed mode, `'^^'` in escaped mode) before concatenation (never pass raw `NULL` into `CONCAT_WS`, which silently skips `NULL` arguments and shifts column positions!).
+   - **Hub/Link keys only:** if *every* business key column (excluding `bkcc`) is `NULL`, emit the Zero Key `REPEAT('0', 64)` instead of hashing (`KEY-02b`); never hash `bkcc` alone.
+   - Concatenate all encoded columns with `'||'`, hash the UTF-8 bytes with `SHA-256`, and store the digest as uppercase hex (`CHAR(64)`) or its raw bytes (`BINARY(32)`).
 
-#### Canonical SQL Macro Template (Snowflake / DuckDB / ANSI SQL)
+#### Canonical SQL Macro Template (Snowflake / ANSI SQL, Length-Prefixed Mode; on DuckDB use `STRLEN` for `OCTET_LENGTH` and `SHA256(x)` for `SHA2(x, 256)`)
+
+This is the exact encoding emitted by the Gate 2 hash codemod (`Algorithm A.5` in [`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md)) and by the Python reference in Section 6.1, so all three produce the same digest for the same input.
 
 ```sql
--- Example Staging View computing hk_customer, hk_lnk_cust_acct_mgr, and hash_diff
+-- Example Staging View computing hk_customer and hash_diff
 CREATE VIEW stg.stg_crm_customers AS
 SELECT
-    -- 1. Hub Hash Key (UPPER + TRIM + Escape + Null-Token '^^' + Delimiter '||')
-    SHA2_BINARY(
-        CONCAT_WS('||',
-            COALESCE(REPLACE(REPLACE(REPLACE(UPPER( NULLIF(TRIM(CAST('CRM_US' AS VARCHAR)), '') ), '\\', '\\\\'), '||', '\\||'), '^^', '\\^^'), '^^'),
-            COALESCE(REPLACE(REPLACE(REPLACE(UPPER( NULLIF(TRIM(CAST(src.customer_id AS VARCHAR)), '') ), '\\', '\\\\'), '||', '\\||'), '^^', '\\^^'), '^^')
-        ),
-        256
-    ) AS hk_customer,
+    -- 1. Hub Hash Key (UPPER + TRIM + Length-Prefix + Null-Token '-1:^^' + Delimiter '||'; Zero Key if BK is NULL)
+    CASE
+        WHEN NULLIF(UPPER(TRIM(CAST(src.customer_id AS VARCHAR))), '') IS NULL
+        THEN REPEAT('0', 64)
+        ELSE UPPER(SHA2(
+            '6:CRM_US'
+            || '||' || CAST(OCTET_LENGTH(UPPER(TRIM(CAST(src.customer_id AS VARCHAR)))) AS VARCHAR)
+            || ':' || UPPER(TRIM(CAST(src.customer_id AS VARCHAR))),
+            256
+        ))
+    END AS hk_customer,
 
     -- 2. Satellite Hash Diff (Alphabetical Columns: email_address, full_name, loyalty_tier; CASE PRESERVED!)
-    SHA2_BINARY(
-        CONCAT_WS('||',
-            COALESCE(REPLACE(REPLACE(REPLACE(NULLIF(TRIM(CAST(src.email_address AS VARCHAR)), ''), '\\', '\\\\'), '||', '\\||'), '^^', '\\^^'), '^^'),
-            COALESCE(REPLACE(REPLACE(REPLACE(NULLIF(TRIM(CAST(src.full_name AS VARCHAR)), ''),     '\\', '\\\\'), '||', '\\||'), '^^', '\\^^'), '^^'),
-            COALESCE(REPLACE(REPLACE(REPLACE(NULLIF(TRIM(CAST(src.loyalty_tier AS VARCHAR)), ''),  '\\', '\\\\'), '||', '\\||'), '^^', '\\^^'), '^^')
-        ),
+    UPPER(SHA2(
+        CASE WHEN NULLIF(TRIM(CAST(src.email_address AS VARCHAR)), '') IS NULL THEN '-1:^^'
+             ELSE CAST(OCTET_LENGTH(TRIM(CAST(src.email_address AS VARCHAR))) AS VARCHAR) || ':' || TRIM(CAST(src.email_address AS VARCHAR)) END
+        || '||' ||
+        CASE WHEN NULLIF(TRIM(CAST(src.full_name AS VARCHAR)), '') IS NULL THEN '-1:^^'
+             ELSE CAST(OCTET_LENGTH(TRIM(CAST(src.full_name AS VARCHAR))) AS VARCHAR) || ':' || TRIM(CAST(src.full_name AS VARCHAR)) END
+        || '||' ||
+        CASE WHEN NULLIF(TRIM(CAST(src.loyalty_tier AS VARCHAR)), '') IS NULL THEN '-1:^^'
+             ELSE CAST(OCTET_LENGTH(TRIM(CAST(src.loyalty_tier AS VARCHAR))) AS VARCHAR) || ':' || TRIM(CAST(src.loyalty_tier AS VARCHAR)) END,
         256
-    ) AS hash_diff,
+    )) AS hash_diff,
 
     -- 3. Business Keys & Raw Payload
     'CRM_US'                               AS bkcc,
@@ -869,40 +878,38 @@ flowchart TD
 import hashlib
 from typing import List, Optional
 
+NULL_TOKEN = "-1:^^"
+
 def dv2_canonical_hash(
     values: List[Optional[str]],
     *,
-    upper_case: bool = True,
+    is_business_key: bool = True,
+    bkcc: Optional[str] = None,
     delimiter: str = "||",
-    null_token: str = "^^",
     algo: str = "sha256",
 ) -> str:
     """
-    Reference implementation of the 6-stage Data Vault 2.0 canonical hash pipeline.
-    - upper_case=True for Hub/Link surrogate hash keys (_hk)
-    - upper_case=False for Satellite payload digests (hash_diff)
+    Reference implementation of the 6-stage Data Vault 2.0 canonical hash pipeline
+    (Length-Prefixed mode, byte-identical to Algorithm A.5 and the Section 4.2 SQL macro).
+    - is_business_key=True for Hub/Link hash keys (_hk): UPPER, optional bkcc prefix,
+      Zero Key when every business key value is NULL.
+    - is_business_key=False for Satellite payload digests (hash_diff): case preserved.
     """
-    normalized_parts: List[str] = []
-    escape_char = "\\"
+    digest = hashlib.md5 if algo.lower() == "md5" else hashlib.sha256
+    normalized: List[Optional[str]] = []
     for val in values:
-        if val is None:
-            normalized_parts.append(null_token)
-            continue
-        s = str(val).strip()
-        if s == "":
-            normalized_parts.append(null_token)
-            continue
-        if upper_case:
+        s = None if val is None else str(val).strip()
+        if s and is_business_key:
             s = s.upper()
-        s = s.replace(escape_char, escape_char + escape_char)
-        s = s.replace(delimiter, escape_char + delimiter)
-        s = s.replace(null_token, escape_char + null_token)
-        normalized_parts.append(s)
+        normalized.append(s or None)
 
-    concatenated = delimiter.join(normalized_parts).encode("utf-8")
-    if algo.lower() == "md5":
-        return hashlib.md5(concatenated).hexdigest().upper()
-    return hashlib.sha256(concatenated).hexdigest().upper()
+    if is_business_key and all(s is None for s in normalized):
+        return "0" * (digest().digest_size * 2)
+    if is_business_key and bkcc:
+        normalized.insert(0, bkcc.strip().upper())
+
+    parts = [NULL_TOKEN if s is None else f"{len(s.encode('utf-8'))}:{s}" for s in normalized]
+    return digest(delimiter.join(parts).encode("utf-8")).hexdigest().upper()
 ```
 
 ### 6.2 Empirical Verification Summary
@@ -953,9 +960,9 @@ To guarantee a **Zero-Mistake Data Vault 2.0 architecture**, the system enforces
 
 1. **Dual-Graph Grounding**: The LLM reasoning engine receives two deterministic inputs before proposing any mapping:
    - **Graph A (Top-Down Business Ontology / ELM)**: Enterprise Core Business Concepts (CBCs: *Party, Customer, Product, Agreement, Location, Financial Transaction*), canonical business key definitions, and event patterns.
-   - **Graph B (Bottom-Up Bronze Empirical Profile)**: Deterministic statistical metrics computed directly from the Bronze/Staging data via **Algorithm A.1** ([`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md)): Uniqueness ratio $U(C)$, Shannon entropy $H(C)$, Null rate $N_{\text{null}}(C)$, Cross-table Jaccard inclusion $I(A.x \subseteq B.y)$, and historical update frequency $\lambda(c)$.
+   - **Graph B (Bottom-Up Bronze Empirical Profile)**: Deterministic statistical metrics computed directly from the Bronze/Staging data (formally defined in [`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md) §1): Uniqueness ratio $U(C)$, Shannon entropy $H(C)$, Null rate $N_{\text{null}}(C)$, Cross-table Jaccard inclusion $I(A.x \subseteq B.y)$, and historical update frequency $\lambda(c)$.
 2. **Constrained Structured Output (`dv_model_contract.yaml` / JSON IR)**: The LLM is **physically prohibited** from emitting raw SQL DDL or DML. It outputs only a declarative model contract validated against [`schemas/no-mistake-dv2-contract-v5.schema.json`](../schemas/no-mistake-dv2-contract-v5.schema.json) (see example [`examples/dv_model_contract.yaml`](../examples/dv_model_contract.yaml)) and [`schemas/dv2-canonical-ir.schema.json`](../schemas/dv2-canonical-ir.schema.json).
-3. **Deterministic Symbolic Compilation & 3-Way `axi-dv` Triage**: A deterministic compiler (`AutomateDV` / `datavault4dbt` macro generator + **Algorithm A.2** for hashing) renders all SQL from the verified contract, and the 6-Gate `axi-dv` verifier classifies any issue into one of three deterministic routing actions:
+3. **Deterministic Symbolic Compilation & 3-Way `axi-dv` Triage**: A deterministic compiler (`AutomateDV` / `datavault4dbt` macro generator + **Algorithm A.5** for hashing) renders all SQL from the verified contract, and the 6-Gate `axi-dv` verifier classifies any issue into one of three deterministic routing actions:
    - `auto-fix`: Deterministic mechanical fixes applied by the compiler without re-prompting the LLM (e.g., alphabetical sorting of `HASHDIFF` payload columns, injection of `load_dts`/`rec_src` metadata, Zero/Ghost seed unioning).
    - `reject-with-trace`: Structural or mathematical violations returned to the `ship-vault` worker via a token-dense **TOON** (Token-Oriented Object Notation) diagnostic trace for targeted YAML contract repair.
    - `ask-user`: True semantic ambiguities (e.g., an unrecognized `TIER_3_LOCAL_SCOPED` key with no matching CBC in Graph A) escalated to the human architect via an interactive decision gate.
@@ -966,14 +973,14 @@ To guarantee a **Zero-Mistake Data Vault 2.0 architecture**, the system enforces
 
 ### 8.1 Node-Level SQLGlot AST Signatures & Layer Boundaries
 
-Every generated Data Vault node must conform to a strict **SQLGlot Abstract Syntax Tree (AST) signature** verified at **Gate 2** of the `axi-dv` pipeline (see **Algorithm A.3** in [`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md)):
+Every generated Data Vault node must conform to a strict **SQLGlot Abstract Syntax Tree (AST) signature** verified at **Gate 2** of the `axi-dv` pipeline (see **Algorithm A.6** in [`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md)):
 
 | Node Type | Target Layer | Primary Key (`PK`) | Required Metadata Columns | Allowed Payload Columns | Required SQLGlot AST Signature |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Staging (`stg_*`)** | Stage (Views / Transient) | None (1:1 row parity with landing batch) | `load_dts`, `rec_src`, `bkcc`, all derived `hk_*` & `hash_diff_*` | All raw source columns + hard-rule technical casts | `SELECT` only; **0 `JOIN`**, **0 `WHERE`**, **0 `GROUP BY`**, **0 `HAVING`**; `UNION ALL` for Ghost Records (`0x00..00`, `0xFF..FF`). |
 | **Hub (`hub_*`)** | Raw Vault (`INSERT`-Only) | `hk_<cbc>` (`BINARY(32)` / `CHAR(64)`) | `load_dts`, `rec_src`, `bkcc` | Clean Business Key column(s) `bk_*` ONLY (**0 descriptive attributes, 0 FKs**) | `INSERT INTO ... SELECT DISTINCT` with `LEFT JOIN ... WHERE tgt.hk IS NULL` or `WHERE NOT EXISTS`. **0 `UPDATE`/`DELETE`/`MERGE UPDATE`**. |
 | **Standard Link (`lnk_*`)** | Raw Vault (`INSERT`-Only) | `hk_lnk_<rel>` | `load_dts`, `rec_src` | 2+ Parent Hub FKs (`hk_*`) + optional Dependent Child Keys (`cdk_*`) (**0 mutable attributes**) | `INSERT INTO ... SELECT DISTINCT` with `WHERE NOT EXISTS` on `hk_lnk_<rel>`. Every nullable FK wrapped in `COALESCE(hk, 0x00..00)`. |
-| **Non-Historized Link (`t_lnk_*` / `nhl_*`)** | Raw Vault (`INSERT`-Only) | `hk_t_lnk_<event>` | `load_dts`, `rec_src`, `event_dts` | Parent Hub FKs + degenerate transaction ID + immutable event measures | `INSERT INTO ... WHERE NOT EXISTS`. Strictly append-only atomic event stream; no updates. |
+| **Non-Historized Link (`t_lnk_*` / `nh_lnk_*`)** | Raw Vault (`INSERT`-Only) | `hk_t_lnk_<event>` | `load_dts`, `rec_src`, `event_dts` | Parent Hub FKs + degenerate transaction ID + immutable event measures | `INSERT INTO ... WHERE NOT EXISTS`. Strictly append-only atomic event stream; no updates. |
 | **Standard Satellite (`sat_*`)** | Raw Vault (`INSERT`-Only) | `(hk_<parent>, load_dts)` | `hash_diff`, `rec_src` | Descriptive attributes co-evolving at homogeneous frequency $\lambda$ (**0 `load_end_dts`, 0 `is_current`**) | Windowed latest-state subquery `QUALIFY ROW_NUMBER() OVER (PARTITION BY hk ORDER BY load_dts DESC) = 1` + `WHERE stg.hash_diff <> curr.hash_diff OR curr.hk IS NULL`. |
 | **Multi-Active Satellite (`mas_*`)** | Raw Vault (`INSERT`-Only) | `(hk_<parent>, load_dts, cdk_<child>)` | `hash_diff` (or set-level `mas_set_hash_diff`), `rec_src` | Concurrent multi-valued child attributes | Set-level or grain-level delta comparison against current active child set; `INSERT`-only. |
 | **Effectivity Satellite (`esat_*`)** | Raw / Business Vault (`INSERT`-Only) | `(hk_lnk_<rel>, load_dts)` | `driving_hk`, `rec_src`, `start_dts` | Active status / relationship validity derived from driving key | Partitioned strictly by `driving_hk` (`OVER (PARTITION BY driving_hk ORDER BY load_dts ASC)`), never by `hk_lnk`. |
@@ -982,7 +989,7 @@ Every generated Data Vault node must conform to a strict **SQLGlot Abstract Synt
 
 ### 8.2 Tier-Aware `BKCC` Hash Key Standardization
 
-To support **Zero-Refactor Multi-Source Integration ($N=1 \to N+1$)** (detailed in [`02-schema-stability-and-evolution.md`](02-schema-stability-and-evolution.md)), the deterministic compiler (`Algorithm A.2`) applies a **Tier-Aware Business Key Collision Code (`BKCC`) rule** when generating Hub and Link Hash Keys:
+To support **Zero-Refactor Multi-Source Integration ($N=1 \to N+1$)** (detailed in [`02-schema-stability-and-evolution.md`](02-schema-stability-and-evolution.md)), the deterministic compiler (`Algorithm A.4` tiers + `Algorithm A.5` hashing) applies a **Tier-Aware Business Key Collision Code (`BKCC`) rule** when generating Hub and Link Hash Keys:
 
 1. **Tier 1 (`TIER_1_GLOBAL_STANDARD`, e.g., ISO Country Code, LEI, ISBN, UUIDv4) & Tier 2 (`TIER_2_ENTERPRISE_SOR`, e.g., MDM Golden ID, Enterprise Tax/VAT ID)**:
    - Because two different source systems presenting the *same* Tier-1 or Tier-2 business key represent the **exact same real-world business entity**, the hash key prefix is set to `BKCC = 'GLOBAL'` (or canonical domain namespace):

@@ -37,7 +37,7 @@ Before any LLM modelling agent is invoked, `scout-source` deterministically comp
    $$\lambda(c) = \frac{\text{Count}(\text{CDC Updates where } c_t \neq c_{t-1})}{N_{\text{entities}} \times \Delta t_{\text{days}}}, \qquad v(c) = \log_{10}(\lambda(c) + 10^{-6})$$
 
 5. **Key Mutability Rate $\mu_{BK}(c)$ & Foreign Key Swap Rate $\mu_{FK}(c)$:**
-   Measures how frequently a candidate business key or foreign key target changes while the underlying record identifier remains constant. Whenever $\mu_{FK}(c) > 0$, Algorithm A.3 automatically designates the driving Hub key and injects a Link Effectivity Satellite (`sat_eff_*`).
+   Measures how frequently a candidate business key or foreign key target changes while the underlying record identifier remains constant. Whenever $\mu_{FK}(c) > 0$, Algorithm A.3 automatically designates the driving Hub key and injects a Link Effectivity Satellite (`esat_*`).
 
 6. **Gate 4 Daily Storage Write-Amplification Cost Function $W_{\text{amp}}$ (bytes/day):**
    Given payload columns $C$ partitioned by catalog sensitivity map $\sigma$ into $C_{\text{sensitive}} = \{c \in C \mid \sigma(c) \in \{\texttt{PII\_HIGH}, \texttt{PCI}\}\}$ and $C_{\text{general}} = C \setminus C_{\text{sensitive}}$, 3-tier volatility splitting (`_static` for $\lambda \le 10^{-3}$, `_core` for $10^{-3} < \lambda \le 5 \times 10^{-2}$, `_high_freq` for $\lambda > 5 \times 10^{-2}$) executes **if and only if** $|C_{\text{general}}| \ge 10$, $\max_{c} v(c) - \min_{c} v(c) \ge 2.0$, and:
@@ -89,7 +89,7 @@ Your sole responsibility is to transform the provided [BUSINESS_ONTOLOGY_GRAPH],
 
 ## 3. Complete Production Reference Implementations (Algorithms A.1–A.9 & Multimodal PIT SQL)
 
-In a No-Mistake architecture, mechanical, statistical, and evolutionary refactoring is never delegated back to the LLM. Below are the complete, unshortened production Python implementations for Algorithms `A.1` through `A.9` and the canonical Multimodal Point-in-Time (`D.10`) SQL query.
+In a No-Mistake architecture, mechanical, statistical, and evolutionary refactoring is never delegated back to the LLM. Below are the complete, unshortened production Python implementations for Algorithms `A.1` through `A.9` and the canonical Multimodal Point-in-Time (`D.10`) SQL query. The Graph B profiler (Section 1), the Gate 3 `networkx` topology verifier, the Gate 5 4-Batch DuckDB sandbox, and the Ghost Record seeder have no reference implementation here; they are specified in [`03-verification-and-agentic-architecture.md`](03-verification-and-agentic-architecture.md).
 
 ### 3.1 Algorithm A.1: 3-Axis Satellite Partitioning Codemod with Cold-Start Write-Amplification Guard
 
@@ -100,6 +100,11 @@ from copy import deepcopy
 from typing import Any, Dict, List
 
 SENSITIVE_TAGS = {"PII_HIGH", "PCI"}
+CLASSIFICATION_RANK = {"PUBLIC": 0, "INTERNAL": 1, "CONFIDENTIAL": 2, "PII_HIGH": 3, "PCI": 4}
+
+def escalate_classification(declared: str, column_tags: List[str]) -> str:
+    """Returns the most restrictive of the declared and column-level tags; never downgrades."""
+    return max([declared, *column_tags], key=lambda tag: CLASSIFICATION_RANK.get(tag, 1))
 
 def codemod_split_satellites_3axis(
     contract: Dict[str, Any],
@@ -130,25 +135,43 @@ def codemod_split_satellites_3axis(
         base_name = sat["name"]
         payload: List[str] = sat.get("payload_columns", [])
         table_profile = bronze_profile.get(b_table, {})
+        declared_class = sat.get("security_classification", "INTERNAL")
+        declared_tier = sat.get("volatility_tier", "UNCLASSIFIED")
+        col_tags = {
+            col: table_profile.get(col, {}).get("security_classification", "INTERNAL")
+            for col in payload
+        }
+
+        # A Satellite already named *_pii is the sensitive partition itself: keep it whole.
+        if base_name.endswith("_pii"):
+            pii_sat = deepcopy(sat)
+            pii_sat["security_classification"] = escalate_classification(
+                declared_class, list(col_tags.values())
+            )
+            pii_sat["payload_columns"] = sorted(payload)
+            new_satellites.append(pii_sat)
+            for c in payload:
+                ledger_remap[(b_table, c)] = base_name
+            continue
 
         # Step 1: Partition PII / PCI columns from General payload (Always active)
         sensitive_cols: List[str] = []
         general_cols: List[str] = []
 
         for col in sorted(payload):
-            col_meta = table_profile.get(col, {})
-            sec_tag = col_meta.get("security_classification", "INTERNAL")
-            if sec_tag in SENSITIVE_TAGS:
+            if col_tags[col] in SENSITIVE_TAGS:
                 sensitive_cols.append(col)
             else:
                 general_cols.append(col)
 
         if sensitive_cols:
-            pii_sat_name = f"{base_name}_pii" if not base_name.endswith("_pii") else base_name
+            pii_sat_name = f"{base_name}_pii"
             pii_sat = deepcopy(sat)
             pii_sat["name"] = pii_sat_name
-            pii_sat["security_classification"] = "PII_HIGH"
-            pii_sat["volatility_tier"] = "STANDARD"
+            pii_sat["security_classification"] = escalate_classification(
+                declared_class, [col_tags[c] for c in sensitive_cols]
+            )
+            pii_sat["volatility_tier"] = declared_tier
             pii_sat["payload_columns"] = sorted(sensitive_cols)
             new_satellites.append(pii_sat)
             for c in sensitive_cols:
@@ -156,6 +179,8 @@ def codemod_split_satellites_3axis(
 
         if not general_cols:
             continue
+
+        general_class = escalate_classification(declared_class, [col_tags[c] for c in general_cols])
 
         # Step 2: Evaluate log10 CDC volatility spread & Daily Write-Amplification Cost
         log_vols: Dict[str, float] = {}
@@ -187,8 +212,8 @@ def codemod_split_satellites_3axis(
         if not should_split_volatility:
             clean_sat = deepcopy(sat)
             clean_sat["name"] = base_name
-            clean_sat["security_classification"] = "INTERNAL"
-            clean_sat["volatility_tier"] = "STANDARD"
+            clean_sat["security_classification"] = general_class
+            clean_sat["volatility_tier"] = declared_tier
             clean_sat["payload_columns"] = sorted(general_cols)
             new_satellites.append(clean_sat)
             for c in general_cols:
@@ -214,7 +239,7 @@ def codemod_split_satellites_3axis(
             tier_sat_name = f"{base_name}_{suffix_map[tier_key]}"
             tier_sat = deepcopy(sat)
             tier_sat["name"] = tier_sat_name
-            tier_sat["security_classification"] = "INTERNAL"
+            tier_sat["security_classification"] = general_class
             tier_sat["volatility_tier"] = tier_key
             tier_sat["payload_columns"] = sorted(cols)
             new_satellites.append(tier_sat)
@@ -348,7 +373,7 @@ def codemod_demote_enum_hubs_to_ref(
 
 ---
 
-### 3.3 Algorithm A.3: Link Effectivity Satellite (`sat_eff_`) & Driving Key Auto-Injection Codemod
+### 3.3 Algorithm A.3: Link Effectivity Satellite (`esat_`) & Driving Key Auto-Injection Codemod
 
 ```python
 from copy import deepcopy
@@ -360,7 +385,7 @@ def codemod_inject_link_effectivity(
 ) -> Dict[str, Any]:
     """
     Inspects empirical CDC relationship turnover rates for all STANDARD_LINK entities.
-    Automatically sets driving_key_hub and synthesizes an EFFECTIVITY_SATELLITE (sat_eff_*)
+    Automatically sets driving_key_hub and synthesizes an EFFECTIVITY_SATELLITE (esat_*)
     whenever relationship target swapping is detected in Bronze CDC logs.
     """
     mutated = deepcopy(contract)
@@ -394,7 +419,7 @@ def codemod_inject_link_effectivity(
 
             if lnk["name"] not in existing_eff_parents:
                 link_slug = lnk["name"].replace("lnk_", "", 1)
-                eff_sat_name = f"sat_eff_{link_slug}"
+                eff_sat_name = f"esat_{link_slug}"
                 mutated.setdefault("satellites", []).append({
                     "name": eff_sat_name,
                     "satellite_type": "EFFECTIVITY_SATELLITE",
@@ -415,6 +440,7 @@ def codemod_inject_link_effectivity(
 ### 3.4 Algorithm A.4: Cold-Start 3-Tier BK Authority (`BKCC`) & Nullable-FK Link Splitter Codemod
 
 ```python
+import re
 from copy import deepcopy
 from typing import Any, Dict, List
 
@@ -494,7 +520,7 @@ def codemod_enforce_cold_start_extensibility(
             rewired_links.append(core_lnk)
 
             anchor_ref = mandatory_refs[0]
-            base_slug = lnk["name"].replace("lnk_", "", 1).replace("nhl_", "", 1)
+            base_slug = re.sub(r"^(lnk|t_lnk|nh_lnk)_", "", lnk["name"])
 
             for opt_ref in optional_refs:
                 role_slug = opt_ref["role_alias"].lower()
@@ -530,21 +556,26 @@ def codemod_enforce_cold_start_extensibility(
 
 ---
 
-### 3.5 Algorithm A.5: SQLGlot Physical AST Codemod for Canonical `HK_*` (with `BKCC`) & Alphabetical `HASHDIFF` Rewriting
+### 3.5 Algorithm A.5: SQLGlot Physical AST Codemod for Canonical `hk_*` (with `BKCC`) & Alphabetical `hash_diff` Rewriting
 
 ```python
+from functools import reduce
 from typing import Dict, List, Optional, Tuple
 import sqlglot
 from sqlglot import exp
+
+NULL_TOKEN = "-1:^^"
+ZERO_KEY = "0" * 64
+DELIMITER = "||"
 
 def build_canonical_column_standardization_ast(
     col_name: str,
     is_business_key: bool = True,
 ) -> exp.Expression:
     """
-    Constructs the exact SQLGlot AST for Data Vault 2.0 column standardization:
-    - Business Keys: COALESCE(NULLIF(UPPER(TRIM(CAST(col AS VARCHAR))), ''), '-1')
-    - Satellite Payload: COALESCE(NULLIF(TRIM(CAST(col AS VARCHAR)), ''), '^^')
+    Constructs the normalized (NULL-preserving) value of a column:
+    - Business Keys: NULLIF(UPPER(TRIM(CAST(col AS VARCHAR))), '')
+    - Satellite Payload: NULLIF(TRIM(CAST(col AS VARCHAR)), '')
     """
     cast_expr = exp.Cast(
         this=exp.column(col_name),
@@ -552,9 +583,26 @@ def build_canonical_column_standardization_ast(
     )
     trim_expr = exp.Trim(this=cast_expr)
     core_str = exp.Upper(this=trim_expr) if is_business_key else trim_expr
-    nullif_expr = exp.Nullif(this=core_str, expression=exp.Literal.string(""))
-    fallback = "-1" if is_business_key else "^^"
-    return exp.Coalesce(this=nullif_expr, expressions=[exp.Literal.string(fallback)])
+    return exp.Nullif(this=core_str, expression=exp.Literal.string(""))
+
+def build_length_prefixed_ast(norm: exp.Expression) -> exp.Expression:
+    """
+    Length-Prefixed Canonical Encoding (KEY-02 / KEY-03):
+    CASE WHEN norm IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(norm) AS VARCHAR) || ':' || norm END
+    OCTET_LENGTH is the UTF-8 byte length (Snowflake / ANSI); DuckDB spells it STRLEN(varchar).
+    """
+    byte_len = exp.Cast(
+        this=exp.Anonymous(this="OCTET_LENGTH", expressions=[norm.copy()]),
+        to=exp.DataType.build("VARCHAR"),
+    )
+    encoded = exp.DPipe(
+        this=exp.DPipe(this=byte_len, expression=exp.Literal.string(":")),
+        expression=norm.copy(),
+    )
+    return exp.Case(
+        ifs=[exp.If(this=exp.Is(this=norm.copy(), expression=exp.Null()), true=exp.Literal.string(NULL_TOKEN))],
+        default=encoded,
+    )
 
 def build_canonical_sha256_hash_ast(
     columns: List[str],
@@ -564,28 +612,45 @@ def build_canonical_sha256_hash_ast(
     bkcc_prefix: Optional[str] = None,
 ) -> exp.Alias:
     """
-    Builds the canonical SHA256(CONCAT_WS('||', ...)) SQLGlot AST node.
-    - If bkcc_prefix is set (Tier-3 local key), prepends the BKCC literal into CONCAT_WS.
-    - For Business Keys (is_business_key=True), preserves semantic composite key order.
-    - For Satellite HASHDIFF (sort_alphabetically=True), enforces strict lexicographical order.
+    Builds UPPER(SHA2(enc(c_1) || '||' || ... || enc(c_n), 256)) with enc() = length-prefixed encoding.
+    - If bkcc_prefix is set (Tier-3 local key), prepends the encoded BKCC literal.
+    - For Business Keys (is_business_key=True), preserves semantic composite key order and
+      resolves to the Zero Key REPEAT('0', 64) when every BK column (excluding bkcc) is NULL.
+    - For Satellite hash_diff (sort_alphabetically=True), enforces strict lexicographical order.
     """
     ordered_cols = sorted(columns) if sort_alphabetically else list(columns)
-    standardized_args: List[exp.Expression] = []
+    normalized = [
+        build_canonical_column_standardization_ast(c, is_business_key=is_business_key)
+        for c in ordered_cols
+    ]
+    encoded_args: List[exp.Expression] = []
 
     if is_business_key and bkcc_prefix:
-        standardized_args.append(exp.Literal.string(bkcc_prefix.strip().upper()))
+        bkcc = bkcc_prefix.strip().upper()
+        encoded_args.append(exp.Literal.string(f"{len(bkcc.encode('utf-8'))}:{bkcc}"))
 
-    for c in ordered_cols:
-        standardized_args.append(
-            build_canonical_column_standardization_ast(c, is_business_key=is_business_key)
-        )
+    encoded_args.extend(build_length_prefixed_ast(n) for n in normalized)
 
-    concat_ws = exp.Anonymous(
-        this="CONCAT_WS",
-        expressions=[exp.Literal.string("||"), *standardized_args],
+    concatenated = reduce(
+        lambda acc, arg: exp.DPipe(
+            this=exp.DPipe(this=acc, expression=exp.Literal.string(DELIMITER)),
+            expression=arg,
+        ),
+        encoded_args[1:],
+        encoded_args[0],
     )
-    sha256_call = exp.Anonymous(this="SHA256", expressions=[concat_ws])
-    return exp.alias_(sha256_call, alias_name)
+    digest = exp.Upper(this=exp.SHA2(this=concatenated, length=exp.Literal.number(256)))
+
+    if is_business_key:
+        all_null = reduce(
+            lambda acc, cond: exp.And(this=acc, expression=cond),
+            [exp.Is(this=n.copy(), expression=exp.Null()) for n in normalized],
+        )
+        digest = exp.Case(
+            ifs=[exp.If(this=all_null, true=exp.Literal.string(ZERO_KEY))],
+            default=digest,
+        )
+    return exp.alias_(digest, alias_name)
 
 def codemod_enforce_staging_hashes_sql(
     raw_sql: str,
@@ -594,8 +659,8 @@ def codemod_enforce_staging_hashes_sql(
     dialect: str = "snowflake",
 ) -> str:
     """
-    Parses a Staging SQL model via SQLGlot, removes any existing non-compliant HK_*
-    or HASHDIFF_* projections, and injects canonical AST expressions.
+    Parses a Staging SQL model via SQLGlot, removes any existing non-compliant hk_*
+    or hash_diff projections, and injects canonical AST expressions.
     hub_keys maps: hk_alias -> (list_of_key_columns, optional_bkcc_prefix)
     """
     parsed = sqlglot.parse_one(raw_sql, read=dialect)
@@ -645,16 +710,24 @@ from typing import List
 import sqlglot
 from sqlglot import exp
 
+HUB_PREFIXES = ("hub_", "bhub_")
+LINK_PREFIXES = ("lnk_", "t_lnk_", "nh_lnk_", "sal_", "hal_", "x_lnk_")
+SAT_PREFIXES = ("sat_", "bsat_", "mas_", "ma_sat_", "esat_", "sts_", "rts_")
+HASH_DIFF_SAT_PREFIXES = ("sat_", "bsat_", "mas_", "ma_sat_")
+RAW_VAULT_PREFIXES = ("hub_", "lnk_", "t_lnk_", "nh_lnk_", "sal_", "hal_", "sat_", "mas_", "ma_sat_", "esat_", "sts_", "rts_")
+LINK_KEY_PREFIXES = tuple(f"hk_{p}" for p in LINK_PREFIXES)
+
 def verify_physical_dv2_sql_ast(
     model_name: str,
     sql_text: str,
     dialect: str = "snowflake",
 ) -> List[str]:
     """
-    Parses compiled Data Vault 2.0 SQL via SQLGlot and enforces physical AST invariants:
+    Parses compiled Data Vault 2.0 SQL via SQLGlot and enforces physical AST invariants
+    against the canonical IR column names (hk_*, hk_lnk_*, load_dts, rec_src, hash_diff):
     1. Insert-Only guarantee (no UPDATE, DELETE, TRUNCATE, DROP).
-    2. Entity column signature contracts for hub_*, lnk_*, sat_*, and stg_*.
-    3. Raw Vault purity (no GROUP BY, HAVING, or multi-source joins inside Raw Satellites).
+    2. Entity column signature contracts for Hubs, Links, and Satellites.
+    3. Raw Vault purity (no GROUP BY or HAVING inside Raw Vault models).
     """
     violations: List[str] = []
     parsed = sqlglot.parse_one(sql_text, read=dialect)
@@ -671,40 +744,42 @@ def verify_physical_dv2_sql_ast(
         violations.append(f"AST_ERROR [{model_name}]: Missing valid SELECT projection.")
         return violations
 
-    projected_cols = {proj.alias_or_name.upper() for proj in select_node.expressions}
+    projected_cols = {proj.alias_or_name.lower() for proj in select_node.expressions}
+    hash_diff_cols = [c for c in projected_cols if c.startswith("hash_diff")]
 
-    # 2. Mandatory Audit Columns Check
-    for audit_col in ("LOAD_DTS", "REC_SOURCE"):
+    # 2. Mandatory Audit Columns Check (PIT / Bridge carry no rec_src)
+    audit_cols = ("load_dts",) if model_name.startswith(("pit_", "brg_")) else ("load_dts", "rec_src")
+    for audit_col in audit_cols:
         if audit_col not in projected_cols:
             violations.append(f"AST_ERROR [{model_name}]: Missing mandatory audit column '{audit_col}'.")
 
     # 3. Archetype-Specific Structural Checks
-    if model_name.startswith("hub_"):
-        hk_cols = [c for c in projected_cols if c.startswith("HK_")]
+    if model_name.startswith(HUB_PREFIXES):
+        hk_cols = sorted(c for c in projected_cols if c.startswith("hk_"))
         if len(hk_cols) != 1:
-            violations.append(f"AST_ERROR [{model_name}]: Hub must project exactly 1 HK_* column; found {hk_cols}.")
-        if "HASHDIFF" in projected_cols or any(c.startswith("HASHDIFF") for c in projected_cols):
-            violations.append(f"AST_ERROR [{model_name}]: Hubs cannot contain HASHDIFF columns.")
+            violations.append(f"AST_ERROR [{model_name}]: Hub must project exactly 1 hk_* column; found {hk_cols}.")
+        if hash_diff_cols:
+            violations.append(f"AST_ERROR [{model_name}]: Hubs cannot contain hash_diff columns.")
 
-    elif model_name.startswith(("lnk_", "nhl_", "sal_", "hal_")):
-        lk_cols = [c for c in projected_cols if c.startswith(("LK_", "HK_LINK_"))]
-        hk_refs = [c for c in projected_cols if c.startswith("HK_") and not c.startswith("HK_LINK_")]
+    elif model_name.startswith(LINK_PREFIXES):
+        lk_cols = sorted(c for c in projected_cols if c.startswith(LINK_KEY_PREFIXES))
+        hk_refs = sorted(c for c in projected_cols if c.startswith("hk_") and c not in lk_cols)
         if len(lk_cols) != 1:
-            violations.append(f"AST_ERROR [{model_name}]: Link must project 1 Link Hash Key; found {lk_cols}.")
+            violations.append(f"AST_ERROR [{model_name}]: Link must project 1 Link Hash Key (hk_lnk_*); found {lk_cols}.")
         if len(hk_refs) < 2:
             violations.append(f"AST_ERROR [{model_name}]: Link must reference >= 2 Hub Hash Keys; found {hk_refs}.")
 
-    elif model_name.startswith("sat_"):
-        parent_keys = [c for c in projected_cols if c.startswith(("HK_", "LK_"))]
+    elif model_name.startswith(SAT_PREFIXES) and not model_name.startswith("sat_ref_"):
+        parent_keys = sorted(c for c in projected_cols if c.startswith("hk_"))
         if len(parent_keys) != 1:
             violations.append(
-                f"AST_ERROR [{model_name}]: Satellite must reference exactly 1 parent HK_*/LK_*; found {parent_keys}."
+                f"AST_ERROR [{model_name}]: Satellite must reference exactly 1 parent hk_*; found {parent_keys}."
             )
-        if not model_name.startswith("sat_eff_") and not any(c.startswith("HASHDIFF") for c in projected_cols):
-            violations.append(f"AST_ERROR [{model_name}]: Standard Satellite must project a HASHDIFF column.")
+        if model_name.startswith(HASH_DIFF_SAT_PREFIXES) and not hash_diff_cols:
+            violations.append(f"AST_ERROR [{model_name}]: Standard Satellite must project a hash_diff column.")
 
     # 4. Raw Vault Purity Check (No Aggregations in Raw Vault)
-    if model_name.startswith(("hub_", "lnk_", "sat_")):
+    if model_name.startswith(RAW_VAULT_PREFIXES):
         if parsed.find(exp.Group) or parsed.find(exp.Having):
             violations.append(
                 f"AST_ERROR [{model_name}]: Aggregations (GROUP BY / HAVING) are forbidden in Raw Vault models."
@@ -1024,7 +1099,7 @@ JOIN raw_vault.sat_customer_erp s_erp
 JOIN biz_vault.lnk_document_entity_mention l_mention
   ON h_cust.HK_CUSTOMER = l_mention.HK_CUSTOMER
 JOIN biz_vault.sat_lnk_doc_entity_ai_provenance s_prov
-  ON l_mention.LK_DOC_ENTITY = s_prov.LK_DOC_ENTITY
+  ON l_mention.HK_LNK_DOC_ENTITY = s_prov.HK_LNK_DOC_ENTITY
  AND s_prov.CONFIDENCE_SCORE >= 0.85
  AND s_prov.LOAD_DTS <= p_cust.AS_OF_DTS
 JOIN raw_vault.sat_document_manifest s_man

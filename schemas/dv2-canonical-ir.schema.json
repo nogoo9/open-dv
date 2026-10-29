@@ -458,7 +458,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "pattern": "^(sat|bsat|mas|ma_sat|esat|eff_sat|sts|rts)_[a-z0-9_]+$"
+            "pattern": "^(sat|bsat|mas|ma_sat|esat|sts|rts)_[a-z0-9_]+$"
           },
           "satellite_type": {
             "type": "string",

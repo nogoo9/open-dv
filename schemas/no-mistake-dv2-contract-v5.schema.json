@@ -150,7 +150,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "pattern": "^(lnk|nhl|sal|hal)_[a-z0-9_]+$"
+            "pattern": "^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$"
           },
           "link_type": {
             "type": "string",
@@ -229,7 +229,7 @@
         "properties": {
           "name": {
             "type": "string",
-            "pattern": "^(sat|sat_eff|mas)_[a-z0-9_]+$"
+            "pattern": "^(sat|bsat|mas|ma_sat|esat|sts|rts)_[a-z0-9_]+$"
           },
           "satellite_type": {
             "type": "string",
@@ -243,7 +243,7 @@
           },
           "parent_entity": {
             "type": "string",
-            "pattern": "^(hub|lnk|sal|hal)_[a-z0-9_]+$"
+            "pattern": "^(hub|lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$"
           },
           "source_bronze_table": {
             "type": "string"

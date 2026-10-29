@@ -63,7 +63,7 @@ Lakehouse Object Storage (S3 / Iceberg Object Table: s3://vault-bronze/docs/loan
                        ▼               ▼
         ┌─────────────────────────────────────────────────┐       ┌──────────────────────────────────────────┐
         │ BUSINESS VAULT: lnk_document_entity_mention     │──────►│ BV: sat_lnk_doc_entity_ai_provenance     │
-        │ LK_DOC_ENTITY = SHA256(HK_DOCUMENT ||           │       │ • EXTRACTOR_MODEL_ID, CONFIDENCE_SCORE   │
+        │ HK_LNK_DOC_ENTITY = SHA256(HK_DOCUMENT ||       │       │ • EXTRACTOR_MODEL_ID, CONFIDENCE_SCORE   │
         │   HK_DOC_CHUNK || HK_CUSTOMER || ROLE_CODE)     │       │ • EXTRACTION_TIER, EVIDENCE_QUOTE_SPAN   │
         └─────────────────────┬───────────────────────────┘       └──────────────────────────────────────────┘
                               │
@@ -78,12 +78,12 @@ Lakehouse Object Storage (S3 / Iceberg Object Table: s3://vault-bronze/docs/loan
 
 | Table Name | Vault Layer | Primary / Hash Key Formula | Mandatory Columns & Verification Invariants (Gate 5) |
 | :--- | :--- | :--- | :--- |
-| **`hub_document`** | Raw Vault | `HK_DOCUMENT = SHA256(BKCC \|\| doc_uri_or_hash)` | `HK_DOCUMENT`, `DOC_NATURAL_KEY`, `LOAD_DTS`, `REC_SOURCE`. Binds to `urn:ontology:entity:document`. |
+| **`hub_document`** | Raw Vault | `HK_DOCUMENT = SHA256(BKCC \|\| doc_uri_or_hash)` | `HK_DOCUMENT`, `DOC_NATURAL_KEY`, `LOAD_DTS`, `REC_SRC`. Binds to `urn:ontology:entity:document`. |
 | **`sat_document_manifest`** | Raw Vault | `(HK_DOCUMENT, LOAD_DTS)` | `HASHDIFF`, `OBJECT_STORAGE_URI`, `CONTENT_SHA256`, `MIME_TYPE`, `BYTE_SIZE`, `PAGE_COUNT`. |
 | **`sat_document_raw_pii`** & **`sat_document_parsed_text`** | Raw Vault | `(HK_DOCUMENT, LOAD_DTS)` | Enforces Gate 4 Axis-2 split: unredacted text with NRIC/SSN/names goes to `_pii`; PII-masked layout text goes to `_parsed_text`. |
 | **`hub_document_chunk`** & **`lnk_document_chunk`** | Business Vault | `HK_DOC_CHUNK = SHA256(HK_DOCUMENT \|\| chunk_strategy \|\| seq_no)` | Deterministic semantic chunk identity storing `PAGE_NO`, `CHAR_START`, `CHAR_END`, and `SECTION_HEADER` in `sat_doc_chunk_meta`. |
-| **`lnk_document_entity_mention`** | Business Vault | `LK_DOC_ENTITY = SHA256(HK_DOCUMENT \|\| HK_DOC_CHUNK \|\| HK_<TARGET> \|\| role)` | Links unstructured chunks to any structured Hub (`hub_customer`, `hub_contract`, `hub_claim`, `hub_asset`). |
-| **`sat_lnk_doc_entity_ai_provenance`** | Business Vault | `(LK_DOC_ENTITY, LOAD_DTS)` | Mandatory on all AI-extracted links (Gate 5.2): records `EXTRACTOR_MODEL_ID`, `EXTRACTION_TIER`, `CONFIDENCE_SCORE`, `EVIDENCE_QUOTE`, `CHAR_SPAN`. |
+| **`lnk_document_entity_mention`** | Business Vault | `HK_LNK_DOC_ENTITY = SHA256(HK_DOCUMENT \|\| HK_DOC_CHUNK \|\| HK_<TARGET> \|\| role)` | Links unstructured chunks to any structured Hub (`hub_customer`, `hub_contract`, `hub_claim`, `hub_asset`). |
+| **`sat_lnk_doc_entity_ai_provenance`** | Business Vault | `(HK_LNK_DOC_ENTITY, LOAD_DTS)` | Mandatory on all AI-extracted links (Gate 5.2): records `EXTRACTOR_MODEL_ID`, `EXTRACTION_TIER`, `CONFIDENCE_SCORE`, `EVIDENCE_QUOTE`, `CHAR_SPAN`. |
 | **`sat_contract_doc_extracted_bv`** | Business Vault | `(HK_CONTRACT, LOAD_DTS)` | Structured clauses/metrics extracted from PDFs (e.g., `governing_law`, `penalty_rate_pct`, `covenant_max_leverage_ratio`); requires `SOURCE_HK_DOCUMENT` and exact substring proof (Gate 5.4). |
 | **`sat_doc_chunk_vec_<model>`** | Business Vault | `(HK_DOC_CHUNK, LOAD_DTS)` | Stores `VECTOR_ARRAY`, `MODEL_ID`, and `CHUNK_TEXT_SHA256`. Excluded from standard relational `HASHDIFF` scans. |
 
@@ -201,7 +201,7 @@ JOIN raw_vault.sat_customer_erp s_erp
 JOIN biz_vault.lnk_document_entity_mention l_mention
   ON h_cust.HK_CUSTOMER = l_mention.HK_CUSTOMER
 JOIN biz_vault.sat_lnk_doc_entity_ai_provenance s_prov
-  ON l_mention.LK_DOC_ENTITY = s_prov.LK_DOC_ENTITY
+  ON l_mention.HK_LNK_DOC_ENTITY = s_prov.HK_LNK_DOC_ENTITY
  AND s_prov.CONFIDENCE_SCORE >= 0.85
  AND s_prov.LOAD_DTS <= p_cust.AS_OF_DTS
 JOIN raw_vault.sat_document_manifest s_man

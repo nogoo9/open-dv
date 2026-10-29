@@ -441,7 +441,7 @@ flowchart LR
     S2 --> S3["3. Whitespace Trimming\n- TRIM(val)\n- Convert empty '' to NULL"]
     S3 --> S4["4. Case Normalization\n- _hk (Business Keys): UPPER()\n- hash_diff (Payloads): PRESERVE CASE"]
     S4 --> S5["5. Anti-Collision Encoding\n- Mode A: Escape '\\', '||', '^^'\n- Mode B: Length-Prefix <len>:<val>"]
-    S5 --> S6["6. Null Token Substitution &\nDelimiter Concatenation\n- COALESCE(val, '^^' / '-1:^^')\n- Join with '||' & SHA-256"]
+    S5 --> S6["6. Null Token Substitution &\nDelimiter Concatenation\n- NULL -> '-1:^^' (or '^^' escaped)\n- All-NULL BK -> Zero Key\n- Join with '||' & SHA-256"]
 ```
 
 1. **Stage 1 — Deterministic Column Ordering:**
@@ -456,7 +456,7 @@ flowchart LR
 5. **Stage 5 — Anti-Collision Encoding (Delimiter-Escaped or Length-Prefixed):**
    - **Delimiter-Escaped (`DELIMITER_ESCAPED`):** `REPLACE(REPLACE(REPLACE(s, '\', '\\'), '||', '\||'), '^^', '\^^')`.
    - **Length-Prefixed (`LENGTH_PREFIXED`):** `CAST(OCTET_LENGTH(s) AS VARCHAR) || ':' || s` for non-null values and `'-1:^^'` for `NULL`.
-6. **Stage 6 — Explicit Null Token Substitution & Digest:** Wrap every column in `COALESCE(..., '^^')` (or `'-1'` for BK / `'-1:^^'` for length-prefixed) before concatenating with `'||'` and hashing with `SHA-256`.
+6. **Stage 6 — Explicit Null Token Substitution & Digest:** Substitute every `NULL` position with the encoding's null token (`'-1:^^'` for the default length-prefixed mode emitted by `Algorithm A.5`, `'^^'` for delimiter-escaped mode) before concatenating with `'||'` and hashing with `SHA-256` (uppercase hex for `CHAR(64)`). For Hub/Link keys, if every business key column (excluding `bkcc`) is `NULL`, emit the Zero Key `REPEAT('0', 64)` instead of hashing (`KEY-02b`).
 
 ### 4.3 Mathematical Proof of Naive Concatenation Collisions & Injective Encoding
 
@@ -1043,7 +1043,7 @@ Naive LLM SQL generation fails in production Data Vault 2.0 deployments due to f
 5. **Trap 5 — Destructive `UPDATE` Operations on Satellites**: Physically mutating `load_end_dts` on existing rows instead of relying on insert-only `HASHDIFF` delta loads and virtualized `LEAD(load_dts)` window views.
 
 **Core Design Rule (`no-mistakes` Pattern):** *The LLM is a Semantic Mapper, Never a SQL Boilerplate Generator.*
-- The agent receives **Graph A** (Top-Down Enterprise Business Ontology of Core Business Concepts / CBCs) and **Graph B** (Bottom-Up Bronze Empirical Profile computed via **Algorithm A.1**: uniqueness $U(C)$, Shannon entropy $H(C)$, null rate $N_{\text{null}}(C)$, Jaccard inclusion $I(A.x \subseteq B.y)$, and change rate $\lambda(c)$).
+- The agent receives **Graph A** (Top-Down Enterprise Business Ontology of Core Business Concepts / CBCs) and **Graph B** (Bottom-Up Bronze Empirical Profile, formally defined in [`05` §1](05-elm-calculus-and-reference-algorithms.md): uniqueness $U(C)$, Shannon entropy $H(C)$, null rate $N_{\text{null}}(C)$, Jaccard inclusion $I(A.x \subseteq B.y)$, and change rate $\lambda(c)$).
 - The agent emits **only** a constrained YAML/JSON contract ([`examples/dv_model_contract.yaml`](../examples/dv_model_contract.yaml)) validated against [`schemas/no-mistake-dv2-contract-v5.schema.json`](../schemas/no-mistake-dv2-contract-v5.schema.json).
 
 ---
@@ -1072,7 +1072,7 @@ When onboarding the very first source system ($N=1$), `open-dv` separates **Irre
 1. **Nullable-FK Link Splitter Rule**:
    - In an $N$-ary operational table, only foreign keys with non-null ratio $U_{nn}(C) = 1 - N_{\text{null}}(C) \ge 0.95$ remain in the mandatory kernel Link (`lnk_order_customer_product`).
    - Any optional foreign key with $N_{\text{null}}(C) > 0.05$ (`promo_code_id`, `sales_rep_id`) is split into a dedicated binary Link (`lnk_order_promotion`, `lnk_order_sales_rep`) so late binding of an optional participant never alters the primary Link hash key `hk_lnk`.
-2. **Gate 4 YAGNI Write-Amplification Cost Guard (`Algorithm A.7`)**:
+2. **Gate 4 YAGNI Write-Amplification Cost Guard (`Algorithm A.1`)**:
    - Splitting a single-source Satellite by rate-of-change (e.g., `sat_fast` vs. `sat_slow`) is permitted **if and only if all three empirical conditions hold** (exempting `PII`/GDPR splits, which are always isolated):
      $$\text{Cols} \ge 10, \qquad \Delta \log_{10}(\lambda) = \log_{10}\left(\frac{\lambda_{\text{fast}}}{\lambda_{\text{slow}}}\right) \ge 2.0, \qquad W_{\text{amp}} = N_{\text{entities}} \cdot \lambda_{\text{fast}} \cdot \sum_{c \in C_{\text{slow}}} \text{AvgBytes}(c) \ge 50\text{ MB/day}$$
    - If $W_{\text{amp}} < 50\text{ MB/day}$, Gate 4 triggers `auto-fix: merge_satellites` to prevent micro-satellite sprawl.
@@ -1098,13 +1098,13 @@ All six lifecycle evolution events execute **100% additively** with **zero exist
 
 ## 9. The `dv-firstmate` Multi-Agent Swarm & 6-Gate `axi-dv` / TOON Verification Pipeline
 
-> **Deep-Dive References:** [03 — Sections 6–9](03-verification-and-agentic-architecture.md#6-specification-version-evolution-matrix-v10-through-v60) | [05 — Algorithms A.1–A.7](05-elm-calculus-and-reference-algorithms.md)
+> **Deep-Dive References:** [03 — Sections 6–9](03-verification-and-agentic-architecture.md#6-specification-version-evolution-matrix-v10-through-v60) | [05 — Algorithms A.1–A.9](05-elm-calculus-and-reference-algorithms.md)
 
 ### 9.1 `dv-firstmate` Fleet Architecture & 4 Specialized Personas
 
 `dv-firstmate` coordinates autonomous Data Vault engineering across four specialized agent roles with strict privilege separation:
 1. **`Vault First Mate` (Read-Only Supervisor & Ontology Steward)**: Owns `state/vault-ledger.jsonl` and `contracts/graph_a_ontology.yaml`. Never edits SQL or YAML models directly (Hard Rule 1). Dispatches scouts and worktree workers, wakes on zero-token bash watchers (`bin/fm-watch.sh`, `bin/fm-schema-watch.sh`), and arbitrates `ask-user` decisions.
-2. **`scout-source` (Deterministic Bronze Profiler & Drift Detective)**: Runs **Algorithm A.1** (`compute_bronze_profile`) and **Algorithm A.9a** (`classify_intra_source_drift`) to produce empirical Graph B JSON profiles at zero LLM hallucination risk.
+2. **`scout-source` (Deterministic Bronze Profiler & Drift Detective)**: Computes the Graph B metrics (`05` §1) and runs **Algorithm A.9a** (`codemod_intra_source_schema_drift`) to produce empirical Graph B JSON profiles at zero LLM hallucination risk.
 3. **`scout-unstructured` (Multimodal Document & Span-Grounded NER Scout)**: Parses PDFs/transcripts/notes, enforces Rules `U1`–`U4`, runs 3-Tier Entity Resolution (`Tier-U1..U3`), and outputs declarative extraction contracts for **Algorithm A.9b**.
 4. **`ship-vault` (Isolated Treehouse Worktree Modeler)**: Runs in a disposable git worktree (`treehouse`), executes the **3-Pass CoT State Machine** to author `dv_model_contract.yaml`, invokes the 6-Gate `axi-dv` verifier (`--output-format toon`), repairs `reject-with-trace` errors within $\le 3$ retries, and executes `ci.revalidate_repairs` on guarded rebase before PR creation.
 
@@ -1112,12 +1112,12 @@ All six lifecycle evolution events execute **100% additively** with **zero exist
 
 | Gate | Name | Engine | Core Checks | Triage Actions (`auto-fix` / `reject-with-trace` / `ask-user`) |
 | :--- | :--- | :--- | :--- | :--- |
-| **Gate 0** | **Pre-Flight Profile & Drift** | `Alg A.1` + `Alg A.9a` | Graph B completeness & $S_k(t) \to S_k(t+1)$ drift classification | `auto-fix`: Staging `NULL` projection for dropped cols; `ask-user`: semantic type change |
-| **Gate 1** | **Contract Schema, Grain & Authority** | `JSON Schema` (`v5.0`) | 3-Tier BK Authority, $U(BK) \ge 0.999$, Nullable-FK Link Splitter ($U_{nn} \ge 0.95$), 100% Rejection Ledger coverage | `auto-fix`: sort `HASHDIFF` cols, inject `BKCC` on Tier-3; `reject`: missing rejection ledger or low $U(BK)$; `ask-user`: unmapped Tier-3 CBC |
-| **Gate 2** | **Deterministic Compile & SQLGlot AST** | `Alg A.2` + `Alg A.3` (`sqlglot`) | Zero `UPDATE`/`DELETE`/`TRUNCATE` in Raw Vault, zero `JOIN`/`WHERE`/`GROUP BY` in Staging, length-prefixed `SHA256`, Ghost Record `UNION ALL` | `auto-fix`: render canonical hash & Ghost Record seeds; `reject`: any `DV-AST-001..006` violation |
-| **Gate 3** | **NetworkX Bipartite DAG & Evolution** | `Alg A.4` (`networkx`) | $\text{outdeg}(h)=0$, $\text{outdeg}_{V_H}(l) \ge 2$, $\text{outdeg}(s)=1$, acyclic DAG, zero breaking diff vs. `vault-ledger.jsonl` | `auto-fix`: add stub-hub DAG edges; `reject`: Hub-to-Hub FK, Sat-to-Sat chaining, grain mutation |
-| **Gate 4** | **YAGNI Write-Amp Cost Guard** | `Alg A.7` | $\text{cols} \ge 10$, $\Delta\log_{10}(\lambda) \ge 2.0$, $W_{\text{amp}} \ge 50\text{ MB/day}$ (except `PII`) | **`auto-fix: merge_satellites`** when $W_{\text{amp}} < 50\text{ MB/day}$ |
-| **Gate 5** | **4-Batch Adversarial Shadow Sandbox** | `Alg A.5` (`DuckDB`) | Executes Batches 1–4 against compiled DDL/DML in an ephemeral sandbox | `reject`: any row loss, `T2_delta > 0`, missed T3 delta, or T4 cross-source collision |
+| **Gate 0** | **Pre-Flight Profile & Drift** | Graph B profiler (spec only) + `Alg A.9a` | Graph B completeness & $S_k(t) \to S_k(t+1)$ drift classification | `auto-fix`: Staging `NULL` projection for dropped cols; `ask-user`: semantic type change |
+| **Gate 1** | **Contract Schema, Grain & Authority** | `JSON Schema` (`v5.0`) | 3-Tier BK Authority, $U(BK) \ge 0.999$, Nullable-FK Link Splitter ($U_{nn} \ge 0.95$), 100% `column_triage_ledger` coverage | `auto-fix`: sort `hash_diff` cols, inject `BKCC` on Tier-3; `reject`: missing `column_triage_ledger` entry or low $U(BK)$; `ask-user`: unmapped Tier-3 CBC |
+| **Gate 2** | **Deterministic Compile & SQLGlot AST** | `Alg A.5` + `Alg A.6` (`sqlglot`) | Zero `UPDATE`/`DELETE`/`TRUNCATE` in Raw Vault, zero `JOIN`/`WHERE`/`GROUP BY` in Staging, length-prefixed `SHA256`, Ghost Record `UNION ALL` | `auto-fix`: render canonical hash & Ghost Record seeds; `reject`: any `DV-AST-001..006` violation |
+| **Gate 3** | **NetworkX Bipartite DAG & Evolution** | `networkx` (spec only) + `Alg A.7` | $\text{outdeg}(h)=0$, $\text{outdeg}_{V_H}(l) \ge 2$, $\text{outdeg}(s)=1$, acyclic DAG, zero breaking diff vs. `vault-ledger.jsonl` | `auto-fix`: add stub-hub DAG edges; `reject`: Hub-to-Hub FK, Sat-to-Sat chaining, grain mutation |
+| **Gate 4** | **YAGNI Write-Amp Cost Guard** | `Alg A.1` | $\text{cols} \ge 10$, $\Delta\log_{10}(\lambda) \ge 2.0$, $W_{\text{amp}} \ge 50\text{ MB/day}$ (except `PII`) | **`auto-fix: merge_satellites`** when $W_{\text{amp}} < 50\text{ MB/day}$ |
+| **Gate 5** | **4-Batch Adversarial Shadow Sandbox** | `DuckDB` (spec only) + `Alg A.9b` | Executes Batches 1–4 against compiled DDL/DML in an ephemeral sandbox | `reject`: any row loss, `T2_delta > 0`, missed T3 delta, or T4 cross-source collision |
 
 ### 9.3 The 4 Adversarial Shadow Sandbox Batches
 
@@ -1159,7 +1159,7 @@ All six lifecycle evolution events execute **100% additively** with **zero exist
    - **Normalized Shannon Entropy**: $H_{\text{norm}}(C) = -\sum p(v)\log_2 p(v) / \log_2 N_{\text{non-null}} \ge 0.45$ (blocks low-cardinality flags/statuses from becoming Hubs).
    - **Cross-Table Jaccard / Subset Inclusion**: $I(A.x \subseteq B.y) = |\text{Set}(A.x) \cap \text{Set}(B.y)| / |\text{Set}(A.x)| \ge 0.90$ for foreign-key Link discovery.
 2. **The 3-Pass Chain-of-Thought (CoT) State Machine**:
-   - **Pass 1 (`Entity & Authority Classification`)**: Map every source column to a Hub BK (`TIER_1`..`TIER_3`), Link FK, Satellite attribute, Dependent Child Key (`cdk_*`), or explicit **Rejection Ledger** entry (`rejected_columns` with formal reason code).
+   - **Pass 1 (`Entity & Authority Classification`)**: Map every source column to a Hub BK (`TIER_1`..`TIER_3`), Link FK, Satellite attribute, Dependent Child Key (`cdk_*`), or an explicit `column_triage_ledger` entry (e.g., `SYSTEM_SURROGATE_DROPPED`, `TECHNICAL_METADATA`, `ESCALATED_AMBIGUOUS`).
    - **Pass 2 (`Cardinality & Nullable-FK Link Decomposition`)**: Model all business relationships as $M:N$ Links (`lnk_*` or `t_lnk_*`), applying the Nullable-FK Link Splitter ($U_{nn} \ge 0.95$ vs. binary optional Links) and identifying Effectivity Satellite `driving_key` subsets.
    - **Pass 3 (`Context Clustering & YAGNI Write-Amplification Guard`)**: Group descriptive attributes by source system, isolate `PII` columns, and apply the Gate 4 Cost Guard ($W_{\text{amp}} \ge 50\text{ MB/day}$) before emitting the final `dv_model_contract.yaml`.
 
@@ -1171,15 +1171,17 @@ All production reference implementations are provided in full, unshortened Pytho
 
 | Algorithm ID | Function / Module Name | Purpose & Verification Gate | Location |
 | :--- | :--- | :--- | :--- |
-| **`Algorithm A.1`** | `compute_bronze_profile()` | Computes Graph B metrics ($U(C), H(C), N_{\text{null}}(C), I(A.x \subseteq B.y), \lambda(c)$) from Bronze/Staging tables in DuckDB/Polars. | [`05-elm-calculus-and-reference-algorithms.md` §3.1](05-elm-calculus-and-reference-algorithms.md) |
-| **`Algorithm A.2`** | `compile_canonical_hash_sql()` | Renders collision-proof length-prefixed `SHA256` SQL expressions for Hub/Link `_hk` (Tier-1/2 `GLOBAL` vs Tier-3 `BKCC`) and alphabetically sorted Satellite `hash_diff`. | [`05-elm-calculus-and-reference-algorithms.md` §3.2](05-elm-calculus-and-reference-algorithms.md) |
-| **`Algorithm A.3`** | `verify_sqlglot_ast()` | Gate 2 SQLGlot AST verifier blocking `UPDATE`/`DELETE`/`TRUNCATE`, Staging `JOIN`/`WHERE`, and missing Satellite `HASHDIFF` filters. | [`05-elm-calculus-and-reference-algorithms.md` §3.3](05-elm-calculus-and-reference-algorithms.md) |
-| **`Algorithm A.4`** | `verify_vault_topology_dag()` | Gate 3 NetworkX bipartite graph verifier proving $\text{outdeg}(h)=0$, $\text{outdeg}_{V_H}(l) \ge 2$, $\text{outdeg}(s)=1$, and cycle-free DAGs. | [`05-elm-calculus-and-reference-algorithms.md` §3.4](05-elm-calculus-and-reference-algorithms.md) |
-| **`Algorithm A.5`** | `run_adversarial_sandbox_batches()` | Gate 5 DuckDB Shadow Sandbox executing Adversarial Batches 1–4 (Ghost Records, Replay Idempotency, Delta + Boundary Shift, $N=1 \to N=2$ Collision). | [`05-elm-calculus-and-reference-algorithms.md` §3.5](05-elm-calculus-and-reference-algorithms.md) |
-| **`Algorithm A.6`** | `run_axi_dv_pipeline()` & `format_toon_trace()` | Complete 6-Gate `axi-dv` orchestrator with `auto-fix`, `reject-with-trace` (TOON serializer), and `ask-user` routing. | [`05-elm-calculus-and-reference-algorithms.md` §3.6](05-elm-calculus-and-reference-algorithms.md) |
-| **`Algorithm A.7`** | `evaluate_gate4_yagni_cost_guard()` | Gate 4 Write-Amplification calculator ($W_{\text{amp}} \ge 50\text{ MB/day}$, $\ge 10$ cols, $\Delta\log_{10}(\lambda) \ge 2.0$) with `auto-fix: merge_satellites`. | [`05-elm-calculus-and-reference-algorithms.md` §3.7](05-elm-calculus-and-reference-algorithms.md) |
-| **`Algorithm A.8`** | `generate_ghost_record_seed_sql()` | Deterministic type-aware generator for Unknown (`-1` / `0x00..00`) and Error (`-2` / `0xFF..FF`) Ghost Records across all SQL types. | [`05-elm-calculus-and-reference-algorithms.md` §3.8](05-elm-calculus-and-reference-algorithms.md) |
-| **`Algorithm A.9a`** | `classify_intra_source_drift()` | Zero-downtime intra-source schema drift classifier ($S_k(t) \to S_k(t+1)$) for `ADD_COLUMN`, `DROP_COLUMN`, `RENAME`, `TYPE_WIDENING`, and `SEMANTIC_TYPE_CHANGE`. | [`05-elm-calculus-and-reference-algorithms.md` §3.9](05-elm-calculus-and-reference-algorithms.md) |
-| **`Algorithm A.9b`** | `compile_unstructured_dv_pipeline()` | Compiles `hub_document`, `sat_document_blob_meta`, `lnk_document_<cbc>`, `mas_document_<cbc>_extraction`, and `Tier-U1..U3` routing SQL. | [`04-unstructured-and-multimodal-dv2.md` §6](04-unstructured-and-multimodal-dv2.md) & [`05-elm-calculus-and-reference-algorithms.md` §3.10](05-elm-calculus-and-reference-algorithms.md) |
-| **`Query D.10`** | `vw_customer_360_multimodal_pit` | Production bi-temporal SQL joining structured Satellites (`PIT` + Ghost Records) with span-grounded unstructured document extractions (`mas_document_*`) and BDV vectors. | [`04-unstructured-and-multimodal-dv2.md` §7](04-unstructured-and-multimodal-dv2.md) & [`05-elm-calculus-and-reference-algorithms.md` §4](05-elm-calculus-and-reference-algorithms.md) |
+| **`Algorithm A.1`** | `codemod_split_satellites_3axis()` | Gate 4 codemod: always isolates `PII_HIGH`/`PCI` columns into `*_pii` Satellites and splits by CDC volatility tier only when the Cold-Start YAGNI Write-Amplification Guard ($\ge 10$ cols, $\Delta\log_{10}(\lambda) \ge 2.0$, $W_{\text{amp}} \ge 50\text{ MB/day}$) is breached; never downgrades declared `security_classification`. | [`05` §3.1](05-elm-calculus-and-reference-algorithms.md) |
+| **`Algorithm A.2`** | `codemod_demote_enum_hubs_to_ref()` | Demotes low-cardinality enumeration Hubs to `ref_*` Reference Tables and rewires dependent Links/Satellites. | [`05` §3.2](05-elm-calculus-and-reference-algorithms.md) |
+| **`Algorithm A.3`** | `codemod_inject_link_effectivity()` | Designates the Driving Key and injects an Effectivity Satellite (`esat_*`) when Bronze CDC shows relationship target swapping. | [`05` §3.3](05-elm-calculus-and-reference-algorithms.md) |
+| **`Algorithm A.4`** | `codemod_enforce_cold_start_extensibility()` | Gate 1 codemod: 3-Tier Business Key Authority (`TIER_1`..`TIER_3`, `BKCC` prefixing) and the Nullable-FK Link Splitter ($U_{nn} < 0.95$). | [`05` §3.4](05-elm-calculus-and-reference-algorithms.md) |
+| **`Algorithm A.5`** | `codemod_enforce_staging_hashes_sql()` | Gate 2 codemod: re-renders collision-proof length-prefixed (`<byte_len>:<val>`, `'-1:^^'`) uppercase-hex `SHA-256` expressions for `hk_*` (with Zero Key for all-`NULL` BKs and Tier-3 `BKCC`) and alphabetically sorted `hash_diff`. | [`05` §3.5](05-elm-calculus-and-reference-algorithms.md) |
+| **`Algorithm A.6`** | `verify_physical_dv2_sql_ast()` | Gate 2 SQLGlot AST verifier: Insert-Only DML, Hub/Link/Satellite column signatures (`hk_*`, `hk_lnk_*`, `load_dts`, `rec_src`, `hash_diff`), and Raw Vault aggregation purity. | [`05` §3.6](05-elm-calculus-and-reference-algorithms.md) |
+| **`Algorithm A.7`** | `verify_additive_evolution_invariants()` | $N \to N+1$ additive-evolution lock: rejects deleted Hubs/Links, mutated BK signatures, `BKCC` changes, and Link arity/order changes. | [`05` §3.7](05-elm-calculus-and-reference-algorithms.md) |
+| **`Algorithm A.8`** | `run_axi_dv_verification_pipeline()` | `axi-dv` orchestrator: runs codemods A.1–A.4, the A.7 evolution lock, anti-silo and surrogate-key checks, and routes to `PASS` / `REJECT_WITH_TRACE` / `ASK_USER`. | [`05` §3.8](05-elm-calculus-and-reference-algorithms.md) |
+| **`Algorithm A.9a`** | `codemod_intra_source_schema_drift()` | Zero-rehash intra-source schema drift codemod ($S_k(t) \to S_k(t+1)$). | [`05` §3.9](05-elm-calculus-and-reference-algorithms.md) |
+| **`Algorithm A.9b`** | `verify_gate5_unstructured_invariants()` | Gate 5 unstructured verifier: span-grounded extraction (`span_start`/`span_end`), vector separation from the Raw Vault, and `Tier-U1..U3` resolution. | [`04` §4.1](04-unstructured-and-multimodal-dv2.md) & [`05` §3.9](05-elm-calculus-and-reference-algorithms.md) |
+| **`Query D.10`** | Canonical Multimodal PIT + GraphRAG `SELECT` | Production bi-temporal SQL joining structured Satellites (`PIT` + Ghost Records) with span-grounded unstructured document extractions (`mas_document_*`) and BDV vectors. | [`04` §4.2](04-unstructured-and-multimodal-dv2.md) & [`05` §3.10](05-elm-calculus-and-reference-algorithms.md) |
+
+**Specified without a reference implementation:** the Graph B Bronze profiler (metrics defined in [`05` §1](05-elm-calculus-and-reference-algorithms.md)), the Gate 3 `networkx` bipartite topology verifier (`DV-STR-*` rules), the Gate 5 4-Batch DuckDB Adversarial Sandbox (`DV-DYN-*` templates), and the Ghost Record seeder (Zero Key / Ghost Record contract in Section 3.4). Their specifications live in [`03-verification-and-agentic-architecture.md`](03-verification-and-agentic-architecture.md).
 
