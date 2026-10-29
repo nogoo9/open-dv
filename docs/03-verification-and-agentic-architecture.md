@@ -1,11 +1,15 @@
 # 03 — Automated Verification Gates and Multi-Agent System Architecture for `open-dv`
 
 > **Part of the [`open-dv` Reference Guide Suite](DV2_AGENT_REFERENCE_GUIDE.md)**  
-> **Domain:** Mathematical Bipartite Graph Formulation, Static Rule Catalogs (`DV-STR-*`, `DV-COL-*`, `DV-EVO-*`), Dynamic Runtime SQL Verification Templates (`DV-DYN-001`–`DV-DYN-015`), Canonical IR Specification, and Multi-Agent Closed-Loop Self-Healing Architecture  
+> **Domain:** Mathematical Bipartite Graph Formulation, Static Rule Catalogs (`DV-STR-*`, `DV-COL-*`, `DV-EVO-*`), Dynamic Runtime SQL Verification Templates (`DV-DYN-001`–`DV-DYN-015`), 4 Adversarial Shadow Sandbox Batches, `dv-firstmate` Multi-Agent Swarm (`Vault First Mate`, `scout-source`, `scout-unstructured`, `ship-vault`), and the 6-Gate `axi-dv` & TOON Compiler Pipeline  
 > **Companion Specifications:**
 > - [01 — Core Architecture, Entity Specifications, and Methodology Standards](01-core-modelling-spec.md)
-> - [02 — Schema Stability, Evolution Mechanics, and Anti-Patterns](02-schema-stability-and-evolution.md)
-> - [Canonical IR JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json)
+> - [02 — Schema Stability, Cold-Start ($N=1$) Pragmatism, Evolution Mechanics, and Anti-Patterns](02-schema-stability-and-evolution.md)
+> - [04 — Unstructured & Multi-Modal Data Vault 2.0 Integration](04-unstructured-and-multimodal-dv2.md)
+> - [05 — ELM Calculus, Graph B Profiling Math, 3-Pass CoT Prompt, and Reference Algorithms (`A.1`–`A.9` & `D.10`)](05-elm-calculus-and-reference-algorithms.md)
+> - [Full HTML Reference Guide (`docs/references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html`)](references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html)
+> - [Canonical IR JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json) & [No-Mistake Contract V5 Schema (`schemas/no-mistake-dv2-contract-v5.schema.json`)](../schemas/no-mistake-dv2-contract-v5.schema.json)
+> - [Annotated Multi-Source Model Contract (`examples/dv_model_contract.yaml`)](../examples/dv_model_contract.yaml)
 
 ---
 
@@ -796,3 +800,150 @@ Detected 4 backwards-compatibility / immutability violations:
   [DV-DYN-010] STAGING_TO_HUB_RECONCILIATION_COMPLETENESS: PASS (failing_rows=0)
   [DV-DYN-011] STAGING_TO_SAT_CURRENT_STATE_RECONCILIATION: PASS (failing_rows=0)
 ```
+
+---
+
+## 6. Specification Version Evolution Matrix (`v1.0` through `v6.0`)
+
+The `open-dv` / No-Mistake Agentic Data Vault 2.0 specification synthesizes six iterative architectural milestones into a single unified reference:
+
+| Version | Milestone Focus | Core Architectural Additions |
+| :--- | :--- | :--- |
+| **`v1.0`** | **Core Neuro-Symbolic Foundation** | Identified the 5 Fatal LLM Traps; introduced Dual-Graph Grounding (Graph A Business Ontology + Graph B Bronze Empirical Profile) and prohibited direct LLM SQL generation in favor of YAML/JSON contracts compiled via AutomateDV/datavault4dbt. |
+| **`v2.0`** | **Strict AST & Sandbox Verification** | Added length-prefixed canonical hashing (`Algorithm A.2`), SQLGlot AST verification (`Algorithm A.3`), NetworkX bipartite DAG verification (`Algorithm A.4`), and the first 3 Adversarial Shadow Sandbox Batches (`Algorithm A.5`). |
+| **`v3.0`** | **ELM Calculus & 3-Pass CoT State Machine** | Formalized Ensemble Logical Modeling (ELM) mathematical rules, Graph B information-theoretic thresholds ($U(C), H(C), I(A.x \subseteq B.y), \lambda(c)$), and the 3-Pass Chain-of-Thought System Prompt with explicit rejection ledger. |
+| **`v4.0`** | **Pragmatic Cold-Start ($N=1$) & $N \to N+1$ Evolution** | Added the Asymmetric Reversibility Matrix, 3-Tier Business Key Authority (`TIER_1`..`TIER_3`), Nullable-FK Link Splitter ($U_{nn} \ge 0.95$), Gate 4 YAGNI Write-Amplification Cost Guard ($W_{\text{amp}} \ge 50\text{ MB/day}$, `Algorithm A.7`), and Adversarial Batch 4 ($N=1 \to N=2$ collision test). |
+| **`v5.0`** | **Unstructured & Multimodal DV 2.0 + Intra-Source Drift** | Added Unstructured DV 2.0 (`hub_document`, `sat_document_blob_meta`, `lnk_document_<cbc>`, `mas_document_<cbc>_extraction`, Vector BDV Separation, 3-Tier Entity Resolution `Tier-U1..U3`, `Algorithm A.9b`, `Query D.10`), Intra-Source Schema Drift (`Algorithm A.9a`), and `NoMistakeDataVault2ContractV5`. |
+| **`v6.0`** | **Master Unified Architecture (`dv-firstmate` + `no-mistakes` + `axi-dv`)** | Integrated the `dv-firstmate` multi-agent fleet orchestration (`Vault First Mate`, `scout-source`, `scout-unstructured`, `ship-vault`), Treehouse worktrees with guarded rebase (`ci.revalidate_repairs`), zero-token bash watchers (`fm-watch.sh`, `fm-schema-watch.sh`), and the 6-Gate `axi-dv` TOON verification pipeline (`Algorithm A.6`). |
+
+---
+
+## 7. The Four Adversarial Shadow Sandbox Batches (Gate 5 Runtime Verification)
+
+Before any compiled `ship-vault` worktree is allowed to open a Pull Request, **Gate 5 (`Algorithm A.5` in [`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md))** executes a 4-Batch Adversarial Simulation inside an ephemeral DuckDB / Snowflake-clone shadow sandbox:
+
+| Batch # | Adversarial Batch Name | Injected Payload Scenario | Mandatory Verification Assertion |
+| :--- | :--- | :--- | :--- |
+| **Batch 1** | **T1 Initial Load + NULL Optional FK (Ghost Record Integrity)** | Initial batch containing valid parent entities (`CUST-100`) alongside rows where optional foreign keys (`promo_code`, `sales_rep`) are `NULL`. | 1. Zero rows dropped (`COUNT(stg) == COUNT(source)`).<br/>2. Ghost records `0x00..00` (`-1`) and `0xFF..FF` (`-2`) exist in every Hub and Satellite.<br/>3. `INNER JOIN` across `hub -> pit -> sat` returns 100% of Hub keys with zero orphan loss. |
+| **Batch 2** | **T2 Exact Duplicate Replay (Strict Idempotency)** | Re-executes the exact same T1 batch payload a second time with a newer batch timestamp `T2 > T1`. | **`Delta Row Count == 0`** across every `hub_*`, `lnk_*`, `sat_*`, `mas_*`, and `esat_*` table (`COUNT_AFTER_T2 == COUNT_AFTER_T1`). Proves anti-join and `HASHDIFF` suppression correctness. |
+| **Batch 3** | **T3 Single-Attribute Mutation + Delimiter/Case Perturbation** | Mutates exactly 1 descriptive column on 1 entity (`tier: 'SILVER' -> 'GOLD'`), while perturbing whitespace/casing on unchanged keys (`' cust-100 '`) and injecting `'A\|\|B'` vs `'A'`, `'B'` boundary-shift test rows. | 1. `hub_*` and `lnk_*` insert **0 new rows** for whitespace/case-perturbed existing keys.<br/>2. Boundary-shift test keys produce distinct `_hk` digests.<br/>3. `sat_*` inserts **exactly 1 new row** for the mutated entity, and virtual `LEAD(load_dts)` closes the T1 slice to `[T1, T3)` while opening `[T3, 9999-12-31)`. |
+| **Batch 4** | **T4 Multi-Source ($N=1 \to N=2$) Cross-Source Collision Test** | Simulates onboarding a second source (`LEGACY_ERP`) that emits an overlapping local integer key (`id = '100'`) and an overlapping global key (`vat_id = 'DE999'`). | 1. **Tier-1/2 Passive Integration**: `vat_id = 'DE999'` from both sources resolves to the **same** `hk_customer` in `hub_customer`.<br/>2. **Tier-3 Collision Isolation**: Local `id = '100'` from `SAP` and `LEGACY_ERP` produce **distinct** `hk_customer` values via `BKCC` scoping, preventing cross-source data corruption. |
+
+---
+
+## 8. The `dv-firstmate` Multi-Agent Swarm Architecture
+
+To prevent context-window degradation, reward hacking, and cross-branch schema conflicts when modeling large enterprise domains (50–500+ source tables and unstructured corpora), `open-dv` adapts the **Firstmate Fleet Orchestration Architecture** into **`dv-firstmate`**.
+
+```mermaid
+flowchart TB
+    User(["Data Architect / Captain"])
+    FM["Vault First Mate\n(Read-Only Supervisor & Orchestrator)\n- Owns state/vault-ledger.jsonl\n- Dispatches isolated workers\n- Never writes SQL or YAML contracts"]
+    Watch["Zero-Token Bash Daemons\n- bin/fm-watch.sh (Fleet Monitor)\n- bin/fm-schema-watch.sh (Drift Detector)"]
+
+    subgraph Scouts["Phase 1: Read-Only Discovery Scouts (Graph B & Span Extraction)"]
+        SS["scout-source\n- Runs Algorithm A.1 (Bronze Profiler)\n- Emits Graph B JSON metrics\n- Detects S_k(t)->S_k(t+1) drift (Alg A.9a)"]
+        SU["scout-unstructured\n- Parses PDFs/Audio/Text\n- Span-grounded NER + 3-Tier ER\n- Emits Algorithm A.9b contract"]
+    end
+
+    subgraph Workers["Phase 2: Isolated Treehouse Worktree Workers"]
+        SW1["ship-vault (Worktree 1)\n- 3-Pass CoT Semantic Mapper\n- Emits dv_model_contract.yaml\n- Invokes axi-dv 6-Gate Compiler"]
+        SW2["ship-vault (Worktree 2)\n- Parallel Domain / Source N+1\n- Guarded Rebase (ci.revalidate_repairs)"]
+    end
+
+    subgraph Gates["Phase 3: Deterministic axi-dv Compiler & 6-Gate Verifier"]
+        G05["Gates 0-5\n- Gate 0: Pre-Flight Profile\n- Gate 1: JSON Schema & Grain\n- Gate 2: SQLGlot AST\n- Gate 3: NetworkX Bipartite DAG\n- Gate 4: YAGNI Write-Amp Cost Guard\n- Gate 5: 4-Batch DuckDB Shadow Sandbox"]
+    end
+
+    User -- "--intent /ask-user resolutions" --> FM
+    Watch -- "Wakes ONLY on state transition" --> FM
+    FM -- "Spawns read-only" --> SS & SU
+    SS & SU -- "Graph B JSON + Drift Reports" --> FM
+    FM -- "Launches isolated worktree" --> SW1 & SW2
+    SW1 & SW2 <-->|"TOON Trace / Auto-Fix"| G05
+    G05 -- "All 6 Gates PASS -> PR Ready" --> FM
+```
+
+### 8.1 Core `dv-firstmate` Architectural Adaptations
+
+| Firstmate Core Mechanism | `dv-firstmate` Data Vault 2.0 Adaptation | Engineering Problem Solved |
+| :--- | :--- | :--- |
+| **Hard Rule 1: Read-Only First Mate** | `Vault First Mate` never edits `models/`, `contracts/`, or `schemas/`. It reads `state/vault-ledger.jsonl`, dispatches scouts/workers, and merges validated PRs. | Prevents supervisor context pollution from 10,000-line SQL dumps and eliminates supervisor self-grading bias. |
+| **Treehouse Disposable Worktrees + Guarded Rebase (`ci.revalidate_repairs`)** | Every `ship-vault` worker operates in an isolated git worktree (`treehouse`). Before pushing or merging after a rebase onto `main`, `ci.revalidate_repairs` re-runs all 6 `axi-dv` gates against the merged global Hub/Link registry. | Prevents two parallel workers from creating conflicting Hub names (`hub_client` vs `hub_customer`) or incompatible `BKCC` policies on `main`. |
+| **Zero-Token Bash Watchers (`bin/fm-watch.sh` & `bin/fm-schema-watch.sh`)** | Lightweight cron/daemon shell scripts poll worker `.status` files and source `INFORMATION_SCHEMA.COLUMNS` checksums at **zero LLM token cost**, waking `Vault First Mate` only when a worker transitions state (`done`, `blocked`, `needs-decision`) or when source schema drift is detected. | Eliminates LLM polling loops and enables continuous 24/7 autonomous schema drift monitoring (`S_k(t) -> S_k(t+1)`). |
+| **`--intent` Declaration & `/stow-vault` Ledger (`state/vault-ledger.jsonl`)** | Every worker launch records its explicit semantic intent (`--intent "Onboard CRM_SFDC onto shared hub_customer"`), and `/stow-vault` persists every approved Hub, Link, Satellite, `BKCC` namespace, and explicit column rejection into an append-only JSONL ledger. | Gives future $N+1$ workers deterministic institutional memory of *why* specific columns were rejected or mapped. |
+
+### 8.2 The Four Specialized Agent Personas
+
+1. **`Vault First Mate` (Supervisor & Global Ontology Steward)**
+   - **Permissions**: Read-only on repository code; read/write on `state/vault-ledger.jsonl` and worker `.inbox` steering files.
+   - **Responsibilities**: Maintains Graph A (Enterprise CBC Ontology), dispatches `scout-source` and `scout-unstructured` when new structured or unstructured sources arrive, assigns isolated `ship-vault` tasks per source domain, arbitrates `ask-user` escalations with the human Data Architect, and enforces cross-worktree rebase revalidation.
+2. **`scout-source` (Deterministic Bronze Profiler & Drift Detective)**
+   - **Permissions**: Read-only access to operational staging/landing metadata and sample statistics; writes empirical profiles to `data/<task>/graph_b_profile.json`.
+   - **Responsibilities**: Executes **Algorithm A.1** (`compute_bronze_profile`) to compute $U(C)$, $H(C)$, $N_{\text{null}}(C)$, $I(A.x \subseteq B.y)$, and $\lambda(c)$ without LLM guessing; runs **Algorithm A.9a** (`classify_intra_source_drift`) to classify `ADD_COLUMN`, `DROP_COLUMN`, `RENAME_COLUMN`, `TYPE_WIDENING`, and `SEMANTIC_TYPE_CHANGE`.
+3. **`scout-unstructured` (Multimodal Document & Span-Grounded NER Scout)**
+   - **Permissions**: Read-only access to document object stores (PDFs, SEC filings, clinical notes, call transcripts) and Enterprise Hub Key Indexes; writes `unstructured_extraction_contract.yaml`.
+   - **Responsibilities**: Enforces Rules `U1`–`U4` (see [`04-unstructured-and-multimodal-dv2.md`](04-unstructured-and-multimodal-dv2.md)), extracts character-offset-grounded (`span_start`, `span_end`) propositions, executes the **3-Tier Entity Resolution Protocol (`Tier-U1` Exact, `Tier-U2` Hybrid RRF + Cross-Encoder, `Tier-U3` Abstention Queue)**, and emits the declarative multimodal contract for **Algorithm A.9b**.
+4. **`ship-vault` (3-Pass CoT Semantic Modeler & Closed-Loop Repair Worker)**
+   - **Permissions**: Full read/write inside its isolated disposable git worktree (`fm/<domain>-vault`).
+   - **Responsibilities**: Executes the **3-Pass Chain-of-Thought State Machine** (Pass 1 Entity & Authority Classification, Pass 2 Cardinality & Nullable-FK Link Decomposition, Pass 3 Context Clustering & YAGNI Cost Guard) to author `dv_model_contract.yaml`, runs `axi-dv verify --contract dv_model_contract.yaml --output-format toon`, repairs any `reject-with-trace` diagnostics within $\le 3$ iterations, and opens a verified PR.
+
+### 8.3 Reference `dv-firstmate` Repository Layout
+
+```text
+dv-firstmate/
+├── bin/
+│   ├── axi-dv                      # 6-Gate deterministic CLI compiler & verifier (TOON output)
+│   ├── fm-watch.sh                 # Zero-token worker status monitor
+│   └── fm-schema-watch.sh          # Zero-token INFORMATION_SCHEMA drift detector (Algorithm A.9a)
+├── contracts/
+│   ├── graph_a_ontology.yaml       # Enterprise Core Business Concepts (CBCs) & BKCC registry
+│   └── domains/                    # Approved domain dv_model_contract.yaml files
+├── models/                         # Deterministically compiled AutomateDV / dbt SQL models (Read-Only to LLMs)
+│   ├── staging/
+│   ├── raw_vault/                  # hub_*, lnk_*, t_lnk_*, sat_*, mas_*, esat_*
+│   ├── business_vault/             # sal_*, hal_*, pit_*, brg_*, bsat_*
+│   └── marts/                      # dim_*, fct_*, vw_*_multimodal_context
+├── schemas/
+│   ├── dv2-canonical-ir.schema.json
+│   └── no-mistake-dv2-contract-v5.schema.json
+└── state/
+    ├── vault-ledger.jsonl          # Immutable history of approved grains, BKCCs, and rejected columns
+    └── *.status / *.inbox          # Firstmate worker coordination channels
+```
+
+---
+
+## 9. The 6-Gate `axi-dv` & TOON Verification Matrix & Implementation Roadmap
+
+### 9.1 The 6-Gate `axi-dv` Verification Matrix (`Gates 0–5`)
+
+Every model contract produced by `ship-vault` must pass sequentially through all six deterministic gates implemented in **Algorithm A.6** ([`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md)):
+
+| Gate # | Gate Name | Underlying Engine / Algorithm | Verified Invariants | `auto-fix` Capabilities | `reject-with-trace` (TOON) Triggers | `ask-user` Escalation Triggers |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| **Gate 0** | **Pre-Flight Profile & Drift Gate** | `Algorithm A.1` + `Algorithm A.9a` (`DuckDB` / `Polars`) | Ensures empirical Graph B statistics ($U, H, N_{\text{null}}, I, \lambda$) exist for every referenced source column and classifies any intra-source drift $S_k(t) \to S_k(t+1)$. | Injects `CAST(NULL AS <type>)` tombstones in Staging for dropped source columns (`DROP_COLUMN`). | Contract references a source table or column absent from Graph B profile. | Breaking semantic type change (`SEMANTIC_TYPE_CHANGE`) where business unit interpretation is ambiguous. |
+| **Gate 1** | **Contract Schema, Grain & Authority Gate** | `Pydantic` / `JSON Schema Draft 2020-12` (`no-mistake-dv2-contract-v5.schema.json`) | Validates 3-Tier BK Authority (`TIER_1`..`TIER_3`), empirical uniqueness $U(BK) \ge 0.999$, Nullable-FK Link Splitter ($U_{nn} \ge 0.95$), and complete Rejection Ledger coverage (`100%` of source columns accounted for). | Alphabetically sorts `HASHDIFF` payload columns; injects mandatory `BKCC` namespace prefix on `TIER_3_LOCAL_SCOPED` keys; normalizes entity prefixes (`hub_`, `lnk_`, `sat_`). | Missing rejection ledger entries; Hub BK with $U(C) < 0.999$; packing optional FK ($N_{\text{null}} > 0.05$) into an $N$-ary kernel Link. | `TIER_3_LOCAL_SCOPED` surrogate key proposed for a new Hub when no Tier-1/2 key exists and CBC mapping is uncertain. |
+| **Gate 2** | **Deterministic Compilation & SQLGlot AST Gate** | `Algorithm A.2` (Hash Gen) + `Algorithm A.3` (`sqlglot` AST Inspector) | Compiles YAML contract to dialect SQL and verifies zero `UPDATE`/`DELETE`/`TRUNCATE`/`DROP` in Raw Vault, zero `JOIN`/`WHERE`/`GROUP BY` in Staging, length-prefixed collision-proof hashing, and Ghost Record `UNION ALL` seeding. | Re-renders canonical length-prefixed `SHA256` hash expressions and injects `load_dts`, `rec_src`, and Ghost Record seeds (`0x00..00`, `0xFF..FF`). | Any AST violation (`DV-AST-001`..`006`), missing Satellite `HASHDIFF` delta `WHERE` clause, or `esat_*` partitioned by `hk_lnk` instead of `driving_hk`. | None (100% deterministic). |
+| **Gate 3** | **NetworkX Bipartite Topology & Evolution Gate** | `Algorithm A.4` (`networkx` Graph Verifier) | Proves $\text{outdeg}(h)=0$ for all Hubs, $\text{outdeg}_{V_H}(l) \ge 2$ for all Links, single-parent leaf rule $\text{outdeg}(s)=1$ for all Satellites, acyclic dependency DAG, and zero breaking mutations against `vault-ledger.jsonl`. | Adds missing early-arriving fact stub-hub load dependencies to the execution DAG. | Hub-to-Hub FK (`DV-STR-001`), Link-to-Link FK (`DV-STR-004`), multi-parent Satellite (`DV-STR-005`), Sat-to-Sat chaining (`DV-STR-006`), or Hub grain mutation (`DV-EVO-003`). | Cross-worktree CBC merge conflict where two domains propose different canonical grains for the same enterprise concept. |
+| **Gate 4** | **YAGNI Write-Amplification Cost Guard** | `Algorithm A.7` (Write-Amp Cost Calculator) | Evaluates every proposed multi-satellite split on the same parent & source against the 3-part threshold: $\text{cols} \ge 10$, $\Delta\log_{10}(\lambda) \ge 2.0$, and $W_{\text{amp}} \ge 50\text{ MB/day}$ (exempting `PII` splits). | **`auto-fix: merge_satellites`**: Automatically merges over-split micro-satellites into a single source-aligned Satellite when $W_{\text{amp}} < 50\text{ MB/day}$. | Invalid or missing $\lambda(c)$ frequency references on forced custom splits. | Architect override request when regulatory/security policy requires isolating non-PII columns despite $W_{\text{amp}} < 50\text{ MB/day}$. |
+| **Gate 5** | **4-Batch Adversarial Shadow Sandbox Gate** | `Algorithm A.5` (`DuckDB` Ephemeral Sandbox) | Executes compiled DDL/DML across **Batches 1–4** (T1 Initial + NULL FKs, T2 Duplicate Replay Idempotency, T3 Single-Attribute Delta + Boundary-Shift Collision, T4 $N=1 \to N=2$ Cross-Source Collision). | None (runtime verification gate). | Any row loss in `INNER JOIN` PIT check, `T2_delta_rows > 0`, missing T3 delta capture, or Tier-3 cross-source key collision. | Source data contains genuine duplicate primary keys in T1 batch violating source system contract. |
+
+### 9.2 Deterministic Compiler vs. Static/Runtime Linter Responsibility Matrix
+
+| Responsibility Domain | Handled By Deterministic Compiler (`Auto-Generated / Auto-Fixed`) | Enforced By `axi-dv` Verification Gates (`Blocked if Violated`) |
+| :--- | :--- | :--- |
+| **Cryptographic Hashing (`_hk`, `hash_diff`)** | Generates exact `SHA256` length-prefixed SQL (`Algorithm A.2`), alphabetical payload sorting, `UPPER(TRIM())` on BKs, and `'^^'` NULL sentinels. | Gate 2 AST check verifies no raw column concatenation or unsorted `hash_diff` exists; Gate 5 Batch 3 tests boundary-shift pairs (`'AB','C'` vs `'A','BC'`). |
+| **Audit Metadata & Ghost Records** | Injects `load_dts`, `rec_src`, `bkcc`, and `UNION ALL` Ghost Records (`0x00..00`, `0xFF..FF`) into every target template. | Gate 1 checks metadata contract; Gate 5 Batch 1 verifies `INNER JOIN` across `hub -> pit -> sat` returns 100% of rows when optional FKs are `NULL`. |
+| **Entity Classification & Grain Discovery** | Renders `hub_*`, `lnk_*`, `sat_*`, `mas_*`, `esat_*`, `sal_*`, `pit_*` DDL/DML from `dv_model_contract.yaml`. | Gate 1 verifies $U(BK) \ge 0.999$ and Nullable-FK Link Splitter ($U_{nn} \ge 0.95$); Gate 3 proves bipartite Hub-Link topology in NetworkX. |
+| **Satellite Splitting & Storage Optimization** | Merges micro-satellites automatically (`auto-fix: merge_satellites`) when $W_{\text{amp}} < 50\text{ MB/day}$. | Gate 4 computes $W_{\text{amp}} = N_{\text{entities}} \cdot \lambda_{\text{fast}} \cdot \sum \text{AvgBytes}(c_{\text{slow}})$ and blocks unverified manual splits. |
+| **Unstructured & Multimodal Integration** | Compiles `hub_document`, `sat_document_blob_meta`, `lnk_document_<cbc>`, `mas_document_<cbc>_extraction`, and `vw_<cbc>_multimodal_context` (`Algorithm A.9b` & `D.10`). | Gate 1 enforces Rules `U1`–`U4` (`span_start`/`span_end` provenance, vector separation from Raw Vault, and `Tier-U1..U3` resolution). |
+
+### 9.3 5-Step Production Implementation Roadmap
+
+1. **Step 1 — Bootstrap `axi-dv` Deterministic Core (`Week 1`)**: Deploy `schemas/no-mistake-dv2-contract-v5.schema.json`, `schemas/dv2-canonical-ir.schema.json`, and Algorithms `A.1`–`A.7` (`DuckDB` profiler, length-prefixed hash compiler, `sqlglot` AST verifier, `networkx` topology verifier, and 4-Batch shadow sandbox).
+2. **Step 2 — Cold-Start First Domain at $N=1$ (`Week 2`)**: Run `scout-source` (`Algorithm A.1`) on the first operational source system, initialize `contracts/graph_a_ontology.yaml` and `state/vault-ledger.jsonl`, and let `ship-vault` compile and verify the Day-1 Raw Vault under the Gate 4 YAGNI Cost Guard.
+3. **Step 3 — Enable Continuous Intra-Source Drift Daemon (`Week 3`)**: Activate `bin/fm-schema-watch.sh` and **Algorithm A.9a** (`classify_intra_source_drift`) so operational `ADD COLUMN` / `DROP COLUMN` / type changes automatically generate non-breaking `_ext_v2` Satellites or Staging NULL projections.
+4. **Step 4 — Scale to Multi-Source $N \to N+1$ Fleet (`Week 4`)**: Onboard secondary ERP/CRM sources in parallel `treehouse` worktrees with `ci.revalidate_repairs` guarded rebase, passive Tier-1/2 Hub integration (`BKCC='GLOBAL'`), and Business Vault Same-As Links (`sal_*`) for Tier-3 keys.
+5. **Step 5 — Activate Unstructured & Multimodal Vault (`Week 5+`)**: Deploy `scout-unstructured` and **Algorithm A.9b** to link PDFs, contracts, and transcripts into the shared Enterprise Hubs via `hub_document`, `mas_document_<cbc>_extraction`, and Point-in-Time GraphRAG views (**Query D.10**).
+

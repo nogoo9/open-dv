@@ -1,11 +1,15 @@
 # 02 — Data Vault 2.0 Schema Stability Rules, Invariants, Evolution Mechanics, and Anti-Patterns
 
 > **Part of the [`open-dv` Reference Guide Suite](DV2_AGENT_REFERENCE_GUIDE.md)**  
-> **Domain:** Fundamental Stability Invariants (`INV-01`–`INV-06`), Source Schema Drift Playbooks (`EVO-01`–`EVO-08`), Key & Bi-Temporal Rules (`KEY-01`–`KEY-05`, `TMP-01`–`TMP-04`), Early-Arriving Fact Stubbing, and Anti-Pattern Catalog (`AP-01`–`AP-15`)  
+> **Domain:** Fundamental Stability Invariants (`INV-01`–`INV-06`), Source Schema Drift Playbooks (`EVO-01`–`EVO-08`), Key & Bi-Temporal Rules (`KEY-01`–`KEY-05`, `TMP-01`–`TMP-04`), Early-Arriving Fact Stubbing, Anti-Pattern Catalog (`AP-01`–`AP-15`), and Pragmatic Cold-Start ($N=1$) to Multi-Source ($N+1$) Evolution  
 > **Companion Specifications:**
 > - [01 — Core Architecture, Entity Specifications, and Methodology Standards](01-core-modelling-spec.md)
-> - [03 — Automated Verification Gates and Multi-Agent Enforcement Architecture](03-verification-and-agentic-architecture.md)
-> - [Canonical IR JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json)
+> - [03 — Automated 6-Gate Verification, `dv-firstmate` Swarm, and Agentic Architecture](03-verification-and-agentic-architecture.md)
+> - [04 — Unstructured & Multi-Modal Data Vault 2.0 Integration](04-unstructured-and-multimodal-dv2.md)
+> - [05 — ELM Calculus, Graph B Profiling Math, 3-Pass CoT Prompt, and Reference Algorithms (`A.1`–`A.9` & `D.10`)](05-elm-calculus-and-reference-algorithms.md)
+> - [Full HTML Reference Guide (`docs/references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html`)](references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html)
+> - [Canonical IR JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json) & [No-Mistake Contract V5 Schema (`schemas/no-mistake-dv2-contract-v5.schema.json`)](../schemas/no-mistake-dv2-contract-v5.schema.json)
+> - [Annotated Multi-Source Model Contract (`examples/dv_model_contract.yaml`)](../examples/dv_model_contract.yaml)
 
 ---
 
@@ -473,3 +477,80 @@ All stability invariants, delimiter/NULL collision proofs, Driving Key Effectivi
 
 ALL EMPIRICAL VERIFICATION CHECKS PASSED.
 ```
+
+---
+
+## 6. Pragmatic Cold-Start ($N=1$) Architecture & Continuous Multi-Source ($N \to N+1$) Evolution
+
+A central failure mode in enterprise Data Vault implementations is **Day-1 Over-Engineering**: either freezing progress because the first operational source ($N=1$) lacks idealized enterprise keys, or fragmenting a small table into 6 micro-satellites on Day 1 "just in case." Conversely, under-engineering irreversible Hub/Link invariants on Day 1 forces destructive warehouse rebuilds when Source $N=2$ arrives.
+
+To solve this rigorously, `open-dv` enforces the **Asymmetric Reversibility Principle**.
+
+### 6.1 The Asymmetric Reversibility Matrix
+
+Not all Data Vault modeling choices carry symmetric refactoring costs. The agentic system strictly separates **Irreversible Structural Anchor Decisions** (which must be locked on Day 1 even for $N=1$) from **Reversible Storage/Performance Optimizations** (which are deferred via YAGNI guards until empirical thresholds are met):
+
+| Architectural Decision | Reversibility Class | Cost to Change Later ($N \to N+1$) | Day-1 ($N=1$) Agent Rule |
+| :--- | :--- | :--- | :--- |
+| **Hub Semantic Naming (`hub_customer` vs `hub_sap_kna1`)** | **IRREVERSIBLE** (High Cost) | Requires dropping/re-pointing all downstream Links, Satellites, PITs, and Marts. | **STRICT ON DAY 1**: Always map to the Enterprise Core Business Concept (CBC) from Graph A, never the source table name. |
+| **Hash Key Canonicalization & `BKCC` Namespace Policy** | **IRREVERSIBLE** (High Cost) | Any change to hash formatting invalidates 100% of historical `_hk` joins across the warehouse. | **STRICT ON DAY 1**: Enforce the 6-stage canonicalization pipeline and the 3-Tier `BKCC` Authority Protocol (`GLOBAL` for Tier 1/2, `<SOURCE_SYS>` for Tier 3). |
+| **Link Mandatory vs. Optional FK Decomposition** | **IRREVERSIBLE** (High Cost) | Packing nullable optional FKs into an $N$-ary Link mutates `hk_lnk` whenever an optional participant becomes known later. | **STRICT ON DAY 1**: Enforce the **Nullable-FK Link Splitter Rule** ($U_{nn} \ge 0.95$ stays in mandatory kernel Link; nullable FKs with $U_{nn} < 0.95$ or null rate $> 5\%$ split into binary optional Links). |
+| **Raw Vault Insert-Only Immutability (`INV-01`)** | **IRREVERSIBLE** (High Cost) | In-place `UPDATE`s permanently destroy historical auditability. | **STRICT ON DAY 1**: Zero `UPDATE`/`DELETE` statements permitted in Raw Vault from Day 1. |
+| **Rate-of-Change Satellite Splitting (`sat_core` vs `sat_fast`/`sat_slow`)** | **REVERSIBLE** (Low Cost) | Adding a new Satellite and updating a disposable PIT/View requires zero historical Hub/Link migration. | **YAGNI ON DAY 1 (Gate 4 Cost Guard)**: Keep a single source-aligned Satellite unless empirical write-amplification exceeds $W_{\text{amp}} \ge 50\text{ MB/day}$, $\text{cols} \ge 10$, and $\Delta\log_{10}(\lambda) \ge 2.0$. |
+| **Cross-Source Entity Deduplication (`sal_*`)** | **REVERSIBLE / ADDITIVE** | Deploying a Business Vault `sal_*` + Mart resolution view is 100% additive. | **DEFER AT $N=1$**: Do not pre-build empty `sal_*` tables at $N=1$; generate them automatically when $N \ge 2$ introduces overlapping entities. |
+| **PIT & Bridge Materialization (`pit_*`, `brg_*`)** | **REVERSIBLE / DISPOSABLE** | PITs and Bridges hold zero unique historical truth and can be dropped/rebuilt at will. | **DEFER AT $N=1$**: Use virtualized views until Satellite join fan-out ($\ge 3$ Satellites) or Mart query SLA requires materialization. |
+
+---
+
+### 6.2 The 3-Tier Business Key Authority Protocol & Nullable-FK Link Splitter
+
+#### 6.2.1 3-Tier Business Key Authority Protocol
+When profiling an operational source at $N=1$, an ideal natural key is not always present in every table. Rather than hallucinating a fake natural key or silently using an un-namespaced sequence integer, the agent classifies every Hub Business Key into one of three formal tiers (enforced by Gate 1 / **Algorithm A.4**):
+
+| Authority Tier | Definition & Examples | Empirical Graph B Signature | Hash Key (`hk`) Prefix Rule | Cross-Source Integration Behavior ($N \to N+1$) |
+| :--- | :--- | :--- | :--- | :--- |
+| **`TIER_1_GLOBAL_STANDARD`** | Universally standardized external identifier (ISO-3166, LEI, ISBN, VIN, IBAN, UUIDv4). | $U(C) = 1.0$, matches standard regex pattern, high entropy $H(C)$. | `BKCC = 'GLOBAL'` | **Automatic Passive Integration**: Any future source emitting the same Tier-1 key hashes to the exact same `hk_*` row in the Hub. |
+| **`TIER_2_ENTERPRISE_SOR`** | Enterprise System-of-Record natural key or MDM Golden Key (`customer_number = 'CUST-00491'`, `tax_id`, `employee_badge_no`). | $U(C) = 1.0$, business-formatted alphanumeric string or enterprise master key. | `BKCC = 'GLOBAL'` (or domain namespace) | **Automatic Passive Integration**: Secondary systems referencing the enterprise natural key automatically join on `hk_*` in the shared Hub. |
+| **`TIER_3_LOCAL_SCOPED`** | Source-local sequence/auto-increment surrogate key (`user_id = 48192`) used **only when no Tier-1 or Tier-2 key exists** in the source. | Monotonic integer sequence, low semantic portability across systems. | **`BKCC = '<SOURCE_SYS>'`** (Mandatory collision prefix, e.g. `' billing_app_v1'`) | **Collision-Proof Isolation + `sal_*` Resolution**: Prevents `SAP#100` from colliding with `SFDC#100`; cross-system equivalence is bridged in the Business Vault via a **Same-As Link (`sal_*`)**. |
+
+#### 6.2.2 The Nullable-FK Link Splitter Rule
+In operational 3NF tables (e.g., an `orders` table with `customer_id NOT NULL`, `product_id NOT NULL`, `promo_code_id NULL`, `sales_rep_id NULL`), packing all four foreign keys into a single 4-way Link `lnk_order_cust_prod_promo_rep` creates a severe stability hazard:
+- At order creation ($T_1$), `sales_rep_id IS NULL` (mapped to Zero Key `-1`), producing `hk_lnk_1 = HASH(order_1, cust_1, prod_1, -1, -1)`.
+- At $T_2$, a sales rep is assigned (`sales_rep_id = 'REP-9'`), producing a **completely different Link hash key** `hk_lnk_2 = HASH(order_1, cust_1, prod_1, -1, 'REP-9')` and duplicating the core order relationship!
+
+**Mandatory Rule (Gate 1 Check)**:
+1. **Mandatory Kernel Link**: Only foreign keys with non-null ratio $U_{nn}(C) = 1 - N_{\text{null}}(C) \ge 0.95$ (mandatory participants at the birth of the unit of work) belong in the primary $N$-ary Link (`lnk_order_customer_product`).
+2. **Binary Optional Links**: Any foreign key with $N_{\text{null}}(C) > 0.05$ (`promo_code_id`, `sales_rep_id`) **must be split into a separate binary Link** (`lnk_order_promotion`, `lnk_order_sales_rep`) that loads rows only when the optional FK is non-null (plus an Effectivity Satellite `esat_order_sales_rep` if the assignment can change over time).
+
+---
+
+### 6.3 Gate 4 YAGNI Write-Amplification Cost Guard for Satellite Splitting
+
+Textbook Data Vault advice states: *"Split Satellites by rate of change."* However, when an LLM applies this rule blindly to a 7-column table with 1,000 rows, it creates 4 micro-satellites (`sat_customer_static`, `sat_customer_daily`, `sat_customer_hourly`, `sat_customer_monthly`), quadrupling ETL tasks and requiring a 4-way PIT join for negligible storage savings.
+
+To enforce engineering pragmatism, **Gate 4 (`Algorithm A.7` in [`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md))** permits splitting a single-source Satellite by rate-of-change **if and only if ALL THREE empirical thresholds hold simultaneously**:
+
+1. **Column Width Threshold**: Total descriptive payload columns in the source table $\ge 10$.
+2. **Frequency Divergence Threshold**: The log-ratio between the fastest-changing attribute cluster $\lambda_{\text{fast}}$ and slowest-changing attribute cluster $\lambda_{\text{slow}}$ satisfies:
+   $$\Delta \log_{10}(\lambda) = \log_{10}\left(\frac{\max_c \lambda(c)}{\min_{c: \lambda(c)>0} \lambda(c)}\right) \ge 2.0 \quad (\text{i.e., } \ge 100\times \text{ update rate difference})$$
+3. **Daily Write-Amplification Byte Threshold**: Keeping the slow/wide columns inside the fast-updating Satellite would waste at least **50 MB/day** of redundant columnar storage:
+   $$W_{\text{amp}} = N_{\text{entities}} \cdot \lambda_{\text{fast}} \cdot \sum_{c \in C_{\text{slow}}} \text{ AvgBytes}(c) \ge 50\text{ MB/day}$$
+
+- **PII / GDPR Exception**: Columns classified as `PII` or regulated under GDPR right-to-erasure are **always** split into an isolated `sat_<entity>_pii` regardless of $W_{\text{amp}}$, enabling targeted crypto-shredding without touching non-PII history.
+- **Compiler Action**: If a proposed rate-of-change split fails Gate 4 (and is not a PII split), the `axi-dv` compiler executes `auto-fix: merge_satellites` to consolidate them into a single clean `sat_<cbc>_<source>` table.
+
+---
+
+### 6.4 The 6-Scenario Continuous Evolution Lifecycle ($N \to N+1$ & $S_k(t) \to S_k(t+1)$)
+
+The combination of **Cold-Start Pragmatism ($N=1$)** and **Additive Evolution ($N \to N+1$)** guarantees that **zero existing Raw Vault tables are ever dropped, truncated, or destructively altered** across the entire lifecycle of the enterprise data warehouse:
+
+| Scenario | Trigger Event | Raw Vault Action (100% Additive) | Business Vault / Mart Shield | Existing Tables Modified? |
+| :--- | :--- | :--- | :--- | :--- |
+| **Scenario 1: Shared Global/SOR Key ($N \to N+1$)** | Source $N+1$ (`CRM_SFDC`) arrives with the same Tier-1/2 key (`tax_id`) already in `hub_customer`. | Reuse `hub_customer` (`BKCC='GLOBAL'`); deploy new source-aligned `sat_customer_sfdc`. | Update `pit_customer` to include `sat_customer_sfdc` (coalescing pre-SFDC dates to Ghost Record `0x00..00`). | **0 existing tables modified.** |
+| **Scenario 2: Disjoint Local Key ($N \to N+1$)** | Source $N+1$ (`LEGACY_ERP`) arrives with a Tier-3 local key (`cust_seq_id`) that differs from `hub_customer`. | Reuse `hub_customer` with `BKCC='LEGACY_ERP'`; deploy `sat_customer_legacy_erp`. | Deploy Business Vault **Same-As Link (`sal_customer`)** mapping `(hk_customer_master, hk_customer_duplicate)`. | **0 existing tables modified.** |
+| **Scenario 3: New Relationship / Grain Discovery ($N \to N+1$)** | Source $N+1$ (`WMS`) introduces a new `hub_warehouse` linked to existing `hub_order` and `hub_product`. | Create `hub_warehouse`, `lnk_shipment_fulfillment`, and `sat_shipment_wms`. | Optional new `brg_order_fulfillment` Bridge table for supply-chain Marts. | **0 existing tables modified.** |
+| **Scenario 4: Late-Arriving Rate-of-Change Split** | Source 1 volume grows $100\times$ so $W_{\text{amp}}$ crosses the $50\text{ MB/day}$ Gate 4 threshold. | Deploy new `sat_customer_sfdc_fast` for high-frequency attributes; freeze those columns in `sat_customer_sfdc_v1` or supersede with `sat_customer_sfdc_v2`. | Repoint `pit_customer` and `dim_customer` view `COALESCE(v2.col, v1.col)` transparently. | **0 existing tables modified.** |
+| **Scenario 5: Intra-Source Schema Drift ($S_k(t) \to S_k(t+1)$)** | Operational team modifies Source $S_k$ in-place (`ADD COLUMN`, `DROP COLUMN`, `RENAME`, widen/semantic type change). | Handled automatically by `bin/fm-schema-watch.sh` + **Algorithm A.9a** (`classify_intra_source_drift`): additive columns route to `sat_<cbc>_<src>_ext_v2`; dropped columns inject `CAST(NULL AS <type>) AS <col>` in `stg_*`; breaking semantic type changes route to `sat_<cbc>_<src>_v2`. | Mart views preserve column signatures via `COALESCE(v2.col, v1.col)`. | **0 existing tables modified.** |
+| **Scenario 6: Unstructured Document / Multimodal Source ($N \to N+1$)** | PDF contracts, call transcripts, or clinical notes arrive referencing `hub_customer`. | Deploy `hub_document`, `sat_document_blob_meta`, `lnk_document_<cbc>`, and `mas_document_<cbc>_extraction` (via **Algorithm A.9b**, see [`04-unstructured-and-multimodal-dv2.md`](04-unstructured-and-multimodal-dv2.md)). | Join structured + unstructured context via Point-in-Time / GraphRAG view (**Query D.10**). | **0 existing tables modified.** |
+

@@ -1,11 +1,15 @@
 # 01 — Data Vault 2.0 Core Architecture, Entity Specifications, and Methodology Standards
 
 > **Part of the [`open-dv` Reference Guide Suite](DV2_AGENT_REFERENCE_GUIDE.md)**  
-> **Domain:** Core Architecture, Entity DDL/DML Specifications, Query Assistance Structures (PIT & Bridge), 6-Stage Pre-Hash Canonicalization Pipeline, Naming Taxonomy, and Entity Classification Decision Trees  
+> **Domain:** Core Architecture, Entity DDL/DML Specifications, Query Assistance Structures (PIT & Bridge), 6-Stage Pre-Hash Canonicalization Pipeline, Naming Taxonomy, Entity Classification Decision Trees, 5 Fatal Traps & Dual-Graph Grounding, and Node-Level SQLGlot AST Signatures  
 > **Companion Specifications:**
-> - [02 — Schema Stability, Evolution Mechanics, and Anti-Patterns](02-schema-stability-and-evolution.md)
-> - [03 — Automated Verification Gates and Multi-Agent Enforcement Architecture](03-verification-and-agentic-architecture.md)
-> - [Canonical IR JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json)
+> - [02 — Schema Stability, Cold-Start ($N=1$) Pragmatism, Evolution Mechanics, and Anti-Patterns](02-schema-stability-and-evolution.md)
+> - [03 — Automated 6-Gate Verification, `dv-firstmate` Swarm, and Agentic Architecture](03-verification-and-agentic-architecture.md)
+> - [04 — Unstructured & Multi-Modal Data Vault 2.0 Integration](04-unstructured-and-multimodal-dv2.md)
+> - [05 — ELM Calculus, Graph B Profiling Math, 3-Pass CoT Prompt, and Reference Algorithms (`A.1`–`A.9` & `D.10`)](05-elm-calculus-and-reference-algorithms.md)
+> - [Full HTML Reference Guide (`docs/references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html`)](references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html)
+> - [Canonical IR JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json) & [No-Mistake Contract V5 Schema (`schemas/no-mistake-dv2-contract-v5.schema.json`)](../schemas/no-mistake-dv2-contract-v5.schema.json)
+> - [Annotated Multi-Source Model Contract (`examples/dv_model_contract.yaml`)](../examples/dv_model_contract.yaml)
 
 ---
 
@@ -926,3 +930,66 @@ All SQL DDL, Ghost Record / Zero Key mechanics, Point-in-Time (PIT) `INNER JOIN`
 === 4. Verifying MAS, Effectivity Sat, Status Tracking Sat, and Bridge Table ===
 [PASS] Effectivity Satellite (Insert-Only Driving-Key Windowing) handled E01 -> E02 -> E01 transitions accurately
 ```
+
+---
+
+## 7. The 5 Fatal Traps & Dual-Graph Grounding Architecture (`no-mistakes` Pattern)
+
+### 7.1 Why Naive LLM SQL Generators Fail at Data Vault 2.0
+
+Allowing an LLM to generate raw Data Vault SQL DDL/DML from source table metadata alone consistently produces five catastrophic failure modes:
+
+| Trap # | Failure Mode | Root Cause | Impact on Enterprise Data Warehouse |
+| :--- | :--- | :--- | :--- |
+| **Trap 1** | **Source-Driven Hub Proliferation** | Generating a Hub for every source PK or lookup table (`hub_order_status`, `hub_address_type`). | Rebuilds a 3NF operational database with 3x join overhead; destroys cross-system integration. |
+| **Trap 2** | **Surrogate Key Leakage** | Promoting mutable sequence IDs (`customer_id = 48192`) to Hub Business Keys (`bk`). | Cross-system collisions (`SAP 48192 != Salesforce 48192`); complete lineage breakage on source DB migration. |
+| **Trap 3** | **Silent Hash Collisions & Non-Deterministic `HASHDIFF`** | Naive `MD5(col1 \|\| col2)` without length-prefixing, `NULL` sentinels, or alphabetical sorting. | `"AB" + "C"` collides with `"A" + "BC"`; column re-ordering triggers 100% false-positive Satellite inserts. |
+| **Trap 4** | **Soft Rule Contamination in the Raw Vault** | Embedding `WHERE status = 'ACTIVE'` or `COALESCE(revenue, 0)` inside Staging or Raw Vault loads. | Irreversibly destroys the audit trail; Raw Vault can no longer pass a 100% source reconciliation audit. |
+| **Trap 5** | **Destructive `UPDATE` Operations on Satellites** | Writing `UPDATE sat_customer SET load_end_dts = NOW()` to close historical records. | Violates insert-only immutability, destroys cloud columnar micro-partitions, and breaks repeatable idempotency. |
+
+### 7.2 Core Design Rule: The LLM is a Semantic Mapper, Never a SQL Boilerplate Generator
+
+To guarantee a **Zero-Mistake Data Vault 2.0 architecture**, the system enforces a strict **Neuro-Symbolic Separation of Concerns**:
+
+1. **Dual-Graph Grounding**: The LLM reasoning engine receives two deterministic inputs before proposing any mapping:
+   - **Graph A (Top-Down Business Ontology / ELM)**: Enterprise Core Business Concepts (CBCs: *Party, Customer, Product, Agreement, Location, Financial Transaction*), canonical business key definitions, and event patterns.
+   - **Graph B (Bottom-Up Bronze Empirical Profile)**: Deterministic statistical metrics computed directly from the Bronze/Staging data via **Algorithm A.1** ([`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md)): Uniqueness ratio $U(C)$, Shannon entropy $H(C)$, Null rate $N_{\text{null}}(C)$, Cross-table Jaccard inclusion $I(A.x \subseteq B.y)$, and historical update frequency $\lambda(c)$.
+2. **Constrained Structured Output (`dv_model_contract.yaml` / JSON IR)**: The LLM is **physically prohibited** from emitting raw SQL DDL or DML. It outputs only a declarative model contract validated against [`schemas/no-mistake-dv2-contract-v5.schema.json`](../schemas/no-mistake-dv2-contract-v5.schema.json) (see example [`examples/dv_model_contract.yaml`](../examples/dv_model_contract.yaml)) and [`schemas/dv2-canonical-ir.schema.json`](../schemas/dv2-canonical-ir.schema.json).
+3. **Deterministic Symbolic Compilation & 3-Way `axi-dv` Triage**: A deterministic compiler (`AutomateDV` / `datavault4dbt` macro generator + **Algorithm A.2** for hashing) renders all SQL from the verified contract, and the 6-Gate `axi-dv` verifier classifies any issue into one of three deterministic routing actions:
+   - `auto-fix`: Deterministic mechanical fixes applied by the compiler without re-prompting the LLM (e.g., alphabetical sorting of `HASHDIFF` payload columns, injection of `load_dts`/`rec_src` metadata, Zero/Ghost seed unioning).
+   - `reject-with-trace`: Structural or mathematical violations returned to the `ship-vault` worker via a token-dense **TOON** (Token-Oriented Object Notation) diagnostic trace for targeted YAML contract repair.
+   - `ask-user`: True semantic ambiguities (e.g., an unrecognized `TIER_3_LOCAL_SCOPED` key with no matching CBC in Graph A) escalated to the human architect via an interactive decision gate.
+
+---
+
+## 8. Node-Level SQLGlot AST Signatures & Tiered `BKCC` Hash Standardization
+
+### 8.1 Node-Level SQLGlot AST Signatures & Layer Boundaries
+
+Every generated Data Vault node must conform to a strict **SQLGlot Abstract Syntax Tree (AST) signature** verified at **Gate 2** of the `axi-dv` pipeline (see **Algorithm A.3** in [`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md)):
+
+| Node Type | Target Layer | Primary Key (`PK`) | Required Metadata Columns | Allowed Payload Columns | Required SQLGlot AST Signature |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Staging (`stg_*`)** | Stage (Views / Transient) | None (1:1 row parity with landing batch) | `load_dts`, `rec_src`, `bkcc`, all derived `hk_*` & `hash_diff_*` | All raw source columns + hard-rule technical casts | `SELECT` only; **0 `JOIN`**, **0 `WHERE`**, **0 `GROUP BY`**, **0 `HAVING`**; `UNION ALL` for Ghost Records (`0x00..00`, `0xFF..FF`). |
+| **Hub (`hub_*`)** | Raw Vault (`INSERT`-Only) | `hk_<cbc>` (`BINARY(32)` / `CHAR(64)`) | `load_dts`, `rec_src`, `bkcc` | Clean Business Key column(s) `bk_*` ONLY (**0 descriptive attributes, 0 FKs**) | `INSERT INTO ... SELECT DISTINCT` with `LEFT JOIN ... WHERE tgt.hk IS NULL` or `WHERE NOT EXISTS`. **0 `UPDATE`/`DELETE`/`MERGE UPDATE`**. |
+| **Standard Link (`lnk_*`)** | Raw Vault (`INSERT`-Only) | `hk_lnk_<rel>` | `load_dts`, `rec_src` | 2+ Parent Hub FKs (`hk_*`) + optional Dependent Child Keys (`cdk_*`) (**0 mutable attributes**) | `INSERT INTO ... SELECT DISTINCT` with `WHERE NOT EXISTS` on `hk_lnk_<rel>`. Every nullable FK wrapped in `COALESCE(hk, 0x00..00)`. |
+| **Non-Historized Link (`t_lnk_*` / `nhl_*`)** | Raw Vault (`INSERT`-Only) | `hk_t_lnk_<event>` | `load_dts`, `rec_src`, `event_dts` | Parent Hub FKs + degenerate transaction ID + immutable event measures | `INSERT INTO ... WHERE NOT EXISTS`. Strictly append-only atomic event stream; no updates. |
+| **Standard Satellite (`sat_*`)** | Raw Vault (`INSERT`-Only) | `(hk_<parent>, load_dts)` | `hash_diff`, `rec_src` | Descriptive attributes co-evolving at homogeneous frequency $\lambda$ (**0 `load_end_dts`, 0 `is_current`**) | Windowed latest-state subquery `QUALIFY ROW_NUMBER() OVER (PARTITION BY hk ORDER BY load_dts DESC) = 1` + `WHERE stg.hash_diff <> curr.hash_diff OR curr.hk IS NULL`. |
+| **Multi-Active Satellite (`mas_*`)** | Raw Vault (`INSERT`-Only) | `(hk_<parent>, load_dts, cdk_<child>)` | `hash_diff` (or set-level `mas_set_hash_diff`), `rec_src` | Concurrent multi-valued child attributes | Set-level or grain-level delta comparison against current active child set; `INSERT`-only. |
+| **Effectivity Satellite (`esat_*`)** | Raw / Business Vault (`INSERT`-Only) | `(hk_lnk_<rel>, load_dts)` | `driving_hk`, `rec_src`, `start_dts` | Active status / relationship validity derived from driving key | Partitioned strictly by `driving_hk` (`OVER (PARTITION BY driving_hk ORDER BY load_dts ASC)`), never by `hk_lnk`. |
+| **Same-As / Hierarchical Link (`sal_*`, `hal_*`)** | Business Vault (`INSERT`-Only) | `hk_sal_<cbc>` / `hk_hal_<cbc>` | `load_dts`, `rec_src`, `match_confidence` | `(hk_<cbc>_master, hk_<cbc>_duplicate)` or `(hk_<cbc>_parent, hk_<cbc>_child)` | Idempotent `INSERT` from deterministic or ML/Steward entity resolution rules. |
+| **Point-in-Time (`pit_*`) & Bridge (`brg_*`)** | Business Vault (Disposable / Rebuildable) | `(hk_<cbc>, as_of_dts)` | `as_of_dts` | Satellite FK pointers `(sat_N_hk, sat_N_load_dts)` or pre-joined Hub/Link keys | As-of temporal range join coalescing missing Satellite slices to Ghost Record `(0x00..00, '1900-01-01')` so Marts use 100% `INNER JOIN`. |
+
+### 8.2 Tier-Aware `BKCC` Hash Key Standardization
+
+To support **Zero-Refactor Multi-Source Integration ($N=1 \to N+1$)** (detailed in [`02-schema-stability-and-evolution.md`](02-schema-stability-and-evolution.md)), the deterministic compiler (`Algorithm A.2`) applies a **Tier-Aware Business Key Collision Code (`BKCC`) rule** when generating Hub and Link Hash Keys:
+
+1. **Tier 1 (`TIER_1_GLOBAL_STANDARD`, e.g., ISO Country Code, LEI, ISBN, UUIDv4) & Tier 2 (`TIER_2_ENTERPRISE_SOR`, e.g., MDM Golden ID, Enterprise Tax/VAT ID)**:
+   - Because two different source systems presenting the *same* Tier-1 or Tier-2 business key represent the **exact same real-world business entity**, the hash key prefix is set to `BKCC = 'GLOBAL'` (or canonical domain namespace):
+     $$\text{HK}_{\text{Tier 1/2}} = \text{SHA256}\left(\text{'GLOBAL'} \mathbin{\Vert} \text{Canon}(bk_1) \mathbin{\Vert} \dots \mathbin{\Vert} \text{Canon}(bk_k)\right)$$
+   - **Result**: When Source 1 (`ERP_SAP`) and Source 2 (`CRM_SFDC`) both emit `VAT_ID = 'DE123456789'`, their Hub Hash Keys passive-integrate **automatically into the exact same row in `hub_customer`** with zero table refactoring.
+2. **Tier 3 (`TIER_3_LOCAL_SCOPED`, e.g., local auto-increment `customer_id = '1042'` when no natural key exists in the source)**:
+   - Because `'1042'` in `ERP_SAP` and `'1042'` in `LEGACY_BILLING` are independent sequences that refer to *different* real-world entities, the compiler prefixes the hash input with the system-specific `BKCC` (e.g., `'ERP_SAP'` vs. `'LEGACY_BILLING'`):
+     $$\text{HK}_{\text{Tier 3}} = \text{SHA256}\left(\text{BKCC}_{\text{source}} \mathbin{\Vert} \text{Canon}(bk_{\text{local}})\right)$$
+   - **Result**: Zero cross-system false-positive key collisions in `hub_customer`; cross-system equivalence is later resolved non-destructively via a Business Vault **Same-As Link (`sal_customer`)**.
+

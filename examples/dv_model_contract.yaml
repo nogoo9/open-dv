@@ -1,0 +1,68 @@
+# Annotated Multi-Source Data Vault 2.0 Model Contract (`NoMistakeDataVault2ContractV5`)
+# Schema: ../schemas/no-mistake-dv2-contract-v5.schema.json
+# Note: When `sat_customer_crm` passes through Gate 4 / Algorithm A.1, `director_nric`
+# is automatically split into `sat_customer_crm_pii` due to its `PII_HIGH` classification
+# in the Bronze profile graph, and `column_triage_ledger` is updated in-place.
+
+contract_version: "5.0"
+domain_namespace: "commercial_lending"
+lifecycle_stage: "MULTI_SOURCE_EXPANSION"
+
+column_triage_ledger:
+  - { bronze_table: "bronze_crm.accounts", column_name: "internal_acct_id", elm_classification: "SYSTEM_SURROGATE_DROPPED", target_dv_entity: "DROPPED" }
+  - { bronze_table: "bronze_crm.accounts", column_name: "company_uen", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_customer" }
+  - { bronze_table: "bronze_crm.accounts", column_name: "legal_name", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_customer_crm" }
+  - { bronze_table: "bronze_crm.accounts", column_name: "director_nric", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_customer_crm" }
+  - { bronze_table: "bronze_crm.accounts", column_name: "credit_score_live", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_customer_crm" }
+  - { bronze_table: "bronze_erp.debtors", column_name: "tax_reg_no", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_customer" }
+  - { bronze_table: "bronze_erp.debtors", column_name: "credit_limit_sgd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_customer_erp" }
+  - { bronze_table: "bronze_legacy.tickets", column_name: "legacy_client_no", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_customer" }
+
+hubs:
+  - name: "hub_customer"
+    ontology_concept_uri: "urn:ontology:entity:customer"
+    business_key_sources:
+      - bronze_table: "bronze_crm.accounts"
+        key_columns: ["company_uen"]
+        record_source_code: "SFDC_CRM"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: null
+      - bronze_table: "bronze_erp.debtors"
+        key_columns: ["tax_reg_no"]
+        record_source_code: "SAP_ERP"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: null
+      - bronze_table: "bronze_legacy.tickets"
+        key_columns: ["legacy_client_no"]
+        record_source_code: "LEGACY_TICKET_DB"
+        key_authority_tier: "TIER_3_LOCAL_SCOPED"
+        require_src_qualifier: true
+        bkcc_prefix: "LEGACY_TICKET_DB"
+        system_scoped_bk_justification: "Legacy support DB lacks UEN/Tax ID; scoped via BKCC for Same-As Link resolution."
+
+links: []
+
+satellites:
+  - name: "sat_customer_crm"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_customer"
+    source_bronze_table: "bronze_crm.accounts"
+    security_classification: "INTERNAL"
+    volatility_tier: "UNCLASSIFIED"
+    payload_columns:
+      - "legal_name"
+      - "director_nric"
+      - "credit_score_live"
+  - name: "sat_customer_erp"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_customer"
+    source_bronze_table: "bronze_erp.debtors"
+    security_classification: "INTERNAL"
+    volatility_tier: "STATIC"
+    payload_columns:
+      - "credit_limit_sgd"
+
+reference_tables: []
+unmapped_escalations: []
