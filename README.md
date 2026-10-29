@@ -50,9 +50,9 @@ flowchart TB
         G0["Gate 0: Pre-Flight Profile & Drift (Graph B / Alg A.9a)"]
         G1["Gate 1: JSON Schema, 3-Tier BK & Grain (v5.0 / Alg A.4)"]
         G2["Gate 2: Deterministic Hash & SQLGlot AST (Alg A.5 / A.6)"]
-        G3["Gate 3: NetworkX Bipartite Topology DAG & Evolution Lock (Alg A.7)"]
+        G3["Gate 3: NetworkX Bipartite Topology DAG (spec only) & Evolution Lock (Alg A.7)"]
         G4["Gate 4: YAGNI Write-Amp Cost Guard >= 50 MB/day (Alg A.1)"]
-        G5["Gate 5: 4-Batch DuckDB Adversarial Sandbox (Alg A.9b)"]
+        G5["Gate 5: 4-Batch DuckDB Adversarial Sandbox (spec only) + Unstructured Verifier (Alg A.9b)"]
         G0 --> G1 --> G2 --> G3 --> G4 --> G5
     end
 
