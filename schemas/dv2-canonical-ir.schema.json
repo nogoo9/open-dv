@@ -1,0 +1,735 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-dv.io/schemas/v1/dv2-canonical-ir.schema.json",
+  "title": "Open-DV Data Vault 2.0 Canonical Intermediate Representation (IR)",
+  "description": "Formal JSON Schema (Draft 2020-12) for the open-dv Canonical Intermediate Representation (IR). All semantic modelling agents emit and repair models exclusively against this schema prior to deterministic SQL/dbt compilation.",
+  "type": "object",
+  "required": [
+    "ir_version",
+    "model_name",
+    "hash_config",
+    "system_columns",
+    "hubs",
+    "links",
+    "satellites"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "ir_version": {
+      "type": "string",
+      "enum": ["1.0.0"]
+    },
+    "model_name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "hash_config": {
+      "type": "object",
+      "required": [
+        "algorithm",
+        "storage_type",
+        "delimiter",
+        "null_token_bk",
+        "null_token_payload",
+        "zero_key_unknown_token",
+        "zero_key_error_token"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "type": "string",
+          "enum": ["SHA256", "MD5"]
+        },
+        "storage_type": {
+          "type": "string",
+          "enum": ["BINARY(32)", "CHAR(64)", "BINARY(16)", "CHAR(32)"]
+        },
+        "delimiter": {
+          "type": "string",
+          "minLength": 1
+        },
+        "null_token_bk": {
+          "type": "string",
+          "minLength": 1
+        },
+        "null_token_payload": {
+          "type": "string",
+          "minLength": 1
+        },
+        "zero_key_unknown_token": {
+          "type": "string",
+          "const": "-1"
+        },
+        "zero_key_error_token": {
+          "type": "string",
+          "const": "-2"
+        },
+        "encoding_scheme": {
+          "type": "string",
+          "enum": ["DELIMITER_ESCAPED", "LENGTH_PREFIXED"]
+        }
+      }
+    },
+    "system_columns": {
+      "type": "object",
+      "required": [
+        "load_dts_col",
+        "load_dts_type",
+        "rec_src_col",
+        "rec_src_type",
+        "hash_diff_col"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "load_dts_col": {
+          "type": "string",
+          "const": "load_dts"
+        },
+        "load_dts_type": {
+          "type": "string",
+          "enum": ["TIMESTAMP_NTZ(9)", "TIMESTAMP_NTZ(6)", "TIMESTAMPTZ", "TIMESTAMP"]
+        },
+        "rec_src_col": {
+          "type": "string",
+          "const": "rec_src"
+        },
+        "rec_src_type": {
+          "type": "string",
+          "enum": ["VARCHAR(255)", "VARCHAR(128)", "TEXT"]
+        },
+        "hash_diff_col": {
+          "type": "string",
+          "const": "hash_diff"
+        },
+        "applied_dts_col": {
+          "type": "string"
+        }
+      }
+    },
+    "hubs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "hk_column",
+          "business_keys",
+          "load_dts_column",
+          "rec_src_column",
+          "source_mappings"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^(b?hub)_[a-z0-9_]+$"
+          },
+          "business_concept": {
+            "type": "string"
+          },
+          "verified_global_master_key": {
+            "type": "boolean"
+          },
+          "hk_column": {
+            "type": "object",
+            "required": ["name", "data_type", "nullable", "hash_expression"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^hk_[a-z0-9_]+$"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              },
+              "hash_expression": {
+                "type": "object",
+                "required": ["algorithm", "input_columns", "normalization"],
+                "properties": {
+                  "algorithm": {
+                    "type": "string"
+                  },
+                  "input_columns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  },
+                  "normalization": {
+                    "type": "string",
+                    "enum": ["UPPER_TRIM", "EXACT_TRIM"]
+                  }
+                }
+              }
+            }
+          },
+          "business_keys": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["name", "data_type", "nullable"],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "data_type": {
+                  "type": "string"
+                },
+                "nullable": {
+                  "type": "boolean"
+                },
+                "is_bkcc": {
+                  "type": "boolean"
+                },
+                "is_tenant_id": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "load_dts_column": {
+            "type": "object",
+            "required": ["name", "data_type", "nullable"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              }
+            }
+          },
+          "rec_src_column": {
+            "type": "object",
+            "required": ["name", "data_type", "nullable"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              }
+            }
+          },
+          "extra_columns": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "source_mappings": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["staging_table", "bk_source_columns", "rec_src_value"],
+              "properties": {
+                "staging_table": {
+                  "type": "string"
+                },
+                "bk_source_columns": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "rec_src_value": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "link_type",
+          "hk_column",
+          "hub_references",
+          "load_dts_column",
+          "rec_src_column",
+          "source_mappings"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$"
+          },
+          "link_type": {
+            "type": "string",
+            "enum": [
+              "STANDARD",
+              "HIERARCHICAL",
+              "SAME_AS",
+              "NON_HISTORIZED",
+              "EXPLORATION"
+            ]
+          },
+          "semantic_role": {
+            "type": "string"
+          },
+          "max_recursion_depth": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "cycle_prevention_predicate": {
+            "type": "boolean"
+          },
+          "hk_column": {
+            "type": "object",
+            "required": ["name", "data_type", "nullable", "hash_expression"],
+            "properties": {
+              "name": {
+                "type": "string",
+                "pattern": "^hk_(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              },
+              "hash_expression": {
+                "type": "object",
+                "required": ["algorithm", "input_columns", "normalization"],
+                "properties": {
+                  "algorithm": {
+                    "type": "string"
+                  },
+                  "input_columns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 2
+                  },
+                  "normalization": {
+                    "type": "string",
+                    "enum": ["UPPER_TRIM", "EXACT_TRIM"]
+                  }
+                }
+              }
+            }
+          },
+          "hub_references": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": [
+                "fk_column_name",
+                "target_hub",
+                "target_hk_column",
+                "data_type",
+                "nullable",
+                "role_name"
+              ],
+              "properties": {
+                "fk_column_name": {
+                  "type": "string"
+                },
+                "target_hub": {
+                  "type": "string"
+                },
+                "target_hk_column": {
+                  "type": "string"
+                },
+                "data_type": {
+                  "type": "string"
+                },
+                "nullable": {
+                  "type": "boolean"
+                },
+                "role_name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "degenerate_columns": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "data_type", "nullable"],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "data_type": {
+                  "type": "string"
+                },
+                "nullable": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "immutable_measures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "data_type", "nullable"],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "data_type": {
+                  "type": "string"
+                },
+                "nullable": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "load_dts_column": {
+            "type": "object",
+            "required": ["name", "data_type", "nullable"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              }
+            }
+          },
+          "rec_src_column": {
+            "type": "object",
+            "required": ["name", "data_type", "nullable"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              }
+            }
+          },
+          "source_mappings": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      }
+    },
+    "satellites": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "satellite_type",
+          "parent_entity",
+          "parent_hk_column",
+          "load_dts_column",
+          "rec_src_column",
+          "hash_diff_column",
+          "payload_columns",
+          "source_mapping"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^(sat|bsat|mas|ma_sat|esat|eff_sat|sts|rts)_[a-z0-9_]+$"
+          },
+          "satellite_type": {
+            "type": "string",
+            "enum": [
+              "STANDARD",
+              "BUSINESS",
+              "MULTI_ACTIVE",
+              "EFFECTIVITY",
+              "STATUS_TRACKING",
+              "RECORD_TRACKING"
+            ]
+          },
+          "split_classification": {
+            "type": "string",
+            "enum": ["CORE", "HIGH_VELOCITY", "STATIC", "PII_RESTRICTED", "DERIVED_BV"]
+          },
+          "parent_entity": {
+            "type": "string"
+          },
+          "additional_parents": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "parent_hk_column": {
+            "type": "object",
+            "required": ["name", "target_column", "data_type", "nullable"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "target_column": {
+                "type": "string"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              }
+            }
+          },
+          "child_dependent_keys": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "data_type", "nullable"],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "data_type": {
+                  "type": "string"
+                },
+                "nullable": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "driving_keys": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "load_dts_column": {
+            "type": "object",
+            "required": ["name", "data_type", "nullable"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              }
+            }
+          },
+          "applied_dts_column": {
+            "type": "object",
+            "required": ["name", "data_type", "nullable"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              }
+            }
+          },
+          "rec_src_column": {
+            "type": "object",
+            "required": ["name", "data_type", "nullable"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              }
+            }
+          },
+          "hash_diff_column": {
+            "type": "object",
+            "required": ["name", "data_type", "nullable", "hash_expression"],
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "data_type": {
+                "type": "string"
+              },
+              "nullable": {
+                "type": "boolean"
+              },
+              "hash_expression": {
+                "type": "object",
+                "required": ["algorithm", "input_columns", "normalization"],
+                "properties": {
+                  "algorithm": {
+                    "type": "string"
+                  },
+                  "input_columns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  },
+                  "normalization": {
+                    "type": "string",
+                    "enum": ["EXACT_TRIM", "UPPER_TRIM"]
+                  }
+                }
+              }
+            }
+          },
+          "hash_diff_migration_policy": {
+            "type": "string",
+            "enum": ["SPLIT_NEW_SATELLITE", "NULL_EQUIVALENT_PADDING", "VERSIONED_CUTOVER"]
+          },
+          "payload_columns": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["name", "data_type", "nullable"],
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "data_type": {
+                  "type": "string"
+                },
+                "nullable": {
+                  "type": "boolean"
+                }
+              }
+            }
+          },
+          "source_mapping": {
+            "type": "object",
+            "required": ["staging_table", "rec_src_value"],
+            "properties": {
+              "staging_table": {
+                "type": "string"
+              },
+              "rec_src_value": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    },
+    "pit_tables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "parent_entity", "as_of_dts_column", "tracked_satellites"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^pit_[a-z0-9_]+$"
+          },
+          "parent_entity": {
+            "type": "string"
+          },
+          "as_of_dts_column": {
+            "type": "string",
+            "const": "as_of_dts"
+          },
+          "snapshot_window_policy": {
+            "type": "string",
+            "enum": ["DAILY", "LOGARITHMIC", "CHANGE_DRIVEN"]
+          },
+          "tracked_satellites": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "bridge_tables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "traversed_hubs", "traversed_links"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^brg_[a-z0-9_]+$"
+          },
+          "as_of_dts_column": {
+            "type": "string"
+          },
+          "traversed_hubs": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "string"
+            }
+          },
+          "traversed_links": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "reference_tables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "natural_code_column", "satellites"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^ref_[a-z0-9_]+$"
+          },
+          "natural_code_column": {
+            "type": "string"
+          },
+          "satellites": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^sat_ref_[a-z0-9_]+$"
+            }
+          }
+        }
+      }
+    }
+  }
+}
