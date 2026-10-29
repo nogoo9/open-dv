@@ -918,11 +918,11 @@ All SQL DDL, Ghost Record / Zero Key mechanics, Point-in-Time (PIT) `INNER JOIN`
 
 ```text
 === 1. Verifying Canonical Hashing Invariants ===
-[PASS] Boundary shift test: ('AB','C') != ('A','BC') -> DC884A66743E... != 20DCF2CD1398...
-[PASS] Delimiter escaping test: literal '||' escaped distinctly from structural delimiter
-[PASS] Null token & whitespace normalization: NULL != literal '^^', '   ' == NULL
-[PASS] Case rules: Hub HK case-insensitive (BF37CBAE2FE0...), Sat hash_diff case-sensitive
-[PASS] BKCC separation: ERP_EU:1001 (2AB9AACD2E2B...) != CRM_US:1001 (8E9C2A64CD5F...)
+[PASS] Boundary shift test: ('AB','C') != ('A','BC') -> EAE8AB373CC2... != 99E84ADB7781...
+[PASS] Delimiter collision test: ('A||B','C') != ('A','B||C') -> D9FDF36C4CA5... != 51F862F146CB...
+[PASS] Null token & whitespace normalization: NULL (EE5D60B1DDCD...) != literal '^^' (CA897E108AA9...), '   ' == NULL
+[PASS] Case rules: Hub HK case-insensitive 'c100' == 'C100' (E845CF90829B...), Sat hash_diff case-sensitive 'Alice' (8ED1AD0E39F7...) != 'ALICE' (3EB89F886BB0...)
+[PASS] BKCC separation: ERP_EU:1001 (10F4C55289B8...) != CRM_US:1001 (C5E2AA498415...)
 
 === 2. Verifying Core Entities, PIT/Bridge & Ghost Record SQL Execution ===
 [PASS] PIT + Ghost Record INNER Equi-Join resolved all 3 temporal slices accurately:
