@@ -85,7 +85,7 @@ flowchart TB
 
 ## Validating the JSON Schemas
 
-To verify that both JSON Schema Draft 2020-12 specifications parse cleanly:
+The [CI workflow](.github/workflows/ci.yml) is the authoritative validation suite: it runs on every pull request and checks both JSON Schemas against Draft 2020-12, validates `examples/dv_model_contract.yaml` against the contract schema, compiles every `python` code fence in `docs/`, and confirms that the HTML reference guide is present. For a quick local check that both schemas parse:
 
 ```bash
 python3 -m json.tool schemas/dv2-canonical-ir.schema.json > /dev/null
