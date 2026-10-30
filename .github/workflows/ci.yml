@@ -53,12 +53,16 @@ jobs:
           Draft202012Validator(contract_schema).validate(contract_doc)
           print("[PASS] examples/dv_model_contract.yaml conforms to schemas/no-mistake-dv2-contract-v5.schema.json")
 
-          doc05 = pathlib.Path("docs/05-elm-calculus-and-reference-algorithms.md").read_text(encoding="utf-8")
-          py_blocks = re.findall(r"```python\n(.*?)```", doc05, flags=re.DOTALL)
-          assert len(py_blocks) >= 5, f"Expected >= 5 Python algorithm blocks, found {len(py_blocks)}"
-          for idx, block in enumerate(py_blocks, 1):
-              compile(block, f"docs/05-block-{idx}.py", "exec")
-          print(f"[PASS] Compiled {len(py_blocks)} Python algorithm blocks in docs/05-elm-calculus-and-reference-algorithms.md")
+          total_blocks = 0
+          for md_path in sorted(glob.glob("docs/**/*.md", recursive=True)):
+              text = pathlib.Path(md_path).read_text(encoding="utf-8")
+              py_blocks = re.findall(r"```python\n(.*?)```", text, flags=re.DOTALL)
+              for idx, block in enumerate(py_blocks, 1):
+                  compile(block, f"{md_path}-block-{idx}.py", "exec")
+              if py_blocks:
+                  print(f"[PASS] Compiled {len(py_blocks)} Python blocks in {md_path}")
+              total_blocks += len(py_blocks)
+          assert total_blocks >= 11, f"Expected >= 11 Python reference blocks across docs/, found {total_blocks}"
 
           html_ref = pathlib.Path(
               "docs/references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html"
