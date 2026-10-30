@@ -9,7 +9,7 @@ lifecycle_stage: "MULTI_SOURCE_EXPANSION"
 column_triage_ledger:
   # --- TABLE 1: investran.src_pe_funds (INVESTRAN_FUND_ADMIN) ---
   - { bronze_table: "investran.src_pe_funds", column_name: "fund_code", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_fund" }
-  - { bronze_table: "investran.src_pe_funds", column_name: "isin", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_fund" }
+  - { bronze_table: "investran.src_pe_funds", column_name: "isin", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_fund_investran" }
   - { bronze_table: "investran.src_pe_funds", column_name: "fund_name", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_fund_investran" }
   - { bronze_table: "investran.src_pe_funds", column_name: "vintage_year", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_fund_investran" }
   - { bronze_table: "investran.src_pe_funds", column_name: "target_size_usd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_fund_investran" }
@@ -20,7 +20,7 @@ column_triage_ledger:
 
   # --- TABLE 2: investran.src_lp_investors (INVESTRAN_FUND_ADMIN) ---
   - { bronze_table: "investran.src_lp_investors", column_name: "row_seq_id", elm_classification: "SYSTEM_SURROGATE_DROPPED", target_dv_entity: "DROPPED" }
-  - { bronze_table: "investran.src_lp_investors", column_name: "lei", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_limited_partner" }
+  - { bronze_table: "investran.src_lp_investors", column_name: "lei", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_investran" }
   - { bronze_table: "investran.src_lp_investors", column_name: "lp_id", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_limited_partner" }
   - { bronze_table: "investran.src_lp_investors", column_name: "lp_legal_name", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_investran" }
   - { bronze_table: "investran.src_lp_investors", column_name: "domicile_country", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_investran" }
@@ -42,7 +42,7 @@ column_triage_ledger:
 
   # --- TABLE 4: dealcloud.src_portfolio_companies (DEALCLOUD_PE_CRM) ---
   - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "lei", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_portfolio_company" }
-  - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "deal_code", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_portfolio_company" }
+  - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "deal_code", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_portfolio_company_dealcloud" }
   - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "company_name", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_portfolio_company_dealcloud" }
   - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "sector", elm_classification: "REFERENCE_CODE", target_dv_entity: "ref_industry_sector" }
   - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "entry_ebitda_usd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_portco_valuation_mnpi" }
@@ -61,16 +61,41 @@ column_triage_ledger:
   - { bronze_table: "dms.documents", column_name: "mime_type", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_document_manifest" }
   - { bronze_table: "dms.documents", column_name: "byte_size", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_document_manifest" }
 
+  # --- TABLE 6: mdm.src_lp_steward_crosswalk (MDM_STEWARD_RESOLUTION) ---
+  - { bronze_table: "mdm.src_lp_steward_crosswalk", column_name: "master_lp_id", elm_classification: "FOREIGN_KEY_REF", target_dv_entity: "sal_limited_partner" }
+  - { bronze_table: "mdm.src_lp_steward_crosswalk", column_name: "lp_num", elm_classification: "FOREIGN_KEY_REF", target_dv_entity: "sal_limited_partner" }
+
+  # --- SCOUT-UNSTRUCTURED OUTPUT: dms.src_side_letter_extractions (OBJECT_STORE_S3) ---
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "doc_uri", elm_classification: "FOREIGN_KEY_REF", target_dv_entity: "lnk_document_lp_commitment" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "fund_code", elm_classification: "FOREIGN_KEY_REF", target_dv_entity: "lnk_document_lp_commitment" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "lp_id", elm_classification: "FOREIGN_KEY_REF", target_dv_entity: "lnk_document_lp_commitment" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "fee_cap_bps", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_side_letter_llm_ext" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "headline_fee_bps", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_side_letter_llm_ext" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "mfn_election_flag", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_side_letter_llm_ext" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "co_invest_rofr", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_side_letter_llm_ext" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "effective_date", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_side_letter_llm_ext" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "extractor_model_id", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_side_letter_llm_ext" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "confidence_score", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_side_letter_llm_ext" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "chunk_id", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_side_letter_llm_ext" }
+  - { bronze_table: "dms.src_side_letter_extractions", column_name: "evidence_quote", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_side_letter_llm_ext" }
+
+  # --- SCOUT-UNSTRUCTURED OUTPUT: dms.src_ic_memo_extractions (OBJECT_STORE_S3) ---
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "doc_uri", elm_classification: "FOREIGN_KEY_REF", target_dv_entity: "lnk_document_portfolio_company" }
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "lei", elm_classification: "FOREIGN_KEY_REF", target_dv_entity: "lnk_document_portfolio_company" }
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "asc_820_level", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lnk_doc_portco_ai_provenance" }
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "ev_ebitda_multiple", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lnk_doc_portco_ai_provenance" }
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "implied_ev_usd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lnk_doc_portco_ai_provenance" }
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "fair_value_usd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lnk_doc_portco_ai_provenance" }
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "effective_date", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lnk_doc_portco_ai_provenance" }
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "extractor_model_id", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lnk_doc_portco_ai_provenance" }
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "confidence_score", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lnk_doc_portco_ai_provenance" }
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "chunk_id", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lnk_doc_portco_ai_provenance" }
+  - { bronze_table: "dms.src_ic_memo_extractions", column_name: "evidence_quote", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lnk_doc_portco_ai_provenance" }
+
 hubs:
   - name: "hub_fund"
     ontology_concept_uri: "urn:ontology:entity:fund"
     business_key_sources:
-      - bronze_table: "investran.src_pe_funds"
-        key_columns: ["isin"]
-        record_source_code: "INVESTRAN_FUND_ADMIN"
-        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
-        require_src_qualifier: false
-        bkcc_prefix: null
       - bronze_table: "investran.src_pe_funds"
         key_columns: ["fund_code"]
         record_source_code: "INVESTRAN_FUND_ADMIN"
@@ -81,12 +106,6 @@ hubs:
   - name: "hub_limited_partner"
     ontology_concept_uri: "urn:ontology:entity:limited_partner"
     business_key_sources:
-      - bronze_table: "investran.src_lp_investors"
-        key_columns: ["lei"]
-        record_source_code: "INVESTRAN_FUND_ADMIN"
-        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
-        require_src_qualifier: false
-        bkcc_prefix: null
       - bronze_table: "investran.src_lp_investors"
         key_columns: ["lp_id"]
         record_source_code: "INVESTRAN_FUND_ADMIN"
@@ -108,12 +127,6 @@ hubs:
         key_columns: ["lei"]
         record_source_code: "DEALCLOUD_PE_CRM"
         key_authority_tier: "TIER_1_GLOBAL_STANDARD"
-        require_src_qualifier: false
-        bkcc_prefix: null
-      - bronze_table: "dealcloud.src_portfolio_companies"
-        key_columns: ["deal_code"]
-        record_source_code: "DEALCLOUD_PE_CRM"
-        key_authority_tier: "TIER_2_ENTERPRISE_SOR"
         require_src_qualifier: false
         bkcc_prefix: null
 
@@ -158,19 +171,21 @@ links:
   - name: "sal_limited_partner"
     link_type: "SAME_AS_LINK"
     ontology_concept_uri: "urn:ontology:relationship:entity_equivalence"
-    source_bronze_table: "legacy_gp.src_legacy_lp_roster"
+    source_bronze_table: "mdm.src_lp_steward_crosswalk"
     hub_references:
       - target_hub: "hub_limited_partner"
         role_alias: "MASTER_LP"
-        source_fk_columns: ["lp_id"]
+        # master_lp_id hashes under BKCC GLOBAL, the same key as the Tier-2 lp_id source.
+        source_fk_columns: ["master_lp_id"]
       - target_hub: "hub_limited_partner"
         role_alias: "DUPLICATE_ALIAS_LP"
+        # lp_num hashes under bkcc_prefix LEGACY_GP_ADMIN, the same key as the Tier-3 lp_num source.
         source_fk_columns: ["lp_num"]
 
   - name: "lnk_document_lp_commitment"
     link_type: "UNSTRUCTURED_EXTRACTION_LINK"
     ontology_concept_uri: "urn:ontology:relationship:side_letter_provenance"
-    source_bronze_table: "dms.documents"
+    source_bronze_table: "dms.src_side_letter_extractions"
     hub_references:
       - target_hub: "hub_document"
         role_alias: "GOVERNING_SIDE_LETTER"
@@ -185,7 +200,7 @@ links:
   - name: "lnk_document_portfolio_company"
     link_type: "UNSTRUCTURED_EXTRACTION_LINK"
     ontology_concept_uri: "urn:ontology:relationship:document_entity_mention"
-    source_bronze_table: "dms.documents"
+    source_bronze_table: "dms.src_ic_memo_extractions"
     hub_references:
       - target_hub: "hub_document"
         role_alias: "SOURCE_DOCUMENT"
@@ -203,6 +218,7 @@ satellites:
     volatility_tier: "STATIC"
     soft_deprecated_columns: ["deprecated_fax_no"]
     payload_columns:
+      - "isin"
       - "fund_name"
       - "vintage_year"
       - "target_size_usd"
@@ -225,6 +241,7 @@ satellites:
     security_classification: "INTERNAL"
     volatility_tier: "STATIC"
     payload_columns:
+      - "lei"
       - "lp_legal_name"
       - "domicile_country"
       - "tier_status"
@@ -260,6 +277,7 @@ satellites:
     security_classification: "INTERNAL"
     volatility_tier: "STATIC"
     payload_columns:
+      - "deal_code"
       - "company_name"
       - "gp_deal_partner"
 
@@ -291,34 +309,42 @@ satellites:
     security_classification: "INTERNAL"
     volatility_tier: "STATIC"
     payload_columns:
+      - "content_sha256"
       - "mime_type"
       - "byte_size"
 
   - name: "sat_lp_side_letter_llm_ext"
     satellite_type: "AI_PROVENANCE_SATELLITE"
     parent_entity: "lnk_document_lp_commitment"
-    source_bronze_table: "dms.documents"
+    source_bronze_table: "dms.src_side_letter_extractions"
     security_classification: "CONFIDENTIAL"
     volatility_tier: "STANDARD"
     payload_columns:
       - "fee_cap_bps"
+      - "headline_fee_bps"
       - "mfn_election_flag"
-      - "co_invest_fee_carry_pct"
+      - "co_invest_rofr"
       - "effective_date"
       - "extractor_model_id"
       - "confidence_score"
       - "chunk_id"
-      - "source_quote"
+      - "evidence_quote"
 
   - name: "sat_lnk_doc_portco_ai_provenance"
     satellite_type: "AI_PROVENANCE_SATELLITE"
     parent_entity: "lnk_document_portfolio_company"
-    source_bronze_table: "dms.documents"
-    security_classification: "INTERNAL"
+    source_bronze_table: "dms.src_ic_memo_extractions"
+    security_classification: "CONFIDENTIAL"
     volatility_tier: "STANDARD"
     payload_columns:
+      - "asc_820_level"
+      - "ev_ebitda_multiple"
+      - "implied_ev_usd"
+      - "fair_value_usd"
+      - "effective_date"
       - "extractor_model_id"
       - "confidence_score"
+      - "chunk_id"
       - "evidence_quote"
 
 reference_tables:

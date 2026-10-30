@@ -193,7 +193,7 @@ When data architects and domain stewards inspect raw multi-agent Data Vault 2.0 
 
 | # | Cognitive-Load Bottleneck | Failure Mode in Unfiltered Agent Output | Architectural Resolution in `open-dv` |
 | :--- | :--- | :--- | :--- |
-| **1** | **Cryptographic String Fatigue** | Displaying raw 64-character SHA-256 digests (`8F1A9C02D4B7E113...`) in topology diagrams, diff tables, and staging previews makes it impossible to visually trace which row belongs to *CalPERS* vs. *Bavarian Pension Reserve Fund*. | **Semantic Hash Pills (`[HK: prefix..suffix \| BKCC:Key Label]`):** All Layer-2 canvases render compact, color-coded pills (e.g., `[HK: 8f1a..7021 \| GLOBAL:LP-101 CalPERS]`). Full 64-hex digests appear only on hover or inside Layer 3. |
+| **1** | **Cryptographic String Fatigue** | Displaying raw 64-character SHA-256 digests (`5D15EB10C8D7621D...`) in topology diagrams, diff tables, and staging previews makes it impossible to visually trace which row belongs to *CalPERS* vs. *Bavarian Pension Reserve Fund*. | **Semantic Hash Pills (`[HK: prefix..suffix \| BKCC:Key Label]`):** All Layer-2 canvases render compact, color-coded pills (e.g., `[HK: 5d15..0ae4 \| GLOBAL:LP-101 CalPERS]`). Full 64-hex digests appear only on hover or inside Layer 3. |
 | **2** | **Mathematical & Set-Theory Notation Overload** | Exposing raw formulas ($\mathcal{I}(A.x \subseteq B.y) \ge 0.99$, $W_{\text{amp}} = R_{\text{daily}} \times P(\Delta C_{\text{high}}) \times B_{\text{low}}$, $S_{\text{er}} = 0.45\,\text{cos} + 0.35\,\text{JW} + 0.20\,\mathbb{I}_{\text{type}}$) on primary UI cards alienates business SMEs and slows down review. | **Plain-English Executive Story Banner (Layer 1):** Every view opens with a 1-sentence plain-English headline and business-impact summary; formal formulas are tucked inside the **Layer 3 Formal Proof Drawer**. |
 | **3** | **55-Badge Verification Overload** | Rendering all 55+ `DV-STR`, `DV-COL`, `DV-AST`, `DV-DYN`, and `DV-EVO` rule IDs simultaneously as a flat wall of badges buries the 1 or 2 active violations that actually occurred. | **Exception-First Hierarchical Scorecards:** Passing rule families collapse into a single green summary pill (`Gate 2 Topology: 14/14 PASS`). Only active `AUTO-FIX`, `REJECT-WITH-TRACE`, or `ASK-USER` exceptions expand automatically. |
 | **4** | **17-Panel Context Switching** | Treating 9 pipeline step views (`VIZ-PIPE-00`, `VIZ-STEP-01..08`) and 8 constraint/gate views (`VIZ-GATE-01..08`) as 17 disconnected screens forces users to jump back and forth between *what the agent built* and *why the gate approved or repaired it*. | **Harmonized 12-View Workbench (`WB-00` through `WB-11`):** Every gate visualization is embedded directly into the step canvas where that constraint is evaluated (see Table 2.2). |
@@ -213,7 +213,7 @@ Every screen in the `open-dv` Explainability & Observability Workbench strictly 
 |  • Business Impact Subtitle (<= 200 chars): Why this matters to auditability / cost  |
 +======================================================================================+
 | LAYER 2: INTERACTIVE VISUAL CANVAS (30-Second Inspection — Default Workspace)        |
-|  • Semantic Hash Pills: [HK: 8f1a..7021 | GLOBAL:LP-101 CalPERS]                     |
+|  • Semantic Hash Pills: [HK: 5d15..0ae4 | GLOBAL:LP-101 CalPERS]                     |
 |  • WCAG AA Dual-Encoded Topology Nodes (Shape + Color + Prefix Badge)                |
 |  • Exception-First Rule Family Pills & Visual Threshold Gauges                       |
 +======================================================================================+
@@ -228,11 +228,11 @@ Every screen in the `open-dv` Explainability & Observability Workbench strictly 
 #### Semantic Hash Pill Grammar & WCAG AA Visual Encoding
 
 1. **Semantic Hash Pill Format:**
-   $$\texttt{[}\underbrace{\texttt{HK} \mid \texttt{LHK} \mid \texttt{HD}}_{\text{Digest Role}}\texttt{: }\underbrace{\texttt{8f1a..7021}}_{\text{First 4 .. Last 4 Hex}}\texttt{ | }\underbrace{\texttt{GLOBAL} \mid \texttt{LEGACY\_GP\_ADMIN}}_{\text{BKCC Namespace}}\texttt{:}\underbrace{\texttt{LP-101}}_{\text{Natural Key}}\texttt{ }\underbrace{\texttt{CalPERS}}_{\text{Human Label}}\texttt{]}$$
+   $$\texttt{[}\underbrace{\texttt{HK} \mid \texttt{LHK} \mid \texttt{HD}}_{\text{Digest Role}}\texttt{: }\underbrace{\texttt{5d15..0ae4}}_{\text{First 4 .. Last 4 Hex}}\texttt{ | }\underbrace{\texttt{GLOBAL} \mid \texttt{LEGACY\_GP\_ADMIN}}_{\text{BKCC Namespace}}\texttt{:}\underbrace{\texttt{LP-101}}_{\text{Natural Key}}\texttt{ }\underbrace{\texttt{CalPERS}}_{\text{Human Label}}\texttt{]}$$
    - **Special System Keys:**
      - Ghost Record (`0x00..00` at `1900-01-01T00:00:00Z`): `[GHOST: 0000..0000 | SYSTEM_GHOST (1900-01-01)]`
-     - Missing / Unknown Zero Key (`-1`): `[ZERO-KEY: e3b0..b855 | UNKNOWN (-1)]`
-     - Unresolved Error Zero Key (`-2`): `[ERR-KEY: 9f86..0a08 | ERROR (-2)]`
+     - Missing / Unknown Zero Key (`-1`): `[ZERO-KEY: 6d4b..18b9 | UNKNOWN (-1)]`
+     - Unresolved Error Zero Key (`-2`): `[ERR-KEY: c13f..f31c | ERROR (-2)]`
 
 2. **WCAG AA Dual-Encoded Entity & Verdict Grammar (Shape + Color + Text Prefix):**
    Never rely on color alone. Every node and status badge combines a distinct geometric shape, an accessible WCAG AA color palette, and an explicit text prefix:
@@ -280,15 +280,16 @@ To guarantee zero ambiguity across all wireframes in Section 3, Section 4, and [
 
 | Business Concept | Source System (`rsrc`) | Authority Tier & `BKCC` | Natural Key Value | Pre-Hash Canonical String (`Algorithm A.5`) | Verified SHA-256 Hex Prefix..Suffix | Layer-2 Semantic Hash Pill |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **Fund IV** (*Apex Buyout Fund IV LP*) | `INVESTRAN_FUND_ADMIN` | Tier-2 (`GLOBAL`) | `APEX_BO_IV` | `6:GLOBAL\|\|10:APEX_BO_IV` | `EC6E299E..075F8B2F` | `[HK: EC6E..8B2F \| GLOBAL:APEX_BO_IV Fund IV]` |
-| **Fund I Co-Invest** (*Apex Co-Invest Fund I LP*) | `INVESTRAN_FUND_ADMIN` | Tier-2 (`GLOBAL`) | `APEX_CO_I` | `6:GLOBAL\|\|9:APEX_CO_I` | `9B9C8640..8471EC82` | `[HK: 9B9C..EC82 \| GLOBAL:APEX_CO_I Co-Invest I]` |
-| **CalPERS** (Tier-1 Global LEI) | `INVESTRAN_FUND_ADMIN` | Tier-1 (`GLOBAL`) | `5493006MHB84DD0ZWV18` | `6:GLOBAL\|\|20:5493006MHB84DD0ZWV18` | `D390425F..9AE67A49` | `[HK: D390..7A49 \| GLOBAL:5493006M..ZV18 CalPERS]` |
-| **CalPERS** (Tier-2 Investran SOR Key) | `INVESTRAN_FUND_ADMIN` | Tier-2 (`GLOBAL`) | `LP-101` | `6:GLOBAL\|\|6:LP-101` | `5D15EB10..4B820AE4` *(or `8F1A..7021` on raw `"LP-101"`)* | `[HK: 5D15..0AE4 \| GLOBAL:LP-101 CalPERS]` |
-| **Bavarian Pension Reserve Fund** (Colliding Local Key `101`) | `LEGACY_GP_ADMIN` | Tier-3 (`LEGACY_GP_ADMIN`) | `101` | `15:LEGACY_GP_ADMIN\|\|3:101` | `0FF0EE0C..AC899095` *(or `3B8C..24AB` on `"LEGACY_GP_ADMIN\|\|101"`)* | `[HK: 0FF0..9095 \| LEGACY_GP_ADMIN:101 Bavarian Pension]` |
+| **Fund IV** (*Apex Buyout Fund IV LP*) | `INVESTRAN_FUND_ADMIN` | Tier-2 (`GLOBAL`) | `APEX_BO_IV` | `6:GLOBAL\|\|10:APEX_BO_IV` | `94A60FCD..1D388759` | `[HK: 94A6..8759 \| GLOBAL:APEX_BO_IV Fund IV]` |
+| **Fund I Co-Invest** (*Apex Co-Invest Fund I LP*) | `INVESTRAN_FUND_ADMIN` | Tier-2 (`GLOBAL`) | `APEX_CO_I` | `6:GLOBAL\|\|9:APEX_CO_I` | `E77712A2..499E4C7E` | `[HK: E777..4C7E \| GLOBAL:APEX_CO_I Co-Invest I]` |
+| **CalPERS** (Hub Master Key)  | `INVESTRAN_FUND_ADMIN` | Tier-2 (`GLOBAL`) | `LP-101` | `6:GLOBAL\|\|6:LP-101` | `5D15EB10..4B820AE4` | `[HK: 5D15..0AE4 \| GLOBAL:LP-101 CalPERS]` |
+| **Bavarian Pension Reserve Fund** (Colliding Local Key `101`) | `LEGACY_GP_ADMIN` | Tier-3 (`LEGACY_GP_ADMIN`) | `101` | `15:LEGACY_GP_ADMIN\|\|3:101` | `0FF0EE0C..AC899095` | `[HK: 0FF0..9095 \| LEGACY_GP_ADMIN:101 Bavarian Pension]` |
+| **Nordic Sovereign Pension Fund** (SAL Master) | `INVESTRAN_FUND_ADMIN` | Tier-2 (`GLOBAL`) | `LP-104` | `6:GLOBAL\|\|6:LP-104` | `970AE134..561E5106` | `[HK: 970A..5106 \| GLOBAL:LP-104 Nordic Sovereign]` |
+| **Nordisk Suverän Fond** (SAL Alias) | `LEGACY_GP_ADMIN` | Tier-3 (`LEGACY_GP_ADMIN`) | `102` | `15:LEGACY_GP_ADMIN\|\|3:102` | `0F313828..C6FFE17B` | `[HK: 0F31..E17B \| LEGACY_GP_ADMIN:102 Nordisk Fond]` |
 | **Nordic Cloud SaaS AB** (Portfolio Company) | `DEALCLOUD_PE_CRM` | Tier-1 (`GLOBAL`) | `529900T8BM49AURSDO55` | `6:GLOBAL\|\|20:529900T8BM49AURSDO55` | `0C1850CA..39B0454E` | `[HK: 0C18..454E \| GLOBAL:529900T8..DO55 Nordic Cloud]` |
-| **CalPERS Fund IV Commitment Link** | `INVESTRAN_FUND_ADMIN` | Link (`GLOBAL`) | `APEX_BO_IV` + `LP-101` | `6:GLOBAL\|\|10:APEX_BO_IV\|\|6:LP-101` | `7E1B6C04..A4C0C319` | `[LHK: 7E1B..C319 \| Fund IV <-> CalPERS]` |
-| **CalPERS Side Letter PDF** | `OBJECT_STORE_S3` | Tier-2 (`GLOBAL`) | `s3://.../calpers_side_letter_fund_iv_2026.pdf` | `6:GLOBAL\|\|82:S3://.../CALPERS_SIDE_LETTER_FUND_IV_2026.PDF` | `9F86D081..B0F00A08` | `[HK: 9F86..0A08 \| S3:calpers_side_letter.pdf]` |
-| **Nordic Cloud Q3 IC Valuation Memo PDF** | `OBJECT_STORE_S3` | Tier-2 (`GLOBAL`) | `s3://.../ic_q3_valuation_nordic_cloud.pdf` | `6:GLOBAL\|\|77:S3://.../IC_Q3_VALUATION_NORDIC_CLOUD.PDF` | `4B227777..ACDABF8A` | `[HK: 4B22..BF8A \| S3:ic_q3_nordic_cloud.pdf]` |
+| **CalPERS Fund IV Commitment Link** | `INVESTRAN_FUND_ADMIN` | Link (`GLOBAL`) | `APEX_BO_IV` + `LP-101` | `6:GLOBAL\|\|10:APEX_BO_IV\|\|6:LP-101` | `495998B1..6A55C533` | `[LHK: 4959..C533 \| Fund IV <-> CalPERS]` |
+| **CalPERS Side Letter PDF** | `OBJECT_STORE_S3` | Tier-2 (`GLOBAL`) | `s3://.../calpers_side_letter_fund_iv_2026.pdf` | `6:GLOBAL\|\|81:S3://.../CALPERS_SIDE_LETTER_FUND_IV_2026.PDF` | `864D5083..E502EE6B` | `[HK: 864D..EE6B \| S3:calpers_side_letter.pdf]` |
+| **Nordic Cloud Q3 IC Valuation Memo PDF** | `OBJECT_STORE_S3` | Tier-2 (`GLOBAL`) | `s3://.../ic_q3_valuation_nordic_cloud.pdf` | `6:GLOBAL\|\|75:S3://.../IC_Q3_VALUATION_NORDIC_CLOUD.PDF` | `99D8178E..88F04158` | `[HK: 99D8..4158 \| S3:ic_q3_nordic_cloud.pdf]` |
 | **System Ghost Record** (`1900-01-01 00:00:00`) | `SYSTEM_GHOST` | Ghost (`0x00..00`) | `'00' * 32` | Fixed 64-zero hex seed | `00000000..00000000` | `[GHOST: 0000..0000 \| SYSTEM_GHOST (1900-01-01)]` |
 
 ---
@@ -306,7 +307,7 @@ This section specifies the nine pipeline and step visualizations across the five
 
 #### 3-Layer Progressive Disclosure Specification (`VIZ-PIPE-00`)
 - **Layer 1 (Executive Story Banner):**
-  - *Headline:* `"Apex Horizon PE Vault: 4 Sources Onboarded, 44 Bronze Columns Audited (100%), 2 Self-Healed Exceptions, 1 Captain Hold."`
+  - *Headline:* `"Apex Horizon PE Vault: 5 Sources Onboarded, 67 Bronze Columns Audited (100%), 2 Self-Healed Exceptions, 1 Captain Hold."`
   - *Business Impact:* `"All 4 Hubs, 5 Links, and 11 Satellites verified across 81 formal invariants; 4-Zone DuckDB SQL compiled with zero drift loss."`
   - *Verdict Pill:* `[PASS]` *(with `[1 ASK-USER HOLD]` badge on `Tier-U3` PDF span)*
 - **Layer 2 (Interactive Visual Canvas):**
@@ -338,13 +339,13 @@ flowchart LR
 ```
 +====================================================================================================+
 | WB-00: MASTER PIPELINE COMMAND CENTER (VIZ-PIPE-00 + VIZ-GATE-01)                    [PASS | 81/81]|
-| Story: Apex Horizon PE Vault compiled across 4 sources (44/44 cols accounted; 2 healed; 1 U3 hold) |
+| Story: Apex Horizon PE Vault compiled across 5 sources (67/67 cols accounted; 2 healed; 1 U3 hold) |
 +----------------------------------------------------------------------------------------------------+
 | ACTIVE WAVE: (o) All Waves Combined  ( ) Wave 1: Cold-Start N=1  ( ) Wave 2: N=2  ( ) Wave 3: Drift|
 |                                                                                                    |
 |  [STAGE 00] ---> [STAGE 01] ---> [STAGE 02] ---> [STAGE 03] ---> [STAGE 04] ---> [STAGE 05/06]     |
 |  First Mate      scout-source    scout-unstruct  ship Pass 1     ship Pass 2     axi-dv 6-Gates    |
-|  Graph A<->B     4 Tables, 40c   2 PDFs, 16 sp   44/44 Triage    4H, 5L, 11S     2 Healed, 1 Hold  |
+|  Graph A<->B     7 Tables, 44c   2 PDFs, 12 sp   67/67 Triage    4H, 5L, 11S     2 Healed, 1 Hold  |
 |   [WB-01 ●]       [WB-02/09 ●]    [WB-03 ▲]       [WB-04 ●]       [WB-05 ●]       [WB-06..10 ◆]    |
 |                                                                                         |          |
 |                                                                                         v          |
@@ -365,7 +366,7 @@ flowchart LR
 
 #### 3-Layer Progressive Disclosure Specification (`VIZ-STEP-01`)
 - **Layer 1 (Executive Story Banner):**
-  - *Headline:* `"Grounded 6 Bronze tables across 4 PE systems onto 4 Enterprise Business Concepts (80.0% Ontology Coverage; 0 Unmapped Tables)."`
+  - *Headline:* `"Grounded 9 Bronze tables across 5 PE systems onto 4 Enterprise Business Concepts (80.0% Ontology Coverage; 0 Unmapped Tables)."`
   - *Business Impact:* `"investran.src_lp_investors and legacy_gp.src_legacy_lp_roster converge on urn:ontology:entity:limited_partner, preventing siloed source-specific Hubs."`
   - *Verdict Pill:* `[PASS]`
 - **Layer 2 (Interactive Visual Canvas):**
@@ -380,33 +381,34 @@ flowchart LR
 ```
 +====================================================================================================+
 | WB-01: DUAL-GRAPH GROUNDING INSPECTOR (VIZ-STEP-01)                                        [PASS ●]|
-| Story: 6 Bronze tables grounded onto 4 Enterprise CBCs; multi-source LPs unified into 1 Hub.       |
+| Story: 9 Bronze tables grounded onto 4 Enterprise CBCs; multi-source LPs unified into 1 Hub.       |
 +----------------------------------------------------------------------------------------------------+
 | GRAPH A: ENTERPRISE CBC ONTOLOGY (Top-Down)        GRAPH B: EMPIRICAL BRONZE PROFILE (Bottom-Up)   |
-| [Coverage: 4/5 Active CBCs | 0 Phantom Hubs]       [4 Source Systems | 6 Tables | 44 Columns]      |
+| [Coverage: 4/5 Active CBCs | 0 Phantom Hubs]       [5 Source Systems | 9 Tables | 67 Columns]      |
 |                                                                                                    |
 |  +---------------------------------------+          +-------------------------------------------+  |
 |  | [CBC] urn:ontology:entity:fund        | <======= | investran.src_pe_funds (9 cols, 3 rows)   |  |
-|  |  Tier-1: ISIN | Tier-2: fund_code     |          +-------------------------------------------+  |
+|  |  Hub key: fund_code | Alt: ISIN       |          +-------------------------------------------+  |
 |  +---------------------------------------+                                                         |
 |                                                     +-------------------------------------------+  |
 |  +---------------------------------------+ <======= | investran.src_lp_investors (8 cols)       |  |
 |  | [CBC] urn:ontology:entity:            |          +-------------------------------------------+  |
 |  |       limited_partner                 |          +-------------------------------------------+  |
-|  |  Tier-1: LEI | Tier-2: lp_id          | <======= | legacy_gp.src_legacy_lp_roster (4 cols)   |  |
+|  |  Hub key: lp_id | Alt: LEI            | <======= | legacy_gp.src_legacy_lp_roster (4 cols)   |  |
 |  |  Tier-3: BKCC=LEGACY_GP_ADMIN:lp_num  |          |  [!] Collision Risk: lp_num='101'         |  |
 |  |  Gov: wire_iban, tax_id -> [PII_HIGH] |          +-------------------------------------------+  |
-|  +---------------------------------------+                                                         |
+|  +---------------------------------------+ <-(SAL)- | mdm.src_lp_steward_crosswalk (2 cols)     |  |
+|                                                     +-------------------------------------------+  |
 |                                                     +-------------------------------------------+  |
 |  +---------------------------------------+ <======= | dealcloud.src_portfolio_companies (7 cols)|  |
 |  | [CBC] urn:ontology:entity:            |          +-------------------------------------------+  |
 |  |       portfolio_company               |          +-------------------------------------------+  |
-|  |  Tier-1: LEI | Tier-2: deal_code      | < - - -  | investran.src_lp_commitments_and_calls    |  |
+|  |  Hub key: LEI | Alt: deal_code        | < - - -  | investran.src_lp_commitments_and_calls    |  |
 |  |  Gov: valuation -> [MNPI_CONFIDENTIAL]| (Opt FK) |  (10 cols; links Fund + LP + Opt PortCo)  |  |
 |  +---------------------------------------+          +-------------------------------------------+  |
 |                                                                                                    |
 |  +---------------------------------------+          +-------------------------------------------+  |
-|  | [CBC] urn:ontology:entity:document    | <======= | dms.documents (4 cols + 2 S3 PDFs)        |  |
+|  | [CBC] urn:ontology:entity:document    | <======= | dms.documents + 2 extraction tables (27c) |  |
 |  +---------------------------------------+          +-------------------------------------------+  |
 |                                                                                                    |
 |  + - - - - - - - - - - - - - - - - - - - +                                                         |
@@ -428,7 +430,7 @@ flowchart LR
 
 #### 3-Layer Progressive Disclosure Specification (`VIZ-STEP-02`)
 - **Layer 1 (Executive Story Banner):**
-  - *Headline:* `"Profiled 44 Bronze columns: 8 Business Keys, 1 Dropped System Surrogate (row_seq_id), 1 Optional FK (28.6% non-null), 2 Reference Codes."`
+  - *Headline:* `"Profiled 44 relational columns: 8 Business Key candidates, 1 Dropped System Surrogate (row_seq_id), 1 Optional FK (28.6% non-null), 2 Reference Codes."`
   - *Business Impact:* `"Detects monotonic surrogate row_seq_id (Delta=1) and sparse co_invest_portco_lei (71.4% NULL) empirically before modelling begins."`
   - *Verdict Pill:* `[PASS]`
 - **Layer 2 (Interactive Visual Canvas):**
@@ -527,18 +529,18 @@ flowchart LR
 
 #### 3-Layer Progressive Disclosure Specification (`VIZ-STEP-04`)
 - **Layer 1 (Executive Story Banner):**
-  - *Headline:* `"Extracted 16 PDF spans across 2 documents: 15 spans grounded & resolved (Confidence >= 0.96); 1 ambiguous vehicle held at Tier-U3."`
-  - *Business Impact:* `"CalPERS 135 bps fee cap and Nordic Cloud 14.5x ($245M) restatement linked to exact PDF byte offsets; 'Horizon Sovereign Co-Invest Vehicle' quarantined from hub_fund."`
-  - *Verdict Pill:* `[ASK-USER]` *(1 `Tier-U3` Captain Hold on `[1112:1147]`; all 15 valid spans `[PASS]`)*
+  - *Headline:* `"Extracted 12 PDF spans across 2 documents: 11 spans grounded & resolved (Confidence >= 0.96); 1 ambiguous vehicle held at Tier-U3."`
+  - *Business Impact:* `"CalPERS 125 bps fee cap and Nordic Cloud 14.5x ($245M) restatement linked to exact PDF byte offsets; 'Horizon Sovereign Co-Invest Vehicle' quarantined from hub_fund."`
+  - *Verdict Pill:* `[ASK-USER]` *(1 `Tier-U3` Captain Hold on `[1112:1147]`; all 11 valid spans `[PASS]`)*
 - **Layer 2 (Interactive Visual Canvas):**
   - **Left Pane — Verbatim PDF Document Viewer with Character-Offset Highlight Pills (`[span_start, span_end)`):**
-    - Highlights exact substrings in `calpers_side_letter_fund_iv_2026.pdf` (`[85:95] "APEX_BO_IV"`, `[279:299] "5493006MHB84DD0ZWV18"`, `[532:560] "135 bps (1.35% per annum)"`, `[1112:1147] "Horizon Sovereign Co-Invest Vehicle"`) and `ic_q3_valuation_nordic_cloud.pdf` (`[103:123] "529900T8BM49AURSDO55"`, `[698:703] "14.5x"`, `[745:760] "$245,000,000.00"`).
+    - Highlights exact substrings in `calpers_side_letter_fund_iv_2026.pdf` (`[134:180] "California Public Employees' Retirement System"`, `[227:247] "5493006MHB84DD0ZWV18"`, `[499:506] "125 bps"`, `[1112:1147] "Horizon Sovereign Co-Invest Vehicle"`) and `ic_q3_valuation_nordic_cloud.pdf` (`[226:246] "529900T8BM49AURSDO55"`, `[915:932] "EV/EBITDA = 14.5x"`, `[1033:1051] "USD 245,000,000.00"`).
   - **Center Pane — 3-Tier Entity Resolution (`ER`) Confidence Funnel (`Algorithm A.7`):**
-    - **`Tier-U1` Deterministic Identifier Match ($S_{\text{er}} = 1.00$):** Exact regex match on ISO 17442 LEI (`5493006MHB84DD0ZWV18`, `529900T8BM49AURSDO55`) or SOR code (`APEX_BO_IV`, `LP-101`, `DEAL-NC-2024`) $\to$ Direct binding to existing `hub_fund`, `hub_limited_partner`, `hub_portfolio_company`.
-    - **`Tier-U2` High-Confidence Hybrid Match ($S_{\text{er}} \ge 0.92$, Top-2 Margin $\ge 0.15$):** `"Nordic Cloud SaaS AB"` (`[48:69]`, $S_{\text{er}} = 0.96$, margin $= 0.31$) $\to$ Binds to `[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]`.
+    - **`Tier-U1` Deterministic Identifier Match ($S_{\text{er}} = 1.00$):** Exact regex match on ISO 17442 LEI (`5493006MHB84DD0ZWV18`, `529900T8BM49AURSDO55`) or SOR code (`DEAL-NC-2024`) $\to$ Direct binding to the existing `hub_limited_partner` or `hub_portfolio_company` master key (a CalPERS LEI match resolves through `sat_limited_partner_investran.lei` to `LP-101`).
+    - **`Tier-U2` High-Confidence Hybrid Match ($S_{\text{er}} \ge 0.92$, Top-2 Margin $\ge 0.15$):** `"Nordic Cloud SaaS AB"` (`[186:206]`, $S_{\text{er}} = 0.96$, margin $= 0.31$) $\to$ Binds to `[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]`.
     - **`Tier-U3` Ambiguous Mention Quarantine ($S_{\text{er}} < 0.92$ or Margin $< 0.15$):** `"Horizon Sovereign Co-Invest Vehicle"` (`[1112:1147]`, $S_{\text{er}} = 0.81$, margin $= 0.02$ between `APEX_CO_I` and `APEX_BO_IV`) $\to$ Quarantined in `unmapped_escalations` / Captain Hold (`Rule U4`: **Never mint a new Hub key from an unverified free-text string**).
   - **Right Pane — Target Vault Provenance Routing (`Rules U1..U3`, `VIZ-GATE-06`):**
-    - Shows `hub_document` (`doc_uri`) + `sat_document_manifest` (`content_sha256`, `mime_type`, `byte_size`) + `lnk_document_lp_commitment` + `sat_lp_side_letter_llm_ext` (`extractor_model_id`, `confidence_score`, `chunk_id`, `source_quote`).
+    - Shows `hub_document` (`doc_uri`) + `sat_document_manifest` (`content_sha256`, `mime_type`, `byte_size`) + `lnk_document_lp_commitment` + `sat_lp_side_letter_llm_ext` (`extractor_model_id`, `confidence_score`, `chunk_id`, `evidence_quote`).
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Hybrid similarity formula $S_{\text{er}}(m, e) = 0.45\,\cos(\mathbf{v}_m, \mathbf{v}_e) + 0.35\,\text{JW}(m, e) + 0.20\,\mathbb{I}(\text{type}_m = \text{type}_e)$, Python slice verification `doc_text[span_start:span_end] == verbatim_quote`, and bi-temporal assertion vs. effective date inequality.
 
@@ -547,30 +549,31 @@ flowchart LR
 ```
 +====================================================================================================+
 | WB-03: UNSTRUCTURED PDF SPAN-GROUNDING & 3-TIER ER INSPECTOR (VIZ-STEP-04 + VIZ-GATE-06) [HOLD ▲] |
-| Story: 15/16 PDF spans grounded to Hub BKs (U1-U4 PASS); 1 ambiguous vehicle held for Steward.     |
+| Story: 11/12 PDF spans grounded to Hub BKs (U1-U4 PASS); 1 ambiguous vehicle held for Steward.     |
 +----------------------------------------------------------------------------------------------------+
 | PDF CORPUS VIEWER (Byte-Exact Offsets)     | 3-TIER ENTITY RESOLUTION FUNNEL (Algorithm A.7)       |
 | [Doc 1: calpers_side_letter_fund_iv_2026]  |                                                       |
 |                                            |  [TIER-U1: DETERMINISTIC ID MATCH (S_er = 1.00)]      |
-| "...agreement for [47:71 Apex Buyout       |   • "APEX_BO_IV" [85:95] -----> [HK: EC6E..8B2F]      |
-|  Fund IV LP] ([85:95 APEX_BO_IV]) and      |   • "5493006MHB84DD0ZWV18" ---> [HK: D390..7A49]      |
-|  [211:272 CalPERS] (LEI: [279:299          |   • "529900T8BM49AURSDO55" ---> [HK: 0C18..454E]      |
-|  5493006MHB84DD0ZWV18], ID: [318:324       |                                                       |
-|  LP-101]) effective [343:353 2026-01-15].. |  [TIER-U2: HYBRID EXACT MATCH (S_er>=0.92, m>=0.15)]  |
-|  fee capped at [532:560 135 bps]...        |   • "Nordic Cloud SaaS AB" [48:69] (S_er=0.96, m=0.31)|
-|  [747:776 Most-Favored-Nation ("MFN")]...  |     --------------------------> [HK: 0C18..454E]      |
-|  co-invest via [1112:1147 Horizon          |                                                       |
-|  Sovereign Co-Invest Vehicle]..."          |  [TIER-U3: QUARANTINED / CAPTAIN HOLD (Rule U4)]      |
+| "...and [134:180 California Public         |   • "5493006MHB84DD0ZWV18" [227:247]                  |
+| Employees' Retirement System] (... LEI:    |      --> lei lookup --> [HK: 5D15..0AE4 | LP-101]     |
+| [227:247 5493006MHB84DD0ZWV18])...         |   • "529900T8BM49AURSDO55" [226:246]                  |
+| annualized management fee rate of          |      --------------------> [HK: 0C18..454E]           |
+| [499:506 125 bps]... standard              |                                                       |
+| [607:614 175 bps]...                       | [TIER-U2: HYBRID EXACT MATCH (S_er>=0.92, m>=0.15)]   |
+| [878:914 co-investment right of first      |   • "Nordic Cloud SaaS AB" [186:206] (S=0.96,m=0.31) |
+| refusal]... participation in the           |      --------------------> [HK: 0C18..454E]           |
+| [1112:1147 Horizon Sovereign Co-Invest     |                                                       |
+| Vehicle]..."                               | [TIER-U3: QUARANTINED / CAPTAIN HOLD (Rule U4)]       |
 |                                            |   ▲ "Horizon Sovereign Co-Invest Vehicle" [1112:1147] |
 | [Doc 2: ic_q3_valuation_nordic_cloud.pdf]  |     S_er=0.81, Top-2 Margin=0.02 (<0.15 threshold)    |
-| "...target [48:69 Nordic Cloud SaaS AB]    |     BLOCKED from hub_fund (No Hub Creation from LLM!) |
-|  (LEI [103:123 529900T8BM49AURSDO55])...   |     [Action: Alias to APEX_CO_I] [Action: Reject Span]|
-|  restated to [698:703 14.5x] Fair Value    +-------------------------------------------------------+
-|  [745:760 $245,000,000.00] as of           | GATE 5 UNSTRUCTURED RULES (VIZ-GATE-06):              |
-|  [182:192 2026-09-30]..."                  |  [PASS ●] U1 Immutable hub_document + sha256 manifest |
-|                                            |  [PASS ●] U2 Link-Satellite provenance isolation      |
-|                                            |  [PASS ●] U3 Mandatory model_id, confidence, quote    |
-|                                            |  [PASS ●] U4 Zero Hub creation from Tier-U3 span      |
+| "...ASSET: [186:206 Nordic Cloud SaaS AB]  |     BLOCKED from hub_fund (No Hub Creation from LLM!) |
+| (LEI: [226:246 529900T8BM49AURSDO55])...   |     [Action: Alias APEX_CO_I] [Action: Reject Span] |
+| [599:624 ASC_820_Level = 'Level 3']...     +-------------------------------------------------------+
+| [915:932 EV/EBITDA = 14.5x]...             | GATE 5 UNSTRUCTURED RULES (VIZ-GATE-06):              |
+| [1033:1051 USD 245,000,000.00]...          | [PASS ●] U1 Immutable hub_document + sha256 manifest  |
+| [1076:1105 Fair_Value_USD =                | [PASS ●] U2 Link-Satellite provenance isolation       |
+| 245000000.00]..."                          | [PASS ●] U3 Mandatory model_id, confidence, quote     |
+|                                            | [PASS ●] U4 Zero Hub creation from Tier-U3 span       |
 +====================================================================================================+
 ```
 
@@ -580,15 +583,15 @@ flowchart LR
 
 - **Agent Persona:** `ship-vault` (Pass 1) + `axi-dv` (Gate 3.2 `DV-COL-001`, `DV-COL-012`)
 - **Workbench View:** `WB-04`
-- **Architectural Purpose:** Visualizes the **100% Column Accountability Invariant (`DV-COL-012`)** enforced by `column_triage_ledger` in [`schemas/no-mistake-dv2-contract-v5.schema.json`](../schemas/no-mistake-dv2-contract-v5.schema.json). Every single column across all 6 Bronze tables ($44/44 = 100\%$) must flow through a conservation-of-mass Sankey diagram into its exact ELM classification and target Data Vault entity—or explicitly terminate in the **Dropped Surrogate Quarantine Sink (`DROPPED`)**.
+- **Architectural Purpose:** Visualizes the **100% Column Accountability Invariant (`DV-COL-012`)** enforced by `column_triage_ledger` in [`schemas/no-mistake-dv2-contract-v5.schema.json`](../schemas/no-mistake-dv2-contract-v5.schema.json). Every single column across all 9 Bronze tables ($67/67 = 100\%$) must flow through a conservation-of-mass Sankey diagram into its exact ELM classification and target Data Vault entity—or explicitly terminate in the **Dropped Surrogate Quarantine Sink (`DROPPED`)**.
 
 #### 3-Layer Progressive Disclosure Specification (`VIZ-STEP-05`)
 - **Layer 1 (Executive Story Banner):**
-  - *Headline:* `"100% Column Accountability Verified: 44/44 Bronze Columns Triaged (0 Silent Drops; 1 System Surrogate Quarantined)."`
+  - *Headline:* `"100% Column Accountability Verified: 67/67 Bronze Columns Triaged (0 Silent Drops; 1 System Surrogate Quarantined)."`
   - *Business Impact:* `"investran.src_lp_investors.row_seq_id explicitly routed to DROPPED sink; all 43 business, FK, reference, and payload columns mapped."`
   - *Verdict Pill:* `[PASS]`
 - **Layer 2 (Interactive Visual Canvas):**
-  - **Left Column (6 Bronze Source Tables, 44 Columns):** Grouped by table with column count badges (`src_pe_funds [9]`, `src_lp_investors [8]`, `src_lp_commitments_and_calls [10]`, `src_portfolio_companies [7]`, `src_legacy_lp_roster [4]`, `dms.documents [4]`, plus 2 AI provenance link-satellite extractions).
+  - **Left Column (9 Bronze Source Tables, 67 Columns):** Grouped by table with column count badges (`src_pe_funds [9]`, `src_lp_investors [8]`, `src_lp_commitments_and_calls [10]`, `src_portfolio_companies [7]`, `src_legacy_lp_roster [4]`, `dms.documents [4]`, `src_lp_steward_crosswalk [2]`, `src_side_letter_extractions [12]`, `src_ic_memo_extractions [11]`).
   - **Center Column (9 ELM Classification Buckets):** `BUSINESS_KEY (8)`, `FOREIGN_KEY_REF (2)`, `OPTIONAL_FOREIGN_KEY_REF (1)`, `DEGENERATE_KEY (1)`, `DESCRIPTIVE_PAYLOAD (28)`, `REFERENCE_CODE (2)`, `TECHNICAL_METADATA (1)`, `SYSTEM_SURROGATE_DROPPED (1)`, `ESCALATED_AMBIGUOUS (0)`.
   - **Right Column (Target DV 2.0 Objects & Surrogate Sink):** `4 Hubs`, `5 Links`, `11 Satellites`, `2 Reference Tables`, and the `[DROPPED-SURROGATE]` sink for `row_seq_id`.
 - **Layer 3 (On-Demand Formal Proof Drawer):**
@@ -598,19 +601,22 @@ flowchart LR
 
 ```mermaid
 flowchart LR
-    subgraph Bronze["Bronze Source Columns (42 Relational + 2 Unstructured)"]
+    subgraph Bronze["Bronze Source Columns (44 Relational + 23 Extracted)"]
         T1["investran.src_pe_funds (9)"]
         T2["investran.src_lp_investors (8)"]
         T3["investran.src_lp_commitments_and_calls (10)"]
         T4["dealcloud.src_portfolio_companies (7)"]
         T5["legacy_gp.src_legacy_lp_roster (4)"]
         T6["dms.documents (4)"]
+        T7["mdm.src_lp_steward_crosswalk (2)"]
+        T8["dms.src_side_letter_extractions (12)"]
+        T9["dms.src_ic_memo_extractions (11)"]
     end
 
     subgraph Triage["Pass 1 ELM Column Triage Ledger (100% Accounted)"]
-        BK["BUSINESS_KEY (8)"]
-        FK["FOREIGN_KEY_REF (2)\n+ OPTIONAL_FK (1)\n+ DEGENERATE_KEY (1)"]
-        PL["DESCRIPTIVE_PAYLOAD (26)\n+ TECHNICAL_METADATA (1)"]
+        BK["BUSINESS_KEY (5)"]
+        FK["FOREIGN_KEY_REF (9)\n+ OPTIONAL_FK (1)\n+ DEGENERATE_KEY (1)"]
+        PL["DESCRIPTIVE_PAYLOAD (47)\n+ TECHNICAL_METADATA (1)"]
         RC["REFERENCE_CODE (2)"]
         SR["SYSTEM_SURROGATE_DROPPED (1)\nrow_seq_id"]
     end
@@ -624,8 +630,8 @@ flowchart LR
     end
 
     T1 & T2 & T4 & T5 & T6 --> BK --> HUBS
-    T3 --> FK --> LNKS
-    T1 & T2 & T3 & T4 & T5 & T6 --> PL --> SATS
+    T3 & T7 & T8 & T9 --> FK --> LNKS
+    T1 & T2 & T3 & T4 & T5 & T6 & T8 & T9 --> PL --> SATS
     T1 & T4 --> RC --> REFS
     T2 -->|"row_seq_id (Delta=1)"| SR --> SINK
 ```
@@ -637,7 +643,7 @@ flowchart LR
 - **Agent Persona:** `ship-vault` (Pass 2/3) + `axi-dv` (Gate 3.1 `VIZ-GATE-04`)
 - **Workbench View:** `WB-05` (*Pass 2/3 ELM Topology & 3-Tier `BKCC` Collision Shield*)
 - **Architectural Purpose:** Visualizes the synthesized Enterprise Data Vault 2.0 topology (4 Hubs, 5 Links, 11 Satellites, 2 Reference Tables) alongside the co-located **Gate 3.1 3-Tier Business Key Authority & `BKCC` Collision Shield (`VIZ-GATE-04`)**. It proves how multi-source integration works in practice:
-  - **Passive Integration on Tier-1 Global Keys:** `INVESTRAN` and `DEALCLOUD` share ISO 17442 LEI `529900T8BM49AURSDO55` (*Nordic Cloud SaaS AB*) $\to$ Both sources hash to the exact same `hub_portfolio_company` key `[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]`.
+  - **Passive Integration on the Hub Master Key:** `INVESTRAN` and `DEALCLOUD` share ISO 17442 LEI `529900T8BM49AURSDO55` (*Nordic Cloud SaaS AB*) $\to$ Both sources hash to the exact same `hub_portfolio_company` key `[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]`.
   - **Active Collision Isolation on Tier-3 Local Keys (`BKCC`):** `LEGACY_GP_ADMIN` uses local integer `lp_num = '101'` for *Bavarian Pension Reserve Fund*, which collides with `INVESTRAN` `lp_id = 'LP-101'` (*CalPERS*). Gate 3.1 enforces `bkcc_prefix = 'LEGACY_GP_ADMIN'`, isolating *Bavarian Pension* as `[HK: 0FF0..9095 | LEGACY_GP_ADMIN:101 Bavarian Pension]` while *CalPERS* remains `[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`, and links verified alias pairs via `sal_limited_partner`.
 
 #### 3-Layer Progressive Disclosure Specification (`VIZ-STEP-06`)
@@ -656,10 +662,10 @@ flowchart LR
 ```mermaid
 flowchart TB
     subgraph Hubs["Enterprise Hubs (Blue Rounded Rectangles)"]
-        HF["[HUB] hub_fund\nTier-1: ISIN | Tier-2: fund_code\n[HK: EC6E..8B2F | GLOBAL:APEX_BO_IV]"]
-        HLP["[HUB] hub_limited_partner\nTier-1: LEI | Tier-2: lp_id | Tier-3: LEGACY_GP_ADMIN:lp_num\n[HK: 5D15..0AE4 CalPERS] & [HK: 0FF0..9095 Bavarian]"]
-        HPC["[HUB] hub_portfolio_company\nTier-1: LEI | Tier-2: deal_code\n[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]"]
-        HDOC["[HUB] hub_document\nTier-2: doc_uri\n[HK: 9F86..0A08 Side Letter] & [HK: 4B22..BF8A IC Memo]"]
+        HF["[HUB] hub_fund\nHub key: fund_code | Alt: ISIN\n[HK: 94A6..8759 | GLOBAL:APEX_BO_IV]"]
+        HLP["[HUB] hub_limited_partner\nHub key: lp_id | Alt: LEI | Tier-3: LEGACY_GP_ADMIN:lp_num\n[HK: 5D15..0AE4 CalPERS] & [HK: 0FF0..9095 Bavarian]"]
+        HPC["[HUB] hub_portfolio_company\nHub key: LEI | Alt: deal_code\n[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]"]
+        HDOC["[HUB] hub_document\nTier-2: doc_uri\n[HK: 864D..EE6B Side Letter] & [HK: 99D8..4158 IC Memo]"]
     end
 
     subgraph Links["Enterprise Relationships & Same-As Links (Green/Teal Diamonds)"]
@@ -680,8 +686,8 @@ flowchart TB
         SPC1(["[SAT] sat_portfolio_company_dealcloud\n(INTERNAL)"])
         SPC2{{"[SAT-MNPI] sat_portco_valuation_mnpi\n(CONFIDENTIAL: EBITDA & EV Multiple)"}}
         SDOC(["[SAT] sat_document_manifest\n(sha256, mime_type, byte_size)"])
-        SSL(["[SAT-AI] sat_lp_side_letter_llm_ext\n(135 bps cap, MFN=Y, quote)"])
-        SAP(["[SAT-AI] sat_lnk_doc_portco_ai_provenance\n(14.5x restatement quote)"])
+        SSL(["[SAT-AI] sat_lp_side_letter_llm_ext\n(125 bps cap, MFN=Y, quote)"])
+        SAP(["[SAT-AI] sat_lnk_doc_portco_ai_provenance\n(CONFIDENTIAL: 14.5x, $245M, quote)"])
     end
 
     HF --- LLC & LCI & LDSL
@@ -734,8 +740,8 @@ flowchart TB
 | 5. Join with '||' Delimiter  | '6:GLOBAL||6:LP-101'            | '15:LEGACY_GP_ADMIN||3:101'       |
 | 6. SHA-256 -> Semantic Pill  | [HK: 5D15..0AE4 | GLOBAL:LP-101]| [HK: 0FF0..9095 | LEGACY_GP:101]  |
 | -----------------------------+---------------------------------+-----------------------------------|
-| ADVERSARIAL DELIMITER PROOF: Tuple 1 ('A||B', 'C') -> '4:A||B||1:C' -> [HK: 6CE8..E539]            |
-|                              Tuple 2 ('A', 'B||C') -> '1:A||4:B||C' -> [HK: D372..5B30] (DISTINCT!)|
+| ADVERSARIAL DELIMITER PROOF: Tuple 1 ('A||B', 'C') -> '4:A||B||1:C' -> [HK: D9FD..549C]            |
+|                              Tuple 2 ('A', 'B||C') -> '1:A||4:B||C' -> [HK: 51F8..DFB6] (DISTINCT!)|
 +====================================================================================================+
 ```
 
@@ -930,12 +936,12 @@ Whenever a user clicks an active exception or rule badge in any `VIZ-GATE-*` vie
 |   LEGACY_GP ('101') ----/                         with €25M Bavarian Pension Reserve Fund!]        |
 |                                                                                                    |
 |  [WITH 3-TIER BKCC SHIELD (Attempt 2 — VERIFIED PASS ●)]                                           |
-|   Tier-1/2 INVESTRAN: '6:GLOBAL||6:LP-101' ---------> [HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]     |
+|   Tier-2 INVESTRAN:   '6:GLOBAL||6:LP-101' ---------> [HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]     |
 |   Tier-3 LEGACY_GP:   '15:LEGACY_GP_ADMIN||3:101' --> [HK: 0FF0..9095 | LEGACY_GP:101 Bavarian]    |
 |                                                                                                    |
 |   Cross-Source Alias Equivalence (When Steward confirms LP-104 == LEGACY_GP_ADMIN:102):            |
-|   [HK: 8A2F..19C0 | GLOBAL:LP-104 Nordic Sovereign] <--- [SAL: sal_limited_partner] --->           |
-|   [HK: 4D91..77E2 | LEGACY_GP_ADMIN:102 Nordisk Fond] (Non-destructive; 0 Hub history rewrites)    |
+|   [HK: 970A..5106 | GLOBAL:LP-104 Nordic Sovereign] <--- [SAL: sal_limited_partner] --->           |
+|   [HK: 0F31..E17B | LEGACY_GP_ADMIN:102 Nordisk Fond] (Non-destructive; 0 Hub history rewrites)    |
 +====================================================================================================+
 ```
 
@@ -990,13 +996,13 @@ Whenever a user clicks an active exception or rule badge in any `VIZ-GATE-*` vie
 +----------------------------------------------------------------------------------------------------+
 | Business Effective Date (effective_date: 2026-09-30 Q3 Valuation Quarter-End)                      |
 |   |                                                                                                |
-|   |   [Event A: Prelim DealCloud Load]                [Event B: Audited IC Memo PDF Extraction]    |
+|   |   [Event A: DealCloud Entry Load]                 [Event B: Audited IC Memo PDF Extraction]    |
 |   |   ldts = 2026-10-05 09:00:00Z                     ldts = 2026-11-14 16:30:00Z                  |
-|   |   ev_ebitda_multiple = 13.5x ($228.10M)           ev_ebitda_multiple = 14.5x ($245.00M)        |
+|   |   ev_ebitda_multiple = 12.8x ($216.28M)           ev_ebitda_multiple = 14.5x ($245.00M)        |
 |   +-------------------+-------------------------------+----------------------------------------->  |
 |                       |                               |                        Assertion Time (ldts|
 |               Cutoff 1: 2026-10-15            Cutoff 2: 2026-11-20                                 |
-|               Returns: 13.5x ($228.10M) ●     Returns: 14.5x ($245.00M) + PDF Quote [698:760] ●    |
+|               Returns: 12.8x ($216.28M) ●     Returns: 14.5x ($245.00M) + PDF Quote [915:932] ●    |
 |               (Event B invisible on Oct 15 -> Zero Point-in-Time Leakage!)                         |
 +====================================================================================================+
 ```
@@ -1045,10 +1051,10 @@ Whenever a user clicks an active exception or rule badge in any `VIZ-GATE-*` vie
 
 | Batch # | Adversarial Workload Injected into Ephemeral DuckDB | Target Invariants Verified | Empirical Result on Private Equity Model |
 | :--- | :--- | :--- | :--- |
-| **Batch 1 (`t_0`)** | **Baseline Multi-Source Load + Ghost Seed (`0x00..00`):** Loads initial rows across `investran`, `dealcloud`, `legacy_gp`, and `dms.documents` plus System Ghost Record (`1900-01-01`). | `DV-DYN-001..005`: DDL execution, PK uniqueness, Ghost Record presence (`count = 1`), zero orphan Satellite/Link FKs (`orphan_count = 0`). | **PASS:** 4 Hubs, 5 Links, 11 Satellites populated; `0` orphans; `1` Ghost Record per Satellite; `LP-101` and `LEGACY_GP_ADMIN:101` isolated into distinct Hub keys. |
+| **Batch 1 (`t_0`)** | **Baseline Multi-Source Load + Ghost Seed (`0x00..00`):** Loads initial rows across `investran`, `dealcloud`, `legacy_gp`, `mdm`, and `dms` plus System Ghost Record (`1900-01-01`). | `DV-DYN-001..005`: DDL execution, PK uniqueness, Ghost Record presence (`count = 1`), zero orphan Satellite/Link FKs (`orphan_count = 0`). | **PASS:** 4 Hubs, 5 Links, 11 Satellites populated; `0` orphans; `1` Ghost Record per Satellite; `LP-101` and `LEGACY_GP_ADMIN:101` isolated into distinct Hub keys. |
 | **Batch 2 (`t_1`)** | **100% Duplicate Replay Batch (Idempotency Stress Test):** Re-runs the exact Batch 1 staging payload with a newer `ldts` (`t_1 > t_0`). | `DV-DYN-006..008`: Strict idempotency ($\Delta\text{Rows}_{\text{Hub}} = 0$, $\Delta\text{Rows}_{\text{Link}} = 0$, $\Delta\text{Rows}_{\text{Sat}} = 0$). | **PASS:** `0` duplicate Hub keys, `0` duplicate Link keys, and `0` redundant Satellite rows inserted (`hash_diff` change detection suppressed 100% of unchanged rows). |
 | **Batch 3 (`t_2`)** | **5% True Payload Mutation + Delimiter Injection + Nulls + Day-3 Drift $S_1(t+1)$:** Mutates 5% of commitment called amounts, injects `'A||B'` strings, drops `deprecated_fax_no`, and adds `ilpa_esg_rating`. | `DV-DYN-009..012`, `EVO-01..04`: Exactly mutated rows appended to Satellite; unchanged rows untouched; companion `sat_fund_investran_esg` populated; zero historical `hash_diff` rewrites. | **PASS:** Only modified rows appended at `t_2`; `sat_fund_investran` historical `hash_diff` digests 100% preserved; delimiter injection strings isolated via length prefixing. |
-| **Batch 4 (`t_3` with $t_{\text{eff}} < t_0$)** | **Out-of-Order / Late-Arriving Bi-Temporal Backfill:** Arrives at warehouse time `ldts = 2026-11-14` carrying a backdated business effective date `effective_date = 2026-09-30` (Nordic Cloud Q3 audited IC memo restatement `14.5x` / `$245M`). | `DV-DYN-013..015`, `TMP-01..04`: Append-only insertion (`ldts = t_3`), Logarithmic `PIT` equi-join completeness, and bi-temporal `Query D.10` cutoff isolation. | **PASS:** `Query D.10` at assertion cutoff `2026-10-15` returns preliminary `13.5x` (`$228.10M`); at cutoff `2026-11-20` returns audited `14.5x` (`$245.00M`) with PDF quote citation. |
+| **Batch 4 (`t_3` with $t_{\text{eff}} < t_0$)** | **Out-of-Order / Late-Arriving Bi-Temporal Backfill:** Arrives at warehouse time `ldts = 2026-11-14` carrying a backdated business effective date `effective_date = 2026-09-30` (Nordic Cloud Q3 audited IC memo restatement `14.5x` / `$245M`). | `DV-DYN-013..015`, `TMP-01..04`: Append-only insertion (`ldts = t_3`), Logarithmic `PIT` equi-join completeness, and bi-temporal `Query D.10` / `D.10b` cutoff isolation. | **PASS:** `Query D.10b` at assertion cutoff `2026-10-15` returns DealCloud entry `12.8x` (`$216.28M`); at cutoff `2026-11-20` returns audited `14.5x` (`$245.00M`) with PDF quote citation. |
 
 #### ASCII Wireframe (`VIZ-GATE-08` / `WB-10`)
 

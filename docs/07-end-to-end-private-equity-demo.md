@@ -15,7 +15,7 @@
 
 ## Executive Overview
 
-This document provides a complete, self-contained **End-to-End Private Equity Asset Management Demo Walkthrough** for `open-dv`. Using **Apex Horizon Capital Partners**—an institutional Private Equity firm managing Buyout and Co-Investment funds—we trace how the `open-dv` agent team (`vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`, `axi-dv`, and `deterministic-compiler`) transforms four heterogeneous source systems and two unstructured PDFs into a mathematically verified, four-zone Data Vault 2.0 warehouse across the **12-View Explainability & Observability Workbench (`WB-00` through `WB-11`)**.
+This document provides a complete, self-contained **End-to-End Private Equity Asset Management Demo Walkthrough** for `open-dv`. Using **Apex Horizon Capital Partners**—an institutional Private Equity firm managing Buyout and Co-Investment funds—we trace how the `open-dv` agent team (`vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`, `axi-dv`, and `deterministic-compiler`) transforms five heterogeneous source systems and two unstructured PDFs into a mathematically verified, four-zone Data Vault 2.0 warehouse across the **12-View Explainability & Observability Workbench (`WB-00` through `WB-11`)**.
 
 ```mermaid
 flowchart LR
@@ -25,6 +25,7 @@ flowchart LR
         S2["Source 2: DEALCLOUD_PE_CRM\n(Portfolio Companies & Valuations)"]
         S3["Source 3: LEGACY_GP_ADMIN\n(Acquired European GP Roster)"]
         S4["Source 4: OBJECT_STORE_S3\n(CalPERS Side Letter PDF +\nNordic Cloud Q3 IC Memo PDF)"]
+        S5["Source 5: MDM_STEWARD_RESOLUTION\n(Approved LP Equivalence Crosswalk)"]
     end
 
     subgraph Scenes["7-Scene End-to-End Demo Walkthrough (WB-00..WB-11)"]
@@ -37,7 +38,7 @@ flowchart LR
         SC7["Scene 7 (WB-11)\nDeterministic Compilation:\nYAML -> IR -> 4-Zone SQL & D.10"]
     end
 
-    GA & S1 & S2 & S3 & S4 --> SC1 --> SC2 --> SC3 --> SC4 --> SC5 --> SC6 --> SC7
+    GA & S1 & S2 & S3 & S4 & S5 --> SC1 --> SC2 --> SC3 --> SC4 --> SC5 --> SC6 --> SC7
 ```
 
 ---
@@ -56,15 +57,17 @@ Aligned with **ILPA (Institutional Limited Partners Association)** reporting sta
 | **Legal / Valuation Document** | `urn:ontology:entity:document` | `hub_document` | — | S3 URI `doc_uri` (`s3://apex-pe-vault-bronze/...`) | — | Binary PDFs stay in S3 (`Rule U1`); AI extractions require `model_id`, `confidence`, `quote` (`Rule U3`). |
 | **Custodian Bank** *(Unallocated)* | `urn:ontology:entity:custodian_bank` | *None (`null`)* | ISO 9362 BIC/SWIFT | — | — | Intentionally unmapped in `Graph B` to verify **Zero-Hallucination Guard** (80.0% Ontology Coverage; 0 phantom Hubs). |
 
+**Master-Key Rule:** The tiers above rank every identifier the ontology recognises, but each entity loads exactly one key per source so that every Link FK resolves to a loaded Hub row. The Hub key is the identifier all referencing sources carry: `fund_code` for `hub_fund`, `lp_id` for `hub_limited_partner` (plus `LEGACY_GP_ADMIN:lp_num` for the legacy roster), and `lei` for `hub_portfolio_company`. The remaining identifiers (`isin`, the LP `lei`, `deal_code`) are stored as Satellite attributes and used only as Entity Resolution lookups, so the side letter's LEI resolves to `LP-101` rather than minting a second CalPERS Hub row.
+
 ---
 
 ### 1.2 Bottom-Up Multi-Source Relational Datasets & Empirical `Graph B` Profile (`examples/private_equity/pe_graph_b_profile.json`)
 
-The physical Bronze layer spans **four source systems**, **six tables**, and **42 relational columns** (plus **2 AI provenance link-satellite payloads** = **44 total triaged columns** in [`examples/private_equity/dv_pe_model_contract.yaml`](../examples/private_equity/dv_pe_model_contract.yaml)).
+The physical Bronze layer spans **five source systems**, **seven relational tables** with **44 columns**, and **two `scout-unstructured` extraction tables** with **23 columns** (= **67 total triaged columns** in [`examples/private_equity/dv_pe_model_contract.yaml`](../examples/private_equity/dv_pe_model_contract.yaml)).
 
 #### Source 1 (`INVESTRAN_FUND_ADMIN`): Table 1 — `investran.src_pe_funds` (9 Columns, 3 Sample Rows)
 
-| `fund_code` | `isin` | `fund_name` | `vintage_year` | `target_size_usd` | `strategy` | `mgmt_fee_bps` | `deprecated_fax_no` *(Dropped Day 3)* | `ilpa_esg_rating` *(Added Day 3)* |
+| `fund_code` *(Hub Master Key)* | `isin` *(Tier-1 Alternate Attribute)* | `fund_name` | `vintage_year` | `target_size_usd` | `strategy` | `mgmt_fee_bps` | `deprecated_fax_no` *(Dropped Day 3)* | `ilpa_esg_rating` *(Added Day 3)* |
 | :--- | :--- | :--- | :---: | :---: | :--- | :---: | :--- | :--- |
 | `APEX_BO_IV` | `US0378331005` | `Apex Buyout Fund IV LP` | `2026` | `2500000000.00` | `BUYOUT` | `175.0000` | `+1-212-555-0190` | `AA_LEADER` |
 | `APEX_CO_I` | `US0378333001` | `Apex Co-Invest Fund I LP` | `2026` | `500000000.00` | `CO_INVEST` | `0.0000` | `NULL` | `A_COMPLIANT` |
@@ -74,7 +77,7 @@ The physical Bronze layer spans **four source systems**, **six tables**, and **4
 
 > **Built-In Trap (`AP-03` Surrogate Key Contamination):** `row_seq_id` has $U(C) = 1.00$ and $N_{\text{null}} = 0.0\%$, tempting a naive LLM to pick it as the Hub Business Key. However, `scout-source` detects a monotonic step $\Delta = +1$ (`10001..10004`) and quarantines it (`SYSTEM_SURROGATE_DROPPED`).
 
-| `row_seq_id` *(Surrogate)* | `lei` *(Tier-1 Global BK)* | `lp_id` *(Tier-2 SOR BK)* | `lp_legal_name` | `domicile_country` | `wire_iban` *(`PII_HIGH`)* | `tax_id` *(`PII_HIGH`)* | `tier_status` |
+| `row_seq_id` *(Surrogate)* | `lei` *(Tier-1 ER Lookup Attribute)* | `lp_id` *(Hub Master Key)* | `lp_legal_name` | `domicile_country` | `wire_iban` *(`PII_HIGH`)* | `tax_id` *(`PII_HIGH`)* | `tier_status` |
 | :---: | :--- | :--- | :--- | :---: | :--- | :--- | :--- |
 | `10001` | `5493006MHB84DD0ZWV18` | `LP-101` | `California Public Employees' Retirement System (CalPERS)` | `US` | `US64SVBK0000000099101` | `94-6001347` | `ANCHOR_SOVEREIGN` |
 | `10002` | `5493001KJTIIGC8Y1R12` | `LP-102` | `Abu Dhabi Sovereign Investment Authority` | `AE` | `AE070331234567890123456` | `AE-9981204` | `ANCHOR_SOVEREIGN` |
@@ -101,7 +104,7 @@ The physical Bronze layer spans **four source systems**, **six tables**, and **4
 
 > **Passive Multi-Source Integration Demo:** `dealcloud.src_portfolio_companies.lei` (`529900T8BM49AURSDO55`, *Nordic Cloud SaaS AB*) matches `investran.src_lp_commitments_and_calls.co_invest_portco_lei` and the Q3 IC Valuation Memo PDF (`ic_q3_valuation_nordic_cloud.pdf`), enabling zero-configuration passive integration on `hub_portfolio_company`.
 
-| `lei` *(Tier-1 Global BK)* | `deal_code` *(Tier-2 BK)* | `company_name` | `sector` | `entry_ebitda_usd` *(`CONFIDENTIAL`)* | `entry_ev_multiple` *(`CONFIDENTIAL`)* | `gp_deal_partner` |
+| `lei` *(Hub Master Key)* | `deal_code` *(ER Lookup Attribute)* | `company_name` | `sector` | `entry_ebitda_usd` *(`CONFIDENTIAL`)* | `entry_ev_multiple` *(`CONFIDENTIAL`)* | `gp_deal_partner` |
 | :--- | :--- | :--- | :--- | :---: | :---: | :--- |
 | `529900T8BM49AURSDO55` | `DEAL-NC-2024` | `Nordic Cloud SaaS AB` | `B2B_SAAS` | `16896550.00` | `12.80` | `Marcus Vance` |
 | `549300INDTECH7788991` | `DEAL-AT-2025` | `Alpine Precision Robotics GmbH` | `INDUSTRIAL_TECH` | `24500000.00` | `11.50` | `Elena Rostova` |
@@ -120,8 +123,28 @@ The physical Bronze layer spans **four source systems**, **six tables**, and **4
 
 | `doc_uri` *(Tier-2 BK)* | `content_sha256` | `mime_type` | `byte_size` |
 | :--- | :--- | :--- | :---: |
-| `s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf` | `9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08` | `application/pdf` | `184320` |
-| `s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf` | `4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a` | `application/pdf` | `262144` |
+| `s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf` | `896c221b5e0db9b476ce0de10d54c3d3ca412af137c5f53e916f10cdc42bfe0d` | `application/pdf` | `184320` |
+| `s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf` | `ca4d09a7663efdcbecbe94008c724f3cba32fdb7fa29875c5b72547f6a2dde8c` | `application/pdf` | `262144` |
+
+#### Source 5 (`MDM_STEWARD_RESOLUTION`): Table 7 — `mdm.src_lp_steward_crosswalk` (2 Columns, 1 Sample Row)
+
+Data stewards approve each cross-source equivalence here; the legacy spreadsheet does not carry it. `sal_limited_partner` loads from this table only, with `rec_src = 'MDM_STEWARD_RESOLUTION'`. `lp_num` is hashed under `BKCC = LEGACY_GP_ADMIN`.
+
+| `master_lp_id` | `lp_num` |
+| :--- | :--- |
+| `LP-104` | `102` |
+
+#### `scout-unstructured` Output (`OBJECT_STORE_S3`): `dms.src_side_letter_extractions` (12 Columns) and `dms.src_ic_memo_extractions` (11 Columns)
+
+These tables hold the resolved Hub keys and span-grounded attributes extracted in Section 1.3. They are the source of the two `UNSTRUCTURED_EXTRACTION_LINK`s and their AI provenance Satellites. `evidence_quote` and `chunk_id` cite the primary fact of the row.
+
+| `doc_uri` | `fund_code` | `lp_id` | `fee_cap_bps` | `headline_fee_bps` | `mfn_election_flag` | `co_invest_rofr` | `effective_date` | `extractor_model_id` | `confidence_score` | `chunk_id` | `evidence_quote` |
+| :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :---: | :--- | :--- |
+| `s3://.../calpers_side_letter_fund_iv_2026.pdf` | `APEX_BO_IV` | `LP-101` | `125.0000` | `175.0000` | `Y` | `Y` | `2026-02-14` | `claude-3-7-sonnet` | `0.990` | `[499:506]` | `125 bps` |
+
+| `doc_uri` | `lei` | `asc_820_level` | `ev_ebitda_multiple` | `implied_ev_usd` | `fair_value_usd` | `effective_date` | `extractor_model_id` | `confidence_score` | `chunk_id` | `evidence_quote` |
+| :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- | :---: | :--- | :--- |
+| `s3://.../ic_q3_valuation_nordic_cloud.pdf` | `529900T8BM49AURSDO55` | `Level 3` | `14.50` | `245000000.00` | `245000000.00` | `2026-09-30` | `claude-3-7-sonnet` | `0.990` | `[915:932]` | `EV/EBITDA = 14.5x` |
 
 ---
 
@@ -146,9 +169,9 @@ The Investor acknowledges ongoing discussions regarding participation in the Hor
 
 | Extracted Field | Verbatim Substring (`doc_text[span_start:span_end]`) | `span_start` | `span_end` | ER Resolution Tier | Target Vault Routing |
 | :--- | :--- | :---: | :---: | :--- | :--- |
-| `investor_name` | `California Public Employees' Retirement System` | `134` | `180` | `Tier-U2` ($S_{\text{er}} = 0.98$) | Resolves to `hub_limited_partner` (`[HK: D390..7A49 \| GLOBAL:CalPERS]`). |
-| `investor_lei` | `5493006MHB84DD0ZWV18` | `227` | `247` | `Tier-U1` ($S_{\text{er}} = 1.00$) | Exact ISO 17442 LEI match on `hub_limited_partner`. |
-| `fee_cap_bps` | `125 bps` *(or `135 bps` stepped schedule)* | `499` | `506` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lp_side_letter_llm_ext` on `lnk_document_lp_commitment`. |
+| `investor_name` | `California Public Employees' Retirement System` | `134` | `180` | `Tier-U2` ($S_{\text{er}} = 0.98$) | Resolves to `hub_limited_partner` (`[HK: 5D15..0AE4 \| GLOBAL:LP-101 CalPERS]`). |
+| `investor_lei` | `5493006MHB84DD0ZWV18` | `227` | `247` | `Tier-U1` ($S_{\text{er}} = 1.00$) | Exact LEI match on `sat_limited_partner_investran.lei`, resolving to master key `LP-101`. |
+| `fee_cap_bps` | `125 bps` | `499` | `506` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lp_side_letter_llm_ext` on `lnk_document_lp_commitment`. |
 | `headline_fee_bps` | `175 bps` | `607` | `614` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lp_side_letter_llm_ext`. |
 | `co_invest_rofr` | `co-investment right of first refusal` | `878` | `914` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lp_side_letter_llm_ext`. |
 | `ambiguous_vehicle` | `Horizon Sovereign Co-Invest Vehicle` | `1112` | `1147` | **`Tier-U3` (`ASK-USER`)** | Top-2 margin $= |0.81 - 0.79| = 0.02 < 0.15$ $\to$ **Blocked from `hub_fund` by `Rule U4`**. |
@@ -178,11 +201,11 @@ External Auditor Review: PriceWaterhouseCoopers LLP (PwC Valuation Services).
 | Extracted Field | Verbatim Substring (`doc_text[span_start:span_end]`) | `span_start` | `span_end` | ER Resolution Tier | Target Vault Routing |
 | :--- | :--- | :---: | :---: | :--- | :--- |
 | `portco_lei` | `529900T8BM49AURSDO55` | `226` | `246` | `Tier-U1` ($S_{\text{er}} = 1.00$) | Exact ISO 17442 LEI match on `hub_portfolio_company` (`[HK: 0C18..454E]`). |
-| `portco_deal_code` | `DEAL-NC-2024` | `259` | `271` | `Tier-U1` ($S_{\text{er}} = 1.00$) | Exact Tier-2 SOR match on `hub_portfolio_company`. |
-| `asc_820_level` | `ASC_820_Level = 'Level 3'` | `599` | `624` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lnk_doc_portco_ai_provenance`. |
-| `ev_ebitda_multiple` | `EV/EBITDA = 14.5x` | `915` | `932` | `EXTRACTED_ATTRIBUTE` | Restated Q3 multiple (`14.5x` vs. `12.8x` entry / `13.5x` prelim). |
-| `implied_ev_usd` | `USD 245,000,000.00` | `1033` | `1051` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lnk_doc_portco_ai_provenance`. |
-| `fair_value_usd` | `Fair_Value_USD = 245000000.00` | `1076` | `1105` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lnk_doc_portco_ai_provenance`. |
+| `portco_deal_code` | `DEAL-NC-2024` | `259` | `271` | `Tier-U1` ($S_{\text{er}} = 1.00$) | Exact match on `sat_portfolio_company_dealcloud.deal_code`, confirming the same Hub row as the LEI. |
+| `asc_820_level` | `ASC_820_Level = 'Level 3'` | `599` | `624` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lnk_doc_portco_ai_provenance` (`CONFIDENTIAL`). |
+| `ev_ebitda_multiple` | `EV/EBITDA = 14.5x` | `915` | `932` | `EXTRACTED_ATTRIBUTE` | Restated Q3 multiple (`14.5x` vs. `12.8x` entry). MNPI: stored in `sat_lnk_doc_portco_ai_provenance` (`CONFIDENTIAL`). |
+| `implied_ev_usd` | `USD 245,000,000.00` | `1033` | `1051` | `EXTRACTED_ATTRIBUTE` | MNPI: stored in `sat_lnk_doc_portco_ai_provenance` (`CONFIDENTIAL`). |
+| `fair_value_usd` | `Fair_Value_USD = 245000000.00` | `1076` | `1105` | `EXTRACTED_ATTRIBUTE` | MNPI: stored in `sat_lnk_doc_portco_ai_provenance` (`CONFIDENTIAL`). |
 
 ---
 
@@ -194,8 +217,8 @@ External Auditor Review: PriceWaterhouseCoopers LLP (PwC Valuation Services).
 
 #### 1. What the Agent Team Does
 1. **`vault-first-mate` (`STAGE_00_ORCHESTRATION`, `WB-01`):** Loads the top-down Enterprise Ontology `Graph A` ([`pe_graph_a_ontology.yaml`](../examples/private_equity/pe_graph_a_ontology.yaml)) and dispatches `scout-source` to profile the physical Bronze schemas (`Graph B`, [`pe_graph_b_profile.json`](../examples/private_equity/pe_graph_b_profile.json)).
-2. **Bipartite Concept Grounding (`VIZ-STEP-01`):** Maps `investran.src_pe_funds` $\to$ `Fund`, both `investran.src_lp_investors` and `legacy_gp.src_legacy_lp_roster` $\to$ `LimitedPartner`, `dealcloud.src_portfolio_companies` $\to$ `PortfolioCompany`, and `dms.documents` $\to$ `Document`. Leaves `CustodianBank` unallocated (`4/5 = 80.0%` coverage) rather than hallucinating a phantom table (`AP-06`).
-3. **`scout-source` Empirical Profiling (`STAGE_01_SCOUT_SOURCE`, `WB-02`):** Computes uniqueness, entropy, null rates, and inclusion dependencies across all 42 relational columns:
+2. **Bipartite Concept Grounding (`VIZ-STEP-01`):** Maps `investran.src_pe_funds` $\to$ `Fund`, both `investran.src_lp_investors` and `legacy_gp.src_legacy_lp_roster` $\to$ `LimitedPartner`, `dealcloud.src_portfolio_companies` $\to$ `PortfolioCompany`, and `dms.documents` $\to$ `Document`. `mdm.src_lp_steward_crosswalk` grounds to the `SameAsLimitedPartner` relationship, and the two extraction tables are bound in Scene 2. Leaves `CustodianBank` unallocated (`4/5 = 80.0%` coverage) rather than hallucinating a phantom table (`AP-06`).
+3. **`scout-source` Empirical Profiling (`STAGE_01_SCOUT_SOURCE`, `WB-02`):** Computes uniqueness, entropy, null rates, and inclusion dependencies across all 44 relational columns:
    - Flags `investran.src_lp_investors.row_seq_id` ($U=1.0, \Delta=+1$) as `[SURROGATE_SEQUENCE]`.
    - Flags `investran.src_lp_commitments_and_calls.co_invest_portco_lei` ($N_{\text{null}} = 71.43\%, \mathcal{I}_{nn} = 1.00$) as an optional contextual FK requiring `Algorithm A.4` Link splitting.
 
@@ -203,7 +226,7 @@ External Auditor Review: PriceWaterhouseCoopers LLP (PwC Valuation Services).
 ```
 +====================================================================================================+
 | SCENE 1 — WB-01 & WB-02: DUAL-GRAPH GROUNDING & EMPIRICAL PROFILING                        [PASS ●]|
-| Layer 1 Story: 6 Bronze tables grounded to 4 Enterprise CBCs; row_seq_id quarantined as surrogate. |
+| Layer 1 Story: 7 Bronze tables grounded to 4 Enterprise CBCs; row_seq_id quarantined as surrogate. |
 +----------------------------------------------------------------------------------------------------+
 | [Graph A CBC Ontology]              <=== Bipartite Grounding ===> [Graph B Bronze Tables]          |
 |  • urn:ontology:entity:fund         <---------------------------- investran.src_pe_funds (9 cols)  |
@@ -211,6 +234,7 @@ External Auditor Review: PriceWaterhouseCoopers LLP (PwC Valuation Services).
 |                                     <---------------------------- legacy_gp.src_legacy_lp_roster   |
 |  • urn:ontology:entity:portfolio_co <---------------------------- dealcloud.src_portfolio_cos (7c) |
 |  • urn:ontology:entity:document     <---------------------------- dms.documents (4 cols + 2 PDFs)  |
+|  • urn:ontology:relationship:same_as <-------------------------- mdm.src_lp_steward_crosswalk (2c) |
 |  • urn:ontology:entity:custodian    [UNALLOCATED — 0 Phantom Hubs Created (Zero-Hallucination ●)]  |
 +----------------------------------------------------------------------------------------------------+
 | COUNTERFACTUAL DRAWER (VIZ-GATE-02 — What Naive Prompt-Only LLMs Get Wrong Here):                  |
@@ -224,9 +248,9 @@ External Auditor Review: PriceWaterhouseCoopers LLP (PwC Valuation Services).
 ### Scene 2: Unstructured PDF Span Grounding & 3-Tier Entity Resolution with `Tier-U3` Captain Hold (`WB-03`)
 
 #### 1. What the Agent Team Does
-1. **`scout-unstructured` (`STAGE_02_SCOUT_UNSTRUCTURED`, `WB-03`):** Ingests `calpers_side_letter_fund_iv_2026.pdf` (`[HK: 9F86..0A08]`) and `ic_q3_valuation_nordic_cloud.pdf` (`[HK: 4B22..BF8A]`).
+1. **`scout-unstructured` (`STAGE_02_SCOUT_UNSTRUCTURED`, `WB-03`):** Ingests `calpers_side_letter_fund_iv_2026.pdf` (`[HK: 864D..EE6B]`) and `ic_q3_valuation_nordic_cloud.pdf` (`[HK: 99D8..4158]`).
 2. **3-Tier Entity Resolution (`Algorithm A.7`):**
-   - **`Tier-U1` Auto-Bind:** Matches LEI `5493006MHB84DD0ZWV18` (`[227:247]`) directly to CalPERS (`[HK: D390..7A49 | GLOBAL:5493006M..ZV18 CalPERS]`) and LEI `529900T8BM49AURSDO55` (`[226:246]`) to Nordic Cloud SaaS AB (`[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]`).
+   - **`Tier-U1` Auto-Bind:** Matches LEI `5493006MHB84DD0ZWV18` (`[227:247]`) to `sat_limited_partner_investran.lei`, resolving to CalPERS master key `LP-101` (`[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`), and LEI `529900T8BM49AURSDO55` (`[226:246]`) to Nordic Cloud SaaS AB (`[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]`).
    - **`Tier-U2` Guarded Hybrid Bind:** Matches `"California Public Employees' Retirement System"` (`[134:180]`, $S_{\text{er}} = 0.98$) and `"Nordic Cloud SaaS AB"` ($S_{\text{er}} = 0.96$, top-2 margin $= 0.31 \ge 0.15$).
    - **`Tier-U3` Captain Hold (`Rule U4`):** Quarantines `"Horizon Sovereign Co-Invest Vehicle"` (`[1112:1147]`) because its top-2 candidate scores (`0.81` vs. `0.79`) yield a separation margin of $0.02 < 0.15$. Under **Gate 5 `Rule U4`**, `open-dv` refuses to mint a new `hub_fund` key from an unverified free-text PDF string and pauses only that span for Captain confirmation (`ASK-USER`).
 
@@ -308,7 +332,7 @@ assert side_letter_text[1112:1147] == "Horizon Sovereign Co-Invest Vehicle"
 2. **Onboarding `LEGACY_GP_ADMIN` (`legacy_gp.src_legacy_lp_roster`):**
    - In Attempt 1, `ship-vault` maps `legacy_gp.src_legacy_lp_roster.lp_num` (`'101'`, *Bavarian Pension Reserve Fund*) onto `hub_limited_partner` with `key_authority_tier: TIER_3_LOCAL_SCOPED`, but forgets to set `require_src_qualifier: true` and `bkcc_prefix: "LEGACY_GP_ADMIN"`.
    - **Collision Alert (`DV-COL-002`):** `axi-dv` Gate 3.1 detects that unscoped `'101'` collides with Investran `LP-101` (*CalPERS*, $500M commitment) while their entity overlap is $J_{\text{entity}} = 0.00 < 0.95$.
-   - **Self-Healed `BKCC` Isolation & `sal_limited_partner`:** After receiving the TOON diagnostic in Scene 5, `ship-vault` sets `require_src_qualifier: true` and `bkcc_prefix: "LEGACY_GP_ADMIN"`, isolating *Bavarian Pension Reserve Fund* at `[HK: 0FF0..9095 | LEGACY_GP_ADMIN:101 Bavarian Pension]` while *CalPERS* remains at `[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`. For Row 2 (`LEGACY_GP_ADMIN:102`, *Nordisk Suverän Fond*), which genuinely represents the same legal institution as `GLOBAL:LP-104` (*Nordic Sovereign Pension Fund*), `ship-vault` emits the non-destructive Same-As Link `sal_limited_partner`.
+   - **Self-Healed `BKCC` Isolation & `sal_limited_partner`:** After receiving the TOON diagnostic in Scene 5, `ship-vault` sets `require_src_qualifier: true` and `bkcc_prefix: "LEGACY_GP_ADMIN"`, isolating *Bavarian Pension Reserve Fund* at `[HK: 0FF0..9095 | LEGACY_GP_ADMIN:101 Bavarian Pension]` while *CalPERS* remains at `[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`. For Row 2 (`LEGACY_GP_ADMIN:102`, *Nordisk Suverän Fond*), which genuinely represents the same legal institution as `GLOBAL:LP-104` (*Nordic Sovereign Pension Fund*), the steward-approved row in `mdm.src_lp_steward_crosswalk` (`master_lp_id = LP-104`, `lp_num = 102`) drives the non-destructive Same-As Link `sal_limited_partner` (`rec_src = MDM_STEWARD_RESOLUTION`).
 
 #### 2. What the User Sees in `WB-05` (`VIZ-STEP-06` + `VIZ-GATE-04`)
 ```
@@ -328,8 +352,8 @@ assert side_letter_text[1112:1147] == "Horizon Sovereign Co-Invest Vehicle"
 |                                                                (Zero Cross-Source Data Corruption!)|
 |                                                                                                    |
 |   Verified Cross-Source Equivalence (`sal_limited_partner`):                                       |
-|   [HK: 8A2F..19C0 | GLOBAL:LP-104 Nordic Sovereign] <=== [SAL: sal_limited_partner] ===>           |
-|   [HK: 4D91..77E2 | LEGACY_GP_ADMIN:102 Nordisk Suveran Fond]                                      |
+|   [HK: 970A..5106 | GLOBAL:LP-104 Nordic Sovereign] <=== [SAL: sal_limited_partner] ===>           |
+|   [HK: 0F31..E17B | LEGACY_GP_ADMIN:102 Nordisk Suveran Fond]                                      |
 +====================================================================================================+
 ```
 
@@ -537,8 +561,8 @@ LEFT JOIN LATERAL (
 ) s_val ON TRUE;
 
 -- =============================================================================
--- ZONE 4: BI-TEMPORAL MULTIMODAL POINT-IN-TIME AUDIT QUERY (Query D.10)
--- Joins Structured LP Commitments with Unstructured Side Letter PDF Fee Caps
+-- ZONE 4: BI-TEMPORAL MULTIMODAL POINT-IN-TIME AUDIT QUERIES
+-- Query D.10: Joins Structured LP Commitments with Unstructured Side Letter PDF Fee Caps
 -- =============================================================================
 WITH active_structured_commitment AS (
     SELECT
@@ -560,12 +584,11 @@ active_side_letter_terms AS (
         h_doc.doc_uri,
         s_sl.fee_cap_bps,
         s_sl.mfn_election_flag,
-        s_sl.co_invest_fee_carry_pct,
         s_sl.effective_date AS business_effective_date,
         s_sl.load_dts AS extraction_assertion_ts,
         s_sl.confidence_score,
         s_sl.chunk_id,
-        s_sl.source_quote
+        s_sl.evidence_quote
     FROM raw_vault.lnk_document_lp_commitment l_doc
     INNER JOIN raw_vault.hub_document h_doc
         ON l_doc.hk_document = h_doc.hk_document
@@ -588,7 +611,7 @@ SELECT
     sl.mfn_election_flag,
     sl.doc_uri AS governing_side_letter_pdf,
     sl.chunk_id AS citation_span_offset,
-    sl.source_quote AS verbatim_legal_clause
+    sl.evidence_quote AS verbatim_legal_clause
 FROM raw_vault.lnk_lp_commitment l_c
 INNER JOIN raw_vault.hub_fund h_f
     ON l_c.hk_fund = h_f.hk_fund
@@ -599,13 +622,71 @@ INNER JOIN active_structured_commitment c
 LEFT JOIN active_side_letter_terms sl
     ON l_c.hk_fund = sl.hk_fund
    AND l_c.hk_limited_partner = sl.hk_limited_partner;
+
+-- Query D.10b: Latest Portfolio Company Valuation Visible at the Assertion Cutoff
+WITH valuation_assertions AS (
+    SELECT
+        s_val.hk_portfolio_company,
+        s_val.entry_ev_multiple AS ev_ebitda_multiple,
+        s_val.entry_ebitda_usd * s_val.entry_ev_multiple AS enterprise_value_usd,
+        s_val.load_dts,
+        s_val.rec_src,
+        CAST(NULL AS VARCHAR) AS doc_uri,
+        CAST(NULL AS VARCHAR) AS chunk_id,
+        CAST(NULL AS VARCHAR) AS evidence_quote
+    FROM raw_vault.sat_portco_valuation_mnpi s_val
+    WHERE s_val.load_dts <= CAST(:assertion_cutoff_ts AS TIMESTAMP)
+    UNION ALL
+    SELECT
+        l_doc.hk_portfolio_company,
+        s_ai.ev_ebitda_multiple,
+        s_ai.implied_ev_usd,
+        s_ai.load_dts,
+        s_ai.rec_src,
+        h_doc.doc_uri,
+        s_ai.chunk_id,
+        s_ai.evidence_quote
+    FROM raw_vault.lnk_document_portfolio_company l_doc
+    INNER JOIN raw_vault.hub_document h_doc
+        ON l_doc.hk_document = h_doc.hk_document
+    INNER JOIN raw_vault.sat_lnk_doc_portco_ai_provenance s_ai
+        ON l_doc.hk_lnk_document_portfolio_company = s_ai.hk_lnk_document_portfolio_company
+    WHERE s_ai.load_dts <= CAST(:assertion_cutoff_ts AS TIMESTAMP)
+      AND s_ai.effective_date <= CAST(:state_cutoff_date AS DATE)
+      AND s_ai.confidence_score >= 0.85
+)
+SELECT
+    h_pc.portco_natural_key,
+    v.ev_ebitda_multiple,
+    v.enterprise_value_usd,
+    v.rec_src,
+    v.doc_uri,
+    v.chunk_id,
+    v.evidence_quote
+FROM valuation_assertions v
+INNER JOIN raw_vault.hub_portfolio_company h_pc
+    ON v.hk_portfolio_company = h_pc.hk_portfolio_company
+QUALIFY ROW_NUMBER() OVER (
+    PARTITION BY v.hk_portfolio_company
+    ORDER BY v.load_dts DESC
+) = 1;
 ```
 
 #### 2. Bi-Temporal Audit Output Summary (`WB-11` Execution Result)
 
-| Query Cutoff Parameters (`:assertion_cutoff_ts`, `:state_cutoff_date`) | Entity / Asset | Returned Valuation / Fee Basis | Governing Citation & Provenance | Audit Explanation |
-| :--- | :--- | :--- | :--- | :--- |
-| **`('2026-10-15T12:00:00Z', '2026-09-30')`** | **Nordic Cloud SaaS AB** (`[HK: 0C18..454E]`) | **`13.5x` EBITDA** (`$228,103,425.00`) | `DEALCLOUD_PE_CRM` (`sat_portco_valuation_mnpi` at `ldts = 2026-10-05`) | Audited Q3 IC Memo PDF arrived on `2026-11-14`; bi-temporal filter prevents backdated leakage into the Oct 15 snapshot (`TMP-03`). |
-| **`('2026-11-20T12:00:00Z', '2026-09-30')`** | **Nordic Cloud SaaS AB** (`[HK: 0C18..454E]`) | **`14.5x` EBITDA** (`$245,000,000.00`) | `s3://.../ic_q3_valuation_nordic_cloud.pdf` (`[915:932] "EV/EBITDA = 14.5x"`) | Reconstructs the post-audit Q3 restatement alongside its exact PDF character span and `claude-3-7-sonnet` confidence score (`0.99`). |
-| **`('2026-11-20T12:00:00Z', '2026-09-30')`** | **CalPERS (`LP-101`) in Fund IV (`APEX_BO_IV`)** | **`125 bps`** *(50 bps discount off 175 bps headline; MFN = `Y`)* | `s3://.../calpers_side_letter_fund_iv_2026.pdf` (`[499:506] "125 bps"`) | Joins structured Investran commitment (`$500M`) with span-grounded LP Side Letter fee cap via `lnk_document_lp_commitment`. |
-| **`('2026-11-20T12:00:00Z', '2026-09-30')`** | **Bavarian Pension (`LEGACY_GP_ADMIN:101`)** | **Standard Headline Terms** *(Isolated from CalPERS)* | `LEGACY_GP_ADMIN` (`sat_limited_partner_legacy`) | Tier-3 `BKCC` prefix prevents Bavarian Pension (`101`) from inheriting CalPERS's (`LP-101`) sovereign Side Letter fee discount. |
+**`Query D.10` at `('2026-11-20T12:00:00Z', '2026-09-30')`** returns one row per commitment. Three of the seven rows are shown:
+
+| `fund_code` | `lp_natural_key` | `commitment_amount_usd` | `called_usd` | `side_letter_discounted_fee_bps` | `mfn_election_flag` | `governing_side_letter_pdf` | `citation_span_offset` | `verbatim_legal_clause` |
+| :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :--- |
+| `APEX_BO_IV` | `LP-101` | `500000000.00` | `160000000.00` | `125.0000` | `Y` | `s3://.../calpers_side_letter_fund_iv_2026.pdf` | `[499:506]` | `125 bps` |
+| `APEX_CO_I` | `LP-101` | `75000000.00` | `75000000.00` | `NULL` | `NULL` | `NULL` | `NULL` | `NULL` |
+| `APEX_BO_IV` | `LP-102` | `450000000.00` | `112500000.00` | `NULL` | `NULL` | `NULL` | `NULL` | `NULL` |
+
+The side letter binds to CalPERS in Fund IV only, so CalPERS's Co-Invest commitment and other LPs' commitments keep `NULL` terms. Bavarian Pension (`LEGACY_GP_ADMIN:101`) returns no row: it has no `lnk_lp_commitment` row, and its distinct Hub key cannot match the CalPERS side letter.
+
+**`Query D.10b`** returns the latest valuation visible at each cutoff:
+
+| (`:assertion_cutoff_ts`, `:state_cutoff_date`) | `portco_natural_key` | `ev_ebitda_multiple` | `enterprise_value_usd` | `rec_src` | `chunk_id` | `evidence_quote` | Audit Explanation |
+| :--- | :--- | :---: | :---: | :--- | :--- | :--- | :--- |
+| `('2026-10-15T12:00:00Z', '2026-09-30')` | `529900T8BM49AURSDO55` | `12.80` | `216275840.00` | `DEALCLOUD_PE_CRM` | `NULL` | `NULL` | The audited memo loads on `2026-11-14`, so the filter on `load_dts` prevents backdated leakage into the Oct 15 snapshot (`TMP-03`). |
+| `('2026-11-20T12:00:00Z', '2026-09-30')` | `529900T8BM49AURSDO55` | `14.50` | `245000000.00` | `OBJECT_STORE_S3` | `[915:932]` | `EV/EBITDA = 14.5x` | Reconstructs the Q3 restatement with its PDF character span. |

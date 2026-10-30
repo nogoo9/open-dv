@@ -177,7 +177,7 @@
     },
     "layer2_visual_payload": {
       "type": "object",
-      "description": "Structured visual canvas payload using Semantic Hash Pills (`[HK: 8f1a..7021 | GLOBAL:LP-101 CalPERS]`).",
+      "description": "Structured visual canvas payload using Semantic Hash Pills (`[HK: 5d15..0ae4 | GLOBAL:LP-101 CalPERS]`).",
       "required": ["semantic_hash_pills", "summary_metrics"],
       "additionalProperties": true,
       "properties": {

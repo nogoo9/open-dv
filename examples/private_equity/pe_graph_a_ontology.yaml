@@ -52,7 +52,7 @@ canonical_business_concepts:
         require_src_qualifier: false
       tier_2_enterprise_sor:
         authority_name: "Investran Investor Master Key"
-        column_patterns: ["lp_id", "lp_code"]
+        column_patterns: ["lp_id", "lp_code", "master_lp_id"]
         regex_pattern: "^LP-[0-9]{3,6}$"
         bkcc_policy: "GLOBAL"
         require_src_qualifier: false
@@ -69,8 +69,9 @@ canonical_business_concepts:
     definition: "An operating enterprise or deal target acquired or co-invested in by one or more Private Equity Funds."
     target_hub: "hub_portfolio_company"
     governance_constraints:
-      mnpi_confidential_attributes: ["entry_ebitda_usd", "entry_ev_multiple", "ev_ebitda_multiple", "fair_value_usd"]
+      mnpi_confidential_attributes: ["entry_ebitda_usd", "entry_ev_multiple", "ev_ebitda_multiple", "implied_ev_usd", "fair_value_usd"]
       required_satellite_split: "sat_portco_valuation_mnpi"
+      required_extraction_satellite_split: "sat_lnk_doc_portco_ai_provenance"
     key_authority_tiers:
       tier_1_global_standard:
         authority_name: "ISO 17442 Legal Entity Identifier (LEI)"

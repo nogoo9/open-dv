@@ -47,7 +47,7 @@
             "high_freq_column_count": 3,
             "high_freq_row_width_bytes": 33,
             "high_freq_change_probability": 0.85,
-            "write_amplification_mb_per_day": 4.20,
+            "write_amplification_mb_per_day": 4.2,
             "threshold_mb_per_day": 50.0,
             "gate4_verdict": "AUTO_FIX_MERGE_SATELLITES"
           },
@@ -126,33 +126,85 @@
             { "column_name": "mime_type", "data_type": "VARCHAR(64)", "u_total": 0.5, "u_non_null": 0.5, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
             { "column_name": "byte_size", "data_type": "BIGINT", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" }
           ]
+        },
+        {
+          "bronze_table": "dms.src_side_letter_extractions",
+          "row_count": 1,
+          "daily_delta_rows": 1,
+          "columns": [
+            { "column_name": "doc_uri", "data_type": "VARCHAR(512)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "inclusion_in_parent": 1.0, "target_parent": "dms.documents.doc_uri", "candidate_role": "FOREIGN_KEY_REF" },
+            { "column_name": "fund_code", "data_type": "VARCHAR(32)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "inclusion_in_parent": 1.0, "target_parent": "investran.src_pe_funds.fund_code", "candidate_role": "FOREIGN_KEY_REF" },
+            { "column_name": "lp_id", "data_type": "VARCHAR(32)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "inclusion_in_parent": 1.0, "target_parent": "investran.src_lp_investors.lp_id", "candidate_role": "FOREIGN_KEY_REF" },
+            { "column_name": "fee_cap_bps", "data_type": "NUMERIC(8,4)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "headline_fee_bps", "data_type": "NUMERIC(8,4)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "mfn_election_flag", "data_type": "CHAR(1)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "co_invest_rofr", "data_type": "CHAR(1)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "effective_date", "data_type": "DATE", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "extractor_model_id", "data_type": "VARCHAR(128)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "confidence_score", "data_type": "NUMERIC(4,3)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "chunk_id", "data_type": "VARCHAR(128)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "evidence_quote", "data_type": "VARCHAR(1024)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" }
+          ]
+        },
+        {
+          "bronze_table": "dms.src_ic_memo_extractions",
+          "row_count": 1,
+          "daily_delta_rows": 1,
+          "columns": [
+            { "column_name": "doc_uri", "data_type": "VARCHAR(512)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "inclusion_in_parent": 1.0, "target_parent": "dms.documents.doc_uri", "candidate_role": "FOREIGN_KEY_REF" },
+            { "column_name": "lei", "data_type": "CHAR(20)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "inclusion_in_parent": 1.0, "target_parent": "dealcloud.src_portfolio_companies.lei", "candidate_role": "FOREIGN_KEY_REF" },
+            { "column_name": "asc_820_level", "data_type": "VARCHAR(16)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "ev_ebitda_multiple", "data_type": "NUMERIC(6,2)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "implied_ev_usd", "data_type": "NUMERIC(18,2)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "fair_value_usd", "data_type": "NUMERIC(18,2)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "effective_date", "data_type": "DATE", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "extractor_model_id", "data_type": "VARCHAR(128)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "confidence_score", "data_type": "NUMERIC(4,3)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "chunk_id", "data_type": "VARCHAR(128)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "evidence_quote", "data_type": "VARCHAR(1024)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" }
+          ]
         }
       ],
       "unstructured_documents": [
         {
           "doc_uri": "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf",
-          "content_sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+          "content_sha256": "896c221b5e0db9b476ce0de10d54c3d3ca412af137c5f53e916f10cdc42bfe0d",
           "char_length": 1215,
           "extracted_spans": [
             { "field": "investor_name", "span_start": 134, "span_end": 180, "verbatim_quote": "California Public Employees' Retirement System", "resolved_bk": "LP-101", "er_tier": "TIER_U2_HYBRID_EXACT", "confidence": 0.98 },
-            { "field": "investor_lei", "span_start": 227, "span_end": 247, "verbatim_quote": "5493006MHB84DD0ZWV18", "resolved_bk": "5493006MHB84DD0ZWV18", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.00 },
-            { "field": "discounted_mgmt_fee", "span_start": 499, "span_end": 506, "verbatim_quote": "125 bps", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
-            { "field": "headline_mgmt_fee", "span_start": 607, "span_end": 614, "verbatim_quote": "175 bps", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
+            { "field": "investor_lei", "span_start": 227, "span_end": 247, "verbatim_quote": "5493006MHB84DD0ZWV18", "resolved_bk": "LP-101", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.0 },
+            { "field": "fee_cap_bps", "span_start": 499, "span_end": 506, "verbatim_quote": "125 bps", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
+            { "field": "headline_fee_bps", "span_start": 607, "span_end": 614, "verbatim_quote": "175 bps", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
             { "field": "co_invest_rofr", "span_start": 878, "span_end": 914, "verbatim_quote": "co-investment right of first refusal", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.97 },
-            { "field": "ambiguous_vehicle_mention", "span_start": 1112, "span_end": 1147, "verbatim_quote": "Horizon Sovereign Co-Invest Vehicle", "resolved_bk": null, "er_tier": "TIER_U3_CAPTAIN_HOLD", "confidence": 0.81, "top2_margin": 0.02 }
+            { "field": "ambiguous_vehicle", "span_start": 1112, "span_end": 1147, "verbatim_quote": "Horizon Sovereign Co-Invest Vehicle", "resolved_bk": null, "er_tier": "TIER_U3_CAPTAIN_HOLD", "confidence": 0.81, "top2_margin": 0.02 }
           ]
         },
         {
           "doc_uri": "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf",
-          "content_sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+          "content_sha256": "ca4d09a7663efdcbecbe94008c724f3cba32fdb7fa29875c5b72547f6a2dde8c",
           "char_length": 1331,
           "extracted_spans": [
-            { "field": "portco_lei", "span_start": 226, "span_end": 246, "verbatim_quote": "529900T8BM49AURSDO55", "resolved_bk": "529900T8BM49AURSDO55", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.00 },
-            { "field": "portco_deal_code", "span_start": 259, "span_end": 271, "verbatim_quote": "DEAL-NC-2024", "resolved_bk": "DEAL-NC-2024", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.00 },
+            { "field": "portco_lei", "span_start": 226, "span_end": 246, "verbatim_quote": "529900T8BM49AURSDO55", "resolved_bk": "529900T8BM49AURSDO55", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.0 },
+            { "field": "portco_deal_code", "span_start": 259, "span_end": 271, "verbatim_quote": "DEAL-NC-2024", "resolved_bk": "529900T8BM49AURSDO55", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.0 },
             { "field": "asc_820_level", "span_start": 599, "span_end": 624, "verbatim_quote": "ASC_820_Level = 'Level 3'", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
             { "field": "ev_ebitda_multiple", "span_start": 915, "span_end": 932, "verbatim_quote": "EV/EBITDA = 14.5x", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
             { "field": "implied_ev_usd", "span_start": 1033, "span_end": 1051, "verbatim_quote": "USD 245,000,000.00", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
             { "field": "fair_value_usd", "span_start": 1076, "span_end": 1105, "verbatim_quote": "Fair_Value_USD = 245000000.00", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 }
+          ]
+        }
+      ]
+    },
+    {
+      "source_system_code": "MDM_STEWARD_RESOLUTION",
+      "description": "Data Steward Approved Investor Equivalence Crosswalk (N=2 Expansion)",
+      "tables": [
+        {
+          "bronze_table": "mdm.src_lp_steward_crosswalk",
+          "row_count": 1,
+          "daily_delta_rows": 1,
+          "columns": [
+            { "column_name": "master_lp_id", "data_type": "VARCHAR(32)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "inclusion_in_parent": 1.0, "target_parent": "investran.src_lp_investors.lp_id", "candidate_role": "FOREIGN_KEY_REF" },
+            { "column_name": "lp_num", "data_type": "VARCHAR(16)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "inclusion_in_parent": 1.0, "target_parent": "legacy_gp.src_legacy_lp_roster.lp_num", "candidate_role": "FOREIGN_KEY_REF" }
           ]
         }
       ]
