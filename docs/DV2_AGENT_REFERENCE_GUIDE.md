@@ -9,10 +9,14 @@
 > - [03 — Automated 6-Gate `axi-dv` Verification, 4 Adversarial Sandbox Batches, and `dv-firstmate` Swarm Architecture](03-verification-and-agentic-architecture.md)
 > - [04 — Unstructured & Multi-Modal Data Vault 2.0 Integration (`Rules U1–U4`, `hub_document`, `Tier-U1..U3`)](04-unstructured-and-multimodal-dv2.md)
 > - [05 — ELM Calculus, Graph B Profiling Math, 3-Pass CoT Prompt, and Reference Algorithms (`A.1`–`A.9` & `D.10`)](05-elm-calculus-and-reference-algorithms.md)
+> - [06 — Explainability, Observability & Visualization Architecture (`WB-00..WB-11`, `VIZ-PIPE-00`, `VIZ-STEP-01..08`, `VIZ-GATE-01..08`)](06-explainability-and-observability-spec.md)
+> - [07 — End-to-End Private Equity Asset Management Modelling & Verification Demo (`Scenes 1–7`)](07-end-to-end-private-equity-demo.md)
 > - **Formal Schemas & Contracts:**
 >   - [No-Mistake DV 2.0 Contract V5 JSON Schema (`schemas/no-mistake-dv2-contract-v5.schema.json`)](../schemas/no-mistake-dv2-contract-v5.schema.json)
 >   - [Canonical Intermediate Representation (IR) JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json)
+>   - [Observability Telemetry Event JSON Schema (`schemas/vault-observability-event.schema.json`)](../schemas/vault-observability-event.schema.json)
 >   - [Annotated Multi-Source Model Contract Example (`examples/dv_model_contract.yaml`)](../examples/dv_model_contract.yaml)
+>   - [Private Equity Model Contract & Canonical IR Package (`examples/private_equity/dv_pe_model_contract.yaml`)](../examples/private_equity/dv_pe_model_contract.yaml)
 
 ---
 

@@ -39,7 +39,7 @@ jobs:
           from jsonschema import Draft202012Validator
 
           schema_paths = sorted(glob.glob("schemas/*.json"))
-          assert len(schema_paths) >= 2, f"Expected >= 2 JSON schemas, found {schema_paths}"
+          assert len(schema_paths) >= 3, f"Expected >= 3 JSON schemas, found {schema_paths}"
           for path in schema_paths:
               with open(path, encoding="utf-8") as f:
                   schema = json.load(f)
@@ -48,10 +48,21 @@ jobs:
 
           with open("schemas/no-mistake-dv2-contract-v5.schema.json", encoding="utf-8") as f:
               contract_schema = json.load(f)
-          with open("examples/dv_model_contract.yaml", encoding="utf-8") as f:
-              contract_doc = yaml.safe_load(f)
-          Draft202012Validator(contract_schema).validate(contract_doc)
-          print("[PASS] examples/dv_model_contract.yaml conforms to schemas/no-mistake-dv2-contract-v5.schema.json")
+          for contract_path in [
+              "examples/dv_model_contract.yaml",
+              "examples/private_equity/dv_pe_model_contract.yaml",
+          ]:
+              with open(contract_path, encoding="utf-8") as f:
+                  contract_doc = yaml.safe_load(f)
+              Draft202012Validator(contract_schema).validate(contract_doc)
+              print(f"[PASS] {contract_path} conforms to schemas/no-mistake-dv2-contract-v5.schema.json")
+
+          with open("schemas/dv2-canonical-ir.schema.json", encoding="utf-8") as f:
+              ir_schema = json.load(f)
+          with open("examples/private_equity/pe_canonical_ir.json", encoding="utf-8") as f:
+              pe_ir_doc = json.load(f)
+          Draft202012Validator(ir_schema).validate(pe_ir_doc)
+          print("[PASS] examples/private_equity/pe_canonical_ir.json conforms to schemas/dv2-canonical-ir.schema.json")
 
           total_blocks = 0
           for md_path in sorted(glob.glob("docs/**/*.md", recursive=True)):

@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-dv.org/schemas/vault-observability-event.schema.json",
+  "title": "VaultObservabilityEvent",
+  "description": "Unified JSONL telemetry event emitted by open-dv agents (Vault First Mate, scout-source, scout-unstructured, ship-vault, axi-dv, and DeterministicCompiler) over state/vault-ledger.jsonl to drive the 12-View Explainability & Observability Workbench (WB-00 through WB-11).",
+  "type": "object",
+  "required": [
+    "event_id",
+    "run_id",
+    "timestamp_utc",
+    "stage_id",
+    "workbench_view_id",
+    "viz_id",
+    "agent_persona",
+    "status",
+    "layer1_story_banner",
+    "layer2_visual_payload"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier for this telemetry event (UUIDv7 or deterministic trace ID)."
+    },
+    "run_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Pipeline execution run identifier."
+    },
+    "trace_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{32}$",
+      "description": "Optional W3C Trace Context 32-hex trace identifier correlating multi-agent spans across a pipeline run."
+    },
+    "span_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$",
+      "description": "Optional W3C Trace Context 16-hex span identifier for this specific agent task or gate evaluation."
+    },
+    "parent_span_id": {
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{16}$",
+      "description": "Optional W3C Trace Context 16-hex parent span identifier."
+    },
+    "timestamp_utc": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp when the event was emitted."
+    },
+    "stage_id": {
+      "type": "string",
+      "enum": [
+        "STAGE_00_ORCHESTRATION",
+        "STAGE_01_SCOUT_SOURCE",
+        "STAGE_02_SCOUT_UNSTRUCTURED",
+        "STAGE_03_SHIP_VAULT_PASS1",
+        "STAGE_04_SHIP_VAULT_PASS2",
+        "STAGE_05_AXI_DV_STATIC_GATES",
+        "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+        "STAGE_07_DETERMINISTIC_COMPILER"
+      ]
+    },
+    "workbench_view_id": {
+      "type": "string",
+      "enum": [
+        "WB-00",
+        "WB-01",
+        "WB-02",
+        "WB-03",
+        "WB-04",
+        "WB-05",
+        "WB-06",
+        "WB-07",
+        "WB-08",
+        "WB-09",
+        "WB-10",
+        "WB-11"
+      ]
+    },
+    "viz_id": {
+      "type": "string",
+      "enum": [
+        "VIZ-PIPE-00",
+        "VIZ-STEP-01",
+        "VIZ-STEP-02",
+        "VIZ-STEP-03",
+        "VIZ-STEP-04",
+        "VIZ-STEP-05",
+        "VIZ-STEP-06",
+        "VIZ-STEP-07",
+        "VIZ-STEP-08",
+        "VIZ-GATE-01",
+        "VIZ-GATE-02",
+        "VIZ-GATE-03",
+        "VIZ-GATE-04",
+        "VIZ-GATE-05",
+        "VIZ-GATE-06",
+        "VIZ-GATE-07",
+        "VIZ-GATE-08"
+      ]
+    },
+    "agent_persona": {
+      "type": "string",
+      "enum": [
+        "vault-first-mate",
+        "scout-source",
+        "scout-unstructured",
+        "ship-vault",
+        "axi-dv",
+        "deterministic-compiler"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "PASS",
+        "AUTO-FIX",
+        "REJECT-WITH-TRACE",
+        "ASK-USER"
+      ]
+    },
+    "rule_ids_evaluated": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(DV-[A-Z]+-[0-9]{3}|ALG-A[0-9A-Za-z]+|INV-[0-9]{2}|KEY-[0-9]{2}|TMP-[0-9]{2}|EVO-[0-9]{2}|U[1-4]|AP-[0-9]{2})$"
+      }
+    },
+    "context_refs": {
+      "type": "object",
+      "description": "Content-addressable SHA-256 artifact references under state/artifacts/<sha256>.",
+      "additionalProperties": false,
+      "properties": {
+        "graph_a_sha256": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{64}$"
+        },
+        "graph_b_sha256": {
+          "type": "string",
+          "pattern": "^[0-9A-Fa-f]{64}$"
+        },
+        "contract_yaml_pre_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9A-Fa-f]{64}$"
+        },
+        "contract_yaml_post_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9A-Fa-f]{64}$"
+        },
+        "canonical_ir_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9A-Fa-f]{64}$"
+        },
+        "compiled_sql_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9A-Fa-f]{64}$"
+        },
+        "toon_trace_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^[0-9A-Fa-f]{64}$"
+        }
+      }
+    },
+    "layer1_story_banner": {
+      "type": "object",
+      "required": ["headline", "business_impact", "verdict_pill"],
+      "additionalProperties": false,
+      "properties": {
+        "headline": {"type": "string", "maxLength": 140},
+        "business_impact": {"type": "string", "maxLength": 200},
+        "verdict_pill": {
+          "type": "string",
+          "enum": ["PASS", "AUTO-FIX", "REJECT-WITH-TRACE", "ASK-USER"]
+        }
+      }
+    },
+    "layer2_visual_payload": {
+      "type": "object",
+      "description": "Structured visual canvas payload using Semantic Hash Pills (`[HK: 8f1a..7021 | GLOBAL:LP-101 CalPERS]`).",
+      "required": ["semantic_hash_pills", "summary_metrics"],
+      "additionalProperties": true,
+      "properties": {
+        "semantic_hash_pills": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pill_label", "full_sha256_hex", "bkcc_prefix", "business_key", "entity_label"],
+            "additionalProperties": false,
+            "properties": {
+              "pill_label": {"type": "string"},
+              "full_sha256_hex": {"type": "string", "pattern": "^[0-9A-Fa-f]{64}$"},
+              "bkcc_prefix": {"type": "string"},
+              "business_key": {"type": "string"},
+              "entity_label": {"type": "string"}
+            }
+          }
+        },
+        "summary_metrics": {
+          "type": "object",
+          "additionalProperties": {
+            "type": ["number", "string", "boolean"]
+          }
+        }
+      }
+    },
+    "layer3_formal_proof": {
+      "type": "object",
+      "description": "On-demand formal proof drawer payload (collapsed by default in UI).",
+      "additionalProperties": false,
+      "properties": {
+        "algorithm_ref": {"type": "string"},
+        "formula_latex": {"type": "string"},
+        "toon_diagnostic_payload": {"type": "string"},
+        "contract_yaml_diff": {"type": "string"},
+        "sqlglot_ast_summary": {"type": "string"}
+      }
+    }
+  }
+}

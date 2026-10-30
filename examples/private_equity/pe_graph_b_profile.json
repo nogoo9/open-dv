@@ -1,0 +1,161 @@
+{
+  "profile_version": "1.0.0",
+  "domain_namespace": "pe_asset_management",
+  "profiled_at_utc": "2026-10-30T14:22:01Z",
+  "source_systems": [
+    {
+      "source_system_code": "INVESTRAN_FUND_ADMIN",
+      "description": "Enterprise Fund Accounting & Investor Servicing System of Record (Cold-Start N=1)",
+      "tables": [
+        {
+          "bronze_table": "investran.src_pe_funds",
+          "row_count": 3,
+          "daily_delta_rows": 3,
+          "columns": [
+            { "column_name": "fund_code", "data_type": "VARCHAR(32)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.585, "drift_rate_lambda": 0.0, "candidate_role": "TIER_2_BUSINESS_KEY" },
+            { "column_name": "isin", "data_type": "CHAR(12)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.585, "drift_rate_lambda": 0.0, "candidate_role": "TIER_1_BUSINESS_KEY" },
+            { "column_name": "fund_name", "data_type": "VARCHAR(255)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.585, "drift_rate_lambda": 0.01, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "vintage_year", "data_type": "INTEGER", "u_total": 0.6667, "u_non_null": 0.6667, "null_rate": 0.0, "shannon_entropy_bits": 0.918, "drift_rate_lambda": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "target_size_usd", "data_type": "NUMERIC(18,2)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.585, "drift_rate_lambda": 0.02, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "strategy", "data_type": "VARCHAR(32)", "u_total": 0.6667, "u_non_null": 0.6667, "null_rate": 0.0, "shannon_entropy_bits": 0.918, "drift_rate_lambda": 0.0, "candidate_role": "REFERENCE_CODE" },
+            { "column_name": "mgmt_fee_bps", "data_type": "NUMERIC(8,4)", "u_total": 0.6667, "u_non_null": 0.6667, "null_rate": 0.0, "shannon_entropy_bits": 0.918, "drift_rate_lambda": 0.01, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "deprecated_fax_no", "data_type": "VARCHAR(64)", "u_total": 0.3333, "u_non_null": 1.0, "null_rate": 0.6667, "shannon_entropy_bits": 0.0, "drift_rate_lambda": 0.0, "candidate_role": "SOFT_DEPRECATED_PAYLOAD" },
+            { "column_name": "ilpa_esg_rating", "data_type": "VARCHAR(16)", "u_total": 0.6667, "u_non_null": 0.6667, "null_rate": 0.0, "shannon_entropy_bits": 0.918, "drift_rate_lambda": 0.05, "candidate_role": "ADDITIVE_DRIFT_COMPANION" }
+          ]
+        },
+        {
+          "bronze_table": "investran.src_lp_investors",
+          "row_count": 4,
+          "daily_delta_rows": 4,
+          "columns": [
+            { "column_name": "row_seq_id", "data_type": "BIGINT", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 2.0, "monotonic_step_delta_1": true, "candidate_role": "SYSTEM_SURROGATE_DROPPED" },
+            { "column_name": "lei", "data_type": "CHAR(20)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 2.0, "drift_rate_lambda": 0.0, "candidate_role": "TIER_1_BUSINESS_KEY" },
+            { "column_name": "lp_id", "data_type": "VARCHAR(32)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 2.0, "drift_rate_lambda": 0.0, "candidate_role": "TIER_2_BUSINESS_KEY" },
+            { "column_name": "lp_legal_name", "data_type": "VARCHAR(255)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 2.0, "drift_rate_lambda": 0.01, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "domicile_country", "data_type": "CHAR(2)", "u_total": 0.75, "u_non_null": 0.75, "null_rate": 0.0, "shannon_entropy_bits": 1.5, "drift_rate_lambda": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "wire_iban", "data_type": "VARCHAR(64)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 2.0, "security_tag": "PII_HIGH", "candidate_role": "PII_RESTRICTED_PAYLOAD" },
+            { "column_name": "tax_id", "data_type": "VARCHAR(32)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 2.0, "security_tag": "PII_HIGH", "candidate_role": "PII_RESTRICTED_PAYLOAD" },
+            { "column_name": "tier_status", "data_type": "VARCHAR(32)", "u_total": 0.5, "u_non_null": 0.5, "null_rate": 0.0, "shannon_entropy_bits": 1.0, "drift_rate_lambda": 0.02, "candidate_role": "DESCRIPTIVE_PAYLOAD" }
+          ]
+        },
+        {
+          "bronze_table": "investran.src_lp_commitments_and_calls",
+          "row_count": 7,
+          "daily_delta_rows": 157000,
+          "yagni_telemetry": {
+            "general_column_count": 6,
+            "high_freq_column_count": 3,
+            "high_freq_row_width_bytes": 33,
+            "high_freq_change_probability": 0.85,
+            "write_amplification_mb_per_day": 4.20,
+            "threshold_mb_per_day": 50.0,
+            "gate4_verdict": "AUTO_FIX_MERGE_SATELLITES"
+          },
+          "columns": [
+            { "column_name": "commitment_id", "data_type": "VARCHAR(64)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 2.807, "candidate_role": "DEGENERATE_KEY" },
+            { "column_name": "fund_code", "data_type": "VARCHAR(32)", "u_total": 0.2857, "u_non_null": 0.2857, "null_rate": 0.0, "inclusion_in_parent": 1.0, "target_parent": "investran.src_pe_funds.fund_code", "candidate_role": "FOREIGN_KEY_REF" },
+            { "column_name": "lp_id", "data_type": "VARCHAR(32)", "u_total": 0.5714, "u_non_null": 0.5714, "null_rate": 0.0, "inclusion_in_parent": 1.0, "target_parent": "investran.src_lp_investors.lp_id", "candidate_role": "FOREIGN_KEY_REF" },
+            { "column_name": "commitment_amount_usd", "data_type": "NUMERIC(18,2)", "u_total": 0.8571, "u_non_null": 0.8571, "null_rate": 0.0, "drift_rate_lambda": 0.01, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "called_usd", "data_type": "NUMERIC(18,2)", "u_total": 0.8571, "u_non_null": 0.8571, "null_rate": 0.0, "drift_rate_lambda": 0.12, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "distribution_recallable_flag", "data_type": "CHAR(1)", "u_total": 0.2857, "u_non_null": 0.2857, "null_rate": 0.0, "drift_rate_lambda": 0.01, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "co_invest_portco_lei", "data_type": "CHAR(20)", "u_total": 0.1429, "u_non_null": 0.2857, "null_rate": 0.7143, "inclusion_in_parent": 1.0, "target_parent": "dealcloud.src_portfolio_companies.lei", "candidate_role": "OPTIONAL_FOREIGN_KEY_REF" },
+            { "column_name": "eur_usd_rate", "data_type": "NUMERIC(12,6)", "u_total": 0.8571, "u_non_null": 0.8571, "null_rate": 0.0, "drift_rate_lambda": 0.85, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "gbp_usd_rate", "data_type": "NUMERIC(12,6)", "u_total": 0.8571, "u_non_null": 0.8571, "null_rate": 0.0, "drift_rate_lambda": 0.85, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "daily_interim_nav_usd", "data_type": "NUMERIC(18,2)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "drift_rate_lambda": 0.85, "candidate_role": "DESCRIPTIVE_PAYLOAD" }
+          ]
+        }
+      ]
+    },
+    {
+      "source_system_code": "DEALCLOUD_PE_CRM",
+      "description": "Private Equity Deal Pipeline & Portfolio Company Valuation CRM (N=2 Expansion)",
+      "tables": [
+        {
+          "bronze_table": "dealcloud.src_portfolio_companies",
+          "row_count": 3,
+          "daily_delta_rows": 3,
+          "columns": [
+            { "column_name": "lei", "data_type": "CHAR(20)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.585, "candidate_role": "TIER_1_BUSINESS_KEY" },
+            { "column_name": "deal_code", "data_type": "VARCHAR(32)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.585, "candidate_role": "TIER_2_BUSINESS_KEY" },
+            { "column_name": "company_name", "data_type": "VARCHAR(255)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.585, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "sector", "data_type": "VARCHAR(64)", "u_total": 0.6667, "u_non_null": 0.6667, "null_rate": 0.0, "shannon_entropy_bits": 0.918, "candidate_role": "REFERENCE_CODE" },
+            { "column_name": "entry_ebitda_usd", "data_type": "NUMERIC(18,2)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "security_tag": "CONFIDENTIAL", "candidate_role": "MNPI_VALUATION_PAYLOAD" },
+            { "column_name": "entry_ev_multiple", "data_type": "NUMERIC(6,2)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "security_tag": "CONFIDENTIAL", "candidate_role": "MNPI_VALUATION_PAYLOAD" },
+            { "column_name": "gp_deal_partner", "data_type": "VARCHAR(128)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" }
+          ]
+        }
+      ]
+    },
+    {
+      "source_system_code": "LEGACY_GP_ADMIN",
+      "description": "Acquired European GP Spreadsheet Roster with Colliding Local Integer Keys (N=2 Expansion)",
+      "tables": [
+        {
+          "bronze_table": "legacy_gp.src_legacy_lp_roster",
+          "row_count": 2,
+          "daily_delta_rows": 2,
+          "collision_diagnostics": {
+            "colliding_column": "lp_num",
+            "colliding_value": "101",
+            "legacy_entity_name": "Bavarian Pension Reserve Fund",
+            "investran_entity_name": "California Public Employees' Retirement System (CalPERS)",
+            "jaccard_value_overlap": 0.5,
+            "semantic_entity_overlap": 0.0,
+            "required_bkcc_prefix": "LEGACY_GP_ADMIN"
+          },
+          "columns": [
+            { "column_name": "lp_num", "data_type": "VARCHAR(16)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.0, "candidate_role": "TIER_3_LOCAL_SCOPED_KEY" },
+            { "column_name": "legacy_investor_name", "data_type": "VARCHAR(255)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "contact_person", "data_type": "VARCHAR(128)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "phone_number", "data_type": "VARCHAR(64)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "shannon_entropy_bits": 1.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" }
+          ]
+        }
+      ]
+    },
+    {
+      "source_system_code": "OBJECT_STORE_S3",
+      "description": "Enterprise S3 Legal & Valuation Document Corpus",
+      "tables": [
+        {
+          "bronze_table": "dms.documents",
+          "row_count": 2,
+          "daily_delta_rows": 2,
+          "columns": [
+            { "column_name": "doc_uri", "data_type": "VARCHAR(512)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "TIER_2_BUSINESS_KEY" },
+            { "column_name": "content_sha256", "data_type": "CHAR(64)", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "TECHNICAL_METADATA" },
+            { "column_name": "mime_type", "data_type": "VARCHAR(64)", "u_total": 0.5, "u_non_null": 0.5, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" },
+            { "column_name": "byte_size", "data_type": "BIGINT", "u_total": 1.0, "u_non_null": 1.0, "null_rate": 0.0, "candidate_role": "DESCRIPTIVE_PAYLOAD" }
+          ]
+        }
+      ],
+      "unstructured_documents": [
+        {
+          "doc_uri": "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf",
+          "content_sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+          "char_length": 1215,
+          "extracted_spans": [
+            { "field": "investor_name", "span_start": 134, "span_end": 180, "verbatim_quote": "California Public Employees' Retirement System", "resolved_bk": "LP-101", "er_tier": "TIER_U2_HYBRID_EXACT", "confidence": 0.98 },
+            { "field": "investor_lei", "span_start": 227, "span_end": 247, "verbatim_quote": "5493006MHB84DD0ZWV18", "resolved_bk": "5493006MHB84DD0ZWV18", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.00 },
+            { "field": "discounted_mgmt_fee", "span_start": 499, "span_end": 506, "verbatim_quote": "125 bps", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
+            { "field": "headline_mgmt_fee", "span_start": 607, "span_end": 614, "verbatim_quote": "175 bps", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
+            { "field": "co_invest_rofr", "span_start": 878, "span_end": 914, "verbatim_quote": "co-investment right of first refusal", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.97 },
+            { "field": "ambiguous_vehicle_mention", "span_start": 1112, "span_end": 1147, "verbatim_quote": "Horizon Sovereign Co-Invest Vehicle", "resolved_bk": null, "er_tier": "TIER_U3_CAPTAIN_HOLD", "confidence": 0.81, "top2_margin": 0.02 }
+          ]
+        },
+        {
+          "doc_uri": "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf",
+          "content_sha256": "4b227777d4dd1fc61c6f884f48641d02b4d121d3fd328cb08b5531fcacdabf8a",
+          "char_length": 1331,
+          "extracted_spans": [
+            { "field": "portco_lei", "span_start": 226, "span_end": 246, "verbatim_quote": "529900T8BM49AURSDO55", "resolved_bk": "529900T8BM49AURSDO55", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.00 },
+            { "field": "portco_deal_code", "span_start": 259, "span_end": 271, "verbatim_quote": "DEAL-NC-2024", "resolved_bk": "DEAL-NC-2024", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.00 },
+            { "field": "asc_820_level", "span_start": 599, "span_end": 624, "verbatim_quote": "ASC_820_Level = 'Level 3'", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
+            { "field": "ev_ebitda_multiple", "span_start": 915, "span_end": 932, "verbatim_quote": "EV/EBITDA = 14.5x", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
+            { "field": "implied_ev_usd", "span_start": 1033, "span_end": 1051, "verbatim_quote": "USD 245,000,000.00", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
+            { "field": "fair_value_usd", "span_start": 1076, "span_end": 1105, "verbatim_quote": "Fair_Value_USD = 245000000.00", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 }
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,337 @@
+# Annotated Private Equity Data Vault 2.0 Model Contract (Apex Horizon Capital)
+# Conforms to: schemas/no-mistake-dv2-contract-v5.schema.json
+# Enforces: 100% Column Accountability, 3-Tier BK Authority, Gate 4 YAGNI Cost Guard, and Gate 5 Unstructured Rules
+
+contract_version: "5.0"
+domain_namespace: "pe_asset_management"
+lifecycle_stage: "MULTI_SOURCE_EXPANSION"
+
+column_triage_ledger:
+  # --- TABLE 1: investran.src_pe_funds (INVESTRAN_FUND_ADMIN) ---
+  - { bronze_table: "investran.src_pe_funds", column_name: "fund_code", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_fund" }
+  - { bronze_table: "investran.src_pe_funds", column_name: "isin", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_fund" }
+  - { bronze_table: "investran.src_pe_funds", column_name: "fund_name", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_fund_investran" }
+  - { bronze_table: "investran.src_pe_funds", column_name: "vintage_year", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_fund_investran" }
+  - { bronze_table: "investran.src_pe_funds", column_name: "target_size_usd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_fund_investran" }
+  - { bronze_table: "investran.src_pe_funds", column_name: "strategy", elm_classification: "REFERENCE_CODE", target_dv_entity: "ref_fund_strategy" }
+  - { bronze_table: "investran.src_pe_funds", column_name: "mgmt_fee_bps", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_fund_investran" }
+  - { bronze_table: "investran.src_pe_funds", column_name: "deprecated_fax_no", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_fund_investran" }
+  - { bronze_table: "investran.src_pe_funds", column_name: "ilpa_esg_rating", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_fund_investran_esg" }
+
+  # --- TABLE 2: investran.src_lp_investors (INVESTRAN_FUND_ADMIN) ---
+  - { bronze_table: "investran.src_lp_investors", column_name: "row_seq_id", elm_classification: "SYSTEM_SURROGATE_DROPPED", target_dv_entity: "DROPPED" }
+  - { bronze_table: "investran.src_lp_investors", column_name: "lei", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_limited_partner" }
+  - { bronze_table: "investran.src_lp_investors", column_name: "lp_id", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_limited_partner" }
+  - { bronze_table: "investran.src_lp_investors", column_name: "lp_legal_name", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_investran" }
+  - { bronze_table: "investran.src_lp_investors", column_name: "domicile_country", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_investran" }
+  - { bronze_table: "investran.src_lp_investors", column_name: "wire_iban", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_pii" }
+  - { bronze_table: "investran.src_lp_investors", column_name: "tax_id", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_pii" }
+  - { bronze_table: "investran.src_lp_investors", column_name: "tier_status", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_investran" }
+
+  # --- TABLE 3: investran.src_lp_commitments_and_calls (INVESTRAN_FUND_ADMIN) ---
+  - { bronze_table: "investran.src_lp_commitments_and_calls", column_name: "commitment_id", elm_classification: "DEGENERATE_KEY", target_dv_entity: "lnk_lp_commitment" }
+  - { bronze_table: "investran.src_lp_commitments_and_calls", column_name: "fund_code", elm_classification: "FOREIGN_KEY_REF", target_dv_entity: "lnk_lp_commitment" }
+  - { bronze_table: "investran.src_lp_commitments_and_calls", column_name: "lp_id", elm_classification: "FOREIGN_KEY_REF", target_dv_entity: "lnk_lp_commitment" }
+  - { bronze_table: "investran.src_lp_commitments_and_calls", column_name: "commitment_amount_usd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_commitment_investran" }
+  - { bronze_table: "investran.src_lp_commitments_and_calls", column_name: "called_usd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_commitment_investran" }
+  - { bronze_table: "investran.src_lp_commitments_and_calls", column_name: "distribution_recallable_flag", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_commitment_investran" }
+  - { bronze_table: "investran.src_lp_commitments_and_calls", column_name: "co_invest_portco_lei", elm_classification: "OPTIONAL_FOREIGN_KEY_REF", target_dv_entity: "lnk_lp_commitment_co_invest" }
+  - { bronze_table: "investran.src_lp_commitments_and_calls", column_name: "eur_usd_rate", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_commitment_investran" }
+  - { bronze_table: "investran.src_lp_commitments_and_calls", column_name: "gbp_usd_rate", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_commitment_investran" }
+  - { bronze_table: "investran.src_lp_commitments_and_calls", column_name: "daily_interim_nav_usd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_lp_commitment_investran" }
+
+  # --- TABLE 4: dealcloud.src_portfolio_companies (DEALCLOUD_PE_CRM) ---
+  - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "lei", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_portfolio_company" }
+  - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "deal_code", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_portfolio_company" }
+  - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "company_name", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_portfolio_company_dealcloud" }
+  - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "sector", elm_classification: "REFERENCE_CODE", target_dv_entity: "ref_industry_sector" }
+  - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "entry_ebitda_usd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_portco_valuation_mnpi" }
+  - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "entry_ev_multiple", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_portco_valuation_mnpi" }
+  - { bronze_table: "dealcloud.src_portfolio_companies", column_name: "gp_deal_partner", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_portfolio_company_dealcloud" }
+
+  # --- TABLE 5: legacy_gp.src_legacy_lp_roster (LEGACY_GP_ADMIN) ---
+  - { bronze_table: "legacy_gp.src_legacy_lp_roster", column_name: "lp_num", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_limited_partner" }
+  - { bronze_table: "legacy_gp.src_legacy_lp_roster", column_name: "legacy_investor_name", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_legacy" }
+  - { bronze_table: "legacy_gp.src_legacy_lp_roster", column_name: "contact_person", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_legacy" }
+  - { bronze_table: "legacy_gp.src_legacy_lp_roster", column_name: "phone_number", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_limited_partner_legacy" }
+
+  # --- UNSTRUCTURED ARTIFACTS: dms.documents (OBJECT_STORE_S3) ---
+  - { bronze_table: "dms.documents", column_name: "doc_uri", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_document" }
+  - { bronze_table: "dms.documents", column_name: "content_sha256", elm_classification: "TECHNICAL_METADATA", target_dv_entity: "sat_document_manifest" }
+  - { bronze_table: "dms.documents", column_name: "mime_type", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_document_manifest" }
+  - { bronze_table: "dms.documents", column_name: "byte_size", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_document_manifest" }
+
+hubs:
+  - name: "hub_fund"
+    ontology_concept_uri: "urn:ontology:entity:fund"
+    business_key_sources:
+      - bronze_table: "investran.src_pe_funds"
+        key_columns: ["isin"]
+        record_source_code: "INVESTRAN_FUND_ADMIN"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: null
+      - bronze_table: "investran.src_pe_funds"
+        key_columns: ["fund_code"]
+        record_source_code: "INVESTRAN_FUND_ADMIN"
+        key_authority_tier: "TIER_2_ENTERPRISE_SOR"
+        require_src_qualifier: false
+        bkcc_prefix: null
+
+  - name: "hub_limited_partner"
+    ontology_concept_uri: "urn:ontology:entity:limited_partner"
+    business_key_sources:
+      - bronze_table: "investran.src_lp_investors"
+        key_columns: ["lei"]
+        record_source_code: "INVESTRAN_FUND_ADMIN"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: null
+      - bronze_table: "investran.src_lp_investors"
+        key_columns: ["lp_id"]
+        record_source_code: "INVESTRAN_FUND_ADMIN"
+        key_authority_tier: "TIER_2_ENTERPRISE_SOR"
+        require_src_qualifier: false
+        bkcc_prefix: null
+      - bronze_table: "legacy_gp.src_legacy_lp_roster"
+        key_columns: ["lp_num"]
+        record_source_code: "LEGACY_GP_ADMIN"
+        key_authority_tier: "TIER_3_LOCAL_SCOPED"
+        require_src_qualifier: true
+        bkcc_prefix: "LEGACY_GP_ADMIN"
+        system_scoped_bk_justification: "Acquired legacy GP Excel roster uses local integer IDs colliding with enterprise keys; scoped via BKCC."
+
+  - name: "hub_portfolio_company"
+    ontology_concept_uri: "urn:ontology:entity:portfolio_company"
+    business_key_sources:
+      - bronze_table: "dealcloud.src_portfolio_companies"
+        key_columns: ["lei"]
+        record_source_code: "DEALCLOUD_PE_CRM"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: null
+      - bronze_table: "dealcloud.src_portfolio_companies"
+        key_columns: ["deal_code"]
+        record_source_code: "DEALCLOUD_PE_CRM"
+        key_authority_tier: "TIER_2_ENTERPRISE_SOR"
+        require_src_qualifier: false
+        bkcc_prefix: null
+
+  - name: "hub_document"
+    ontology_concept_uri: "urn:ontology:entity:document"
+    business_key_sources:
+      - bronze_table: "dms.documents"
+        key_columns: ["doc_uri"]
+        record_source_code: "OBJECT_STORE_S3"
+        key_authority_tier: "TIER_2_ENTERPRISE_SOR"
+        require_src_qualifier: false
+        bkcc_prefix: null
+
+links:
+  - name: "lnk_lp_commitment"
+    link_type: "STANDARD_LINK"
+    ontology_concept_uri: "urn:ontology:relationship:lp_commitment"
+    source_bronze_table: "investran.src_lp_commitments_and_calls"
+    degenerate_columns: ["commitment_id"]
+    hub_references:
+      - target_hub: "hub_fund"
+        role_alias: "COMMITTED_FUND"
+        source_fk_columns: ["fund_code"]
+      - target_hub: "hub_limited_partner"
+        role_alias: "INVESTING_LP"
+        source_fk_columns: ["lp_id"]
+
+  - name: "lnk_lp_commitment_co_invest"
+    link_type: "STANDARD_LINK"
+    ontology_concept_uri: "urn:ontology:relationship:co_invest_allocation"
+    source_bronze_table: "investran.src_lp_commitments_and_calls"
+    driving_key_hub: "hub_fund"
+    where_filter_condition: "co_invest_portco_lei IS NOT NULL"
+    hub_references:
+      - target_hub: "hub_fund"
+        role_alias: "COMMITTED_FUND"
+        source_fk_columns: ["fund_code"]
+      - target_hub: "hub_portfolio_company"
+        role_alias: "CO_INVEST_ASSET"
+        source_fk_columns: ["co_invest_portco_lei"]
+
+  - name: "sal_limited_partner"
+    link_type: "SAME_AS_LINK"
+    ontology_concept_uri: "urn:ontology:relationship:entity_equivalence"
+    source_bronze_table: "legacy_gp.src_legacy_lp_roster"
+    hub_references:
+      - target_hub: "hub_limited_partner"
+        role_alias: "MASTER_LP"
+        source_fk_columns: ["lp_id"]
+      - target_hub: "hub_limited_partner"
+        role_alias: "DUPLICATE_ALIAS_LP"
+        source_fk_columns: ["lp_num"]
+
+  - name: "lnk_document_lp_commitment"
+    link_type: "UNSTRUCTURED_EXTRACTION_LINK"
+    ontology_concept_uri: "urn:ontology:relationship:side_letter_provenance"
+    source_bronze_table: "dms.documents"
+    hub_references:
+      - target_hub: "hub_document"
+        role_alias: "GOVERNING_SIDE_LETTER"
+        source_fk_columns: ["doc_uri"]
+      - target_hub: "hub_fund"
+        role_alias: "GOVERNED_FUND"
+        source_fk_columns: ["fund_code"]
+      - target_hub: "hub_limited_partner"
+        role_alias: "BENEFICIARY_LP"
+        source_fk_columns: ["lp_id"]
+
+  - name: "lnk_document_portfolio_company"
+    link_type: "UNSTRUCTURED_EXTRACTION_LINK"
+    ontology_concept_uri: "urn:ontology:relationship:document_entity_mention"
+    source_bronze_table: "dms.documents"
+    hub_references:
+      - target_hub: "hub_document"
+        role_alias: "SOURCE_DOCUMENT"
+        source_fk_columns: ["doc_uri"]
+      - target_hub: "hub_portfolio_company"
+        role_alias: "REFERENCED_PORTCO"
+        source_fk_columns: ["lei"]
+
+satellites:
+  - name: "sat_fund_investran"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_fund"
+    source_bronze_table: "investran.src_pe_funds"
+    security_classification: "PUBLIC"
+    volatility_tier: "STATIC"
+    soft_deprecated_columns: ["deprecated_fax_no"]
+    payload_columns:
+      - "fund_name"
+      - "vintage_year"
+      - "target_size_usd"
+      - "mgmt_fee_bps"
+      - "deprecated_fax_no"
+
+  - name: "sat_fund_investran_esg"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_fund"
+    source_bronze_table: "investran.src_pe_funds"
+    security_classification: "PUBLIC"
+    volatility_tier: "ADDITIVE_DRIFT_COMPANION"
+    payload_columns:
+      - "ilpa_esg_rating"
+
+  - name: "sat_limited_partner_investran"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_limited_partner"
+    source_bronze_table: "investran.src_lp_investors"
+    security_classification: "INTERNAL"
+    volatility_tier: "STATIC"
+    payload_columns:
+      - "lp_legal_name"
+      - "domicile_country"
+      - "tier_status"
+
+  - name: "sat_limited_partner_pii"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_limited_partner"
+    source_bronze_table: "investran.src_lp_investors"
+    security_classification: "PII_HIGH"
+    volatility_tier: "STATIC"
+    payload_columns:
+      - "wire_iban"
+      - "tax_id"
+
+  - name: "sat_lp_commitment_investran"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "lnk_lp_commitment"
+    source_bronze_table: "investran.src_lp_commitments_and_calls"
+    security_classification: "CONFIDENTIAL"
+    volatility_tier: "STANDARD"
+    payload_columns:
+      - "commitment_amount_usd"
+      - "called_usd"
+      - "distribution_recallable_flag"
+      - "eur_usd_rate"
+      - "gbp_usd_rate"
+      - "daily_interim_nav_usd"
+
+  - name: "sat_portfolio_company_dealcloud"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_portfolio_company"
+    source_bronze_table: "dealcloud.src_portfolio_companies"
+    security_classification: "INTERNAL"
+    volatility_tier: "STATIC"
+    payload_columns:
+      - "company_name"
+      - "gp_deal_partner"
+
+  - name: "sat_portco_valuation_mnpi"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_portfolio_company"
+    source_bronze_table: "dealcloud.src_portfolio_companies"
+    security_classification: "CONFIDENTIAL"
+    volatility_tier: "STANDARD"
+    payload_columns:
+      - "entry_ebitda_usd"
+      - "entry_ev_multiple"
+
+  - name: "sat_limited_partner_legacy"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_limited_partner"
+    source_bronze_table: "legacy_gp.src_legacy_lp_roster"
+    security_classification: "INTERNAL"
+    volatility_tier: "STATIC"
+    payload_columns:
+      - "legacy_investor_name"
+      - "contact_person"
+      - "phone_number"
+
+  - name: "sat_document_manifest"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_document"
+    source_bronze_table: "dms.documents"
+    security_classification: "INTERNAL"
+    volatility_tier: "STATIC"
+    payload_columns:
+      - "mime_type"
+      - "byte_size"
+
+  - name: "sat_lp_side_letter_llm_ext"
+    satellite_type: "AI_PROVENANCE_SATELLITE"
+    parent_entity: "lnk_document_lp_commitment"
+    source_bronze_table: "dms.documents"
+    security_classification: "CONFIDENTIAL"
+    volatility_tier: "STANDARD"
+    payload_columns:
+      - "fee_cap_bps"
+      - "mfn_election_flag"
+      - "co_invest_fee_carry_pct"
+      - "effective_date"
+      - "extractor_model_id"
+      - "confidence_score"
+      - "chunk_id"
+      - "source_quote"
+
+  - name: "sat_lnk_doc_portco_ai_provenance"
+    satellite_type: "AI_PROVENANCE_SATELLITE"
+    parent_entity: "lnk_document_portfolio_company"
+    source_bronze_table: "dms.documents"
+    security_classification: "INTERNAL"
+    volatility_tier: "STANDARD"
+    payload_columns:
+      - "extractor_model_id"
+      - "confidence_score"
+      - "evidence_quote"
+
+reference_tables:
+  - name: "ref_fund_strategy"
+    ontology_concept_uri: "urn:ontology:enum:fund_strategy"
+    source_bronze_table: "investran.src_pe_funds"
+    code_column: "strategy"
+    description_columns: ["strategy"]
+
+  - name: "ref_industry_sector"
+    ontology_concept_uri: "urn:ontology:enum:industry_sector"
+    source_bronze_table: "dealcloud.src_portfolio_companies"
+    code_column: "sector"
+    description_columns: ["sector"]
+
+unmapped_escalations: []
