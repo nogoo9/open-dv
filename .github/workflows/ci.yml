@@ -1,0 +1,72 @@
+name: Validate Data Vault 2.0 Schemas, Contracts & Reference Algorithms
+
+on:
+  push:
+    branches:
+      - main
+      - "fm/**"
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-specs:
+    name: Validate Schemas, Contract & Reference Algorithms
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install validation dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install jsonschema pyyaml
+
+      - name: Validate JSON Schemas (Draft 2020-12), YAML Contract, Python Reference Algorithms & HTML Guide
+        run: |
+          python3 - <<'PY'
+          import glob
+          import json
+          import pathlib
+          import re
+          import yaml
+          from jsonschema import Draft202012Validator
+
+          schema_paths = sorted(glob.glob("schemas/*.json"))
+          assert len(schema_paths) >= 2, f"Expected >= 2 JSON schemas, found {schema_paths}"
+          for path in schema_paths:
+              with open(path, encoding="utf-8") as f:
+                  schema = json.load(f)
+              Draft202012Validator.check_schema(schema)
+              print(f"[PASS] Valid JSON Schema Draft 2020-12: {path}")
+
+          with open("schemas/no-mistake-dv2-contract-v5.schema.json", encoding="utf-8") as f:
+              contract_schema = json.load(f)
+          with open("examples/dv_model_contract.yaml", encoding="utf-8") as f:
+              contract_doc = yaml.safe_load(f)
+          Draft202012Validator(contract_schema).validate(contract_doc)
+          print("[PASS] examples/dv_model_contract.yaml conforms to schemas/no-mistake-dv2-contract-v5.schema.json")
+
+          total_blocks = 0
+          for md_path in sorted(glob.glob("docs/**/*.md", recursive=True)):
+              text = pathlib.Path(md_path).read_text(encoding="utf-8")
+              py_blocks = re.findall(r"```python\n(.*?)```", text, flags=re.DOTALL)
+              for idx, block in enumerate(py_blocks, 1):
+                  compile(block, f"{md_path}-block-{idx}.py", "exec")
+              if py_blocks:
+                  print(f"[PASS] Compiled {len(py_blocks)} Python blocks in {md_path}")
+              total_blocks += len(py_blocks)
+          assert total_blocks >= 11, f"Expected >= 11 Python reference blocks across docs/, found {total_blocks}"
+
+          html_ref = pathlib.Path(
+              "docs/references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html"
+          )
+          assert html_ref.is_file() and html_ref.stat().st_size > 100000, "HTML reference guide missing or incomplete"
+          print(f"[PASS] Verified HTML reference guide: {html_ref} ({html_ref.stat().st_size} bytes)")
+          PY

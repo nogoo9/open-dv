@@ -1,0 +1,358 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://enterprise.ai/schemas/dv2-model-contract-v5.json",
+  "title": "NoMistakeDataVault2ContractV5",
+  "description": "Complete JSON Schema (Draft 2020-12) for Constrained Decoding of the No-Mistake Agentic Data Vault 2.0 Model Contract (v5.0/v6.0). Enforces 100% Bronze column accountability in column_triage_ledger, 3-Tier Business Key Authority, ontology URI binding, and structured human escalation.",
+  "type": "object",
+  "required": [
+    "contract_version",
+    "domain_namespace",
+    "lifecycle_stage",
+    "column_triage_ledger",
+    "hubs",
+    "links",
+    "satellites",
+    "reference_tables",
+    "unmapped_escalations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "contract_version": {
+      "type": "string",
+      "enum": ["5.0"]
+    },
+    "domain_namespace": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "lifecycle_stage": {
+      "type": "string",
+      "enum": ["COLD_START_N1", "MULTI_SOURCE_EXPANSION"]
+    },
+    "column_triage_ledger": {
+      "description": "Exhaustive ledger accounting for 100% of input Bronze columns.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": [
+          "bronze_table",
+          "column_name",
+          "elm_classification",
+          "target_dv_entity"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "bronze_table": {
+            "type": "string"
+          },
+          "column_name": {
+            "type": "string"
+          },
+          "elm_classification": {
+            "type": "string",
+            "enum": [
+              "BUSINESS_KEY",
+              "FOREIGN_KEY_REF",
+              "OPTIONAL_FOREIGN_KEY_REF",
+              "DEGENERATE_KEY",
+              "DESCRIPTIVE_PAYLOAD",
+              "REFERENCE_CODE",
+              "SYSTEM_SURROGATE_DROPPED",
+              "TECHNICAL_METADATA",
+              "ESCALATED_AMBIGUOUS"
+            ]
+          },
+          "target_dv_entity": {
+            "type": "string",
+            "description": "Name of Hub, Link, Satellite, Reference table, or 'DROPPED' / 'ESCALATED'."
+          }
+        }
+      }
+    },
+    "hubs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["name", "ontology_concept_uri", "business_key_sources"],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^hub_[a-z0-9_]+$"
+          },
+          "ontology_concept_uri": {
+            "type": "string",
+            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$"
+          },
+          "business_key_sources": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": [
+                "bronze_table",
+                "key_columns",
+                "record_source_code",
+                "key_authority_tier",
+                "require_src_qualifier"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "bronze_table": {
+                  "type": "string"
+                },
+                "key_columns": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "record_source_code": {
+                  "type": "string"
+                },
+                "key_authority_tier": {
+                  "type": "string",
+                  "enum": [
+                    "TIER_1_GLOBAL_STANDARD",
+                    "TIER_2_ENTERPRISE_SOR",
+                    "TIER_3_LOCAL_SCOPED"
+                  ]
+                },
+                "require_src_qualifier": {
+                  "type": "boolean"
+                },
+                "bkcc_prefix": {
+                  "type": ["string", "null"]
+                },
+                "system_scoped_bk_justification": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "links": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "link_type",
+          "ontology_concept_uri",
+          "source_bronze_table",
+          "hub_references"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$"
+          },
+          "link_type": {
+            "type": "string",
+            "enum": [
+              "STANDARD_LINK",
+              "NON_HISTORIZED_LINK",
+              "SAME_AS_LINK",
+              "HIERARCHICAL_LINK",
+              "UNSTRUCTURED_EXTRACTION_LINK"
+            ]
+          },
+          "ontology_concept_uri": {
+            "type": "string",
+            "pattern": "^urn:ontology:(provisional:)?(event|relationship):[a-z0-9_]+$"
+          },
+          "source_bronze_table": {
+            "type": "string"
+          },
+          "driving_key_hub": {
+            "type": "string"
+          },
+          "where_filter_condition": {
+            "type": "string",
+            "description": "Used ONLY by optional contextual links split via Gate 3.2 (e.g., 'promo_id IS NOT NULL')."
+          },
+          "degenerate_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "hub_references": {
+            "type": "array",
+            "minItems": 2,
+            "items": {
+              "type": "object",
+              "required": [
+                "target_hub",
+                "role_alias",
+                "source_fk_columns"
+              ],
+              "additionalProperties": false,
+              "properties": {
+                "target_hub": {
+                  "type": "string",
+                  "pattern": "^hub_[a-z0-9_]+$"
+                },
+                "role_alias": {
+                  "type": "string"
+                },
+                "source_fk_columns": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "satellites": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "satellite_type",
+          "parent_entity",
+          "source_bronze_table",
+          "payload_columns"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^(sat|bsat|mas|ma_sat|esat|sts|rts)_[a-z0-9_]+$"
+          },
+          "satellite_type": {
+            "type": "string",
+            "enum": [
+              "STANDARD_SATELLITE",
+              "EFFECTIVITY_SATELLITE",
+              "MULTI_ACTIVE_SATELLITE",
+              "VECTOR_SATELLITE",
+              "AI_PROVENANCE_SATELLITE"
+            ]
+          },
+          "parent_entity": {
+            "type": "string",
+            "pattern": "^(hub|lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$"
+          },
+          "source_bronze_table": {
+            "type": "string"
+          },
+          "driving_key_column": {
+            "type": "string"
+          },
+          "sub_sequence_column": {
+            "type": "string"
+          },
+          "security_classification": {
+            "type": "string",
+            "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "PII_HIGH", "PCI"]
+          },
+          "volatility_tier": {
+            "type": "string",
+            "enum": [
+              "UNCLASSIFIED",
+              "STATIC",
+              "STANDARD",
+              "HIGH_FREQ",
+              "ADDITIVE_DRIFT_COMPANION"
+            ]
+          },
+          "soft_deprecated_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "payload_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "reference_tables": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "name",
+          "ontology_concept_uri",
+          "source_bronze_table",
+          "code_column",
+          "description_columns"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "type": "string",
+            "pattern": "^ref_[a-z0-9_]+$"
+          },
+          "ontology_concept_uri": {
+            "type": "string",
+            "pattern": "^urn:ontology:enum:[a-z0-9_]+$"
+          },
+          "source_bronze_table": {
+            "type": "string"
+          },
+          "code_column": {
+            "type": "string"
+          },
+          "description_columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "unmapped_escalations": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "bronze_table",
+          "columns",
+          "escalation_reason",
+          "architect_question"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "bronze_table": {
+            "type": "string"
+          },
+          "columns": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "escalation_reason": {
+            "type": "string",
+            "enum": [
+              "MISSING_ONTOLOGY_CONCEPT",
+              "COMPETING_NATURAL_KEYS",
+              "DISJOINT_MULTI_SOURCE_BKS"
+            ]
+          },
+          "architect_question": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
