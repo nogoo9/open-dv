@@ -118,7 +118,7 @@ hubs:
         key_authority_tier: "TIER_3_LOCAL_SCOPED"
         require_src_qualifier: true
         bkcc_prefix: "LEGACY_GP_ADMIN"
-        system_scoped_bk_justification: "Acquired legacy GP Excel roster uses local integer IDs colliding with enterprise keys; scoped via BKCC."
+        system_scoped_bk_justification: "Acquired legacy GP Excel roster reuses LP-nnn codes that collide with enterprise lp_id values; scoped via BKCC."
 
   - name: "hub_portfolio_company"
     ontology_concept_uri: "urn:ontology:entity:portfolio_company"
@@ -313,6 +313,7 @@ satellites:
       - "mime_type"
       - "byte_size"
 
+  # Rule U3 (docs/04): AI_PROVENANCE_SATELLITE entities compile into the business_vault schema.
   - name: "sat_lp_side_letter_llm_ext"
     satellite_type: "AI_PROVENANCE_SATELLITE"
     parent_entity: "lnk_document_lp_commitment"

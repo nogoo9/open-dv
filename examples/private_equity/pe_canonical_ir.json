@@ -148,7 +148,7 @@
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
-          "input_columns": ["hk_fund", "hk_limited_partner"],
+          "input_columns": ["bkcc_fund", "fund_code", "bkcc_limited_partner", "lp_natural_key", "commitment_id"],
           "normalization": "UPPER_TRIM"
         }
       },
@@ -189,7 +189,7 @@
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
-          "input_columns": ["hk_fund", "hk_portfolio_company"],
+          "input_columns": ["bkcc_fund", "fund_code", "bkcc_portfolio_company", "portco_natural_key"],
           "normalization": "UPPER_TRIM"
         }
       },
@@ -227,7 +227,7 @@
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
-          "input_columns": ["hk_limited_partner_master", "hk_limited_partner_duplicate"],
+          "input_columns": ["bkcc_master", "master_lp_natural_key", "bkcc_duplicate", "duplicate_lp_natural_key"],
           "normalization": "UPPER_TRIM"
         }
       },
@@ -265,7 +265,7 @@
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
-          "input_columns": ["hk_document", "hk_fund", "hk_limited_partner"],
+          "input_columns": ["bkcc_document", "doc_uri", "bkcc_fund", "fund_code", "bkcc_limited_partner", "lp_natural_key"],
           "normalization": "UPPER_TRIM"
         }
       },
@@ -311,7 +311,7 @@
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
-          "input_columns": ["hk_document", "hk_portfolio_company"],
+          "input_columns": ["bkcc_document", "doc_uri", "bkcc_portfolio_company", "portco_natural_key"],
           "normalization": "UPPER_TRIM"
         }
       },
@@ -571,8 +571,8 @@
     },
     {
       "name": "sat_lp_side_letter_llm_ext",
-      "satellite_type": "STANDARD",
-      "split_classification": "CORE",
+      "satellite_type": "BUSINESS",
+      "split_classification": "DERIVED_BV",
       "parent_entity": "lnk_document_lp_commitment",
       "parent_hk_column": { "name": "hk_lnk_document_lp_commitment", "target_column": "hk_lnk_document_lp_commitment", "data_type": "BINARY(32)", "nullable": false },
       "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
@@ -596,14 +596,14 @@
         { "name": "extractor_model_id", "data_type": "VARCHAR(128)", "nullable": false },
         { "name": "confidence_score", "data_type": "NUMERIC(4,3)", "nullable": false },
         { "name": "chunk_id", "data_type": "VARCHAR(128)", "nullable": false },
-        { "name": "evidence_quote", "data_type": "VARCHAR(1024)", "nullable": false }
+        { "name": "evidence_quote", "data_type": "VARCHAR(2048)", "nullable": false }
       ],
       "source_mapping": { "staging_table": "stg_dms_src_side_letter_extractions", "rec_src_value": "OBJECT_STORE_S3" }
     },
     {
       "name": "sat_lnk_doc_portco_ai_provenance",
-      "satellite_type": "STANDARD",
-      "split_classification": "CORE",
+      "satellite_type": "BUSINESS",
+      "split_classification": "DERIVED_BV",
       "parent_entity": "lnk_document_portfolio_company",
       "parent_hk_column": { "name": "hk_lnk_document_portfolio_company", "target_column": "hk_lnk_document_portfolio_company", "data_type": "BINARY(32)", "nullable": false },
       "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
@@ -627,7 +627,7 @@
         { "name": "extractor_model_id", "data_type": "VARCHAR(128)", "nullable": false },
         { "name": "confidence_score", "data_type": "NUMERIC(4,3)", "nullable": false },
         { "name": "chunk_id", "data_type": "VARCHAR(128)", "nullable": false },
-        { "name": "evidence_quote", "data_type": "VARCHAR(1024)", "nullable": false }
+        { "name": "evidence_quote", "data_type": "VARCHAR(2048)", "nullable": false }
       ],
       "source_mapping": { "staging_table": "stg_dms_src_ic_memo_extractions", "rec_src_value": "OBJECT_STORE_S3" }
     }

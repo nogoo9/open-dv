@@ -57,7 +57,7 @@ canonical_business_concepts:
         bkcc_policy: "GLOBAL"
         require_src_qualifier: false
       tier_3_local_scoped:
-        authority_name: "Acquired Legacy GP Local Integer Sequence"
+        authority_name: "Acquired Legacy GP Local LP Code"
         column_patterns: ["lp_num"]
         bkcc_policy: "LEGACY_GP_ADMIN"
         require_src_qualifier: true
@@ -129,7 +129,7 @@ canonical_relationships:
     relationship_name: "SameAsLimitedPartner"
     target_link: "sal_limited_partner"
     endpoints: ["hub_limited_partner", "hub_limited_partner"]
-    grain_semantics: "Maps Tier-3 BKCC-scoped legacy investor keys (e.g., LEGACY_GP_ADMIN:101) to canonical Tier-1/Tier-2 investor keys without mutating raw vault history."
+    grain_semantics: "Maps Tier-3 BKCC-scoped legacy investor keys (e.g., LEGACY_GP_ADMIN:LP-102) to canonical Tier-1/Tier-2 investor keys without mutating raw vault history."
 
   - relationship_uri: "urn:ontology:relationship:side_letter_provenance"
     relationship_name: "SideLetterProvenance"
