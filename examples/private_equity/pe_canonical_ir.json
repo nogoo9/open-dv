@@ -3,7 +3,7 @@
   "model_name": "pe_asset_management",
   "hash_config": {
     "algorithm": "SHA256",
-    "storage_type": "BINARY(32)",
+    "storage_type": "CHAR(64)",
     "delimiter": "||",
     "null_token_bk": "-1",
     "null_token_payload": "-1",
@@ -13,7 +13,7 @@
   },
   "system_columns": {
     "load_dts_col": "load_dts",
-    "load_dts_type": "TIMESTAMP_NTZ(9)",
+    "load_dts_type": "TIMESTAMP",
     "rec_src_col": "rec_src",
     "rec_src_type": "VARCHAR(255)",
     "hash_diff_col": "hash_diff"
@@ -25,7 +25,7 @@
       "verified_global_master_key": true,
       "hk_column": {
         "name": "hk_fund",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -35,9 +35,9 @@
       },
       "business_keys": [
         { "name": "bkcc", "data_type": "VARCHAR(32)", "nullable": false, "is_bkcc": true },
-        { "name": "fund_code", "data_type": "VARCHAR(64)", "nullable": false, "is_bkcc": false }
+        { "name": "fund_code", "data_type": "VARCHAR(512)", "nullable": false, "is_bkcc": false }
       ],
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
         {
@@ -53,7 +53,7 @@
       "verified_global_master_key": true,
       "hk_column": {
         "name": "hk_limited_partner",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -63,9 +63,9 @@
       },
       "business_keys": [
         { "name": "bkcc", "data_type": "VARCHAR(32)", "nullable": false, "is_bkcc": true },
-        { "name": "lp_natural_key", "data_type": "VARCHAR(64)", "nullable": false, "is_bkcc": false }
+        { "name": "lp_natural_key", "data_type": "VARCHAR(512)", "nullable": false, "is_bkcc": false }
       ],
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
         {
@@ -86,7 +86,7 @@
       "verified_global_master_key": true,
       "hk_column": {
         "name": "hk_portfolio_company",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -96,9 +96,9 @@
       },
       "business_keys": [
         { "name": "bkcc", "data_type": "VARCHAR(32)", "nullable": false, "is_bkcc": true },
-        { "name": "portco_natural_key", "data_type": "VARCHAR(64)", "nullable": false, "is_bkcc": false }
+        { "name": "portco_natural_key", "data_type": "VARCHAR(512)", "nullable": false, "is_bkcc": false }
       ],
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
         {
@@ -114,7 +114,7 @@
       "verified_global_master_key": true,
       "hk_column": {
         "name": "hk_document",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -126,7 +126,7 @@
         { "name": "bkcc", "data_type": "VARCHAR(32)", "nullable": false, "is_bkcc": true },
         { "name": "doc_uri", "data_type": "VARCHAR(512)", "nullable": false, "is_bkcc": false }
       ],
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
         {
@@ -144,7 +144,7 @@
       "semantic_role": "Commitment of Institutional LP to PE Fund Vehicle",
       "hk_column": {
         "name": "hk_lnk_lp_commitment",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -157,7 +157,7 @@
           "fk_column_name": "hk_fund",
           "target_hub": "hub_fund",
           "target_hk_column": "hk_fund",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "COMMITTED_FUND"
         },
@@ -165,7 +165,7 @@
           "fk_column_name": "hk_limited_partner",
           "target_hub": "hub_limited_partner",
           "target_hk_column": "hk_limited_partner",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "INVESTING_LP"
         }
@@ -173,7 +173,7 @@
       "degenerate_columns": [
         { "name": "commitment_id", "data_type": "VARCHAR(64)", "nullable": false }
       ],
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
         { "staging_table": "stg_investran_src_lp_commitments_and_calls", "rec_src_value": "INVESTRAN_FUND_ADMIN" }
@@ -185,11 +185,11 @@
       "semantic_role": "Direct Co-Investment Syndication Allocation",
       "hk_column": {
         "name": "hk_lnk_lp_commitment_co_invest",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
-          "input_columns": ["bkcc_fund", "fund_code", "bkcc_portfolio_company", "portco_natural_key"],
+          "input_columns": ["bkcc_fund", "fund_code", "bkcc_limited_partner", "lp_natural_key", "bkcc_portfolio_company", "portco_natural_key", "commitment_id"],
           "normalization": "UPPER_TRIM"
         }
       },
@@ -198,20 +198,31 @@
           "fk_column_name": "hk_fund",
           "target_hub": "hub_fund",
           "target_hk_column": "hk_fund",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "COMMITTED_FUND"
+        },
+        {
+          "fk_column_name": "hk_limited_partner",
+          "target_hub": "hub_limited_partner",
+          "target_hk_column": "hk_limited_partner",
+          "data_type": "CHAR(64)",
+          "nullable": false,
+          "role_name": "INVESTING_LP"
         },
         {
           "fk_column_name": "hk_portfolio_company",
           "target_hub": "hub_portfolio_company",
           "target_hk_column": "hk_portfolio_company",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "CO_INVEST_ASSET"
         }
       ],
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "degenerate_columns": [
+        { "name": "commitment_id", "data_type": "VARCHAR(64)", "nullable": false }
+      ],
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
         { "staging_table": "stg_investran_src_lp_commitments_and_calls", "rec_src_value": "INVESTRAN_FUND_ADMIN" }
@@ -223,7 +234,7 @@
       "semantic_role": "Entity Equivalence Mapping Between Enterprise LP and Scoped Legacy GP LP",
       "hk_column": {
         "name": "hk_sal_limited_partner",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -236,7 +247,7 @@
           "fk_column_name": "hk_limited_partner_master",
           "target_hub": "hub_limited_partner",
           "target_hk_column": "hk_limited_partner",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "MASTER_LP"
         },
@@ -244,12 +255,12 @@
           "fk_column_name": "hk_limited_partner_duplicate",
           "target_hub": "hub_limited_partner",
           "target_hk_column": "hk_limited_partner",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "DUPLICATE_ALIAS_LP"
         }
       ],
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
         { "staging_table": "stg_mdm_src_lp_steward_crosswalk", "rec_src_value": "MDM_STEWARD_RESOLUTION" }
@@ -261,7 +272,7 @@
       "semantic_role": "LP Side Letter Provenance Binding Document, Fund, and Beneficiary LP",
       "hk_column": {
         "name": "hk_lnk_document_lp_commitment",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -274,7 +285,7 @@
           "fk_column_name": "hk_document",
           "target_hub": "hub_document",
           "target_hk_column": "hk_document",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "GOVERNING_SIDE_LETTER"
         },
@@ -282,7 +293,7 @@
           "fk_column_name": "hk_fund",
           "target_hub": "hub_fund",
           "target_hk_column": "hk_fund",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "GOVERNED_FUND"
         },
@@ -290,12 +301,12 @@
           "fk_column_name": "hk_limited_partner",
           "target_hub": "hub_limited_partner",
           "target_hk_column": "hk_limited_partner",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "BENEFICIARY_LP"
         }
       ],
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
         { "staging_table": "stg_dms_src_side_letter_extractions", "rec_src_value": "OBJECT_STORE_S3" }
@@ -307,7 +318,7 @@
       "semantic_role": "IC Valuation Memo Mention of Portfolio Company",
       "hk_column": {
         "name": "hk_lnk_document_portfolio_company",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -320,7 +331,7 @@
           "fk_column_name": "hk_document",
           "target_hub": "hub_document",
           "target_hk_column": "hk_document",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "SOURCE_DOCUMENT"
         },
@@ -328,12 +339,12 @@
           "fk_column_name": "hk_portfolio_company",
           "target_hub": "hub_portfolio_company",
           "target_hk_column": "hk_portfolio_company",
-          "data_type": "BINARY(32)",
+          "data_type": "CHAR(64)",
           "nullable": false,
           "role_name": "REFERENCED_PORTCO"
         }
       ],
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
         { "staging_table": "stg_dms_src_ic_memo_extractions", "rec_src_value": "OBJECT_STORE_S3" }
@@ -346,12 +357,12 @@
       "satellite_type": "STANDARD",
       "split_classification": "STATIC",
       "parent_entity": "hub_fund",
-      "parent_hk_column": { "name": "hk_fund", "target_column": "hk_fund", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_fund", "target_column": "hk_fund", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -360,11 +371,11 @@
         }
       },
       "payload_columns": [
-        { "name": "isin", "data_type": "CHAR(12)", "nullable": false },
-        { "name": "fund_name", "data_type": "VARCHAR(255)", "nullable": false },
-        { "name": "vintage_year", "data_type": "INTEGER", "nullable": false },
-        { "name": "target_size_usd", "data_type": "NUMERIC(18,2)", "nullable": false },
-        { "name": "mgmt_fee_bps", "data_type": "NUMERIC(8,4)", "nullable": false },
+        { "name": "isin", "data_type": "CHAR(12)", "nullable": true },
+        { "name": "fund_name", "data_type": "VARCHAR(255)", "nullable": true },
+        { "name": "vintage_year", "data_type": "INTEGER", "nullable": true },
+        { "name": "target_size_usd", "data_type": "NUMERIC(18,2)", "nullable": true },
+        { "name": "mgmt_fee_bps", "data_type": "NUMERIC(8,4)", "nullable": true },
         { "name": "deprecated_fax_no", "data_type": "VARCHAR(64)", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_investran_src_pe_funds", "rec_src_value": "INVESTRAN_FUND_ADMIN" }
@@ -374,12 +385,12 @@
       "satellite_type": "STANDARD",
       "split_classification": "PII_RESTRICTED",
       "parent_entity": "hub_limited_partner",
-      "parent_hk_column": { "name": "hk_limited_partner", "target_column": "hk_limited_partner", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_limited_partner", "target_column": "hk_limited_partner", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -388,8 +399,8 @@
         }
       },
       "payload_columns": [
-        { "name": "wire_iban", "data_type": "VARCHAR(64)", "nullable": false },
-        { "name": "tax_id", "data_type": "VARCHAR(32)", "nullable": false }
+        { "name": "wire_iban", "data_type": "VARCHAR(64)", "nullable": true },
+        { "name": "tax_id", "data_type": "VARCHAR(32)", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_investran_src_lp_investors", "rec_src_value": "INVESTRAN_FUND_ADMIN" }
     },
@@ -398,12 +409,12 @@
       "satellite_type": "STANDARD",
       "split_classification": "CORE",
       "parent_entity": "lnk_lp_commitment",
-      "parent_hk_column": { "name": "hk_lnk_lp_commitment", "target_column": "hk_lnk_lp_commitment", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_lnk_lp_commitment", "target_column": "hk_lnk_lp_commitment", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -412,12 +423,12 @@
         }
       },
       "payload_columns": [
-        { "name": "commitment_amount_usd", "data_type": "NUMERIC(18,2)", "nullable": false },
-        { "name": "called_usd", "data_type": "NUMERIC(18,2)", "nullable": false },
-        { "name": "distribution_recallable_flag", "data_type": "CHAR(1)", "nullable": false },
-        { "name": "eur_usd_rate", "data_type": "NUMERIC(12,6)", "nullable": false },
-        { "name": "gbp_usd_rate", "data_type": "NUMERIC(12,6)", "nullable": false },
-        { "name": "daily_interim_nav_usd", "data_type": "NUMERIC(18,2)", "nullable": false }
+        { "name": "commitment_amount_usd", "data_type": "NUMERIC(18,2)", "nullable": true },
+        { "name": "called_usd", "data_type": "NUMERIC(18,2)", "nullable": true },
+        { "name": "distribution_recallable_flag", "data_type": "CHAR(1)", "nullable": true },
+        { "name": "eur_usd_rate", "data_type": "NUMERIC(12,6)", "nullable": true },
+        { "name": "gbp_usd_rate", "data_type": "NUMERIC(12,6)", "nullable": true },
+        { "name": "daily_interim_nav_usd", "data_type": "NUMERIC(18,2)", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_investran_src_lp_commitments_and_calls", "rec_src_value": "INVESTRAN_FUND_ADMIN" }
     },
@@ -426,12 +437,12 @@
       "satellite_type": "STANDARD",
       "split_classification": "STATIC",
       "parent_entity": "hub_portfolio_company",
-      "parent_hk_column": { "name": "hk_portfolio_company", "target_column": "hk_portfolio_company", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_portfolio_company", "target_column": "hk_portfolio_company", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -440,9 +451,9 @@
         }
       },
       "payload_columns": [
-        { "name": "deal_code", "data_type": "VARCHAR(32)", "nullable": false },
-        { "name": "company_name", "data_type": "VARCHAR(255)", "nullable": false },
-        { "name": "gp_deal_partner", "data_type": "VARCHAR(128)", "nullable": false }
+        { "name": "deal_code", "data_type": "VARCHAR(32)", "nullable": true },
+        { "name": "company_name", "data_type": "VARCHAR(255)", "nullable": true },
+        { "name": "gp_deal_partner", "data_type": "VARCHAR(128)", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_dealcloud_src_portfolio_companies", "rec_src_value": "DEALCLOUD_PE_CRM" }
     },
@@ -451,12 +462,12 @@
       "satellite_type": "STANDARD",
       "split_classification": "CORE",
       "parent_entity": "hub_portfolio_company",
-      "parent_hk_column": { "name": "hk_portfolio_company", "target_column": "hk_portfolio_company", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_portfolio_company", "target_column": "hk_portfolio_company", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -465,8 +476,8 @@
         }
       },
       "payload_columns": [
-        { "name": "entry_ebitda_usd", "data_type": "NUMERIC(18,2)", "nullable": false },
-        { "name": "entry_ev_multiple", "data_type": "NUMERIC(6,2)", "nullable": false }
+        { "name": "entry_ebitda_usd", "data_type": "NUMERIC(18,2)", "nullable": true },
+        { "name": "entry_ev_multiple", "data_type": "NUMERIC(6,2)", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_dealcloud_src_portfolio_companies", "rec_src_value": "DEALCLOUD_PE_CRM" }
     },
@@ -475,12 +486,12 @@
       "satellite_type": "STANDARD",
       "split_classification": "CORE",
       "parent_entity": "hub_fund",
-      "parent_hk_column": { "name": "hk_fund", "target_column": "hk_fund", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_fund", "target_column": "hk_fund", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -489,7 +500,7 @@
         }
       },
       "payload_columns": [
-        { "name": "ilpa_esg_rating", "data_type": "VARCHAR(16)", "nullable": false }
+        { "name": "ilpa_esg_rating", "data_type": "VARCHAR(16)", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_investran_src_pe_funds", "rec_src_value": "INVESTRAN_FUND_ADMIN" }
     },
@@ -498,12 +509,12 @@
       "satellite_type": "STANDARD",
       "split_classification": "STATIC",
       "parent_entity": "hub_limited_partner",
-      "parent_hk_column": { "name": "hk_limited_partner", "target_column": "hk_limited_partner", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_limited_partner", "target_column": "hk_limited_partner", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -512,10 +523,10 @@
         }
       },
       "payload_columns": [
-        { "name": "lei", "data_type": "CHAR(20)", "nullable": false },
-        { "name": "lp_legal_name", "data_type": "VARCHAR(255)", "nullable": false },
-        { "name": "domicile_country", "data_type": "CHAR(2)", "nullable": false },
-        { "name": "tier_status", "data_type": "VARCHAR(32)", "nullable": false }
+        { "name": "lei", "data_type": "CHAR(20)", "nullable": true },
+        { "name": "lp_legal_name", "data_type": "VARCHAR(255)", "nullable": true },
+        { "name": "domicile_country", "data_type": "CHAR(2)", "nullable": true },
+        { "name": "tier_status", "data_type": "VARCHAR(32)", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_investran_src_lp_investors", "rec_src_value": "INVESTRAN_FUND_ADMIN" }
     },
@@ -524,12 +535,12 @@
       "satellite_type": "STANDARD",
       "split_classification": "STATIC",
       "parent_entity": "hub_limited_partner",
-      "parent_hk_column": { "name": "hk_limited_partner", "target_column": "hk_limited_partner", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_limited_partner", "target_column": "hk_limited_partner", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -538,9 +549,9 @@
         }
       },
       "payload_columns": [
-        { "name": "legacy_investor_name", "data_type": "VARCHAR(255)", "nullable": false },
-        { "name": "contact_person", "data_type": "VARCHAR(128)", "nullable": false },
-        { "name": "phone_number", "data_type": "VARCHAR(64)", "nullable": false }
+        { "name": "legacy_investor_name", "data_type": "VARCHAR(255)", "nullable": true },
+        { "name": "contact_person", "data_type": "VARCHAR(128)", "nullable": true },
+        { "name": "phone_number", "data_type": "VARCHAR(64)", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_legacy_gp_src_legacy_lp_roster", "rec_src_value": "LEGACY_GP_ADMIN" }
     },
@@ -549,12 +560,12 @@
       "satellite_type": "STANDARD",
       "split_classification": "STATIC",
       "parent_entity": "hub_document",
-      "parent_hk_column": { "name": "hk_document", "target_column": "hk_document", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_document", "target_column": "hk_document", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -563,9 +574,9 @@
         }
       },
       "payload_columns": [
-        { "name": "content_sha256", "data_type": "CHAR(64)", "nullable": false },
-        { "name": "mime_type", "data_type": "VARCHAR(64)", "nullable": false },
-        { "name": "byte_size", "data_type": "BIGINT", "nullable": false }
+        { "name": "content_sha256", "data_type": "CHAR(64)", "nullable": true },
+        { "name": "mime_type", "data_type": "VARCHAR(64)", "nullable": true },
+        { "name": "byte_size", "data_type": "BIGINT", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_dms_documents", "rec_src_value": "OBJECT_STORE_S3" }
     },
@@ -574,12 +585,12 @@
       "satellite_type": "BUSINESS",
       "split_classification": "DERIVED_BV",
       "parent_entity": "lnk_document_lp_commitment",
-      "parent_hk_column": { "name": "hk_lnk_document_lp_commitment", "target_column": "hk_lnk_document_lp_commitment", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_lnk_document_lp_commitment", "target_column": "hk_lnk_document_lp_commitment", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -588,15 +599,15 @@
         }
       },
       "payload_columns": [
-        { "name": "fee_cap_bps", "data_type": "NUMERIC(8,4)", "nullable": false },
-        { "name": "headline_fee_bps", "data_type": "NUMERIC(8,4)", "nullable": false },
-        { "name": "mfn_election_flag", "data_type": "CHAR(1)", "nullable": false },
-        { "name": "co_invest_rofr", "data_type": "CHAR(1)", "nullable": false },
-        { "name": "effective_date", "data_type": "DATE", "nullable": false },
-        { "name": "extractor_model_id", "data_type": "VARCHAR(128)", "nullable": false },
-        { "name": "confidence_score", "data_type": "NUMERIC(4,3)", "nullable": false },
-        { "name": "chunk_id", "data_type": "VARCHAR(128)", "nullable": false },
-        { "name": "evidence_quote", "data_type": "VARCHAR(2048)", "nullable": false }
+        { "name": "fee_cap_bps", "data_type": "NUMERIC(8,4)", "nullable": true },
+        { "name": "headline_fee_bps", "data_type": "NUMERIC(8,4)", "nullable": true },
+        { "name": "mfn_election_flag", "data_type": "CHAR(1)", "nullable": true },
+        { "name": "co_invest_rofr", "data_type": "CHAR(1)", "nullable": true },
+        { "name": "effective_date", "data_type": "DATE", "nullable": true },
+        { "name": "extractor_model_id", "data_type": "VARCHAR(128)", "nullable": true },
+        { "name": "confidence_score", "data_type": "NUMERIC(4,3)", "nullable": true },
+        { "name": "chunk_id", "data_type": "VARCHAR(128)", "nullable": true },
+        { "name": "evidence_quote", "data_type": "VARCHAR(2048)", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_dms_src_side_letter_extractions", "rec_src_value": "OBJECT_STORE_S3" }
     },
@@ -605,12 +616,12 @@
       "satellite_type": "BUSINESS",
       "split_classification": "DERIVED_BV",
       "parent_entity": "lnk_document_portfolio_company",
-      "parent_hk_column": { "name": "hk_lnk_document_portfolio_company", "target_column": "hk_lnk_document_portfolio_company", "data_type": "BINARY(32)", "nullable": false },
-      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP_NTZ(9)", "nullable": false },
+      "parent_hk_column": { "name": "hk_lnk_document_portfolio_company", "target_column": "hk_lnk_document_portfolio_company", "data_type": "CHAR(64)", "nullable": false },
+      "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "hash_diff_column": {
         "name": "hash_diff",
-        "data_type": "BINARY(32)",
+        "data_type": "CHAR(64)",
         "nullable": false,
         "hash_expression": {
           "algorithm": "SHA256",
@@ -619,15 +630,15 @@
         }
       },
       "payload_columns": [
-        { "name": "asc_820_level", "data_type": "VARCHAR(16)", "nullable": false },
-        { "name": "ev_ebitda_multiple", "data_type": "NUMERIC(6,2)", "nullable": false },
-        { "name": "implied_ev_usd", "data_type": "NUMERIC(18,2)", "nullable": false },
-        { "name": "fair_value_usd", "data_type": "NUMERIC(18,2)", "nullable": false },
-        { "name": "effective_date", "data_type": "DATE", "nullable": false },
-        { "name": "extractor_model_id", "data_type": "VARCHAR(128)", "nullable": false },
-        { "name": "confidence_score", "data_type": "NUMERIC(4,3)", "nullable": false },
-        { "name": "chunk_id", "data_type": "VARCHAR(128)", "nullable": false },
-        { "name": "evidence_quote", "data_type": "VARCHAR(2048)", "nullable": false }
+        { "name": "asc_820_level", "data_type": "VARCHAR(16)", "nullable": true },
+        { "name": "ev_ebitda_multiple", "data_type": "NUMERIC(6,2)", "nullable": true },
+        { "name": "implied_ev_usd", "data_type": "NUMERIC(18,2)", "nullable": true },
+        { "name": "fair_value_usd", "data_type": "NUMERIC(18,2)", "nullable": true },
+        { "name": "effective_date", "data_type": "DATE", "nullable": true },
+        { "name": "extractor_model_id", "data_type": "VARCHAR(128)", "nullable": true },
+        { "name": "confidence_score", "data_type": "NUMERIC(4,3)", "nullable": true },
+        { "name": "chunk_id", "data_type": "VARCHAR(128)", "nullable": true },
+        { "name": "evidence_quote", "data_type": "VARCHAR(2048)", "nullable": true }
       ],
       "source_mapping": { "staging_table": "stg_dms_src_ic_memo_extractions", "rec_src_value": "OBJECT_STORE_S3" }
     }

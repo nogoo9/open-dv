@@ -60,6 +60,13 @@ flowchart LR
     CAS -.->|"Resolve context_refs.<artifact>_sha256"| L2 & L3
 ```
 
+#### Visibility & Redaction Policy for `CONFIDENTIAL`/MNPI and `RESTRICTED_PII` Values
+
+Every event carries an optional `data_classification` (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL`, or `RESTRICTED_PII`) set to the highest sensitivity of any value in its payload. A contract `security_classification` of `PII_HIGH` maps to `RESTRICTED_PII`.
+
+- **Production deployments:** Layer 1 and Layer 2 banners and WB-03 document previews persisted to `state/vault-ledger.jsonl` mask `CONFIDENTIAL`/MNPI figures unless viewed by an RBAC role with `MNPI_CLEARED_STEWARD` access. `RESTRICTED_PII` values follow the same masking rule and are never written to banners in clear text.
+- **Synthetic Private Equity demo:** Docs 06 and 07 display the unmasked `MNPI_CLEARED_STEWARD` view for pedagogical clarity. All figures in the demo are fictional.
+
 ### 1.2 W3C Distributed Trace Correlation & Content-Addressable Artifact Snapshots
 
 Every `VaultObservabilityEvent` record enforces two structural guarantees:
@@ -85,11 +92,12 @@ All events appended to `state/vault-ledger.jsonl` are validated against [`schema
 | **Envelope Identity & Lineage** | `event_id`, `run_id`, `timestamp_utc`, `stage_id`, `workbench_view_id`, `viz_id`, `agent_persona`, `status` | `stage_id` $\in \{\text{STAGE\_00..STAGE\_07}\}$; `workbench_view_id` $\in \{\text{WB-00..WB-11}\}$; `viz_id` $\in \{\text{VIZ-PIPE-00}, \text{VIZ-STEP-01..08}, \text{VIZ-GATE-01..08}\}$; `status` $\in \{\text{PASS}, \text{AUTO-FIX}, \text{REJECT-WITH-TRACE}, \text{ASK-USER}\}$. |
 | **Layer 1: Story Banner** | `layer1_story_banner.headline`, `layer1_story_banner.business_impact`, `layer1_story_banner.verdict_pill` | `headline` $\le 140$ chars; `business_impact` $\le 200$ chars; zero raw 64-hex strings or LaTeX symbols permitted in Layer 1. |
 | **Layer 2: Visual Canvas** | `layer2_visual_payload.semantic_hash_pills`, `layer2_visual_payload.summary_metrics` | Every hash key in Layer 2 is wrapped as a `semantic_hash_pill` object containing `pill_label` (`[HK: prefix..suffix | BKCC:Key Label]`), `full_sha256_hex` (`^[0-9A-Fa-f]{64}$`), `bkcc_prefix`, `business_key`, and `entity_label`. |
+| **Data Classification** | `data_classification` *(optional)* | $\in \{\text{PUBLIC}, \text{INTERNAL}, \text{CONFIDENTIAL}, \text{RESTRICTED\_PII}\}$; drives the masking policy in §1.1. |
 | **Layer 3: Formal Proof Drawer** | `layer3_formal_proof` *(optional, collapsed by default)* | Holds `algorithm_ref`, `formula_latex`, `toon_diagnostic_payload`, `contract_yaml_diff`, and `sqlglot_ast_summary` for on-demand inspection. |
 
 ### 1.4 Reference Python Telemetry Emitter & Validator
 
-The following self-contained Python 3.12 module demonstrates how `open-dv` agents construct, validate, and append `VaultObservabilityEvent` records against [`schemas/vault-observability-event.schema.json`](../schemas/vault-observability-event.schema.json):
+The following self-contained Python 3.12 module demonstrates how `open-dv` agents construct, validate, and append `VaultObservabilityEvent` records against [`schemas/vault-observability-event.schema.json`](../schemas/vault-observability-event.schema.json). The emitter sets `data_classification`, and values at `CONFIDENTIAL` or `RESTRICTED_PII` are masked in the persisted banner and preview fields per the §1.1 policy:
 
 ```python
 from __future__ import annotations
@@ -149,6 +157,7 @@ def build_sample_gate4_yagni_event() -> dict[str, Any]:
         "viz_id": "VIZ-GATE-05",
         "agent_persona": "axi-dv",
         "status": "AUTO-FIX",
+        "data_classification": "INTERNAL",
         "rule_ids_evaluated": ["ALG-A1"],
         "context_refs": {
             "graph_a_sha256": "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90",
@@ -345,7 +354,7 @@ flowchart LR
 |                                                                                                    |
 |  [STAGE 00] ---> [STAGE 01] ---> [STAGE 02] ---> [STAGE 03] ---> [STAGE 04] ---> [STAGE 05/06]     |
 |  First Mate      scout-source    scout-unstruct  ship Pass 1     ship Pass 2     axi-dv 6-Gates    |
-|  Graph A<->B     7 Tables, 44c   2 PDFs, 16 sp   67/67 Triage    4H, 5L, 11S     2 Healed, 1 Hold  |
+|  Graph A<->B     7 Tables, 44c   2 PDFs, 17 sp   67/67 Triage    4H, 5L, 11S     2 Healed, 1 Hold  |
 |   [WB-01 ●]       [WB-02/09 ●]    [WB-03 ▲]       [WB-04 ●]       [WB-05 ●]       [WB-06..10 ◆]    |
 |                                                                                         |          |
 |                                                                                         v          |
@@ -478,7 +487,7 @@ flowchart LR
 
 #### 3-Layer Progressive Disclosure Specification (`VIZ-STEP-03`)
 - **Layer 1 (Executive Story Banner):**
-  - *Headline:* `"Day-3 Schema Drift on INVESTRAN_FUND_ADMIN: 4 Column Deltas Classified & Absorbed with Zero Historical Hash-Diff Rewrite."`
+  - *Headline:* `"Day-3 Schema Drift on INVESTRAN + DEALCLOUD: 4 Column Deltas Classified & Absorbed with Zero Historical Hash-Diff Rewrite."`
   - *Business Impact:* `"New ilpa_esg_rating routed to companion sat_fund_investran_esg; dropped deprecated_fax_no padded as NULL in staging."`
   - *Verdict Pill:* `[PASS]`
 - **Layer 2 (Interactive Visual Canvas):**
@@ -486,7 +495,7 @@ flowchart LR
     1. **Case 1 — Additive Attribute (`+ ilpa_esg_rating` on `investran.src_pe_funds`):** Routed to new companion satellite `sat_fund_investran_esg` (`volatility_tier: ADDITIVE_DRIFT_COMPANION`), leaving `sat_fund_investran.hash_diff` untouched (`EVO-01`).
     2. **Case 2 — Subtractive / Soft-Deprecated Attribute (`- deprecated_fax_no` dropped by upstream):** Retained in `sat_fund_investran` DDL; staging view injects `CAST(NULL AS VARCHAR(64)) AS deprecated_fax_no` (`EVO-02`).
     3. **Case 3 — Column Rename (`commitment_amount_usd` $\to$ `committed_amt` with Jaccard value overlap $J = 0.994 \ge 0.90$):** Resolved exclusively inside Zone 1 Staging (`committed_amt AS commitment_amount_usd`) with zero Raw Vault table change (`EVO-03`).
-    4. **Case 4 — Compatible Type Widening (`VARCHAR(64)` $\to$ `VARCHAR(128)`):** Absorbed via canonical string trimming in `Algorithm A.5` (`EVO-04`).
+    4. **Case 4 — Compatible Type Widening (`company_name` on `dealcloud.src_portfolio_companies`, `VARCHAR(128)` $\to$ `VARCHAR(255)`):** Absorbed via canonical string trimming in `Algorithm A.5` (`EVO-04`).
     5. **Case 5 — Business Key Format Drift (`fund_code` format change):** Triggers an `[ASK-USER]` hard gate requiring a Same-As Link (`sal_*`) rather than silent Hub re-keying (`INV-03`, `AP-12`).
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Formal `Algorithm A.9a` decision tree, Jaccard value-overlap calculation $J(C_t, C_{t+1}) = \frac{|V_t \cap V_{t+1}|}{|V_t \cup V_{t+1}|} = 0.994$, and staging SQL diff.
@@ -496,7 +505,7 @@ flowchart LR
 ```
 +====================================================================================================+
 | WB-09: INTRA-SOURCE SCHEMA DRIFT RADAR (VIZ-STEP-03 | Algorithm A.9a)                      [PASS ●]|
-| Story: Day-3 drift on INVESTRAN_FUND_ADMIN absorbed across 4 columns with 0 historical rewrites.   |
+| Story: Day-3 drift on INVESTRAN + DEALCLOUD absorbed across 4 columns with 0 historical rewrites.  |
 +----------------------------------------------------------------------------------------------------+
 | SOURCE DELTA: S1(t = 2026-10-28) ---> S1(t+1 = 2026-10-30)                                         |
 |                                                                                                    |
@@ -514,7 +523,7 @@ flowchart LR
 |  |   renamed -> committed_amt    |  Name Sim=0.78, J=0.994| committed_amt AS commitment_amount  |  |
 |  +-------------------------------+------------------------+-------------------------------------+  |
 |  | ~ company_name VARCHAR(128)   | [CASE 4: TYPE WIDEN]   | Stage Alg A.5 TRIM() absorbs width; |  |
-|  |   widened -> VARCHAR(255)     |  Compatible superset   | ALTER TABLE sat COLUMN TYPE only    |  |
+|  |   (dealcloud) -> VARCHAR(255) |  Compatible superset   | ALTER TABLE sat COLUMN TYPE only    |  |
 |  +-------------------------------+------------------------+-------------------------------------+  |
 +====================================================================================================+
 ```
@@ -529,16 +538,16 @@ flowchart LR
 
 #### 3-Layer Progressive Disclosure Specification (`VIZ-STEP-04`)
 - **Layer 1 (Executive Story Banner):**
-  - *Headline:* `"Extracted 16 PDF spans across 2 documents: 15 spans grounded & resolved (Confidence >= 0.97); 1 ambiguous vehicle held at Tier-U3."`
+  - *Headline:* `"Extracted 17 PDF spans across 2 documents: 16 spans grounded & resolved (Confidence >= 0.96); 1 ambiguous vehicle held at Tier-U3."`
   - *Business Impact:* `"CalPERS 125 bps fee cap and Nordic Cloud 14.5x ($245M) restatement linked to exact PDF character offsets; 'Horizon Sovereign Co-Invest Vehicle' quarantined from hub_fund."`
-  - *Verdict Pill:* `[ASK-USER]` *(1 `Tier-U3` Captain Hold on `[1112:1147]`; all 15 valid spans `[PASS]`)*
+  - *Verdict Pill:* `[ASK-USER]` *(1 `Tier-U3` Captain Hold on `[1112:1147]`; all 16 valid spans `[PASS]`)*
 - **Layer 2 (Interactive Visual Canvas):**
   - **Left Pane — Verbatim PDF Document Viewer with Character-Offset Highlight Pills (`[span_start, span_end)`):**
     - Highlights exact substrings in `calpers_side_letter_fund_iv_2026.pdf` (`[134:180] "California Public Employees' Retirement System"`, `[227:247] "5493006MHB84DD0ZWV18"`, `[499:506] "125 bps"`, `[1112:1147] "Horizon Sovereign Co-Invest Vehicle"`) and `ic_q3_valuation_nordic_cloud.pdf` (`[226:246] "529900T8BM49AURSDO55"`, `[915:932] "EV/EBITDA = 14.5x"`, `[1033:1051] "USD 245,000,000.00"`).
   - **Center Pane — 3-Tier Entity Resolution (`ER`) Confidence Funnel (`docs/04` §3):**
     - **`Tier-U1` Deterministic Identifier Match ($S_{\text{er}} = 1.00$):** Exact regex match on ISO 17442 LEI (`5493006MHB84DD0ZWV18`, `529900T8BM49AURSDO55`) or SOR code (`DEAL-NC-2024`) $\to$ Direct binding to the existing `hub_limited_partner` or `hub_portfolio_company` master key (a CalPERS LEI match resolves through `sat_limited_partner_investran.lei` to `LP-101`).
     - **`Tier-U2` High-Confidence Hybrid Match ($S_{\text{er}} \ge 0.85$, Top-2 Margin $\ge 0.15$):** `"Nordic Cloud SaaS AB"` (`[186:206]`, $S_{\text{er}} = 0.96$, margin $= 0.31$) $\to$ Binds to `[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]`.
-    - **`Tier-U3` Ambiguous Mention Quarantine ($S_{\text{er}} < 0.85$ or Margin $< 0.15$):** `"Horizon Sovereign Co-Invest Vehicle"` (`[1112:1147]`, $S_{\text{er}} = 0.81$, margin $= 0.02$ between `APEX_CO_I` and `APEX_BO_IV`) $\to$ Quarantined in `unmapped_escalations` / Captain Hold (`docs/04` §3.1: **Never mint a new Hub key from an unverified free-text string**).
+    - **`Tier-U3` Ambiguous Mention Quarantine ($S_{\text{er}} < 0.85$ or Margin $< 0.15$):** `"Horizon Sovereign Co-Invest Vehicle"` (`[1112:1147]`, $S_{\text{er}} = 0.81$, margin $= 0.02$ between `APEX_CO_I` and `APEX_BO_IV`) $\to$ Routed to `stg_unresolved_doc_mentions` and the `needs-decision` steward queue (Captain Hold) (`docs/04` §3.1: **Never mint a new Hub key from an unverified free-text string**).
   - **Right Pane — Target Vault Provenance Routing (`Rules U1..U3`, `VIZ-GATE-06`):**
     - Shows `hub_document` (`doc_uri`) + `sat_document_manifest` (`content_sha256`, `mime_type`, `byte_size`) + `lnk_document_lp_commitment` + `business_vault.sat_lp_side_letter_llm_ext` (`extractor_model_id`, `confidence_score`, and a row-level `chunk_id` + `evidence_quote` span `[38:1012]` that covers every attribute on the row; per-field spans render as UI highlight sub-spans).
 - **Layer 3 (On-Demand Formal Proof Drawer):**
@@ -549,7 +558,7 @@ flowchart LR
 ```
 +====================================================================================================+
 | WB-03: UNSTRUCTURED PDF SPAN-GROUNDING & 3-TIER ER INSPECTOR (VIZ-STEP-04 + VIZ-GATE-06) [HOLD ▲]  |
-| Story: 15/16 PDF spans grounded (Rules U1-U4 PASS); 1 ambiguous vehicle held for Steward.          |
+| Story: 16/17 PDF spans grounded (Rules U1-U4 PASS); 1 ambiguous vehicle held for Steward.          |
 +----------------------------------------------------------------------------------------------------+
 | PDF CORPUS VIEWER (Byte-Exact Offsets)     | 3-TIER ENTITY RESOLUTION FUNNEL (docs/04 Sec. 3)      |
 | [Doc 1: calpers_side_letter_fund_iv_2026]  |                                                       |
@@ -670,7 +679,7 @@ flowchart TB
 
     subgraph Links["Enterprise Relationships & Same-As Links (Green/Teal Diamonds)"]
         LLC{"[LNK] lnk_lp_commitment\n(Fund <-> LP + commitment_id)"}
-        LCI{"[LNK] lnk_lp_commitment_co_invest\n(Fund <-> PortCo | WHERE lei IS NOT NULL)"}
+        LCI{"[LNK] lnk_lp_commitment_co_invest\n(Fund <-> LP <-> PortCo + commitment_id | WHERE lei IS NOT NULL)"}
         SAL{"[SAL] sal_limited_partner\n(Master LP <-> Legacy Alias LP)"}
         LDSL{"[DOC-LNK] lnk_document_lp_commitment\n(Doc <-> Fund <-> LP)"}
         LDPC{"[DOC-LNK] lnk_document_portfolio_company\n(Doc <-> PortCo)"}
@@ -691,7 +700,7 @@ flowchart TB
     end
 
     HF --- LLC & LCI & LDSL
-    HLP --- LLC & SAL & LDSL
+    HLP --- LLC & LCI & SAL & LDSL
     HPC --- LCI & LDPC
     HDOC --- LDSL & LDPC
 
@@ -847,7 +856,7 @@ Whenever a user clicks an active exception or rule badge in any `VIZ-GATE-*` vie
 ### 4.3 `VIZ-GATE-01` (`WB-00` Scoreboard): 6-Gate `axi-dv` Verification Funnel & Rule Compliance Matrix
 
 - **Workbench Placement:** Embedded in `WB-00` (*Master Pipeline Command Center*)
-- **Purpose:** Summarizes all 6 verification gates as a progressive sieve so users see at a glance which gates passed cleanly (`Gate 0`, `Gate 3`, `Gate 3`), which gates executed a deterministic `auto-fix` (`Gate 1`, `Gate 4`), which gate triggered a closed-loop `reject-with-trace` self-healing cycle (`Gate 1`), and which gate raised a `Tier-U3` `ask-user` hold (`Gate 5 Unstructured`).
+- **Purpose:** Summarizes all 6 verification gates as a progressive sieve so users see at a glance which gates passed cleanly (`Gate 0`, `Gate 2`, `Gate 3`), which gates executed a deterministic `auto-fix` (`Gate 1`, `Gate 4`), which gate triggered a closed-loop `reject-with-trace` self-healing cycle (`Gate 1`), and which gate raised a `Tier-U3` `ask-user` hold (`Gate 5 Unstructured`).
 
 ```
 +====================================================================================================+
@@ -881,10 +890,10 @@ Whenever a user clicks an active exception or rule badge in any `VIZ-GATE-*` vie
 
 | Fatal Trap # | Anti-Pattern IDs | Naive LLM Failure on Apex Horizon PE Dataset | `open-dv` Deterministic Guard & Visual Proof |
 | :--- | :--- | :--- | :--- |
-| **Trap 1: Source-Driven Hub Proliferation** | `AP-11`, `AP-15` | Creates `hub_investran_lp` and `hub_legacy_gp_lp`, forcing downstream analysts to manually `UNION` investor tables. | `Graph A` CBC Grounding (`VIZ-STEP-01`) binds both tables to `urn:ontology:entity:limited_partner` $\to$ single `hub_limited_partner`. |
+| **Trap 1: Source-Driven Hub Proliferation** | `AP-11` | Creates `hub_investran_lp` and `hub_legacy_gp_lp`, forcing downstream analysts to manually `UNION` investor tables. | `Graph A` CBC Grounding (`VIZ-STEP-01`) binds both tables to `urn:ontology:entity:limited_partner` $\to$ single `hub_limited_partner`. |
 | **Trap 2: Surrogate Key Leakage** | — *(Gate 1 ledger check)* | Hashes `investran.src_lp_investors.row_seq_id` (`10001..10004`) as the Hub Business Key; an upstream DB rebuild renumbers every LP. | `scout-source` (`VIZ-STEP-02`) flags $\Delta = 1$ sequence; Gate 1 routes `row_seq_id` to the `DROPPED` sink (`WB-04`). |
 | **Trap 3: Silent Hash Collisions** | `AP-08` | Hashes `fund_code \|\| lp_id` without length prefixes or NULL sentinels, so shifted delimiters and NULLs collide. | `Algorithm A.5` (`VIZ-STEP-07`) length-prefixes every token; Gate 2 and Gate 5 Batch 3 verify it. |
-| **Trap 4: Soft Rule Contamination** | `AP-05` | Embeds `COALESCE(called_usd, 0)` or an `ACTIVE`-only filter in Staging or Raw Vault loads. | `Algorithm A.6` rejects joins and filters in Staging; `Rule U3` keeps AI interpretations in the Business Vault. |
+| **Trap 4: Soft Rule Contamination** | `AP-04` | Embeds `COALESCE(called_usd, 0)` or an `ACTIVE`-only filter in Staging or Raw Vault loads. | `Algorithm A.6` rejects joins and filters in Staging; `Rule U3` keeps AI interpretations in the Business Vault. |
 | **Trap 5: Destructive `UPDATE`s** | `AP-01`, `AP-02` | Runs `UPDATE sat_lp_commitment_investran SET load_end_dts = NOW()` to close prior rows. | `DV-EVO-005` and `INV-01` block mutating DML; end dates stay virtual (`INV-02`). |
 
 The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` merging *Bavarian Pension* with *CalPERS* (`DV-COL-012`, `KEY-04`), the FX/NAV over-split at $4.20\text{ MB/day}$ (Gate 4, `Alg A.1`), `ilpa_esg_rating` added in place to `sat_fund_investran.hash_diff` (`AP-10`, `EVO-01`), and a phantom Hub for `"Horizon Sovereign Co-Invest Vehicle"` (`docs/04` §3.1).
@@ -901,7 +910,7 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 ```
 +====================================================================================================+
-| WB-06: GATE 2 TOPOLOGICAL DAG & ADJACENCY MATRIX INSPECTOR (VIZ-GATE-03 | networkx)  [14/14 PASS ●]|
+| WB-06: GATE 3 TOPOLOGICAL DAG & ADJACENCY MATRIX INSPECTOR (VIZ-GATE-03 | networkx)  [14/14 PASS ●]|
 | Story: Bipartite DAG verified across 20 nodes (4 Hubs, 5 Links, 11 Satellites); 0 forbidden edges. |
 +----------------------------------------------------------------------------------------------------+
 | ADJACENCY BLOCK MATRIX (Rows = Source Parent, Cols = Target Reference)                             |
@@ -911,7 +920,7 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 | From: HUBS (4)      | [ 0 ] (STR-001 PASS ●) | [ 0 ] (Terminal Root ●)| [ 0 ] (No Parent->Sat FK ●)|
 |                     | Zero Hub->Hub FKs      |                        |                            |
 | --------------------+------------------------+------------------------+----------------------------|
-| From: LINKS (5)     | [ 11 Valid Hub Refs ● ]| [ 0 ] (No-LnkLnk ●)    | [ 0 ]                      |
+| From: LINKS (5)     | [ 12 Valid Hub Refs ● ]| [ 0 ] (No-LnkLnk ●)    | [ 0 ]                      |
 |                     | All Links >= 2 Hubs    | Zero Link->Link FKs    |                            |
 | --------------------+------------------------+------------------------+----------------------------|
 | From: SATS (11)     | [ 8 Hub Sat Attachments| [ 3 Link Sat Attach ● ]| [ 0 ] (STR-006 PASS ●)     |
@@ -956,7 +965,7 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 - **Purpose:** Visualizes the two structural/cost optimizations executed during Gate 1 and Gate 4:
   1. **Algorithm A.4 — Nullable Foreign Key Link Splitter (Gate 1):**
      - In `investran.src_lp_commitments_and_calls`, `co_invest_portco_lei` is NULL on $5/7$ rows ($N_{\text{null}} = 71.43\% > 5\%$). Including a nullable FK inside `lnk_lp_commitment` would inject `-1` Zero Keys into 71.4% of standard fund commitments.
-     - `axi-dv` splits `co_invest_portco_lei` into a dedicated 2-Hub contextual Link `lnk_lp_commitment_co_invest` with `where_filter_condition: "co_invest_portco_lei IS NOT NULL"`.
+     - `axi-dv` splits `co_invest_portco_lei` into a dedicated 3-Hub contextual Link at commitment grain `lnk_lp_commitment_co_invest` with `where_filter_condition: "co_invest_portco_lei IS NOT NULL"`.
   2. **Algorithm A.1 — Gate 4 YAGNI Write-Amplification Cost Guard:**
      - Evaluates whether splitting 3 daily FX/NAV columns (`eur_usd_rate`, `gbp_usd_rate`, `daily_interim_nav_usd`) out of `sat_lp_commitment_investran` satisfies the dual threshold:
        $$\text{Split Allowed} \iff |C_{\text{general}}| \ge 10 \;\land\; W_{\text{amp}} = R_{\text{daily}} \times P(\Delta C_{\text{high}}) \times B_{\text{low}} \ge 50\text{ MB/day}$$
@@ -973,7 +982,7 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 |   ■ lnk_lp_commitment(hk_fund, hk_limited_partner, hk_portfolio_company [-1 on 71.4% of rows!])    |
 |  After Deterministic Split (PASS ●):                                                               |
 |   ● lnk_lp_commitment(hk_fund, hk_limited_partner)                    [100% Non-Null Core Grain]   |
-|   ● lnk_lp_commitment_co_invest(hk_fund, hk_portfolio_company)        [WHERE co_invest_lei NOT NULL|
+|   ● lnk_lp_commitment_co_invest(fund, LP, portco, commitment_id) [WHERE lei NOT NULL]              |
 +----------------------------------------------------------------------------------------------------+
 | PART 2: GATE 4 YAGNI WRITE-AMPLIFICATION COST GUARD (Algorithm A.1)                                |
 |                                                                                                    |
@@ -1054,7 +1063,7 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 | Batch # | Adversarial Workload Injected into Ephemeral DuckDB | Target Invariants Verified | Empirical Result on Private Equity Model |
 | :--- | :--- | :--- | :--- |
-| **Batch 1 (`t_0`)** | **Initial Load + NULL Optional FK + Ghost Seed (`0x00..00`):** Loads initial rows across `investran`, `dealcloud`, and `dms` plus System Ghost Record (`1900-01-01`). | `DV-DYN-006`, `DV-DYN-007`, `DV-DYN-009`: zero orphan Satellite/Link FKs and Ghost Record presence. | **PASS:** 12 Hub, 9 Link, and 27 Satellite rows; `0` orphans; `1` Ghost Record per Satellite. |
+| **Batch 1 (`t_0`)** | **Initial Load + NULL Optional FK + Ghost Seed (`0x00..00`):** Loads initial rows across `investran`, `dealcloud`, and `dms` plus the Zero Key rows (`0x00..00`, `0xFF..FF`) in every Hub and Link and the System Ghost Record (`1900-01-01`). | `DV-DYN-006`, `DV-DYN-007`, `DV-DYN-009`: zero orphan Satellite/Link FKs, both Zero Keys, and Ghost Record presence. | **PASS:** 12 Hub, 10 Link, and 27 Satellite business rows, excluding system rows; `0` orphans; `1` Ghost Record per Satellite. |
 | **Batch 2 (`t_1`)** | **100% Duplicate Replay:** Re-runs the exact Batch 1 staging payload with a newer `load_dts` (`t_1 > t_0`). | `DV-DYN-012`: strict idempotency ($\Delta\text{Rows}_{\text{Hub}} = \Delta\text{Rows}_{\text{Link}} = \Delta\text{Rows}_{\text{Sat}} = 0$). | **PASS:** `0` rows inserted (`hash_diff` change detection suppressed every unchanged row). |
 | **Batch 3 (`t_2`)** | **Single Mutation + Day-3 Drift $S_1(t+1)$:** Mutates 1 of 7 commitment `called_usd` values (14.3%), drops `deprecated_fax_no`, and adds `ilpa_esg_rating`. | `DV-DYN-008`, `DV-EVO-006`, `EVO-01..03`: only true deltas appended; companion `sat_fund_investran_esg` populated; zero historical `hash_diff` rewrites. | **PASS:** +5 Satellite rows: 1 commitment, 3 ESG, and 1 `sat_fund_investran` row for Fund IV, whose fax value became `NULL`. |
 | **Batch 4 (`t_3`)** | **Multi-Source ($N=1 \to N=2$) Collision Test:** Onboards `legacy_gp` and `mdm` with overlapping keys `LP-101` and `LP-102`. | `DV-COL-012`, `DV-DYN-001`, `DV-DYN-002`, `KEY-04`: distinct Hub rows per `BKCC`; `sal_limited_partner` joins the verified alias. | **PASS:** +2 Hub, +1 Link, and +2 Satellite rows; `LP-101` and `LEGACY_GP_ADMIN:LP-101` isolated into distinct Hub keys. |
@@ -1070,7 +1079,7 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 +----------------------------------------------------------------------------------------------------+
 | ADVERSARIAL BATCH                 | HUB DELTA | LINK DELTA | SAT DELTA  | ORPHANS | VERDICT        |
 | ----------------------------------+-----------+------------+------------+---------+----------------|
-| Batch 1 (t0: Initial + Ghost)     | +12 rows  | +9 rows    | +27 rows   | 0       | [PASS ●]       |
+| Batch 1 (t0: Initial + Ghost)     | +12 rows  | +10 rows   | +27 rows   | 0       | [PASS ●]       |
 | Batch 2 (t1: 100% Replay Stress)  | +0 rows   | +0 rows    | +0 rows    | 0       | [PASS ●] (Idem)|
 | Batch 3 (t2: Mutation + Drift)    | +0 rows   | +0 rows    | +5 rows    | 0       | [PASS ●] (EVO) |
 | Batch 4 (t3: N=2 Collision Test)  | +2 rows   | +1 rows    | +2 rows    | 0       | [PASS ●] (KEY) |

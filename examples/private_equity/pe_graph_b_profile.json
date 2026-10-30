@@ -88,7 +88,7 @@
     },
     {
       "source_system_code": "LEGACY_GP_ADMIN",
-      "description": "Acquired European GP Spreadsheet Roster with Colliding Local Integer Keys (N=2 Expansion)",
+      "description": "Acquired European GP Spreadsheet Roster with Colliding Local String Keys (N=2 Expansion)",
       "tables": [
         {
           "bronze_table": "legacy_gp.src_legacy_lp_roster",
@@ -192,6 +192,7 @@
           "char_length": 1331,
           "extracted_spans": [
             { "field": "effective_date", "span_start": 134, "span_end": 152, "verbatim_quote": "September 30, 2026", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },
+            { "field": "portco_name", "span_start": 186, "span_end": 206, "verbatim_quote": "Nordic Cloud SaaS AB", "resolved_bk": "529900T8BM49AURSDO55", "er_tier": "TIER_U2_HYBRID_EXACT", "confidence": 0.96 },
             { "field": "portco_lei", "span_start": 226, "span_end": 246, "verbatim_quote": "529900T8BM49AURSDO55", "resolved_bk": "529900T8BM49AURSDO55", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.0 },
             { "field": "portco_deal_code", "span_start": 259, "span_end": 271, "verbatim_quote": "DEAL-NC-2024", "resolved_bk": "529900T8BM49AURSDO55", "er_tier": "TIER_U1_DETERMINISTIC", "confidence": 1.0 },
             { "field": "asc_820_level", "span_start": 599, "span_end": 624, "verbatim_quote": "ASC_820_Level = 'Level 3'", "resolved_bk": null, "er_tier": "EXTRACTED_ATTRIBUTE", "confidence": 0.99 },

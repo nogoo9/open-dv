@@ -122,7 +122,7 @@ canonical_relationships:
   - relationship_uri: "urn:ontology:relationship:co_invest_allocation"
     relationship_name: "LPCommitmentCoInvestTarget"
     target_link: "lnk_lp_commitment_co_invest"
-    endpoints: ["hub_fund", "hub_portfolio_company"]
+    endpoints: ["hub_fund", "hub_limited_partner", "hub_portfolio_company"]
     grain_semantics: "Optional contextual link split via Algorithm A.4 when an LP commitment carries a direct Portfolio Company co-investment syndication right (co_invest_portco_lei IS NOT NULL)."
 
   - relationship_uri: "urn:ontology:relationship:entity_equivalence"

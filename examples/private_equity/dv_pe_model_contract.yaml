@@ -158,12 +158,15 @@ links:
     link_type: "STANDARD_LINK"
     ontology_concept_uri: "urn:ontology:relationship:co_invest_allocation"
     source_bronze_table: "investran.src_lp_commitments_and_calls"
-    driving_key_hub: "hub_fund"
+    degenerate_columns: ["commitment_id"]
     where_filter_condition: "co_invest_portco_lei IS NOT NULL"
     hub_references:
       - target_hub: "hub_fund"
         role_alias: "COMMITTED_FUND"
         source_fk_columns: ["fund_code"]
+      - target_hub: "hub_limited_partner"
+        role_alias: "INVESTING_LP"
+        source_fk_columns: ["lp_id"]
       - target_hub: "hub_portfolio_company"
         role_alias: "CO_INVEST_ASSET"
         source_fk_columns: ["co_invest_portco_lei"]

@@ -142,8 +142,7 @@ These tables hold the resolved Hub keys and span-grounded attributes extracted i
 | :--- | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :--- | :---: | :--- | :--- |
 | `s3://.../calpers_side_letter_fund_iv_2026.pdf` | `APEX_BO_IV` | `LP-101` | `125.0000` | `175.0000` | `Y` | `Y` | `2026-02-14` | `claude-3-7-sonnet` | `0.990` | `[38:1012]` | `DATE: February 14, 2026 ... USD 50,000,000.` |
 
-| `doc_uri` | `lei` | `effective_date` | `September 30, 2026` | `134` | `152` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lnk_doc_portco_ai_provenance` (`CONFIDENTIAL`). |
-| `asc_820_level` | `ev_ebitda_multiple` | `implied_ev_usd` | `fair_value_usd` | `effective_date` | `extractor_model_id` | `confidence_score` | `chunk_id` | `evidence_quote` |
+| `doc_uri` | `lei` | `asc_820_level` | `ev_ebitda_multiple` | `implied_ev_usd` | `fair_value_usd` | `effective_date` | `extractor_model_id` | `confidence_score` | `chunk_id` | `evidence_quote` |
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- | :---: | :--- | :--- |
 | `s3://.../ic_q3_valuation_nordic_cloud.pdf` | `529900T8BM49AURSDO55` | `Level 3` | `14.50` | `245000000.00` | `245000000.00` | `2026-09-30` | `claude-3-7-sonnet` | `0.990` | `[108:1151]` | `VALUATION EFFECTIVE DATE: ... operating holding.` |
 
@@ -206,6 +205,8 @@ External Auditor Review: PriceWaterhouseCoopers LLP (PwC Valuation Services).
 
 | Extracted Field | Verbatim Substring (`doc_text[span_start:span_end]`) | `span_start` | `span_end` | ER Resolution Tier | Target Vault Routing |
 | :--- | :--- | :---: | :---: | :--- | :--- |
+| `effective_date` | `September 30, 2026` | `134` | `152` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lnk_doc_portco_ai_provenance` (`CONFIDENTIAL`). |
+| `portco_name` | `Nordic Cloud SaaS AB` | `186` | `206` | `Tier-U2` ($S_{\text{er}} = 0.96$) | Resolves to `hub_portfolio_company` (`[HK: 0C18..454E]`). |
 | `portco_lei` | `529900T8BM49AURSDO55` | `226` | `246` | `Tier-U1` ($S_{\text{er}} = 1.00$) | Exact ISO 17442 LEI match on `hub_portfolio_company` (`[HK: 0C18..454E]`). |
 | `portco_deal_code` | `DEAL-NC-2024` | `259` | `271` | `Tier-U1` ($S_{\text{er}} = 1.00$) | Exact match on `sat_portfolio_company_dealcloud.deal_code`, confirming the same Hub row as the LEI. |
 | `asc_820_level` | `ASC_820_Level = 'Level 3'` | `599` | `624` | `EXTRACTED_ATTRIBUTE` | Stored in `sat_lnk_doc_portco_ai_provenance` (`CONFIDENTIAL`). |
@@ -223,12 +224,15 @@ External Auditor Review: PriceWaterhouseCoopers LLP (PwC Valuation Services).
 
 #### 1. What the Agent Team Does
 1. **`vault-first-mate` (`STAGE_00_ORCHESTRATION`, `WB-01`):** Loads the top-down Enterprise Ontology `Graph A` ([`pe_graph_a_ontology.yaml`](../examples/private_equity/pe_graph_a_ontology.yaml)) and dispatches `scout-source` to profile the physical Bronze schemas (`Graph B`, [`pe_graph_b_profile.json`](../examples/private_equity/pe_graph_b_profile.json)).
-2. **Bipartite Concept Grounding (`VIZ-STEP-01`):** Maps `investran.src_pe_funds` $\to$ `Fund`, both `investran.src_lp_investors` and `legacy_gp.src_legacy_lp_roster` $\to$ `LimitedPartner`, `dealcloud.src_portfolio_companies` $\to$ `PortfolioCompany`, and `dms.documents` $\to$ `Document`. `mdm.src_lp_steward_crosswalk` grounds to the `SameAsLimitedPartner` relationship, and the two extraction tables are bound in Scene 2. Leaves `CustodianBank` unallocated (`4/5 = 80.0%` coverage) rather than hallucinating a phantom table (`AP-06`).
+2. **Bipartite Concept Grounding (`VIZ-STEP-01`):** Maps `investran.src_pe_funds` $\to$ `Fund`, both `investran.src_lp_investors` and `legacy_gp.src_legacy_lp_roster` $\to$ `LimitedPartner`, `dealcloud.src_portfolio_companies` $\to$ `PortfolioCompany`, and `dms.documents` $\to$ `Document`. `mdm.src_lp_steward_crosswalk` grounds to the `SameAsLimitedPartner` relationship, and the two extraction tables are bound in Scene 2. Leaves `CustodianBank` unallocated (`4/5 = 80.0%` coverage) rather than hallucinating a phantom table (`DV-COL-005` / `AP-11`).
 3. **`scout-source` Empirical Profiling (`STAGE_01_SCOUT_SOURCE`, `WB-02`):** Computes uniqueness, entropy, null rates, and inclusion dependencies across all 44 relational columns:
    - Flags `investran.src_lp_investors.row_seq_id` ($U=1.0, \Delta=+1$) as `[SURROGATE_SEQUENCE]`.
    - Flags `investran.src_lp_commitments_and_calls.co_invest_portco_lei` ($N_{\text{null}} = 71.43\%, \mathcal{I}_{nn} = 1.00$) as an optional contextual FK requiring `Algorithm A.4` Link splitting.
 
 #### 2. What the User Sees in `WB-01` & `WB-02`
+
+This synthetic demo shows the unmasked `MNPI_CLEARED_STEWARD` view throughout; see the visibility policy in [Doc 06 §1.1](./06-explainability-and-observability-spec.md#11-architectural-principles-zero-trust-telemetry--content-addressable-lineage).
+
 ```
 +====================================================================================================+
 | SCENE 1 — WB-01 & WB-02: DUAL-GRAPH GROUNDING & EMPIRICAL PROFILING                        [PASS ●]|
@@ -258,7 +262,7 @@ External Auditor Review: PriceWaterhouseCoopers LLP (PwC Valuation Services).
 2. **3-Tier Entity Resolution (`docs/04` §3):**
    - **`Tier-U1` Auto-Bind:** Matches LEI `5493006MHB84DD0ZWV18` (`[227:247]`) to `sat_limited_partner_investran.lei`, resolving to CalPERS master key `LP-101` (`[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`), and LEI `529900T8BM49AURSDO55` (`[226:246]`) to Nordic Cloud SaaS AB (`[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]`).
    - **`Tier-U2` Guarded Hybrid Bind:** Matches `"California Public Employees' Retirement System"` (`[134:180]`, $S_{\text{er}} = 0.98$) and `"Nordic Cloud SaaS AB"` ($S_{\text{er}} = 0.96$, top-2 margin $= 0.31 \ge 0.15$).
-   - **`Tier-U3` Captain Hold (`docs/04` §3.1):** Quarantines `"Horizon Sovereign Co-Invest Vehicle"` (`[1112:1147]`) because its top-2 candidate scores (`0.81` vs. `0.79`) yield a separation margin of $0.02 < 0.15$. Under **Gate 5 `Tier-U3`**, `open-dv` refuses to mint a new `hub_fund` key from an unverified free-text PDF string and pauses only that span for Captain confirmation (`ASK-USER`).
+   - **`Tier-U3` Captain Hold (`docs/04` §3.1):** Quarantines `"Horizon Sovereign Co-Invest Vehicle"` (`[1112:1147]`) because its top-2 candidate scores (`0.81` vs. `0.79`) yield a separation margin of $0.02 < 0.15$. Under **Gate 5 `Tier-U3`**, `open-dv` refuses to mint a new `hub_fund` key from an unverified free-text PDF string and routes only that span to `stg_unresolved_doc_mentions` and the `needs-decision` steward queue for Captain confirmation (`ASK-USER`).
 
 #### 2. Executable Python Span-Offset Verification
 ```python
@@ -324,7 +328,7 @@ for sub_start, sub_end in [(44, 61), (499, 506), (607, 614), (665, 691), (878, 9
 |                                                                                                    |
 | 3. NULLABLE-FK LINK SPLITTER (Algorithm A.4 / Gate 1):                                             |
 |    • lnk_lp_commitment(hk_fund, hk_limited_partner)                    [0.0% NULL Core Grain ●]    |
-|    • lnk_lp_commitment_co_invest(hk_fund, hk_portfolio_company)        [WHERE co_invest_lei!=NULL] |
+|    • lnk_lp_commitment_co_invest(fund, LP, portco, commitment_id) [WHERE lei NOT NULL]             |
 |                                                                                                    |
 | 4. GATE 4 YAGNI COST GUARD (Algorithm A.1 / Gate 4):                                               |
 |    Proposed `sat_lp_commitment_fx_high_freq`: |C_gen| = 6 (<10) & W_amp = 4.20 MB/d (<50.0 MB/d)   |
@@ -343,7 +347,7 @@ for sub_start, sub_end in [(44, 61), (499, 506), (607, 614), (665, 691), (878, 9
 2. **Onboarding `LEGACY_GP_ADMIN` (`legacy_gp.src_legacy_lp_roster`):**
    - In Attempt 1, `ship-vault` maps `legacy_gp.src_legacy_lp_roster.lp_num` (`'LP-101'`, *Bavarian Pension Reserve Fund*) onto `hub_limited_partner` with `key_authority_tier: TIER_3_LOCAL_SCOPED`, but forgets to set `require_src_qualifier: true` and `bkcc_prefix: "LEGACY_GP_ADMIN"`.
    - **Collision Alert (`DV-COL-012`):** `axi-dv` Gate 1 detects that unscoped `'LP-101'` collides with Investran `LP-101` (*CalPERS*, $500M commitment) while their entity overlap is $J_{\text{entity}} = 0.00 < 0.95$.
-   - **Self-Healed `BKCC` Isolation & `sal_limited_partner`:** After receiving the TOON diagnostic in Scene 5, `ship-vault` sets `require_src_qualifier: true` and `bkcc_prefix: "LEGACY_GP_ADMIN"`, isolating *Bavarian Pension Reserve Fund* at `[HK: 6B7C..D8B9 | LEGACY_GP_ADMIN:LP-101 Bavarian Pension]` while *CalPERS* remains at `[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`. For Row 2 (`LEGACY_GP_ADMIN:LP-102`, *Nordisk Suverän Fond*), which genuinely represents the same legal institution as `GLOBAL:LP-104` (*Nordic Sovereign Pension Fund*), the steward-approved row in `mdm.src_lp_steward_crosswalk` (`master_lp_id = LP-104`, `lp_num = 102`) drives the non-destructive Same-As Link `sal_limited_partner` (`rec_src = MDM_STEWARD_RESOLUTION`).
+   - **Self-Healed `BKCC` Isolation & `sal_limited_partner`:** After receiving the TOON diagnostic in Scene 5, `ship-vault` sets `require_src_qualifier: true` and `bkcc_prefix: "LEGACY_GP_ADMIN"`, isolating *Bavarian Pension Reserve Fund* at `[HK: 6B7C..D8B9 | LEGACY_GP_ADMIN:LP-101 Bavarian Pension]` while *CalPERS* remains at `[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`. For Row 2 (`LEGACY_GP_ADMIN:LP-102`, *Nordisk Suverän Fond*), which genuinely represents the same legal institution as `GLOBAL:LP-104` (*Nordic Sovereign Pension Fund*), the steward-approved row in `mdm.src_lp_steward_crosswalk` (`master_lp_id = LP-104`, `lp_num = 'LP-102'`) drives the non-destructive Same-As Link `sal_limited_partner` (`rec_src = MDM_STEWARD_RESOLUTION`).
 
 #### 2. What the User Sees in `WB-05` (`VIZ-STEP-06` + `VIZ-GATE-04`)
 ```
@@ -392,12 +396,13 @@ for sub_start, sub_end in [(44, 61), (499, 506), (607, 614), (665, 691), (878, 9
 | run_id: run-pe-apex-horizon-20261030            |     key_columns: ["lp_num"]                      |
 | attempt: 1/3                                    |     record_source_code: "LEGACY_GP_ADMIN"        |
 | status: REJECT-WITH-TRACE                       |     key_authority_tier: "TIER_3_LOCAL_SCOPED"    |
-| violations[1]{gate,rule,entity,remediation}:    | -   require_src_qualifier: false                 |
-|  G1,DV-COL-012,hub_limited_partner,           | -   bkcc_prefix: null                              |
-|   "Tier-3 key lp_num in src_legacy_lp_roster    | +   require_src_qualifier: true                  |
-|    collides with LP-101 (J_entity=0.00).        | +   bkcc_prefix: "LEGACY_GP_ADMIN"               |
-|    Set require_src_qualifier=true and           | +   system_scoped_bk_justification: "Acquired    |
-|    bkcc_prefix='LEGACY_GP_ADMIN'."              | +     legacy GP Excel roster uses local IDs..."  |
+| violations[2]{gate,rule,action,target,fix}:     | -   require_src_qualifier: false                 |
+|  G1,DV-COL-012,REJECT,hub_limited_partner,      | -   bkcc_prefix: null                            |
+|   "Set require_src_qualifier=true &             | +   require_src_qualifier: true                  |
+|    bkcc_prefix='LEGACY_GP_ADMIN' on lp_num"     | +   bkcc_prefix: "LEGACY_GP_ADMIN"               |
+|  G4,ALG-A1,AUTO-FIX,sat_lp_comm_fx,             | +   system_scoped_bk_justification: "Acquired    |
+|   "Merged 3 cols into sat_lp_commitment_inv     | +     legacy GP Excel roster reuses LP-nnn..."   |
+|    (W_amp=4.20 MB/d < 50.0 MB/d)"               |                                                  |
 +====================================================================================================+
 ```
 
@@ -411,9 +416,10 @@ for sub_start, sub_end in [(44, 61), (499, 506), (607, 614), (665, 691), (878, 9
      1. Adds `ilpa_esg_rating VARCHAR(16)` to `investran.src_pe_funds` $\to$ Routed to new companion satellite `sat_fund_investran_esg` (`volatility_tier: ADDITIVE_DRIFT_COMPANION`), preserving 100% of historical `sat_fund_investran.hash_diff` digests (`EVO-01`).
      2. Drops `deprecated_fax_no` from `investran.src_pe_funds` $\to$ Marked in `soft_deprecated_columns: ["deprecated_fax_no"]`; Staging view injects `CAST(NULL AS VARCHAR(64)) AS deprecated_fax_no` (`EVO-02`).
      3. Renames `commitment_amount_usd` $\to$ `committed_amt` ($J_{\text{val}} = 0.994 \ge 0.90$) $\to$ Absorbed via Staging alias `committed_amt AS commitment_amount_usd` (`EVO-03`).
+     4. In the same release window, `DEALCLOUD_PE_CRM` widens `company_name` from `VARCHAR(128)` to `VARCHAR(255)` $\to$ Absorbed by a metadata-only type change (`EVO-04`).
 2. **Gate 5 Dynamic DuckDB Shadow Sandbox (`STAGE_06_AXI_DV_DYNAMIC_SANDBOX`, `WB-10`):**
    - Executes all compiled DDL and DML inside an ephemeral in-memory DuckDB instance across the **4 Adversarial Batches**:
-     - **Batch 1 (`t_0` Initial Load + Ghost Seed):** Loads the Investran, DealCloud, and `dms` rows (`N=1` for LP keys) with NULL optional FKs + System Ghost Record (`0x00..00` at `'1900-01-01 00:00:00'`). Verifies `0` orphan FKs and `1` Ghost Record per Satellite (`DV-DYN-006`, `DV-DYN-007`, `DV-DYN-009`).
+     - **Batch 1 (`t_0` Initial Load + Ghost Seed):** Loads the Investran, DealCloud, and `dms` rows (`N=1` for LP keys) with NULL optional FKs + the Zero Key rows (`0x00..00`, `0xFF..FF`) in every Hub and Link + System Ghost Record (`0x00..00` at `'1900-01-01 00:00:00'`). Verifies `0` orphan FKs, both Zero Keys, and `1` Ghost Record per Satellite (`DV-DYN-006`, `DV-DYN-007`, `DV-DYN-009`).
      - **Batch 2 (`t_1` Duplicate Replay):** Re-executes the exact Batch 1 load at `t_1 > t_0`. Verifies $\Delta\text{Hub} = 0, \Delta\text{Link} = 0, \Delta\text{Sat} = 0$ (`DV-DYN-012`).
      - **Batch 3 (`t_2` Single Mutation + Day-3 Drift):** Mutates 1 of 7 commitment rows (CalPERS `called_usd` from `$125,000,000.00` $\to$ `$160,000,000.00`), drops `deprecated_fax_no`, and loads `ilpa_esg_rating`. Verifies that only true deltas are appended: 1 commitment row, 3 ESG rows, and 1 `sat_fund_investran` row for Fund IV, whose fax value became `NULL` (`DV-DYN-008`, `DV-EVO-006`, `EVO-01..03`). Delimiter immunity is asserted below.
      - **Batch 4 (`t_3` Multi-Source $N=1 \to N=2$ Collision Test):** Onboards `legacy_gp` and the steward crosswalk. `LP-101` and `LP-102` from both sources resolve to distinct Hub rows, with `sal_limited_partner` joining `LP-104` to its alias (`DV-COL-012`, `DV-DYN-001`, `DV-DYN-002`, `KEY-04`).
@@ -662,7 +668,7 @@ SELECT
     UPPER(SHA256(CONCAT_WS('||', staging.dv_bk('GLOBAL'), staging.dv_bk(lp_id)))) AS hk_limited_partner,
     UPPER(SHA256(CONCAT_WS('||', staging.dv_bk('GLOBAL'), staging.dv_bk(fund_code), staging.dv_bk('GLOBAL'), staging.dv_bk(lp_id), staging.dv_bk(commitment_id)))) AS hk_lnk_lp_commitment,
     UPPER(SHA256(CONCAT_WS('||', staging.dv_bk('GLOBAL'), staging.dv_bk(co_invest_portco_lei)))) AS hk_portfolio_company,
-    UPPER(SHA256(CONCAT_WS('||', staging.dv_bk('GLOBAL'), staging.dv_bk(fund_code), staging.dv_bk('GLOBAL'), staging.dv_bk(co_invest_portco_lei)))) AS hk_lnk_lp_commitment_co_invest,
+    UPPER(SHA256(CONCAT_WS('||', staging.dv_bk('GLOBAL'), staging.dv_bk(fund_code), staging.dv_bk('GLOBAL'), staging.dv_bk(lp_id), staging.dv_bk('GLOBAL'), staging.dv_bk(co_invest_portco_lei), staging.dv_bk(commitment_id)))) AS hk_lnk_lp_commitment_co_invest,
     UPPER(SHA256(CONCAT_WS('||', staging.dv_pl(called_usd), staging.dv_pl(commitment_amount_usd), staging.dv_pl(daily_interim_nav_usd), staging.dv_pl(distribution_recallable_flag), staging.dv_pl(eur_usd_rate), staging.dv_pl(gbp_usd_rate)))) AS hash_diff_sat_lp_commitment_investran,
     commitment_id,
     fund_code,
@@ -825,7 +831,9 @@ CREATE TABLE IF NOT EXISTS raw_vault.lnk_lp_commitment (
 CREATE TABLE IF NOT EXISTS raw_vault.lnk_lp_commitment_co_invest (
     hk_lnk_lp_commitment_co_invest CHAR(64) NOT NULL,
     hk_fund CHAR(64) NOT NULL,
+    hk_limited_partner CHAR(64) NOT NULL,
     hk_portfolio_company CHAR(64) NOT NULL,
+    commitment_id VARCHAR(64) NOT NULL,
     load_dts TIMESTAMP NOT NULL,
     rec_src VARCHAR(255) NOT NULL,
     CONSTRAINT pk_lnk_lp_commitment_co_invest PRIMARY KEY (hk_lnk_lp_commitment_co_invest)
@@ -988,6 +996,35 @@ CREATE TABLE IF NOT EXISTS raw_vault.ref_industry_sector (
     CONSTRAINT pk_ref_industry_sector PRIMARY KEY (sector)
 );
 
+-- System Zero Keys: Unknown (-1) = 0x00..00 and Error (-2) = 0xFF..FF in Every Hub and Link
+INSERT OR IGNORE INTO raw_vault.hub_fund (hk_fund, bkcc, fund_code, load_dts, rec_src) VALUES
+    ('0000000000000000000000000000000000000000000000000000000000000000', 'SYSTEM', '-1', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY'),
+    ('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'SYSTEM', '-2', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY');
+INSERT OR IGNORE INTO raw_vault.hub_limited_partner (hk_limited_partner, bkcc, lp_natural_key, load_dts, rec_src) VALUES
+    ('0000000000000000000000000000000000000000000000000000000000000000', 'SYSTEM', '-1', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY'),
+    ('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'SYSTEM', '-2', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY');
+INSERT OR IGNORE INTO raw_vault.hub_portfolio_company (hk_portfolio_company, bkcc, portco_natural_key, load_dts, rec_src) VALUES
+    ('0000000000000000000000000000000000000000000000000000000000000000', 'SYSTEM', '-1', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY'),
+    ('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'SYSTEM', '-2', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY');
+INSERT OR IGNORE INTO raw_vault.hub_document (hk_document, bkcc, doc_uri, load_dts, rec_src) VALUES
+    ('0000000000000000000000000000000000000000000000000000000000000000', 'SYSTEM', '-1', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY'),
+    ('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'SYSTEM', '-2', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY');
+INSERT OR IGNORE INTO raw_vault.lnk_lp_commitment (hk_lnk_lp_commitment, hk_fund, hk_limited_partner, commitment_id, load_dts, rec_src) VALUES
+    ('0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', '-1', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY'),
+    ('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', '-2', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY');
+INSERT OR IGNORE INTO raw_vault.lnk_lp_commitment_co_invest (hk_lnk_lp_commitment_co_invest, hk_fund, hk_limited_partner, hk_portfolio_company, commitment_id, load_dts, rec_src) VALUES
+    ('0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', '-1', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY'),
+    ('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', '-2', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY');
+INSERT OR IGNORE INTO raw_vault.sal_limited_partner (hk_sal_limited_partner, hk_limited_partner_master, hk_limited_partner_duplicate, load_dts, rec_src) VALUES
+    ('0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY'),
+    ('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY');
+INSERT OR IGNORE INTO raw_vault.lnk_document_lp_commitment (hk_lnk_document_lp_commitment, hk_document, hk_fund, hk_limited_partner, load_dts, rec_src) VALUES
+    ('0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY'),
+    ('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY');
+INSERT OR IGNORE INTO raw_vault.lnk_document_portfolio_company (hk_lnk_document_portfolio_company, hk_document, hk_portfolio_company, load_dts, rec_src) VALUES
+    ('0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', '0000000000000000000000000000000000000000000000000000000000000000', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY'),
+    ('ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', 'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff', TIMESTAMP '1900-01-01 00:00:00', 'SYSTEM_ZERO_KEY');
+
 -- Idempotent Hub, Link, Reference, and Satellite Loads
 INSERT INTO raw_vault.hub_fund (hk_fund, bkcc, fund_code, load_dts, rec_src)
 SELECT src.hk_fund, src.bkcc, src.fund_code, src.load_dts, src.rec_src
@@ -1031,10 +1068,10 @@ FROM (
 ) src
 LEFT JOIN raw_vault.lnk_lp_commitment tgt ON src.hk_lnk_lp_commitment = tgt.hk_lnk_lp_commitment
 WHERE tgt.hk_lnk_lp_commitment IS NULL;
-INSERT INTO raw_vault.lnk_lp_commitment_co_invest (hk_lnk_lp_commitment_co_invest, hk_fund, hk_portfolio_company, load_dts, rec_src)
-SELECT src.hk_lnk_lp_commitment_co_invest, src.hk_fund, src.hk_portfolio_company, src.load_dts, src.rec_src
+INSERT INTO raw_vault.lnk_lp_commitment_co_invest (hk_lnk_lp_commitment_co_invest, hk_fund, hk_limited_partner, hk_portfolio_company, commitment_id, load_dts, rec_src)
+SELECT src.hk_lnk_lp_commitment_co_invest, src.hk_fund, src.hk_limited_partner, src.hk_portfolio_company, src.commitment_id, src.load_dts, src.rec_src
 FROM (
-    SELECT hk_lnk_lp_commitment_co_invest, hk_fund, hk_portfolio_company, load_dts, rec_src FROM staging.stg_investran_src_lp_commitments_and_calls
+    SELECT hk_lnk_lp_commitment_co_invest, hk_fund, hk_limited_partner, hk_portfolio_company, commitment_id, load_dts, rec_src FROM staging.stg_investran_src_lp_commitments_and_calls
     WHERE co_invest_portco_lei IS NOT NULL
     QUALIFY ROW_NUMBER() OVER (PARTITION BY hk_lnk_lp_commitment_co_invest ORDER BY load_dts ASC) = 1
 ) src
@@ -1325,7 +1362,8 @@ WITH active_structured_commitment AS (
         s_comm.called_usd,
         s_comm.load_dts AS structured_assertion_ts
     FROM raw_vault.sat_lp_commitment_investran s_comm
-    WHERE s_comm.load_dts <= CAST(getvariable('assertion_cutoff_ts') AS TIMESTAMP)
+    WHERE s_comm.rec_src <> 'SYSTEM_GHOST'
+      AND s_comm.load_dts <= CAST(getvariable('assertion_cutoff_ts') AS TIMESTAMP)
     QUALIFY ROW_NUMBER() OVER (
         PARTITION BY s_comm.hk_lnk_lp_commitment
         ORDER BY s_comm.load_dts DESC
@@ -1389,7 +1427,8 @@ WITH valuation_assertions AS (
         CAST(NULL AS VARCHAR) AS chunk_id,
         CAST(NULL AS VARCHAR) AS evidence_quote
     FROM raw_vault.sat_portco_valuation_mnpi s_val
-    WHERE s_val.load_dts <= CAST(getvariable('assertion_cutoff_ts') AS TIMESTAMP)
+    WHERE s_val.rec_src <> 'SYSTEM_GHOST'
+      AND s_val.load_dts <= CAST(getvariable('assertion_cutoff_ts') AS TIMESTAMP)
     UNION ALL
     SELECT
         l_doc.hk_portfolio_company,

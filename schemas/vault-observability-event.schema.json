@@ -162,6 +162,11 @@
         }
       }
     },
+    "data_classification": {
+      "type": "string",
+      "description": "Highest sensitivity of any value in the event's Layer 1, Layer 2, or Layer 3 payload. CONFIDENTIAL and RESTRICTED_PII values are masked unless the viewer's RBAC role clears them.",
+      "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED_PII"]
+    },
     "layer1_story_banner": {
       "type": "object",
       "required": ["headline", "business_impact", "verdict_pill"],
