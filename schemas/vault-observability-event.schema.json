@@ -306,11 +306,22 @@
     },
     {
       "if": {
-        "properties": {"phase_id": {"not": {"const": "P6_VERIFICATION"}}},
-        "required": ["phase_id"]
+        "not": {
+          "properties": {"phase_id": {"const": "P6_VERIFICATION"}},
+          "required": ["phase_id"]
+        }
       },
       "then": {
         "not": {"required": ["gate_id"]}
+      }
+    },
+    {
+      "if": {
+        "properties": {"phase_id": {"enum": ["P6_VERIFICATION", "P7_DYNAMIC_SANDBOX"]}},
+        "required": ["phase_id"]
+      },
+      "then": {
+        "not": {"required": ["step_id"]}
       }
     },
     {

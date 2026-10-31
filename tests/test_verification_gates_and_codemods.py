@@ -123,7 +123,7 @@ def verify_algorithm_a1_elm_folding_and_grain(
         if rel_uri in rel_by_uri:
             expected_endpoints = rel_by_uri[rel_uri]["endpoints"]
             actual_endpoints = [r["target_hub"] for r in hub_refs]
-            if len(actual_endpoints) < len(expected_endpoints):
+            if actual_endpoints != expected_endpoints:
                 violations.append(
                     f"DV-G2-001:AP-06:Link '{lnk_name}' has {len(actual_endpoints)}-way grain {actual_endpoints}, expected {len(expected_endpoints)}-way grain {expected_endpoints}"
                 )
@@ -435,7 +435,22 @@ def verify_algorithm_a6_sqlglot_ast_linter(
         if isinstance(stmt, exp.Insert):
             target_table_node = stmt.this.find(exp.Table) if stmt.this else None
             target_name = target_table_node.name.lower() if target_table_node else ""
-            is_raw_vault_target = target_name.startswith(("hub_", "lnk_", "sat_", "sal_", "nh_lnk_"))
+            is_raw_vault_target = target_name.startswith(
+                (
+                    "hub_",
+                    "lnk_",
+                    "t_lnk_",
+                    "nh_lnk_",
+                    "sal_",
+                    "hal_",
+                    "sat_",
+                    "mas_",
+                    "ma_sat_",
+                    "esat_",
+                    "sts_",
+                    "rts_",
+                )
+            )
             is_sat_target = target_name.startswith(("sat_", "bsat_", "mas_", "ma_sat_"))
             select_query = stmt.expression
             if is_raw_vault_target and isinstance(select_query, exp.Select):
@@ -735,6 +750,16 @@ def test_algorithm_a1_negative_trap2_two_way_link_for_three_way_co_invest_grain(
         graph_a, graph_b, corrupted_contract
     )
     assert any("DV-G2-001" in v and "AP-06" in v for v in violations)
+
+    wrong_target_contract = copy.deepcopy(pe_contract)
+    wrong_co_invest_lnk = next(
+        l for l in wrong_target_contract["links"] if l["name"] == "lnk_lp_commitment_co_invest"
+    )
+    wrong_co_invest_lnk["hub_references"][2]["target_hub"] = "hub_document"
+    wrong_target_violations = verify_algorithm_a1_elm_folding_and_grain(
+        graph_a, graph_b, wrong_target_contract
+    )
+    assert any("DV-G2-001" in v and "AP-06" in v for v in wrong_target_violations)
 
 
 # ============================================================================
@@ -1049,6 +1074,15 @@ def test_algorithm_a6_positive_staging_hub_and_satellite_sql() -> None:
             """,
             "DV-G6-005",
         ),
+        (
+            """
+            INSERT INTO raw_vault.esat_lp_advisor (hk_lnk_lp_advisor, load_dts, rec_src)
+            SELECT stg.hk_lnk_lp_advisor, MAX(stg.load_dts), stg.rec_src
+            FROM staging.stg_lp_advisor stg
+            GROUP BY stg.hk_lnk_lp_advisor, stg.rec_src;
+            """,
+            "DV-G6-005",
+        ),
     ],
     ids=[
         "nondeterministic_NOW",
@@ -1060,6 +1094,7 @@ def test_algorithm_a6_positive_staging_hub_and_satellite_sql() -> None:
         "wildcard_SELECT_STAR",
         "satellite_missing_HASH_DIFF_comparison",
         "raw_vault_GROUP_BY_aggregation",
+        "raw_vault_esat_GROUP_BY_aggregation",
     ],
 )
 def test_algorithm_a6_negative_sql_ast_violations(bad_sql: str, expected_code: str) -> None:

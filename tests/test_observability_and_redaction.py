@@ -23,7 +23,6 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 SCHEMA_PATH = REPO_ROOT / "schemas" / "vault-observability-event.schema.json"
-SPEC_DOC_PATH = REPO_ROOT / "docs" / "06-explainability-and-observability-spec.md"
 
 with open(SCHEMA_PATH, encoding="utf-8") as _f:
     OBSERVABILITY_SCHEMA = json.load(_f)
@@ -100,24 +99,12 @@ def detect_unmasked_pii_leaks(obj: Any, path: str = "") -> list[tuple[str, str, 
             sub_path = f"{path}[{idx}]"
             leaks.extend(detect_unmasked_pii_leaks(item, sub_path))
     elif isinstance(obj, str):
-        # Ignore already-redacted sentinel tokens
-        if (
-            "[REDACTED" in obj
-            or "00000000" in obj
-            or "1900-01-01" in obj
-            or "20261030" in obj
-        ):
-            return leaks
-
-        # Check SSN
         for m in RE_SSN.findall(obj):
             leaks.append((path, "SSN", m))
-        # Check EIN
         for m in RE_EIN.findall(obj):
             leaks.append((path, "EIN", m))
-        # Check ABA routing numbers (standalone 9 digits that look like routing numbers)
         for m in RE_ABA.findall(obj):
-            if not m.startswith("2026") and not m.startswith("1900"):
+            if not m.startswith(("2026", "1900", "0000")):
                 leaks.append((path, "ABA_ROUTING", m))
 
     return leaks
@@ -139,18 +126,23 @@ def redact_telemetry_event(
         if isinstance(val, list):
             return [_mask_pii(item, key_name) for item in val]
         if isinstance(val, str):
-            masked = RE_SSN.sub("[REDACTED:RESTRICTED_PII]", val)
-            masked = RE_EIN.sub("[REDACTED:RESTRICTED_PII]", masked)
-            # Mask wire aba routing / tax_id by key name or pattern
             if any(term in key_name.lower() for term in ["aba", "routing", "tax_id", "wire_iban", "ssn", "ein"]):
                 return "[REDACTED:RESTRICTED_PII]"
+            masked = RE_SSN.sub("[REDACTED:RESTRICTED_PII]", val)
+            masked = RE_EIN.sub("[REDACTED:RESTRICTED_PII]", masked)
+            masked = RE_ABA.sub(
+                lambda m: m.group(0)
+                if m.group(0).startswith(("2026", "1900", "0000"))
+                else "[REDACTED:RESTRICTED_PII]",
+                masked,
+            )
             return masked
         return val
 
     ev = _mask_pii(ev)
 
     # Tier 4: MNPI valuation figures
-    if tier == "MNPI" and "MNPI_CLEARED_STEWARD" not in roles:
+    if tier in {"MNPI", "RESTRICTED_PII"} and "MNPI_CLEARED_STEWARD" not in roles:
         l1 = ev.get("layer1_story_banner", {})
         if "headline" in l1:
             l1["headline"] = re.sub(
@@ -172,7 +164,7 @@ def redact_telemetry_event(
                 metrics[k] = "[REDACTED:MNPI]"
 
     # Tier 3: CONFIDENTIAL individual LP rows
-    if tier == "CONFIDENTIAL" and "LP_CONFIDENTIAL_STEWARD" not in roles:
+    if tier in {"CONFIDENTIAL", "MNPI", "RESTRICTED_PII"} and "LP_CONFIDENTIAL_STEWARD" not in roles:
         l2 = ev.get("layer2_visual_payload", {})
         pills = l2.get("semantic_hash_pills", [])
         for pill in pills:
@@ -370,6 +362,7 @@ class TestVaultObservabilitySchemaInvariants:
     @pytest.mark.parametrize(
         "non_p6_phase",
         [
+            None,
             "P1_INGESTION",
             "P2_PROFILING",
             "P3_EXTRACTION",
@@ -382,9 +375,12 @@ class TestVaultObservabilitySchemaInvariants:
     def test_non_p6_phase_illegally_setting_gate_id_rejected(
         self, base_valid_event, non_p6_phase
     ):
-        """Parametrized negative test: non-P6 phase illegally setting gate_id is rejected."""
+        """Parametrized negative test: non-P6 phase (or omitted phase_id) illegally setting gate_id is rejected."""
         ev = copy.deepcopy(base_valid_event)
-        ev["phase_id"] = non_p6_phase
+        if non_p6_phase is None:
+            ev.pop("phase_id", None)
+        else:
+            ev["phase_id"] = non_p6_phase
         ev["gate_id"] = "G1"  # Illegal outside P6!
         ev.pop("step_id", None)
 
@@ -400,6 +396,8 @@ class TestVaultObservabilitySchemaInvariants:
             ("P3_EXTRACTION", "VIZ-STEP-01"),
             ("P4_SYNTHESIS_PASS1", "VIZ-STEP-02"),
             ("P5_SYNTHESIS_PASS2", "VIZ-STEP-08"),
+            ("P6_VERIFICATION", "VIZ-STEP-01"),
+            ("P7_DYNAMIC_SANDBOX", "VIZ-STEP-08"),
             ("P8_OPERATIONS", "VIZ-STEP-04"),
         ],
     )
@@ -410,10 +408,17 @@ class TestVaultObservabilitySchemaInvariants:
         ev = copy.deepcopy(base_valid_event)
         ev["phase_id"] = phase_id
         ev["step_id"] = mismatched_step
+        if phase_id == "P6_VERIFICATION":
+            ev["gate_id"] = "G3"
+            ev["rule_code"] = "DV-STR-001"
 
         with pytest.raises(ValidationError) as excinfo:
             VALIDATOR.validate(ev)
-        assert "step_id" in str(excinfo.value) or "allOf" in str(excinfo.value)
+        assert (
+            "step_id" in str(excinfo.value)
+            or "not" in str(excinfo.value)
+            or "allOf" in str(excinfo.value)
+        )
 
     @pytest.mark.parametrize(
         "bad_trace_id",
@@ -578,26 +583,35 @@ class TestFiveTierRedactionAndLeakDetection:
         assert cleared["layer2_visual_payload"]["summary_metrics"]["entry_ev_multiple"] == "14.5x"
 
     def test_restricted_pii_strictly_forbidden_across_all_payloads(self, base_valid_event):
-        """Tier 5 (RESTRICTED_PII) strictly masks raw tax_id_ein, SSN, and wire routing."""
+        """Tier 5 (RESTRICTED_PII) strictly masks raw tax_id_ein, SSN, and wire routing, plus lower tiers."""
         ev = copy.deepcopy(base_valid_event)
         ev["data_classification"] = "RESTRICTED_PII"
-        ev["layer1_story_banner"]["headline"] = "Loaded tax_id_ein 12-3456789 and SSN 123-45-6789"
+        ev["layer1_story_banner"]["headline"] = (
+            "Loaded tax_id_ein 12-3456789, SSN 123-45-6789, ABA 021000021 at 14.5x ($245M)"
+        )
         ev["layer2_visual_payload"]["summary_metrics"] = {
             "wire_aba_routing_raw": "021000021",
+            "entry_ev_multiple": "14.5x",
         }
 
         redacted = redact_telemetry_event(ev, viewer_roles=["COMPLIANCE_AUDITOR"])
         assert "12-3456789" not in redacted["layer1_story_banner"]["headline"]
         assert "123-45-6789" not in redacted["layer1_story_banner"]["headline"]
+        assert "021000021" not in redacted["layer1_story_banner"]["headline"]
+        assert "14.5x" not in redacted["layer1_story_banner"]["headline"]
         assert "[REDACTED:RESTRICTED_PII]" in redacted["layer1_story_banner"]["headline"]
+        assert "[REDACTED:MNPI]" in redacted["layer1_story_banner"]["headline"]
         assert redacted["layer2_visual_payload"]["summary_metrics"]["wire_aba_routing_raw"] == "[REDACTED:RESTRICTED_PII]"
+        assert redacted["layer2_visual_payload"]["summary_metrics"]["entry_ev_multiple"] == "[REDACTED:MNPI]"
+        assert redacted["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"] == "[REDACTED:CONFIDENTIAL]"
 
     @pytest.mark.parametrize(
         "leak_payload,expected_leak_type",
         [
             ({"headline": "Disclosed SSN: 123-45-6789 in story banner"}, "SSN"),
+            ({"headline": "Partially masked [REDACTED:MNPI] with SSN 123-45-6789 and 20261030"}, "SSN"),
             ({"diff": "+ tax_id = '12-3456789'"}, "EIN"),
-            ({"routing": "ABA Wire: 021000021 transmitted"}, "ABA_ROUTING"),
+            ({"routing": "ABA Wire: 021000021 transmitted after 1900-01-01"}, "ABA_ROUTING"),
         ],
     )
     def test_adversarial_leak_detector_rejects_unmasked_identifiers(
@@ -686,35 +700,80 @@ class TestSemanticHashPillsAndProgressiveDisclosure:
 # =============================================================================
 
 
-@pytest.fixture(scope="module")
-def spec_text() -> str:
-    assert SPEC_DOC_PATH.is_file(), f"Missing spec doc at {SPEC_DOC_PATH}"
-    return SPEC_DOC_PATH.read_text(encoding="utf-8")
-
-
 class TestWorkbenchSpecificationCompleteness:
-    """Test suite asserting docs/06 defines all 12 Workbench Views, VIZ-PIPE-00, and 8 Steps/Gates."""
+    """Semantic schema validation for all 12 Workbench Views, VIZ-PIPE-00, and 8 Step/Gate visualizations."""
 
-    def test_all_twelve_workbench_views_defined(self, spec_text):
-        """Assert docs/06 defines all 12 Workbench Views (WB-00 through WB-11)."""
-        expected_views = [f"WB-{i:02d}" for i in range(12)]
-        for view_id in expected_views:
-            assert f"`{view_id}`" in spec_text or f"**`{view_id}`**" in spec_text, (
-                f"Specification doc missing definition for {view_id}"
-            )
+    def test_all_twelve_workbench_views_defined(self, base_valid_event):
+        """Validate event payloads across all 12 workbench_view_id values (WB-00..WB-11) and reject invalid IDs."""
+        validator = Draft202012Validator(OBSERVABILITY_SCHEMA)
+        for i in range(12):
+            ev = copy.deepcopy(base_valid_event)
+            ev["workbench_view_id"] = f"WB-{i:02d}"
+            validator.validate(ev)
 
-    def test_viz_pipe_00_defined(self, spec_text):
-        """Assert docs/06 defines Master Pipeline Canvas VIZ-PIPE-00."""
-        assert "VIZ-PIPE-00" in spec_text
+        for invalid_view_id in ("WB-12", "WB-99", "WB-0", "INVALID_WB"):
+            bad_ev = copy.deepcopy(base_valid_event)
+            bad_ev["workbench_view_id"] = invalid_view_id
+            with pytest.raises(ValidationError):
+                validator.validate(bad_ev)
+
+    def test_viz_pipe_00_defined(self, base_valid_event):
+        """Validate Master Pipeline Canvas VIZ-PIPE-00 payload against schema and reject invalid pipe viz IDs."""
+        validator = Draft202012Validator(OBSERVABILITY_SCHEMA)
+        ev = copy.deepcopy(base_valid_event)
+        ev["phase_id"] = "P1_INGESTION"
+        ev["step_id"] = "VIZ-PIPE-00"
+        ev["viz_id"] = "VIZ-PIPE-00"
+        validator.validate(ev)
+
+        for bad_pipe_id in ("VIZ-PIPE-01", "VIZ-PIPE-99"):
+            bad_ev = copy.deepcopy(ev)
+            bad_ev["viz_id"] = bad_pipe_id
+            with pytest.raises(ValidationError):
+                validator.validate(bad_ev)
 
     @pytest.mark.parametrize("step_num", range(1, 9))
-    def test_all_eight_step_visualizations_defined(self, spec_text, step_num):
-        """Assert docs/06 defines all 8 step visualizations (VIZ-STEP-01..08)."""
+    def test_all_eight_step_visualizations_defined(self, base_valid_event, step_num):
+        """Validate all 8 step visualizations (VIZ-STEP-01..08) against schema and reject invalid step viz IDs."""
+        validator = Draft202012Validator(OBSERVABILITY_SCHEMA)
+        phase_map = {
+            1: "P1_INGESTION",
+            2: "P2_PROFILING",
+            3: "P2_PROFILING",
+            4: "P3_EXTRACTION",
+            5: "P4_SYNTHESIS_PASS1",
+            6: "P5_SYNTHESIS_PASS2",
+            7: "P8_OPERATIONS",
+            8: "P8_OPERATIONS",
+        }
         viz_id = f"VIZ-STEP-{step_num:02d}"
-        assert viz_id in spec_text, f"Specification doc missing {viz_id}"
+        ev = copy.deepcopy(base_valid_event)
+        ev["phase_id"] = phase_map[step_num]
+        ev["step_id"] = viz_id
+        ev["viz_id"] = viz_id
+        validator.validate(ev)
+
+        bad_ev = copy.deepcopy(ev)
+        bad_ev["viz_id"] = f"VIZ-STEP-{step_num + 10:02d}"
+        with pytest.raises(ValidationError):
+            validator.validate(bad_ev)
 
     @pytest.mark.parametrize("gate_num", range(1, 9))
-    def test_all_eight_gate_visualizations_defined(self, spec_text, gate_num):
-        """Assert docs/06 defines all 8 gate visualizations (VIZ-GATE-01..08)."""
-        gate_id = f"VIZ-GATE-{gate_num:02d}"
-        assert gate_id in spec_text, f"Specification doc missing {gate_id}"
+    def test_all_eight_gate_visualizations_defined(self, base_valid_event, gate_num):
+        """Validate all 8 gate visualizations (VIZ-GATE-01..08) against schema and reject invalid gate viz IDs."""
+        validator = Draft202012Validator(OBSERVABILITY_SCHEMA)
+        viz_id = f"VIZ-GATE-{gate_num:02d}"
+        ev = copy.deepcopy(base_valid_event)
+        ev["phase_id"] = "P6_VERIFICATION"
+        ev["stage_id"] = "STAGE_05_AXI_DV_STATIC_GATES"
+        ev["agent_persona"] = "axi-dv"
+        ev["gate_id"] = "G1"
+        ev["rule_code"] = "DV-COL-012"
+        ev["viz_id"] = viz_id
+        ev.pop("step_id", None)
+        validator.validate(ev)
+
+        bad_ev = copy.deepcopy(ev)
+        bad_ev["viz_id"] = f"VIZ-GATE-{gate_num + 10:02d}"
+        with pytest.raises(ValidationError):
+            validator.validate(bad_ev)

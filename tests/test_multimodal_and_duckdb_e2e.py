@@ -42,79 +42,17 @@ from decimal import Decimal
 import hashlib
 import json
 from pathlib import Path
-import re
 from typing import Any
 
 import duckdb
 import pytest
-import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-DOC_04_PATH = REPO_ROOT / "docs" / "04-unstructured-and-multimodal-dv2.md"
-DOC_05_PATH = REPO_ROOT / "docs" / "05-elm-calculus-and-reference-algorithms.md"
-DOC_07_PATH = REPO_ROOT / "docs" / "07-end-to-end-private-equity-demo.md"
-PE_CONTRACT_PATH = REPO_ROOT / "examples" / "private_equity" / "dv_pe_model_contract.yaml"
-PE_IR_PATH = REPO_ROOT / "examples" / "private_equity" / "pe_canonical_ir.json"
-PE_ONTOLOGY_PATH = REPO_ROOT / "examples" / "private_equity" / "pe_graph_a_ontology.yaml"
 PE_PROFILE_PATH = REPO_ROOT / "examples" / "private_equity" / "pe_graph_b_profile.json"
 
 ZERO_KEY_UNKNOWN = "0" * 64
 ZERO_KEY_ERROR = "f" * 64
 GHOST_LOAD_DTS = "1900-01-01 00:00:00"
-
-
-# =============================================================================
-# Helper Loaders: Reference Algorithms (docs/05) & Corpus Artifacts (docs/07)
-# =============================================================================
-
-
-def load_doc05_algorithms() -> dict[str, Any]:
-    """Compile and load reference Python implementations from docs/05."""
-    doc05_text = DOC_05_PATH.read_text(encoding="utf-8")
-    py_blocks = re.findall(r"```python\n(.*?)```", doc05_text, flags=re.DOTALL)
-    namespace: dict[str, Any] = {}
-    for idx, block in enumerate(py_blocks, 1):
-        code = compile(block, f"docs/05-block-{idx}.py", "exec")
-        exec(code, namespace)
-    return namespace
-
-
-def load_doc07_pdf_texts() -> dict[str, str]:
-    """Extract the two verbatim unstructured document texts from docs/07 §1.3."""
-    doc07_text = DOC_07_PATH.read_text(encoding="utf-8")
-    text_blocks = re.findall(r"```text\n(.*?)\n```", doc07_text, flags=re.DOTALL)
-    assert len(text_blocks) >= 2, f"Expected >= 2 text blocks in docs/07, found {len(text_blocks)}"
-    side_letter_text = text_blocks[0]
-    ic_memo_text = text_blocks[1]
-    return {
-        # Canonical S3 URIs and filenames in docs/07 & pe_graph_b_profile.json
-        "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf": side_letter_text,
-        "calpers_side_letter_fund_iv_2026.pdf": side_letter_text,
-        # Aliases from launch brief specification
-        "lpa_apex_buyout_fund_iv_2026.pdf": side_letter_text,
-        "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf": ic_memo_text,
-        "ic_q3_valuation_nordic_cloud.pdf": ic_memo_text,
-        "ic_memo_project_odin_2026Q3.pdf": ic_memo_text,
-    }
-
-
-def load_doc07_sql_bundle() -> tuple[str, str, str, str]:
-    """Extract Artifact 3 4-Zone SQL bundle from docs/07-end-to-end-private-equity-demo.md.
-
-    Returns (full_sql_bundle, zone0_to_3_sql, query_d10_sql, query_d10b_sql).
-    """
-    doc07_text = DOC_07_PATH.read_text(encoding="utf-8")
-    sql_blocks = re.findall(r"```sql\n(.*?)```", doc07_text, flags=re.DOTALL)
-    assert len(sql_blocks) == 1, f"Expected 1 SQL block in docs/07, found {len(sql_blocks)}"
-    full_sql = sql_blocks[0]
-    zone0_to_3, zone4 = full_sql.split(
-        "-- =============================================================================\n"
-        "-- ZONE 4: BI-TEMPORAL MULTIMODAL POINT-IN-TIME AUDIT QUERIES"
-    )
-    q_d10, q_d10b = zone4.split(
-        "-- Query D.10b: Latest Portfolio Company Valuation Visible at the Assertion Cutoff"
-    )
-    return full_sql, zone0_to_3, q_d10, q_d10b
 
 
 def dv2_sha256(tokens: list[str | None], is_business_key: bool = True) -> str:
@@ -699,14 +637,14 @@ def test_cross_modal_numerical_discrepancy_detector_25bps_and_50bps(
     assert match_res.raw_vault_mutated is False
 
 
-def test_cross_modal_discrepancy_never_overwrites_sat_fund_investran_in_duckdb() -> None:
+def test_cross_modal_discrepancy_never_overwrites_sat_fund_investran_in_duckdb(
+    populated_pe_duckdb: duckdb.DuckDBPyConnection,
+) -> None:
     """Verify in DuckDB that when an unstructured PDF extraction conflicts with
     raw_vault.sat_fund_investran (whether the 50 bps CalPERS side letter cap or a 25 bps
     LPA vs Investran fee discrepancy), raw_vault.sat_fund_investran is NEVER overwritten (AP-12 / INV-01).
     """
-    _, zone0_to_3, _, _ = load_doc07_sql_bundle()
-    con = duckdb.connect(":memory:")
-    con.execute(zone0_to_3)
+    con = populated_pe_duckdb
 
     # Snapshot sat_fund_investran before any cross-modal discrepancy query or late arrival
     before_rows = con.execute(
@@ -841,7 +779,9 @@ def test_algorithm_a9a_intra_source_schema_drift_codemod(
 # =============================================================================
 
 
-def test_artifact3_4zone_duckdb_warehouse_tables_zero_keys_ghosts_and_zero_orphans() -> None:
+def test_artifact3_4zone_duckdb_warehouse_tables_zero_keys_ghosts_and_zero_orphans(
+    populated_pe_duckdb: duckdb.DuckDBPyConnection,
+) -> None:
     """Execute the Artifact 3 4-Zone SQL bundle from docs/07 in :memory: DuckDB and verify:
     1. All 6 root/lookup tables (4 Hubs + 2 Reference tables), 5 Links (including sal_limited_partner),
        and 11 Satellites (9 Raw Vault + 2 Business Vault AI Provenance) + 1 PIT View exist.
@@ -850,9 +790,7 @@ def test_artifact3_4zone_duckdb_warehouse_tables_zero_keys_ghosts_and_zero_orpha
        (and supports -2 error ghost seeding without collision).
     4. 0 orphans across all 23 Raw/Business Vault foreign-key relationships (+2 PIT-to-Satellite FKs = 25).
     """
-    _, zone0_to_3, _, _ = load_doc07_sql_bundle()
-    con = duckdb.connect(":memory:")
-    con.execute(zone0_to_3)
+    con = populated_pe_duckdb
 
     hub_and_link_pks = [
         ("raw_vault.hub_fund", "hk_fund"),
@@ -956,14 +894,16 @@ def test_artifact3_4zone_duckdb_warehouse_tables_zero_keys_ghosts_and_zero_orpha
         assert orphans == 0, f"Orphan FK detected on {child_tbl}.{fk_col} -> {parent_tbl}.{pk_col}"
 
 
-def test_all_15_dynamic_verification_rules_dv_dyn_001_to_015() -> None:
+def test_all_15_dynamic_verification_rules_dv_dyn_001_to_015(
+    populated_pe_duckdb: duckdb.DuckDBPyConnection,
+    doc07_sql_bundle: tuple[str, str, str, str],
+) -> None:
     """Execute all 15 Dynamic Verification Rules (DV-DYN-001 through DV-DYN-015)
     from docs/03-verification-and-agentic-architecture.md (§2.1-2.2) against the
     DuckDB warehouse and verify 0 violations across all 15 checks.
     """
-    _, zone0_to_3, q_d10, q_d10b = load_doc07_sql_bundle()
-    con = duckdb.connect(":memory:")
-    con.execute(zone0_to_3)
+    _, _, q_d10, q_d10b = doc07_sql_bundle
+    con = populated_pe_duckdb
 
     hubs = [
         ("raw_vault.hub_fund", "hk_fund", "bkcc || '||' || fund_code"),
@@ -1221,7 +1161,10 @@ def test_all_15_dynamic_verification_rules_dv_dyn_001_to_015() -> None:
     assert sep30_ghosts == 5
 
 
-def test_four_adversarial_shadow_sandbox_batches_and_bitemporal_queries() -> None:
+def test_four_adversarial_shadow_sandbox_batches_and_bitemporal_queries(
+    duckdb_conn: duckdb.DuckDBPyConnection,
+    doc07_sql_bundle: tuple[str, str, str, str],
+) -> None:
     """Execute all 4 Adversarial Shadow Sandbox Batches (Scene 6 / WB-10 in docs/07 & docs/06 §4.10)
     followed by the Bi-Temporal Late-Arriving IC Memo & Queries D.10 / D.10b:
 
@@ -1245,7 +1188,7 @@ def test_four_adversarial_shadow_sandbox_batches_and_bitemporal_queries() -> Non
       Verifies cutoff '2026-10-15 12:00:00' returns 12.80x / $216.28M from DEALCLOUD_PE_CRM with NULL PDF span,
       and cutoff '2026-11-20 23:59:59' returns 14.50x / $245.00M from OBJECT_STORE_S3 with [108:1151] span.
     """
-    _, zone0_to_3, q_d10, q_d10b = load_doc07_sql_bundle()
+    _, zone0_to_3, q_d10, q_d10b = doc07_sql_bundle
 
     # Split zone0_to_3 into setup/DDL/Ghost seed vs DML statements so we can drive Batches 1..4
     ddl_and_ghost_part, dml_and_late_part = zone0_to_3.split(
@@ -1262,7 +1205,7 @@ def test_four_adversarial_shadow_sandbox_batches_and_bitemporal_queries() -> Non
         "-- =============================================================================\n"
     )
 
-    con = duckdb.connect(":memory:")
+    con = duckdb_conn
     con.execute(ddl_and_ghost_part)
 
     # For Batch 1 (t0 = '2026-10-05 09:00:00'), hold back N=2 (legacy_gp, mdm) and Day-3 ESG column
@@ -1446,7 +1389,10 @@ def test_four_adversarial_shadow_sandbox_batches_and_bitemporal_queries() -> Non
     assert all(r[4] is None and r[7] is None for r in other_rows)
 
 
-def test_portco_valuation_and_stage_mutation_and_investran_vs_legacy_portal_bkcc() -> None:
+def test_portco_valuation_and_stage_mutation_and_investran_vs_legacy_portal_bkcc(
+    populated_pe_duckdb: duckdb.DuckDBPyConnection,
+    doc07_sql_bundle: tuple[str, str, str, str],
+) -> None:
     """Explicitly verify:
     1. Batch 3 PortCo valuation/stage mutation: mutating PortCo valuation (entry_multiple_ev_ebitda /
        latest_ebitda_usd) and stage/name in dealcloud.src_portfolio_companies inserts new Satellite
@@ -1455,8 +1401,8 @@ def test_portco_valuation_and_stage_mutation_and_investran_vs_legacy_portal_bkcc
     2. Batch 4 passive bk_collision_code separation between 'INVESTRAN' and 'LEGACY_PORTAL' on colliding
        natural key 'LP-101' with Same-As Link resolution in sal_limited_partner (DV-DYN-012).
     """
-    _, zone0_to_3, _, _ = load_doc07_sql_bundle()
-    ddl_and_ghost_part, dml_and_late_part = zone0_to_3.split(
+    _, zone0_to_3, _, _ = doc07_sql_bundle
+    _, dml_and_late_part = zone0_to_3.split(
         "-- Idempotent Hub, Link, Reference, and Satellite Loads\n"
     )
     core_dml_part, _ = dml_and_late_part.split(
@@ -1465,8 +1411,7 @@ def test_portco_valuation_and_stage_mutation_and_investran_vs_legacy_portal_bkcc
         "-- =============================================================================\n"
     )
 
-    con = duckdb.connect(":memory:")
-    con.execute(zone0_to_3)
+    con = populated_pe_duckdb
 
     hub_before = con.execute("SELECT COUNT(*) FROM raw_vault.hub_portfolio_company").fetchone()[0]
     lnk_before = con.execute("SELECT COUNT(*) FROM raw_vault.lnk_lp_commitment_co_invest").fetchone()[0]
@@ -1572,6 +1517,7 @@ def test_portco_valuation_and_stage_mutation_and_investran_vs_legacy_portal_bkcc
     ],
 )
 def test_dv_dyn_negative_fault_injection_detection(
+    populated_pe_duckdb: duckdb.DuckDBPyConnection,
     rule_id: str,
     fault_sql: str,
     detection_sql: str,
@@ -1581,9 +1527,7 @@ def test_dv_dyn_negative_fault_injection_detection(
     duplicate Satellite grain, orphan Satellite FK, orphan Link FK, consecutive identical
     HASHDIFF, or missing -2 Error Zero Key) is immediately caught by the DV-DYN SQL check.
     """
-    _, zone0_to_3, _, _ = load_doc07_sql_bundle()
-    con = duckdb.connect(":memory:")
-    con.execute(zone0_to_3)
+    con = populated_pe_duckdb
 
     # Inject fault
     con.execute(fault_sql)
