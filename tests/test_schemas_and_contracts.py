@@ -636,6 +636,7 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
         handler=_sample_tool,
     )
 
+    SubagentSpec = ns09["SubagentSpec"]
     cfg = HarnessConfig(
         provider="antigravity",
         workspace_dir=tmp_path,
@@ -655,6 +656,17 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
         system_instructions="Profile Bronze tables.",
         prompt="Profile raw_lp_commitments.",
         tools=(tool_def,),
+        subagents=(
+            SubagentSpec(
+                name="ship-vault-worker",
+                persona=AgentPersona.SHIP_VAULT,
+                description="Isolated worktree worker.",
+                system_instructions="Apply codemods.",
+                model_tier=ModelTier.HIGH_REASONING,
+                allowed_tool_names=("profile_source_feed",),
+                read_only=False,
+            ),
+        ),
         output_schema=SampleOutput,
     )
 
