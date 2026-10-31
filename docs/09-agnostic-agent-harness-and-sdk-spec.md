@@ -758,6 +758,7 @@ def build_claude_sdk_mcp_bundle(
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import os
 from collections.abc import AsyncIterator
 from typing import Any
@@ -891,6 +892,19 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
             for sub in spec.subagents
         ]
 
+        budget_cfg_cls = getattr(agy_types, "BudgetConfig", None)
+        budget_cfg = (
+            budget_cfg_cls(
+                max_turns=self._config.budget.max_turns,
+                max_cost_usd=self._config.budget.max_cost_usd,
+            )
+            if budget_cfg_cls is not None
+            else {
+                "max_turns": self._config.budget.max_turns,
+                "max_cost_usd": self._config.budget.max_cost_usd,
+            }
+        )
+
         agent_cfg = agy.LocalAgentConfig(
             model=model_id,
             system_instructions=agy_types.TemplatedSystemInstructions(
@@ -909,6 +923,8 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
             workspaces=[str(self._config.workspace_dir)],
             app_data_dir=str(self._config.app_data_dir),
             save_dir=str(self._config.save_dir),
+            env=dict(self._config.env),
+            budget_config=budget_cfg,
             response_schema=spec.output_schema,
             conversation_id=spec.resume_session_id,
         )
@@ -960,6 +976,10 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
                 await pump_task
             finally:
                 self._active_cancels.pop(spec.task_id, None)
+                if not pump_task.done():
+                    pump_task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await pump_task
 
             for obs_ev in ctx.pop_unstreamed_events():
                 yield make_event(HarnessEventKind.OBSERVABILITY_EVENT, obs_event=obs_ev)
@@ -1049,9 +1069,44 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
             return self._make_event(spec, ctx, kind, **kwargs)
 
         allowed_tools: list[str] = ["Read", "Glob", "Grep", *qualified_tool_names]
-        disallowed_tools: list[str] = ["Write", "Edit"] if sbx.read_only_workspace else []
-        if not sbx.allow_shell_execution:
+        disallowed_tools: list[str] = []
+        if sbx.read_only_workspace:
+            disallowed_tools.extend(["Write", "Edit"])
+        else:
+            allowed_tools.extend(["Write", "Edit"])
+
+        blocked_substrings = sbx.blocked_shell_substrings
+
+        async def _guard_bash_hook(
+            input_data: dict[str, Any],
+            tool_use_id: str | None = None,
+            context: Any = None,
+        ) -> dict[str, Any]:
+            del tool_use_id, context
+            tool_input = input_data.get("tool_input") or {}
+            cmd = str(tool_input.get("command", ""))
+            if any(b in cmd for b in blocked_substrings):
+                return {
+                    "hookSpecificOutput": {
+                        "hookEventName": "PreToolUse",
+                        "permissionDecision": "deny",
+                        "permissionDecisionReason": "Blocked dangerous shell command substring.",
+                    }
+                }
+            return {}
+
+        hook_matcher_cls = getattr(cas, "HookMatcher", None)
+        pre_tool_hooks: list[Any] = []
+        if sbx.allow_shell_execution:
+            allowed_tools.append("Bash")
+            pre_tool_hooks.append(
+                hook_matcher_cls(matcher="Bash", hooks=[_guard_bash_hook])
+                if hook_matcher_cls is not None
+                else {"matcher": "Bash", "hooks": [_guard_bash_hook]}
+            )
+        else:
             disallowed_tools.append("Bash")
+
         if spec.subagents:
             allowed_tools.append("Agent")
 
@@ -1059,7 +1114,13 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
             sub.name: cas.AgentDefinition(
                 description=sub.description,
                 prompt=sub.system_instructions,
-                tools=["Read", "Glob", "Grep", *[f"mcp__opendv__{t}" for t in sub.allowed_tool_names]],
+                tools=[
+                    "Read",
+                    "Glob",
+                    "Grep",
+                    *([] if sub.read_only_workspace else ["Write", "Edit"]),
+                    *[f"mcp__opendv__{t}" for t in sub.allowed_tool_names],
+                ],
                 model=self.resolve_model(sub.model_tier, sub.persona),
             )
             for sub in spec.subagents
@@ -1079,6 +1140,7 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
             allowed_tools=allowed_tools,
             disallowed_tools=disallowed_tools,
             permission_mode="dontAsk",
+            hooks={"PreToolUse": pre_tool_hooks} if pre_tool_hooks else {},
             max_turns=self._config.budget.max_turns,
             max_budget_usd=self._config.budget.max_cost_usd,
             resume=spec.resume_session_id,
@@ -1096,26 +1158,41 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                 await client.query(spec.prompt)
                 async for message in client.receive_response():
                     msg_type = type(message).__name__
-                    if msg_type == "AssistantMessage":
-                        for block in getattr(message, "content", []):
-                            b_type = type(block).__name__
-                            if b_type == "ThinkingBlock":
-                                yield make_event(
-                                    HarnessEventKind.THOUGHT_DELTA,
-                                    delta_text=str(getattr(block, "thinking", "")),
-                                )
-                            elif b_type == "TextBlock":
-                                yield make_event(
-                                    HarnessEventKind.TEXT_DELTA,
-                                    delta_text=str(getattr(block, "text", "")),
-                                )
-                            elif b_type == "ToolUseBlock":
-                                raw_name = str(getattr(block, "name", ""))
-                                yield make_event(
-                                    HarnessEventKind.TOOL_CALL_START,
-                                    tool_name=self.strip_mcp_prefix(raw_name),
-                                    tool_args=dict(getattr(block, "input", {}) or {}),
-                                )
+                    for block in getattr(message, "content", []) or []:
+                        b_type = type(block).__name__
+                        if b_type == "ThinkingBlock":
+                            yield make_event(
+                                HarnessEventKind.THOUGHT_DELTA,
+                                delta_text=str(getattr(block, "thinking", "")),
+                            )
+                        elif b_type == "TextBlock":
+                            yield make_event(
+                                HarnessEventKind.TEXT_DELTA,
+                                delta_text=str(getattr(block, "text", "")),
+                            )
+                        elif b_type == "ToolUseBlock":
+                            raw_name = str(getattr(block, "name", ""))
+                            yield make_event(
+                                HarnessEventKind.TOOL_CALL_START,
+                                tool_name=self.strip_mcp_prefix(raw_name),
+                                tool_call_id=getattr(block, "id", None),
+                                tool_args=dict(getattr(block, "input", {}) or {}),
+                            )
+                        elif b_type == "ToolResultBlock":
+                            is_err = bool(getattr(block, "is_error", False))
+                            raw_content = getattr(block, "content", None)
+                            result_payload: dict[str, Any] = (
+                                raw_content
+                                if isinstance(raw_content, dict)
+                                else {"content": raw_content}
+                            )
+                            yield make_event(
+                                HarnessEventKind.TOOL_CALL_ERROR
+                                if is_err
+                                else HarnessEventKind.TOOL_CALL_RESULT,
+                                tool_call_id=getattr(block, "tool_use_id", None),
+                                tool_result=result_payload,
+                            )
                     for obs_ev in ctx.pop_unstreamed_events():
                         yield make_event(HarnessEventKind.OBSERVABILITY_EVENT, obs_event=obs_ev)
                         if obs_ev.get("status") == "ASK-USER":

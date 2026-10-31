@@ -319,13 +319,13 @@ export interface VaultEventStreamOptions {
   reconnectBaseDelayMs?: number;
   maxReconnectDelayMs?: number;
   onEvent: (event: VaultObservabilityEventDTO) => void;
-  onSnapshot?: (snapshot: { run_id: string; status: string; event_count: number }) => void;
-  onHeartbeat?: (heartbeat: { ts: string; cursor: number }) => void;
+  onRunComplete?: (summary: { status: string }) => void;
   onError?: (error: unknown) => void;
 }
 
 export class VaultEventStreamClient {
   private readonly options: VaultEventStreamOptions;
+  private readonly seenEventIds = new Set<string>();
   private eventSource: EventSource | null = null;
   private lastEventId: string | undefined;
   private reconnectAttempts = 0;
@@ -335,6 +335,9 @@ export class VaultEventStreamClient {
   constructor(options: VaultEventStreamOptions) {
     this.options = options;
     this.lastEventId = options.lastEventId;
+    if (options.lastEventId) {
+      this.seenEventIds.add(options.lastEventId);
+    }
   }
 
   connect(): void {
@@ -347,22 +350,23 @@ export class VaultEventStreamClient {
     const es = new EventSource(url.toString());
     this.eventSource = es;
 
-    es.addEventListener('vault.snapshot', (ev: MessageEvent<string>) => {
+    es.addEventListener('message', (ev: MessageEvent<string>) => {
       this.reconnectAttempts = 0;
-      if (ev.lastEventId) this.lastEventId = ev.lastEventId;
-      this.options.onSnapshot?.(JSON.parse(ev.data));
-    });
-
-    es.addEventListener('vault.event', (ev: MessageEvent<string>) => {
-      this.reconnectAttempts = 0;
-      if (ev.lastEventId) this.lastEventId = ev.lastEventId;
       const parsed: VaultObservabilityEventDTO = JSON.parse(ev.data);
-      this.lastEventId = parsed.event_id;
+      const eventId = parsed.event_id || ev.lastEventId;
+      if (eventId) {
+        this.lastEventId = eventId;
+        if (this.seenEventIds.has(eventId)) {
+          return;
+        }
+        this.seenEventIds.add(eventId);
+      }
       this.options.onEvent(parsed);
     });
 
-    es.addEventListener('vault.heartbeat', (ev: MessageEvent<string>) => {
-      this.options.onHeartbeat?.(JSON.parse(ev.data));
+    es.addEventListener('run_complete', (ev: MessageEvent<string>) => {
+      this.disconnect();
+      this.options.onRunComplete?.(JSON.parse(ev.data));
     });
 
     es.onerror = (err) => {
@@ -378,7 +382,9 @@ export class VaultEventStreamClient {
   private scheduleReconnect(): void {
     const base = this.options.reconnectBaseDelayMs ?? 500;
     const maxDelay = this.options.maxReconnectDelayMs ?? 10_000;
-    const delay = Math.min(maxDelay, base * 2 ** this.reconnectAttempts);
+    const expDelay = Math.min(maxDelay, base * 2 ** this.reconnectAttempts);
+    const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(expDelay * 0.25)));
+    const delay = Math.min(maxDelay, expDelay + jitter);
     this.reconnectAttempts += 1;
     this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
@@ -401,17 +407,20 @@ import type { VaultObservabilityEventDTO } from '../types/observability-event';
 
 export interface OfflineReplayOptions {
   stepDelayMs?: number;
+  speedMultiplier?: number;
   signal?: AbortSignal;
 }
 
 export class MockVaultEventStreamClient {
   private readonly events: readonly VaultObservabilityEventDTO[];
+  private cursor = 0;
+  private speedMultiplier = 1;
 
   constructor(events: readonly VaultObservabilityEventDTO[]) {
     this.events = events;
   }
 
-  static fromJsonl(jsonlText: string): MockVaultEventStreamClient {
+  static loadFromJSONL(jsonlText: string): MockVaultEventStreamClient {
     const events: VaultObservabilityEventDTO[] = [];
     for (const rawLine of jsonlText.split(/\r?\n/)) {
       const trimmed = rawLine.trim();
@@ -425,18 +434,52 @@ export class MockVaultEventStreamClient {
     return this.events;
   }
 
+  getCursor(): number {
+    return this.cursor;
+  }
+
+  setSpeed(speedMultiplier: number): void {
+    if (speedMultiplier <= 0) {
+      throw new RangeError('speedMultiplier must be > 0');
+    }
+    this.speedMultiplier = speedMultiplier;
+  }
+
+  seek(index: number): VaultObservabilityEventDTO | null {
+    if (index < 0 || index > this.events.length) {
+      throw new RangeError(`Replay cursor index ${index} out of bounds [0, ${this.events.length}]`);
+    }
+    this.cursor = index;
+    return index < this.events.length ? this.events[index] : null;
+  }
+
+  step(
+    onEvent?: (event: VaultObservabilityEventDTO, index: number) => void
+  ): VaultObservabilityEventDTO | null {
+    if (this.cursor >= this.events.length) {
+      return null;
+    }
+    const index = this.cursor;
+    const event = this.events[index];
+    this.cursor += 1;
+    onEvent?.(event, index);
+    return event;
+  }
+
   async replay(
     onEvent: (event: VaultObservabilityEventDTO, index: number) => void,
     options: OfflineReplayOptions = {}
   ): Promise<number> {
-    const stepDelayMs = options.stepDelayMs ?? 0;
+    const speed = options.speedMultiplier ?? this.speedMultiplier;
+    const baseDelayMs = options.stepDelayMs ?? 0;
+    const effectiveDelayMs = speed > 0 ? Math.max(0, Math.floor(baseDelayMs / speed)) : 0;
     let emitted = 0;
-    for (let i = 0; i < this.events.length; i += 1) {
+    while (this.cursor < this.events.length) {
       if (options.signal?.aborted) break;
-      if (stepDelayMs > 0) {
-        await new Promise((resolve) => setTimeout(resolve, stepDelayMs));
+      if (effectiveDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, effectiveDelayMs));
       }
-      onEvent(this.events[i], i);
+      this.step(onEvent);
       emitted += 1;
     }
     return emitted;

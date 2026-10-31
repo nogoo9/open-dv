@@ -799,8 +799,14 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
             thinking = "analyzing..."
 
         class ToolUseBlock:
+            id = "tu-01"
             name = "mcp__opendv__profile_source_feed"
             input = {"source_table": "raw_lp_commitments"}
+
+        class ToolResultBlock:
+            tool_use_id = "tu-01"
+            is_error = False
+            content = {"profiled_columns": 44}
 
         class TextBlock:
             text = "Done."
@@ -808,18 +814,28 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
         class AssistantMessage:
             content = [ThinkingBlock(), ToolUseBlock(), TextBlock()]
 
+        class UserMessage:
+            content = [ToolResultBlock()]
+
         class ResultMessage:
             session_id = "sess-claude-01"
             structured_output = {"profiled_columns": 44}
+
+        captured_claude_opts: list[Any] = []
 
         class FakeClaudeSdk:
             class AgentDefinition:
                 def __init__(self, **kw: Any) -> None:
                     self.kw = kw
 
+            class HookMatcher:
+                def __init__(self, **kw: Any) -> None:
+                    self.kw = kw
+
             class ClaudeAgentOptions:
                 def __init__(self, **kw: Any) -> None:
                     self.kw = kw
+                    captured_claude_opts.append(kw)
 
             class ClaudeSDKClient:
                 def __init__(self, options: Any) -> None:
@@ -842,22 +858,35 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
 
                 async def receive_response(self) -> Any:
                     yield AssistantMessage()
+                    yield UserMessage()
                     yield ResultMessage()
 
+        SandboxPolicy = ns09["SandboxPolicy"]
         claude_cfg = HarnessConfig(
             provider="claude",
             workspace_dir=tmp_path,
             state_dir=tmp_path / "state",
             app_data_dir=tmp_path / "appdata",
             save_dir=tmp_path / "savedir",
+            sandbox=SandboxPolicy(read_only_workspace=False, allow_shell_execution=True),
         )
         claude_adapter = ClaudeAgentHarnessAdapter(claude_cfg, sdk_module=FakeClaudeSdk)
+        streamed_events = [ev async for ev in claude_adapter.stream_task(spec)]
         streamed_obs = [
             ev.observability_event
-            async for ev in claude_adapter.stream_task(spec)
+            for ev in streamed_events
             if ev.kind == HarnessEventKind.OBSERVABILITY_EVENT
         ]
         assert [e["event_id"] for e in streamed_obs if e] == ["evt-01", "evt-02"]
+        assert any(ev.kind == HarnessEventKind.TOOL_CALL_RESULT for ev in streamed_events)
+        opts_kw = captured_claude_opts[-1]
+        assert {"Write", "Edit", "Bash"} <= set(opts_kw["allowed_tools"])
+        bash_hook = opts_kw["hooks"]["PreToolUse"][0].kw["hooks"][0]
+        deny_res = await bash_hook({"tool_input": {"command": "rm -rf /"}})
+        assert deny_res["hookSpecificOutput"]["permissionDecision"] == "deny"
+        allow_res = await bash_hook({"tool_input": {"command": "echo ok"}})
+        assert allow_res == {}
+
         claude_result = await claude_adapter.run_task(spec)
         assert claude_result.stop_reason == HarnessStopReason.STEWARD_HOLD
         assert len(claude_result.emitted_events) == 2
