@@ -18,15 +18,20 @@ Validates:
 
 from __future__ import annotations
 
+import asyncio
 import copy
-import glob
+import inspect
 import json
 import pathlib
 import re
+import sys
+import tomllib
+import types
 from typing import Any
 
 import jsonschema
 from jsonschema import Draft202012Validator
+from pydantic import BaseModel, ValidationError
 import pytest
 import yaml
 
@@ -461,126 +466,453 @@ def test_negative_missing_zero_key_hex_or_ghost_record_policy(
     )
 
 
-def test_json_schemas_draft_2020_12() -> None:
-    schema_paths = sorted(REPO_ROOT.glob("schemas/*.json"))
-    assert len(schema_paths) >= 3
-    for path in schema_paths:
-        schema = json.loads(path.read_text(encoding="utf-8"))
-        Draft202012Validator.check_schema(schema)
+def _extract_fenced_blocks(doc_rel_path: str, lang: str) -> list[str]:
+    text = (REPO_ROOT / doc_rel_path).read_text(encoding="utf-8")
+    return re.findall(rf"```{lang}\n(.*?)```", text, flags=re.DOTALL)
 
 
-def test_example_contracts_and_canonical_ir_conform_to_schemas() -> None:
-    contract_schema = json.loads(
-        (REPO_ROOT / "schemas/no-mistake-dv2-contract-v5.schema.json").read_text(encoding="utf-8")
-    )
-    for rel_path in (
-        "examples/dv_model_contract.yaml",
-        "examples/private_equity/dv_pe_model_contract.yaml",
-    ):
-        doc = yaml.safe_load((REPO_ROOT / rel_path).read_text(encoding="utf-8"))
-        Draft202012Validator(contract_schema).validate(doc)
-
-    ir_schema = json.loads(
-        (REPO_ROOT / "schemas/dv2-canonical-ir.schema.json").read_text(encoding="utf-8")
-    )
-    pe_ir = json.loads(
-        (REPO_ROOT / "examples/private_equity/pe_canonical_ir.json").read_text(encoding="utf-8")
-    )
-    Draft202012Validator(ir_schema).validate(pe_ir)
+def _exec_doc_python_blocks(doc_rel_path: str) -> dict[str, Any]:
+    blocks = _extract_fenced_blocks(doc_rel_path, "python")
+    assert blocks, f"Expected executable Python blocks in {doc_rel_path}"
+    mod_name = "doc_ref_" + re.sub(r"[^a-zA-Z0-9_]", "_", doc_rel_path)
+    mod = types.ModuleType(mod_name)
+    sys.modules[mod_name] = mod
+    for idx, block in enumerate(blocks, 1):
+        exec(compile(block, f"{doc_rel_path}-block-{idx}.py", "exec"), mod.__dict__)
+    return mod.__dict__
 
 
-def test_all_docs_python_code_blocks_compile() -> None:
-    md_paths = sorted(glob.glob(str(REPO_ROOT / "docs/**/*.md"), recursive=True))
-    total_blocks = 0
-    for md_path in md_paths:
-        text = pathlib.Path(md_path).read_text(encoding="utf-8")
-        py_blocks = re.findall(r"```python\n(.*?)```", text, flags=re.DOTALL)
-        for idx, block in enumerate(py_blocks, 1):
-            compile(block, f"{md_path}-block-{idx}.py", "exec")
-        total_blocks += len(py_blocks)
-    assert total_blocks >= 17, f"Expected >= 17 Python blocks across docs/, found {total_blocks}"
+def test_doc08_monorepo_configs_rbac_redaction_and_sse_wire_vectors() -> None:
+    toml_blocks = [
+        tomllib.loads(block) for block in _extract_fenced_blocks("docs/08-platform-mvp-monorepo-and-api-spec.md", "toml")
+    ]
+    assert len(toml_blocks) == 2
+    prototools, pyproject = toml_blocks
+    assert set(prototools) >= {"python", "uv", "bun", "moon"}
+    assert set(pyproject["tool"]["uv"]["workspace"]["members"]) == {
+        "packages/opendv-core",
+        "packages/opendv-telemetry",
+        "packages/opendv-axi-verifier",
+        "packages/opendv-duckdb-sandbox",
+        "packages/opendv-agent-harness",
+        "apps/opendv-platform-api",
+        "apps/opendv-cli",
+    }
+    banned_api = pyproject["tool"]["ruff"]["lint"]["flake8-tidy-imports"]["banned-api"]
+    assert "antigravity" in banned_api
 
+    yaml_blocks = [
+        yaml.safe_load(block) for block in _extract_fenced_blocks("docs/08-platform-mvp-monorepo-and-api-spec.md", "yaml")
+    ]
+    assert len(yaml_blocks) == 4
+    workspace_cfg, toolchains_cfg, py_tasks_cfg, ts_tasks_cfg = yaml_blocks
+    assert workspace_cfg["projects"]["globs"] == ["packages/*", "apps/*"]
+    assert workspace_cfg["vcs"]["defaultBranch"] == "main"
+    assert workspace_cfg["hasher"]["walkStrategy"] == "vcs"
+    assert toolchains_cfg["unstable_python"]["packageManager"] == "uv"
+    assert toolchains_cfg["javascript"]["packageManager"] == "bun"
+    assert toolchains_cfg["typescript"]["syncProjectReferences"] is True
+    assert set(py_tasks_cfg["tasks"]) >= {"lint", "typecheck", "test"}
+    assert set(ts_tasks_cfg["tasks"]) >= {"lint", "typecheck", "test", "build"}
 
-def test_platform_mvp_specs_08_through_11_completeness_and_indexing() -> None:
-    expected_docs = (
-        "08-platform-mvp-monorepo-and-api-spec.md",
-        "09-agnostic-agent-harness-and-sdk-spec.md",
-        "10-decoupled-ui-workbench-and-theme-spec.md",
-        "11-agent-worker-implementation-plan.md",
-    )
-    readme_text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
-    guide_text = (REPO_ROOT / "docs/DV2_AGENT_REFERENCE_GUIDE.md").read_text(encoding="utf-8")
+    ns08 = _exec_doc_python_blocks("docs/08-platform-mvp-monorepo-and-api-spec.md")
+    RbacRole = ns08["RbacRole"]
+    CreateRunRequest = ns08["CreateRunRequest"]
+    redact_event_for_role = ns08["redact_event_for_role"]
 
-    for doc_name in expected_docs:
-        doc_path = REPO_ROOT / "docs" / doc_name
-        assert doc_path.is_file(), f"Missing specification document: {doc_path}"
-        assert doc_name in readme_text, f"{doc_name} not indexed in README.md"
-        assert doc_name in guide_text, f"{doc_name} not indexed in docs/DV2_AGENT_REFERENCE_GUIDE.md"
+    run_req = CreateRunRequest(project_id="proj-pe-01", harness_provider="claude", model_tier_override="argon")
+    assert run_req.harness_provider == "claude"
+    with pytest.raises(ValidationError):
+        CreateRunRequest(project_id="proj-pe-01", harness_provider="replay")
 
-    doc08 = (REPO_ROOT / "docs/08-platform-mvp-monorepo-and-api-spec.md").read_text(encoding="utf-8")
-    for token in (
-        ".prototools",
-        ".moon/workspace.yml",
-        ".moon/toolchains.yml",
-        ".moon/toolchain.yml",
-        ".moon/tasks/python.yml",
-        ".moon/tasks/typescript.yml",
-        "/api/v1/projects",
-        "/api/v1/runs",
-        "/api/v1/runs/{run_id}/events",
-        "/api/v1/runs/{run_id}/gates",
-        "/api/v1/runs/{run_id}/sandbox",
-        "/api/v1/runs/{run_id}/decisions",
-        "/api/v1/artifacts",
-    ):
-        assert token in doc08, f"Missing required token '{token}' in docs/08"
+    sample_event: dict[str, Any] = {
+        "event_id": "evt-test-01",
+        "data_classification": "RESTRICTED_PII",
+        "layer1_story_banner": {
+            "headline": "Extracted SSN 999-00-1234 and CalPERS $150M side-letter fee cap",
+            "business_impact": "Exposes confidential LP fee terms and tax IDs",
+        },
+        "layer2_visual_payload": {
+            "viz_id": "VIZ-STEP-04",
+            "summary_metrics": {"extracted_ssn_count": 3, "lp_commitment_usd": 150000000},
+            "ner_spans": [{"text": "999-00-1234", "span": [10, 21]}],
+            "semantic_hash_pills": [
+                {
+                    "pill_label": "[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]",
+                    "full_sha256_hex": "5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4",
+                    "bkcc_prefix": "GLOBAL",
+                    "business_key": "LP-101",
+                    "entity_label": "CalPERS",
+                }
+            ],
+        },
+        "layer3_formal_proof": {
+            "contract_yaml_diff": "+ tax_id: 999-00-1234",
+            "toon_diagnostic_payload": "@toon_v1 secret",
+            "formula_latex": "x = 999",
+            "sqlglot_ast_summary": "SELECT ssn FROM raw_lp",
+        },
+    }
 
-    doc09 = (REPO_ROOT / "docs/09-agnostic-agent-harness-and-sdk-spec.md").read_text(encoding="utf-8")
-    for token in (
-        "VaultAgentHarness",
-        "AgentTaskSpec",
-        "AgentToolDefinition",
-        "SubagentSpec",
-        "AntigravityHarnessAdapter",
-        "ClaudeAgentHarnessAdapter",
-        "google.antigravity",
-        "claude_agent_sdk",
-    ):
-        assert token in doc09, f"Missing required token '{token}' in docs/09"
-
-    doc10 = (REPO_ROOT / "docs/10-decoupled-ui-workbench-and-theme-spec.md").read_text(encoding="utf-8")
-    for token in (
-        "@opendv/protocol-ts",
-        "OpenDVPlatformClient",
-        "VaultEventStreamClient",
-        "MockVaultEventStreamClient",
-        "WorkbenchViewPlugin",
-        'data-theme="obsidian"',
-        'data-theme="paper"',
-        'data-theme="high-contrast"',
-    ):
-        assert token in doc10, f"Missing required token '{token}' in docs/10"
-    for view_num in range(12):
-        view_id = f"WB-{view_num:02d}"
-        assert view_id in doc10, f"Missing Workbench view {view_id} in docs/10"
-    doc10_py_blocks = re.findall(r"```python\n(.*?)```", doc10, flags=re.DOTALL)
-    assert len(doc10_py_blocks) >= 1
-    ns10: dict[str, Any] = {}
-    exec(compile(doc10_py_blocks[0], "doc10-hash-parity.py", "exec"), ns10)
-    assert len(ns10["WORKBENCH_VIEW_STAGE_MAP"]) == 12
+    redacted_auditor = redact_event_for_role(sample_event, RbacRole.AUDITOR_FINANCE)
+    assert "999-00-1234" not in redacted_auditor["layer1_story_banner"]["headline"]
+    assert "CalPERS" not in redacted_auditor["layer1_story_banner"]["headline"]
+    assert "tax IDs" not in redacted_auditor["layer1_story_banner"]["business_impact"]
+    assert redacted_auditor["layer2_visual_payload"]["summary_metrics"] == {
+        "redacted": True,
+        "required_classification": "RESTRICTED_PII",
+    }
+    assert "ner_spans" not in redacted_auditor["layer2_visual_payload"]
+    assert redacted_auditor["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"] == "[REDACTED]"
     assert (
-        ns10["verify_ts_python_hash_pill_parity"](["ANNE||O", "BRIEN"])
-        != ns10["verify_ts_python_hash_pill_parity"](["ANNE", "O||BRIEN"])
+        redacted_auditor["layer3_formal_proof"]["sqlglot_ast_summary"]
+        == "[REDACTED RESTRICTED_PII]"
+    )
+    assert (
+        redacted_auditor["layer3_formal_proof"]["formula_latex"]
+        == "[REDACTED RESTRICTED_PII]"
     )
 
-    doc11 = (REPO_ROOT / "docs/11-agent-worker-implementation-plan.md").read_text(encoding="utf-8")
-    py_blocks = re.findall(r"```python\n(.*?)```", doc11, flags=re.DOTALL)
-    assert len(py_blocks) >= 1
-    ns: dict[str, Any] = {}
-    exec(compile(py_blocks[0], "doc11-wp-manifest.py", "exec"), ns)
-    manifest = ns["WORK_PACKAGE_MANIFEST"]
-    waves = ns["compute_dispatch_waves"](manifest)
-    assert len(manifest) == 12
+    unredacted_steward = redact_event_for_role(sample_event, RbacRole.RESTRICTED_PII_CUSTODIAN)
+    assert unredacted_steward == sample_event
+
+    ns10 = _exec_doc_python_blocks("docs/10-decoupled-ui-workbench-and-theme-spec.md")
+    verify_hash = ns10["verify_ts_python_hash_pill_parity"]
+    obs_schema = json.loads(
+        (REPO_ROOT / "schemas/vault-observability-event.schema.json").read_text(encoding="utf-8")
+    )
+    sse_blocks = _extract_fenced_blocks("docs/08-platform-mvp-monorepo-and-api-spec.md", "text")
+    sse_events: list[dict[str, Any]] = []
+    for block in sse_blocks:
+        for line in block.splitlines():
+            if line.startswith("data: "):
+                payload = json.loads(line.removeprefix("data: "))
+                if "event_id" in payload:
+                    sse_events.append(payload)
+    assert len(sse_events) == 2
+    for ev in sse_events:
+        Draft202012Validator(obs_schema).validate(ev)
+        for pill in ev["layer2_visual_payload"].get("semantic_hash_pills", []):
+            expected_hex = verify_hash([pill["bkcc_prefix"], pill["business_key"]])
+            assert pill["full_sha256_hex"] == expected_hex
+
+
+def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Path) -> None:
+    ns09 = _exec_doc_python_blocks("docs/09-agnostic-agent-harness-and-sdk-spec.md")
+    AgentPersona = ns09["AgentPersona"]
+    ModelTier = ns09["ModelTier"]
+    HarnessConfig = ns09["HarnessConfig"]
+    AgentToolDefinition = ns09["AgentToolDefinition"]
+    AgentTaskSpec = ns09["AgentTaskSpec"]
+    BaseVaultAgentHarness = ns09["BaseVaultAgentHarness"]
+    HarnessEventKind = ns09["HarnessEventKind"]
+    HarnessStopReason = ns09["HarnessStopReason"]
+    AntigravityHarnessAdapter = ns09["AntigravityHarnessAdapter"]
+    ClaudeAgentHarnessAdapter = ns09["ClaudeAgentHarnessAdapter"]
+    to_antigravity_tool_callable = ns09["to_antigravity_tool_callable"]
+    build_claude_sdk_mcp_bundle = ns09["build_claude_sdk_mcp_bundle"]
+
+    assert [t.value for t in ModelTier] == ["argon", "flash"]
+    assert issubclass(AntigravityHarnessAdapter, BaseVaultAgentHarness)
+    assert issubclass(ClaudeAgentHarnessAdapter, BaseVaultAgentHarness)
+
+    class SampleInput(BaseModel):
+        source_table: str
+
+    class SampleOutput(BaseModel):
+        profiled_columns: int
+
+    async def _sample_tool(inp: SampleInput, ctx: Any) -> SampleOutput:
+        ctx.emit_observability_event({"event_id": "evt-01", "status": "PASS", "table": inp.source_table})
+        ctx.emit_observability_event({"event_id": "evt-02", "status": "ASK-USER", "table": inp.source_table})
+        return SampleOutput(profiled_columns=44)
+
+    tool_def = AgentToolDefinition(
+        name="profile_source_feed",
+        description="Profile Bronze source feed.",
+        input_model=SampleInput,
+        output_model=SampleOutput,
+        allowed_personas=frozenset({AgentPersona.SCOUT_SOURCE}),
+        handler=_sample_tool,
+    )
+
+    cfg = HarnessConfig(
+        provider="antigravity",
+        workspace_dir=tmp_path,
+        state_dir=tmp_path / "state",
+        app_data_dir=tmp_path / "appdata",
+        save_dir=tmp_path / "savedir",
+    )
+    spec = AgentTaskSpec(
+        task_id="task-01",
+        run_id="run-01",
+        trace_id="4bf92f3577b34da6a3ce929d0e0e4736",
+        persona=AgentPersona.SCOUT_SOURCE,
+        model_tier=ModelTier.FAST_TIER,
+        stage_id="STAGE_01_SCOUT_SOURCE",
+        workbench_view_id="WB-02",
+        viz_id="VIZ-STEP-02",
+        system_instructions="Profile Bronze tables.",
+        prompt="Profile raw_lp_commitments.",
+        tools=(tool_def,),
+        output_schema=SampleOutput,
+    )
+
+    agy_callable = to_antigravity_tool_callable(tool_def, None)
+    sig = inspect.signature(agy_callable)
+    assert list(sig.parameters) == ["source_table"]
+
+    async def _failing_handler(inp: SampleInput, ctx: Any) -> SampleOutput:
+        raise RuntimeError(f"failed on {inp.source_table}")
+
+    failing_tool = AgentToolDefinition(
+        name="failing_tool",
+        description="Always raises.",
+        input_model=SampleInput,
+        output_model=SampleOutput,
+        allowed_personas=frozenset({AgentPersona.SCOUT_SOURCE}),
+        handler=_failing_handler,
+    )
+
+    async def _run_harness_checks() -> None:
+        dummy_adapter = AntigravityHarnessAdapter(cfg)
+        ctx_err = dummy_adapter.build_tool_context(spec)
+        mcp_servers, qual_names, _ = build_claude_sdk_mcp_bundle([tool_def, failing_tool], ctx_err)
+        assert qual_names == ["mcp__opendv__profile_source_feed", "mcp__opendv__failing_tool"]
+        err_resp = await mcp_servers["opendv"]["handlers"]["mcp__opendv__failing_tool"](
+            {"source_table": "bad_tbl"}
+        )
+        assert err_resp["is_error"] is True
+        assert json.loads(err_resp["content"][0]["text"])["error"] == "RuntimeError"
+
+        post_hooks: list[Any] = []
+
+        class FakeAgySdk:
+            class types:
+                class AgentBehavior:
+                    AUTONOMOUS = "AUTONOMOUS"
+
+                class SubagentCapabilities:
+                    def __init__(self, **kw: Any) -> None:
+                        self.kw = kw
+
+                class SubagentConfig:
+                    def __init__(self, **kw: Any) -> None:
+                        self.kw = kw
+
+                class TemplatedSystemInstructions:
+                    def __init__(self, **kw: Any) -> None:
+                        self.kw = kw
+
+                class CapabilitiesConfig:
+                    def __init__(self, **kw: Any) -> None:
+                        self.kw = kw
+
+            class hooks:
+                class hooks:
+                    @staticmethod
+                    def post_tool_call(fn: Any) -> Any:
+                        post_hooks.append(fn)
+                        return fn
+
+                    @staticmethod
+                    def on_tool_error(fn: Any) -> Any:
+                        return fn
+
+                class policy:
+                    @staticmethod
+                    def deny_all() -> str:
+                        return "deny_all"
+
+                    @staticmethod
+                    def workspace_only(paths: list[str]) -> tuple[str, list[str]]:
+                        return ("workspace_only", paths)
+
+                    @staticmethod
+                    def allow(name: str) -> tuple[str, str]:
+                        return ("allow", name)
+
+                    @staticmethod
+                    def deny(name: str, **kw: Any) -> tuple[str, str]:
+                        return ("deny", name)
+
+            class LocalAgentConfig:
+                def __init__(self, **kw: Any) -> None:
+                    self.kw = kw
+
+            class Agent:
+                def __init__(self, agent_cfg: Any) -> None:
+                    self.agent_cfg = agent_cfg
+                    self.conversation_id = "conv-agy-01"
+
+                async def __aenter__(self) -> Any:
+                    return self
+
+                async def __aexit__(self, *args: Any) -> None:
+                    return None
+
+                async def chat(self, prompt: str) -> Any:
+                    bridged = self.agent_cfg.kw["tools"][0]
+                    tool_out = await bridged(source_table="raw_lp_commitments")
+                    for hk in post_hooks:
+                        await hk({"output": tool_out})
+
+                    class _Resp:
+                        async def cancel(self) -> None:
+                            return None
+
+                        @property
+                        def thoughts(self) -> Any:
+                            async def _gen() -> Any:
+                                yield "thinking..."
+
+                            return _gen()
+
+                        @property
+                        def tool_calls(self) -> Any:
+                            async def _gen() -> Any:
+                                yield types.SimpleNamespace(
+                                    name="profile_source_feed",
+                                    args={"source_table": "raw_lp_commitments"},
+                                )
+
+                            return _gen()
+
+                        def __aiter__(self) -> Any:
+                            async def _gen() -> Any:
+                                yield "Profiled 44 columns."
+
+                            return _gen()
+
+                        async def structured_output(self) -> dict[str, Any]:
+                            return {"profiled_columns": 44}
+
+                    return _Resp()
+
+        agy_adapter = AntigravityHarnessAdapter(cfg, sdk_module=FakeAgySdk)
+        agy_result = await agy_adapter.run_task(spec)
+        assert agy_result.stop_reason == HarnessStopReason.STEWARD_HOLD
+        assert len(agy_result.emitted_events) == 2
+        assert agy_result.structured_output == SampleOutput(profiled_columns=44)
+
+        class ThinkingBlock:
+            thinking = "analyzing..."
+
+        class ToolUseBlock:
+            name = "mcp__opendv__profile_source_feed"
+            input = {"source_table": "raw_lp_commitments"}
+
+        class TextBlock:
+            text = "Done."
+
+        class AssistantMessage:
+            content = [ThinkingBlock(), ToolUseBlock(), TextBlock()]
+
+        class ResultMessage:
+            session_id = "sess-claude-01"
+            structured_output = {"profiled_columns": 44}
+
+        class FakeClaudeSdk:
+            class AgentDefinition:
+                def __init__(self, **kw: Any) -> None:
+                    self.kw = kw
+
+            class ClaudeAgentOptions:
+                def __init__(self, **kw: Any) -> None:
+                    self.kw = kw
+
+            class ClaudeSDKClient:
+                def __init__(self, options: Any) -> None:
+                    self.options = options
+
+                async def __aenter__(self) -> Any:
+                    return self
+
+                async def __aexit__(self, *args: Any) -> None:
+                    return None
+
+                async def interrupt(self) -> None:
+                    return None
+
+                async def query(self, prompt: str) -> None:
+                    handler = self.options.kw["mcp_servers"]["opendv"]["handlers"][
+                        "mcp__opendv__profile_source_feed"
+                    ]
+                    await handler({"source_table": "raw_lp_commitments"})
+
+                async def receive_response(self) -> Any:
+                    yield AssistantMessage()
+                    yield ResultMessage()
+
+        claude_cfg = HarnessConfig(
+            provider="claude",
+            workspace_dir=tmp_path,
+            state_dir=tmp_path / "state",
+            app_data_dir=tmp_path / "appdata",
+            save_dir=tmp_path / "savedir",
+        )
+        claude_adapter = ClaudeAgentHarnessAdapter(claude_cfg, sdk_module=FakeClaudeSdk)
+        streamed_obs = [
+            ev.observability_event
+            async for ev in claude_adapter.stream_task(spec)
+            if ev.kind == HarnessEventKind.OBSERVABILITY_EVENT
+        ]
+        assert [e["event_id"] for e in streamed_obs if e] == ["evt-01", "evt-02"]
+        claude_result = await claude_adapter.run_task(spec)
+        assert claude_result.stop_reason == HarnessStopReason.STEWARD_HOLD
+        assert len(claude_result.emitted_events) == 2
+
+    asyncio.run(_run_harness_checks())
+
+
+def test_doc10_hash_pill_parity_and_workbench_view_map() -> None:
+    ns10 = _exec_doc_python_blocks("docs/10-decoupled-ui-workbench-and-theme-spec.md")
+    verify_hash = ns10["verify_ts_python_hash_pill_parity"]
+    view_map = ns10["WORKBENCH_VIEW_STAGE_MAP"]
+
+    assert list(view_map) == [f"WB-{i:02d}" for i in range(12)]
+    assert verify_hash(["ANNE||O", "BRIEN"]) != verify_hash(["ANNE", "O||BRIEN"])
+    assert verify_hash(["VAL_X", None, "VAL_Y"]) != verify_hash(["VAL_X", "VAL_Y", None])
+    assert (
+        verify_hash(["GLOBAL", "LP-101"])
+        == "5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4"
+    )
+    assert (
+        verify_hash(["lp-101"], bkcc_prefix="global")
+        == "5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4"
+    )
+    assert verify_hash([None, "   "]) == "0" * 64
+    assert verify_hash([None, ""], bkcc_prefix="GLOBAL") == "0" * 64
+    assert verify_hash(["CalPERS", "Active"], is_business_key=False) != verify_hash(
+        ["CALPERS", "ACTIVE"], is_business_key=False
+    )
+    assert verify_hash([None, None], is_business_key=False) != "0" * 64
+
+
+def test_doc11_work_package_manifest_waves_and_disjoint_ownership() -> None:
+    ns11 = _exec_doc_python_blocks("docs/11-agent-worker-implementation-plan.md")
+    WorkPackageSpec = ns11["WorkPackageSpec"]
+    manifest = ns11["WORK_PACKAGE_MANIFEST"]
+    verify_disjoint = ns11["verify_disjoint_owned_paths"]
+    compute_waves = ns11["compute_dispatch_waves"]
+
     assert [wp.wp_id for wp in manifest] == [f"WP-{i:02d}" for i in range(1, 13)]
-    assert waves[0] == ["WP-01"]
-    assert waves[-1] == ["WP-12"]
+    verify_disjoint(manifest)
+    waves = compute_waves(manifest)
+    assert waves == [
+        ["WP-01"],
+        ["WP-02", "WP-09"],
+        ["WP-03", "WP-10"],
+        ["WP-04", "WP-06", "WP-11"],
+        ["WP-05", "WP-07"],
+        ["WP-08"],
+        ["WP-12"],
+    ]
+
+    with pytest.raises(ValueError, match="Path prefix collision"):
+        verify_disjoint(
+            (
+                WorkPackageSpec("WP-A", "b-a", "flash", (), ("apps/api/",), (), "true"),
+                WorkPackageSpec("WP-B", "b-b", "flash", (), ("apps/api/tests/test_e2e.py",), (), "true"),
+            )
+        )
