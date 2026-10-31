@@ -1,0 +1,46 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-platform-api'
+language: 'python'
+layer: 'application'
+tags:
+  - 'python'
+  - 'api-server'
+
+dependsOn:
+  - 'opendv-core'
+  - 'opendv-telemetry'
+  - 'opendv-axi-verifier'
+  - 'opendv-duckdb-sandbox'
+  - 'opendv-agent-harness'
+
+tasks:
+  export-openapi:
+    description: 'Export deterministic OpenAPI 3.1 specification to schemas/openapi-v1.json.'
+    command: 'uv'
+    args:
+      - 'run'
+      - '--package'
+      - 'opendv-platform-api'
+      - 'python'
+      - '-m'
+      - 'opendv_platform_api.export_openapi'
+    inputs:
+      - 'src/**/*.py'
+    outputs:
+      - '/schemas/openapi-v1.json'
+    options:
+      runFromWorkspaceRoot: true
+
+  dev:
+    description: 'Run FastAPI development server with hot-reload on port 8420.'
+    command: 'uv'
+    args:
+      - 'run'
+      - '--package'
+      - 'opendv-platform-api'
+      - 'uvicorn'
+      - 'opendv_platform_api.main:app'
+      - '--reload'
+      - '--port'
+      - '8420'

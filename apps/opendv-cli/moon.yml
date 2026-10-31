@@ -1,0 +1,25 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-cli'
+language: 'python'
+layer: 'application'
+tags:
+  - 'python'
+  - 'cli'
+
+dependsOn:
+  - 'opendv-core'
+  - 'opendv-telemetry'
+  - 'opendv-axi-verifier'
+  - 'opendv-duckdb-sandbox'
+  - 'opendv-agent-harness'
+
+tasks:
+  dev:
+    description: 'Run opendv CLI entrypoint.'
+    command: 'uv'
+    args:
+      - 'run'
+      - '--package'
+      - 'opendv-cli'
+      - 'opendv'

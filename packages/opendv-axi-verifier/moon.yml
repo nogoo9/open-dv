@@ -1,0 +1,12 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-axi-verifier'
+language: 'python'
+layer: 'library'
+tags:
+  - 'python'
+  - 'verifier'
+
+dependsOn:
+  - 'opendv-core'
+  - 'opendv-telemetry'

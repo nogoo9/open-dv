@@ -1,0 +1,19 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-web-workbench'
+language: 'typescript'
+layer: 'application'
+tags:
+  - 'typescript'
+  - 'web-ui'
+
+dependsOn:
+  - 'opendv-protocol-ts'
+
+tasks:
+  dev:
+    description: 'Run web workbench development server on port 5173.'
+    command: 'bun'
+    args:
+      - 'run'
+      - 'dev'

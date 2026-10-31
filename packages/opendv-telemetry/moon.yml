@@ -1,0 +1,11 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-telemetry'
+language: 'python'
+layer: 'library'
+tags:
+  - 'python'
+  - 'telemetry'
+
+dependsOn:
+  - 'opendv-core'

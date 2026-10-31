@@ -1,0 +1,114 @@
+# /.moon/tasks/python.yml
+$schema: '../cache/schemas/tasks.json'
+
+inheritedBy:
+  languages: ['python']
+
+fileGroups:
+  sources:
+    - 'src/**/*.py'
+    - 'pyproject.toml'
+  tests:
+    - 'tests/**/*.py'
+  schemas:
+    - '/schemas/*.json'
+  workspaceLock:
+    - '/pyproject.toml'
+    - '/uv.lock'
+
+implicitInputs:
+  - '/pyproject.toml'
+  - '/uv.lock'
+  - 'pyproject.toml'
+
+taskOptions:
+  cache: true
+  outputStyle: 'buffer-only-failure'
+  retryCount: 0
+  runInCI: 'affected'
+
+tasks:
+  lint:
+    description: 'Run Ruff linter check across Python project sources and tests.'
+    command: 'uv'
+    args:
+      - 'run'
+      - '--package'
+      - '$project'
+      - 'ruff'
+      - 'check'
+      - 'src'
+      - 'tests'
+    type: 'test'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+
+  format-check:
+    description: 'Verify Python code formatting using Ruff formatter.'
+    command: 'uv'
+    args:
+      - 'run'
+      - '--package'
+      - '$project'
+      - 'ruff'
+      - 'format'
+      - '--check'
+      - 'src'
+      - 'tests'
+    type: 'test'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+
+  typecheck:
+    description: 'Run strict static typechecking via mypy across project sources.'
+    command: 'uv'
+    args:
+      - 'run'
+      - '--package'
+      - '$project'
+      - 'mypy'
+      - '--strict'
+      - 'src'
+    type: 'test'
+    deps:
+      - '^:typecheck'
+    inputs:
+      - '@group(sources)'
+      - '@group(schemas)'
+
+  test:
+    description: 'Execute pytest unit and integration test suite for the package.'
+    command: 'uv'
+    args:
+      - 'run'
+      - '--package'
+      - '$project'
+      - 'pytest'
+      - 'tests'
+      - '-q'
+    type: 'test'
+    deps:
+      - '^:test'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+      - '@group(schemas)'
+
+  build:
+    description: 'Build wheel and sdist artifacts for the Python package using uv build.'
+    command: 'uv'
+    args:
+      - 'build'
+      - '--package'
+      - '$project'
+      - '--out-dir'
+      - 'dist'
+    type: 'build'
+    deps:
+      - '^:build'
+    inputs:
+      - '@group(sources)'
+    outputs:
+      - 'dist/**'
