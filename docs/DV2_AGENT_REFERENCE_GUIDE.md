@@ -17,6 +17,7 @@
 >   - [Observability Telemetry Event JSON Schema (`schemas/vault-observability-event.schema.json`)](../schemas/vault-observability-event.schema.json)
 >   - [Annotated Multi-Source Model Contract Example (`examples/dv_model_contract.yaml`)](../examples/dv_model_contract.yaml)
 >   - [Private Equity Model Contract & Canonical IR Package (`examples/private_equity/dv_pe_model_contract.yaml`)](../examples/private_equity/dv_pe_model_contract.yaml)
+>   - [Executable Normative `pytest` Suite (`tests/` — run via `pytest -v`)](../tests/)
 
 ---
 

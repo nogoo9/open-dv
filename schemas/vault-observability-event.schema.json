@@ -61,6 +61,65 @@
         "STAGE_07_DETERMINISTIC_COMPILER"
       ]
     },
+    "phase_id": {
+      "type": "string",
+      "description": "Canonical 8-phase lifecycle identifier corresponding to stage_id.",
+      "enum": [
+        "P1_INGESTION",
+        "P2_PROFILING",
+        "P3_EXTRACTION",
+        "P4_SYNTHESIS_PASS1",
+        "P5_SYNTHESIS_PASS2",
+        "P6_VERIFICATION",
+        "P7_DYNAMIC_SANDBOX",
+        "P8_OPERATIONS"
+      ]
+    },
+    "step_id": {
+      "type": "string",
+      "description": "Optional step visualization identifier bound to the active pipeline phase.",
+      "enum": [
+        "VIZ-PIPE-00",
+        "VIZ-STEP-01",
+        "VIZ-STEP-02",
+        "VIZ-STEP-03",
+        "VIZ-STEP-04",
+        "VIZ-STEP-05",
+        "VIZ-STEP-06",
+        "VIZ-STEP-07",
+        "VIZ-STEP-08"
+      ]
+    },
+    "gate_id": {
+      "type": "string",
+      "description": "Verification gate identifier (required when phase_id is P6_VERIFICATION; prohibited on non-P6 phases).",
+      "enum": [
+        "G1",
+        "G2",
+        "G3",
+        "G4",
+        "G5",
+        "G6",
+        "G_DYN",
+        "G_AUD"
+      ]
+    },
+    "rule_code": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Primary verification rule code evaluated during P6_VERIFICATION."
+    },
+    "contract_version": {
+      "type": "string",
+      "enum": ["5.0", "6.0"],
+      "description": "Contract schema version governing the pipeline execution."
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0.0,
+      "maximum": 1.0,
+      "description": "Normalized confidence score in [0.0, 1.0] for discovery, resolution, or extraction events."
+    },
     "workbench_view_id": {
       "type": "string",
       "enum": [
@@ -116,9 +175,22 @@
       "enum": [
         "PASS",
         "AUTO-FIX",
+        "AUTO_REPAIRED",
         "REJECT-WITH-TRACE",
         "ASK-USER"
       ]
+    },
+    "remediation": {
+      "type": "object",
+      "description": "Mandatory structured codemod payload when status is AUTO_REPAIRED.",
+      "required": ["codemod_type", "target_entity", "patch_diff"],
+      "additionalProperties": false,
+      "properties": {
+        "codemod_type": {"type": "string", "minLength": 1},
+        "target_entity": {"type": "string", "minLength": 1},
+        "patch_diff": {"type": "string", "minLength": 1},
+        "action_description": {"type": "string"}
+      }
     },
     "rule_ids_evaluated": {
       "type": "array",
@@ -164,8 +236,8 @@
     },
     "data_classification": {
       "type": "string",
-      "description": "Highest sensitivity of any value in the event's Layer 1, Layer 2, or Layer 3 payload. CONFIDENTIAL and RESTRICTED_PII values are masked unless the viewer's RBAC role clears them.",
-      "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED_PII"]
+      "description": "Highest sensitivity of any value in the event's Layer 1, Layer 2, or Layer 3 payload. CONFIDENTIAL, MNPI, and RESTRICTED_PII values are masked unless the viewer's RBAC role clears them.",
+      "enum": ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "MNPI", "RESTRICTED_PII"]
     },
     "layer1_story_banner": {
       "type": "object",
@@ -176,7 +248,7 @@
         "business_impact": {"type": "string", "maxLength": 200},
         "verdict_pill": {
           "type": "string",
-          "enum": ["PASS", "AUTO-FIX", "REJECT-WITH-TRACE", "ASK-USER"]
+          "enum": ["PASS", "AUTO-FIX", "AUTO_REPAIRED", "REJECT-WITH-TRACE", "ASK-USER"]
         }
       }
     },
@@ -221,5 +293,88 @@
         "sqlglot_ast_summary": {"type": "string"}
       }
     }
-  }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {"phase_id": {"const": "P6_VERIFICATION"}},
+        "required": ["phase_id"]
+      },
+      "then": {
+        "required": ["gate_id", "rule_code"]
+      }
+    },
+    {
+      "if": {
+        "properties": {"phase_id": {"not": {"const": "P6_VERIFICATION"}}},
+        "required": ["phase_id"]
+      },
+      "then": {
+        "not": {"required": ["gate_id"]}
+      }
+    },
+    {
+      "if": {
+        "properties": {"phase_id": {"const": "P1_INGESTION"}},
+        "required": ["phase_id", "step_id"]
+      },
+      "then": {
+        "properties": {"step_id": {"enum": ["VIZ-PIPE-00", "VIZ-STEP-01"]}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"phase_id": {"const": "P2_PROFILING"}},
+        "required": ["phase_id", "step_id"]
+      },
+      "then": {
+        "properties": {"step_id": {"enum": ["VIZ-STEP-02", "VIZ-STEP-03"]}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"phase_id": {"const": "P3_EXTRACTION"}},
+        "required": ["phase_id", "step_id"]
+      },
+      "then": {
+        "properties": {"step_id": {"enum": ["VIZ-STEP-04"]}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"phase_id": {"const": "P4_SYNTHESIS_PASS1"}},
+        "required": ["phase_id", "step_id"]
+      },
+      "then": {
+        "properties": {"step_id": {"enum": ["VIZ-STEP-05"]}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"phase_id": {"const": "P5_SYNTHESIS_PASS2"}},
+        "required": ["phase_id", "step_id"]
+      },
+      "then": {
+        "properties": {"step_id": {"enum": ["VIZ-STEP-06"]}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"phase_id": {"const": "P8_OPERATIONS"}},
+        "required": ["phase_id", "step_id"]
+      },
+      "then": {
+        "properties": {"step_id": {"enum": ["VIZ-STEP-07", "VIZ-STEP-08"]}}
+      }
+    },
+    {
+      "if": {
+        "properties": {"status": {"const": "AUTO_REPAIRED"}},
+        "required": ["status"]
+      },
+      "then": {
+        "required": ["remediation"]
+      }
+    }
+  ]
 }
