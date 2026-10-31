@@ -576,6 +576,18 @@ def test_doc08_monorepo_configs_rbac_redaction_and_sse_wire_vectors() -> None:
     unredacted_steward = redact_event_for_role(sample_event, RbacRole.RESTRICTED_PII_CUSTODIAN)
     assert unredacted_steward == sample_event
 
+    confidential_event = {**sample_event, "data_classification": "CONFIDENTIAL"}
+    redacted_modeler = redact_event_for_role(confidential_event, RbacRole.INTERNAL_MODELER)
+    assert redacted_modeler["layer2_visual_payload"]["semantic_hash_pills"][0]["business_key"] == "[REDACTED]"
+    assert redacted_modeler["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"] == "[REDACTED]"
+    assert "CalPERS" not in redacted_modeler["layer2_visual_payload"]["semantic_hash_pills"][0]["pill_label"]
+
+    mnpi_event = {**sample_event, "data_classification": "MNPI"}
+    redacted_steward_mnpi = redact_event_for_role(mnpi_event, RbacRole.DATA_STEWARD)
+    assert redacted_steward_mnpi["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"] == "[REDACTED]"
+    assert redact_event_for_role(mnpi_event, RbacRole.AUDITOR_FINANCE) == mnpi_event
+    assert redact_event_for_role(mnpi_event, RbacRole.RESTRICTED_PII_CUSTODIAN) == mnpi_event
+
     ns10 = _exec_doc_python_blocks("docs/10-decoupled-ui-workbench-and-theme-spec.md")
     verify_hash = ns10["verify_ts_python_hash_pill_parity"]
     obs_schema = json.loads(
@@ -613,6 +625,14 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
     build_claude_sdk_mcp_bundle = ns09["build_claude_sdk_mcp_bundle"]
 
     assert [t.value for t in ModelTier] == ["argon", "flash"]
+    assert [c.value for c in ns09["DataClassification"]] == [
+        "PUBLIC",
+        "INTERNAL",
+        "CONFIDENTIAL",
+        "MNPI",
+        "RESTRICTED_PII",
+    ]
+    assert "AUTO_REPAIRED" in [v.value for v in ns09["ObservabilityVerdict"]]
     assert issubclass(AntigravityHarnessAdapter, BaseVaultAgentHarness)
     assert issubclass(ClaudeAgentHarnessAdapter, BaseVaultAgentHarness)
 

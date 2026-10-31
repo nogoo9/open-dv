@@ -629,7 +629,7 @@ testpaths = [
 - **Responsibilities:**
   1. Manages the immutable Content-Addressable Store (`state/artifacts/<sha256>`) and appends validated `VaultObservabilityEvent` records to `state/vault-ledger.jsonl`.
   2. Broadcasts live events to in-memory `asyncio.Queue` subscribers for low-latency SSE streaming (`/api/v1/runs/{id}/events`) with `Last-Event-ID` cursor replay.
-  3. Enforces the **5-Tier RBAC Data Classification & Redaction Matrix** (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL`, `RESTRICTED_PII`, `PRIVILEGED_CUSTODIAN`) and formats **Semantic Hash Pills** (`[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`).
+  3. Enforces the **5-Tier RBAC Data Classification & Redaction Matrix** (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL`, `MNPI`, `RESTRICTED_PII`) and formats **Semantic Hash Pills** (`[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`).
 
 ### 4.3 `packages/opendv-axi-verifier` — 6-Gate Verifier, Codemods (`A.1`–`A.9b`) & `TOON`
 - **Responsibilities:**
@@ -745,12 +745,12 @@ class CreateRunRequest(BaseModel):
 
 
 class GateScorecardSummary(BaseModel):
-    gate_0_profile_drift: Literal["PENDING", "PASS", "AUTO-FIX", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
-    gate_1_contract_grain: Literal["PENDING", "PASS", "AUTO-FIX", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
-    gate_2_sqlglot_ast: Literal["PENDING", "PASS", "AUTO-FIX", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
-    gate_3_networkx_dag: Literal["PENDING", "PASS", "AUTO-FIX", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
-    gate_4_yagni_cost_guard: Literal["PENDING", "PASS", "AUTO-FIX", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
-    gate_5_duckdb_sandbox: Literal["PENDING", "PASS", "AUTO-FIX", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
+    gate_0_profile_drift: Literal["PENDING", "PASS", "AUTO-FIX", "AUTO_REPAIRED", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
+    gate_1_contract_grain: Literal["PENDING", "PASS", "AUTO-FIX", "AUTO_REPAIRED", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
+    gate_2_sqlglot_ast: Literal["PENDING", "PASS", "AUTO-FIX", "AUTO_REPAIRED", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
+    gate_3_networkx_dag: Literal["PENDING", "PASS", "AUTO-FIX", "AUTO_REPAIRED", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
+    gate_4_yagni_cost_guard: Literal["PENDING", "PASS", "AUTO-FIX", "AUTO_REPAIRED", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
+    gate_5_duckdb_sandbox: Literal["PENDING", "PASS", "AUTO-FIX", "AUTO_REPAIRED", "REJECT-WITH-TRACE", "ASK-USER"] = "PENDING"
 
 
 class ProjectRunDTO(BaseModel):
@@ -810,10 +810,10 @@ class SandboxExecutionResponse(BaseModel):
 ROLE_CLEARANCE_LEVELS: dict[RbacRole, frozenset[str]] = {
     RbacRole.PUBLIC: frozenset({"PUBLIC"}),
     RbacRole.INTERNAL_MODELER: frozenset({"PUBLIC", "INTERNAL"}),
-    RbacRole.DATA_STEWARD: frozenset({"PUBLIC", "INTERNAL"}),
-    RbacRole.AUDITOR_FINANCE: frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL"}),
+    RbacRole.DATA_STEWARD: frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL"}),
+    RbacRole.AUDITOR_FINANCE: frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL", "MNPI"}),
     RbacRole.RESTRICTED_PII_CUSTODIAN: frozenset(
-        {"PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED_PII"}
+        {"PUBLIC", "INTERNAL", "CONFIDENTIAL", "MNPI", "RESTRICTED_PII"}
     ),
 }
 
@@ -842,13 +842,12 @@ def redact_event_for_role(event: dict[str, Any], role: RbacRole) -> dict[str, An
         redacted_pills: list[dict[str, Any]] = []
         for pill in raw_pills:
             pill_copy = dict(pill)
-            if classification == "RESTRICTED_PII":
-                pill_copy["business_key"] = "[REDACTED]"
-                pill_copy["entity_label"] = "[REDACTED]"
-                digest = str(pill_copy.get("full_sha256_hex", ""))
-                short_hex = f"{digest[:4]}..{digest[-4:]}" if len(digest) >= 8 else "REDACTED"
-                bkcc = pill_copy.get("bkcc_prefix", "GLOBAL")
-                pill_copy["pill_label"] = f"[HK: {short_hex} | {bkcc}:[REDACTED]]"
+            pill_copy["business_key"] = "[REDACTED]"
+            pill_copy["entity_label"] = "[REDACTED]"
+            digest = str(pill_copy.get("full_sha256_hex", ""))
+            short_hex = f"{digest[:4]}..{digest[-4:]}" if len(digest) >= 8 else "REDACTED"
+            bkcc = pill_copy.get("bkcc_prefix", "GLOBAL")
+            pill_copy["pill_label"] = f"[HK: {short_hex} | {bkcc}:[REDACTED]]"
             redacted_pills.append(pill_copy)
 
         cloned["layer2_visual_payload"] = {

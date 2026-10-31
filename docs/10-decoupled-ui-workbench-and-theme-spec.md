@@ -97,9 +97,9 @@ export type AgentPersona =
   | 'axi-dv'
   | 'deterministic-compiler';
 
-export type VerdictStatus = 'PASS' | 'AUTO-FIX' | 'REJECT-WITH-TRACE' | 'ASK-USER';
+export type VerdictStatus = 'PASS' | 'AUTO-FIX' | 'AUTO_REPAIRED' | 'REJECT-WITH-TRACE' | 'ASK-USER';
 
-export type DataClassification = 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL' | 'RESTRICTED_PII';
+export type DataClassification = 'PUBLIC' | 'INTERNAL' | 'CONFIDENTIAL' | 'MNPI' | 'RESTRICTED_PII';
 
 export interface SemanticHashPillDTO {
   pill_label: string;       // e.g. "[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]"
@@ -172,7 +172,7 @@ export interface OpenDVClientOptions {
   headers?: Record<string, string>;
 }
 
-export type GateStatus = 'PENDING' | 'PASS' | 'AUTO-FIX' | 'REJECT-WITH-TRACE' | 'ASK-USER';
+export type GateStatus = 'PENDING' | 'PASS' | 'AUTO-FIX' | 'AUTO_REPAIRED' | 'REJECT-WITH-TRACE' | 'ASK-USER';
 
 export interface GateScorecardSummaryDTO {
   gate_0_profile_drift: GateStatus;
