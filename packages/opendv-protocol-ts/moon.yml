@@ -1,0 +1,18 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-protocol-ts'
+language: 'typescript'
+layer: 'library'
+tags:
+  - 'typescript'
+  - 'protocol-sdk'
+
+dependsOn: []
+
+tasks:
+  codegen:
+    description: 'Generate TypeScript DTOs from schemas/*.json and openapi-v1.json.'
+    command: 'bun'
+    args:
+      - 'run'
+      - 'codegen'

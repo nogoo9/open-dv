@@ -1,0 +1,16 @@
+[project]
+name = "opendv-platform-api"
+version = "0.1.0"
+description = "Open-DV Headless Platform ASGI Server (/api/v1 REST + SSE)"
+requires-python = ">=3.12"
+dependencies = [
+    "opendv-core",
+    "opendv-telemetry",
+    "opendv-axi-verifier",
+    "opendv-duckdb-sandbox",
+    "opendv-agent-harness",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

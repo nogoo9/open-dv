@@ -1,0 +1,78 @@
+# /pyproject.toml
+[project]
+name = "opendv-workspace"
+version = "0.1.0"
+description = "Open-DV (v6.0): Neuro-Symbolic Agentic Data Vault 2.0 Modeller, 6-Gate AXI Verifier, and Headless Platform"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Apache-2.0" }
+dependencies = []
+
+[tool.uv.workspace]
+members = [
+    "packages/opendv-core",
+    "packages/opendv-telemetry",
+    "packages/opendv-axi-verifier",
+    "packages/opendv-duckdb-sandbox",
+    "packages/opendv-agent-harness",
+    "apps/opendv-platform-api",
+    "apps/opendv-cli",
+]
+
+[tool.uv.sources]
+opendv-core = { workspace = true }
+opendv-telemetry = { workspace = true }
+opendv-axi-verifier = { workspace = true }
+opendv-duckdb-sandbox = { workspace = true }
+opendv-agent-harness = { workspace = true }
+opendv-platform-api = { workspace = true }
+opendv-cli = { workspace = true }
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.0",
+    "pytest-asyncio>=0.25.0",
+    "httpx>=0.28.0",
+    "ruff>=0.9.0",
+    "mypy>=1.15.0",
+    "types-PyYAML>=6.0.12",
+    "pyyaml>=6.0.2",
+    "jsonschema>=4.23.0",
+    "duckdb>=1.2.0",
+    "pydantic>=2.10.0",
+    "networkx>=3.4.0",
+    "sqlglot>=26.0.0",
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["packages/*/src", "apps/*/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "N", "SIM", "RUF", "TID251"]
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"antigravity".msg = "Import from 'google.antigravity', never Python stdlib 'antigravity' (xkcd/353)."
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+[tool.pytest.ini_options]
+minversion = "9.0"
+addopts = "-ra -q --strict-markers --import-mode=importlib"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = [
+    "tests",
+    "packages/opendv-core/tests",
+    "packages/opendv-telemetry/tests",
+    "packages/opendv-axi-verifier/tests",
+    "packages/opendv-duckdb-sandbox/tests",
+    "packages/opendv-agent-harness/tests",
+    "apps/opendv-platform-api/tests",
+    "apps/opendv-cli/tests",
+]

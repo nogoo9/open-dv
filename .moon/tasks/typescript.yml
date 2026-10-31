@@ -1,0 +1,85 @@
+# /.moon/tasks/typescript.yml
+$schema: '../cache/schemas/tasks.json'
+
+inheritedBy:
+  languages: ['typescript']
+
+fileGroups:
+  sources:
+    - 'src/**/*.{ts,tsx,css,html}'
+    - 'package.json'
+    - 'tsconfig.json'
+  tests:
+    - 'tests/**/*.{ts,tsx}'
+    - 'src/**/*.test.{ts,tsx}'
+  configs:
+    - '/package.json'
+    - '/bun.lock'
+    - '/tsconfig.base.json'
+
+implicitInputs:
+  - '/package.json'
+  - '/bun.lock'
+  - '/tsconfig.base.json'
+  - 'package.json'
+  - 'tsconfig.json'
+
+taskOptions:
+  cache: true
+  outputStyle: 'buffer-only-failure'
+  retryCount: 0
+  runInCI: 'affected'
+
+tasks:
+  lint:
+    description: 'Run TypeScript & Biome lint verification across project sources.'
+    command: 'bun'
+    args:
+      - 'run'
+      - 'lint'
+    type: 'test'
+    deps:
+      - '^:build'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+
+  typecheck:
+    description: 'Run TypeScript compiler (tsc --noEmit) type verification.'
+    command: 'bun'
+    args:
+      - 'x'
+      - 'tsc'
+      - '--noEmit'
+    type: 'test'
+    deps:
+      - '^:build'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+
+  test:
+    description: 'Run Bun test runner across unit and protocol tests.'
+    command: 'bun'
+    args:
+      - 'test'
+    type: 'test'
+    deps:
+      - '^:build'
+    inputs:
+      - '@group(sources)'
+      - '@group(tests)'
+
+  build:
+    description: 'Bundle TypeScript package or application into dist/.'
+    command: 'bun'
+    args:
+      - 'run'
+      - 'build'
+    type: 'build'
+    deps:
+      - '^:build'
+    inputs:
+      - '@group(sources)'
+    outputs:
+      - 'dist/**'

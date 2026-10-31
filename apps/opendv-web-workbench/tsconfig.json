@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "paths": {
+      "@opendv/protocol-ts": [
+        "../../packages/opendv-protocol-ts/src/index.ts"
+      ],
+      "@opendv/protocol-ts/*": [
+        "../../packages/opendv-protocol-ts/src/*"
+      ]
+    }
+  },
+  "references": [
+    {
+      "path": "../../packages/opendv-protocol-ts"
+    }
+  ],
+  "include": [
+    "src/**/*"
+  ]
+}

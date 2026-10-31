@@ -1,0 +1,24 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-core'
+language: 'python'
+layer: 'library'
+tags:
+  - 'python'
+  - 'domain-core'
+
+dependsOn: []
+
+tasks:
+  validate-schemas:
+    description: 'Validate normative Draft 2020-12 JSON schemas.'
+    command: 'uv'
+    args:
+      - 'run'
+      - '--package'
+      - 'opendv-core'
+      - 'python'
+      - '-c'
+      - 'import json, pathlib, jsonschema; [jsonschema.Draft202012Validator.check_schema(json.loads(p.read_text(encoding="utf-8"))) for p in pathlib.Path("schemas").glob("*.json")]; print("Normative schemas valid.")'
+    inputs:
+      - '/schemas/*.json'

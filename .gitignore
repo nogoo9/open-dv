@@ -3,3 +3,10 @@ __pycache__/
 *$py.class
 .pytest_cache/
 .venv/
+.moon/cache/
+node_modules/
+dist/
+*.egg-info/
+.mypy_cache/
+.ruff_cache/
+*.tsbuildinfo

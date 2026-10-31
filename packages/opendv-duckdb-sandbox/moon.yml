@@ -1,0 +1,13 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-duckdb-sandbox'
+language: 'python'
+layer: 'library'
+tags:
+  - 'python'
+  - 'duckdb-sandbox'
+
+dependsOn:
+  - 'opendv-core'
+  - 'opendv-axi-verifier'
+  - 'opendv-telemetry'
