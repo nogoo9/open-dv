@@ -20,7 +20,7 @@
 3. **1-Day UI Re-Implementation Guarantee:** Because the backend pre-computes view projections (`/api/v1/runs/{id}/workbench/{view_id}`) and streams self-contained `VaultObservabilityEvent` records (`/api/v1/runs/{id}/events`), any presentation client—whether `apps/opendv-web-workbench` (React 19 + Tailwind v4), a future Svelte/Vue/Solid web app, a Tauri/Electron desktop client, a VS Code extension, or `apps/opendv-cli`—can be built or replaced from scratch without touching a single line of backend code.
 4. **Content-Addressable Artifact Store (CAS):** Every model contract YAML, Canonical IR JSON, `@toon_v1` diagnostic trace, compiled 4-Zone SQL bundle, and Graph B empirical profile is stored by its uppercase hex SHA-256 digest under `state/artifacts/<sha256>` and referenced in `VaultObservabilityEvent.context_refs` (`graph_a_sha256`, `graph_b_sha256`, `contract_yaml_pre_sha256`, `contract_yaml_post_sha256`, `canonical_ir_sha256`, `compiled_sql_sha256`, `toon_trace_sha256`).
 5. **Server-Side 5-Tier RBAC Redaction Before Wire Serialization:** Every HTTP request and SSE connection is filtered through `opendv-telemetry`'s 5-tier RBAC classification engine *before* leaving the server process. Raw `CONFIDENTIAL` (MNPI) or `RESTRICTED_PII` values are masked unless the caller holds clearance, while identity keys are rendered as **Semantic Hash Pills** (`[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`).
-6. **First-Class Human-in-the-Loop (`ASK-USER` / Captain-Hold) Lifecycle:** When the pipeline encounters a genuine business-semantic ambiguity (`Tier-U3` unstructured entity resolution margin $< 0.15$, `DV-EVO-003` grain conflict, unmapped ontology concept, or `max_retries=3` exhaustion), the run transitions to `PAUSED_CAPTAIN_HOLD`, emits an `ASK-USER` event on the SSE stream, and parks until resolved via `POST /api/v1/runs/{id}/decisions`.
+6. **First-Class Human-in-the-Loop (`ASK-USER` / Captain-Hold) Lifecycle:** When the pipeline encounters a genuine business-semantic ambiguity (`Tier-U3` unstructured entity resolution margin $< 0.15$, `DV-EVO-003` grain conflict, unmapped ontology concept, or `max_retries=3` exhaustion), the run transitions to `PAUSED_HOLD`, emits an `ASK-USER` event on the SSE stream, and parks until resolved via `POST /api/v1/runs/{id}/decisions`.
 
 ---
 
@@ -34,7 +34,6 @@ open-dv/
 ├── .moon/
 │   ├── workspace.yml                             # Moon (>=2.3.0) workspace graph, VCS, hasher & tag/layer rules
 │   ├── toolchains.yml                            # Moon v2.3+ WASM toolchains (unstable_python, unstable_uv, bun, js, ts)
-│   ├── toolchain.yml                             # Compatibility alias/reference for Moon v1.x -> v2.x migration
 │   └── tasks/
 │       ├── python.yml                            # Global inherited tasks for Python projects (lint, format-check, typecheck, test, build)
 │       └── typescript.yml                        # Global inherited tasks for TypeScript projects (lint, typecheck, test, build)
@@ -116,7 +115,7 @@ flowchart TD
 
 | # | Toolchain Trap | Root Cause in `moon 2.3+` / `uv 0.11+` / `bun 1.3+` | Normative Resolution |
 | :---: | :--- | :--- | :--- |
-| **1** | **`.moon/toolchains.yml` vs. `.moon/toolchain.yml` & WASM Plugin IDs** | In `moon >= 2.0` (`2.3.0`), toolchain configuration moved to `.moon/toolchains.yml` and uses WASM plugin keys `unstable_python` and `unstable_uv`. | Commit `.moon/toolchains.yml` as primary (with `.moon/toolchain.yml` documented as a symlink/compatibility alias for Moon 1.x runners). |
+| **1** | **`.moon/toolchains.yml` & WASM Plugin IDs** | In `moon >= 2.0` (`2.3.0`), toolchain configuration lives in `.moon/toolchains.yml` (plural) and uses WASM plugin keys `unstable_python` and `unstable_uv`. | Commit `.moon/toolchains.yml` with `unstable_python` and `unstable_uv` plugin keys (never the legacy Moon 1.x `.moon/toolchain.yml`). |
 | **2** | **`$project` vs. `$projectName` Token Expansion in `.moon/tasks/python.yml`** | `$projectName` expands to `project.title` (containing spaces), breaking `uv run --package $projectName`. | Always use `$project` (which expands to the exact project ID, e.g. `opendv-core`) in `.moon/tasks/python.yml`. |
 | **3** | **Moon Layer Constraint (`application` $\not\to$ `application`)** | `unstable_python` infers Moon graph edges from `pyproject.toml` `dependencies`. If `apps/opendv-cli` depends on `opendv-platform-api`, Moon raises `invalid_layer_relationship`. | Both `apps/opendv-platform-api` and `apps/opendv-cli` depend **only** on the 5 `packages/*` libraries (`layer: 'library'`). |
 | **4** | **TypeScript `TS6305` Composite Project Reference Ordering** | Running `tsc --noEmit` in `apps/opendv-web-workbench` before `packages/opendv-protocol-ts` emits `.d.ts` declarations fails when `includeProjectReferenceSources: true`. | Set `includeProjectReferenceSources: false` in `.moon/toolchains.yml`, run `bun x tsc --emitDeclarationOnly && bun build ...` in `opendv-protocol-ts:build`, and declare `deps: ['^:build']` in `.moon/tasks/typescript.yml`. |
@@ -207,13 +206,13 @@ constraints:
 telemetry: false
 ```
 
-### 3.3 `.moon/toolchains.yml` (and `.moon/toolchain.yml` Alias)
+### 3.3 `.moon/toolchains.yml`
 
 > [!IMPORTANT]
-> In Moon v2.0+ (`2.3.0`), `.moon/toolchains.yml` is the canonical filename. Worker `WP-01` creates `.moon/toolchains.yml` with the exact content below and creates a relative symlink `.moon/toolchain.yml -> toolchains.yml` so tooling inspecting either path resolves identically.
+> In Moon v2.0+ (`2.3.0`), `.moon/toolchains.yml` is the canonical toolchain configuration filename. Worker `WP-01` creates `.moon/toolchains.yml` with the exact content below.
 
 ```yaml
-# /.moon/toolchains.yml (symlinked at /.moon/toolchain.yml)
+# /.moon/toolchains.yml
 $schema: './cache/schemas/toolchains.json'
 
 proto:
@@ -645,7 +644,7 @@ testpaths = [
   3. Runs the **4 Adversarial Shadow Sandbox Batches** (Batch 1 Null-FK & Ghost `INNER JOIN` Completeness, Batch 2 Replay Idempotency $\Delta\text{rows}=0$, Batch 3 Single-Attribute Delta & Boundary-Shift Collision, Batch 4 $N=1 \to N=2$ Cross-Source Collision) and evaluates `DV-DYN-001`–`015`.
 
 ### 4.5 `packages/opendv-agent-harness` — Vendor-Neutral Agent Runtime (`VaultAgentHarness`)
-- Fully specified in [`docs/09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md). Provides `VaultAgentHarness`, the 8 pure-Python domain tools, `AntigravityHarnessAdapter` (`google.antigravity`), `ClaudeAgentHarnessAdapter` (`claude_agent_sdk`), and `DeterministicReplayHarnessAdapter`.
+- Fully specified in [`docs/09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md). Provides `VaultAgentHarness`, the 8 pure-Python domain tools, `AntigravityHarnessAdapter` (`google.antigravity`), and `ClaudeAgentHarnessAdapter` (`claude_agent_sdk`).
 
 ### 4.6 `apps/opendv-platform-api` & `apps/opendv-cli` — Headless ASGI Server & CLI
 - `apps/opendv-platform-api` exposes all platform capabilities over `/api/v1/...` REST + SSE endpoints.
@@ -661,22 +660,22 @@ All endpoints are versioned under `/api/v1`. Error responses conform to **RFC 94
 
 | Resource Group | HTTP Method & Path | Description | Primary Backing Package |
 | :--- | :--- | :--- | :--- |
-| **Health & Capabilities** | `GET /api/v1/health` | Liveness, DuckDB version, active harness adapters (`antigravity`, `claude`, `replay`), and schema versions. | `opendv-platform-api` |
-| **Health & Capabilities** | `GET /api/v1/platform/capabilities` | Supported model tiers (`argon`, `flash`, `local`), RBAC tiers, 6 gates, and 12 workbench views (`WB-00`–`WB-11`). | `opendv-platform-api` |
-| **Projects / Workspaces** | `POST /api/v1/projects` *(alias `/api/v1/workspaces`)* | Register a project workspace with `Graph A` ontology, Bronze source feeds, and optional baseline contract. | `opendv-core` |
-| **Projects / Workspaces** | `GET /api/v1/projects` *(alias `/api/v1/workspaces`)* | List registered projects and their latest pipeline run status. | `opendv-core` |
-| **Projects / Workspaces** | `GET /api/v1/projects/{project_id}` | Inspect project manifest, `Graph A` ontology summary, and registered Bronze tables/documents. | `opendv-core` |
-| **Pipeline Runs** | `POST /api/v1/runs` | Launch a full or stage-scoped pipeline run using `antigravity`, `claude`, or `replay` harness. | `opendv-agent-harness` |
+| **Health & Capabilities** | `GET /api/v1/health` | Liveness, DuckDB version, active harness adapters (`antigravity`, `claude`), and schema versions. | `opendv-platform-api` |
+| **Health & Capabilities** | `GET /api/v1/platform/capabilities` | Supported model tiers (`argon`, `flash`), RBAC tiers, 6 gates, and 12 workbench views (`WB-00`–`WB-11`). | `opendv-platform-api` |
+| **Projects** | `POST /api/v1/projects` | Register a project workspace with `Graph A` ontology, Bronze source feeds, and optional baseline contract. | `opendv-core` |
+| **Projects** | `GET /api/v1/projects` | List registered projects and their latest pipeline run status. | `opendv-core` |
+| **Projects** | `GET /api/v1/projects/{project_id}` | Inspect project manifest, `Graph A` ontology summary, and registered Bronze tables/documents. | `opendv-core` |
+| **Pipeline Runs** | `POST /api/v1/runs` | Launch a full or stage-scoped pipeline run using `antigravity` or `claude` harness. | `opendv-agent-harness` |
 | **Pipeline Runs** | `GET /api/v1/runs` | List pipeline runs filtered by `project_id`, `status`, or `harness_provider`. | `opendv-telemetry` |
 | **Pipeline Runs** | `GET /api/v1/runs/{run_id}` | Get run summary, current `stage_id`, 6-Gate scoreboard, active Captain-Holds, and CAS `context_refs`. | `opendv-telemetry` |
 | **Pipeline Runs** | `POST /api/v1/runs/{run_id}/abort` | Cancel an active run (`AntigravityHarnessAdapter.cancel_active_turn` / `ClaudeSDKClient.interrupt`). | `opendv-agent-harness` |
 | **SSE Event Stream** | `GET /api/v1/runs/{run_id}/events` | **Real-time SSE stream (`text/event-stream`)** of `VaultObservabilityEvent` JSON/NDJSON frames with `Last-Event-ID` replay. | `opendv-telemetry` |
 | **Run Gate Verdicts** | `GET /api/v1/runs/{run_id}/gates` | Retrieve the 6-Gate verification matrix (`Gates 0–5`), applied codemods (`A.1`–`A.5`, `A.9a`), and `@toon_v1` diagnostic traces for `run_id`. | `opendv-axi-verifier` |
-| **Run Gate Evaluation** | `POST /api/v1/runs/{run_id}/gates` *(alias `/api/v1/verifier/evaluate`)* | Trigger or re-evaluate static/topological/AST gates and preview codemod diffs on a candidate contract. | `opendv-axi-verifier` |
+| **Run Gate Evaluation** | `POST /api/v1/runs/{run_id}/gates` | Trigger or re-evaluate static/topological/AST gates and preview codemod diffs on a candidate contract. | `opendv-axi-verifier` |
 | **Run Shadow Sandbox** | `GET /api/v1/runs/{run_id}/sandbox` | Retrieve the 4-Batch Adversarial DuckDB Shadow Sandbox results and `DV-DYN-001`–`015` check matrix for `run_id`. | `opendv-duckdb-sandbox` |
-| **Run Shadow Sandbox** | `POST /api/v1/runs/{run_id}/sandbox` *(alias `/api/v1/sandbox/sessions`)* | Execute Adversarial Batches `1–4` or run Bi-Temporal Point-in-Time `Query D.10` / `D.10b` at custom `assertion_cutoff_ts`. | `opendv-duckdb-sandbox` |
-| **Captain-Hold Decisions** | `GET /api/v1/runs/{run_id}/decisions` *(alias `/api/v1/holds`)* | List pending and resolved `ASK-USER` / Captain-Hold escalations (e.g., `Tier-U3` entity resolution or `DV-EVO-003`). | `opendv-agent-harness` |
-| **Captain-Hold Decisions** | `POST /api/v1/runs/{run_id}/decisions` *(alias `/api/v1/holds/{hold_id}/resolve`)* | Submit a human steward decision (`APPROVE`, `REJECT`, `ANSWER`) to resolve a Captain-Hold and resume the run. | `opendv-agent-harness` |
+| **Run Shadow Sandbox** | `POST /api/v1/runs/{run_id}/sandbox` | Execute Adversarial Batches `1–4` or run Bi-Temporal Point-in-Time `Query D.10` / `D.10b` at custom `assertion_cutoff_ts`. | `opendv-duckdb-sandbox` |
+| **Captain-Hold Decisions** | `GET /api/v1/runs/{run_id}/decisions` | List pending and resolved `ASK-USER` / Captain-Hold escalations (e.g., `Tier-U3` entity resolution or `DV-EVO-003`). | `opendv-agent-harness` |
+| **Captain-Hold Decisions** | `POST /api/v1/runs/{run_id}/decisions` | Submit a human steward decision (`APPROVE`, `REJECT`, `ANSWER`) to resolve a Captain-Hold and resume the run. | `opendv-agent-harness` |
 | **Workbench Projections** | `GET /api/v1/runs/{run_id}/workbench/{view_id}` | Fetch pre-computed, RBAC-redacted 3-Layer view state for `WB-00` through `WB-11`. | `opendv-platform-api` |
 | **CAS Artifacts** | `GET /api/v1/artifacts/{sha256}` | Fetch immutable content-addressable artifact (`YAML`, `CanonicalIR` JSON, `4-Zone SQL`, `@toon_v1` trace) by SHA-256. | `opendv-telemetry` |
 | **CAS Artifacts** | `POST /api/v1/artifacts` | Upload a content-addressable artifact and return its verified uppercase hex `sha256` digest. | `opendv-telemetry` |
@@ -738,8 +737,8 @@ class CreateRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_id: str
-    harness_provider: Literal["antigravity", "claude", "replay"] = "antigravity"
-    model_tier_override: Literal["argon", "flash", "local"] | None = None
+    harness_provider: Literal["antigravity", "claude"] = "antigravity"
+    model_tier_override: Literal["argon", "flash"] | None = None
     contract_path: str | None = None
     max_repair_retries: int = Field(default=3, ge=0, le=5)
     run_sandbox_batches: bool = True
@@ -757,7 +756,7 @@ class GateScorecardSummary(BaseModel):
 class ProjectRunDTO(BaseModel):
     run_id: str
     project_id: str
-    harness_provider: str
+    harness_provider: Literal["antigravity", "claude"]
     status: RunStatus
     started_at_utc: str
     completed_at_utc: str | None = None
@@ -808,24 +807,64 @@ class SandboxExecutionResponse(BaseModel):
     query_d10_rows: list[dict[str, Any]] = Field(default_factory=list)
 
 
+ROLE_CLEARANCE_LEVELS: dict[RbacRole, frozenset[str]] = {
+    RbacRole.PUBLIC: frozenset({"PUBLIC"}),
+    RbacRole.INTERNAL_MODELER: frozenset({"PUBLIC", "INTERNAL"}),
+    RbacRole.DATA_STEWARD: frozenset({"PUBLIC", "INTERNAL"}),
+    RbacRole.AUDITOR_FINANCE: frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL"}),
+    RbacRole.RESTRICTED_PII_CUSTODIAN: frozenset(
+        {"PUBLIC", "INTERNAL", "CONFIDENTIAL", "RESTRICTED_PII"}
+    ),
+}
+
+
 def redact_event_for_role(event: dict[str, Any], role: RbacRole) -> dict[str, Any]:
     """
     Enforce Server-Side 5-Tier RBAC Redaction (docs/06 §1.1 & docs/08 §1.1)
     before any VaultObservabilityEvent is serialized over REST or SSE.
     """
     cloned: dict[str, Any] = json.loads(json.dumps(event))
-    classification = cloned.get("data_classification", "INTERNAL")
-    clears_mnpi = role in {RbacRole.AUDITOR_FINANCE, RbacRole.RESTRICTED_PII_CUSTODIAN}
-    clears_pii = role == RbacRole.RESTRICTED_PII_CUSTODIAN
+    classification = str(cloned.get("data_classification", "INTERNAL"))
+    cleared_tiers = ROLE_CLEARANCE_LEVELS.get(role, frozenset({"PUBLIC"}))
 
-    if (classification == "CONFIDENTIAL" and not clears_mnpi) or (
-        classification == "RESTRICTED_PII" and not clears_pii
-    ):
+    if classification not in cleared_tiers:
+        stage_id = cloned.get("stage_id", "UNKNOWN_STAGE")
         banner = cloned.get("layer1_story_banner", {})
-        banner["headline"] = f"[REDACTED {classification}] {banner.get('headline', '')[:90]}"
+        banner["headline"] = (
+            f"[REDACTED {classification}] Stage {stage_id} telemetry masked for role '{role.value}'."
+        )
         banner["business_impact"] = (
             f"Sensitive {classification} payload masked for role '{role.value}'."
         )
+
+        layer2 = cloned.get("layer2_visual_payload", {})
+        raw_pills = layer2.get("semantic_hash_pills", [])
+        redacted_pills: list[dict[str, Any]] = []
+        for pill in raw_pills:
+            pill_copy = dict(pill)
+            if classification == "RESTRICTED_PII":
+                pill_copy["business_key"] = "[REDACTED]"
+                pill_copy["entity_label"] = "[REDACTED]"
+                digest = str(pill_copy.get("full_sha256_hex", ""))
+                short_hex = f"{digest[:4]}..{digest[-4:]}" if len(digest) >= 8 else "REDACTED"
+                bkcc = pill_copy.get("bkcc_prefix", "GLOBAL")
+                pill_copy["pill_label"] = f"[HK: {short_hex} | {bkcc}:[REDACTED]]"
+            redacted_pills.append(pill_copy)
+
+        cloned["layer2_visual_payload"] = {
+            "semantic_hash_pills": redacted_pills,
+            "summary_metrics": {
+                "redacted": True,
+                "required_classification": classification,
+            },
+        }
+
+        if "layer3_formal_proof" in cloned and isinstance(cloned["layer3_formal_proof"], dict):
+            proof = cloned["layer3_formal_proof"]
+            cloned["layer3_formal_proof"] = {
+                k: (v if k == "algorithm_ref" else f"[REDACTED {classification}]")
+                for k, v in proof.items()
+            }
     return cloned
 
 
@@ -869,10 +908,10 @@ Every `VaultObservabilityEvent` emitted by the platform is simultaneously:
 
 ```text
 id: evt-pe-001
-data: {"event_id":"evt-pe-001","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7","parent_span_id":null,"timestamp_utc":"2026-10-30T09:00:01Z","stage_id":"STAGE_00_ORCHESTRATION","workbench_view_id":"WB-01","viz_id":"VIZ-STEP-01","agent_persona":"vault-first-mate","status":"PASS","rule_ids_evaluated":["DV-STR-001","KEY-04"],"data_classification":"INTERNAL","layer1_story_banner":{"headline":"Enterprise Ontology Grounded: 4 core business concepts anchored to 44 physical columns.","business_impact":"Prevents siloed source-system Data Vault schemas across Investran, DealCloud, and Legacy GP.","verdict_pill":"PASS"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]","full_sha256_hex":"5D15C3A29E8F4B107D6C2A1E9B8F0D4C3A2E1B0F9D8C7B6A5E4F3D2C1B0A0AE4","bkcc_prefix":"GLOBAL","business_key":"LP-101","entity_label":"CalPERS"}],"summary_metrics":{"ontology_coverage_pct":100.0,"unmapped_concepts":0}}}
+data: {"event_id":"evt-pe-001","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7","parent_span_id":null,"timestamp_utc":"2026-10-30T09:00:01Z","stage_id":"STAGE_00_ORCHESTRATION","workbench_view_id":"WB-01","viz_id":"VIZ-STEP-01","agent_persona":"vault-first-mate","status":"PASS","rule_ids_evaluated":["DV-STR-001","KEY-04"],"data_classification":"INTERNAL","layer1_story_banner":{"headline":"Enterprise Ontology Grounded: 4 core business concepts anchored to 44 physical columns.","business_impact":"Prevents siloed source-system Data Vault schemas across Investran, DealCloud, and Legacy GP.","verdict_pill":"PASS"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]","full_sha256_hex":"5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4","bkcc_prefix":"GLOBAL","business_key":"LP-101","entity_label":"CalPERS"}],"summary_metrics":{"ontology_coverage_pct":100.0,"unmapped_concepts":0}}}
 
 id: evt-pe-004
-data: {"event_id":"evt-pe-004","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"a2fb4a1d1a96d312","parent_span_id":"00f067aa0ba902b7","timestamp_utc":"2026-10-30T09:00:08Z","stage_id":"STAGE_02_SCOUT_UNSTRUCTURED","workbench_view_id":"WB-03","viz_id":"VIZ-GATE-06","agent_persona":"scout-unstructured","status":"ASK-USER","rule_ids_evaluated":["ALG-A9B"],"data_classification":"CONFIDENTIAL","layer1_story_banner":{"headline":"Extracted 4 terms from calpers_side_letter.pdf: 2 LEIs bound; 1 mention held for Captain.","business_impact":"Prevents hallucinated Fund Hub keys from unverified PDF text; awaits steward confirmation.","verdict_pill":"ASK-USER"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 864D..EE6B | S3:calpers_side_letter.pdf]","full_sha256_hex":"864D7C1A2B3E4F5061728394A5B6C7D8E9F01A2B3C4D5E6F708192A3B4C5EE6B","bkcc_prefix":"S3","business_key":"calpers_side_letter_fund_iv_2026.pdf","entity_label":"CalPERS Side Letter"}],"summary_metrics":{"spans_extracted":4,"tier_u1_bound":2,"tier_u2_bound":1,"tier_u3_held":1}}}
+data: {"event_id":"evt-pe-004","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"a2fb4a1d1a96d312","parent_span_id":"00f067aa0ba902b7","timestamp_utc":"2026-10-30T09:00:08Z","stage_id":"STAGE_02_SCOUT_UNSTRUCTURED","workbench_view_id":"WB-03","viz_id":"VIZ-GATE-06","agent_persona":"scout-unstructured","status":"ASK-USER","rule_ids_evaluated":["ALG-A9B"],"data_classification":"CONFIDENTIAL","layer1_story_banner":{"headline":"Extracted 4 terms from calpers_side_letter.pdf: 2 LEIs bound; 1 mention held for Captain.","business_impact":"Prevents hallucinated Fund Hub keys from unverified PDF text; awaits steward confirmation.","verdict_pill":"ASK-USER"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 864D..EE6B | GLOBAL:calpers_side_letter.pdf]","full_sha256_hex":"864D5083723B9FD7FE69085C2C31B646BD5E3DEAEF61B64C08D545EDE502EE6B","bkcc_prefix":"GLOBAL","business_key":"s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf","entity_label":"CalPERS Side Letter"}],"summary_metrics":{"spans_extracted":4,"tier_u1_bound":2,"tier_u2_bound":1,"tier_u3_held":1}}}
 
 event: run_complete
 data: {"status":"COMPLETED"}

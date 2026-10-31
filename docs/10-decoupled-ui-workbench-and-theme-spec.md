@@ -172,6 +172,17 @@ export interface OpenDVClientOptions {
   headers?: Record<string, string>;
 }
 
+export type GateStatus = 'PENDING' | 'PASS' | 'AUTO-FIX' | 'REJECT-WITH-TRACE' | 'ASK-USER';
+
+export interface GateScorecardSummaryDTO {
+  gate_0_profile_drift: GateStatus;
+  gate_1_contract_grain: GateStatus;
+  gate_2_sqlglot_ast: GateStatus;
+  gate_3_networkx_dag: GateStatus;
+  gate_4_yagni_cost_guard: GateStatus;
+  gate_5_duckdb_sandbox: GateStatus;
+}
+
 export interface ProjectDTO {
   project_id: string;
   display_name: string;
@@ -184,26 +195,35 @@ export interface ProjectDTO {
 export interface ProjectRunDTO {
   run_id: string;
   project_id: string;
+  harness_provider: 'antigravity' | 'claude';
   status: 'PENDING' | 'RUNNING' | 'PAUSED_HOLD' | 'COMPLETED' | 'FAILED' | 'ABORTED';
   started_at_utc: string;
   completed_at_utc?: string | null;
   current_stage_id: StageId;
   current_view_id: WorkbenchViewId;
   event_count: number;
+  gate_scorecard: GateScorecardSummaryDTO;
+  active_hold_ids: string[];
+  events_sse_url: string;
+  gates_url: string;
+  sandbox_url: string;
+  decisions_url: string;
 }
 
 export interface CaptainHoldDecisionRequest {
   event_id: string;
+  hold_id?: string | null;
   decision_type: 'RESOLVE_CAPTAIN_HOLD';
   action: 'APPROVE' | 'REJECT' | 'ANSWER';
-  selected_candidate_id?: string;
-  resolution_notes?: string;
+  selected_candidate_id?: string | null;
+  resolution_notes?: string | null;
 }
 
 export interface CaptainHoldDecisionResponse {
   decision_id: string;
   status: 'ACCEPTED' | 'REJECTED';
   resumed_run_id: string;
+  next_stage_id: StageId;
   next_event_id: string;
 }
 
@@ -290,19 +310,183 @@ export class OpenDVPlatformClient {
 ```
 
 ```typescript
+// packages/opendv-protocol-ts/src/client/sse-client.ts
+import type { VaultObservabilityEventDTO } from '../types/observability-event';
+
+export interface VaultEventStreamOptions {
+  streamUrl: string;
+  lastEventId?: string;
+  reconnectBaseDelayMs?: number;
+  maxReconnectDelayMs?: number;
+  onEvent: (event: VaultObservabilityEventDTO) => void;
+  onSnapshot?: (snapshot: { run_id: string; status: string; event_count: number }) => void;
+  onHeartbeat?: (heartbeat: { ts: string; cursor: number }) => void;
+  onError?: (error: unknown) => void;
+}
+
+export class VaultEventStreamClient {
+  private readonly options: VaultEventStreamOptions;
+  private eventSource: EventSource | null = null;
+  private lastEventId: string | undefined;
+  private reconnectAttempts = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private closedByCaller = false;
+
+  constructor(options: VaultEventStreamOptions) {
+    this.options = options;
+    this.lastEventId = options.lastEventId;
+  }
+
+  connect(): void {
+    this.closedByCaller = false;
+    const url = new URL(this.options.streamUrl, globalThis.location?.origin ?? 'http://localhost');
+    if (this.lastEventId) {
+      url.searchParams.set('last_event_id', this.lastEventId);
+    }
+
+    const es = new EventSource(url.toString());
+    this.eventSource = es;
+
+    es.addEventListener('vault.snapshot', (ev: MessageEvent<string>) => {
+      this.reconnectAttempts = 0;
+      if (ev.lastEventId) this.lastEventId = ev.lastEventId;
+      this.options.onSnapshot?.(JSON.parse(ev.data));
+    });
+
+    es.addEventListener('vault.event', (ev: MessageEvent<string>) => {
+      this.reconnectAttempts = 0;
+      if (ev.lastEventId) this.lastEventId = ev.lastEventId;
+      const parsed: VaultObservabilityEventDTO = JSON.parse(ev.data);
+      this.lastEventId = parsed.event_id;
+      this.options.onEvent(parsed);
+    });
+
+    es.addEventListener('vault.heartbeat', (ev: MessageEvent<string>) => {
+      this.options.onHeartbeat?.(JSON.parse(ev.data));
+    });
+
+    es.onerror = (err) => {
+      this.options.onError?.(err);
+      es.close();
+      this.eventSource = null;
+      if (!this.closedByCaller) {
+        this.scheduleReconnect();
+      }
+    };
+  }
+
+  private scheduleReconnect(): void {
+    const base = this.options.reconnectBaseDelayMs ?? 500;
+    const maxDelay = this.options.maxReconnectDelayMs ?? 10_000;
+    const delay = Math.min(maxDelay, base * 2 ** this.reconnectAttempts);
+    this.reconnectAttempts += 1;
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
+  }
+
+  disconnect(): void {
+    this.closedByCaller = true;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.eventSource?.close();
+    this.eventSource = null;
+  }
+}
+```
+
+```typescript
+// packages/opendv-protocol-ts/src/client/mock-client.ts
+import type { VaultObservabilityEventDTO } from '../types/observability-event';
+
+export interface OfflineReplayOptions {
+  stepDelayMs?: number;
+  signal?: AbortSignal;
+}
+
+export class MockVaultEventStreamClient {
+  private readonly events: readonly VaultObservabilityEventDTO[];
+
+  constructor(events: readonly VaultObservabilityEventDTO[]) {
+    this.events = events;
+  }
+
+  static fromJsonl(jsonlText: string): MockVaultEventStreamClient {
+    const events: VaultObservabilityEventDTO[] = [];
+    for (const rawLine of jsonlText.split(/\r?\n/)) {
+      const trimmed = rawLine.trim();
+      if (!trimmed) continue;
+      events.push(JSON.parse(trimmed) as VaultObservabilityEventDTO);
+    }
+    return new MockVaultEventStreamClient(events);
+  }
+
+  getEvents(): readonly VaultObservabilityEventDTO[] {
+    return this.events;
+  }
+
+  async replay(
+    onEvent: (event: VaultObservabilityEventDTO, index: number) => void,
+    options: OfflineReplayOptions = {}
+  ): Promise<number> {
+    const stepDelayMs = options.stepDelayMs ?? 0;
+    let emitted = 0;
+    for (let i = 0; i < this.events.length; i += 1) {
+      if (options.signal?.aborted) break;
+      if (stepDelayMs > 0) {
+        await new Promise((resolve) => setTimeout(resolve, stepDelayMs));
+      }
+      onEvent(this.events[i], i);
+      emitted += 1;
+    }
+    return emitted;
+  }
+}
+```
+
+```typescript
 // packages/opendv-protocol-ts/src/utils/hash-pill.ts
 import type { SemanticHashPillDTO } from '../types/observability-event';
 
+export interface Dv2HashOptions {
+  isBusinessKey?: boolean;
+  bkccPrefix?: string | null;
+}
+
+export const ZERO_KEY_HEX = '0'.repeat(64);
+
 /**
  * Compute Algorithm A.5 6-Stage Length-Prefixed Uppercase SHA-256 Digest using Web Crypto API.
- * Uses '-1:^^' as the canonical null sentinel per docs/01 §4.2 and docs/05 Algorithm A.5.
+ * - Uses '-1:^^' as the canonical null sentinel per docs/01 §4.2 and docs/05 Algorithm A.5.
+ * - Preserves case for Satellite hash_diff digests (isBusinessKey: false) and uppercases
+ *   Business Key tokens (isBusinessKey: true, default).
+ * - Resolves all-NULL business keys to the 64-zero Zero-Key sentinel (KEY-02b).
  */
 export async function computeDv2LengthPrefixedSha256(
-  tokens: (string | null | undefined)[]
+  tokens: (string | null | undefined)[],
+  options: Dv2HashOptions = {}
 ): Promise<string> {
+  const isBusinessKey = options.isBusinessKey ?? true;
+  const normalized = tokens.map((token) => {
+    if (token === null || token === undefined) return '';
+    const trimmed = token.trim();
+    return isBusinessKey ? trimmed.toUpperCase() : trimmed;
+  });
+
+  if (isBusinessKey && normalized.every((val) => val.length === 0)) {
+    return ZERO_KEY_HEX;
+  }
+
   const parts: string[] = [];
-  for (const token of tokens) {
-    const cleaned = token ? token.trim().toUpperCase() : '';
+  if (isBusinessKey && options.bkccPrefix) {
+    const bkcc = options.bkccPrefix.trim().toUpperCase();
+    if (bkcc.length > 0) {
+      const bkccBytes = new TextEncoder().encode(bkcc).length;
+      parts.push(`${bkccBytes}:${bkcc}`);
+    }
+  }
+
+  for (const cleaned of normalized) {
     if (!cleaned) {
       parts.push('-1:^^');
     } else {
@@ -513,11 +697,35 @@ from __future__ import annotations
 import hashlib
 
 
-def verify_ts_python_hash_pill_parity(tokens: list[str | None]) -> str:
+ZERO_KEY_HEX = "0" * 64
+
+
+def verify_ts_python_hash_pill_parity(
+    tokens: list[str | None],
+    *,
+    is_business_key: bool = True,
+    bkcc_prefix: str | None = None,
+) -> str:
     """Reference implementation matching computeDv2LengthPrefixedSha256 in @opendv/protocol-ts."""
-    parts: list[str] = []
+    normalized: list[str] = []
     for token in tokens:
-        cleaned = "" if token is None else token.strip().upper()
+        if token is None:
+            normalized.append("")
+        else:
+            trimmed = token.strip()
+            normalized.append(trimmed.upper() if is_business_key else trimmed)
+
+    if is_business_key and all(val == "" for val in normalized):
+        return ZERO_KEY_HEX
+
+    parts: list[str] = []
+    if is_business_key and bkcc_prefix:
+        bkcc = bkcc_prefix.strip().upper()
+        if bkcc:
+            bkcc_len = len(bkcc.encode("utf-8"))
+            parts.append(f"{bkcc_len}:{bkcc}")
+
+    for cleaned in normalized:
         if not cleaned:
             parts.append("-1:^^")
         else:
