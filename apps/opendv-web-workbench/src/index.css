@@ -1,0 +1,107 @@
+/* apps/opendv-web-workbench/src/index.css */
+@import "tailwindcss";
+
+@layer base {
+	:root,
+	[data-theme="obsidian"] {
+		--dv-bg-canvas: #0b0f19;
+		--dv-surface-1: #111827;
+		--dv-surface-2: #1f2937;
+		--dv-surface-3: #374151;
+		--dv-border-subtle: #1f293d;
+		--dv-border-strong: #374151;
+
+		--dv-text-primary: #f9fafb;
+		--dv-text-secondary: #9ca3af;
+		--dv-text-muted: #6b7280;
+		--dv-text-inverse: #111827;
+
+		/* Data Vault 2.0 Dual-Encoded Entity Accents (docs/06 §1.4 & §2.2) */
+		--dv-hub-accent: #3b82f6; /* [HUB] Royal Blue */
+		--dv-lnk-accent: #10b981; /* [LNK] Emerald Green */
+		--dv-sal-accent: #14b8a6; /* [SAL] Teal */
+		--dv-sat-accent: #f59e0b; /* [SAT] Amber Gold */
+		--dv-sat-pii-accent: #a855f7; /* [SAT-PII] Crimson Purple */
+		--dv-ref-accent: #64748b; /* [REF] Slate Gray */
+		--dv-surrogate-accent: #475569; /* [DROP] Muted Neutral */
+
+		/* Verification Verdict Tokens */
+		--dv-gate-pass: #10b981;
+		--dv-gate-autofix: #0284c7;
+		--dv-gate-reject: #ef4444;
+		--dv-gate-askuser: #f59e0b;
+	}
+
+	[data-theme="paper"] {
+		--dv-bg-canvas: #f8fafc;
+		--dv-surface-1: #ffffff;
+		--dv-surface-2: #f1f5f9;
+		--dv-surface-3: #e2e8f0;
+		--dv-border-subtle: #e2e8f0;
+		--dv-border-strong: #cbd5e1;
+
+		--dv-text-primary: #0f172a;
+		--dv-text-secondary: #475569;
+		--dv-text-muted: #64748b;
+		--dv-text-inverse: #ffffff;
+
+		--dv-hub-accent: #2563eb;
+		--dv-lnk-accent: #059669;
+		--dv-sal-accent: #0f766e;
+		--dv-sat-accent: #d97706;
+		--dv-sat-pii-accent: #7e22ce;
+		--dv-ref-accent: #475569;
+		--dv-surrogate-accent: #64748b;
+
+		--dv-gate-pass: #16a34a;
+		--dv-gate-autofix: #0284c7;
+		--dv-gate-reject: #dc2626;
+		--dv-gate-askuser: #d97706;
+	}
+
+	[data-theme="high-contrast"] {
+		--dv-bg-canvas: #000000;
+		--dv-surface-1: #0f172a;
+		--dv-surface-2: #1e293b;
+		--dv-surface-3: #334155;
+		--dv-border-subtle: #ffffff;
+		--dv-border-strong: #ffffff;
+
+		--dv-text-primary: #ffffff;
+		--dv-text-secondary: #f8fafc;
+		--dv-text-muted: #cbd5e1;
+		--dv-text-inverse: #000000;
+
+		--dv-hub-accent: #60a5fa;
+		--dv-lnk-accent: #34d399;
+		--dv-sal-accent: #2dd4bf;
+		--dv-sat-accent: #fbbf24;
+		--dv-sat-pii-accent: #c084fc;
+		--dv-ref-accent: #94a3b8;
+		--dv-surrogate-accent: #e2e8f0;
+
+		--dv-gate-pass: #4ade80;
+		--dv-gate-autofix: #38bdf8;
+		--dv-gate-reject: #f87171;
+		--dv-gate-askuser: #fbbf24;
+	}
+}
+
+.dv-canvas-body {
+	background-color: var(--dv-bg-canvas);
+	color: var(--dv-text-primary);
+	margin: 0;
+	font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+		"Segoe UI", Roboto, sans-serif;
+}
+
+/* Prevent scroll chaining behind native modal <dialog> (modern-web-guidance) */
+dialog:modal {
+	overscroll-behavior: contain;
+}
+
+dialog::backdrop {
+	overflow: hidden;
+	overscroll-behavior: contain;
+	background-color: rgba(0, 0, 0, 0.65);
+}

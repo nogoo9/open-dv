@@ -1,24 +1,19 @@
 {
-  "extends": "../../tsconfig.base.json",
-  "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
-    "paths": {
-      "@opendv/protocol-ts": [
-        "../../packages/opendv-protocol-ts/src/index.ts"
-      ],
-      "@opendv/protocol-ts/*": [
-        "../../packages/opendv-protocol-ts/src/*"
-      ]
-    }
-  },
-  "references": [
-    {
-      "path": "../../packages/opendv-protocol-ts"
-    }
-  ],
-  "include": [
-    "src/**/*"
-  ]
+	"extends": "../../tsconfig.base.json",
+	"compilerOptions": {
+		"jsx": "react-jsx",
+		"outDir": "./dist",
+		"rootDir": "./src",
+		"tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
+		"paths": {
+			"@opendv/protocol-ts": ["../../packages/opendv-protocol-ts/src/index.ts"],
+			"@opendv/protocol-ts/*": ["../../packages/opendv-protocol-ts/src/*"]
+		}
+	},
+	"references": [
+		{
+			"path": "../../packages/opendv-protocol-ts"
+		}
+	],
+	"include": ["src/**/*"]
 }
