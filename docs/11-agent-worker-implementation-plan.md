@@ -132,7 +132,7 @@ flowchart TD
   - `packages/opendv-telemetry/tests/test_telemetry_and_rbac.py`
 - **Acceptance Criteria:**
   1. Every emitted event validates against `schemas/vault-observability-event.schema.json`.
-  2. `CONFIDENTIAL` and `RESTRICTED_PII` payloads are masked when queried by `PUBLIC` or `INTERNAL_MODELER` roles.
+  2. `CONFIDENTIAL`, `MNPI`, and `RESTRICTED_PII` payloads (including semantic hash pill business keys and labels) are masked when queried by roles without tier clearance (e.g., `PUBLIC` or `INTERNAL_MODELER`).
   3. `Last-Event-ID` cursor replay returns exact missing events in monotonic order.
 - **Verification Commands:**
   ```bash
