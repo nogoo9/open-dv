@@ -99,7 +99,7 @@ The repository is organized as a polyglot monorepo managed with [`proto`](.proto
 | [`packages/opendv-axi-verifier`](packages/opendv-axi-verifier/) | Python library (`verifier`) | 6-Gate `axi-dv` verifier, deterministic codemods (`A.1`–`A.9b`), and TOON codec. |
 | [`packages/opendv-duckdb-sandbox`](packages/opendv-duckdb-sandbox/) | Python library (`duckdb-sandbox`) | Graph B profiler, 4-Zone SQL compiler, and DuckDB 4-Batch adversarial shadow sandbox. |
 | [`packages/opendv-agent-harness`](packages/opendv-agent-harness/) | Python library (`agent-harness`) | Agnostic agent harness with Google Antigravity and Claude Agent SDK adapters. |
-| [`packages/opendv-protocol-ts`](packages/opendv-protocol-ts/) | TypeScript library (`protocol-sdk`) | Zero-dependency TypeScript protocol SDK (`@opendv/protocol-ts`). |
+| [`packages/opendv-protocol-ts`](packages/opendv-protocol-ts/) | TypeScript library (`protocol-sdk`) | Zero-dependency TypeScript protocol SDK (`@opendv/protocol-ts`): normative DTOs, REST/SSE clients, W3C SSE parser, offline `.jsonl` replay engine (`MockVaultEventStreamClient`), Web Crypto `Algorithm A.5` hashing & Semantic Hash Pills, RBAC redaction/filters, and Private Equity demo bundle. |
 | [`apps/opendv-platform-api`](apps/opendv-platform-api/) | Python application (`api-server`) | Headless platform ASGI server (`/api/v1` REST + SSE). |
 | [`apps/opendv-cli`](apps/opendv-cli/) | Python application (`cli`) | Unified CLI entrypoints (`opendv` and `axi-dv`). |
 | [`apps/opendv-web-workbench`](apps/opendv-web-workbench/) | TypeScript application (`web-ui`) | Decoupled 12-View Explainability & Observability Web Workbench (`@opendv/web-workbench`). |
@@ -108,7 +108,7 @@ The repository is organized as a polyglot monorepo managed with [`proto`](.proto
 
 ## Running the Normative `pytest` Suite & Validating Schemas
 
-The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request. It validates all JSON Schemas against Draft 2020-12, checks example contracts and Canonical IR documents, compiles every `python` code fence in `docs/`, executes the 4-Zone DuckDB SQL bundle, and runs the full normative `pytest` test suite under [`tests/`](tests/) alongside package smoke tests under `packages/*/tests` and `apps/*/tests`:
+The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request. It validates all JSON Schemas against Draft 2020-12, checks example contracts and Canonical IR documents, compiles every `python` code fence in `docs/`, executes the 4-Zone DuckDB SQL bundle, and runs the full normative `pytest` test suite under [`tests/`](tests/) alongside package unit and smoke tests under `packages/*/tests` and `apps/*/tests`:
 
 | Test Module | Coverage Scope |
 | :--- | :--- |
