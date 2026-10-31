@@ -60,9 +60,9 @@ flowchart LR
     CAS -.->|"Resolve context_refs.<artifact>_sha256"| L2 & L3
 ```
 
-#### Visibility & Redaction Policy for `CONFIDENTIAL`/MNPI and `RESTRICTED_PII` Values
+#### Visibility & Redaction Policy for `CONFIDENTIAL`, `MNPI`, and `RESTRICTED_PII` Values
 
-Every event carries an optional `data_classification` (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL`, or `RESTRICTED_PII`) set to the highest sensitivity of any value in its payload. A contract `security_classification` of `PII_HIGH` maps to `RESTRICTED_PII`.
+Every event carries an optional `data_classification` (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL`, `MNPI`, or `RESTRICTED_PII`) set to the highest sensitivity of any value in its payload. A contract `security_classification` of `PII_HIGH` maps to `RESTRICTED_PII`.
 
 - **Production deployments:** Layer 1 and Layer 2 banners and WB-03 document previews persisted to `state/vault-ledger.jsonl` mask `CONFIDENTIAL`/MNPI figures unless viewed by an RBAC role with `MNPI_CLEARED_STEWARD` access. `RESTRICTED_PII` values follow the same masking rule and are never written to banners in clear text.
 - **Synthetic Private Equity demo:** Docs 06 and 07 display the unmasked `MNPI_CLEARED_STEWARD` view for pedagogical clarity. All figures in the demo are fictional.
@@ -89,15 +89,16 @@ All events appended to `state/vault-ledger.jsonl` are validated against [`schema
 
 | Field Group | Required Properties | Validation Invariant |
 | :--- | :--- | :--- |
-| **Envelope Identity & Lineage** | `event_id`, `run_id`, `timestamp_utc`, `stage_id`, `workbench_view_id`, `viz_id`, `agent_persona`, `status` | `stage_id` $\in \{\text{STAGE\_00..STAGE\_07}\}$; `workbench_view_id` $\in \{\text{WB-00..WB-11}\}$; `viz_id` $\in \{\text{VIZ-PIPE-00}, \text{VIZ-STEP-01..08}, \text{VIZ-GATE-01..08}\}$; `status` $\in \{\text{PASS}, \text{AUTO-FIX}, \text{REJECT-WITH-TRACE}, \text{ASK-USER}\}$. |
-| **Layer 1: Story Banner** | `layer1_story_banner.headline`, `layer1_story_banner.business_impact`, `layer1_story_banner.verdict_pill` | `headline` $\le 140$ chars; `business_impact` $\le 200$ chars; zero raw 64-hex strings or LaTeX symbols permitted in Layer 1. |
+| **Envelope Identity & Lineage** | `event_id`, `run_id`, `timestamp_utc`, `stage_id`, `workbench_view_id`, `viz_id`, `agent_persona`, `status` | `stage_id` $\in \{\text{STAGE\_00..STAGE\_07}\}$; `workbench_view_id` $\in \{\text{WB-00..WB-11}\}$; `viz_id` $\in \{\text{VIZ-PIPE-00}, \text{VIZ-STEP-01..08}, \text{VIZ-GATE-01..08}\}$; `status` $\in \{\text{PASS}, \text{AUTO-FIX}, \text{AUTO\_REPAIRED}, \text{REJECT-WITH-TRACE}, \text{ASK-USER}\}$. |
+| **Phase, Step, Gate & Remediation Guards (`allOf`)** | `phase_id`, `step_id`, `gate_id`, `rule_code`, `remediation`, `contract_version`, `confidence` *(conditional)* | `phase_id` $\in \{\text{P1\_INGESTION..P8\_OPERATIONS}\}$; `P6_VERIFICATION` requires `gate_id` $\in \{\text{G1..G6}, \text{G\_DYN}, \text{G\_AUD}\}$ and `rule_code` (and forbids `gate_id` when `phase_id` is omitted or non-`P6`); `P6_VERIFICATION` and `P7_DYNAMIC_SANDBOX` forbid `step_id`; other phases constrain `step_id` to their bound `VIZ-PIPE-00` / `VIZ-STEP-01..08` views; `status = AUTO_REPAIRED` requires `remediation` (`codemod_type`, `target_entity`, `patch_diff`). |
+| **Layer 1: Story Banner** | `layer1_story_banner.headline`, `layer1_story_banner.business_impact`, `layer1_story_banner.verdict_pill` | `headline` $\le 140$ chars; `business_impact` $\le 200$ chars; `verdict_pill` $\in \{\text{PASS}, \text{AUTO-FIX}, \text{AUTO\_REPAIRED}, \text{REJECT-WITH-TRACE}, \text{ASK-USER}\}$; zero raw 64-hex strings or LaTeX symbols permitted in Layer 1. |
 | **Layer 2: Visual Canvas** | `layer2_visual_payload.semantic_hash_pills`, `layer2_visual_payload.summary_metrics` | Every hash key in Layer 2 is wrapped as a `semantic_hash_pill` object containing `pill_label` (`[HK: prefix..suffix | BKCC:Key Label]`), `full_sha256_hex` (`^[0-9A-Fa-f]{64}$`), `bkcc_prefix`, `business_key`, and `entity_label`. |
-| **Data Classification** | `data_classification` *(optional)* | $\in \{\text{PUBLIC}, \text{INTERNAL}, \text{CONFIDENTIAL}, \text{RESTRICTED\_PII}\}$; drives the masking policy in §1.1. |
+| **Data Classification** | `data_classification` *(optional)* | $\in \{\text{PUBLIC}, \text{INTERNAL}, \text{CONFIDENTIAL}, \text{MNPI}, \text{RESTRICTED\_PII}\}$; drives the masking policy in §1.1. |
 | **Layer 3: Formal Proof Drawer** | `layer3_formal_proof` *(optional, collapsed by default)* | Holds `algorithm_ref`, `formula_latex`, `toon_diagnostic_payload`, `contract_yaml_diff`, and `sqlglot_ast_summary` for on-demand inspection. |
 
 ### 1.4 Reference Python Telemetry Emitter & Validator
 
-The following self-contained Python 3.12 module demonstrates how `open-dv` agents construct, validate, and append `VaultObservabilityEvent` records against [`schemas/vault-observability-event.schema.json`](../schemas/vault-observability-event.schema.json). The emitter sets `data_classification`, and values at `CONFIDENTIAL` or `RESTRICTED_PII` are masked in the persisted banner and preview fields per the §1.1 policy:
+The following self-contained Python 3.12 module demonstrates how `open-dv` agents construct, validate, and append `VaultObservabilityEvent` records against [`schemas/vault-observability-event.schema.json`](../schemas/vault-observability-event.schema.json). The emitter sets `data_classification`, and values at `CONFIDENTIAL`, `MNPI`, or `RESTRICTED_PII` are masked in the persisted banner and preview fields per the §1.1 policy:
 
 ```python
 from __future__ import annotations

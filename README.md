@@ -30,6 +30,7 @@ Data Vault 2.0 achieves 100% historical auditability, decoupled parallel ingesti
 | **Observability Telemetry Event JSON Schema** | [`schemas/vault-observability-event.schema.json`](schemas/vault-observability-event.schema.json) | JSON Schema (Draft 2020-12) for `VaultObservabilityEvent` records emitted over `state/vault-ledger.jsonl` to drive the 12-View Explainability & Observability Workbench (`WB-00`–`WB-11`). |
 | **Annotated Model Contract Example (`YAML`)** | [`examples/dv_model_contract.yaml`](examples/dv_model_contract.yaml) | Multi-source (`SFDC_CRM`, `SAP_ERP`, `LEGACY_TICKET_DB`) declarative Data Vault 2.0 model contract for a single `hub_customer`, demonstrating Tier-1 global keys, a `BKCC`-scoped Tier-3 legacy key, the column triage ledger (including a dropped system surrogate), and source-aligned Satellites whose `PII_HIGH` column is split into `sat_customer_crm_pii` by `Algorithm A.1`. |
 | **Private Equity Reference Package (`YAML` / `JSON`)** | [`examples/private_equity/dv_pe_model_contract.yaml`](examples/private_equity/dv_pe_model_contract.yaml) | Complete Private Equity Asset Management reference package: validated `NoMistakeDataVault2ContractV5` YAML ([`dv_pe_model_contract.yaml`](examples/private_equity/dv_pe_model_contract.yaml)), Canonical IR JSON ([`pe_canonical_ir.json`](examples/private_equity/pe_canonical_ir.json)), Enterprise CBC Ontology `Graph A` ([`pe_graph_a_ontology.yaml`](examples/private_equity/pe_graph_a_ontology.yaml)), and Empirical Bronze & PDF Span Profile `Graph B` ([`pe_graph_b_profile.json`](examples/private_equity/pe_graph_b_profile.json)). |
+| **Executable `pytest` Specification Suite (`tests/`)** | [`tests/`](tests/) | Comprehensive, deterministic `pytest` suite (`200+` test cases) verifying Draft 2020-12 schemas, Gate 1–6 static/topological/AST verifiers, length-prefixed SHA-256 test vectors, deterministic AST codemods (`A.1`–`A.9b`), 5-tier observability redaction & PII leak detection, and 4-Zone `:memory:` DuckDB execution across all 4 adversarial shadow sandbox batches and bi-temporal queries (`D.10` & `D.10b`). |
 
 ---
 
@@ -87,13 +88,32 @@ flowchart TB
 
 ---
 
-## Validating the JSON Schemas
+## Running the Normative `pytest` Suite & Validating Schemas
 
-The [CI workflow](.github/workflows/ci.yml) is the authoritative validation suite: it runs on every pull request and checks both JSON Schemas against Draft 2020-12, validates `examples/dv_model_contract.yaml` against the contract schema, compiles every `python` code fence in `docs/`, and confirms that the HTML reference guide is present. For a quick local check that both schemas parse:
+The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request. It validates all JSON Schemas against Draft 2020-12, checks example contracts and Canonical IR documents, compiles every `python` code fence in `docs/`, executes the 4-Zone DuckDB SQL bundle, and runs the full normative `pytest` test suite under [`tests/`](tests/):
+
+| Test Module | Coverage Scope |
+| :--- | :--- |
+| [`tests/conftest.py`](tests/conftest.py) | Shared session/function fixtures for repository paths, JSON Schemas, YAML contracts, Canonical IR, Graph A/B profiles, extracted `docs/05`–`docs/07` Python algorithms, and ephemeral `:memory:` DuckDB connections. |
+| [`tests/test_schemas_and_contracts.py`](tests/test_schemas_and_contracts.py) | Draft 2020-12 meta-validation of `schemas/*.json`, positive validation of `dv_model_contract.yaml`, `dv_pe_model_contract.yaml`, and `pe_canonical_ir.json`, plus parametrized negative/adversarial mutations (`DV-G1-001`, `DV-G3-002`, `DV-G3-003`, naming regexes, hash functions, and zero-key/ghost record policies). |
+| [`tests/test_hashing_and_keys.py`](tests/test_hashing_and_keys.py) | Reference `compute_dv2_length_prefixed_sha256` verification, all 12 normative Private Equity SHA-256 test vectors (`docs/06` Table 2.4), delimiter-collision immunity (`['AB','C'] != ['A','BC']`), asymmetric case/whitespace normalization, `-1` null vs. `-2` empty-string sentinels, and Zero Key constants (`0x00..00` and `0xff..ff`). |
+| [`tests/test_verification_gates_and_codemods.py`](tests/test_verification_gates_and_codemods.py) | Gate 2 `Algorithm A.1` ELM-to-DV2 folding & Link grain checks (Traps 1 & 2), Gate 3 `networkx.MultiDiGraph` topology verifier (`DV-G3-001`..`005`), Gate 4 `Algorithm A.4` YAGNI & 67/67 Graph B column triage completeness (Trap 3 `SPLIT_REQUIRED`), Gate 6 `Algorithm A.6` `sqlglot` AST SQL linter (`DV-G6-001`..`005`), and deterministic AST codemods (`A.1`–`A.8`) with idempotence and post-codemod gate convergence. |
+| [`tests/test_observability_and_redaction.py`](tests/test_observability_and_redaction.py) | `VaultObservabilityEvent` positive & negative validation across all 8 pipeline phases (`P1_INGESTION`..`P8_OPERATIONS`) and conditional `allOf` rules, 5-tier data classification redaction (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL`, `MNPI`, `RESTRICTED_PII`) with adversarial PII leak detection, `format_semantic_hash_pill`, 3-layer progressive disclosure invariants, and 12-view workbench (`WB-00`–`WB-11`) plus step/gate visualization (`VIZ-PIPE-00`, `VIZ-STEP-01`..`08`, `VIZ-GATE-01`..`08`) schema validation. |
+| [`tests/test_multimodal_and_duckdb_e2e.py`](tests/test_multimodal_and_duckdb_e2e.py) | `Algorithm A.9b` 17/17 PDF character-offset grounding spans + adversarial span mutations (`DV-AUD-001`..`005`), cross-modal numerical discrepancy detection (25 bps & 50 bps fee deltas without mutating `raw_vault.sat_fund_investran`), `Algorithm A.9a` intra-source schema drift codemod, 4-Zone DuckDB warehouse execution, Zero Keys & Ghost Records, 0 orphans across 23 FK relationships, all 15 `DV-DYN-001`..`015` checks, all 4 Adversarial Shadow Sandbox Batches, and Bi-Temporal PIT Audit Queries `D.10` & `D.10b` at `2026-10-15 12:00:00` and `2026-11-20 23:59:59`. |
+
+To install dependencies and run the test suite locally:
+
+```bash
+python3 -m pip install pyyaml jsonschema duckdb pytest networkx sqlglot
+pytest -v
+```
+
+For a quick standalone check that the JSON Schemas parse cleanly:
 
 ```bash
 python3 -m json.tool schemas/dv2-canonical-ir.schema.json > /dev/null
 python3 -m json.tool schemas/no-mistake-dv2-contract-v5.schema.json > /dev/null
+python3 -m json.tool schemas/vault-observability-event.schema.json > /dev/null
 ```
 
 ---
