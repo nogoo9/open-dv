@@ -460,6 +460,18 @@ requires-dist = [
 name = "opendv-core"
 version = "0.1.0"
 source = { editable = "packages/opendv-core" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jsonschema", specifier = ">=4.23.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+]
 
 [[package]]
 name = "opendv-duckdb-sandbox"
