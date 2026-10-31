@@ -19,6 +19,7 @@ Validates:
 from __future__ import annotations
 
 import copy
+import glob
 import json
 import pathlib
 import re
@@ -458,3 +459,128 @@ def test_negative_missing_zero_key_hex_or_ghost_record_policy(
         code in " ".join(violations)
         for code in ("DV-G1-ZERO-KEY", "DV-G1-ZERO-KEY-HEX", "DV-G1-GHOST-POLICY", "SCHEMA_ERROR")
     )
+
+
+def test_json_schemas_draft_2020_12() -> None:
+    schema_paths = sorted(REPO_ROOT.glob("schemas/*.json"))
+    assert len(schema_paths) >= 3
+    for path in schema_paths:
+        schema = json.loads(path.read_text(encoding="utf-8"))
+        Draft202012Validator.check_schema(schema)
+
+
+def test_example_contracts_and_canonical_ir_conform_to_schemas() -> None:
+    contract_schema = json.loads(
+        (REPO_ROOT / "schemas/no-mistake-dv2-contract-v5.schema.json").read_text(encoding="utf-8")
+    )
+    for rel_path in (
+        "examples/dv_model_contract.yaml",
+        "examples/private_equity/dv_pe_model_contract.yaml",
+    ):
+        doc = yaml.safe_load((REPO_ROOT / rel_path).read_text(encoding="utf-8"))
+        Draft202012Validator(contract_schema).validate(doc)
+
+    ir_schema = json.loads(
+        (REPO_ROOT / "schemas/dv2-canonical-ir.schema.json").read_text(encoding="utf-8")
+    )
+    pe_ir = json.loads(
+        (REPO_ROOT / "examples/private_equity/pe_canonical_ir.json").read_text(encoding="utf-8")
+    )
+    Draft202012Validator(ir_schema).validate(pe_ir)
+
+
+def test_all_docs_python_code_blocks_compile() -> None:
+    md_paths = sorted(glob.glob(str(REPO_ROOT / "docs/**/*.md"), recursive=True))
+    total_blocks = 0
+    for md_path in md_paths:
+        text = pathlib.Path(md_path).read_text(encoding="utf-8")
+        py_blocks = re.findall(r"```python\n(.*?)```", text, flags=re.DOTALL)
+        for idx, block in enumerate(py_blocks, 1):
+            compile(block, f"{md_path}-block-{idx}.py", "exec")
+        total_blocks += len(py_blocks)
+    assert total_blocks >= 17, f"Expected >= 17 Python blocks across docs/, found {total_blocks}"
+
+
+def test_platform_mvp_specs_08_through_11_completeness_and_indexing() -> None:
+    expected_docs = (
+        "08-platform-mvp-monorepo-and-api-spec.md",
+        "09-agnostic-agent-harness-and-sdk-spec.md",
+        "10-decoupled-ui-workbench-and-theme-spec.md",
+        "11-agent-worker-implementation-plan.md",
+    )
+    readme_text = (REPO_ROOT / "README.md").read_text(encoding="utf-8")
+    guide_text = (REPO_ROOT / "docs/DV2_AGENT_REFERENCE_GUIDE.md").read_text(encoding="utf-8")
+
+    for doc_name in expected_docs:
+        doc_path = REPO_ROOT / "docs" / doc_name
+        assert doc_path.is_file(), f"Missing specification document: {doc_path}"
+        assert doc_name in readme_text, f"{doc_name} not indexed in README.md"
+        assert doc_name in guide_text, f"{doc_name} not indexed in docs/DV2_AGENT_REFERENCE_GUIDE.md"
+
+    doc08 = (REPO_ROOT / "docs/08-platform-mvp-monorepo-and-api-spec.md").read_text(encoding="utf-8")
+    for token in (
+        ".prototools",
+        ".moon/workspace.yml",
+        ".moon/toolchains.yml",
+        ".moon/toolchain.yml",
+        ".moon/tasks/python.yml",
+        ".moon/tasks/typescript.yml",
+        "/api/v1/projects",
+        "/api/v1/runs",
+        "/api/v1/runs/{run_id}/events",
+        "/api/v1/runs/{run_id}/gates",
+        "/api/v1/runs/{run_id}/sandbox",
+        "/api/v1/runs/{run_id}/decisions",
+        "/api/v1/artifacts",
+    ):
+        assert token in doc08, f"Missing required token '{token}' in docs/08"
+
+    doc09 = (REPO_ROOT / "docs/09-agnostic-agent-harness-and-sdk-spec.md").read_text(encoding="utf-8")
+    for token in (
+        "VaultAgentHarness",
+        "AgentTaskSpec",
+        "AgentToolDefinition",
+        "SubagentSpec",
+        "AntigravityHarnessAdapter",
+        "ClaudeAgentHarnessAdapter",
+        "google.antigravity",
+        "claude_agent_sdk",
+    ):
+        assert token in doc09, f"Missing required token '{token}' in docs/09"
+
+    doc10 = (REPO_ROOT / "docs/10-decoupled-ui-workbench-and-theme-spec.md").read_text(encoding="utf-8")
+    for token in (
+        "@opendv/protocol-ts",
+        "OpenDVPlatformClient",
+        "VaultEventStreamClient",
+        "MockVaultEventStreamClient",
+        "WorkbenchViewPlugin",
+        'data-theme="obsidian"',
+        'data-theme="paper"',
+        'data-theme="high-contrast"',
+    ):
+        assert token in doc10, f"Missing required token '{token}' in docs/10"
+    for view_num in range(12):
+        view_id = f"WB-{view_num:02d}"
+        assert view_id in doc10, f"Missing Workbench view {view_id} in docs/10"
+    doc10_py_blocks = re.findall(r"```python\n(.*?)```", doc10, flags=re.DOTALL)
+    assert len(doc10_py_blocks) >= 1
+    ns10: dict[str, Any] = {}
+    exec(compile(doc10_py_blocks[0], "doc10-hash-parity.py", "exec"), ns10)
+    assert len(ns10["WORKBENCH_VIEW_STAGE_MAP"]) == 12
+    assert (
+        ns10["verify_ts_python_hash_pill_parity"](["ANNE||O", "BRIEN"])
+        != ns10["verify_ts_python_hash_pill_parity"](["ANNE", "O||BRIEN"])
+    )
+
+    doc11 = (REPO_ROOT / "docs/11-agent-worker-implementation-plan.md").read_text(encoding="utf-8")
+    py_blocks = re.findall(r"```python\n(.*?)```", doc11, flags=re.DOTALL)
+    assert len(py_blocks) >= 1
+    ns: dict[str, Any] = {}
+    exec(compile(py_blocks[0], "doc11-wp-manifest.py", "exec"), ns)
+    manifest = ns["WORK_PACKAGE_MANIFEST"]
+    waves = ns["compute_dispatch_waves"](manifest)
+    assert len(manifest) == 12
+    assert [wp.wp_id for wp in manifest] == [f"WP-{i:02d}" for i in range(1, 13)]
+    assert waves[0] == ["WP-01"]
+    assert waves[-1] == ["WP-12"]
