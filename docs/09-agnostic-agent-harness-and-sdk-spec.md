@@ -116,6 +116,7 @@ class VizId(StrEnum):
 class ObservabilityVerdict(StrEnum):
     PASS = "PASS"
     AUTO_FIX = "AUTO-FIX"
+    AUTO_REPAIRED = "AUTO_REPAIRED"
     REJECT_WITH_TRACE = "REJECT-WITH-TRACE"
     ASK_USER = "ASK-USER"
 
@@ -124,6 +125,7 @@ class DataClassification(StrEnum):
     PUBLIC = "PUBLIC"
     INTERNAL = "INTERNAL"
     CONFIDENTIAL = "CONFIDENTIAL"
+    MNPI = "MNPI"
     RESTRICTED_PII = "RESTRICTED_PII"
 
 
