@@ -885,7 +885,10 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
                 description=sub.description,
                 capabilities=agy_types.SubagentCapabilities(
                     agent_behavior=agy_types.AgentBehavior.AUTONOMOUS,
-                    enabled_tools=list(sub.allowed_tool_names),
+                    enabled_tools=[
+                        *([] if sub.read_only else ["create_file", "edit_file"]),
+                        *sub.allowed_tool_names,
+                    ],
                     allowed_subagents=list(sub.allowed_subagents),
                 ),
             )
@@ -1118,7 +1121,7 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                     "Read",
                     "Glob",
                     "Grep",
-                    *([] if sub.read_only_workspace else ["Write", "Edit"]),
+                    *([] if sub.read_only else ["Write", "Edit"]),
                     *[f"mcp__opendv__{t}" for t in sub.allowed_tool_names],
                 ],
                 model=self.resolve_model(sub.model_tier, sub.persona),
