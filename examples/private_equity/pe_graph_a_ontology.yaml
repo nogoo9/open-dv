@@ -1,0 +1,152 @@
+# Enterprise Canonical Business Concept (CBC) Ontology & 3-Tier BK Authority Registry (Graph A)
+# Domain: Institutional Private Equity & Alternative Asset Management (Apex Horizon Capital)
+# Standards Alignment: ILPA Reporting Template v2.0, Investopedia PE Domain Taxonomy, FIBO
+
+ontology_version: "1.0.0"
+domain_namespace: "pe_asset_management"
+enterprise_owner: "Apex Horizon Capital — Enterprise Data Architecture & Valuation Committee"
+standards_references:
+  - "ILPA Capital Call & Distribution Template v2.0"
+  - "ILPA Fee Reporting Template (Management Fees, Carried Interest, MFN)"
+  - "ISO 17442 Global Legal Entity Identifier (LEI)"
+  - "ISO 6166 International Securities Identification Number (ISIN)"
+
+canonical_business_concepts:
+  - concept_uri: "urn:ontology:entity:fund"
+    concept_name: "Fund"
+    elm_archetype: "WHO_WHAT_INVESTMENT_VEHICLE"
+    definition: "A pooled private equity investment vehicle (e.g., Buyout LP, Co-Invest Vehicle, Feeder Fund) managed by the General Partner."
+    target_hub: "hub_fund"
+    key_authority_tiers:
+      tier_1_global_standard:
+        authority_name: "ISO 6166 ISIN"
+        column_patterns: ["isin", "fund_isin"]
+        regex_pattern: "^[A-Z]{2}[A-Z0-9]{9}[0-9]$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+      tier_2_enterprise_sor:
+        authority_name: "Investran Fund Accounting Master Code"
+        column_patterns: ["fund_code", "vehicle_code"]
+        regex_pattern: "^APEX_[A-Z0-9_]+$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+      tier_3_local_scoped:
+        authority_name: "Local Admin Sequence / Unscoped Vehicle Code"
+        bkcc_policy: "SOURCE_SYSTEM_PREFIX_REQUIRED"
+        require_src_qualifier: true
+
+  - concept_uri: "urn:ontology:entity:limited_partner"
+    concept_name: "LimitedPartner"
+    elm_archetype: "WHO_INSTITUTIONAL_INVESTOR"
+    definition: "An institutional or sovereign investor (pension fund, sovereign wealth fund, endowment, insurance general account) committing capital to one or more Funds."
+    target_hub: "hub_limited_partner"
+    governance_constraints:
+      pii_confidential_attributes: ["wire_iban", "tax_id"]
+      required_satellite_split: "sat_limited_partner_pii"
+    key_authority_tiers:
+      tier_1_global_standard:
+        authority_name: "ISO 17442 Legal Entity Identifier (LEI)"
+        column_patterns: ["lei", "investor_lei"]
+        regex_pattern: "^[A-Z0-9]{20}$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+      tier_2_enterprise_sor:
+        authority_name: "Investran Investor Master Key"
+        column_patterns: ["lp_id", "lp_code", "master_lp_id"]
+        regex_pattern: "^LP-[0-9]{3,6}$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+      tier_3_local_scoped:
+        authority_name: "Acquired Legacy GP Local LP Code"
+        column_patterns: ["lp_num"]
+        bkcc_policy: "LEGACY_GP_ADMIN"
+        require_src_qualifier: true
+        cross_source_resolution_target: "sal_limited_partner"
+
+  - concept_uri: "urn:ontology:entity:portfolio_company"
+    concept_name: "PortfolioCompany"
+    elm_archetype: "WHAT_OPERATING_ASSET"
+    definition: "An operating enterprise or deal target acquired or co-invested in by one or more Private Equity Funds."
+    target_hub: "hub_portfolio_company"
+    governance_constraints:
+      mnpi_confidential_attributes: ["entry_ebitda_usd", "entry_ev_multiple", "ev_ebitda_multiple", "implied_ev_usd", "fair_value_usd"]
+      required_satellite_split: "sat_portco_valuation_mnpi"
+      required_extraction_satellite_split: "sat_lnk_doc_portco_ai_provenance"
+    key_authority_tiers:
+      tier_1_global_standard:
+        authority_name: "ISO 17442 Legal Entity Identifier (LEI)"
+        column_patterns: ["lei", "co_invest_portco_lei"]
+        regex_pattern: "^[A-Z0-9]{20}$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+      tier_2_enterprise_sor:
+        authority_name: "DealCloud CRM Deal Target Code"
+        column_patterns: ["deal_code", "portco_code"]
+        regex_pattern: "^DEAL-[A-Z0-9-]+$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+      tier_3_local_scoped:
+        authority_name: "Local Deal Pipeline Row ID"
+        bkcc_policy: "SOURCE_SYSTEM_PREFIX_REQUIRED"
+        require_src_qualifier: true
+
+  - concept_uri: "urn:ontology:entity:document"
+    concept_name: "Document"
+    elm_archetype: "WHAT_UNSTRUCTURED_ARTIFACT"
+    definition: "An immutable legal agreement (LP Side Letter, LPA) or Investment Committee (IC) valuation memorandum stored in the enterprise object lake."
+    target_hub: "hub_document"
+    key_authority_tiers:
+      tier_2_enterprise_sor:
+        authority_name: "Enterprise S3 Content-Addressed URI"
+        column_patterns: ["doc_uri", "s3_uri"]
+        regex_pattern: "^s3://[a-z0-9.-]+/.+$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+
+  - concept_uri: "urn:ontology:entity:custodian_bank"
+    concept_name: "CustodianBank"
+    elm_archetype: "WHO_COUNTERPARTY_CUSTODIAN"
+    definition: "A regulated depository bank holding Fund escrow and wire settlement accounts (unallocated in Wave-1/Wave-2 scope; tracked for ontology coverage gauge)."
+    target_hub: null
+
+canonical_relationships:
+  - relationship_uri: "urn:ontology:relationship:lp_commitment"
+    relationship_name: "LPCommitment"
+    target_link: "lnk_lp_commitment"
+    endpoints: ["hub_fund", "hub_limited_partner"]
+    grain_semantics: "Capital commitment agreement between an Institutional LP and a Fund vehicle."
+    yagni_cost_guard_policy:
+      max_general_columns_threshold: 10
+      min_write_amplification_mb_per_day: 50.0
+
+  - relationship_uri: "urn:ontology:relationship:co_invest_allocation"
+    relationship_name: "LPCommitmentCoInvestTarget"
+    target_link: "lnk_lp_commitment_co_invest"
+    endpoints: ["hub_fund", "hub_limited_partner", "hub_portfolio_company"]
+    grain_semantics: "Optional contextual link split via Algorithm A.4 when an LP commitment carries a direct Portfolio Company co-investment syndication right (co_invest_portco_lei IS NOT NULL)."
+
+  - relationship_uri: "urn:ontology:relationship:entity_equivalence"
+    relationship_name: "SameAsLimitedPartner"
+    target_link: "sal_limited_partner"
+    endpoints: ["hub_limited_partner", "hub_limited_partner"]
+    grain_semantics: "Maps Tier-3 BKCC-scoped legacy investor keys (e.g., LEGACY_GP_ADMIN:LP-102) to canonical Tier-1/Tier-2 investor keys without mutating raw vault history."
+
+  - relationship_uri: "urn:ontology:relationship:side_letter_provenance"
+    relationship_name: "SideLetterProvenance"
+    target_link: "lnk_document_lp_commitment"
+    endpoints: ["hub_document", "hub_fund", "hub_limited_partner"]
+    grain_semantics: "Binds an unstructured LP Side Letter PDF to the governed Fund and Beneficiary LP with span-grounded AI provenance."
+
+  - relationship_uri: "urn:ontology:relationship:document_entity_mention"
+    relationship_name: "ICValuationMemoMention"
+    target_link: "lnk_document_portfolio_company"
+    endpoints: ["hub_document", "hub_portfolio_company"]
+    grain_semantics: "Binds an unstructured IC Valuation Memorandum PDF to the evaluated Portfolio Company."
+
+reference_enumerations:
+  - enum_uri: "urn:ontology:enum:fund_strategy"
+    target_reference_table: "ref_fund_strategy"
+    allowed_codes: ["BUYOUT", "CO_INVEST", "GROWTH_EQUITY", "SECONDARIES"]
+  - enum_uri: "urn:ontology:enum:industry_sector"
+    target_reference_table: "ref_industry_sector"
+    allowed_codes: ["B2B_SAAS", "INDUSTRIAL_TECH", "HEALTHCARE_IT", "FINTECH"]

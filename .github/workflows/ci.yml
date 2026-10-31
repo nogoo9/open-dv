@@ -26,20 +26,22 @@ jobs:
       - name: Install validation dependencies
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install jsonschema pyyaml
+          python3 -m pip install pyyaml jsonschema duckdb
 
-      - name: Validate JSON Schemas (Draft 2020-12), YAML Contract, Python Reference Algorithms & HTML Guide
+      - name: Validate JSON Schemas (Draft 2020-12), YAML Contract, Python Reference Algorithms, DuckDB SQL Bundle & HTML Guide
         run: |
           python3 - <<'PY'
+          from decimal import Decimal
           import glob
           import json
           import pathlib
           import re
+          import duckdb
           import yaml
           from jsonschema import Draft202012Validator
 
           schema_paths = sorted(glob.glob("schemas/*.json"))
-          assert len(schema_paths) >= 2, f"Expected >= 2 JSON schemas, found {schema_paths}"
+          assert len(schema_paths) >= 3, f"Expected >= 3 JSON schemas, found {schema_paths}"
           for path in schema_paths:
               with open(path, encoding="utf-8") as f:
                   schema = json.load(f)
@@ -48,21 +50,135 @@ jobs:
 
           with open("schemas/no-mistake-dv2-contract-v5.schema.json", encoding="utf-8") as f:
               contract_schema = json.load(f)
-          with open("examples/dv_model_contract.yaml", encoding="utf-8") as f:
-              contract_doc = yaml.safe_load(f)
-          Draft202012Validator(contract_schema).validate(contract_doc)
-          print("[PASS] examples/dv_model_contract.yaml conforms to schemas/no-mistake-dv2-contract-v5.schema.json")
+          for contract_path in [
+              "examples/dv_model_contract.yaml",
+              "examples/private_equity/dv_pe_model_contract.yaml",
+          ]:
+              with open(contract_path, encoding="utf-8") as f:
+                  contract_doc = yaml.safe_load(f)
+              Draft202012Validator(contract_schema).validate(contract_doc)
+              print(f"[PASS] {contract_path} conforms to schemas/no-mistake-dv2-contract-v5.schema.json")
+
+          with open("schemas/dv2-canonical-ir.schema.json", encoding="utf-8") as f:
+              ir_schema = json.load(f)
+          with open("examples/private_equity/pe_canonical_ir.json", encoding="utf-8") as f:
+              pe_ir_doc = json.load(f)
+          Draft202012Validator(ir_schema).validate(pe_ir_doc)
+          print("[PASS] examples/private_equity/pe_canonical_ir.json conforms to schemas/dv2-canonical-ir.schema.json")
 
           total_blocks = 0
           for md_path in sorted(glob.glob("docs/**/*.md", recursive=True)):
               text = pathlib.Path(md_path).read_text(encoding="utf-8")
               py_blocks = re.findall(r"```python\n(.*?)```", text, flags=re.DOTALL)
               for idx, block in enumerate(py_blocks, 1):
-                  compile(block, f"{md_path}-block-{idx}.py", "exec")
+                  code = compile(block, f"{md_path}-block-{idx}.py", "exec")
+                  if md_path == "docs/07-end-to-end-private-equity-demo.md":
+                      exec(code, {})
               if py_blocks:
                   print(f"[PASS] Compiled {len(py_blocks)} Python blocks in {md_path}")
               total_blocks += len(py_blocks)
           assert total_blocks >= 11, f"Expected >= 11 Python reference blocks across docs/, found {total_blocks}"
+
+          demo_text = pathlib.Path("docs/07-end-to-end-private-equity-demo.md").read_text(encoding="utf-8")
+          sql_blocks = re.findall(r"```sql\n(.*?)```", demo_text, flags=re.DOTALL)
+          assert len(sql_blocks) == 1, f"Expected 1 Artifact 3 SQL block in docs/07, found {len(sql_blocks)}"
+          sql_bundle = sql_blocks[0]
+
+          con = duckdb.connect(":memory:")
+          zone0_to_3, zone4 = sql_bundle.split(
+              "-- =============================================================================\n"
+              "-- ZONE 4: BI-TEMPORAL MULTIMODAL POINT-IN-TIME AUDIT QUERIES"
+          )
+          con.execute(zone0_to_3)
+
+          zero_uk = "0" * 64
+          zero_err = "f" * 64
+          for tbl, pk in [
+              ("raw_vault.hub_fund", "hk_fund"),
+              ("raw_vault.hub_limited_partner", "hk_limited_partner"),
+              ("raw_vault.hub_portfolio_company", "hk_portfolio_company"),
+              ("raw_vault.hub_document", "hk_document"),
+              ("raw_vault.lnk_lp_commitment", "hk_lnk_lp_commitment"),
+              ("raw_vault.lnk_lp_commitment_co_invest", "hk_lnk_lp_commitment_co_invest"),
+              ("raw_vault.sal_limited_partner", "hk_sal_limited_partner"),
+              ("raw_vault.lnk_document_lp_commitment", "hk_lnk_document_lp_commitment"),
+              ("raw_vault.lnk_document_portfolio_company", "hk_lnk_document_portfolio_company"),
+          ]:
+              cnt = con.execute(
+                  f"SELECT COUNT(*) FROM {tbl} WHERE {pk} IN ('{zero_uk}', '{zero_err}')"
+              ).fetchone()[0]
+              assert cnt == 2, f"Expected both zero keys in {tbl}, found {cnt}"
+
+          for sat, pk in [
+              ("raw_vault.sat_fund_investran", "hk_fund"),
+              ("raw_vault.sat_fund_investran_esg", "hk_fund"),
+              ("raw_vault.sat_limited_partner_investran", "hk_limited_partner"),
+              ("raw_vault.sat_limited_partner_pii", "hk_limited_partner"),
+              ("raw_vault.sat_lp_commitment_investran", "hk_lnk_lp_commitment"),
+              ("raw_vault.sat_portfolio_company_dealcloud", "hk_portfolio_company"),
+              ("raw_vault.sat_portco_valuation_mnpi", "hk_portfolio_company"),
+              ("raw_vault.sat_limited_partner_legacy", "hk_limited_partner"),
+              ("raw_vault.sat_document_manifest", "hk_document"),
+              ("business_vault.sat_lp_side_letter_llm_ext", "hk_lnk_document_lp_commitment"),
+              ("business_vault.sat_lnk_doc_portco_ai_provenance", "hk_lnk_document_portfolio_company"),
+          ]:
+              cnt = con.execute(
+                  f"SELECT COUNT(*) FROM {sat} WHERE {pk} = '{zero_uk}' AND rec_src = 'SYSTEM_GHOST'"
+              ).fetchone()[0]
+              assert cnt == 1, f"Expected 1 ghost row in {sat}, found {cnt}"
+
+          orphan_checks = [
+              ("raw_vault.lnk_lp_commitment", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
+              ("raw_vault.lnk_lp_commitment", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+              ("raw_vault.lnk_lp_commitment_co_invest", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
+              ("raw_vault.lnk_lp_commitment_co_invest", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+              ("raw_vault.lnk_lp_commitment_co_invest", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company"),
+              ("raw_vault.sal_limited_partner", "hk_limited_partner_master", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+              ("raw_vault.sal_limited_partner", "hk_limited_partner_duplicate", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+              ("raw_vault.lnk_document_lp_commitment", "hk_document", "raw_vault.hub_document", "hk_document"),
+              ("raw_vault.lnk_document_lp_commitment", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
+              ("raw_vault.lnk_document_lp_commitment", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+              ("raw_vault.lnk_document_portfolio_company", "hk_document", "raw_vault.hub_document", "hk_document"),
+              ("raw_vault.lnk_document_portfolio_company", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company"),
+              ("raw_vault.sat_fund_investran", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
+              ("raw_vault.sat_fund_investran_esg", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
+              ("raw_vault.sat_limited_partner_investran", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+              ("raw_vault.sat_limited_partner_pii", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+              ("raw_vault.sat_lp_commitment_investran", "hk_lnk_lp_commitment", "raw_vault.lnk_lp_commitment", "hk_lnk_lp_commitment"),
+              ("raw_vault.sat_portfolio_company_dealcloud", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company"),
+              ("raw_vault.sat_portco_valuation_mnpi", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company"),
+              ("raw_vault.sat_limited_partner_legacy", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+              ("raw_vault.sat_document_manifest", "hk_document", "raw_vault.hub_document", "hk_document"),
+              ("business_vault.sat_lp_side_letter_llm_ext", "hk_lnk_document_lp_commitment", "raw_vault.lnk_document_lp_commitment", "hk_lnk_document_lp_commitment"),
+              ("business_vault.sat_lnk_doc_portco_ai_provenance", "hk_lnk_document_portfolio_company", "raw_vault.lnk_document_portfolio_company", "hk_lnk_document_portfolio_company"),
+          ]
+          for child, fk, parent, pk in orphan_checks:
+              orphans = con.execute(
+                  f"SELECT COUNT(*) FROM {child} c LEFT JOIN {parent} p ON c.{fk} = p.{pk} WHERE p.{pk} IS NULL"
+              ).fetchone()[0]
+              assert orphans == 0, f"Orphans found in {child}.{fk} -> {parent}.{pk}: {orphans}"
+
+          q_d10, q_d10b = zone4.split("-- Query D.10b: Latest Portfolio Company Valuation Visible at the Assertion Cutoff")
+          d10_rows = con.execute(q_d10).fetchall()
+          assert len(d10_rows) == 7, f"Expected 7 Query D.10 rows, found {len(d10_rows)}"
+          calpers_bo4 = [r for r in d10_rows if r[0] == "APEX_BO_IV" and r[1] == "LP-101"][0]
+          assert calpers_bo4[2] == Decimal("500000000.00") and calpers_bo4[3] == Decimal("125000000.00")
+          assert calpers_bo4[4] == Decimal("125.0000") and calpers_bo4[5] == "Y" and calpers_bo4[7] == "[38:1012]"
+
+          d10b_nov = {r[0]: r for r in con.execute(q_d10b).fetchall()}
+          assert len(d10b_nov) == 3
+          assert d10b_nov["529900T8BM49AURSDO55"][1] == Decimal("14.50")
+          assert d10b_nov["529900T8BM49AURSDO55"][2] == Decimal("245000000.00")
+          assert d10b_nov["529900T8BM49AURSDO55"][3] == "OBJECT_STORE_S3"
+          assert d10b_nov["529900T8BM49AURSDO55"][5] == "[108:1151]"
+
+          con.execute("SET VARIABLE assertion_cutoff_ts = '2026-10-15 12:00:00';")
+          d10b_oct = {r[0]: r for r in con.execute(q_d10b).fetchall()}
+          assert d10b_oct["529900T8BM49AURSDO55"][1] == Decimal("12.80")
+          assert d10b_oct["529900T8BM49AURSDO55"][2] == Decimal("216275840.00")
+          assert d10b_oct["529900T8BM49AURSDO55"][3] == "DEALCLOUD_PE_CRM"
+          assert d10b_oct["529900T8BM49AURSDO55"][5] is None
+          print("[PASS] Executed Artifact 3 SQL bundle in DuckDB (0 orphans, both zero keys, ghosts, D.10 & D.10b verified)")
 
           html_ref = pathlib.Path(
               "docs/references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html"
