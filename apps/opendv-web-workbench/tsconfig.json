@@ -3,6 +3,7 @@
   "compilerOptions": {
     "outDir": "./dist",
     "rootDir": "./src",
+    "tsBuildInfoFile": "./dist/tsconfig.tsbuildinfo",
     "paths": {
       "@opendv/protocol-ts": [
         "../../packages/opendv-protocol-ts/src/index.ts"

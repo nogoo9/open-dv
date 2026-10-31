@@ -19,6 +19,8 @@ tasks:
       - 'opendv-core'
       - 'python'
       - '-c'
-      - 'import json, pathlib, jsonschema; [jsonschema.Draft202012Validator.check_schema(json.loads(p.read_text(encoding="utf-8"))) for p in pathlib.Path("schemas").glob("*.json")]; print("Normative schemas valid.")'
+      - 'import json, pathlib, jsonschema; paths = sorted(pathlib.Path("schemas").glob("*.json")); assert paths, "No schema files found in schemas/"; [jsonschema.Draft202012Validator.check_schema(json.loads(p.read_text(encoding="utf-8"))) for p in paths]; print("Normative schemas valid.")'
     inputs:
       - '/schemas/*.json'
+    options:
+      runFromWorkspaceRoot: true

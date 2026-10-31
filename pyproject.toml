@@ -66,6 +66,15 @@ disallow_untyped_defs = true
 minversion = "9.0"
 addopts = "-ra -q --strict-markers --import-mode=importlib"
 asyncio_default_fixture_loop_scope = "function"
+pythonpath = [
+    "packages/opendv-core/src",
+    "packages/opendv-telemetry/src",
+    "packages/opendv-axi-verifier/src",
+    "packages/opendv-duckdb-sandbox/src",
+    "packages/opendv-agent-harness/src",
+    "apps/opendv-platform-api/src",
+    "apps/opendv-cli/src",
+]
 testpaths = [
     "tests",
     "packages/opendv-core/tests",
