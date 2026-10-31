@@ -74,6 +74,14 @@ export class VaultEventStreamClient {
 
 	connect(): void {
 		this.closedByCaller = false;
+		if (this.reconnectTimer !== null) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
+		if (this.eventSource !== null) {
+			this.eventSource.close();
+			this.eventSource = null;
+		}
 		const baseOrigin =
 			typeof globalThis.location !== "undefined" && globalThis.location?.origin
 				? globalThis.location.origin
@@ -94,14 +102,23 @@ export class VaultEventStreamClient {
 		this.eventSource = es;
 
 		es.addEventListener("message", (ev: MessageEvent<string>) => {
+			if (this.closedByCaller || this.eventSource !== es) {
+				return;
+			}
 			this.handleMessagePayload(ev.data, ev.lastEventId);
 		});
 
 		es.addEventListener("run_complete", (ev: MessageEvent<string>) => {
+			if (this.closedByCaller || this.eventSource !== es) {
+				return;
+			}
 			this.handleRunCompletePayload(ev.data);
 		});
 
 		es.onerror = (err: unknown) => {
+			if (this.eventSource !== es) {
+				return;
+			}
 			this.options.onError?.(err);
 			es.close();
 			this.eventSource = null;
@@ -119,8 +136,13 @@ export class VaultEventStreamClient {
 		for (const frame of frames) {
 			if (frame.event === "run_complete") {
 				this.handleRunCompletePayload(frame.data);
-			} else if (frame.event === "message") {
+				break;
+			}
+			if (frame.event === "message") {
 				this.handleMessagePayload(frame.data, frame.id);
+				if (this.closedByCaller) {
+					break;
+				}
 			}
 		}
 	}
@@ -163,9 +185,18 @@ export class VaultEventStreamClient {
 	}
 
 	private scheduleReconnect(): void {
+		if (this.reconnectTimer !== null) {
+			clearTimeout(this.reconnectTimer);
+			this.reconnectTimer = null;
+		}
 		const delay = this.computeNextReconnectDelayMs();
 		this.reconnectAttempts += 1;
-		this.reconnectTimer = setTimeout(() => this.connect(), delay);
+		this.reconnectTimer = setTimeout(() => {
+			this.reconnectTimer = null;
+			if (!this.closedByCaller) {
+				this.connect();
+			}
+		}, delay);
 	}
 
 	disconnect(): void {
@@ -176,5 +207,6 @@ export class VaultEventStreamClient {
 		}
 		this.eventSource?.close();
 		this.eventSource = null;
+		this.sseParser.reset();
 	}
 }

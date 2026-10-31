@@ -11,6 +11,12 @@ export interface OfflineReplayOptions {
 	signal?: AbortSignal | undefined;
 }
 
+function validateSpeedMultiplier(speedMultiplier: number): void {
+	if (!Number.isFinite(speedMultiplier) || speedMultiplier <= 0) {
+		throw new RangeError("speedMultiplier must be > 0");
+	}
+}
+
 export class MockVaultEventStreamClient {
 	private readonly events: readonly VaultObservabilityEventDTO[];
 	private cursor = 0;
@@ -22,7 +28,7 @@ export class MockVaultEventStreamClient {
 
 	static loadFromJSONL(jsonlText: string): MockVaultEventStreamClient {
 		const events: VaultObservabilityEventDTO[] = [];
-		for (const rawLine of jsonlText.split(/\r?\n/)) {
+		for (const rawLine of jsonlText.split(/\r\n|\r|\n/)) {
 			const trimmed = rawLine.trim();
 			if (!trimmed) {
 				continue;
@@ -49,9 +55,7 @@ export class MockVaultEventStreamClient {
 	}
 
 	setSpeed(speedMultiplier: number): void {
-		if (!Number.isFinite(speedMultiplier) || speedMultiplier <= 0) {
-			throw new RangeError("speedMultiplier must be > 0");
-		}
+		validateSpeedMultiplier(speedMultiplier);
 		this.speedMultiplier = speedMultiplier;
 	}
 
@@ -60,7 +64,7 @@ export class MockVaultEventStreamClient {
 	}
 
 	seek(index: number): VaultObservabilityEventDTO | null {
-		if (index < 0 || index > this.events.length) {
+		if (!Number.isInteger(index) || index < 0 || index > this.events.length) {
 			throw new RangeError(
 				`Replay cursor index ${index} out of bounds [0, ${this.events.length}]`,
 			);
@@ -90,9 +94,12 @@ export class MockVaultEventStreamClient {
 		options: OfflineReplayOptions = {},
 	): Promise<number> {
 		const speed = options.speedMultiplier ?? this.speedMultiplier;
+		validateSpeedMultiplier(speed);
 		const baseDelayMs = options.stepDelayMs ?? 0;
-		const effectiveDelayMs =
-			speed > 0 ? Math.max(0, Math.floor(baseDelayMs / speed)) : 0;
+		if (!Number.isFinite(baseDelayMs) || baseDelayMs < 0) {
+			throw new RangeError("stepDelayMs must be >= 0");
+		}
+		const effectiveDelayMs = Math.floor(baseDelayMs / speed);
 		let emitted = 0;
 		while (this.cursor < this.events.length) {
 			if (options.signal?.aborted) {

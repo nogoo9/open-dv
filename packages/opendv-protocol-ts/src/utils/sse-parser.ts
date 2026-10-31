@@ -138,6 +138,7 @@ export function parseSseStream(
  */
 export class SseStreamParser {
 	private buffer = "";
+	private trailingCr = false;
 	private lastEventId: string | undefined;
 	private retryMs: number | undefined;
 	private readonly options: ParseSseOptions;
@@ -147,7 +148,15 @@ export class SseStreamParser {
 	}
 
 	feed(chunk: string): ParsedSseFrame[] {
-		this.buffer += chunk.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+		if (chunk.length === 0) {
+			return [];
+		}
+		let effectiveChunk = chunk;
+		if (this.trailingCr && effectiveChunk.startsWith("\n")) {
+			effectiveChunk = effectiveChunk.slice(1);
+		}
+		this.trailingCr = effectiveChunk.endsWith("\r");
+		this.buffer += effectiveChunk.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 		const frames: ParsedSseFrame[] = [];
 
 		let separatorIndex = this.buffer.indexOf("\n\n");
@@ -192,6 +201,7 @@ export class SseStreamParser {
 
 	reset(): void {
 		this.buffer = "";
+		this.trailingCr = false;
 		this.lastEventId = undefined;
 		this.retryMs = undefined;
 	}

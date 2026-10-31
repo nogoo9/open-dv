@@ -269,11 +269,55 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 			},
 		});
 
+		client.ingestSseChunk("event: run_complete\r");
 		client.ingestSseChunk(
+			`\ndata: {"status":"COMPLETED"}\r\n\r\nid: evt-pe-002\ndata: ${JSON.stringify(PE_DEMO_EVENTS[2])}\r\n\r\n`,
+		);
+		expect(doneStatus).toBe("COMPLETED");
+		expect(events).toHaveLength(0);
+
+		const secondClient = new VaultEventStreamClient({
+			streamUrl: "/api/v1/runs/run-1/events",
+			onEvent: (ev) => events.push(ev),
+			onRunComplete: (s) => {
+				doneStatus = s.status;
+			},
+		});
+		secondClient.ingestSseChunk(
 			`id: evt-pe-002\ndata: ${JSON.stringify(PE_DEMO_EVENTS[2])}\n\nevent: run_complete\ndata: {"status":"COMPLETED"}\n\n`,
 		);
 		expect(events).toHaveLength(1);
 		expect(events[0]?.event_id).toBe("evt-pe-002");
-		expect(doneStatus).toBe("COMPLETED");
+	});
+
+	it("VaultEventStreamClient cleans up pending reconnect timers and existing EventSources across connect and disconnect", async () => {
+		const createdSources: FakeEventSource[] = [];
+		const streamClient = new VaultEventStreamClient({
+			streamUrl: "http://localhost:8420/api/v1/runs/run-1/events",
+			reconnectBaseDelayMs: 25,
+			maxReconnectDelayMs: 100,
+			randomFn: () => 0,
+			eventSourceFactory: (url, init) => {
+				const fake = new FakeEventSource(url, init?.headers);
+				createdSources.push(fake);
+				return fake;
+			},
+			onEvent: () => {},
+		});
+
+		streamClient.connect();
+		streamClient.connect();
+		expect(createdSources).toHaveLength(2);
+		expect(createdSources[0]?.closed).toBe(true);
+		expect(createdSources[1]?.closed).toBe(false);
+
+		createdSources[1]?.triggerError(new Error("drop 1"));
+		createdSources[1]?.triggerError(new Error("drop 2"));
+		expect(streamClient.getReconnectAttempts()).toBe(1);
+
+		streamClient.disconnect();
+		await new Promise((resolve) => setTimeout(resolve, 45));
+		expect(createdSources).toHaveLength(2);
+		expect(streamClient.isConnected()).toBe(false);
 	});
 });

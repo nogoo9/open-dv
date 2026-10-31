@@ -46,6 +46,7 @@ describe("MockVaultEventStreamClient & Private Equity Demo Replay Bundle", () =>
 
 		expect(() => client.setSpeed(0)).toThrow(RangeError);
 		expect(() => client.setSpeed(-2)).toThrow(RangeError);
+		expect(() => client.setSpeed(Number.NaN)).toThrow(RangeError);
 		client.setSpeed(4);
 		expect(client.getSpeed()).toBe(4);
 
@@ -58,6 +59,8 @@ describe("MockVaultEventStreamClient & Private Equity Demo Replay Bundle", () =>
 
 		// Seek
 		expect(() => client.seek(-1)).toThrow(RangeError);
+		expect(() => client.seek(1.5)).toThrow(RangeError);
+		expect(() => client.seek(Number.NaN)).toThrow(RangeError);
 		expect(() => client.seek(PE_DEMO_EVENTS.length + 1)).toThrow(RangeError);
 		const sought = client.seek(4);
 		expect(sought?.workbench_view_id).toBe("WB-03");
@@ -70,6 +73,15 @@ describe("MockVaultEventStreamClient & Private Equity Demo Replay Bundle", () =>
 		// Reset and full replay
 		client.reset();
 		expect(client.getCursor()).toBe(0);
+		await expect(
+			client.replay(() => {}, { speedMultiplier: 0 }),
+		).rejects.toThrow(RangeError);
+		await expect(
+			client.replay(() => {}, { speedMultiplier: Number.NaN }),
+		).rejects.toThrow(RangeError);
+		await expect(client.replay(() => {}, { stepDelayMs: -1 })).rejects.toThrow(
+			RangeError,
+		);
 		const replayed: VaultObservabilityEventDTO[] = [];
 		const count = await client.replay((ev) => replayed.push(ev), {
 			stepDelayMs: 4,

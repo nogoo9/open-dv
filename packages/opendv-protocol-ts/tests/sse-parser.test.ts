@@ -85,5 +85,15 @@ describe("sse-parser (W3C Server-Sent Events parser)", () => {
 		parser.reset();
 		expect(parser.getLastEventId()).toBeUndefined();
 		expect(parser.getRetryMs()).toBeUndefined();
+
+		expect(parser.feed("event: run_complete\r")).toEqual([]);
+		expect(parser.feed("")).toEqual([]);
+		const splitCrlfBatch = parser.feed('\ndata: {"status":"COMPLETED"}\r\n\r\n');
+		expect(splitCrlfBatch).toEqual([
+			{
+				event: "run_complete",
+				data: '{"status":"COMPLETED"}',
+			},
+		]);
 	});
 });
