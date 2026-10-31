@@ -65,7 +65,7 @@ def verify_algorithm_a1_elm_folding_and_grain(
     Detects:
       - `DV-G2-002` (Trap 1): Mutable attribute (`MUTABLE_STATUS` / `DESCRIPTIVE_PAYLOAD`) placed inside a Hub.
       - `DV-G2-001` / `AP-06` (Trap 2): Link grain mismatch where a 3-way co-investment relationship
-        (`co_invest_portco_lei` / `LP_COMMITMENT_CO_INVEST`) is collapsed into a 2-way Link or missing its Hub reference.
+        (`co_invest_portco_lei` / `LP_COMMITMENT_CO_INVEST`) is collapsed into a 2-way Link or references wrong target Hubs.
     """
     violations: list[str] = []
 
