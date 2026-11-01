@@ -1,11 +1,22 @@
-"""Open-DV Agnostic Agent Harness: Hexagonal Protocol, Domain Tools, Dual-SDK Bridge, and Telemetry.
+"""Open-DV Agnostic Agent Harness: Hexagonal Protocol, Domain Tools, Dual-SDK Bridge, and Adapters.
 
-Conforms to docs/03-verification-and-agentic-architecture.md
-and docs/06-explainability-and-observability-spec.md.
+Conforms to docs/03-verification-and-agentic-architecture.md,
+docs/06-explainability-and-observability-spec.md,
+and docs/09-agnostic-agent-harness-and-sdk-spec.md.
 """
 
 from __future__ import annotations
 
+from opendv_agent_harness.adapters import (
+    AntigravityHarnessAdapter,
+    ClaudeAgentHarnessAdapter,
+)
+from opendv_agent_harness.hold_manager import (
+    StewardDecisionAction,
+    StewardHoldManager,
+    StewardHoldRecord,
+    StewardHoldStatus,
+)
 from opendv_agent_harness.models import (
     AgentPersona,
     AgentTaskSpec,
@@ -30,9 +41,40 @@ from opendv_agent_harness.models import (
     VizId,
     WorkbenchViewId,
 )
+from opendv_agent_harness.personas import (
+    SCOUT_SOURCE_SYSTEM_INSTRUCTIONS,
+    SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS,
+    SHIP_VAULT_SYSTEM_INSTRUCTIONS,
+    VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS,
+    build_persona_subagent_spec,
+    build_persona_task_spec,
+    build_scout_source_spec,
+    build_scout_source_subagent_spec,
+    build_scout_source_task_spec,
+    build_scout_unstructured_spec,
+    build_scout_unstructured_subagent_spec,
+    build_scout_unstructured_task_spec,
+    build_ship_vault_spec,
+    build_ship_vault_subagent_spec,
+    build_ship_vault_task_spec,
+    build_vault_first_mate_spec,
+    build_vault_first_mate_subagent_spec,
+    build_vault_first_mate_subagents,
+    build_vault_first_mate_task_spec,
+    create_scout_source_task_spec,
+    create_scout_unstructured_task_spec,
+    create_ship_vault_task_spec,
+    create_vault_first_mate_task_spec,
+)
 from opendv_agent_harness.protocol import (
     BaseVaultAgentHarness,
     VaultAgentHarness,
+)
+from opendv_agent_harness.registry import (
+    HarnessFactory,
+    create_agent_harness,
+    list_available_harnesses,
+    register_harness,
 )
 from opendv_agent_harness.routing import (
     DEFAULT_AGY_MODEL_MAP,
@@ -86,12 +128,18 @@ __all__ = [
     "DEFAULT_AGY_MODEL_MAP",
     "DEFAULT_CLAUDE_MODEL_MAP",
     "PERSONA_CAPABILITY_MATRIX",
+    "SCOUT_SOURCE_SYSTEM_INSTRUCTIONS",
+    "SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS",
+    "SHIP_VAULT_SYSTEM_INSTRUCTIONS",
+    "VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS",
     "AgentPersona",
     "AgentTaskSpec",
     "AgentToolDefinition",
+    "AntigravityHarnessAdapter",
     "ApplyAstCodemodInput",
     "ApplyAstCodemodOutput",
     "BaseVaultAgentHarness",
+    "ClaudeAgentHarnessAdapter",
     "CompileCanonicalIrInput",
     "CompileCanonicalIrOutput",
     "DataClassification",
@@ -107,6 +155,7 @@ __all__ = [
     "HarnessBudget",
     "HarnessConfig",
     "HarnessEventKind",
+    "HarnessFactory",
     "HarnessRunResult",
     "HarnessStopReason",
     "HarnessStreamEvent",
@@ -127,6 +176,10 @@ __all__ = [
     "RunAxiDvGatesInput",
     "RunAxiDvGatesOutput",
     "SandboxPolicy",
+    "StewardDecisionAction",
+    "StewardHoldManager",
+    "StewardHoldRecord",
+    "StewardHoldStatus",
     "SubagentSpec",
     "ToolExecutionContext",
     "VaultAgentHarness",
@@ -138,9 +191,31 @@ __all__ = [
     "build_default_domain_tools",
     "build_google_docstring",
     "build_observability_event_dict",
+    "build_persona_subagent_spec",
+    "build_persona_task_spec",
+    "build_scout_source_spec",
+    "build_scout_source_subagent_spec",
+    "build_scout_source_task_spec",
+    "build_scout_unstructured_spec",
+    "build_scout_unstructured_subagent_spec",
+    "build_scout_unstructured_task_spec",
+    "build_ship_vault_spec",
+    "build_ship_vault_subagent_spec",
+    "build_ship_vault_task_spec",
+    "build_vault_first_mate_spec",
+    "build_vault_first_mate_subagent_spec",
+    "build_vault_first_mate_subagents",
+    "build_vault_first_mate_task_spec",
+    "create_agent_harness",
+    "create_scout_source_task_spec",
+    "create_scout_unstructured_task_spec",
+    "create_ship_vault_task_spec",
+    "create_vault_first_mate_task_spec",
     "get_persona_capability",
     "get_tools_for_persona",
     "is_tool_authorized_for_persona",
+    "list_available_harnesses",
+    "register_harness",
     "resolve_default_tier_for_persona",
     "resolve_provider_model",
     "to_antigravity_tool_callable",
