@@ -14,7 +14,7 @@ Exports:
   `run_batch_4_cross_source_and_bitemporal_restatement`,
   `execute_4batch_adversarial_suite`
 - `dynamic_checks`: `DynamicCheckResult`, `DynamicCheckSuiteReport`,
-  `evaluate_all_dynamic_checks`
+  `check_dv_dyn_001_*` through `check_dv_dyn_015_*`, `evaluate_all_dynamic_checks`
 - `pit_query_engine`: `PitQueryEngine`, `QueryD10Row`, `QueryD10bRow`,
   `BiTemporalValuationProof`, `execute_query_d10`, `execute_query_d10b`,
   `ensure_pit_snapshot_for_cutoff`

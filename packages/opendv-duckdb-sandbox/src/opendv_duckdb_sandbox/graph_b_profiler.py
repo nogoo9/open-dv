@@ -6,7 +6,7 @@ synthesis pipeline (`docs/03` §2, `docs/05` §1-§2):
 - `uniqueness_ratio` (`u_total = distinct_total / N`)
 - `non_null_ratio` (`u_non_null = 1 - null_rate`, with `u_nn = distinct_non_null / non_null_rows`)
 - `shannon_entropy_norm` (`H_norm(C) in [0, 1]`)
-- `jaccard_inclusion` (`I(Asubseteq B) = |V(A) cap V(B)| / |V(A)|`)
+- `jaccard_inclusion` (`I(A subseteq B) = |V(A) cap V(B)| / |V(A)|`)
 - `cdc_velocity_hz` (`v(c) = delta_mutations / delta_t_seconds`)
 - `write_amp_mb_per_day` (daily satellite write amplification in MB/day)
 
