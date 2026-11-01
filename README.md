@@ -165,6 +165,106 @@ python3 -m json.tool schemas/openapi-v1.json > /dev/null
 
 ---
 
+## Starting the Platform API, Web Workbench & Unified CLI
+
+The `open-dv` system provides three coordinated execution interfaces: the headless FastAPI REST + SSE backend, the decoupled 12-View Web Workbench frontend, and the unified CLI (`opendv` and `axi-dv`).
+
+### 1. Start the Headless Platform REST + SSE API Server
+
+Launch the platform API server with live code reload:
+
+```bash
+# Using moonrepo task
+moon run opendv-platform-api:dev
+
+# Or directly using uv and uvicorn
+uv run --package opendv-platform-api uvicorn opendv_platform_api.main:app --reload --port 8420
+```
+
+Once running:
+- **Health Check:** [http://127.0.0.1:8420/api/v1/health](http://127.0.0.1:8420/api/v1/health)
+- **Interactive OpenAPI Documentation (Swagger UI):** [http://127.0.0.1:8420/docs](http://127.0.0.1:8420/docs)
+- **OpenAPI 3.1 Specification JSON:** [http://127.0.0.1:8420/openapi.json](http://127.0.0.1:8420/openapi.json)
+
+### 2. Start the 12-View Explainability & Observability Web Workbench
+
+Launch the zero-dependency Bun development server:
+
+```bash
+# Using moonrepo task
+moon run opendv-web-workbench:dev
+
+# Or directly in the web workbench workspace
+cd apps/opendv-web-workbench && bun run dev
+```
+
+The Web Workbench binds strictly to localhost at:
+- **Web UI:** [http://127.0.0.1:5173](http://127.0.0.1:5173)
+
+> [!NOTE]
+> The development server automatically proxies all `/api/*` requests to the Platform API server at `http://127.0.0.1:8420` by default. You can override the upstream target by setting the `OPENDV_API_URL` environment variable (e.g. `OPENDV_API_URL="http://127.0.0.1:8420" bun run dev`). If the upstream Platform API server is unreachable, the proxy returns a structured RFC 9457 `502 Bad Gateway` problem response.
+
+### 3. Run the Unified CLI (`opendv` and `axi-dv`)
+
+The unified CLI entrypoints (`opendv` and `axi-dv`) support all six lifecycle subcommands (`verify`, `profile`, `compile`, `sandbox`, `run`, `hold`) in both `--local` (direct in-process library execution) and `--api-url` (remote Platform API HTTP/SSE client) modes.
+
+#### Direct Local Execution (`--local`)
+
+Execute directly against the workspace packages without running an HTTP server:
+
+```bash
+# Verify a Data Vault 2.0 contract through the 6-Gate AXI-DV pipeline
+uv run opendv verify --local examples/private_equity/dv_pe_model_contract.yaml
+# Or with TOON token-dense trace output
+uv run axi-dv verify --local --toon examples/private_equity/dv_pe_model_contract.yaml
+
+# Inspect empirical Bronze column profiles (Graph B)
+uv run opendv profile --local examples/private_equity/pe_graph_b_profile.json
+
+# Compile contract into Canonical IR & 4-Zone SQL
+uv run opendv compile --local examples/private_equity/dv_pe_model_contract.yaml
+
+# Execute 4-Batch Adversarial DuckDB Sandbox verification & Query D.10 bi-temporal audit
+uv run opendv sandbox --local examples/private_equity/dv_pe_model_contract.yaml
+
+# Create and inspect local pipeline runs
+uv run opendv run list --local
+uv run opendv run get run-pe-apex-horizon-20261030 --local
+
+# Inspect and resolve Steward Captain-Holds
+uv run opendv hold list --local
+uv run opendv hold approve hold-tier-u3-horizon-sovereign-vehicle --candidate APEX_CO_I --local
+```
+
+#### Remote Platform API Execution (`--api-url`)
+
+Execute against the live Platform API server on `http://127.0.0.1:8420`:
+
+```bash
+# Verify contract via remote Platform API
+uv run opendv verify --api-url http://127.0.0.1:8420 examples/private_equity/dv_pe_model_contract.yaml
+
+# Inspect Bronze profiles via remote Platform API
+uv run opendv profile --api-url http://127.0.0.1:8420 examples/private_equity/pe_graph_b_profile.json
+
+# Compile contract via remote Platform API
+uv run opendv compile --api-url http://127.0.0.1:8420 examples/private_equity/dv_pe_model_contract.yaml
+
+# Execute 4-Batch sandbox & bi-temporal queries via remote Platform API
+uv run opendv sandbox --api-url http://127.0.0.1:8420 examples/private_equity/dv_pe_model_contract.yaml
+
+# Manage verification runs and stream real-time SSE observability events
+uv run opendv run list --api-url http://127.0.0.1:8420
+uv run opendv run get run-pe-apex-horizon-20261030 --api-url http://127.0.0.1:8420
+uv run opendv run events run-pe-apex-horizon-20261030 --api-url http://127.0.0.1:8420
+
+# List and resolve Steward Captain-Holds via remote Platform API
+uv run opendv hold list --api-url http://127.0.0.1:8420
+uv run opendv hold approve hold-tier-u3-horizon-sovereign-vehicle --candidate APEX_CO_I --api-url http://127.0.0.1:8420
+```
+
+---
+
 ## License
 
 Licensed under the [Apache License, Version 2.0](LICENSE).

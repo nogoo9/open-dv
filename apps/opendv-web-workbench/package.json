@@ -18,7 +18,7 @@
 	},
 	"scripts": {
 		"build": "bun build src/index.ts --outdir dist",
-		"dev": "bun -e 'console.log(\"dev stub\")'",
+		"dev": "bun run src/dev-server.ts",
 		"lint": "bun x biome check src tests",
 		"test": "bun test"
 	}
