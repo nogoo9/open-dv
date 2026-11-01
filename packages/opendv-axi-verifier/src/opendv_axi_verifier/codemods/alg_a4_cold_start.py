@@ -291,7 +291,7 @@ def codemod_enforce_cold_start_extensibility(
 
     for lnk in ir.get("links", []):
         refs = list(lnk.get("hub_references", []))
-        if len(refs) < 3:
+        if len(refs) < 3 or lnk.get("where_filter_condition"):
             new_links.append(lnk)
             continue
 

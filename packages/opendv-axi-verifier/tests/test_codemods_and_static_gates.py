@@ -408,6 +408,10 @@ def test_alg_a4_cold_start_splits_co_invest_and_injects_bkcc(
     assert co_lnk["where_filter_condition"] == "co_invest_portco_lei IS NOT NULL"
     assert len(co_lnk["hub_references"]) == 3
 
+    # Verify idempotency: running A.4 a second time does not re-split filtered Links
+    second_pass = codemod_enforce_cold_start_extensibility(repaired, pe_ontology, pe_bronze_profile)
+    assert second_pass == repaired
+
 
 def test_alg_a4_extract_hub_mutable_attributes() -> None:
     """Verify Codemod 1 evicts mutable attributes from Hub `key_columns` into a Satellite."""

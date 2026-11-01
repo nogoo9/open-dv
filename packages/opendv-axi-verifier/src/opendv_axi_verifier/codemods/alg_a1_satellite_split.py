@@ -164,13 +164,15 @@ def _extract_profile_lookup(
                             freq = 0.25
                         else:
                             freq = 0.002
+                    active_rows_raw = col.get("active_rows")
+                    if active_rows_raw is None:
+                        active_rows_raw = col.get("table_row_count")
+                    active_rows = int(active_rows_raw) if active_rows_raw is not None else row_count
                     t_cols[c_name] = {
                         "security_classification": sec,
                         "change_freq": float(freq),
                         "avg_width_bytes": int(col.get("avg_width_bytes", 32)),
-                        "active_rows": int(
-                            col.get("active_rows", col.get("table_row_count", row_count))
-                        ),
+                        "active_rows": active_rows,
                     }
                 col_profiles[b_table] = t_cols
         return col_profiles, table_meta
@@ -197,17 +199,19 @@ def _extract_profile_lookup(
             if freq is None:
                 freq = metrics.get("cdc_lambda_per_day")
             if freq is None:
-                freq = metrics.get(
-                    "daily_change_frequency",
-                    metrics.get("update_frequency_per_row_per_day", 0.0),
-                )
+                freq = metrics.get("daily_change_frequency")
+            if freq is None:
+                freq = metrics.get("update_frequency_per_row_per_day")
+            resolved_freq = float(freq) if freq is not None else 0.0
+            m_active_raw = metrics.get("active_rows")
+            if m_active_raw is None:
+                m_active_raw = metrics.get("table_row_count")
+            m_active_rows = int(m_active_raw) if m_active_raw is not None else 1_000_000
             t_cols[col_name] = {
                 "security_classification": sec,
-                "change_freq": float(freq),
+                "change_freq": resolved_freq,
                 "avg_width_bytes": int(metrics.get("avg_width_bytes", 32)),
-                "active_rows": int(
-                    metrics.get("active_rows", metrics.get("table_row_count", 1_000_000))
-                ),
+                "active_rows": m_active_rows,
             }
         col_profiles[b_table] = t_cols
 

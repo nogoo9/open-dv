@@ -1,7 +1,7 @@
 """Gate 3 Verifier: NetworkX Bipartite DAG Structural Verifier (`DV-STR-001`-`014`
 and `DV-G3-001`-`005`) & Column-Level Invariant Verifier (`DV-COL-001`-`012`).
 
-Constructs a directed graph `G = (V_H u V_L u V_S, E)` using `networkx.DiGraph`
+Constructs a directed multigraph `G = (V_H u V_L u V_S, E)` using `networkx.MultiDiGraph`
 and verifies all 14 Data Vault 2.0 structural topology invariants:
   - `DV-STR-001` (`DV-G3-001`): Hub independence (`outdeg(h) == 0`, no Hub-to-Hub edges)
   - `DV-STR-002` (`DV-G3-002`): Link minimum Hub arity (`len(hub_references) >= 2`)
@@ -108,7 +108,7 @@ def verify_structural_invariants(
     check_isolated_hubs: bool = True,
 ) -> list[str]:
     """Gate 3 Verifier: Enforce `DV-STR-001` through `DV-STR-014` (`DV-G3-001`-`005`)
-    using a `networkx.DiGraph` bipartite DAG model.
+    using a `networkx.MultiDiGraph` bipartite DAG model.
     """
     violations: list[str] = []
     g = build_dv2_networkx_digraph(contract)
