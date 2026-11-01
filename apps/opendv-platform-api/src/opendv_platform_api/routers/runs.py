@@ -1,15 +1,17 @@
-"""Verification run management and SSE observability streaming (`/api/v1/runs`)."""
+"""Verification run management, pipeline triggers, and SSE streaming (`/api/v1/runs`)."""
 
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, status
 from fastapi.responses import StreamingResponse
 
 from opendv_platform_api.deps import (
     CreateRunRequest,
+    PipelineRunRequest,
+    PipelineValidateRequest,
     PlatformStateContainer,
     ProjectRunDTO,
     RbacRole,
@@ -18,16 +20,18 @@ from opendv_platform_api.deps import (
     get_rbac_role,
 )
 
-router = APIRouter(prefix="/runs", tags=["runs"])
+router = APIRouter(tags=["runs"])
 
 
-@router.post("", response_model=ProjectRunDTO, status_code=status.HTTP_201_CREATED)
+@router.post("/runs", response_model=ProjectRunDTO, status_code=status.HTTP_201_CREATED)
 async def start_run(
     req: CreateRunRequest,
     state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
 ) -> ProjectRunDTO:
     """Start a verification, compilation, and sandbox execution run."""
-    if req.project_id not in state.projects:
+    if req.pipeline_input_path is None and (
+        req.project_id is None or req.project_id not in state.projects
+    ):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Project '{req.project_id}' not found.",
@@ -35,7 +39,7 @@ async def start_run(
     return state.create_run(req)
 
 
-@router.get("", response_model=list[ProjectRunDTO])
+@router.get("/runs", response_model=list[ProjectRunDTO])
 async def list_runs(
     state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
     project_id: Annotated[str | None, Query()] = None,
@@ -47,7 +51,7 @@ async def list_runs(
     return runs
 
 
-@router.get("/{run_id}", response_model=ProjectRunDTO)
+@router.get("/runs/{run_id}", response_model=ProjectRunDTO)
 async def get_run(
     run_id: str,
     state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
@@ -62,7 +66,22 @@ async def get_run(
     return run_dto
 
 
-@router.post("/{run_id}/abort", response_model=ProjectRunDTO)
+@router.get("/runs/{run_id}/report")
+async def get_run_report(
+    run_id: str,
+    state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
+) -> dict[str, Any]:
+    """Return the `AgenticPipelineReport` for `run_id` (or synthesize a summary report)."""
+    try:
+        return state.get_pipeline_report(run_id)
+    except KeyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run '{run_id}' not found.",
+        ) from exc
+
+
+@router.post("/runs/{run_id}/abort", response_model=ProjectRunDTO)
 async def abort_run(
     run_id: str,
     state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
@@ -76,7 +95,7 @@ async def abort_run(
     return state.abort_run(run_id)
 
 
-@router.get("/{run_id}/events")
+@router.get("/runs/{run_id}/events")
 async def stream_run_events(
     run_id: str,
     state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
@@ -111,3 +130,21 @@ async def stream_run_events(
             "X-OpenDV-Effective-Role": role.value,
         },
     )
+
+
+@router.post("/pipelines/validate")
+async def validate_pipeline(
+    req: PipelineValidateRequest,
+    state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
+) -> dict[str, Any]:
+    """Deterministically validate an agentic pipeline input spec and harness config."""
+    return state.validate_agentic_pipeline(req)
+
+
+@router.post("/pipelines/runs", status_code=status.HTTP_201_CREATED)
+async def run_pipeline(
+    req: PipelineRunRequest,
+    state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
+) -> dict[str, Any]:
+    """Execute the end-to-end 8-stage agentic pipeline and return the `AgenticPipelineReport`."""
+    return state.execute_agentic_pipeline_run(req)

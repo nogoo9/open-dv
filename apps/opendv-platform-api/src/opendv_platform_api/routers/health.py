@@ -43,6 +43,7 @@ async def get_platform_capabilities() -> dict[str, Any]:
         "antigravity",
         "claude",
         "claude-agent",
+        "deterministic",
         "deterministic-stub",
     ]
     roles = [r.value for r in RbacRole]

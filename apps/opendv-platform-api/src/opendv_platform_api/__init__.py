@@ -11,6 +11,8 @@ from opendv_platform_api.deps import (
     CreateProjectRequest,
     CreateRunRequest,
     GateScorecardSummary,
+    PipelineRunRequest,
+    PipelineValidateRequest,
     PlatformStateContainer,
     ProjectResponse,
     ProjectRunDTO,
@@ -26,6 +28,7 @@ from opendv_platform_api.deps import (
     get_rbac_role,
     redact_event_for_role,
     resolve_cleared_tiers,
+    resolve_safe_repo_path,
     store_cas_artifact,
 )
 from opendv_platform_api.export_openapi import export_openapi_to_file, generate_openapi_spec
@@ -44,6 +47,8 @@ __all__ = [
     "CreateProjectRequest",
     "CreateRunRequest",
     "GateScorecardSummary",
+    "PipelineRunRequest",
+    "PipelineValidateRequest",
     "PlatformStateContainer",
     "ProjectResponse",
     "ProjectRunDTO",
@@ -64,5 +69,6 @@ __all__ = [
     "get_rbac_role",
     "redact_event_for_role",
     "resolve_cleared_tiers",
+    "resolve_safe_repo_path",
     "store_cas_artifact",
 ]

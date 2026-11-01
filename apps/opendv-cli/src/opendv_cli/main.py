@@ -13,13 +13,14 @@ from opendv_cli.api_client import OpenDVCliApiError
 from opendv_cli.commands import (
     run_compile_command,
     run_hold_command,
+    run_pipeline_command,
     run_profile_command,
     run_run_command,
     run_sandbox_command,
     run_verify_command,
 )
 
-SUBCOMMANDS = {"verify", "profile", "compile", "sandbox", "run", "hold"}
+SUBCOMMANDS = {"verify", "profile", "compile", "sandbox", "run", "hold", "pipeline"}
 _BOOLEAN_FLAGS = frozenset({"-h", "--help", "--local", "--json", "--toon"})
 
 
@@ -225,7 +226,7 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
     p_run.add_argument(
         "--harness",
         default="antigravity",
-        choices=["antigravity", "claude", "claude-agent", "deterministic-stub"],
+        choices=["antigravity", "claude", "claude-agent", "deterministic", "deterministic-stub"],
         help="Agent harness provider when creating a run.",
     )
     p_run.add_argument(
@@ -286,6 +287,60 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
         help="Steward identifier recorded in the observability ledger.",
     )
 
+    # 7. pipeline
+    p_pipeline = subparsers.add_parser(
+        "pipeline",
+        help="Validate, execute, or inspect reports for the 8-stage agentic pipeline.",
+    )
+    _add_shared_flags(p_pipeline, suppress_defaults=True)
+    p_pipeline.add_argument(
+        "pipeline_action",
+        nargs="?",
+        default="run",
+        choices=["run", "validate", "report"],
+        help="Pipeline action (run, validate, report).",
+    )
+    p_pipeline.add_argument(
+        "--input",
+        "--input-spec",
+        dest="input_path",
+        default=None,
+        help="Path to the pipeline_input.yaml or .json specification.",
+    )
+    p_pipeline.add_argument(
+        "--harness-config",
+        dest="harness_config",
+        default=None,
+        help="Optional path to the harness_config.yaml or .json configuration.",
+    )
+    p_pipeline.add_argument(
+        "--output-dir",
+        dest="output_dir",
+        default=None,
+        help="Optional output directory for generated pipeline artifacts and reports.",
+    )
+    p_pipeline.add_argument(
+        "--provider",
+        dest="provider",
+        default=None,
+        help="Optional agent harness provider override (deterministic, antigravity, claude).",
+    )
+    p_pipeline.add_argument(
+        "--hold-policy",
+        dest="hold_policy",
+        default=None,
+        help=(
+            "Optional steward hold policy override "
+            "(auto_approve_top_candidate, pause, reject_on_hold)."
+        ),
+    )
+    p_pipeline.add_argument(
+        "--report-path",
+        dest="report_path",
+        default=None,
+        help="Optional local path to a pipeline_report.json file for 'pipeline report'.",
+    )
+
     return parser
 
 
@@ -334,6 +389,8 @@ def _dispatch(
             code, payload = run_run_command(args, transport=transport)
         elif sub == "hold":
             code, payload = run_hold_command(args, transport=transport)
+        elif sub == "pipeline":
+            code, payload = run_pipeline_command(args, transport=transport)
         else:
             print(f"Unknown subcommand: {sub}", file=sys.stderr)
             return 2

@@ -52,6 +52,7 @@ async def get_workbench_view_projection(
     for source_list in (
         state.run_events.get(run_id, []),
         state.run_workbench_events.get(run_id, []),
+        state.run_events_by_view.get(run_id, {}).get(short_code, []),
     ):
         for evt in source_list:
             evt_id = str(evt.get("event_id", ""))

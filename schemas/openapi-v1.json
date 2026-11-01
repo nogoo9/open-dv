@@ -374,12 +374,24 @@
             "title": "Execute Duckdb Sandbox",
             "type": "boolean"
           },
+          "harness_config_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Config Path"
+          },
           "harness_provider": {
             "default": "antigravity",
             "enum": [
               "antigravity",
               "claude",
               "claude-agent",
+              "deterministic",
               "deterministic-stub"
             ],
             "title": "Harness Provider",
@@ -407,10 +419,28 @@
             ],
             "title": "Model Tier Override"
           },
+          "pipeline_input_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pipeline Input Path"
+          },
           "project_id": {
-            "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$",
-            "title": "Project Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project Id"
           },
           "run_sandbox_batches": {
             "default": true,
@@ -418,9 +448,6 @@
             "type": "boolean"
           }
         },
-        "required": [
-          "project_id"
-        ],
         "title": "CreateRunRequest",
         "type": "object"
       },
@@ -478,6 +505,169 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "PipelineRunRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for executing an end-to-end 8-stage agentic pipeline run.",
+        "properties": {
+          "harness_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Config"
+          },
+          "harness_config_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Config Path"
+          },
+          "input_spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Spec"
+          },
+          "input_spec_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Spec Path"
+          },
+          "output_dir": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output Dir"
+          },
+          "provider_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Override"
+          },
+          "steward_hold_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steward Hold Policy"
+          }
+        },
+        "title": "PipelineRunRequest",
+        "type": "object"
+      },
+      "PipelineValidateRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for deterministic pre-flight validation of an agentic pipeline.",
+        "properties": {
+          "harness_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Config"
+          },
+          "harness_config_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Harness Config Path"
+          },
+          "input_spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Spec"
+          },
+          "input_spec_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Spec Path"
+          },
+          "provider_override": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Provider Override"
+          },
+          "steward_hold_policy": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steward Hold Policy"
+          }
+        },
+        "title": "PipelineValidateRequest",
         "type": "object"
       },
       "ProjectResponse": {
@@ -625,6 +815,7 @@
               "antigravity",
               "claude",
               "claude-agent",
+              "deterministic",
               "deterministic-stub"
             ],
             "title": "Harness Provider",
@@ -961,6 +1152,94 @@
         "summary": "Get Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/pipelines/runs": {
+      "post": {
+        "description": "Execute the end-to-end 8-stage agentic pipeline and return the `AgenticPipelineReport`.",
+        "operationId": "run_pipeline_api_v1_pipelines_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PipelineRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Run Pipeline Api V1 Pipelines Runs Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Run Pipeline",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/pipelines/validate": {
+      "post": {
+        "description": "Deterministically validate an agentic pipeline input spec and harness config.",
+        "operationId": "validate_pipeline_api_v1_pipelines_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PipelineValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Validate Pipeline Api V1 Pipelines Validate Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Pipeline",
+        "tags": [
+          "runs"
         ]
       }
     },
@@ -1565,6 +1844,51 @@
         "summary": "Evaluate Run Gates",
         "tags": [
           "gates"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/report": {
+      "get": {
+        "description": "Return the `AgenticPipelineReport` for `run_id` (or synthesize a summary report).",
+        "operationId": "get_run_report_api_v1_runs__run_id__report_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Run Report Api V1 Runs  Run Id  Report Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Report",
+        "tags": [
+          "runs"
         ]
       }
     },
