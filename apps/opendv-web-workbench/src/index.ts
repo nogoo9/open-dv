@@ -2,8 +2,8 @@
  * `@opendv/web-workbench`
  * Decoupled 12-View Explainability & Observability Web Workbench Shell,
  * Semantic Theme Engine (`Obsidian Dark`, `Daylight Paper`, `High-Contrast Audit`),
- * Zustand State Store, Extensible Plugin Registry, and Workbench Views `WB-00`–`WB-05`
- * with Co-Located Gate Cards (`VIZ-GATE-01`, `VIZ-GATE-02`, `VIZ-GATE-04`, `VIZ-GATE-05` Part A, `VIZ-GATE-06`).
+ * Zustand State Store, Extensible Plugin Registry, and Workbench Views `WB-00`–`WB-11`
+ * with Co-Located Gate Cards (`VIZ-GATE-01` through `VIZ-GATE-08`).
  */
 
 import { PROTOCOL_VERSION } from "@opendv/protocol-ts";
@@ -13,6 +13,7 @@ import { WorkbenchShell } from "./components/shell/WorkbenchShell";
 import { defaultWorkbenchPluginRegistry } from "./plugins/plugin-registry";
 import { defaultThemeRegistry } from "./theme/theme-registry";
 import { registerWB00toWB05 } from "./views/register-wb00-wb05";
+import { registerWb06ToWb11Views } from "./views/register-wb06-wb11";
 
 export function getWorkbenchVersion(): string {
 	return `Open-DV Web Workbench (Protocol ${PROTOCOL_VERSION})`;
@@ -31,6 +32,7 @@ export function mountWorkbenchApp(container?: HTMLElement | null): Root | null {
 	if (!target) {
 		return null;
 	}
+	registerWb06ToWb11Views(defaultWorkbenchPluginRegistry);
 	defaultThemeRegistry.initializeFromEnvironment();
 	const root = createRoot(target);
 	root.render(createElement(WorkbenchShell));
@@ -86,3 +88,21 @@ export * from "./views/wb04/WB04ColumnTriageView";
 export * from "./views/wb05/BkccCollisionShieldDrawer";
 export * from "./views/wb05/TopologyCanvas";
 export * from "./views/wb05/WB05ELMTopologyView";
+
+// Workbench Views Part 2 (WB-06 through WB-11) & Co-Located Gate Cards
+export * from "./views/register-wb06-wb11";
+export * from "./views/wb06/GrainAdjacencyMatrix";
+export * from "./views/wb06/WB06TopologicalDAGView";
+export * from "./views/wb07/WriteAmplificationGauge";
+export * from "./views/wb07/WB07LinkSplitterYagniView";
+export * from "./views/wb08/AttemptDiffViewer";
+export * from "./views/wb08/ToonTraceHighlighter";
+export * from "./views/wb08/WB08SelfHealingWorkbench";
+export * from "./views/wb09/DriftDeltaGrid";
+export * from "./views/wb09/WB09SchemaDriftRadar";
+export * from "./views/wb10/AdversarialBatchGrid";
+export * from "./views/wb10/BiTemporalTimeline";
+export * from "./views/wb10/WB10DuckDBSandboxView";
+export * from "./views/wb11/PreHashStepper";
+export * from "./views/wb11/FourZoneSQLViewer";
+export * from "./views/wb11/WB11RosettaStoneView";
