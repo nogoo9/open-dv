@@ -2,21 +2,24 @@
 
 Provides reusable fixtures for:
 - Repository paths (schemas, examples, Private Equity benchmark, specification docs)
-- JSON Schema Draft 2020-12 definitions (Contract v5.0, Canonical IR v1.0.0, VaultObservabilityEvent)
-- Model contracts (`examples/dv_model_contract.yaml`, `examples/private_equity/dv_pe_model_contract.yaml`)
+- JSON Schema Draft 2020-12 definitions (Contract v5.0, Canonical IR v1.0.0,
+  VaultObservabilityEvent)
+- Model contracts (`examples/dv_model_contract.yaml`,
+  `examples/private_equity/dv_pe_model_contract.yaml`)
 - Canonical IR (`examples/private_equity/pe_canonical_ir.json`)
 - Dual-Graph artifacts (`pe_graph_a_ontology.yaml`, `pe_graph_b_profile.json`)
-- Reference Python algorithms extracted from `docs/05`–`docs/07`
+- Reference Python algorithms extracted from `docs/05`-`docs/07`
 - Verbatim unstructured PDF corpus and 4-Zone DuckDB SQL bundle from `docs/07`
 - Ephemeral `:memory:` DuckDB connections
 """
 
 from __future__ import annotations
 
-from collections.abc import Generator
 import json
-from pathlib import Path
 import re
+import sys
+from collections.abc import Generator
+from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -24,6 +27,18 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_WORKSPACE_SRC_DIRS: tuple[Path, ...] = (
+    REPO_ROOT / "packages" / "opendv-core" / "src",
+    REPO_ROOT / "packages" / "opendv-telemetry" / "src",
+    REPO_ROOT / "packages" / "opendv-axi-verifier" / "src",
+    REPO_ROOT / "packages" / "opendv-duckdb-sandbox" / "src",
+    REPO_ROOT / "packages" / "opendv-agent-harness" / "src",
+)
+for _src_dir in _WORKSPACE_SRC_DIRS:
+    _resolved_src = str(_src_dir.resolve())
+    if _resolved_src not in sys.path:
+        sys.path.insert(0, _resolved_src)
+
 SCHEMAS_DIR = REPO_ROOT / "schemas"
 EXAMPLES_DIR = REPO_ROOT / "examples"
 PE_DIR = EXAMPLES_DIR / "private_equity"
@@ -63,8 +78,11 @@ def extract_doc07_pdf_corpus() -> dict[str, str]:
     assert len(text_blocks) >= 2, f"Expected >= 2 text blocks in docs/07, found {len(text_blocks)}"
     side_letter_text = text_blocks[0]
     ic_memo_text = text_blocks[1]
+    side_letter_uri = (
+        "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf"
+    )
     return {
-        "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf": side_letter_text,
+        side_letter_uri: side_letter_text,
         "calpers_side_letter_fund_iv_2026.pdf": side_letter_text,
         "lpa_apex_buyout_fund_iv_2026.pdf": side_letter_text,
         "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf": ic_memo_text,
@@ -174,7 +192,7 @@ def populated_pe_duckdb(
     duckdb_conn: duckdb.DuckDBPyConnection,
     doc07_sql_bundle: tuple[str, str, str, str],
 ) -> duckdb.DuckDBPyConnection:
-    """Provide an ephemeral in-memory DuckDB connection loaded with Zones 0–3 of Artifact 3."""
+    """Provide an ephemeral in-memory DuckDB connection loaded with Zones 0-3 of Artifact 3."""
     _, zone0_to_3, _, _ = doc07_sql_bundle
     duckdb_conn.execute(zone0_to_3)
     return duckdb_conn
