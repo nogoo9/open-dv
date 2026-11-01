@@ -26,7 +26,7 @@ jobs:
       - name: Install validation dependencies
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install pyyaml jsonschema duckdb pytest networkx sqlglot
+          python3 -m pip install pyyaml jsonschema duckdb pytest pytest-asyncio pydantic networkx sqlglot
 
       - name: Validate JSON Schemas (Draft 2020-12), YAML Contract, Python Reference Algorithms, DuckDB SQL Bundle & HTML Guide
         run: |

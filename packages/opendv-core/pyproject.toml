@@ -3,7 +3,11 @@ name = "opendv-core"
 version = "0.1.0"
 description = "Open-DV Core Domain Models, JSON Schemas, ELM Calculus, and Algorithm A.5 Hashing"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "jsonschema>=4.23.0",
+    "pydantic>=2.10.0",
+    "pyyaml>=6.0.2",
+]
 
 [build-system]
 requires = ["hatchling"]
