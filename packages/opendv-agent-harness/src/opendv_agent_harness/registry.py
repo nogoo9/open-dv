@@ -50,6 +50,7 @@ def create_agent_harness(
     Dispatches:
     - `'antigravity'` -> `AntigravityHarnessAdapter`
     - `'claude'` -> `ClaudeAgentHarnessAdapter`
+    - `'deterministic'` / `'deterministic-stub'` -> `DeterministicHarnessAdapter`
     - Any custom provider registered via `register_harness(...)`
     """
     provider_key = str(config.provider).strip().lower()

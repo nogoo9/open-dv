@@ -153,8 +153,7 @@ class DeterministicHarnessAdapter(BaseVaultAgentHarness):
                         )
 
             summary_text = (
-                f"Completed {spec.stage_id.value} ({spec.persona.value}) "
-                f"using {model_id}."
+                f"Completed {spec.stage_id.value} ({spec.persona.value}) using {model_id}."
             )
             yield self._make_event(
                 spec,

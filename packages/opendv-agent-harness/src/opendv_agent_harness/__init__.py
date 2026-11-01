@@ -1,4 +1,4 @@
-"""Open-DV Agnostic Agent Harness: Hexagonal Protocol, Domain Tools, Dual-SDK Bridge, and Adapters.
+"""Open-DV Agnostic Agent Harness: Protocol, Tools, Dual-SDK Bridge, Adapters, and Pipeline.
 
 Conforms to docs/03-verification-and-agentic-architecture.md,
 docs/06-explainability-and-observability-spec.md,

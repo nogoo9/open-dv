@@ -25,10 +25,13 @@ from pathlib import Path
 
 import pytest
 import yaml
+
 from opendv_agent_harness import (
+    AgenticPipelineReport,
     AntigravityHarnessAdapter,
     ClaudeAgentHarnessAdapter,
     DeterministicHarnessAdapter,
+    HarnessBudget,
     HarnessSetupConfig,
     ObservabilityVerdict,
     PipelineInputSpec,
@@ -81,9 +84,7 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     assert valid_report.diagnostics == []
 
     # 1. Path traversal rejection ('../')
-    traversal_spec = input_spec.model_copy(
-        update={"graph_a_ontology_path": "../../../etc/passwd"}
-    )
+    traversal_spec = input_spec.model_copy(update={"graph_a_ontology_path": "../../../etc/passwd"})
     traversal_report = validate_pipeline_inputs(
         traversal_spec,
         harness_setup,
@@ -96,9 +97,9 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     missing_csv_wave = input_spec.waves[0].model_copy(
         update={
             "sources": [
-                input_spec.waves[0].sources[0].model_copy(
-                    update={"data_path": "sources/wave0_cold_start/nonexistent.csv"}
-                )
+                input_spec.waves[0]
+                .sources[0]
+                .model_copy(update={"data_path": "sources/wave0_cold_start/nonexistent.csv"})
             ]
         }
     )
@@ -112,11 +113,16 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     assert any(d["code"] == "SOURCE_FILE_MISSING" for d in missing_csv_report.diagnostics)
 
     # 3. Out-of-bounds unstructured [char_start, char_end]
-    bad_cand = input_spec.waves[3].unstructured_documents[0].extracted_candidates[0].model_copy(
-        update={"char_start": 0, "char_end": 999999}
+    bad_cand = (
+        input_spec.waves[3]
+        .unstructured_documents[0]
+        .extracted_candidates[0]
+        .model_copy(update={"char_start": 0, "char_end": 999999})
     )
-    bad_doc = input_spec.waves[3].unstructured_documents[0].model_copy(
-        update={"extracted_candidates": [bad_cand]}
+    bad_doc = (
+        input_spec.waves[3]
+        .unstructured_documents[0]
+        .model_copy(update={"extracted_candidates": [bad_cand]})
     )
     bad_wave3 = input_spec.waves[3].model_copy(update={"unstructured_documents": [bad_doc]})
     bad_span_spec = input_spec.model_copy(update={"waves": [bad_wave3]})
@@ -163,9 +169,7 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     assert failed_pipeline_rep.input_validation.passed is False
 
     # 6. Empty business_key_columns rejection
-    empty_bk_src = input_spec.waves[0].sources[0].model_copy(
-        update={"business_key_columns": []}
-    )
+    empty_bk_src = input_spec.waves[0].sources[0].model_copy(update={"business_key_columns": []})
     empty_bk_wave = input_spec.waves[0].model_copy(update={"sources": [empty_bk_src]})
     empty_bk_spec = input_spec.model_copy(update={"waves": [empty_bk_wave]})
     empty_bk_report = validate_pipeline_inputs(
@@ -189,6 +193,38 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
         d["code"] == "UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE"
         for d in unstructured_only_report.diagnostics
     )
+
+    # 8. Declared column missing from CSV and unstructured verbatim quote mismatch
+    missing_col_src = (
+        input_spec.waves[0].sources[0].model_copy(update={"pii_columns": ["nonexistent_pii_col"]})
+    )
+    bad_quote_cand = (
+        input_spec.waves[3]
+        .unstructured_documents[0]
+        .extracted_candidates[0]
+        .model_copy(update={"verbatim_quote": "TAMPERED QUOTE NOT IN DOCUMENT"})
+    )
+    bad_quote_doc = (
+        input_spec.waves[3]
+        .unstructured_documents[0]
+        .model_copy(update={"extracted_candidates": [bad_quote_cand]})
+    )
+    combined_bad_wave = input_spec.waves[0].model_copy(
+        update={
+            "sources": [missing_col_src],
+            "unstructured_documents": [bad_quote_doc],
+        }
+    )
+    combined_bad_spec = input_spec.model_copy(update={"waves": [combined_bad_wave]})
+    combined_bad_report = validate_pipeline_inputs(
+        combined_bad_spec,
+        harness_setup,
+        base_dir=sample_dir,
+    )
+    assert combined_bad_report.passed is False
+    bad_codes = {d["code"] for d in combined_bad_report.diagnostics}
+    assert "DECLARED_COLUMNS_MISSING" in bad_codes
+    assert "SPAN_QUOTE_MISMATCH" in bad_codes
 
 
 def test_run_agentic_vault_pipeline_four_waves_end_to_end(tmp_path: Path) -> None:
@@ -259,15 +295,15 @@ def test_run_agentic_vault_pipeline_four_waves_end_to_end(tmp_path: Path) -> Non
     assert (out_dir / "final_four_zone.sql").is_file()
     assert (out_dir / "vault-ledger.jsonl").is_file()
 
-    final_contract_data = yaml.safe_load((out_dir / "final_contract.yaml").read_text(encoding="utf-8"))
+    final_contract_data = yaml.safe_load(
+        (out_dir / "final_contract.yaml").read_text(encoding="utf-8")
+    )
     final_sat_names = {s["name"] for s in final_contract_data.get("satellites", [])}
     assert "sat_customer_core_ext_v2" in final_sat_names
     assert "sat_document_customer_ai_provenance" in final_sat_names
 
     wave3_graph_b = json.loads(
-        (out_dir / "waves" / "wave_3" / "wave_3_graph_b_profile.json").read_text(
-            encoding="utf-8"
-        )
+        (out_dir / "waves" / "wave_3" / "wave_3_graph_b_profile.json").read_text(encoding="utf-8")
     )
     wave3_unstructured_docs = [
         doc
@@ -276,9 +312,32 @@ def test_run_agentic_vault_pipeline_four_waves_end_to_end(tmp_path: Path) -> Non
     ]
     assert any(doc["doc_uri"] == "DOC-MSA-2026-089" for doc in wave3_unstructured_docs)
 
-    # Re-run deterministic output validator independently
+    # Re-run deterministic output validator independently (in-memory and reloaded from disk)
     reval = validate_pipeline_outputs(report, cas_store=cas)
     assert reval.passed is True
+    loaded_from_disk = AgenticPipelineReport.model_validate_json(
+        (out_dir / "pipeline_report.json").read_text(encoding="utf-8")
+    )
+    reval_disk = validate_pipeline_outputs(loaded_from_disk, cas_store=cas)
+    assert reval_disk.passed is True
+    assert reval_disk.cas_integrity_verified is True
+
+    # Adversarial output tamper & missing artifact checks
+    fc_path = out_dir / "final_contract.yaml"
+    original_fc_bytes = fc_path.read_bytes()
+    fc_path.write_bytes(original_fc_bytes + b"\n# tampered\n")
+    tampered_val = validate_pipeline_outputs(report, cas_store=cas)
+    assert tampered_val.passed is False
+    assert tampered_val.cas_integrity_verified is False
+    assert any(d["code"] == "ARTIFACT_SHA256_MISMATCH" for d in tampered_val.diagnostics)
+    fc_path.write_bytes(original_fc_bytes)
+
+    fc_path.unlink()
+    missing_val = validate_pipeline_outputs(report, cas_store=cas)
+    assert missing_val.passed is False
+    assert missing_val.cas_integrity_verified is False
+    assert any(d["code"] == "ARTIFACT_FILE_MISSING" for d in missing_val.diagnostics)
+    fc_path.write_bytes(original_fc_bytes)
 
 
 def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
@@ -415,28 +474,38 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    cust_src = input_spec.waves[0].sources[0].model_copy(
-        update={
-            "data_path": str(cust_csv),
-            "business_key_columns": ["customer_tax_id"],
-            "surrogate_key_columns": [],
-            "foreign_key_mappings": {},
-            "pii_columns": [],
-        }
+    cust_src = (
+        input_spec.waves[0]
+        .sources[0]
+        .model_copy(
+            update={
+                "data_path": str(cust_csv),
+                "business_key_columns": ["customer_tax_id"],
+                "surrogate_key_columns": [],
+                "foreign_key_mappings": {},
+                "pii_columns": [],
+            }
+        )
     )
-    order_src = input_spec.waves[0].sources[1].model_copy(
-        update={
-            "data_path": str(orders_opt_fk_csv),
-            "business_key_columns": ["order_id"],
-            "surrogate_key_columns": [],
-            "foreign_key_mappings": {"customer_tax_id": "hub_customer"},
-            "pii_columns": [],
-        }
+    order_src = (
+        input_spec.waves[0]
+        .sources[1]
+        .model_copy(
+            update={
+                "data_path": str(orders_opt_fk_csv),
+                "business_key_columns": ["order_id"],
+                "surrogate_key_columns": [],
+                "foreign_key_mappings": {"customer_tax_id": "hub_customer"},
+                "pii_columns": [],
+            }
+        )
     )
     opt_wave = input_spec.waves[0].model_copy(update={"sources": [cust_src, order_src]})
     opt_spec = input_spec.model_copy(
         update={
-            "graph_a_ontology_path": str(sample_dir / "ontology" / "commerce_graph_a_ontology.yaml"),
+            "graph_a_ontology_path": str(
+                sample_dir / "ontology" / "commerce_graph_a_ontology.yaml"
+            ),
             "waves": [opt_wave],
         }
     )
@@ -461,3 +530,29 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
     assert len(fk_ledger_entries) == 1
     assert fk_ledger_entries[0]["target_dv_entity"] == "lnk_order_customer"
     assert fk_ledger_entries[0]["elm_classification"] == "OPTIONAL_FOREIGN_KEY_REF"
+
+    # Verify Stage 5 retry exhaustion propagates REJECT-WITH-TRACE and FAILED status
+    exhausted_setup = HarnessSetupConfig(
+        provider="deterministic",
+        budget=HarnessBudget(max_schema_validation_retries=1),
+        inject_adversarial_fault_on_attempt_1=True,
+    )
+    exhausted_out = tmp_path / "out_exhausted_s5"
+    exhausted_rep = run_agentic_vault_pipeline(
+        opt_spec,
+        exhausted_setup,
+        output_dir=exhausted_out,
+        base_dir=tmp_path,
+    )
+    assert exhausted_rep.status == "FAILED"
+    assert exhausted_rep.overall_passed is False
+    assert exhausted_rep.output_validation.passed is False
+    assert exhausted_rep.wave_reports[0].status == "REJECT-WITH-TRACE"
+    assert exhausted_rep.wave_reports[0].self_healing_attempts == 1
+    assert (
+        exhausted_rep.wave_reports[0].gate_scorecard["G4_YAGNI_AND_COLUMN_LEDGER"]
+        == "REJECT-WITH-TRACE"
+    )
+    exhausted_codes = {d["code"] for d in exhausted_rep.output_validation.diagnostics}
+    assert "WAVE_EXECUTION_REJECTED" in exhausted_codes
+    assert "STEP_EXECUTION_REJECTED" in exhausted_codes

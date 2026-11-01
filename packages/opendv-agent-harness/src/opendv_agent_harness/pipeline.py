@@ -1192,9 +1192,7 @@ def _resolve_relationship_uri(
             return rel.relationship_uri
     hub_set = set(hub_names)
     for rel in ontology.canonical_relationships:
-        endpoint_hubs = {
-            _resolve_hub_and_uri(ep, ontology)[0] for ep in rel.endpoints
-        }
+        endpoint_hubs = {_resolve_hub_and_uri(ep, ontology)[0] for ep in rel.endpoints}
         if endpoint_hubs and endpoint_hubs.issubset(hub_set):
             return rel.relationship_uri
     if ontology.canonical_relationships:
@@ -1358,9 +1356,7 @@ class AgenticVaultPipeline:
                 raise ValueError(out_err or f"Invalid output_dir '{self.input_spec.output_dir}'.")
             self.output_dir = resolved_out
         else:
-            self.output_dir = (
-                Path(tempfile.mkdtemp(prefix="opendv_pipeline_out_")).resolve()
-            )
+            self.output_dir = Path(tempfile.mkdtemp(prefix="opendv_pipeline_out_")).resolve()
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.cas_dir = self.output_dir / "cas"
@@ -2284,9 +2280,7 @@ class AgenticVaultPipeline:
                 attempt1_contract["column_triage_ledger"] = [
                     e
                     for e in attempt1_contract["column_triage_ledger"]
-                    if not (
-                        e["bronze_table"] == dropped_tbl and e["column_name"] == dropped_col
-                    )
+                    if not (e["bronze_table"] == dropped_tbl and e["column_name"] == dropped_col)
                 ]
 
             att1_ref = self._record_artifact(
@@ -2793,9 +2787,7 @@ class AgenticVaultPipeline:
                 "PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"
             ] = (
                 "REJECT-WITH-TRACE"
-                if any(
-                    st == "REJECT-WITH-TRACE" for st in (s2_status, s5_status, s6_status)
-                )
+                if any(st == "REJECT-WITH-TRACE" for st in (s2_status, s5_status, s6_status))
                 else (
                     "ASK-USER"
                     if any(st == "ASK-USER" for st in (s2_status, s5_status))
@@ -2990,9 +2982,7 @@ class AgenticVaultPipeline:
             if h.status != "PENDING"
         ]
 
-        has_rejected_wave = any(
-            w.status in {"REJECT-WITH-TRACE", "ERROR"} for w in wave_reports
-        )
+        has_rejected_wave = any(w.status in {"REJECT-WITH-TRACE", "ERROR"} for w in wave_reports)
         has_ask_user_wave = any(w.status == "ASK-USER" for w in wave_reports)
         if has_rejected_wave:
             overall_status: Literal["COMPLETED", "PAUSED_HOLD", "FAILED"] = "FAILED"
@@ -3032,11 +3022,7 @@ class AgenticVaultPipeline:
         )
 
         output_val = validate_pipeline_outputs(provisional_report, cas_store=self.cas_store)
-        overall_passed = (
-            input_val.passed
-            and output_val.passed
-            and overall_status == "COMPLETED"
-        )
+        overall_passed = input_val.passed and output_val.passed and overall_status == "COMPLETED"
 
         md_summary = _build_markdown_report(
             self.input_spec,
@@ -3086,21 +3072,6 @@ class AgenticVaultPipeline:
             description="Machine-readable JSON Pipeline Execution Report.",
         )
         final_artifacts["pipeline_report_json"] = json_ref
-        final_report = final_report.model_copy(update={"final_artifacts": final_artifacts})
-        # Re-write pipeline_report.json so its final_artifacts includes pipeline_report_json itself
-        (self.output_dir / "pipeline_report.json").write_text(
-            final_report.model_dump_json(indent=2),
-            encoding="utf-8",
-        )
-        # Update CAS and sha256 for pipeline_report_json so validate_pipeline_outputs matches disk
-        updated_json_bytes = (self.output_dir / "pipeline_report.json").read_bytes()
-        updated_json_sha = self.cas_store.put(updated_json_bytes)
-        final_artifacts["pipeline_report_json"] = json_ref.model_copy(
-            update={
-                "sha256": updated_json_sha,
-                "byte_length": len(updated_json_bytes),
-            }
-        )
         final_report = final_report.model_copy(
             update={
                 "output_validation": validate_pipeline_outputs(
@@ -3335,9 +3306,7 @@ class AgenticVaultPipeline:
 
             # Collect table columns from Graph B profile
             table_cols = [
-                col_name
-                for (q_tbl, col_name) in prof_col_map
-                if q_tbl == qualified_table
+                col_name for (q_tbl, col_name) in prof_col_map if q_tbl == qualified_table
             ]
             surrogate_set = set(src.surrogate_key_columns)
             bk_set = set(src.business_key_columns)
@@ -3386,9 +3355,7 @@ class AgenticVaultPipeline:
                         base_general_cols = [
                             c for c in general_payload_cols if c not in drift_added_set
                         ]
-                        ext_cols = sorted(
-                            c for c in general_payload_cols if c in drift_added_set
-                        )
+                        ext_cols = sorted(c for c in general_payload_cols if c in drift_added_set)
                     else:
                         base_general_cols = list(general_payload_cols)
                         ext_cols = []

@@ -3,6 +3,7 @@
 Provides:
 - `AntigravityHarnessAdapter`: Google Antigravity SDK (`google.antigravity`)
 - `ClaudeAgentHarnessAdapter`: Anthropic Claude Agent SDK (`claude_agent_sdk`)
+- `DeterministicHarnessAdapter`: Offline deterministic adapter (`deterministic`)
 """
 
 from __future__ import annotations
