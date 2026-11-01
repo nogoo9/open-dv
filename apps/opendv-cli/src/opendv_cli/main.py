@@ -72,14 +72,14 @@ def _add_shared_flags(parser: argparse.ArgumentParser, *, suppress_defaults: boo
     parser.add_argument(
         "--run-id",
         dest="run_id",
-        default=argparse.SUPPRESS if suppress_defaults else "run-pe-apex-horizon-20261030",
-        help="Target platform run_id (default: run-pe-apex-horizon-20261030).",
+        default=default_none,
+        help="Target platform run_id.",
     )
     parser.add_argument(
         "--project-id",
         dest="project_id",
-        default=argparse.SUPPRESS if suppress_defaults else "proj-apex-horizon-pe",
-        help="Target platform project_id (default: proj-apex-horizon-pe).",
+        default=default_none,
+        help="Target platform project_id.",
     )
 
 
@@ -101,19 +101,19 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
     _add_shared_flags(p_verify, suppress_defaults=True)
     p_verify.add_argument(
         "--contract",
-        default="examples/private_equity/dv_pe_model_contract.yaml",
+        default=None,
         help="Path to the DV 2.0 model contract YAML.",
     )
     p_verify.add_argument(
         "--graph-a",
         dest="graph_a",
-        default="examples/private_equity/pe_graph_a_ontology.yaml",
+        default=None,
         help="Path to the Graph A domain ontology YAML.",
     )
     p_verify.add_argument(
         "--graph-b",
         dest="graph_b",
-        default="examples/private_equity/pe_graph_b_profile.json",
+        default=None,
         help="Path to the Graph B empirical profile JSON.",
     )
     p_verify.add_argument(
@@ -132,8 +132,26 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
     p_profile.add_argument(
         "--graph-b",
         dest="graph_b",
-        default="examples/private_equity/pe_graph_b_profile.json",
+        default=None,
         help="Path to the Graph B profile JSON.",
+    )
+    p_profile.add_argument(
+        "--source-csv",
+        dest="source_csv",
+        default=None,
+        help="Path to a raw Bronze CSV file to profile directly via GraphBProfiler.",
+    )
+    p_profile.add_argument(
+        "--source-system",
+        dest="source_system",
+        default="bronze_source",
+        help="Source system code when profiling a raw CSV file (default: bronze_source).",
+    )
+    p_profile.add_argument(
+        "--table-name",
+        dest="table_name",
+        default=None,
+        help="Optional table name override when profiling a raw CSV file.",
     )
 
     # 3. compile
@@ -144,13 +162,13 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
     _add_shared_flags(p_compile, suppress_defaults=True)
     p_compile.add_argument(
         "--contract",
-        default="examples/private_equity/dv_pe_model_contract.yaml",
+        default=None,
         help="Path to the DV 2.0 model contract YAML.",
     )
     p_compile.add_argument(
         "--canonical-ir",
         dest="canonical_ir",
-        default="examples/private_equity/pe_canonical_ir.json",
+        default=None,
         help="Path to the Canonical IR JSON.",
     )
 
@@ -160,6 +178,17 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
         help="Execute 4-Batch adversarial DuckDB sandbox or bi-temporal Queries D.10 / D.10b.",
     )
     _add_shared_flags(p_sandbox, suppress_defaults=True)
+    p_sandbox.add_argument(
+        "--contract",
+        default=None,
+        help="Path to the DV 2.0 model contract YAML for local sandbox execution.",
+    )
+    p_sandbox.add_argument(
+        "--canonical-ir",
+        dest="canonical_ir",
+        default=None,
+        help="Path to the Canonical IR JSON for local sandbox execution.",
+    )
     p_sandbox.add_argument(
         "--query-type",
         dest="query_type",
@@ -222,13 +251,13 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
     p_hold.add_argument(
         "--hold-id",
         dest="hold_id",
-        default="hold-tier-u3-horizon-sovereign-vehicle",
+        default=None,
         help="Identifier of the Captain-Hold to resolve.",
     )
     p_hold.add_argument(
         "--event-id",
         dest="event_id",
-        default="evt-pe-004",
+        default=None,
         help="Observability event ID that triggered the hold.",
     )
     p_hold.add_argument(
@@ -242,7 +271,7 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
     p_hold.add_argument(
         "--candidate",
         dest="selected_candidate_id",
-        default="APEX_CO_I",
+        default=None,
         help="Selected candidate entity ID when approving an entity resolution hold.",
     )
     p_hold.add_argument(
@@ -358,7 +387,7 @@ def axi_dv_main(
     """Entrypoint for the `axi-dv` verification CLI binary.
 
     Defaults to the `verify` subcommand when invoked without an explicit subcommand name
-    (e.g. `axi-dv --local --json` or `axi-dv --contract ...`).
+    (e.g. `axi-dv --local --contract ... --json`).
     """
     raw_args = list(sys.argv[1:] if argv is None else argv)
     if any(flag in raw_args for flag in ("-h", "--help")):

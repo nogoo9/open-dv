@@ -97,7 +97,7 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
             assert res_get.status_code == 200
             assert res_get.json()["domain_namespace"] == "pe_asset_management"
 
-            # 3. Create new project
+            # 3. Create new project (verifying non-hardcoded defaults)
             res_create = await client.post(
                 "/api/v1/projects",
                 json={
@@ -107,7 +107,12 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
                 },
             )
             assert res_create.status_code == 201
-            assert res_create.json()["project_id"] == "proj-nordic-co-invest"
+            created_proj = res_create.json()
+            assert created_proj["project_id"] == "proj-nordic-co-invest"
+            assert created_proj["contract_path"] is None
+            assert created_proj["graph_a_ontology_path"] is None
+            assert created_proj["graph_b_path"] is None
+            assert created_proj["canonical_ir_path"] is None
 
             # 4. Path traversal in project registration must be rejected (400/422 problem+json)
             res_bad_path = await client.post(
@@ -144,6 +149,13 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
             assert created_run["harness_provider"] == "claude"
             assert created_run["status"] == RunStatus.PAUSED_HOLD.value
             assert created_run["event_count"] == 9
+
+            res_no_contract_gates = await client.post(
+                f"/api/v1/runs/{new_run_id}/gates",
+                json={"recheck": True},
+            )
+            assert res_no_contract_gates.status_code == 400
+            assert "application/problem+json" in res_no_contract_gates.headers["content-type"]
 
             # 6. Abort the newly created run
             res_abort = await client.post(f"/api/v1/runs/{new_run_id}/abort")
@@ -374,6 +386,20 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path) -> None:
             assert res_missing_contract.status_code == 404
             assert "application/problem+json" in res_missing_contract.headers["content-type"]
 
+            res_missing_graph_a = await client.post(
+                f"/api/v1/runs/{run_id}/gates",
+                json={"graph_a_ontology_path": "examples/private_equity/does_not_exist.yaml"},
+            )
+            assert res_missing_graph_a.status_code == 404
+            assert "application/problem+json" in res_missing_graph_a.headers["content-type"]
+
+            res_missing_graph_b = await client.post(
+                f"/api/v1/runs/{run_id}/gates",
+                json={"graph_b_path": "examples/private_equity/does_not_exist.json"},
+            )
+            assert res_missing_graph_b.status_code == 404
+            assert "application/problem+json" in res_missing_graph_b.headers["content-type"]
+
             # Rejected contract evaluation sets overall_passed=False and REJECT-WITH-TRACE
             bad_repo = tmp_path / "bad_repo"
             bad_repo.mkdir(parents=True, exist_ok=True)
@@ -419,6 +445,15 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path) -> None:
                 assert reject_body["gate_scorecard"]["gate_1_contract_grain"] == "REJECT-WITH-TRACE"
                 assert len(reject_body["diagnostics"]) >= 1
                 assert "REJECT-WITH-TRACE" in reject_body["toon_text"]
+                assert bad_state.runs[run_id].status == RunStatus.FAILED
+
+                res_recover = await bad_client.post(
+                    f"/api/v1/runs/{run_id}/gates",
+                    json={"contract_path": "examples/private_equity/dv_pe_model_contract.yaml"},
+                )
+                assert res_recover.status_code == 200
+                assert res_recover.json()["overall_passed"] is True
+                assert bad_state.runs[run_id].status == RunStatus.PAUSED_HOLD
 
     _run_async(_scenario())
 

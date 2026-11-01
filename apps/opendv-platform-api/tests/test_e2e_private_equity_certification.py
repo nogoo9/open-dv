@@ -123,6 +123,10 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
                     "project_id": project_id,
                     "display_name": "Apex Buyout Fund IV - E2E Certification Vault",
                     "domain_namespace": "pe_asset_management",
+                    "contract_path": "examples/private_equity/dv_pe_model_contract.yaml",
+                    "graph_a_ontology_path": "examples/private_equity/pe_graph_a_ontology.yaml",
+                    "graph_b_path": "examples/private_equity/pe_graph_b_profile.json",
+                    "canonical_ir_path": "examples/private_equity/pe_canonical_ir.json",
                 },
             )
             assert project_resp.status_code == 201
