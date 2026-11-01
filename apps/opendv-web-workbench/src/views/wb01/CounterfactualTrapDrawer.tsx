@@ -351,5 +351,10 @@ export const VIZ_GATE_02_PLUGIN: WorkbenchGateCardPlugin = {
 		"DV-COL-001",
 		"DV-STR-010",
 	],
-	component: (_props: GateCardPluginProps) => <CounterfactualTrapDrawer />,
+	component: (props: GateCardPluginProps) => (
+		<CounterfactualTrapDrawer
+			isOpen={props.isExpanded}
+			onClose={props.onToggleExpand}
+		/>
+	),
 };

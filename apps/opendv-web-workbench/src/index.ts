@@ -9,13 +9,16 @@ import { PROTOCOL_VERSION } from "@opendv/protocol-ts";
 import { createElement } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { WorkbenchShell } from "./components/shell/WorkbenchShell";
+import { defaultWorkbenchPluginRegistry } from "./plugins/plugin-registry";
 import { defaultThemeRegistry } from "./theme/theme-registry";
+import { registerWB00toWB05 } from "./views/register-wb00-wb05";
 
 export function getWorkbenchVersion(): string {
 	return `Open-DV Web Workbench (Protocol ${PROTOCOL_VERSION})`;
 }
 
 export function mountWorkbenchApp(container?: HTMLElement | null): Root | null {
+	registerWB00toWB05(defaultWorkbenchPluginRegistry);
 	const target =
 		container !== undefined
 			? container
@@ -60,3 +63,25 @@ export * from "./components/shell/Layer1StoryBanner";
 export * from "./components/shell/SidebarNav";
 export * from "./components/shell/Layer3ProofDrawer";
 export * from "./components/shell/WorkbenchShell";
+
+// Workbench Views Part 1 (WB-00 through WB-05) & Co-Located Gate Cards
+export * from "./views/register-wb00-wb05";
+export * from "./views/wb00/MultiAgentTimeline";
+export * from "./views/wb00/SixGateFunnelCard";
+export * from "./views/wb00/WB00CommandCenter";
+export * from "./views/wb01/BipartiteMapCanvas";
+export * from "./views/wb01/CounterfactualTrapDrawer";
+export * from "./views/wb01/WB01DualGraphView";
+export * from "./views/wb02/FourQuadrantScatterPlot";
+export * from "./views/wb02/InclusionDependencyDAG";
+export * from "./views/wb02/WB02EmpiricalProfiler";
+export * from "./views/wb03/CaptainHoldDecisionModal";
+export * from "./views/wb03/DocumentSpanHighlighter";
+export * from "./views/wb03/ThreeTierERFunnel";
+export * from "./views/wb03/WB03UnstructuredView";
+export * from "./views/wb04/ColumnAccountingSankey";
+export * from "./views/wb04/TriageLedgerTable";
+export * from "./views/wb04/WB04ColumnTriageView";
+export * from "./views/wb05/BkccCollisionShieldDrawer";
+export * from "./views/wb05/TopologyCanvas";
+export * from "./views/wb05/WB05ELMTopologyView";

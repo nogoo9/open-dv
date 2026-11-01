@@ -12,12 +12,20 @@ import type {
 export const VIZ_GATE_06_ID = "VIZ-GATE-06";
 
 export interface ThreeTierERFunnelProps {
+	event?: VaultObservabilityEventDTO | null;
+	isExpanded?: boolean;
+	onToggleExpand?: () => void;
 	onOpenCaptainHold?: () => void;
 }
 
 export function ThreeTierERFunnel({
+	isExpanded = true,
+	onToggleExpand,
 	onOpenCaptainHold,
 }: ThreeTierERFunnelProps) {
+	if (!isExpanded) {
+		return null;
+	}
 	return (
 		<div
 			aria-label="3-Tier Entity Resolution Confidence Funnel & Gate 5 Rules"
@@ -66,19 +74,38 @@ export function ThreeTierERFunnel({
 					</div>
 				</div>
 
-				<span
-					style={{
-						fontSize: "0.7rem",
-						fontWeight: 700,
-						color: "var(--dv-gate-askuser)",
-						backgroundColor: "var(--dv-surface-2)",
-						border: "1px solid var(--dv-gate-askuser)",
-						padding: "0.15rem 0.5rem",
-						borderRadius: "0.25rem",
-					}}
-				>
-					1 Active Captain Hold
-				</span>
+				<div style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+					<span
+						style={{
+							fontSize: "0.7rem",
+							fontWeight: 700,
+							color: "var(--dv-gate-askuser)",
+							backgroundColor: "var(--dv-surface-2)",
+							border: "1px solid var(--dv-gate-askuser)",
+							padding: "0.15rem 0.5rem",
+							borderRadius: "0.25rem",
+						}}
+					>
+						1 Active Captain Hold
+					</span>
+					{onToggleExpand && (
+						<button
+							type="button"
+							onClick={onToggleExpand}
+							style={{
+								backgroundColor: "var(--dv-surface-2)",
+								color: "var(--dv-text-primary)",
+								border: "1px solid var(--dv-border-strong)",
+								borderRadius: "0.25rem",
+								padding: "0.15rem 0.45rem",
+								fontSize: "0.7rem",
+								cursor: "pointer",
+							}}
+						>
+							Collapse
+						</button>
+					)}
+				</div>
 			</div>
 
 			{/* 3-Tier ER Funnel Cards */}
@@ -342,5 +369,11 @@ export const VIZ_GATE_06_PLUGIN: WorkbenchGateCardPlugin = {
 	gateId: VIZ_GATE_06_ID,
 	title: "Gate 5 Unstructured Rules & Bi-Temporal Cut-Offs",
 	ruleIds: ["U1", "U2", "U3", "U4", "ALG-A9B", "TMP-01", "TMP-02"],
-	component: (_props: GateCardPluginProps) => <ThreeTierERFunnel />,
+	component: (props: GateCardPluginProps) => (
+		<ThreeTierERFunnel
+			event={props.event}
+			isExpanded={props.isExpanded}
+			onToggleExpand={props.onToggleExpand}
+		/>
+	),
 };

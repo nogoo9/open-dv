@@ -16,6 +16,7 @@ import {
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkbenchShell } from "../src/components/shell/WorkbenchShell";
+import * as workbenchEntrypoint from "../src/index";
 import { WorkbenchPluginRegistry } from "../src/plugins/plugin-registry";
 import {
 	createWorkbenchStore,
@@ -49,7 +50,10 @@ import {
 	CaptainHoldDecisionModal,
 	DEFAULT_CAPTAIN_HOLD_DATA,
 } from "../src/views/wb03/CaptainHoldDecisionModal";
-import { DocumentSpanHighlighter } from "../src/views/wb03/DocumentSpanHighlighter";
+import {
+	DocumentSpanHighlighter,
+	PE_DOCUMENTS,
+} from "../src/views/wb03/DocumentSpanHighlighter";
 import { ThreeTierERFunnel } from "../src/views/wb03/ThreeTierERFunnel";
 import { WB03UnstructuredView } from "../src/views/wb03/WB03UnstructuredView";
 import { ColumnAccountingSankey } from "../src/views/wb04/ColumnAccountingSankey";
@@ -128,16 +132,61 @@ describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () 
 			}
 		});
 
-		it("registers co-located gate card plugins with valid rule bindings", () => {
+		it("registers co-located gate card plugins with valid rule bindings and view scoping", () => {
 			expect(registry.getGateCard("VIZ-GATE-01")).toBeDefined();
 			expect(registry.getGateCard("VIZ-GATE-02")).toBeDefined();
 			expect(registry.getGateCard("VIZ-GATE-04")).toBeDefined();
 			expect(registry.getGateCard("VIZ-GATE-05")).toBeDefined();
 			expect(registry.getGateCard("VIZ-GATE-06")).toBeDefined();
 
-			const eventWithGate01 = getDemoEvent("WB-00");
-			const matchedCards = registry.findGateCardsForEvent(eventWithGate01);
-			expect(matchedCards.some((c) => c.gateId === "VIZ-GATE-01")).toBe(true);
+			expect(
+				registry
+					.findGateCardsForEvent(getDemoEvent("WB-00"))
+					.map((c) => c.gateId),
+			).toEqual(["VIZ-GATE-01"]);
+			expect(
+				registry
+					.findGateCardsForEvent(getDemoEvent("WB-01"))
+					.map((c) => c.gateId),
+			).toEqual(["VIZ-GATE-02"]);
+			expect(
+				registry
+					.findGateCardsForEvent(getDemoEvent("WB-02"))
+					.map((c) => c.gateId),
+			).toEqual([]);
+			expect(
+				registry
+					.findGateCardsForEvent(getDemoEvent("WB-03"))
+					.map((c) => c.gateId),
+			).toEqual(["VIZ-GATE-06"]);
+			expect(
+				registry
+					.findGateCardsForEvent(getDemoEvent("WB-04"))
+					.map((c) => c.gateId),
+			).toEqual(["VIZ-GATE-05"]);
+			expect(
+				registry
+					.findGateCardsForEvent(getDemoEvent("WB-05"))
+					.map((c) => c.gateId),
+			).toEqual(["VIZ-GATE-04"]);
+		});
+
+		it("exports WB-00..WB-05 from package entrypoint and registers them on mountWorkbenchApp", () => {
+			expect(typeof workbenchEntrypoint.registerWB00toWB05).toBe("function");
+			expect(typeof workbenchEntrypoint.WB00CommandCenter).toBe("function");
+			expect(typeof workbenchEntrypoint.WB01DualGraphView).toBe("function");
+			expect(typeof workbenchEntrypoint.WB02EmpiricalProfiler).toBe("function");
+			expect(typeof workbenchEntrypoint.WB03UnstructuredView).toBe("function");
+			expect(typeof workbenchEntrypoint.WB04ColumnTriageView).toBe("function");
+			expect(typeof workbenchEntrypoint.WB05ELMTopologyView).toBe("function");
+
+			workbenchEntrypoint.defaultWorkbenchPluginRegistry.clearForTesting();
+			workbenchEntrypoint.mountWorkbenchApp(null);
+			expect(
+				workbenchEntrypoint.defaultWorkbenchPluginRegistry
+					.listViews()
+					.map((v) => v.id),
+			).toEqual(["WB-00", "WB-01", "WB-02", "WB-03", "WB-04", "WB-05"]);
 		});
 	});
 
@@ -335,6 +384,15 @@ describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () 
 
 	describe("5. WB-03: Unstructured PDF Span-Grounding & Captain Hold", () => {
 		it("highlights exact [span_start:span_end] character offsets on CalPERS side letter and Nordic Cloud IC memo", () => {
+			expect(PE_DOCUMENTS).toHaveLength(2);
+			expect(PE_DOCUMENTS[0].text.length).toBe(1215);
+			expect(PE_DOCUMENTS[1].text.length).toBe(1331);
+			for (const doc of PE_DOCUMENTS) {
+				for (const span of doc.spans) {
+					expect(doc.text.slice(span.start, span.end)).toBe(span.text);
+				}
+			}
+
 			const html = renderToStaticMarkup(createElement(DocumentSpanHighlighter));
 
 			expect(html).toContain('data-testid="document-span-highlighter"');
@@ -343,14 +401,18 @@ describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () 
 
 			// Span tests on CalPERS side letter
 			expect(html).toContain('data-testid="span-134-180"');
+			expect(html).toContain('data-testid="doc-highlight-134-180"');
 			expect(html).toContain(
 				"California Public Employees&#x27; Retirement System",
 			);
 			expect(html).toContain('data-testid="span-227-247"');
+			expect(html).toContain('data-testid="doc-highlight-227-247"');
 			expect(html).toContain("5493006MHB84DD0ZWV18");
 			expect(html).toContain('data-testid="span-499-506"');
+			expect(html).toContain('data-testid="doc-highlight-499-506"');
 			expect(html).toContain("125 bps");
 			expect(html).toContain('data-testid="span-1112-1147"');
+			expect(html).toContain('data-testid="doc-highlight-1112-1147"');
 			expect(html).toContain("Horizon Sovereign Co-Invest Vehicle");
 			expect(html).toContain("⚠️ [CAPTAIN HOLD]");
 		});
@@ -455,18 +517,23 @@ describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () 
 			const html = renderToStaticMarkup(createElement(ColumnAccountingSankey));
 
 			expect(html).toContain('data-testid="column-accounting-sankey"');
-			expect(html).toContain("Accountability: 44 / 44 Columns (100.0%)");
+			expect(html).toContain("Accountability: 67 / 67 Columns (100.0%)");
+			expect(html).toContain("Bronze Tables (67 cols)");
+			expect(html).toContain("ELM Dispositions (67)");
 
 			// Sources
 			expect(html).toContain("investran.src_pe_funds");
 			expect(html).toContain("investran.src_lp_investors");
 			expect(html).toContain("investran.src_lp_commitments_and_calls");
 			expect(html).toContain("dealcloud.src_portfolio_companies");
+			expect(html).toContain("dms.src_side_letter_extractions");
+			expect(html).toContain("dms.src_ic_memo_extractions");
 
 			// Dispositions
 			expect(html).toContain('data-testid="triage-bucket-BUSINESS_KEY"');
 			expect(html).toContain('data-testid="triage-bucket-FOREIGN_KEY_REF"');
 			expect(html).toContain('data-testid="triage-bucket-DESCRIPTIVE_PAYLOAD"');
+			expect(html).toContain(">48<");
 			expect(html).toContain(
 				'data-testid="triage-bucket-SYSTEM_SURROGATE_DROPPED"',
 			);
@@ -588,7 +655,7 @@ describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () 
 	});
 
 	describe("8. Shell Integration & Dynamic View Switching", () => {
-		it("renders registered WB-00 view inside WorkbenchShell canvas", () => {
+		it("renders registered WB-00 view inside WorkbenchShell canvas without duplicate or cross-view gate cards", () => {
 			useWorkbenchStore.getState().replayAllInstant();
 			useWorkbenchStore.getState().setActiveView("WB-00");
 
@@ -601,6 +668,13 @@ describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () 
 			expect(html).toContain('data-testid="registered-view-plugin-container"');
 			expect(html).toContain('data-testid="wb00-command-center"');
 			expect(html).toContain("WB-00: Master Pipeline Command Center");
+			expect(html).not.toContain('data-testid="colocated-gate-cards"');
+			expect(html.split('data-testid="six-gate-funnel-card"').length - 1).toBe(
+				1,
+			);
+			expect(html).not.toContain('data-testid="counterfactual-trap-drawer"');
+			expect(html).not.toContain('data-testid="triage-ledger-table"');
+			expect(html).not.toContain('data-testid="bkcc-collision-shield-drawer"');
 		});
 
 		it("renders registered WB-03 view with Captain Hold active banner inside WorkbenchShell", () => {
@@ -616,6 +690,10 @@ describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () 
 			expect(html).toContain('data-testid="registered-view-plugin-container"');
 			expect(html).toContain('data-testid="wb03-unstructured-view"');
 			expect(html).toContain("Horizon Sovereign Co-Invest Vehicle");
+			expect(html).not.toContain('data-testid="colocated-gate-cards"');
+			expect(html.split('data-testid="three-tier-er-funnel"').length - 1).toBe(
+				1,
+			);
 		});
 
 		it("renders registered WB-05 view with BKCC Collision Shield inside WorkbenchShell", () => {
@@ -631,6 +709,10 @@ describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () 
 			expect(html).toContain('data-testid="registered-view-plugin-container"');
 			expect(html).toContain('data-testid="wb05-elm-topology-view"');
 			expect(html).toContain('data-testid="bkcc-collision-shield-drawer"');
+			expect(html).not.toContain('data-testid="colocated-gate-cards"');
+			expect(
+				html.split('data-testid="bkcc-collision-shield-drawer"').length - 1,
+			).toBe(1);
 			expect(html).toContain("5D15..0AE4");
 			expect(html).toContain("6B7C..D8B9");
 		});

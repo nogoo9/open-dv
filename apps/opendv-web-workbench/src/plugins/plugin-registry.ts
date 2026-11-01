@@ -19,6 +19,7 @@ export type PluginRegistryListener = () => void;
 export class WorkbenchPluginRegistry {
 	private readonly views = new Map<WorkbenchViewId, WorkbenchViewPlugin>();
 	private readonly gateCards = new Map<string, WorkbenchGateCardPlugin>();
+	private readonly viewOwnedGateIds = new Map<string, WorkbenchViewId>();
 	private readonly listeners = new Set<PluginRegistryListener>();
 
 	private validateAndNormalizeGateCard(
@@ -81,9 +82,16 @@ export class WorkbenchPluginRegistry {
 
 		this.views.set(plugin.id, normalizedView);
 
+		for (const [gateId, ownerViewId] of this.viewOwnedGateIds.entries()) {
+			if (ownerViewId === plugin.id) {
+				this.viewOwnedGateIds.delete(gateId);
+			}
+		}
+
 		if (normalizedGateCards) {
 			for (const gateCard of normalizedGateCards) {
 				this.gateCards.set(gateCard.gateId, gateCard);
+				this.viewOwnedGateIds.set(gateCard.gateId, plugin.id);
 			}
 		}
 
@@ -106,6 +114,7 @@ export class WorkbenchPluginRegistry {
 	registerGateCard(plugin: WorkbenchGateCardPlugin): WorkbenchGateCardPlugin {
 		const normalized = this.validateAndNormalizeGateCard(plugin);
 		this.gateCards.set(normalized.gateId, normalized);
+		this.viewOwnedGateIds.delete(normalized.gateId);
 		this.notifyListeners();
 		return normalized;
 	}
@@ -131,6 +140,10 @@ export class WorkbenchPluginRegistry {
 
 		const matched: WorkbenchGateCardPlugin[] = [];
 		for (const card of this.gateCards.values()) {
+			const ownerViewId = this.viewOwnedGateIds.get(card.gateId);
+			if (ownerViewId && event.workbench_view_id !== ownerViewId) {
+				continue;
+			}
 			const matchesViz = card.gateId === eventVizId;
 			const matchesRule = card.ruleIds.some((r) => evaluated.has(r));
 			if (matchesViz || matchesRule) {
@@ -150,6 +163,7 @@ export class WorkbenchPluginRegistry {
 	clearForTesting(): void {
 		this.views.clear();
 		this.gateCards.clear();
+		this.viewOwnedGateIds.clear();
 		this.notifyListeners();
 	}
 

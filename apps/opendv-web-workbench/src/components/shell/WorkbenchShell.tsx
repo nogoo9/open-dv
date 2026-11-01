@@ -217,11 +217,16 @@ export function WorkbenchShell({ pluginRegistry }: WorkbenchShellProps) {
 		: WorkbenchPluginRegistry.getView(activeViewId);
 	const eventsForActiveView = eventsByView[activeViewId] ?? [];
 
-	const matchingGateCards = currentEvent
-		? pluginRegistry
-			? pluginRegistry.findGateCardsForEvent(currentEvent)
-			: WorkbenchPluginRegistry.findGateCardsForEvent(currentEvent)
-		: [];
+	const embeddedGateIds = new Set(
+		(registeredViewPlugin?.gateCards ?? []).map((g) => g.gateId),
+	);
+	const matchingGateCards = (
+		currentEvent
+			? pluginRegistry
+				? pluginRegistry.findGateCardsForEvent(currentEvent)
+				: WorkbenchPluginRegistry.findGateCardsForEvent(currentEvent)
+			: []
+	).filter((card) => !embeddedGateIds.has(card.gateId));
 
 	const ActiveViewComponent = registeredViewPlugin?.component;
 	const pills = currentEvent?.layer2_visual_payload.semantic_hash_pills ?? [];

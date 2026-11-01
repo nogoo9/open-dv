@@ -7,7 +7,13 @@ import type {
 	CaptainHoldDecisionRequest,
 	CaptainHoldDecisionResponse,
 } from "@opendv/protocol-ts";
-import { useState } from "react";
+import {
+	type FormEvent,
+	useCallback,
+	useEffect,
+	useRef,
+	useState,
+} from "react";
 import { useWorkbenchStore } from "../../store/workbench-store";
 
 export interface CandidateItem {
@@ -65,24 +71,76 @@ export function CaptainHoldDecisionModal({
 	onSubmit,
 }: CaptainHoldDecisionModalProps) {
 	const hold = holdData ?? DEFAULT_CAPTAIN_HOLD_DATA;
+	const defaultCandidateId = hold.candidates[0]?.candidate_id ?? "APEX_CO_I";
 	const [action, setAction] = useState<"APPROVE" | "REJECT" | "ANSWER">(
 		"APPROVE",
 	);
-	const [selectedCandidate, setSelectedCandidate] = useState<string>(
-		hold.candidates[0]?.candidate_id ?? "APEX_CO_I",
-	);
+	const [selectedCandidate, setSelectedCandidate] =
+		useState<string>(defaultCandidateId);
 	const [notes, setNotes] = useState<string>(
 		"Confirmed as Horizon Co-Investment Fund I based on Side Letter Section 4 co-investment rights.",
 	);
 	const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 	const [submissionResult, setSubmissionResult] = useState<string | null>(null);
+	const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+	const clearCloseTimer = useCallback(() => {
+		if (closeTimerRef.current !== null) {
+			clearTimeout(closeTimerRef.current);
+			closeTimerRef.current = null;
+		}
+	}, []);
+
+	useEffect(() => {
+		clearCloseTimer();
+		if (isOpen && hold.hold_id) {
+			setAction("APPROVE");
+			setSelectedCandidate(defaultCandidateId);
+			setNotes(
+				"Confirmed as Horizon Co-Investment Fund I based on Side Letter Section 4 co-investment rights.",
+			);
+			setIsSubmitting(false);
+			setSubmissionResult(null);
+		}
+		return () => {
+			clearCloseTimer();
+		};
+	}, [hold.hold_id, isOpen, defaultCandidateId, clearCloseTimer]);
+
+	useEffect(() => {
+		if (
+			!isOpen ||
+			typeof globalThis === "undefined" ||
+			typeof globalThis.addEventListener !== "function"
+		) {
+			return;
+		}
+		const onKeyDown = (ev: KeyboardEvent) => {
+			if (ev.key === "Escape" && !isSubmitting) {
+				ev.preventDefault();
+				clearCloseTimer();
+				onClose();
+			}
+		};
+		globalThis.addEventListener("keydown", onKeyDown);
+		return () => {
+			globalThis.removeEventListener("keydown", onKeyDown);
+		};
+	}, [isOpen, isSubmitting, onClose, clearCloseTimer]);
 
 	const storeSubmit = useWorkbenchStore((s) => s.submitDecision);
 
 	if (!isOpen) return null;
 
-	const handleSubmit = async (e: React.FormEvent) => {
+	const activeCandidateId = hold.candidates.some(
+		(c) => c.candidate_id === selectedCandidate,
+	)
+		? selectedCandidate
+		: defaultCandidateId;
+
+	const handleSubmit = async (e: FormEvent) => {
 		e.preventDefault();
+		clearCloseTimer();
 		setIsSubmitting(true);
 		setSubmissionResult(null);
 
@@ -91,7 +149,7 @@ export function CaptainHoldDecisionModal({
 			hold_id: hold.hold_id,
 			decision_type: "RESOLVE_CAPTAIN_HOLD",
 			action,
-			selected_candidate_id: action === "APPROVE" ? selectedCandidate : null,
+			selected_candidate_id: action === "APPROVE" ? activeCandidateId : null,
 			resolution_notes: notes,
 		};
 
@@ -102,7 +160,8 @@ export function CaptainHoldDecisionModal({
 				await storeSubmit(request, runId);
 			}
 			setSubmissionResult("Decision submitted successfully.");
-			setTimeout(() => {
+			closeTimerRef.current = setTimeout(() => {
+				closeTimerRef.current = null;
 				onClose();
 			}, 300);
 		} catch (err) {
@@ -119,6 +178,21 @@ export function CaptainHoldDecisionModal({
 			open
 			aria-labelledby="hold-modal-title"
 			data-testid="captain-hold-decision-modal"
+			onCancel={(e) => {
+				e.preventDefault();
+				if (!isSubmitting) {
+					clearCloseTimer();
+					onClose();
+				}
+			}}
+			onKeyDown={(e) => {
+				if (e.key === "Escape" && !isSubmitting) {
+					e.preventDefault();
+					e.stopPropagation();
+					clearCloseTimer();
+					onClose();
+				}
+			}}
 			style={{
 				position: "fixed",
 				inset: 0,
@@ -188,14 +262,18 @@ export function CaptainHoldDecisionModal({
 
 					<button
 						type="button"
-						onClick={onClose}
+						disabled={isSubmitting}
+						onClick={() => {
+							clearCloseTimer();
+							onClose();
+						}}
 						data-testid="btn-close-hold-modal"
 						style={{
 							backgroundColor: "transparent",
 							border: "none",
 							color: "var(--dv-text-secondary)",
 							fontSize: "1.25rem",
-							cursor: "pointer",
+							cursor: isSubmitting ? "not-allowed" : "pointer",
 							lineHeight: 1,
 						}}
 					>
@@ -327,11 +405,11 @@ export function CaptainHoldDecisionModal({
 											alignItems: "center",
 											padding: "0.4rem 0.6rem",
 											backgroundColor:
-												selectedCandidate === cand.candidate_id
+												activeCandidateId === cand.candidate_id
 													? "var(--dv-surface-2)"
 													: "transparent",
 											border:
-												selectedCandidate === cand.candidate_id
+												activeCandidateId === cand.candidate_id
 													? "1.5px solid var(--dv-hub-accent)"
 													: "1px solid var(--dv-border-subtle)",
 											borderRadius: "0.25rem",
@@ -350,7 +428,7 @@ export function CaptainHoldDecisionModal({
 												type="radio"
 												name="hold-candidate"
 												value={cand.candidate_id}
-												checked={selectedCandidate === cand.candidate_id}
+												checked={activeCandidateId === cand.candidate_id}
 												onChange={() => setSelectedCandidate(cand.candidate_id)}
 											/>
 											<div>
@@ -441,7 +519,10 @@ export function CaptainHoldDecisionModal({
 					>
 						<button
 							type="button"
-							onClick={onClose}
+							onClick={() => {
+								clearCloseTimer();
+								onClose();
+							}}
 							disabled={isSubmitting}
 							style={{
 								backgroundColor: "var(--dv-surface-2)",
@@ -450,7 +531,7 @@ export function CaptainHoldDecisionModal({
 								borderRadius: "0.25rem",
 								padding: "0.4rem 0.75rem",
 								fontSize: "0.75rem",
-								cursor: "pointer",
+								cursor: isSubmitting ? "not-allowed" : "pointer",
 							}}
 						>
 							Cancel

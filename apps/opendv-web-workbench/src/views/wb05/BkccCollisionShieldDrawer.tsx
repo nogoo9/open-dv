@@ -424,5 +424,10 @@ export const VIZ_GATE_04_PLUGIN: WorkbenchGateCardPlugin = {
 	gateId: VIZ_GATE_04_ID,
 	title: "Gate 1 3-Tier BK Authority & BKCC Collision Shield",
 	ruleIds: ["KEY-01", "KEY-02", "KEY-03", "KEY-04", "KEY-05", "DV-COL-012"],
-	component: (_props: GateCardPluginProps) => <BkccCollisionShieldDrawer />,
+	component: (props: GateCardPluginProps) => (
+		<BkccCollisionShieldDrawer
+			isOpen={props.isExpanded}
+			onClose={props.onToggleExpand}
+		/>
+	),
 };

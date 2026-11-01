@@ -188,9 +188,36 @@ export const SAMPLE_TRIAGE_ENTRIES: readonly TriageLedgerEntry[] = [
 		rationale:
 			"Gate 4 YAGNI cost guard auto-merged into parent commitment sat.",
 	},
+	{
+		table: "dms.src_side_letter_extractions",
+		column: "fee_cap_bps",
+		dataType: "NUMERIC(8,4)",
+		disposition: "DESCRIPTIVE_PAYLOAD",
+		targetEntity: "sat_lp_side_letter_llm_ext.fee_cap_bps",
+		rationale:
+			"Span-grounded side letter management fee cap extracted by scout-unstructured.",
+	},
+	{
+		table: "dms.src_ic_memo_extractions",
+		column: "ev_ebitda_multiple",
+		dataType: "NUMERIC(6,2)",
+		disposition: "DESCRIPTIVE_PAYLOAD",
+		targetEntity: "sat_lnk_doc_portco_ai_provenance.ev_ebitda_multiple",
+		rationale:
+			"Span-grounded Q3 IC memo valuation multiple routed to AI provenance satellite.",
+	},
 ];
 
-export function TriageLedgerTable() {
+export interface TriageLedgerTableProps {
+	event?: VaultObservabilityEventDTO | null;
+	isExpanded?: boolean;
+	onToggleExpand?: () => void;
+}
+
+export function TriageLedgerTable({
+	isExpanded = true,
+	onToggleExpand,
+}: TriageLedgerTableProps) {
 	const [activeFilter, setActiveFilter] = useState<string>("ALL");
 	const [searchQuery, setSearchQuery] = useState<string>("");
 
@@ -225,6 +252,10 @@ export function TriageLedgerTable() {
 		}
 		return list;
 	}, [activeFilter, searchQuery]);
+
+	if (!isExpanded) {
+		return null;
+	}
 
 	return (
 		<div
@@ -266,6 +297,23 @@ export function TriageLedgerTable() {
 				</div>
 
 				<div style={{ display: "flex", gap: "0.5rem", alignItems: "center" }}>
+					{onToggleExpand && (
+						<button
+							type="button"
+							onClick={onToggleExpand}
+							style={{
+								backgroundColor: "var(--dv-surface-2)",
+								color: "var(--dv-text-primary)",
+								border: "1px solid var(--dv-border-strong)",
+								borderRadius: "0.25rem",
+								padding: "0.25rem 0.5rem",
+								fontSize: "0.7rem",
+								cursor: "pointer",
+							}}
+						>
+							Collapse
+						</button>
+					)}
 					<input
 						type="text"
 						placeholder="Search ledger..."
@@ -450,5 +498,11 @@ export const VIZ_GATE_05_PART_A_PLUGIN: WorkbenchGateCardPlugin = {
 	gateId: VIZ_GATE_05_ID,
 	title: "Gate 1 Column Triage Ledger & Surrogate Sink",
 	ruleIds: ["DV-COL-001", "DV-COL-002", "DV-COL-012", "COLUMN-TRIAGE-01"],
-	component: (_props: GateCardPluginProps) => <TriageLedgerTable />,
+	component: (props: GateCardPluginProps) => (
+		<TriageLedgerTable
+			event={props.event}
+			isExpanded={props.isExpanded}
+			onToggleExpand={props.onToggleExpand}
+		/>
+	),
 };

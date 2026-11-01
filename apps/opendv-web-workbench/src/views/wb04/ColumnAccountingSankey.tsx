@@ -31,6 +31,8 @@ export const BRONZE_SOURCE_TABLES: readonly SourceTableCard[] = [
 	{ name: "legacy_gp.src_legacy_lp_roster", columnCount: 4 },
 	{ name: "dms.documents", columnCount: 4 },
 	{ name: "mdm.src_lp_steward_crosswalk", columnCount: 2 },
+	{ name: "dms.src_side_letter_extractions", columnCount: 12 },
+	{ name: "dms.src_ic_memo_extractions", columnCount: 11 },
 ];
 
 export const ELM_DISPOSITION_BUCKETS: readonly ElmDispositionBucket[] = [
@@ -65,7 +67,7 @@ export const ELM_DISPOSITION_BUCKETS: readonly ElmDispositionBucket[] = [
 	{
 		id: "DESCRIPTIVE_PAYLOAD",
 		label: "DESCRIPTIVE_PAYLOAD",
-		count: 25,
+		count: 48,
 		color: "var(--dv-sat-accent)",
 		targetEntityCategory: "Satellites",
 	},
