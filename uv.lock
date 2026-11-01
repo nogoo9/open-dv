@@ -480,6 +480,7 @@ dependencies = [
     { name = "opendv-axi-verifier" },
     { name = "opendv-core" },
     { name = "opendv-duckdb-sandbox" },
+    { name = "opendv-platform-api" },
     { name = "opendv-telemetry" },
     { name = "pydantic" },
 ]
@@ -491,6 +492,7 @@ requires-dist = [
     { name = "opendv-axi-verifier", editable = "packages/opendv-axi-verifier" },
     { name = "opendv-core", editable = "packages/opendv-core" },
     { name = "opendv-duckdb-sandbox", editable = "packages/opendv-duckdb-sandbox" },
+    { name = "opendv-platform-api", editable = "apps/opendv-platform-api" },
     { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
     { name = "pydantic", specifier = ">=2.9.0" },
 ]

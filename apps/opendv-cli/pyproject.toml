@@ -11,6 +11,7 @@ dependencies = [
     "opendv-axi-verifier",
     "opendv-duckdb-sandbox",
     "opendv-agent-harness",
+    "opendv-platform-api",
 ]
 
 [project.scripts]
