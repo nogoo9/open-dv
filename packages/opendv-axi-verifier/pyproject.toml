@@ -1,0 +1,13 @@
+[project]
+name = "opendv-axi-verifier"
+version = "0.1.0"
+description = "Open-DV 6-Gate AXI Verifier, Codemods A.1-A.9b, and TOON Codec"
+requires-python = ">=3.12"
+dependencies = [
+    "opendv-core",
+    "opendv-telemetry",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

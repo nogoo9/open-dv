@@ -88,9 +88,27 @@ flowchart TB
 
 ---
 
+## Monorepo Workspace & Polyglot Toolchain
+
+The repository is organized as a polyglot monorepo managed with [`proto`](.prototools) (`moon 2.3.0`, `python 3.12.13`, `uv 0.11.11`, `bun 1.3.13`), [`moon`](.moon/workspace.yml), [`uv`](pyproject.toml), and [`bun`](package.json):
+
+| Workspace Project | Language / Layer | Role |
+| :--- | :--- | :--- |
+| [`packages/opendv-core`](packages/opendv-core/) | Python library (`domain-core`) | Core domain models, JSON Schemas, ELM calculus, and `Algorithm A.5` hashing. |
+| [`packages/opendv-telemetry`](packages/opendv-telemetry/) | Python library (`telemetry`) | `VaultObservabilityEvent` ledger emitter, content-addressed artifact store (CAS), and 5-tier RBAC redaction. |
+| [`packages/opendv-axi-verifier`](packages/opendv-axi-verifier/) | Python library (`verifier`) | 6-Gate `axi-dv` verifier, deterministic codemods (`A.1`–`A.9b`), and TOON codec. |
+| [`packages/opendv-duckdb-sandbox`](packages/opendv-duckdb-sandbox/) | Python library (`duckdb-sandbox`) | Graph B profiler, 4-Zone SQL compiler, and DuckDB 4-Batch adversarial shadow sandbox. |
+| [`packages/opendv-agent-harness`](packages/opendv-agent-harness/) | Python library (`agent-harness`) | Agnostic agent harness with Google Antigravity and Claude Agent SDK adapters. |
+| [`packages/opendv-protocol-ts`](packages/opendv-protocol-ts/) | TypeScript library (`protocol-sdk`) | Zero-dependency TypeScript protocol SDK (`@opendv/protocol-ts`). |
+| [`apps/opendv-platform-api`](apps/opendv-platform-api/) | Python application (`api-server`) | Headless platform ASGI server (`/api/v1` REST + SSE). |
+| [`apps/opendv-cli`](apps/opendv-cli/) | Python application (`cli`) | Unified CLI entrypoints (`opendv` and `axi-dv`). |
+| [`apps/opendv-web-workbench`](apps/opendv-web-workbench/) | TypeScript application (`web-ui`) | Decoupled 12-View Explainability & Observability Web Workbench (`@opendv/web-workbench`). |
+
+---
+
 ## Running the Normative `pytest` Suite & Validating Schemas
 
-The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request. It validates all JSON Schemas against Draft 2020-12, checks example contracts and Canonical IR documents, compiles every `python` code fence in `docs/`, executes the 4-Zone DuckDB SQL bundle, and runs the full normative `pytest` test suite under [`tests/`](tests/):
+The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request. It validates all JSON Schemas against Draft 2020-12, checks example contracts and Canonical IR documents, compiles every `python` code fence in `docs/`, executes the 4-Zone DuckDB SQL bundle, and runs the full normative `pytest` test suite under [`tests/`](tests/) alongside package smoke tests under `packages/*/tests` and `apps/*/tests`:
 
 | Test Module | Coverage Scope |
 | :--- | :--- |
@@ -101,7 +119,17 @@ The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request.
 | [`tests/test_observability_and_redaction.py`](tests/test_observability_and_redaction.py) | `VaultObservabilityEvent` positive & negative validation across all 8 pipeline phases (`P1_INGESTION`..`P8_OPERATIONS`) and conditional `allOf` rules, 5-tier data classification redaction (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL`, `MNPI`, `RESTRICTED_PII`) with adversarial PII leak detection, `format_semantic_hash_pill`, 3-layer progressive disclosure invariants, and 12-view workbench (`WB-00`–`WB-11`) plus step/gate visualization (`VIZ-PIPE-00`, `VIZ-STEP-01`..`08`, `VIZ-GATE-01`..`08`) schema validation. |
 | [`tests/test_multimodal_and_duckdb_e2e.py`](tests/test_multimodal_and_duckdb_e2e.py) | `Algorithm A.9b` 17/17 PDF character-offset grounding spans + adversarial span mutations (`DV-AUD-001`..`005`), cross-modal numerical discrepancy detection (25 bps & 50 bps fee deltas without mutating `raw_vault.sat_fund_investran`), `Algorithm A.9a` intra-source schema drift codemod, 4-Zone DuckDB warehouse execution, Zero Keys & Ghost Records, 0 orphans across 23 FK relationships, all 15 `DV-DYN-001`..`015` checks, all 4 Adversarial Shadow Sandbox Batches, and Bi-Temporal PIT Audit Queries `D.10` & `D.10b` at `2026-10-15 12:00:00` and `2026-11-20 23:59:59`. |
 
-To install dependencies and run the test suite locally:
+To provision the pinned polyglot toolchain (`proto`, `moon`, `uv`, `bun`) and run workspace lint, typecheck, test, and build tasks:
+
+```bash
+proto install
+uv sync --all-packages --locked
+bun install --frozen-lockfile
+moon run :lint :format-check :typecheck :test :build
+uv run pytest -v
+```
+
+Or to install Python validation dependencies directly and run the `pytest` suite standalone:
 
 ```bash
 python3 -m pip install pyyaml jsonschema duckdb pytest networkx sqlglot

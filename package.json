@@ -1,0 +1,22 @@
+{
+  "name": "opendv-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Open-DV TypeScript Protocol SDK and Decoupled 12-View Explainability Web Workbench",
+  "packageManager": "bun@1.3.13",
+  "workspaces": [
+    "packages/opendv-protocol-ts",
+    "apps/opendv-web-workbench"
+  ],
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/bun": "^1.3.0",
+    "typescript": "^5.8.0"
+  },
+  "scripts": {
+    "lint": "moon run :lint",
+    "typecheck": "moon run :typecheck",
+    "test": "moon run :test",
+    "build": "moon run :build"
+  }
+}

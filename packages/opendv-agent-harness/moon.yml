@@ -1,0 +1,14 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-agent-harness'
+language: 'python'
+layer: 'library'
+tags:
+  - 'python'
+  - 'agent-harness'
+
+dependsOn:
+  - 'opendv-core'
+  - 'opendv-axi-verifier'
+  - 'opendv-duckdb-sandbox'
+  - 'opendv-telemetry'

@@ -1,0 +1,59 @@
+# /.moon/workspace.yml
+$schema: './cache/schemas/workspace.json'
+
+versionConstraint: '>=2.0.0'
+
+projects:
+  globs:
+    - 'packages/*'
+    - 'apps/*'
+  globFormat: 'dir-name'
+
+defaultProject: 'opendv-platform-api'
+
+vcs:
+  client: 'git'
+  provider: 'github'
+  defaultBranch: 'main'
+  remoteCandidates:
+    - 'origin'
+    - 'upstream'
+
+pipeline:
+  autoCleanCache: true
+  cacheLifetime: '7 days'
+  inheritColorsForPipedTasks: true
+  installDependencies: true
+  logRunningCommand: false
+  syncWorkspace: true
+  syncProjects: true
+  syncProjectDependencies: true
+
+hasher:
+  optimization: 'accuracy'
+  walkStrategy: 'vcs'
+  warnOnMissingInputs: true
+  ignorePatterns:
+    - '**/.DS_Store'
+    - '**/__pycache__/**'
+    - '**/.pytest_cache/**'
+    - '**/.mypy_cache/**'
+    - '**/.ruff_cache/**'
+    - '**/node_modules/**'
+    - '**/dist/**'
+    - '**/state/sandboxes/*.duckdb*'
+
+constraints:
+  enforceLayerRelationships: true
+  tagRelationships:
+    domain-core: []
+    telemetry: ['domain-core']
+    verifier: ['domain-core', 'telemetry']
+    duckdb-sandbox: ['domain-core', 'verifier', 'telemetry']
+    agent-harness: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry']
+    api-server: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness']
+    cli: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness']
+    protocol-sdk: []
+    web-ui: ['protocol-sdk']
+
+telemetry: false

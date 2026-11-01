@@ -1,0 +1,14 @@
+[project]
+name = "opendv-duckdb-sandbox"
+version = "0.1.0"
+description = "Open-DV Graph B Profiler, 4-Zone SQL Compiler, and DuckDB 4-Batch Shadow Sandbox"
+requires-python = ">=3.12"
+dependencies = [
+    "opendv-core",
+    "opendv-axi-verifier",
+    "opendv-telemetry",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

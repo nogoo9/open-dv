@@ -1,0 +1,10 @@
+[project]
+name = "opendv-core"
+version = "0.1.0"
+description = "Open-DV Core Domain Models, JSON Schemas, ELM Calculus, and Algorithm A.5 Hashing"
+requires-python = ">=3.12"
+dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

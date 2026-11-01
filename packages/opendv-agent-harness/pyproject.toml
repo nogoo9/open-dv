@@ -1,0 +1,15 @@
+[project]
+name = "opendv-agent-harness"
+version = "0.1.0"
+description = "Open-DV Agnostic Agent Harness with Google Antigravity and Claude Agent SDK Adapters"
+requires-python = ">=3.12"
+dependencies = [
+    "opendv-core",
+    "opendv-axi-verifier",
+    "opendv-duckdb-sandbox",
+    "opendv-telemetry",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

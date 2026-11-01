@@ -1,0 +1,40 @@
+# /.moon/toolchains.yml
+$schema: './cache/schemas/toolchains.json'
+
+proto:
+  version: '0.55.4'
+
+unstable_python:
+  version: '3.12.13'
+  packageManager: 'uv'
+  venvName: '.venv'
+
+unstable_uv:
+  version: '0.11.11'
+  syncArgs:
+    - '--all-packages'
+    - '--locked'
+
+javascript:
+  packageManager: 'bun'
+  dependencyVersionFormat: 'workspace'
+  inferTasksFromScripts: false
+  syncProjectWorkspaceDependencies: true
+  syncPackageManagerField: true
+  dedupeOnLockfileChange: true
+
+bun:
+  version: '1.3.13'
+  installArgs:
+    - '--save-text-lockfile'
+
+typescript:
+  rootConfigFileName: 'tsconfig.json'
+  rootOptionsConfigFileName: 'tsconfig.base.json'
+  projectConfigFileName: 'tsconfig.json'
+  syncProjectReferences: true
+  syncProjectReferencesToPaths: true
+  includeProjectReferenceSources: false
+  includeSharedTypes: false
+  createMissingConfig: false
+  routeOutDirToCache: false

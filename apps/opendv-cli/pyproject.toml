@@ -1,0 +1,20 @@
+[project]
+name = "opendv-cli"
+version = "0.1.0"
+description = "Open-DV Unified CLI (opendv and axi-dv)"
+requires-python = ">=3.12"
+dependencies = [
+    "opendv-core",
+    "opendv-telemetry",
+    "opendv-axi-verifier",
+    "opendv-duckdb-sandbox",
+    "opendv-agent-harness",
+]
+
+[project.scripts]
+opendv = "opendv_cli:main"
+axi-dv = "opendv_cli:axi_dv_main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
