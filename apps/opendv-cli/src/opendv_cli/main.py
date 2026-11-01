@@ -41,7 +41,7 @@ def _has_explicit_subcommand(raw_args: list[str]) -> bool:
 
 
 def _add_shared_flags(parser: argparse.ArgumentParser, *, suppress_defaults: bool) -> None:
-    """Attach shared `--local`, `--api-url`, `--role`, `--json`, and `--run-id` flags."""
+    """Attach shared `--local`, `--api-url`, `--role`, `--json`, `--run-id`, and `--project-id`."""
     default_bool: Any = argparse.SUPPRESS if suppress_defaults else False
     default_none: Any = argparse.SUPPRESS if suppress_defaults else None
 

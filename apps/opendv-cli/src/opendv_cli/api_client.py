@@ -132,9 +132,7 @@ class OpenDVCliApiClient:
         res = self._client.get(f"/api/v1/runs/{run_id}/gates")
         return dict(self._handle_response(res))
 
-    def evaluate_gates(
-        self, run_id: str, payload: dict[str, Any] | None = None
-    ) -> dict[str, Any]:
+    def evaluate_gates(self, run_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
         """POST `/api/v1/runs/{run_id}/gates`."""
         res = self._client.post(f"/api/v1/runs/{run_id}/gates", json=payload or {})
         return dict(self._handle_response(res))
@@ -174,9 +172,7 @@ class OpenDVCliApiClient:
         res = self._client.post("/api/v1/artifacts", json=payload)
         return dict(self._handle_response(res))
 
-    def stream_events_text(
-        self, run_id: str, *, last_event_id: str | None = None
-    ) -> str:
+    def stream_events_text(self, run_id: str, *, last_event_id: str | None = None) -> str:
         """GET `/api/v1/runs/{run_id}/events` and return the raw SSE stream body."""
         headers: dict[str, str] = {"Accept": "text/event-stream"}
         if last_event_id:

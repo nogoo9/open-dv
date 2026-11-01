@@ -79,14 +79,10 @@ async def evaluate_run_gates(
         )
     contract_doc = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
     graph_a_doc = (
-        yaml.safe_load(graph_a_path.read_text(encoding="utf-8"))
-        if graph_a_path.exists()
-        else {}
+        yaml.safe_load(graph_a_path.read_text(encoding="utf-8")) if graph_a_path.exists() else {}
     )
     graph_b_doc = (
-        json.loads(graph_b_path.read_text(encoding="utf-8"))
-        if graph_b_path.exists()
-        else {}
+        json.loads(graph_b_path.read_text(encoding="utf-8")) if graph_b_path.exists() else {}
     )
     axi_result = run_axi_dv_verification_pipeline(
         contract_doc,

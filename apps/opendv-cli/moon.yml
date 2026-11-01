@@ -2,7 +2,7 @@ $schema: 'https://moonrepo.dev/schemas/project.json'
 
 id: 'opendv-cli'
 language: 'python'
-layer: 'application'
+layer: 'automation'
 tags:
   - 'python'
   - 'cli'
@@ -13,6 +13,7 @@ dependsOn:
   - 'opendv-axi-verifier'
   - 'opendv-duckdb-sandbox'
   - 'opendv-agent-harness'
+  - 'opendv-platform-api'
 
 tasks:
   dev:

@@ -26,9 +26,7 @@ def run_profile_command(
     role: str = getattr(args, "role", None) or "INTERNAL_MODELER"
 
     if not use_local and api_url:
-        with OpenDVCliApiClient(
-            base_url=api_url, role=role, transport=transport
-        ) as client:
+        with OpenDVCliApiClient(base_url=api_url, role=role, transport=transport) as client:
             wb02 = client.get_workbench_view(run_id, "WB-02")
             return 0, {
                 "mode": "remote",
@@ -39,8 +37,7 @@ def run_profile_command(
 
     repo_root = find_workspace_root()
     graph_b_arg = (
-        getattr(args, "graph_b", None)
-        or "examples/private_equity/pe_graph_b_profile.json"
+        getattr(args, "graph_b", None) or "examples/private_equity/pe_graph_b_profile.json"
     )
     graph_b_path = resolve_repo_path(repo_root, graph_b_arg)
     if not graph_b_path.exists():
@@ -54,9 +51,7 @@ def run_profile_command(
     tables: list[dict[str, Any]] = list(graph_b_doc.get("tables", []))
     for sys_item in graph_b_doc.get("source_systems", []):
         if isinstance(sys_item, dict):
-            tables.extend(
-                t for t in sys_item.get("tables", []) if isinstance(t, dict)
-            )
+            tables.extend(t for t in sys_item.get("tables", []) if isinstance(t, dict))
     total_cols = sum(len(t.get("columns", [])) for t in tables if isinstance(t, dict))
 
     return 0, {

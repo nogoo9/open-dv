@@ -104,9 +104,7 @@ class CreateProjectRequest(BaseModel):
     name: str | None = Field(default=None)
     domain_namespace: str = Field(default="pe_asset_management")
     domain: str | None = Field(default=None)
-    graph_a_ontology_path: str = Field(
-        default="examples/private_equity/pe_graph_a_ontology.yaml"
-    )
+    graph_a_ontology_path: str = Field(default="examples/private_equity/pe_graph_a_ontology.yaml")
     bronze_sources: list[str] = Field(
         default_factory=lambda: [
             "investran.src_pe_funds",
@@ -115,15 +113,9 @@ class CreateProjectRequest(BaseModel):
         ],
         min_length=1,
     )
-    contract_path: str = Field(
-        default="examples/private_equity/dv_pe_model_contract.yaml"
-    )
-    canonical_ir_path: str | None = Field(
-        default="examples/private_equity/pe_canonical_ir.json"
-    )
-    graph_b_path: str | None = Field(
-        default="examples/private_equity/pe_graph_b_profile.json"
-    )
+    contract_path: str = Field(default="examples/private_equity/dv_pe_model_contract.yaml")
+    canonical_ir_path: str | None = Field(default="examples/private_equity/pe_canonical_ir.json")
+    graph_b_path: str | None = Field(default="examples/private_equity/pe_graph_b_profile.json")
 
     @model_validator(mode="after")
     def _sync_aliases(self) -> CreateProjectRequest:
@@ -158,9 +150,9 @@ class CreateRunRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(..., pattern=r"^[a-z0-9][a-z0-9_-]{2,63}$")
-    harness_provider: Literal[
-        "antigravity", "claude", "claude-agent", "deterministic-stub"
-    ] = "antigravity"
+    harness_provider: Literal["antigravity", "claude", "claude-agent", "deterministic-stub"] = (
+        "antigravity"
+    )
     model_tier_override: Literal["argon", "flash"] | None = None
     contract_path: str | None = None
     max_repair_retries: int = Field(default=3, ge=0, le=5)
@@ -341,9 +333,7 @@ def build_gate_scorecard_from_axi_result(
                 "AUTO-FIX" if "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT" in codemods else "PASS"
             ),
             "gate_1_contract_grain": (
-                "ASK-USER"
-                if axi_result.status in {"ASK-USER", "ASK_USER"}
-                else "AUTO_REPAIRED"
+                "ASK-USER" if axi_result.status in {"ASK-USER", "ASK_USER"} else "AUTO_REPAIRED"
             ),
             "gate_2_sqlglot_ast": "PASS",
             "gate_3_networkx_dag": "PASS",
@@ -515,8 +505,7 @@ def build_pe_canonical_events(
         "layer3_formal_proof": {
             "algorithm_ref": "Dual-Graph Bipartite Concept Grounding (Graph A <-> Graph B)",
             "formula_latex": (
-                "M \\subseteq V_A \\times V_B,\\quad "
-                "|V_A^{\\text{active}}| / |V_A| = 4/5 = 0.80"
+                "M \\subseteq V_A \\times V_B,\\quad |V_A^{\\text{active}}| / |V_A| = 4/5 = 0.80"
             ),
         },
     }
@@ -728,8 +717,7 @@ def build_pe_canonical_events(
                 "\\text{target}(c) = \\texttt{sat\\_limited\\_partner\\_pii}"
             ),
             "contract_yaml_diff": (
-                "+ name: sat_limited_partner_pii\n"
-                "+ security_classification: RESTRICTED_PII"
+                "+ name: sat_limited_partner_pii\n+ security_classification: RESTRICTED_PII"
             ),
         },
     }
@@ -890,8 +878,7 @@ def build_pe_canonical_events(
         "layer3_formal_proof": {
             "algorithm_ref": "Algorithm A.4 + Algorithm A.8 Closed-Loop Repair (k=1 -> k=2)",
             "contract_yaml_diff": (
-                "+ require_src_qualifier: true\n"
-                '+ bkcc_prefix: "LEGACY_GP_ADMIN"'
+                '+ require_src_qualifier: true\n+ bkcc_prefix: "LEGACY_GP_ADMIN"'
             ),
             "toon_diagnostic_payload": (
                 "@toon_v1\n"
@@ -942,12 +929,10 @@ def build_pe_canonical_events(
         },
         "layer3_formal_proof": {
             "algorithm_ref": (
-                "Algorithm A.5 (Length-Prefixed SHA-256) & "
-                "Query D.10 / D.10b (Bi-Temporal PIT)"
+                "Algorithm A.5 (Length-Prefixed SHA-256) & Query D.10 / D.10b (Bi-Temporal PIT)"
             ),
             "formula_latex": (
-                "\\text{HK} = \\text{UPPER}("
-                "\\text{SHA256}(\\texttt{6:GLOBAL||6:LP-101}))"
+                "\\text{HK} = \\text{UPPER}(\\text{SHA256}(\\texttt{6:GLOBAL||6:LP-101}))"
             ),
             "sqlglot_ast_summary": (
                 "Zone 0 Schemas -> Zone 1 Hashed Staging Views -> Zone 2 Raw Vault "
@@ -1042,8 +1027,7 @@ def build_pe_canonical_events(
         },
         "layer3_formal_proof": {
             "algorithm_ref": (
-                "Algorithm A.1 (Gate 4 YAGNI Cost Guard) & "
-                "Algorithm A.4 (Link Splitter)"
+                "Algorithm A.1 (Gate 4 YAGNI Cost Guard) & Algorithm A.4 (Link Splitter)"
             ),
             "formula_latex": "W_{\\text{amp}} = 4.20\\text{ MB/day} < 50\\text{ MB/day}",
         },
@@ -1206,8 +1190,7 @@ def execute_pe_sandbox_query(
                 {
                     "batch_number": 3,
                     "batch_label": (
-                        "Batch 3 — Unstructured PDF Side Letter & "
-                        "IC Valuation Memo (2026-10-30)"
+                        "Batch 3 — Unstructured PDF Side Letter & IC Valuation Memo (2026-10-30)"
                     ),
                     "documents_ingested": int(doc_row[0]) if doc_row else 0,
                     "ai_extractions_grounded": True,
@@ -1354,9 +1337,7 @@ class PlatformStateContainer:
         self,
         run_id: str,
         project_id: str,
-        harness_provider: Literal[
-            "antigravity", "claude", "claude-agent", "deterministic-stub"
-        ],
+        harness_provider: Literal["antigravity", "claude", "claude-agent", "deterministic-stub"],
         started_at_utc: str,
     ) -> ProjectRunDTO:
         canonical_9, all_workbench = build_pe_canonical_events(run_id=run_id)
@@ -1430,9 +1411,7 @@ class PlatformStateContainer:
         """Resolve a repository-relative path and enforce repository-root containment."""
         candidate = (self.repo_root / rel_path).resolve()
         if not candidate.is_relative_to(self.repo_root):
-            raise ValueError(
-                f"Project artifact path must stay inside repository root: {rel_path}"
-            )
+            raise ValueError(f"Project artifact path must stay inside repository root: {rel_path}")
         return candidate
 
     def _build_default_gate_report(self, run_id: str) -> dict[str, Any]:
@@ -1636,9 +1615,7 @@ class PlatformStateContainer:
         run_dto = self.runs[run_id]
         remaining_ids = [rec.hold_id for rec in hold_mgr.list_pending_holds(run_id=run_id)]
         new_status = (
-            RunStatus.COMPLETED
-            if req.action in {"APPROVE", "ANSWER"}
-            else RunStatus.FAILED
+            RunStatus.COMPLETED if req.action in {"APPROVE", "ANSWER"} else RunStatus.FAILED
         )
         updated_scorecard = (
             run_dto.gate_scorecard

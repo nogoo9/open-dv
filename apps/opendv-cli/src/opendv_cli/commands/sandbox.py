@@ -34,9 +34,7 @@ def run_sandbox_command(
     )
 
     if not use_local and api_url:
-        with OpenDVCliApiClient(
-            base_url=api_url, role=role, transport=transport
-        ) as client:
+        with OpenDVCliApiClient(base_url=api_url, role=role, transport=transport) as client:
             resp = client.execute_sandbox(
                 run_id,
                 {

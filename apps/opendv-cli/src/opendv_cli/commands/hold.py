@@ -25,26 +25,18 @@ def run_hold_command(
     run_id: str = getattr(args, "run_id", None) or "run-pe-apex-horizon-20261030"
     role: str = getattr(args, "role", None) or "DATA_STEWARD"
     hold_action: str = (getattr(args, "hold_action", None) or "list").upper()
-    hold_id: str = (
-        getattr(args, "hold_id", None)
-        or "hold-tier-u3-horizon-sovereign-vehicle"
-    )
+    hold_id: str = getattr(args, "hold_id", None) or "hold-tier-u3-horizon-sovereign-vehicle"
     event_id: str = getattr(args, "event_id", None) or "evt-pe-004"
     decision_val: str = (
         getattr(args, "decision", None)
         or (hold_action if hold_action in {"APPROVE", "REJECT", "ANSWER"} else "APPROVE")
     ).upper()
     candidate_id: str | None = getattr(args, "selected_candidate_id", None) or "APEX_CO_I"
-    notes: str = (
-        getattr(args, "notes", None)
-        or "Confirmed via opendv hold CLI command."
-    )
+    notes: str = getattr(args, "notes", None) or "Confirmed via opendv hold CLI command."
     steward_id: str = getattr(args, "steward_id", None) or "steward-cli"
 
     if not use_local and api_url:
-        with OpenDVCliApiClient(
-            base_url=api_url, role=role, transport=transport
-        ) as client:
+        with OpenDVCliApiClient(base_url=api_url, role=role, transport=transport) as client:
             if hold_action == "LIST":
                 return 0, client.get_decisions(run_id)
             resp = client.submit_decision(
@@ -66,9 +58,7 @@ def run_hold_command(
         raise ValueError(f"Run '{run_id}' not found.")
     if hold_action == "LIST":
         mgr = state.hold_managers[run_id]
-        pending = [
-            rec.model_dump(mode="json") for rec in mgr.list_pending_holds(run_id=run_id)
-        ]
+        pending = [rec.model_dump(mode="json") for rec in mgr.list_pending_holds(run_id=run_id)]
         return 0, {
             "mode": "local",
             "run_id": run_id,

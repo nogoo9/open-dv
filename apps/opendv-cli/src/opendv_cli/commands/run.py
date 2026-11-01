@@ -27,21 +27,15 @@ def run_run_command(
     last_event_id: str | None = getattr(args, "last_event_id", None)
 
     if not use_local and api_url:
-        with OpenDVCliApiClient(
-            base_url=api_url, role=role, transport=transport
-        ) as client:
+        with OpenDVCliApiClient(base_url=api_url, role=role, transport=transport) as client:
             if action == "list":
                 return 0, client.list_runs(project_id=project_id)
             if action == "create":
-                return 0, client.create_run(
-                    {"project_id": project_id, "harness_provider": harness}
-                )
+                return 0, client.create_run({"project_id": project_id, "harness_provider": harness})
             if action == "abort":
                 return 0, client.abort_run(run_id)
             if action == "events":
-                sse_text = client.stream_events_text(
-                    run_id, last_event_id=last_event_id
-                )
+                sse_text = client.stream_events_text(run_id, last_event_id=last_event_id)
                 return 0, {
                     "mode": "remote",
                     "run_id": run_id,

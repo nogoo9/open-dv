@@ -132,9 +132,7 @@ def test_opendv_cli_local_subcommands(
     assert rc_ev == 0
     out_ev = json.loads(capsys.readouterr().out)
     assert out_ev["event_count"] == 9
-    assert out_ev["events"][0]["layer1_story_banner"]["headline"].startswith(
-        "[REDACTED "
-    )
+    assert out_ev["events"][0]["layer1_story_banner"]["headline"].startswith("[REDACTED ")
 
     rc_ev_cursor = app_main(
         [
@@ -151,9 +149,7 @@ def test_opendv_cli_local_subcommands(
     assert out_ev_cursor["event_count"] == 4
     assert out_ev_cursor["events"][0]["event_id"] == "evt-pe-006"
 
-    rc_abort_missing = app_main(
-        ["run", "abort", "--local", "--run-id", "run-missing", "--json"]
-    )
+    rc_abort_missing = app_main(["run", "abort", "--local", "--run-id", "run-missing", "--json"])
     assert rc_abort_missing == 1
     out_abort_missing = json.loads(capsys.readouterr().out)
     assert out_abort_missing["detail"] == "Run 'run-missing' not found."
@@ -164,9 +160,7 @@ def test_opendv_cli_local_subcommands(
     out_hold_list = json.loads(capsys.readouterr().out)
     assert len(out_hold_list["active_holds"]) == 1
 
-    rc_hold_missing = app_main(
-        ["hold", "approve", "--local", "--run-id", "run-missing", "--json"]
-    )
+    rc_hold_missing = app_main(["hold", "approve", "--local", "--run-id", "run-missing", "--json"])
     assert rc_hold_missing == 1
     out_hold_missing = json.loads(capsys.readouterr().out)
     assert out_hold_missing["detail"] == "Run 'run-missing' not found."
@@ -245,11 +239,7 @@ def test_opendv_and_axi_dv_cli_remote_api_url_mode(
     assert rc_sbx == 0
     out_sbx = json.loads(capsys.readouterr().out)
     assert out_sbx["all_batches_passed"] is True
-    nordic = next(
-        r
-        for r in out_sbx["rows"]
-        if r["portco_natural_key"] == "529900T8BM49AURSDO55"
-    )
+    nordic = next(r for r in out_sbx["rows"] if r["portco_natural_key"] == "529900T8BM49AURSDO55")
     assert float(nordic["ev_ebitda_multiple"]) == 14.50
 
     # 5. opendv run events --api-url with Last-Event-ID
