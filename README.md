@@ -94,7 +94,7 @@ The repository is organized as a polyglot monorepo managed with [`proto`](.proto
 
 | Workspace Project | Language / Layer | Role |
 | :--- | :--- | :--- |
-| [`packages/opendv-core`](packages/opendv-core/) | Python library (`domain-core`) | Core domain models, JSON Schemas, ELM calculus, and `Algorithm A.5` hashing. |
+| [`packages/opendv-core`](packages/opendv-core/) | Python library (`domain-core`) | Strict Pydantic v2 domain models (`NoMistakeDataVault2ContractV5`, `CanonicalIR`, `GraphAOntology`, `GraphBProfile`, `VaultObservabilityEvent`), Draft 2020-12 `SchemaRegistry`, ELM calculus (`elm_calculus`), and `Algorithm A.5` length-prefixed SHA-256 hashing & Zero Key resolution (`hashing`, `constants`). |
 | [`packages/opendv-telemetry`](packages/opendv-telemetry/) | Python library (`telemetry`) | `VaultObservabilityEvent` ledger emitter, content-addressed artifact store (CAS), and 5-tier RBAC redaction. |
 | [`packages/opendv-axi-verifier`](packages/opendv-axi-verifier/) | Python library (`verifier`) | 6-Gate `axi-dv` verifier, deterministic codemods (`A.1`–`A.9b`), and TOON codec. |
 | [`packages/opendv-duckdb-sandbox`](packages/opendv-duckdb-sandbox/) | Python library (`duckdb-sandbox`) | Graph B profiler, 4-Zone SQL compiler, and DuckDB 4-Batch adversarial shadow sandbox. |
@@ -108,7 +108,7 @@ The repository is organized as a polyglot monorepo managed with [`proto`](.proto
 
 ## Running the Normative `pytest` Suite & Validating Schemas
 
-The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request. It validates all JSON Schemas against Draft 2020-12, checks example contracts and Canonical IR documents, compiles every `python` code fence in `docs/`, executes the 4-Zone DuckDB SQL bundle, and runs the full normative `pytest` test suite under [`tests/`](tests/) alongside package smoke tests under `packages/*/tests` and `apps/*/tests`:
+The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request. It validates all JSON Schemas against Draft 2020-12, checks example contracts and Canonical IR documents, compiles every `python` code fence in `docs/`, executes the 4-Zone DuckDB SQL bundle, and runs the full normative `pytest` test suite under [`tests/`](tests/) alongside package and application tests under `packages/*/tests` and `apps/*/tests`:
 
 | Test Module | Coverage Scope |
 | :--- | :--- |
@@ -118,13 +118,15 @@ The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request.
 | [`tests/test_verification_gates_and_codemods.py`](tests/test_verification_gates_and_codemods.py) | Gate 2 `Algorithm A.1` ELM-to-DV2 folding & Link grain checks (Traps 1 & 2), Gate 3 `networkx.MultiDiGraph` topology verifier (`DV-G3-001`..`005`), Gate 4 `Algorithm A.4` YAGNI & 67/67 Graph B column triage completeness (Trap 3 `SPLIT_REQUIRED`), Gate 6 `Algorithm A.6` `sqlglot` AST SQL linter (`DV-G6-001`..`005`), and deterministic AST codemods (`A.1`–`A.8`) with idempotence and post-codemod gate convergence. |
 | [`tests/test_observability_and_redaction.py`](tests/test_observability_and_redaction.py) | `VaultObservabilityEvent` positive & negative validation across all 8 pipeline phases (`P1_INGESTION`..`P8_OPERATIONS`) and conditional `allOf` rules, 5-tier data classification redaction (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL`, `MNPI`, `RESTRICTED_PII`) with adversarial PII leak detection, `format_semantic_hash_pill`, 3-layer progressive disclosure invariants, and 12-view workbench (`WB-00`–`WB-11`) plus step/gate visualization (`VIZ-PIPE-00`, `VIZ-STEP-01`..`08`, `VIZ-GATE-01`..`08`) schema validation. |
 | [`tests/test_multimodal_and_duckdb_e2e.py`](tests/test_multimodal_and_duckdb_e2e.py) | `Algorithm A.9b` 17/17 PDF character-offset grounding spans + adversarial span mutations (`DV-AUD-001`..`005`), cross-modal numerical discrepancy detection (25 bps & 50 bps fee deltas without mutating `raw_vault.sat_fund_investran`), `Algorithm A.9a` intra-source schema drift codemod, 4-Zone DuckDB warehouse execution, Zero Keys & Ghost Records, 0 orphans across 23 FK relationships, all 15 `DV-DYN-001`..`015` checks, all 4 Adversarial Shadow Sandbox Batches, and Bi-Temporal PIT Audit Queries `D.10` & `D.10b` at `2026-10-15 12:00:00` and `2026-11-20 23:59:59`. |
+| [`packages/opendv-core/tests/test_core_models_and_hashing.py`](packages/opendv-core/tests/test_core_models_and_hashing.py) | Unit tests for `opendv-core` normative constants, `Algorithm A.5` length-prefixed SHA-256 hashing & Private Equity vectors, boundary-shift & positional `NULL` collision resistance, Zero Key FK resolution, ELM information-theoretic & temporal calculus (`W_amp = 4.20 MB/day`), Draft 2020-12 `SchemaRegistry`, and strict Pydantic v2 models (`NoMistakeDataVault2ContractV5`, `CanonicalIR`, `GraphAOntology`, `GraphBProfile`, `VaultObservabilityEvent`). |
 
-To provision the pinned polyglot toolchain (`proto`, `moon`, `uv`, `bun`) and run workspace lint, typecheck, test, and build tasks:
+To provision the pinned polyglot toolchain (`proto`, `moon`, `uv`, `bun`) and run workspace lint, typecheck, schema validation, test, and build tasks:
 
 ```bash
 proto install
 uv sync --all-packages --locked
 bun install --frozen-lockfile
+moon run opendv-core:validate-schemas
 moon run :lint :format-check :typecheck :test :build
 uv run pytest -v
 ```
@@ -132,7 +134,7 @@ uv run pytest -v
 Or to install Python validation dependencies directly and run the `pytest` suite standalone:
 
 ```bash
-python3 -m pip install pyyaml jsonschema duckdb pytest networkx sqlglot
+python3 -m pip install pyyaml jsonschema duckdb pytest networkx sqlglot pydantic
 pytest -v
 ```
 
