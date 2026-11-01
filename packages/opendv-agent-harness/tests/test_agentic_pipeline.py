@@ -692,9 +692,34 @@ def test_harness_auth_config_resolution_and_validation(
     assert claude_vtx_cfg.env["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/sa-claude.json"
     assert validate_pipeline_inputs(single_wave_spec, claude_vertex_ok, base_dir=sample_dir).passed
 
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "proj-from-os-env")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "europe-west4")
+    monkeypatch.setenv("GOOGLE_APPLICATION_CREDENTIALS", "/tmp/sa-from-os.json")
+    claude_vertex_env_fallback = HarnessSetupConfig(
+        provider="claude",
+        auth=HarnessAuthConfig(
+            auth_mode="vertex_adc",
+            require_credentials_present=True,
+        ),
+    )
+    claude_vtx_fallback_cfg = claude_vertex_env_fallback.to_harness_config(workspace_dir=tmp_path)
+    assert claude_vtx_fallback_cfg.env["CLAUDE_CODE_USE_VERTEX"] == "1"
+    assert claude_vtx_fallback_cfg.env["ANTHROPIC_VERTEX_PROJECT_ID"] == "proj-from-os-env"
+    assert claude_vtx_fallback_cfg.env["CLOUD_ML_REGION"] == "europe-west4"
+    assert claude_vtx_fallback_cfg.env["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/sa-from-os.json"
+    assert validate_pipeline_inputs(
+        single_wave_spec,
+        claude_vertex_env_fallback,
+        base_dir=sample_dir,
+    ).passed
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("GOOGLE_CLOUD_LOCATION", raising=False)
+    monkeypatch.delenv("GOOGLE_APPLICATION_CREDENTIALS", raising=False)
+
     # 5. aws_bedrock resolution for Claude + incompatible rejection on Antigravity
     monkeypatch.delenv("AWS_REGION", raising=False)
     monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
 
     agy_bedrock_bad = HarnessSetupConfig(
         provider="antigravity",
@@ -740,6 +765,27 @@ def test_harness_auth_config_resolution_and_validation(
     assert claude_bdr_cfg.env["AWS_REGION"] == "us-east-1"
     assert claude_bdr_cfg.env["AWS_PROFILE"] == "dv-bedrock-sso"
     assert validate_pipeline_inputs(single_wave_spec, claude_bedrock_ok, base_dir=sample_dir).passed
+
+    monkeypatch.setenv("AWS_DEFAULT_REGION", "us-west-2")
+    monkeypatch.setenv("AWS_PROFILE", "os-bedrock-profile")
+    claude_bedrock_env_fallback = HarnessSetupConfig(
+        provider="claude",
+        auth=HarnessAuthConfig(
+            auth_mode="aws_bedrock",
+            require_credentials_present=True,
+        ),
+    )
+    claude_bdr_fallback_cfg = claude_bedrock_env_fallback.to_harness_config(workspace_dir=tmp_path)
+    assert claude_bdr_fallback_cfg.env["CLAUDE_CODE_USE_BEDROCK"] == "1"
+    assert claude_bdr_fallback_cfg.env["AWS_REGION"] == "us-west-2"
+    assert claude_bdr_fallback_cfg.env["AWS_PROFILE"] == "os-bedrock-profile"
+    assert validate_pipeline_inputs(
+        single_wave_spec,
+        claude_bedrock_env_fallback,
+        base_dir=sample_dir,
+    ).passed
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+    monkeypatch.delenv("AWS_PROFILE", raising=False)
 
     # 6. Verify report.harness_setup includes auth_mode & api_key_env_var and redacts env secrets
     secret_setup = HarnessSetupConfig(
