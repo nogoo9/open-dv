@@ -1,7 +1,6 @@
 """Real-time translation of HarnessStreamEvent and tool outputs into VaultObservabilityEvent.
 
-Conforms to docs/06-explainability-and-observability-spec.md (§1.1),
-docs/09-agnostic-agent-harness-and-sdk-spec.md (§1-§3),
+Conforms to docs/06-explainability-and-observability-spec.md (§1.1)
 and schemas/vault-observability-event.schema.json.
 """
 

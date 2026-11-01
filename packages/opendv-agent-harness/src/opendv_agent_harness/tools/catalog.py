@@ -1,6 +1,7 @@
 """Canonical 8 domain tool definitions and handlers for the Open-DV Agent Harness.
 
-Conforms to docs/09-agnostic-agent-harness-and-sdk-spec.md (§3.1, §5).
+Conforms to docs/03-verification-and-agentic-architecture.md
+and docs/06-explainability-and-observability-spec.md.
 """
 
 from __future__ import annotations

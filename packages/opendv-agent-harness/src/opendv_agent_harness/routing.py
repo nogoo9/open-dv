@@ -1,6 +1,7 @@
 """Model-tier routing and persona capability matrix for the Open-DV Agent Harness.
 
-Conforms to docs/09-agnostic-agent-harness-and-sdk-spec.md (§2, §4, §5).
+Conforms to docs/03-verification-and-agentic-architecture.md
+and docs/06-explainability-and-observability-spec.md.
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ DEFAULT_CLAUDE_MODEL_MAP: dict[ModelTier, str] = {
 
 
 class PersonaCapabilityProfile(BaseModel):
-    """RBAC capability and model-tier profile for an AgentPersona (`docs/09` §5)."""
+    """RBAC capability and model-tier profile for an AgentPersona."""
 
     model_config = ConfigDict(frozen=True)
 

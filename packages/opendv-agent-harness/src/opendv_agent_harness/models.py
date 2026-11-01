@@ -1,6 +1,7 @@
 """Vendor-neutral domain models for the Open-DV Agnostic Agent Harness.
 
-Conforms to docs/09-agnostic-agent-harness-and-sdk-spec.md (§2).
+Conforms to docs/03-verification-and-agentic-architecture.md
+and docs/06-explainability-and-observability-spec.md.
 """
 
 from __future__ import annotations

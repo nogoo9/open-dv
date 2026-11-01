@@ -1,6 +1,7 @@
 """Open-DV Agnostic Agent Harness: Hexagonal Protocol, Domain Tools, Dual-SDK Bridge, and Telemetry.
 
-Conforms to docs/09-agnostic-agent-harness-and-sdk-spec.md (§1-§3, §5).
+Conforms to docs/03-verification-and-agentic-architecture.md
+and docs/06-explainability-and-observability-spec.md.
 """
 
 from __future__ import annotations

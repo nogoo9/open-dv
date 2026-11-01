@@ -1,6 +1,7 @@
 """Hexagonal VaultAgentHarness protocol and template base class.
 
-Conforms to docs/09-agnostic-agent-harness-and-sdk-spec.md (§1-§2).
+Conforms to docs/03-verification-and-agentic-architecture.md
+and docs/06-explainability-and-observability-spec.md.
 """
 
 from __future__ import annotations

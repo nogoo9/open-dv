@@ -1,6 +1,6 @@
 """Automatic Dual-SDK Tool Bridge for Google Antigravity and Claude Agent SDKs.
 
-Conforms to docs/09-agnostic-agent-harness-and-sdk-spec.md (§3.2).
+Conforms to docs/03-verification-and-agentic-architecture.md.
 """
 
 from __future__ import annotations

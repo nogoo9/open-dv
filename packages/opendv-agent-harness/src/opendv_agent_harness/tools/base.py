@@ -1,6 +1,7 @@
 """Base Pydantic input/output models for the 8 canonical Open-DV domain tools.
 
-Conforms to docs/09-agnostic-agent-harness-and-sdk-spec.md (§3.1).
+Conforms to docs/03-verification-and-agentic-architecture.md
+and docs/06-explainability-and-observability-spec.md.
 """
 
 from __future__ import annotations
