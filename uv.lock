@@ -517,16 +517,20 @@ name = "opendv-duckdb-sandbox"
 version = "0.1.0"
 source = { editable = "packages/opendv-duckdb-sandbox" }
 dependencies = [
+    { name = "duckdb" },
     { name = "opendv-axi-verifier" },
     { name = "opendv-core" },
     { name = "opendv-telemetry" },
+    { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
+    { name = "duckdb", specifier = ">=1.1.0" },
     { name = "opendv-axi-verifier", editable = "packages/opendv-axi-verifier" },
     { name = "opendv-core", editable = "packages/opendv-core" },
     { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
+    { name = "pydantic", specifier = ">=2.9.0" },
 ]
 
 [[package]]
