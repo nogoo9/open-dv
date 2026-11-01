@@ -31,9 +31,7 @@ def run_compile_command(
     role: str = getattr(args, "role", None) or "INTERNAL_MODELER"
 
     if not use_local and api_url:
-        with OpenDVCliApiClient(
-            base_url=api_url, role=role, transport=transport
-        ) as client:
+        with OpenDVCliApiClient(base_url=api_url, role=role, transport=transport) as client:
             wb11 = client.get_workbench_view(run_id, "WB-11")
             return 0, {
                 "mode": "remote",
@@ -44,13 +42,9 @@ def run_compile_command(
 
     repo_root = find_workspace_root()
     contract_arg = (
-        getattr(args, "contract", None)
-        or "examples/private_equity/dv_pe_model_contract.yaml"
+        getattr(args, "contract", None) or "examples/private_equity/dv_pe_model_contract.yaml"
     )
-    ir_arg = (
-        getattr(args, "canonical_ir", None)
-        or "examples/private_equity/pe_canonical_ir.json"
-    )
+    ir_arg = getattr(args, "canonical_ir", None) or "examples/private_equity/pe_canonical_ir.json"
     contract_path = resolve_repo_path(repo_root, contract_arg)
     ir_path = resolve_repo_path(repo_root, ir_arg)
 
@@ -65,9 +59,7 @@ def run_compile_command(
             "error": f"Canonical IR file not found: {ir_path}",
         }
 
-    contract_doc: dict[str, Any] = yaml.safe_load(
-        contract_path.read_text(encoding="utf-8")
-    )
+    contract_doc: dict[str, Any] = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
     ir_raw = ir_path.read_text(encoding="utf-8")
     ir_doc: dict[str, Any] = json.loads(ir_raw)
 

@@ -54,9 +54,7 @@ def test_health_and_capabilities_endpoints(tmp_path: Path) -> None:
 
     async def _scenario() -> None:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             res_health = await client.get("/api/v1/health")
             assert res_health.status_code == 200
             body_health = res_health.json()
@@ -84,20 +82,14 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
 
     async def _scenario() -> None:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             # 1. List pre-seeded PE project
             res_list = await client.get("/api/v1/projects")
             assert res_list.status_code == 200
             projects_data = res_list.json()
             assert isinstance(projects_data, list)
             assert len(projects_data) >= 1
-            pe_proj = next(
-                p
-                for p in projects_data
-                if p["project_id"] == "proj-apex-horizon-pe"
-            )
+            pe_proj = next(p for p in projects_data if p["project_id"] == "proj-apex-horizon-pe")
             assert pe_proj["latest_run_id"] == "run-pe-apex-horizon-20261030"
 
             # 2. Get specific project
@@ -177,9 +169,7 @@ def test_sse_event_streaming_and_last_event_id_replay(tmp_path: Path) -> None:
 
     async def _scenario() -> None:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             # Full stream with RESTRICTED_PII_CUSTODIAN role
             res_full = await client.get(
                 f"/api/v1/runs/{run_id}/events",
@@ -230,9 +220,7 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
 
     async def _scenario() -> None:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             # 1. PUBLIC role: INTERNAL, CONFIDENTIAL, MNPI, and RESTRICTED_PII are all masked
             res_public = await client.get(
                 f"/api/v1/runs/{run_id}/events",
@@ -260,9 +248,9 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
                     headers={"X-OpenDV-Role": "DATA_STEWARD"},
                 )
             ).json()
-            assert not wb03_steward["event"]["layer1_story_banner"][
-                "headline"
-            ].startswith("[REDACTED")
+            assert not wb03_steward["event"]["layer1_story_banner"]["headline"].startswith(
+                "[REDACTED"
+            )
 
             wb05_steward = (
                 await client.get(
@@ -280,9 +268,9 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
                     headers={"X-OpenDV-Role": "PII_STEWARD"},
                 )
             ).json()
-            assert not wb04_pii_steward["event"]["layer1_story_banner"][
-                "headline"
-            ].startswith("[REDACTED")
+            assert not wb04_pii_steward["event"]["layer1_story_banner"]["headline"].startswith(
+                "[REDACTED"
+            )
             wb05_pii_steward = (
                 await client.get(
                     f"/api/v1/runs/{run_id}/workbench/WB-05",
@@ -300,9 +288,7 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
                 )
             ).json()
             assert (
-                wb05_auditor["event"]["layer2_visual_payload"]["summary_metrics"][
-                    "fair_value_usd"
-                ]
+                wb05_auditor["event"]["layer2_visual_payload"]["summary_metrics"]["fair_value_usd"]
                 == 245000000.0
             )
 
@@ -324,9 +310,7 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
                 )
             ).json()
             assert (
-                wb04_custodian["event"]["layer2_visual_payload"]["summary_metrics"][
-                    "pii_satellite"
-                ]
+                wb04_custodian["event"]["layer2_visual_payload"]["summary_metrics"]["pii_satellite"]
                 == "sat_limited_partner_pii"
             )
 
@@ -349,9 +333,7 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path) -> None:
 
     async def _scenario() -> None:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             for idx in range(12):
                 view_id = f"WB-{idx:02d}"
                 res = await client.get(
@@ -372,10 +354,7 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path) -> None:
             res_gates = await client.get(f"/api/v1/runs/{run_id}/gates")
             assert res_gates.status_code == 200
             assert res_gates.json()["overall_passed"] is True
-            assert (
-                res_gates.json()["gate_scorecard"]["gate_1_contract_grain"]
-                == "AUTO_REPAIRED"
-            )
+            assert res_gates.json()["gate_scorecard"]["gate_1_contract_grain"] == "AUTO_REPAIRED"
 
             res_eval_gates = await client.post(
                 f"/api/v1/runs/{run_id}/gates",
@@ -423,9 +402,7 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path) -> None:
                 "satellites: []\n",
                 encoding="utf-8",
             )
-            bad_state = PlatformStateContainer(
-                repo_root=bad_repo, state_dir=tmp_path / "bad_state"
-            )
+            bad_state = PlatformStateContainer(repo_root=bad_repo, state_dir=tmp_path / "bad_state")
             bad_app = create_app(platform_state=bad_state)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=bad_app),
@@ -439,10 +416,7 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path) -> None:
                 reject_body = res_reject.json()
                 assert reject_body["overall_passed"] is False
                 assert reject_body["verdict"] == "REJECT-WITH-TRACE"
-                assert (
-                    reject_body["gate_scorecard"]["gate_1_contract_grain"]
-                    == "REJECT-WITH-TRACE"
-                )
+                assert reject_body["gate_scorecard"]["gate_1_contract_grain"] == "REJECT-WITH-TRACE"
                 assert len(reject_body["diagnostics"]) >= 1
                 assert "REJECT-WITH-TRACE" in reject_body["toon_text"]
 
@@ -457,9 +431,7 @@ def test_captain_hold_decision_resolution_and_conflict(tmp_path: Path) -> None:
 
     async def _scenario() -> None:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             # 1. Initially 1 active hold (`hold-tier-u3-horizon-sovereign-vehicle`)
             res_list = await client.get(f"/api/v1/runs/{run_id}/decisions")
             assert res_list.status_code == 200
@@ -514,9 +486,7 @@ def test_duckdb_sandbox_4_batches_and_bitemporal_pit_queries(tmp_path: Path) -> 
 
     async def _scenario() -> None:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             # 1. Execute 4-Batch adversarial sandbox
             res_batches = await client.post(
                 f"/api/v1/runs/{run_id}/sandbox",
@@ -596,9 +566,7 @@ def test_cas_artifacts_and_openapi_v1_schema_freshness(tmp_path: Path) -> None:
 
     async def _scenario() -> None:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             # 1. Pre-seeded canonical context_refs SHA-256 resolves cleanly
             graph_a_sha = PE_DEMO_CONTEXT_REFS["graph_a_sha256"]
             res_seeded = await client.get(f"/api/v1/artifacts/{graph_a_sha}")

@@ -36,9 +36,7 @@ def run_verify_command(
     role: str = getattr(args, "role", None) or "INTERNAL_MODELER"
 
     if not use_local and api_url:
-        with OpenDVCliApiClient(
-            base_url=api_url, role=role, transport=transport
-        ) as client:
+        with OpenDVCliApiClient(base_url=api_url, role=role, transport=transport) as client:
             req_body: dict[str, Any] = {"source": "opendv-cli"}
             if getattr(args, "contract", None):
                 req_body["contract_path"] = args.contract
@@ -48,16 +46,13 @@ def run_verify_command(
 
     repo_root = find_workspace_root()
     contract_arg = (
-        getattr(args, "contract", None)
-        or "examples/private_equity/dv_pe_model_contract.yaml"
+        getattr(args, "contract", None) or "examples/private_equity/dv_pe_model_contract.yaml"
     )
     graph_a_arg = (
-        getattr(args, "graph_a", None)
-        or "examples/private_equity/pe_graph_a_ontology.yaml"
+        getattr(args, "graph_a", None) or "examples/private_equity/pe_graph_a_ontology.yaml"
     )
     graph_b_arg = (
-        getattr(args, "graph_b", None)
-        or "examples/private_equity/pe_graph_b_profile.json"
+        getattr(args, "graph_b", None) or "examples/private_equity/pe_graph_b_profile.json"
     )
 
     contract_path = resolve_repo_path(repo_root, contract_arg)
@@ -72,14 +67,10 @@ def run_verify_command(
 
     contract_doc = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
     graph_a_doc = (
-        yaml.safe_load(graph_a_path.read_text(encoding="utf-8"))
-        if graph_a_path.exists()
-        else {}
+        yaml.safe_load(graph_a_path.read_text(encoding="utf-8")) if graph_a_path.exists() else {}
     )
     graph_b_doc = (
-        json.loads(graph_b_path.read_text(encoding="utf-8"))
-        if graph_b_path.exists()
-        else {}
+        json.loads(graph_b_path.read_text(encoding="utf-8")) if graph_b_path.exists() else {}
     )
 
     axi_res = run_axi_dv_verification_pipeline(

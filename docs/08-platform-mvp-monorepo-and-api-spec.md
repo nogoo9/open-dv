@@ -103,7 +103,7 @@ flowchart TD
     SBX --> CORE & AXI & TEL
     HAR --> CORE & AXI & SBX & TEL
     API --> CORE & TEL & AXI & SBX & HAR
-    CLI --> CORE & TEL & AXI & SBX & HAR
+    CLI --> CORE & TEL & AXI & SBX & HAR & API
     API -. "export-openapi" .-> SCHEMAS
     SCHEMAS -. "schema & DTO sync" .-> PTS
     WEB --> PTS
@@ -117,7 +117,7 @@ flowchart TD
 | :---: | :--- | :--- | :--- |
 | **1** | **`.moon/toolchains.yml` & WASM Plugin IDs** | In `moon >= 2.0` (`2.3.0`), toolchain configuration lives in `.moon/toolchains.yml` (plural) and uses WASM plugin keys `unstable_python` and `unstable_uv`. | Commit `.moon/toolchains.yml` with `unstable_python` and `unstable_uv` plugin keys (never the legacy Moon 1.x `.moon/toolchain.yml`). |
 | **2** | **`$project` vs. `$projectName` Token Expansion in `.moon/tasks/python.yml`** | `$projectName` expands to `project.title` (containing spaces), breaking `uv run --package $projectName`. | Always use `$project` (which expands to the exact project ID, e.g. `opendv-core`) in `.moon/tasks/python.yml`. |
-| **3** | **Moon Layer Constraint (`application` $\not\to$ `application`)** | `unstable_python` infers Moon graph edges from `pyproject.toml` `dependencies`. If `apps/opendv-cli` depends on `opendv-platform-api`, Moon raises `invalid_layer_relationship`. | Both `apps/opendv-platform-api` and `apps/opendv-cli` depend **only** on the 5 `packages/*` libraries (`layer: 'library'`). |
+| **3** | **Moon Layer Constraint (`application` $\not\to$ `application`)** | `unstable_python` infers Moon graph edges from `pyproject.toml` `dependencies`. When `apps/opendv-cli` depends on `opendv-platform-api` (for `--local` state/sandbox parity), keeping both on `layer: 'application'` raises `invalid_layer_relationship`. | Declare `layer: 'automation'` in `apps/opendv-cli/moon.yml` and include `'api-server'` in `constraints.tagRelationships.cli` in `.moon/workspace.yml`. |
 | **4** | **TypeScript `TS6305` Composite Project Reference Ordering** | Running `tsc --noEmit` in `apps/opendv-web-workbench` before `packages/opendv-protocol-ts` emits `.d.ts` declarations fails when `includeProjectReferenceSources: true`. | Set `includeProjectReferenceSources: false` in `.moon/toolchains.yml`, run `bun x tsc --emitDeclarationOnly && bun build ...` in `opendv-protocol-ts:build`, and declare `deps: ['^:build']` in `.moon/tasks/typescript.yml`. |
 
 ---
@@ -199,7 +199,7 @@ constraints:
     duckdb-sandbox: ['domain-core', 'verifier', 'telemetry']
     agent-harness: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry']
     api-server: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness']
-    cli: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness']
+    cli: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness', 'api-server']
     protocol-sdk: []
     web-ui: ['protocol-sdk']
 
@@ -612,7 +612,7 @@ testpaths = [
 | `packages/opendv-agent-harness` | `opendv-agent-harness` | `python` | `library` | `['python', 'agent-harness']` | `['opendv-core', 'opendv-axi-verifier', 'opendv-duckdb-sandbox', 'opendv-telemetry']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
 | `packages/opendv-protocol-ts` | `opendv-protocol-ts` | `typescript` | `library` | `['typescript', 'protocol-sdk']` | `[]` | `codegen`, `build` (`tsc --emitDeclarationOnly && bun build`) |
 | `apps/opendv-platform-api` | `opendv-platform-api` | `python` | `application` | `['python', 'api-server']` | All 5 Python libraries | `export-openapi`, `dev` (port `8420`) |
-| `apps/opendv-cli` | `opendv-cli` | `python` | `application` | `['python', 'cli']` | All 5 Python libraries | `dev` (`opendv` & `axi-dv` entrypoints) |
+| `apps/opendv-cli` | `opendv-cli` | `python` | `automation` | `['python', 'cli']` | All 5 Python libraries + `opendv-platform-api` | `dev` (`opendv` & `axi-dv` entrypoints) |
 | `apps/opendv-web-workbench` | `opendv-web-workbench` | `typescript` | `application` | `['typescript', 'web-ui']` | `['opendv-protocol-ts']` | `dev` (Vite 6 on port `5173`) |
 
 ---

@@ -81,12 +81,8 @@ async def stream_run_events(
     run_id: str,
     state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
     role: Annotated[RbacRole, Depends(get_rbac_role)],
-    last_event_id_header: Annotated[
-        str | None, Header(alias="Last-Event-ID")
-    ] = None,
-    last_event_id_query: Annotated[
-        str | None, Query(alias="last_event_id")
-    ] = None,
+    last_event_id_header: Annotated[str | None, Header(alias="Last-Event-ID")] = None,
+    last_event_id_query: Annotated[str | None, Query(alias="last_event_id")] = None,
 ) -> StreamingResponse:
     """Server-Sent Events (`text/event-stream`) stream of RBAC-redacted VaultObservabilityEvents."""
     if run_id not in state.runs:
