@@ -18,7 +18,9 @@ from opendv_core.models.observability import VaultObservabilityEvent
 RE_SSN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 RE_EIN = re.compile(r"\b\d{2}-\d{7}\b")
 RE_ABA = re.compile(r"\b\d{9}\b")
-RE_MNPI_FIGURES = re.compile(r"\b\d+\.\d+x\b|\$\d+[\d,]*(\.\d+)?\b|\b\d+M\b")
+RE_MNPI_FIGURES = re.compile(
+    r"\b\d+\.\d+x\b|\$\d+[\d,]*(?:\.\d+)?[KMBTkmbt]?\b(?!\.\d)|\b\d+(?:\.\d+)?M\b"
+)
 
 
 class RbacRole(StrEnum):
@@ -50,7 +52,7 @@ ROLE_CLEARANCE_LEVELS: dict[RbacRole | str, frozenset[str]] = {
     # Additional domain aliases recognized in Open-DV
     "MNPI_CLEARED_STEWARD": frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL", "MNPI"}),
     "LP_CONFIDENTIAL_STEWARD": frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL"}),
-    "COMPLIANCE_AUDITOR": frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL", "MNPI"}),
+    "COMPLIANCE_AUDITOR": frozenset({"PUBLIC", "INTERNAL"}),
 }
 
 
@@ -131,12 +133,12 @@ def redact_event_for_role(
     Returns a deep-copied, schema-valid event dictionary.
     """
     if isinstance(event, VaultObservabilityEvent):
-        cloned: dict[str, Any] = event.model_dump(mode="json")
+        cloned: dict[str, Any] = event.model_dump(mode="json", exclude_none=True)
     else:
         cloned = copy.deepcopy(event)
 
     cleared_tiers = resolve_cleared_tiers(role)
-    tier = str(cloned.get("data_classification", "PUBLIC"))
+    tier = str(cloned.get("data_classification") or "PUBLIC")
 
     # 1. Tier 5 (RESTRICTED_PII): Mask unless role clears RESTRICTED_PII
     if "RESTRICTED_PII" not in cleared_tiers:
@@ -148,14 +150,10 @@ def redact_event_for_role(
         if isinstance(l1, dict):
             if "headline" in l1 and isinstance(l1["headline"], str):
                 l1["headline"] = RE_MNPI_FIGURES.sub("[REDACTED:MNPI]", l1["headline"])
-                if len(l1["headline"]) > 140:
-                    l1["headline"] = l1["headline"][:137] + "..."
             if "business_impact" in l1 and isinstance(l1["business_impact"], str):
                 l1["business_impact"] = RE_MNPI_FIGURES.sub(
                     "[REDACTED:MNPI]", l1["business_impact"]
                 )
-                if len(l1["business_impact"]) > 200:
-                    l1["business_impact"] = l1["business_impact"][:197] + "..."
 
         l2 = cloned.get("layer2_visual_payload")
         if isinstance(l2, dict):
@@ -213,15 +211,28 @@ def redact_event_for_role(
                 if k != "algorithm_ref":
                     proof[k] = f"[REDACTED {tier}]"
 
+    l1_final = cloned.get("layer1_story_banner")
+    if isinstance(l1_final, dict):
+        if isinstance(l1_final.get("headline"), str) and len(l1_final["headline"]) > 140:
+            l1_final["headline"] = l1_final["headline"][:137] + "..."
+        if (
+            isinstance(l1_final.get("business_impact"), str)
+            and len(l1_final["business_impact"]) > 200
+        ):
+            l1_final["business_impact"] = l1_final["business_impact"][:197] + "..."
+
     return cloned
 
 
 def redact_telemetry_event(
-    event: dict[str, Any],
+    event: dict[str, Any] | VaultObservabilityEvent,
     viewer_roles: list[str] | None = None,
 ) -> dict[str, Any]:
     """Compatibility adapter matching test_observability_and_redaction.py signature."""
-    return redact_event_for_role(event, role=viewer_roles or [])
+    effective_role: RbacRole | list[str] = (
+        viewer_roles if viewer_roles else RbacRole.INTERNAL_MODELER
+    )
+    return redact_event_for_role(event, role=effective_role)
 
 
 __all__ = [

@@ -38,7 +38,12 @@ async def format_sse_event_stream(
     skipping = last_event_id is not None
     matched_last = False
 
-    for raw_event in events:
+    for item in events:
+        raw_event = (
+            item.model_dump(mode="json", exclude_none=True)
+            if isinstance(item, VaultObservabilityEvent)
+            else item
+        )
         ev_id = str(raw_event.get("event_id", ""))
         if skipping:
             if ev_id == last_event_id:
@@ -52,7 +57,12 @@ async def format_sse_event_stream(
 
     # If last_event_id was provided but never matched in the stream, replay all
     if skipping and not matched_last:
-        for raw_event in events:
+        for item in events:
+            raw_event = (
+                item.model_dump(mode="json", exclude_none=True)
+                if isinstance(item, VaultObservabilityEvent)
+                else item
+            )
             ev_id = str(raw_event.get("event_id", ""))
             redacted = redact_event_for_role(raw_event, role)
             payload_json = json.dumps(redacted, sort_keys=True)
@@ -86,7 +96,7 @@ class VaultLedgerEmitter:
         self, event: dict[str, Any] | VaultObservabilityEvent
     ) -> dict[str, Any]:
         if isinstance(event, VaultObservabilityEvent):
-            data: dict[str, Any] = event.model_dump(mode="json")
+            data: dict[str, Any] = event.model_dump(mode="json", exclude_none=True)
         else:
             data = copy.deepcopy(event)
 
@@ -168,13 +178,12 @@ class VaultLedgerEmitter:
                     events.append(json.loads(cleaned))
         return events
 
-    def replay_events(
-        self,
+    @staticmethod
+    def _select_replay_slice(
+        all_events: list[dict[str, Any]],
         after_event_id: str | None = None,
         role: RbacRole | str = RbacRole.INTERNAL_MODELER,
     ) -> list[dict[str, Any]]:
-        """Replay monotonic ledger events starting after `after_event_id`, redacted for `role`."""
-        all_events = self.read_all_events()
         if after_event_id is None:
             return [redact_event_for_role(ev, role=role) for ev in all_events]
 
@@ -187,11 +196,22 @@ class VaultLedgerEmitter:
                 continue
             replayed.append(redact_event_for_role(ev, role=role))
 
-        # If after_event_id was not matched, return all events
         if skipping:
             return [redact_event_for_role(ev, role=role) for ev in all_events]
 
         return replayed
+
+    def replay_events(
+        self,
+        after_event_id: str | None = None,
+        role: RbacRole | str = RbacRole.INTERNAL_MODELER,
+    ) -> list[dict[str, Any]]:
+        """Replay monotonic ledger events starting after `after_event_id`, redacted for `role`."""
+        return self._select_replay_slice(
+            self.read_all_events(),
+            after_event_id=after_event_id,
+            role=role,
+        )
 
     async def subscribe_sse(
         self,
@@ -200,20 +220,33 @@ class VaultLedgerEmitter:
         replay_history: bool = True,
     ) -> AsyncIterator[str]:
         """Subscribe to Server-Sent Events (SSE) with cursor replay and monotonic ordering."""
-        seen_event_ids: set[str] = set()
-
-        if replay_history:
-            past_events = self.replay_events(after_event_id=last_event_id, role=role)
-            for ev in past_events:
-                ev_id = str(ev.get("event_id", ""))
-                seen_event_ids.add(ev_id)
-                payload_json = json.dumps(ev, sort_keys=True)
-                yield f"id: {ev_id}\ndata: {payload_json}\n\n"
-
         queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(maxsize=1024)
         self._subscribers.add(queue)
 
         try:
+            all_events = self.read_all_events()
+            seen_event_ids: set[str] = {
+                str(ev.get("event_id", "")) for ev in all_events if ev.get("event_id")
+            }
+
+            if replay_history:
+                past_events = self._select_replay_slice(
+                    all_events,
+                    after_event_id=last_event_id,
+                    role=role,
+                )
+                for ev in past_events:
+                    ev_id = str(ev.get("event_id", ""))
+                    seen_event_ids.add(ev_id)
+                    payload_json = json.dumps(ev, sort_keys=True)
+                    yield f"id: {ev_id}\ndata: {payload_json}\n\n"
+
+                if any(
+                    ev.get("stage_id") == "STAGE_07_DETERMINISTIC_COMPILER" for ev in all_events
+                ):
+                    yield 'event: run_complete\ndata: {"status":"COMPLETED"}\n\n'
+                    return
+
             while True:
                 raw_event = await queue.get()
                 ev_id = str(raw_event.get("event_id", ""))

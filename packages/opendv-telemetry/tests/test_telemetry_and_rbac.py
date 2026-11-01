@@ -22,6 +22,7 @@ from opendv_core.constants import (
     ZERO_KEY_ERROR_UPPER,
     ZERO_KEY_UNKNOWN,
 )
+from opendv_core.models.observability import VaultObservabilityEvent
 from opendv_core.schema_registry import validate_observability_event
 from opendv_telemetry.cas_store import (
     ArtifactCorruptedError,
@@ -52,6 +53,7 @@ from opendv_telemetry.pii_detector import (
 from opendv_telemetry.rbac_redactor import (
     RbacRole,
     redact_event_for_role,
+    redact_telemetry_event,
     resolve_cleared_tiers,
 )
 from opendv_telemetry.trace_context import (
@@ -420,6 +422,43 @@ class TestFiveTierRbacRedaction:
         # Must validate cleanly against schemas/vault-observability-event.schema.json
         validate_observability_event(redacted)
 
+    def test_mnpi_decimal_magnitude_and_pii_banner_length_clamping(
+        self, base_valid_event: dict
+    ) -> None:
+        ev = dict(base_valid_event)
+        ev["data_classification"] = "RESTRICTED_PII"
+        ev["layer1_story_banner"]["headline"] = (
+            "Loaded tax_id_ein 12-3456789, SSN 123-45-6789, ABA 021000021 "
+            "at 14.5x ($216.28M vs $245M)"
+        )
+        ev["layer2_visual_payload"]["summary_metrics"] = {
+            "wire_aba_routing_raw": "021000021",
+            "entry_ev_multiple": "14.5x",
+        }
+
+        redacted = redact_telemetry_event(ev, viewer_roles=["COMPLIANCE_AUDITOR"])
+        hl = redacted["layer1_story_banner"]["headline"]
+        assert "$216" not in hl
+        assert ".28M" not in hl
+        assert "$245M" not in hl
+        assert "$[REDACTED:MNPI]" not in hl
+        assert "[REDACTED:RESTRICTED_PII]" in hl
+        assert "[REDACTED:MNPI]" in hl
+        assert len(hl) <= 140
+        assert (
+            redacted["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"]
+            == "[REDACTED:CONFIDENTIAL]"
+        )
+        validate_observability_event(redacted)
+
+        internal_ev = dict(base_valid_event)
+        internal_ev["data_classification"] = "INTERNAL"
+        unredacted = redact_telemetry_event(internal_ev, viewer_roles=[])
+        assert (
+            unredacted["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"]
+            == "CalPERS"
+        )
+
 
 # =============================================================================
 # 5. PII & ENTROPY LEAK DETECTOR
@@ -456,6 +495,19 @@ class TestPiiAndEntropyDetector:
         )
         findings = scan_event_for_leaks(ev)
         assert any(f.leak_type == "HIGH_ENTROPY_TOKEN_IN_LAYER1" for f in findings)
+
+    def test_layer1_allows_snake_case_and_dotted_identifiers(
+        self, base_valid_event: dict
+    ) -> None:
+        ev = dict(base_valid_event)
+        ev["layer1_story_banner"]["headline"] = (
+            "Merged sat_lp_commitment_investran from investran.src_lp_investors"
+        )
+        ev["layer1_story_banner"]["business_impact"] = (
+            "Extracted calpers_side_letter_fund_iv_2026.pdf in STAGE_07_DETERMINISTIC_COMPILER."
+        )
+        assert scan_event_for_leaks(ev) == []
+        validate_no_pii_leaks(ev)
 
     def test_shannon_entropy_calculation(self) -> None:
         # Uniform hex string has high entropy
@@ -557,3 +609,47 @@ class TestVaultLedgerEmitterAndSSE:
         assert any("id: evt-003" in f for f in frames)
         assert not any("id: evt-001" in f for f in frames)
         assert any("event: run_complete" in f for f in frames)
+
+    def test_emit_and_redact_pydantic_model_instance(
+        self, tmp_path: Path, base_valid_event: dict
+    ) -> None:
+        ledger_file = tmp_path / "state" / "vault-ledger.jsonl"
+        emitter = VaultLedgerEmitter(ledger_path=ledger_file)
+
+        ev_dict = dict(base_valid_event)
+        ev_dict.pop("data_classification", None)
+        model_instance = VaultObservabilityEvent.model_validate(ev_dict)
+
+        assert scan_event_for_leaks(model_instance) == []
+        redacted = redact_event_for_role(model_instance, role=RbacRole.PUBLIC)
+        assert "[REDACTED" not in redacted["layer1_story_banner"]["headline"]
+        validate_observability_event(redacted)
+
+        emitted = emitter.emit(model_instance)
+        assert emitted["event_id"] == model_instance.event_id
+        validate_observability_event(emitted)
+
+    @pytest.mark.asyncio
+    async def test_subscribe_sse_terminates_when_stage07_already_in_ledger(
+        self, tmp_path: Path, base_valid_event: dict
+    ) -> None:
+        ledger_file = tmp_path / "state" / "vault-ledger.jsonl"
+        emitter = VaultLedgerEmitter(ledger_path=ledger_file)
+
+        ev1 = dict(base_valid_event)
+        ev1["event_id"] = "evt-stage-05"
+        ev2 = dict(base_valid_event)
+        ev2["event_id"] = "evt-stage-07"
+        ev2["stage_id"] = "STAGE_07_DETERMINISTIC_COMPILER"
+        ev2["agent_persona"] = "deterministic-compiler"
+
+        emitter.emit(ev1)
+        emitter.emit(ev2)
+
+        frames: list[str] = []
+        async for frame in emitter.subscribe_sse(last_event_id="evt-stage-05"):
+            frames.append(frame)
+
+        assert len(frames) == 2
+        assert "id: evt-stage-07" in frames[0]
+        assert "event: run_complete" in frames[1]

@@ -52,6 +52,9 @@ def detect_unmasked_pii_leaks(obj: Any, path: str = "") -> list[tuple[str, str, 
     Returns a list of `(json_path, leak_type, matched_string)` tuples.
     Excludes synthetic PE demo dates and zero-key seeds (2026*, 1900*, 0000*).
     """
+    if isinstance(obj, VaultObservabilityEvent):
+        obj = obj.model_dump(mode="json", exclude_none=True)
+
     leaks: list[tuple[str, str, str]] = []
 
     if isinstance(obj, dict):
@@ -85,7 +88,7 @@ def scan_event_for_leaks(
     3. Layer 1 must not contain high-entropy unredacted cryptographic tokens (>=20 chars, H >= 3.6).
     """
     if isinstance(event, VaultObservabilityEvent):
-        ev: dict[str, Any] = event.model_dump(mode="json")
+        ev: dict[str, Any] = event.model_dump(mode="json", exclude_none=True)
     else:
         ev = event
 
@@ -113,7 +116,7 @@ def scan_event_for_leaks(
                         )
                     )
                 # Check for high-entropy tokens
-                tokens = re.split(r"[\s\(\)\[\]\|,:;]+", val)
+                tokens = re.split(r"[\s\(\)\[\]\|,:;_\.\-/]+", val)
                 for token in tokens:
                     if len(token) >= 24 and "[REDACTED" not in token:
                         entropy = compute_shannon_entropy_text(token)
