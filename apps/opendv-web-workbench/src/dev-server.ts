@@ -1,4 +1,4 @@
-import { existsSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
 export const DEFAULT_DEV_SERVER_PORT = 5173;
@@ -10,38 +10,13 @@ export const WORKBENCH_CSP =
 export interface WorkbenchDevServerOptions {
 	/** Port to listen on. Defaults to process.env.PORT ?? 5173. Use 0 for an ephemeral port in tests. */
 	port?: number;
-	/** Hostname to bind strictly to. Forced to 127.0.0.1. */
-	hostname?: string;
 	/** Upstream Platform API URL. Defaults to process.env.OPENDV_API_URL ?? "http://127.0.0.1:8420". */
 	apiUrl?: string;
-	/** Absolute path to the workbench root directory containing index.html and src/. */
-	workbenchRoot?: string;
 	/** Whether to suppress listening / proxy startup log messages. */
 	silent?: boolean;
-	/** Whether to disable in-memory bundle caching. */
-	noCache?: boolean;
 }
 
 export type WorkbenchDevServer = ReturnType<typeof Bun.serve>;
-
-function getMimeType(filePath: string): string {
-	if (filePath.endsWith(".html")) return "text/html; charset=utf-8";
-	if (filePath.endsWith(".css")) return "text/css; charset=utf-8";
-	if (
-		filePath.endsWith(".js") ||
-		filePath.endsWith(".mjs") ||
-		filePath.endsWith(".ts")
-	) {
-		return "application/javascript; charset=utf-8";
-	}
-	if (filePath.endsWith(".json")) return "application/json; charset=utf-8";
-	if (filePath.endsWith(".svg")) return "image/svg+xml";
-	if (filePath.endsWith(".png")) return "image/png";
-	if (filePath.endsWith(".jpg") || filePath.endsWith(".jpeg"))
-		return "image/jpeg";
-	if (filePath.endsWith(".ico")) return "image/x-icon";
-	return "application/octet-stream";
-}
 
 async function buildBrowserBundle(workbenchRoot: string): Promise<string> {
 	const entrypoint = join(workbenchRoot, "src/index.ts");
@@ -86,11 +61,11 @@ export function createWorkbenchDevServer(
 	const hostname = DEFAULT_DEV_SERVER_HOST;
 	const apiUrl =
 		options.apiUrl ?? process.env.OPENDV_API_URL ?? DEFAULT_API_URL;
-	const workbenchRoot = options.workbenchRoot ?? resolve(import.meta.dir, "..");
+	const workbenchRoot = resolve(import.meta.dir, "..");
 
 	let cachedBundle: string | null = null;
 	async function getBundle(): Promise<string> {
-		if (cachedBundle && !options.noCache) {
+		if (cachedBundle) {
 			return cachedBundle;
 		}
 		cachedBundle = await buildBrowserBundle(workbenchRoot);
@@ -202,28 +177,7 @@ export function createWorkbenchDevServer(
 				}
 			}
 
-			// 5. Fallback for static files under workbench root
-			const relativePath = url.pathname.replace(/^\/+/, "");
-			const safeFilePath = resolve(workbenchRoot, relativePath);
-			if (safeFilePath.startsWith(workbenchRoot) && existsSync(safeFilePath)) {
-				try {
-					const stat = statSync(safeFilePath);
-					if (stat.isFile()) {
-						const content = readFileSync(safeFilePath);
-						return new Response(content, {
-							status: 200,
-							headers: {
-								"Content-Type": getMimeType(safeFilePath),
-								"Content-Security-Policy": WORKBENCH_CSP,
-							},
-						});
-					}
-				} catch {
-					// Fall through to 404
-				}
-			}
-
-			// 6. Not Found
+			// 5. Not Found
 			return new Response("Not Found", {
 				status: 404,
 				headers: {
@@ -254,12 +208,5 @@ export function startWorkbenchDevServer(
 }
 
 if (import.meta.main) {
-	const portEnv = process.env.PORT
-		? Number.parseInt(process.env.PORT, 10)
-		: undefined;
-	const port =
-		portEnv !== undefined && !Number.isNaN(portEnv)
-			? portEnv
-			: DEFAULT_DEV_SERVER_PORT;
-	startWorkbenchDevServer({ port });
+	startWorkbenchDevServer();
 }

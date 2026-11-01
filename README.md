@@ -214,26 +214,26 @@ Execute directly against the workspace packages without running an HTTP server:
 
 ```bash
 # Verify a Data Vault 2.0 contract through the 6-Gate AXI-DV pipeline
-uv run opendv verify --local examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli opendv verify --local --contract examples/private_equity/dv_pe_model_contract.yaml
 # Or with TOON token-dense trace output
-uv run axi-dv verify --local --toon examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli axi-dv verify --local --toon --contract examples/private_equity/dv_pe_model_contract.yaml
 
 # Inspect empirical Bronze column profiles (Graph B)
-uv run opendv profile --local examples/private_equity/pe_graph_b_profile.json
+uv run --package opendv-cli opendv profile --local --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Compile contract into Canonical IR & 4-Zone SQL
-uv run opendv compile --local examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli opendv compile --local --contract examples/private_equity/dv_pe_model_contract.yaml
 
 # Execute 4-Batch Adversarial DuckDB Sandbox verification & Query D.10 bi-temporal audit
-uv run opendv sandbox --local examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli opendv sandbox --local --query-type ADVERSARIAL_BATCHES_1_TO_4 --cutoff "2026-11-15 23:59:59"
 
 # Create and inspect local pipeline runs
-uv run opendv run list --local
-uv run opendv run get run-pe-apex-horizon-20261030 --local
+uv run --package opendv-cli opendv run list --local
+uv run --package opendv-cli opendv run get --local --run-id run-pe-apex-horizon-20261030
 
 # Inspect and resolve Steward Captain-Holds
-uv run opendv hold list --local
-uv run opendv hold approve hold-tier-u3-horizon-sovereign-vehicle --candidate APEX_CO_I --local
+uv run --package opendv-cli opendv hold list --local
+uv run --package opendv-cli opendv hold approve --local --hold-id hold-tier-u3-horizon-sovereign-vehicle --candidate APEX_CO_I
 ```
 
 #### Remote Platform API Execution (`--api-url`)
@@ -242,25 +242,25 @@ Execute against the live Platform API server on `http://127.0.0.1:8420`:
 
 ```bash
 # Verify contract via remote Platform API
-uv run opendv verify --api-url http://127.0.0.1:8420 examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli opendv verify --api-url http://127.0.0.1:8420 --contract examples/private_equity/dv_pe_model_contract.yaml
 
 # Inspect Bronze profiles via remote Platform API
-uv run opendv profile --api-url http://127.0.0.1:8420 examples/private_equity/pe_graph_b_profile.json
+uv run --package opendv-cli opendv profile --api-url http://127.0.0.1:8420 --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Compile contract via remote Platform API
-uv run opendv compile --api-url http://127.0.0.1:8420 examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli opendv compile --api-url http://127.0.0.1:8420 --contract examples/private_equity/dv_pe_model_contract.yaml
 
 # Execute 4-Batch sandbox & bi-temporal queries via remote Platform API
-uv run opendv sandbox --api-url http://127.0.0.1:8420 examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli opendv sandbox --api-url http://127.0.0.1:8420 --query-type ADVERSARIAL_BATCHES_1_TO_4 --cutoff "2026-11-15 23:59:59"
 
 # Manage verification runs and stream real-time SSE observability events
-uv run opendv run list --api-url http://127.0.0.1:8420
-uv run opendv run get run-pe-apex-horizon-20261030 --api-url http://127.0.0.1:8420
-uv run opendv run events run-pe-apex-horizon-20261030 --api-url http://127.0.0.1:8420
+uv run --package opendv-cli opendv run list --api-url http://127.0.0.1:8420
+uv run --package opendv-cli opendv run get --api-url http://127.0.0.1:8420 --run-id run-pe-apex-horizon-20261030
+uv run --package opendv-cli opendv run events --api-url http://127.0.0.1:8420 --run-id run-pe-apex-horizon-20261030
 
 # List and resolve Steward Captain-Holds via remote Platform API
-uv run opendv hold list --api-url http://127.0.0.1:8420
-uv run opendv hold approve hold-tier-u3-horizon-sovereign-vehicle --candidate APEX_CO_I --api-url http://127.0.0.1:8420
+uv run --package opendv-cli opendv hold list --api-url http://127.0.0.1:8420
+uv run --package opendv-cli opendv hold approve --api-url http://127.0.0.1:8420 --hold-id hold-tier-u3-horizon-sovereign-vehicle --candidate APEX_CO_I
 ```
 
 ---

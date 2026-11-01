@@ -10,6 +10,11 @@ import {
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+	WORKBENCH_CSP,
+	createWorkbenchDevServer,
+	startWorkbenchDevServer,
+} from "../src/dev-server";
+import {
 	CUSTOM_ESG_GATE_ID,
 	CustomEsgGateCard,
 	DEFAULT_BACKGROUND_WORKSPACE_ID,
@@ -31,16 +36,13 @@ import {
 	ThemeToggle,
 	VERDICT_VISUAL_GRAMMAR,
 	type ViewPluginProps,
-	WORKBENCH_CSP,
 	WorkbenchPluginRegistry,
 	WorkbenchShell,
-	createWorkbenchDevServer,
 	createWorkbenchStore,
 	isInteractiveInputTarget,
 	registerCustomEsgGatePlugin,
 	routeWorkbenchKeyboardShortcut,
 	sanitizeLayer1Text,
-	startWorkbenchDevServer,
 	syncBackgroundInertAttribute,
 	useWorkbenchStore,
 } from "../src/index";
@@ -120,6 +122,10 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 			expect(buildResult.success).toBe(true);
 			expect(buildResult.logs).toHaveLength(0);
 			expect(buildResult.outputs.length).toBeGreaterThanOrEqual(1);
+			const bundleText = await (buildResult.outputs[0]?.text() ??
+				Promise.resolve(""));
+			expect(bundleText).not.toContain("node:fs");
+			expect(bundleText).not.toContain("node:path");
 
 			const baseEvent = PE_DEMO_EVENTS[0] as VaultObservabilityEventDTO;
 			const adversarialEvent: VaultObservabilityEventDTO = {
@@ -919,6 +925,11 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 				const jsText = await jsRes.text();
 				expect(jsText).toContain("mountWorkbenchApp");
 				expect(jsText).toContain("WorkbenchShell");
+				expect(jsText).not.toContain("node:fs");
+				expect(jsText).not.toContain("node:path");
+
+				const unexposedRes = await fetch(`${baseUrl}/package.json`);
+				expect(unexposedRes.status).toBe(404);
 
 				// Verify /api/v1/health proxies to upstream Platform API
 				const healthRes = await fetch(`${baseUrl}/api/v1/health`);

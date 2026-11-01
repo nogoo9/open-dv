@@ -106,6 +106,3 @@ export * from "./views/wb10/WB10DuckDBSandboxView";
 export * from "./views/wb11/PreHashStepper";
 export * from "./views/wb11/FourZoneSQLViewer";
 export * from "./views/wb11/WB11RosettaStoneView";
-
-// Zero-Dependency Development Server & Upstream API Proxy
-export * from "./dev-server";
