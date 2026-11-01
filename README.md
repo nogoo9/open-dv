@@ -35,6 +35,7 @@ Data Vault 2.0 achieves 100% historical auditability, decoupled parallel ingesti
 | **Headless Platform OpenAPI 3.1.0 Schema** | [`schemas/openapi-v1.json`](schemas/openapi-v1.json) | Deterministic OpenAPI 3.1.0 (JSON Schema Draft 2020-12 dialect) specification for all `/api/v1` REST and SSE endpoints, exported via `moon run opendv-platform-api:export-openapi`. |
 | **Annotated Model Contract Example (`YAML`)** | [`examples/dv_model_contract.yaml`](examples/dv_model_contract.yaml) | Multi-source (`SFDC_CRM`, `SAP_ERP`, `LEGACY_TICKET_DB`) declarative Data Vault 2.0 model contract for a single `hub_customer`, demonstrating Tier-1 global keys, a `BKCC`-scoped Tier-3 legacy key, the column triage ledger (including a dropped system surrogate), and source-aligned Satellites whose `PII_HIGH` column is split into `sat_customer_crm_pii` by `Algorithm A.1`. |
 | **Private Equity Reference Package (`YAML` / `JSON`)** | [`examples/private_equity/dv_pe_model_contract.yaml`](examples/private_equity/dv_pe_model_contract.yaml) | Complete Private Equity Asset Management reference package: validated `NoMistakeDataVault2ContractV5` YAML ([`dv_pe_model_contract.yaml`](examples/private_equity/dv_pe_model_contract.yaml)), Canonical IR JSON ([`pe_canonical_ir.json`](examples/private_equity/pe_canonical_ir.json)), Enterprise CBC Ontology `Graph A` ([`pe_graph_a_ontology.yaml`](examples/private_equity/pe_graph_a_ontology.yaml)), and Empirical Bronze & PDF Span Profile `Graph B` ([`pe_graph_b_profile.json`](examples/private_equity/pe_graph_b_profile.json)). |
+| **Multi-Wave Agentic Pipeline Sample (`YAML` / `CSV` / `TXT`)** | [`examples/pipeline_samples/global_commerce_vault/`](examples/pipeline_samples/global_commerce_vault/) | Turnkey 4-wave enterprise commerce dataset (`pipeline_input.yaml`, `harness_config.yaml`, `graph_a_ontology.yaml`, CSV sources, and unstructured MSA text) exercising Cold Start ($N=1$), incremental $N=1 \to N=2$ `BKCC` onboarding, $S_1(t) \to S_1(t+1)$ schema drift (`Algorithm A.9a`), and unstructured span grounding (`Algorithm A.9b`). |
 | **Executable `pytest` Specification Suite (`tests/`)** | [`tests/`](tests/) | Comprehensive, deterministic `pytest` suite (`200+` test cases) verifying Draft 2020-12 schemas, Gate 1–6 static/topological/AST verifiers, length-prefixed SHA-256 test vectors, deterministic AST codemods (`A.1`–`A.9b`), 5-tier observability redaction & PII leak detection, and 4-Zone `:memory:` DuckDB execution across all 4 adversarial shadow sandbox batches and bi-temporal queries (`D.10` & `D.10b`). |
 
 ---
@@ -107,7 +108,7 @@ The repository is organized as a polyglot monorepo managed with [`proto`](.proto
 | [`packages/opendv-protocol-ts`](packages/opendv-protocol-ts/) | TypeScript library (`protocol-sdk`) | Zero-dependency TypeScript protocol SDK (`@opendv/protocol-ts`): normative DTOs, REST/SSE clients, W3C SSE parser, offline `.jsonl` replay engine (`MockVaultEventStreamClient`), Web Crypto `Algorithm A.5` hashing & Semantic Hash Pills, RBAC redaction/filters, and Private Equity demo bundle. |
 | [`apps/opendv-platform-api`](apps/opendv-platform-api/) | Python application (`api-server`) | Headless FastAPI ASGI server (`main`, `deps`), deterministic OpenAPI 3.1.0 exporter (`export_openapi` $\to$ [`schemas/openapi-v1.json`](schemas/openapi-v1.json)), RFC 9457 `application/problem+json` error handling, server-side 5-Tier RBAC redaction (`X-OpenDV-Role`), and `/api/v1` routers (`health`, `projects`, `runs` with SSE `Last-Event-ID` cursor replay & `run_complete` framing, `gates`, `sandbox`, `decisions`, `workbench` `WB-00`–`WB-11`, `artifacts`). |
 | [`apps/opendv-cli`](apps/opendv-cli/) | Python automation (`cli`) | Unified `opendv` and `axi-dv` command-line tools (`main`, `api_client`) supporting both `--local` (direct library invocation) and `--api-url` (remote HTTP API) modes across `verify`, `profile`, `compile`, `sandbox`, `run`, and `hold` subcommands. |
-| [`apps/opendv-web-workbench`](apps/opendv-web-workbench/) | TypeScript application (`web-ui`) | Decoupled 12-View Explainability & Observability Web Workbench (`@opendv/web-workbench`): zero-dependency Bun development server & `/api` proxy (`dev-server`), responsive 3-Layer Progressive Disclosure shell (`WorkbenchShell`, `Layer1StoryBanner`, `SidebarNav`, native `<dialog>` `Layer3ProofDrawer` with `inert` background workspace, `PlaybackControls`), semantic theme engine (`ThemeRegistry`, `ThemeToggle`, `Obsidian Dark` / `Daylight Paper` / `High-Contrast Audit` presets, zero-FOUC initializer, WCAG AA/AAA visual grammar), Zustand state store (`useWorkbenchStore`), extensible view & gate card plugin registry (`WorkbenchPluginRegistry`, `CustomEsgGateCard`), and all 12 Workbench Views `WB-00`–`WB-11` (`WB00CommandCenter`, `WB01DualGraphView`, `WB02EmpiricalProfiler`, `WB03UnstructuredView` with `CaptainHoldDecisionModal`, `WB04ColumnTriageView`, `WB05ELMTopologyView`, `WB06TopologicalDAGView` + `GrainAdjacencyMatrix`, `WB07LinkSplitterYagniView` + `WriteAmplificationGauge`, `WB08SelfHealingWorkbench` + `AttemptDiffViewer` + `ToonTraceHighlighter`, `WB09SchemaDriftRadar` + `DriftDeltaGrid`, `WB10DuckDBSandboxView` + `AdversarialBatchGrid` + `BiTemporalTimeline`, `WB11RosettaStoneView` + `PreHashStepper` + `FourZoneSQLViewer`) with co-located gate cards (`VIZ-GATE-01`–`08`). |
+| [`apps/opendv-web-workbench`](apps/opendv-web-workbench/) | TypeScript application (`web-ui`) | Decoupled 12-View Explainability & Observability Web Workbench (`@opendv/web-workbench`): zero-dependency Bun development server & `/api` proxy (`dev-server`), responsive 3-Layer Progressive Disclosure shell (`WorkbenchShell`, `Layer1StoryBanner`, `SidebarNav`, native `<dialog>` `Layer3ProofDrawer` with `inert` background workspace, `PlaybackControls`), semantic theme engine (`ThemeRegistry`, `ThemeToggle`, `Obsidian Dark` / `Daylight Paper` / `High-Contrast Audit` presets, zero-FOUC initializer, WCAG AA/AAA visual grammar), Zustand state store (`useWorkbenchStore`), extensible view & gate card plugin registry (`WorkbenchPluginRegistry`, `CustomEsgGateCard`), and all 12 Workbench Views `WB-00`–`WB-11` (`WB00CommandCenter` with interactive agentic pipeline launcher & report inspector `createPipelineLauncherStore`, `WB01DualGraphView`, `WB02EmpiricalProfiler`, `WB03UnstructuredView` with `CaptainHoldDecisionModal`, `WB04ColumnTriageView`, `WB05ELMTopologyView`, `WB06TopologicalDAGView` + `GrainAdjacencyMatrix`, `WB07LinkSplitterYagniView` + `WriteAmplificationGauge`, `WB08SelfHealingWorkbench` + `AttemptDiffViewer` + `ToonTraceHighlighter`, `WB09SchemaDriftRadar` + `DriftDeltaGrid`, `WB10DuckDBSandboxView` + `AdversarialBatchGrid` + `BiTemporalTimeline`, `WB11RosettaStoneView` + `PreHashStepper` + `FourZoneSQLViewer`) with co-located gate cards (`VIZ-GATE-01`–`08`). |
 
 ---
 
@@ -134,7 +135,7 @@ The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request.
 | [`apps/opendv-platform-api/tests/test_platform_api_rest_and_sse.py`](apps/opendv-platform-api/tests/test_platform_api_rest_and_sse.py) | Unit and integration tests for `opendv-platform-api`: `/api/v1/health`, `/api/v1/platform/capabilities`, `/api/v1/projects` (including repository-root path containment), `/api/v1/runs`, `/api/v1/runs/{run_id}/events` SSE streaming with `Last-Event-ID` replay & 5-Tier RBAC redaction (`X-OpenDV-Role`), `/api/v1/runs/{run_id}/gates` (`PASS` and `REJECT_WITH_TRACE` verdicts), `/api/v1/runs/{run_id}/sandbox` (`Query D.10` & `D.10b`), `/api/v1/runs/{run_id}/decisions` (`Tier-U3` Captain-Hold resolution), `/api/v1/runs/{run_id}/workbench/{view_id}` (`WB-00`–`WB-11`), `/api/v1/artifacts/{sha256}` CAS integrity, RFC 9457 `application/problem+json` errors, and deterministic `schemas/openapi-v1.json` export. |
 | [`apps/opendv-platform-api/tests/test_e2e_private_equity_certification.py`](apps/opendv-platform-api/tests/test_e2e_private_equity_certification.py) | Full-stack Private Equity certification test exercising platform capabilities (`WB-00`–`WB-11`, `G0`–`G5`, `argon`/`flash` model tiers), project & run creation, W3C SSE `Last-Event-ID` replay, `Tier-U3` Captain-Hold resolution (`Horizon Sovereign Co-Invest Vehicle`), 6-Gate closed-loop verification, 4-Zone DuckDB SQL compilation, 4-Batch Adversarial Shadow Sandbox (`DV-DYN-001`–`015`, `Query D.10` / `D.10b` PIT verification), and `WB-00`–`WB-11` workbench projection endpoints with 5-Tier RBAC verification and zero unredacted PII/MNPI leaks. |
 | [`apps/opendv-cli/tests/test_opendv_and_axi_dv_cli.py`](apps/opendv-cli/tests/test_opendv_and_axi_dv_cli.py) | Unit and integration tests for `opendv` and `axi-dv` CLI entrypoints across `--local` and `--api-url` (in-memory ASGI transport) modes: `verify` (including `--toon` output, default subcommand routing, and failing contract exit codes), `profile`, `compile`, `sandbox` (`Query D.10` / `D.10b` at custom `--cutoff`), `run` (`list`, `get`, `create`, `abort`, `events` with `--last-event-id` and `--role`), and `hold` (`list`, `approve`). |
-| [`apps/opendv-web-workbench/tests/`](apps/opendv-web-workbench/tests/) | Bun unit and component tests for `@opendv/web-workbench`: 3-Layer Progressive Disclosure shell, theme engine, WCAG AA/AAA visual grammar, and zero-dependency Bun dev server & `/api` proxy (`shell-and-theme.test.ts`), Workbench Views `WB-00`–`WB-05` (`views-wb00-wb05.test.ts`), and Workbench Views `WB-06`–`WB-11` & full 12-view plugin registration (`views-wb06-wb11.test.ts`). |
+| [`apps/opendv-web-workbench/tests/`](apps/opendv-web-workbench/tests/) | Bun unit and component tests for `@opendv/web-workbench`: 3-Layer Progressive Disclosure shell, theme engine, WCAG AA/AAA visual grammar, and zero-dependency Bun dev server & `/api` proxy (`shell-and-theme.test.ts`), Workbench Views `WB-00`–`WB-05` (`views-wb00-wb05.test.ts`), `WB-00` interactive agentic pipeline launcher & report inspector (`src/__tests__/wb00-pipeline-launcher.test.tsx`), and Workbench Views `WB-06`–`WB-11` & full 12-view plugin registration (`views-wb06-wb11.test.ts`). |
 
 To provision the pinned polyglot toolchain (`proto`, `moon`, `uv`, `bun`) and run workspace lint, typecheck, schema validation, test, and build tasks:
 
@@ -162,6 +163,178 @@ python3 -m json.tool schemas/no-mistake-dv2-contract-v5.schema.json > /dev/null
 python3 -m json.tool schemas/vault-observability-event.schema.json > /dev/null
 python3 -m json.tool schemas/openapi-v1.json > /dev/null
 ```
+
+---
+
+## End-to-End Agentic Pipeline (`VaultFirstMate` + `No-Mistakes` + `axi-dv`)
+
+`open-dv` implements a deterministic, closed-loop multi-agent Data Vault 2.0 pipeline modeled after `firstmate` and `no-mistakes`. Neither the CLI (`opendv`) nor the Platform API/Web Workbench hardcode sample file paths—every invocation accepts explicit input specifications and agent harness configurations and enforces deterministic pre-flight and post-flight validation.
+
+### 1. 8-Stage Pipeline Lifecycle (`STAGE_00` through `STAGE_07`)
+
+Each wave in a pipeline run executes the 8 canonical stages across Cold Start ($N=1$) and Incremental Evolution Waves ($N \to N+1$ multi-source onboarding, $S_k(t) \to S_k(t+1)$ intra-source schema drift, and multimodal unstructured document grounding):
+
+| Stage ID | Active Persona | Responsibility & Deterministic Artifacts |
+| :--- | :--- | :--- |
+| `STAGE_00_ORCHESTRATION` | `@vault-first-mate` | Validates `GraphAOntology` (`Graph A`), initializes the wave worktree/state context, and plans wave execution. |
+| `STAGE_01_SCOUT_SOURCE` | `@scout-source` | Profiles relational CSV/Parquet sources via `GraphBProfiler` ($U(C), H(C), N_{\text{null}}(C), I(A.x \subseteq B.y), \lambda(c)$) and runs `Algorithm A.9a` intra-source schema drift detection ($S_k(t) \to S_k(t+1)$). |
+| `STAGE_02_SCOUT_UNSTRUCTURED` | `@scout-unstructured` | Grounds unstructured text/PDF spans (`[char_start, char_end]`), executes 3-Tier Entity Resolution (`Tier-U1..U3`), and enforces `Algorithm A.9b` (`hub_document`, `lnk_document_<cbc>`, `mas_document_<cbc>_extraction`). |
+| `STAGE_03_SHIP_VAULT_PASS1` | `@ship-vault` | Executes Pass 1 Exhaustive 100% Column Triage (`BUSINESS_KEY`, `FOREIGN_KEY_REF`, `DESCRIPTIVE_PAYLOAD`, `SYSTEM_SURROGATE_DROPPED`). |
+| `STAGE_04_SHIP_VAULT_PASS2` | `@ship-vault` | Synthesizes Pass 2/3 Ensemble Logical Model (ELM) topology (`Hubs`, `Links`, `Same-As Links`, `Satellites`, `PII Satellites`) with 3-Tier `BKCC` collision shields and `Algorithm A.7` additive evolution locks. |
+| `STAGE_05_AXI_DV_STATIC_GATES` | `@axi-dv` | Runs Gates 0–4 (`gate1_contract_grain`, `Algorithm A.5/A.6` SQLGlot AST, `gate3_networkx_dag` bipartite topology, `Algorithm A.1` Gate 4 YAGNI cost guard) with closed-loop `@toon_v1` self-healing (`k=1 -> k=2`). |
+| `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `@axi-dv` | Executes Gate 5 in an ephemeral `:memory:` DuckDB Shadow Sandbox across all 4 Adversarial Batches and 15 runtime checks (`DV-DYN-001`–`015`). |
+| `STAGE_07_DETERMINISTIC_COMPILER` | `@deterministic-compiler` | Lowers verified `NoMistakeDataVault2ContractV5` to `CanonicalIR`, compiles 4-Zone DuckDB SQL (`Zones 0–4`), executes bi-temporal `Query D.10` / `D.10b`, and seals all artifacts into the Content-Addressable Store (CAS). |
+
+### 2. Inputs & Context (`PipelineInputSpec` — `pipeline_input.yaml`)
+
+The pipeline accepts a declarative `pipeline_input.yaml` (or `.json`) validated by `PipelineInputSpec`:
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `pipeline_id` | `str` | Unique identifier for the pipeline specification (e.g., `pipe-global-commerce-v1`). |
+| `project_id` | `str` | Platform project identifier (e.g., `proj-global-commerce-vault`). |
+| `domain_namespace` | `str` | Enterprise governance domain namespace (e.g., `GLOBAL_COMMERCE`). |
+| `graph_a_ontology_path` | `str` | Path to the enterprise Core Business Concept ontology YAML (`GraphAOntology`). |
+| `initial_contract_path` | `str \| null` | Optional baseline `NoMistakeDataVault2ContractV5` YAML path when starting from an existing production vault. |
+| `assertion_cutoff_ts` | `str` | Bi-temporal assertion cutoff timestamp (`YYYY-MM-DD HH:MM:SS`) for PIT verification queries. |
+| `output_dir` | `str \| null` | Target directory where `pipeline_report.json`, `pipeline_report.md`, CAS blobs, and per-wave intermediate artifacts are written. |
+| `waves[]` | `list[PipelineWaveSpec]` | Ordered sequence of onboarding/evolution waves (`wave_id`, `description`, `sources[]`, `unstructured_documents[]`). |
+| `waves[].sources[]` | `list[PipelineSourceTableSpec]` | Relational Bronze table inputs (`source_system`, `table_name`, `file_path`, `format`, `key_authority_tier`, `bkcc_prefix`, `target_cbc_id`, `previous_version_table`, `daily_row_volume`). |
+| `waves[].unstructured_documents[]` | `list[PipelineUnstructuredDocSpec]` | Multimodal/text document inputs (`doc_id`, `source_system`, `file_path`, `mime_type`, `target_cbc_id`, `extractions[]` with verbatim `[char_start, char_end]` spans and candidate scores). |
+
+### 3. Agent Harness Configuration (`HarnessSetupConfig` — `harness_config.yaml`)
+
+The pipeline accepts a `harness_config.yaml` (or CLI/API overrides) validated by `HarnessSetupConfig`:
+
+| Field | Type | Description |
+| :--- | :--- | :--- |
+| `provider` | `"deterministic" \| "antigravity" \| "claude"` | Selects the `VaultAgentHarness` implementation (`deterministic` neuro-symbolic harness, Google `AntigravityHarnessAdapter`, or `ClaudeAgentHarnessAdapter`). |
+| `model_overrides` | `dict[str, str]` | Optional model ID overrides for `argon` (deep reasoning: `@vault-first-mate`, `@ship-vault`) and `flash` (high-throughput scouting: `@scout-source`, `@scout-unstructured`). |
+| `budget` | `HarnessBudgetSpec` | Token, turn, and cost guardrails (`max_turns_per_task`, `max_input_tokens`, `max_output_tokens`, `max_self_heal_attempts`). |
+| `sandbox` | `HarnessSandboxSpec` | Workspace isolation and read/write enforcement (`read_only_scouts`, `allow_network`, `duckdb_memory_limit`). |
+| `steward_hold_policy` | `"auto_approve_top_candidate" \| "pause" \| "reject_on_hold"` | Governs how `Tier-U3` / `ASK-USER` Steward Captain-Holds are handled during autonomous pipeline execution. |
+| `inject_adversarial_fault_on_attempt_1` | `bool` | When `true`, injects a deterministic Attempt $k=1$ contract fault (e.g., missing `require_src_qualifier` or unguarded YAGNI satellite split) to exercise `@toon_v1` closed-loop self-healing convergence on Attempt $k=2$. |
+
+### 4. Deterministic Input & Output Validation
+
+Every pipeline run executes two strict deterministic verification boundaries:
+
+1. **Pre-Flight Input Validation (`validate_pipeline_inputs`):**
+   - Verifies path containment and readable file existence for `pipeline_input.yaml`, `harness_config.yaml`, `graph_a_ontology_path`, and `initial_contract_path`.
+   - Validates `GraphAOntology` against its strict Pydantic v2 and Draft 2020-12 schema invariants.
+   - Verifies every CSV/Parquet file in `waves[].sources[]` exists, is non-empty, and has valid column headers.
+   - Verifies every document in `waves[].unstructured_documents[]` exists and checks that every declared extraction span `[char_start, char_end]` is within bounds (`0 <= char_start < char_end <= len(text)`) and matches `verbatim_quote` when provided.
+2. **Post-Flight Output Validation (`validate_pipeline_outputs`):**
+   - Validates every synthesized `NoMistakeDataVault2ContractV5`, `CanonicalIR`, `GraphBProfile`, and `VaultObservabilityEvent` against the normative JSON Schemas (Draft 2020-12).
+   - Runs 5-tier RBAC `validate_no_pii_leaks` across all emitted `PUBLIC` and `INTERNAL_MODELER` telemetry events to guarantee zero unredacted `RESTRICTED_PII`, `MNPI`, or raw 64-hex digest leakage.
+   - Verifies Content-Addressable Store (CAS) SHA-256 digest integrity for every registered intermediate artifact on disk.
+
+### 5. Pipeline Output Report & Intermediate Artifacts (`AgenticPipelineReport`)
+
+Upon completion, the pipeline writes a comprehensive JSON and Markdown report (`<output_dir>/pipeline_report.json` and `<output_dir>/pipeline_report.md`) alongside per-wave intermediate artifacts in `<output_dir>/waves/wave_<idx>_<wave_id>/`:
+
+- **Top-Level Report (`AgenticPipelineReport`):** `run_id`, `pipeline_id`, `project_id`, `status`, `overall_passed`, `input_validation`, `output_validation`, `wave_reports[]`, `step_reports[]`, `intermediate_artifacts[]` (with SHA-256 digests and byte sizes), `observability_events_path`, and `cas_store_dir`.
+- **Per-Wave Intermediate Artifacts (`<output_dir>/waves/wave_<idx>_<wave_id>/`):**
+  - `graph_b_profile.json` — Empirical Bronze column profile and `Algorithm A.9a` drift delta report.
+  - `unstructured_extractions.json` — Verbatim character-offset spans and 3-Tier Entity Resolution outcomes (`Tier-U1..U3`).
+  - `column_triage_ledger.json` — Pass 1 100% column accounting ledger and tombstoned surrogate sink proof.
+  - `dv_model_contract.yaml` — Synthesized and converged `NoMistakeDataVault2ContractV5` declarative contract.
+  - `axi_dv_gate_verdicts.json` & `toon_trace.toon` — Gates 0–5 verification scorecard and `@toon_v1` repair trace.
+  - `canonical_ir.json` — Lowered `CanonicalIR` and topological load wave DAG.
+  - `compiled_4zone.sql` — Deterministic 4-Zone DuckDB SQL bundle (`Zones 0–4`).
+  - `sandbox_verification.json` — 4-Batch Adversarial DuckDB Shadow Sandbox and `DV-DYN-001`–`015` runtime results.
+
+---
+
+## Sample Multi-Wave Dataset (`examples/pipeline_samples/global_commerce_vault/`)
+
+The repository includes a self-contained 4-wave sample dataset under [`examples/pipeline_samples/global_commerce_vault/`](examples/pipeline_samples/global_commerce_vault/) defined by [`pipeline_input.yaml`](examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml) and [`harness_config.yaml`](examples/pipeline_samples/global_commerce_vault/harness_config.yaml):
+
+| Wave Index & ID | Input Data Sources | Architectural & Verification Scenarios Exercised |
+| :--- | :--- | :--- |
+| **Wave 0:** `wave_0_cold_start` | `sources/crm_customers.csv`<br>`sources/erp_orders.csv` | **Cold Start ($N=1$):** Drops monotonic system surrogate key (`row_seq_id`, $\Delta=1$), splits `RESTRICTED_PII` (`tax_ssn`, `email`) into an isolated PII satellite (`Algorithm A.1`), and splits nullable promo foreign key (`promo_campaign_code`, $U_{nn} < 0.95$) into a dedicated optional link (`Algorithm A.4`). |
+| **Wave 1:** `wave_1_incremental_billing` | `sources/stripe_invoices.csv` | **Incremental Source Onboarding ($N=1 \to N=2$):** Onboards a secondary billing feed whose local customer keys collide with CRM keys; enforces `TIER_3_LOCAL_SCOPED` `BKCC` domain prefixing and `Algorithm A.7` additive evolution lock (`zero` mutations to Wave 0 Hubs/Links/Satellites). |
+| **Wave 2:** `wave_2_schema_drift` | `sources/crm_customers_v2.csv` | **Intra-Source Schema Drift ($S_1(t) \to S_1(t+1)$):** Detects additive (`loyalty_tier_score`), renamed, and widened columns on CRM customers via `Algorithm A.9a` and synthesizes an additive extension satellite (`sat_customer_crm_ext_v2`) with zero broken historical `hash_diff` digests. |
+| **Wave 3:** `wave_3_unstructured_msa` | `unstructured/enterprise_msa_addendum_2026.txt` | **Multimodal Unstructured Grounding (`Rules U1–U4`):** Verifies verbatim `[char_start, char_end]` character spans via `Algorithm A.9b`, routes `Tier-U1`, `Tier-U2`, and `Tier-U3` (`STEWARD_HOLD` resolution) entity mentions, and populates `hub_document`, `lnk_document_customer`, and `mas_document_customer_extraction`. |
+
+---
+
+## Triggering the Agentic Pipeline via CLI, Platform REST API & Web Workbench
+
+### 1. Trigger via Unified CLI (`opendv pipeline`)
+
+```bash
+# 1. Deterministically validate pipeline inputs and harness config
+uv run opendv pipeline validate \
+  --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml \
+  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config.yaml \
+  --json
+
+# 2. Execute the full 4-wave agentic pipeline locally
+uv run opendv pipeline run \
+  --local \
+  --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml \
+  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config.yaml \
+  --output-dir /tmp/opendv-commerce-run \
+  --json
+
+# 3. Trigger the pipeline remotely via the Platform API server
+uv run opendv pipeline run \
+  --api-url http://127.0.0.1:8420 \
+  --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml \
+  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config.yaml \
+  --json
+
+# 4. Inspect a completed pipeline run report (local or remote)
+uv run opendv pipeline report \
+  --local \
+  --report-path /tmp/opendv-commerce-run/pipeline_report.json \
+  --json
+
+uv run opendv pipeline report \
+  --api-url http://127.0.0.1:8420 \
+  --run-id <run_id> \
+  --json
+```
+
+### 2. Trigger via Headless Platform REST API (`/api/v1/pipelines/*`)
+
+With the Platform API server running on `http://127.0.0.1:8420`:
+
+```bash
+# 1. Pre-flight deterministic input validation
+curl -sS -X POST http://127.0.0.1:8420/api/v1/pipelines/validate \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input_spec_path": "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml",
+    "harness_config_path": "examples/pipeline_samples/global_commerce_vault/harness_config.yaml",
+    "provider_override": "deterministic",
+    "steward_hold_policy": "auto_approve_top_candidate"
+  }' | python3 -m json.tool
+
+# 2. Execute the multi-wave agentic pipeline and receive the full AgenticPipelineReport
+curl -sS -X POST http://127.0.0.1:8420/api/v1/pipelines/runs \
+  -H "Content-Type: application/json" \
+  -d '{
+    "input_spec_path": "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml",
+    "harness_config_path": "examples/pipeline_samples/global_commerce_vault/harness_config.yaml",
+    "provider_override": "deterministic",
+    "steward_hold_policy": "auto_approve_top_candidate"
+  }' | python3 -m json.tool
+
+# 3. Retrieve the persisted AgenticPipelineReport for a run_id
+curl -sS http://127.0.0.1:8420/api/v1/runs/<run_id>/report | python3 -m json.tool
+```
+
+### 3. Trigger via the 12-View Web Workbench (`WB-00` Command Center)
+
+1. Start the Platform API (`moon run opendv-platform-api:dev`) and Web Workbench (`moon run opendv-web-workbench:dev`) and open [http://127.0.0.1:5173](http://127.0.0.1:5173).
+2. In **`WB-00: Master Pipeline Command Center & 6-Gate Scoreboard`**, locate the **"Trigger Agentic Pipeline (`VaultFirstMate` + `No-Mistakes`)"** panel (`data-testid="wb00-pipeline-launcher"`).
+3. All input fields initialize empty with zero hardcoded sample paths:
+   - Enter `examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml` in **Pipeline Input Path (`input_spec_path`)**.
+   - Optionally enter `examples/pipeline_samples/global_commerce_vault/harness_config.yaml` in **Harness Config Path (`harness_config_path`)**.
+   - Select the desired **Harness Provider Override** (`Use Config File`, `deterministic`, `antigravity`, or `claude`) and **Steward Hold Policy** (`auto_approve_top_candidate`, `pause`, or `reject_on_hold`).
+4. Click **"Validate Inputs"** to run pre-flight deterministic validation (`POST /api/v1/pipelines/validate`), or click **"Run Agentic Pipeline"** (`POST /api/v1/pipelines/runs`) to execute the pipeline and inspect the resulting `AgenticPipelineReport` (waves, `STAGE_00..STAGE_07` step verdicts, and intermediate artifact SHA-256 digests) directly inside `WB-00`.
 
 ---
 
@@ -206,7 +379,7 @@ The Web Workbench binds strictly to localhost at:
 
 ### 3. Run the Unified CLI (`opendv` and `axi-dv`)
 
-The unified CLI entrypoints (`opendv` and `axi-dv`) support all six lifecycle subcommands (`verify`, `profile`, `compile`, `sandbox`, `run`, `hold`) in both `--local` (direct in-process library execution) and `--api-url` (remote Platform API HTTP/SSE client) modes.
+The unified CLI entrypoints (`opendv` and `axi-dv`) support all lifecycle subcommands (`pipeline`, `verify`, `profile`, `compile`, `sandbox`, `run`, `hold`) in both `--local` (direct in-process library execution) and `--api-url` (remote Platform API HTTP/SSE client) modes. All sample paths and run/project identifiers are passed explicitly via CLI flags.
 
 #### Direct Local Execution (`--local`)
 
@@ -214,26 +387,47 @@ Execute directly against the workspace packages without running an HTTP server:
 
 ```bash
 # Verify a Data Vault 2.0 contract through the 6-Gate AXI-DV pipeline
-uv run --package opendv-cli opendv verify --local --contract examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli opendv verify --local \
+  --contract examples/private_equity/dv_pe_model_contract.yaml \
+  --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
+  --graph-b examples/private_equity/pe_graph_b_profile.json
+
 # Or with TOON token-dense trace output
-uv run --package opendv-cli axi-dv verify --local --toon --contract examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli axi-dv verify --local --toon \
+  --contract examples/private_equity/dv_pe_model_contract.yaml \
+  --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
+  --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Inspect empirical Bronze column profiles (Graph B)
-uv run --package opendv-cli opendv profile --local --graph-b examples/private_equity/pe_graph_b_profile.json
+uv run --package opendv-cli opendv profile --local \
+  --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Compile contract into Canonical IR & 4-Zone SQL
-uv run --package opendv-cli opendv compile --local --contract examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli opendv compile --local \
+  --contract examples/private_equity/dv_pe_model_contract.yaml \
+  --canonical-ir examples/private_equity/pe_canonical_ir.json
 
 # Execute 4-Batch Adversarial DuckDB Sandbox verification & Query D.10 bi-temporal audit
-uv run --package opendv-cli opendv sandbox --local --query-type ADVERSARIAL_BATCHES_1_TO_4 --cutoff "2026-11-15 23:59:59"
+uv run --package opendv-cli opendv sandbox --local \
+  --contract examples/private_equity/dv_pe_model_contract.yaml \
+  --canonical-ir examples/private_equity/pe_canonical_ir.json \
+  --query-type ADVERSARIAL_BATCHES_1_TO_4 \
+  --cutoff "2026-11-15 23:59:59"
 
 # Create and inspect local pipeline runs
-uv run --package opendv-cli opendv run list --local
-uv run --package opendv-cli opendv run get --local --run-id run-pe-apex-horizon-20261030
+uv run --package opendv-cli opendv run list --local \
+  --project-id proj-apex-horizon-pe
+uv run --package opendv-cli opendv run get --local \
+  --project-id proj-apex-horizon-pe \
+  --run-id run-pe-apex-horizon-20261030
 
 # Inspect and resolve Steward Captain-Holds
-uv run --package opendv-cli opendv hold list --local
-uv run --package opendv-cli opendv hold approve --local --hold-id hold-tier-u3-horizon-sovereign-vehicle --candidate APEX_CO_I
+uv run --package opendv-cli opendv hold list --local \
+  --run-id run-pe-apex-horizon-20261030
+uv run --package opendv-cli opendv hold approve --local \
+  --run-id run-pe-apex-horizon-20261030 \
+  --hold-id hold-tier-u3-horizon-sovereign-vehicle \
+  --candidate APEX_CO_I
 ```
 
 #### Remote Platform API Execution (`--api-url`)
@@ -242,25 +436,47 @@ Execute against the live Platform API server on `http://127.0.0.1:8420`:
 
 ```bash
 # Verify contract via remote Platform API
-uv run --package opendv-cli opendv verify --api-url http://127.0.0.1:8420 --contract examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli opendv verify --api-url http://127.0.0.1:8420 \
+  --run-id run-pe-apex-horizon-20261030 \
+  --contract examples/private_equity/dv_pe_model_contract.yaml \
+  --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
+  --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Inspect Bronze profiles via remote Platform API
-uv run --package opendv-cli opendv profile --api-url http://127.0.0.1:8420 --graph-b examples/private_equity/pe_graph_b_profile.json
+uv run --package opendv-cli opendv profile --api-url http://127.0.0.1:8420 \
+  --run-id run-pe-apex-horizon-20261030 \
+  --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Compile contract via remote Platform API
-uv run --package opendv-cli opendv compile --api-url http://127.0.0.1:8420 --contract examples/private_equity/dv_pe_model_contract.yaml
+uv run --package opendv-cli opendv compile --api-url http://127.0.0.1:8420 \
+  --run-id run-pe-apex-horizon-20261030 \
+  --contract examples/private_equity/dv_pe_model_contract.yaml \
+  --canonical-ir examples/private_equity/pe_canonical_ir.json
 
 # Execute 4-Batch sandbox & bi-temporal queries via remote Platform API
-uv run --package opendv-cli opendv sandbox --api-url http://127.0.0.1:8420 --query-type ADVERSARIAL_BATCHES_1_TO_4 --cutoff "2026-11-15 23:59:59"
+uv run --package opendv-cli opendv sandbox --api-url http://127.0.0.1:8420 \
+  --run-id run-pe-apex-horizon-20261030 \
+  --contract examples/private_equity/dv_pe_model_contract.yaml \
+  --canonical-ir examples/private_equity/pe_canonical_ir.json \
+  --query-type ADVERSARIAL_BATCHES_1_TO_4 \
+  --cutoff "2026-11-15 23:59:59"
 
 # Manage verification runs and stream real-time SSE observability events
-uv run --package opendv-cli opendv run list --api-url http://127.0.0.1:8420
-uv run --package opendv-cli opendv run get --api-url http://127.0.0.1:8420 --run-id run-pe-apex-horizon-20261030
-uv run --package opendv-cli opendv run events --api-url http://127.0.0.1:8420 --run-id run-pe-apex-horizon-20261030
+uv run --package opendv-cli opendv run list --api-url http://127.0.0.1:8420 \
+  --project-id proj-apex-horizon-pe
+uv run --package opendv-cli opendv run get --api-url http://127.0.0.1:8420 \
+  --project-id proj-apex-horizon-pe \
+  --run-id run-pe-apex-horizon-20261030
+uv run --package opendv-cli opendv run events --api-url http://127.0.0.1:8420 \
+  --run-id run-pe-apex-horizon-20261030
 
 # List and resolve Steward Captain-Holds via remote Platform API
-uv run --package opendv-cli opendv hold list --api-url http://127.0.0.1:8420
-uv run --package opendv-cli opendv hold approve --api-url http://127.0.0.1:8420 --hold-id hold-tier-u3-horizon-sovereign-vehicle --candidate APEX_CO_I
+uv run --package opendv-cli opendv hold list --api-url http://127.0.0.1:8420 \
+  --run-id run-pe-apex-horizon-20261030
+uv run --package opendv-cli opendv hold approve --api-url http://127.0.0.1:8420 \
+  --run-id run-pe-apex-horizon-20261030 \
+  --hold-id hold-tier-u3-horizon-sovereign-vehicle \
+  --candidate APEX_CO_I
 ```
 
 ---
