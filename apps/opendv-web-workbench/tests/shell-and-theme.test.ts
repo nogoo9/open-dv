@@ -10,6 +10,11 @@ import {
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+	WORKBENCH_CSP,
+	createWorkbenchDevServer,
+	startWorkbenchDevServer,
+} from "../src/dev-server";
+import {
 	CUSTOM_ESG_GATE_ID,
 	CustomEsgGateCard,
 	DEFAULT_BACKGROUND_WORKSPACE_ID,
@@ -117,6 +122,10 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 			expect(buildResult.success).toBe(true);
 			expect(buildResult.logs).toHaveLength(0);
 			expect(buildResult.outputs.length).toBeGreaterThanOrEqual(1);
+			const bundleText = await (buildResult.outputs[0]?.text() ??
+				Promise.resolve(""));
+			expect(bundleText).not.toContain("node:fs");
+			expect(bundleText).not.toContain("node:path");
 
 			const baseEvent = PE_DEMO_EVENTS[0] as VaultObservabilityEventDTO;
 			const adversarialEvent: VaultObservabilityEventDTO = {
@@ -828,6 +837,149 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 			expect(renderToStaticMarkup(createElement(PlaybackControls))).toContain(
 				"Speed",
 			);
+		});
+	});
+
+	describe("6. Zero-Dependency Bun Development Server & Upstream API Proxy", () => {
+		it("serves /, /index.html, /src/index.css, /src/index.ts (compiled JS bundle), and proxies /api/v1/health", async () => {
+			const upstreamServer = Bun.serve({
+				port: 0,
+				hostname: "127.0.0.1",
+				fetch(req) {
+					const url = new URL(req.url);
+					if (url.pathname === "/api/v1/health") {
+						return new Response(
+							JSON.stringify({
+								status: "healthy",
+								version: "0.1.0",
+								platform: "open-dv",
+							}),
+							{
+								status: 200,
+								headers: { "Content-Type": "application/json" },
+							},
+						);
+					}
+					return new Response(JSON.stringify({ error: "not found" }), {
+						status: 404,
+						headers: { "Content-Type": "application/json" },
+					});
+				},
+			});
+
+			const devServer = createWorkbenchDevServer({
+				port: 0,
+				apiUrl: `http://127.0.0.1:${upstreamServer.port}`,
+				silent: true,
+			});
+
+			try {
+				expect(devServer.hostname).toBe("127.0.0.1");
+				expect(devServer.port).toBeGreaterThan(0);
+				const baseUrl = `http://127.0.0.1:${devServer.port}`;
+
+				// Verify / serves index.html with CSP header
+				const rootRes = await fetch(`${baseUrl}/`);
+				expect(rootRes.status).toBe(200);
+				expect(rootRes.headers.get("content-type")).toContain("text/html");
+				expect(rootRes.headers.get("content-security-policy")).toBe(
+					WORKBENCH_CSP,
+				);
+				const rootHtml = await rootRes.text();
+				expect(rootHtml).toContain('<div id="root"></div>');
+				expect(rootHtml).toContain(
+					'<link rel="stylesheet" href="/src/index.css" />',
+				);
+				expect(rootHtml).toContain(
+					'<script type="module" src="/src/index.ts"></script>',
+				);
+
+				// Verify /index.html serves index.html with CSP header
+				const indexRes = await fetch(`${baseUrl}/index.html`);
+				expect(indexRes.status).toBe(200);
+				expect(indexRes.headers.get("content-type")).toContain("text/html");
+				expect(indexRes.headers.get("content-security-policy")).toBe(
+					WORKBENCH_CSP,
+				);
+
+				// Verify /src/index.css serves CSS with CSP header
+				const cssRes = await fetch(`${baseUrl}/src/index.css`);
+				expect(cssRes.status).toBe(200);
+				expect(cssRes.headers.get("content-type")).toContain("text/css");
+				expect(cssRes.headers.get("content-security-policy")).toBe(
+					WORKBENCH_CSP,
+				);
+				const cssText = await cssRes.text();
+				expect(cssText).toContain("--dv-bg-canvas");
+				expect(cssText).toContain('[data-theme="obsidian"]');
+
+				// Verify /src/index.ts serves compiled JS browser bundle with CSP header
+				const jsRes = await fetch(`${baseUrl}/src/index.ts`);
+				expect(jsRes.status).toBe(200);
+				expect(jsRes.headers.get("content-type")).toContain(
+					"application/javascript",
+				);
+				expect(jsRes.headers.get("content-security-policy")).toBe(
+					WORKBENCH_CSP,
+				);
+				const jsText = await jsRes.text();
+				expect(jsText).toContain("mountWorkbenchApp");
+				expect(jsText).toContain("WorkbenchShell");
+				expect(jsText).not.toContain("node:fs");
+				expect(jsText).not.toContain("node:path");
+
+				const unexposedRes = await fetch(`${baseUrl}/package.json`);
+				expect(unexposedRes.status).toBe(404);
+
+				// Verify /api/v1/health proxies to upstream Platform API
+				const healthRes = await fetch(`${baseUrl}/api/v1/health`);
+				expect(healthRes.status).toBe(200);
+				expect(healthRes.headers.get("content-type")).toContain(
+					"application/json",
+				);
+				const healthJson = (await healthRes.json()) as {
+					status: string;
+					platform: string;
+				};
+				expect(healthJson.status).toBe("healthy");
+				expect(healthJson.platform).toBe("open-dv");
+
+				// Verify upstream unreachable returns structured RFC 9457 502 Bad Gateway
+				upstreamServer.stop(true);
+				const unreachableRes = await fetch(`${baseUrl}/api/v1/health`);
+				expect(unreachableRes.status).toBe(502);
+				expect(unreachableRes.headers.get("content-type")).toContain(
+					"application/problem+json",
+				);
+				const problemJson = (await unreachableRes.json()) as {
+					type: string;
+					title: string;
+					status: number;
+					detail: string;
+					instance: string;
+				};
+				expect(problemJson.type).toBe("https://open-dv.dev/problems/http-502");
+				expect(problemJson.title).toBe("Bad Gateway");
+				expect(problemJson.status).toBe(502);
+				expect(problemJson.instance).toBe("/api/v1/health");
+				expect(problemJson.detail).toContain("unreachable");
+			} finally {
+				devServer.stop(true);
+				upstreamServer.stop(true);
+			}
+		});
+
+		it("starts dev server via startWorkbenchDevServer and binds strictly to 127.0.0.1", () => {
+			const server = startWorkbenchDevServer({
+				port: 0,
+				silent: true,
+			});
+			try {
+				expect(server.hostname).toBe("127.0.0.1");
+				expect(server.port).toBeGreaterThan(0);
+			} finally {
+				server.stop(true);
+			}
 		});
 	});
 });

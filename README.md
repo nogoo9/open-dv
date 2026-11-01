@@ -107,7 +107,7 @@ The repository is organized as a polyglot monorepo managed with [`proto`](.proto
 | [`packages/opendv-protocol-ts`](packages/opendv-protocol-ts/) | TypeScript library (`protocol-sdk`) | Zero-dependency TypeScript protocol SDK (`@opendv/protocol-ts`): normative DTOs, REST/SSE clients, W3C SSE parser, offline `.jsonl` replay engine (`MockVaultEventStreamClient`), Web Crypto `Algorithm A.5` hashing & Semantic Hash Pills, RBAC redaction/filters, and Private Equity demo bundle. |
 | [`apps/opendv-platform-api`](apps/opendv-platform-api/) | Python application (`api-server`) | Headless FastAPI ASGI server (`main`, `deps`), deterministic OpenAPI 3.1.0 exporter (`export_openapi` $\to$ [`schemas/openapi-v1.json`](schemas/openapi-v1.json)), RFC 9457 `application/problem+json` error handling, server-side 5-Tier RBAC redaction (`X-OpenDV-Role`), and `/api/v1` routers (`health`, `projects`, `runs` with SSE `Last-Event-ID` cursor replay & `run_complete` framing, `gates`, `sandbox`, `decisions`, `workbench` `WB-00`–`WB-11`, `artifacts`). |
 | [`apps/opendv-cli`](apps/opendv-cli/) | Python automation (`cli`) | Unified `opendv` and `axi-dv` command-line tools (`main`, `api_client`) supporting both `--local` (direct library invocation) and `--api-url` (remote HTTP API) modes across `verify`, `profile`, `compile`, `sandbox`, `run`, and `hold` subcommands. |
-| [`apps/opendv-web-workbench`](apps/opendv-web-workbench/) | TypeScript application (`web-ui`) | Decoupled 12-View Explainability & Observability Web Workbench (`@opendv/web-workbench`): responsive 3-Layer Progressive Disclosure shell (`WorkbenchShell`, `Layer1StoryBanner`, `SidebarNav`, native `<dialog>` `Layer3ProofDrawer` with `inert` background workspace, `PlaybackControls`), semantic theme engine (`ThemeRegistry`, `ThemeToggle`, `Obsidian Dark` / `Daylight Paper` / `High-Contrast Audit` presets, zero-FOUC initializer, WCAG AA/AAA visual grammar), Zustand state store (`useWorkbenchStore`), extensible view & gate card plugin registry (`WorkbenchPluginRegistry`, `CustomEsgGateCard`), and all 12 Workbench Views `WB-00`–`WB-11` (`WB00CommandCenter`, `WB01DualGraphView`, `WB02EmpiricalProfiler`, `WB03UnstructuredView` with `CaptainHoldDecisionModal`, `WB04ColumnTriageView`, `WB05ELMTopologyView`, `WB06TopologicalDAGView` + `GrainAdjacencyMatrix`, `WB07LinkSplitterYagniView` + `WriteAmplificationGauge`, `WB08SelfHealingWorkbench` + `AttemptDiffViewer` + `ToonTraceHighlighter`, `WB09SchemaDriftRadar` + `DriftDeltaGrid`, `WB10DuckDBSandboxView` + `AdversarialBatchGrid` + `BiTemporalTimeline`, `WB11RosettaStoneView` + `PreHashStepper` + `FourZoneSQLViewer`) with co-located gate cards (`VIZ-GATE-01`–`08`). |
+| [`apps/opendv-web-workbench`](apps/opendv-web-workbench/) | TypeScript application (`web-ui`) | Decoupled 12-View Explainability & Observability Web Workbench (`@opendv/web-workbench`): zero-dependency Bun development server & `/api` proxy (`dev-server`), responsive 3-Layer Progressive Disclosure shell (`WorkbenchShell`, `Layer1StoryBanner`, `SidebarNav`, native `<dialog>` `Layer3ProofDrawer` with `inert` background workspace, `PlaybackControls`), semantic theme engine (`ThemeRegistry`, `ThemeToggle`, `Obsidian Dark` / `Daylight Paper` / `High-Contrast Audit` presets, zero-FOUC initializer, WCAG AA/AAA visual grammar), Zustand state store (`useWorkbenchStore`), extensible view & gate card plugin registry (`WorkbenchPluginRegistry`, `CustomEsgGateCard`), and all 12 Workbench Views `WB-00`–`WB-11` (`WB00CommandCenter`, `WB01DualGraphView`, `WB02EmpiricalProfiler`, `WB03UnstructuredView` with `CaptainHoldDecisionModal`, `WB04ColumnTriageView`, `WB05ELMTopologyView`, `WB06TopologicalDAGView` + `GrainAdjacencyMatrix`, `WB07LinkSplitterYagniView` + `WriteAmplificationGauge`, `WB08SelfHealingWorkbench` + `AttemptDiffViewer` + `ToonTraceHighlighter`, `WB09SchemaDriftRadar` + `DriftDeltaGrid`, `WB10DuckDBSandboxView` + `AdversarialBatchGrid` + `BiTemporalTimeline`, `WB11RosettaStoneView` + `PreHashStepper` + `FourZoneSQLViewer`) with co-located gate cards (`VIZ-GATE-01`–`08`). |
 
 ---
 
@@ -134,7 +134,7 @@ The [CI workflow](.github/workflows/ci.yml) runs on every push and pull request.
 | [`apps/opendv-platform-api/tests/test_platform_api_rest_and_sse.py`](apps/opendv-platform-api/tests/test_platform_api_rest_and_sse.py) | Unit and integration tests for `opendv-platform-api`: `/api/v1/health`, `/api/v1/platform/capabilities`, `/api/v1/projects` (including repository-root path containment), `/api/v1/runs`, `/api/v1/runs/{run_id}/events` SSE streaming with `Last-Event-ID` replay & 5-Tier RBAC redaction (`X-OpenDV-Role`), `/api/v1/runs/{run_id}/gates` (`PASS` and `REJECT_WITH_TRACE` verdicts), `/api/v1/runs/{run_id}/sandbox` (`Query D.10` & `D.10b`), `/api/v1/runs/{run_id}/decisions` (`Tier-U3` Captain-Hold resolution), `/api/v1/runs/{run_id}/workbench/{view_id}` (`WB-00`–`WB-11`), `/api/v1/artifacts/{sha256}` CAS integrity, RFC 9457 `application/problem+json` errors, and deterministic `schemas/openapi-v1.json` export. |
 | [`apps/opendv-platform-api/tests/test_e2e_private_equity_certification.py`](apps/opendv-platform-api/tests/test_e2e_private_equity_certification.py) | Full-stack Private Equity certification test exercising platform capabilities (`WB-00`–`WB-11`, `G0`–`G5`, `argon`/`flash` model tiers), project & run creation, W3C SSE `Last-Event-ID` replay, `Tier-U3` Captain-Hold resolution (`Horizon Sovereign Co-Invest Vehicle`), 6-Gate closed-loop verification, 4-Zone DuckDB SQL compilation, 4-Batch Adversarial Shadow Sandbox (`DV-DYN-001`–`015`, `Query D.10` / `D.10b` PIT verification), and `WB-00`–`WB-11` workbench projection endpoints with 5-Tier RBAC verification and zero unredacted PII/MNPI leaks. |
 | [`apps/opendv-cli/tests/test_opendv_and_axi_dv_cli.py`](apps/opendv-cli/tests/test_opendv_and_axi_dv_cli.py) | Unit and integration tests for `opendv` and `axi-dv` CLI entrypoints across `--local` and `--api-url` (in-memory ASGI transport) modes: `verify` (including `--toon` output, default subcommand routing, and failing contract exit codes), `profile`, `compile`, `sandbox` (`Query D.10` / `D.10b` at custom `--cutoff`), `run` (`list`, `get`, `create`, `abort`, `events` with `--last-event-id` and `--role`), and `hold` (`list`, `approve`). |
-| [`apps/opendv-web-workbench/tests/`](apps/opendv-web-workbench/tests/) | Bun unit and component tests for `@opendv/web-workbench`: 3-Layer Progressive Disclosure shell, theme engine & WCAG AA/AAA visual grammar (`shell-and-theme.test.ts`), Workbench Views `WB-00`–`WB-05` (`views-wb00-wb05.test.ts`), and Workbench Views `WB-06`–`WB-11` & full 12-view plugin registration (`views-wb06-wb11.test.ts`). |
+| [`apps/opendv-web-workbench/tests/`](apps/opendv-web-workbench/tests/) | Bun unit and component tests for `@opendv/web-workbench`: 3-Layer Progressive Disclosure shell, theme engine, WCAG AA/AAA visual grammar, and zero-dependency Bun dev server & `/api` proxy (`shell-and-theme.test.ts`), Workbench Views `WB-00`–`WB-05` (`views-wb00-wb05.test.ts`), and Workbench Views `WB-06`–`WB-11` & full 12-view plugin registration (`views-wb06-wb11.test.ts`). |
 
 To provision the pinned polyglot toolchain (`proto`, `moon`, `uv`, `bun`) and run workspace lint, typecheck, schema validation, test, and build tasks:
 
@@ -161,6 +161,106 @@ python3 -m json.tool schemas/dv2-canonical-ir.schema.json > /dev/null
 python3 -m json.tool schemas/no-mistake-dv2-contract-v5.schema.json > /dev/null
 python3 -m json.tool schemas/vault-observability-event.schema.json > /dev/null
 python3 -m json.tool schemas/openapi-v1.json > /dev/null
+```
+
+---
+
+## Starting the Platform API, Web Workbench & Unified CLI
+
+The `open-dv` system provides three coordinated execution interfaces: the headless FastAPI REST + SSE backend, the decoupled 12-View Web Workbench frontend, and the unified CLI (`opendv` and `axi-dv`).
+
+### 1. Start the Headless Platform REST + SSE API Server
+
+Launch the platform API server with live code reload:
+
+```bash
+# Using moonrepo task
+moon run opendv-platform-api:dev
+
+# Or directly using uv and uvicorn
+uv run --package opendv-platform-api uvicorn opendv_platform_api.main:app --reload --port 8420
+```
+
+Once running:
+- **Health Check:** [http://127.0.0.1:8420/api/v1/health](http://127.0.0.1:8420/api/v1/health)
+- **Interactive OpenAPI Documentation (Swagger UI):** [http://127.0.0.1:8420/docs](http://127.0.0.1:8420/docs)
+- **OpenAPI 3.1 Specification JSON:** [http://127.0.0.1:8420/openapi.json](http://127.0.0.1:8420/openapi.json)
+
+### 2. Start the 12-View Explainability & Observability Web Workbench
+
+Launch the zero-dependency Bun development server:
+
+```bash
+# Using moonrepo task
+moon run opendv-web-workbench:dev
+
+# Or directly in the web workbench workspace
+cd apps/opendv-web-workbench && bun run dev
+```
+
+The Web Workbench binds strictly to localhost at:
+- **Web UI:** [http://127.0.0.1:5173](http://127.0.0.1:5173)
+
+> [!NOTE]
+> The development server automatically proxies all `/api/*` requests to the Platform API server at `http://127.0.0.1:8420` by default. You can override the upstream target by setting the `OPENDV_API_URL` environment variable (e.g. `OPENDV_API_URL="http://127.0.0.1:8420" bun run dev`). If the upstream Platform API server is unreachable, the proxy returns a structured RFC 9457 `502 Bad Gateway` problem response.
+
+### 3. Run the Unified CLI (`opendv` and `axi-dv`)
+
+The unified CLI entrypoints (`opendv` and `axi-dv`) support all six lifecycle subcommands (`verify`, `profile`, `compile`, `sandbox`, `run`, `hold`) in both `--local` (direct in-process library execution) and `--api-url` (remote Platform API HTTP/SSE client) modes.
+
+#### Direct Local Execution (`--local`)
+
+Execute directly against the workspace packages without running an HTTP server:
+
+```bash
+# Verify a Data Vault 2.0 contract through the 6-Gate AXI-DV pipeline
+uv run --package opendv-cli opendv verify --local --contract examples/private_equity/dv_pe_model_contract.yaml
+# Or with TOON token-dense trace output
+uv run --package opendv-cli axi-dv verify --local --toon --contract examples/private_equity/dv_pe_model_contract.yaml
+
+# Inspect empirical Bronze column profiles (Graph B)
+uv run --package opendv-cli opendv profile --local --graph-b examples/private_equity/pe_graph_b_profile.json
+
+# Compile contract into Canonical IR & 4-Zone SQL
+uv run --package opendv-cli opendv compile --local --contract examples/private_equity/dv_pe_model_contract.yaml
+
+# Execute 4-Batch Adversarial DuckDB Sandbox verification & Query D.10 bi-temporal audit
+uv run --package opendv-cli opendv sandbox --local --query-type ADVERSARIAL_BATCHES_1_TO_4 --cutoff "2026-11-15 23:59:59"
+
+# Create and inspect local pipeline runs
+uv run --package opendv-cli opendv run list --local
+uv run --package opendv-cli opendv run get --local --run-id run-pe-apex-horizon-20261030
+
+# Inspect and resolve Steward Captain-Holds
+uv run --package opendv-cli opendv hold list --local
+uv run --package opendv-cli opendv hold approve --local --hold-id hold-tier-u3-horizon-sovereign-vehicle --candidate APEX_CO_I
+```
+
+#### Remote Platform API Execution (`--api-url`)
+
+Execute against the live Platform API server on `http://127.0.0.1:8420`:
+
+```bash
+# Verify contract via remote Platform API
+uv run --package opendv-cli opendv verify --api-url http://127.0.0.1:8420 --contract examples/private_equity/dv_pe_model_contract.yaml
+
+# Inspect Bronze profiles via remote Platform API
+uv run --package opendv-cli opendv profile --api-url http://127.0.0.1:8420 --graph-b examples/private_equity/pe_graph_b_profile.json
+
+# Compile contract via remote Platform API
+uv run --package opendv-cli opendv compile --api-url http://127.0.0.1:8420 --contract examples/private_equity/dv_pe_model_contract.yaml
+
+# Execute 4-Batch sandbox & bi-temporal queries via remote Platform API
+uv run --package opendv-cli opendv sandbox --api-url http://127.0.0.1:8420 --query-type ADVERSARIAL_BATCHES_1_TO_4 --cutoff "2026-11-15 23:59:59"
+
+# Manage verification runs and stream real-time SSE observability events
+uv run --package opendv-cli opendv run list --api-url http://127.0.0.1:8420
+uv run --package opendv-cli opendv run get --api-url http://127.0.0.1:8420 --run-id run-pe-apex-horizon-20261030
+uv run --package opendv-cli opendv run events --api-url http://127.0.0.1:8420 --run-id run-pe-apex-horizon-20261030
+
+# List and resolve Steward Captain-Holds via remote Platform API
+uv run --package opendv-cli opendv hold list --api-url http://127.0.0.1:8420
+uv run --package opendv-cli opendv hold approve --api-url http://127.0.0.1:8420 --hold-id hold-tier-u3-horizon-sovereign-vehicle --candidate APEX_CO_I
 ```
 
 ---
