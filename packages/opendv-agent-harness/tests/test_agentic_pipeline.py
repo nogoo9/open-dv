@@ -22,6 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
+from typing import Any, Literal
 
 import pytest
 import yaml
@@ -31,6 +32,7 @@ from opendv_agent_harness import (
     AntigravityHarnessAdapter,
     ClaudeAgentHarnessAdapter,
     DeterministicHarnessAdapter,
+    HarnessAuthConfig,
     HarnessBudget,
     HarnessSetupConfig,
     ObservabilityVerdict,
@@ -362,7 +364,10 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
     with pytest.raises(ImportError):
         ClaudeAgentHarnessAdapter(claude_cfg)._load_sdk()
 
-    sdk_shims = {
+    sdk_shims: dict[
+        Literal["deterministic", "deterministic-stub", "antigravity", "claude"],
+        Any,
+    ] = {
         "antigravity": build_deterministic_agy_sdk_shim(),
         "claude": build_deterministic_claude_sdk_shim(),
         "deterministic-stub": None,
@@ -556,3 +561,206 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
     exhausted_codes = {d["code"] for d in exhausted_rep.output_validation.diagnostics}
     assert "WAVE_EXECUTION_REJECTED" in exhausted_codes
     assert "STEP_EXECUTION_REJECTED" in exhausted_codes
+
+
+def test_harness_auth_config_resolution_and_validation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    sample_dir = _sample_dir()
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    single_wave_spec = input_spec.model_copy(update={"waves": [input_spec.waves[0]]})
+
+    # 1. Load sample harness_config_antigravity.yaml and harness_config_claude.yaml
+    agy_sample = HarnessSetupConfig.from_file(sample_dir / "harness_config_antigravity.yaml")
+    assert agy_sample.provider == "antigravity"
+    assert agy_sample.model_overrides == {"argon": "gemini-2.5-pro", "flash": "gemini-2.5-flash"}
+    assert agy_sample.auth.auth_mode == "api_key_env"
+    assert agy_sample.auth.api_key_env_var == "GEMINI_API_KEY"
+    assert agy_sample.auth.require_credentials_present is False
+
+    claude_sample = HarnessSetupConfig.from_file(sample_dir / "harness_config_claude.yaml")
+    assert claude_sample.provider == "claude"
+    assert claude_sample.model_overrides == {
+        "argon": "claude-opus-4-6",
+        "flash": "claude-haiku-4-5",
+    }
+    assert claude_sample.auth.auth_mode == "api_key_env"
+    assert claude_sample.auth.api_key_env_var == "ANTHROPIC_API_KEY"
+    assert claude_sample.auth.require_credentials_present is False
+
+    assert validate_pipeline_inputs(single_wave_spec, agy_sample, base_dir=sample_dir).passed
+    assert validate_pipeline_inputs(single_wave_spec, claude_sample, base_dir=sample_dir).passed
+
+    # 2. api_key_env resolution for Antigravity and Claude (plus api_base_url)
+    monkeypatch.setenv("GEMINI_API_KEY", "test-gemini-secret-key")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "test-anthropic-secret-key")
+
+    agy_api_setup = agy_sample.model_copy(
+        update={
+            "auth": agy_sample.auth.model_copy(
+                update={
+                    "api_base_url": "https://gateway.example.com/gemini",
+                    "require_credentials_present": True,
+                }
+            ),
+            "extra_provider_options": {"region_hint": "eu"},
+        }
+    )
+    agy_rt_cfg = agy_api_setup.to_harness_config(workspace_dir=tmp_path)
+    assert agy_rt_cfg.env["GEMINI_API_KEY"] == "test-gemini-secret-key"
+    assert agy_rt_cfg.env["GOOGLE_API_KEY"] == "test-gemini-secret-key"
+    assert agy_rt_cfg.env["GOOGLE_GEMINI_BASE_URL"] == "https://gateway.example.com/gemini"
+    assert agy_rt_cfg.extra_provider_options == {"region_hint": "eu"}
+    assert validate_pipeline_inputs(single_wave_spec, agy_api_setup, base_dir=sample_dir).passed
+
+    claude_api_setup = claude_sample.model_copy(
+        update={
+            "auth": claude_sample.auth.model_copy(
+                update={
+                    "api_base_url": "https://gateway.example.com/anthropic",
+                    "require_credentials_present": True,
+                }
+            )
+        }
+    )
+    claude_rt_cfg = claude_api_setup.to_harness_config(workspace_dir=tmp_path)
+    assert claude_rt_cfg.env["ANTHROPIC_API_KEY"] == "test-anthropic-secret-key"
+    assert claude_rt_cfg.env["ANTHROPIC_BASE_URL"] == "https://gateway.example.com/anthropic"
+    assert validate_pipeline_inputs(single_wave_spec, claude_api_setup, base_dir=sample_dir).passed
+
+    # 3. Missing api_key_env when require_credentials_present=True emits HARNESS_AUTH_MISSING
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    missing_key_val = validate_pipeline_inputs(
+        single_wave_spec,
+        agy_api_setup,
+        base_dir=sample_dir,
+    )
+    assert missing_key_val.passed is False
+    assert any(d["code"] == "HARNESS_AUTH_MISSING" for d in missing_key_val.diagnostics)
+
+    # 4. vertex_adc resolution for Antigravity and Claude + missing gcp_project check
+    monkeypatch.delenv("GOOGLE_CLOUD_PROJECT", raising=False)
+    monkeypatch.delenv("ANTHROPIC_VERTEX_PROJECT_ID", raising=False)
+
+    agy_vertex_missing = HarnessSetupConfig(
+        provider="antigravity",
+        auth=HarnessAuthConfig(
+            auth_mode="vertex_adc",
+            require_credentials_present=True,
+        ),
+    )
+    val_vtx_missing = validate_pipeline_inputs(
+        single_wave_spec,
+        agy_vertex_missing,
+        base_dir=sample_dir,
+    )
+    assert val_vtx_missing.passed is False
+    assert any(d["code"] == "HARNESS_AUTH_MISSING" for d in val_vtx_missing.diagnostics)
+
+    agy_vertex_ok = HarnessSetupConfig(
+        provider="antigravity",
+        auth=HarnessAuthConfig(
+            auth_mode="vertex_adc",
+            gcp_project="proj-agy-vertex-01",
+            gcp_location="us-central1",
+            gcp_credentials_path="/tmp/sa-agy.json",
+            require_credentials_present=True,
+        ),
+    )
+    agy_vtx_cfg = agy_vertex_ok.to_harness_config(workspace_dir=tmp_path)
+    assert agy_vtx_cfg.env["GOOGLE_GENAI_USE_VERTEXAI"] == "true"
+    assert agy_vtx_cfg.env["GOOGLE_CLOUD_PROJECT"] == "proj-agy-vertex-01"
+    assert agy_vtx_cfg.env["GOOGLE_CLOUD_LOCATION"] == "us-central1"
+    assert agy_vtx_cfg.env["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/sa-agy.json"
+    assert validate_pipeline_inputs(single_wave_spec, agy_vertex_ok, base_dir=sample_dir).passed
+
+    claude_vertex_ok = HarnessSetupConfig(
+        provider="claude",
+        auth=HarnessAuthConfig(
+            auth_mode="vertex_adc",
+            gcp_project="proj-claude-vertex-01",
+            gcp_location="us-east5",
+            gcp_credentials_path="/tmp/sa-claude.json",
+            require_credentials_present=True,
+        ),
+    )
+    claude_vtx_cfg = claude_vertex_ok.to_harness_config(workspace_dir=tmp_path)
+    assert claude_vtx_cfg.env["CLAUDE_CODE_USE_VERTEX"] == "1"
+    assert claude_vtx_cfg.env["ANTHROPIC_VERTEX_PROJECT_ID"] == "proj-claude-vertex-01"
+    assert claude_vtx_cfg.env["CLOUD_ML_REGION"] == "us-east5"
+    assert claude_vtx_cfg.env["GOOGLE_APPLICATION_CREDENTIALS"] == "/tmp/sa-claude.json"
+    assert validate_pipeline_inputs(single_wave_spec, claude_vertex_ok, base_dir=sample_dir).passed
+
+    # 5. aws_bedrock resolution for Claude + incompatible rejection on Antigravity
+    monkeypatch.delenv("AWS_REGION", raising=False)
+    monkeypatch.delenv("AWS_DEFAULT_REGION", raising=False)
+
+    agy_bedrock_bad = HarnessSetupConfig(
+        provider="antigravity",
+        auth=HarnessAuthConfig(
+            auth_mode="aws_bedrock",
+            aws_region="us-east-1",
+        ),
+    )
+    val_bedrock_incompat = validate_pipeline_inputs(
+        single_wave_spec,
+        agy_bedrock_bad,
+        base_dir=sample_dir,
+    )
+    assert val_bedrock_incompat.passed is False
+    assert any(d["code"] == "HARNESS_AUTH_INCOMPATIBLE" for d in val_bedrock_incompat.diagnostics)
+
+    claude_bedrock_missing = HarnessSetupConfig(
+        provider="claude",
+        auth=HarnessAuthConfig(
+            auth_mode="aws_bedrock",
+            require_credentials_present=True,
+        ),
+    )
+    val_bedrock_missing = validate_pipeline_inputs(
+        single_wave_spec,
+        claude_bedrock_missing,
+        base_dir=sample_dir,
+    )
+    assert val_bedrock_missing.passed is False
+    assert any(d["code"] == "HARNESS_AUTH_MISSING" for d in val_bedrock_missing.diagnostics)
+
+    claude_bedrock_ok = HarnessSetupConfig(
+        provider="claude",
+        auth=HarnessAuthConfig(
+            auth_mode="aws_bedrock",
+            aws_region="us-east-1",
+            aws_profile="dv-bedrock-sso",
+            require_credentials_present=True,
+        ),
+    )
+    claude_bdr_cfg = claude_bedrock_ok.to_harness_config(workspace_dir=tmp_path)
+    assert claude_bdr_cfg.env["CLAUDE_CODE_USE_BEDROCK"] == "1"
+    assert claude_bdr_cfg.env["AWS_REGION"] == "us-east-1"
+    assert claude_bdr_cfg.env["AWS_PROFILE"] == "dv-bedrock-sso"
+    assert validate_pipeline_inputs(single_wave_spec, claude_bedrock_ok, base_dir=sample_dir).passed
+
+    # 6. Verify report.harness_setup includes auth_mode & api_key_env_var and redacts env secrets
+    secret_setup = HarnessSetupConfig(
+        provider="antigravity",
+        auth=HarnessAuthConfig(
+            auth_mode="api_key_env",
+            api_key_env_var="CUSTOM_AGY_SECRET_VAR",
+            require_credentials_present=True,
+        ),
+        env={"CUSTOM_AGY_SECRET_VAR": "super-secret-value-do-not-leak"},
+        inject_adversarial_fault_on_attempt_1=False,
+    )
+    rep = run_agentic_vault_pipeline(
+        single_wave_spec,
+        secret_setup,
+        output_dir=tmp_path / "out_secret_check",
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert rep.overall_passed is True
+    assert rep.harness_setup["auth_mode"] == "api_key_env"
+    assert rep.harness_setup["api_key_env_var"] == "CUSTOM_AGY_SECRET_VAR"
+    assert rep.harness_setup["env"] == {"CUSTOM_AGY_SECRET_VAR": "[REDACTED]"}
+    assert "super-secret-value-do-not-leak" not in rep.model_dump_json()
