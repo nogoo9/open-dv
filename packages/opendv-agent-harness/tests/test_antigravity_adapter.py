@@ -43,7 +43,6 @@ from opendv_agent_harness import (
     list_available_harnesses,
     register_harness,
 )
-
 from opendv_agent_harness.registry import _HARNESS_REGISTRY
 
 SAMPLE_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
