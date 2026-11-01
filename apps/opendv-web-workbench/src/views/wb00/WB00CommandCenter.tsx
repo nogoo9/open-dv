@@ -1,6 +1,7 @@
 /**
  * WB-00: Master Pipeline Command Center & 6-Gate Scoreboard (`WB00CommandCenter.tsx`)
- * Primary View Plugin for STAGE_00 through STAGE_07 (VIZ-PIPE-00 + VIZ-GATE-01) (`docs/06` §3.1, `docs/10` §4).
+ * Primary View Plugin for STAGE_00 through STAGE_07 (VIZ-PIPE-00 + VIZ-GATE-01) (`docs/06` §3.1, `docs/10` §4),
+ * including the interactive Agentic Pipeline Launcher & Report Inspector (`createPipelineLauncherStore`).
  */
 
 import { type StoreApi, useStore } from "zustand";
