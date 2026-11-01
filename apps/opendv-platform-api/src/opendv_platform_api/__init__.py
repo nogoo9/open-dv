@@ -18,12 +18,14 @@ from opendv_platform_api.deps import (
     RunStatus,
     SandboxExecutionResponse,
     SandboxQueryRequest,
+    build_gate_scorecard_from_axi_result,
     build_pe_canonical_events,
     execute_pe_sandbox_query,
     format_sse_event_stream,
     get_platform_state,
     get_rbac_role,
     redact_event_for_role,
+    resolve_cleared_tiers,
     store_cas_artifact,
 )
 from opendv_platform_api.export_openapi import export_openapi_to_file, generate_openapi_spec
@@ -51,6 +53,7 @@ __all__ = [
     "SandboxQueryRequest",
     "__version__",
     "app",
+    "build_gate_scorecard_from_axi_result",
     "build_pe_canonical_events",
     "create_app",
     "execute_pe_sandbox_query",
@@ -60,5 +63,6 @@ __all__ = [
     "get_platform_state",
     "get_rbac_role",
     "redact_event_for_role",
+    "resolve_cleared_tiers",
     "store_cas_artifact",
 ]

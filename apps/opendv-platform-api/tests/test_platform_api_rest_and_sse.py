@@ -69,7 +69,8 @@ def test_health_and_capabilities_endpoints(tmp_path: Path) -> None:
             body_cap = res_cap.json()
             assert "antigravity" in body_cap["harness_providers"]
             assert "claude" in body_cap["harness_providers"]
-            assert len(body_cap["rbac_roles"]) == 5
+            assert len(body_cap["rbac_roles"]) == len(RbacRole)
+            assert "PII_STEWARD" in body_cap["rbac_roles"]
             assert len(body_cap["workbench_views"]) == 12
             assert body_cap["gates"] == ["G0", "G1", "G2", "G3", "G4", "G5"]
 
@@ -126,6 +127,16 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
             )
             assert res_bad_path.status_code in {400, 422}
             assert "application/problem+json" in res_bad_path.headers["content-type"]
+
+            res_sibling_prefix = await client.post(
+                "/api/v1/projects",
+                json={
+                    "project_id": "proj-sibling-prefix",
+                    "contract_path": f"../{state.repo_root.name}-other/secret.yaml",
+                },
+            )
+            assert res_sibling_prefix.status_code == 400
+            assert "application/problem+json" in res_sibling_prefix.headers["content-type"]
 
             # 5. Start a new run on the new project
             res_run_create = await client.post(
@@ -230,12 +241,16 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
             public_frames = _parse_sse_frames(res_public.text)
             for frame in public_frames[:-1]:
                 ev = json.loads(frame["data"])
-                assert ev["layer1_story_banner"]["headline"].startswith("[REDACTED ")
-                assert ev["layer2_visual_payload"]["summary_metrics"]["redacted"] is True
-                for pill in ev["layer2_visual_payload"]["semantic_hash_pills"]:
-                    assert pill["business_key"] == "[REDACTED]"
-                    assert pill["entity_label"] == "[REDACTED]"
-                    assert ":[REDACTED]]" in pill["pill_label"]
+                assert "[REDACTED" in ev["layer1_story_banner"]["headline"]
+                if ev.get("data_classification") in {
+                    "CONFIDENTIAL",
+                    "MNPI",
+                    "RESTRICTED_PII",
+                }:
+                    for pill in ev["layer2_visual_payload"]["semantic_hash_pills"]:
+                        assert pill["business_key"] == "[REDACTED:CONFIDENTIAL]"
+                        assert pill["entity_label"] == "[REDACTED:CONFIDENTIAL]"
+                        assert "[REDACTED:CONFIDENTIAL]" in pill["pill_label"]
 
             # 2. DATA_STEWARD role: CONFIDENTIAL (WB-03 / evt-pe-004) is visible,
             #    but MNPI (WB-05 / evt-pe-006) and RESTRICTED_PII (WB-04 / evt-pe-005) are masked
@@ -255,12 +270,28 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
                     headers={"X-OpenDV-Role": "DATA_STEWARD"},
                 )
             ).json()
-            assert wb05_steward["event"]["layer1_story_banner"]["headline"].startswith(
-                "[REDACTED MNPI]"
-            )
+            assert "[REDACTED:MNPI]" in wb05_steward["event"]["layer1_story_banner"]["headline"]
             assert "245000000" not in json.dumps(wb05_steward["event"])
 
-            # 3. AUDITOR_FINANCE role: MNPI (WB-05) is visible ($245M / 14.5x),
+            # 3. PII_STEWARD role: RESTRICTED_PII (WB-04) is visible, MNPI (WB-05) is masked
+            wb04_pii_steward = (
+                await client.get(
+                    f"/api/v1/runs/{run_id}/workbench/WB-04",
+                    headers={"X-OpenDV-Role": "PII_STEWARD"},
+                )
+            ).json()
+            assert not wb04_pii_steward["event"]["layer1_story_banner"][
+                "headline"
+            ].startswith("[REDACTED")
+            wb05_pii_steward = (
+                await client.get(
+                    f"/api/v1/runs/{run_id}/workbench/WB-05",
+                    headers={"X-OpenDV-Role": "PII_STEWARD"},
+                )
+            ).json()
+            assert "[REDACTED:MNPI]" in wb05_pii_steward["event"]["layer1_story_banner"]["headline"]
+
+            # 4. AUDITOR_FINANCE role: MNPI (WB-05) is visible ($245M / 14.5x),
             #    but RESTRICTED_PII (WB-04) remains masked
             wb05_auditor = (
                 await client.get(
@@ -351,7 +382,69 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path) -> None:
                 json={"recheck": True},
             )
             assert res_eval_gates.status_code == 200
-            assert res_eval_gates.json()["overall_passed"] is True
+            eval_body = res_eval_gates.json()
+            assert eval_body["overall_passed"] is True
+            assert eval_body["verdict"] == "PASS"
+            assert "@toon_v1" in eval_body["toon_text"]
+
+            # Missing contract path returns 404 ProblemDetails (not 500 FileNotFoundError)
+            res_missing_contract = await client.post(
+                f"/api/v1/runs/{run_id}/gates",
+                json={"contract_path": "examples/private_equity/does_not_exist.yaml"},
+            )
+            assert res_missing_contract.status_code == 404
+            assert "application/problem+json" in res_missing_contract.headers["content-type"]
+
+            # Rejected contract evaluation sets overall_passed=False and REJECT-WITH-TRACE
+            bad_repo = tmp_path / "bad_repo"
+            bad_repo.mkdir(parents=True, exist_ok=True)
+            for sub in ("examples/private_equity", "schemas", "docs"):
+                (bad_repo / sub).mkdir(parents=True, exist_ok=True)
+            for fname in (
+                "dv_pe_model_contract.yaml",
+                "pe_graph_a_ontology.yaml",
+                "pe_graph_b_profile.json",
+                "pe_canonical_ir.json",
+            ):
+                src = REPO_ROOT / "examples" / "private_equity" / fname
+                (bad_repo / "examples" / "private_equity" / fname).write_text(
+                    src.read_text(encoding="utf-8"),
+                    encoding="utf-8",
+                )
+            bad_contract_rel = "examples/private_equity/broken_contract.yaml"
+            (bad_repo / bad_contract_rel).write_text(
+                "contract_version: '5.0'\n"
+                "hubs:\n"
+                "  - name: hub_broken\n"
+                "    target_table: raw_vault.hub_broken\n"
+                "    grain_statement: 'short grain'\n"
+                "    business_keys: []\n"
+                "links: []\n"
+                "satellites: []\n",
+                encoding="utf-8",
+            )
+            bad_state = PlatformStateContainer(
+                repo_root=bad_repo, state_dir=tmp_path / "bad_state"
+            )
+            bad_app = create_app(platform_state=bad_state)
+            async with httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=bad_app),
+                base_url="http://testserver",
+            ) as bad_client:
+                res_reject = await bad_client.post(
+                    f"/api/v1/runs/{run_id}/gates",
+                    json={"contract_path": bad_contract_rel},
+                )
+                assert res_reject.status_code == 200
+                reject_body = res_reject.json()
+                assert reject_body["overall_passed"] is False
+                assert reject_body["verdict"] == "REJECT-WITH-TRACE"
+                assert (
+                    reject_body["gate_scorecard"]["gate_1_contract_grain"]
+                    == "REJECT-WITH-TRACE"
+                )
+                assert len(reject_body["diagnostics"]) >= 1
+                assert "REJECT-WITH-TRACE" in reject_body["toon_text"]
 
     _run_async(_scenario())
 
@@ -557,7 +650,11 @@ def test_cas_artifacts_and_openapi_v1_schema_freshness(tmp_path: Path) -> None:
     # Verify redact_event_for_role enum compatibility
     evt005 = state.run_events["run-pe-apex-horizon-20261030"][4]
     redacted = redact_event_for_role(evt005, RbacRole.PUBLIC)
-    assert redacted["layer2_visual_payload"]["summary_metrics"]["redacted"] is True
+    assert "[REDACTED" in redacted["layer1_story_banner"]["headline"]
+    assert (
+        redacted["layer2_visual_payload"]["semantic_hash_pills"][0]["business_key"]
+        == "[REDACTED:CONFIDENTIAL]"
+    )
 
     # Verify format_sse_event_stream async generator directly
     chunks = _run_async(

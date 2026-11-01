@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import copy
 import hashlib
 import json
 import re
 import tempfile
-from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -23,6 +21,7 @@ from opendv_agent_harness import (
     StewardHoldManager,
     build_observability_event_dict,
 )
+from opendv_axi_verifier import AxiDvPipelineResult
 from opendv_core import (
     SchemaRegistry,
     VaultObservabilityEvent,
@@ -31,16 +30,20 @@ from opendv_core import (
     validate_observability_event,
 )
 from opendv_telemetry import (
+    ROLE_CLEARANCE_LEVELS,
     ContentAddressableStore,
+    RbacRole,
     VaultLedgerEmitter,
     format_error_key_pill,
     format_ghost_pill,
     format_hub_pill,
     format_link_pill,
+    format_sse_event_stream,
     format_zero_key_pill,
+    redact_event_for_role,
+    resolve_cleared_tiers,
     validate_no_pii_leaks,
 )
-from opendv_telemetry.rbac_redactor import redact_event_for_role as telemetry_redact_event_for_role
 
 REPO_ROOT = find_workspace_root()
 
@@ -80,33 +83,6 @@ class RunStatus(StrEnum):
     FAILED = "FAILED"
     ABORTED = "ABORTED"
 
-
-class RbacRole(StrEnum):
-    """5-Tier RBAC roles enforced by the platform API (docs/08 §5.2)."""
-
-    PUBLIC = "PUBLIC"
-    INTERNAL_MODELER = "INTERNAL_MODELER"
-    DATA_STEWARD = "DATA_STEWARD"
-    AUDITOR_FINANCE = "AUDITOR_FINANCE"
-    RESTRICTED_PII_CUSTODIAN = "RESTRICTED_PII_CUSTODIAN"
-
-
-ROLE_CLEARANCE_LEVELS: dict[RbacRole | str, frozenset[str]] = {
-    RbacRole.PUBLIC: frozenset({"PUBLIC"}),
-    RbacRole.INTERNAL_MODELER: frozenset({"PUBLIC", "INTERNAL"}),
-    RbacRole.DATA_STEWARD: frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL"}),
-    RbacRole.AUDITOR_FINANCE: frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL", "MNPI"}),
-    RbacRole.RESTRICTED_PII_CUSTODIAN: frozenset(
-        {"PUBLIC", "INTERNAL", "CONFIDENTIAL", "MNPI", "RESTRICTED_PII"}
-    ),
-    RbacRole.PUBLIC.value: frozenset({"PUBLIC"}),
-    RbacRole.INTERNAL_MODELER.value: frozenset({"PUBLIC", "INTERNAL"}),
-    RbacRole.DATA_STEWARD.value: frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL"}),
-    RbacRole.AUDITOR_FINANCE.value: frozenset({"PUBLIC", "INTERNAL", "CONFIDENTIAL", "MNPI"}),
-    RbacRole.RESTRICTED_PII_CUSTODIAN.value: frozenset(
-        {"PUBLIC", "INTERNAL", "CONFIDENTIAL", "MNPI", "RESTRICTED_PII"}
-    ),
-}
 
 type GateVerdictStatus = Literal[
     "PENDING",
@@ -347,104 +323,86 @@ class ArtifactMetadataResponse(BaseModel):
     content: Any
 
 
-def redact_event_for_role(event: dict[str, Any], role: RbacRole | str) -> dict[str, Any]:
-    """Enforce Server-Side 5-Tier RBAC Redaction (docs/06 §1.1 & docs/08 §5.2)
-    before any VaultObservabilityEvent is serialized over REST or SSE.
-    """
-    role_str = role.value if isinstance(role, RbacRole) else str(role)
-    normalized_role = (
-        role_str if role_str in ROLE_CLEARANCE_LEVELS else RbacRole.PUBLIC.value
-    )
-    cleared_tiers = ROLE_CLEARANCE_LEVELS[normalized_role]
-    classification = str(
-        event.get("data_classification")
-        or event.get("security_classification")
-        or "INTERNAL"
-    )
-
-    # First run token-level PII/MNPI/CONFIDENTIAL scrubbing from opendv_telemetry
-    cloned = telemetry_redact_event_for_role(copy.deepcopy(event), normalized_role)
-
-    if classification not in cleared_tiers:
-        stage_id = cloned.get("stage_id", "UNKNOWN_STAGE")
-        banner = copy.deepcopy(cloned.get("layer1_story_banner", {}))
-        banner["headline"] = (
-            f"[REDACTED {classification}] Stage {stage_id} telemetry masked "
-            f"for role '{normalized_role}'."
-        )[:140]
-        banner["business_impact"] = (
-            f"Sensitive {classification} payload masked for role '{normalized_role}'."
-        )[:200]
-        cloned["layer1_story_banner"] = banner
-
-        layer2 = copy.deepcopy(cloned.get("layer2_visual_payload", {}))
-        raw_pills = event.get("layer2_visual_payload", {}).get("semantic_hash_pills", [])
-        redacted_pills: list[dict[str, Any]] = []
-        for pill in raw_pills:
-            pill_copy = copy.deepcopy(pill)
-            pill_copy["business_key"] = "[REDACTED]"
-            pill_copy["entity_label"] = "[REDACTED]"
-            if "short_hex" in pill_copy:
-                short_hex = str(pill_copy["short_hex"])
-            else:
-                digest = str(pill_copy.get("full_sha256_hex", ""))
-                short_hex = f"{digest[:4]}..{digest[-4:]}" if len(digest) >= 8 else "REDACTED"
-            bkcc = str(pill_copy.get("bkcc_prefix") or pill_copy.get("bkcc") or "GLOBAL")
-            pill_copy["pill_label"] = f"[HK: {short_hex} | {bkcc}:[REDACTED]]"
-            redacted_pills.append(pill_copy)
-
-        new_layer2: dict[str, Any] = {
-            "semantic_hash_pills": redacted_pills,
-            "summary_metrics": {
-                "redacted": True,
-                "required_classification": classification,
-            },
+def build_gate_scorecard_from_axi_result(
+    axi_result: AxiDvPipelineResult,
+) -> tuple[bool, GateVerdictStatus, GateScorecardSummary]:
+    """Derive overall pass boolean, verdict, and 6-Gate scorecard from an AXI pipeline result."""
+    passed = axi_result.status in {
+        "PASS",
+        "AUTO-FIX",
+        "AUTO_REPAIRED",
+        "ASK-USER",
+        "ASK_USER",
+    }
+    codemods = set(axi_result.applied_codemods)
+    if passed:
+        scorecard_dict: dict[str, GateVerdictStatus] = {
+            "gate_0_profile_drift": (
+                "AUTO-FIX" if "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT" in codemods else "PASS"
+            ),
+            "gate_1_contract_grain": (
+                "ASK-USER"
+                if axi_result.status in {"ASK-USER", "ASK_USER"}
+                else "AUTO_REPAIRED"
+            ),
+            "gate_2_sqlglot_ast": "PASS",
+            "gate_3_networkx_dag": "PASS",
+            "gate_4_yagni_cost_guard": "AUTO-FIX",
+            "gate_5_duckdb_sandbox": "PASS",
         }
-        if "widget_type" in layer2:
-            new_layer2["widget_type"] = layer2["widget_type"]
-        cloned["layer2_visual_payload"] = new_layer2
+    else:
+        scorecard_dict = {
+            "gate_0_profile_drift": (
+                "AUTO-FIX" if "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT" in codemods else "PASS"
+            ),
+            "gate_1_contract_grain": (
+                "AUTO_REPAIRED"
+                if codemods & {"ALG_A2_ENUM_DEMOTION", "ALG_A4_COLD_START_EXTENSIBILITY"}
+                else "PASS"
+            ),
+            "gate_2_sqlglot_ast": "PASS",
+            "gate_3_networkx_dag": (
+                "AUTO-FIX" if "ALG_A3_LINK_EFFECTIVITY" in codemods else "PASS"
+            ),
+            "gate_4_yagni_cost_guard": (
+                "AUTO-FIX" if "ALG_A1_3AXIS_SATELLITE_SPLIT" in codemods else "PASS"
+            ),
+            "gate_5_duckdb_sandbox": "PASS",
+        }
 
-        if "layer3_formal_proof" in cloned and isinstance(cloned["layer3_formal_proof"], dict):
-            proof = cloned["layer3_formal_proof"]
-            cloned["layer3_formal_proof"] = {
-                k: (v if k == "algorithm_ref" else f"[REDACTED {classification}]")
-                for k, v in proof.items()
-            }
+    for violation in axi_result.toon_trace.violations:
+        if violation.rule.startswith("DV-EVO") or "EVOLUTION" in violation.rule:
+            gate_key = "gate_0_profile_drift"
+        elif violation.gate in {"G1", "G2"} or violation.rule.startswith("DV-COL"):
+            gate_key = "gate_1_contract_grain"
+        elif violation.gate == "G6" or violation.rule.startswith("DV-AST"):
+            gate_key = "gate_2_sqlglot_ast"
+        elif violation.gate == "G3":
+            gate_key = "gate_3_networkx_dag"
+        elif violation.gate == "G4":
+            gate_key = "gate_4_yagni_cost_guard"
+        elif violation.gate == "G5":
+            gate_key = "gate_5_duckdb_sandbox"
+        else:
+            gate_key = "gate_1_contract_grain"
 
-    return cloned
+        if violation.action == "REJECT":
+            scorecard_dict[gate_key] = "REJECT-WITH-TRACE"
+        elif violation.action == "ASK-USER" and scorecard_dict[gate_key] != "REJECT-WITH-TRACE":
+            scorecard_dict[gate_key] = "ASK-USER"
 
+    if not passed and "REJECT-WITH-TRACE" not in scorecard_dict.values():
+        scorecard_dict["gate_1_contract_grain"] = "REJECT-WITH-TRACE"
 
-async def format_sse_event_stream(
-    events: list[dict[str, Any]],
-    *,
-    role: RbacRole | str = RbacRole.INTERNAL_MODELER,
-    last_event_id: str | None = None,
-) -> AsyncIterator[str]:
-    """Stream schema-valid VaultObservabilityEvent records as W3C Server-Sent Events (SSE)
-    supporting seamless Last-Event-ID reconnection and terminal 'run_complete' signalling.
-    """
-    skipping = last_event_id is not None
-    matched = False
-    for raw_event in events:
-        ev_id = str(raw_event["event_id"])
-        if skipping:
-            if ev_id == last_event_id:
-                skipping = False
-                matched = True
-            continue
-        redacted = redact_event_for_role(raw_event, role)
-        payload_json = json.dumps(redacted, sort_keys=True)
-        yield f"id: {ev_id}\ndata: {payload_json}\n\n"
-
-    # If a caller supplied an unknown last_event_id, replay from beginning
-    if skipping and not matched:
-        for raw_event in events:
-            ev_id = str(raw_event["event_id"])
-            redacted = redact_event_for_role(raw_event, role)
-            payload_json = json.dumps(redacted, sort_keys=True)
-            yield f"id: {ev_id}\ndata: {payload_json}\n\n"
-
-    yield 'event: run_complete\ndata: {"status":"COMPLETED"}\n\n'
+    scorecard = GateScorecardSummary(**scorecard_dict)
+    verdict: GateVerdictStatus
+    if not passed:
+        verdict = "REJECT-WITH-TRACE"
+    elif "ASK-USER" in scorecard_dict.values():
+        verdict = "ASK-USER"
+    else:
+        verdict = "PASS"
+    return passed, verdict, scorecard
 
 
 def store_cas_artifact(
@@ -1468,15 +1426,36 @@ class PlatformStateContainer:
         self.run_decisions[run_id] = []
         return run_dto
 
+    def _resolve_repo_path(self, rel_path: str) -> Path:
+        """Resolve a repository-relative path and enforce repository-root containment."""
+        candidate = (self.repo_root / rel_path).resolve()
+        if not candidate.is_relative_to(self.repo_root):
+            raise ValueError(
+                f"Project artifact path must stay inside repository root: {rel_path}"
+            )
+        return candidate
+
     def _build_default_gate_report(self, run_id: str) -> dict[str, Any]:
         """Construct the 6-Gate scorecard and theorem verification report for a run."""
         run_dto = self.runs[run_id]
+        scorecard = run_dto.gate_scorecard.model_dump(mode="json")
+        overall_passed = run_dto.status != RunStatus.FAILED and all(
+            status in {"PASS", "AUTO-FIX", "AUTO_REPAIRED", "ASK-USER"}
+            for status in scorecard.values()
+        )
+        if not overall_passed:
+            verdict = "REJECT-WITH-TRACE"
+        elif "ASK-USER" in scorecard.values():
+            verdict = "ASK-USER"
+        else:
+            verdict = "PASS"
         return {
             "run_id": run_id,
             "project_id": run_dto.project_id,
             "evaluated_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "overall_passed": True,
-            "gate_scorecard": run_dto.gate_scorecard.model_dump(mode="json"),
+            "overall_passed": overall_passed,
+            "verdict": verdict,
+            "gate_scorecard": scorecard,
             "gates": {
                 "G0_PROFILE_DRIFT": {
                     "gate_id": "G0",
@@ -1522,11 +1501,7 @@ class PlatformStateContainer:
             req.graph_b_path,
         ]:
             if rel_path is not None:
-                candidate = (self.repo_root / rel_path).resolve()
-                if not str(candidate).startswith(str(self.repo_root)):
-                    raise ValueError(
-                        f"Project artifact path must stay inside repository root: {rel_path}"
-                    )
+                self._resolve_repo_path(rel_path)
 
         proj = ProjectResponse(
             project_id=req.project_id,
@@ -1547,6 +1522,12 @@ class PlatformStateContainer:
         """Start a new verification/sandbox run and populate its observability ledger."""
         if req.project_id not in self.projects:
             raise KeyError(f"Unknown project_id '{req.project_id}'")
+
+        if req.contract_path is not None:
+            self._resolve_repo_path(req.contract_path)
+            self.projects[req.project_id] = self.projects[req.project_id].model_copy(
+                update={"contract_path": req.contract_path}
+            )
 
         run_index = len(self.runs) + 1
         run_id = f"run-{req.project_id}-{run_index:04d}"
@@ -1659,12 +1640,20 @@ class PlatformStateContainer:
             if req.action in {"APPROVE", "ANSWER"}
             else RunStatus.FAILED
         )
+        updated_scorecard = (
+            run_dto.gate_scorecard
+            if req.action in {"APPROVE", "ANSWER"}
+            else run_dto.gate_scorecard.model_copy(
+                update={"gate_1_contract_grain": "REJECT-WITH-TRACE"}
+            )
+        )
         updated_run = run_dto.model_copy(
             update={
                 "status": new_status,
                 "completed_at_utc": resolved_at,
                 "active_hold_ids": remaining_ids,
                 "event_count": len(self.run_events[run_id]),
+                "gate_scorecard": updated_scorecard,
             }
         )
         self.runs[run_id] = updated_run
@@ -1740,6 +1729,13 @@ def get_platform_state(request: Request) -> PlatformStateContainer:
     return state
 
 
+_ROLE_ALIAS_MAP: dict[str, RbacRole] = {
+    "MNPI_CLEARED_STEWARD": RbacRole.AUDITOR_FINANCE,
+    "LP_CONFIDENTIAL_STEWARD": RbacRole.DATA_STEWARD,
+    "COMPLIANCE_AUDITOR": RbacRole.INTERNAL_MODELER,
+}
+
+
 def get_rbac_role(
     x_opendv_role: Annotated[str | None, Header(alias="X-OpenDV-Role")] = None,
 ) -> RbacRole:
@@ -1747,10 +1743,12 @@ def get_rbac_role(
     if x_opendv_role is None or x_opendv_role.strip() == "":
         return RbacRole.PUBLIC
     normalized = x_opendv_role.strip().upper()
+    if normalized in _ROLE_ALIAS_MAP:
+        return _ROLE_ALIAS_MAP[normalized]
     try:
         return RbacRole(normalized)
     except ValueError as exc:
-        valid_roles = [r.value for r in RbacRole]
+        valid_roles = [r.value for r in RbacRole] + sorted(_ROLE_ALIAS_MAP.keys())
         raise HTTPException(
             status_code=400,
             detail=f"Invalid X-OpenDV-Role header '{x_opendv_role}'. Must be one of {valid_roles}.",
@@ -1775,11 +1773,13 @@ __all__ = [
     "RunStatus",
     "SandboxExecutionResponse",
     "SandboxQueryRequest",
+    "build_gate_scorecard_from_axi_result",
     "build_pe_canonical_events",
     "execute_pe_sandbox_query",
     "format_sse_event_stream",
     "get_platform_state",
     "get_rbac_role",
     "redact_event_for_role",
+    "resolve_cleared_tiers",
     "store_cas_artifact",
 ]

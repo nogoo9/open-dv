@@ -148,9 +148,10 @@ def create_app(
         request: Request,
         exc: KeyError,
     ) -> JSONResponse:
+        detail = str(exc.args[0]) if exc.args else str(exc)
         return build_problem_details_response(
             status_code=404,
-            detail=str(exc),
+            detail=detail,
             instance=str(request.url.path),
         )
 
