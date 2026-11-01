@@ -385,4 +385,227 @@ describe("WB-00 Agentic Pipeline Launcher & Report Inspector", () => {
 			"f0e1d2c3b4a5968778695a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d",
 		);
 	});
+
+	it("enforces fail-closed validation/wave status rendering and normalizes completed reports with nested per-wave step reports", async () => {
+		const store = createPipelineLauncherStore();
+		store.getState().setInputSpecPath("/custom/workspace/pipeline_input.yaml");
+
+		const failingValidationFetch = (async () =>
+			new Response(
+				JSON.stringify({
+					summary: "Ontology reference missing",
+					errors: ["File graph_a_ontology.yaml not found"],
+					schema_validation_passed: false,
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			)) as unknown as typeof fetch;
+
+		await store.getState().validatePipelineInputs(failingValidationFetch);
+		const validationFailHtml = renderToStaticMarkup(
+			<WB00CommandCenter
+				currentEvent={demoEvent}
+				eventsForView={demoEvent ? [demoEvent] : []}
+				onInspectProof={() => {}}
+				launcherStore={store}
+			/>,
+		);
+		expect(validationFailHtml).toContain(
+			'data-testid="wb00-pipeline-validation-result"',
+		);
+		expect(validationFailHtml).toContain("var(--dv-gate-reject)");
+		expect(validationFailHtml).toContain("FAIL");
+		expect(validationFailHtml).toContain("Ontology reference missing");
+		expect(validationFailHtml).toContain(
+			"File graph_a_ontology.yaml not found",
+		);
+
+		const nestedWaveReportFetch = (async () =>
+			new Response(
+				JSON.stringify({
+					run_id: "run-nested-20261101",
+					status: "COMPLETED",
+					input_validation: {
+						schema_validation_passed: true,
+					},
+					output_validation: {
+						pii_leak_check_passed: false,
+						cas_integrity_passed: true,
+					},
+					wave_reports: [
+						{
+							wave_id: "wave_0_cold_start",
+							passed: true,
+							step_reports: [
+								{
+									step_id: "STAGE_00_ORCHESTRATION",
+									step_name: "Orchestration",
+									passed: true,
+								},
+							],
+						},
+						{
+							wave_id: "wave_1_failed_drift",
+							passed: false,
+							step_reports: [
+								{
+									step_id: "STAGE_05_AXI_DV_STATIC_GATES",
+									step_name: "Static Gates",
+									passed: false,
+								},
+							],
+						},
+					],
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			)) as unknown as typeof fetch;
+
+		const report = await store
+			.getState()
+			.runAgenticPipeline(nestedWaveReportFetch);
+		expect(report).not.toBeNull();
+		expect(report?.overall_passed).toBe(false);
+		expect(report?.step_reports).toHaveLength(2);
+		expect(report?.step_reports?.[0]?.wave_id).toBe("wave_0_cold_start");
+		expect(report?.step_reports?.[0]?.status).toBe("PASS");
+		expect(report?.step_reports?.[1]?.wave_id).toBe("wave_1_failed_drift");
+		expect(report?.step_reports?.[1]?.status).toBe("FAIL");
+
+		const reportHtml = renderToStaticMarkup(
+			<WB00CommandCenter
+				currentEvent={demoEvent}
+				eventsForView={demoEvent ? [demoEvent] : []}
+				onInspectProof={() => {}}
+				launcherStore={store}
+			/>,
+		);
+		expect(reportHtml).toContain(
+			'<code data-testid="report-input-validation">PASS</code>',
+		);
+		expect(reportHtml).toContain(
+			'<code data-testid="report-output-validation">FAIL</code>',
+		);
+		expect(reportHtml).toContain("Status: <code>FAIL</code>");
+		expect(reportHtml).not.toContain("Status: <code>DONE</code>");
+		expect(reportHtml).toContain(
+			'data-testid="report-step-STAGE_05_AXI_DV_STATIC_GATES"',
+		);
+
+		const completedReportFetch = (async () =>
+			new Response(
+				JSON.stringify({
+					run_id: "run-completed-no-explicit-flag",
+					status: "COMPLETED",
+				}),
+				{
+					status: 200,
+					headers: { "Content-Type": "application/json" },
+				},
+			)) as unknown as typeof fetch;
+
+		const completedReport = await store
+			.getState()
+			.runAgenticPipeline(completedReportFetch);
+		expect(completedReport?.overall_passed).toBe(true);
+		const completedHtml = renderToStaticMarkup(
+			<WB00CommandCenter
+				currentEvent={demoEvent}
+				eventsForView={demoEvent ? [demoEvent] : []}
+				onInspectProof={() => {}}
+				launcherStore={store}
+			/>,
+		);
+		expect(completedHtml).toContain(
+			'<code data-testid="report-input-validation">FAIL</code>',
+		);
+		expect(completedHtml).toContain(
+			'<code data-testid="report-output-validation">FAIL</code>',
+		);
+	});
+
+	it("clears stale report and validation state across sequential launcher actions and input edits, and handles non-JSON error responses", async () => {
+		const store = createPipelineLauncherStore();
+		store.getState().setInputSpecPath("/custom/workspace/pipeline_input.yaml");
+
+		const runSuccessFetch = (async () =>
+			new Response(
+				JSON.stringify({
+					run_id: "run-initial-ok",
+					status: "COMPLETED",
+					overall_passed: true,
+					input_validation: true,
+					output_validation: true,
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			)) as unknown as typeof fetch;
+
+		await store.getState().runAgenticPipeline(runSuccessFetch);
+		expect(store.getState().pipelineReport?.run_id).toBe("run-initial-ok");
+
+		const validateOkFetch = (async () =>
+			new Response(
+				JSON.stringify({
+					passed: true,
+					status: "PASS",
+					summary: "Re-validated after run",
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			)) as unknown as typeof fetch;
+
+		await store.getState().validatePipelineInputs(validateOkFetch);
+		expect(store.getState().pipelineReport).toBeNull();
+		expect(store.getState().validationResponse?.summary).toBe(
+			"Re-validated after run",
+		);
+
+		const htmlAfterRevalidate = renderToStaticMarkup(
+			<WB00CommandCenter
+				currentEvent={demoEvent}
+				eventsForView={demoEvent ? [demoEvent] : []}
+				onInspectProof={() => {}}
+				launcherStore={store}
+			/>,
+		);
+		expect(htmlAfterRevalidate).toContain(
+			'data-testid="wb00-pipeline-validation-result"',
+		);
+		expect(htmlAfterRevalidate).not.toContain(
+			'data-testid="wb00-pipeline-report-panel"',
+		);
+
+		const plainText404Fetch = (async () =>
+			new Response("Not Found", {
+				status: 404,
+				headers: { "Content-Type": "text/plain" },
+			})) as unknown as typeof fetch;
+
+		await store.getState().runAgenticPipeline(plainText404Fetch);
+		expect(store.getState().validationResponse).toBeNull();
+		expect(store.getState().pipelineReport).toBeNull();
+		expect(store.getState().validationError).toBe("HTTP 404: Not Found");
+
+		store.getState().setHarnessConfigPath("/custom/workspace/harness.yaml");
+		expect(store.getState().validationError).toBeNull();
+		expect(store.getState().validationResponse).toBeNull();
+
+		const plainText500Fetch = (async () =>
+			new Response("Build Error: upstream failure", {
+				status: 500,
+				headers: { "Content-Type": "text/plain" },
+			})) as unknown as typeof fetch;
+
+		await store.getState().validatePipelineInputs(plainText500Fetch);
+		expect(store.getState().validationError).toBe(
+			"HTTP 500: Build Error: upstream failure",
+		);
+		expect(store.getState().validationResponse).toBeNull();
+
+		store.getState().setProviderOverride("deterministic");
+		expect(store.getState().validationError).toBeNull();
+	});
 });

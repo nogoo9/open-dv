@@ -113,39 +113,74 @@ export interface PipelineLauncherStoreState {
 export const EMPTY_INPUT_PATH_VALIDATION_ERROR =
 	"Deterministic Validation Error: Pipeline Input Path (input_spec_path) is required and must not be empty.";
 
-function normalizeReportPayload(raw: unknown): AgenticPipelineReport {
-	const root =
-		raw && typeof raw === "object" && "report" in raw && raw.report
-			? (raw.report as Record<string, unknown>)
-			: ((raw ?? {}) as Record<string, unknown>);
-	return {
-		run_id: String(root.run_id ?? root.pipeline_id ?? "run-unknown"),
-		pipeline_id:
-			typeof root.pipeline_id === "string" ? root.pipeline_id : undefined,
-		project_id:
-			typeof root.project_id === "string" ? root.project_id : undefined,
-		status: String(
-			root.status ?? (root.overall_passed ? "COMPLETED" : "FAILED"),
-		),
-		overall_passed: Boolean(root.overall_passed ?? root.status === "PASS"),
-		input_validation: root.input_validation as
-			| PipelineValidationSection
-			| boolean
-			| undefined,
-		output_validation: root.output_validation as
-			| PipelineValidationSection
-			| boolean
-			| undefined,
-		wave_reports: Array.isArray(root.wave_reports)
-			? (root.wave_reports as PipelineWaveReport[])
-			: [],
-		step_reports: Array.isArray(root.step_reports)
-			? (root.step_reports as PipelineStepReport[])
-			: [],
-		intermediate_artifacts: Array.isArray(root.intermediate_artifacts)
-			? (root.intermediate_artifacts as PipelineIntermediateArtifact[])
-			: [],
-	};
+function isPassingStatusToken(status: string | undefined): boolean {
+	if (typeof status !== "string" || status.trim().length === 0) {
+		return false;
+	}
+	const upper = status.trim().toUpperCase();
+	return (
+		upper === "PASS" ||
+		upper === "PASSED" ||
+		upper === "VALID" ||
+		upper === "OK" ||
+		upper === "COMPLETED"
+	);
+}
+
+function isFailingStatusToken(status: string | undefined): boolean {
+	if (typeof status !== "string" || status.trim().length === 0) {
+		return false;
+	}
+	const upper = status.trim().toUpperCase();
+	return (
+		upper === "FAIL" ||
+		upper === "FAILED" ||
+		upper === "ERROR" ||
+		upper === "INVALID" ||
+		upper === "REJECT" ||
+		upper === "REJECT_WITH_TRACE"
+	);
+}
+
+function isValidationSectionPassed(
+	section: PipelineValidationSection | boolean | undefined,
+): boolean {
+	if (typeof section === "boolean") {
+		return section;
+	}
+	if (!section || typeof section !== "object") {
+		return false;
+	}
+	if (section.passed === false || section.valid === false) {
+		return false;
+	}
+	if (Array.isArray(section.errors) && section.errors.length > 0) {
+		return false;
+	}
+	if (
+		section.pii_leak_check_passed === false ||
+		section.cas_integrity_passed === false ||
+		section.schema_validation_passed === false
+	) {
+		return false;
+	}
+	if (isFailingStatusToken(section.status)) {
+		return false;
+	}
+	if (section.passed === true || section.valid === true) {
+		return true;
+	}
+	if (isPassingStatusToken(section.status)) {
+		return true;
+	}
+	if (
+		section.pii_leak_check_passed === true ||
+		section.cas_integrity_passed === true ||
+		section.schema_validation_passed === true
+	) {
+		return true;
+	}
+	return false;
 }
 
 function formatValidationStatus(
@@ -155,13 +190,196 @@ function formatValidationStatus(
 		return section ? "PASS" : "FAIL";
 	}
 	if (!section || typeof section !== "object") {
+		return "FAIL";
+	}
+	const passed = isValidationSectionPassed(section);
+	if (typeof section.status === "string" && section.status.trim().length > 0) {
+		const trimmed = section.status.trim();
+		if (passed || !isPassingStatusToken(trimmed)) {
+			return trimmed;
+		}
+	}
+	return passed ? "PASS" : "FAIL";
+}
+
+function formatWaveStatus(wave: PipelineWaveReport): string {
+	if (wave.passed === false) {
+		if (
+			typeof wave.status === "string" &&
+			wave.status.trim().length > 0 &&
+			!isPassingStatusToken(wave.status) &&
+			wave.status.trim().toUpperCase() !== "DONE"
+		) {
+			return wave.status.trim();
+		}
+		return "FAIL";
+	}
+	if (wave.passed === true) {
+		if (
+			typeof wave.status === "string" &&
+			wave.status.trim().length > 0 &&
+			!isFailingStatusToken(wave.status)
+		) {
+			return wave.status.trim();
+		}
 		return "PASS";
 	}
-	if (typeof section.status === "string" && section.status.length > 0) {
-		return section.status;
+	if (typeof wave.status === "string" && wave.status.trim().length > 0) {
+		return wave.status.trim();
 	}
-	const flag = section.passed ?? section.valid ?? true;
-	return flag ? "PASS" : "FAIL";
+	if (Array.isArray(wave.step_reports) && wave.step_reports.length > 0) {
+		const anyFailed = wave.step_reports.some(
+			(s) => s.passed === false || isFailingStatusToken(s.status),
+		);
+		if (anyFailed) {
+			return "FAIL";
+		}
+		const allPassed = wave.step_reports.every(
+			(s) => s.passed === true || isPassingStatusToken(s.status),
+		);
+		if (allPassed) {
+			return "PASS";
+		}
+	}
+	return "FAIL";
+}
+
+function normalizeStepReport(
+	step: PipelineStepReport,
+	defaultWaveId?: string,
+): PipelineStepReport {
+	const rawStatus =
+		typeof step.status === "string" && step.status.trim().length > 0
+			? step.status.trim()
+			: undefined;
+	const status =
+		rawStatus && !(step.passed === false && isPassingStatusToken(rawStatus))
+			? rawStatus
+			: step.passed === true
+				? "PASS"
+				: "FAIL";
+	return {
+		...step,
+		wave_id: step.wave_id ?? defaultWaveId,
+		status,
+	};
+}
+
+function normalizeReportPayload(raw: unknown): AgenticPipelineReport {
+	const root =
+		raw && typeof raw === "object" && "report" in raw && raw.report
+			? (raw.report as Record<string, unknown>)
+			: ((raw ?? {}) as Record<string, unknown>);
+	const waveReports = Array.isArray(root.wave_reports)
+		? (root.wave_reports as PipelineWaveReport[])
+		: [];
+	const topLevelSteps = Array.isArray(root.step_reports)
+		? (root.step_reports as PipelineStepReport[])
+		: [];
+	const stepReports =
+		topLevelSteps.length > 0
+			? topLevelSteps.map((s) => normalizeStepReport(s))
+			: waveReports.flatMap((w) =>
+					Array.isArray(w.step_reports)
+						? w.step_reports.map((s) => normalizeStepReport(s, w.wave_id))
+						: [],
+				);
+	const inputValidation = root.input_validation as
+		| PipelineValidationSection
+		| boolean
+		| undefined;
+	const outputValidation = root.output_validation as
+		| PipelineValidationSection
+		| boolean
+		| undefined;
+	const hasExplicitFailure =
+		(inputValidation !== undefined &&
+			!isValidationSectionPassed(inputValidation)) ||
+		(outputValidation !== undefined &&
+			!isValidationSectionPassed(outputValidation)) ||
+		waveReports.some(
+			(w) => w.passed === false || isFailingStatusToken(w.status),
+		) ||
+		stepReports.some(
+			(s) => s.passed === false || isFailingStatusToken(s.status),
+		);
+	const rawOverallPassed =
+		typeof root.overall_passed === "boolean"
+			? root.overall_passed
+			: typeof root.status === "string"
+				? isPassingStatusToken(root.status)
+				: false;
+	const overallPassed = !hasExplicitFailure && rawOverallPassed;
+	const rawStatus =
+		typeof root.status === "string" && root.status.trim().length > 0
+			? root.status.trim()
+			: undefined;
+	return {
+		run_id: String(root.run_id ?? root.pipeline_id ?? "run-unknown"),
+		pipeline_id:
+			typeof root.pipeline_id === "string" ? root.pipeline_id : undefined,
+		project_id:
+			typeof root.project_id === "string" ? root.project_id : undefined,
+		status: rawStatus ?? (overallPassed ? "COMPLETED" : "FAILED"),
+		overall_passed: overallPassed,
+		input_validation: inputValidation,
+		output_validation: outputValidation,
+		wave_reports: waveReports,
+		step_reports: stepReports,
+		intermediate_artifacts: Array.isArray(root.intermediate_artifacts)
+			? (root.intermediate_artifacts as PipelineIntermediateArtifact[])
+			: [],
+	};
+}
+
+async function readPipelineEndpointResponse(
+	response: Response,
+): Promise<
+	| { ok: true; body: Record<string, unknown> }
+	| { ok: false; errorDetail: string }
+> {
+	const rawText = await response.text();
+	const trimmedText = rawText.trim();
+	let parsedJson: Record<string, unknown> | null = null;
+	if (trimmedText.length > 0) {
+		try {
+			const parsed = JSON.parse(trimmedText) as unknown;
+			if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+				parsedJson = parsed as Record<string, unknown>;
+			}
+		} catch {
+			parsedJson = null;
+		}
+	}
+	if (!response.ok) {
+		if (parsedJson) {
+			const detailCandidate =
+				parsedJson.detail ??
+				parsedJson.title ??
+				parsedJson.message ??
+				parsedJson.error;
+			if (
+				typeof detailCandidate === "string" &&
+				detailCandidate.trim().length > 0
+			) {
+				return { ok: false, errorDetail: detailCandidate.trim() };
+			}
+		}
+		if (trimmedText.length > 0 && !parsedJson) {
+			return {
+				ok: false,
+				errorDetail: `HTTP ${response.status}: ${trimmedText}`,
+			};
+		}
+		return { ok: false, errorDetail: `HTTP ${response.status}` };
+	}
+	if (!parsedJson) {
+		return {
+			ok: false,
+			errorDetail: "Invalid JSON response from pipeline endpoint.",
+		};
+	}
+	return { ok: true, body: parsedJson };
 }
 
 export function createPipelineLauncherStore(): StoreApi<PipelineLauncherStoreState> {
@@ -179,19 +397,32 @@ export function createPipelineLauncherStore(): StoreApi<PipelineLauncherStoreSta
 			set({
 				inputSpecPath: path,
 				validationError: null,
+				validationResponse: null,
 			});
 		},
 
 		setHarnessConfigPath: (path: string) => {
-			set({ harnessConfigPath: path });
+			set({
+				harnessConfigPath: path,
+				validationError: null,
+				validationResponse: null,
+			});
 		},
 
 		setProviderOverride: (provider: HarnessProviderOverrideOption) => {
-			set({ providerOverride: provider });
+			set({
+				providerOverride: provider,
+				validationError: null,
+				validationResponse: null,
+			});
 		},
 
 		setStewardHoldPolicy: (policy: StewardHoldPolicyOption) => {
-			set({ stewardHoldPolicy: policy });
+			set({
+				stewardHoldPolicy: policy,
+				validationError: null,
+				validationResponse: null,
+			});
 		},
 
 		validatePipelineInputs: async (fetchImpl?: typeof fetch) => {
@@ -201,11 +432,18 @@ export function createPipelineLauncherStore(): StoreApi<PipelineLauncherStoreSta
 				set({
 					validationError: EMPTY_INPUT_PATH_VALIDATION_ERROR,
 					validationResponse: null,
+					pipelineReport: null,
+					isSubmitting: false,
 				});
 				return null;
 			}
 
-			set({ isSubmitting: true, validationError: null });
+			set({
+				isSubmitting: true,
+				validationError: null,
+				validationResponse: null,
+				pipelineReport: null,
+			});
 			const payload: PipelineRequestPayload = {
 				input_spec_path: trimmedInput,
 				harness_config_path: state.harnessConfigPath.trim(),
@@ -220,18 +458,17 @@ export function createPipelineLauncherStore(): StoreApi<PipelineLauncherStoreSta
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
-				const body = (await response.json()) as Record<string, unknown>;
-				if (!response.ok) {
-					const errDetail = String(
-						body.detail ?? body.title ?? `HTTP ${response.status}`,
-					);
+				const parsed = await readPipelineEndpointResponse(response);
+				if (!parsed.ok) {
 					set({
-						validationError: errDetail,
+						validationError: parsed.errorDetail,
 						validationResponse: null,
+						pipelineReport: null,
 						isSubmitting: false,
 					});
 					return null;
 				}
+				const { body } = parsed;
 				const validationSection: PipelineValidationSection =
 					body.input_validation && typeof body.input_validation === "object"
 						? (body.input_validation as PipelineValidationSection)
@@ -239,6 +476,7 @@ export function createPipelineLauncherStore(): StoreApi<PipelineLauncherStoreSta
 				set({
 					validationResponse: validationSection,
 					validationError: null,
+					pipelineReport: null,
 					isSubmitting: false,
 				});
 				return validationSection;
@@ -248,6 +486,8 @@ export function createPipelineLauncherStore(): StoreApi<PipelineLauncherStoreSta
 						err instanceof Error
 							? err.message
 							: "Failed to validate pipeline inputs.",
+					validationResponse: null,
+					pipelineReport: null,
 					isSubmitting: false,
 				});
 				return null;
@@ -260,12 +500,19 @@ export function createPipelineLauncherStore(): StoreApi<PipelineLauncherStoreSta
 			if (!trimmedInput) {
 				set({
 					validationError: EMPTY_INPUT_PATH_VALIDATION_ERROR,
+					validationResponse: null,
 					pipelineReport: null,
+					isSubmitting: false,
 				});
 				return null;
 			}
 
-			set({ isSubmitting: true, validationError: null });
+			set({
+				isSubmitting: true,
+				validationError: null,
+				validationResponse: null,
+				pipelineReport: null,
+			});
 			const payload: PipelineRequestPayload = {
 				input_spec_path: trimmedInput,
 				harness_config_path: state.harnessConfigPath.trim(),
@@ -280,20 +527,20 @@ export function createPipelineLauncherStore(): StoreApi<PipelineLauncherStoreSta
 					headers: { "Content-Type": "application/json" },
 					body: JSON.stringify(payload),
 				});
-				const body = (await response.json()) as Record<string, unknown>;
-				if (!response.ok) {
-					const errDetail = String(
-						body.detail ?? body.title ?? `HTTP ${response.status}`,
-					);
+				const parsed = await readPipelineEndpointResponse(response);
+				if (!parsed.ok) {
 					set({
-						validationError: errDetail,
+						validationError: parsed.errorDetail,
+						validationResponse: null,
+						pipelineReport: null,
 						isSubmitting: false,
 					});
 					return null;
 				}
-				const report = normalizeReportPayload(body);
+				const report = normalizeReportPayload(parsed.body);
 				set({
 					pipelineReport: report,
+					validationResponse: null,
 					validationError: null,
 					isSubmitting: false,
 				});
@@ -304,6 +551,8 @@ export function createPipelineLauncherStore(): StoreApi<PipelineLauncherStoreSta
 						err instanceof Error
 							? err.message
 							: "Failed to run agentic pipeline.",
+					validationResponse: null,
+					pipelineReport: null,
 					isSubmitting: false,
 				});
 				return null;
@@ -668,14 +917,38 @@ export function WB00CommandCenter({
 						data-testid="wb00-pipeline-validation-result"
 						style={{
 							backgroundColor: "var(--dv-surface-2)",
-							border: "1px solid var(--dv-gate-pass)",
+							border: `1px solid ${
+								isValidationSectionPassed(launcher.validationResponse)
+									? "var(--dv-gate-pass)"
+									: "var(--dv-gate-reject)"
+							}`,
 							borderRadius: "0.375rem",
 							padding: "0.5rem 0.75rem",
 							fontSize: "0.75rem",
 						}}
 					>
-						<strong>Pre-Flight Input Validation: </strong>
-						<span>{formatValidationStatus(launcher.validationResponse)}</span>
+						<div>
+							<strong>Pre-Flight Input Validation: </strong>
+							<span>{formatValidationStatus(launcher.validationResponse)}</span>
+							{launcher.validationResponse.summary && (
+								<span> — {launcher.validationResponse.summary}</span>
+							)}
+						</div>
+						{launcher.validationResponse.errors &&
+							launcher.validationResponse.errors.length > 0 && (
+								<ul
+									data-testid="wb00-pipeline-validation-errors-list"
+									style={{
+										margin: "0.35rem 0 0",
+										paddingLeft: "1.25rem",
+										color: "var(--dv-gate-reject)",
+									}}
+								>
+									{launcher.validationResponse.errors.map((err) => (
+										<li key={err}>{err}</li>
+									))}
+								</ul>
+							)}
 					</div>
 				)}
 
@@ -763,10 +1036,7 @@ export function WB00CommandCenter({
 												</div>
 											)}
 											<div>
-												Status:{" "}
-												<code>
-													{wave.status ?? (wave.passed ? "PASS" : "DONE")}
-												</code>
+												Status: <code>{formatWaveStatus(wave)}</code>
 											</div>
 										</div>
 									))}
