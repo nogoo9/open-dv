@@ -601,8 +601,34 @@ def validate_pipeline_inputs(
                     }
                 )
 
-    # 5. Validate each wave's sources and unstructured documents
+    # 5. Validate optional output_dir path
+    if spec.output_dir is not None:
+        checked_items += 1
+        out_path, out_err = _resolve_and_check_safe_path(
+            spec.output_dir, base_dir=eff_base, workspace_root=ws_root
+        )
+        if out_err is not None or out_path is None:
+            diagnostics.append(
+                {
+                    "code": "PATH_TRAVERSAL_REJECTED",
+                    "severity": "ERROR",
+                    "target": "output_dir",
+                    "message": out_err or "Invalid output_dir path.",
+                }
+            )
+        elif out_path.exists() and not out_path.is_dir():
+            diagnostics.append(
+                {
+                    "code": "OUTPUT_DIR_NOT_A_DIRECTORY",
+                    "severity": "ERROR",
+                    "target": str(out_path),
+                    "message": f"Output path '{out_path}' exists and is not a directory.",
+                }
+            )
+
+    # 6. Validate each wave's sources and unstructured documents
     conn = duckdb.connect(":memory:")
+    seen_relational_sources = 0
     try:
         for wave in spec.waves:
             checked_items += 1
@@ -620,6 +646,23 @@ def validate_pipeline_inputs(
                 )
             for s_idx, src in enumerate(wave.sources):
                 checked_items += 1
+                if not src.business_key_columns or any(
+                    not c.strip() for c in src.business_key_columns
+                ):
+                    diagnostics.append(
+                        {
+                            "code": "MISSING_BUSINESS_KEY_COLUMNS",
+                            "severity": "ERROR",
+                            "target": (
+                                f"wave[{wave.wave_index}].sources[{s_idx}].business_key_columns"
+                            ),
+                            "message": (
+                                f"Source '{src.source_system}.{src.table_name}' in wave "
+                                f"{wave.wave_index} must declare at least one business key column."
+                            ),
+                        }
+                    )
+                seen_relational_sources += 1
                 d_path, d_err = _resolve_and_check_safe_path(
                     src.data_path, base_dir=eff_base, workspace_root=ws_root
                 )
@@ -737,6 +780,19 @@ def validate_pipeline_inputs(
                                     "message": f"Failed to read baseline file '{b_path}': {exc}",
                                 }
                             )
+
+            if wave.unstructured_documents and seen_relational_sources == 0:
+                diagnostics.append(
+                    {
+                        "code": "UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE",
+                        "severity": "ERROR",
+                        "target": f"wave_{wave.wave_index}",
+                        "message": (
+                            f"Wave {wave.wave_index} ('{wave.wave_name}') onboards unstructured "
+                            "documents before any relational source has been onboarded."
+                        ),
+                    }
+                )
 
             for doc_idx, doc in enumerate(wave.unstructured_documents):
                 checked_items += 1
@@ -981,6 +1037,37 @@ def validate_pipeline_outputs(
                 }
             )
 
+    # 4. Validate wave and step execution verdicts
+    for w_rep in report.wave_reports:
+        checked_items += 1
+        if w_rep.status in {"REJECT-WITH-TRACE", "ERROR"}:
+            diagnostics.append(
+                {
+                    "code": "WAVE_EXECUTION_REJECTED",
+                    "severity": "ERROR",
+                    "target": f"wave_{w_rep.wave_index}",
+                    "message": (
+                        f"Wave {w_rep.wave_index} ('{w_rep.wave_name}') finished with "
+                        f"status '{w_rep.status}'."
+                    ),
+                }
+            )
+
+    for s_rep in report.step_reports:
+        checked_items += 1
+        if s_rep.status in {"REJECT-WITH-TRACE", "ERROR"}:
+            diagnostics.append(
+                {
+                    "code": "STEP_EXECUTION_REJECTED",
+                    "severity": "ERROR",
+                    "target": s_rep.step_id,
+                    "message": (
+                        f"Step '{s_rep.step_id}' in wave {s_rep.wave_index} finished "
+                        f"with status '{s_rep.status}'."
+                    ),
+                }
+            )
+
     return DeterministicValidationReport(
         stage="OUTPUT_VALIDATION",
         passed=len(diagnostics) == 0 and pii_passed and cas_ok,
@@ -1001,6 +1088,74 @@ def validate_pipeline_outputs(
 def _slugify(name: str) -> str:
     cleaned = re.sub(r"[^a-z0-9_]+", "_", name.lower()).strip("_")
     return cleaned or "entity"
+
+
+def _step_status_to_verdict(status: str) -> ObservabilityVerdict:
+    if status == "AUTO_REPAIRED":
+        return ObservabilityVerdict.AUTO_REPAIRED
+    if status == "ASK-USER":
+        return ObservabilityVerdict.ASK_USER
+    if status in {"REJECT-WITH-TRACE", "ERROR"}:
+        return ObservabilityVerdict.REJECT_WITH_TRACE
+    return ObservabilityVerdict.PASS
+
+
+def _compute_candidate_er_metrics(
+    cand: PipelineUnstructuredCandidateInput,
+) -> tuple[float, str, ERTierLiteral, str]:
+    margin = 1.0
+    if len(cand.candidate_hub_matches) >= 2:
+        scores = sorted(
+            (
+                float(m.get("score", m.get("similarity", cand.confidence_score)))
+                for m in cand.candidate_hub_matches
+            ),
+            reverse=True,
+        )
+        margin = max(0.0, round(scores[0] - scores[1], 4))
+    elif cand.confidence_score < 0.75:
+        margin = 0.08
+
+    if cand.confidence_score >= 0.92:
+        return margin, "Tier-U1", "TIER_U1_DETERMINISTIC", "PASS"
+    if cand.confidence_score >= 0.75 and margin >= 0.15:
+        return margin, "Tier-U2", "TIER_U2_HYBRID_EXACT", "PASS"
+    _, action = classify_er_resolution_tier(cand.confidence_score, margin)
+    return margin, "Tier-U3", "TIER_U3_CAPTAIN_HOLD", action or "ASK-USER"
+
+
+def _build_profiled_unstructured_doc(
+    doc: PipelineUnstructuredDocInput,
+    doc_text: str,
+    doc_sha256: str,
+) -> ProfiledUnstructuredDocument | None:
+    extracted_spans_gb: list[ExtractedSpan] = []
+    for cand in doc.extracted_candidates:
+        margin, _short_tier, gb_tier, _action = _compute_candidate_er_metrics(cand)
+        extracted_spans_gb.append(
+            ExtractedSpan(
+                field=cand.extraction_id,
+                span_start=cand.char_start,
+                span_end=cand.char_end,
+                verbatim_quote=cand.verbatim_quote,
+                resolved_bk=cand.extracted_business_key,
+                er_tier=gb_tier,
+                confidence=cand.confidence_score,
+                top2_margin=margin,
+            )
+        )
+    if not extracted_spans_gb:
+        return None
+    return ProfiledUnstructuredDocument(
+        doc_uri=doc.doc_id,
+        content_sha256=doc_sha256,
+        char_length=len(doc_text),
+        extracted_spans=extracted_spans_gb,
+        row_chunk_span=RowChunkSpan(
+            span_start=0,
+            span_end=len(doc_text),
+        ),
+    )
 
 
 def _resolve_hub_and_uri(
@@ -1174,6 +1329,7 @@ class AgenticVaultPipeline:
         output_dir: Path | None = None,
         base_dir: Path | None = None,
         cas_store: ContentAddressableStore | None = None,
+        sdk_module: Any | None = None,
     ) -> None:
         self.input_spec = input_spec
         self.harness_setup = harness_setup or HarnessSetupConfig()
@@ -1182,14 +1338,25 @@ class AgenticVaultPipeline:
         except Exception:
             self.workspace_root = Path.cwd().resolve()
         self.base_dir = (base_dir or self.workspace_root).resolve()
+        self._explicit_output_dir = Path(output_dir).resolve() if output_dir is not None else None
+        self._explicit_cas_store = cas_store
+        self._sdk_module = sdk_module
+        self._runtime_initialized = False
 
-        if output_dir is not None:
-            self.output_dir = Path(output_dir).resolve()
-        elif input_spec.output_dir is not None:
-            p_out = Path(input_spec.output_dir)
-            self.output_dir = (
-                p_out.resolve() if p_out.is_absolute() else (self.base_dir / p_out).resolve()
+    def _ensure_runtime_initialized(self) -> None:
+        if self._runtime_initialized:
+            return
+        if self._explicit_output_dir is not None:
+            self.output_dir = self._explicit_output_dir
+        elif self.input_spec.output_dir is not None:
+            resolved_out, out_err = _resolve_and_check_safe_path(
+                self.input_spec.output_dir,
+                base_dir=self.base_dir,
+                workspace_root=self.workspace_root,
             )
+            if out_err is not None or resolved_out is None:
+                raise ValueError(out_err or f"Invalid output_dir '{self.input_spec.output_dir}'.")
+            self.output_dir = resolved_out
         else:
             self.output_dir = (
                 Path(tempfile.mkdtemp(prefix="opendv_pipeline_out_")).resolve()
@@ -1197,7 +1364,7 @@ class AgenticVaultPipeline:
 
         self.output_dir.mkdir(parents=True, exist_ok=True)
         self.cas_dir = self.output_dir / "cas"
-        self.cas_store = cas_store or ContentAddressableStore(self.cas_dir)
+        self.cas_store = self._explicit_cas_store or ContentAddressableStore(self.cas_dir)
         self.ledger_path = self.output_dir / "vault-ledger.jsonl"
         self.ledger_emitter = VaultLedgerEmitter(
             ledger_path=self.ledger_path,
@@ -1210,7 +1377,11 @@ class AgenticVaultPipeline:
             app_data_dir=self.output_dir / "app_data",
             save_dir=self.output_dir / "save",
         )
-        self.harness: VaultAgentHarness = get_harness_adapter(self.harness_config)
+        self.harness: VaultAgentHarness = get_harness_adapter(
+            self.harness_config,
+            sdk_module=self._sdk_module,
+        )
+        self._runtime_initialized = True
 
     def _record_artifact(
         self,
@@ -1363,6 +1534,8 @@ class AgenticVaultPipeline:
                 markdown_summary=md,
             )
 
+        self._ensure_runtime_initialized()
+
         ont_path, _ = _resolve_and_check_safe_path(
             self.input_spec.graph_a_ontology_path,
             base_dir=self.base_dir,
@@ -1477,6 +1650,7 @@ class AgenticVaultPipeline:
         cumulative_source_systems: dict[str, ProfiledSourceSystem] = {}
         cumulative_doc_texts: dict[str, str] = {}
         cumulative_unstructured_docs: list[tuple[PipelineUnstructuredDocInput, str]] = []
+        added_drift_cols_by_table: dict[str, list[str]] = {}
         deployed_contract_dict: dict[str, Any] | None = None
         if self.input_spec.initial_contract_path is not None:
             init_c_path, _ = _resolve_and_check_safe_path(
@@ -1513,7 +1687,7 @@ class AgenticVaultPipeline:
             wave_drift_events: list[dict[str, Any]] = []
             wave_columns_profiled = 0
             wave_sources_profiled = len(wave.sources)
-            added_drift_cols_by_table: dict[str, list[str]] = {}
+            current_wave_drift_tables: set[str] = set()
 
             try:
                 for src in wave.sources:
@@ -1608,11 +1782,37 @@ class AgenticVaultPipeline:
                             ev_dict["source_table"] = qualified_table
                             wave_drift_events.append(ev_dict)
                             if dev.drift_kind.value == "ADD_COLUMN":
-                                added_drift_cols_by_table.setdefault(qualified_table, []).append(
-                                    dev.column_name
+                                current_wave_drift_tables.add(qualified_table)
+                                drift_cols = added_drift_cols_by_table.setdefault(
+                                    qualified_table, []
                                 )
+                                if dev.column_name not in drift_cols:
+                                    drift_cols.append(dev.column_name)
             finally:
                 profiler.close()
+
+            if wave.unstructured_documents and cumulative_source_systems:
+                first_sys_key = next(iter(cumulative_source_systems))
+                for doc in wave.unstructured_documents:
+                    u_path, _ = _resolve_and_check_safe_path(
+                        doc.document_path,
+                        base_dir=self.base_dir,
+                        workspace_root=self.workspace_root,
+                    )
+                    assert u_path is not None
+                    doc_text = u_path.read_text(encoding="utf-8")
+                    doc_sha256 = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
+                    prof_doc = _build_profiled_unstructured_doc(doc, doc_text, doc_sha256)
+                    if prof_doc is not None:
+                        first_sys = cumulative_source_systems[first_sys_key]
+                        existing_docs = [
+                            d
+                            for d in (first_sys.unstructured_documents or [])
+                            if d.doc_uri != doc.doc_id
+                        ]
+                        cumulative_source_systems[first_sys_key] = first_sys.model_copy(
+                            update={"unstructured_documents": [*existing_docs, prof_doc]}
+                        )
 
             # Assemble cumulative GraphBProfile for this wave
             wave_gb_profile = GraphBProfile(
@@ -1794,58 +1994,11 @@ class AgenticVaultPipeline:
                 assert u_path is not None
                 doc_text = u_path.read_text(encoding="utf-8")
                 doc_sha256 = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
-                cumulative_doc_texts[doc.doc_id] = doc_text
-                cumulative_unstructured_docs.append((doc, doc_sha256))
-
-                extracted_spans_gb: list[ExtractedSpan] = []
-                min_start = len(doc_text)
-                max_end = 0
+                doc_held_or_rejected = False
 
                 for cand in doc.extracted_candidates:
-                    min_start = min(min_start, cand.char_start)
-                    max_end = max(max_end, cand.char_end)
-                    # Determine top-2 margin from candidate_hub_matches if present
-                    margin = 1.0
-                    if len(cand.candidate_hub_matches) >= 2:
-                        scores = sorted(
-                            (
-                                float(m.get("score", m.get("similarity", cand.confidence_score)))
-                                for m in cand.candidate_hub_matches
-                            ),
-                            reverse=True,
-                        )
-                        margin = max(0.0, round(scores[0] - scores[1], 4))
-                    elif cand.confidence_score < 0.75:
-                        margin = 0.08
-
-                    if cand.confidence_score >= 0.92:
-                        short_tier = "Tier-U1"
-                        gb_tier: ERTierLiteral = "TIER_U1_DETERMINISTIC"
-                        action = "PASS"
-                    elif cand.confidence_score >= 0.75 and margin >= 0.15:
-                        short_tier = "Tier-U2"
-                        gb_tier = "TIER_U2_HYBRID_EXACT"
-                        action = "PASS"
-                    else:
-                        _, action = classify_er_resolution_tier(cand.confidence_score, margin)
-                        short_tier = "Tier-U3"
-                        gb_tier = "TIER_U3_CAPTAIN_HOLD"
-                        action = "ASK-USER"
-
+                    _margin, short_tier, _gb_tier, action = _compute_candidate_er_metrics(cand)
                     tier_counts[short_tier] = tier_counts.get(short_tier, 0) + 1
-
-                    extracted_spans_gb.append(
-                        ExtractedSpan(
-                            field=cand.extraction_id,
-                            span_start=cand.char_start,
-                            span_end=cand.char_end,
-                            verbatim_quote=cand.verbatim_quote,
-                            resolved_bk=cand.extracted_business_key,
-                            er_tier=gb_tier,
-                            confidence=cand.confidence_score,
-                            top2_margin=margin,
-                        )
-                    )
 
                     hold_id: str | None = None
                     hold_resolution: str | None = None
@@ -1901,11 +2054,15 @@ class AgenticVaultPipeline:
                                 ),
                             )
                             hold_resolution = "REJECTED"
+                            action = "REJECT"
                             s2_status = "REJECT-WITH-TRACE"
+                            doc_held_or_rejected = True
                         else:
                             hold_resolution = "PENDING"
-                            s2_status = "ASK-USER"
+                            if s2_status != "REJECT-WITH-TRACE":
+                                s2_status = "ASK-USER"
                             pipeline_paused = True
+                            doc_held_or_rejected = True
 
                     grounding_records.append(
                         {
@@ -1926,23 +2083,9 @@ class AgenticVaultPipeline:
                         }
                     )
 
-                if extracted_spans_gb:
-                    prof_doc = ProfiledUnstructuredDocument(
-                        doc_uri=doc.doc_id,
-                        content_sha256=doc_sha256,
-                        char_length=len(doc_text),
-                        extracted_spans=extracted_spans_gb,
-                        row_chunk_span=RowChunkSpan(
-                            span_start=0,
-                            span_end=len(doc_text),
-                        ),
-                    )
-                    first_sys_key = next(iter(cumulative_source_systems))
-                    first_sys = cumulative_source_systems[first_sys_key]
-                    existing_docs = list(first_sys.unstructured_documents or [])
-                    cumulative_source_systems[first_sys_key] = first_sys.model_copy(
-                        update={"unstructured_documents": [*existing_docs, prof_doc]}
-                    )
+                if not doc_held_or_rejected:
+                    cumulative_doc_texts[doc.doc_id] = doc_text
+                    cumulative_unstructured_docs.append((doc, doc_sha256))
 
             ug_ref = self._record_artifact(
                 artifact_id=f"art-w{w_idx}-stage02-unstructured-grounding",
@@ -1981,15 +2124,7 @@ class AgenticVaultPipeline:
                 workbench_view_id=WorkbenchViewId.WB_03,
                 viz_id=VizId.VIZ_STEP_04,
                 persona=AgentPersona.SCOUT_UNSTRUCTURED,
-                status=(
-                    ObservabilityVerdict.ASK_USER
-                    if s2_status == "ASK-USER"
-                    else (
-                        ObservabilityVerdict.AUTO_REPAIRED
-                        if s2_status == "AUTO_REPAIRED"
-                        else ObservabilityVerdict.PASS
-                    )
-                ),
+                status=_step_status_to_verdict(s2_status),
                 headline=(
                     f"Wave {w_idx} verified {len(grounding_records)} unstructured extraction "
                     f"span(s) across {len(wave.unstructured_documents)} document(s)."
@@ -2058,7 +2193,7 @@ class AgenticVaultPipeline:
                 cumulative_source_systems=cumulative_source_systems,
                 cumulative_unstructured_docs=cumulative_unstructured_docs,
                 added_drift_cols_by_table=added_drift_cols_by_table,
-                has_current_wave_drift=bool(wave_drift_events),
+                current_wave_drift_tables=current_wave_drift_tables,
                 wave_index=w_idx,
             )
 
@@ -2240,24 +2375,15 @@ class AgenticVaultPipeline:
             t0_s5 = time.perf_counter()
             s5_out_shas: list[str] = []
             current_attempt_contract = attempt1_contract
-            max_attempts = 3
+            max_attempts = max(1, self.harness_setup.budget.max_schema_validation_retries)
             attempt_num = 1
             axi_res = None
 
-            # Update wave_gb_dict with any unstructured docs added in Stage 2
-            wave_gb_profile_s5 = GraphBProfile(
-                profile_version="1.0.0",
-                domain_namespace=_slugify(self.input_spec.domain_namespace),
-                profiled_at_utc=datetime.now(UTC),
-                source_systems=list(cumulative_source_systems.values()),
-            )
-            wave_gb_dict_s5 = wave_gb_profile_s5.model_dump(mode="json", exclude_none=True)
-
-            while attempt_num <= max_attempts:
+            for attempt_num in range(1, max_attempts + 1):
                 axi_res = run_axi_dv_verification_pipeline(
                     candidate_contract=current_attempt_contract,
                     ontology_graph=raw_ontology,
-                    bronze_profile=wave_gb_dict_s5,
+                    bronze_profile=wave_gb_dict,
                     deployed_contract=deployed_contract_dict,
                     parsed_doc_samples=cumulative_doc_texts if cumulative_doc_texts else None,
                     apply_codemods=True,
@@ -2266,7 +2392,9 @@ class AgenticVaultPipeline:
                     require_grain_statements=False,
                     check_full_ledger_coverage=True,
                     check_isolated_hubs=True,
-                    enforce_er_holds_as_diagnostics=False,
+                    enforce_er_holds_as_diagnostics=(
+                        self.harness_setup.steward_hold_policy != "auto_approve_top_candidate"
+                    ),
                     run_id=run_id,
                     attempt=attempt_num,
                     max_attempts=max_attempts,
@@ -2286,24 +2414,23 @@ class AgenticVaultPipeline:
                 )
                 s5_out_shas.append(toon_ref.sha256)
 
-                if axi_res.status == "PASS":
+                if axi_res.status in {"PASS", "ASK_USER"}:
                     break
 
-                # Feed @toon_v1 trace back into ship-vault self-healing repair
-                repair_spec = build_ship_vault_task_spec(
-                    prompt=(
-                        f"Repair @toon_v1 diagnostic trace on Wave {w_idx} Attempt {attempt_num}:\n"
-                        f"{axi_res.toon_text}"
-                    ),
-                    run_id=run_id,
-                    trace_id=trace_id,
-                    stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
-                    workbench_view_id=WorkbenchViewId.WB_08,
-                    viz_id=VizId.VIZ_GATE_04,
-                )
-                await self.harness.run_task(repair_spec)
-                current_attempt_contract = copy.deepcopy(candidate_contract)
-                attempt_num += 1
+                if attempt_num < max_attempts:
+                    repair_spec = build_ship_vault_task_spec(
+                        prompt=(
+                            f"Repair @toon_v1 diagnostic trace on Wave {w_idx} "
+                            f"Attempt {attempt_num}:\n{axi_res.toon_text}"
+                        ),
+                        run_id=run_id,
+                        trace_id=trace_id,
+                        stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
+                        workbench_view_id=WorkbenchViewId.WB_08,
+                        viz_id=VizId.VIZ_GATE_04,
+                    )
+                    await self.harness.run_task(repair_spec)
+                    current_attempt_contract = copy.deepcopy(candidate_contract)
 
             assert axi_res is not None
             verified_contract_dict = axi_res.transformed_contract
@@ -2324,13 +2451,20 @@ class AgenticVaultPipeline:
             s5_out_shas.append(ver_contract_ref.sha256)
             s5_ms = round((time.perf_counter() - t0_s5) * 1000.0, 3)
 
-            s5_status: Literal[
-                "PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"
-            ] = (
-                "AUTO_REPAIRED"
-                if (attempt_num > 1 or bool(axi_res.applied_codemods))
-                else "PASS"
-            )
+            if axi_res.status == "PASS":
+                s5_status: Literal[
+                    "PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"
+                ] = (
+                    "AUTO_REPAIRED"
+                    if (attempt_num > 1 or bool(axi_res.applied_codemods))
+                    else "PASS"
+                )
+            elif axi_res.status == "ASK_USER":
+                s5_status = "ASK-USER"
+                pipeline_paused = True
+            else:
+                s5_status = "REJECT-WITH-TRACE"
+
             gate_scorecard = {
                 "G0_JSON_SCHEMA": "PASS",
                 "G1_ONTOLOGY_AND_GRAIN": "PASS",
@@ -2339,6 +2473,27 @@ class AgenticVaultPipeline:
                 "G4_YAGNI_AND_COLUMN_LEDGER": "PASS",
                 "G5_UNSTRUCTURED_SPAN_GROUNDING": "PASS",
             }
+            if s5_status in {"REJECT-WITH-TRACE", "ASK-USER"}:
+                gate_key_map = {
+                    "G0": "G0_JSON_SCHEMA",
+                    "G1": "G1_ONTOLOGY_AND_GRAIN",
+                    "G2": "G2_KEY_AND_FK_DISCIPLINE",
+                    "G3": "G3_NETWORKX_BIPARTITE_DAG",
+                    "G4": "G4_YAGNI_AND_COLUMN_LEDGER",
+                    "G5": "G5_UNSTRUCTURED_SPAN_GROUNDING",
+                }
+                matched_any_gate = False
+                for viol in axi_res.toon_trace.violations:
+                    if viol.action in {"REJECT", "ASK-USER"}:
+                        g_key = gate_key_map.get(viol.gate)
+                        if g_key is not None:
+                            matched_any_gate = True
+                            if viol.action == "REJECT":
+                                gate_scorecard[g_key] = "REJECT-WITH-TRACE"
+                            elif gate_scorecard[g_key] == "PASS":
+                                gate_scorecard[g_key] = "ASK-USER"
+                if not matched_any_gate:
+                    gate_scorecard["G3_NETWORKX_BIPARTITE_DAG"] = s5_status
 
             ev_wb06 = self._emit_wb_event(
                 run_id=run_id,
@@ -2347,7 +2502,11 @@ class AgenticVaultPipeline:
                 workbench_view_id=WorkbenchViewId.WB_06,
                 viz_id=VizId.VIZ_GATE_02,
                 persona=AgentPersona.AXI_DV,
-                status=ObservabilityVerdict.PASS,
+                status=(
+                    ObservabilityVerdict.PASS
+                    if s5_status in {"PASS", "AUTO_REPAIRED"}
+                    else _step_status_to_verdict(s5_status)
+                ),
                 headline=f"Wave {w_idx} Gate 2 & Gate 3 verified Bipartite DAG topology and BKCC.",
                 business_impact=(
                     "Proves zero Hub-to-Hub edges, zero Satellite-to-Satellite chains, and "
@@ -2374,11 +2533,7 @@ class AgenticVaultPipeline:
                 workbench_view_id=WorkbenchViewId.WB_07,
                 viz_id=VizId.VIZ_GATE_04,
                 persona=AgentPersona.AXI_DV,
-                status=(
-                    ObservabilityVerdict.AUTO_REPAIRED
-                    if s5_status == "AUTO_REPAIRED"
-                    else ObservabilityVerdict.PASS
-                ),
+                status=_step_status_to_verdict(s5_status),
                 headline=(
                     f"Wave {w_idx} Gate 4 YAGNI Cost Guard & 3-Axis Satellite Split "
                     f"completed ({len(axi_res.applied_codemods)} codemod(s))."
@@ -2422,13 +2577,9 @@ class AgenticVaultPipeline:
                 workbench_view_id=WorkbenchViewId.WB_08,
                 viz_id=VizId.VIZ_GATE_03,
                 persona=AgentPersona.AXI_DV,
-                status=(
-                    ObservabilityVerdict.AUTO_REPAIRED
-                    if s5_status == "AUTO_REPAIRED"
-                    else ObservabilityVerdict.PASS
-                ),
+                status=_step_status_to_verdict(s5_status),
                 headline=(
-                    f"Wave {w_idx} 6-Gate AXI Verifier converged in {attempt_num} attempt(s) "
+                    f"Wave {w_idx} 6-Gate AXI Verifier completed in {attempt_num} attempt(s) "
                     f"with status {s5_status}."
                 ),
                 business_impact=(
@@ -2483,8 +2634,8 @@ class AgenticVaultPipeline:
                     attempt_count=attempt_num,
                     duration_ms=s5_ms,
                     summary=(
-                        f"6-Gate static verification converged in {attempt_num} attempt(s); "
-                        f"codemods={axi_res.applied_codemods}."
+                        f"6-Gate static verification finished in {attempt_num} attempt(s) "
+                        f"with status {s5_status}; codemods={axi_res.applied_codemods}."
                     ),
                     tool_invocations=[
                         "run_axi_dv_gates",
@@ -2498,6 +2649,11 @@ class AgenticVaultPipeline:
                         "applied_codemods": axi_res.applied_codemods,
                         "gate_scorecard": gate_scorecard,
                     },
+                    diagnostics=[
+                        {"message": d}
+                        for d in axi_res.diagnostics
+                        if not d.startswith("ALL_GATES_GREEN")
+                    ],
                 )
             )
 
@@ -2508,7 +2664,7 @@ class AgenticVaultPipeline:
             t0_s6 = time.perf_counter()
             canonical_ir = lower_contract_to_canonical_ir(
                 verified_contract_dict,
-                graph_b_profile=wave_gb_profile_s5,
+                graph_b_profile=wave_gb_profile,
                 validate_schema=True,
             )
             ir_dict = canonical_ir.model_dump(mode="json", exclude_none=True)
@@ -2558,6 +2714,10 @@ class AgenticVaultPipeline:
             s6_ms = round((time.perf_counter() - t0_s6) * 1000.0, 3)
 
             total_dyn_checks = len(sbx_report.dynamic_check_report.checks)
+            passed_batch_count = sum(1 for b in sbx_report.batch_report.batches if b.passed)
+            s6_status: Literal[
+                "PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"
+            ] = "PASS" if sbx_report.passed else "REJECT-WITH-TRACE"
             sandbox_summary = {
                 "passed": sbx_report.passed,
                 "batches_passed": sbx_report.batch_report.all_passed,
@@ -2576,11 +2736,12 @@ class AgenticVaultPipeline:
                 workbench_view_id=WorkbenchViewId.WB_10,
                 viz_id=VizId.VIZ_GATE_08,
                 persona=AgentPersona.AXI_DV,
-                status=ObservabilityVerdict.PASS,
+                status=_step_status_to_verdict(s6_status),
                 headline=(
-                    f"Wave {w_idx} 4-Batch DuckDB Shadow Sandbox passed all "
-                    f"{sbx_report.dynamic_check_report.passed_count}/"
-                    f"{total_dyn_checks} DV-DYN checks."
+                    f"Wave {w_idx} 4-Batch DuckDB Shadow Sandbox "
+                    f"{'passed' if sbx_report.passed else 'failed'} "
+                    f"({sbx_report.dynamic_check_report.passed_count}/"
+                    f"{total_dyn_checks} DV-DYN checks)."
                 ),
                 business_impact=(
                     "Empirically verifies PK uniqueness, zero orphan FKs, replay idempotency, "
@@ -2589,7 +2750,7 @@ class AgenticVaultPipeline:
                 rule_ids=["DV-DYN-001", "DV-DYN-003", "DV-DYN-005", "DV-DYN-007", "DV-DYN-015"],
                 summary_metrics={
                     "wave_index": w_idx,
-                    "batches_passed": 4,
+                    "batches_passed": passed_batch_count,
                     "dynamic_checks_passed": sbx_report.dynamic_check_report.passed_count,
                 },
                 context_refs={
@@ -2609,13 +2770,13 @@ class AgenticVaultPipeline:
                     stage_id=PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
                     persona=AgentPersona.AXI_DV.value,
                     model_tier=ModelTier.FAST_TIER.value,
-                    status="PASS" if sbx_report.passed else "REJECT-WITH-TRACE",
+                    status=s6_status,
                     attempt_count=1,
                     duration_ms=s6_ms,
                     summary=(
-                        f"Lowered Canonical IR, compiled 4-Zone SQL, and passed 4-Batch "
-                        f"DuckDB Shadow Sandbox ({sbx_report.dynamic_check_report.passed_count}/15 "
-                        f"DV-DYN checks)."
+                        f"Lowered Canonical IR, compiled 4-Zone SQL, and ran 4-Batch "
+                        f"DuckDB Shadow Sandbox ({sbx_report.dynamic_check_report.passed_count}/"
+                        f"{total_dyn_checks} DV-DYN checks)."
                     ),
                     tool_invocations=[
                         "compile_canonical_ir",
@@ -2628,30 +2789,43 @@ class AgenticVaultPipeline:
                 )
             )
 
-            # Update deployed contract for N -> N+1 additive evolution lock on next wave
-            deployed_contract_dict = copy.deepcopy(verified_contract_dict)
-            last_verified_contract = verified_contract_dict
-            last_canonical_ir = canonical_ir
-            last_sql_bundle_text = compiled_bundle.full_sql_bundle
-            last_contract_ref = ver_contract_ref
-            last_ir_ref = ir_ref
-            last_sql_ref = sql_ref
-
             wave_status: Literal[
                 "PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"
             ] = (
-                "ASK-USER"
-                if s2_status == "ASK-USER"
+                "REJECT-WITH-TRACE"
+                if any(
+                    st == "REJECT-WITH-TRACE" for st in (s2_status, s5_status, s6_status)
+                )
                 else (
-                    "REJECT-WITH-TRACE"
-                    if s2_status == "REJECT-WITH-TRACE"
+                    "ASK-USER"
+                    if any(st == "ASK-USER" for st in (s2_status, s5_status))
                     else (
                         "AUTO_REPAIRED"
-                        if (s5_status == "AUTO_REPAIRED" or s2_status == "AUTO_REPAIRED")
+                        if (
+                            bool(wave_drift_events)
+                            or s2_status == "AUTO_REPAIRED"
+                            or s5_status == "AUTO_REPAIRED"
+                        )
                         else "PASS"
                     )
                 )
             )
+
+            if wave_status in {"PASS", "AUTO_REPAIRED"}:
+                deployed_contract_dict = copy.deepcopy(verified_contract_dict)
+                last_verified_contract = verified_contract_dict
+                last_canonical_ir = canonical_ir
+                last_sql_bundle_text = compiled_bundle.full_sql_bundle
+                last_contract_ref = ver_contract_ref
+                last_ir_ref = ir_ref
+                last_sql_ref = sql_ref
+            elif last_contract_ref is None:
+                last_verified_contract = verified_contract_dict
+                last_canonical_ir = canonical_ir
+                last_sql_bundle_text = compiled_bundle.full_sql_bundle
+                last_contract_ref = ver_contract_ref
+                last_ir_ref = ir_ref
+                last_sql_ref = sql_ref
 
             wave_reports.append(
                 PipelineWaveReport(
@@ -2674,7 +2848,7 @@ class AgenticVaultPipeline:
                 )
             )
 
-            if pipeline_paused or s2_status == "REJECT-WITH-TRACE":
+            if pipeline_paused or wave_status in {"ASK-USER", "REJECT-WITH-TRACE", "ERROR"}:
                 break
 
         # -------------------------------------------------------------------
@@ -2816,11 +2990,14 @@ class AgenticVaultPipeline:
             if h.status != "PENDING"
         ]
 
-        has_rejected_wave = any(w.status == "REJECT-WITH-TRACE" for w in wave_reports)
-        if pipeline_paused or active_holds:
-            overall_status: Literal["COMPLETED", "PAUSED_HOLD", "FAILED"] = "PAUSED_HOLD"
-        elif has_rejected_wave:
-            overall_status = "FAILED"
+        has_rejected_wave = any(
+            w.status in {"REJECT-WITH-TRACE", "ERROR"} for w in wave_reports
+        )
+        has_ask_user_wave = any(w.status == "ASK-USER" for w in wave_reports)
+        if has_rejected_wave:
+            overall_status: Literal["COMPLETED", "PAUSED_HOLD", "FAILED"] = "FAILED"
+        elif pipeline_paused or active_holds or has_ask_user_wave:
+            overall_status = "PAUSED_HOLD"
         else:
             overall_status = "COMPLETED"
 
@@ -2943,7 +3120,7 @@ class AgenticVaultPipeline:
         cumulative_source_systems: dict[str, ProfiledSourceSystem],
         cumulative_unstructured_docs: list[tuple[PipelineUnstructuredDocInput, str]],
         added_drift_cols_by_table: dict[str, list[str]],
-        has_current_wave_drift: bool = False,
+        current_wave_drift_tables: set[str] | None = None,
         wave_index: int,
     ) -> dict[str, Any]:
         """Synthesize a cumulative `NoMistakeDataVault2ContractV5` dict for the current wave."""
@@ -2951,6 +3128,7 @@ class AgenticVaultPipeline:
         links_by_name: dict[str, dict[str, Any]] = {}
         sats_by_name: dict[str, dict[str, Any]] = {}
         ledger: list[dict[str, Any]] = []
+        active_drift_tables = current_wave_drift_tables or set()
 
         # Map profiled columns by (qualified_table, column_name)
         prof_col_map: dict[tuple[str, str], ProfiledColumn] = {}
@@ -3074,6 +3252,7 @@ class AgenticVaultPipeline:
                 "role_alias": primary_role,
                 "source_fk_columns": bk_cols or [src.table_name],
             }
+            fk_col_to_link_and_elm: dict[str, tuple[str, str]] = {}
             base_lnk_name: str | None = None
             if mandatory_fk_refs:
                 involved_hubs = [primary_hub_name, *[r["target_hub"] for r in mandatory_fk_refs]]
@@ -3096,6 +3275,11 @@ class AgenticVaultPipeline:
                         "source_bronze_table": qualified_table,
                         "hub_references": combined_refs,
                     }
+                    for m_ref in mandatory_fk_refs:
+                        for fk_c in m_ref["source_fk_columns"]:
+                            fk_col_to_link_and_elm[fk_c] = (base_lnk_name, "FOREIGN_KEY_REF")
+                    for fk_c, _ in optional_fk_refs:
+                        fk_col_to_link_and_elm[fk_c] = (base_lnk_name, "FOREIGN_KEY_REF")
                 else:
                     links_by_name[base_lnk_name] = {
                         "name": base_lnk_name,
@@ -3104,6 +3288,9 @@ class AgenticVaultPipeline:
                         "source_bronze_table": qualified_table,
                         "hub_references": [primary_ref, *mandatory_fk_refs],
                     }
+                    for m_ref in mandatory_fk_refs:
+                        for fk_c in m_ref["source_fk_columns"]:
+                            fk_col_to_link_and_elm[fk_c] = (base_lnk_name, "FOREIGN_KEY_REF")
                     for fk_col, opt_ref in optional_fk_refs:
                         opt_role = opt_ref["role_alias"]
                         opt_lnk_name = f"{base_lnk_name}_{opt_role}"
@@ -3120,6 +3307,31 @@ class AgenticVaultPipeline:
                             "where_filter_condition": f"{fk_col} IS NOT NULL",
                             "hub_references": [primary_ref, opt_ref],
                         }
+                        fk_col_to_link_and_elm[fk_col] = (
+                            opt_lnk_name,
+                            "OPTIONAL_FOREIGN_KEY_REF",
+                        )
+            elif optional_fk_refs:
+                for fk_col, opt_ref in optional_fk_refs:
+                    opt_role = opt_ref["role_alias"]
+                    opt_lnk_name = f"lnk_{primary_role}_{opt_role}"
+                    opt_uri = _resolve_relationship_uri(
+                        opt_lnk_name,
+                        [primary_hub_name, opt_ref["target_hub"]],
+                        ontology,
+                    )
+                    links_by_name[opt_lnk_name] = {
+                        "name": opt_lnk_name,
+                        "link_type": "STANDARD_LINK",
+                        "ontology_concept_uri": opt_uri,
+                        "source_bronze_table": qualified_table,
+                        "where_filter_condition": f"{fk_col} IS NOT NULL",
+                        "hub_references": [primary_ref, opt_ref],
+                    }
+                    fk_col_to_link_and_elm[fk_col] = (
+                        opt_lnk_name,
+                        "OPTIONAL_FOREIGN_KEY_REF",
+                    )
 
             # Collect table columns from Graph B profile
             table_cols = [
@@ -3132,6 +3344,7 @@ class AgenticVaultPipeline:
             fk_set = set(src.foreign_key_mappings.keys())
             pii_set = set(src.pii_columns)
             drift_added_set = set(added_drift_cols_by_table.get(qualified_table, []))
+            table_has_current_drift = qualified_table in active_drift_tables
             sys_meta_names = {"load_dts", "rec_src", "record_source", "extract_dts"}
 
             general_payload_cols = [
@@ -3169,7 +3382,7 @@ class AgenticVaultPipeline:
                 effective_core_sat = core_sat_name
                 effective_pii_sat = pii_sat_name
                 if general_payload_cols:
-                    if not has_current_wave_drift and drift_added_set:
+                    if not table_has_current_drift and drift_added_set:
                         base_general_cols = [
                             c for c in general_payload_cols if c not in drift_added_set
                         ]
@@ -3235,17 +3448,7 @@ class AgenticVaultPipeline:
                         }
                     )
                 elif col_name in fk_set:
-                    is_opt = any(col_name == fk_c for fk_c, _ in optional_fk_refs)
-                    if is_opt and wave_index > 0 and base_lnk_name is not None:
-                        opt_target_hub, _ = _resolve_hub_and_uri(
-                            src.foreign_key_mappings[col_name], ontology
-                        )
-                        opt_role = opt_target_hub.removeprefix("hub_")
-                        fk_target_entity = f"{base_lnk_name}_{opt_role}"
-                        fk_elm: Any = "OPTIONAL_FOREIGN_KEY_REF"
-                    else:
-                        fk_target_entity = base_lnk_name or primary_hub_name
-                        fk_elm = "FOREIGN_KEY_REF"
+                    fk_target_entity, fk_elm = fk_col_to_link_and_elm[col_name]
                     ledger.append(
                         {
                             "bronze_table": qualified_table,
@@ -3272,7 +3475,7 @@ class AgenticVaultPipeline:
                             "target_dv_entity": effective_pii_sat,
                         }
                     )
-                elif not has_current_wave_drift and col_name in drift_added_set:
+                elif not table_has_current_drift and col_name in drift_added_set:
                     ledger.append(
                         {
                             "bronze_table": qualified_table,
@@ -3293,10 +3496,15 @@ class AgenticVaultPipeline:
             del drift_added_set
 
         # 2. Process unstructured documents accumulated through this wave
-        if cumulative_unstructured_docs:
+        if cumulative_unstructured_docs and cumulative_sources:
             doc_hub_name, doc_uri = _resolve_hub_and_uri("CBC_CONTRACT_DOCUMENT", ontology)
             first_bronze_table = next(iter(cumulative_sources.keys()))
             first_src = cumulative_sources[first_bronze_table][0]
+            first_bk_col = (
+                first_src.business_key_columns[0]
+                if first_src.business_key_columns
+                else first_src.table_name
+            )
             if doc_hub_name not in hubs_by_name:
                 hubs_by_name[doc_hub_name] = {
                     "name": doc_hub_name,
@@ -3304,7 +3512,7 @@ class AgenticVaultPipeline:
                     "business_key_sources": [
                         {
                             "bronze_table": first_bronze_table,
-                            "key_columns": [first_src.business_key_columns[0]],
+                            "key_columns": [first_bk_col],
                             "record_source_code": cumulative_unstructured_docs[0][0].record_source,
                             "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
                             "require_src_qualifier": False,
@@ -3333,12 +3541,12 @@ class AgenticVaultPipeline:
                     {
                         "target_hub": doc_hub_name,
                         "role_alias": "document",
-                        "source_fk_columns": [first_src.business_key_columns[0]],
+                        "source_fk_columns": [first_bk_col],
                     },
                     {
                         "target_hub": linked_hub,
                         "role_alias": linked_hub.removeprefix("hub_"),
-                        "source_fk_columns": [first_src.business_key_columns[0]],
+                        "source_fk_columns": [first_bk_col],
                     },
                 ],
             }
@@ -3375,7 +3583,7 @@ class AgenticVaultPipeline:
             ledger.append(
                 {
                     "bronze_table": first_bronze_table,
-                    "column_name": first_src.business_key_columns[0],
+                    "column_name": first_bk_col,
                     "elm_classification": "BUSINESS_KEY",
                     "target_dv_entity": doc_hub_name,
                 }
@@ -3419,6 +3627,7 @@ def run_agentic_vault_pipeline(
     output_dir: str | Path | None = None,
     base_dir: str | Path | None = None,
     cas_store: ContentAddressableStore | None = None,
+    sdk_module: Any | None = None,
 ) -> AgenticPipelineReport:
     """Execute the end-to-end 8-stage neuro-symbolic Data Vault 2.0 pipeline."""
     eff_base: Path | None = Path(base_dir).resolve() if base_dir is not None else None
@@ -3444,6 +3653,7 @@ def run_agentic_vault_pipeline(
         output_dir=eff_out,
         base_dir=eff_base,
         cas_store=cas_store,
+        sdk_module=sdk_module,
     )
     return pipeline.run()
 

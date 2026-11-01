@@ -20,17 +20,27 @@ Tests:
 from __future__ import annotations
 
 import hashlib
+import json
 from pathlib import Path
 
+import pytest
+import yaml
 from opendv_agent_harness import (
+    AntigravityHarnessAdapter,
+    ClaudeAgentHarnessAdapter,
     DeterministicHarnessAdapter,
     HarnessSetupConfig,
+    ObservabilityVerdict,
     PipelineInputSpec,
     create_agent_harness,
     get_harness_adapter,
     run_agentic_vault_pipeline,
     validate_pipeline_inputs,
     validate_pipeline_outputs,
+)
+from opendv_agent_harness.adapters.deterministic_adapter import (
+    build_deterministic_agy_sdk_shim,
+    build_deterministic_claude_sdk_shim,
 )
 from opendv_core.schema_registry import find_workspace_root
 from opendv_telemetry import ContentAddressableStore
@@ -133,6 +143,53 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     assert bad_ont_report.passed is False
     assert any(d["code"] == "ONTOLOGY_SCHEMA_INVALID" for d in bad_ont_report.diagnostics)
 
+    # 5. Output directory path traversal rejection before directory creation
+    bad_out_spec = input_spec.model_copy(update={"output_dir": "../../escaped_out"})
+    bad_out_report = validate_pipeline_inputs(
+        bad_out_spec,
+        harness_setup,
+        base_dir=sample_dir,
+    )
+    assert bad_out_report.passed is False
+    assert any(d["code"] == "PATH_TRAVERSAL_REJECTED" for d in bad_out_report.diagnostics)
+
+    failed_pipeline_rep = run_agentic_vault_pipeline(
+        bad_out_spec,
+        harness_setup,
+        base_dir=sample_dir,
+    )
+    assert failed_pipeline_rep.status == "FAILED"
+    assert failed_pipeline_rep.overall_passed is False
+    assert failed_pipeline_rep.input_validation.passed is False
+
+    # 6. Empty business_key_columns rejection
+    empty_bk_src = input_spec.waves[0].sources[0].model_copy(
+        update={"business_key_columns": []}
+    )
+    empty_bk_wave = input_spec.waves[0].model_copy(update={"sources": [empty_bk_src]})
+    empty_bk_spec = input_spec.model_copy(update={"waves": [empty_bk_wave]})
+    empty_bk_report = validate_pipeline_inputs(
+        empty_bk_spec,
+        harness_setup,
+        base_dir=sample_dir,
+    )
+    assert empty_bk_report.passed is False
+    assert any(d["code"] == "MISSING_BUSINESS_KEY_COLUMNS" for d in empty_bk_report.diagnostics)
+
+    # 7. Unstructured-only wave without prior relational source rejection
+    unstructured_first_wave = input_spec.waves[3].model_copy(update={"wave_index": 0})
+    unstructured_only_spec = input_spec.model_copy(update={"waves": [unstructured_first_wave]})
+    unstructured_only_report = validate_pipeline_inputs(
+        unstructured_only_spec,
+        harness_setup,
+        base_dir=sample_dir,
+    )
+    assert unstructured_only_report.passed is False
+    assert any(
+        d["code"] == "UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE"
+        for d in unstructured_only_report.diagnostics
+    )
+
 
 def test_run_agentic_vault_pipeline_four_waves_end_to_end(tmp_path: Path) -> None:
     sample_dir = _sample_dir()
@@ -202,6 +259,23 @@ def test_run_agentic_vault_pipeline_four_waves_end_to_end(tmp_path: Path) -> Non
     assert (out_dir / "final_four_zone.sql").is_file()
     assert (out_dir / "vault-ledger.jsonl").is_file()
 
+    final_contract_data = yaml.safe_load((out_dir / "final_contract.yaml").read_text(encoding="utf-8"))
+    final_sat_names = {s["name"] for s in final_contract_data.get("satellites", [])}
+    assert "sat_customer_core_ext_v2" in final_sat_names
+    assert "sat_document_customer_ai_provenance" in final_sat_names
+
+    wave3_graph_b = json.loads(
+        (out_dir / "waves" / "wave_3" / "wave_3_graph_b_profile.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    wave3_unstructured_docs = [
+        doc
+        for sys_obj in wave3_graph_b.get("source_systems", [])
+        for doc in sys_obj.get("unstructured_documents", [])
+    ]
+    assert any(doc["doc_uri"] == "DOC-MSA-2026-089" for doc in wave3_unstructured_docs)
+
     # Re-run deterministic output validator independently
     reval = validate_pipeline_outputs(report, cas_store=cas)
     assert reval.passed is True
@@ -212,7 +286,29 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
     input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
     single_wave_spec = input_spec.model_copy(update={"waves": [input_spec.waves[0]]})
 
-    for provider in ("antigravity", "claude", "deterministic-stub"):
+    agy_cfg = HarnessSetupConfig(provider="antigravity").to_harness_config(
+        workspace_dir=tmp_path,
+        state_dir=tmp_path / "state_agy",
+        app_data_dir=tmp_path / "app_agy",
+        save_dir=tmp_path / "save_agy",
+    )
+    claude_cfg = HarnessSetupConfig(provider="claude").to_harness_config(
+        workspace_dir=tmp_path,
+        state_dir=tmp_path / "state_claude",
+        app_data_dir=tmp_path / "app_claude",
+        save_dir=tmp_path / "save_claude",
+    )
+    with pytest.raises(ImportError):
+        AntigravityHarnessAdapter(agy_cfg)._load_sdk()
+    with pytest.raises(ImportError):
+        ClaudeAgentHarnessAdapter(claude_cfg)._load_sdk()
+
+    sdk_shims = {
+        "antigravity": build_deterministic_agy_sdk_shim(),
+        "claude": build_deterministic_claude_sdk_shim(),
+        "deterministic-stub": None,
+    }
+    for provider, sdk_shim in sdk_shims.items():
         p_out = tmp_path / f"out_{provider}"
         setup = HarnessSetupConfig(
             provider=provider,
@@ -224,6 +320,7 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
             setup,
             output_dir=p_out,
             base_dir=sample_dir,
+            sdk_module=sdk_shim,
         )
         assert rep.overall_passed is True
         assert rep.status == "COMPLETED"
@@ -242,13 +339,125 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
         steward_hold_policy="pause",
         inject_adversarial_fault_on_attempt_1=False,
     )
+    pause_out = tmp_path / "out_pause"
     pause_rep = run_agentic_vault_pipeline(
         two_wave_spec,
         pause_setup,
-        output_dir=tmp_path / "out_pause",
+        output_dir=pause_out,
         base_dir=sample_dir,
     )
     assert pause_rep.status == "PAUSED_HOLD"
     assert pause_rep.overall_passed is False
+    assert pause_rep.output_validation.passed is True
     assert len(pause_rep.active_holds) == 1
     assert pause_rep.active_holds[0]["status"] == "PENDING"
+    pause_final_contract = yaml.safe_load(
+        (pause_out / "final_contract.yaml").read_text(encoding="utf-8")
+    )
+    pause_hub_names = {h["name"] for h in pause_final_contract.get("hubs", [])}
+    pause_sat_names = {s["name"] for s in pause_final_contract.get("satellites", [])}
+    assert "hub_document" not in pause_hub_names
+    assert "sat_document_customer_ai_provenance" not in pause_sat_names
+
+    # Test steward_hold_policy="reject_on_hold" on Wave 3 Tier-U3 candidate
+    reject_setup = HarnessSetupConfig(
+        provider="deterministic",
+        steward_hold_policy="reject_on_hold",
+        inject_adversarial_fault_on_attempt_1=False,
+    )
+    reject_out = tmp_path / "out_reject"
+    reject_rep = run_agentic_vault_pipeline(
+        two_wave_spec,
+        reject_setup,
+        output_dir=reject_out,
+        base_dir=sample_dir,
+    )
+    assert reject_rep.status == "FAILED"
+    assert reject_rep.overall_passed is False
+    assert reject_rep.output_validation.passed is False
+    assert any(
+        d["code"] == "WAVE_EXECUTION_REJECTED" for d in reject_rep.output_validation.diagnostics
+    )
+    wb03_events = [
+        ev for ev in reject_rep.observability_events if ev["workbench_view_id"] == "WB-03"
+    ]
+    assert len(wb03_events) == 2
+    assert wb03_events[-1]["status"] == ObservabilityVerdict.REJECT_WITH_TRACE.value
+    reject_final_contract = yaml.safe_load(
+        (reject_out / "final_contract.yaml").read_text(encoding="utf-8")
+    )
+    reject_hub_names = {h["name"] for h in reject_final_contract.get("hubs", [])}
+    reject_sat_names = {s["name"] for s in reject_final_contract.get("satellites", [])}
+    assert "hub_document" not in reject_hub_names
+    assert "sat_document_customer_ai_provenance" not in reject_sat_names
+
+
+def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
+    sample_dir = _sample_dir()
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    harness_setup = HarnessSetupConfig(
+        provider="deterministic",
+        inject_adversarial_fault_on_attempt_1=False,
+    )
+
+    cust_csv = tmp_path / "customers.csv"
+    cust_csv.write_text(
+        "customer_tax_id,legal_name,updated_at\n"
+        "TAX-US-01,Acme Corp,2026-01-01 00:00:00\n"
+        "TAX-US-02,Globex Inc,2026-01-02 00:00:00\n",
+        encoding="utf-8",
+    )
+    orders_opt_fk_csv = tmp_path / "orders_opt_fk.csv"
+    orders_opt_fk_csv.write_text(
+        "order_id,customer_tax_id,order_status,updated_at\n"
+        "ORD-01,TAX-US-01,CONFIRMED,2026-01-01 01:00:00\n"
+        "ORD-02,,DRAFT,2026-01-02 01:00:00\n",
+        encoding="utf-8",
+    )
+
+    cust_src = input_spec.waves[0].sources[0].model_copy(
+        update={
+            "data_path": str(cust_csv),
+            "business_key_columns": ["customer_tax_id"],
+            "surrogate_key_columns": [],
+            "foreign_key_mappings": {},
+            "pii_columns": [],
+        }
+    )
+    order_src = input_spec.waves[0].sources[1].model_copy(
+        update={
+            "data_path": str(orders_opt_fk_csv),
+            "business_key_columns": ["order_id"],
+            "surrogate_key_columns": [],
+            "foreign_key_mappings": {"customer_tax_id": "hub_customer"},
+            "pii_columns": [],
+        }
+    )
+    opt_wave = input_spec.waves[0].model_copy(update={"sources": [cust_src, order_src]})
+    opt_spec = input_spec.model_copy(
+        update={
+            "graph_a_ontology_path": str(sample_dir / "ontology" / "commerce_graph_a_ontology.yaml"),
+            "waves": [opt_wave],
+        }
+    )
+    out_dir = tmp_path / "out_opt_fk"
+    rep = run_agentic_vault_pipeline(
+        opt_spec,
+        harness_setup,
+        output_dir=out_dir,
+        base_dir=tmp_path,
+    )
+    assert rep.status == "COMPLETED"
+    assert rep.overall_passed is True
+    final_contract = yaml.safe_load((out_dir / "final_contract.yaml").read_text(encoding="utf-8"))
+    link_names = {lnk["name"] for lnk in final_contract.get("links", [])}
+    assert "lnk_order_customer" in link_names
+    fk_ledger_entries = [
+        entry
+        for entry in final_contract.get("column_triage_ledger", [])
+        if entry["bronze_table"] == "erp_netsuite.erp_orders"
+        and entry["column_name"] == "customer_tax_id"
+    ]
+    assert len(fk_ledger_entries) == 1
+    assert fk_ledger_entries[0]["target_dv_entity"] == "lnk_order_customer"
+    assert fk_ledger_entries[0]["elm_classification"] == "OPTIONAL_FOREIGN_KEY_REF"
