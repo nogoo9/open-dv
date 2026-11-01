@@ -52,7 +52,7 @@ constraints:
     duckdb-sandbox: ['domain-core', 'verifier', 'telemetry']
     agent-harness: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry']
     api-server: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness']
-    cli: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness']
+    cli: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness', 'api-server']
     protocol-sdk: []
     web-ui: ['protocol-sdk']
 

@@ -4,16 +4,27 @@ version = "0.1.0"
 description = "Open-DV Unified CLI (opendv and axi-dv)"
 requires-python = ">=3.12"
 dependencies = [
+    "httpx>=0.28.0",
+    "pydantic>=2.9.0",
     "opendv-core",
     "opendv-telemetry",
     "opendv-axi-verifier",
     "opendv-duckdb-sandbox",
     "opendv-agent-harness",
+    "opendv-platform-api",
 ]
 
 [project.scripts]
-opendv = "opendv_cli:main"
-axi-dv = "opendv_cli:axi_dv_main"
+opendv = "opendv_cli.main:app_main"
+axi-dv = "opendv_cli.main:axi_dv_main"
+
+[tool.uv.sources]
+opendv-core = { workspace = true }
+opendv-telemetry = { workspace = true }
+opendv-axi-verifier = { workspace = true }
+opendv-duckdb-sandbox = { workspace = true }
+opendv-agent-harness = { workspace = true }
+opendv-platform-api = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]
