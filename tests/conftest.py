@@ -33,10 +33,12 @@ _WORKSPACE_SRC_DIRS: tuple[Path, ...] = (
     REPO_ROOT / "packages" / "opendv-axi-verifier" / "src",
     REPO_ROOT / "packages" / "opendv-duckdb-sandbox" / "src",
     REPO_ROOT / "packages" / "opendv-agent-harness" / "src",
+    REPO_ROOT / "apps" / "opendv-platform-api" / "src",
+    REPO_ROOT / "apps" / "opendv-cli" / "src",
 )
 for _src_dir in _WORKSPACE_SRC_DIRS:
     _resolved_src = str(_src_dir.resolve())
-    if _resolved_src not in sys.path:
+    if _src_dir.is_dir() and _resolved_src not in sys.path:
         sys.path.insert(0, _resolved_src)
 
 SCHEMAS_DIR = REPO_ROOT / "schemas"

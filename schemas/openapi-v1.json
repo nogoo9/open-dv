@@ -1,0 +1,1710 @@
+{
+  "$id": "https://open-dv.dev/schemas/openapi-v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "components": {
+    "schemas": {
+      "ArtifactMetadataResponse": {
+        "additionalProperties": false,
+        "description": "Response descriptor for a Content-Addressable Store artifact.",
+        "properties": {
+          "artifact_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Name"
+          },
+          "byte_length": {
+            "minimum": 0.0,
+            "title": "Byte Length",
+            "type": "integer"
+          },
+          "content": {
+            "title": "Content"
+          },
+          "media_type": {
+            "default": "application/json",
+            "title": "Media Type",
+            "type": "string"
+          },
+          "sha256": {
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "sha256",
+          "byte_length",
+          "content"
+        ],
+        "title": "ArtifactMetadataResponse",
+        "type": "object"
+      },
+      "ArtifactUploadRequest": {
+        "additionalProperties": false,
+        "description": "Request payload for storing a JSON/text artifact in the Content-Addressable Store.",
+        "properties": {
+          "artifact_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Artifact Name"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "items": {},
+                "type": "array"
+              }
+            ],
+            "title": "Content"
+          },
+          "media_type": {
+            "default": "application/json",
+            "title": "Media Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "ArtifactUploadRequest",
+        "type": "object"
+      },
+      "CaptainHoldDecisionRequest": {
+        "additionalProperties": false,
+        "description": "Human-in-the-loop Steward decision resolving a Tier U3/G3/G4 hold (docs/08 \u00a75.2).",
+        "properties": {
+          "action": {
+            "default": "APPROVE",
+            "enum": [
+              "APPROVE",
+              "REJECT",
+              "ANSWER"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "enum": [
+                  "APPROVE",
+                  "REJECT",
+                  "ANSWER"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decision"
+          },
+          "decision_type": {
+            "const": "RESOLVE_CAPTAIN_HOLD",
+            "default": "RESOLVE_CAPTAIN_HOLD",
+            "title": "Decision Type",
+            "type": "string"
+          },
+          "event_id": {
+            "default": "evt-pe-004",
+            "title": "Event Id",
+            "type": "string"
+          },
+          "hold_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "hold-tier-u3-horizon-sovereign-vehicle",
+            "title": "Hold Id"
+          },
+          "resolution_notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolution Notes"
+          },
+          "selected_candidate_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Selected Candidate Id"
+          },
+          "steward_id": {
+            "default": "steward-captain",
+            "title": "Steward Id",
+            "type": "string"
+          },
+          "steward_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steward Rationale"
+          }
+        },
+        "title": "CaptainHoldDecisionRequest",
+        "type": "object"
+      },
+      "CaptainHoldDecisionResponse": {
+        "additionalProperties": false,
+        "description": "Result of applying a human Steward decision to an active hold.",
+        "properties": {
+          "action": {
+            "title": "Action",
+            "type": "string"
+          },
+          "decision_id": {
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "hold_id": {
+            "title": "Hold Id",
+            "type": "string"
+          },
+          "next_event_id": {
+            "title": "Next Event Id",
+            "type": "string"
+          },
+          "next_stage_id": {
+            "title": "Next Stage Id",
+            "type": "string"
+          },
+          "resolved_at_utc": {
+            "title": "Resolved At Utc",
+            "type": "string"
+          },
+          "resumed_run_id": {
+            "title": "Resumed Run Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "ACCEPTED",
+              "REJECTED"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_run_status": {
+            "$ref": "#/components/schemas/RunStatus"
+          }
+        },
+        "required": [
+          "decision_id",
+          "hold_id",
+          "action",
+          "status",
+          "resumed_run_id",
+          "next_stage_id",
+          "next_event_id",
+          "updated_run_status",
+          "resolved_at_utc"
+        ],
+        "title": "CaptainHoldDecisionResponse",
+        "type": "object"
+      },
+      "CreateProjectRequest": {
+        "additionalProperties": false,
+        "description": "Request payload to register a Data Vault 2.0 project (docs/08 \u00a75.2).",
+        "properties": {
+          "bronze_sources": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Bronze Sources",
+            "type": "array"
+          },
+          "canonical_ir_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "examples/private_equity/pe_canonical_ir.json",
+            "title": "Canonical Ir Path"
+          },
+          "contract_path": {
+            "default": "examples/private_equity/dv_pe_model_contract.yaml",
+            "title": "Contract Path",
+            "type": "string"
+          },
+          "display_name": {
+            "default": "Apex Horizon Capital Partners \u2014 Private Equity Vault",
+            "title": "Display Name",
+            "type": "string"
+          },
+          "domain": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain"
+          },
+          "domain_namespace": {
+            "default": "pe_asset_management",
+            "title": "Domain Namespace",
+            "type": "string"
+          },
+          "graph_a_ontology_path": {
+            "default": "examples/private_equity/pe_graph_a_ontology.yaml",
+            "title": "Graph A Ontology Path",
+            "type": "string"
+          },
+          "graph_b_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "examples/private_equity/pe_graph_b_profile.json",
+            "title": "Graph B Path"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "project_id": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$",
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "CreateProjectRequest",
+        "type": "object"
+      },
+      "CreateRunRequest": {
+        "additionalProperties": false,
+        "description": "Request payload to start a verification, compilation, and sandbox run (docs/08 \u00a75.2).",
+        "properties": {
+          "assertion_cutoff_ts": {
+            "default": "2026-11-01T23:59:59Z",
+            "title": "Assertion Cutoff Ts",
+            "type": "string"
+          },
+          "contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Contract Path"
+          },
+          "execute_duckdb_sandbox": {
+            "default": true,
+            "title": "Execute Duckdb Sandbox",
+            "type": "boolean"
+          },
+          "harness_provider": {
+            "default": "antigravity",
+            "enum": [
+              "antigravity",
+              "claude",
+              "claude-agent",
+              "deterministic-stub"
+            ],
+            "title": "Harness Provider",
+            "type": "string"
+          },
+          "max_repair_retries": {
+            "default": 3,
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Max Repair Retries",
+            "type": "integer"
+          },
+          "model_tier_override": {
+            "anyOf": [
+              {
+                "enum": [
+                  "argon",
+                  "flash"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Tier Override"
+          },
+          "project_id": {
+            "pattern": "^[a-z0-9][a-z0-9_-]{2,63}$",
+            "title": "Project Id",
+            "type": "string"
+          },
+          "run_sandbox_batches": {
+            "default": true,
+            "title": "Run Sandbox Batches",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "project_id"
+        ],
+        "title": "CreateRunRequest",
+        "type": "object"
+      },
+      "GateScorecardSummary": {
+        "additionalProperties": false,
+        "description": "6-Gate verification scorecard summary (docs/08 \u00a75.2 & docs/10 \u00a72.3).",
+        "properties": {
+          "gate_0_profile_drift": {
+            "$ref": "#/components/schemas/GateVerdictStatus",
+            "default": "PASS"
+          },
+          "gate_1_contract_grain": {
+            "$ref": "#/components/schemas/GateVerdictStatus",
+            "default": "AUTO_REPAIRED"
+          },
+          "gate_2_sqlglot_ast": {
+            "$ref": "#/components/schemas/GateVerdictStatus",
+            "default": "PASS"
+          },
+          "gate_3_networkx_dag": {
+            "$ref": "#/components/schemas/GateVerdictStatus",
+            "default": "PASS"
+          },
+          "gate_4_yagni_cost_guard": {
+            "$ref": "#/components/schemas/GateVerdictStatus",
+            "default": "AUTO-FIX"
+          },
+          "gate_5_duckdb_sandbox": {
+            "$ref": "#/components/schemas/GateVerdictStatus",
+            "default": "PASS"
+          }
+        },
+        "title": "GateScorecardSummary",
+        "type": "object"
+      },
+      "GateVerdictStatus": {
+        "enum": [
+          "PENDING",
+          "PASS",
+          "AUTO-FIX",
+          "AUTO_REPAIRED",
+          "REJECT-WITH-TRACE",
+          "ASK-USER"
+        ],
+        "type": "string"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "ProjectResponse": {
+        "additionalProperties": false,
+        "description": "Registered Data Vault 2.0 project descriptor (docs/08 \u00a75.2 & docs/10 \u00a72.3).",
+        "properties": {
+          "canonical_ir_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "examples/private_equity/pe_canonical_ir.json",
+            "title": "Canonical Ir Path"
+          },
+          "contract_path": {
+            "default": "examples/private_equity/dv_pe_model_contract.yaml",
+            "title": "Contract Path",
+            "type": "string"
+          },
+          "created_at_utc": {
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "domain_namespace": {
+            "title": "Domain Namespace",
+            "type": "string"
+          },
+          "graph_a_ontology_path": {
+            "default": "examples/private_equity/pe_graph_a_ontology.yaml",
+            "title": "Graph A Ontology Path",
+            "type": "string"
+          },
+          "graph_a_sha256": {
+            "title": "Graph A Sha256",
+            "type": "string"
+          },
+          "graph_b_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": "examples/private_equity/pe_graph_b_profile.json",
+            "title": "Graph B Path"
+          },
+          "latest_run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Latest Run Id"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "project_id",
+          "display_name",
+          "domain_namespace",
+          "graph_a_sha256",
+          "created_at_utc"
+        ],
+        "title": "ProjectResponse",
+        "type": "object"
+      },
+      "ProjectRunDTO": {
+        "additionalProperties": false,
+        "description": "Status and scorecard descriptor for a platform verification run.",
+        "properties": {
+          "active_hold_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Active Hold Ids",
+            "type": "array"
+          },
+          "completed_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At Utc"
+          },
+          "current_stage_id": {
+            "title": "Current Stage Id",
+            "type": "string"
+          },
+          "current_view_id": {
+            "title": "Current View Id",
+            "type": "string"
+          },
+          "decisions_url": {
+            "title": "Decisions Url",
+            "type": "string"
+          },
+          "event_count": {
+            "minimum": 0.0,
+            "title": "Event Count",
+            "type": "integer"
+          },
+          "events_sse_url": {
+            "title": "Events Sse Url",
+            "type": "string"
+          },
+          "gate_scorecard": {
+            "$ref": "#/components/schemas/GateScorecardSummary"
+          },
+          "gates_url": {
+            "title": "Gates Url",
+            "type": "string"
+          },
+          "harness_provider": {
+            "enum": [
+              "antigravity",
+              "claude",
+              "claude-agent",
+              "deterministic-stub"
+            ],
+            "title": "Harness Provider",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          },
+          "sandbox_url": {
+            "title": "Sandbox Url",
+            "type": "string"
+          },
+          "started_at_utc": {
+            "title": "Started At Utc",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RunStatus"
+          }
+        },
+        "required": [
+          "run_id",
+          "project_id",
+          "harness_provider",
+          "status",
+          "started_at_utc",
+          "current_stage_id",
+          "current_view_id",
+          "event_count",
+          "events_sse_url",
+          "gates_url",
+          "sandbox_url",
+          "decisions_url"
+        ],
+        "title": "ProjectRunDTO",
+        "type": "object"
+      },
+      "RunStatus": {
+        "description": "Execution lifecycle status of a platform verification or sandbox run (docs/08 \u00a75.2).",
+        "enum": [
+          "PENDING",
+          "RUNNING",
+          "PAUSED_HOLD",
+          "COMPLETED",
+          "FAILED",
+          "ABORTED"
+        ],
+        "title": "RunStatus",
+        "type": "string"
+      },
+      "SandboxExecutionResponse": {
+        "additionalProperties": false,
+        "description": "Structured response from the ephemeral DuckDB 4-Zone sandbox (docs/08 \u00a75.2).",
+        "properties": {
+          "all_batches_passed": {
+            "title": "All Batches Passed",
+            "type": "boolean"
+          },
+          "assertion_cutoff_ts": {
+            "title": "Assertion Cutoff Ts",
+            "type": "string"
+          },
+          "batch_verdicts": {
+            "additionalProperties": {
+              "enum": [
+                "PASS",
+                "FAIL"
+              ],
+              "type": "string"
+            },
+            "title": "Batch Verdicts",
+            "type": "object"
+          },
+          "dynamic_rules_passed": {
+            "title": "Dynamic Rules Passed",
+            "type": "integer"
+          },
+          "dynamic_rules_total": {
+            "default": 15,
+            "title": "Dynamic Rules Total",
+            "type": "integer"
+          },
+          "query_d10_rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Query D10 Rows",
+            "type": "array"
+          },
+          "query_d10b_rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Query D10B Rows",
+            "type": "array"
+          },
+          "query_type": {
+            "title": "Query Type",
+            "type": "string"
+          },
+          "replay_delta_rows": {
+            "default": 0,
+            "title": "Replay Delta Rows",
+            "type": "integer"
+          },
+          "row_count": {
+            "minimum": 0.0,
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "rows": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "run_id": {
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "query_type",
+          "assertion_cutoff_ts",
+          "all_batches_passed",
+          "batch_verdicts",
+          "dynamic_rules_passed",
+          "row_count"
+        ],
+        "title": "SandboxExecutionResponse",
+        "type": "object"
+      },
+      "SandboxQueryRequest": {
+        "additionalProperties": false,
+        "description": "Request to run a parameterized audit query or 4-Batch sequence in the DuckDB sandbox.",
+        "properties": {
+          "assertion_cutoff_ts": {
+            "default": "2026-11-15 23:59:59",
+            "title": "Assertion Cutoff Ts",
+            "type": "string"
+          },
+          "query_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Query Id"
+          },
+          "query_type": {
+            "default": "ADVERSARIAL_BATCHES_1_TO_4",
+            "enum": [
+              "ADVERSARIAL_BATCHES_1_TO_4",
+              "QUERY_D10_PIT",
+              "QUERY_D10B_VALUATION",
+              "QUERY_D10_LP_COMMITMENT_PIT",
+              "QUERY_D10B_PORTCO_VALUATION_PIT",
+              "RUN_4_BATCHES",
+              "VERIFY_DYN_001_015"
+            ],
+            "title": "Query Type",
+            "type": "string"
+          }
+        },
+        "title": "SandboxQueryRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Headless Platform REST + SSE API Server for No-Mistake Agentic Data Vault 2.0 verification, 4-Zone DuckDB sandbox execution, 5-Tier RBAC observability, and Steward Captain-Hold resolution.",
+    "title": "Open-DV Platform API",
+    "version": "0.1.0"
+  },
+  "jsonSchemaDialect": "https://json-schema.org/draft/2020-12/schema",
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/artifacts": {
+      "post": {
+        "description": "Store an immutable artifact in the Content-Addressable Store and return its SHA-256.",
+        "operationId": "upload_artifact_api_v1_artifacts_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ArtifactUploadRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactMetadataResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Artifact",
+        "tags": [
+          "artifacts"
+        ]
+      }
+    },
+    "/api/v1/artifacts/{sha256}": {
+      "get": {
+        "description": "Fetch an immutable CAS artifact by its 64-character lowercase hex SHA-256 digest.",
+        "operationId": "get_artifact_api_v1_artifacts__sha256__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "sha256",
+            "required": true,
+            "schema": {
+              "title": "Sha256",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactMetadataResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Artifact",
+        "tags": [
+          "artifacts"
+        ]
+      }
+    },
+    "/api/v1/health": {
+      "get": {
+        "description": "Liveness and readiness probe for the Open-DV Platform API.",
+        "operationId": "get_health_api_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Health Api V1 Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Health",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/platform/capabilities": {
+      "get": {
+        "description": "Return supported agent harnesses, 5-Tier RBAC roles, WB-00..WB-11 views, and gates.",
+        "operationId": "get_platform_capabilities_api_v1_platform_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Platform Capabilities Api V1 Platform Capabilities Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Platform Capabilities",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/api/v1/projects": {
+      "get": {
+        "description": "List all registered Data Vault 2.0 projects.",
+        "operationId": "list_projects_api_v1_projects_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectResponse"
+                  },
+                  "title": "Response List Projects Api V1 Projects Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Projects",
+        "tags": [
+          "projects"
+        ]
+      },
+      "post": {
+        "description": "Register a Data Vault 2.0 project contract and Graph A / Graph B paths.",
+        "operationId": "register_project_api_v1_projects_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Register Project",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}": {
+      "get": {
+        "description": "Return metadata for a specific registered project.",
+        "operationId": "get_project_api_v1_projects__project_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Project",
+        "tags": [
+          "projects"
+        ]
+      }
+    },
+    "/api/v1/runs": {
+      "get": {
+        "description": "List all runs, optionally filtered by project_id.",
+        "operationId": "list_runs_api_v1_runs_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "project_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Project Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectRunDTO"
+                  },
+                  "title": "Response List Runs Api V1 Runs Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Runs",
+        "tags": [
+          "runs"
+        ]
+      },
+      "post": {
+        "description": "Start a verification, compilation, and sandbox execution run.",
+        "operationId": "start_run_api_v1_runs_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRunDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Start Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}": {
+      "get": {
+        "description": "Return status and gate scorecard for a specific run.",
+        "operationId": "get_run_api_v1_runs__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRunDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/abort": {
+      "post": {
+        "description": "Abort an active run.",
+        "operationId": "abort_run_api_v1_runs__run_id__abort_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectRunDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Abort Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/decisions": {
+      "get": {
+        "description": "List active Captain-Holds and resolved Steward decisions for a run.",
+        "operationId": "list_run_decisions_api_v1_runs__run_id__decisions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response List Run Decisions Api V1 Runs  Run Id  Decisions Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Run Decisions",
+        "tags": [
+          "decisions"
+        ]
+      },
+      "post": {
+        "description": "Resolve an active Tier U3 / G3 / G4 Captain-Hold with a Steward decision.",
+        "operationId": "submit_captain_hold_decision_api_v1_runs__run_id__decisions_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptainHoldDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptainHoldDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Captain Hold Decision",
+        "tags": [
+          "decisions"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/events": {
+      "get": {
+        "description": "Server-Sent Events (`text/event-stream`) stream of RBAC-redacted VaultObservabilityEvents.",
+        "operationId": "stream_run_events_api_v1_runs__run_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "last_event_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last Event Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Stream Run Events",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/gates": {
+      "get": {
+        "description": "Return Gate G1/G2/G3/G4 scorecard and theorem proof report for a run.",
+        "operationId": "get_run_gates_api_v1_runs__run_id__gates_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Run Gates Api V1 Runs  Run Id  Gates Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Gates",
+        "tags": [
+          "gates"
+        ]
+      },
+      "post": {
+        "description": "Trigger or re-evaluate Gate G1/G2/G3/G4 verification for a run.",
+        "operationId": "evaluate_run_gates_api_v1_runs__run_id__gates_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Evaluate Run Gates Api V1 Runs  Run Id  Gates Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Evaluate Run Gates",
+        "tags": [
+          "gates"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/sandbox": {
+      "get": {
+        "description": "Return 4-Zone DuckDB sandbox state and execution history for a run.",
+        "operationId": "get_run_sandbox_state_api_v1_runs__run_id__sandbox_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Run Sandbox State Api V1 Runs  Run Id  Sandbox Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Sandbox State",
+        "tags": [
+          "sandbox"
+        ]
+      },
+      "post": {
+        "description": "Execute a parameterized audit query or 4-Batch sequence in the DuckDB sandbox.",
+        "operationId": "execute_run_sandbox_query_api_v1_runs__run_id__sandbox_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxExecutionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Execute Run Sandbox Query",
+        "tags": [
+          "sandbox"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/workbench/{view_id}": {
+      "get": {
+        "description": "Return RBAC-redacted 3-Layer workbench view state (`WB-00` through `WB-11`).",
+        "operationId": "get_workbench_view_projection_api_v1_runs__run_id__workbench__view_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "view_id",
+            "required": true,
+            "schema": {
+              "title": "View Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Get Workbench View Projection Api V1 Runs  Run Id  Workbench  View Id  Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Workbench View Projection",
+        "tags": [
+          "workbench"
+        ]
+      }
+    }
+  }
+}

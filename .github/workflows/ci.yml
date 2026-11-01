@@ -26,7 +26,8 @@ jobs:
       - name: Install validation dependencies
         run: |
           python3 -m pip install --upgrade pip
-          python3 -m pip install pyyaml jsonschema duckdb pytest pytest-asyncio pydantic networkx sqlglot
+          python3 -m pip install pyyaml jsonschema duckdb pytest pytest-asyncio pydantic networkx sqlglot fastapi uvicorn httpx
+          python3 -m pip install --no-deps -e packages/opendv-core -e packages/opendv-telemetry -e packages/opendv-axi-verifier -e packages/opendv-duckdb-sandbox -e packages/opendv-agent-harness -e apps/opendv-platform-api -e apps/opendv-cli
 
       - name: Validate JSON Schemas (Draft 2020-12), YAML Contract, Python Reference Algorithms, DuckDB SQL Bundle & HTML Guide
         run: |
