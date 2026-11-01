@@ -1,7 +1,6 @@
 """Immutable Content-Addressable Store (CAS) for Open-DV artifact snapshots.
 
-Conforms to docs/06-explainability-and-observability-spec.md (§1.1, §1.2)
-and docs/08-platform-mvp-monorepo-and-api-spec.md (§4.2).
+Conforms to docs/06-explainability-and-observability-spec.md (§1.1, §1.2).
 """
 
 from __future__ import annotations

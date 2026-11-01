@@ -1,7 +1,6 @@
 """Append-Only Telemetry Ledger Emitter and Async SSE Streaming Engine.
 
-Conforms to docs/06-explainability-and-observability-spec.md (§1.1, §1.4),
-docs/08-platform-mvp-monorepo-and-api-spec.md (§4.2, §5.2),
+Conforms to docs/06-explainability-and-observability-spec.md (§1.1, §1.4)
 and schemas/vault-observability-event.schema.json.
 """
 

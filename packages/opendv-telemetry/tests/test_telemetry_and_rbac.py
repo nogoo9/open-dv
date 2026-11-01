@@ -496,9 +496,7 @@ class TestPiiAndEntropyDetector:
         findings = scan_event_for_leaks(ev)
         assert any(f.leak_type == "HIGH_ENTROPY_TOKEN_IN_LAYER1" for f in findings)
 
-    def test_layer1_allows_snake_case_and_dotted_identifiers(
-        self, base_valid_event: dict
-    ) -> None:
+    def test_layer1_allows_snake_case_and_dotted_identifiers(self, base_valid_event: dict) -> None:
         ev = dict(base_valid_event)
         ev["layer1_story_banner"]["headline"] = (
             "Merged sat_lp_commitment_investran from investran.src_lp_investors"

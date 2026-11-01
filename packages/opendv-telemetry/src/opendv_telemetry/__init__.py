@@ -1,7 +1,7 @@
 """Open-DV Telemetry: Immutable Event Ledger, CAS Store, and 5-Tier RBAC Redaction.
 
 Conforms to docs/06-explainability-and-observability-spec.md
-and docs/08-platform-mvp-monorepo-and-api-spec.md (§4.2, §5.2).
+and schemas/vault-observability-event.schema.json.
 """
 
 from __future__ import annotations

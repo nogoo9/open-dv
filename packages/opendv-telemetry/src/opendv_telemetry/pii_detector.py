@@ -85,7 +85,7 @@ def scan_event_for_leaks(
     Enforces:
     1. Layer 1 Story Banner (`headline`, `business_impact`) must contain ZERO raw 64-hex digests.
     2. Layer 1 and Layer 2 must not contain unmasked SSN, EIN, or ABA routing numbers.
-    3. Layer 1 must not contain high-entropy unredacted cryptographic tokens (>=20 chars, H >= 3.6).
+    3. Layer 1 must not contain high-entropy unredacted cryptographic tokens (>=24 chars, H >= 3.6).
     """
     if isinstance(event, VaultObservabilityEvent):
         ev: dict[str, Any] = event.model_dump(mode="json", exclude_none=True)
