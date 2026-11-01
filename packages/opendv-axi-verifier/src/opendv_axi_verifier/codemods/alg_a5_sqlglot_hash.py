@@ -5,7 +5,7 @@ collision-free Data Vault 2.0 `hk_*`, `hk_lnk_*`, and `hash_diff` expressions:
   - Length-prefixed encoding: `CAST(OCTET_LENGTH(val) AS VARCHAR) || ':' || val`
   - Positional null token: `'-1:^^'`
   - Inter-column delimiter: `'||'`
-  - All-null business key zero key: `64` hex `'0'` characters
+  - All-null/empty business key zero key: `64` hex `'0'` characters
   - Alphabetical column sorting on `hash_diff`
 """
 

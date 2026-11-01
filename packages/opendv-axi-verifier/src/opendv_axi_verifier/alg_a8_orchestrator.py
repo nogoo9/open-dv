@@ -212,7 +212,8 @@ def run_axi_dv_verification_pipeline(
     if deployed_contract is not None:
         diagnostics.extend(verify_additive_evolution_invariants(deployed_contract, contract))
 
-    # 4. Gate 1 & Gate 2 Assertions: Contract Schema, Grain Words, Anti-Silo, Surrogate Keys
+    # 4. Gate 1 & Gate 2 Assertions: Contract Schema, Grain Words, Anti-Silo, Surrogate Keys,
+    #    and Column-Level Invariants (DV-COL-001..012)
     diagnostics.extend(
         verify_gate1_contract_and_grain(
             contract,
@@ -233,7 +234,7 @@ def run_axi_dv_verification_pipeline(
         )
     )
 
-    # 5. Gate 5 Assertion: Unstructured Grounding, Span & 3-Tier ER Routing (Algorithm A.9b)
+    # 6. Gate 5 Assertion: Unstructured Grounding, Span & 3-Tier ER Routing (Algorithm A.9b)
     if parsed_doc_samples is not None or any(
         lnk.get("link_type") == "UNSTRUCTURED_EXTRACTION_LINK" for lnk in contract.get("links", [])
     ):
@@ -248,11 +249,11 @@ def run_axi_dv_verification_pipeline(
 
     er_decisions = evaluate_unstructured_er_routing(bronze_profile, parsed_doc_samples)
 
-    # 6. Gate 6 Assertion: SQLGlot Physical SQL AST Linter (Algorithm A.6)
+    # 7. Gate 6 Assertion: SQLGlot Physical SQL AST Linter (Algorithm A.6)
     if compiled_sql_models:
         diagnostics.extend(verify_sql_models_batch(compiled_sql_models))
 
-    # 7. Determine overall status & build @toon_v1 trace
+    # 8. Determine overall status & build @toon_v1 trace
     if diagnostics:
         has_reject = any(not d.startswith("ASK_USER") for d in diagnostics)
         status = "REJECT_WITH_TRACE" if has_reject else "ASK_USER"
@@ -270,7 +271,7 @@ def run_axi_dv_verification_pipeline(
     )
     toon_text = serialize_toon_v1(toon_trace)
 
-    # 8. Optional Observability Ledger Emission via opendv-telemetry
+    # 9. Optional Observability Ledger Emission via opendv-telemetry
     emitted_events: list[dict[str, Any]] = []
     if ledger_emitter is not None:
         elapsed_ms = max(0.01, (time.perf_counter() - t0) * 1000.0)
