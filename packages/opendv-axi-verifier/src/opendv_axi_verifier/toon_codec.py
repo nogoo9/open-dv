@@ -68,9 +68,14 @@ class ToonTrace:
         }
 
 
+def _sanitize_single_line(value: str) -> str:
+    return " ".join(str(value).splitlines()).strip()
+
+
 def _quote_csv_field(value: str, force_quotes: bool = False) -> str:
-    escaped = value.replace('"', '""')
-    if force_quotes or any(ch in value for ch in (",", '"', " ", "\n", ":", ";", "=")):
+    single_line = _sanitize_single_line(value)
+    escaped = single_line.replace('"', '""')
+    if force_quotes or any(ch in single_line for ch in (",", '"', " ", ":", ";", "=")):
         return f'"{escaped}"'
     return escaped
 
@@ -93,9 +98,9 @@ def serialize_toon_v1(trace: ToonTrace | dict[str, Any]) -> str:
 
     lines: list[str] = [
         "@toon_v1",
-        f"run_id: {trace_obj.run_id}",
-        f"attempt: {trace_obj.attempt}",
-        f"status: {trace_obj.status}",
+        f"run_id: {_sanitize_single_line(trace_obj.run_id)}",
+        f"attempt: {_sanitize_single_line(trace_obj.attempt)}",
+        f"status: {_sanitize_single_line(trace_obj.status)}",
         f"violations[{len(trace_obj.violations)}]{{gate,rule,action,target,fix}}:",
     ]
 
@@ -180,33 +185,36 @@ def parse_toon_v1(toon_text: str) -> ToonTrace:
 
 def diagnostic_string_to_toon_violation(diag: str) -> ToonViolation:
     """Convert a human-readable verifier diagnostic string into a structured `ToonViolation`."""
-    upper = diag.upper()
+    clean_diag = _sanitize_single_line(diag)
+    upper = clean_diag.upper()
     if upper.startswith("ALL_GATES_GREEN"):
         return ToonViolation(
             gate="G6",
             rule="ALL_GATES_GREEN",
             action="PASS",
             target="contract",
-            fix=diag,
+            fix=clean_diag,
         )
 
     # Infer gate
     gate = "G1"
-    m_gate = _GATE_NUM_RE.search(diag)
+    m_gate = _GATE_NUM_RE.search(clean_diag)
     if m_gate:
         g_num = m_gate.group(1) or m_gate.group(2)
-        gate = f"G{g_num}"
-    elif "DV-STR-" in diag or "DV-COL-" in diag:
+        gate = "G3" if g_num == "0" else f"G{g_num}"
+    elif "DV-COL-" in clean_diag:
+        gate = "G2"
+    elif "DV-STR-" in clean_diag:
         gate = "G3"
-    elif "DV-AST-" in diag:
+    elif "DV-AST-" in clean_diag:
         gate = "G6"
-    elif "DV-EVO-" in diag or "BREAKING_EVOLUTION" in diag:
+    elif "DV-EVO-" in clean_diag or "BREAKING_EVOLUTION" in clean_diag:
         gate = "G3"
-    elif "UNSTRUCTURED_VIOLATION" in diag:
+    elif "UNSTRUCTURED_VIOLATION" in clean_diag:
         gate = "G5"
 
     # Infer rule code
-    m_rule = _RULE_CODE_RE.search(diag)
+    m_rule = _RULE_CODE_RE.search(clean_diag)
     rule = m_rule.group(1) if m_rule else "DV-RULE-001"
 
     # Infer action
@@ -218,11 +226,11 @@ def diagnostic_string_to_toon_violation(diag: str) -> ToonViolation:
         action = "REJECT"
 
     # Infer target entity
-    m_target = _QUOTED_ENTITY_RE.search(diag)
+    m_target = _QUOTED_ENTITY_RE.search(clean_diag)
     target = m_target.group(1) if m_target else "contract"
 
     # Clean message for fix column
-    fix_msg = diag.split(":", 1)[-1].strip() if ":" in diag else diag.strip()
+    fix_msg = clean_diag.split(":", 1)[-1].strip() if ":" in clean_diag else clean_diag.strip()
     return ToonViolation(
         gate=gate,
         rule=rule,

@@ -22,6 +22,14 @@ import math
 from typing import Any
 
 PII_ISOLATION_CLASSES: frozenset[str] = frozenset({"PII_HIGH", "PCI"})
+VALID_VOLATILITY_TIERS: frozenset[str] = frozenset(
+    {"UNCLASSIFIED", "STATIC", "STANDARD", "HIGH_FREQ", "ADDITIVE_DRIFT_COMPANION"}
+)
+TIER_BUCKET_TO_ENUM: dict[str, str] = {
+    "static": "STATIC",
+    "core": "STANDARD",
+    "high_freq": "HIGH_FREQ",
+}
 SECONDARY_CADENCE_SUFFIXES: tuple[str, ...] = (
     "_fx_high_freq",
     "_high_freq",
@@ -59,10 +67,21 @@ def _normalize_security_class(raw_class: str | None) -> str:
     return "PUBLIC"
 
 
+def _normalize_volatility_tier(raw_tier: str | None, default: str = "STANDARD") -> str:
+    if not raw_tier:
+        return default
+    upper = str(raw_tier).upper()
+    if upper in VALID_VOLATILITY_TIERS:
+        return upper
+    if upper == "CORE":
+        return "STANDARD"
+    return default
+
+
 def _set_ledger_target(entry: dict[str, Any], target_name: str) -> None:
-    if "target_dv_entity" in entry:
+    if "target_dv_entity" in entry or "target_entity" not in entry:
         entry["target_dv_entity"] = target_name
-    if "target_entity" in entry or "target_dv_entity" not in entry:
+    if "target_entity" in entry:
         entry["target_entity"] = target_name
 
 
@@ -114,10 +133,23 @@ def _extract_profile_lookup(
                     if not isinstance(col, dict) or "column_name" not in col:
                         continue
                     c_name = str(col["column_name"])
-                    sec = _normalize_security_class(
-                        col.get("security_classification") or col.get("pii_classification")
+                    raw_sec = (
+                        col.get("security_classification")
+                        or col.get("security_tag")
+                        or col.get("pii_classification")
                     )
+                    if not raw_sec:
+                        cand_role = str(col.get("candidate_role", "")).upper()
+                        if cand_role == "PII_RESTRICTED_PAYLOAD":
+                            raw_sec = "PII_HIGH"
+                        elif cand_role == "MNPI_VALUATION_PAYLOAD":
+                            raw_sec = "CONFIDENTIAL"
+                    sec = _normalize_security_class(raw_sec)
                     freq = col.get("change_freq")
+                    if freq is None:
+                        freq = col.get("drift_rate_lambda")
+                    if freq is None:
+                        freq = col.get("cdc_lambda_per_day")
                     if freq is None:
                         freq = col.get("daily_change_frequency")
                     if freq is None:
@@ -136,7 +168,9 @@ def _extract_profile_lookup(
                         "security_classification": sec,
                         "change_freq": float(freq),
                         "avg_width_bytes": int(col.get("avg_width_bytes", 32)),
-                        "active_rows": int(col.get("active_rows", row_count)),
+                        "active_rows": int(
+                            col.get("active_rows", col.get("table_row_count", row_count))
+                        ),
                     }
                 col_profiles[b_table] = t_cols
         return col_profiles, table_meta
@@ -153,16 +187,27 @@ def _extract_profile_lookup(
             if col_name == "yagni_telemetry" or not isinstance(metrics, dict):
                 continue
             sec = _normalize_security_class(
-                metrics.get("security_classification") or metrics.get("pii_classification")
+                metrics.get("security_classification")
+                or metrics.get("security_tag")
+                or metrics.get("pii_classification")
             )
             freq = metrics.get("change_freq")
             if freq is None:
-                freq = metrics.get("daily_change_frequency", 0.0)
+                freq = metrics.get("drift_rate_lambda")
+            if freq is None:
+                freq = metrics.get("cdc_lambda_per_day")
+            if freq is None:
+                freq = metrics.get(
+                    "daily_change_frequency",
+                    metrics.get("update_frequency_per_row_per_day", 0.0),
+                )
             t_cols[col_name] = {
                 "security_classification": sec,
                 "change_freq": float(freq),
                 "avg_width_bytes": int(metrics.get("avg_width_bytes", 32)),
-                "active_rows": int(metrics.get("active_rows", 1_000_000)),
+                "active_rows": int(
+                    metrics.get("active_rows", metrics.get("table_row_count", 1_000_000))
+                ),
             }
         col_profiles[b_table] = t_cols
 
@@ -192,13 +237,13 @@ def _compute_w_amp_mb_per_day(
     b_static_bytes = sum(
         int(t_profile.get(c, {}).get("avg_width_bytes", 32))
         for c in columns
-        if float(t_profile.get(c, {}).get("change_freq", 0.0)) <= 1e-3
+        if float(t_profile.get(c, {}).get("change_freq", 0.0)) <= 5e-2
     )
     n_rows = max(
         [int(t_profile.get(c, {}).get("active_rows", 1_000_000)) for c in columns]
         or [int(t_meta.get("row_count", 1_000_000))]
     )
-    w_amp_mb_per_day = (n_rows * max_lambda * b_static_bytes) / 1e6
+    w_amp_mb_per_day = (n_rows * max_lambda * b_static_bytes) / (1024 * 1024)
     return w_amp_mb_per_day, delta_log_lambda
 
 
@@ -312,10 +357,7 @@ def _merge_yagni_micro_satellites(
         for entry in ledger:
             target = str(entry.get("target_entity") or entry.get("target_dv_entity") or "")
             if target in rename_map:
-                if "target_dv_entity" in entry:
-                    entry["target_dv_entity"] = rename_map[target]
-                if "target_entity" in entry or "target_dv_entity" not in entry:
-                    entry["target_entity"] = rename_map[target]
+                _set_ledger_target(entry, rename_map[target])
 
     filtered = [sat for idx, sat in enumerate(satellites) if idx not in merged_indices_to_skip]
     return filtered, merge_events
@@ -398,7 +440,9 @@ def codemod_split_satellites_3axis(
                     for c in c_pii
                 ]
             )
-            sat_pii["volatility_tier"] = sat.get("volatility_tier") or "MIXED_PII"
+            sat_pii["volatility_tier"] = _normalize_volatility_tier(
+                sat.get("volatility_tier"), default="STANDARD"
+            )
             sat_pii["payload_columns"] = sorted(c_pii)
             new_satellites.append(sat_pii)
             for entry in ledger:
@@ -457,7 +501,7 @@ def codemod_split_satellites_3axis(
                             for c in cols
                         ]
                     )
-                    sat_tier["volatility_tier"] = tier_name.upper()
+                    sat_tier["volatility_tier"] = TIER_BUCKET_TO_ENUM[tier_name]
                     sat_tier["payload_columns"] = sorted(cols)
                     new_satellites.append(sat_tier)
                     for entry in ledger:
@@ -468,6 +512,10 @@ def codemod_split_satellites_3axis(
             sat_core = copy.deepcopy(sat)
             core_name = str(sat["name"]) if not c_pii else f"sat_{base_slug}_core"
             sat_core["name"] = core_name
+            if "volatility_tier" in sat_core:
+                sat_core["volatility_tier"] = _normalize_volatility_tier(
+                    sat_core.get("volatility_tier"), default="STANDARD"
+                )
             base_sec = _normalize_security_class(sat.get("security_classification", "PUBLIC"))
             col_secs = [
                 _normalize_security_class(

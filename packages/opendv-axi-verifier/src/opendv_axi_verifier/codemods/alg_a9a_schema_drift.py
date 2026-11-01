@@ -331,10 +331,12 @@ def codemod_intra_source_schema_drift(
     renames (`similarity >= 0.85`), or loses columns in a subsequent schema epoch:
       - Keeps the deployed Satellite's `payload_columns` 100% immutable so historical
         `hash_diff` values never invalidate.
-      - Aliases renamed columns in `staging_column_aliases` (`new_col -> old_col`).
+      - Maps renamed columns (`new_col -> old_col`) back to the deployed Satellite in
+        `column_triage_ledger` with zero Vault DDL mutation.
       - Records dropped columns in `soft_deprecated_columns`.
       - Spins off genuinely new columns into an additive companion Satellite
         (`sat_<entity>_ext_<schema_epoch_tag>` or `companion_name_override`).
+      - Escalates `KEY_DRIFT` (`action == "ASK-USER"`) findings into `unmapped_escalations`.
     """
     ir = copy.deepcopy(candidate_contract)
     deployed_sats = {
@@ -342,6 +344,43 @@ def codemod_intra_source_schema_drift(
     }
     updated_satellites: list[dict[str, Any]] = []
     ledger: list[dict[str, Any]] = ir.get("column_triage_ledger", [])
+    use_v5_ledger = str(ir.get("contract_version", "")) in {"5.0", "5.0.0"} or any(
+        "bronze_table" in e or "target_dv_entity" in e for e in ledger if isinstance(e, dict)
+    )
+    escalations: list[dict[str, Any]] = list(ir.get("unmapped_escalations") or [])
+
+    # Check deployed Hubs for business key column drift (KEY_DRIFT -> ASK-USER)
+    deployed_hubs = {str(h["name"]): h for h in deployed_contract.get("hubs", []) if "name" in h}
+    for hub in ir.get("hubs", []):
+        h_name = str(hub.get("name", ""))
+        if h_name not in deployed_hubs:
+            continue
+        dep_hub = deployed_hubs[h_name]
+        dep_sources = {
+            (str(s.get("bronze_table", "")), str(s.get("record_source_code", ""))): s
+            for s in dep_hub.get("business_key_sources", [])
+        }
+        for src in hub.get("business_key_sources", []):
+            s_key = (str(src.get("bronze_table", "")), str(src.get("record_source_code", "")))
+            if s_key not in dep_sources:
+                continue
+            dep_src = dep_sources[s_key]
+            dep_kcols = list(dep_src.get("key_columns", []))
+            cand_kcols = list(src.get("key_columns", []))
+            if dep_kcols != cand_kcols:
+                b_tbl = s_key[0]
+                drifted_cols = sorted(set(dep_kcols) ^ set(cand_kcols)) or cand_kcols
+                escalations.append(
+                    {
+                        "bronze_table": b_tbl,
+                        "columns": [str(c) for c in drifted_cols],
+                        "escalation_reason": "COMPETING_NATURAL_KEYS",
+                        "architect_question": (
+                            f"Business key columns on '{h_name}' ({b_tbl}) drifted from "
+                            f"{dep_kcols} to {cand_kcols}."
+                        ),
+                    }
+                )
 
     for sat in ir.get("satellites", []):
         s_name = str(sat.get("name", ""))
@@ -353,25 +392,53 @@ def codemod_intra_source_schema_drift(
         dep_cols = set(dep_sat.get("payload_columns", []))
         cand_cols = set(sat.get("payload_columns", []))
         b_table = str(sat.get("source_bronze_table", ""))
+        old_types = dep_sat.get("column_types")
+        new_types = sat.pop("column_types", None)
+        val_jaccard = sat.pop("value_jaccard", None)
+        sat.pop("staging_column_aliases", None)
 
         findings = detect_intra_source_schema_drift(
             deployed_columns=dep_cols,
             candidate_columns=cand_cols,
             source_table=b_table,
             target_entity=s_name,
-            old_types=dep_sat.get("column_types"),
-            new_types=sat.get("column_types"),
-            value_jaccard=sat.get("value_jaccard"),
+            old_types=old_types,
+            new_types=new_types,
+            value_jaccard=val_jaccard,
             similarity_threshold=similarity_threshold,
         )
 
         added_cols = sorted(f.column_name for f in findings if f.category == "ADDITIVE")
         removed_cols = sorted(f.column_name for f in findings if f.category == "SOFT_DEPRECATED")
         renamed_pairs = {
-            f.column_name: f.new_column_name
+            f.new_column_name: f.column_name
             for f in findings
             if f.category == "RENAMED" and f.new_column_name is not None
         }
+        key_drift_findings = [
+            f for f in findings if f.category == "KEY_DRIFT" or f.action == "ASK-USER"
+        ]
+
+        for kd in key_drift_findings:
+            escalations.append(
+                {
+                    "bronze_table": b_table,
+                    "columns": [kd.column_name],
+                    "escalation_reason": "COMPETING_NATURAL_KEYS",
+                    "architect_question": kd.message,
+                }
+            )
+            for entry in ledger:
+                e_table = str(entry.get("bronze_table") or entry.get("source_table") or "")
+                if e_table == b_table and entry.get("column_name") == kd.column_name:
+                    if "target_dv_entity" in entry or "target_entity" not in entry:
+                        entry["target_dv_entity"] = "ESCALATED"
+                    if "target_entity" in entry:
+                        entry["target_entity"] = "ESCALATED"
+                    if "elm_classification" in entry or "dv_target_role" not in entry:
+                        entry["elm_classification"] = "ESCALATED_AMBIGUOUS"
+                    if "dv_target_role" in entry:
+                        entry["dv_target_role"] = "ESCALATED_AMBIGUOUS"
 
         # Preserve original payload columns on the deployed Satellite
         sat["payload_columns"] = sorted(dep_cols)
@@ -379,9 +446,20 @@ def codemod_intra_source_schema_drift(
             existing_soft = list(sat.get("soft_deprecated_columns") or [])
             sat["soft_deprecated_columns"] = sorted(set(existing_soft + removed_cols))
         if renamed_pairs:
-            aliases = dict(sat.get("staging_column_aliases") or {})
-            aliases.update(renamed_pairs)
-            sat["staging_column_aliases"] = aliases
+            for entry in ledger:
+                e_table = str(entry.get("bronze_table") or entry.get("source_table") or "")
+                e_col = str(entry.get("column_name", ""))
+                if e_table == b_table and (
+                    e_col in renamed_pairs or e_col in renamed_pairs.values()
+                ):
+                    if "target_dv_entity" in entry or "target_entity" not in entry:
+                        entry["target_dv_entity"] = s_name
+                    if "target_entity" in entry:
+                        entry["target_entity"] = s_name
+                    if "elm_classification" in entry or "dv_target_role" not in entry:
+                        entry["elm_classification"] = "DESCRIPTIVE_PAYLOAD"
+                    if "dv_target_role" in entry:
+                        entry["dv_target_role"] = "SATELLITE_PAYLOAD"
 
         updated_satellites.append(sat)
 
@@ -399,37 +477,57 @@ def codemod_intra_source_schema_drift(
                 "source_bronze_table": b_table,
                 "security_classification": sat.get("security_classification", "CONFIDENTIAL"),
                 "volatility_tier": "ADDITIVE_DRIFT_COMPANION",
-                "sub_sequence_column": None,
-                "driving_key_column": None,
                 "payload_columns": added_cols,
-                "tracked_columns": None,
                 "soft_deprecated_columns": [],
             }
             updated_satellites.append(companion_sat)
 
             existing_ledger_cols = {
-                (str(e.get("source_table", "")), str(e.get("column_name", ""))) for e in ledger
+                (
+                    str(e.get("bronze_table") or e.get("source_table") or ""),
+                    str(e.get("column_name", "")),
+                )
+                for e in ledger
             }
             for col in added_cols:
                 updated_in_place = False
                 for entry in ledger:
-                    if entry.get("source_table") == b_table and entry.get("column_name") == col:
-                        entry["dv_target_role"] = "SATELLITE_PAYLOAD"
-                        entry["target_entity"] = companion_name
+                    e_table = str(entry.get("bronze_table") or entry.get("source_table") or "")
+                    if e_table == b_table and entry.get("column_name") == col:
+                        if "target_dv_entity" in entry or "target_entity" not in entry:
+                            entry["target_dv_entity"] = companion_name
+                        if "target_entity" in entry:
+                            entry["target_entity"] = companion_name
+                        if "elm_classification" in entry or "dv_target_role" not in entry:
+                            entry["elm_classification"] = "DESCRIPTIVE_PAYLOAD"
+                        if "dv_target_role" in entry:
+                            entry["dv_target_role"] = "SATELLITE_PAYLOAD"
                         updated_in_place = True
                 if not updated_in_place and (b_table, col) not in existing_ledger_cols:
-                    ledger.append(
-                        {
-                            "source_table": b_table,
-                            "column_name": col,
-                            "dv_target_role": "SATELLITE_PAYLOAD",
-                            "target_entity": companion_name,
-                            "disposition_rationale": (
-                                f"Auto-routed additive schema drift column to {companion_name}."
-                            ),
-                        }
-                    )
+                    if use_v5_ledger:
+                        ledger.append(
+                            {
+                                "bronze_table": b_table,
+                                "column_name": col,
+                                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                                "target_dv_entity": companion_name,
+                            }
+                        )
+                    else:
+                        ledger.append(
+                            {
+                                "source_table": b_table,
+                                "column_name": col,
+                                "dv_target_role": "SATELLITE_PAYLOAD",
+                                "target_entity": companion_name,
+                                "disposition_rationale": (
+                                    f"Auto-routed additive schema drift column to {companion_name}."
+                                ),
+                            }
+                        )
 
+    if escalations or "unmapped_escalations" in ir:
+        ir["unmapped_escalations"] = escalations
     ir["satellites"] = updated_satellites
     return ir
 

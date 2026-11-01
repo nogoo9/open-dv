@@ -46,9 +46,9 @@ def _ref_fk_cols(ref: dict[str, Any]) -> list[str]:
     return [fk] if fk else []
 
 
-def build_dv2_networkx_digraph(contract: dict[str, Any]) -> nx.DiGraph:
+def build_dv2_networkx_digraph(contract: dict[str, Any]) -> nx.MultiDiGraph:
     """Build the directed Data Vault 2.0 topology graph `G = (V_H u V_L u V_S, E)`."""
-    g = nx.DiGraph()
+    g = nx.MultiDiGraph()
 
     for hub in contract.get("hubs", []):
         h_id = _entity_id(hub)

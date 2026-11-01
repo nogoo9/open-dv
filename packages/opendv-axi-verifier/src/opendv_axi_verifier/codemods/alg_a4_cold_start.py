@@ -19,15 +19,31 @@ import copy
 from typing import Any
 
 GLOBAL_STANDARD_COLUMN_HINTS: frozenset[str] = frozenset(
-    {"lei_code", "isin_code", "iban", "cusip", "figi_code", "swift_bic"}
+    {"lei", "isin", "lei_code", "isin_code", "iban", "cusip", "figi_code", "swift_bic"}
 )
+
+
+def _extract_tier_sources_and_columns(
+    tier_entry: Any,
+) -> tuple[set[str], set[str], str | None]:
+    if isinstance(tier_entry, list | set | tuple):
+        return {str(x) for x in tier_entry}, set(), None
+    if isinstance(tier_entry, dict):
+        cols = {str(x) for x in tier_entry.get("column_patterns", [])}
+        srcs = {str(x) for x in tier_entry.get("authoritative_sor", [])}
+        bkcc_policy = tier_entry.get("bkcc_policy")
+        policy_str = str(bkcc_policy) if bkcc_policy else None
+        if policy_str and policy_str not in {"GLOBAL", "SOURCE_SYSTEM_PREFIX_REQUIRED"}:
+            srcs.add(policy_str)
+        return srcs, cols, policy_str
+    return set(), set(), None
 
 
 def _extract_ontology_authority(
     ontology_graph: dict[str, Any],
-) -> tuple[dict[str, dict[str, set[str]]], set[str]]:
+) -> tuple[dict[str, dict[str, Any]], set[str]]:
     """Extract per-concept authority tiers and relationship URIs from Graph A."""
-    authority_map: dict[str, dict[str, set[str]]] = {}
+    authority_map: dict[str, dict[str, Any]] = {}
     relationship_uris: set[str] = set()
     if not isinstance(ontology_graph, dict):
         return authority_map, relationship_uris
@@ -41,23 +57,34 @@ def _extract_ontology_authority(
             continue
         uri = str(concept["concept_uri"])
         tiers = concept.get("key_authority_tiers") or {}
+        t1_srcs, t1_cols, _ = _extract_tier_sources_and_columns(
+            tiers.get("tier_1_global_standard") or tiers.get("tier_1_global_standards")
+        )
+        t2_srcs, t2_cols, _ = _extract_tier_sources_and_columns(tiers.get("tier_2_enterprise_sor"))
+        t2_srcs.update(str(x) for x in concept.get("authoritative_sor", []))
+        t3_srcs, t3_cols, t3_policy = _extract_tier_sources_and_columns(
+            tiers.get("tier_3_local_scoped") or tiers.get("tier_3_local_scoped_requires_bkcc")
+        )
         authority_map[uri] = {
-            "tier1": {str(x) for x in tiers.get("tier_1_global_standards", [])},
-            "tier2": {
-                str(x)
-                for x in (
-                    tiers.get("tier_2_enterprise_sor", []) or concept.get("authoritative_sor", [])
-                )
-            },
-            "tier3": {str(x) for x in tiers.get("tier_3_local_scoped_requires_bkcc", [])},
+            "tier1": t1_srcs,
+            "tier1_cols": t1_cols,
+            "tier2": t2_srcs,
+            "tier2_cols": t2_cols,
+            "tier3": t3_srcs,
+            "tier3_cols": t3_cols,
+            "tier3_bkcc_policy": t3_policy,
         }
 
     for uri, meta in ontology_graph.items():
         if isinstance(meta, dict) and uri not in authority_map:
             authority_map[str(uri)] = {
                 "tier1": set(),
+                "tier1_cols": set(),
                 "tier2": {str(x) for x in meta.get("authoritative_sor", [])},
+                "tier2_cols": set(),
                 "tier3": set(),
+                "tier3_cols": set(),
+                "tier3_bkcc_policy": None,
             }
 
     return authority_map, relationship_uris
@@ -76,7 +103,9 @@ def _extract_bronze_cold_start_metrics(
         for sys_entry in bronze_profile["source_systems"]:
             if not isinstance(sys_entry, dict):
                 continue
-            rec_src_code = str(sys_entry.get("record_source_code", ""))
+            rec_src_code = str(
+                sys_entry.get("record_source_code") or sys_entry.get("source_system_code") or ""
+            )
             for tbl in sys_entry.get("tables", []):
                 if not isinstance(tbl, dict):
                     continue
@@ -153,34 +182,59 @@ def codemod_enforce_cold_start_extensibility(
     # 1. Enforce 3-Tier BKCC Authority on Hubs
     for hub in ir.get("hubs", []):
         uri = str(hub.get("ontology_concept_uri", ""))
-        auth_info = authority_map.get(uri, {"tier1": set(), "tier2": set(), "tier3": set()})
+        auth_info = authority_map.get(
+            uri,
+            {
+                "tier1": set(),
+                "tier1_cols": set(),
+                "tier2": set(),
+                "tier2_cols": set(),
+                "tier3": set(),
+                "tier3_cols": set(),
+                "tier3_bkcc_policy": None,
+            },
+        )
         has_tier3_source = False
 
         for src in hub.get("business_key_sources", []):
             b_table = str(src.get("bronze_table", ""))
-            key_cols = list(src.get("key_columns", []))
+            key_cols = [str(c) for c in src.get("key_columns", [])]
             if not key_cols:
                 continue
-            key_col = str(key_cols[0])
-            rec_src = str(src.get("record_source_code", ""))
-            c_prof = col_metrics.get(b_table, {}).get(key_col, {})
-            pat_class = str(c_prof.get("pattern_class", "LOCAL_SEQUENCE"))
-            cand_role = str(c_prof.get("candidate_role", ""))
+            c_profs = [col_metrics.get(b_table, {}).get(c, {}) for c in key_cols]
+            rec_src = str(
+                src.get("record_source_code") or c_profs[0].get("record_source_code") or ""
+            )
             tbl_collision = table_collisions.get(b_table, {})
+            required_bkcc = tbl_collision.get("required_bkcc_prefix") or tbl_collision.get(
+                "requires_tier3_bkcc_prefix"
+            )
 
-            is_tier1 = (
-                pat_class == "GLOBAL_STANDARD_CODE"
-                or cand_role == "TIER_1_BUSINESS_KEY"
-                or rec_src in auth_info["tier1"]
-                or key_col in GLOBAL_STANDARD_COLUMN_HINTS
-            )
             is_tier3_forced = (
-                cand_role == "TIER_3_LOCAL_SCOPED_KEY"
+                any(cp.get("candidate_role") == "TIER_3_LOCAL_SCOPED_KEY" for cp in c_profs)
                 or rec_src in auth_info["tier3"]
-                or bool(tbl_collision.get("requires_tier3_bkcc_prefix"))
+                or any(c in auth_info["tier3_cols"] for c in key_cols)
+                or bool(required_bkcc)
             )
-            is_tier2 = not is_tier3_forced and (
-                rec_src in auth_info["tier2"] or cand_role == "TIER_2_BUSINESS_KEY"
+            is_tier1 = not is_tier3_forced and all(
+                cp.get("pattern_class") == "GLOBAL_STANDARD_CODE"
+                or cp.get("candidate_role") == "TIER_1_BUSINESS_KEY"
+                or rec_src in auth_info["tier1"]
+                or c in auth_info["tier1_cols"]
+                or c in GLOBAL_STANDARD_COLUMN_HINTS
+                for c, cp in zip(key_cols, c_profs, strict=False)
+            )
+            is_tier2 = (
+                not is_tier3_forced
+                and not is_tier1
+                and (
+                    rec_src in auth_info["tier2"]
+                    or all(
+                        cp.get("candidate_role") == "TIER_2_BUSINESS_KEY"
+                        or c in auth_info["tier2_cols"]
+                        for c, cp in zip(key_cols, c_profs, strict=False)
+                    )
+                )
             )
 
             tier_key = (
@@ -192,14 +246,28 @@ def codemod_enforce_cold_start_extensibility(
                 src[tier_key] = "TIER_1_GLOBAL_STANDARD"
                 src["require_src_qualifier"] = False
                 src["bkcc_prefix"] = None
+                if src.get("system_scoped_bk_justification") is None:
+                    src.pop("system_scoped_bk_justification", None)
             elif is_tier2:
                 src[tier_key] = "TIER_2_ENTERPRISE_SOR"
                 src["require_src_qualifier"] = False
                 src["bkcc_prefix"] = None
+                if src.get("system_scoped_bk_justification") is None:
+                    src.pop("system_scoped_bk_justification", None)
             else:
                 src[tier_key] = "TIER_3_LOCAL_SCOPED"
                 src["require_src_qualifier"] = True
-                src["bkcc_prefix"] = rec_src or "LEGACY_GP_ADMIN"
+                policy_bkcc = auth_info.get("tier3_bkcc_policy")
+                if isinstance(required_bkcc, str) and required_bkcc:
+                    resolved_bkcc = required_bkcc
+                elif policy_bkcc and policy_bkcc not in {
+                    "GLOBAL",
+                    "SOURCE_SYSTEM_PREFIX_REQUIRED",
+                }:
+                    resolved_bkcc = str(policy_bkcc)
+                else:
+                    resolved_bkcc = rec_src or "LEGACY_GP_ADMIN"
+                src["bkcc_prefix"] = resolved_bkcc
                 if not src.get("system_scoped_bk_justification"):
                     src["system_scoped_bk_justification"] = (
                         f"Auto-qualified Tier-3 local-scoped business key on {hub.get('name')} "
@@ -279,6 +347,7 @@ def codemod_enforce_cold_start_extensibility(
                     new_links.append(opt_lnk)
                     existing_link_names.add(opt_lnk_name)
 
+                opt_fk_cols = {str(c) for c in opt_ref.get("source_fk_columns", [])}
                 for entry in ledger:
                     e_table = str(entry.get("bronze_table") or entry.get("source_table") or "")
                     e_target = str(
@@ -286,13 +355,17 @@ def codemod_enforce_cold_start_extensibility(
                     )
                     if (
                         e_table == b_table
-                        and entry.get("column_name") == fk_col
+                        and str(entry.get("column_name", "")) in opt_fk_cols
                         and e_target == lnk.get("name")
                     ):
-                        if "target_dv_entity" in entry:
+                        if "target_dv_entity" in entry or "target_entity" not in entry:
                             entry["target_dv_entity"] = opt_lnk_name
-                        if "target_entity" in entry or "target_dv_entity" not in entry:
+                        if "target_entity" in entry:
                             entry["target_entity"] = opt_lnk_name
+                        if "elm_classification" in entry or "dv_target_role" not in entry:
+                            entry["elm_classification"] = "OPTIONAL_FOREIGN_KEY_REF"
+                        if "dv_target_role" in entry:
+                            entry["dv_target_role"] = "OPTIONAL_FOREIGN_KEY_REF"
         else:
             new_links.append(lnk)
 
@@ -351,22 +424,23 @@ def codemod_extract_hub_mutable_attributes(
                         "satellite_type": "STANDARD_SATELLITE",
                         "source_bronze_table": b_table,
                         "security_classification": "PUBLIC",
-                        "volatility_tier": "CORE",
-                        "sub_sequence_column": None,
-                        "driving_key_column": None,
+                        "volatility_tier": "STANDARD",
                         "payload_columns": sorted(set(evicted_cols)),
-                        "tracked_columns": None,
                         "soft_deprecated_columns": [],
                     }
                 )
 
             for entry in ledger:
-                if (
-                    entry.get("source_table") == b_table
-                    and entry.get("column_name") in evicted_cols
-                ):
-                    entry["dv_target_role"] = "SATELLITE_PAYLOAD"
-                    entry["target_entity"] = sat_name
+                e_table = str(entry.get("bronze_table") or entry.get("source_table") or "")
+                if e_table == b_table and entry.get("column_name") in evicted_cols:
+                    if "target_dv_entity" in entry or "target_entity" not in entry:
+                        entry["target_dv_entity"] = sat_name
+                    if "target_entity" in entry:
+                        entry["target_entity"] = sat_name
+                    if "elm_classification" in entry or "dv_target_role" not in entry:
+                        entry["elm_classification"] = "DESCRIPTIVE_PAYLOAD"
+                    if "dv_target_role" in entry:
+                        entry["dv_target_role"] = "SATELLITE_PAYLOAD"
 
     ir["satellites"] = satellites
     return ir

@@ -162,11 +162,19 @@ def codemod_demote_enum_hubs_to_ref(
             if hub.get("business_key_sources")
             else {"bronze_table": "unknown", "key_columns": ["code"]}
         )
+        raw_uri = str(hub.get("ontology_concept_uri") or "")
+        if raw_uri.startswith("urn:ontology:enum:"):
+            enum_uri = raw_uri
+        elif ":" in raw_uri:
+            enum_uri = f"urn:ontology:enum:{raw_uri.rsplit(':', 1)[-1]}"
+        else:
+            enum_uri = f"urn:ontology:enum:{slug}"
         ref_tables.append(
             {
                 "name": ref_name,
+                "ontology_concept_uri": enum_uri,
                 "source_bronze_table": first_src["bronze_table"],
-                "natural_code_column": first_src["key_columns"][0],
+                "code_column": first_src["key_columns"][0],
                 "description_columns": sorted(set(demoted_sat_descriptions[h_name])),
             }
         )
@@ -176,6 +184,7 @@ def codemod_demote_enum_hubs_to_ref(
 
     # 3. Rewire Links referencing demoted Hubs
     retained_links: list[dict[str, Any]] = []
+    dissolved_link_col_to_sat: dict[tuple[str, str], str] = {}
     for lnk in ir.get("links", []):
         refs = list(lnk.get("hub_references", []))
         real_refs = [r for r in refs if str(r.get("target_hub", "")) not in demoted_hubs]
@@ -196,7 +205,7 @@ def codemod_demote_enum_hubs_to_ref(
             surviving_hub = str(real_refs[0]["target_hub"])
             b_table = str(lnk.get("source_bronze_table", ""))
             folded_cols = [c for er in enum_refs for c in er.get("source_fk_columns", [])]
-            matched_sat = False
+            target_sat_name: str | None = None
             for sat in retained_sats:
                 if (
                     sat.get("parent_entity") == surviving_hub
@@ -205,39 +214,66 @@ def codemod_demote_enum_hubs_to_ref(
                     sat["payload_columns"] = sorted(
                         set(list(sat.get("payload_columns", [])) + folded_cols)
                     )
-                    matched_sat = True
+                    target_sat_name = str(sat["name"])
                     break
-            if not matched_sat and folded_cols:
+            if target_sat_name is None and folded_cols:
                 surviving_slug = surviving_hub.removeprefix("hub_")
+                target_sat_name = f"sat_{surviving_slug}_core"
                 retained_sats.append(
                     {
-                        "name": f"sat_{surviving_slug}_core",
+                        "name": target_sat_name,
                         "parent_entity": surviving_hub,
                         "satellite_type": "STANDARD_SATELLITE",
                         "source_bronze_table": b_table,
                         "security_classification": "PUBLIC",
-                        "volatility_tier": "CORE",
-                        "sub_sequence_column": None,
-                        "driving_key_column": None,
+                        "volatility_tier": "STANDARD",
                         "payload_columns": sorted(set(folded_cols)),
-                        "tracked_columns": None,
                         "soft_deprecated_columns": [],
                     }
                 )
+            if target_sat_name is not None:
+                for col in folded_cols:
+                    dissolved_link_col_to_sat[(b_table, str(col))] = target_sat_name
 
     ir["links"] = retained_links
     ir["satellites"] = retained_sats
 
     # 4. Update column_triage_ledger
     for entry in ir.get("column_triage_ledger", []):
-        target = str(entry.get("target_entity", ""))
+        target = str(entry.get("target_dv_entity") or entry.get("target_entity") or "")
+        e_table = str(entry.get("bronze_table") or entry.get("source_table") or "")
+        e_col = str(entry.get("column_name", ""))
         if target in demoted_hubs:
             slug = target.removeprefix("hub_")
-            entry["dv_target_role"] = "REFERENCE_CODE"
-            entry["target_entity"] = f"ref_{slug}"
+            ref_target = f"ref_{slug}"
+            if "target_dv_entity" in entry or "target_entity" not in entry:
+                entry["target_dv_entity"] = ref_target
+            if "target_entity" in entry:
+                entry["target_entity"] = ref_target
+            if "elm_classification" in entry or "dv_target_role" not in entry:
+                entry["elm_classification"] = "REFERENCE_CODE"
+            if "dv_target_role" in entry:
+                entry["dv_target_role"] = "REFERENCE_CODE"
         elif target in demoted_sat_to_ref:
-            entry["dv_target_role"] = "REFERENCE_CODE"
-            entry["target_entity"] = demoted_sat_to_ref[target]
+            ref_target = demoted_sat_to_ref[target]
+            if "target_dv_entity" in entry or "target_entity" not in entry:
+                entry["target_dv_entity"] = ref_target
+            if "target_entity" in entry:
+                entry["target_entity"] = ref_target
+            if "elm_classification" in entry or "dv_target_role" not in entry:
+                entry["elm_classification"] = "REFERENCE_CODE"
+            if "dv_target_role" in entry:
+                entry["dv_target_role"] = "REFERENCE_CODE"
+        elif (e_table, e_col) in dissolved_link_col_to_sat:
+            sat_target = dissolved_link_col_to_sat[(e_table, e_col)]
+            if "target_dv_entity" in entry or "target_entity" not in entry:
+                entry["target_dv_entity"] = sat_target
+            if "target_entity" in entry:
+                entry["target_entity"] = sat_target
+            if "elm_classification" in entry or "dv_target_role" not in entry:
+                entry["elm_classification"] = "DESCRIPTIVE_PAYLOAD"
+            if "dv_target_role" in entry:
+                entry["dv_target_role"] = "SATELLITE_PAYLOAD"
 
     return ir
 

@@ -49,6 +49,7 @@ from opendv_axi_verifier.verifiers.gate1_contract_grain import (
     verify_gate1_contract_and_grain,
 )
 from opendv_axi_verifier.verifiers.gate3_networkx_dag import (
+    verify_column_invariants,
     verify_structural_invariants,
 )
 from opendv_telemetry import VaultLedgerEmitter
@@ -198,11 +199,20 @@ def run_axi_dv_verification_pipeline(
                 )
             )
 
-    # 2. Gate 0 / Gate 3 Assertion: Additive Evolution Lock (if upgrading V_N -> V_{N+1})
+    # 2. Check explicit human architect escalations in contract.unmapped_escalations
+    for esc in contract.get("unmapped_escalations", []):
+        if isinstance(esc, dict):
+            reason = esc.get("escalation_reason", "MISSING_ONTOLOGY_CONCEPT")
+            b_tbl = esc.get("bronze_table", "unknown")
+            cols = esc.get("columns", [])
+            question = esc.get("architect_question", "Requires human architect confirmation.")
+            diagnostics.append(f"ASK_USER [Gate 1 - {reason}] on '{b_tbl}' ({cols}): {question}")
+
+    # 3. Gate 0 / Gate 3 Assertion: Additive Evolution Lock (if upgrading V_N -> V_{N+1})
     if deployed_contract is not None:
         diagnostics.extend(verify_additive_evolution_invariants(deployed_contract, contract))
 
-    # 3. Gate 1 & Gate 2 Assertions: Contract Schema, Grain Words, Anti-Silo, Surrogate Keys
+    # 4. Gate 1 & Gate 2 Assertions: Contract Schema, Grain Words, Anti-Silo, Surrogate Keys
     diagnostics.extend(
         verify_gate1_contract_and_grain(
             contract,
@@ -213,8 +223,9 @@ def run_axi_dv_verification_pipeline(
             check_full_ledger_coverage=check_full_ledger_coverage,
         )
     )
+    diagnostics.extend(verify_column_invariants(contract))
 
-    # 4. Gate 3 Assertion: NetworkX Bipartite DAG Structural Invariants (DV-STR-001..014)
+    # 5. Gate 3 Assertion: NetworkX Bipartite DAG Structural Invariants (DV-STR-001..014)
     diagnostics.extend(
         verify_structural_invariants(
             contract,
@@ -268,11 +279,12 @@ def run_axi_dv_verification_pipeline(
         toon_hash = ledger_emitter.cas_store.put(toon_text)
 
         primary_codemod = applied_codemods[0] if applied_codemods else "NONE"
-        event_status = (
-            "AUTO_REPAIRED"
-            if status == "PASS" and applied_codemods
-            else ("PASS" if status == "PASS" else "REJECT-WITH-TRACE")
-        )
+        if status == "PASS":
+            event_status = "AUTO_REPAIRED" if applied_codemods else "PASS"
+        elif status == "ASK_USER":
+            event_status = "ASK-USER"
+        else:
+            event_status = "REJECT-WITH-TRACE"
         remediation_obj = (
             {
                 "codemod_type": primary_codemod,

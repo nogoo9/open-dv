@@ -219,7 +219,9 @@ def verify_gate1_contract_and_grain(
             src_tier = str(src.get("key_authority_tier") or src.get("bk_authority_tier") or "")
 
             if (
-                src_tier == "TIER_3_LOCAL_SCOPED" or tbl_collision.get("requires_tier3_bkcc_prefix")
+                src_tier == "TIER_3_LOCAL_SCOPED"
+                or tbl_collision.get("requires_tier3_bkcc_prefix")
+                or tbl_collision.get("required_bkcc_prefix")
             ) and (not src.get("require_src_qualifier") or not src.get("bkcc_prefix")):
                 diagnostics.append(
                     f"SEMANTIC_ERROR [Gate 1 - DV-COL-012]: Hub '{h_name}' source "
@@ -243,10 +245,16 @@ def verify_gate1_contract_and_grain(
                 mut_freq = float(
                     prof.get(
                         "update_frequency_per_row_per_day",
-                        prof.get("mutable_update_freq", 0.0),
+                        prof.get(
+                            "mutable_update_freq",
+                            prof.get("drift_rate_lambda", prof.get("cdc_lambda_per_day", 0.0)),
+                        ),
                     )
                 )
-                if mut_freq > 0.0 and cand_role == "SATELLITE_DESCRIPTIVE_ATTRIBUTE":
+                if mut_freq > 0.0 and cand_role in {
+                    "SATELLITE_DESCRIPTIVE_ATTRIBUTE",
+                    "DESCRIPTIVE_PAYLOAD",
+                }:
                     diagnostics.append(
                         f"SEMANTIC_ERROR [Gate 2 - DV-G2-002]: Hub '{h_name}' includes "
                         f"mutable column '{b_table}.{k_col}' (update_freq={mut_freq}) in "

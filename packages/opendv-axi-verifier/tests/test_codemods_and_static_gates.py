@@ -27,9 +27,11 @@ import pytest
 import yaml
 
 from opendv_axi_verifier import (
+    ZERO_KEY,
     ToonTrace,
     ToonViolation,
     build_canonical_sha256_hash_ast,
+    build_dv2_networkx_digraph,
     build_toon_trace_from_diagnostics,
     classify_er_resolution_tier,
     codemod_demote_enum_hubs_to_ref,
@@ -40,6 +42,7 @@ from opendv_axi_verifier import (
     codemod_intra_source_schema_drift,
     codemod_split_satellites_3axis,
     detect_intra_source_schema_drift,
+    diagnostic_string_to_toon_violation,
     escalate_classification,
     evaluate_unstructured_er_routing,
     is_lossless_type_widening,
@@ -55,6 +58,7 @@ from opendv_axi_verifier import (
     verify_physical_dv2_sql_ast,
     verify_structural_invariants,
 )
+from opendv_core.schema_registry import validate_contract_v5
 from opendv_telemetry import ContentAddressableStore, VaultLedgerEmitter
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -189,6 +193,8 @@ def test_alg_a1_splits_when_w_amp_exceeds_50mb_per_day() -> None:
     res = codemod_split_satellites_3axis(contract, profile)
     names = {s["name"] for s in res["satellites"]}
     assert names == {"sat_investor_pii", "sat_investor_static", "sat_investor_high_freq"}
+    for s in res["satellites"]:
+        assert s["volatility_tier"] in {"STATIC", "STANDARD", "HIGH_FREQ"}
 
 
 # ==============================================================================
@@ -279,6 +285,8 @@ def test_alg_a2_enum_demotion_rewires_links_and_satellites(
     assert [h["name"] for h in res["hubs"]] == ["hub_fund"]
     assert len(res["reference_tables"]) == 1
     assert res["reference_tables"][0]["name"] == "ref_currency"
+    assert res["reference_tables"][0]["ontology_concept_uri"] == "urn:ontology:enum:iso_currency"
+    assert res["reference_tables"][0]["code_column"] == "base_currency_iso"
     assert res["reference_tables"][0]["description_columns"] == ["currency_name"]
     assert res["links"] == []
     fund_sat = res["satellites"][0]
@@ -367,8 +375,16 @@ def test_alg_a4_cold_start_splits_co_invest_and_injects_bkcc(
     for entry in naive["column_triage_ledger"]:
         if entry["column_name"] == "co_invest_portco_lei":
             entry["target_dv_entity"] = "lnk_lp_commitment"
+            entry["elm_classification"] = "FOREIGN_KEY_REF"
 
     repaired = codemod_enforce_cold_start_extensibility(naive, pe_ontology, pe_bronze_profile)
+    validate_contract_v5(repaired)
+
+    co_invest_ledger = next(
+        e for e in repaired["column_triage_ledger"] if e["column_name"] == "co_invest_portco_lei"
+    )
+    assert co_invest_ledger["target_dv_entity"] == "lnk_lp_commitment_co_invest"
+    assert co_invest_ledger["elm_classification"] == "OPTIONAL_FOREIGN_KEY_REF"
 
     # Check Tier-3 BKCC restoration
     lp_hub = next(h for h in repaired["hubs"] if h["name"] == "hub_limited_partner")
@@ -439,12 +455,24 @@ def test_alg_a5_and_a6_sqlglot_hash_recipe_and_linter() -> None:
     ast_node = build_canonical_sha256_hash_ast(
         ["lp_number"],
         is_business_key=True,
-        bkcc_prefix="LEGACY_GP_ADMIN",
+        bkcc_prefix="  legacy_gp_admin  ",
     )
     sql_expr = ast_node.sql("duckdb")
     assert "15:LEGACY_GP_ADMIN" in sql_expr
     assert "-1:^^" in sql_expr
     assert "OCTET_LENGTH" in sql_expr
+
+    import duckdb
+
+    with duckdb.connect(":memory:") as con:
+        con.execute("CREATE MACRO SHA2(s, bits) AS sha256(s)")
+        con.execute("CREATE MACRO OCTET_LENGTH(s) AS strlen(s)")
+        for empty_val in ("NULL", "''", "'   '"):
+            row = con.execute(
+                f"SELECT {sql_expr} FROM (SELECT CAST({empty_val} AS VARCHAR) AS lp_number)"
+            ).fetchone()
+            assert row is not None
+            assert row[0] == ZERO_KEY
 
     raw_staging_sql = (
         "SELECT fund_code, fund_legal_name, CURRENT_TIMESTAMP AS load_dts, "
@@ -541,6 +569,8 @@ def test_gate3_all_14_dv_str_rules_and_column_invariants(
     across `DV-STR-001` through `DV-STR-014` and `DV-COL-001` through `DV-COL-012`.
     """
     assert verify_structural_invariants(pe_golden_contract) == []
+    pe_graph = build_dv2_networkx_digraph(pe_golden_contract)
+    assert pe_graph.out_degree("sal_limited_partner") == 2
 
     bad_topology: dict[str, Any] = {
         "hubs": [
@@ -792,7 +822,17 @@ def test_alg_a9a_5_drift_categories_and_alg_a7_evolution_lock(
 
     orig_sat = next(s for s in evolved_v2["satellites"] if s["name"] == "sat_fund_investran")
     assert "mgmt_fee_bps" in orig_sat["soft_deprecated_columns"]
-    assert orig_sat["staging_column_aliases"] == {"target_size_usd": "target_size_usds"}
+    assert "target_size_usd" in orig_sat["payload_columns"]
+    validate_contract_v5(evolved_v2)
+
+    # Verify KEY_DRIFT findings populate unmapped_escalations instead of being discarded
+    drift_with_key_err = copy.deepcopy(baseline_v1)
+    for hub in drift_with_key_err["hubs"]:
+        if hub["name"] == "hub_fund":
+            hub["business_key_sources"][0]["key_columns"] = ["new_incompatible_fund_key"]
+    escalated_v2 = codemod_intra_source_schema_drift(baseline_v1, drift_with_key_err)
+    assert len(escalated_v2["unmapped_escalations"]) == 1
+    assert escalated_v2["unmapped_escalations"][0]["escalation_reason"] == "COMPETING_NATURAL_KEYS"
 
 
 # ==============================================================================
@@ -885,11 +925,21 @@ def test_toon_v1_round_trip_serialization() -> None:
     assert parsed == trace
 
     from_diags = build_toon_trace_from_diagnostics(
-        ["SEMANTIC_ERROR [Gate 1 - DV-COL-012]: Hub 'hub_limited_partner' lacks bkcc_prefix."],
+        [
+            "SEMANTIC_ERROR [Gate 1 - DV-COL-012]: Hub 'hub_limited_partner' lacks bkcc_prefix.",
+            (
+                "SCHEMA_ERROR [Gate 1 - DV-G1-001]: "
+                "Multi-line error\nwith newline\rand carriage return."
+            ),
+            "BREAKING_EVOLUTION [Gate 0 - DV-EVO-002]: Hub 'hub_fund' was deleted.",
+            "DV-COL-009: Satellite 'sat_fund' has empty payload_columns.",
+        ],
         run_id="run-test-01",
     )
     assert from_diags.status == "REJECT-WITH-TRACE"
     assert parse_toon_v1(serialize_toon_v1(from_diags)) == from_diags
+    assert diagnostic_string_to_toon_violation("Gate 0: DV-EVO-001 failed").gate == "G3"
+    assert diagnostic_string_to_toon_violation("DV-COL-009: empty payload").gate == "G2"
 
 
 # ==============================================================================
@@ -958,3 +1008,25 @@ def test_alg_a8_orchestrator_end_to_end_pe_verification_and_telemetry(
     assert len(result.emitted_events) == 1
     assert len(result.er_routing_decisions) >= 3
     assert "sat_lp_commitment_fx" not in {s["name"] for s in transformed["satellites"]}
+
+    # Verify ASK_USER escalation from unmapped_escalations emits ASK-USER telemetry status
+    ask_contract = copy.deepcopy(pe_golden_contract)
+    ask_contract["unmapped_escalations"] = [
+        {
+            "bronze_table": "legacy_gp.src_legacy_lp_roster",
+            "columns": ["lp_num"],
+            "escalation_reason": "DISJOINT_MULTI_SOURCE_BKS",
+            "architect_question": "Confirm whether lp_num requires a SAME_AS_LINK crosswalk.",
+        }
+    ]
+    ask_res = run_axi_dv_verification_pipeline(
+        candidate_contract=ask_contract,
+        ontology_graph=pe_ontology,
+        bronze_profile=pe_bronze_profile,
+        run_id="run-pe-ask-user-01",
+        ledger_emitter=emitter,
+    )
+    assert ask_res.status == "ASK_USER"
+    assert ask_res.toon_trace.status == "ASK-USER"
+    assert ask_res.emitted_events[0]["status"] == "ASK-USER"
+    assert ask_res.emitted_events[0]["layer1_story_banner"]["verdict_pill"] == "ASK-USER"

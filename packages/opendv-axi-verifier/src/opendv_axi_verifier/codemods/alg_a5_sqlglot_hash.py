@@ -36,6 +36,15 @@ def build_canonical_column_standardization_ast(
     return trimmed
 
 
+def _build_is_null_or_empty_ast(col_name: str) -> exp.Expression:
+    col_ident = exp.column(col_name)
+    trimmed_raw = exp.Anonymous(this="TRIM", expressions=[exp.cast(col_ident, to="VARCHAR")])
+    return exp.Or(
+        this=exp.Is(this=col_ident, expression=exp.Null()),
+        expression=exp.EQ(this=trimmed_raw, expression=exp.Literal.string("")),
+    )
+
+
 def build_length_prefixed_ast(
     col_name: str,
     is_business_key: bool = True,
@@ -46,14 +55,8 @@ def build_length_prefixed_ast(
           ELSE CAST(OCTET_LENGTH(std_col) AS VARCHAR) || ':' || std_col
      END`
     """
-    col_ident = exp.column(col_name)
     std_expr = build_canonical_column_standardization_ast(col_name, is_business_key)
-    trimmed_raw = exp.Anonymous(this="TRIM", expressions=[exp.cast(col_ident, to="VARCHAR")])
-
-    is_null_or_empty = exp.Or(
-        this=exp.Is(this=col_ident, expression=exp.Null()),
-        expression=exp.EQ(this=trimmed_raw, expression=exp.Literal.string("")),
-    )
+    is_null_or_empty = _build_is_null_or_empty_ast(col_name)
 
     octet_len = exp.cast(
         exp.Anonymous(this="OCTET_LENGTH", expressions=[std_expr.copy()]),
@@ -84,8 +87,9 @@ def build_canonical_sha256_hash_ast(
     ordered_cols = sorted(columns) if sort_alphabetically else list(columns)
     parts: list[exp.Expression] = []
 
-    if bkcc_prefix:
-        prefix_str = f"{len(bkcc_prefix)}:{bkcc_prefix.upper()}"
+    if bkcc_prefix and bkcc_prefix.strip():
+        clean_prefix = bkcc_prefix.strip().upper()
+        prefix_str = f"{len(clean_prefix.encode('utf-8'))}:{clean_prefix}"
         parts.append(exp.Literal.string(prefix_str))
 
     for col in ordered_cols:
@@ -107,7 +111,10 @@ def build_canonical_sha256_hash_ast(
 
     if is_business_key:
         all_null_checks: list[exp.Expression] = [
-            exp.Is(this=exp.column(c), expression=exp.Null()) for c in ordered_cols
+            exp.Paren(this=_build_is_null_or_empty_ast(c))
+            if len(ordered_cols) > 1
+            else _build_is_null_or_empty_ast(c)
+            for c in ordered_cols
         ]
         all_null_pred = reduce(lambda a, b: exp.And(this=a, expression=b), all_null_checks)
         return exp.Case(

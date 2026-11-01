@@ -99,11 +99,9 @@ def codemod_inject_link_effectivity(
                         "satellite_type": "EFFECTIVITY_SATELLITE",
                         "source_bronze_table": b_table,
                         "security_classification": "PUBLIC",
-                        "volatility_tier": "CORE",
-                        "sub_sequence_column": None,
+                        "volatility_tier": "STANDARD",
                         "driving_key_column": best_ref["source_fk_columns"][0],
                         "payload_columns": ["START_DTS", "END_DTS", "IS_CURRENT_FLAG"],
-                        "tracked_columns": None,
                         "soft_deprecated_columns": [],
                     }
                 )
