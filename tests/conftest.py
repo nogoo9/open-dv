@@ -17,6 +17,7 @@ from collections.abc import Generator
 import json
 from pathlib import Path
 import re
+import sys
 from typing import Any
 
 import duckdb
@@ -24,6 +25,18 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+_WORKSPACE_SRC_DIRS: tuple[Path, ...] = (
+    REPO_ROOT / "packages" / "opendv-core" / "src",
+    REPO_ROOT / "packages" / "opendv-telemetry" / "src",
+    REPO_ROOT / "packages" / "opendv-axi-verifier" / "src",
+    REPO_ROOT / "packages" / "opendv-duckdb-sandbox" / "src",
+    REPO_ROOT / "packages" / "opendv-agent-harness" / "src",
+)
+for _src_dir in _WORKSPACE_SRC_DIRS:
+    _resolved_src = str(_src_dir.resolve())
+    if _resolved_src not in sys.path:
+        sys.path.insert(0, _resolved_src)
+
 SCHEMAS_DIR = REPO_ROOT / "schemas"
 EXAMPLES_DIR = REPO_ROOT / "examples"
 PE_DIR = EXAMPLES_DIR / "private_equity"
