@@ -181,3 +181,18 @@ class OpenDVCliApiClient:
         if res.status_code >= 400:
             self._handle_response(res)
         return res.text
+
+    def validate_pipeline(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST `/api/v1/pipelines/validate`."""
+        res = self._client.post("/api/v1/pipelines/validate", json=payload)
+        return dict(self._handle_response(res))
+
+    def run_pipeline(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """POST `/api/v1/pipelines/runs`."""
+        res = self._client.post("/api/v1/pipelines/runs", json=payload)
+        return dict(self._handle_response(res))
+
+    def get_run_report(self, run_id: str) -> dict[str, Any]:
+        """GET `/api/v1/runs/{run_id}/report`."""
+        res = self._client.get(f"/api/v1/runs/{run_id}/report")
+        return dict(self._handle_response(res))

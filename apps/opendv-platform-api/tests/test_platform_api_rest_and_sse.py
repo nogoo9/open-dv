@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import yaml
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 from opendv_core import VaultObservabilityEvent, validate_observability_event
@@ -67,6 +68,8 @@ def test_health_and_capabilities_endpoints(tmp_path: Path) -> None:
             body_cap = res_cap.json()
             assert "antigravity" in body_cap["harness_providers"]
             assert "claude" in body_cap["harness_providers"]
+            assert "deterministic" in body_cap["harness_providers"]
+            assert "deterministic-stub" in body_cap["harness_providers"]
             assert len(body_cap["rbac_roles"]) == len(RbacRole)
             assert "PII_STEWARD" in body_cap["rbac_roles"]
             assert len(body_cap["workbench_views"]) == 12
@@ -672,6 +675,258 @@ def test_cas_artifacts_and_openapi_v1_schema_freshness(tmp_path: Path) -> None:
     assert len(chunks) == 2
     assert chunks[0].startswith("id: evt-pe-009\n")
     assert chunks[1].startswith("event: run_complete\n")
+
+
+def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
+    tmp_path: Path,
+) -> None:
+    """Verify `/api/v1/pipelines/validate`, `/api/v1/pipelines/runs`,
+    `/api/v1/runs/{run_id}/report`, and SSE + WB-00..WB-11 integration.
+    """
+    state = PlatformStateContainer(state_dir=tmp_path / "state")
+    app = create_app(platform_state=state)
+    sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
+    sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
+
+    async def _scenario() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            # 1. Fail-closed when input_spec/input_spec_path are omitted or path traversal is used
+            res_empty = await client.post("/api/v1/pipelines/validate", json={})
+            assert res_empty.status_code in {400, 422}
+            assert "application/problem+json" in res_empty.headers["content-type"]
+
+            res_traversal = await client.post(
+                "/api/v1/pipelines/validate",
+                json={"input_spec_path": "../../etc/passwd"},
+            )
+            assert res_traversal.status_code in {400, 422}
+            assert "application/problem+json" in res_traversal.headers["content-type"]
+
+            # 2. Pre-flight deterministic input validation (200 DeterministicValidationReport)
+            res_val_bad_schema = await client.post(
+                "/api/v1/pipelines/validate",
+                json={"input_spec": {"pipeline_id": "invalid-spec"}},
+            )
+            assert res_val_bad_schema.status_code == 200
+            val_bad_body = res_val_bad_schema.json()
+            assert val_bad_body["stage"] == "INPUT_VALIDATION"
+            assert val_bad_body["passed"] is False
+            assert val_bad_body["diagnostics"][0]["code"] == "INPUT_SPEC_SCHEMA_INVALID"
+
+            res_val = await client.post(
+                "/api/v1/pipelines/validate",
+                json={
+                    "input_spec_path": sample_input,
+                    "harness_config_path": sample_harness,
+                    "provider_override": "deterministic",
+                    "steward_hold_policy": "auto_approve_top_candidate",
+                },
+            )
+            assert res_val.status_code == 200
+            val_body = res_val.json()
+            assert val_body["stage"] == "INPUT_VALIDATION"
+            assert val_body["passed"] is True
+            assert val_body["checked_items_count"] >= 10
+
+            # 3. Execute 4-wave agentic pipeline via POST /api/v1/pipelines/runs
+            out_dir = tmp_path / "pipeline_out"
+            res_run = await client.post(
+                "/api/v1/pipelines/runs",
+                headers={"X-OpenDV-Role": "INTERNAL_MODELER"},
+                json={
+                    "input_spec_path": sample_input,
+                    "harness_config_path": sample_harness,
+                    "provider_override": "deterministic",
+                    "steward_hold_policy": "auto_approve_top_candidate",
+                    "output_dir": str(out_dir),
+                },
+            )
+            assert res_run.status_code == 201
+            rep_body = res_run.json()
+            run_id = rep_body["run_id"]
+            assert rep_body["status"] == "COMPLETED"
+            assert rep_body["overall_passed"] is True
+            assert rep_body["input_validation"]["passed"] is True
+            assert rep_body["output_validation"]["passed"] is True
+            assert len(rep_body["wave_reports"]) == 4
+            assert len(rep_body["step_reports"]) >= 25
+            assert len(rep_body["intermediate_artifacts"]) >= 20
+            assert "final_contract" in rep_body["final_artifacts"]
+
+            # Project and run are registered in PlatformStateContainer with resolved paths
+            assert rep_body["project_id"] in state.projects
+            proj_obj = state.projects[rep_body["project_id"]]
+            assert proj_obj.graph_a_ontology_path is not None
+            assert proj_obj.graph_b_path is not None
+            assert run_id in state.runs
+            assert run_id in state.pipeline_reports
+            assert run_id in state.gate_reports
+
+            # POST /api/v1/runs/{run_id}/gates succeeds on pipeline run with resolved Graph A/B
+            res_pipe_gates = await client.post(
+                f"/api/v1/runs/{run_id}/gates",
+                json={"recheck": True},
+            )
+            assert res_pipe_gates.status_code == 200
+            assert res_pipe_gates.json()["overall_passed"] is True
+
+            # 4. GET /api/v1/runs/{run_id}/report enforces 5-Tier RBAC redaction
+            res_rep = await client.get(f"/api/v1/runs/{run_id}/report")
+            assert res_rep.status_code == 200
+            assert res_rep.json()["run_id"] == run_id
+            assert res_rep.json()["overall_passed"] is True
+            assert len(res_rep.json()["wave_reports"]) == 4
+
+            res_rep_bad_role = await client.get(
+                f"/api/v1/runs/{run_id}/report",
+                headers={"X-OpenDV-Role": "INVALID_ROLE"},
+            )
+            assert res_rep_bad_role.status_code == 400
+            assert "application/problem+json" in res_rep_bad_role.headers["content-type"]
+
+            # Pre-seeded run synthesizes an RBAC-redacted summary report; unknown run returns 404
+            res_seeded_rep = await client.get("/api/v1/runs/run-pe-apex-horizon-20261030/report")
+            assert res_seeded_rep.status_code == 200
+            assert res_seeded_rep.json()["run_id"] == "run-pe-apex-horizon-20261030"
+            assert "245000000" not in json.dumps(res_seeded_rep.json()["observability_events"])
+            assert res_seeded_rep.json()["observability_events"][0]["layer1_story_banner"][
+                "headline"
+            ].startswith("[REDACTED")
+
+            res_seeded_cust = await client.get(
+                "/api/v1/runs/run-pe-apex-horizon-20261030/report",
+                headers={"X-OpenDV-Role": "RESTRICTED_PII_CUSTODIAN"},
+            )
+            assert res_seeded_cust.status_code == 200
+            assert "245000000" in json.dumps(res_seeded_cust.json()["observability_events"])
+            assert not res_seeded_cust.json()["observability_events"][0]["layer1_story_banner"][
+                "headline"
+            ].startswith("[REDACTED")
+
+            res_missing_rep = await client.get("/api/v1/runs/run-unknown-404/report")
+            assert res_missing_rep.status_code == 404
+            assert "application/problem+json" in res_missing_rep.headers["content-type"]
+
+            # 5. SSE stream (/api/v1/runs/{run_id}/events) is populated for the pipeline run
+            res_sse = await client.get(
+                f"/api/v1/runs/{run_id}/events",
+                headers={"X-OpenDV-Role": "RESTRICTED_PII_CUSTODIAN"},
+            )
+            assert res_sse.status_code == 200
+            sse_frames = _parse_sse_frames(res_sse.text)
+            assert len(sse_frames) == len(rep_body["observability_events"]) + 1
+            assert sse_frames[-1].get("event") == "run_complete"
+            for frame in sse_frames[:-1]:
+                ev_obj = json.loads(frame["data"])
+                VaultObservabilityEvent.model_validate(ev_obj)
+                validate_observability_event(ev_obj)
+
+            # 6. All 12 Workbench views (WB-00..WB-11) are populated for the pipeline run
+            for idx in range(12):
+                view_id = f"WB-{idx:02d}"
+                res_wb = await client.get(
+                    f"/api/v1/runs/{run_id}/workbench/{view_id}",
+                    headers={"X-OpenDV-Role": "RESTRICTED_PII_CUSTODIAN"},
+                )
+                assert res_wb.status_code == 200
+                wb_body = res_wb.json()
+                assert wb_body["run_id"] == run_id
+                assert wb_body["view_id"] == view_id
+                assert wb_body["event_count"] >= 1
+                assert wb_body["event"] is not None
+                assert wb_body["event"]["workbench_view_id"] == view_id
+
+            # 7. Intermediate & final artifacts are stored in CAS and retrievable via API
+            final_contract_sha = rep_body["final_artifacts"]["final_contract"]["sha256"]
+            res_art = await client.get(f"/api/v1/artifacts/{final_contract_sha}")
+            assert res_art.status_code == 200
+            assert res_art.json()["sha256"] == final_contract_sha.upper()
+
+            # 8. POST /api/v1/runs with pipeline_input_path triggers execute_agentic_pipeline_run
+            res_via_runs = await client.post(
+                "/api/v1/runs",
+                json={
+                    "pipeline_input_path": sample_input,
+                    "harness_config_path": sample_harness,
+                    "harness_provider": "deterministic",
+                },
+            )
+            assert res_via_runs.status_code == 201
+            via_runs_dto = res_via_runs.json()
+            assert via_runs_dto["status"] == RunStatus.COMPLETED.value
+            assert via_runs_dto["run_id"] in state.pipeline_reports
+
+            # 9. PAUSED_HOLD pipeline run synchronizes report on hold resolution and abort
+            res_paused = await client.post(
+                "/api/v1/pipelines/runs",
+                headers={"X-OpenDV-Role": "DATA_STEWARD"},
+                json={
+                    "input_spec_path": sample_input,
+                    "harness_config_path": sample_harness,
+                    "provider_override": "deterministic",
+                    "steward_hold_policy": "pause",
+                    "output_dir": str(tmp_path / "paused_out"),
+                },
+            )
+            assert res_paused.status_code == 201
+            paused_body = res_paused.json()
+            paused_run_id = paused_body["run_id"]
+            assert paused_body["status"] == "PAUSED_HOLD"
+            assert paused_body["overall_passed"] is False
+            assert len(paused_body["active_holds"]) >= 1
+
+            res_resolve_hold = await client.post(
+                f"/api/v1/runs/{paused_run_id}/decisions",
+                json={
+                    "action": "APPROVE",
+                    "selected_candidate_id": "hub_customer",
+                    "steward_id": "steward-commerce",
+                },
+            )
+            assert res_resolve_hold.status_code == 200
+            res_synced_rep = await client.get(
+                f"/api/v1/runs/{paused_run_id}/report",
+                headers={"X-OpenDV-Role": "DATA_STEWARD"},
+            )
+            assert res_synced_rep.status_code == 200
+            synced_body = res_synced_rep.json()
+            assert synced_body["status"] == "COMPLETED"
+            assert synced_body["overall_passed"] is True
+            assert synced_body["active_holds"] == []
+            assert len(synced_body["resolved_holds"]) >= 1
+            assert not synced_body["observability_events"][-1]["layer1_story_banner"][
+                "headline"
+            ].startswith("[REDACTED")
+
+            res_synced_public = await client.get(f"/api/v1/runs/{paused_run_id}/report")
+            assert res_synced_public.status_code == 200
+            assert res_synced_public.json()["observability_events"][-1]["layer1_story_banner"][
+                "headline"
+            ].startswith("[REDACTED")
+
+            # 10. Stage 00 failure defaults to STAGE_00_ORCHESTRATION, WB-00, and REJECT-WITH-TRACE
+            bad_spec = yaml.safe_load((REPO_ROOT / sample_input).read_text(encoding="utf-8"))
+            bad_spec["graph_a_ontology_path"] = "ontology/does_not_exist.yaml"
+            res_s0_fail = await client.post(
+                "/api/v1/pipelines/runs",
+                json={
+                    "input_spec": bad_spec,
+                    "provider_override": "deterministic",
+                    "output_dir": str(tmp_path / "s0_fail_out"),
+                },
+            )
+            assert res_s0_fail.status_code == 201
+            s0_fail_body = res_s0_fail.json()
+            s0_fail_id = s0_fail_body["run_id"]
+            assert s0_fail_body["status"] == "FAILED"
+            s0_run_dto = state.runs[s0_fail_id]
+            assert s0_run_dto.current_stage_id == "STAGE_00_ORCHESTRATION"
+            assert s0_run_dto.current_view_id == "WB-00"
+            assert s0_run_dto.gate_scorecard.gate_0_profile_drift == "REJECT-WITH-TRACE"
+            assert s0_run_dto.gate_scorecard.gate_5_duckdb_sandbox == "REJECT-WITH-TRACE"
+
+    _run_async(_scenario())
 
 
 async def _collect_async_iter(aiter: Any) -> list[str]:

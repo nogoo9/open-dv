@@ -341,6 +341,12 @@ def test_opendv_cli_missing_required_flags_return_exit_code_2(
         ["run", "create", "--local", "--json"],
         ["hold", "list", "--local", "--json"],
         ["hold", "approve", "--local", "--json"],
+        ["pipeline", "validate", "--local", "--json"],
+        ["pipeline", "run", "--local", "--json"],
+        ["pipeline", "report", "--local", "--json"],
+        ["pipeline", "validate", "--api-url", "http://testserver", "--json"],
+        ["pipeline", "run", "--api-url", "http://testserver", "--json"],
+        ["pipeline", "report", "--api-url", "http://testserver", "--json"],
         [
             "verify",
             "--local",
@@ -619,3 +625,201 @@ def test_verify_cli_rejected_and_ask_user_contracts(
     assert out_ask["overall_passed"] is True
     assert out_ask["verdict"] == "ASK-USER"
     assert out_ask["gate_scorecard"]["gate_1_contract_grain"] == "ASK-USER"
+
+
+def test_opendv_pipeline_cli_local_and_remote_modes(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify `opendv pipeline validate`, `run --local`, `run --api-url`, and `report`."""
+    sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
+    sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
+
+    # 1. opendv pipeline validate --local
+    rc_val_local = app_main(
+        [
+            "pipeline",
+            "validate",
+            "--local",
+            "--input",
+            sample_input,
+            "--harness-config",
+            sample_harness,
+            "--provider",
+            "deterministic",
+            "--hold-policy",
+            "auto_approve_top_candidate",
+            "--json",
+        ]
+    )
+    assert rc_val_local == 0
+    out_val_local = json.loads(capsys.readouterr().out)
+    assert out_val_local["stage"] == "INPUT_VALIDATION"
+    assert out_val_local["passed"] is True
+
+    # 2. opendv pipeline run --local with --output-dir
+    local_out_dir = tmp_path / "cli_local_pipeline_out"
+    rc_run_local = app_main(
+        [
+            "pipeline",
+            "run",
+            "--local",
+            "--input",
+            sample_input,
+            "--harness-config",
+            sample_harness,
+            "--output-dir",
+            str(local_out_dir),
+            "--provider",
+            "deterministic",
+            "--hold-policy",
+            "auto_approve_top_candidate",
+            "--json",
+        ]
+    )
+    assert rc_run_local == 0
+    out_run_local = json.loads(capsys.readouterr().out)
+    assert out_run_local["status"] == "COMPLETED"
+    assert out_run_local["overall_passed"] is True
+    assert len(out_run_local["wave_reports"]) == 4
+    assert (local_out_dir / "pipeline_report.json").is_file()
+
+    # 3. opendv pipeline report --local --report-path and --run-id (with RBAC redaction)
+    rc_rep_local = app_main(
+        [
+            "pipeline",
+            "report",
+            "--local",
+            "--report-path",
+            str(local_out_dir / "pipeline_report.json"),
+            "--json",
+        ]
+    )
+    assert rc_rep_local == 0
+    out_rep_local = json.loads(capsys.readouterr().out)
+    assert out_rep_local["run_id"] == out_run_local["run_id"]
+    assert out_rep_local["overall_passed"] is True
+
+    rc_rep_pe_modeler = app_main(
+        [
+            "pipeline",
+            "report",
+            "--local",
+            "--run-id",
+            "run-pe-apex-horizon-20261030",
+            "--role",
+            "INTERNAL_MODELER",
+            "--json",
+        ]
+    )
+    assert rc_rep_pe_modeler == 0
+    out_rep_pe_modeler = json.loads(capsys.readouterr().out)
+    assert not out_rep_pe_modeler["observability_events"][0]["layer1_story_banner"][
+        "headline"
+    ].startswith("[REDACTED")
+
+    rc_rep_pe_public = app_main(
+        [
+            "pipeline",
+            "report",
+            "--local",
+            "--run-id",
+            "run-pe-apex-horizon-20261030",
+            "--role",
+            "PUBLIC",
+            "--json",
+        ]
+    )
+    assert rc_rep_pe_public == 0
+    out_rep_pe_public = json.loads(capsys.readouterr().out)
+    assert out_rep_pe_public["observability_events"][0]["layer1_story_banner"][
+        "headline"
+    ].startswith("[REDACTED")
+
+    bad_spec_file = tmp_path / "invalid_pipeline_spec.yaml"
+    bad_spec_file.write_text("pipeline_id: bad-only\n", encoding="utf-8")
+    rc_val_invalid = app_main(
+        [
+            "pipeline",
+            "validate",
+            "--local",
+            "--input",
+            str(bad_spec_file),
+            "--json",
+        ]
+    )
+    assert rc_val_invalid == 1
+    out_val_invalid = json.loads(capsys.readouterr().out)
+    assert out_val_invalid["stage"] == "INPUT_VALIDATION"
+    assert out_val_invalid["passed"] is False
+    assert out_val_invalid["diagnostics"][0]["code"] == "INPUT_SPEC_SCHEMA_INVALID"
+
+    # 4. opendv pipeline validate / run / report over --api-url
+    state = PlatformStateContainer(state_dir=tmp_path / "remote_state")
+    app = create_app(platform_state=state)
+    transport = _AsgiSyncBridgeTransport(app)
+    api_url = "http://testserver"
+
+    rc_val_remote = app_main(
+        [
+            "pipeline",
+            "validate",
+            "--api-url",
+            api_url,
+            "--input",
+            sample_input,
+            "--harness-config",
+            sample_harness,
+            "--json",
+        ],
+        transport=transport,
+    )
+    assert rc_val_remote == 0
+    out_val_remote = json.loads(capsys.readouterr().out)
+    assert out_val_remote["passed"] is True
+
+    remote_out_dir = tmp_path / "cli_remote_pipeline_out"
+    rc_run_remote = app_main(
+        [
+            "pipeline",
+            "run",
+            "--api-url",
+            api_url,
+            "--input",
+            sample_input,
+            "--harness-config",
+            sample_harness,
+            "--output-dir",
+            str(remote_out_dir),
+            "--provider",
+            "deterministic",
+            "--hold-policy",
+            "auto_approve_top_candidate",
+            "--json",
+        ],
+        transport=transport,
+    )
+    assert rc_run_remote == 0
+    out_run_remote = json.loads(capsys.readouterr().out)
+    remote_run_id = out_run_remote["run_id"]
+    assert out_run_remote["status"] == "COMPLETED"
+    assert out_run_remote["overall_passed"] is True
+    assert len(out_run_remote["wave_reports"]) == 4
+
+    rc_rep_remote = app_main(
+        [
+            "pipeline",
+            "report",
+            "--api-url",
+            api_url,
+            "--run-id",
+            remote_run_id,
+            "--json",
+        ],
+        transport=transport,
+    )
+    assert rc_rep_remote == 0
+    out_rep_remote = json.loads(capsys.readouterr().out)
+    assert out_rep_remote["run_id"] == remote_run_id
+    assert out_rep_remote["overall_passed"] is True
+    assert len(out_rep_remote["wave_reports"]) == 4
