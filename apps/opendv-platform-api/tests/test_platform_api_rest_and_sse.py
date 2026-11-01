@@ -97,7 +97,7 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
             assert res_get.status_code == 200
             assert res_get.json()["domain_namespace"] == "pe_asset_management"
 
-            # 3. Create new project
+            # 3. Create new project (verifying non-hardcoded defaults)
             res_create = await client.post(
                 "/api/v1/projects",
                 json={
@@ -107,7 +107,12 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
                 },
             )
             assert res_create.status_code == 201
-            assert res_create.json()["project_id"] == "proj-nordic-co-invest"
+            created_proj = res_create.json()
+            assert created_proj["project_id"] == "proj-nordic-co-invest"
+            assert created_proj["contract_path"] is None
+            assert created_proj["graph_a_path"] is None
+            assert created_proj["graph_b_path"] is None
+            assert created_proj["canonical_ir_path"] is None
 
             # 4. Path traversal in project registration must be rejected (400/422 problem+json)
             res_bad_path = await client.post(

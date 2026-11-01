@@ -100,30 +100,27 @@ class CreateProjectRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     project_id: str = Field(..., pattern=r"^[a-z0-9][a-z0-9_-]{2,63}$")
-    display_name: str = Field(default="Apex Horizon Capital Partners — Private Equity Vault")
+    display_name: str = Field(default="Open-DV Project", min_length=1, max_length=256)
     name: str | None = Field(default=None)
-    domain_namespace: str = Field(default="pe_asset_management")
+    domain_namespace: str = Field(default="general", min_length=1, max_length=128)
     domain: str | None = Field(default=None)
-    graph_a_ontology_path: str = Field(default="examples/private_equity/pe_graph_a_ontology.yaml")
-    bronze_sources: list[str] = Field(
-        default_factory=lambda: [
-            "investran.src_pe_funds",
-            "investran.src_lp_investors",
-            "dealcloud.src_portfolio_companies",
-        ],
-        min_length=1,
-    )
-    contract_path: str = Field(default="examples/private_equity/dv_pe_model_contract.yaml")
-    canonical_ir_path: str | None = Field(default="examples/private_equity/pe_canonical_ir.json")
-    graph_b_path: str | None = Field(default="examples/private_equity/pe_graph_b_profile.json")
+    graph_a_ontology_path: str | None = Field(default=None)
+    graph_a_path: str | None = Field(default=None)
+    bronze_sources: list[str] = Field(default_factory=list)
+    contract_path: str | None = Field(default=None)
+    canonical_ir_path: str | None = Field(default=None)
+    graph_b_path: str | None = Field(default=None)
 
     @model_validator(mode="after")
     def _sync_aliases(self) -> CreateProjectRequest:
-        default_name = "Apex Horizon Capital Partners — Private Equity Vault"
-        if self.name and self.display_name == default_name:
+        if self.name and self.display_name == "Open-DV Project":
             self.display_name = self.name
-        if self.domain and self.domain_namespace == "pe_asset_management":
+        if self.domain and self.domain_namespace == "general":
             self.domain_namespace = self.domain
+        if self.graph_a_path and not self.graph_a_ontology_path:
+            self.graph_a_ontology_path = self.graph_a_path
+        elif self.graph_a_ontology_path and not self.graph_a_path:
+            self.graph_a_path = self.graph_a_ontology_path
         return self
 
 
@@ -138,10 +135,11 @@ class ProjectResponse(BaseModel):
     graph_a_sha256: str
     latest_run_id: str | None = None
     created_at_utc: str
-    contract_path: str = "examples/private_equity/dv_pe_model_contract.yaml"
-    canonical_ir_path: str | None = "examples/private_equity/pe_canonical_ir.json"
-    graph_a_ontology_path: str = "examples/private_equity/pe_graph_a_ontology.yaml"
-    graph_b_path: str | None = "examples/private_equity/pe_graph_b_profile.json"
+    contract_path: str | None = None
+    canonical_ir_path: str | None = None
+    graph_a_ontology_path: str | None = None
+    graph_a_path: str | None = None
+    graph_b_path: str | None = None
 
 
 class CreateRunRequest(BaseModel):
@@ -201,8 +199,8 @@ class CaptainHoldDecisionRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    event_id: str = "evt-pe-004"
-    hold_id: str | None = "hold-tier-u3-horizon-sovereign-vehicle"
+    event_id: str | None = Field(default=None)
+    hold_id: str | None = Field(default=None)
     decision_type: Literal["RESOLVE_CAPTAIN_HOLD"] = "RESOLVE_CAPTAIN_HOLD"
     action: Literal["APPROVE", "REJECT", "ANSWER"] = "APPROVE"
     decision: Literal["APPROVE", "REJECT", "ANSWER"] | None = None
@@ -217,8 +215,6 @@ class CaptainHoldDecisionRequest(BaseModel):
             self.action = self.decision
         if self.steward_rationale and not self.resolution_notes:
             self.resolution_notes = self.steward_rationale
-        if not self.hold_id:
-            self.hold_id = "hold-tier-u3-horizon-sovereign-vehicle"
         return self
 
 
@@ -1229,7 +1225,13 @@ def execute_pe_sandbox_query(
 class PlatformStateContainer:
     """In-memory and CAS/JSONL-backed platform state container for `/api/v1` routers."""
 
-    def __init__(self, repo_root: Path | None = None, state_dir: Path | None = None) -> None:
+    def __init__(
+        self,
+        repo_root: Path | None = None,
+        state_dir: Path | None = None,
+        *,
+        seed_demo_project: bool = True,
+    ) -> None:
         self.repo_root = (repo_root or REPO_ROOT).resolve()
         self._tmp_dir: tempfile.TemporaryDirectory[str] | None
         if state_dir is None:
@@ -1259,7 +1261,8 @@ class PlatformStateContainer:
         self.run_decisions: dict[str, list[CaptainHoldDecisionResponse]] = {}
         self.artifacts: dict[str, ArtifactMetadataResponse] = {}
 
-        self._seed_canonical_pe_demo()
+        if seed_demo_project:
+            self._seed_canonical_pe_demo()
 
     def _seed_canonical_pe_demo(self) -> None:
         """Seed the canonical Apex Horizon PE Buyout Vault v5.0 project, run, and events."""
@@ -1275,6 +1278,7 @@ class PlatformStateContainer:
             contract_path="examples/private_equity/dv_pe_model_contract.yaml",
             canonical_ir_path="examples/private_equity/pe_canonical_ir.json",
             graph_a_ontology_path="examples/private_equity/pe_graph_a_ontology.yaml",
+            graph_a_path="examples/private_equity/pe_graph_a_ontology.yaml",
             graph_b_path="examples/private_equity/pe_graph_b_profile.json",
         )
 
@@ -1477,11 +1481,13 @@ class PlatformStateContainer:
             req.contract_path,
             req.canonical_ir_path,
             req.graph_a_ontology_path,
+            req.graph_a_path,
             req.graph_b_path,
         ]:
             if rel_path is not None:
                 self._resolve_repo_path(rel_path)
 
+        resolved_graph_a = req.graph_a_ontology_path or req.graph_a_path
         proj = ProjectResponse(
             project_id=req.project_id,
             display_name=req.display_name,
@@ -1491,7 +1497,8 @@ class PlatformStateContainer:
             created_at_utc=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             contract_path=req.contract_path,
             canonical_ir_path=req.canonical_ir_path,
-            graph_a_ontology_path=req.graph_a_ontology_path,
+            graph_a_ontology_path=resolved_graph_a,
+            graph_a_path=resolved_graph_a,
             graph_b_path=req.graph_b_path,
         )
         self.projects[req.project_id] = proj
@@ -1542,7 +1549,30 @@ class PlatformStateContainer:
             raise KeyError(f"Unknown run_id '{run_id}'")
 
         hold_mgr = self.hold_managers[run_id]
-        target_hold_id = req.hold_id or req.event_id
+        resolved_hold_id = req.hold_id
+        resolved_event_id = req.event_id
+        if not resolved_hold_id or not resolved_event_id:
+            pending_holds = hold_mgr.list_pending_holds(run_id=run_id)
+            if len(pending_holds) == 1:
+                resolved_hold_id = resolved_hold_id or pending_holds[0].hold_id
+                resolved_event_id = resolved_event_id or pending_holds[0].event_id
+            elif not resolved_hold_id and not resolved_event_id:
+                raise KeyError("Hold ID is required when no single active hold is pending.")
+            else:
+                candidate_lookup = resolved_hold_id or resolved_event_id or ""
+                try:
+                    existing = hold_mgr.get_hold(candidate_lookup)
+                    resolved_hold_id = resolved_hold_id or existing.hold_id
+                    resolved_event_id = resolved_event_id or existing.event_id
+                except KeyError as exc:
+                    raise KeyError(
+                        "Hold ID is required when no single active hold is pending."
+                    ) from exc
+
+        target_hold_id = resolved_hold_id or resolved_event_id
+        if not target_hold_id:
+            raise KeyError("Hold ID is required when no single active hold is pending.")
+
         try:
             existing_record = hold_mgr.get_hold(target_hold_id)
             if existing_record.status != "PENDING":
@@ -1557,7 +1587,7 @@ class PlatformStateContainer:
                 session_id=f"sess-{run_id}",
                 decision_id=target_hold_id,
                 hold_id=target_hold_id,
-                event_id=req.event_id,
+                event_id=resolved_event_id or target_hold_id,
             )
 
         notes = req.resolution_notes or f"Resolved by {req.steward_id} via {req.action}"

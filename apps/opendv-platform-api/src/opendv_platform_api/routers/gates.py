@@ -54,36 +54,48 @@ async def evaluate_run_gates(
     run_dto = state.runs[run_id]
     project = state.projects.get(run_dto.project_id)
     options = payload or {}
-    contract_rel = str(
-        options.get("contract_path")
-        or (project.contract_path if project is not None else None)
-        or "examples/private_equity/dv_pe_model_contract.yaml"
+    contract_rel: str | None = options.get("contract_path") or (
+        project.contract_path if project is not None else None
     )
-    graph_a_rel = str(
+    if not contract_rel:
+        base_report = state._build_default_gate_report(run_id)
+        base_report["evaluated_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        base_report["axi_pipeline_status"] = base_report["verdict"]
+        base_report["diagnostics"] = []
+        base_report["toon_text"] = (
+            f"@toon_v1\nrun_id: {run_id}\nattempt: 1/3\nstatus: {base_report['verdict']}\n"
+            "violations[0]{gate,rule,action,target,fix}:"
+        )
+        base_report["applied_codemods"] = []
+        base_report["requested_options"] = options
+        state.run_gate_reports[run_id] = base_report
+        return base_report
+
+    graph_a_rel: str | None = (
         options.get("graph_a_ontology_path")
-        or (project.graph_a_ontology_path if project is not None else None)
-        or "examples/private_equity/pe_graph_a_ontology.yaml"
+        or options.get("graph_a_path")
+        or (project.graph_a_ontology_path or project.graph_a_path if project is not None else None)
     )
-    graph_b_rel = str(
-        options.get("graph_b_path")
-        or (project.graph_b_path if project is not None and project.graph_b_path else None)
-        or "examples/private_equity/pe_graph_b_profile.json"
+    graph_b_rel: str | None = options.get("graph_b_path") or (
+        project.graph_b_path if project is not None else None
     )
     contract_path = state._resolve_repo_path(contract_rel)
-    graph_a_path = state._resolve_repo_path(graph_a_rel)
-    graph_b_path = state._resolve_repo_path(graph_b_rel)
     if not contract_path.exists():
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Contract file not found: {contract_rel}",
         )
     contract_doc = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
-    graph_a_doc = (
-        yaml.safe_load(graph_a_path.read_text(encoding="utf-8")) if graph_a_path.exists() else {}
-    )
-    graph_b_doc = (
-        json.loads(graph_b_path.read_text(encoding="utf-8")) if graph_b_path.exists() else {}
-    )
+    graph_a_doc: dict[str, Any] = {}
+    if graph_a_rel:
+        graph_a_path = state._resolve_repo_path(graph_a_rel)
+        if graph_a_path.exists():
+            graph_a_doc = yaml.safe_load(graph_a_path.read_text(encoding="utf-8")) or {}
+    graph_b_doc: dict[str, Any] = {}
+    if graph_b_rel:
+        graph_b_path = state._resolve_repo_path(graph_b_rel)
+        if graph_b_path.exists():
+            graph_b_doc = json.loads(graph_b_path.read_text(encoding="utf-8")) or {}
     axi_result = run_axi_dv_verification_pipeline(
         contract_doc,
         graph_a_doc,

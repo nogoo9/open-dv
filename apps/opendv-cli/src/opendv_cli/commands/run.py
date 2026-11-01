@@ -19,19 +19,32 @@ def run_run_command(
     """Execute `opendv run` actions (`list`, `get`, `create`, `abort`, `events`)."""
     api_url: str | None = getattr(args, "api_url", None)
     use_local: bool = bool(getattr(args, "local", False)) or not api_url
-    run_id: str = getattr(args, "run_id", None) or "run-pe-apex-horizon-20261030"
-    project_id: str = getattr(args, "project_id", None) or "proj-apex-horizon-pe"
+    run_id: str | None = getattr(args, "run_id", None)
+    project_id: str | None = getattr(args, "project_id", None)
     action: str = getattr(args, "run_action", None) or "get"
     role: str = getattr(args, "role", None) or "INTERNAL_MODELER"
     harness: str = getattr(args, "harness", None) or "antigravity"
     last_event_id: str | None = getattr(args, "last_event_id", None)
+
+    if action == "create" and not project_id:
+        return 2, {
+            "status": "ERROR",
+            "error": "--project-id is required for 'run create'",
+        }
+    if action in {"get", "events", "abort"} and not run_id:
+        return 2, {
+            "status": "ERROR",
+            "error": f"--run-id is required for 'run {action}'",
+        }
 
     if not use_local and api_url:
         with OpenDVCliApiClient(base_url=api_url, role=role, transport=transport) as client:
             if action == "list":
                 return 0, client.list_runs(project_id=project_id)
             if action == "create":
+                assert project_id is not None
                 return 0, client.create_run({"project_id": project_id, "harness_provider": harness})
+            assert run_id is not None
             if action == "abort":
                 return 0, client.abort_run(run_id)
             if action == "events":
@@ -54,6 +67,7 @@ def run_run_command(
     if action == "create":
         from opendv_platform_api.deps import CreateRunRequest
 
+        assert project_id is not None
         if project_id not in state.projects:
             raise ValueError(f"Project '{project_id}' not found.")
         created = state.create_run(
@@ -63,6 +77,8 @@ def run_run_command(
             )
         )
         return 0, created.model_dump(mode="json")
+
+    assert run_id is not None
     if action == "abort":
         if run_id not in state.runs:
             raise ValueError(f"Run '{run_id}' not found.")

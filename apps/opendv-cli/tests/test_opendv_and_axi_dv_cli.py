@@ -51,11 +51,30 @@ class _AsgiSyncBridgeTransport(httpx.BaseTransport):
 
 
 def test_opendv_cli_local_subcommands(
+    tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Verify `opendv` subcommands (`verify`, `profile`, `compile`, `sandbox`, `run`, `hold`)."""
-    # 1. verify --local --json
-    rc = app_main(["verify", "--local", "--json"])
+    pe_contract = "examples/private_equity/dv_pe_model_contract.yaml"
+    pe_graph_a = "examples/private_equity/pe_graph_a_ontology.yaml"
+    pe_graph_b = "examples/private_equity/pe_graph_b_profile.json"
+    pe_ir = "examples/private_equity/pe_canonical_ir.json"
+    pe_run_id = "run-pe-apex-horizon-20261030"
+
+    # 1. verify --local --json with explicit contract, graph-a, graph-b
+    rc = app_main(
+        [
+            "verify",
+            "--local",
+            "--contract",
+            pe_contract,
+            "--graph-a",
+            pe_graph_a,
+            "--graph-b",
+            pe_graph_b,
+            "--json",
+        ]
+    )
     assert rc == 0
     out_verify = json.loads(capsys.readouterr().out)
     assert out_verify["mode"] == "local"
@@ -63,32 +82,118 @@ def test_opendv_cli_local_subcommands(
     assert "@toon_v1" in out_verify["toon_text"]
 
     # 2. axi-dv default verify with --toon and option value matching subcommand name
-    rc_toon = axi_dv_main(["--local", "--toon"])
+    rc_toon = axi_dv_main(
+        [
+            "--local",
+            "--contract",
+            pe_contract,
+            "--graph-a",
+            pe_graph_a,
+            "--graph-b",
+            pe_graph_b,
+            "--toon",
+        ]
+    )
     assert rc_toon == 0
     out_toon = capsys.readouterr().out.strip()
     assert out_toon.startswith("@toon_v1")
 
-    rc_opt_sub = axi_dv_main(["--run-id", "hold", "--local", "--json"])
+    rc_opt_sub = axi_dv_main(
+        [
+            "--run-id",
+            "hold",
+            "--local",
+            "--contract",
+            pe_contract,
+            "--graph-a",
+            pe_graph_a,
+            "--graph-b",
+            pe_graph_b,
+            "--json",
+        ]
+    )
     assert rc_opt_sub == 0
     out_opt_sub = json.loads(capsys.readouterr().out)
     assert out_opt_sub["run_id"] == "hold"
     assert out_opt_sub["overall_passed"] is True
 
-    rc_default_opendv = app_main(["--local", "--json"])
+    rc_default_opendv = app_main(
+        [
+            "--local",
+            "--contract",
+            pe_contract,
+            "--graph-a",
+            pe_graph_a,
+            "--graph-b",
+            pe_graph_b,
+            "--json",
+        ]
+    )
     assert rc_default_opendv == 0
     out_default_opendv = json.loads(capsys.readouterr().out)
     assert out_default_opendv["overall_passed"] is True
 
-    # 3. profile --local --json
-    rc_prof = app_main(["profile", "--local", "--json"])
+    # 3. profile --local --json (both --graph-b and --source-csv)
+    rc_prof = app_main(
+        [
+            "profile",
+            "--local",
+            "--project-id",
+            "proj-apex-horizon-pe",
+            "--graph-b",
+            pe_graph_b,
+            "--json",
+        ]
+    )
     assert rc_prof == 0
     out_prof = json.loads(capsys.readouterr().out)
     assert out_prof["mode"] == "local"
     assert out_prof["status"] == "PASS"
     assert out_prof["table_count"] >= 5
 
-    # 4. compile --local --json
-    rc_comp = app_main(["compile", "--local", "--json"])
+    sample_csv = tmp_path / "src_customers.csv"
+    sample_csv.write_text(
+        "customer_id,legal_name,country_iso,annual_revenue_usd\n"
+        "CUST-001,Alpha Corp,US,1200000.00\n"
+        "CUST-002,Beta GmbH,DE,850000.00\n"
+        "CUST-003,Gamma Ltd,GB,2100000.00\n",
+        encoding="utf-8",
+    )
+    rc_prof_csv = app_main(
+        [
+            "profile",
+            "--local",
+            "--source-csv",
+            str(sample_csv),
+            "--source-system",
+            "crm_bronze",
+            "--table-name",
+            "src_customers",
+            "--json",
+        ]
+    )
+    assert rc_prof_csv == 0
+    out_prof_csv = json.loads(capsys.readouterr().out)
+    assert out_prof_csv["mode"] == "local"
+    assert out_prof_csv["status"] == "PASS"
+    assert out_prof_csv["source_system"] == "CRM_BRONZE"
+    assert out_prof_csv["table_name"] == "src_customers"
+    assert out_prof_csv["table_count"] == 1
+    assert out_prof_csv["column_count"] == 4
+    assert "graph_b_profile" in out_prof_csv
+
+    # 4. compile --local --json (with --canonical-ir and dynamic lowering without --canonical-ir)
+    rc_comp = app_main(
+        [
+            "compile",
+            "--local",
+            "--contract",
+            pe_contract,
+            "--canonical-ir",
+            pe_ir,
+            "--json",
+        ]
+    )
     assert rc_comp == 0
     out_comp = json.loads(capsys.readouterr().out)
     assert out_comp["mode"] == "local"
@@ -97,11 +202,33 @@ def test_opendv_cli_local_subcommands(
     assert out_comp["links_compiled"] == 5
     assert out_comp["satellites_compiled"] == 11
 
+    rc_comp_dyn = app_main(
+        [
+            "compile",
+            "--local",
+            "--contract",
+            pe_contract,
+            "--json",
+        ]
+    )
+    assert rc_comp_dyn == 0
+    out_comp_dyn = json.loads(capsys.readouterr().out)
+    assert out_comp_dyn["mode"] == "local"
+    assert out_comp_dyn["status"] == "PASS"
+    assert out_comp_dyn["canonical_ir_path"] is None
+    assert len(out_comp_dyn["canonical_ir_sha256"]) == 64
+    assert out_comp_dyn["hubs_compiled"] == 4
+    assert out_comp_dyn["links_compiled"] == 5
+    assert out_comp_dyn["satellites_compiled"] == 11
+    assert len(out_comp_dyn["sql_zones"]) == 5
+
     # 5. sandbox --local --json
     rc_sbx = app_main(
         [
             "sandbox",
             "--local",
+            "--contract",
+            pe_contract,
             "--query-type",
             "ADVERSARIAL_BATCHES_1_TO_4",
             "--cutoff",
@@ -116,10 +243,10 @@ def test_opendv_cli_local_subcommands(
     assert len(out_sbx["query_d10b_rows"]) == 3
 
     # 6. run --local --json (get, list filter, events with RBAC redaction & cursor, missing run_id)
-    rc_run = app_main(["run", "get", "--local", "--json"])
+    rc_run = app_main(["run", "get", "--local", "--run-id", pe_run_id, "--json"])
     assert rc_run == 0
     out_run = json.loads(capsys.readouterr().out)
-    assert out_run["run_id"] == "run-pe-apex-horizon-20261030"
+    assert out_run["run_id"] == pe_run_id
 
     rc_list_filtered = app_main(
         ["run", "list", "--local", "--project-id", "proj-nonexistent", "--json"]
@@ -128,7 +255,9 @@ def test_opendv_cli_local_subcommands(
     out_list_filtered = json.loads(capsys.readouterr().out)
     assert out_list_filtered["total"] == 0
 
-    rc_ev = app_main(["run", "events", "--local", "--role", "PUBLIC", "--json"])
+    rc_ev = app_main(
+        ["run", "events", "--local", "--run-id", pe_run_id, "--role", "PUBLIC", "--json"]
+    )
     assert rc_ev == 0
     out_ev = json.loads(capsys.readouterr().out)
     assert out_ev["event_count"] == 9
@@ -139,6 +268,8 @@ def test_opendv_cli_local_subcommands(
             "run",
             "events",
             "--local",
+            "--run-id",
+            pe_run_id,
             "--last-event-id",
             "evt-pe-005",
             "--json",
@@ -155,7 +286,7 @@ def test_opendv_cli_local_subcommands(
     assert out_abort_missing["detail"] == "Run 'run-missing' not found."
 
     # 7. hold --local --json (list, approve, & missing run_id)
-    rc_hold_list = app_main(["hold", "list", "--local", "--json"])
+    rc_hold_list = app_main(["hold", "list", "--local", "--run-id", pe_run_id, "--json"])
     assert rc_hold_list == 0
     out_hold_list = json.loads(capsys.readouterr().out)
     assert len(out_hold_list["active_holds"]) == 1
@@ -170,6 +301,12 @@ def test_opendv_cli_local_subcommands(
             "hold",
             "approve",
             "--local",
+            "--run-id",
+            pe_run_id,
+            "--hold-id",
+            "hold-tier-u3-horizon-sovereign-vehicle",
+            "--event-id",
+            "evt-pe-004",
             "--candidate",
             "APEX_CO_I",
             "--notes",
@@ -183,6 +320,33 @@ def test_opendv_cli_local_subcommands(
     assert out_hold_approve["updated_run_status"] == "COMPLETED"
 
 
+def test_opendv_cli_missing_required_flags_return_exit_code_2(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify omitting required CLI flags returns exit code 2 with status=ERROR."""
+    missing_flag_invocations = [
+        ["verify", "--local", "--json"],
+        ["verify", "--api-url", "http://testserver", "--json"],
+        ["profile", "--local", "--json"],
+        ["profile", "--api-url", "http://testserver", "--json"],
+        ["compile", "--local", "--json"],
+        ["compile", "--api-url", "http://testserver", "--json"],
+        ["sandbox", "--local", "--json"],
+        ["sandbox", "--api-url", "http://testserver", "--json"],
+        ["run", "get", "--local", "--json"],
+        ["run", "events", "--local", "--json"],
+        ["run", "abort", "--local", "--json"],
+        ["run", "create", "--local", "--json"],
+        ["hold", "list", "--local", "--json"],
+        ["hold", "approve", "--local", "--json"],
+    ]
+    for argv in missing_flag_invocations:
+        rc = app_main(argv)
+        assert rc == 2, f"Expected exit code 2 for {argv}, got {rc}"
+        payload = json.loads(capsys.readouterr().out)
+        assert payload["status"] == "ERROR"
+
+
 def test_opendv_and_axi_dv_cli_remote_api_url_mode(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -192,10 +356,11 @@ def test_opendv_and_axi_dv_cli_remote_api_url_mode(
     app = create_app(platform_state=state)
     transport = _AsgiSyncBridgeTransport(app)
     api_url = "http://testserver"
+    pe_run_id = "run-pe-apex-horizon-20261030"
 
     # 1. axi-dv verify --api-url
     rc_verify = axi_dv_main(
-        ["verify", "--api-url", api_url, "--json"],
+        ["verify", "--api-url", api_url, "--run-id", pe_run_id, "--json"],
         transport=transport,
     )
     assert rc_verify == 0
@@ -204,7 +369,16 @@ def test_opendv_and_axi_dv_cli_remote_api_url_mode(
 
     # 2. opendv profile --api-url
     rc_prof = app_main(
-        ["profile", "--api-url", api_url, "--json"],
+        [
+            "profile",
+            "--api-url",
+            api_url,
+            "--project-id",
+            "proj-apex-horizon-pe",
+            "--run-id",
+            pe_run_id,
+            "--json",
+        ],
         transport=transport,
     )
     assert rc_prof == 0
@@ -214,7 +388,7 @@ def test_opendv_and_axi_dv_cli_remote_api_url_mode(
 
     # 3. opendv compile --api-url
     rc_comp = app_main(
-        ["compile", "--api-url", api_url, "--json"],
+        ["compile", "--api-url", api_url, "--run-id", pe_run_id, "--json"],
         transport=transport,
     )
     assert rc_comp == 0
@@ -228,6 +402,8 @@ def test_opendv_and_axi_dv_cli_remote_api_url_mode(
             "sandbox",
             "--api-url",
             api_url,
+            "--run-id",
+            pe_run_id,
             "--query-type",
             "QUERY_D10B_VALUATION",
             "--cutoff",
@@ -249,6 +425,8 @@ def test_opendv_and_axi_dv_cli_remote_api_url_mode(
             "events",
             "--api-url",
             api_url,
+            "--run-id",
+            pe_run_id,
             "--role",
             "AUDITOR_FINANCE",
             "--last-event-id",
@@ -264,13 +442,15 @@ def test_opendv_and_axi_dv_cli_remote_api_url_mode(
     assert "id: evt-pe-001" not in out_events["sse_stream"]
     assert "event: run_complete" in out_events["sse_stream"]
 
-    # 6. opendv hold approve --api-url
+    # 6. opendv hold approve --api-url (auto-resolves single pending hold when --hold-id omitted)
     rc_hold = app_main(
         [
             "hold",
             "approve",
             "--api-url",
             api_url,
+            "--run-id",
+            pe_run_id,
             "--candidate",
             "APEX_CO_I",
             "--notes",
@@ -286,13 +466,42 @@ def test_opendv_and_axi_dv_cli_remote_api_url_mode(
 
     # 7. Double-approving the same hold over --api-url returns exit code 1 with HTTP 409 error
     rc_conflict = app_main(
-        ["hold", "approve", "--api-url", api_url, "--json"],
+        [
+            "hold",
+            "approve",
+            "--api-url",
+            api_url,
+            "--run-id",
+            pe_run_id,
+            "--hold-id",
+            "hold-tier-u3-horizon-sovereign-vehicle",
+            "--event-id",
+            "evt-pe-004",
+            "--json",
+        ],
         transport=transport,
     )
     assert rc_conflict == 1
     out_conflict = json.loads(capsys.readouterr().out)
     assert out_conflict["status"] == "ERROR"
     assert out_conflict["status_code"] == 409
+
+    # 8. Omitting --hold-id when no active holds are pending returns exit code 2
+    rc_no_pending = app_main(
+        [
+            "hold",
+            "approve",
+            "--api-url",
+            api_url,
+            "--run-id",
+            pe_run_id,
+            "--json",
+        ],
+        transport=transport,
+    )
+    assert rc_no_pending == 2
+    out_no_pending = json.loads(capsys.readouterr().out)
+    assert out_no_pending["status"] == "ERROR"
 
 
 def test_api_client_url_validation_and_methods(tmp_path: Path) -> None:
