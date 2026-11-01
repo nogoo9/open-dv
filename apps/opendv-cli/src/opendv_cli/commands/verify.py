@@ -45,6 +45,10 @@ def run_verify_command(
             req_body: dict[str, Any] = {"source": "opendv-cli"}
             if getattr(args, "contract", None):
                 req_body["contract_path"] = args.contract
+            if getattr(args, "graph_a", None):
+                req_body["graph_a_ontology_path"] = args.graph_a
+            if getattr(args, "graph_b", None):
+                req_body["graph_b_path"] = args.graph_b
             payload = client.evaluate_gates(run_id, req_body)
             overall_passed = bool(payload.get("overall_passed", False))
             return (0 if overall_passed else 1), payload
@@ -71,14 +75,22 @@ def run_verify_command(
     graph_a_doc: dict[str, Any] = {}
     if graph_a_arg:
         graph_a_path = resolve_repo_path(repo_root, graph_a_arg)
-        if graph_a_path.exists():
-            graph_a_doc = yaml.safe_load(graph_a_path.read_text(encoding="utf-8")) or {}
+        if not graph_a_path.exists():
+            return 2, {
+                "status": "ERROR",
+                "error": f"Graph A file not found: {graph_a_path}",
+            }
+        graph_a_doc = yaml.safe_load(graph_a_path.read_text(encoding="utf-8")) or {}
 
     graph_b_doc: dict[str, Any] = {}
     if graph_b_arg:
         graph_b_path = resolve_repo_path(repo_root, graph_b_arg)
-        if graph_b_path.exists():
-            graph_b_doc = json.loads(graph_b_path.read_text(encoding="utf-8")) or {}
+        if not graph_b_path.exists():
+            return 2, {
+                "status": "ERROR",
+                "error": f"Graph B file not found: {graph_b_path}",
+            }
+        graph_b_doc = json.loads(graph_b_path.read_text(encoding="utf-8")) or {}
 
     effective_run_id = run_id or "run-local-verify"
     axi_res = run_axi_dv_verification_pipeline(

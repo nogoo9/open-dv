@@ -240,7 +240,9 @@ def test_opendv_cli_local_subcommands(
     out_sbx = json.loads(capsys.readouterr().out)
     assert out_sbx["all_batches_passed"] is True
     assert out_sbx["dynamic_rules_passed"] == 15
-    assert len(out_sbx["query_d10b_rows"]) == 3
+    assert out_sbx["batch_report"]["all_passed"] is True
+    assert out_sbx["dynamic_check_report"]["passed_count"] == 15
+    assert len(out_sbx["query_d10b_rows"]) == 1
 
     # 6. run --local --json (get, list filter, events with RBAC redaction & cursor, missing run_id)
     rc_run = app_main(["run", "get", "--local", "--run-id", pe_run_id, "--json"])
@@ -339,6 +341,24 @@ def test_opendv_cli_missing_required_flags_return_exit_code_2(
         ["run", "create", "--local", "--json"],
         ["hold", "list", "--local", "--json"],
         ["hold", "approve", "--local", "--json"],
+        [
+            "verify",
+            "--local",
+            "--contract",
+            str(REPO_ROOT / "examples" / "private_equity" / "dv_pe_model_contract.yaml"),
+            "--graph-a",
+            "examples/private_equity/does_not_exist.yaml",
+            "--json",
+        ],
+        [
+            "verify",
+            "--local",
+            "--contract",
+            str(REPO_ROOT / "examples" / "private_equity" / "dv_pe_model_contract.yaml"),
+            "--graph-b",
+            "examples/private_equity/does_not_exist.json",
+            "--json",
+        ],
     ]
     for argv in missing_flag_invocations:
         rc = app_main(argv)
@@ -366,6 +386,24 @@ def test_opendv_and_axi_dv_cli_remote_api_url_mode(
     assert rc_verify == 0
     out_verify = json.loads(capsys.readouterr().out)
     assert out_verify["overall_passed"] is True
+
+    rc_verify_bad_graph_a = axi_dv_main(
+        [
+            "verify",
+            "--api-url",
+            api_url,
+            "--run-id",
+            pe_run_id,
+            "--graph-a",
+            "examples/private_equity/does_not_exist.yaml",
+            "--json",
+        ],
+        transport=transport,
+    )
+    assert rc_verify_bad_graph_a == 1
+    out_verify_bad_graph_a = json.loads(capsys.readouterr().out)
+    assert out_verify_bad_graph_a["status"] == "ERROR"
+    assert out_verify_bad_graph_a["status_code"] == 404
 
     # 2. opendv profile --api-url
     rc_prof = app_main(

@@ -105,7 +105,6 @@ class CreateProjectRequest(BaseModel):
     domain_namespace: str = Field(default="general", min_length=1, max_length=128)
     domain: str | None = Field(default=None)
     graph_a_ontology_path: str | None = Field(default=None)
-    graph_a_path: str | None = Field(default=None)
     bronze_sources: list[str] = Field(default_factory=list)
     contract_path: str | None = Field(default=None)
     canonical_ir_path: str | None = Field(default=None)
@@ -117,10 +116,6 @@ class CreateProjectRequest(BaseModel):
             self.display_name = self.name
         if self.domain and self.domain_namespace == "general":
             self.domain_namespace = self.domain
-        if self.graph_a_path and not self.graph_a_ontology_path:
-            self.graph_a_ontology_path = self.graph_a_path
-        elif self.graph_a_ontology_path and not self.graph_a_path:
-            self.graph_a_path = self.graph_a_ontology_path
         return self
 
 
@@ -138,7 +133,6 @@ class ProjectResponse(BaseModel):
     contract_path: str | None = None
     canonical_ir_path: str | None = None
     graph_a_ontology_path: str | None = None
-    graph_a_path: str | None = None
     graph_b_path: str | None = None
 
 
@@ -1278,7 +1272,6 @@ class PlatformStateContainer:
             contract_path="examples/private_equity/dv_pe_model_contract.yaml",
             canonical_ir_path="examples/private_equity/pe_canonical_ir.json",
             graph_a_ontology_path="examples/private_equity/pe_graph_a_ontology.yaml",
-            graph_a_path="examples/private_equity/pe_graph_a_ontology.yaml",
             graph_b_path="examples/private_equity/pe_graph_b_profile.json",
         )
 
@@ -1481,13 +1474,11 @@ class PlatformStateContainer:
             req.contract_path,
             req.canonical_ir_path,
             req.graph_a_ontology_path,
-            req.graph_a_path,
             req.graph_b_path,
         ]:
             if rel_path is not None:
                 self._resolve_repo_path(rel_path)
 
-        resolved_graph_a = req.graph_a_ontology_path or req.graph_a_path
         proj = ProjectResponse(
             project_id=req.project_id,
             display_name=req.display_name,
@@ -1497,8 +1488,7 @@ class PlatformStateContainer:
             created_at_utc=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             contract_path=req.contract_path,
             canonical_ir_path=req.canonical_ir_path,
-            graph_a_ontology_path=resolved_graph_a,
-            graph_a_path=resolved_graph_a,
+            graph_a_ontology_path=req.graph_a_ontology_path,
             graph_b_path=req.graph_b_path,
         )
         self.projects[req.project_id] = proj

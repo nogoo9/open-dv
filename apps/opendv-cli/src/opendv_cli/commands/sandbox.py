@@ -10,7 +10,7 @@ import httpx
 from opendv_cli.api_client import OpenDVCliApiClient
 from opendv_cli.commands.verify import resolve_repo_path
 from opendv_core import find_workspace_root
-from opendv_duckdb_sandbox import DuckDbShadowSandbox, compile_canonical_ir_to_4zone_sql
+from opendv_duckdb_sandbox import DuckDbShadowSandbox
 from opendv_platform_api.deps import execute_pe_sandbox_query
 
 
@@ -64,22 +64,81 @@ def run_sandbox_command(
         }
 
     repo_root = find_workspace_root()
-    model_name: str | None = None
+    effective_run_id = run_id or "run-local-sandbox"
+    if contract_arg:
+        contract_path = resolve_repo_path(repo_root, contract_arg)
+        if not contract_path.exists():
+            return 2, {
+                "status": "ERROR",
+                "error": f"Sandbox input file not found: {contract_path}",
+            }
+    if ir_arg:
+        ir_path = resolve_repo_path(repo_root, ir_arg)
+        if not ir_path.exists():
+            return 2, {
+                "status": "ERROR",
+                "error": f"Sandbox input file not found: {ir_path}",
+            }
+
     source_arg = ir_arg or contract_arg
     if source_arg:
         source_path = resolve_repo_path(repo_root, source_arg)
-        if not source_path.exists():
-            return 2, {
-                "status": "ERROR",
-                "error": f"Sandbox input file not found: {source_path}",
-            }
         with DuckDbShadowSandbox() as sandbox:
-            ir_obj = sandbox.resolve_canonical_ir(source_path)
-            bundle = compile_canonical_ir_to_4zone_sql(ir_obj)
-            sandbox.conn.execute(bundle.zone_0_sql)
-            model_name = ir_obj.model_name
+            ir_model = sandbox.resolve_canonical_ir(source_path)
+            report = sandbox.run_full_verification(
+                ir_model,
+                emit_telemetry=False,
+                run_id=effective_run_id,
+            )
+        batch_report_dict = report.batch_report.model_dump(mode="json")
+        dyn_report_dict = report.dynamic_check_report.model_dump(mode="json")
+        d10_rows = [r.model_dump(mode="json") for r in report.query_d10_rows]
+        d10b_source = (
+            report.query_d10b_oct_15_rows
+            if cutoff.strip().startswith("2026-10")
+            else report.query_d10b_nov_15_rows
+        )
+        d10b_rows = [r.model_dump(mode="json") for r in d10b_source]
+        if query_type in {"QUERY_D10_PIT", "QUERY_D10_LP_COMMITMENT_PIT"}:
+            rows: list[dict[str, Any]] = d10_rows
+        elif query_type in {"QUERY_D10B_VALUATION", "QUERY_D10B_PORTCO_VALUATION_PIT"}:
+            rows = d10b_rows
+        elif query_type == "VERIFY_DYN_001_015":
+            rows = list(dyn_report_dict["checks"])
+        else:
+            rows = list(batch_report_dict["batches"])
 
-    effective_run_id = run_id or "run-local-sandbox"
+        batch_verdicts = {
+            f"batch_{b.batch_number}": ("PASS" if b.passed else "FAIL")
+            for b in report.batch_report.batches
+        }
+        replay_delta_rows = (
+            report.batch_report.by_number[2].total_delta_rows
+            if 2 in report.batch_report.by_number
+            else 0
+        )
+        return (0 if report.passed else 1), {
+            "mode": "local",
+            "run_id": effective_run_id,
+            "model_name": report.model_name,
+            "query_type": query_type,
+            "assertion_cutoff_ts": cutoff,
+            "all_batches_passed": report.passed,
+            "batch_verdicts": batch_verdicts,
+            "batch_report": batch_report_dict,
+            "dynamic_check_report": dyn_report_dict,
+            "dynamic_rules_passed": report.dynamic_check_report.passed_count,
+            "dynamic_rules_total": (
+                report.dynamic_check_report.passed_count
+                + report.dynamic_check_report.failed_count
+            ),
+            "replay_delta_rows": replay_delta_rows,
+            "row_count": len(rows),
+            "rows": rows,
+            "query_d10_rows": d10_rows,
+            "query_d10b_rows": d10b_rows,
+        }
+
     rows, d10_rows, d10b_rows, passed = execute_pe_sandbox_query(
         repo_root=repo_root,
         query_type=query_type,
@@ -105,6 +164,4 @@ def run_sandbox_command(
         "query_d10_rows": d10_rows,
         "query_d10b_rows": d10b_rows,
     }
-    if model_name is not None:
-        result["model_name"] = model_name
     return (0 if passed else 1), result

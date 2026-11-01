@@ -315,17 +315,6 @@
             ],
             "title": "Graph A Ontology Path"
           },
-          "graph_a_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Graph A Path"
-          },
           "graph_b_path": {
             "anyOf": [
               {
@@ -539,17 +528,6 @@
               }
             ],
             "title": "Graph A Ontology Path"
-          },
-          "graph_a_path": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Graph A Path"
           },
           "graph_a_sha256": {
             "title": "Graph A Sha256",
