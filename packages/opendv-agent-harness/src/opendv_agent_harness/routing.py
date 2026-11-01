@@ -29,6 +29,15 @@ DEFAULT_CLAUDE_MODEL_MAP: dict[ModelTier, str] = {
     ModelTier.FAST_TIER: os.environ.get("OPENDV_CLAUDE_FAST_MODEL", "claude-sonnet-5-5-medium"),
 }
 
+DEFAULT_DETERMINISTIC_MODEL_MAP: dict[ModelTier, str] = {
+    ModelTier.HIGH_REASONING: os.environ.get(
+        "OPENDV_DETERMINISTIC_HIGH_MODEL", "deterministic-argon-v1"
+    ),
+    ModelTier.FAST_TIER: os.environ.get(
+        "OPENDV_DETERMINISTIC_FAST_MODEL", "deterministic-flash-v1"
+    ),
+}
+
 
 class PersonaCapabilityProfile(BaseModel):
     """RBAC capability and model-tier profile for an AgentPersona."""
@@ -195,7 +204,7 @@ def resolve_default_tier_for_persona(persona: AgentPersona | str) -> ModelTier:
 
 
 def resolve_provider_model(
-    provider: Literal["antigravity", "claude"] | str,
+    provider: Literal["antigravity", "claude", "deterministic", "deterministic-stub"] | str,
     tier: ModelTier | str,
     overrides: dict[ModelTier, str] | None = None,
 ) -> str:
@@ -207,6 +216,11 @@ def resolve_provider_model(
         return DEFAULT_CLAUDE_MODEL_MAP.get(
             tier_enum,
             DEFAULT_CLAUDE_MODEL_MAP[ModelTier.HIGH_REASONING],
+        )
+    if provider in {"deterministic", "deterministic-stub"}:
+        return DEFAULT_DETERMINISTIC_MODEL_MAP.get(
+            tier_enum,
+            DEFAULT_DETERMINISTIC_MODEL_MAP[ModelTier.HIGH_REASONING],
         )
     return DEFAULT_AGY_MODEL_MAP.get(
         tier_enum,
@@ -226,6 +240,7 @@ def is_tool_authorized_for_persona(persona: AgentPersona | str, tool_name: str) 
 __all__ = [
     "DEFAULT_AGY_MODEL_MAP",
     "DEFAULT_CLAUDE_MODEL_MAP",
+    "DEFAULT_DETERMINISTIC_MODEL_MAP",
     "PERSONA_CAPABILITY_MATRIX",
     "PersonaCapabilityProfile",
     "get_persona_capability",

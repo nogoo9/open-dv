@@ -14,28 +14,24 @@ from typing import Any
 from opendv_agent_harness.models import AgentPersona, AgentTaskSpec, SubagentSpec
 from opendv_agent_harness.personas.scout_source import (
     SCOUT_SOURCE_SYSTEM_INSTRUCTIONS,
-    build_scout_source_spec,
     build_scout_source_subagent_spec,
     build_scout_source_task_spec,
     create_scout_source_task_spec,
 )
 from opendv_agent_harness.personas.scout_unstructured import (
     SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS,
-    build_scout_unstructured_spec,
     build_scout_unstructured_subagent_spec,
     build_scout_unstructured_task_spec,
     create_scout_unstructured_task_spec,
 )
 from opendv_agent_harness.personas.ship_vault import (
     SHIP_VAULT_SYSTEM_INSTRUCTIONS,
-    build_ship_vault_spec,
     build_ship_vault_subagent_spec,
     build_ship_vault_task_spec,
     create_ship_vault_task_spec,
 )
 from opendv_agent_harness.personas.vault_first_mate import (
     VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS,
-    build_vault_first_mate_spec,
     build_vault_first_mate_subagent_spec,
     build_vault_first_mate_subagents,
     build_vault_first_mate_task_spec,
@@ -84,16 +80,12 @@ __all__ = [
     "VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS",
     "build_persona_subagent_spec",
     "build_persona_task_spec",
-    "build_scout_source_spec",
     "build_scout_source_subagent_spec",
     "build_scout_source_task_spec",
-    "build_scout_unstructured_spec",
     "build_scout_unstructured_subagent_spec",
     "build_scout_unstructured_task_spec",
-    "build_ship_vault_spec",
     "build_ship_vault_subagent_spec",
     "build_ship_vault_task_spec",
-    "build_vault_first_mate_spec",
     "build_vault_first_mate_subagent_spec",
     "build_vault_first_mate_subagents",
     "build_vault_first_mate_task_spec",

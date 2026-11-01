@@ -453,7 +453,12 @@ async def test_antigravity_steward_hold_and_cancel_active_turn(tmp_path: Path) -
 
 
 def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> None:
-    assert list_available_harnesses() == ["antigravity", "claude"]
+    assert list_available_harnesses() == [
+        "antigravity",
+        "claude",
+        "deterministic",
+        "deterministic-stub",
+    ]
 
     fake_agy, _ = _build_fake_antigravity_sdk()
     agy_cfg = _make_config(tmp_path, provider="antigravity")
@@ -466,7 +471,12 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
         assert "custom-test" in list_available_harnesses()
     finally:
         _HARNESS_REGISTRY.pop("custom-test", None)
-    assert list_available_harnesses() == ["antigravity", "claude"]
+    assert list_available_harnesses() == [
+        "antigravity",
+        "claude",
+        "deterministic",
+        "deterministic-stub",
+    ]
 
     # Verify all 4 persona builders & generic dispatchers
     vfm_spec = build_persona_task_spec(AgentPersona.VAULT_FIRST_MATE, "Orchestrate")

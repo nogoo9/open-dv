@@ -120,8 +120,8 @@ def test_harness_config_requires_absolute_paths(tmp_path: Path) -> None:
 
 
 def test_model_tier_routing_and_persona_capability_matrix() -> None:
-    assert ModelTier.HIGH_REASONING == "argon"
-    assert ModelTier.FAST_TIER == "flash"
+    assert ModelTier.HIGH_REASONING.value == "argon"
+    assert ModelTier.FAST_TIER.value == "flash"
 
     assert DEFAULT_AGY_MODEL_MAP[ModelTier.HIGH_REASONING] == "gemini-4-argon-high"
     assert DEFAULT_AGY_MODEL_MAP[ModelTier.FAST_TIER] == "gemini-3.8-flash-high"

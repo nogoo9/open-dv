@@ -1,0 +1,7 @@
+customer_row_seq,customer_tax_id,legal_name,country_iso2,account_segment,credit_limit_usd,contact_email,tax_ssn_tin
+1,TAX-US-900101,Apex Industrial Holdings LLC,US,ENTERPRISE,1250000.00,treasury@apex-industrial.example.com,99-4102931
+2,TAX-DE-800202,Rheinland Precision GmbH,DE,ENTERPRISE,980000.00,finance@rheinland-precision.example.de,44-8821044
+3,TAX-SG-700303,Merlion Maritime Logistics Pte Ltd,SG,MID_MARKET,640000.00,ap@merlion-logistics.example.sg,77-1928374
+4,TAX-GB-600404,Thames Sovereign Analytics Ltd,GB,ENTERPRISE,1500000.00,billing@thames-sovereign.example.co.uk,22-5591823
+5,TAX-JP-500505,Kanto Semiconductor Works KK,JP,STRATEGIC,2100000.00,procurement@kanto-semi.example.jp,66-3019284
+6,TAX-CA-400606,Boreal Cloud Infrastructure Inc,CA,MID_MARKET,520000.00,accounts@boreal-cloud.example.ca,11-7482910

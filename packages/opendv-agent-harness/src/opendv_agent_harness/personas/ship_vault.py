@@ -110,11 +110,9 @@ def build_ship_vault_task_spec(
 
 
 create_ship_vault_task_spec = build_ship_vault_task_spec
-build_ship_vault_spec = build_ship_vault_task_spec
 
 __all__ = [
     "SHIP_VAULT_SYSTEM_INSTRUCTIONS",
-    "build_ship_vault_spec",
     "build_ship_vault_subagent_spec",
     "build_ship_vault_task_spec",
     "create_ship_vault_task_spec",

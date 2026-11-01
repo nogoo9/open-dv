@@ -128,11 +128,9 @@ def build_vault_first_mate_task_spec(
 
 
 create_vault_first_mate_task_spec = build_vault_first_mate_task_spec
-build_vault_first_mate_spec = build_vault_first_mate_task_spec
 
 __all__ = [
     "VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS",
-    "build_vault_first_mate_spec",
     "build_vault_first_mate_subagent_spec",
     "build_vault_first_mate_subagents",
     "build_vault_first_mate_task_spec",
