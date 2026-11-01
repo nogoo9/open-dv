@@ -13,6 +13,7 @@ import yaml
 from opendv_axi_verifier import run_axi_dv_verification_pipeline
 from opendv_cli.api_client import OpenDVCliApiClient
 from opendv_core import find_workspace_root
+from opendv_platform_api.deps import build_gate_scorecard_from_axi_result
 
 
 def resolve_repo_path(repo_root: Path, rel_or_abs: str) -> Path:
@@ -38,8 +39,11 @@ def run_verify_command(
         with OpenDVCliApiClient(
             base_url=api_url, role=role, transport=transport
         ) as client:
-            payload = client.evaluate_gates(run_id, {"source": "opendv-cli"})
-            overall_passed = bool(payload.get("overall_passed", True))
+            req_body: dict[str, Any] = {"source": "opendv-cli"}
+            if getattr(args, "contract", None):
+                req_body["contract_path"] = args.contract
+            payload = client.evaluate_gates(run_id, req_body)
+            overall_passed = bool(payload.get("overall_passed", False))
             return (0 if overall_passed else 1), payload
 
     repo_root = find_workspace_root()
@@ -84,23 +88,17 @@ def run_verify_command(
         graph_b_doc,
         run_id=run_id,
     )
-    passed = axi_res.status in {"PASS", "AUTO-FIX", "AUTO_REPAIRED", "ASK-USER"}
+    passed, verdict, scorecard = build_gate_scorecard_from_axi_result(axi_res)
     result: dict[str, Any] = {
         "mode": "local",
         "run_id": run_id,
         "status": axi_res.status,
+        "verdict": verdict,
         "overall_passed": passed,
         "contract_path": str(contract_path),
         "applied_codemods": list(axi_res.applied_codemods),
         "diagnostics": list(axi_res.diagnostics),
         "toon_text": axi_res.toon_text,
-        "gate_scorecard": {
-            "gate_0_profile_drift": "PASS",
-            "gate_1_contract_grain": "AUTO_REPAIRED",
-            "gate_2_sqlglot_ast": "PASS",
-            "gate_3_networkx_dag": "PASS",
-            "gate_4_yagni_cost_guard": "AUTO-FIX",
-            "gate_5_duckdb_sandbox": "PASS",
-        },
+        "gate_scorecard": scorecard.model_dump(mode="json"),
     }
     return (0 if passed else 1), result

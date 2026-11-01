@@ -52,11 +52,16 @@ def run_run_command(
 
     state = PlatformStateContainer()
     if action == "list":
-        items = [r.model_dump(mode="json") for r in state.runs.values()]
+        runs = list(state.runs.values())
+        if project_id is not None:
+            runs = [r for r in runs if r.project_id == project_id]
+        items = [r.model_dump(mode="json") for r in runs]
         return 0, {"mode": "local", "items": items, "total": len(items)}
     if action == "create":
         from opendv_platform_api.deps import CreateRunRequest
 
+        if project_id not in state.projects:
+            raise ValueError(f"Project '{project_id}' not found.")
         created = state.create_run(
             CreateRunRequest(
                 project_id=project_id,
@@ -65,20 +70,36 @@ def run_run_command(
         )
         return 0, created.model_dump(mode="json")
     if action == "abort":
+        if run_id not in state.runs:
+            raise ValueError(f"Run '{run_id}' not found.")
         aborted = state.abort_run(run_id)
         return 0, aborted.model_dump(mode="json")
     if action == "events":
-        events = [
-            redact_event_for_role(ev, role)
-            for ev in state.run_events.get(run_id, [])
-        ]
+        if run_id not in state.runs:
+            raise ValueError(f"Run '{run_id}' not found.")
+        raw_events = state.run_events.get(run_id, [])
+        if last_event_id is not None:
+            skipping = True
+            sliced: list[dict[str, Any]] = []
+            for ev in raw_events:
+                if skipping:
+                    if str(ev.get("event_id")) == last_event_id:
+                        skipping = False
+                    continue
+                sliced.append(ev)
+            if not skipping:
+                raw_events = sliced
+        events = [redact_event_for_role(ev, role) for ev in raw_events]
         return 0, {
             "mode": "local",
             "run_id": run_id,
             "role": role,
+            "last_event_id": last_event_id,
             "event_count": len(events),
             "events": events,
         }
 
+    if run_id not in state.runs:
+        raise ValueError(f"Run '{run_id}' not found.")
     run_dto = state.runs[run_id]
     return 0, run_dto.model_dump(mode="json")

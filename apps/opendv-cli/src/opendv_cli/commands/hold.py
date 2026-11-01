@@ -62,6 +62,8 @@ def run_hold_command(
             return 0, resp
 
     state = PlatformStateContainer()
+    if run_id not in state.runs:
+        raise ValueError(f"Run '{run_id}' not found.")
     if hold_action == "LIST":
         mgr = state.hold_managers[run_id]
         pending = [

@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 import pytest
+import yaml
 
 from opendv_cli import (
     OpenDVCliApiClient,
@@ -18,6 +19,7 @@ from opendv_cli import (
     validate_api_url,
 )
 from opendv_platform_api import PlatformStateContainer, create_app
+from opendv_platform_api.deps import REPO_ROOT
 
 
 class _AsgiSyncBridgeTransport(httpx.BaseTransport):
@@ -60,11 +62,22 @@ def test_opendv_cli_local_subcommands(
     assert out_verify["overall_passed"] is True
     assert "@toon_v1" in out_verify["toon_text"]
 
-    # 2. axi-dv default verify with --toon
+    # 2. axi-dv default verify with --toon and option value matching subcommand name
     rc_toon = axi_dv_main(["--local", "--toon"])
     assert rc_toon == 0
     out_toon = capsys.readouterr().out.strip()
     assert out_toon.startswith("@toon_v1")
+
+    rc_opt_sub = axi_dv_main(["--run-id", "hold", "--local", "--json"])
+    assert rc_opt_sub == 0
+    out_opt_sub = json.loads(capsys.readouterr().out)
+    assert out_opt_sub["run_id"] == "hold"
+    assert out_opt_sub["overall_passed"] is True
+
+    rc_default_opendv = app_main(["--local", "--json"])
+    assert rc_default_opendv == 0
+    out_default_opendv = json.loads(capsys.readouterr().out)
+    assert out_default_opendv["overall_passed"] is True
 
     # 3. profile --local --json
     rc_prof = app_main(["profile", "--local", "--json"])
@@ -102,11 +115,18 @@ def test_opendv_cli_local_subcommands(
     assert out_sbx["dynamic_rules_passed"] == 15
     assert len(out_sbx["query_d10b_rows"]) == 3
 
-    # 6. run --local --json (get & events with RBAC redaction)
+    # 6. run --local --json (get, list filter, events with RBAC redaction & cursor, missing run_id)
     rc_run = app_main(["run", "get", "--local", "--json"])
     assert rc_run == 0
     out_run = json.loads(capsys.readouterr().out)
     assert out_run["run_id"] == "run-pe-apex-horizon-20261030"
+
+    rc_list_filtered = app_main(
+        ["run", "list", "--local", "--project-id", "proj-nonexistent", "--json"]
+    )
+    assert rc_list_filtered == 0
+    out_list_filtered = json.loads(capsys.readouterr().out)
+    assert out_list_filtered["total"] == 0
 
     rc_ev = app_main(["run", "events", "--local", "--role", "PUBLIC", "--json"])
     assert rc_ev == 0
@@ -116,11 +136,40 @@ def test_opendv_cli_local_subcommands(
         "[REDACTED "
     )
 
-    # 7. hold --local --json (list & approve)
+    rc_ev_cursor = app_main(
+        [
+            "run",
+            "events",
+            "--local",
+            "--last-event-id",
+            "evt-pe-005",
+            "--json",
+        ]
+    )
+    assert rc_ev_cursor == 0
+    out_ev_cursor = json.loads(capsys.readouterr().out)
+    assert out_ev_cursor["event_count"] == 4
+    assert out_ev_cursor["events"][0]["event_id"] == "evt-pe-006"
+
+    rc_abort_missing = app_main(
+        ["run", "abort", "--local", "--run-id", "run-missing", "--json"]
+    )
+    assert rc_abort_missing == 1
+    out_abort_missing = json.loads(capsys.readouterr().out)
+    assert out_abort_missing["detail"] == "Run 'run-missing' not found."
+
+    # 7. hold --local --json (list, approve, & missing run_id)
     rc_hold_list = app_main(["hold", "list", "--local", "--json"])
     assert rc_hold_list == 0
     out_hold_list = json.loads(capsys.readouterr().out)
     assert len(out_hold_list["active_holds"]) == 1
+
+    rc_hold_missing = app_main(
+        ["hold", "approve", "--local", "--run-id", "run-missing", "--json"]
+    )
+    assert rc_hold_missing == 1
+    out_hold_missing = json.loads(capsys.readouterr().out)
+    assert out_hold_missing["detail"] == "Run 'run-missing' not found."
 
     rc_hold_approve = app_main(
         [
@@ -286,3 +335,50 @@ def test_api_client_url_validation_and_methods(tmp_path: Path) -> None:
         with pytest.raises(OpenDVCliApiError) as exc_info:
             client.get_run("run-missing")
         assert exc_info.value.status_code == 404
+
+
+def test_verify_cli_rejected_and_ask_user_contracts(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify `opendv verify` and `axi-dv` reflect REJECT_WITH_TRACE and ASK_USER verdicts."""
+    bad_contract = tmp_path / "broken_contract.yaml"
+    bad_contract.write_text(
+        "contract_version: '5.0'\n"
+        "hubs:\n"
+        "  - name: hub_broken\n"
+        "    target_table: raw_vault.hub_broken\n"
+        "    grain_statement: 'short grain'\n"
+        "    business_keys: []\n"
+        "links: []\n"
+        "satellites: []\n",
+        encoding="utf-8",
+    )
+    rc_bad = app_main(["--local", "--contract", str(bad_contract), "--json"])
+    assert rc_bad == 1
+    out_bad = json.loads(capsys.readouterr().out)
+    assert out_bad["overall_passed"] is False
+    assert out_bad["verdict"] == "REJECT-WITH-TRACE"
+    assert out_bad["gate_scorecard"]["gate_1_contract_grain"] == "REJECT-WITH-TRACE"
+
+    pe_contract_doc = yaml.safe_load(
+        (REPO_ROOT / "examples" / "private_equity" / "dv_pe_model_contract.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    pe_contract_doc["unmapped_escalations"] = [
+        {
+            "bronze_table": "src_mystery",
+            "columns": ["col_a"],
+            "escalation_reason": "MISSING_ONTOLOGY_CONCEPT",
+            "architect_question": "Map src_mystery to which hub?",
+        }
+    ]
+    ask_contract = tmp_path / "ask_contract.yaml"
+    ask_contract.write_text(yaml.safe_dump(pe_contract_doc), encoding="utf-8")
+    rc_ask = axi_dv_main(["--local", "--contract", str(ask_contract), "--json"])
+    assert rc_ask == 0
+    out_ask = json.loads(capsys.readouterr().out)
+    assert out_ask["overall_passed"] is True
+    assert out_ask["verdict"] == "ASK-USER"
+    assert out_ask["gate_scorecard"]["gate_1_contract_grain"] == "ASK-USER"

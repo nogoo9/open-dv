@@ -27,6 +27,7 @@ import pytest
 import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+
 _WORKSPACE_SRC_DIRS: tuple[Path, ...] = (
     REPO_ROOT / "packages" / "opendv-core" / "src",
     REPO_ROOT / "packages" / "opendv-telemetry" / "src",

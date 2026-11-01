@@ -20,6 +20,24 @@ from opendv_cli.commands import (
 )
 
 SUBCOMMANDS = {"verify", "profile", "compile", "sandbox", "run", "hold"}
+_BOOLEAN_FLAGS = frozenset({"-h", "--help", "--local", "--json", "--toon"})
+
+
+def _has_explicit_subcommand(raw_args: list[str]) -> bool:
+    """Return True if raw_args contains an explicit positional subcommand token."""
+    skip_next = False
+    for tok in raw_args:
+        if skip_next:
+            skip_next = False
+            continue
+        if tok == "--":
+            break
+        if tok.startswith("-"):
+            if "=" not in tok and tok not in _BOOLEAN_FLAGS:
+                skip_next = True
+            continue
+        return tok in SUBCOMMANDS
+    return False
 
 
 def _add_shared_flags(parser: argparse.ArgumentParser, *, suppress_defaults: bool) -> None:
@@ -256,6 +274,7 @@ def _emit_output(
 
     status_label = (
         payload.get("status")
+        or payload.get("verdict")
         or ("PASS" if payload.get("overall_passed") else None)
         or ("PASS" if payload.get("all_batches_passed") else None)
         or "OK"
@@ -323,9 +342,11 @@ def app_main(
     if not raw_args:
         parser.print_help()
         return 0
+    if not any(flag in raw_args for flag in ("-h", "--help")) and not _has_explicit_subcommand(
+        raw_args
+    ):
+        raw_args = ["verify", *raw_args]
     args = parser.parse_args(raw_args)
-    if getattr(args, "subcommand", None) is None:
-        args.subcommand = "verify"
     return _dispatch(args, transport=transport)
 
 
@@ -345,8 +366,7 @@ def axi_dv_main(
         parser.parse_args(raw_args)
         return 0
 
-    has_subcommand = any(tok in SUBCOMMANDS for tok in raw_args)
-    if not has_subcommand:
+    if not _has_explicit_subcommand(raw_args):
         raw_args = ["verify", *raw_args]
 
     parser = build_parser(prog="axi-dv")
