@@ -11,6 +11,10 @@
 > - [05 — ELM Calculus, Graph B Profiling Math, 3-Pass CoT Prompt, and Reference Algorithms (`A.1`–`A.9` & `D.10`)](05-elm-calculus-and-reference-algorithms.md)
 > - [06 — Explainability, Observability & Visualization Architecture (`WB-00..WB-11`, `VIZ-PIPE-00`, `VIZ-STEP-01..08`, `VIZ-GATE-01..08`)](06-explainability-and-observability-spec.md)
 > - [07 — End-to-End Private Equity Asset Management Modelling & Verification Demo (`Scenes 1–7`)](07-end-to-end-private-equity-demo.md)
+> - [08 — Platform MVP Monorepo Toolchain (`proto` + `moon` + `uv` + `bun`) & Headless REST + SSE API Specification (`/api/v1/...`)](08-platform-mvp-monorepo-and-api-spec.md)
+> - [09 — Harness-Agnostic Agent Runtime (`VaultAgentHarness`) & Dual-SDK Adapter Specification (`google.antigravity` & `claude_agent_sdk`)](09-agnostic-agent-harness-and-sdk-spec.md)
+> - [10 — Decoupled UI Workbench (`WB-00..WB-11`), Zero-Dependency Protocol SDK (`@opendv/protocol-ts`) & Semantic Theme Engine Specification](10-decoupled-ui-workbench-and-theme-spec.md)
+> - [11 — Master Agent Worker Implementation & Dispatch Plan (`WP-01` through `WP-12`)](11-agent-worker-implementation-plan.md)
 > - **Formal Schemas & Contracts:**
 >   - [No-Mistake DV 2.0 Contract V5 JSON Schema (`schemas/no-mistake-dv2-contract-v5.schema.json`)](../schemas/no-mistake-dv2-contract-v5.schema.json)
 >   - [Canonical Intermediate Representation (IR) JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json)
@@ -73,6 +77,7 @@
     - [10.2 3-Tier Unstructured Entity Resolution (`Tier-U1`, `Tier-U2`, `Tier-U3`) & GraphRAG PIT Join (`D.10`)](#102-3-tier-unstructured-entity-resolution-tier-u1-tier-u2-tier-u3--graphrag-pit-join-d10)
 11. [ELM Mathematical Calculus, 3-Pass CoT State Machine, & Declarative Contract (`v5.0`)](#11-elm-mathematical-calculus-3-pass-cot-state-machine--declarative-contract-v50)
 12. [Reference Implementation Algorithms Index (`Algorithms A.1–A.9` & `D.10`)](#12-reference-implementation-algorithms-index-algorithms-a1a9--d10)
+13. [Platform MVP Monorepo, Agnostic Agent Harness, Decoupled UI Workbench & Worker Implementation Plan (`docs/08`–`docs/11`)](#13-platform-mvp-monorepo-agnostic-agent-harness-decoupled-ui-workbench--worker-implementation-plan-docs08docs11)
 
 ---
 
@@ -1189,4 +1194,18 @@ All production reference implementations are provided in full, unshortened Pytho
 | **`Query D.10`** | Canonical Multimodal PIT + GraphRAG `SELECT` | Production bi-temporal SQL joining structured Satellites (`PIT` + Ghost Records) with span-grounded unstructured document extractions (`mas_document_*`) and BDV vectors. | [`04` §4.2](04-unstructured-and-multimodal-dv2.md) & [`05` §3.10](05-elm-calculus-and-reference-algorithms.md) |
 
 **Specified without a reference implementation:** the Graph B Bronze profiler (metrics defined in [`05` §1](05-elm-calculus-and-reference-algorithms.md)), the Gate 3 `networkx` bipartite topology verifier (`DV-STR-*` rules), the Gate 5 4-Batch DuckDB Adversarial Sandbox (`DV-DYN-*` templates), and the Ghost Record seeder (Zero Key / Ghost Record contract in Section 3.4). Their specifications live in [`03-verification-and-agentic-architecture.md`](03-verification-and-agentic-architecture.md).
+
+---
+
+## 13. Platform MVP Monorepo, Agnostic Agent Harness, Decoupled UI Workbench & Worker Implementation Plan (`docs/08`–`docs/11`)
+
+> **Deep-Dive References:** [`08 — Monorepo & Platform API`](08-platform-mvp-monorepo-and-api-spec.md) · [`09 — Agnostic Agent Harness`](09-agnostic-agent-harness-and-sdk-spec.md) · [`10 — Decoupled UI Workbench & Theme Engine`](10-decoupled-ui-workbench-and-theme-spec.md) · [`11 — Master Agent Worker Implementation Plan`](11-agent-worker-implementation-plan.md)
+
+| Specification Document | Primary Scope | Key Architectural Deliverables |
+| :--- | :--- | :--- |
+| **[`docs/08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md)** | Polyglot Monorepo (`proto` + `moon` + `uv` + `bun`) & Headless Platform API | Verbatim `.prototools`, `.moon/workspace.yml`, `.moon/toolchains.yml`, `.moon/tasks/*.yml`, 9 workspace packages (`packages/opendv-*`, `apps/opendv-*`), 5-tier RBAC redaction, Content-Addressable Store (`state/artifacts/<sha256>`), and OpenAPI 3.1 REST + SSE NDJSON contract (`/api/v1/projects`, `/runs`, `/events`, `/gates`, `/sandbox`, `/decisions`, `/artifacts`). |
+| **[`docs/09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md)** | Vendor-Neutral Agent Runtime (`packages/opendv-agent-harness`) | `VaultAgentHarness` Protocol, `AgentTaskSpec`, `AgentToolDefinition`, `SubagentSpec`, `argon`/`flash` model-tier routing, 8 pure-Python domain tools, automatic dual-SDK tool bridges, **`AntigravityHarnessAdapter`** (`google.antigravity`) and **`ClaudeAgentHarnessAdapter`** (`claude_agent_sdk`), and `VaultObservabilityEvent` stream translation. |
+| **[`docs/10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md)** | Protocol SDK (`@opendv/protocol-ts`) & Web Workbench (`apps/opendv-web-workbench`) | Zero-dependency TypeScript Protocol SDK (`OpenDVPlatformClient`, `VaultEventStreamClient`, `MockVaultEventStreamClient`, Web Crypto `Alg A.5` Hash Pills), React 19 + Vite 6 + Tailwind CSS v4 + Zustand UI on `bun`, CSS Custom Properties Theme Engine (`Obsidian Dark`, `Daylight Paper`, `High-Contrast Audit`), 3-Layer Progressive Disclosure Shell, `WorkbenchViewPlugin` registry, and all 12 Workbench Views (`WB-00`–`WB-11`). |
+| **[`docs/11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)** | Turnkey Worker Dispatch Plan (`WP-01`–`WP-12`) | 12 dependency-ordered Work Packages (`WP-01` through `WP-12`) with target branch, agent tier (`argon` vs `flash`), `blocked-by` prerequisites, disjoint file ownership, normative spec references (`docs/01`–`docs/10`), acceptance criteria, and exact `moon run` / `pytest` / `bun test` verification commands. |
+
 
