@@ -3,7 +3,6 @@
  * Simulates the 5 Fatal Agentic Traps and Anti-Patterns AP-01 through AP-15 (VIZ-GATE-02) (`docs/06` §4.2).
  */
 
-import type { VaultObservabilityEventDTO } from "@opendv/protocol-ts";
 import { useState } from "react";
 import type {
 	GateCardPluginProps,

@@ -8,31 +8,16 @@ import {
 	defaultWorkbenchPluginRegistry,
 } from "../plugins/plugin-registry";
 import type { WorkbenchViewPlugin } from "../plugins/plugin-types";
-import {
-	SixGateFunnelCard,
-	VIZ_GATE_01_PLUGIN,
-} from "./wb00/SixGateFunnelCard";
+import { VIZ_GATE_01_PLUGIN } from "./wb00/SixGateFunnelCard";
 import { WB00CommandCenter } from "./wb00/WB00CommandCenter";
-import {
-	CounterfactualTrapDrawer,
-	VIZ_GATE_02_PLUGIN,
-} from "./wb01/CounterfactualTrapDrawer";
+import { VIZ_GATE_02_PLUGIN } from "./wb01/CounterfactualTrapDrawer";
 import { WB01DualGraphView } from "./wb01/WB01DualGraphView";
 import { WB02EmpiricalProfiler } from "./wb02/WB02EmpiricalProfiler";
-import {
-	ThreeTierERFunnel,
-	VIZ_GATE_06_PLUGIN,
-} from "./wb03/ThreeTierERFunnel";
+import { VIZ_GATE_06_PLUGIN } from "./wb03/ThreeTierERFunnel";
 import { WB03UnstructuredView } from "./wb03/WB03UnstructuredView";
-import {
-	TriageLedgerTable,
-	VIZ_GATE_05_PART_A_PLUGIN,
-} from "./wb04/TriageLedgerTable";
+import { VIZ_GATE_05_PART_A_PLUGIN } from "./wb04/TriageLedgerTable";
 import { WB04ColumnTriageView } from "./wb04/WB04ColumnTriageView";
-import {
-	BkccCollisionShieldDrawer,
-	VIZ_GATE_04_PLUGIN,
-} from "./wb05/BkccCollisionShieldDrawer";
+import { VIZ_GATE_04_PLUGIN } from "./wb05/BkccCollisionShieldDrawer";
 import { WB05ELMTopologyView } from "./wb05/WB05ELMTopologyView";
 
 export {

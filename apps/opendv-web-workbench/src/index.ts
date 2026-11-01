@@ -2,7 +2,8 @@
  * `@opendv/web-workbench`
  * Decoupled 12-View Explainability & Observability Web Workbench Shell,
  * Semantic Theme Engine (`Obsidian Dark`, `Daylight Paper`, `High-Contrast Audit`),
- * Zustand State Store, and Extensible Plugin Registry.
+ * Zustand State Store, Extensible Plugin Registry, and Workbench Views `WB-00`–`WB-05`
+ * with Co-Located Gate Cards (`VIZ-GATE-01`, `VIZ-GATE-02`, `VIZ-GATE-04`, `VIZ-GATE-05` Part A, `VIZ-GATE-06`).
  */
 
 import { PROTOCOL_VERSION } from "@opendv/protocol-ts";

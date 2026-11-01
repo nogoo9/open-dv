@@ -3,12 +3,11 @@
  * Visualizes the dual-loop state machine execution across STAGE_00 through STAGE_07 (`docs/06` §3.1).
  */
 
-import {
-	ALL_STAGE_IDS,
-	type AgentPersona,
-	type StageId,
-	type VaultObservabilityEventDTO,
-	type VerdictStatus,
+import type {
+	AgentPersona,
+	StageId,
+	VaultObservabilityEventDTO,
+	VerdictStatus,
 } from "@opendv/protocol-ts";
 import { VERDICT_VISUAL_GRAMMAR } from "../../theme/theme-registry";
 

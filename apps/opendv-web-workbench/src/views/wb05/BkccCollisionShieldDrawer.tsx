@@ -3,7 +3,6 @@
  * Visualizes 3-Tier Business Key Authority & BKCC Hash Collision Prevention (VIZ-GATE-04) (`docs/06` §3.7, §4.4).
  */
 
-import type { VaultObservabilityEventDTO } from "@opendv/protocol-ts";
 import { useState } from "react";
 import type {
 	GateCardPluginProps,

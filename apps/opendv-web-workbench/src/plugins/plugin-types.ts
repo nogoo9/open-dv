@@ -1,9 +1,8 @@
 /**
  * Extensibility Contract for the Open-DV 12-View Explainability Workbench (`docs/10` §3.3).
  *
- * Allows third-party domain packages and future Work Packages (`WP-11`, `WP-12`) to register
- * custom Workbench Views (`WB-00`–`WB-11`) and Gate Cards (`VIZ-GATE-*`) without modifying
- * core shell files.
+ * Allows built-in view modules (`WB-00`–`WB-11`) and third-party domain packages to register
+ * custom Workbench Views and Gate Cards (`VIZ-GATE-*`) without modifying core shell files.
  */
 
 import type {
