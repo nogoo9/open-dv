@@ -89,9 +89,7 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
 
     async def _scenario() -> None:
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://testserver"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             # -----------------------------------------------------------------
             # Step 1: Capabilities inspection & Project creation (argon/flash)
             # -----------------------------------------------------------------
@@ -156,10 +154,7 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             run_id = run_summary["run_id"]
             assert run_summary["project_id"] == project_id
             assert run_summary["status"] == RunStatus.PAUSED_HOLD.value
-            assert (
-                "hold-tier-u3-horizon-sovereign-vehicle"
-                in run_summary["active_hold_ids"]
-            )
+            assert "hold-tier-u3-horizon-sovereign-vehicle" in run_summary["active_hold_ids"]
 
             # -----------------------------------------------------------------
             # Step 2: Run inspection & W3C SSE stream replay (`Last-Event-ID`)
@@ -176,9 +171,7 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             assert "text/event-stream" in sse_full_resp.headers["content-type"]
             full_frames = _parse_sse_frames(sse_full_resp.text)
             assert len(full_frames) == 10
-            assert [f["id"] for f in full_frames[:-1]] == [
-                f"evt-pe-00{i}" for i in range(1, 10)
-            ]
+            assert [f["id"] for f in full_frames[:-1]] == [f"evt-pe-00{i}" for i in range(1, 10)]
             assert full_frames[-1].get("event") == "run_complete"
             for frame in full_frames[:-1]:
                 ev_payload = json.loads(frame["data"])
@@ -236,14 +229,8 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             assert gates_get_resp.status_code == 200
             gates_report = gates_get_resp.json()
             assert gates_report["overall_passed"] is True
-            assert (
-                gates_report["gate_scorecard"]["gate_1_contract_grain"]
-                == "AUTO_REPAIRED"
-            )
-            assert (
-                gates_report["gate_scorecard"]["gate_4_yagni_cost_guard"]
-                == "AUTO-FIX"
-            )
+            assert gates_report["gate_scorecard"]["gate_1_contract_grain"] == "AUTO_REPAIRED"
+            assert gates_report["gate_scorecard"]["gate_4_yagni_cost_guard"] == "AUTO-FIX"
 
             gates_post_resp = await client.post(
                 f"/api/v1/runs/{run_id}/gates",
@@ -304,9 +291,7 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             assert dyn_rules_resp.status_code == 200
             dyn_rows = dyn_rules_resp.json()["rows"]
             assert len(dyn_rows) == 15
-            assert [row["rule_id"] for row in dyn_rows] == [
-                f"DV-DYN-{i:03d}" for i in range(1, 16)
-            ]
+            assert [row["rule_id"] for row in dyn_rows] == [f"DV-DYN-{i:03d}" for i in range(1, 16)]
             assert all(row["status"] == "PASS" for row in dyn_rows)
 
             d10_resp = await client.post(
@@ -396,13 +381,11 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
                 modeler_event = modeler_resp.json()["event"]
                 classification = modeler_event.get("data_classification", "INTERNAL")
                 if classification == "INTERNAL":
-                    assert not modeler_event["layer1_story_banner"][
-                        "headline"
-                    ].startswith("[REDACTED")
-                else:
-                    assert (
-                        "[REDACTED" in modeler_event["layer1_story_banner"]["headline"]
+                    assert not modeler_event["layer1_story_banner"]["headline"].startswith(
+                        "[REDACTED"
                     )
+                else:
+                    assert "[REDACTED" in modeler_event["layer1_story_banner"]["headline"]
                 for forbidden in FORBIDDEN_UNREDACTED_PII_MNPI_SUBSTRINGS:
                     assert forbidden not in modeler_raw, (
                         f"Unredacted token '{forbidden}' leaked to INTERNAL_MODELER on {view_id}"
