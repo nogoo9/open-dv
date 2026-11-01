@@ -1312,11 +1312,7 @@ def _load_structured_mapping(path: Path, label: str) -> dict[str, Any]:
     """Load a YAML or JSON mapping from `path`, raising `ValueError` on syntax or type errors."""
     try:
         text = path.read_text(encoding="utf-8")
-        loaded = (
-            json.loads(text)
-            if path.suffix.lower() == ".json"
-            else yaml.safe_load(text)
-        )
+        loaded = json.loads(text) if path.suffix.lower() == ".json" else yaml.safe_load(text)
     except (OSError, json.JSONDecodeError, yaml.YAMLError) as exc:
         raise ValueError(f"Failed to parse {label} file '{path}': {exc}") from exc
     if not isinstance(loaded, dict):
@@ -1675,9 +1671,7 @@ class PlatformStateContainer:
         if input_spec_path is not None:
             resolved_spec_path = resolve_safe_repo_path(self.repo_root, input_spec_path)
             if not resolved_spec_path.is_file():
-                raise FileNotFoundError(
-                    f"Pipeline input spec file not found: '{input_spec_path}'."
-                )
+                raise FileNotFoundError(f"Pipeline input spec file not found: '{input_spec_path}'.")
             base_dir = resolved_spec_path.parent
             raw_spec = _load_structured_mapping(resolved_spec_path, "pipeline input spec")
         else:
@@ -1688,9 +1682,7 @@ class PlatformStateContainer:
         if harness_config_path is not None:
             resolved_cfg_path = resolve_safe_repo_path(self.repo_root, harness_config_path)
             if not resolved_cfg_path.is_file():
-                raise FileNotFoundError(
-                    f"Harness config file not found: '{harness_config_path}'."
-                )
+                raise FileNotFoundError(f"Harness config file not found: '{harness_config_path}'.")
             raw_setup = _load_structured_mapping(resolved_cfg_path, "harness config")
         elif req.harness_config is not None:
             raw_setup = dict(req.harness_config)
@@ -1715,9 +1707,7 @@ class PlatformStateContainer:
             raw_spec, raw_setup, base_dir = self._resolve_pipeline_raw_inputs(req)
             spec_obj = PipelineInputSpec.model_validate(raw_spec)
             setup_obj = (
-                HarnessSetupConfig.model_validate(raw_setup)
-                if raw_setup
-                else HarnessSetupConfig()
+                HarnessSetupConfig.model_validate(raw_setup) if raw_setup else HarnessSetupConfig()
             )
         except (FileNotFoundError, ValidationError) as exc:
             raise ValueError(str(exc)) from exc
@@ -1762,9 +1752,7 @@ class PlatformStateContainer:
                             else "INPUT_SPEC_SCHEMA_INVALID"
                         ),
                         "severity": "ERROR",
-                        "target": (
-                            "harness_config_path" if is_harness_err else "input_spec_path"
-                        ),
+                        "target": ("harness_config_path" if is_harness_err else "input_spec_path"),
                         "message": msg,
                     }
                 ],
@@ -2000,8 +1988,7 @@ class PlatformStateContainer:
                 decision_id=str(h.get("decision_id") or hid),
                 hold_id=hid,
                 event_id=str(
-                    h.get("event_id")
-                    or (events_list[-1]["event_id"] if events_list else "evt-0")
+                    h.get("event_id") or (events_list[-1]["event_id"] if events_list else "evt-0")
                 ),
                 headline=str(h.get("headline") or "Steward hold pending resolution."),
                 escalation_reason=str(h.get("escalation_reason") or "TIER_U3_AMBIGUOUS_ENTITY"),
@@ -2021,8 +2008,7 @@ class PlatformStateContainer:
                 decision_id=str(h.get("decision_id") or hid),
                 hold_id=hid,
                 event_id=str(
-                    h.get("event_id")
-                    or (events_list[-1]["event_id"] if events_list else "evt-0")
+                    h.get("event_id") or (events_list[-1]["event_id"] if events_list else "evt-0")
                 ),
                 headline=str(h.get("headline") or "Steward hold resolved."),
                 escalation_reason=str(h.get("escalation_reason") or "TIER_U3_AMBIGUOUS_ENTITY"),
@@ -2112,12 +2098,8 @@ class PlatformStateContainer:
             harness_provider=setup_obj.provider,
             status=run_status,
             started_at_utc=report.started_at,
-            completed_at_utc=(
-                None if run_status == RunStatus.PAUSED_HOLD else report.completed_at
-            ),
-            current_stage_id=(
-                last_step.stage_id if last_step else "STAGE_00_ORCHESTRATION"
-            ),
+            completed_at_utc=(None if run_status == RunStatus.PAUSED_HOLD else report.completed_at),
+            current_stage_id=(last_step.stage_id if last_step else "STAGE_00_ORCHESTRATION"),
             current_view_id=(
                 str(last_evt.get("workbench_view_id", "WB-00")) if last_evt else "WB-00"
             ),
@@ -2141,8 +2123,7 @@ class PlatformStateContainer:
         synced = self._sync_pipeline_report(report.run_id)
         redacted_rep = dict(synced)
         redacted_rep["observability_events"] = [
-            redact_event_for_role(ev, eff_role)
-            for ev in synced.get("observability_events", [])
+            redact_event_for_role(ev, eff_role) for ev in synced.get("observability_events", [])
         ]
         return redacted_rep
 
@@ -2194,8 +2175,7 @@ class PlatformStateContainer:
             synced = self._sync_pipeline_report(run_id)
             redacted_rep = dict(synced)
             redacted_rep["observability_events"] = [
-                redact_event_for_role(ev, eff_role)
-                for ev in synced.get("observability_events", [])
+                redact_event_for_role(ev, eff_role) for ev in synced.get("observability_events", [])
             ]
             return redacted_rep
         if run_id not in self.runs:
@@ -2203,10 +2183,7 @@ class PlatformStateContainer:
 
         run_dto = self.runs[run_id]
         proj = self.projects.get(run_dto.project_id)
-        events = [
-            redact_event_for_role(ev, eff_role)
-            for ev in self.run_events.get(run_id, [])
-        ]
+        events = [redact_event_for_role(ev, eff_role) for ev in self.run_events.get(run_id, [])]
         status_lit: Literal["COMPLETED", "PAUSED_HOLD", "FAILED"] = (
             "COMPLETED"
             if run_dto.status == RunStatus.COMPLETED
@@ -2227,9 +2204,7 @@ class PlatformStateContainer:
             active_holds = [
                 {"hold_id": hid, "status": "PENDING"} for hid in run_dto.active_hold_ids
             ]
-            resolved_holds = [
-                d.model_dump(mode="json") for d in self.run_decisions.get(run_id, [])
-            ]
+            resolved_holds = [d.model_dump(mode="json") for d in self.run_decisions.get(run_id, [])]
         synthesized = AgenticPipelineReport(
             run_id=run_dto.run_id,
             pipeline_id=f"pipe-{run_dto.project_id}",
@@ -2551,9 +2526,7 @@ def normalize_rbac_role(
         return RbacRole(normalized)
     except ValueError as exc:
         valid_roles = [r.value for r in RbacRole] + sorted(_ROLE_ALIAS_MAP.keys())
-        raise ValueError(
-            f"Invalid RBAC role '{role}'. Must be one of {valid_roles}."
-        ) from exc
+        raise ValueError(f"Invalid RBAC role '{role}'. Must be one of {valid_roles}.") from exc
 
 
 def get_rbac_role(

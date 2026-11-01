@@ -763,7 +763,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert run_id in state.pipeline_reports
             assert run_id in state.gate_reports
 
-            # POST /api/v1/runs/{run_id}/gates succeeds on pipeline run with resolved Graph A/B paths
+            # POST /api/v1/runs/{run_id}/gates succeeds on pipeline run with resolved Graph A/B
             res_pipe_gates = await client.post(
                 f"/api/v1/runs/{run_id}/gates",
                 json={"recheck": True},

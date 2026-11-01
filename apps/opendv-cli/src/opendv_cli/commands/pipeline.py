@@ -42,9 +42,7 @@ def run_pipeline_command(
     if action in {"run", "validate"} and (input_path is None or not str(input_path).strip()):
         return 2, {
             "status": "ERROR",
-            "error": (
-                f"--input is required for 'pipeline {action}' (zero hardcoded sample paths)"
-            ),
+            "error": (f"--input is required for 'pipeline {action}' (zero hardcoded sample paths)"),
         }
 
     if action == "report" and not run_id and not report_path:
@@ -126,8 +124,7 @@ def run_pipeline_command(
         loaded = AgenticPipelineReport.model_validate_json(rp.read_text(encoding="utf-8"))
         rep_dict = loaded.model_dump(mode="json")
         rep_dict["observability_events"] = [
-            redact_event_for_role(ev, eff_role)
-            for ev in rep_dict.get("observability_events", [])
+            redact_event_for_role(ev, eff_role) for ev in rep_dict.get("observability_events", [])
         ]
         return 0, rep_dict
 
@@ -137,8 +134,7 @@ def run_pipeline_command(
         loaded = AgenticPipelineReport.model_validate_json(cand_file.read_text(encoding="utf-8"))
         rep_dict = loaded.model_dump(mode="json")
         rep_dict["observability_events"] = [
-            redact_event_for_role(ev, eff_role)
-            for ev in rep_dict.get("observability_events", [])
+            redact_event_for_role(ev, eff_role) for ev in rep_dict.get("observability_events", [])
         ]
         return 0, rep_dict
 
