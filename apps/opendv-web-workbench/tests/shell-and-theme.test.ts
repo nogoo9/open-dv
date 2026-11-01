@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { readFileSync, readdirSync, statSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import {
 	PE_DEMO_EVENTS,
@@ -13,13 +13,16 @@ import {
 	CUSTOM_ESG_GATE_ID,
 	CustomEsgGateCard,
 	DEFAULT_BACKGROUND_WORKSPACE_ID,
+	DEFAULT_REPLAY_STEP_DELAY_MS,
 	ENTITY_VISUAL_GRAMMAR,
 	HIGH_CONTRAST_THEME,
 	Layer1StoryBanner,
 	Layer3ProofDrawer,
 	OBSIDIAN_THEME,
 	PAPER_THEME,
+	PRESET_THEMES,
 	PlaybackControls,
+	type PresetThemeId,
 	REQUIRED_DV_THEME_TOKENS,
 	SHORTCUT_KEY_TO_VIEW_ID,
 	SidebarNav,
@@ -31,6 +34,7 @@ import {
 	WorkbenchPluginRegistry,
 	WorkbenchShell,
 	createWorkbenchStore,
+	isInteractiveInputTarget,
 	registerCustomEsgGatePlugin,
 	routeWorkbenchKeyboardShortcut,
 	sanitizeLayer1Text,
@@ -41,18 +45,40 @@ import { viteConfig } from "../vite.config";
 
 const WORKBENCH_ROOT = resolve(import.meta.dir, "..");
 
-function collectSourceFiles(dir: string): string[] {
-	const results: string[] = [];
-	for (const entry of readdirSync(dir)) {
-		const fullPath = join(dir, entry);
-		const st = statSync(fullPath);
-		if (st.isDirectory()) {
-			results.push(...collectSourceFiles(fullPath));
-		} else if (fullPath.endsWith(".ts") || fullPath.endsWith(".tsx")) {
-			results.push(fullPath);
+function parseThemeCssBlocks(
+	cssText: string,
+): Record<string, Record<string, string>> {
+	const withoutComments = cssText.replace(/\/\*[\s\S]*?\*\//g, "");
+	const blocks: Record<string, Record<string, string>> = {};
+	const ruleRegex = /([^{}]+)\{([^{}]+)\}/g;
+	for (const match of withoutComments.matchAll(ruleRegex)) {
+		const selectorGroup = match[1]?.trim() ?? "";
+		const body = match[2] ?? "";
+		const themeSelectors = Array.from(
+			selectorGroup.matchAll(/\[data-theme="([a-z0-9-]+)"\]/g),
+		).map((m) => m[1] ?? "");
+		if (themeSelectors.length === 0) {
+			continue;
+		}
+		const props: Record<string, string> = {};
+		for (const decl of body.split(";")) {
+			const colonIdx = decl.indexOf(":");
+			if (colonIdx === -1) {
+				continue;
+			}
+			const propName = decl.slice(0, colonIdx).trim();
+			const propVal = decl.slice(colonIdx + 1).trim();
+			if (propName.startsWith("--dv-") && propVal) {
+				props[propName] = propVal;
+			}
+		}
+		for (const themeId of themeSelectors) {
+			if (themeId) {
+				blocks[themeId] = { ...(blocks[themeId] ?? {}), ...props };
+			}
 		}
 	}
-	return results;
+	return blocks;
 }
 
 describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin Registry", () => {
@@ -82,22 +108,32 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 			]);
 		});
 
-		it("contains zero backend Python package or filesystem imports across all source files", () => {
-			const files = collectSourceFiles(join(WORKBENCH_ROOT, "src"));
-			expect(files.length).toBeGreaterThanOrEqual(10);
+		it("bundles cleanly for a browser target with zero Node/backend imports and escapes untrusted HTML payloads", async () => {
+			const buildResult = await Bun.build({
+				entrypoints: [join(WORKBENCH_ROOT, "src", "index.ts")],
+				target: "browser",
+				external: ["react", "react-dom", "zustand"],
+			});
+			expect(buildResult.success).toBe(true);
+			expect(buildResult.logs).toHaveLength(0);
+			expect(buildResult.outputs.length).toBeGreaterThanOrEqual(1);
 
-			for (const file of files) {
-				const content = readFileSync(file, "utf-8");
-				expect(content).not.toContain("opendv_core");
-				expect(content).not.toContain("opendv_telemetry");
-				expect(content).not.toContain("opendv_axi_verifier");
-				expect(content).not.toContain("opendv_duckdb_sandbox");
-				expect(content).not.toContain("opendv_agent_harness");
-				expect(content).not.toContain("opendv_platform_api");
-				expect(content).not.toContain("node:fs");
-				expect(content).not.toContain("dangerouslySetInnerHTML");
-				expect(content).not.toContain("innerHTML");
-			}
+			const baseEvent = PE_DEMO_EVENTS[0] as VaultObservabilityEventDTO;
+			const adversarialEvent: VaultObservabilityEventDTO = {
+				...baseEvent,
+				layer1_story_banner: {
+					...baseEvent.layer1_story_banner,
+					headline: "<script>window.__xss=1</script>Headline",
+					business_impact: "<img src=x onerror=alert(1)>Impact",
+				},
+			};
+			const bannerMarkup = renderToStaticMarkup(
+				createElement(Layer1StoryBanner, { currentEvent: adversarialEvent }),
+			);
+			expect(bannerMarkup).not.toContain("<script>window.__xss=1</script>");
+			expect(bannerMarkup).toContain(
+				"&lt;script&gt;window.__xss=1&lt;/script&gt;",
+			);
 		});
 
 		it("configures Vite 6 dev server strictly on localhost (127.0.0.1:5173) with /api proxy", () => {
@@ -111,26 +147,91 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 	});
 
 	describe("2. Zero-FOUC index.html, CSS Custom Properties & ThemeRegistry", () => {
-		it("includes zero-FOUC inline script in index.html reading open-dv-active-theme and setting data-theme", () => {
+		it("executes the zero-FOUC inline script in index.html to resolve data-theme across saved, media-query, and invalid states", () => {
 			const html = readFileSync(join(WORKBENCH_ROOT, "index.html"), "utf-8");
-			expect(html).toContain("open-dv-active-theme");
-			expect(html).toContain("prefers-color-scheme: light");
-			expect(html).toContain(
-				"document.documentElement.setAttribute('data-theme'",
+			const inlineScriptMatch = html.match(/<script>([\s\S]*?)<\/script>/);
+			expect(inlineScriptMatch).not.toBeNull();
+			const inlineScript = inlineScriptMatch?.[1] ?? "";
+			const runZeroFoucScript = new Function(
+				"window",
+				"localStorage",
+				"document",
+				inlineScript,
+			) as (
+				win: { matchMedia?: (q: string) => { matches: boolean } },
+				storage: { getItem: (k: string) => string | null },
+				doc: {
+					documentElement: { setAttribute: (k: string, v: string) => void };
+				},
+			) => void;
+
+			const evaluateBootTheme = (options: {
+				saved?: string | null;
+				throwStorage?: boolean;
+				prefersContrastMore?: boolean;
+				prefersLight?: boolean;
+			}): string | null => {
+				let appliedTheme: string | null = null;
+				const mockWindow = {
+					matchMedia: (query: string) => ({
+						matches:
+							(query === "(prefers-contrast: more)" &&
+								Boolean(options.prefersContrastMore)) ||
+							(query === "(prefers-color-scheme: light)" &&
+								Boolean(options.prefersLight)),
+					}),
+				};
+				const mockStorage = {
+					getItem: (key: string) => {
+						if (options.throwStorage) {
+							throw new Error("Storage blocked");
+						}
+						return key === THEME_STORAGE_KEY ? (options.saved ?? null) : null;
+					},
+				};
+				const mockDoc = {
+					documentElement: {
+						setAttribute: (attr: string, val: string) => {
+							if (attr === "data-theme") {
+								appliedTheme = val;
+							}
+						},
+					},
+				};
+				runZeroFoucScript(mockWindow, mockStorage, mockDoc);
+				return appliedTheme;
+			};
+
+			expect(evaluateBootTheme({ saved: "paper" })).toBe("paper");
+			expect(evaluateBootTheme({ saved: "high-contrast" })).toBe(
+				"high-contrast",
 			);
+			expect(
+				evaluateBootTheme({ saved: null, prefersContrastMore: true }),
+			).toBe("high-contrast");
+			expect(evaluateBootTheme({ saved: null, prefersLight: true })).toBe(
+				"paper",
+			);
+			expect(
+				evaluateBootTheme({ saved: "Invalid_Upper", prefersLight: false }),
+			).toBe("obsidian");
+			expect(evaluateBootTheme({ throwStorage: true })).toBe("obsidian");
 		});
 
-		it("defines all 21 semantic --dv-* CSS Custom Properties across obsidian, paper, and high-contrast in src/index.css", () => {
+		it("defines all 21 semantic --dv-* CSS Custom Properties matching PRESET_THEMES across obsidian, paper, and high-contrast in src/index.css", () => {
 			const css = readFileSync(
 				join(WORKBENCH_ROOT, "src", "index.css"),
 				"utf-8",
 			);
-			expect(css).toContain('[data-theme="obsidian"]');
-			expect(css).toContain('[data-theme="paper"]');
-			expect(css).toContain('[data-theme="high-contrast"]');
+			const parsedBlocks = parseThemeCssBlocks(css);
+			const presetIds: PresetThemeId[] = ["obsidian", "paper", "high-contrast"];
 
-			for (const token of REQUIRED_DV_THEME_TOKENS) {
-				expect(css).toContain(token);
+			for (const themeId of presetIds) {
+				const block = parsedBlocks[themeId];
+				expect(block).toBeDefined();
+				for (const token of REQUIRED_DV_THEME_TOKENS) {
+					expect(block?.[token]).toBe(PRESET_THEMES[themeId].tokens[token]);
+				}
 			}
 		});
 
@@ -191,7 +292,7 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 
 				// Register and activate custom theme
 				const nordicTheme = registry.registerTheme({
-					id: "nordic-sovereign",
+					id: "Nordic-Sovereign",
 					label: "Nordic Sovereign Slate",
 					colorScheme: "dark",
 					contrastStandard: "WCAG_AA",
@@ -201,14 +302,23 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 						"--dv-hub-accent": "#38bdf8",
 					},
 				});
+				expect(nordicTheme.id).toBe("nordic-sovereign");
 				expect(nordicTheme.isPreset).toBe(false);
 				expect(registry.listThemes().length).toBe(4);
+				expect(registry.getTheme("NORDIC-SOVEREIGN")?.id).toBe(
+					"nordic-sovereign",
+				);
 
-				registry.setActiveTheme("nordic-sovereign");
+				registry.setActiveTheme("Nordic-Sovereign");
 				expect(registry.getActiveThemeId()).toBe("nordic-sovereign");
 				expect(storageMap.get(THEME_STORAGE_KEY)).toBe("nordic-sovereign");
 				expect(appliedAttributes.get("data-theme")).toBe("nordic-sovereign");
 				expect(appliedCssVars.get("--dv-hub-accent")).toBe("#38bdf8");
+
+				storageMap.set(THEME_STORAGE_KEY, "paper");
+				const reloadedRegistry = new ThemeRegistry(mockStorage);
+				expect(reloadedRegistry.getActiveThemeId()).toBe("paper");
+				expect(appliedAttributes.get("data-theme")).toBe("paper");
 
 				// Verify ThemeToggle renders all 4 registered themes including WCAG AAA badge
 				const toggleMarkup = renderToStaticMarkup(
@@ -286,9 +396,49 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 			const esgPlugin = registerCustomEsgGatePlugin();
 			expect(esgPlugin.gateId).toBe(CUSTOM_ESG_GATE_ID);
 			expect(
-				WorkbenchPluginRegistry.getGateCard(CUSTOM_ESG_GATE_ID)?.title,
+				WorkbenchPluginRegistry.getGateCard(`  ${CUSTOM_ESG_GATE_ID}  `)?.title,
 			).toBe("ILPA ESG Rating & Drift Companion Gate");
 			expect(WorkbenchPluginRegistry.listGateCards().length).toBe(1);
+
+			WorkbenchPluginRegistry.registerView({
+				id: "WB-01",
+				title: "  Contract Intake  ",
+				shortTitle: "  Intake  ",
+				stageId: "STAGE_01_CONTRACT_INTAKE",
+				sceneNumber: 1,
+				iconName: "file",
+				component: MockWB00View,
+				gateCards: [
+					{
+						gateId: "  VIZ-GATE-COLOCATED  ",
+						title: "  Co-located Gate  ",
+						ruleIds: ["  RULE-COL-1  "],
+						component: CustomEsgGateCard,
+					},
+				],
+			});
+			expect(
+				WorkbenchPluginRegistry.getGateCard("VIZ-GATE-COLOCATED")?.ruleIds,
+			).toEqual(["RULE-COL-1"]);
+			expect(() =>
+				WorkbenchPluginRegistry.registerView({
+					id: "WB-02",
+					title: "Invalid Gate View",
+					shortTitle: "Invalid",
+					stageId: "STAGE_02_PROFILING",
+					sceneNumber: 2,
+					iconName: "alert",
+					component: MockWB00View,
+					gateCards: [
+						{
+							gateId: "   ",
+							title: "Bad Gate",
+							ruleIds: [],
+							component: CustomEsgGateCard,
+						},
+					],
+				}),
+			).toThrow();
 
 			// Match against WB-09 Schema Drift event (which evaluates ALG-A9A & EVO-01)
 			const wb09Event = PE_DEMO_EVENTS.find(
@@ -333,11 +483,41 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 			expect(fifthTarget?.event_id).toBe("evt-pe-005");
 			expect(store.getState().replayCursor).toBe(5);
 			expect(store.getState().events.length).toBe(5);
+			expect(store.getState().activeHoldIds).toEqual([
+				"hold-tier-u3-horizon-sovereign-vehicle",
+			]);
+
+			store.getState().seekReplay(2);
+			expect(store.getState().activeHoldIds).toEqual([]);
+			expect(store.getState().selectedEventId).toBe("evt-pe-001");
+			store.getState().seekReplay(0);
+			expect(store.getState().selectedEventId).toBeNull();
+			store.getState().seekReplay(5);
 
 			// Change playback speed
+			expect(DEFAULT_REPLAY_STEP_DELAY_MS).toBeGreaterThan(0);
+			store.getState().setPlaybackSpeed(10);
+			expect(store.getState().playbackSpeed).toBe(10);
+			expect(store.getState().getMockReplayClient().getSpeed()).toBe(10);
+
+			store.getState().togglePlayPause();
+			expect(store.getState().isPlaying).toBe(true);
+			expect(store.getState().runStatus).toBe("RUNNING");
+			store.getState().pauseReplay();
+			expect(store.getState().isPlaying).toBe(false);
+			expect(store.getState().runStatus).toBe("PAUSED");
+
+			const pendingReplay = store.getState().playReplay({ stepDelayMs: 40 });
+			expect(store.getState().isPlaying).toBe(true);
+			store.getState().resetReplay();
+			await pendingReplay;
+			expect(store.getState().isPlaying).toBe(false);
+			expect(store.getState().runStatus).toBe("IDLE");
+			expect(store.getState().replayCursor).toBe(0);
+			expect(store.getState().selectedEventId).toBeNull();
+
+			store.getState().seekReplay(5);
 			store.getState().setPlaybackSpeed(5);
-			expect(store.getState().playbackSpeed).toBe(5);
-			expect(store.getState().getMockReplayClient().getSpeed()).toBe(5);
 
 			// Play remaining events to completion
 			const emitted = await store.getState().playReplay({ stepDelayMs: 0 });
@@ -532,6 +712,27 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 			]);
 			expect(Object.keys(SHORTCUT_KEY_TO_VIEW_ID).length).toBe(12);
 			expect(routeWorkbenchKeyboardShortcut("z", actions)).toBe(false);
+
+			expect(
+				isInteractiveInputTarget({
+					tagName: "BUTTON",
+				} as unknown as EventTarget),
+			).toBe(true);
+			expect(
+				isInteractiveInputTarget({
+					tagName: "SPAN",
+					parentElement: { tagName: "BUTTON" },
+				} as unknown as EventTarget),
+			).toBe(true);
+			expect(
+				isInteractiveInputTarget({
+					tagName: "DIV",
+					getAttribute: (attr: string) => (attr === "role" ? "tab" : null),
+				} as unknown as EventTarget),
+			).toBe(true);
+			expect(
+				isInteractiveInputTarget({ tagName: "MAIN" } as unknown as EventTarget),
+			).toBe(false);
 		});
 
 		it("scrubs raw 64-hex digests from Layer 1 Story Banner and renders all 3 Layers + 4 Proof Tabs + inert background management", () => {
@@ -592,6 +793,30 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 				);
 				expect(drawerHtml).toContain(`data-testid="proof-content-${tab}"`);
 			}
+
+			const customRegistry = new WorkbenchPluginRegistry();
+			customRegistry.registerView({
+				id: "WB-09",
+				title: "Custom Registry Schema Evolution Canvas",
+				shortTitle: "Custom Drift Rail",
+				stageId: "STAGE_06_SCHEMA_EVOLUTION",
+				sceneNumber: 6,
+				iconName: "git-branch",
+				component: () =>
+					createElement(
+						"div",
+						{ "data-testid": "custom-registry-wb09" },
+						"Custom WB-09 Body",
+					),
+			});
+			const customShellHtml = renderToStaticMarkup(
+				createElement(WorkbenchShell, { pluginRegistry: customRegistry }),
+			);
+			expect(customShellHtml).toContain("Custom Drift Rail");
+			expect(customShellHtml).toContain(
+				"Custom Registry Schema Evolution Canvas",
+			);
+			expect(customShellHtml).toContain("Custom WB-09 Body");
 
 			// Verify individual shell components render cleanly
 			expect(renderToStaticMarkup(createElement(Layer1StoryBanner))).toContain(

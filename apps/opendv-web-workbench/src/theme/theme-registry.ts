@@ -307,7 +307,11 @@ export interface ThemeStorageLike {
 
 export type ThemeChangeListener = (theme: ThemeDefinition) => void;
 
-const SAFE_THEME_ID_PATTERN = /^[a-z0-9-]+$/i;
+const SAFE_THEME_ID_PATTERN = /^[a-z0-9-]+$/;
+
+function normalizeThemeId(themeId: string): string {
+	return themeId.trim().toLowerCase();
+}
 
 function resolveDefaultStorage(): ThemeStorageLike | null {
 	try {
@@ -332,12 +336,18 @@ export class ThemeRegistry {
 	private readonly fallbackMemoryStorage = new Map<string, string>();
 	private customStorage: ThemeStorageLike | null = null;
 	private activeThemeId = "obsidian";
+	private lastSyncedDomThemeId: string | null = null;
 
 	constructor(storage?: ThemeStorageLike) {
 		if (storage) {
 			this.customStorage = storage;
 		}
 		this.loadPresetThemes();
+		this.activeThemeId = this.resolveEnvironmentThemeId();
+		const initialTheme = this.themes.get(this.activeThemeId);
+		if (initialTheme) {
+			this.syncDomTheme(initialTheme);
+		}
 	}
 
 	private loadPresetThemes(): void {
@@ -366,7 +376,7 @@ export class ThemeRegistry {
 	}
 
 	getTheme(themeId: string): ThemeDefinition | undefined {
-		return this.themes.get(themeId);
+		return this.themes.get(normalizeThemeId(themeId));
 	}
 
 	listThemes(): ThemeDefinition[] {
@@ -374,10 +384,10 @@ export class ThemeRegistry {
 	}
 
 	registerTheme(input: CustomThemeRegistrationInput): ThemeDefinition {
-		const trimmedId = input.id.trim();
+		const trimmedId = normalizeThemeId(input.id);
 		if (!trimmedId || !SAFE_THEME_ID_PATTERN.test(trimmedId)) {
 			throw new Error(
-				`Invalid theme id '${input.id}'. Must match /^[a-z0-9-]+$/i.`,
+				`Invalid theme id '${input.id}'. Must match /^[a-z0-9-]+$/.`,
 			);
 		}
 		const trimmedLabel = (input.label || input.name || "").trim();
@@ -420,7 +430,16 @@ export class ThemeRegistry {
 		};
 
 		this.themes.set(trimmedId, definition);
-		if (this.activeThemeId === trimmedId) {
+		let savedId = "";
+		try {
+			savedId = normalizeThemeId(
+				this.getStorage().getItem(THEME_STORAGE_KEY) ?? "",
+			);
+		} catch {
+			savedId = "";
+		}
+		if (this.activeThemeId === trimmedId || savedId === trimmedId) {
+			this.activeThemeId = trimmedId;
 			this.syncDomTheme(definition);
 		}
 		return definition;
@@ -435,7 +454,8 @@ export class ThemeRegistry {
 	}
 
 	setActiveTheme(themeId: string): ThemeDefinition {
-		const theme = this.themes.get(themeId);
+		const normalizedId = normalizeThemeId(themeId);
+		const theme = this.themes.get(normalizedId);
 		if (!theme) {
 			throw new Error(
 				`Unknown theme '${themeId}'. Registered themes: ${Array.from(this.themes.keys()).join(", ")}`,
@@ -445,7 +465,7 @@ export class ThemeRegistry {
 		try {
 			this.getStorage().setItem(THEME_STORAGE_KEY, theme.id);
 		} catch {
-			// Ignore storage quota / security errors
+			this.fallbackMemoryStorage.set(THEME_STORAGE_KEY, theme.id);
 		}
 		this.syncDomTheme(theme);
 		for (const listener of this.listeners) {
@@ -458,32 +478,54 @@ export class ThemeRegistry {
 		return this.setActiveTheme(themeId);
 	}
 
-	initializeFromEnvironment(): ThemeDefinition {
-		let resolvedId = "obsidian";
+	private resolveEnvironmentThemeId(): string {
 		try {
-			const saved = this.getStorage().getItem(THEME_STORAGE_KEY);
+			const saved = normalizeThemeId(
+				this.getStorage().getItem(THEME_STORAGE_KEY) ?? "",
+			);
 			if (saved && this.themes.has(saved)) {
-				resolvedId = saved;
-			} else if (
+				return saved;
+			}
+			if (
 				typeof globalThis !== "undefined" &&
 				"matchMedia" in globalThis &&
 				typeof globalThis.matchMedia === "function"
 			) {
 				if (globalThis.matchMedia("(prefers-contrast: more)").matches) {
-					resolvedId = "high-contrast";
-				} else if (
-					globalThis.matchMedia("(prefers-color-scheme: light)").matches
+					return "high-contrast";
+				}
+				if (globalThis.matchMedia("(prefers-color-scheme: light)").matches) {
+					return "paper";
+				}
+			}
+			if (
+				typeof globalThis !== "undefined" &&
+				"document" in globalThis &&
+				typeof globalThis.document?.documentElement?.getAttribute === "function"
+			) {
+				const domTheme = normalizeThemeId(
+					globalThis.document.documentElement.getAttribute("data-theme") ?? "",
+				);
+				if (
+					domTheme &&
+					domTheme !== this.lastSyncedDomThemeId &&
+					this.themes.has(domTheme)
 				) {
-					resolvedId = "paper";
+					return domTheme;
 				}
 			}
 		} catch {
-			resolvedId = "obsidian";
+			return "obsidian";
 		}
-		return this.setActiveTheme(resolvedId);
+		return "obsidian";
+	}
+
+	initializeFromEnvironment(): ThemeDefinition {
+		return this.setActiveTheme(this.resolveEnvironmentThemeId());
 	}
 
 	private syncDomTheme(theme: ThemeDefinition): void {
+		this.lastSyncedDomThemeId = theme.id;
 		if (
 			typeof globalThis === "undefined" ||
 			!("document" in globalThis) ||
@@ -518,6 +560,7 @@ export class ThemeRegistry {
 		}
 		this.activeThemeId = "obsidian";
 		this.syncDomTheme(OBSIDIAN_THEME);
+		this.lastSyncedDomThemeId = null;
 	}
 
 	// Static façade delegating to the default singleton instance for ergonomic global access

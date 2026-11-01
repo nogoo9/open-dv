@@ -67,19 +67,79 @@ export function routeWorkbenchKeyboardShortcut(
 	return false;
 }
 
-function isInteractiveInputTarget(target: EventTarget | null): boolean {
+const INTERACTIVE_TAGS = new Set([
+	"INPUT",
+	"TEXTAREA",
+	"SELECT",
+	"OPTION",
+	"BUTTON",
+	"A",
+	"SUMMARY",
+]);
+
+const INTERACTIVE_ROLES = new Set([
+	"button",
+	"link",
+	"tab",
+	"menuitem",
+	"option",
+	"switch",
+	"checkbox",
+	"radio",
+	"slider",
+	"spinbutton",
+	"textbox",
+	"combobox",
+	"searchbox",
+]);
+
+const INTERACTIVE_SELECTOR =
+	"input,textarea,select,option,button,a,summary,[contenteditable='true'],[contenteditable=''],[role='button'],[role='link'],[role='tab'],[role='menuitem'],[role='option'],[role='switch'],[role='checkbox'],[role='radio'],[role='slider'],[role='spinbutton'],[role='textbox'],[role='combobox'],[role='searchbox']";
+
+interface InteractiveElementLike {
+	tagName?: string;
+	isContentEditable?: boolean;
+	role?: string | null;
+	getAttribute?: (name: string) => string | null;
+	closest?: (selector: string) => unknown;
+	parentElement?: InteractiveElementLike | null;
+}
+
+export function isInteractiveInputTarget(target: EventTarget | null): boolean {
 	if (!target || typeof target !== "object") {
 		return false;
 	}
-	const el = target as {
-		tagName?: string;
-		isContentEditable?: boolean;
-	};
-	if (el.isContentEditable) {
+	const root = target as InteractiveElementLike;
+	if (
+		typeof root.closest === "function" &&
+		root.closest(INTERACTIVE_SELECTOR)
+	) {
 		return true;
 	}
-	const tag = el.tagName?.toUpperCase();
-	return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT";
+	let current: InteractiveElementLike | null = root;
+	while (current) {
+		if (current.isContentEditable) {
+			return true;
+		}
+		const contentEditableAttr = current.getAttribute?.("contenteditable");
+		if (contentEditableAttr === "" || contentEditableAttr === "true") {
+			return true;
+		}
+		const tag = current.tagName?.toUpperCase();
+		if (tag && INTERACTIVE_TAGS.has(tag)) {
+			return true;
+		}
+		const role = (
+			current.getAttribute?.("role") ??
+			current.role ??
+			""
+		).toLowerCase();
+		if (role && INTERACTIVE_ROLES.has(role)) {
+			return true;
+		}
+		current = current.parentElement ?? null;
+	}
+	return false;
 }
 
 export interface WorkbenchShellProps {
@@ -204,7 +264,7 @@ export function WorkbenchShell({ pluginRegistry }: WorkbenchShellProps) {
 				}}
 			>
 				{/* Left Collapsible Scene/View Rail */}
-				<SidebarNav />
+				<SidebarNav pluginRegistry={pluginRegistry} />
 
 				{/* Layer 2: Interactive Visual Canvas */}
 				<main

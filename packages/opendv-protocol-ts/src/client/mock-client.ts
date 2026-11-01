@@ -106,7 +106,17 @@ export class MockVaultEventStreamClient {
 				break;
 			}
 			if (effectiveDelayMs > 0) {
-				await new Promise((resolve) => setTimeout(resolve, effectiveDelayMs));
+				await new Promise<void>((resolve) => {
+					const onAbort = () => {
+						clearTimeout(timer);
+						resolve();
+					};
+					const timer = setTimeout(() => {
+						options.signal?.removeEventListener("abort", onAbort);
+						resolve();
+					}, effectiveDelayMs);
+					options.signal?.addEventListener("abort", onAbort, { once: true });
+				});
 				if (options.signal?.aborted) {
 					break;
 				}

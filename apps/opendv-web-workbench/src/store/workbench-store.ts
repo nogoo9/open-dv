@@ -16,7 +16,6 @@ import {
 	type OfflineReplayOptions,
 	OpenDVPlatformClient,
 	PE_DEMO_EVENTS,
-	PE_DEMO_RUN,
 	PE_DEMO_RUN_ID,
 	type RbacRole,
 	VaultEventStreamClient,
@@ -43,6 +42,8 @@ export const ALL_PROOF_DRAWER_TABS: readonly ProofDrawerTabId[] = [
 export const PLAYBACK_SPEED_PRESETS: readonly number[] = [
 	0.5, 1, 2, 5, 10,
 ] as const;
+
+export const DEFAULT_REPLAY_STEP_DELAY_MS = 250;
 
 export interface LiveStreamConnectionConfig {
 	baseUrl?: string | undefined;
@@ -224,11 +225,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 		initialVisibleEvents,
 		initialViewId,
 	);
-	const initialHolds = startAtZero
-		? []
-		: extractHoldIdsFromEvents(initialRawEvents).length > 0
-			? extractHoldIdsFromEvents(initialRawEvents)
-			: [...PE_DEMO_RUN.active_hold_ids];
+	const initialHolds = extractHoldIdsFromEvents(initialRawEvents);
 
 	const api = createStore<WorkbenchStoreState>()((set, get) => {
 		const syncEventsState = (
@@ -245,16 +242,15 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 				redacted.length > 0 ? (redacted[redacted.length - 1] ?? null) : null;
 			const detectedHolds = extractHoldIdsFromEvents(nextRawEvents);
 
-			set((prev) => ({
+			set({
 				rawEvents: nextRawEvents,
 				events: redacted,
 				eventsByView: grouped,
 				currentEvent,
-				selectedEventId: latestEvent?.event_id ?? prev.selectedEventId,
+				selectedEventId: latestEvent?.event_id ?? null,
 				replayCursor: nextCursor,
-				activeHoldIds:
-					detectedHolds.length > 0 ? detectedHolds : prev.activeHoldIds,
-			}));
+				activeHoldIds: detectedHolds,
+			});
 		};
 
 		const stepInternal = (): VaultObservabilityEventDTO | null => {
@@ -285,11 +281,18 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 		};
 
 		const pauseInternal = () => {
+			const wasPlaying = replayAbortController !== null || get().isPlaying;
 			if (replayAbortController) {
 				replayAbortController.abort();
 				replayAbortController = null;
 			}
-			set({ isPlaying: false });
+			set((prev) => ({
+				isPlaying: false,
+				runStatus:
+					wasPlaying && prev.runStatus === "RUNNING"
+						? "PAUSED"
+						: prev.runStatus,
+			}));
 		};
 
 		const playInternal = async (
@@ -301,28 +304,48 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 				syncEventsState([], 0);
 			}
 			const abortController = new AbortController();
+			if (replayOptions.signal) {
+				if (replayOptions.signal.aborted) {
+					abortController.abort();
+				} else {
+					replayOptions.signal.addEventListener(
+						"abort",
+						() => abortController.abort(),
+						{ once: true },
+					);
+				}
+			}
 			replayAbortController = abortController;
 			set({ isPlaying: true, runStatus: "RUNNING" });
 
 			try {
 				const emittedCount = await mockClient.replay(
 					(ev) => {
+						if (
+							replayAbortController !== abortController ||
+							abortController.signal.aborted
+						) {
+							return;
+						}
 						const nextRaw = [...get().rawEvents, ev];
 						syncEventsState(nextRaw, mockClient.getCursor());
 					},
 					{
-						stepDelayMs: replayOptions.stepDelayMs ?? 0,
+						stepDelayMs:
+							replayOptions.stepDelayMs ?? DEFAULT_REPLAY_STEP_DELAY_MS,
 						speedMultiplier:
 							replayOptions.speedMultiplier ?? get().playbackSpeed,
-						signal: replayOptions.signal ?? abortController.signal,
+						signal: abortController.signal,
 					},
 				);
-				const reachedEnd =
-					mockClient.getCursor() >= get().allReplayEvents.length;
-				set({
-					isPlaying: false,
-					runStatus: reachedEnd ? "COMPLETED" : "PAUSED",
-				});
+				if (replayAbortController === abortController) {
+					const reachedEnd =
+						mockClient.getCursor() >= get().allReplayEvents.length;
+					set({
+						isPlaying: false,
+						runStatus: reachedEnd ? "COMPLETED" : "PAUSED",
+					});
+				}
 				return emittedCount;
 			} finally {
 				if (replayAbortController === abortController) {
@@ -436,6 +459,9 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 			decisionsHistory: [],
 
 			setMode: (mode) => {
+				if (mode !== "offline-replay") {
+					pauseInternal();
+				}
 				if (mode === "offline-replay" && sseClient) {
 					sseClient.disconnect();
 					sseClient = null;
@@ -598,7 +624,9 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 					events: [],
 					eventsByView: groupEventsByViewId([]),
 					currentEvent: null,
+					selectedEventId: null,
 					replayCursor: 0,
+					activeHoldIds: [],
 					isConnected: true,
 					runStatus: "RUNNING",
 					lastError: null,

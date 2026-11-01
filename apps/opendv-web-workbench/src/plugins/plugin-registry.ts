@@ -21,13 +21,43 @@ export class WorkbenchPluginRegistry {
 	private readonly gateCards = new Map<string, WorkbenchGateCardPlugin>();
 	private readonly listeners = new Set<PluginRegistryListener>();
 
+	private validateAndNormalizeGateCard(
+		plugin: WorkbenchGateCardPlugin,
+	): WorkbenchGateCardPlugin {
+		const trimmedGateId = plugin.gateId?.trim() ?? "";
+		if (!trimmedGateId) {
+			throw new Error(
+				"WorkbenchGateCardPlugin must provide a non-empty gateId.",
+			);
+		}
+		const trimmedTitle = plugin.title?.trim() ?? "";
+		if (!trimmedTitle) {
+			throw new Error(
+				`WorkbenchGateCardPlugin '${trimmedGateId}' must provide a non-empty title.`,
+			);
+		}
+		if (typeof plugin.component !== "function") {
+			throw new Error(
+				`WorkbenchGateCardPlugin '${trimmedGateId}' must provide a valid React component.`,
+			);
+		}
+
+		return {
+			...plugin,
+			gateId: trimmedGateId,
+			title: trimmedTitle,
+			ruleIds: (plugin.ruleIds ?? []).map((r) => r.trim()).filter(Boolean),
+		};
+	}
+
 	registerView(plugin: WorkbenchViewPlugin): WorkbenchViewPlugin {
 		if (!plugin.id || !ALL_WORKBENCH_VIEW_IDS.includes(plugin.id)) {
 			throw new Error(
 				`Invalid WorkbenchViewPlugin id '${String(plugin.id)}'. Expected one of ${ALL_WORKBENCH_VIEW_IDS.join(", ")}.`,
 			);
 		}
-		if (!plugin.title || plugin.title.trim().length === 0) {
+		const trimmedTitle = plugin.title?.trim() ?? "";
+		if (!trimmedTitle) {
 			throw new Error(
 				`WorkbenchViewPlugin '${plugin.id}' must define a non-empty title.`,
 			);
@@ -38,16 +68,27 @@ export class WorkbenchPluginRegistry {
 			);
 		}
 
-		this.views.set(plugin.id, plugin);
+		const normalizedGateCards = plugin.gateCards?.map((gateCard) =>
+			this.validateAndNormalizeGateCard(gateCard),
+		);
 
-		if (plugin.gateCards) {
-			for (const gateCard of plugin.gateCards) {
+		const normalizedView: WorkbenchViewPlugin = {
+			...plugin,
+			title: trimmedTitle,
+			shortTitle: plugin.shortTitle?.trim() || trimmedTitle,
+			...(normalizedGateCards ? { gateCards: normalizedGateCards } : {}),
+		};
+
+		this.views.set(plugin.id, normalizedView);
+
+		if (normalizedGateCards) {
+			for (const gateCard of normalizedGateCards) {
 				this.gateCards.set(gateCard.gateId, gateCard);
 			}
 		}
 
 		this.notifyListeners();
-		return plugin;
+		return normalizedView;
 	}
 
 	getView(id: WorkbenchViewId): WorkbenchViewPlugin | undefined {
@@ -63,35 +104,14 @@ export class WorkbenchPluginRegistry {
 	}
 
 	registerGateCard(plugin: WorkbenchGateCardPlugin): WorkbenchGateCardPlugin {
-		const trimmedGateId = plugin.gateId.trim();
-		if (!trimmedGateId) {
-			throw new Error(
-				"WorkbenchGateCardPlugin must provide a non-empty gateId.",
-			);
-		}
-		if (!plugin.title || plugin.title.trim().length === 0) {
-			throw new Error(
-				`WorkbenchGateCardPlugin '${trimmedGateId}' must provide a non-empty title.`,
-			);
-		}
-		if (typeof plugin.component !== "function") {
-			throw new Error(
-				`WorkbenchGateCardPlugin '${trimmedGateId}' must provide a valid React component.`,
-			);
-		}
-
-		const normalized: WorkbenchGateCardPlugin = {
-			...plugin,
-			gateId: trimmedGateId,
-			ruleIds: [...plugin.ruleIds],
-		};
-		this.gateCards.set(trimmedGateId, normalized);
+		const normalized = this.validateAndNormalizeGateCard(plugin);
+		this.gateCards.set(normalized.gateId, normalized);
 		this.notifyListeners();
 		return normalized;
 	}
 
 	getGateCard(gateId: VizId | string): WorkbenchGateCardPlugin | undefined {
-		return this.gateCards.get(gateId);
+		return this.gateCards.get(gateId.trim());
 	}
 
 	listGateCards(): WorkbenchGateCardPlugin[] {
@@ -101,14 +121,17 @@ export class WorkbenchPluginRegistry {
 	findGateCardsForEvent(
 		event: VaultObservabilityEventDTO,
 	): WorkbenchGateCardPlugin[] {
-		const evaluated = new Set<string>(event.rule_ids_evaluated ?? []);
+		const eventVizId = event.viz_id.trim();
+		const evaluated = new Set<string>(
+			(event.rule_ids_evaluated ?? []).map((r) => r.trim()),
+		);
 		if (event.rule_code) {
-			evaluated.add(event.rule_code);
+			evaluated.add(event.rule_code.trim());
 		}
 
 		const matched: WorkbenchGateCardPlugin[] = [];
 		for (const card of this.gateCards.values()) {
-			const matchesViz = card.gateId === event.viz_id;
+			const matchesViz = card.gateId === eventVizId;
 			const matchesRule = card.ruleIds.some((r) => evaluated.has(r));
 			if (matchesViz || matchesRule) {
 				matched.push(card);

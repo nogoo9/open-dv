@@ -6,9 +6,40 @@
  */
 
 import { PROTOCOL_VERSION } from "@opendv/protocol-ts";
+import { createElement } from "react";
+import { type Root, createRoot } from "react-dom/client";
+import { WorkbenchShell } from "./components/shell/WorkbenchShell";
+import { defaultThemeRegistry } from "./theme/theme-registry";
 
 export function getWorkbenchVersion(): string {
 	return `Open-DV Web Workbench (Protocol ${PROTOCOL_VERSION})`;
+}
+
+export function mountWorkbenchApp(container?: HTMLElement | null): Root | null {
+	const target =
+		container !== undefined
+			? container
+			: typeof globalThis !== "undefined" &&
+					"document" in globalThis &&
+					typeof globalThis.document?.getElementById === "function"
+				? globalThis.document.getElementById("root")
+				: null;
+	if (!target) {
+		return null;
+	}
+	defaultThemeRegistry.initializeFromEnvironment();
+	const root = createRoot(target);
+	root.render(createElement(WorkbenchShell));
+	return root;
+}
+
+if (
+	typeof globalThis !== "undefined" &&
+	"document" in globalThis &&
+	typeof globalThis.document?.getElementById === "function" &&
+	globalThis.document.getElementById("root")
+) {
+	mountWorkbenchApp();
 }
 
 // Theme Engine & Accessible Theme Selector

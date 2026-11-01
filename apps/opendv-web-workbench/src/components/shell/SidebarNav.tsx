@@ -55,6 +55,7 @@ export interface SidebarNavProps {
 	eventsByView?:
 		| Record<WorkbenchViewId, VaultObservabilityEventDTO[]>
 		| undefined;
+	pluginRegistry?: WorkbenchPluginRegistry | undefined;
 	onSelectView?: ((viewId: WorkbenchViewId) => void) | undefined;
 	onToggleCollapse?: (() => void) | undefined;
 }
@@ -152,7 +153,9 @@ export function SidebarNav(props: SidebarNavProps) {
 				>
 					{ALL_WORKBENCH_VIEW_IDS.map((viewId) => {
 						const canonicalMeta = WORKBENCH_VIEW_STAGE_MAP[viewId];
-						const registeredPlugin = WorkbenchPluginRegistry.getView(viewId);
+						const registeredPlugin = props.pluginRegistry
+							? props.pluginRegistry.getView(viewId)
+							: WorkbenchPluginRegistry.getView(viewId);
 						const shortTitle =
 							registeredPlugin?.shortTitle ?? canonicalMeta.shortTitle;
 						const fullTitle = registeredPlugin?.title ?? canonicalMeta.title;
