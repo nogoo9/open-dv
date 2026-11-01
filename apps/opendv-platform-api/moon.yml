@@ -25,6 +25,8 @@ tasks:
       - 'python'
       - '-m'
       - 'opendv_platform_api.export_openapi'
+      - '--out'
+      - 'schemas/openapi-v1.json'
     inputs:
       - 'src/**/*.py'
     outputs:
