@@ -11,15 +11,20 @@ from typing import Any
 
 from opendv_agent_harness.adapters.antigravity_adapter import AntigravityHarnessAdapter
 from opendv_agent_harness.adapters.claude_adapter import ClaudeAgentHarnessAdapter
+from opendv_agent_harness.adapters.deterministic_adapter import DeterministicHarnessAdapter
 from opendv_agent_harness.models import HarnessConfig
 from opendv_agent_harness.protocol import VaultAgentHarness
 
 HarnessFactory = Callable[..., VaultAgentHarness]
 
-_HARNESS_REGISTRY: dict[str, HarnessFactory] = {
+_DEFAULT_REGISTRY: dict[str, HarnessFactory] = {
     "antigravity": AntigravityHarnessAdapter,
     "claude": ClaudeAgentHarnessAdapter,
+    "deterministic": DeterministicHarnessAdapter,
+    "deterministic-stub": DeterministicHarnessAdapter,
 }
+
+_HARNESS_REGISTRY = _DEFAULT_REGISTRY
 
 
 def register_harness(provider_name: str, factory: HarnessFactory) -> None:
@@ -64,9 +69,21 @@ def create_agent_harness(
     return factory(config)
 
 
+def get_harness_adapter(
+    config: HarnessConfig,
+    *,
+    sdk_module: Any | None = None,
+) -> VaultAgentHarness:
+    """Alias for `create_agent_harness(config, sdk_module=sdk_module)`."""
+    return create_agent_harness(config, sdk_module=sdk_module)
+
+
 __all__ = [
+    "_DEFAULT_REGISTRY",
+    "_HARNESS_REGISTRY",
     "HarnessFactory",
     "create_agent_harness",
+    "get_harness_adapter",
     "list_available_harnesses",
     "register_harness",
 ]

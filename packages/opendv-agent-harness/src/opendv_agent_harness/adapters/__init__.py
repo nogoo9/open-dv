@@ -15,10 +15,16 @@ from opendv_agent_harness.adapters.claude_adapter import (
     DEFAULT_CLAUDE_MODEL_MAP,
     ClaudeAgentHarnessAdapter,
 )
+from opendv_agent_harness.adapters.deterministic_adapter import (
+    DEFAULT_DETERMINISTIC_MODEL_MAP,
+    DeterministicHarnessAdapter,
+)
 
 __all__ = [
     "DEFAULT_AGY_MODEL_MAP",
     "DEFAULT_CLAUDE_MODEL_MAP",
+    "DEFAULT_DETERMINISTIC_MODEL_MAP",
     "AntigravityHarnessAdapter",
     "ClaudeAgentHarnessAdapter",
+    "DeterministicHarnessAdapter",
 ]

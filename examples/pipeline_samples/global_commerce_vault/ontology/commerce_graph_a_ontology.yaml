@@ -1,0 +1,124 @@
+ontology_version: "1.0.0"
+domain_namespace: "global_commerce"
+enterprise_owner: "Global Commerce Architecture Council"
+standards_references:
+  - "ISO-3166-1-Alpha-2"
+  - "ISO-4217-Currency"
+  - "EU-VIES-TAX-ID"
+
+canonical_business_concepts:
+  - concept_uri: "urn:ontology:entity:customer"
+    concept_name: "CBC_CUSTOMER"
+    elm_archetype: "WHO_PARTY"
+    definition: "Enterprise B2B or B2C legal counterparty purchasing goods or services under a verified tax identifier."
+    target_hub: "hub_customer"
+    governance_constraints:
+      pii_confidential_attributes:
+        - "contact_email"
+        - "tax_ssn_tin"
+      required_satellite_split: "sat_customer_pii"
+    key_authority_tiers:
+      tier_1_global_standard:
+        authority_name: "Global Tax Registration Identifier"
+        column_patterns:
+          - "customer_tax_id"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+      tier_3_local_scoped:
+        authority_name: "Local Regional Billing Customer Code"
+        column_patterns:
+          - "stripe_customer_code"
+        bkcc_policy: "SOURCE_SYSTEM_PREFIX_REQUIRED"
+        require_src_qualifier: true
+
+  - concept_uri: "urn:ontology:entity:order"
+    concept_name: "CBC_ORDER"
+    elm_archetype: "WHAT_EVENT_ANCHOR"
+    definition: "Commercial sales order contractually committing line items and pricing for a customer."
+    target_hub: "hub_order"
+    key_authority_tiers:
+      tier_1_global_standard:
+        authority_name: "Enterprise Global Order Number"
+        column_patterns:
+          - "order_id"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+
+  - concept_uri: "urn:ontology:entity:invoice"
+    concept_name: "CBC_INVOICE"
+    elm_archetype: "WHAT_FINANCIAL_INSTRUMENT"
+    definition: "Settlement invoice issued by a regional or global payment processor against a commercial order."
+    target_hub: "hub_invoice"
+    key_authority_tiers:
+      tier_3_local_scoped:
+        authority_name: "Regional Payment Gateway Invoice Sequence"
+        column_patterns:
+          - "invoice_number"
+        bkcc_policy: "STRIPE_EU"
+        require_src_qualifier: true
+
+  - concept_uri: "urn:ontology:entity:promotion"
+    concept_name: "CBC_PROMOTION"
+    elm_archetype: "HOW_CONTRACTUAL_RULE"
+    definition: "Optional promotional discount campaign applied to qualifying commercial orders."
+    target_hub: "hub_promotion"
+    key_authority_tiers:
+      tier_1_global_standard:
+        authority_name: "Global Marketing Campaign Code"
+        column_patterns:
+          - "promo_campaign_code"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+
+  - concept_uri: "urn:ontology:entity:document"
+    concept_name: "CBC_CONTRACT_DOCUMENT"
+    elm_archetype: "WHAT_UNSTRUCTURED_ARTIFACT"
+    definition: "Signed Master Services Agreement or commercial addendum governing enterprise customer terms."
+    target_hub: "hub_document"
+    key_authority_tiers:
+      tier_1_global_standard:
+        authority_name: "Enterprise Legal Document Registry URI"
+        column_patterns:
+          - "doc_id"
+          - "customer_tax_id"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+
+canonical_relationships:
+  - relationship_uri: "urn:ontology:relationship:order_customer"
+    relationship_name: "REL_ORDER_CUSTOMER"
+    target_link: "lnk_order_customer"
+    endpoints:
+      - "urn:ontology:entity:order"
+      - "urn:ontology:entity:customer"
+    grain_semantics: "One row per commercial sales order placed by an enterprise customer counterparty."
+    yagni_cost_guard_policy:
+      max_general_columns_threshold: 10
+      min_write_amplification_mb_per_day: 50.0
+
+  - relationship_uri: "urn:ontology:relationship:order_promotion"
+    relationship_name: "REL_ORDER_PROMOTION"
+    target_link: "lnk_order_customer_promotion"
+    endpoints:
+      - "urn:ontology:entity:order"
+      - "urn:ontology:entity:promotion"
+    grain_semantics: "One row per commercial sales order associated with an optional promotional campaign code."
+
+  - relationship_uri: "urn:ontology:relationship:invoice_order_customer"
+    relationship_name: "REL_INVOICE_ORDER_CUSTOMER"
+    target_link: "lnk_invoice_order_customer"
+    endpoints:
+      - "urn:ontology:entity:invoice"
+      - "urn:ontology:entity:order"
+      - "urn:ontology:entity:customer"
+    grain_semantics: "One row per regional billing invoice settling a commercial order for a customer."
+
+  - relationship_uri: "urn:ontology:relationship:document_customer_extraction"
+    relationship_name: "REL_DOCUMENT_CUSTOMER"
+    target_link: "lnk_document_customer"
+    endpoints:
+      - "urn:ontology:entity:document"
+      - "urn:ontology:entity:customer"
+    grain_semantics: "One row per unstructured Master Services Agreement extraction linked to a customer."
+
+reference_enumerations: []

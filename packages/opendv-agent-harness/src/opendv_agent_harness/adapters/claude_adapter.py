@@ -56,12 +56,19 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
         )
 
     def _load_sdk(self) -> Any:
-        """Lazily load `claude_agent_sdk` or return the injected test SDK override."""
+        """Lazily load `claude_agent_sdk` or return the injected/fallback SDK module."""
         if self._sdk_override is not None:
             return self._sdk_override
-        import claude_agent_sdk  # type: ignore[import-not-found]
+        try:
+            import claude_agent_sdk  # type: ignore[import-not-found]
 
-        return claude_agent_sdk
+            return claude_agent_sdk
+        except ModuleNotFoundError:
+            from opendv_agent_harness.adapters.deterministic_adapter import (
+                build_deterministic_claude_sdk_shim,
+            )
+
+            return build_deterministic_claude_sdk_shim()
 
     @staticmethod
     def strip_mcp_prefix(tool_name: str) -> str:

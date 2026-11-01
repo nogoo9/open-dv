@@ -59,12 +59,19 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
         )
 
     def _load_sdk(self) -> Any:
-        """Lazily load `google.antigravity` or return the injected test SDK override."""
+        """Lazily load `google.antigravity` or return the injected/fallback SDK module."""
         if self._sdk_override is not None:
             return self._sdk_override
-        import google.antigravity as agy_sdk  # type: ignore[import-not-found]
+        try:
+            import google.antigravity as agy_sdk  # type: ignore[import-not-found]
 
-        return agy_sdk
+            return agy_sdk
+        except ModuleNotFoundError:
+            from opendv_agent_harness.adapters.deterministic_adapter import (
+                build_deterministic_agy_sdk_shim,
+            )
+
+            return build_deterministic_agy_sdk_shim()
 
     def _build_safety_policies(self, agy_policy: Any, spec: AgentTaskSpec[Any]) -> list[Any]:
         """Construct the 9-tier workspace and tool safety policy rules for Antigravity."""

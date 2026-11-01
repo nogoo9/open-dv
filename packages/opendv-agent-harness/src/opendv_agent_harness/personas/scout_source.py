@@ -110,11 +110,13 @@ def build_scout_source_task_spec(
 
 create_scout_source_task_spec = build_scout_source_task_spec
 build_scout_source_spec = build_scout_source_task_spec
+build_scout_source_task = build_scout_source_task_spec
 
 __all__ = [
     "SCOUT_SOURCE_SYSTEM_INSTRUCTIONS",
     "build_scout_source_spec",
     "build_scout_source_subagent_spec",
+    "build_scout_source_task",
     "build_scout_source_task_spec",
     "create_scout_source_task_spec",
 ]

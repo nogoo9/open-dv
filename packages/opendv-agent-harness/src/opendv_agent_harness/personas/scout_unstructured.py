@@ -113,11 +113,13 @@ def build_scout_unstructured_task_spec(
 
 create_scout_unstructured_task_spec = build_scout_unstructured_task_spec
 build_scout_unstructured_spec = build_scout_unstructured_task_spec
+build_scout_unstructured_task = build_scout_unstructured_task_spec
 
 __all__ = [
     "SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS",
     "build_scout_unstructured_spec",
     "build_scout_unstructured_subagent_spec",
+    "build_scout_unstructured_task",
     "build_scout_unstructured_task_spec",
     "create_scout_unstructured_task_spec",
 ]
