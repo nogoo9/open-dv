@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+import shutil
 import tempfile
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -15,7 +16,7 @@ from typing import Annotated, Any, Literal
 import duckdb
 import yaml
 from fastapi import Header, HTTPException, Request
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from opendv_agent_harness import (
     AgenticPipelineReport,
@@ -1307,6 +1308,24 @@ def resolve_safe_repo_path(
     return candidate
 
 
+def _load_structured_mapping(path: Path, label: str) -> dict[str, Any]:
+    """Load a YAML or JSON mapping from `path`, raising `ValueError` on syntax or type errors."""
+    try:
+        text = path.read_text(encoding="utf-8")
+        loaded = (
+            json.loads(text)
+            if path.suffix.lower() == ".json"
+            else yaml.safe_load(text)
+        )
+    except (OSError, json.JSONDecodeError, yaml.YAMLError) as exc:
+        raise ValueError(f"Failed to parse {label} file '{path}': {exc}") from exc
+    if not isinstance(loaded, dict):
+        raise ValueError(
+            f"Expected mapping object in {label} file '{path}', got {type(loaded).__name__}."
+        )
+    return loaded
+
+
 def _resolve_sdk_shim_if_needed(provider: str) -> Any | None:
     """Return deterministic SDK shims when `antigravity` or `claude` is selected offline."""
     if provider == "antigravity":
@@ -1368,6 +1387,7 @@ class PlatformStateContainer:
         self.run_decisions: dict[str, list[CaptainHoldDecisionResponse]] = {}
         self.artifacts: dict[str, ArtifactMetadataResponse] = {}
         self.pipeline_reports: dict[str, dict[str, Any]] = {}
+        self._pipeline_run_seq: int = 0
 
         if seed_demo_project:
             self._seed_canonical_pe_demo()
@@ -1458,13 +1478,16 @@ class PlatformStateContainer:
         started_at_utc: str,
     ) -> ProjectRunDTO:
         canonical_9, all_workbench = build_pe_canonical_events(run_id=run_id)
+        ledger_path = self.ledger_dir / f"{run_id}.jsonl"
+        ledger_path.unlink(missing_ok=True)
         ledger = VaultLedgerEmitter(
-            ledger_path=self.ledger_dir / f"{run_id}.jsonl",
+            ledger_path=ledger_path,
             cas_store=self.cas,
         )
         for evt in canonical_9:
             ledger.emit(evt)
 
+        shutil.rmtree(self.state_dir / run_id / "holds", ignore_errors=True)
         hold_mgr = StewardHoldManager(state_dir=self.state_dir / run_id)
         hold_mgr.record_hold(
             run_id=run_id,
@@ -1617,11 +1640,11 @@ class PlatformStateContainer:
         self.projects[req.project_id] = proj
         return proj
 
-    def _resolve_pipeline_inputs(
+    def _resolve_pipeline_raw_inputs(
         self,
         req: PipelineValidateRequest,
-    ) -> tuple[PipelineInputSpec, HarnessSetupConfig, Path]:
-        """Resolve `PipelineInputSpec`, `HarnessSetupConfig`, and `base_dir` from `req`."""
+    ) -> tuple[dict[str, Any], dict[str, Any], Path]:
+        """Resolve raw `input_spec` and `harness_config` mappings and `base_dir` from `req`."""
         input_spec_path = (
             req.input_spec_path.strip()
             if req.input_spec_path is not None and req.input_spec_path.strip()
@@ -1652,51 +1675,116 @@ class PlatformStateContainer:
         if input_spec_path is not None:
             resolved_spec_path = resolve_safe_repo_path(self.repo_root, input_spec_path)
             if not resolved_spec_path.is_file():
-                raise ValueError(f"Pipeline input spec file not found: '{input_spec_path}'.")
+                raise FileNotFoundError(
+                    f"Pipeline input spec file not found: '{input_spec_path}'."
+                )
             base_dir = resolved_spec_path.parent
-            spec_obj = PipelineInputSpec.from_file(resolved_spec_path)
+            raw_spec = _load_structured_mapping(resolved_spec_path, "pipeline input spec")
         else:
             assert req.input_spec is not None
             base_dir = self.repo_root
-            spec_obj = PipelineInputSpec.model_validate(req.input_spec)
+            raw_spec = dict(req.input_spec)
 
         if harness_config_path is not None:
             resolved_cfg_path = resolve_safe_repo_path(self.repo_root, harness_config_path)
             if not resolved_cfg_path.is_file():
-                raise ValueError(f"Harness config file not found: '{harness_config_path}'.")
-            setup_obj = HarnessSetupConfig.from_file(resolved_cfg_path)
+                raise FileNotFoundError(
+                    f"Harness config file not found: '{harness_config_path}'."
+                )
+            raw_setup = _load_structured_mapping(resolved_cfg_path, "harness config")
         elif req.harness_config is not None:
-            setup_obj = HarnessSetupConfig.model_validate(req.harness_config)
+            raw_setup = dict(req.harness_config)
         else:
-            setup_obj = HarnessSetupConfig()
+            raw_setup = {}
 
-        updates: dict[str, Any] = {}
         if provider_override is not None:
-            normalized_provider = (
+            raw_setup["provider"] = (
                 "claude" if provider_override == "claude-agent" else provider_override
             )
-            updates["provider"] = normalized_provider
         if steward_hold_policy is not None:
-            updates["steward_hold_policy"] = steward_hold_policy
-        if updates:
-            setup_dict = setup_obj.model_dump(mode="python")
-            setup_dict.update(updates)
-            setup_obj = HarnessSetupConfig.model_validate(setup_dict)
+            raw_setup["steward_hold_policy"] = steward_hold_policy
 
+        return raw_spec, raw_setup, base_dir
+
+    def _resolve_pipeline_inputs(
+        self,
+        req: PipelineValidateRequest,
+    ) -> tuple[PipelineInputSpec, HarnessSetupConfig, Path]:
+        """Resolve `PipelineInputSpec`, `HarnessSetupConfig`, and `base_dir` from `req`."""
+        try:
+            raw_spec, raw_setup, base_dir = self._resolve_pipeline_raw_inputs(req)
+            spec_obj = PipelineInputSpec.model_validate(raw_spec)
+            setup_obj = (
+                HarnessSetupConfig.model_validate(raw_setup)
+                if raw_setup
+                else HarnessSetupConfig()
+            )
+        except (FileNotFoundError, ValidationError) as exc:
+            raise ValueError(str(exc)) from exc
         return spec_obj, setup_obj, base_dir
 
     def validate_agentic_pipeline(self, req: PipelineValidateRequest) -> dict[str, Any]:
         """Deterministically validate pipeline inputs and harness setup configuration."""
-        spec_obj, setup_obj, base_dir = self._resolve_pipeline_inputs(req)
-        val_report: DeterministicValidationReport = validate_pipeline_inputs(
-            spec_obj,
-            setup_obj,
+        input_spec_path = (
+            req.input_spec_path.strip()
+            if req.input_spec_path is not None and req.input_spec_path.strip()
+            else None
+        )
+        harness_config_path = (
+            req.harness_config_path.strip()
+            if req.harness_config_path is not None and req.harness_config_path.strip()
+            else None
+        )
+        if req.input_spec is None and input_spec_path is None:
+            raise ValueError(
+                "Either 'input_spec' or 'input_spec_path' must be provided "
+                "(zero hardcoded sample paths)."
+            )
+        if input_spec_path is not None:
+            resolve_safe_repo_path(self.repo_root, input_spec_path)
+        if harness_config_path is not None:
+            resolve_safe_repo_path(self.repo_root, harness_config_path)
+
+        try:
+            raw_spec, raw_setup, base_dir = self._resolve_pipeline_raw_inputs(req)
+        except (FileNotFoundError, ValueError) as exc:
+            msg = str(exc)
+            is_harness_err = "harness config" in msg.lower()
+            val_report = DeterministicValidationReport(
+                stage="INPUT_VALIDATION",
+                passed=False,
+                checked_items_count=2 if is_harness_err else 1,
+                diagnostics=[
+                    {
+                        "code": (
+                            "HARNESS_SETUP_INVALID"
+                            if is_harness_err
+                            else "INPUT_SPEC_SCHEMA_INVALID"
+                        ),
+                        "severity": "ERROR",
+                        "target": (
+                            "harness_config_path" if is_harness_err else "input_spec_path"
+                        ),
+                        "message": msg,
+                    }
+                ],
+            )
+            return val_report.model_dump(mode="json")
+
+        val_report = validate_pipeline_inputs(
+            raw_spec,
+            raw_setup,
             base_dir=base_dir,
         )
         return val_report.model_dump(mode="json")
 
-    def execute_agentic_pipeline_run(self, req: PipelineRunRequest) -> dict[str, Any]:
+    def execute_agentic_pipeline_run(
+        self,
+        req: PipelineRunRequest,
+        role: RbacRole | str = RbacRole.PUBLIC,
+    ) -> dict[str, Any]:
         """Execute an end-to-end 8-stage agentic pipeline run and register state in platform."""
+        eff_role = normalize_rbac_role(role, default=RbacRole.PUBLIC)
         spec_obj, setup_obj, base_dir = self._resolve_pipeline_inputs(req)
 
         output_dir_str = (
@@ -1709,7 +1797,18 @@ class PlatformStateContainer:
         elif spec_obj.output_dir is not None:
             out_dir = None
         else:
-            out_dir = self.state_dir / "pipeline_runs" / f"run_{len(self.runs) + 1:04d}"
+            self._pipeline_run_seq += 1
+            out_dir = self.state_dir / "pipeline_runs" / f"run_{self._pipeline_run_seq:04d}"
+
+        if out_dir is not None:
+            shutil.rmtree(out_dir / "state" / "holds", ignore_errors=True)
+            (out_dir / "vault-ledger.jsonl").unlink(missing_ok=True)
+        elif spec_obj.output_dir is not None:
+            spec_out_cand = Path(spec_obj.output_dir)
+            if not spec_out_cand.is_absolute():
+                spec_out_cand = (base_dir / spec_out_cand).resolve()
+            shutil.rmtree(spec_out_cand / "state" / "holds", ignore_errors=True)
+            (spec_out_cand / "vault-ledger.jsonl").unlink(missing_ok=True)
 
         sdk_shim = _resolve_sdk_shim_if_needed(setup_obj.provider)
         report: AgenticPipelineReport = run_agentic_vault_pipeline(
@@ -1753,14 +1852,43 @@ class PlatformStateContainer:
                 self.artifacts[ref.sha256.upper()] = meta
                 self.artifacts[ref.sha256.lower()] = meta
 
-        ont_sha = next(
+        ont_art_ref = next(
             (
-                a.sha256.upper()
+                a
                 for a in report.intermediate_artifacts
                 if a.artifact_id == "art-stage00-graph-a-ontology"
             ),
-            PE_DEMO_CONTEXT_REFS["graph_a_sha256"],
+            None,
         )
+        ont_sha = (
+            ont_art_ref.sha256.upper()
+            if ont_art_ref is not None
+            else PE_DEMO_CONTEXT_REFS["graph_a_sha256"]
+        )
+        last_gb_ref = next(
+            (
+                a
+                for a in reversed(report.intermediate_artifacts)
+                if a.artifact_id.endswith("-stage01-graph-b-profile") and a.file_path
+            ),
+            None,
+        )
+        raw_ont_path = Path(spec_obj.graph_a_ontology_path)
+        if raw_ont_path.is_absolute():
+            cand_ont = raw_ont_path.resolve()
+        else:
+            cand_base_ont = (base_dir / raw_ont_path).resolve()
+            cand_repo_ont = (self.repo_root / raw_ont_path).resolve()
+            cand_ont = cand_base_ont if cand_base_ont.exists() else cand_repo_ont
+        if cand_ont.exists() and cand_ont.is_relative_to(self.repo_root):
+            resolved_graph_a_path = str(cand_ont.relative_to(self.repo_root))
+        elif ont_art_ref is not None and ont_art_ref.file_path:
+            resolved_graph_a_path = ont_art_ref.file_path
+        elif cand_ont.is_relative_to(self.repo_root):
+            resolved_graph_a_path = str(cand_ont.relative_to(self.repo_root))
+        else:
+            resolved_graph_a_path = str(cand_ont)
+
         final_contract_ref = report.final_artifacts.get("final_contract")
         final_ir_ref = report.final_artifacts.get("final_canonical_ir")
 
@@ -1774,13 +1902,32 @@ class PlatformStateContainer:
                 created_at_utc=report.started_at,
                 contract_path=final_contract_ref.file_path if final_contract_ref else None,
                 canonical_ir_path=final_ir_ref.file_path if final_ir_ref else None,
-                graph_a_ontology_path=spec_obj.graph_a_ontology_path,
-                graph_b_path=None,
+                graph_a_ontology_path=resolved_graph_a_path,
+                graph_b_path=last_gb_ref.file_path if last_gb_ref else None,
             )
         else:
-            self.projects[spec_obj.project_id] = self.projects[spec_obj.project_id].model_copy(
-                update={"latest_run_id": report.run_id}
-            )
+            existing_proj = self.projects[spec_obj.project_id]
+            proj_updates: dict[str, Any] = {
+                "latest_run_id": report.run_id,
+                "graph_a_sha256": ont_sha,
+                "graph_a_ontology_path": resolved_graph_a_path,
+                "contract_path": (
+                    final_contract_ref.file_path
+                    if final_contract_ref and final_contract_ref.file_path
+                    else existing_proj.contract_path
+                ),
+                "canonical_ir_path": (
+                    final_ir_ref.file_path
+                    if final_ir_ref and final_ir_ref.file_path
+                    else existing_proj.canonical_ir_path
+                ),
+                "graph_b_path": (
+                    last_gb_ref.file_path
+                    if last_gb_ref and last_gb_ref.file_path
+                    else existing_proj.graph_b_path
+                ),
+            }
+            self.projects[spec_obj.project_id] = existing_proj.model_copy(update=proj_updates)
 
         events_list = list(report.observability_events)
         self.run_events[report.run_id] = events_list
@@ -1826,14 +1973,17 @@ class PlatformStateContainer:
         self.run_events_by_view[report.run_id] = by_view
         self.run_workbench_events[report.run_id] = workbench_events_list
 
+        ledger_file = self.ledger_dir / f"{report.run_id}.jsonl"
+        ledger_file.unlink(missing_ok=True)
         ledger = VaultLedgerEmitter(
-            ledger_path=self.ledger_dir / f"{report.run_id}.jsonl",
+            ledger_path=ledger_file,
             cas_store=self.cas,
         )
         for evt in events_list:
             ledger.emit(evt)
         self.run_ledgers[report.run_id] = ledger
 
+        shutil.rmtree(self.state_dir / report.run_id / "holds", ignore_errors=True)
         hold_mgr = StewardHoldManager(state_dir=self.state_dir / report.run_id)
         active_hold_ids: list[str] = []
         for h in report.active_holds:
@@ -1843,6 +1993,10 @@ class PlatformStateContainer:
                 run_id=report.run_id,
                 task_id=str(h.get("task_id") or f"task-{report.run_id}"),
                 session_id=str(h.get("session_id") or f"sess-{report.run_id}"),
+                stage_id=str(h.get("stage_id") or "STAGE_02_SCOUT_UNSTRUCTURED"),
+                workbench_view_id=str(h.get("workbench_view_id") or "WB-03"),
+                viz_id=str(h.get("viz_id") or "VIZ-GATE-07"),
+                persona=str(h.get("persona") or "vault-first-mate"),
                 decision_id=str(h.get("decision_id") or hid),
                 hold_id=hid,
                 event_id=str(
@@ -1853,6 +2007,33 @@ class PlatformStateContainer:
                 escalation_reason=str(h.get("escalation_reason") or "TIER_U3_AMBIGUOUS_ENTITY"),
                 rule_id=str(h.get("rule_id") or "ALG-A9B"),
                 options=list(h.get("options") or []),
+            )
+        for h in report.resolved_holds:
+            hid = str(h.get("hold_id") or h.get("decision_id") or f"hold-{report.run_id}")
+            rec = hold_mgr.record_hold(
+                run_id=report.run_id,
+                task_id=str(h.get("task_id") or f"task-{report.run_id}"),
+                session_id=str(h.get("session_id") or f"sess-{report.run_id}"),
+                stage_id=str(h.get("stage_id") or "STAGE_02_SCOUT_UNSTRUCTURED"),
+                workbench_view_id=str(h.get("workbench_view_id") or "WB-03"),
+                viz_id=str(h.get("viz_id") or "VIZ-GATE-07"),
+                persona=str(h.get("persona") or "vault-first-mate"),
+                decision_id=str(h.get("decision_id") or hid),
+                hold_id=hid,
+                event_id=str(
+                    h.get("event_id")
+                    or (events_list[-1]["event_id"] if events_list else "evt-0")
+                ),
+                headline=str(h.get("headline") or "Steward hold resolved."),
+                escalation_reason=str(h.get("escalation_reason") or "TIER_U3_AMBIGUOUS_ENTITY"),
+                rule_id=str(h.get("rule_id") or "ALG-A9B"),
+                options=list(h.get("options") or []),
+            )
+            hold_mgr.resolve_hold(
+                rec.decision_id,
+                action="REJECT" if str(h.get("status")) == "REJECTED" else "APPROVE",
+                selected_option_id=h.get("selected_option_id"),
+                resolution_notes=h.get("resolution_notes"),
             )
         self.hold_managers[report.run_id] = hold_mgr
         self.run_decisions[report.run_id] = []
@@ -1916,10 +2097,10 @@ class PlatformStateContainer:
             scorecard = GateScorecardSummary(
                 gate_0_profile_drift="REJECT-WITH-TRACE",
                 gate_1_contract_grain="REJECT-WITH-TRACE",
-                gate_2_sqlglot_ast="PASS",
-                gate_3_networkx_dag="PASS",
-                gate_4_yagni_cost_guard="PASS",
-                gate_5_duckdb_sandbox="PASS",
+                gate_2_sqlglot_ast="REJECT-WITH-TRACE",
+                gate_3_networkx_dag="REJECT-WITH-TRACE",
+                gate_4_yagni_cost_guard="REJECT-WITH-TRACE",
+                gate_5_duckdb_sandbox="REJECT-WITH-TRACE",
             )
 
         run_status = RunStatus(report.status)
@@ -1935,10 +2116,10 @@ class PlatformStateContainer:
                 None if run_status == RunStatus.PAUSED_HOLD else report.completed_at
             ),
             current_stage_id=(
-                last_step.stage_id if last_step else "STAGE_07_DETERMINISTIC_COMPILER"
+                last_step.stage_id if last_step else "STAGE_00_ORCHESTRATION"
             ),
             current_view_id=(
-                str(last_evt.get("workbench_view_id", "WB-11")) if last_evt else "WB-11"
+                str(last_evt.get("workbench_view_id", "WB-00")) if last_evt else "WB-00"
             ),
             event_count=len(events_list),
             gate_scorecard=scorecard,
@@ -1957,23 +2138,98 @@ class PlatformStateContainer:
 
         report_dict = report.model_dump(mode="json")
         self.pipeline_reports[report.run_id] = report_dict
-        return report_dict
+        synced = self._sync_pipeline_report(report.run_id)
+        redacted_rep = dict(synced)
+        redacted_rep["observability_events"] = [
+            redact_event_for_role(ev, eff_role)
+            for ev in synced.get("observability_events", [])
+        ]
+        return redacted_rep
 
-    def get_pipeline_report(self, run_id: str) -> dict[str, Any]:
-        """Return the stored `AgenticPipelineReport` for `run_id`, or synthesize a summary."""
+    def _sync_pipeline_report(self, run_id: str) -> dict[str, Any]:
+        """Synchronize stored `pipeline_reports[run_id]` with current run, hold, and event state."""
+        if run_id not in self.pipeline_reports:
+            return {}
+        rep = dict(self.pipeline_reports[run_id])
+        run_dto = self.runs.get(run_id)
+        if run_dto is not None:
+            status_lit: Literal["COMPLETED", "PAUSED_HOLD", "FAILED"] = (
+                "COMPLETED"
+                if run_dto.status == RunStatus.COMPLETED
+                else ("PAUSED_HOLD" if run_dto.status == RunStatus.PAUSED_HOLD else "FAILED")
+            )
+            rep["status"] = status_lit
+            if run_dto.completed_at_utc:
+                rep["completed_at"] = run_dto.completed_at_utc
+            events = list(self.run_events.get(run_id, rep.get("observability_events", [])))
+            rep["observability_events"] = events
+            in_passed = bool(rep.get("input_validation", {}).get("passed", False))
+            out_val = dict(rep.get("output_validation", {}))
+            out_val["verified_events_count"] = len(events)
+            rep["output_validation"] = out_val
+            out_passed = bool(out_val.get("passed", False))
+            rep["overall_passed"] = bool(in_passed and out_passed and status_lit == "COMPLETED")
+            hold_mgr = self.hold_managers.get(run_id)
+            if hold_mgr is not None:
+                rep["active_holds"] = [
+                    h.model_dump(mode="json")
+                    for h in hold_mgr.list_holds(run_id=run_id, status="PENDING")
+                ]
+                rep["resolved_holds"] = [
+                    h.model_dump(mode="json")
+                    for h in hold_mgr.list_holds(run_id=run_id)
+                    if h.status != "PENDING"
+                ]
+        self.pipeline_reports[run_id] = rep
+        return rep
+
+    def get_pipeline_report(
+        self,
+        run_id: str,
+        role: RbacRole | str = RbacRole.PUBLIC,
+    ) -> dict[str, Any]:
+        """Return the RBAC-redacted `AgenticPipelineReport` for `run_id`."""
+        eff_role = normalize_rbac_role(role, default=RbacRole.PUBLIC)
         if run_id in self.pipeline_reports:
-            return self.pipeline_reports[run_id]
+            synced = self._sync_pipeline_report(run_id)
+            redacted_rep = dict(synced)
+            redacted_rep["observability_events"] = [
+                redact_event_for_role(ev, eff_role)
+                for ev in synced.get("observability_events", [])
+            ]
+            return redacted_rep
         if run_id not in self.runs:
             raise KeyError(f"Run '{run_id}' not found.")
 
         run_dto = self.runs[run_id]
         proj = self.projects.get(run_dto.project_id)
-        events = self.run_events.get(run_id, [])
+        events = [
+            redact_event_for_role(ev, eff_role)
+            for ev in self.run_events.get(run_id, [])
+        ]
         status_lit: Literal["COMPLETED", "PAUSED_HOLD", "FAILED"] = (
             "COMPLETED"
             if run_dto.status == RunStatus.COMPLETED
             else ("PAUSED_HOLD" if run_dto.status == RunStatus.PAUSED_HOLD else "FAILED")
         )
+        hold_mgr = self.hold_managers.get(run_id)
+        if hold_mgr is not None:
+            active_holds = [
+                h.model_dump(mode="json")
+                for h in hold_mgr.list_holds(run_id=run_id, status="PENDING")
+            ]
+            resolved_holds = [
+                h.model_dump(mode="json")
+                for h in hold_mgr.list_holds(run_id=run_id)
+                if h.status != "PENDING"
+            ]
+        else:
+            active_holds = [
+                {"hold_id": hid, "status": "PENDING"} for hid in run_dto.active_hold_ids
+            ]
+            resolved_holds = [
+                d.model_dump(mode="json") for d in self.run_decisions.get(run_id, [])
+            ]
         synthesized = AgenticPipelineReport(
             run_id=run_dto.run_id,
             pipeline_id=f"pipe-{run_dto.project_id}",
@@ -2000,12 +2256,8 @@ class PlatformStateContainer:
             step_reports=[],
             intermediate_artifacts=[],
             final_artifacts={},
-            active_holds=[
-                {"hold_id": hid, "status": "PENDING"} for hid in run_dto.active_hold_ids
-            ],
-            resolved_holds=[
-                d.model_dump(mode="json") for d in self.run_decisions.get(run_id, [])
-            ],
+            active_holds=active_holds,
+            resolved_holds=resolved_holds,
             observability_events=events,
             markdown_summary=(
                 f"# Run Report: {run_dto.run_id}\n\n"
@@ -2063,6 +2315,7 @@ class PlatformStateContainer:
             }
         )
         self.runs[run_id] = updated
+        self._sync_pipeline_report(run_id)
         return updated
 
     def resolve_captain_hold(
@@ -2167,6 +2420,9 @@ class PlatformStateContainer:
         self.run_ledgers[run_id].emit(resolution_event)
         self.run_events[run_id].append(resolution_event)
         self.run_workbench_events[run_id].append(resolution_event)
+        self.run_events_by_view.setdefault(run_id, {}).setdefault("WB-03", []).append(
+            resolution_event
+        )
 
         run_dto = self.runs[run_id]
         remaining_ids = [rec.hold_id for rec in hold_mgr.list_pending_holds(run_id=run_id)]
@@ -2174,7 +2430,15 @@ class PlatformStateContainer:
             RunStatus.COMPLETED if req.action in {"APPROVE", "ANSWER"} else RunStatus.FAILED
         )
         updated_scorecard = (
-            run_dto.gate_scorecard
+            run_dto.gate_scorecard.model_copy(
+                update={
+                    "gate_1_contract_grain": (
+                        "AUTO_REPAIRED"
+                        if run_dto.gate_scorecard.gate_1_contract_grain == "ASK-USER"
+                        else run_dto.gate_scorecard.gate_1_contract_grain
+                    )
+                }
+            )
             if req.action in {"APPROVE", "ANSWER"}
             else run_dto.gate_scorecard.model_copy(
                 update={"gate_1_contract_grain": "REJECT-WITH-TRACE"}
@@ -2191,6 +2455,7 @@ class PlatformStateContainer:
         )
         self.runs[run_id] = updated_run
         self.run_gate_reports[run_id] = self._build_default_gate_report(run_id)
+        self._sync_pipeline_report(run_id)
 
         decision_resp = CaptainHoldDecisionResponse(
             decision_id=resolved_record.decision_id,
@@ -2269,17 +2534,34 @@ _ROLE_ALIAS_MAP: dict[str, RbacRole] = {
 }
 
 
-def get_rbac_role(
-    x_opendv_role: Annotated[str | None, Header(alias="X-OpenDV-Role")] = None,
+def normalize_rbac_role(
+    role: RbacRole | str | None,
+    *,
+    default: RbacRole = RbacRole.PUBLIC,
 ) -> RbacRole:
-    """Extract and validate the 5-Tier RBAC role from the X-OpenDV-Role HTTP header."""
-    if x_opendv_role is None or x_opendv_role.strip() == "":
-        return RbacRole.PUBLIC
-    normalized = x_opendv_role.strip().upper()
+    """Validate and normalize a 5-Tier RBAC role string or enum value."""
+    if isinstance(role, RbacRole):
+        return role
+    if role is None or role.strip() == "":
+        return default
+    normalized = role.strip().upper()
     if normalized in _ROLE_ALIAS_MAP:
         return _ROLE_ALIAS_MAP[normalized]
     try:
         return RbacRole(normalized)
+    except ValueError as exc:
+        valid_roles = [r.value for r in RbacRole] + sorted(_ROLE_ALIAS_MAP.keys())
+        raise ValueError(
+            f"Invalid RBAC role '{role}'. Must be one of {valid_roles}."
+        ) from exc
+
+
+def get_rbac_role(
+    x_opendv_role: Annotated[str | None, Header(alias="X-OpenDV-Role")] = None,
+) -> RbacRole:
+    """Extract and validate the 5-Tier RBAC role from the X-OpenDV-Role HTTP header."""
+    try:
+        return normalize_rbac_role(x_opendv_role, default=RbacRole.PUBLIC)
     except ValueError as exc:
         valid_roles = [r.value for r in RbacRole] + sorted(_ROLE_ALIAS_MAP.keys())
         raise HTTPException(
@@ -2314,6 +2596,7 @@ __all__ = [
     "format_sse_event_stream",
     "get_platform_state",
     "get_rbac_role",
+    "normalize_rbac_role",
     "redact_event_for_role",
     "resolve_cleared_tiers",
     "resolve_safe_repo_path",

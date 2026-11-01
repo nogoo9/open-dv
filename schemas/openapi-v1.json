@@ -1159,6 +1159,24 @@
       "post": {
         "description": "Execute the end-to-end 8-stage agentic pipeline and return the `AgenticPipelineReport`.",
         "operationId": "run_pipeline_api_v1_pipelines_runs_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1859,6 +1877,22 @@
             "schema": {
               "title": "Run Id",
               "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
             }
           }
         ],

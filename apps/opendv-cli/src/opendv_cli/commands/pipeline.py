@@ -14,6 +14,9 @@ from opendv_platform_api.deps import (
     PipelineRunRequest,
     PipelineValidateRequest,
     PlatformStateContainer,
+    RbacRole,
+    normalize_rbac_role,
+    redact_event_for_role,
 )
 
 
@@ -103,6 +106,7 @@ def run_pipeline_command(
 
     if action == "run":
         assert input_path is not None
+        eff_role = normalize_rbac_role(role, default=RbacRole.INTERNAL_MODELER)
         run_req = PipelineRunRequest(
             input_spec_path=input_path,
             harness_config_path=harness_config,
@@ -110,23 +114,33 @@ def run_pipeline_command(
             provider_override=provider,
             steward_hold_policy=hold_policy,
         )
-        res = state.execute_agentic_pipeline_run(run_req)
+        res = state.execute_agentic_pipeline_run(run_req, role=eff_role)
         passed = bool(res.get("overall_passed", False)) or (res.get("status") == "PAUSED_HOLD")
         return (0 if passed else 1), res
 
-    # action == "report" in local mode
+    eff_role = normalize_rbac_role(role, default=RbacRole.INTERNAL_MODELER)
     if report_path:
         rp = Path(report_path).resolve()
         if not rp.is_file():
             raise ValueError(f"Pipeline report file not found: '{report_path}'.")
         loaded = AgenticPipelineReport.model_validate_json(rp.read_text(encoding="utf-8"))
-        return 0, loaded.model_dump(mode="json")
+        rep_dict = loaded.model_dump(mode="json")
+        rep_dict["observability_events"] = [
+            redact_event_for_role(ev, eff_role)
+            for ev in rep_dict.get("observability_events", [])
+        ]
+        return 0, rep_dict
 
     assert run_id is not None
     cand_file = Path(run_id)
     if cand_file.suffix.lower() == ".json" and cand_file.is_file():
         loaded = AgenticPipelineReport.model_validate_json(cand_file.read_text(encoding="utf-8"))
-        return 0, loaded.model_dump(mode="json")
+        rep_dict = loaded.model_dump(mode="json")
+        rep_dict["observability_events"] = [
+            redact_event_for_role(ev, eff_role)
+            for ev in rep_dict.get("observability_events", [])
+        ]
+        return 0, rep_dict
 
-    res = state.get_pipeline_report(run_id)
+    res = state.get_pipeline_report(run_id, role=eff_role)
     return 0, res

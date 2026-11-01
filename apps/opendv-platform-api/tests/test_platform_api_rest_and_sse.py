@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import yaml
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 from opendv_core import VaultObservabilityEvent, validate_observability_event
@@ -703,6 +704,16 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert "application/problem+json" in res_traversal.headers["content-type"]
 
             # 2. Pre-flight deterministic input validation (200 DeterministicValidationReport)
+            res_val_bad_schema = await client.post(
+                "/api/v1/pipelines/validate",
+                json={"input_spec": {"pipeline_id": "invalid-spec"}},
+            )
+            assert res_val_bad_schema.status_code == 200
+            val_bad_body = res_val_bad_schema.json()
+            assert val_bad_body["stage"] == "INPUT_VALIDATION"
+            assert val_bad_body["passed"] is False
+            assert val_bad_body["diagnostics"][0]["code"] == "INPUT_SPEC_SCHEMA_INVALID"
+
             res_val = await client.post(
                 "/api/v1/pipelines/validate",
                 json={
@@ -722,6 +733,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             out_dir = tmp_path / "pipeline_out"
             res_run = await client.post(
                 "/api/v1/pipelines/runs",
+                headers={"X-OpenDV-Role": "INTERNAL_MODELER"},
                 json={
                     "input_spec_path": sample_input,
                     "harness_config_path": sample_harness,
@@ -742,23 +754,55 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert len(rep_body["intermediate_artifacts"]) >= 20
             assert "final_contract" in rep_body["final_artifacts"]
 
-            # Project and run are registered in PlatformStateContainer
+            # Project and run are registered in PlatformStateContainer with resolved paths
             assert rep_body["project_id"] in state.projects
+            proj_obj = state.projects[rep_body["project_id"]]
+            assert proj_obj.graph_a_ontology_path is not None
+            assert proj_obj.graph_b_path is not None
             assert run_id in state.runs
             assert run_id in state.pipeline_reports
             assert run_id in state.gate_reports
 
-            # 4. GET /api/v1/runs/{run_id}/report returns the stored AgenticPipelineReport
+            # POST /api/v1/runs/{run_id}/gates succeeds on pipeline run with resolved Graph A/B paths
+            res_pipe_gates = await client.post(
+                f"/api/v1/runs/{run_id}/gates",
+                json={"recheck": True},
+            )
+            assert res_pipe_gates.status_code == 200
+            assert res_pipe_gates.json()["overall_passed"] is True
+
+            # 4. GET /api/v1/runs/{run_id}/report enforces 5-Tier RBAC redaction
             res_rep = await client.get(f"/api/v1/runs/{run_id}/report")
             assert res_rep.status_code == 200
             assert res_rep.json()["run_id"] == run_id
             assert res_rep.json()["overall_passed"] is True
             assert len(res_rep.json()["wave_reports"]) == 4
 
-            # Pre-seeded run synthesizes a summary report; unknown run returns 404 Problem Details
+            res_rep_bad_role = await client.get(
+                f"/api/v1/runs/{run_id}/report",
+                headers={"X-OpenDV-Role": "INVALID_ROLE"},
+            )
+            assert res_rep_bad_role.status_code == 400
+            assert "application/problem+json" in res_rep_bad_role.headers["content-type"]
+
+            # Pre-seeded run synthesizes an RBAC-redacted summary report; unknown run returns 404
             res_seeded_rep = await client.get("/api/v1/runs/run-pe-apex-horizon-20261030/report")
             assert res_seeded_rep.status_code == 200
             assert res_seeded_rep.json()["run_id"] == "run-pe-apex-horizon-20261030"
+            assert "245000000" not in json.dumps(res_seeded_rep.json()["observability_events"])
+            assert res_seeded_rep.json()["observability_events"][0]["layer1_story_banner"][
+                "headline"
+            ].startswith("[REDACTED")
+
+            res_seeded_cust = await client.get(
+                "/api/v1/runs/run-pe-apex-horizon-20261030/report",
+                headers={"X-OpenDV-Role": "RESTRICTED_PII_CUSTODIAN"},
+            )
+            assert res_seeded_cust.status_code == 200
+            assert "245000000" in json.dumps(res_seeded_cust.json()["observability_events"])
+            assert not res_seeded_cust.json()["observability_events"][0]["layer1_story_banner"][
+                "headline"
+            ].startswith("[REDACTED")
 
             res_missing_rep = await client.get("/api/v1/runs/run-unknown-404/report")
             assert res_missing_rep.status_code == 404
@@ -812,6 +856,75 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             via_runs_dto = res_via_runs.json()
             assert via_runs_dto["status"] == RunStatus.COMPLETED.value
             assert via_runs_dto["run_id"] in state.pipeline_reports
+
+            # 9. PAUSED_HOLD pipeline run synchronizes report on hold resolution and abort
+            res_paused = await client.post(
+                "/api/v1/pipelines/runs",
+                headers={"X-OpenDV-Role": "DATA_STEWARD"},
+                json={
+                    "input_spec_path": sample_input,
+                    "harness_config_path": sample_harness,
+                    "provider_override": "deterministic",
+                    "steward_hold_policy": "pause",
+                    "output_dir": str(tmp_path / "paused_out"),
+                },
+            )
+            assert res_paused.status_code == 201
+            paused_body = res_paused.json()
+            paused_run_id = paused_body["run_id"]
+            assert paused_body["status"] == "PAUSED_HOLD"
+            assert paused_body["overall_passed"] is False
+            assert len(paused_body["active_holds"]) >= 1
+
+            res_resolve_hold = await client.post(
+                f"/api/v1/runs/{paused_run_id}/decisions",
+                json={
+                    "action": "APPROVE",
+                    "selected_candidate_id": "hub_customer",
+                    "steward_id": "steward-commerce",
+                },
+            )
+            assert res_resolve_hold.status_code == 200
+            res_synced_rep = await client.get(
+                f"/api/v1/runs/{paused_run_id}/report",
+                headers={"X-OpenDV-Role": "DATA_STEWARD"},
+            )
+            assert res_synced_rep.status_code == 200
+            synced_body = res_synced_rep.json()
+            assert synced_body["status"] == "COMPLETED"
+            assert synced_body["overall_passed"] is True
+            assert synced_body["active_holds"] == []
+            assert len(synced_body["resolved_holds"]) >= 1
+            assert not synced_body["observability_events"][-1]["layer1_story_banner"][
+                "headline"
+            ].startswith("[REDACTED")
+
+            res_synced_public = await client.get(f"/api/v1/runs/{paused_run_id}/report")
+            assert res_synced_public.status_code == 200
+            assert res_synced_public.json()["observability_events"][-1]["layer1_story_banner"][
+                "headline"
+            ].startswith("[REDACTED")
+
+            # 10. Stage 00 failure defaults to STAGE_00_ORCHESTRATION, WB-00, and REJECT-WITH-TRACE
+            bad_spec = yaml.safe_load((REPO_ROOT / sample_input).read_text(encoding="utf-8"))
+            bad_spec["graph_a_ontology_path"] = "ontology/does_not_exist.yaml"
+            res_s0_fail = await client.post(
+                "/api/v1/pipelines/runs",
+                json={
+                    "input_spec": bad_spec,
+                    "provider_override": "deterministic",
+                    "output_dir": str(tmp_path / "s0_fail_out"),
+                },
+            )
+            assert res_s0_fail.status_code == 201
+            s0_fail_body = res_s0_fail.json()
+            s0_fail_id = s0_fail_body["run_id"]
+            assert s0_fail_body["status"] == "FAILED"
+            s0_run_dto = state.runs[s0_fail_id]
+            assert s0_run_dto.current_stage_id == "STAGE_00_ORCHESTRATION"
+            assert s0_run_dto.current_view_id == "WB-00"
+            assert s0_run_dto.gate_scorecard.gate_0_profile_drift == "REJECT-WITH-TRACE"
+            assert s0_run_dto.gate_scorecard.gate_5_duckdb_sandbox == "REJECT-WITH-TRACE"
 
     _run_async(_scenario())
 

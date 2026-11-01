@@ -70,10 +70,11 @@ async def get_run(
 async def get_run_report(
     run_id: str,
     state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
+    role: Annotated[RbacRole, Depends(get_rbac_role)],
 ) -> dict[str, Any]:
     """Return the `AgenticPipelineReport` for `run_id` (or synthesize a summary report)."""
     try:
-        return state.get_pipeline_report(run_id)
+        return state.get_pipeline_report(run_id, role=role)
     except KeyError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -145,6 +146,7 @@ async def validate_pipeline(
 async def run_pipeline(
     req: PipelineRunRequest,
     state: Annotated[PlatformStateContainer, Depends(get_platform_state)],
+    role: Annotated[RbacRole, Depends(get_rbac_role)],
 ) -> dict[str, Any]:
     """Execute the end-to-end 8-stage agentic pipeline and return the `AgenticPipelineReport`."""
-    return state.execute_agentic_pipeline_run(req)
+    return state.execute_agentic_pipeline_run(req, role=role)

@@ -684,7 +684,7 @@ def test_opendv_pipeline_cli_local_and_remote_modes(
     assert len(out_run_local["wave_reports"]) == 4
     assert (local_out_dir / "pipeline_report.json").is_file()
 
-    # 3. opendv pipeline report --local --report-path
+    # 3. opendv pipeline report --local --report-path and --run-id (with RBAC redaction)
     rc_rep_local = app_main(
         [
             "pipeline",
@@ -699,6 +699,60 @@ def test_opendv_pipeline_cli_local_and_remote_modes(
     out_rep_local = json.loads(capsys.readouterr().out)
     assert out_rep_local["run_id"] == out_run_local["run_id"]
     assert out_rep_local["overall_passed"] is True
+
+    rc_rep_pe_modeler = app_main(
+        [
+            "pipeline",
+            "report",
+            "--local",
+            "--run-id",
+            "run-pe-apex-horizon-20261030",
+            "--role",
+            "INTERNAL_MODELER",
+            "--json",
+        ]
+    )
+    assert rc_rep_pe_modeler == 0
+    out_rep_pe_modeler = json.loads(capsys.readouterr().out)
+    assert not out_rep_pe_modeler["observability_events"][0]["layer1_story_banner"][
+        "headline"
+    ].startswith("[REDACTED")
+
+    rc_rep_pe_public = app_main(
+        [
+            "pipeline",
+            "report",
+            "--local",
+            "--run-id",
+            "run-pe-apex-horizon-20261030",
+            "--role",
+            "PUBLIC",
+            "--json",
+        ]
+    )
+    assert rc_rep_pe_public == 0
+    out_rep_pe_public = json.loads(capsys.readouterr().out)
+    assert out_rep_pe_public["observability_events"][0]["layer1_story_banner"][
+        "headline"
+    ].startswith("[REDACTED")
+
+    bad_spec_file = tmp_path / "invalid_pipeline_spec.yaml"
+    bad_spec_file.write_text("pipeline_id: bad-only\n", encoding="utf-8")
+    rc_val_invalid = app_main(
+        [
+            "pipeline",
+            "validate",
+            "--local",
+            "--input",
+            str(bad_spec_file),
+            "--json",
+        ]
+    )
+    assert rc_val_invalid == 1
+    out_val_invalid = json.loads(capsys.readouterr().out)
+    assert out_val_invalid["stage"] == "INPUT_VALIDATION"
+    assert out_val_invalid["passed"] is False
+    assert out_val_invalid["diagnostics"][0]["code"] == "INPUT_SPEC_SCHEMA_INVALID"
 
     # 4. opendv pipeline validate / run / report over --api-url
     state = PlatformStateContainer(state_dir=tmp_path / "remote_state")

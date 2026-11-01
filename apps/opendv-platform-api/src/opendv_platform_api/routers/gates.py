@@ -112,6 +112,7 @@ async def evaluate_run_gates(
             RunStatus.PAUSED_HOLD if run_dto.active_hold_ids else RunStatus.COMPLETED
         )
     state.runs[run_id] = run_dto.model_copy(update=updated_updates)
+    state._sync_pipeline_report(run_id)
 
     base_report = state._build_default_gate_report(run_id)
     base_report["evaluated_at"] = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
