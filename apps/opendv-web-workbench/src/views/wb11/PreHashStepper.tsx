@@ -43,7 +43,7 @@ export const DEFAULT_PREHASH_PRESETS: readonly PreHashPreset[] = [
 		lengthPrefixedTokens: ["15:LEGACY_GP_ADMIN", "6:LP-101"],
 		canonicalPreHashString: "15:LEGACY_GP_ADMIN||6:LP-101",
 		sha256HexUpper:
-			"6B7C6F17C0591A06F571B5B9A1802057234C8063890A1341F0098B98D26AD8B9",
+			"6B7C7180B62164F31F14EEBCD16CC5FD2B0CE58143DE66A4B67521113EC5D8B9",
 		dualProjectionPill:
 			"[HK: 6B7C..D8B9 | LEGACY_GP_ADMIN:LP-101 Bavarian Pension]",
 		collisionNote:
@@ -51,15 +51,15 @@ export const DEFAULT_PREHASH_PRESETS: readonly PreHashPreset[] = [
 	},
 	{
 		presetId: "apex-fund-iv",
-		label: "Apex Buyout Fund IV (ILPA_CORE · APEX_BO_IV)",
-		rawTokens: ["ILPA_CORE", "APEX_BO_IV"],
-		typedTokens: ["'ILPA_CORE'::VARCHAR", "'APEX_BO_IV'::VARCHAR"],
-		normalizedTokens: ["ILPA_CORE", "APEX_BO_IV"],
-		lengthPrefixedTokens: ["9:ILPA_CORE", "10:APEX_BO_IV"],
-		canonicalPreHashString: "9:ILPA_CORE||10:APEX_BO_IV",
+		label: "Apex Buyout Fund IV (GLOBAL · APEX_BO_IV)",
+		rawTokens: ["GLOBAL", "APEX_BO_IV"],
+		typedTokens: ["'GLOBAL'::VARCHAR", "'APEX_BO_IV'::VARCHAR"],
+		normalizedTokens: ["GLOBAL", "APEX_BO_IV"],
+		lengthPrefixedTokens: ["6:GLOBAL", "10:APEX_BO_IV"],
+		canonicalPreHashString: "6:GLOBAL||10:APEX_BO_IV",
 		sha256HexUpper:
-			"94A693244F208294A8639923F084880C8F5069D4F857845A7F5F29D540878759",
-		dualProjectionPill: "[HK: 94A6..8759 | ILPA_CORE:APEX_BO_IV Fund IV]",
+			"94A60FCDA278C5AEC284C595413935793D5CEC113C511F20690046061D388759",
+		dualProjectionPill: "[HK: 94A6..8759 | GLOBAL:APEX_BO_IV Fund IV]",
 		collisionNote: "Canonical Hub hash key for hub_fund (Apex Buyout Fund IV).",
 	},
 	{
@@ -69,9 +69,9 @@ export const DEFAULT_PREHASH_PRESETS: readonly PreHashPreset[] = [
 		typedTokens: ["'A||B'::VARCHAR", "'C'::VARCHAR"],
 		normalizedTokens: ["A||B", "C"],
 		lengthPrefixedTokens: ["4:A||B", "1:C"],
-		canonicalPreHashString: "4:A||B||1:C  (vs  1:A||4:B||C)",
+		canonicalPreHashString: "4:A||B||1:C",
 		sha256HexUpper:
-			"E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+			"D9FDF36C4CA5DD63D8E37134B8CBE57FAE3D046EBB4F1F21D79327C52F59549C",
 		dualProjectionPill:
 			"[Injective Framing Proof: '4:A||B||1:C' != '1:A||4:B||C']",
 		collisionNote:
@@ -137,7 +137,7 @@ export function PreHashStepper({
 				border: "1px solid var(--dv-border-subtle)",
 				borderRadius: "8px",
 				padding: "12px",
-				background: "var(--dv-bg-surface)",
+				background: "var(--dv-surface-1)",
 			}}
 		>
 			<div
@@ -173,10 +173,10 @@ export function PreHashStepper({
 								border: "1px solid var(--dv-border-subtle)",
 								background:
 									activePreset.presetId === preset.presetId
-										? "var(--dv-bg-elevated)"
+										? "var(--dv-surface-2)"
 										: "var(--dv-bg-canvas)",
 								color: "var(--dv-text-primary)",
-								fontFamily: "var(--dv-font-mono)",
+								fontFamily: "ui-monospace, monospace",
 								fontSize: "11px",
 								cursor: "pointer",
 							}}
@@ -214,7 +214,7 @@ export function PreHashStepper({
 						<div
 							style={{
 								fontSize: "11px",
-								fontFamily: "var(--dv-font-mono)",
+								fontFamily: "ui-monospace, monospace",
 								color: "var(--dv-text-muted)",
 								marginBottom: "6px",
 							}}
@@ -224,8 +224,8 @@ export function PreHashStepper({
 						<div
 							style={{
 								fontSize: "12px",
-								fontFamily: "var(--dv-font-mono)",
-								color: "var(--dv-status-pass)",
+								fontFamily: "ui-monospace, monospace",
+								color: "var(--dv-gate-pass)",
 								wordBreak: "break-all",
 								fontWeight: 600,
 							}}
@@ -241,7 +241,7 @@ export function PreHashStepper({
 				style={{
 					padding: "8px 10px",
 					borderRadius: "6px",
-					background: "var(--dv-bg-elevated)",
+					background: "var(--dv-surface-2)",
 					border: "1px solid var(--dv-border-subtle)",
 					fontSize: "12px",
 				}}

@@ -108,7 +108,7 @@ export function DriftDeltaGrid({
 				border: "1px solid var(--dv-border-subtle)",
 				borderRadius: "8px",
 				padding: "12px",
-				background: "var(--dv-bg-surface)",
+				background: "var(--dv-surface-1)",
 				overflowX: "auto",
 			}}
 		>
@@ -148,32 +148,57 @@ export function DriftDeltaGrid({
 							data-testid={`drift-row-${row.driftId}`}
 							style={{ borderBottom: "1px solid var(--dv-border-subtle)" }}
 						>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{row.driftId}
 							</td>
 							<td
 								style={{
 									padding: "6px",
-									fontFamily: "var(--dv-font-mono)",
+									fontFamily: "ui-monospace, monospace",
 									fontWeight: 700,
 									color:
 										row.category === "KEY_DRIFT"
-											? "var(--dv-status-pass)"
-											: "var(--dv-status-warn)",
+											? "var(--dv-gate-pass)"
+											: "var(--dv-gate-askuser)",
 								}}
 							>
 								{row.category}
 							</td>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{row.sourceTable}
 							</td>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{row.columnT0} → {row.columnT1}
 							</td>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{row.typeT0} → {row.typeT1}
 							</td>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{row.levenshteinSimilarity !== null &&
 								row.jaccardValueOverlap !== null
 									? `sim=${row.levenshteinSimilarity.toFixed(2)} (>=0.85) · J=${row.jaccardValueOverlap.toFixed(3)} (>=0.90)`
@@ -183,9 +208,9 @@ export function DriftDeltaGrid({
 							<td
 								style={{
 									padding: "6px",
-									fontFamily: "var(--dv-font-mono)",
+									fontFamily: "ui-monospace, monospace",
 									fontWeight: 700,
-									color: "var(--dv-status-pass)",
+									color: "var(--dv-gate-pass)",
 								}}
 							>
 								{row.historicalHashDiffBroken}

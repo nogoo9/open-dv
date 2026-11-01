@@ -1,4 +1,3 @@
-import type { VaultObservabilityEventDTO } from "@opendv/protocol-ts";
 import type React from "react";
 import type {
 	GateCardPluginProps,
@@ -8,11 +7,17 @@ import type {
 import { AttemptDiffViewer } from "./AttemptDiffViewer";
 import { ToonTraceHighlighter } from "./ToonTraceHighlighter";
 
-export type WB08SelfHealingWorkbenchProps = Partial<ViewPluginProps> & {
-	readonly events?: readonly VaultObservabilityEventDTO[];
-};
+export type WB08SelfHealingWorkbenchProps = Partial<ViewPluginProps>;
 
-function WB08GateCard({ event }: GateCardPluginProps): React.ReactElement {
+function WB08GateCard({
+	event,
+	isExpanded = true,
+	onToggleExpand,
+}: GateCardPluginProps): React.ReactElement | null {
+	if (!isExpanded) {
+		return null;
+	}
+
 	return (
 		<div
 			data-testid="viz-gate-07-card"
@@ -20,15 +25,38 @@ function WB08GateCard({ event }: GateCardPluginProps): React.ReactElement {
 				padding: "8px 12px",
 				borderRadius: "6px",
 				border: "1px solid var(--dv-border-subtle)",
-				background: "var(--dv-bg-surface)",
+				background: "var(--dv-surface-1)",
 				fontSize: "12px",
+				display: "flex",
+				justifyContent: "space-between",
+				alignItems: "center",
+				gap: "8px",
 			}}
 		>
-			<strong>VIZ-GATE-07 (Closed-Loop Self-Healing):</strong>{" "}
-			<span>
-				{event.layer1_story_banner?.headline ??
-					"Converged in k = 2 attempts via @toon_v1 trace"}
-			</span>
+			<div>
+				<strong>VIZ-GATE-07 (Closed-Loop Self-Healing):</strong>{" "}
+				<span>
+					{event.layer1_story_banner?.headline ??
+						"Converged in k = 2 attempts via @toon_v1 trace"}
+				</span>
+			</div>
+			{onToggleExpand ? (
+				<button
+					type="button"
+					onClick={onToggleExpand}
+					style={{
+						backgroundColor: "var(--dv-surface-2)",
+						color: "var(--dv-text-primary)",
+						border: "1px solid var(--dv-border-strong)",
+						borderRadius: "4px",
+						padding: "2px 8px",
+						fontSize: "11px",
+						cursor: "pointer",
+					}}
+				>
+					Collapse
+				</button>
+			) : null}
 		</div>
 	);
 }
@@ -43,14 +71,9 @@ export const VIZ_GATE_07_PLUGIN: WorkbenchGateCardPlugin = {
 export function WB08SelfHealingWorkbench({
 	currentEvent,
 	eventsForView,
-	events,
 	onInspectProof,
 }: WB08SelfHealingWorkbenchProps): React.ReactElement {
-	const wb08Event =
-		currentEvent ??
-		eventsForView?.[0] ??
-		events?.find((e) => e.workbench_view_id === "WB-08") ??
-		null;
+	const wb08Event = currentEvent ?? eventsForView?.[0] ?? null;
 
 	return (
 		<section
@@ -62,7 +85,7 @@ export function WB08SelfHealingWorkbench({
 				gap: "16px",
 				padding: "16px",
 				color: "var(--dv-text-primary)",
-				fontFamily: "var(--dv-font-sans)",
+				fontFamily: "ui-sans-serif, system-ui, sans-serif",
 			}}
 		>
 			<header
@@ -80,7 +103,7 @@ export function WB08SelfHealingWorkbench({
 					<div
 						style={{
 							fontSize: "12px",
-							fontFamily: "var(--dv-font-mono)",
+							fontFamily: "ui-monospace, monospace",
 							color: "var(--dv-text-muted)",
 						}}
 					>
@@ -107,10 +130,10 @@ export function WB08SelfHealingWorkbench({
 						style={{
 							padding: "6px 12px",
 							borderRadius: "999px",
-							background: "var(--dv-bg-elevated)",
-							border: "1px solid var(--dv-status-pass)",
-							color: "var(--dv-status-pass)",
-							fontFamily: "var(--dv-font-mono)",
+							background: "var(--dv-surface-2)",
+							border: "1px solid var(--dv-gate-pass)",
+							color: "var(--dv-gate-pass)",
+							fontFamily: "ui-monospace, monospace",
 							fontSize: "12px",
 							fontWeight: 700,
 						}}
@@ -126,7 +149,7 @@ export function WB08SelfHealingWorkbench({
 								padding: "6px 10px",
 								borderRadius: "6px",
 								border: "1px solid var(--dv-border-subtle)",
-								background: "var(--dv-bg-surface)",
+								background: "var(--dv-surface-1)",
 								color: "var(--dv-text-primary)",
 								fontSize: "12px",
 								cursor: "pointer",
@@ -150,15 +173,15 @@ export function WB08SelfHealingWorkbench({
 					style={{
 						padding: "12px",
 						borderRadius: "8px",
-						border: "1px solid var(--dv-status-fail)",
-						background: "var(--dv-bg-surface)",
+						border: "1px solid var(--dv-gate-reject)",
+						background: "var(--dv-surface-1)",
 					}}
 				>
 					<div
 						style={{
 							fontSize: "11px",
-							fontFamily: "var(--dv-font-mono)",
-							color: "var(--dv-status-fail)",
+							fontFamily: "ui-monospace, monospace",
+							color: "var(--dv-gate-reject)",
 							fontWeight: 700,
 						}}
 					>
@@ -183,15 +206,15 @@ export function WB08SelfHealingWorkbench({
 					style={{
 						padding: "12px",
 						borderRadius: "8px",
-						border: "1px solid var(--dv-status-warn)",
-						background: "var(--dv-bg-surface)",
+						border: "1px solid var(--dv-gate-askuser)",
+						background: "var(--dv-surface-1)",
 					}}
 				>
 					<div
 						style={{
 							fontSize: "11px",
-							fontFamily: "var(--dv-font-mono)",
-							color: "var(--dv-status-warn)",
+							fontFamily: "ui-monospace, monospace",
+							color: "var(--dv-gate-askuser)",
 							fontWeight: 700,
 						}}
 					>
@@ -216,15 +239,15 @@ export function WB08SelfHealingWorkbench({
 					style={{
 						padding: "12px",
 						borderRadius: "8px",
-						border: "1px solid var(--dv-status-pass)",
-						background: "var(--dv-bg-surface)",
+						border: "1px solid var(--dv-gate-pass)",
+						background: "var(--dv-surface-1)",
 					}}
 				>
 					<div
 						style={{
 							fontSize: "11px",
-							fontFamily: "var(--dv-font-mono)",
-							color: "var(--dv-status-pass)",
+							fontFamily: "ui-monospace, monospace",
+							color: "var(--dv-gate-pass)",
 							fontWeight: 700,
 						}}
 					>
@@ -252,7 +275,7 @@ export function WB08SelfHealingWorkbench({
 					border: "1px solid var(--dv-border-subtle)",
 					borderRadius: "8px",
 					padding: "12px",
-					background: "var(--dv-bg-surface)",
+					background: "var(--dv-surface-1)",
 				}}
 			>
 				<h3 style={{ margin: "0 0 8px 0", fontSize: "14px" }}>

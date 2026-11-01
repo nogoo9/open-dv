@@ -32,8 +32,7 @@ from opendv_agent_harness import ModelTier
 from opendv_core import VaultObservabilityEvent, validate_observability_event
 from opendv_duckdb_sandbox import (
     DuckDbShadowSandbox,
-    build_query_d10_sql,
-    build_query_d10b_sql,
+    compile_canonical_ir_to_4zone_sql,
 )
 from opendv_platform_api import PlatformStateContainer, RunStatus, create_app
 
@@ -256,11 +255,33 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             # -----------------------------------------------------------------
             # Step 5: 4-Zone SQL Compilation & 4-Batch Adversarial DuckDB Sandbox
             # -----------------------------------------------------------------
-            d10_sql = build_query_d10_sql()
-            d10b_sql = build_query_d10b_sql()
-            assert "ZONE 4" in d10_sql and "h_lp.lp_id" in d10_sql
-            assert "529900T8BM49AURSDO55" in d10b_sql or "sat_portco" in d10b_sql
-            assert DuckDbShadowSandbox is not None
+            pe_ir = DuckDbShadowSandbox.load_default_pe_canonical_ir()
+            compiled_bundle = compile_canonical_ir_to_4zone_sql(
+                pe_ir,
+                include_batch4_restatement_in_seed=False,
+            )
+            assert len(compiled_bundle.topological_load_order) > 0
+            assert all(
+                zone_sql.strip()
+                for zone_sql in (
+                    compiled_bundle.zone_0_sql,
+                    compiled_bundle.zone_1_sql,
+                    compiled_bundle.zone_2_sql,
+                    compiled_bundle.zone_3_sql,
+                    compiled_bundle.zone_4_query_d10_sql,
+                    compiled_bundle.zone_4_query_d10b_sql,
+                )
+            )
+            with DuckDbShadowSandbox() as sandbox:
+                sandbox_report = sandbox.run_full_verification(
+                    pe_ir,
+                    emit_telemetry=False,
+                )
+            assert sandbox_report.passed is True
+            assert sandbox_report.batch_report.all_passed is True
+            assert sandbox_report.batch_report.by_number[2].total_delta_rows == 0
+            assert sandbox_report.dynamic_check_report.passed_count == 15
+            assert sandbox_report.bitemporal_proof.verified is True
 
             sandbox_batches_resp = await client.post(
                 f"/api/v1/runs/{run_id}/sandbox",

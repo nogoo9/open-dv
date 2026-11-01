@@ -115,8 +115,6 @@ export function registerWb06ToWb11Views(
 	}
 }
 
-export const registerWB06toWB11 = registerWb06ToWb11Views;
-
 /**
  * Register all 12 workbench views (WB-00 through WB-11) into a WorkbenchPluginRegistry.
  */

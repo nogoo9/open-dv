@@ -60,7 +60,7 @@ export function BiTemporalTimeline({
 				border: "1px solid var(--dv-border-subtle)",
 				borderRadius: "8px",
 				padding: "12px",
-				background: "var(--dv-bg-surface)",
+				background: "var(--dv-surface-1)",
 			}}
 		>
 			<div
@@ -97,10 +97,10 @@ export function BiTemporalTimeline({
 								border: "1px solid var(--dv-border-subtle)",
 								background:
 									selectedCutoffIndex === idx
-										? "var(--dv-bg-elevated)"
+										? "var(--dv-surface-2)"
 										: "var(--dv-bg-canvas)",
 								color: "var(--dv-text-primary)",
-								fontFamily: "var(--dv-font-mono)",
+								fontFamily: "ui-monospace, monospace",
 								fontSize: "11px",
 								cursor: "pointer",
 							}}
@@ -126,7 +126,7 @@ export function BiTemporalTimeline({
 					<strong>
 						Selected PIT Snapshot ({activePoint.assertionCutoffTs}):
 					</strong>{" "}
-					<span style={{ fontFamily: "var(--dv-font-mono)" }}>
+					<span style={{ fontFamily: "ui-monospace, monospace" }}>
 						{activePoint.portfolioCompany} · EV/EBITDA ={" "}
 						{activePoint.evEbitdaMultiple} ({activePoint.enterpriseValueUsd})
 					</span>{" "}
@@ -167,29 +167,54 @@ export function BiTemporalTimeline({
 							<td style={{ padding: "6px", fontWeight: 600 }}>
 								{pt.versionLabel}
 							</td>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{pt.effectiveDts}
 							</td>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{pt.loadDts}
 							</td>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{pt.assertionCutoffTs}
 							</td>
 							<td
 								style={{
 									padding: "6px",
-									fontFamily: "var(--dv-font-mono)",
+									fontFamily: "ui-monospace, monospace",
 									fontWeight: 700,
-									color: "var(--dv-status-pass)",
+									color: "var(--dv-gate-pass)",
 								}}
 							>
 								{pt.evEbitdaMultiple}
 							</td>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{pt.enterpriseValueUsd}
 							</td>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{pt.hashDiffPrefix}
 							</td>
 						</tr>

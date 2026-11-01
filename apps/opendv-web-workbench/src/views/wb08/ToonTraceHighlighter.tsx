@@ -75,7 +75,7 @@ export function ToonTraceHighlighter({
 				border: "1px solid var(--dv-border-subtle)",
 				borderRadius: "8px",
 				padding: "12px",
-				background: "var(--dv-bg-surface)",
+				background: "var(--dv-surface-1)",
 			}}
 		>
 			<div
@@ -109,10 +109,10 @@ export function ToonTraceHighlighter({
 							border: "1px solid var(--dv-border-subtle)",
 							background:
 								activeAttempt === 1
-									? "var(--dv-bg-elevated)"
+									? "var(--dv-surface-2)"
 									: "var(--dv-bg-canvas)",
 							color: "var(--dv-text-primary)",
-							fontFamily: "var(--dv-font-mono)",
+							fontFamily: "ui-monospace, monospace",
 							fontSize: "11px",
 							cursor: "pointer",
 						}}
@@ -129,10 +129,10 @@ export function ToonTraceHighlighter({
 							border: "1px solid var(--dv-border-subtle)",
 							background:
 								activeAttempt === 2
-									? "var(--dv-bg-elevated)"
+									? "var(--dv-surface-2)"
 									: "var(--dv-bg-canvas)",
 							color: "var(--dv-text-primary)",
-							fontFamily: "var(--dv-font-mono)",
+							fontFamily: "ui-monospace, monospace",
 							fontSize: "11px",
 							cursor: "pointer",
 						}}
@@ -150,7 +150,7 @@ export function ToonTraceHighlighter({
 					borderRadius: "6px",
 					background: "var(--dv-bg-canvas)",
 					border: "1px solid var(--dv-border-subtle)",
-					fontFamily: "var(--dv-font-mono)",
+					fontFamily: "ui-monospace, monospace",
 					fontSize: "12px",
 					lineHeight: 1.5,
 					overflowX: "auto",
@@ -190,13 +190,18 @@ export function ToonTraceHighlighter({
 							data-testid={`toon-violation-${row.rule}`}
 							style={{ borderBottom: "1px solid var(--dv-border-subtle)" }}
 						>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{row.gate}
 							</td>
 							<td
 								style={{
 									padding: "6px",
-									fontFamily: "var(--dv-font-mono)",
+									fontFamily: "ui-monospace, monospace",
 									fontWeight: 700,
 								}}
 							>
@@ -205,21 +210,26 @@ export function ToonTraceHighlighter({
 							<td
 								style={{
 									padding: "6px",
-									fontFamily: "var(--dv-font-mono)",
+									fontFamily: "ui-monospace, monospace",
 									fontWeight: 700,
 									color:
 										row.action === "REJECT"
-											? "var(--dv-status-fail)"
-											: "var(--dv-status-pass)",
+											? "var(--dv-gate-reject)"
+											: "var(--dv-gate-pass)",
 								}}
 							>
 								{row.action}
 							</td>
-							<td style={{ padding: "6px", fontFamily: "var(--dv-font-mono)" }}>
+							<td
+								style={{
+									padding: "6px",
+									fontFamily: "ui-monospace, monospace",
+								}}
+							>
 								{row.target}
 							</td>
 							<td style={{ padding: "6px" }}>
-								<div style={{ fontFamily: "var(--dv-font-mono)" }}>
+								<div style={{ fontFamily: "ui-monospace, monospace" }}>
 									{row.fix}
 								</div>
 								<div

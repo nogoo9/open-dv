@@ -1,11 +1,8 @@
-import type { VaultObservabilityEventDTO } from "@opendv/protocol-ts";
 import type React from "react";
 import type { ViewPluginProps } from "../../plugins/plugin-types";
 import { DriftDeltaGrid } from "./DriftDeltaGrid";
 
-export type WB09SchemaDriftRadarProps = Partial<ViewPluginProps> & {
-	readonly events?: readonly VaultObservabilityEventDTO[];
-};
+export type WB09SchemaDriftRadarProps = Partial<ViewPluginProps>;
 
 interface RadarCategoryCard {
 	readonly category: string;
@@ -55,14 +52,9 @@ const RADAR_CATEGORIES: readonly RadarCategoryCard[] = [
 export function WB09SchemaDriftRadar({
 	currentEvent,
 	eventsForView,
-	events,
 	onInspectProof,
 }: WB09SchemaDriftRadarProps): React.ReactElement {
-	const wb09Event =
-		currentEvent ??
-		eventsForView?.[0] ??
-		events?.find((e) => e.workbench_view_id === "WB-09") ??
-		null;
+	const wb09Event = currentEvent ?? eventsForView?.[0] ?? null;
 
 	return (
 		<section
@@ -74,7 +66,7 @@ export function WB09SchemaDriftRadar({
 				gap: "16px",
 				padding: "16px",
 				color: "var(--dv-text-primary)",
-				fontFamily: "var(--dv-font-sans)",
+				fontFamily: "ui-sans-serif, system-ui, sans-serif",
 			}}
 		>
 			<header
@@ -92,7 +84,7 @@ export function WB09SchemaDriftRadar({
 					<div
 						style={{
 							fontSize: "12px",
-							fontFamily: "var(--dv-font-mono)",
+							fontFamily: "ui-monospace, monospace",
 							color: "var(--dv-text-muted)",
 						}}
 					>
@@ -119,10 +111,10 @@ export function WB09SchemaDriftRadar({
 						style={{
 							padding: "6px 12px",
 							borderRadius: "999px",
-							background: "var(--dv-bg-elevated)",
-							border: "1px solid var(--dv-status-pass)",
-							color: "var(--dv-status-pass)",
-							fontFamily: "var(--dv-font-mono)",
+							background: "var(--dv-surface-2)",
+							border: "1px solid var(--dv-gate-pass)",
+							color: "var(--dv-gate-pass)",
+							fontFamily: "ui-monospace, monospace",
 							fontSize: "12px",
 							fontWeight: 700,
 						}}
@@ -138,7 +130,7 @@ export function WB09SchemaDriftRadar({
 								padding: "6px 10px",
 								borderRadius: "6px",
 								border: "1px solid var(--dv-border-subtle)",
-								background: "var(--dv-bg-surface)",
+								background: "var(--dv-surface-1)",
 								color: "var(--dv-text-primary)",
 								fontSize: "12px",
 								cursor: "pointer",
@@ -165,7 +157,7 @@ export function WB09SchemaDriftRadar({
 							padding: "12px",
 							borderRadius: "8px",
 							border: "1px solid var(--dv-border-subtle)",
-							background: "var(--dv-bg-surface)",
+							background: "var(--dv-surface-1)",
 						}}
 					>
 						<div
@@ -181,9 +173,9 @@ export function WB09SchemaDriftRadar({
 							</span>
 							<span
 								style={{
-									fontFamily: "var(--dv-font-mono)",
+									fontFamily: "ui-monospace, monospace",
 									fontSize: "11px",
-									color: "var(--dv-status-pass)",
+									color: "var(--dv-gate-pass)",
 									fontWeight: 700,
 								}}
 							>

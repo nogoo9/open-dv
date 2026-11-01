@@ -100,7 +100,7 @@ export function AttemptDiffViewer({
 				border: "1px solid var(--dv-border-subtle)",
 				borderRadius: "8px",
 				padding: "12px",
-				background: "var(--dv-bg-surface)",
+				background: "var(--dv-surface-1)",
 			}}
 		>
 			<div
@@ -119,8 +119,8 @@ export function AttemptDiffViewer({
 				<span
 					style={{
 						fontSize: "11px",
-						fontFamily: "var(--dv-font-mono)",
-						color: "var(--dv-status-pass)",
+						fontFamily: "ui-monospace, monospace",
+						color: "var(--dv-gate-pass)",
 					}}
 				>
 					-4 rejected lines / +3 repaired lines
@@ -133,7 +133,7 @@ export function AttemptDiffViewer({
 					borderRadius: "6px",
 					overflow: "hidden",
 					background: "var(--dv-bg-canvas)",
-					fontFamily: "var(--dv-font-mono)",
+					fontFamily: "ui-monospace, monospace",
 					fontSize: "12px",
 				}}
 			>
@@ -146,9 +146,9 @@ export function AttemptDiffViewer({
 								: " ";
 					const color =
 						line.changeType === "added"
-							? "var(--dv-status-pass)"
+							? "var(--dv-gate-pass)"
 							: line.changeType === "removed"
-								? "var(--dv-status-fail)"
+								? "var(--dv-gate-reject)"
 								: "var(--dv-text-primary)";
 
 					return (

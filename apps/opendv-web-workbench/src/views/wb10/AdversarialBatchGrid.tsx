@@ -202,7 +202,7 @@ export function AdversarialBatchGrid({
 							border: "1px solid var(--dv-border-subtle)",
 							borderRadius: "8px",
 							padding: "12px",
-							background: "var(--dv-bg-surface)",
+							background: "var(--dv-surface-1)",
 						}}
 					>
 						<div
@@ -218,9 +218,9 @@ export function AdversarialBatchGrid({
 							</span>
 							<span
 								style={{
-									fontFamily: "var(--dv-font-mono)",
+									fontFamily: "ui-monospace, monospace",
 									fontSize: "11px",
-									color: "var(--dv-status-pass)",
+									color: "var(--dv-gate-pass)",
 									fontWeight: 700,
 								}}
 							>
@@ -239,7 +239,7 @@ export function AdversarialBatchGrid({
 						<div
 							style={{
 								fontSize: "11px",
-								fontFamily: "var(--dv-font-mono)",
+								fontFamily: "ui-monospace, monospace",
 								color: "var(--dv-text-primary)",
 							}}
 						>
@@ -255,7 +255,7 @@ export function AdversarialBatchGrid({
 					border: "1px solid var(--dv-border-subtle)",
 					borderRadius: "8px",
 					padding: "12px",
-					background: "var(--dv-bg-surface)",
+					background: "var(--dv-surface-1)",
 				}}
 			>
 				<h4 style={{ margin: "0 0 8px 0", fontSize: "14px" }}>
@@ -286,7 +286,7 @@ export function AdversarialBatchGrid({
 							}}
 						>
 							<div>
-								<strong style={{ fontFamily: "var(--dv-font-mono)" }}>
+								<strong style={{ fontFamily: "ui-monospace, monospace" }}>
 									{rule.ruleId}
 								</strong>{" "}
 								<span style={{ color: "var(--dv-text-muted)" }}>
@@ -300,10 +300,10 @@ export function AdversarialBatchGrid({
 							</div>
 							<span
 								style={{
-									fontFamily: "var(--dv-font-mono)",
+									fontFamily: "ui-monospace, monospace",
 									fontSize: "11px",
 									fontWeight: 700,
-									color: "var(--dv-status-pass)",
+									color: "var(--dv-gate-pass)",
 								}}
 							>
 								{rule.status}

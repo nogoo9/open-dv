@@ -9,10 +9,13 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
 	ALL_WORKBENCH_VIEW_IDS,
+	PE_CANONICAL_HASH_PILLS,
 	PE_DEMO_EVENTS,
 	type StageId,
 	type VaultObservabilityEventDTO,
 	type WorkbenchViewId,
+	computeDv2LengthPrefixedSha256,
+	computeDv2PrehashString,
 } from "@opendv/protocol-ts";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -48,7 +51,10 @@ import { AdversarialBatchGrid } from "../src/views/wb10/AdversarialBatchGrid";
 import { BiTemporalTimeline } from "../src/views/wb10/BiTemporalTimeline";
 import { WB10DuckDBSandboxView } from "../src/views/wb10/WB10DuckDBSandboxView";
 import { FourZoneSQLViewer } from "../src/views/wb11/FourZoneSQLViewer";
-import { PreHashStepper } from "../src/views/wb11/PreHashStepper";
+import {
+	DEFAULT_PREHASH_PRESETS,
+	PreHashStepper,
+} from "../src/views/wb11/PreHashStepper";
 import { WB11RosettaStoneView } from "../src/views/wb11/WB11RosettaStoneView";
 
 describe("Work Package WP-12: Workbench Views Part 3 (WB-06 through WB-11 & Full 12-View Registry)", () => {
@@ -151,6 +157,32 @@ describe("Work Package WP-12: Workbench Views Part 3 (WB-06 through WB-11 & Full
 					.findGateCardsForEvent(getDemoEvent("WB-10"))
 					.map((c) => c.gateId),
 			).toEqual(["VIZ-GATE-08"]);
+
+			for (const [gatePlugin, viewId] of [
+				[VIZ_GATE_03_PLUGIN, "WB-06"],
+				[VIZ_GATE_05_PART_B_PLUGIN, "WB-07"],
+				[VIZ_GATE_07_PLUGIN, "WB-08"],
+				[VIZ_GATE_08_PLUGIN, "WB-10"],
+			] as const) {
+				const ev = getDemoEvent(viewId);
+				const collapsedHtml = renderToStaticMarkup(
+					createElement(gatePlugin.component, {
+						event: ev,
+						isExpanded: false,
+						onToggleExpand: () => {},
+					}),
+				);
+				expect(collapsedHtml).toBe("");
+
+				const expandedHtml = renderToStaticMarkup(
+					createElement(gatePlugin.component, {
+						event: ev,
+						isExpanded: true,
+						onToggleExpand: () => {},
+					}),
+				);
+				expect(expandedHtml).toContain("Collapse");
+			}
 		});
 
 		it("exports WB-06 through WB-11 components and registration helpers from package entrypoint", () => {
@@ -376,7 +408,7 @@ describe("Work Package WP-12: Workbench Views Part 3 (WB-06 through WB-11 & Full
 	});
 
 	describe("7. WB-11: Pre-Hash Stepper (Algorithm A.5) & 4-Zone SQL Rosetta Stone", () => {
-		it("renders PreHashStepper with 6 canonicalization stages producing 6:GLOBAL||6:LP-101 and [HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]", () => {
+		it("renders PreHashStepper with 6 canonicalization stages producing 6:GLOBAL||6:LP-101 and exact SHA-256 digests", async () => {
 			const html = renderToStaticMarkup(createElement(PreHashStepper));
 
 			expect(html).toContain('data-testid="prehash-stepper"');
@@ -388,6 +420,24 @@ describe("Work Package WP-12: Workbench Views Part 3 (WB-06 through WB-11 & Full
 				"5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4",
 			);
 			expect(html).toContain("[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]");
+
+			for (const preset of DEFAULT_PREHASH_PRESETS) {
+				expect(computeDv2PrehashString(preset.rawTokens)).toBe(
+					preset.canonicalPreHashString,
+				);
+				expect(await computeDv2LengthPrefixedSha256(preset.rawTokens)).toBe(
+					preset.sha256HexUpper,
+				);
+			}
+			expect(DEFAULT_PREHASH_PRESETS[0]?.dualProjectionPill).toBe(
+				PE_CANONICAL_HASH_PILLS.CALPERS_LP_101.pill_label,
+			);
+			expect(DEFAULT_PREHASH_PRESETS[1]?.dualProjectionPill).toBe(
+				PE_CANONICAL_HASH_PILLS.BAVARIAN_PENSION_LP_101.pill_label,
+			);
+			expect(DEFAULT_PREHASH_PRESETS[2]?.dualProjectionPill).toBe(
+				PE_CANONICAL_HASH_PILLS.FUND_IV_APEX_BO_IV.pill_label,
+			);
 		});
 
 		it("renders FourZoneSQLViewer with Zones 0–4 SQL, DV-AST-001..006 badges, and Query D.10 / D.10b results", () => {
@@ -404,6 +454,9 @@ describe("Work Package WP-12: Workbench Views Part 3 (WB-06 through WB-11 & Full
 				expect(html).toContain(`data-testid="ast-badge-${ruleId}"`);
 			}
 			expect(html).toContain('data-testid="query-d10-results-card"');
+			expect(html).toContain(
+				PE_CANONICAL_HASH_PILLS.FUND_IV_APEX_BO_IV.pill_label,
+			);
 			expect(html).toContain("125.00 bps");
 			expect(html).toContain("12.80x");
 			expect(html).toContain("14.50x");

@@ -231,7 +231,7 @@ export function FourZoneSQLViewer({
 					border: "1px solid var(--dv-border-subtle)",
 					borderRadius: "8px",
 					padding: "12px",
-					background: "var(--dv-bg-surface)",
+					background: "var(--dv-surface-1)",
 				}}
 			>
 				<div
@@ -267,10 +267,10 @@ export function FourZoneSQLViewer({
 									border: "1px solid var(--dv-border-subtle)",
 									background:
 										activeZone?.zoneId === zone.zoneId
-											? "var(--dv-bg-elevated)"
+											? "var(--dv-surface-2)"
 											: "var(--dv-bg-canvas)",
 									color: "var(--dv-text-primary)",
-									fontFamily: "var(--dv-font-mono)",
+									fontFamily: "ui-monospace, monospace",
 									fontSize: "11px",
 									cursor: "pointer",
 								}}
@@ -303,7 +303,7 @@ export function FourZoneSQLViewer({
 								<div
 									style={{
 										fontSize: "11px",
-										fontFamily: "var(--dv-font-mono)",
+										fontFamily: "ui-monospace, monospace",
 										color: "var(--dv-text-muted)",
 										marginBottom: "4px",
 									}}
@@ -317,7 +317,7 @@ export function FourZoneSQLViewer({
 										borderRadius: "6px",
 										background: "var(--dv-bg-canvas)",
 										border: "1px solid var(--dv-border-subtle)",
-										fontFamily: "var(--dv-font-mono)",
+										fontFamily: "ui-monospace, monospace",
 										fontSize: "11px",
 										overflowX: "auto",
 									}}
@@ -330,7 +330,7 @@ export function FourZoneSQLViewer({
 								<div
 									style={{
 										fontSize: "11px",
-										fontFamily: "var(--dv-font-mono)",
+										fontFamily: "ui-monospace, monospace",
 										color: "var(--dv-text-muted)",
 										marginBottom: "4px",
 									}}
@@ -344,7 +344,7 @@ export function FourZoneSQLViewer({
 										borderRadius: "6px",
 										background: "var(--dv-bg-canvas)",
 										border: "1px solid var(--dv-border-subtle)",
-										fontFamily: "var(--dv-font-mono)",
+										fontFamily: "ui-monospace, monospace",
 										fontSize: "11px",
 										overflowX: "auto",
 									}}
@@ -357,7 +357,7 @@ export function FourZoneSQLViewer({
 								<div
 									style={{
 										fontSize: "11px",
-										fontFamily: "var(--dv-font-mono)",
+										fontFamily: "ui-monospace, monospace",
 										color: "var(--dv-text-muted)",
 										marginBottom: "4px",
 									}}
@@ -372,7 +372,7 @@ export function FourZoneSQLViewer({
 										borderRadius: "6px",
 										background: "var(--dv-bg-canvas)",
 										border: "1px solid var(--dv-border-subtle)",
-										fontFamily: "var(--dv-font-mono)",
+										fontFamily: "ui-monospace, monospace",
 										fontSize: "11px",
 										overflowX: "auto",
 									}}
@@ -391,7 +391,7 @@ export function FourZoneSQLViewer({
 					border: "1px solid var(--dv-border-subtle)",
 					borderRadius: "8px",
 					padding: "12px",
-					background: "var(--dv-bg-surface)",
+					background: "var(--dv-surface-1)",
 				}}
 			>
 				<h4 style={{ margin: "0 0 8px 0", fontSize: "14px" }}>
@@ -421,7 +421,7 @@ export function FourZoneSQLViewer({
 							}}
 						>
 							<div>
-								<strong style={{ fontFamily: "var(--dv-font-mono)" }}>
+								<strong style={{ fontFamily: "ui-monospace, monospace" }}>
 									{badge.ruleId}
 								</strong>
 								<div
@@ -432,10 +432,10 @@ export function FourZoneSQLViewer({
 							</div>
 							<span
 								style={{
-									fontFamily: "var(--dv-font-mono)",
+									fontFamily: "ui-monospace, monospace",
 									fontSize: "11px",
 									fontWeight: 700,
-									color: "var(--dv-status-pass)",
+									color: "var(--dv-gate-pass)",
 								}}
 							>
 								{badge.status}
@@ -451,7 +451,7 @@ export function FourZoneSQLViewer({
 					border: "1px solid var(--dv-border-subtle)",
 					borderRadius: "8px",
 					padding: "12px",
-					background: "var(--dv-bg-surface)",
+					background: "var(--dv-surface-1)",
 				}}
 			>
 				<h4 style={{ margin: "0 0 8px 0", fontSize: "14px" }}>
@@ -481,7 +481,7 @@ export function FourZoneSQLViewer({
 						<div
 							style={{
 								marginTop: "6px",
-								fontFamily: "var(--dv-font-mono)",
+								fontFamily: "ui-monospace, monospace",
 								fontSize: "11px",
 							}}
 						>
@@ -490,7 +490,7 @@ export function FourZoneSQLViewer({
 							</div>
 							<div>
 								Fund Pill:{" "}
-								<code>[HK: 94A6..8759 | ILPA_CORE:APEX_BO_IV Fund IV]</code>
+								<code>[HK: 94A6..8759 | GLOBAL:APEX_BO_IV Fund IV]</code>
 							</div>
 							<div>
 								Commitment: <code>$500,000,000.00</code> · Side-Letter Fee Cap:{" "}
@@ -513,7 +513,7 @@ export function FourZoneSQLViewer({
 						<div
 							style={{
 								marginTop: "6px",
-								fontFamily: "var(--dv-font-mono)",
+								fontFamily: "ui-monospace, monospace",
 								fontSize: "11px",
 							}}
 						>
