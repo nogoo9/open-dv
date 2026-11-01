@@ -387,7 +387,7 @@ def axi_dv_main(
     """Entrypoint for the `axi-dv` verification CLI binary.
 
     Defaults to the `verify` subcommand when invoked without an explicit subcommand name
-    (e.g. `axi-dv --local --json` or `axi-dv --contract ...`).
+    (e.g. `axi-dv --local --contract ... --json`).
     """
     raw_args = list(sys.argv[1:] if argv is None else argv)
     if any(flag in raw_args for flag in ("-h", "--help")):

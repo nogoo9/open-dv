@@ -129,8 +129,7 @@ def run_sandbox_command(
             "dynamic_check_report": dyn_report_dict,
             "dynamic_rules_passed": report.dynamic_check_report.passed_count,
             "dynamic_rules_total": (
-                report.dynamic_check_report.passed_count
-                + report.dynamic_check_report.failed_count
+                report.dynamic_check_report.passed_count + report.dynamic_check_report.failed_count
             ),
             "replay_delta_rows": replay_delta_rows,
             "row_count": len(rows),
