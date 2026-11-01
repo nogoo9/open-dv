@@ -44,6 +44,8 @@ from opendv_agent_harness import (
     register_harness,
 )
 
+from opendv_agent_harness.registry import _HARNESS_REGISTRY
+
 SAMPLE_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
 
 
@@ -460,8 +462,12 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
     assert isinstance(h_agy, AntigravityHarnessAdapter)
 
     # Register custom provider factory
-    register_harness("custom-test", lambda c: AntigravityHarnessAdapter(c, sdk_module=fake_agy))
-    assert "custom-test" in list_available_harnesses()
+    try:
+        register_harness("custom-test", lambda c: AntigravityHarnessAdapter(c, sdk_module=fake_agy))
+        assert "custom-test" in list_available_harnesses()
+    finally:
+        _HARNESS_REGISTRY.pop("custom-test", None)
+    assert list_available_harnesses() == ["antigravity", "claude"]
 
     # Verify all 4 persona builders & generic dispatchers
     vfm_spec = build_persona_task_spec(AgentPersona.VAULT_FIRST_MATE, "Orchestrate")
@@ -486,6 +492,8 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
     hold_mgr = StewardHoldManager(state_dir=agy_cfg.state_dir)
     rec = hold_mgr.record_hold(
         decision_id="dec-tier-u3-001",
+        hold_id="hold-tier-u3-001",
+        event_id="ev-tier-u3-001",
         run_id="run-pe-01",
         task_id=su_spec.task_id,
         session_id="sess-agy-u3-01",
@@ -503,10 +511,16 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
     assert (agy_cfg.state_dir / "holds" / "dec-tier-u3-001.json").is_file()
     assert len(hold_mgr.list_pending_holds(run_id="run-pe-01")) == 1
 
-    with pytest.raises(ValueError, match="still PENDING"):
-        hold_mgr.prepare_resumed_task_spec(su_spec, "dec-tier-u3-001")
+    reloaded_mgr = StewardHoldManager(state_dir=agy_cfg.state_dir)
+    assert reloaded_mgr.get_hold("dec-tier-u3-001").decision_id == "dec-tier-u3-001"
+    assert reloaded_mgr.get_hold("hold-tier-u3-001").decision_id == "dec-tier-u3-001"
+    assert reloaded_mgr.get_hold("ev-tier-u3-001").decision_id == "dec-tier-u3-001"
+    assert len(reloaded_mgr.list_pending_holds(run_id="run-pe-01")) == 1
 
-    resolved = hold_mgr.resolve_hold(
+    with pytest.raises(ValueError, match="still PENDING"):
+        reloaded_mgr.prepare_resumed_task_spec(su_spec, "dec-tier-u3-001")
+
+    resolved = reloaded_mgr.resolve_hold(
         "dec-tier-u3-001",
         action="APPROVE",
         selected_option_id="APEX_BO_IV",
@@ -514,9 +528,12 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
     )
     assert resolved.status == "APPROVED"
     assert resolved.selected_option_id == "APEX_BO_IV"
-    assert len(hold_mgr.list_pending_holds(run_id="run-pe-01")) == 0
+    assert len(reloaded_mgr.list_pending_holds(run_id="run-pe-01")) == 0
 
-    resumed_spec = hold_mgr.prepare_resumed_task_spec(su_spec, "dec-tier-u3-001")
+    resumed_spec = StewardHoldManager(state_dir=agy_cfg.state_dir).prepare_resumed_task_spec(
+        su_spec,
+        "dec-tier-u3-001",
+    )
     assert resumed_spec.resume_session_id == "sess-agy-u3-01"
     assert "APEX_BO_IV" in resumed_spec.prompt
     assert "Confirmed with Fund Counsel." in resumed_spec.prompt

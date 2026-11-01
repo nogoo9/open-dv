@@ -71,6 +71,17 @@ class StewardHoldManager:
         self._state_dir = state_dir
         self._holds_by_id: dict[str, StewardHoldRecord] = {}
         self._alias_index: dict[str, str] = {}
+        self._load_persisted_holds()
+
+    def _load_persisted_holds(self) -> None:
+        if self._state_dir is None:
+            return
+        holds_dir = self._state_dir / "holds"
+        if not holds_dir.is_dir():
+            return
+        for path in sorted(holds_dir.glob("*.json")):
+            record = StewardHoldRecord.model_validate_json(path.read_text(encoding="utf-8"))
+            self._index_record(record, persist=False)
 
     def _persist(self, record: StewardHoldRecord) -> None:
         if self._state_dir is not None:
@@ -79,14 +90,15 @@ class StewardHoldManager:
             target = holds_dir / f"{record.decision_id}.json"
             target.write_text(record.model_dump_json(indent=2), encoding="utf-8")
 
-    def _index_record(self, record: StewardHoldRecord) -> None:
+    def _index_record(self, record: StewardHoldRecord, *, persist: bool = True) -> None:
         self._holds_by_id[record.decision_id] = record
         self._alias_index[record.decision_id] = record.decision_id
         if record.hold_id:
             self._alias_index[record.hold_id] = record.decision_id
         if record.event_id:
             self._alias_index[record.event_id] = record.decision_id
-        self._persist(record)
+        if persist:
+            self._persist(record)
 
     def record_hold(
         self,
