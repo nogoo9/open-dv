@@ -2,7 +2,7 @@
 
 This document is the authoritative, field-by-field reference guide for configuring and executing the **Open-DV 8-Stage Neuro-Symbolic Agentic Data Vault 2.0 Pipeline** (`packages/opendv-agent-harness`). It covers:
 
-1. **Agent Harness Configuration (`HarnessSetupConfig` / `harness_config.yaml`)**: How to configure **Google Antigravity** (`AgyCliHarnessAdapter` / `AntigravityHarnessAdapter`) vs **Anthropic Claude** (`ClaudeAgentHarnessAdapter`) vs **Offline Deterministic** (`DeterministicHarnessAdapter`), logical model-tier routing (`argon` vs `flash`), and **API / Cloud Authentication mechanisms** (`HarnessAuthConfig`: API keys, Google Cloud Vertex AI ADC, AWS Bedrock IAM/SSO, and CLI sessions).
+1. **Agent Harness Configuration (`HarnessSetupConfig` / `harness_config.yaml`)**: How to configure **Google Antigravity** (`AgyCliHarnessAdapter` / `AntigravityHarnessAdapter`) vs **Anthropic Claude** (`ClaudeAgentHarnessAdapter`), semantic model-tier routing (`reasoning` vs `fast`), fine-grained per-agent model overrides (`agent_models`), and **API / Cloud Authentication mechanisms** (`HarnessAuthConfig`: API keys, Google Cloud Vertex AI ADC, AWS Bedrock IAM/SSO, and CLI sessions).
 2. **Pipeline Input Specification (`PipelineInputSpec` / `pipeline_input.yaml`)**: Every field of the root pipeline spec, multi-wave execution schedule (`PipelineWaveInput`), relational Bronze source feeds (`PipelineSourceFeedInput`), and span-grounded unstructured documents (`PipelineUnstructuredDocInput` & `PipelineUnstructuredCandidateInput`).
 3. **Enterprise Graph A Ontology (`GraphAOntology`) & Seed Contract (`initial_contract_path`)**: Complete schema reference for Core Business Concepts (CBCs), 3-Tier Business Key Authority (`BKCC`), governance constraints, canonical relationships, and baseline `NoMistakeDataVault2ContractV5` contracts.
 4. **Deterministic Pre-Flight Input & Post-Flight Output Validation**: Every validation check and diagnostic error code emitted by `validate_pipeline_inputs()` and `validate_pipeline_outputs()`.
@@ -18,8 +18,9 @@ The Open-DV pipeline decouples its 8-stage neuro-symbolic workflow from any sing
 
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :---: | :--- | :--- |
-| `provider` | `"agy" \| "agy-cli" \| "antigravity" \| "claude" \| "deterministic" \| "deterministic-stub"` | No | `"deterministic"` | Selects the concrete `VaultAgentHarness` adapter:<ul><li>`"agy"` / `"agy-cli"`: `AgyCliHarnessAdapter` backed by the local logged-in Antigravity Coding CLI (`agy -p --output-format json --json-schema <path>`).</li><li>`"antigravity"`: `AntigravityHarnessAdapter` backed by the Google Antigravity Python SDK (`google.antigravity`) or Gemini REST API (`GEMINI_API_KEY`).</li><li>`"claude"`: `ClaudeAgentHarnessAdapter` backed by the Anthropic Claude Agent SDK (`claude_agent_sdk`) or Anthropic Messages API (`ANTHROPIC_API_KEY`).</li><li>`"deterministic"` / `"deterministic-stub"`: `DeterministicHarnessAdapter` for zero-API-cost offline neuro-symbolic contract synthesis, CI verification, and deterministic replay.</li></ul> |
-| `model_overrides` | `dict[str, str]` | No | `{"argon": "gemini-4-argon-high", "flash": "gemini-3.8-flash-high"}` | Maps logical model tiers (`argon` for `ModelTier.HIGH_REASONING` and `flash` for `ModelTier.FAST_TIER`) to concrete provider model IDs. |
+| `provider` | `"agy" \| "agy-cli" \| "antigravity" \| "claude"` | No | `"agy"` | Selects the concrete `VaultAgentHarness` adapter:<ul><li>`"agy"` / `"agy-cli"`: `AgyCliHarnessAdapter` backed by the local logged-in Antigravity Coding CLI (`agy -p --output-format json --json-schema <path>`).</li><li>`"antigravity"`: `AntigravityHarnessAdapter` backed by the Google Antigravity Python SDK (`google.antigravity`) or Gemini REST API (`GEMINI_API_KEY`).</li><li>`"claude"`: `ClaudeAgentHarnessAdapter` backed by the Anthropic Claude Agent SDK (`claude_agent_sdk`) or Anthropic Messages API (`ANTHROPIC_API_KEY`).</li></ul>*(Note: `DeterministicHarnessAdapter` and SDK shims exist strictly inside internal `pytest` suites for unit/integration mocking and are rejected by the CLI and API.)* |
+| `model_overrides` | `dict[str, str]` | No | `{"reasoning": "gemini-4-argon-high", "fast": "gemini-3.8-flash-high"}` | Maps semantic model tiers (`reasoning` for `ModelTier.HIGH_REASONING` and `fast` for `ModelTier.FAST_TIER`) to concrete provider model IDs. |
+| `agent_models` | `dict[str, str]` | No | `{}` | Optional fine-grained per-agent model overrides keyed by canonical persona identifier (`"vault-first-mate"`, `"scout-source"`, `"scout-unstructured"`, `"ship-vault"`). Takes highest precedence over `model_overrides[tier]` and provider defaults. |
 | `auth` | `HarnessAuthConfig` | No | `HarnessAuthConfig(auth_mode="none")` | Declarative authentication and cloud provider routing configuration (API key environment variable lookup, Vertex AI ADC, AWS Bedrock, or CLI session). Secrets are resolved from environment variables at runtime so raw credentials are never committed to YAML files. |
 | `budget` | `HarnessBudget` | No | `HarnessBudget()` | Per-task execution guardrails for turns, model calls, tool invocations, input/output tokens, USD cost ceiling, wall-clock timeout, and `@toon_v1` self-healing retries. |
 | `sandbox` | `SandboxPolicy` | No | `SandboxPolicy()` | Workspace read/write isolation, allowed directories, shell execution toggle, blocked command substrings, and built-in tool allow/deny lists. |
@@ -30,14 +31,27 @@ The Open-DV pipeline decouples its 8-stage neuro-symbolic workflow from any sing
 
 ---
 
-### 1.2 Antigravity vs Claude Adapter Comparison & Model-Tier Routing
+### 1.2 Antigravity vs Claude Adapter Comparison, Semantic Model-Tier Routing (`reasoning` & `fast`), & Per-Agent Model Routing (`agent_models`)
 
-Open-DV routes agent personas to two logical model tiers (`ModelTier`) rather than hardcoding vendor model names in pipeline stages:
+Open-DV routes agent personas to two semantic model tiers (`ModelTier`) rather than hardcoding vendor model names in pipeline stages, and supports optional fine-grained per-agent overrides (`agent_models`):
 
-| Logical Tier (`ModelTier`) | YAML Key | Assigned Agent Personas & Stages | Antigravity (`provider: agy` / `antigravity`) Recommended Override / Default | Claude (`provider: claude`) Recommended Override / Default | Deterministic (`provider: deterministic`) |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **`ModelTier.HIGH_REASONING`** | `argon` | <ul><li>`@vault-first-mate` (`STAGE_00_ORCHESTRATION`)</li><li>`@scout-unstructured` (`STAGE_02_SCOUT_UNSTRUCTURED` span verification)</li><li>`@ship-vault` (`STAGE_03_SHIP_VAULT_PASS1`, `STAGE_04_SHIP_VAULT_PASS2`, & `@toon_v1` repair)</li></ul> | <ul><li>Sample YAML override (`harness_config.yaml` / `harness_config_agy.yaml` / `harness_config_antigravity.yaml`): `gemini-4-argon-high`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_HIGH_MODEL`): `gemini-4-argon-high`</li></ul> | <ul><li>Sample YAML override: `claude-opus-4-6`</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_HIGH_MODEL`): `claude-opus-5-5-high`</li></ul> | `deterministic-argon-v1` (`$OPENDV_DETERMINISTIC_HIGH_MODEL`) |
-| **`ModelTier.FAST_TIER`** | `flash` | <ul><li>`@scout-source` (`STAGE_01_SCOUT_SOURCE` statistical profiling & drift detection)</li><li>`@axi-dv` (`STAGE_05_AXI_DV_STATIC_GATES` & `STAGE_06_AXI_DV_DYNAMIC_SANDBOX`)</li><li>`@deterministic-compiler` (`STAGE_07_DETERMINISTIC_COMPILER`)</li></ul> | <ul><li>Sample YAML override (`harness_config.yaml` / `harness_config_agy.yaml` / `harness_config_antigravity.yaml`): `gemini-3.8-flash-high`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_FAST_MODEL`): `gemini-3.8-flash-high`</li></ul> | <ul><li>Sample YAML override: `claude-haiku-4-5` (or `claude-sonnet-4-6`)</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_FAST_MODEL`): `claude-sonnet-5-5-medium`</li></ul> | `deterministic-flash-v1` (`$OPENDV_DETERMINISTIC_FAST_MODEL`) |
+- **`reasoning` (`ModelTier.HIGH_REASONING`):** Used for complex multi-pass architectural reasoning, Graph A domain ontology orchestration (`STAGE_00_ORCHESTRATION` / `vault-first-mate`), 3-Pass Chain-of-Thought Data Vault 2.0 contract modeling (`STAGE_03_SHIP_VAULT_PASS1` & `STAGE_04_SHIP_VAULT_PASS2` / `ship-vault`), and closed-loop `@toon_v1` self-healing repair (`STAGE_05_AXI_DV_STATIC_GATES` / `ship-vault`).
+- **`fast` (`ModelTier.FAST_TIER`):** Used for high-throughput relational Bronze statistical profiling & schema-drift triage (`STAGE_01_SCOUT_SOURCE` / `scout-source`) and unstructured document span extraction & 3-Tier entity resolution triage (`STAGE_02_SCOUT_UNSTRUCTURED` / `scout-unstructured`).
+
+| Semantic Tier (`ModelTier`) | YAML Key (`model_overrides`) | Assigned Agent Personas & Stages | Antigravity (`provider: agy` / `antigravity`) Recommended Override / Default | Claude (`provider: claude`) Recommended Override / Default |
+| :--- | :--- | :--- | :--- | :--- |
+| **`ModelTier.HIGH_REASONING`** | `reasoning` | <ul><li>`@vault-first-mate` (`STAGE_00_ORCHESTRATION` Graph A domain ontology orchestration)</li><li>`@ship-vault` (`STAGE_03_SHIP_VAULT_PASS1` & `STAGE_04_SHIP_VAULT_PASS2` 3-Pass Chain-of-Thought DV 2.0 contract modeling, plus `STAGE_05_AXI_DV_STATIC_GATES` closed-loop `@toon_v1` self-healing repair)</li></ul> | <ul><li>Sample YAML override (`harness_config.yaml` / `harness_config_agy.yaml` / `harness_config_antigravity.yaml`): `gemini-4-argon-high`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_HIGH_MODEL`): `gemini-4-argon-high`</li></ul> | <ul><li>Sample YAML override (`harness_config_claude.yaml`): `claude-opus-4-6`</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_HIGH_MODEL`): `claude-opus-5-5-high`</li></ul> |
+| **`ModelTier.FAST_TIER`** | `fast` | <ul><li>`@scout-source` (`STAGE_01_SCOUT_SOURCE` relational Bronze statistical profiling & schema-drift triage)</li><li>`@scout-unstructured` (`STAGE_02_SCOUT_UNSTRUCTURED` unstructured document span extraction & 3-Tier entity resolution triage)</li><li>`@axi-dv` (`STAGE_05_AXI_DV_STATIC_GATES` & `STAGE_06_AXI_DV_DYNAMIC_SANDBOX`)</li><li>`@deterministic-compiler` (`STAGE_07_DETERMINISTIC_COMPILER`)</li></ul> | <ul><li>Sample YAML override (`harness_config.yaml` / `harness_config_agy.yaml` / `harness_config_antigravity.yaml`): `gemini-3.8-flash-high`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_FAST_MODEL`): `gemini-3.8-flash-high`</li></ul> | <ul><li>Sample YAML override (`harness_config_claude.yaml`): `claude-haiku-4-5` (or `claude-sonnet-4-6`)</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_FAST_MODEL`): `claude-sonnet-5-5-medium`</li></ul> |
+
+#### Fine-Grained Per-Agent Model Routing (`agent_models`) & 3-Level Resolution Precedence
+
+In addition to tier-level `model_overrides` (`reasoning` and `fast`), `HarnessSetupConfig` supports an optional `agent_models` dictionary keyed by the 4 agent personas (`vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`). When resolving the concrete model ID for any agent task execution, the harness applies a strict **3-level resolution precedence**:
+
+1. **Fine-grained per-agent override (`agent_models[persona]`):** If `agent_models` specifies a model ID for the active persona (`"vault-first-mate"`, `"scout-source"`, `"scout-unstructured"`, or `"ship-vault"`), that exact model ID is used.
+2. **Semantic tier override (`model_overrides[tier]`):** Otherwise, if `model_overrides` specifies a model ID for the task's semantic tier (`"reasoning"` for `ModelTier.HIGH_REASONING` or `"fast"` for `ModelTier.FAST_TIER`), that tier override is used.
+3. **Provider default model map (`DEFAULT_AGY_MODEL_MAP` / `DEFAULT_CLAUDE_MODEL_MAP`):** Otherwise, the harness falls back to the provider's default model map (`DEFAULT_AGY_MODEL_MAP` for `agy` / `agy-cli` / `antigravity`, or `DEFAULT_CLAUDE_MODEL_MAP` for `claude`).
+
+Every executed step's `PipelineStepReport` records both `model_tier` (`"reasoning"` or `"fast"`) and `model_used` (the resolved concrete model ID).
 
 #### Architectural Differences Between `AntigravityHarnessAdapter` and `ClaudeAgentHarnessAdapter`
 
@@ -60,7 +74,7 @@ Open-DV routes agent personas to two logical model tiers (`ModelTier`) rather th
 
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :---: | :--- | :--- |
-| `auth_mode` | `"none" \| "api_key_env" \| "vertex_adc" \| "aws_bedrock" \| "cli_session" \| "ambient_cli"` | No | `"none"` | Selects the authentication mechanism:<ul><li>`"none"`: No explicit auth injection (used by `deterministic` or when the environment is pre-configured externally).</li><li>`"api_key_env"`: Resolves a bearer API key from the environment variable named in `api_key_env_var`.</li><li>`"vertex_adc"`: Configures Google Cloud Vertex AI Application Default Credentials (supported by both `antigravity` and `claude`).</li><li>`"aws_bedrock"`: Configures AWS Bedrock IAM/SSO authentication (supported by `claude` only; rejected with `HARNESS_AUTH_INCOMPATIBLE` on non-`claude` providers).</li><li>`"cli_session"` / `"ambient_cli"`: Uses an existing local CLI login session (`agy` CLI session for `agy` / `antigravity` or `claude login` for Claude Code).</li></ul> |
+| `auth_mode` | `"none" \| "api_key_env" \| "vertex_adc" \| "aws_bedrock" \| "cli_session" \| "ambient_cli"` | No | `"none"` | Selects the authentication mechanism:<ul><li>`"none"`: No explicit auth injection (used when the environment is pre-configured externally).</li><li>`"api_key_env"`: Resolves a bearer API key from the environment variable named in `api_key_env_var`.</li><li>`"vertex_adc"`: Configures Google Cloud Vertex AI Application Default Credentials (supported by both `antigravity` and `claude`).</li><li>`"aws_bedrock"`: Configures AWS Bedrock IAM/SSO authentication (supported by `claude` only; rejected with `HARNESS_AUTH_INCOMPATIBLE` on non-`claude` providers).</li><li>`"cli_session"` / `"ambient_cli"`: Uses an existing local CLI login session (`agy` CLI session for `agy` / `antigravity` or `claude login` for Claude Code).</li></ul> |
 | `api_key_env_var` | `str \| null` | No | `null` | Name of the environment variable holding the API key when `auth_mode: api_key_env`. Defaults to `"GEMINI_API_KEY"` for `antigravity` and `"ANTHROPIC_API_KEY"` for `claude` when omitted. **Important:** Pass the *name* of the environment variable (e.g., `"GEMINI_API_KEY"`), never the raw secret key itself. |
 | `api_base_url` | `str \| null` | No | `null` | Optional custom API gateway or enterprise proxy URL. Mapped to `GOOGLE_GEMINI_BASE_URL` for `antigravity` and `ANTHROPIC_BASE_URL` for `claude`. |
 | `gcp_project` | `str \| null` | No | `null` | Google Cloud project ID for `auth_mode: vertex_adc`. Mapped to `GOOGLE_CLOUD_PROJECT` for `antigravity` and `ANTHROPIC_VERTEX_PROJECT_ID` for `claude` (falling back to `GOOGLE_CLOUD_PROJECT` / `ANTHROPIC_VERTEX_PROJECT_ID` in `setup.env` or `os.environ` when omitted). |
@@ -86,7 +100,6 @@ When `HarnessSetupConfig.to_harness_config()` runs, it constructs the resolved e
 | **`claude`** | `aws_bedrock` | Sets `CLAUDE_CODE_USE_BEDROCK="1"`, `AWS_REGION=<aws_region>`, and `AWS_PROFILE=<aws_profile>` (resolving `auth.*` $\to$ `setup.env` $\to$ `os.environ`, including `$AWS_DEFAULT_REGION`). Uses standard AWS IAM env vars (`AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `AWS_SESSION_TOKEN`) or AWS SSO profile. | Verifies `aws_region` or `$AWS_REGION` / `$AWS_DEFAULT_REGION` is non-empty. |
 | **`claude`** | `vertex_adc` | Sets `CLAUDE_CODE_USE_VERTEX="1"`, `ANTHROPIC_VERTEX_PROJECT_ID=<gcp_project>`, `CLOUD_ML_REGION=<gcp_location>`, and `GOOGLE_APPLICATION_CREDENTIALS=<gcp_credentials_path>` (resolving `auth.*` $\to$ `setup.env` $\to$ `os.environ`). | Verifies `gcp_project` or `$ANTHROPIC_VERTEX_PROJECT_ID` / `$GOOGLE_CLOUD_PROJECT` is non-empty. |
 | **`claude`** | `cli_session` | Uses active `claude` CLI session credentials (`~/.claude`). | Verifies `claude_agent_sdk` package is installed (unless mock fallback is explicitly enabled). |
-| **`deterministic`** | `none` | No external API credentials required; runs 100% offline. | None. |
 
 ---
 
@@ -123,7 +136,7 @@ When `HarnessSetupConfig.to_harness_config()` runs, it constructs the resolved e
 
 ---
 
-### 1.6 Copy-Paste YAML Examples for Antigravity, Claude, and Deterministic Harnesses
+### 1.6 Copy-Paste YAML Examples for Antigravity, Claude, and Local `agy` CLI Harnesses
 
 #### Example A: Google Antigravity Harness (`examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml`)
 
@@ -131,8 +144,15 @@ When `HarnessSetupConfig.to_harness_config()` runs, it constructs the resolved e
 provider: antigravity
 
 model_overrides:
-  argon: gemini-4-argon-high
-  flash: gemini-3.8-flash-high
+  reasoning: gemini-4-argon-high
+  fast: gemini-3.8-flash-high
+
+# Optional fine-grained per-agent model overrides (precedence level 1):
+# agent_models:
+#   vault-first-mate: gemini-4-argon-high
+#   scout-source: gemini-3.8-flash-high
+#   scout-unstructured: gemini-3.8-flash-high
+#   ship-vault: gemini-4-argon-high
 
 auth:
   # Direct Gemini API Key resolved from $GEMINI_API_KEY at runtime
@@ -172,8 +192,15 @@ inject_adversarial_fault_on_attempt_1: true
 provider: claude
 
 model_overrides:
-  argon: claude-opus-4-6
-  flash: claude-haiku-4-5
+  reasoning: claude-opus-4-6
+  fast: claude-haiku-4-5
+
+# Optional fine-grained per-agent model overrides (precedence level 1):
+# agent_models:
+#   vault-first-mate: claude-opus-4-6
+#   scout-source: claude-haiku-4-5
+#   scout-unstructured: claude-sonnet-4-6
+#   ship-vault: claude-opus-4-6
 
 auth:
   # Direct Anthropic API Key resolved from $ANTHROPIC_API_KEY at runtime
@@ -212,13 +239,19 @@ steward_hold_policy: auto_approve_top_candidate
 inject_adversarial_fault_on_attempt_1: true
 ```
 
-#### Example C: Local Antigravity Coding CLI Harness (`examples/pipeline_samples/global_commerce_vault/harness_config.yaml` & `harness_config_agy.yaml`) & Offline Deterministic Mode
+#### Example C: Local Antigravity Coding CLI Harness (`examples/pipeline_samples/global_commerce_vault/harness_config.yaml` & `harness_config_agy.yaml`)
 
 ```yaml
 provider: agy
 model_overrides:
-  argon: gemini-4-argon-high
-  flash: gemini-3.8-flash-high
+  reasoning: gemini-4-argon-high
+  fast: gemini-3.8-flash-high
+# Optional fine-grained per-agent model overrides:
+# agent_models:
+#   vault-first-mate: gemini-4-argon-high
+#   scout-source: gemini-3.8-flash-high
+#   scout-unstructured: gemini-3.8-flash-high
+#   ship-vault: gemini-4-argon-high
 auth:
   auth_mode: cli_session
   require_credentials_present: false
@@ -238,8 +271,6 @@ sandbox:
 steward_hold_policy: auto_approve_top_candidate
 inject_adversarial_fault_on_attempt_1: true
 ```
-
-*(Set `provider: deterministic` or pass `--provider deterministic` on the CLI for zero-API-cost offline neuro-symbolic contract synthesis.)*
 
 ---
 
@@ -444,7 +475,7 @@ Before any agent task or DuckDB compilation runs, `STAGE_00_ORCHESTRATION` execu
 | :--- | :--- | :--- |
 | `INPUT_SPEC_SCHEMA_INVALID` | `input_spec` | `pipeline_input.yaml` fails `PipelineInputSpec` Pydantic v2 validation (e.g., missing required field, unknown extra field, or `waves` is empty). |
 | `HARNESS_SETUP_INVALID` | `harness_setup` | `harness_config.yaml` fails `HarnessSetupConfig` / `HarnessAuthConfig` / `HarnessBudget` / `SandboxPolicy` Pydantic validation. |
-| `UNKNOWN_HARNESS_PROVIDER` | `harness_setup.provider` | `provider` is not registered in the harness registry (`"agy"`, `"agy-cli"`, `"antigravity"`, `"claude"`, `"deterministic"`, `"deterministic-stub"`). |
+| `UNKNOWN_HARNESS_PROVIDER` | `harness_setup.provider` | `provider` is not a supported harness provider (`"agy"`, `"agy-cli"`, `"antigravity"`, `"claude"`). |
 | `HARNESS_INIT_FAILED` | `harness_setup` | Adapter instantiation via `get_harness_adapter()` raised an error (e.g., non-absolute path in `HarnessConfig`). |
 | `HARNESS_AUTH_INCOMPATIBLE` | `harness_setup.auth.auth_mode` | Incompatible `(provider, auth_mode)` pair—specifically using `auth_mode: aws_bedrock` with `provider: agy`, `antigravity`, or any non-`claude` provider. Switch `provider` to `claude` or `auth_mode` to `vertex_adc` / `api_key_env` / `cli_session`. |
 | `HARNESS_AUTH_MISSING` | `harness_setup.auth.*` | Emitted when: (1) `provider: agy` / `agy-cli` with `auth_mode: cli_session` (when `require_credentials_present: true`) or `auth_mode: ambient_cli` does not find the `agy` CLI executable on `PATH` or in `OPENDV_AGY_CLI_BIN`; (2) `auth_mode: cli_session` / `ambient_cli` on `antigravity` or `claude` does not have the required SDK package (`google.antigravity` or `claude_agent_sdk`) installed; or (3) `auth.require_credentials_present` is `true` and the required credential (`api_key_env_var` for `api_key_env`, `gcp_project` / `$GOOGLE_CLOUD_PROJECT` / `$ANTHROPIC_VERTEX_PROJECT_ID` for `vertex_adc`, `aws_region` / `$AWS_REGION` / `$AWS_DEFAULT_REGION` for `aws_bedrock`, or SDK package / API key for `auth_mode: none` on `antigravity` / `claude`) is missing or empty. |
@@ -506,11 +537,11 @@ After all waves complete and `STAGE_07_DETERMINISTIC_COMPILER` materializes the 
 | `started_at` | `str` | ISO-8601 UTC start timestamp (`YYYY-MM-DDTHH:MM:SZ`). |
 | `completed_at` | `str` | ISO-8601 UTC completion timestamp (`YYYY-MM-DDTHH:MM:SZ`). |
 | `total_duration_ms` | `float` | End-to-end wall-clock duration in milliseconds. |
-| `harness_setup` | `dict[str, Any]` | Redacted summary of `HarnessSetupConfig` including top-level `provider`, `auth_mode`, `api_key_env_var`, `auth`, `model_overrides`, `budget`, `sandbox`, `steward_hold_policy`, and redacted `env` (`{"<KEY>": "[REDACTED]"}`). Never contains raw secret values. |
+| `harness_setup` | `dict[str, Any]` | Redacted summary of `HarnessSetupConfig` including top-level `provider`, `auth_mode`, `api_key_env_var`, `auth`, `model_overrides`, `agent_models`, `budget`, `sandbox`, `steward_hold_policy`, and redacted `env` (`{"<KEY>": "[REDACTED]"}`). Never contains raw secret values. |
 | `input_validation` | `DeterministicValidationReport` | Pre-flight validation report (`stage="INPUT_VALIDATION"`, `passed`, `checked_items_count`, `diagnostics`). |
 | `output_validation` | `DeterministicValidationReport` | Post-flight validation report (`stage="OUTPUT_VALIDATION"`, `passed`, `checked_items_count`, `verified_artifacts_count`, `verified_events_count`, `pii_leak_check_passed`, `cas_integrity_verified`, `diagnostics`). |
 | `wave_reports` | `list[PipelineWaveReport]` | Per-wave execution summaries (`wave_index`, `wave_name`, `wave_type`, `status`, `sources_profiled`, `columns_profiled`, `schema_drift_events`, `unstructured_tier_counts`, `self_healing_attempts`, `applied_codemods`, `gate_scorecard`, `sandbox_summary`, `contract_sha256`, `canonical_ir_sha256`, `sql_bundle_sha256`, `step_ids`). |
-| `step_reports` | `list[PipelineStepReport]` | Ordered ledger of every stage execution across all waves (`step_id`, `wave_index`, `wave_name`, `stage_id`, `persona`, `model_tier`, `status`, `attempt_count`, `duration_ms`, `summary`, `tool_invocations`, `input_artifact_sha256s`, `output_artifact_sha256s`, `metrics`, `diagnostics`). |
+| `step_reports` | `list[PipelineStepReport]` | Ordered ledger of every stage execution across all waves (`step_id`, `wave_index`, `wave_name`, `stage_id`, `persona`, `model_tier` (`"reasoning"` or `"fast"`), `model_used` (the resolved concrete model ID), `status`, `attempt_count`, `duration_ms`, `summary`, `tool_invocations`, `input_artifact_sha256s`, `output_artifact_sha256s`, `metrics`, `diagnostics`). |
 | `intermediate_artifacts` | `list[PipelineArtifactRef]` | Content-addressable metadata (`artifact_id`, `name`, `stage_id`, `wave_index`, `media_type`, `sha256`, `byte_length`, `file_path`, `description`) for every intermediate artifact generated during `STAGE_00` through `STAGE_06`. |
 | `final_artifacts` | `dict[str, PipelineArtifactRef]` | Keyed dictionary of final sealed deliverables (`final_contract`, `final_canonical_ir`, `final_four_zone_sql`, `vault_ledger_jsonl`, `pipeline_report_md`, `pipeline_report_json`). |
 | `active_holds` | `list[dict[str, Any]]` | Currently pending `StewardHoldRecord` items (non-empty when `status == "PAUSED_HOLD"`). |
@@ -569,7 +600,10 @@ agy_setup = HarnessSetupConfig.from_file(sample_dir / "harness_config_antigravit
 claude_setup = HarnessSetupConfig.from_file(sample_dir / "harness_config_claude.yaml")
 
 assert agy_setup.provider == "antigravity"
-assert agy_setup.model_overrides == {"argon": "gemini-4-argon-high", "flash": "gemini-3.8-flash-high"}
+assert agy_setup.model_overrides == {
+    "reasoning": "gemini-4-argon-high",
+    "fast": "gemini-3.8-flash-high",
+}
 assert agy_setup.auth.auth_mode == "api_key_env"
 assert agy_setup.auth.api_key_env_var == "GEMINI_API_KEY"
 
@@ -577,10 +611,11 @@ assert claude_setup.provider == "claude"
 assert claude_setup.auth.auth_mode == "api_key_env"
 assert claude_setup.auth.api_key_env_var == "ANTHROPIC_API_KEY"
 
-# 2. Construct a Vertex AI ADC config programmatically
+# 2. Construct a Vertex AI ADC config programmatically with semantic tiers & per-agent overrides
 vertex_setup = HarnessSetupConfig(
     provider="antigravity",
-    model_overrides={"argon": "gemini-4-argon-high", "flash": "gemini-3.8-flash-high"},
+    model_overrides={"reasoning": "gemini-4-argon-high", "fast": "gemini-3.8-flash-high"},
+    agent_models={"ship-vault": "gemini-4-argon-high"},
     auth=HarnessAuthConfig(
         auth_mode="vertex_adc",
         gcp_project="enterprise-dv-prod",
