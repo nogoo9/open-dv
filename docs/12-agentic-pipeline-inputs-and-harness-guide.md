@@ -2,7 +2,7 @@
 
 This document is the authoritative, field-by-field reference guide for configuring and executing the **Open-DV 8-Stage Neuro-Symbolic Agentic Data Vault 2.0 Pipeline** (`packages/opendv-agent-harness`). It covers:
 
-1. **Agent Harness Configuration (`HarnessSetupConfig` / `harness_config.yaml`)**: How to configure **Google Antigravity** (`AntigravityHarnessAdapter`) vs **Anthropic Claude** (`ClaudeAgentHarnessAdapter`) vs **Offline Deterministic** (`DeterministicHarnessAdapter`), logical model-tier routing (`argon` vs `flash`), and **API / Cloud Authentication mechanisms** (`HarnessAuthConfig`: API keys, Google Cloud Vertex AI ADC, AWS Bedrock IAM/SSO, and CLI sessions).
+1. **Agent Harness Configuration (`HarnessSetupConfig` / `harness_config.yaml`)**: How to configure **Google Antigravity** (`AgyCliHarnessAdapter` / `AntigravityHarnessAdapter`) vs **Anthropic Claude** (`ClaudeAgentHarnessAdapter`) vs **Offline Deterministic** (`DeterministicHarnessAdapter`), logical model-tier routing (`argon` vs `flash`), and **API / Cloud Authentication mechanisms** (`HarnessAuthConfig`: API keys, Google Cloud Vertex AI ADC, AWS Bedrock IAM/SSO, and CLI sessions).
 2. **Pipeline Input Specification (`PipelineInputSpec` / `pipeline_input.yaml`)**: Every field of the root pipeline spec, multi-wave execution schedule (`PipelineWaveInput`), relational Bronze source feeds (`PipelineSourceFeedInput`), and span-grounded unstructured documents (`PipelineUnstructuredDocInput` & `PipelineUnstructuredCandidateInput`).
 3. **Enterprise Graph A Ontology (`GraphAOntology`) & Seed Contract (`initial_contract_path`)**: Complete schema reference for Core Business Concepts (CBCs), 3-Tier Business Key Authority (`BKCC`), governance constraints, canonical relationships, and baseline `NoMistakeDataVault2ContractV5` contracts.
 4. **Deterministic Pre-Flight Input & Post-Flight Output Validation**: Every validation check and diagnostic error code emitted by `validate_pipeline_inputs()` and `validate_pipeline_outputs()`.
@@ -34,10 +34,10 @@ The Open-DV pipeline decouples its 8-stage neuro-symbolic workflow from any sing
 
 Open-DV routes agent personas to two logical model tiers (`ModelTier`) rather than hardcoding vendor model names in pipeline stages:
 
-| Logical Tier (`ModelTier`) | YAML Key | Assigned Agent Personas & Stages | Antigravity (`provider: antigravity`) Recommended Override / Default | Claude (`provider: claude`) Recommended Override / Default | Deterministic (`provider: deterministic`) |
+| Logical Tier (`ModelTier`) | YAML Key | Assigned Agent Personas & Stages | Antigravity (`provider: agy` / `antigravity`) Recommended Override / Default | Claude (`provider: claude`) Recommended Override / Default | Deterministic (`provider: deterministic`) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`ModelTier.HIGH_REASONING`** | `argon` | <ul><li>`@vault-first-mate` (`STAGE_00_ORCHESTRATION`)</li><li>`@scout-unstructured` (`STAGE_02_SCOUT_UNSTRUCTURED` span verification)</li><li>`@ship-vault` (`STAGE_03_SHIP_VAULT_PASS1`, `STAGE_04_SHIP_VAULT_PASS2`, & `@toon_v1` repair)</li></ul> | <ul><li>Sample YAML override (`harness_config.yaml` / `harness_config_antigravity.yaml`): `gemini-4-argon-high`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_HIGH_MODEL`): `gemini-4-argon-high`</li></ul> | <ul><li>Sample YAML override: `claude-opus-4-6`</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_HIGH_MODEL`): `claude-opus-5-5-high`</li></ul> | `deterministic-argon-v1` (`$OPENDV_DETERMINISTIC_HIGH_MODEL`) |
-| **`ModelTier.FAST_TIER`** | `flash` | <ul><li>`@scout-source` (`STAGE_01_SCOUT_SOURCE` statistical profiling & drift detection)</li><li>`@axi-dv` (`STAGE_05_AXI_DV_STATIC_GATES` & `STAGE_06_AXI_DV_DYNAMIC_SANDBOX`)</li><li>`@deterministic-compiler` (`STAGE_07_DETERMINISTIC_COMPILER`)</li></ul> | <ul><li>Sample YAML override (`harness_config.yaml` / `harness_config_antigravity.yaml`): `gemini-3.8-flash-high`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_FAST_MODEL`): `gemini-3.8-flash-high`</li></ul> | <ul><li>Sample YAML override: `claude-haiku-4-5` (or `claude-sonnet-4-6`)</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_FAST_MODEL`): `claude-sonnet-5-5-medium`</li></ul> | `deterministic-flash-v1` (`$OPENDV_DETERMINISTIC_FAST_MODEL`) |
+| **`ModelTier.HIGH_REASONING`** | `argon` | <ul><li>`@vault-first-mate` (`STAGE_00_ORCHESTRATION`)</li><li>`@scout-unstructured` (`STAGE_02_SCOUT_UNSTRUCTURED` span verification)</li><li>`@ship-vault` (`STAGE_03_SHIP_VAULT_PASS1`, `STAGE_04_SHIP_VAULT_PASS2`, & `@toon_v1` repair)</li></ul> | <ul><li>Sample YAML override (`harness_config.yaml` / `harness_config_agy.yaml` / `harness_config_antigravity.yaml`): `gemini-4-argon-high`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_HIGH_MODEL`): `gemini-4-argon-high`</li></ul> | <ul><li>Sample YAML override: `claude-opus-4-6`</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_HIGH_MODEL`): `claude-opus-5-5-high`</li></ul> | `deterministic-argon-v1` (`$OPENDV_DETERMINISTIC_HIGH_MODEL`) |
+| **`ModelTier.FAST_TIER`** | `flash` | <ul><li>`@scout-source` (`STAGE_01_SCOUT_SOURCE` statistical profiling & drift detection)</li><li>`@axi-dv` (`STAGE_05_AXI_DV_STATIC_GATES` & `STAGE_06_AXI_DV_DYNAMIC_SANDBOX`)</li><li>`@deterministic-compiler` (`STAGE_07_DETERMINISTIC_COMPILER`)</li></ul> | <ul><li>Sample YAML override (`harness_config.yaml` / `harness_config_agy.yaml` / `harness_config_antigravity.yaml`): `gemini-3.8-flash-high`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_FAST_MODEL`): `gemini-3.8-flash-high`</li></ul> | <ul><li>Sample YAML override: `claude-haiku-4-5` (or `claude-sonnet-4-6`)</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_FAST_MODEL`): `claude-sonnet-5-5-medium`</li></ul> | `deterministic-flash-v1` (`$OPENDV_DETERMINISTIC_FAST_MODEL`) |
 
 #### Architectural Differences Between `AntigravityHarnessAdapter` and `ClaudeAgentHarnessAdapter`
 
@@ -60,7 +60,7 @@ Open-DV routes agent personas to two logical model tiers (`ModelTier`) rather th
 
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :---: | :--- | :--- |
-| `auth_mode` | `"none" \| "api_key_env" \| "vertex_adc" \| "aws_bedrock" \| "cli_session"` | No | `"none"` | Selects the authentication mechanism:<ul><li>`"none"`: No explicit auth injection (used by `deterministic` or when the environment is pre-configured externally).</li><li>`"api_key_env"`: Resolves a bearer API key from the environment variable named in `api_key_env_var`.</li><li>`"vertex_adc"`: Configures Google Cloud Vertex AI Application Default Credentials (supported by both `antigravity` and `claude`).</li><li>`"aws_bedrock"`: Configures AWS Bedrock IAM/SSO authentication (supported by `claude` only; rejected with `HARNESS_AUTH_INCOMPATIBLE` on `antigravity`).</li><li>`"cli_session"`: Uses an existing local CLI login session (`agy auth login` for Antigravity or `claude login` for Claude Code).</li></ul> |
+| `auth_mode` | `"none" \| "api_key_env" \| "vertex_adc" \| "aws_bedrock" \| "cli_session" \| "ambient_cli"` | No | `"none"` | Selects the authentication mechanism:<ul><li>`"none"`: No explicit auth injection (used by `deterministic` or when the environment is pre-configured externally).</li><li>`"api_key_env"`: Resolves a bearer API key from the environment variable named in `api_key_env_var`.</li><li>`"vertex_adc"`: Configures Google Cloud Vertex AI Application Default Credentials (supported by both `antigravity` and `claude`).</li><li>`"aws_bedrock"`: Configures AWS Bedrock IAM/SSO authentication (supported by `claude` only; rejected with `HARNESS_AUTH_INCOMPATIBLE` on non-`claude` providers).</li><li>`"cli_session"` / `"ambient_cli"`: Uses an existing local CLI login session (`agy` CLI session for `agy` / `antigravity` or `claude login` for Claude Code).</li></ul> |
 | `api_key_env_var` | `str \| null` | No | `null` | Name of the environment variable holding the API key when `auth_mode: api_key_env`. Defaults to `"GEMINI_API_KEY"` for `antigravity` and `"ANTHROPIC_API_KEY"` for `claude` when omitted. **Important:** Pass the *name* of the environment variable (e.g., `"GEMINI_API_KEY"`), never the raw secret key itself. |
 | `api_base_url` | `str \| null` | No | `null` | Optional custom API gateway or enterprise proxy URL. Mapped to `GOOGLE_GEMINI_BASE_URL` for `antigravity` and `ANTHROPIC_BASE_URL` for `claude`. |
 | `gcp_project` | `str \| null` | No | `null` | Google Cloud project ID for `auth_mode: vertex_adc`. Mapped to `GOOGLE_CLOUD_PROJECT` for `antigravity` and `ANTHROPIC_VERTEX_PROJECT_ID` for `claude` (falling back to `GOOGLE_CLOUD_PROJECT` / `ANTHROPIC_VERTEX_PROJECT_ID` in `setup.env` or `os.environ` when omitted). |
@@ -76,6 +76,8 @@ When `HarnessSetupConfig.to_harness_config()` runs, it constructs the resolved e
 
 | Provider | `auth_mode` | Resolved Environment Variables Set on `HarnessConfig.env` | Pre-Flight Check (`require_credentials_present: true`) |
 | :--- | :--- | :--- | :--- |
+| **`agy` / `agy-cli`** | `cli_session` / `ambient_cli` | Invokes the local logged-in `agy` CLI (`agy -p --output-format json --json-schema <path>`) using active `~/.gemini` session credentials (plus `GOOGLE_GEMINI_BASE_URL` if `api_base_url` is set). | Verifies the `agy` CLI executable is available on `PATH` or in `OPENDV_AGY_CLI_BIN` (always checked when `auth_mode: ambient_cli` or `require_credentials_present: true`, unless mock fallback is explicitly enabled). |
+| **`agy` / `agy-cli`** | `aws_bedrock` | **Invalid combination** — rejected during input validation. | Emits `HARNESS_AUTH_INCOMPATIBLE` (even when `require_credentials_present: false`). |
 | **`antigravity`** | `api_key_env` | Reads `$GEMINI_API_KEY` (or custom `api_key_env_var`) from `setup.env` / `os.environ` and populates both `GEMINI_API_KEY` and `GOOGLE_API_KEY` (plus `GOOGLE_GEMINI_BASE_URL` if `api_base_url` is set). | Verifies `api_key_env_var` (default `GEMINI_API_KEY`) is non-empty in `setup.env` or `os.environ`. |
 | **`antigravity`** | `vertex_adc` | Sets `GOOGLE_GENAI_USE_VERTEXAI="true"`, `GOOGLE_CLOUD_PROJECT=<gcp_project>`, `GOOGLE_CLOUD_LOCATION=<gcp_location>`, and `GOOGLE_APPLICATION_CREDENTIALS=<gcp_credentials_path>` (resolving `auth.*` $\to$ `setup.env` $\to$ `os.environ`). | Verifies `gcp_project` or `$GOOGLE_CLOUD_PROJECT` / `$ANTHROPIC_VERTEX_PROJECT_ID` is non-empty. |
 | **`antigravity`** | `cli_session` | Uses active `agy` CLI credentials in `~/.gemini` / application data directory. | Verifies `google.antigravity` SDK package is installed (unless mock fallback is explicitly enabled). |
@@ -210,16 +212,15 @@ steward_hold_policy: auto_approve_top_candidate
 inject_adversarial_fault_on_attempt_1: true
 ```
 
-#### Example C: Default Antigravity Harness (`examples/pipeline_samples/global_commerce_vault/harness_config.yaml`) & Offline Deterministic Mode
+#### Example C: Local Antigravity Coding CLI Harness (`examples/pipeline_samples/global_commerce_vault/harness_config.yaml` & `harness_config_agy.yaml`) & Offline Deterministic Mode
 
 ```yaml
-provider: antigravity
+provider: agy
 model_overrides:
   argon: gemini-4-argon-high
   flash: gemini-3.8-flash-high
 auth:
-  auth_mode: api_key_env
-  api_key_env_var: GEMINI_API_KEY
+  auth_mode: cli_session
   require_credentials_present: false
 budget:
   max_turns: 12
@@ -274,7 +275,7 @@ Each entry in `waves:` represents a discrete lifecycle transition in the Data Va
 | `wave_type` | `"COLD_START" \| "INCREMENTAL_SOURCE" \| "SCHEMA_DRIFT" \| "UNSTRUCTURED_ONBOARDING"` | No | `"COLD_START"` | Semantic classification of the wave:<ul><li>`"COLD_START"`: Day-1 ($N=1$) relational source onboarding, 3-axis satellite splitting (`Alg A.1`), and nullable-FK link splitting (`Alg A.4`).</li><li>`"INCREMENTAL_SOURCE"`: $N \to N+1$ multi-source expansion with `BKCC` collision isolation and `Alg A.7` additive evolution lock.</li><li>`"SCHEMA_DRIFT"`: Intra-source $S_k(t) \to S_k(t+1)$ schema drift detection (`baseline_data_path`) and `Alg A.9a` companion satellite synthesis (`sat_*_ext_v2`).</li><li>`"UNSTRUCTURED_ONBOARDING"`: Span-grounded unstructured document extraction (`Alg A.9b`) and 3-Tier Entity Resolution (`Tier-U1..U3`).</li></ul> |
 | `description` | `str` | No | `""` | Detailed architectural description of the wave's modelling objectives. |
 | `sources` | `list[PipelineSourceFeedInput]` | No | `[]` | Relational Bronze table feeds onboarded or evolved in this wave. Note: Every wave must contain at least one entry in `sources` or `unstructured_documents` (`EMPTY_WAVE_INPUT`). |
-| `unstructured_documents` | `list[PipelineUnstructuredDocInput]` | No | `[]` | Unstructured text/PDF documents onboarded in this wave. Note: At least one relational source must be onboarded in the current or an earlier wave before unstructured documents can be linked (`UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE`). |
+| `unstructured_documents` | `list[PipelineUnstructuredDocInput]` | No | `[]` | Unstructured text/PDF documents onboarded in this wave. Note: At least one relational source must be onboarded in the current or an earlier wave—or provided via a seed `initial_contract_path` (`--initial-contract`) containing deployed Hubs—before unstructured documents can be linked (`UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE`). |
 
 ---
 
@@ -420,50 +421,9 @@ In production Data Vault 2.0 environments, enterprise schemas are **not** built 
    - `STAGE_05_AXI_DV_STATIC_GATES` executes **`Algorithm A.7` (`verify_additive_evolution_invariants`, `DV-EVO-001`–`007`)** against `deployed_contract`, guaranteeing zero destructive changes: no existing Hub, Link, or Satellite can be dropped, no Hub business key grain or `BKCC` prefix can be mutated, and no existing Satellite's `payload_columns` (`hash_diff` calculation) can be altered.
    - Simultaneously, **`Algorithm A.9a` (`codemod_intra_source_schema_drift`)** routes newly added drift columns (`loyalty_tier_code`, `annual_spend_band`) into an additive companion satellite (`sat_customer_core_ext_v2`) while leaving the historical `sat_customer_core` table untouched.
 
-#### Copy-Paste 4-Call CLI Sequence (`wave0_cold_start.yaml` $\to$ `wave3_unstructured_msa.yaml`)
-
-```bash
-# Call 1 — Day-1 Cold Start (N=1): CRM Customers & ERP Orders
-uv run opendv pipeline run \
-  --local \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml \
-  --output-dir /tmp/opendv-commerce/wave0 \
-  --json
-
-# Call 2 — Incremental Source Onboarding (N=1 -> N=2): Stripe EU Billing Invoices
-uv run opendv pipeline run \
-  --local \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml \
-  --initial-contract /tmp/opendv-commerce/wave0/final_contract.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml \
-  --output-dir /tmp/opendv-commerce/wave1 \
-  --json
-
-# Call 3 — Intra-Source Schema Drift (S_1(t) -> S_1(t+1)): CRM Customers v2
-uv run opendv pipeline run \
-  --local \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml \
-  --initial-contract /tmp/opendv-commerce/wave1/final_contract.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml \
-  --output-dir /tmp/opendv-commerce/wave2 \
-  --json
-
-# Call 4 — Unstructured Document Onboarding (Rules U1-U4): Enterprise MSA Addendum
-uv run opendv pipeline run \
-  --local \
-  --role INTERNAL_MODELER \
-  --input examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml \
-  --initial-contract /tmp/opendv-commerce/wave2/final_contract.yaml \
-  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml \
-  --output-dir /tmp/opendv-commerce/wave3 \
-  --json
-```
-
 #### Schema Evolution Summary Across the 4 Sequential CLI Calls
+
+See [`README.md` — Recommended Production Workflow: Multi-Call Incremental Schema Evolution (`--initial-contract`)](../README.md#1-trigger-via-unified-cli-opendv-pipeline) for the copy-pasteable 4-call `opendv pipeline run` CLI sequence.
 
 | CLI Call | Per-Wave Input Spec | `--initial-contract` Input | Output Contract & `lifecycle_stage` | Key Algorithms & Gates Executed | Schema Changes & Cumulative Vault Topology |
 | :--- | :--- | :--- | :--- | :--- | :--- |
@@ -484,10 +444,10 @@ Before any agent task or DuckDB compilation runs, `STAGE_00_ORCHESTRATION` execu
 | :--- | :--- | :--- |
 | `INPUT_SPEC_SCHEMA_INVALID` | `input_spec` | `pipeline_input.yaml` fails `PipelineInputSpec` Pydantic v2 validation (e.g., missing required field, unknown extra field, or `waves` is empty). |
 | `HARNESS_SETUP_INVALID` | `harness_setup` | `harness_config.yaml` fails `HarnessSetupConfig` / `HarnessAuthConfig` / `HarnessBudget` / `SandboxPolicy` Pydantic validation. |
-| `UNKNOWN_HARNESS_PROVIDER` | `harness_setup.provider` | `provider` is not registered in the harness registry (`"deterministic"`, `"deterministic-stub"`, `"antigravity"`, `"claude"`). |
+| `UNKNOWN_HARNESS_PROVIDER` | `harness_setup.provider` | `provider` is not registered in the harness registry (`"agy"`, `"agy-cli"`, `"antigravity"`, `"claude"`, `"deterministic"`, `"deterministic-stub"`). |
 | `HARNESS_INIT_FAILED` | `harness_setup` | Adapter instantiation via `get_harness_adapter()` raised an error (e.g., non-absolute path in `HarnessConfig`). |
-| `HARNESS_AUTH_INCOMPATIBLE` | `harness_setup.auth.auth_mode` | Incompatible `(provider, auth_mode)` pair—specifically using `auth_mode: aws_bedrock` with `provider: antigravity` (or any non-`claude` provider). Switch `provider` to `claude` or `auth_mode` to `vertex_adc` / `api_key_env`. |
-| `HARNESS_AUTH_MISSING` | `harness_setup.auth.*` | Emitted when: (1) `auth_mode: cli_session` on `antigravity` or `claude` does not have the required SDK package (`google.antigravity` or `claude_agent_sdk`) installed; or (2) `auth.require_credentials_present` is `true` and the required credential (`api_key_env_var` for `api_key_env`, `gcp_project` / `$GOOGLE_CLOUD_PROJECT` / `$ANTHROPIC_VERTEX_PROJECT_ID` for `vertex_adc`, `aws_region` / `$AWS_REGION` / `$AWS_DEFAULT_REGION` for `aws_bedrock`, or SDK package / API key for `auth_mode: none` on `antigravity` / `claude`) is missing or empty. |
+| `HARNESS_AUTH_INCOMPATIBLE` | `harness_setup.auth.auth_mode` | Incompatible `(provider, auth_mode)` pair—specifically using `auth_mode: aws_bedrock` with `provider: agy`, `antigravity`, or any non-`claude` provider. Switch `provider` to `claude` or `auth_mode` to `vertex_adc` / `api_key_env` / `cli_session`. |
+| `HARNESS_AUTH_MISSING` | `harness_setup.auth.*` | Emitted when: (1) `provider: agy` / `agy-cli` with `auth_mode: cli_session` (when `require_credentials_present: true`) or `auth_mode: ambient_cli` does not find the `agy` CLI executable on `PATH` or in `OPENDV_AGY_CLI_BIN`; (2) `auth_mode: cli_session` / `ambient_cli` on `antigravity` or `claude` does not have the required SDK package (`google.antigravity` or `claude_agent_sdk`) installed; or (3) `auth.require_credentials_present` is `true` and the required credential (`api_key_env_var` for `api_key_env`, `gcp_project` / `$GOOGLE_CLOUD_PROJECT` / `$ANTHROPIC_VERTEX_PROJECT_ID` for `vertex_adc`, `aws_region` / `$AWS_REGION` / `$AWS_DEFAULT_REGION` for `aws_bedrock`, or SDK package / API key for `auth_mode: none` on `antigravity` / `claude`) is missing or empty. |
 | `PATH_TRAVERSAL_REJECTED` | Path field name | Any file/directory path in `PipelineInputSpec` contains `..` segments or resolves outside `base_dir` and `workspace_root`. |
 | `ONTOLOGY_FILE_MISSING` | Resolved ontology path | The file specified by `graph_a_ontology_path` does not exist on disk. |
 | `ONTOLOGY_SCHEMA_INVALID` | Resolved ontology path | The ontology file fails `validate_graph_a()` or `GraphAOntology` Pydantic validation. |
@@ -503,7 +463,7 @@ Before any agent task or DuckDB compilation runs, `STAGE_00_ORCHESTRATION` execu
 | `BASELINE_FILE_MISSING` | Resolved `baseline_data_path` | `baseline_data_path` was specified on a source feed but does not exist on disk. |
 | `BASELINE_TABLE_EMPTY` | Resolved `baseline_data_path` | The baseline table has $0$ rows or $0$ columns. |
 | `BASELINE_LOAD_ERROR` | Resolved `baseline_data_path` | DuckDB failed to parse the `baseline_data_path` file. |
-| `UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE` | `wave_<index>` | A wave attempts to onboard `unstructured_documents` before any relational source has been onboarded in the current or prior waves. |
+| `UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE` | `wave_<index>` | A wave attempts to onboard `unstructured_documents` before any relational source has been onboarded in the current or prior waves (and without a seed `initial_contract_path` containing deployed Hubs). |
 | `DOCUMENT_FILE_MISSING` | Resolved `document_path` | An unstructured document file does not exist on disk. |
 | `DOCUMENT_EMPTY` | Resolved `document_path` | An unstructured document file is empty or whitespace-only. |
 | `SPAN_OUT_OF_BOUNDS` | `<doc_id>:<extraction_id>` | Candidate span `[char_start, char_end]` violates `0 <= char_start < char_end <= len(document_text)`. |

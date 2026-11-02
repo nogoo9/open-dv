@@ -51,6 +51,7 @@ def create_agent_harness(
     """Instantiate a `VaultAgentHarness` adapter matching `config.provider`.
 
     Dispatches:
+    - `'agy'` / `'agy-cli'` -> `AgyCliHarnessAdapter`
     - `'antigravity'` -> `AntigravityHarnessAdapter`
     - `'claude'` -> `ClaudeAgentHarnessAdapter`
     - `'deterministic'` / `'deterministic-stub'` -> `DeterministicHarnessAdapter`

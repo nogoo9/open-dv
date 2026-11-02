@@ -64,7 +64,7 @@ Execute the following 6 Work Packages (`WP-01` through `WP-06`) in order. Every 
 - **Current Bug:** Performs a naive `quote in args.document_text` check without resolving exact character spans, normalized fuzzy matches, or `alg_a9b_unstructured` confidence tiers.
 - **Required Fix:**
   1. For each candidate span in `args.candidate_spans`, locate all exact or whitespace-normalized occurrences in `args.document_text` (`re.finditer`), recording verified `char_start`, `char_end`, and `byte_start`/`byte_end`.
-  2. Invoke `verify_and_route_unstructured_extraction` (`opendv_axi_verifier.codemods.alg_a9b_unstructured`) to compute the deterministic `Tier-U1` ($\ge 0.90$), `Tier-U2` ($[0.75, 0.90)$), or `Tier-U3` ($< 0.75$) routing decision and return structured `verified_spans`.
+  2. Invoke `classify_er_resolution_tier` / `verify_unstructured_extractions` (`opendv_axi_verifier.verifiers.alg_a9b_unstructured`) to compute the deterministic `Tier-U1` ($\ge 0.90$), `Tier-U2` ($[0.75, 0.90)$), or `Tier-U3` ($< 0.75$) routing decision and return structured `verified_spans`.
 
 #### 1.3 `_handle_compile_canonical_ir` (`L192-L239`)
 - **Current Bug:** Writes a stub dictionary `{"ir_version": "1.0.0", "hubs": hubs, ...}` and a 4-line SQL string `"CREATE SCHEMA IF NOT EXISTS raw_vault;\nCREATE SCHEMA IF NOT EXISTS business_vault;\n"`.
@@ -77,7 +77,7 @@ Execute the following 6 Work Packages (`WP-01` through `WP-06`) in order. Every 
 #### 1.4 `_handle_run_axi_dv_gates` (`L242-L275`)
 - **Current Bug:** Checks `args.contract_payload.get("force_violation", False)` and returns a hardcoded 4-line `@toon_v1` string referencing `hub_fund`.
 - **Required Fix:**
-  1. Call `res = run_axi_dv_verification_pipeline(args.contract_payload, graph_a=..., graph_b=...)` (`opendv_axi_verifier.pipeline`).
+  1. Call `res = run_axi_dv_verification_pipeline(args.contract_payload, graph_a=..., graph_b=...)` (`opendv_axi_verifier.alg_a8_orchestrator`).
   2. Return `passed=res.passed`, `status=res.status`, `violation_count=len(res.violations)`, `toon_trace=res.toon_text`, and serialized `violations`.
 
 #### 1.5 `_handle_apply_ast_codemod` (`L278-L313`)
@@ -211,6 +211,7 @@ Add the following structured output models in `pipeline.py` and pass them via `A
 
 **Target Files:**
 - `apps/opendv-platform-api/src/opendv_platform_api/deps.py` (`L1325-L1341`)
+- `packages/opendv-agent-harness/src/opendv_agent_harness/adapters/agy_cli_adapter.py`
 - `packages/opendv-agent-harness/src/opendv_agent_harness/adapters/antigravity_adapter.py`
 - `packages/opendv-agent-harness/src/opendv_agent_harness/adapters/claude_adapter.py`
 - `packages/opendv-agent-harness/src/opendv_agent_harness/adapters/deterministic_adapter.py`
@@ -219,9 +220,10 @@ Add the following structured output models in `pipeline.py` and pass them via `A
 - **Current Bug:** `_resolve_sdk_shim_if_needed(provider)` catches `ImportError` and silently returns `build_deterministic_agy_sdk_shim()` or `build_deterministic_claude_sdk_shim()`.
 - **Required Fix:**
   1. Add an explicit environment/config flag `OPENDV_ALLOW_MOCK_SDK_SHIM=false` (default `false` in production/CLI/API; set to `true` only in mock unit tests).
-  2. In `GoogleAntigravityAdapter` (`antigravity_adapter.py`), if `google.antigravity` is not installed, support falling back to the official `google-genai` SDK (`from google import genai`) using `GEMINI_API_KEY` / `GOOGLE_API_KEY` with structured outputs (`response_schema=spec.output_schema`) and function calling (`tools=...`).
-  3. In `ClaudeAgentSdkAdapter` (`claude_adapter.py`), if `claude_agent_sdk` is not installed, support falling back to the official `anthropic` Python SDK (`import anthropic`) using `ANTHROPIC_API_KEY` with tool use and structured JSON schema output.
-  4. If neither the agent SDK nor the provider API key is available when `provider in ("antigravity", "claude")` and `OPENDV_ALLOW_MOCK_SDK_SHIM` is false, raise a clear `RuntimeError` explaining which SDK/API key (`GEMINI_API_KEY` or `ANTHROPIC_API_KEY`) must be configured.
+  2. Provide `AgyCliHarnessAdapter` (`agy_cli_adapter.py`) registered under `provider: "agy"` / `"agy-cli"` to execute non-interactive agentic turns via the local logged-in Antigravity CLI (`agy -p --output-format json --json-schema <path>`).
+  3. In `AntigravityHarnessAdapter` (`antigravity_adapter.py`), if `google.antigravity` is not installed, support falling back to the Gemini REST API using `GEMINI_API_KEY` / `GOOGLE_API_KEY` with structured JSON Schema output (`responseJsonSchema`).
+  4. In `ClaudeAgentHarnessAdapter` (`claude_adapter.py`), if `claude_agent_sdk` is not installed, support falling back to the Anthropic Messages REST API using `ANTHROPIC_API_KEY` with structured output.
+  5. If neither the agent SDK/CLI nor the provider API key is available when `provider in ("agy", "agy-cli", "antigravity", "claude")` and `OPENDV_ALLOW_MOCK_SDK_SHIM` is false, raise a clear `ProviderConfigurationError` explaining which CLI/SDK/API key (`agy`, `GEMINI_API_KEY`, or `ANTHROPIC_API_KEY`) must be configured.
 
 ---
 
@@ -283,14 +285,13 @@ In production Data Vault 2.0 operations, schema evolution does not happen inside
 
 **Target Files:**
 - `apps/opendv-cli/src/opendv_cli/main.py`
-- `apps/opendv-cli/src/opendv_cli/commands.py`
-- `apps/opendv-cli/src/opendv_cli/api_client.py`
-- `apps/opendv-platform-api/src/opendv_platform_api/routers/pipelines.py`
+- `apps/opendv-cli/src/opendv_cli/commands/pipeline.py`
+- `apps/opendv-platform-api/src/opendv_platform_api/deps.py`
 - `packages/opendv-agent-harness/src/opendv_agent_harness/pipeline.py`
 
-1. **CLI `--initial-contract` Flag (`main.py`, `commands.py`, `api_client.py`)**:
+1. **CLI `--initial-contract` Flag (`main.py`, `commands/pipeline.py`, `deps.py`)**:
    - Add `--initial-contract` (`dest="initial_contract"`) to `opendv pipeline` (`validate` and `run`).
-   - Forward `initial_contract_path` both in `--local` mode (overriding `input_spec.initial_contract_path` via `run_agentic_vault_pipeline(..., initial_contract_path=...)` and `validate_pipeline_inputs(...)`) and in `--api-url` remote HTTP mode (`POST /api/v1/pipelines/validate` and `POST /api/v1/pipelines/runs`).
+   - Forward `initial_contract_path` both in `--local` mode (via `PipelineValidateRequest` / `PipelineRunRequest` into `PlatformStateContainer`, overriding `raw_spec["initial_contract_path"]` before `validate_pipeline_inputs(...)` and `run_agentic_vault_pipeline(...)`) and in `--api-url` remote HTTP mode (`POST /api/v1/pipelines/validate` and `POST /api/v1/pipelines/runs`).
 2. **Lifecycle Stage Transition**:
    - Whenever `initial_contract_path` is set (either in `PipelineInputSpec.initial_contract_path` or via `--initial-contract`), `Wave 0` of that CLI invocation automatically transitions from `lifecycle_stage="COLD_START_N1"` to `lifecycle_stage="MULTI_SOURCE_EXPANSION"`.
 
