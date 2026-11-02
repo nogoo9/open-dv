@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from opendv_agent_harness.adapters import (
     DEFAULT_DETERMINISTIC_MODEL_MAP,
+    AgyCliHarnessAdapter,
+    AntigravityCliAdapter,
     AntigravityHarnessAdapter,
     ClaudeAgentHarnessAdapter,
     DeterministicHarnessAdapter,
@@ -157,6 +159,8 @@ __all__ = [
     "AgentToolDefinition",
     "AgenticPipelineReport",
     "AgenticVaultPipeline",
+    "AgyCliHarnessAdapter",
+    "AntigravityCliAdapter",
     "AntigravityHarnessAdapter",
     "ApplyAstCodemodInput",
     "ApplyAstCodemodOutput",

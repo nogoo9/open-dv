@@ -1,0 +1,22 @@
+provider: agy
+model_overrides:
+  argon: gemini-4-argon-high
+  flash: gemini-3.8-flash-high
+auth:
+  auth_mode: cli_session
+  require_credentials_present: false
+budget:
+  max_turns: 12
+  max_model_calls: 20
+  max_tool_calls: 40
+  max_input_tokens: 200000
+  max_output_tokens: 32000
+  max_total_tokens: 232000
+  max_cost_usd: 5.0
+  timeout_seconds: 300.0
+  max_schema_validation_retries: 3
+sandbox:
+  read_only_workspace: true
+  allow_shell_execution: false
+steward_hold_policy: auto_approve_top_candidate
+inject_adversarial_fault_on_attempt_1: true

@@ -157,6 +157,7 @@ class PipelineValidateRequest(BaseModel):
     input_spec_path: str | None = None
     harness_config: dict[str, Any] | None = None
     harness_config_path: str | None = None
+    initial_contract_path: str | None = None
     provider_override: str | None = None
     steward_hold_policy: str | None = None
 
@@ -176,6 +177,8 @@ class CreateRunRequest(BaseModel):
 
     project_id: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{2,63}$")
     harness_provider: Literal[
+        "agy",
+        "agy-cli",
         "antigravity",
         "claude",
         "claude-agent",
@@ -223,6 +226,8 @@ class ProjectRunDTO(BaseModel):
     run_id: str
     project_id: str
     harness_provider: Literal[
+        "agy",
+        "agy-cli",
         "antigravity",
         "claude",
         "claude-agent",
@@ -1336,7 +1341,7 @@ def _resolve_sdk_shim_if_needed(
     }
     if not force_shim:
         return None
-    if provider == "antigravity":
+    if provider in {"agy", "agy-cli", "antigravity"}:
         return build_deterministic_agy_sdk_shim()
     if provider in {"claude", "claude-agent"}:
         return build_deterministic_claude_sdk_shim()
@@ -1468,6 +1473,8 @@ class PlatformStateContainer:
         run_id: str,
         project_id: str,
         harness_provider: Literal[
+            "agy",
+            "agy-cli",
             "antigravity",
             "claude",
             "claude-agent",
@@ -1682,6 +1689,11 @@ class PlatformStateContainer:
             if req.harness_config_path is not None and req.harness_config_path.strip()
             else None
         )
+        initial_contract_path = (
+            req.initial_contract_path.strip()
+            if req.initial_contract_path is not None and req.initial_contract_path.strip()
+            else None
+        )
         provider_override = (
             req.provider_override.strip()
             if req.provider_override is not None and req.provider_override.strip()
@@ -1709,6 +1721,10 @@ class PlatformStateContainer:
             assert req.input_spec is not None
             base_dir = self.repo_root
             raw_spec = dict(req.input_spec)
+
+        if initial_contract_path is not None:
+            resolved_init_path = resolve_safe_repo_path(self.repo_root, initial_contract_path)
+            raw_spec["initial_contract_path"] = str(resolved_init_path)
 
         if harness_config_path is not None:
             resolved_cfg_path = resolve_safe_repo_path(self.repo_root, harness_config_path)
@@ -1765,6 +1781,8 @@ class PlatformStateContainer:
             resolve_safe_repo_path(self.repo_root, input_spec_path)
         if harness_config_path is not None:
             resolve_safe_repo_path(self.repo_root, harness_config_path)
+        if req.initial_contract_path is not None and req.initial_contract_path.strip():
+            resolve_safe_repo_path(self.repo_root, req.initial_contract_path.strip())
 
         try:
             raw_spec, raw_setup, base_dir = self._resolve_pipeline_raw_inputs(req)

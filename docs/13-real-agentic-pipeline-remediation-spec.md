@@ -273,19 +273,92 @@ When `not is_pe_domain`:
 
 ---
 
-## 4. Verification & Acceptance Criteria Checklist
+## 4. Phase 2 Remediation: Subsequent-CLI Incremental Schema Evolution (`WP-07` through `WP-10`)
 
-After implementing `WP-01` through `WP-06`, run the following verification suite to confirm the application is 100% agentic and free of mocked facades:
+In production Data Vault 2.0 operations, schema evolution does not happen inside a single all-in-one CLI invocation. Instead, Day-1 cold start ($N=1$), incremental source onboarding ($N \to N+1$), intra-source operational schema drift ($S_k(t) \to S_k(t+1)$), and unstructured document extraction arrive as **subsequent CLI calls**, where each call references the prior run's verified `final_contract.yaml` via `--initial-contract <prev_final_contract.yaml>` (or `initial_contract_path`). Work Packages `WP-07` through `WP-10` wire end-to-end multi-call incremental schema evolution across the CLI, Platform REST API, `AgenticVaultPipeline`, sample specs, and documentation.
 
-1. **Zero Pre-Baked Hints Test (`global_commerce_vault`)**:
-   - Strip `business_key_columns`, `surrogate_key_columns`, `pii_columns`, `foreign_key_mappings`, `cbc_mapping_hints`, and `extracted_candidates` from `examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml`.
-   - Run `opendv pipeline run --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml --output-dir /tmp/gcv_real_run --provider antigravity` (or `--provider claude`).
+---
+
+### WP-07: CLI `--initial-contract` Flag & REST API `initial_contract_path` Wiring (`apps/opendv-cli`, `apps/opendv-platform-api`, `packages/opendv-agent-harness`)
+
+**Target Files:**
+- `apps/opendv-cli/src/opendv_cli/main.py`
+- `apps/opendv-cli/src/opendv_cli/commands.py`
+- `apps/opendv-cli/src/opendv_cli/api_client.py`
+- `apps/opendv-platform-api/src/opendv_platform_api/routers/pipelines.py`
+- `packages/opendv-agent-harness/src/opendv_agent_harness/pipeline.py`
+
+1. **CLI `--initial-contract` Flag (`main.py`, `commands.py`, `api_client.py`)**:
+   - Add `--initial-contract` (`dest="initial_contract"`) to `opendv pipeline` (`validate` and `run`).
+   - Forward `initial_contract_path` both in `--local` mode (overriding `input_spec.initial_contract_path` via `run_agentic_vault_pipeline(..., initial_contract_path=...)` and `validate_pipeline_inputs(...)`) and in `--api-url` remote HTTP mode (`POST /api/v1/pipelines/validate` and `POST /api/v1/pipelines/runs`).
+2. **Lifecycle Stage Transition**:
+   - Whenever `initial_contract_path` is set (either in `PipelineInputSpec.initial_contract_path` or via `--initial-contract`), `Wave 0` of that CLI invocation automatically transitions from `lifecycle_stage="COLD_START_N1"` to `lifecycle_stage="MULTI_SOURCE_EXPANSION"`.
+
+---
+
+### WP-08: Baseline `NoMistakeDataVault2ContractV5` & `GraphBProfile` Seeding for Cross-Call FK Resolution, `Algorithm A.7` & `Algorithm A.9a` (`pipeline.py`)
+
+**Target File:** `packages/opendv-agent-harness/src/opendv_agent_harness/pipeline.py`
+
+1. **Pre-Flight Validation (`validate_pipeline_inputs`)**:
+   - Verify that when `initial_contract_path` is provided, the file exists (`INITIAL_CONTRACT_MISSING`) and validates cleanly against `NoMistakeDataVault2ContractV5` (`INITIAL_CONTRACT_INVALID`).
+   - Treat a valid `initial_contract_path` containing deployed Hubs as satisfying the relational prerequisite check (`UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE`) when a subsequent CLI call onboards only unstructured documents (e.g., `wave3_unstructured_msa.yaml`).
+2. **Baseline Contract & `GraphBProfile` Seeding (`STAGE_00_ORCHESTRATION` & `STAGE_01_SCOUT_SOURCE`)**:
+   - Seed `prior_verified_contract` (`deployed_contract`) from `initial_contract_path` prior to executing Wave 0.
+   - Synthesize baseline `GraphBProfile` table and column metadata from `deployed_contract` (`column_triage_ledger`, `hubs`, `links`, `satellites`) so:
+     - `STAGE_01_SCOUT_SOURCE` resolves foreign keys against existing Hubs in `deployed_contract` (`hub_customer`, `hub_order` / `hub_sales_order`) even when the parent Hub's Bronze CSV is not re-supplied in the incremental wave.
+     - `STAGE_01_SCOUT_SOURCE` detects intra-source `ADD_COLUMN` schema drift ($S_k(t) \to S_k(t+1)$) by comparing incoming columns in `crm_customers_v2.csv` against `deployed_contract`'s `column_triage_ledger` and `sat_customer_core.payload_columns` (as well as optional `baseline_data_path`).
+     - `STAGE_02_SCOUT_UNSTRUCTURED` resolves extracted business keys (`TAX-US-900101`, `TAX-EU-440202`) against existing Hubs in `deployed_contract` and synthesizes `hub_document`, `lnk_document_customer`, `sat_document_customer_ai_provenance`, and `mas_document_extractions`.
+3. **Static Gate Enforcement (`STAGE_04_SHIP_VAULT_PASS2` & `STAGE_05_AXI_DV_STATIC_GATES`)**:
+   - Merge new wave discoveries additively onto `deployed_contract`.
+   - Pass `deployed_contract` into `run_axi_dv_verification_pipeline(..., deployed_contract=prior_verified_contract)` so **`Algorithm A.7` (`verify_additive_evolution_invariants`, `DV-EVO-001`–`007`)** and **`Algorithm A.9a` (`codemod_intra_source_schema_drift`)** guarantee zero destructive mutations to existing Hubs, Links, or Satellites.
+
+---
+
+### WP-09: End-to-End CLI Guide & Reference Documentation for Subsequent-CLI Evolution & Antigravity `gemini-4-argon-high` / `gemini-3.8-flash-high` Models (`README.md`, `docs/12`, `docs/13`)
+
+**Target Files:**
+- `README.md`
+- `docs/12-agentic-pipeline-inputs-and-harness-guide.md`
+- `docs/13-real-agentic-pipeline-remediation-spec.md`
+
+1. Document why production Data Vault 2.0 schema evolution executes as **subsequent CLI calls** referencing `--initial-contract <prev_final_contract.yaml>` rather than a single 1-pass run.
+2. Provide copy-pasteable 4-call CLI sequences (`wave0_cold_start.yaml` $\to$ `wave1_incremental_billing.yaml` $\to$ `wave2_schema_drift.yaml` $\to$ `wave3_unstructured_msa.yaml`) and a per-call schema evolution summary table in `README.md` and `docs/12-agentic-pipeline-inputs-and-harness-guide.md` (`§3.3`).
+3. Update Antigravity harness configuration documentation (`§1.1`, `§1.2`, `§1.6`, `§5.3`) to reflect `argon: gemini-4-argon-high` and `flash: gemini-3.8-flash-high`.
+
+---
+
+### WP-10: Per-Wave Sample Specs & Multi-Call Chain Verification (`examples/pipeline_samples/global_commerce_vault/` & `tests/`)
+
+**Target Files:**
+- `examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml`
+- `examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml`
+- `examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml`
+- `examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml`
+- `packages/opendv-agent-harness/tests/test_agentic_pipeline.py`
+- `apps/opendv-cli/tests/test_opendv_and_axi_dv_cli.py`
+
+1. Provide the 4 standalone single-wave input specifications (`wave0_cold_start.yaml` through `wave3_unstructured_msa.yaml`) alongside the combined `pipeline_input.yaml`.
+2. Add end-to-end tests executing the 4 sequential calls where Call $k$ passes Call $k-1$'s `final_contract.yaml` via `--initial-contract` / `initial_contract_path`, verifying that:
+   - Call 1 (`wave0_cold_start.yaml`) produces `COLD_START_N1` with 3 Hubs, 2 Links, and 4 Satellites.
+   - Call 2 (`wave1_incremental_billing.yaml`) transitions to `MULTI_SOURCE_EXPANSION`, adds `STRIPE_EU` Tier-3 `BKCC` source to `hub_customer`, adds `lnk_customer_sales_order` and `sat_customer_core` billing state, and passes `Algorithm A.7`.
+   - Call 3 (`wave2_schema_drift.yaml`) detects `loyalty_tier_code` and `annual_spend_band` via `Algorithm A.9a` and spawns `sat_customer_core_ext_v2` without mutating `sat_customer_core`.
+   - Call 4 (`wave3_unstructured_msa.yaml`) grounds verbatim spans via `Algorithm A.9b` and adds `hub_document`, `lnk_document_customer`, `sat_document_customer_ai_provenance`, and `mas_document_extractions`.
+
+---
+
+## 5. Verification & Acceptance Criteria Checklist
+
+After implementing `WP-01` through `WP-10`, run the following verification suite to confirm the application is 100% agentic, supports subsequent-CLI incremental schema evolution via `--initial-contract`, and is free of mocked facades:
+
+1. **Zero Pre-Baked Hints & 4-Call Incremental Chain Test (`global_commerce_vault`)**:
+   - Execute the 4 sequential CLI calls (`wave0_cold_start.yaml` $\to$ `wave1_incremental_billing.yaml` $\to$ `wave2_schema_drift.yaml` $\to$ `wave3_unstructured_msa.yaml`) chaining each run's `final_contract.yaml` via `--initial-contract`.
+   - Also run the combined `opendv pipeline run --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml --output-dir /tmp/gcv_real_run --provider antigravity` (or `--provider claude` / `--provider deterministic`).
    - Verify that:
-     - `@scout-source` infers `customer_code`, `order_number`, `invoice_number`, and `return_rma_code` as Business Keys, flags `email` and `tax_id_ssn` as `PII` (`sat_customer_pii_vault`), and maps FKs via `GraphBProfiler` + `GraphAOntology`.
-     - `@scout-unstructured` reads `docs/vip_shipping_rebate_addendum.md` and `docs/order_1002_damage_claim_memo.md`, extracts the verbatim quotes via LLM, computes exact `char_start`/`char_end` offsets, and links them to `CUST-1001` and `ORD-5002`.
-     - `@ship-vault` synthesizes a valid `NoMistakeDataVault2ContractV5` across Waves 1, 2, and 3 that passes all 40 `DV-G1..G7` static gates.
-     - If a static gate fails in `STAGE_05`, `@ship-vault` receives the `@toon_v1` trace and repairs the contract without `copy.deepcopy(candidate_contract)`.
-     - `STAGE_06` compiles generic Zones 0–4 SQL for `global_commerce_vault` (`hub_customer`, `hub_sales_order`, `hub_invoice`, `hub_return_authorization`, `lnk_*`, `sat_*`, `pit_*`) and executes all 4 adversarial batches + `DV-DYN-001..015` against the actual `global_commerce_vault` tables in DuckDB.
+     - `@scout-source` infers Business Keys, Surrogate Keys, Foreign Keys, and `PII` columns (`sat_customer_pii`) via `GraphBProfiler` + `GraphAOntology`.
+     - `@scout-unstructured` reads the raw MSA document, extracts verbatim quotes, computes exact `char_start`/`char_end` offsets, and routes `Tier-U1` and `Tier-U3` candidates via `Algorithm A.9b`.
+     - `@ship-vault` synthesizes a valid `NoMistakeDataVault2ContractV5` across all 4 sequential CLI calls that passes all static gates (`G0`–`G4`), `Algorithm A.7` evolution locks, and `Algorithm A.9a` drift codemods.
+     - `STAGE_06` compiles generic Zones 0–4 SQL for `global_commerce_vault` and executes all 4 adversarial batches + `DV-DYN-001..015` against the actual `global_commerce_vault` tables in DuckDB.
 
 2. **Automated Test & Quality Gate Commands**:
    ```bash

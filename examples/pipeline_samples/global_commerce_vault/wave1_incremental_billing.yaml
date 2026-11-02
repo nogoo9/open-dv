@@ -1,0 +1,17 @@
+pipeline_id: "pipe-global-commerce-wave1-incremental-billing"
+project_id: "proj-global-commerce-001"
+run_id: "run-global-commerce-wave1"
+display_name: "Global Commerce Vault — Wave 1 Incremental Source (Stripe Billing)"
+domain_namespace: "global_commerce"
+graph_a_ontology_path: "ontology/commerce_graph_a_ontology.yaml"
+assertion_cutoff_ts: "2026-12-31 23:59:59"
+
+waves:
+  - wave_index: 1
+    wave_name: "Wave 1 — Incremental Source Onboarding (Stripe Billing)"
+    wave_type: "INCREMENTAL_SOURCE"
+    description: "Incremental onboarding of regional Stripe EU billing invoices using TIER_3_LOCAL_SCOPED BKCC namespace STRIPE_EU."
+    sources:
+      - source_system: "billing_stripe"
+        table_name: "stripe_invoices"
+        data_path: "sources/wave1_incremental_billing/stripe_invoices.csv"

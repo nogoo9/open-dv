@@ -1,0 +1,18 @@
+pipeline_id: "pipe-global-commerce-wave2-schema-drift"
+project_id: "proj-global-commerce-001"
+run_id: "run-global-commerce-wave2"
+display_name: "Global Commerce Vault — Wave 2 Intra-Source Schema Drift (CRM Customers v2)"
+domain_namespace: "global_commerce"
+graph_a_ontology_path: "ontology/commerce_graph_a_ontology.yaml"
+assertion_cutoff_ts: "2026-12-31 23:59:59"
+
+waves:
+  - wave_index: 2
+    wave_name: "Wave 2 — Intra-Source Schema Drift (CRM Customers v2)"
+    wave_type: "SCHEMA_DRIFT"
+    description: "Additive intra-source schema drift on crm_customers adding loyalty_tier_code and annual_spend_band without mutating historical hash_diff."
+    sources:
+      - source_system: "crm_salesforce"
+        table_name: "crm_customers"
+        data_path: "sources/wave2_schema_drift/crm_customers_v2.csv"
+        baseline_data_path: "sources/wave0_cold_start/crm_customers.csv"

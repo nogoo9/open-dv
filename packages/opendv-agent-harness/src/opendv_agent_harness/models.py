@@ -157,9 +157,14 @@ class HarnessConfig(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    provider: Literal["antigravity", "claude", "deterministic", "deterministic-stub"] = (
-        "antigravity"
-    )
+    provider: Literal[
+        "agy",
+        "agy-cli",
+        "antigravity",
+        "claude",
+        "deterministic",
+        "deterministic-stub",
+    ] = "antigravity"
     workspace_dir: Path
     state_dir: Path
     app_data_dir: Path

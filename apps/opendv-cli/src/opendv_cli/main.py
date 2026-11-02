@@ -226,7 +226,15 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
     p_run.add_argument(
         "--harness",
         default="antigravity",
-        choices=["antigravity", "claude", "claude-agent", "deterministic", "deterministic-stub"],
+        choices=[
+            "agy",
+            "agy-cli",
+            "antigravity",
+            "claude",
+            "claude-agent",
+            "deterministic",
+            "deterministic-stub",
+        ],
         help="Agent harness provider when creating a run.",
     )
     p_run.add_argument(
@@ -314,6 +322,15 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
         help="Optional path to the harness_config.yaml or .json configuration.",
     )
     p_pipeline.add_argument(
+        "--initial-contract",
+        dest="initial_contract",
+        default=None,
+        help=(
+            "Optional path to a previously deployed NoMistakeDataVault2ContractV5 "
+            "(final_contract.yaml) for incremental schema evolution."
+        ),
+    )
+    p_pipeline.add_argument(
         "--output-dir",
         dest="output_dir",
         default=None,
@@ -323,7 +340,7 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
         "--provider",
         dest="provider",
         default=None,
-        help="Optional agent harness provider override (deterministic, antigravity, claude).",
+        help="Optional agent harness provider override (agy, antigravity, claude, deterministic).",
     )
     p_pipeline.add_argument(
         "--hold-policy",

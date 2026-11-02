@@ -454,6 +454,8 @@ async def test_antigravity_steward_hold_and_cancel_active_turn(tmp_path: Path) -
 
 def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> None:
     assert list_available_harnesses() == [
+        "agy",
+        "agy-cli",
         "antigravity",
         "claude",
         "deterministic",
@@ -472,6 +474,8 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
     finally:
         _HARNESS_REGISTRY.pop("custom-test", None)
     assert list_available_harnesses() == [
+        "agy",
+        "agy-cli",
         "antigravity",
         "claude",
         "deterministic",
@@ -706,3 +710,99 @@ async def test_wp04_antigravity_fail_closed_and_gemini_rest_api_fallback(
     assert isinstance(det_res.structured_output, _SynthesisContractResult)
     assert det_res.structured_output.contract_id == "det_run-agy-rest-01"
     assert det_res.structured_output.hub_count == 5
+
+
+@pytest.mark.asyncio
+async def test_wp11_agy_cli_harness_adapter_subprocess_and_fallback(
+    tmp_path: Path,
+) -> None:
+    import json
+    import subprocess
+
+    from opendv_agent_harness.adapters.agy_cli_adapter import (
+        AgyCliHarnessAdapter,
+        _strip_internal_stage_context,
+    )
+
+    # 1. Verify internal stage context marker stripping
+    prompt_with_ctx = 'Synthesize Pass 1 Triage\n__OPENDV_STAGE_CONTEXT_JSON__:{"secret": 123}'
+    assert _strip_internal_stage_context(prompt_with_ctx) == "Synthesize Pass 1 Triage"
+
+    # 2. Verify subprocess invocation via custom agy_cli_runner
+    fake_agy_exe = tmp_path / "fake_agy.exe"
+    fake_agy_exe.write_text("echo fake", encoding="utf-8")
+
+    captured_cmds: list[list[str]] = []
+
+    def _fake_cli_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        captured_cmds.append(list(cmd))
+        out_payload = {
+            "conversation_id": "conv-agy-cli-777",
+            "status": "SUCCESS",
+            "response": json.dumps(
+                {
+                    "contract_id": "dv_agy_cli_contract_v5",
+                    "hub_count": 6,
+                    "verdict": "PASS",
+                }
+            ),
+            "duration_seconds": 4.2,
+            "num_turns": 1,
+            "structured_output": {
+                "contract_id": "dv_agy_cli_contract_v5",
+                "hub_count": 6,
+                "verdict": "PASS",
+            },
+            "usage": {
+                "input_tokens": 1200,
+                "output_tokens": 180,
+                "thinking_tokens": 90,
+                "cache_read_tokens": 0,
+                "total_tokens": 1470,
+            },
+        }
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=json.dumps(out_payload),
+            stderr="",
+        )
+
+    cfg = _make_config(
+        tmp_path,
+        provider="agy",
+        env={"OPENDV_AGY_CLI_BIN": str(fake_agy_exe)},
+        extra_provider_options={"agy_cli_runner": _fake_cli_runner},
+    )
+    agy_cli_adapter = create_agent_harness(cfg)
+    assert isinstance(agy_cli_adapter, AgyCliHarnessAdapter)
+    assert agy_cli_adapter.provider_name == "agy"
+    assert agy_cli_adapter.resolve_model(ModelTier.HIGH_REASONING) == "gemini-4-argon-high"
+    assert agy_cli_adapter.resolve_model(ModelTier.FAST_TIER) == "gemini-3.8-flash-high"
+
+    spec = build_vault_first_mate_task_spec(
+        prompt=prompt_with_ctx,
+        run_id="run-agy-cli-01",
+        trace_id=SAMPLE_TRACE_ID,
+        output_schema=_SynthesisContractResult,
+    )
+    res = await agy_cli_adapter.run_task(spec)
+    assert res.stop_reason == HarnessStopReason.COMPLETED
+    assert res.provider == "agy"
+    assert res.session_id == "conv-agy-cli-777"
+    assert res.model_used == "gemini-4-argon-high"
+    assert isinstance(res.structured_output, _SynthesisContractResult)
+    assert res.structured_output.contract_id == "dv_agy_cli_contract_v5"
+    assert res.structured_output.hub_count == 6
+    assert res.usage.total_tokens == 1470
+    assert len(captured_cmds) == 1
+    assert "--model" in captured_cmds[0]
+    assert "gemini-4-argon-high" in captured_cmds[0]
+    assert "--json-schema" in captured_cmds[0]
+    assert "__OPENDV_STAGE_CONTEXT_JSON__" not in captured_cmds[0][2]

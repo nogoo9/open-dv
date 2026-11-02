@@ -266,6 +266,7 @@ def test_run_agentic_vault_pipeline_four_waves_end_to_end(tmp_path: Path) -> Non
         output_dir=out_dir,
         base_dir=sample_dir,
         cas_store=cas,
+        sdk_module=build_deterministic_agy_sdk_shim(),
     )
 
     assert report.status == "COMPLETED"
@@ -600,7 +601,10 @@ def test_harness_auth_config_resolution_and_validation(
     # 1. Load sample harness_config_antigravity.yaml and harness_config_claude.yaml
     agy_sample = HarnessSetupConfig.from_file(sample_dir / "harness_config_antigravity.yaml")
     assert agy_sample.provider == "antigravity"
-    assert agy_sample.model_overrides == {"argon": "gemini-2.5-pro", "flash": "gemini-2.5-flash"}
+    assert agy_sample.model_overrides in (
+        {"argon": "gemini-2.5-pro", "flash": "gemini-2.5-flash"},
+        {"argon": "gemini-4-argon-high", "flash": "gemini-3.8-flash-high"},
+    )
     assert agy_sample.auth.auth_mode == "api_key_env"
     assert agy_sample.auth.api_key_env_var == "GEMINI_API_KEY"
     assert agy_sample.auth.require_credentials_present is False
@@ -1030,3 +1034,216 @@ def test_real_llm_structured_output_consumption(tmp_path: Path) -> None:
         for e in final_contract.get("column_triage_ledger", [])
     }
     assert ("crm_salesforce.crm_customers", "customer_tax_id", "hub_customer") in triage_targets
+
+
+def test_incremental_multi_call_pipeline_evolution(tmp_path: Path) -> None:
+    """Verify WP-07 standalone multi-call incremental pipeline evolution across 4 waves."""
+    sample_dir = _sample_dir()
+    base_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    setup = HarnessSetupConfig.from_file(sample_dir / "harness_config.yaml")
+
+    # -----------------------------------------------------------------------
+    # Call 1: Wave 0 Cold Start (CRM Customers + ERP Orders)
+    # -----------------------------------------------------------------------
+    out_w0 = tmp_path / "call_0_wave0"
+    spec_w0 = base_spec.model_copy(
+        update={
+            "initial_contract_path": None,
+            "waves": [base_spec.waves[0].model_copy(update={"wave_index": 0})],
+        }
+    )
+    rep_w0 = run_agentic_vault_pipeline(
+        spec_w0,
+        setup,
+        output_dir=out_w0,
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert rep_w0.status == "COMPLETED"
+    assert rep_w0.overall_passed is True
+    assert len(rep_w0.wave_reports) == 1
+    assert all(v == "PASS" for v in rep_w0.wave_reports[0].gate_scorecard.values())
+    assert rep_w0.wave_reports[0].sandbox_summary["passed"] is True
+    assert rep_w0.wave_reports[0].sandbox_summary["dynamic_checks_passed"] == 15
+
+    contract_w0_path = out_w0 / "final_contract.yaml"
+    contract_w0 = yaml.safe_load(contract_w0_path.read_text(encoding="utf-8"))
+    assert contract_w0["lifecycle_stage"] == "COLD_START_N1"
+    assert {h["name"] for h in contract_w0["hubs"]} == {
+        "hub_customer",
+        "hub_order",
+        "hub_promotion",
+    }
+    assert {lnk["name"] for lnk in contract_w0["links"]} == {
+        "lnk_order_customer",
+        "lnk_order_customer_promotion",
+    }
+    assert {s["name"] for s in contract_w0["satellites"]} == {
+        "sat_customer_core",
+        "sat_customer_pii",
+        "sat_order_core",
+        "sat_promotion_ref",
+    }
+    assert len(contract_w0["column_triage_ledger"]) == 16
+
+    # -----------------------------------------------------------------------
+    # Call 2: Wave 1 Incremental Source (Stripe Invoices delta only)
+    # -----------------------------------------------------------------------
+    out_w1 = tmp_path / "call_1_wave1"
+    spec_w1 = base_spec.model_copy(
+        update={
+            "initial_contract_path": str(contract_w0_path),
+            "waves": [base_spec.waves[1].model_copy(update={"wave_index": 0})],
+        }
+    )
+    rep_w1 = run_agentic_vault_pipeline(
+        spec_w1,
+        setup,
+        output_dir=out_w1,
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert rep_w1.status == "COMPLETED"
+    assert rep_w1.overall_passed is True
+    assert len(rep_w1.wave_reports) == 1
+    assert all(v == "PASS" for v in rep_w1.wave_reports[0].gate_scorecard.values())
+    assert rep_w1.wave_reports[0].sandbox_summary["passed"] is True
+    assert rep_w1.wave_reports[0].sandbox_summary["dynamic_checks_passed"] == 15
+
+    contract_w1_path = out_w1 / "final_contract.yaml"
+    contract_w1 = yaml.safe_load(contract_w1_path.read_text(encoding="utf-8"))
+    assert contract_w1["lifecycle_stage"] == "MULTI_SOURCE_EXPANSION"
+    assert {h["name"] for h in contract_w1["hubs"]} == {
+        "hub_customer",
+        "hub_order",
+        "hub_promotion",
+        "hub_invoice",
+    }
+    assert {lnk["name"] for lnk in contract_w1["links"]} == {
+        "lnk_order_customer",
+        "lnk_order_customer_promotion",
+        "lnk_invoice_customer_order",
+    }
+    assert {s["name"] for s in contract_w1["satellites"]} == {
+        "sat_customer_core",
+        "sat_customer_pii",
+        "sat_order_core",
+        "sat_promotion_ref",
+        "sat_invoice_core",
+    }
+    assert len(contract_w1["column_triage_ledger"]) == 21
+
+    # -----------------------------------------------------------------------
+    # Call 3: Wave 2 Intra-Source Schema Drift (CRM Customers v2 delta only,
+    #         even when baseline_data_path is omitted and inferred from contract)
+    # -----------------------------------------------------------------------
+    out_w2 = tmp_path / "call_2_wave2"
+    w2_src_no_baseline = (
+        base_spec.waves[2].sources[0].model_copy(update={"baseline_data_path": None})
+    )
+    spec_w2 = base_spec.model_copy(
+        update={
+            "initial_contract_path": str(contract_w1_path),
+            "waves": [
+                base_spec.waves[2].model_copy(
+                    update={"wave_index": 0, "sources": [w2_src_no_baseline]}
+                )
+            ],
+        }
+    )
+    rep_w2 = run_agentic_vault_pipeline(
+        spec_w2,
+        setup,
+        output_dir=out_w2,
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert rep_w2.status == "COMPLETED"
+    assert rep_w2.overall_passed is True
+    assert len(rep_w2.wave_reports) == 1
+    assert len(rep_w2.wave_reports[0].schema_drift_events) == 2
+    assert "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT" in rep_w2.wave_reports[0].applied_codemods
+    assert all(v == "PASS" for v in rep_w2.wave_reports[0].gate_scorecard.values())
+    assert rep_w2.wave_reports[0].sandbox_summary["passed"] is True
+    assert rep_w2.wave_reports[0].sandbox_summary["dynamic_checks_passed"] == 15
+
+    contract_w2_path = out_w2 / "final_contract.yaml"
+    contract_w2 = yaml.safe_load(contract_w2_path.read_text(encoding="utf-8"))
+    assert contract_w2["lifecycle_stage"] == "MULTI_SOURCE_EXPANSION"
+    assert {h["name"] for h in contract_w2["hubs"]} == {
+        "hub_customer",
+        "hub_order",
+        "hub_promotion",
+        "hub_invoice",
+    }
+    assert {lnk["name"] for lnk in contract_w2["links"]} == {
+        "lnk_order_customer",
+        "lnk_order_customer_promotion",
+        "lnk_invoice_customer_order",
+    }
+    assert {s["name"] for s in contract_w2["satellites"]} == {
+        "sat_customer_core",
+        "sat_customer_core_ext_v2",
+        "sat_customer_pii",
+        "sat_order_core",
+        "sat_promotion_ref",
+        "sat_invoice_core",
+    }
+    assert len(contract_w2["column_triage_ledger"]) == 23
+
+    # -----------------------------------------------------------------------
+    # Call 4: Wave 3 Unstructured Document Onboarding (MSA Addendum only,
+    #         zero relational sources in wave input)
+    # -----------------------------------------------------------------------
+    out_w3 = tmp_path / "call_3_wave3"
+    spec_w3 = base_spec.model_copy(
+        update={
+            "initial_contract_path": str(contract_w2_path),
+            "waves": [base_spec.waves[3].model_copy(update={"wave_index": 0})],
+        }
+    )
+    assert validate_pipeline_inputs(spec_w3, setup, base_dir=sample_dir).passed is True
+    rep_w3 = run_agentic_vault_pipeline(
+        spec_w3,
+        setup,
+        output_dir=out_w3,
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert rep_w3.status == "COMPLETED"
+    assert rep_w3.overall_passed is True
+    assert len(rep_w3.wave_reports) == 1
+    assert rep_w3.wave_reports[0].unstructured_tier_counts["Tier-U1"] == 1
+    assert rep_w3.wave_reports[0].unstructured_tier_counts["Tier-U3"] == 1
+    assert len(rep_w3.resolved_holds) == 1
+    assert all(v == "PASS" for v in rep_w3.wave_reports[0].gate_scorecard.values())
+    assert rep_w3.wave_reports[0].sandbox_summary["passed"] is True
+    assert rep_w3.wave_reports[0].sandbox_summary["dynamic_checks_passed"] == 15
+
+    contract_w3_path = out_w3 / "final_contract.yaml"
+    contract_w3 = yaml.safe_load(contract_w3_path.read_text(encoding="utf-8"))
+    assert contract_w3["lifecycle_stage"] == "MULTI_SOURCE_EXPANSION"
+    assert {h["name"] for h in contract_w3["hubs"]} == {
+        "hub_customer",
+        "hub_order",
+        "hub_promotion",
+        "hub_invoice",
+        "hub_document",
+    }
+    assert {lnk["name"] for lnk in contract_w3["links"]} == {
+        "lnk_order_customer",
+        "lnk_order_customer_promotion",
+        "lnk_invoice_customer_order",
+        "lnk_document_customer",
+    }
+    assert {s["name"] for s in contract_w3["satellites"]} == {
+        "sat_customer_core",
+        "sat_customer_core_ext_v2",
+        "sat_customer_pii",
+        "sat_order_core",
+        "sat_promotion_ref",
+        "sat_invoice_core",
+        "sat_document_customer_ai_provenance",
+        "mas_document_extractions",
+    }
+    assert len(contract_w3["column_triage_ledger"]) == 24

@@ -11,8 +11,8 @@
 provider: antigravity
 
 model_overrides:
-  argon: gemini-2.5-pro
-  flash: gemini-2.5-flash
+  argon: gemini-4-argon-high
+  flash: gemini-3.8-flash-high
 
 auth:
   # Option 1: Direct Gemini / Google AI Studio API Key from environment variable

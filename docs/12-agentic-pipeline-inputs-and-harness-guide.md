@@ -18,8 +18,8 @@ The Open-DV pipeline decouples its 8-stage neuro-symbolic workflow from any sing
 
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :---: | :--- | :--- |
-| `provider` | `"deterministic" \| "deterministic-stub" \| "antigravity" \| "claude"` | No | `"deterministic"` | Selects the concrete `VaultAgentHarness` adapter:<ul><li>`"antigravity"`: `AntigravityHarnessAdapter` backed by the Google Antigravity Python SDK (`google.antigravity`).</li><li>`"claude"`: `ClaudeAgentHarnessAdapter` backed by the Anthropic Claude Agent SDK (`claude_agent_sdk`).</li><li>`"deterministic"` / `"deterministic-stub"`: `DeterministicHarnessAdapter` for zero-API-cost offline neuro-symbolic contract synthesis, CI verification, and deterministic replay.</li></ul> |
-| `model_overrides` | `dict[str, str]` | No | `{"argon": "gemini-2.5-pro", "flash": "gemini-2.5-flash"}` | Maps logical model tiers (`argon` for `ModelTier.HIGH_REASONING` and `flash` for `ModelTier.FAST_TIER`) to concrete provider model IDs. |
+| `provider` | `"agy" \| "agy-cli" \| "antigravity" \| "claude" \| "deterministic" \| "deterministic-stub"` | No | `"deterministic"` | Selects the concrete `VaultAgentHarness` adapter:<ul><li>`"agy"` / `"agy-cli"`: `AgyCliHarnessAdapter` backed by the local logged-in Antigravity Coding CLI (`agy -p --output-format json --json-schema <path>`).</li><li>`"antigravity"`: `AntigravityHarnessAdapter` backed by the Google Antigravity Python SDK (`google.antigravity`) or Gemini REST API (`GEMINI_API_KEY`).</li><li>`"claude"`: `ClaudeAgentHarnessAdapter` backed by the Anthropic Claude Agent SDK (`claude_agent_sdk`) or Anthropic Messages API (`ANTHROPIC_API_KEY`).</li><li>`"deterministic"` / `"deterministic-stub"`: `DeterministicHarnessAdapter` for zero-API-cost offline neuro-symbolic contract synthesis, CI verification, and deterministic replay.</li></ul> |
+| `model_overrides` | `dict[str, str]` | No | `{"argon": "gemini-4-argon-high", "flash": "gemini-3.8-flash-high"}` | Maps logical model tiers (`argon` for `ModelTier.HIGH_REASONING` and `flash` for `ModelTier.FAST_TIER`) to concrete provider model IDs. |
 | `auth` | `HarnessAuthConfig` | No | `HarnessAuthConfig(auth_mode="none")` | Declarative authentication and cloud provider routing configuration (API key environment variable lookup, Vertex AI ADC, AWS Bedrock, or CLI session). Secrets are resolved from environment variables at runtime so raw credentials are never committed to YAML files. |
 | `budget` | `HarnessBudget` | No | `HarnessBudget()` | Per-task execution guardrails for turns, model calls, tool invocations, input/output tokens, USD cost ceiling, wall-clock timeout, and `@toon_v1` self-healing retries. |
 | `sandbox` | `SandboxPolicy` | No | `SandboxPolicy()` | Workspace read/write isolation, allowed directories, shell execution toggle, blocked command substrings, and built-in tool allow/deny lists. |
@@ -36,8 +36,8 @@ Open-DV routes agent personas to two logical model tiers (`ModelTier`) rather th
 
 | Logical Tier (`ModelTier`) | YAML Key | Assigned Agent Personas & Stages | Antigravity (`provider: antigravity`) Recommended Override / Default | Claude (`provider: claude`) Recommended Override / Default | Deterministic (`provider: deterministic`) |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`ModelTier.HIGH_REASONING`** | `argon` | <ul><li>`@vault-first-mate` (`STAGE_00_ORCHESTRATION`)</li><li>`@scout-unstructured` (`STAGE_02_SCOUT_UNSTRUCTURED` span verification)</li><li>`@ship-vault` (`STAGE_03_SHIP_VAULT_PASS1`, `STAGE_04_SHIP_VAULT_PASS2`, & `@toon_v1` repair)</li></ul> | <ul><li>Sample YAML override: `gemini-2.5-pro`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_HIGH_MODEL`): `gemini-4-argon-high`</li></ul> | <ul><li>Sample YAML override: `claude-opus-4-6`</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_HIGH_MODEL`): `claude-opus-5-5-high`</li></ul> | `deterministic-argon-v1` (`$OPENDV_DETERMINISTIC_HIGH_MODEL`) |
-| **`ModelTier.FAST_TIER`** | `flash` | <ul><li>`@scout-source` (`STAGE_01_SCOUT_SOURCE` statistical profiling & drift detection)</li><li>`@axi-dv` (`STAGE_05_AXI_DV_STATIC_GATES` & `STAGE_06_AXI_DV_DYNAMIC_SANDBOX`)</li><li>`@deterministic-compiler` (`STAGE_07_DETERMINISTIC_COMPILER`)</li></ul> | <ul><li>Sample YAML override: `gemini-2.5-flash`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_FAST_MODEL`): `gemini-3.8-flash-high`</li></ul> | <ul><li>Sample YAML override: `claude-haiku-4-5` (or `claude-sonnet-4-6`)</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_FAST_MODEL`): `claude-sonnet-5-5-medium`</li></ul> | `deterministic-flash-v1` (`$OPENDV_DETERMINISTIC_FAST_MODEL`) |
+| **`ModelTier.HIGH_REASONING`** | `argon` | <ul><li>`@vault-first-mate` (`STAGE_00_ORCHESTRATION`)</li><li>`@scout-unstructured` (`STAGE_02_SCOUT_UNSTRUCTURED` span verification)</li><li>`@ship-vault` (`STAGE_03_SHIP_VAULT_PASS1`, `STAGE_04_SHIP_VAULT_PASS2`, & `@toon_v1` repair)</li></ul> | <ul><li>Sample YAML override (`harness_config.yaml` / `harness_config_antigravity.yaml`): `gemini-4-argon-high`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_HIGH_MODEL`): `gemini-4-argon-high`</li></ul> | <ul><li>Sample YAML override: `claude-opus-4-6`</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_HIGH_MODEL`): `claude-opus-5-5-high`</li></ul> | `deterministic-argon-v1` (`$OPENDV_DETERMINISTIC_HIGH_MODEL`) |
+| **`ModelTier.FAST_TIER`** | `flash` | <ul><li>`@scout-source` (`STAGE_01_SCOUT_SOURCE` statistical profiling & drift detection)</li><li>`@axi-dv` (`STAGE_05_AXI_DV_STATIC_GATES` & `STAGE_06_AXI_DV_DYNAMIC_SANDBOX`)</li><li>`@deterministic-compiler` (`STAGE_07_DETERMINISTIC_COMPILER`)</li></ul> | <ul><li>Sample YAML override (`harness_config.yaml` / `harness_config_antigravity.yaml`): `gemini-3.8-flash-high`</li><li>SDK fallback (`DEFAULT_AGY_MODEL_MAP` / `$OPENDV_AGY_FAST_MODEL`): `gemini-3.8-flash-high`</li></ul> | <ul><li>Sample YAML override: `claude-haiku-4-5` (or `claude-sonnet-4-6`)</li><li>SDK fallback (`DEFAULT_CLAUDE_MODEL_MAP` / `$OPENDV_CLAUDE_FAST_MODEL`): `claude-sonnet-5-5-medium`</li></ul> | `deterministic-flash-v1` (`$OPENDV_DETERMINISTIC_FAST_MODEL`) |
 
 #### Architectural Differences Between `AntigravityHarnessAdapter` and `ClaudeAgentHarnessAdapter`
 
@@ -129,8 +129,8 @@ When `HarnessSetupConfig.to_harness_config()` runs, it constructs the resolved e
 provider: antigravity
 
 model_overrides:
-  argon: gemini-2.5-pro
-  flash: gemini-2.5-flash
+  argon: gemini-4-argon-high
+  flash: gemini-3.8-flash-high
 
 auth:
   # Direct Gemini API Key resolved from $GEMINI_API_KEY at runtime
@@ -210,13 +210,17 @@ steward_hold_policy: auto_approve_top_candidate
 inject_adversarial_fault_on_attempt_1: true
 ```
 
-#### Example C: Offline Deterministic Neuro-Symbolic Harness (`examples/pipeline_samples/global_commerce_vault/harness_config.yaml`)
+#### Example C: Default Antigravity Harness (`examples/pipeline_samples/global_commerce_vault/harness_config.yaml`) & Offline Deterministic Mode
 
 ```yaml
-provider: deterministic
+provider: antigravity
 model_overrides:
-  argon: gemini-2.5-pro
-  flash: gemini-2.5-flash
+  argon: gemini-4-argon-high
+  flash: gemini-3.8-flash-high
+auth:
+  auth_mode: api_key_env
+  api_key_env_var: GEMINI_API_KEY
+  require_credentials_present: false
 budget:
   max_turns: 12
   max_model_calls: 20
@@ -234,11 +238,13 @@ steward_hold_policy: auto_approve_top_candidate
 inject_adversarial_fault_on_attempt_1: true
 ```
 
+*(Set `provider: deterministic` or pass `--provider deterministic` on the CLI for zero-API-cost offline neuro-symbolic contract synthesis.)*
+
 ---
 
-## 2. Pipeline Input Specification (`PipelineInputSpec` — `pipeline_input.yaml`)
+## 2. Pipeline Input Specification (`PipelineInputSpec` — `pipeline_input.yaml` & Per-Wave Specs)
 
-The pipeline input file (`pipeline_input.yaml` or `.json`) defines the enterprise domain, reference ontology, bi-temporal cutoff timestamp, and ordered sequence of onboarding/evolution waves. All models enforce `ConfigDict(extra="forbid")`, so unknown or misspelled YAML keys are immediately flagged during pre-flight validation.
+The pipeline input file (`pipeline_input.yaml`, `wave0_cold_start.yaml`..`wave3_unstructured_msa.yaml`, or `.json`) defines the enterprise domain, reference ontology, bi-temporal cutoff timestamp, optional seed contract (`initial_contract_path`), and ordered sequence of onboarding/evolution waves. All models enforce `ConfigDict(extra="forbid")`, so unknown or misspelled YAML keys are immediately flagged during pre-flight validation.
 
 ### 2.1 Top-Level `PipelineInputSpec` Fields
 
@@ -250,7 +256,7 @@ The pipeline input file (`pipeline_input.yaml` or `.json`) defines the enterpris
 | `display_name` | `str` | No | `"Open-DV Agentic Pipeline Run"` | Human-readable title rendered at the top of `pipeline_report.md` and in the `WB-00` Web Workbench Command Center. |
 | `domain_namespace` | `str` | No | `"general"` | Enterprise governance domain namespace (normalized to lowercase `snake_case`, e.g., `"global_commerce"`). Must match or align with the ontology namespace. |
 | `graph_a_ontology_path` | `str` | **Yes** | — | Path to the Enterprise Core Business Concept (CBC) `GraphAOntology` YAML/JSON file, resolved relative to `base_dir` (the directory containing `pipeline_input.yaml`) or the workspace root. Path traversal (`..`) is strictly forbidden. |
-| `initial_contract_path` | `str \| null` | No | `null` | Optional path to an existing production `NoMistakeDataVault2ContractV5` YAML/JSON file. When provided, Wave 0 starts from this deployed baseline and enforces `Algorithm A.7` additive evolution locks against it. |
+| `initial_contract_path` | `str \| null` | No | `null` | Optional path to an existing production `NoMistakeDataVault2ContractV5` YAML/JSON file (e.g., the previous CLI run's `final_contract.yaml`), which can also be supplied via the `--initial-contract` CLI flag or REST API `initial_contract_path` payload field. When provided, the pipeline seeds its baseline `NoMistakeDataVault2ContractV5` and `GraphBProfile` from this deployed contract, transitions Wave 0 to `lifecycle_stage: "MULTI_SOURCE_EXPANSION"`, resolves cross-call foreign keys against existing Hubs, detects intra-source schema drift (`Algorithm A.9a`), and enforces `Algorithm A.7` additive evolution locks against it (see §3.2–§3.3). |
 | `assertion_cutoff_ts` | `str` | No | `"2026-12-31 23:59:59"` | Bi-temporal assertion cutoff timestamp (`YYYY-MM-DD HH:MM:SS`) used for Point-in-Time (PIT) audit queries (`Query D.10` & `Query D.10b`). |
 | `output_dir` | `str \| null` | No | Ephemeral temp dir (`opendv_pipeline_out_*`) | Directory where all intermediate wave artifacts, final artifacts (`final_contract.yaml`, `final_canonical_ir.json`, `final_four_zone.sql`), `vault-ledger.jsonl`, `pipeline_report.json`, and `pipeline_report.md` are materialized. Can be overridden via `--output-dir` CLI flag or `output_dir` API parameter. |
 | `waves` | `list[PipelineWaveInput]` | **Yes** (`min_length=1`) | — | Ordered list of one or more onboarding or evolution waves (`Wave 0 .. Wave N-1`). |
@@ -378,9 +384,9 @@ The Graph A ontology file (`packages/opendv-core/src/opendv_core/models/graph_a.
 
 ---
 
-### 3.2 Optional Seed Contract Input (`NoMistakeDataVault2ContractV5` — `initial_contract_path`)
+### 3.2 Optional Seed Contract Input (`NoMistakeDataVault2ContractV5` — `initial_contract_path` / `--initial-contract`)
 
-When `initial_contract_path` is set in `pipeline_input.yaml`, the file must conform to `schemas/no-mistake-dv2-contract-v5.schema.json` (`NoMistakeDataVault2ContractV5` in `packages/opendv-core/src/opendv_core/models/contract_v5.py`):
+When `initial_contract_path` is set in `pipeline_input.yaml` (or passed via the `--initial-contract <prev_final_contract.yaml>` CLI flag / REST API `initial_contract_path` parameter), the file must conform to `schemas/no-mistake-dv2-contract-v5.schema.json` (`NoMistakeDataVault2ContractV5` in `packages/opendv-core/src/opendv_core/models/contract_v5.py`):
 
 | Field | Type | Required | Description |
 | :--- | :--- | :---: | :--- |
@@ -393,6 +399,78 @@ When `initial_contract_path` is set in `pipeline_input.yaml`, the file must conf
 | `satellites` | `list[ContractSatelliteSpec]` | **Yes** | Deployed Satellites (`name`, `satellite_type`, `parent_entity`, `source_bronze_table`, `security_classification`, `volatility_tier`, `payload_columns`, `soft_deprecated_columns`). |
 | `reference_tables` | `list[ContractReferenceTableSpec]` | **Yes** | Deployed `ref_*` tables (`[]` if none). |
 | `unmapped_escalations` | `list[UnmappedEscalation]` | **Yes** | Escalated ambiguous columns (`[]` in verified contracts). |
+
+---
+
+### 3.3 Subsequent-CLI Incremental Schema Evolution Workflow (`--initial-contract`)
+
+In production Data Vault 2.0 environments, enterprise schemas are **not** built in a single 1-pass batch run. Instead, Day-1 cold start ($N=1$), new source system onboarding ($N \to N+1$), intra-source operational schema drift ($S_k(t) \to S_k(t+1)$), and unstructured PDF/MSA document ingestion occur asynchronously across independent deployment releases. Each release is executed as a **subsequent CLI call** (`opendv pipeline run --input <wave_spec.yaml> --initial-contract <prev_final_contract.yaml>`) that takes the prior run's verified `final_contract.yaml` as its immutable baseline.
+
+#### Stage-by-Stage Mechanics When `--initial-contract` / `initial_contract_path` Is Provided
+
+1. **Baseline Contract & `GraphBProfile` Seeding (`STAGE_00_ORCHESTRATION`):**
+   - Pre-flight `validate_pipeline_inputs()` verifies that `initial_contract_path` exists (`INITIAL_CONTRACT_MISSING`) and conforms to `NoMistakeDataVault2ContractV5` (`INITIAL_CONTRACT_INVALID`), and satisfies `UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE` when an unstructured-only wave builds on an existing relational contract.
+   - `AgenticVaultPipeline` loads the baseline `NoMistakeDataVault2ContractV5` (`Hubs`, `Links`, `Satellites`, `reference_tables`, and `column_triage_ledger`) as `deployed_contract` and automatically transitions `lifecycle_stage` to `"MULTI_SOURCE_EXPANSION"`.
+   - It synthesizes baseline `GraphBProfile` table/column metadata from `deployed_contract` so downstream discovery and verification stages have full visibility into already-deployed Hubs, business key sources, and satellite payload columns even when prior Bronze CSV files are not re-supplied in the current wave.
+2. **Cross-Call Foreign Key Resolution & Drift Detection (`STAGE_01_SCOUT_SOURCE` & `STAGE_02_SCOUT_UNSTRUCTURED`):**
+   - `STAGE_01_SCOUT_SOURCE` resolves foreign keys in new relational feeds (e.g., `stripe_invoices.csv` in Wave 1) against existing Hubs in `deployed_contract` (`hub_customer`, `hub_order` / `hub_sales_order`) and appends new `TIER_3_LOCAL_SCOPED` `BKCC` sources (e.g., `STRIPE_EU`) to existing Hubs without duplicating Hub tables.
+   - When an existing source table evolves (e.g., `crm_customers_v2.csv` in Wave 2), `STAGE_01_SCOUT_SOURCE` compares the incoming columns against `deployed_contract` (and optional `baseline_data_path`) to detect `ADD_COLUMN` intra-source schema drift (`loyalty_tier_code`, `annual_spend_band`).
+   - `STAGE_02_SCOUT_UNSTRUCTURED` links extracted document entities (`hub_document` $\to$ `lnk_document_customer`) directly against existing Hubs in `deployed_contract`.
+3. **Additive Evolution Lock & Companion Satellite Synthesis (`STAGE_05_AXI_DV_STATIC_GATES`):**
+   - `STAGE_05_AXI_DV_STATIC_GATES` executes **`Algorithm A.7` (`verify_additive_evolution_invariants`, `DV-EVO-001`–`007`)** against `deployed_contract`, guaranteeing zero destructive changes: no existing Hub, Link, or Satellite can be dropped, no Hub business key grain or `BKCC` prefix can be mutated, and no existing Satellite's `payload_columns` (`hash_diff` calculation) can be altered.
+   - Simultaneously, **`Algorithm A.9a` (`codemod_intra_source_schema_drift`)** routes newly added drift columns (`loyalty_tier_code`, `annual_spend_band`) into an additive companion satellite (`sat_customer_core_ext_v2`) while leaving the historical `sat_customer_core` table untouched.
+
+#### Copy-Paste 4-Call CLI Sequence (`wave0_cold_start.yaml` $\to$ `wave3_unstructured_msa.yaml`)
+
+```bash
+# Call 1 — Day-1 Cold Start (N=1): CRM Customers & ERP Orders
+uv run opendv pipeline run \
+  --local \
+  --role INTERNAL_MODELER \
+  --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
+  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml \
+  --output-dir /tmp/opendv-commerce/wave0 \
+  --json
+
+# Call 2 — Incremental Source Onboarding (N=1 -> N=2): Stripe EU Billing Invoices
+uv run opendv pipeline run \
+  --local \
+  --role INTERNAL_MODELER \
+  --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml \
+  --initial-contract /tmp/opendv-commerce/wave0/final_contract.yaml \
+  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml \
+  --output-dir /tmp/opendv-commerce/wave1 \
+  --json
+
+# Call 3 — Intra-Source Schema Drift (S_1(t) -> S_1(t+1)): CRM Customers v2
+uv run opendv pipeline run \
+  --local \
+  --role INTERNAL_MODELER \
+  --input examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml \
+  --initial-contract /tmp/opendv-commerce/wave1/final_contract.yaml \
+  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml \
+  --output-dir /tmp/opendv-commerce/wave2 \
+  --json
+
+# Call 4 — Unstructured Document Onboarding (Rules U1-U4): Enterprise MSA Addendum
+uv run opendv pipeline run \
+  --local \
+  --role INTERNAL_MODELER \
+  --input examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml \
+  --initial-contract /tmp/opendv-commerce/wave2/final_contract.yaml \
+  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml \
+  --output-dir /tmp/opendv-commerce/wave3 \
+  --json
+```
+
+#### Schema Evolution Summary Across the 4 Sequential CLI Calls
+
+| CLI Call | Per-Wave Input Spec | `--initial-contract` Input | Output Contract & `lifecycle_stage` | Key Algorithms & Gates Executed | Schema Changes & Cumulative Vault Topology |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Call 1** | `wave0_cold_start.yaml` | `None` *(Day-1 Cold Start)* | `wave0/final_contract.yaml`<br>(`COLD_START_N1`) | `Alg A.1` (3-Axis PII Split & Gate 4 YAGNI), `Alg A.4` (Nullable-FK Link Splitter) | **3 Hubs:** `hub_customer`, `hub_order`, `hub_promotion`<br>**2 Links:** `lnk_order_customer`, `lnk_order_promotion` (`WHERE promo_campaign_code IS NOT NULL`)<br>**4 Satellites:** `sat_customer_core`, `sat_customer_pii` (`PII_HIGH`), `sat_order_core`, `sat_promotion_core`<br>**Quarantined:** `customer_row_seq` (`DROPPED_SURROGATE`) |
+| **Call 2** | `wave1_incremental_billing.yaml` | `wave0/final_contract.yaml` | `wave1/final_contract.yaml`<br>(`MULTI_SOURCE_EXPANSION`) | `Alg A.4` (3-Tier `BKCC` Shield), `Alg A.7` (Additive Evolution Lock `DV-EVO-001`–`007`) | **Hubs:** Appends `STRIPE_EU` (`TIER_3_LOCAL_SCOPED`) business key source to `hub_customer`<br>**Links Added:** `lnk_customer_sales_order` (billing-to-customer/order association)<br>**Satellites Added/Expanded:** Preserves all Wave 0 entities (`sat_customer_core`, `sat_customer_pii`, `sat_order_core`) and adds Stripe EU invoice satellite coverage |
+| **Call 3** | `wave2_schema_drift.yaml` | `wave1/final_contract.yaml` | `wave2/final_contract.yaml`<br>(`MULTI_SOURCE_EXPANSION`) | `Alg A.9a` (Intra-Source Drift Codemod), `Alg A.7` (Additive Evolution Lock) | **Drift Detected:** `ADD_COLUMN` on `crm_customers` (`loyalty_tier_code`, `annual_spend_band`)<br>**Companion Satellite Added:** `sat_customer_core_ext_v2` (`sat_customer_core` `hash_diff` remains 100% immutable) |
+| **Call 4** | `wave3_unstructured_msa.yaml` | `wave2/final_contract.yaml` | `wave3/final_contract.yaml`<br>(`MULTI_SOURCE_EXPANSION`) | `Alg A.9b` (Verbatim Span Grounding & `Tier-U1..U3` ER), `Alg A.7` (Additive Evolution Lock) | **Hubs Added:** `hub_document` (`DOC-MSA-2026-089`)<br>**Links Added:** `lnk_document_customer` (`UNSTRUCTURED_EXTRACTION_LINK`)<br>**Satellites Added:** `sat_document_customer_ai_provenance` and `mas_document_extractions` (`Tier-U1` `0.98` + `Tier-U3` `0.68` Steward Hold) |
 
 ---
 
@@ -531,6 +609,7 @@ agy_setup = HarnessSetupConfig.from_file(sample_dir / "harness_config_antigravit
 claude_setup = HarnessSetupConfig.from_file(sample_dir / "harness_config_claude.yaml")
 
 assert agy_setup.provider == "antigravity"
+assert agy_setup.model_overrides == {"argon": "gemini-4-argon-high", "flash": "gemini-3.8-flash-high"}
 assert agy_setup.auth.auth_mode == "api_key_env"
 assert agy_setup.auth.api_key_env_var == "GEMINI_API_KEY"
 
@@ -541,7 +620,7 @@ assert claude_setup.auth.api_key_env_var == "ANTHROPIC_API_KEY"
 # 2. Construct a Vertex AI ADC config programmatically
 vertex_setup = HarnessSetupConfig(
     provider="antigravity",
-    model_overrides={"argon": "gemini-2.5-pro", "flash": "gemini-2.5-flash"},
+    model_overrides={"argon": "gemini-4-argon-high", "flash": "gemini-3.8-flash-high"},
     auth=HarnessAuthConfig(
         auth_mode="vertex_adc",
         gcp_project="enterprise-dv-prod",
