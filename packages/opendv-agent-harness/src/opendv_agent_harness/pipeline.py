@@ -899,7 +899,9 @@ def validate_pipeline_inputs(
     }:
         import importlib.util
 
-        sdk_pkg = "google.antigravity" if setup_obj.provider == "antigravity" else "claude_agent_sdk"
+        sdk_pkg = (
+            "google.antigravity" if setup_obj.provider == "antigravity" else "claude_agent_sdk"
+        )
         mock_allowed = setup_obj.extra_provider_options.get("allow_mock_sdk_fallback") is True or (
             (
                 resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
@@ -990,18 +992,17 @@ def validate_pipeline_inputs(
             sdk_pkg = (
                 "google.antigravity" if setup_obj.provider == "antigravity" else "claude_agent_sdk"
             )
-            mock_allowed = (
-                setup_obj.extra_provider_options.get("allow_mock_sdk_fallback") is True
-                or (
-                    (
-                        resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                        or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                        or ""
-                    )
-                    .strip()
-                    .lower()
-                    in {"1", "true", "yes"}
+            mock_allowed = setup_obj.extra_provider_options.get(
+                "allow_mock_sdk_fallback"
+            ) is True or (
+                (
+                    resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
+                    or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
+                    or ""
                 )
+                .strip()
+                .lower()
+                in {"1", "true", "yes"}
             )
             try:
                 sdk_spec = importlib.util.find_spec(sdk_pkg)
@@ -1027,8 +1028,8 @@ def validate_pipeline_inputs(
                         "severity": "ERROR",
                         "target": "harness_setup.auth",
                         "message": (
-                            f"Provider '{setup_obj.provider}' requires SDK '{sdk_pkg}' or an API key "
-                            f"when require_credentials_present=True."
+                            f"Provider '{setup_obj.provider}' requires SDK '{sdk_pkg}' or an API "
+                            f"key when require_credentials_present=True."
                         ),
                     }
                 )
@@ -1888,9 +1889,7 @@ def _extract_known_entities_from_cumulative_sources(
                 None,
             )
             hub_hint = (
-                src.target_hub_name
-                or src.cbc_mapping_hints.get(src.table_name)
-                or src.table_name
+                src.target_hub_name or src.cbc_mapping_hints.get(src.table_name) or src.table_name
             )
             resolved_hub, _ = _resolve_hub_and_uri(hub_hint, ontology)
             if name_col:
@@ -3483,9 +3482,7 @@ class AgenticVaultPipeline:
                             mode="json",
                             exclude_none=True,
                         )
-                    elif isinstance(
-                        repair_res.structured_output, NoMistakeDataVault2ContractV5
-                    ):
+                    elif isinstance(repair_res.structured_output, NoMistakeDataVault2ContractV5):
                         current_attempt_contract = repair_res.structured_output.model_dump(
                             mode="json",
                             exclude_none=True,
@@ -5309,9 +5306,7 @@ def synthesize_stage_output_from_prompt(
             return Stage00OrchestrationPlanOutput(
                 wave_execution_order=wave_order,
                 recommended_max_retries=max_retries,
-                risk_assessment=(
-                    f"Validated {len(wave_order)} wave(s) for domain '{domain_ns}'."
-                ),
+                risk_assessment=(f"Validated {len(wave_order)} wave(s) for domain '{domain_ns}'."),
             )
         return Stage00OrchestrationPlanOutput(
             wave_execution_order=[0],
@@ -5355,8 +5350,8 @@ def synthesize_stage_output_from_prompt(
                         source_system=disc.source_system,
                         table_name=disc.table_name,
                         target_hub_name=disc.target_hub_name,
-                        key_authority_tier=disc.key_authority_tier,
-                        bkcc_namespace=disc.bkcc_namespace,
+                        key_authority_tier=disc.key_authority_tier or "TIER_1_GLOBAL_STANDARD",
+                        bkcc_namespace=disc.bkcc_namespace or "GLOBAL",
                         record_source_code=disc.record_source_code,
                         business_key_columns=list(disc.business_key_columns),
                         surrogate_key_columns=list(disc.surrogate_key_columns),
@@ -5418,7 +5413,7 @@ def synthesize_stage_output_from_prompt(
             docs_out: list[dict[str, Any]] = []
             first_cands: list[PipelineUnstructuredCandidateInput] = []
             first_doc_id: str | None = None
-            first_target_hub: str | None = "hub_document"
+            first_target_hub: str = "hub_document"
             for d_entry in ctx.get("unstructured_documents", []):
                 raw_doc = PipelineUnstructuredDocInput.model_validate(d_entry["doc"])
                 doc_text = str(d_entry.get("doc_text", ""))
@@ -5538,9 +5533,7 @@ def synthesize_stage_output_from_prompt(
                         {"column_triage_ledger": contract_dict["column_triage_ledger"]}
                     )
                 if ctx.get("pass1_column_triage_ledger"):
-                    contract_dict["column_triage_ledger"] = list(
-                        ctx["pass1_column_triage_ledger"]
-                    )
+                    contract_dict["column_triage_ledger"] = list(ctx["pass1_column_triage_ledger"])
                 contract_obj = NoMistakeDataVault2ContractV5.model_validate(contract_dict)
                 if schema_name == "NoMistakeDataVault2ContractV5":
                     return contract_obj

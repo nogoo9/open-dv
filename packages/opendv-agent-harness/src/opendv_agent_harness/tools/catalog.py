@@ -134,9 +134,7 @@ def _resolve_existing_file(raw_path: str, ctx: ToolExecutionContext) -> Path | N
     if candidate.is_absolute():
         resolved = candidate.resolve()
         if not any(resolved.is_relative_to(root) for root in allowed_roots):
-            raise PermissionError(
-                f"Path '{raw_path}' is outside allowed workspace directories."
-            )
+            raise PermissionError(f"Path '{raw_path}' is outside allowed workspace directories.")
         return resolved if resolved.is_file() else None
 
     for root in (
@@ -146,7 +144,10 @@ def _resolve_existing_file(raw_path: str, ctx: ToolExecutionContext) -> Path | N
     ):
         try:
             resolved = (root / candidate).resolve()
-            if any(resolved.is_relative_to(allowed) for allowed in allowed_roots) and resolved.is_file():
+            if (
+                any(resolved.is_relative_to(allowed) for allowed in allowed_roots)
+                and resolved.is_file()
+            ):
                 return resolved
         except OSError:
             continue
@@ -828,9 +829,8 @@ def _apply_structural_codemod_to_dict(
     if not _entity_exists_in_contract(parsed_doc, target_entity):
         return copy.deepcopy(parsed_doc)
 
-    if (
-        parsed_doc.get("entity") == target_entity
-        and not any(k in parsed_doc for k in ("hubs", "links", "satellites"))
+    if parsed_doc.get("entity") == target_entity and not any(
+        k in parsed_doc for k in ("hubs", "links", "satellites")
     ):
         mutated_minimal = copy.deepcopy(parsed_doc)
         mutated_minimal["applied_codemod"] = norm_id
@@ -1003,12 +1003,14 @@ async def _handle_apply_ast_codemod(
     patch_diff = "\n".join(diff_lines)
     if was_applied:
         action_desc = (
-            f"Applied deterministic codemod {args.codemod_id} to target entity '{args.target_entity}'."
+            f"Applied deterministic codemod {args.codemod_id} "
+            f"to target entity '{args.target_entity}'."
         )
         verdict = ObservabilityVerdict.AUTO_REPAIRED
     else:
         action_desc = (
-            f"No matching target entity '{args.target_entity}' or AST change for codemod {args.codemod_id}."
+            f"No matching target entity '{args.target_entity}' "
+            f"or AST change for codemod {args.codemod_id}."
         )
         verdict = ObservabilityVerdict.REJECT_WITH_TRACE
 

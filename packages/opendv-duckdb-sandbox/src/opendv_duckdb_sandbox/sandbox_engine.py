@@ -289,7 +289,7 @@ class DuckDbShadowSandbox:
             )
         else:
             pills = []
-            for hub in (ir_obj.hubs[:2] if ir_obj else []):
+            for hub in ir_obj.hubs[:2] if ir_obj else []:
                 slug = _hub_slug(hub.name)
                 bk_val = f"{slug}-001"
                 digest = compute_dv2_length_prefixed_sha256(
@@ -308,8 +308,10 @@ class DuckDbShadowSandbox:
                     )
                 )
             business_impact = (
-                f"Verified bi-temporal PIT restatement ({bitemporal_proof.prior_ev_ebitda_multiple}x "
-                f"-> {bitemporal_proof.restated_ev_ebitda_multiple}x) for {bitemporal_proof.company_legal_name}."
+                f"Verified bi-temporal PIT restatement "
+                f"({bitemporal_proof.prior_ev_ebitda_multiple}x -> "
+                f"{bitemporal_proof.restated_ev_ebitda_multiple}x) "
+                f"for {bitemporal_proof.company_legal_name}."
             )[:200]
 
         event = VaultObservabilityEvent(

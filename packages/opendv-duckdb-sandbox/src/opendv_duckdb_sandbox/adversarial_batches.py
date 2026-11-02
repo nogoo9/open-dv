@@ -329,8 +329,7 @@ def run_batch_3_delta_and_boundary_shift(
         payload_csv = ", ".join(payload_cols)
         src_payload_csv = ", ".join(f"src.{c}" for c in payload_cols)
         mutated_selects = ",\n                ".join(
-            f"{_satellite_seed_sql_literal(c, 3)} AS {_validate_ident(c.name)}"
-            for c in data_cols
+            f"{_satellite_seed_sql_literal(c, 3)} AS {_validate_ident(c.name)}" for c in data_cols
         )
         app_col = "applied_dts, " if has_applied else ""
         src_app_col = "src.applied_dts, " if has_applied else ""
@@ -555,9 +554,7 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
                 token = f"{ns_label}:{shared_bk}"
             row_tokens.append(token)
             bk_literals.append(f"'{token}'")
-        hk_val = compute_dv2_length_prefixed_sha256(
-            row_tokens, is_business_key=True
-        ).lower()
+        hk_val = compute_dv2_length_prefixed_sha256(row_tokens, is_business_key=True).lower()
         inserted_hks.append(hk_val)
         bk_vals_sql = ", ".join(bk_literals)
         conn.execute(

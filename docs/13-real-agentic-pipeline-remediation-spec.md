@@ -114,20 +114,25 @@ Make all semantic classification fields optional overrides (`default_factory=lis
 class PipelineSourceFeedInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    feed_id: str = Field(min_length=1)
-    source_system: str = Field(min_length=1)
-    table_name: str = Field(min_length=1)
-    file_path: str = Field(min_length=1)
+    feed_id: str | None = None
+    source_system: str
+    table_name: str
+    data_path: str = ""
+    file_path: str | None = None
+    baseline_data_path: str | None = None
+    baseline_file_path: str | None = None
+    key_authority_tier: (
+        Literal["TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR", "TIER_3_LOCAL_SCOPED"] | None
+    ) = None
+    bkcc_namespace: str | None = None
     record_source_code: str | None = None
     target_hub_name: str | None = None
     business_key_columns: list[str] = Field(default_factory=list)
     surrogate_key_columns: list[str] = Field(default_factory=list)
     timestamp_column: str | None = None
-    pii_columns: list[str] = Field(default_factory=list)
-    key_authority_tier: Literal["Tier-1", "Tier-2", "Tier-3"] | None = None
-    bkcc_namespace: str | None = None
-    foreign_key_mappings: list[PipelineForeignKeyMapping] = Field(default_factory=list)
+    foreign_key_mappings: dict[str, str] = Field(default_factory=dict)
     cbc_mapping_hints: dict[str, str] = Field(default_factory=dict)
+    pii_columns: list[str] = Field(default_factory=list)
 ```
 
 #### 2.2 Update `PipelineUnstructuredDocInput` (`pipeline.py:L332-L358`)
@@ -140,37 +145,39 @@ Make `target_hub_name`, `link_name`, `satellite_name`, and `extracted_candidates
 **Target File:** `packages/opendv-agent-harness/src/opendv_agent_harness/pipeline.py`
 
 #### 3.1 Define Strict Pydantic Output Schemas for Each Agent Stage
-Add the following structured output models in `pipeline.py` (or `opendv_core.models.agent_outputs`) and pass them via `AgentTaskSpec.output_schema`:
+Add the following structured output models in `pipeline.py` and pass them via `AgentTaskSpec.output_schema`:
 1. **`Stage00OrchestrationPlanOutput`** (`@vault-first-mate`):
-   - `ordered_wave_ids: list[str]`
-   - `wave_dependencies: dict[str, list[str]]`
-   - `concurrency_strategy: str`
-   - `rationale: str`
-2. **`Stage01SourceDiscoveryOutput`** (`@scout-source`):
-   - Per-feed discovered semantics:
-     - `feed_id: str`
-     - `inferred_target_hub_name: str`
-     - `inferred_cbc_id: str`
-     - `inferred_record_source_code: str`
-     - `inferred_key_authority_tier: Literal["Tier-1", "Tier-2", "Tier-3"]`
-     - `inferred_bkcc_namespace: str`
+   - `wave_execution_order: list[int]`
+   - `risk_assessment: str`
+   - `recommended_max_retries: int`
+2. **`Stage01SourceDiscoveryOutput` & `Stage01FeedDiscoveryItem`** (`@scout-source`):
+   - Per-feed discovered semantics (plus `discovered_feeds: list[Stage01FeedDiscoveryItem]`):
+     - `feed_id: str | None`
+     - `source_system: str | None`
+     - `table_name: str | None`
+     - `record_source_code: str | None`
+     - `target_hub_name: str | None`
      - `business_key_columns: list[str]`
      - `surrogate_key_columns: list[str]`
-     - `timestamp_column: str`
+     - `timestamp_column: str | None`
      - `pii_columns: list[str]`
-     - `foreign_key_mappings: list[PipelineForeignKeyMapping]`
-     - `column_triage_proposals: list[ColumnTriageEntry]`
+     - `key_authority_tier: Literal["TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR", "TIER_3_LOCAL_SCOPED"]`
+     - `bkcc_namespace: str`
+     - `foreign_key_mappings: dict[str, str]`
+     - `cbc_mapping_hints: dict[str, str]`
 3. **`Stage02UnstructuredDiscoveryOutput`** (`@scout-unstructured`):
-   - Per-document discovered extractions:
-     - `doc_id: str`
+   - Per-document discovered extractions (plus `documents: list[dict[str, Any]]`):
+     - `doc_id: str | None`
      - `target_hub_name: str`
-     - `link_name: str`
-     - `satellite_name: str`
-     - `extracted_candidates: list[PipelineUnstructuredCandidate]` (where the agent supplies `entity_mention`, `verbatim_quote`, `target_hub_bk_value`, `attributes`, and `confidence_score`, and Python deterministic post-processing verifies `verbatim_quote` exists in `raw_text`, computes exact `char_start`/`char_end` offsets, and enforces `alg_a9b_unstructured` confidence tiers).
+     - `link_name: str | None`
+     - `satellite_name: str | None`
+     - `extracted_candidates: list[PipelineUnstructuredCandidateInput]` (where the agent supplies `extracted_business_key`, `verbatim_quote`, `target_hub`, `attributes`, and `confidence_score`, and Python deterministic post-processing verifies `verbatim_quote` exists in `raw_text`, computes exact `char_start`/`char_end` offsets, and enforces `alg_a9b_unstructured` confidence tiers).
 4. **`Stage03ColumnTriageOutput`** (`@ship-vault` Pass 1):
    - `column_triage_ledger: list[ColumnTriageEntry]` covering 100% of physical columns across all cumulative structured feeds.
+   - `unmapped_columns: list[str]`
 5. **`Stage04ContractSynthesisOutput`** (`@ship-vault` Pass 2):
-   - `contract: NoMistakeDataVault2ContractV5` (or a structured `WaveContractDelta` that merges into the prior wave's verified `NoMistakeDataVault2ContractV5` while enforcing length-prefixed SHA-256 Zero Keys and Ghost Records).
+   - `contract: NoMistakeDataVault2ContractV5`
+   - `synthesis_rationale: str`
 
 #### 3.2 Stage-by-Stage Execution Wiring in `AgenticVaultPipeline`
 - **In `STAGE_01_SCOUT_SOURCE` (`L1850-L2075`)**:

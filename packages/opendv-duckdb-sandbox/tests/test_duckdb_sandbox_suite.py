@@ -390,10 +390,12 @@ def test_generic_contract_yaml_full_sandbox_verification(tmp_path: Path) -> None
         assert report.dynamic_check_report.all_passed is True
         assert report.dynamic_check_report.passed_count == 15
 
-    # Verify MULTI_ACTIVE satellite sub-sequence PK + bronze_tables CSV hydration + Batch 4 BK/HK parity
+    # Verify MULTI_ACTIVE satellite sub-sequence PK, bronze_tables CSV hydration, and Batch 4 parity
     csv_path = tmp_path / "crm_customers.csv"
     csv_path.write_text(
-        "customer_code,customer_name,tier\nCUST-REAL-101,Acme Global,VIP\nCUST-REAL-202,Beta Corp,STD\n",
+        "customer_code,customer_name,tier\n"
+        "CUST-REAL-101,Acme Global,VIP\n"
+        "CUST-REAL-202,Beta Corp,STD\n",
         encoding="utf-8",
     )
     base_ir = _build_global_commerce_canonical_ir()
@@ -411,12 +413,8 @@ def test_generic_contract_yaml_full_sandbox_verification(tmp_path: Path) -> None
         child_dependent_keys=[
             IRColumnDef(name="tag_seq", data_type="INTEGER", nullable=False),
         ],
-        load_dts_column=IRColumnDef(
-            name="load_dts", data_type="TIMESTAMP_NTZ(9)", nullable=False
-        ),
-        rec_src_column=IRColumnDef(
-            name="rec_src", data_type="VARCHAR(255)", nullable=False
-        ),
+        load_dts_column=IRColumnDef(name="load_dts", data_type="TIMESTAMP_NTZ(9)", nullable=False),
+        rec_src_column=IRColumnDef(name="rec_src", data_type="VARCHAR(255)", nullable=False),
         hash_diff_column=IRHashColumn(
             name="hash_diff",
             data_type="BINARY(32)",
@@ -454,7 +452,8 @@ def test_generic_contract_yaml_full_sandbox_verification(tmp_path: Path) -> None
         cust_bks = {
             str(r[0])
             for r in mas_sbx.conn.execute(
-                "SELECT customer_code FROM raw_vault.hub_customer WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
+                "SELECT customer_code FROM raw_vault.hub_customer "
+                "WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
             ).fetchall()
         }
         assert "CUST-REAL-101" in cust_bks

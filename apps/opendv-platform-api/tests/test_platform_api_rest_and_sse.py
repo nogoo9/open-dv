@@ -946,7 +946,7 @@ def test_wp06_sdk_resolution_and_dynamic_project_run(
     monkeypatch.delenv("CLAUDE_CODE_USE_BEDROCK", raising=False)
     monkeypatch.delenv("OPENDV_ALLOW_MOCK_SDK_SHIM", raising=False)
 
-    # Without OPENDV_ALLOW_MOCK_SDK_SHIM, None is returned; when explicitly enabled, shim is returned
+    # Without OPENDV_ALLOW_MOCK_SDK_SHIM, None is returned; when enabled, shim is returned
     assert _resolve_sdk_shim_if_needed("antigravity") is None
     assert _resolve_sdk_shim_if_needed("claude") is None
     assert (

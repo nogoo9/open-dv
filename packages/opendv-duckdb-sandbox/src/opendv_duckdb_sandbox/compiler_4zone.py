@@ -1832,10 +1832,7 @@ def _satellite_schema(sat: IRSatellite) -> str:
 
 def _satellite_child_key_names(sat: IRSatellite) -> list[str]:
     """Return the sub-sequence column names (`child_dependent_keys`) for `sat`."""
-    return [
-        c.name if hasattr(c, "name") else str(c)
-        for c in (sat.child_dependent_keys or [])
-    ]
+    return [c.name if hasattr(c, "name") else str(c) for c in (sat.child_dependent_keys or [])]
 
 
 def _satellite_all_data_columns(sat: IRSatellite) -> list[IRColumnDef]:
@@ -1900,8 +1897,7 @@ def _effective_pit_tables(ir_obj: CanonicalIR) -> list[IRPitTable]:
                     tracked = [
                         s
                         for s in pit.tracked_satellites
-                        if s in sat_by_name
-                        and sat_by_name[s].parent_entity == pit.parent_entity
+                        if s in sat_by_name and sat_by_name[s].parent_entity == pit.parent_entity
                     ]
                 if tracked:
                     valid_pits.append(
@@ -2130,11 +2126,7 @@ def _resolve_hub_bk_rows_from_bronze(
                 bkcc_val = str(row.get("bkcc") or (sm0.rec_src_value if sm0 else "GLOBAL")).strip()
                 tokens.append(bkcc_val or "GLOBAL")
             else:
-                src_col = (
-                    src_bk_cols[non_bkcc_idx]
-                    if non_bkcc_idx < len(src_bk_cols)
-                    else bk.name
-                )
+                src_col = src_bk_cols[non_bkcc_idx] if non_bkcc_idx < len(src_bk_cols) else bk.name
                 non_bkcc_idx += 1
                 raw_val = row.get(src_col, row.get(bk.name))
                 if raw_val is None or str(raw_val).strip() == "":
@@ -2240,8 +2232,9 @@ def _compile_generic_zone_0_sql(
         bk_defs = [f"    {_validate_ident(bk.name)} VARCHAR," for bk in hub.business_keys]
         bk_rows = hub_bk_rows[hub.name]
         hub_insert_rows = [
-            f"    ({', '.join(chr(39) + v.replace(chr(39), chr(39)*2) + chr(39) for v in row_bks)}, "
-            f"TIMESTAMP '2026-10-01 06:00:00', '{rec_src}')"
+            "    ("
+            + ", ".join(chr(39) + v.replace(chr(39), chr(39) * 2) + chr(39) for v in row_bks)
+            + f", TIMESTAMP '2026-10-01 06:00:00', '{rec_src}')"
             for row_bks in bk_rows
         ]
         parts.append(
@@ -2334,9 +2327,7 @@ def _compile_generic_zone_0_sql(
             for bk in p_hub.business_keys:
                 col_defs.append(f"    parent_bk__{_validate_ident(bk.name)} VARCHAR,")
             for row_bks in hub_bk_rows[p_hub.name]:
-                parent_val_rows.append(
-                    [f"'{v.replace(chr(39), chr(39)*2)}'" for v in row_bks]
-                )
+                parent_val_rows.append([f"'{v.replace(chr(39), chr(39) * 2)}'" for v in row_bks])
             if not sat_source_rows:
                 for sm in p_hub.source_mappings:
                     for key in (
@@ -2388,8 +2379,7 @@ def _compile_generic_zone_0_sql(
         for idx_r, p_vals in enumerate(parent_val_rows):
             src_row = sat_source_rows[idx_r] if idx_r < len(sat_source_rows) else None
             r_payload = [
-                _format_bronze_payload_sql_literal(c, src_row, idx_r + 1)
-                for c in data_cols
+                _format_bronze_payload_sql_literal(c, src_row, idx_r + 1) for c in data_cols
             ]
             r_pay_sql = f", {', '.join(r_payload)}" if r_payload else ""
             insert_rows.append(
@@ -2422,8 +2412,8 @@ def _compile_generic_zone_0_sql(
     # 4. Target Vault DDL + Dual Zero Keys + Ghost Records
     for hub in ir_obj.hubs:
         parts.append(_compile_generic_hub_ddl_and_zero_keys(hub))
-    for ref in ir_obj.reference_tables or []:
-        parts.append(_compile_generic_reference_ddl_and_seed(ref))
+    for ref_tbl in ir_obj.reference_tables or []:
+        parts.append(_compile_generic_reference_ddl_and_seed(ref_tbl))
     for link in ir_obj.links:
         parts.append(_compile_generic_link_ddl_and_zero_keys(link))
     for sat in ir_obj.satellites:

@@ -359,9 +359,7 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
                             res_model.model_dump(mode="json")
                             if hasattr(res_model, "model_dump")
                             else (
-                                res_model
-                                if isinstance(res_model, dict)
-                                else {"result": res_model}
+                                res_model if isinstance(res_model, dict) else {"result": res_model}
                             )
                         )
                         yield make_event(

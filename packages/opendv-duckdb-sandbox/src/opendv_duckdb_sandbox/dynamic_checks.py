@@ -7,6 +7,8 @@ Evaluates the 15 runtime Data Vault 2.0 invariants defined in `docs/03` §7.2 an
 
 from __future__ import annotations
 
+from typing import Any
+
 import duckdb
 from pydantic import BaseModel, ConfigDict, Field
 

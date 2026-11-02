@@ -190,10 +190,7 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
         ]
 
         base_url = self._resolve_base_url()
-        if base_url.endswith("/v1"):
-            url = f"{base_url}/messages"
-        else:
-            url = f"{base_url}/v1/messages"
+        url = f"{base_url}/messages" if base_url.endswith("/v1") else f"{base_url}/v1/messages"
 
         text_chunks: list[str] = []
         in_tok = 0
@@ -313,9 +310,7 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                             res_model.model_dump(mode="json")
                             if hasattr(res_model, "model_dump")
                             else (
-                                res_model
-                                if isinstance(res_model, dict)
-                                else {"result": res_model}
+                                res_model if isinstance(res_model, dict) else {"result": res_model}
                             )
                         )
                         yield make_event(

@@ -344,11 +344,14 @@ class PitQueryEngine:
         hub_tbl = _validate_ident(parent_hub.name)
         hub_hk = _validate_ident(parent_hub.hk_column.name)
         bk_cols = [_validate_ident(bk.name) for bk in parent_hub.business_keys if not bk.is_bkcc]
-        primary_bk_col = bk_cols[0] if bk_cols else _validate_ident(parent_hub.business_keys[0].name)
+        primary_bk_col = (
+            bk_cols[0] if bk_cols else _validate_ident(parent_hub.business_keys[0].name)
+        )
 
         target_row = self.conn.execute(
             f"""
-            SELECT s.{parent_hk}, COALESCE(CAST(h.{primary_bk_col} AS VARCHAR), '{_hub_slug(parent_hub.name)}-001')
+            SELECT s.{parent_hk},
+                   COALESCE(CAST(h.{primary_bk_col} AS VARCHAR), '{_hub_slug(parent_hub.name)}-001')
             FROM {sat_schema}.{sat_tbl} s
             LEFT JOIN raw_vault.{hub_tbl} h ON h.{hub_hk} = s.{parent_hk}
             WHERE s.rec_src <> '{GHOST_REC_SRC}'
@@ -394,9 +397,7 @@ class PitQueryEngine:
             int(restated_state[0]) if restated_state and restated_state[0] is not None else 0
         )
         restated_hash = (
-            str(restated_state[1])
-            if restated_state and restated_state[1] is not None
-            else None
+            str(restated_state[1]) if restated_state and restated_state[1] is not None else None
         )
 
         mart_rows = 0
