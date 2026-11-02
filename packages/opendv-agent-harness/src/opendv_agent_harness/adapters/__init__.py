@@ -2,6 +2,7 @@
 
 Provides:
 - `AgyCliHarnessAdapter`: Antigravity Coding CLI (`agy` / `agy-cli`)
+- `ClaudeCliHarnessAdapter`: Claude Code CLI (`claude-cli` / `claude-code`)
 - `AntigravityHarnessAdapter`: Google Antigravity SDK (`google.antigravity`)
 - `ClaudeAgentHarnessAdapter`: Anthropic Claude Agent SDK (`claude_agent_sdk`)
 - `DeterministicHarnessAdapter`: Internal test-only deterministic mock adapter

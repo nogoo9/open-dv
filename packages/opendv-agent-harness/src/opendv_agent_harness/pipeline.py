@@ -1,8 +1,8 @@
 """End-to-End 8-Stage Neuro-Symbolic Agentic Data Vault 2.0 Pipeline (`WP-14`).
 
 Implements the `vault-first-mate` / `no-mistakes` agentic pipeline over the hexagonal
-`VaultAgentHarness` protocol (`AgyCliHarnessAdapter`, `AntigravityHarnessAdapter`,
-`ClaudeAgentHarnessAdapter`) and deterministic verification
+`VaultAgentHarness` protocol (`AgyCliHarnessAdapter`, `ClaudeCliHarnessAdapter`,
+`AntigravityHarnessAdapter`, `ClaudeAgentHarnessAdapter`) and deterministic verification
 engines (`opendv-core`, `opendv-axi-verifier`, `opendv-duckdb-sandbox`, `opendv-telemetry`).
 
 Provides:

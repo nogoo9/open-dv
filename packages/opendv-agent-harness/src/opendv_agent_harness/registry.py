@@ -52,6 +52,7 @@ def create_agent_harness(
 
     Dispatches:
     - `'agy'` / `'agy-cli'` -> `AgyCliHarnessAdapter`
+    - `'claude-cli'` / `'claude-code'` -> `ClaudeCliHarnessAdapter`
     - `'antigravity'` -> `AntigravityHarnessAdapter`
     - `'claude'` -> `ClaudeAgentHarnessAdapter`
     - Any custom provider registered via `register_harness(...)`
