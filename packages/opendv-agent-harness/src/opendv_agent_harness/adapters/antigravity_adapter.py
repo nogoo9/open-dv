@@ -26,7 +26,7 @@ from opendv_agent_harness.models import (
     ToolExecutionContext,
 )
 from opendv_agent_harness.protocol import BaseVaultAgentHarness
-from opendv_agent_harness.routing import DEFAULT_AGY_MODEL_MAP
+from opendv_agent_harness.routing import DEFAULT_AGY_MODEL_MAP, resolve_provider_model
 from opendv_agent_harness.tools.bridge import to_antigravity_tool_callable
 
 
@@ -88,16 +88,15 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
     def resolve_model(
         self,
         tier: ModelTier,
-        persona: AgentPersona = AgentPersona.VAULT_FIRST_MATE,
+        persona: AgentPersona | None = None,
     ) -> str:
-        """Resolve logical ModelTier ('argon' or 'flash') to a Google Antigravity model ID."""
-        del persona
-        tier_enum = ModelTier(tier)
-        if tier_enum in self._config.model_overrides:
-            return str(self._config.model_overrides[tier_enum])
-        return DEFAULT_AGY_MODEL_MAP.get(
-            tier_enum,
-            DEFAULT_AGY_MODEL_MAP[ModelTier.HIGH_REASONING],
+        """Resolve logical ModelTier ('reasoning'/'fast') and AgentPersona to an Antigravity ID."""
+        return resolve_provider_model(
+            self.provider_name,
+            tier,
+            overrides=self._config.model_overrides,
+            persona=persona,
+            agent_models=self._config.agent_models,
         )
 
     def _resolve_api_key(self) -> str | None:
@@ -433,6 +432,13 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
         model_id: str,
     ) -> AsyncIterator[HarnessStreamEvent]:
         """Stream events from `google.antigravity.Agent` or Gemini REST API fallback."""
+        model_id = (
+            spec.model_override or model_id or self.resolve_model(spec.model_tier, spec.persona)
+        )
+        subagent_models: dict[str, str] = {
+            sub.name: (sub.model_override or self.resolve_model(sub.model_tier, sub.persona))
+            for sub in spec.subagents
+        }
         agy = self._load_sdk()
         if agy is None:
             api_key = self._resolve_api_key()
@@ -441,7 +447,12 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
                     "Missing GEMINI_API_KEY / GOOGLE_API_KEY for Gemini REST execution."
                 )
             async for ev in self._stream_gemini_rest_task(spec, ctx, model_id, api_key):
-                yield ev
+                if ev.kind == HarnessEventKind.TURN_COMPLETE and isinstance(ev.tool_result, dict):
+                    merged_meta = dict(ev.tool_result)
+                    merged_meta["subagent_models"] = subagent_models
+                    yield ev.model_copy(update={"tool_result": merged_meta})
+                else:
+                    yield ev
             return
 
         agy_types = agy.types
@@ -477,21 +488,33 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
             )
             return f"[Tool Execution Error ({type(err).__name__}): {err}]"
 
-        subagent_configs = [
-            agy_types.SubagentConfig(
-                name=sub.name,
-                description=sub.description,
-                capabilities=agy_types.SubagentCapabilities(
-                    agent_behavior=agy_types.AgentBehavior.AUTONOMOUS,
-                    enabled_tools=[
-                        *([] if sub.read_only else ["create_file", "edit_file"]),
-                        *sub.allowed_tool_names,
-                    ],
-                    allowed_subagents=list(sub.allowed_subagents),
-                ),
+        subagent_configs: list[Any] = []
+        for sub in spec.subagents:
+            sub_model = subagent_models[sub.name]
+            sub_caps = agy_types.SubagentCapabilities(
+                agent_behavior=agy_types.AgentBehavior.AUTONOMOUS,
+                enabled_tools=[
+                    *([] if sub.read_only else ["create_file", "edit_file"]),
+                    *sub.allowed_tool_names,
+                ],
+                allowed_subagents=list(sub.allowed_subagents),
             )
-            for sub in spec.subagents
-        ]
+            try:
+                sub_cfg = agy_types.SubagentConfig(
+                    name=sub.name,
+                    description=sub.description,
+                    model=sub_model,
+                    capabilities=sub_caps,
+                )
+            except TypeError:
+                sub_cfg = agy_types.SubagentConfig(
+                    name=sub.name,
+                    description=sub.description,
+                    capabilities=sub_caps,
+                )
+                with contextlib.suppress(Exception):
+                    sub_cfg.model = sub_model
+            subagent_configs.append(sub_cfg)
 
         budget_cfg_cls = getattr(agy_types, "BudgetConfig", None)
         budget_cfg = (
@@ -595,6 +618,7 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
             turn_meta: dict[str, Any] = {
                 "session_id": getattr(agent, "conversation_id", spec.task_id),
                 "structured_output": structured_data,
+                "subagent_models": subagent_models,
             }
             resp_usage = getattr(response, "usage", None)
             if isinstance(resp_usage, dict):

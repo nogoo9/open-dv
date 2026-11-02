@@ -43,7 +43,7 @@ class VaultAgentHarness(Protocol):
     def resolve_model(
         self,
         tier: ModelTier,
-        persona: AgentPersona = AgentPersona.VAULT_FIRST_MATE,
+        persona: AgentPersona | None = None,
     ) -> str: ...
 
     def stream_task(
@@ -81,9 +81,9 @@ class BaseVaultAgentHarness(abc.ABC):
     def resolve_model(
         self,
         tier: ModelTier,
-        persona: AgentPersona = AgentPersona.VAULT_FIRST_MATE,
+        persona: AgentPersona | None = None,
     ) -> str:
-        """Resolve a logical ModelTier and AgentPersona to a concrete vendor model ID."""
+        """Resolve a logical ModelTier and optional AgentPersona to a concrete vendor model ID."""
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -145,7 +145,7 @@ class BaseVaultAgentHarness(abc.ABC):
     ) -> AsyncIterator[HarnessStreamEvent]:
         """Stream real-time HarnessStreamEvent items for the given AgentTaskSpec."""
         ctx = self.build_tool_context(spec)
-        model_id = self.resolve_model(spec.model_tier, spec.persona)
+        model_id = spec.model_override or self.resolve_model(spec.model_tier, spec.persona)
         async for event in self._stream_provider_task(spec, ctx, model_id):
             yield event
 
@@ -156,12 +156,13 @@ class BaseVaultAgentHarness(abc.ABC):
         """Execute a task to completion, aggregating text, tool counts, holds, and output."""
         start_ns = time.perf_counter_ns()
         ctx = self.build_tool_context(spec)
-        model_id = self.resolve_model(spec.model_tier, spec.persona)
+        model_id = spec.model_override or self.resolve_model(spec.model_tier, spec.persona)
         text_chunks: list[str] = []
         tool_call_count = 0
         session_id = spec.resume_session_id or f"sess-{uuid.uuid4().hex[:12]}"
         stop_reason = HarnessStopReason.COMPLETED
         structured_payload: OutputT | dict[str, Any] | None = None
+        subagent_models: dict[str, str] = {}
         usage = HarnessUsageMetrics()
 
         try:
@@ -197,6 +198,10 @@ class BaseVaultAgentHarness(abc.ABC):
                                     structured_payload = raw_struct
                             else:
                                 structured_payload = raw_struct
+                        if "subagent_models" in meta and isinstance(meta["subagent_models"], dict):
+                            subagent_models.update(
+                                {str(k): str(v) for k, v in meta["subagent_models"].items()}
+                            )
                         if "usage" in meta and isinstance(meta["usage"], dict):
                             u = meta["usage"]
                             usage = HarnessUsageMetrics(
@@ -237,6 +242,7 @@ class BaseVaultAgentHarness(abc.ABC):
             usage=usage,
             emitted_events=list(ctx.emitted_events),
             artifacts_written=dict(ctx.artifacts_written),
+            subagent_models=subagent_models,
         )
 
     async def cancel_active_turn(self, task_id: str) -> None:

@@ -41,7 +41,7 @@ SCOUT_SOURCE_SYSTEM_INSTRUCTIONS: str = (
 
 
 def build_scout_source_subagent_spec() -> SubagentSpec:
-    """Build the canonical `SubagentSpec` for the `scout-source` leaf scout (`flash` tier)."""
+    """Build the canonical `SubagentSpec` for the `scout-source` leaf scout (`fast` tier)."""
     profile = get_persona_capability(AgentPersona.SCOUT_SOURCE)
     tool_names = tuple(t.name for t in get_tools_for_persona(AgentPersona.SCOUT_SOURCE))
     return SubagentSpec(
@@ -70,6 +70,7 @@ def build_scout_source_task_spec(
     workbench_view_id: WorkbenchViewId = WorkbenchViewId.WB_02,
     viz_id: VizId = VizId.VIZ_STEP_02,
     model_tier: ModelTier = ModelTier.FAST_TIER,
+    model_override: str | None = None,
     tools: Sequence[AgentToolDefinition[Any, Any]] | None = None,
     subagents: Sequence[SubagentSpec] = (),
     output_schema: type[OutputT] | None = None,
@@ -78,7 +79,7 @@ def build_scout_source_task_spec(
     context_refs: dict[str, str | None] | None = None,
     system_instructions: str = SCOUT_SOURCE_SYSTEM_INSTRUCTIONS,
 ) -> AgentTaskSpec[Any]:
-    """Build an `AgentTaskSpec` for `scout-source` (`STAGE_01_SCOUT_SOURCE`, `flash` tier)."""
+    """Build an `AgentTaskSpec` for `scout-source` (`STAGE_01_SCOUT_SOURCE`, `fast` tier)."""
     eff_trace = trace_id or uuid.uuid4().hex
     eff_tools = (
         tuple(tools)
@@ -96,6 +97,7 @@ def build_scout_source_task_spec(
         "prompt": prompt,
         "system_instructions": system_instructions,
         "model_tier": model_tier,
+        "model_override": model_override,
         "tools": eff_tools,
         "subagents": tuple(subagents),
         "output_schema": output_schema,

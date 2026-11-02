@@ -108,8 +108,8 @@ class DataClassification(StrEnum):
 class ModelTier(StrEnum):
     """Logical model routing tiers decoupled from vendor model IDs."""
 
-    HIGH_REASONING = "argon"  # Deep architectural reasoning, 3-Pass CoT, TOON repair, orchestration
-    FAST_TIER = "flash"  # High-throughput profiling orchestration, PDF span extraction, triage
+    HIGH_REASONING = "reasoning"  # Deep architectural reasoning, 3-Pass CoT, TOON repair
+    FAST_TIER = "fast"  # High-throughput profiling orchestration, PDF span extraction, triage
 
 
 class SandboxPolicy(BaseModel):
@@ -170,7 +170,17 @@ class HarnessConfig(BaseModel):
     app_data_dir: Path
     save_dir: Path
     base_url: str | None = None
-    model_overrides: dict[ModelTier, str] = Field(default_factory=dict)
+    model_overrides: dict[ModelTier, str] = Field(
+        default_factory=dict,
+        description="Semantic tier model overrides keyed by 'reasoning' or 'fast'.",
+    )
+    agent_models: dict[AgentPersona, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional fine-grained per-agent model overrides keyed by AgentPersona "
+            "('vault-first-mate', 'scout-source', 'scout-unstructured', 'ship-vault')."
+        ),
+    )
     budget: HarnessBudget = Field(default_factory=HarnessBudget)
     sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)
     env: dict[str, str] = Field(default_factory=dict)
@@ -183,6 +193,85 @@ class HarnessConfig(BaseModel):
         if not v.is_absolute():
             raise ValueError(f"Path '{v}' must be an expanded absolute path.")
         return v
+
+    @pydantic.field_validator("model_overrides", mode="before")
+    @classmethod
+    def _validate_model_overrides(cls, v: Any) -> dict[ModelTier, str]:
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError(
+                "model_overrides must be a mapping of ModelTier ('reasoning' or 'fast') "
+                "to model ID."
+            )
+        normalized: dict[ModelTier, str] = {}
+        for raw_key, raw_val in v.items():
+            if isinstance(raw_key, ModelTier):
+                tier_key = raw_key
+            elif isinstance(raw_key, str):
+                key_str = raw_key.strip()
+                if key_str in {"argon", "flash"}:
+                    raise ValueError(
+                        f"Legacy model_overrides key '{key_str}' is no longer supported; "
+                        "use semantic tier keys 'reasoning' or 'fast'."
+                    )
+                if key_str in ModelTier.__members__:
+                    tier_key = ModelTier[key_str]
+                else:
+                    try:
+                        tier_key = ModelTier(key_str)
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"Invalid model_overrides key '{raw_key}'; "
+                            "expected 'reasoning' or 'fast'."
+                        ) from exc
+            else:
+                raise ValueError(
+                    f"Invalid model_overrides key '{raw_key}'; expected 'reasoning' or 'fast'."
+                )
+            if not isinstance(raw_val, str) or not raw_val.strip():
+                raise ValueError(
+                    f"model_overrides['{tier_key.value}'] must be a non-empty "
+                    "model identifier string."
+                )
+            normalized[tier_key] = raw_val.strip()
+        return normalized
+
+    @pydantic.field_validator("agent_models", mode="before")
+    @classmethod
+    def _validate_agent_models(cls, v: Any) -> dict[AgentPersona, str]:
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError("agent_models must be a mapping of AgentPersona to model ID.")
+        normalized: dict[AgentPersona, str] = {}
+        for raw_key, raw_val in v.items():
+            if isinstance(raw_key, AgentPersona):
+                persona_key = raw_key
+            elif isinstance(raw_key, str):
+                key_str = raw_key.strip()
+                if key_str in AgentPersona.__members__:
+                    persona_key = AgentPersona[key_str]
+                else:
+                    try:
+                        persona_key = AgentPersona(key_str)
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"Invalid agent_models key '{raw_key}'; expected a valid AgentPersona "
+                            "('vault-first-mate', 'scout-source', "
+                            "'scout-unstructured', 'ship-vault')."
+                        ) from exc
+            else:
+                raise ValueError(
+                    f"Invalid agent_models key '{raw_key}'; expected a valid AgentPersona."
+                )
+            if not isinstance(raw_val, str) or not raw_val.strip():
+                raise ValueError(
+                    f"agent_models['{persona_key.value}'] must be a non-empty "
+                    "model identifier string."
+                )
+            normalized[persona_key] = raw_val.strip()
+        return normalized
 
 
 class ToolExecutionContext:
@@ -302,6 +391,7 @@ class SubagentSpec(BaseModel):
     description: str
     system_instructions: str
     model_tier: ModelTier = ModelTier.FAST_TIER
+    model_override: str | None = Field(default=None)
     allowed_tool_names: tuple[str, ...] = ()
     allowed_subagents: tuple[str, ...] = ()
     read_only: bool = True
@@ -323,6 +413,7 @@ class AgentTaskSpec(BaseModel, Generic[OutputT]):  # noqa: UP046
     prompt: str
     system_instructions: str
     model_tier: ModelTier = ModelTier.HIGH_REASONING
+    model_override: str | None = Field(default=None)
     tools: Sequence[AgentToolDefinition[Any, Any]] = ()
     subagents: Sequence[SubagentSpec] = ()
     output_schema: type[OutputT] | None = None
@@ -420,6 +511,7 @@ class HarnessRunResult(BaseModel, Generic[OutputT]):  # noqa: UP046
     usage: HarnessUsageMetrics = Field(default_factory=HarnessUsageMetrics)
     emitted_events: list[dict[str, Any]] = Field(default_factory=list)
     artifacts_written: dict[str, str] = Field(default_factory=dict)
+    subagent_models: dict[str, str] = Field(default_factory=dict)
 
 
 __all__ = [

@@ -260,6 +260,54 @@ def test_claude_model_tier_resolution_and_strip_mcp_prefix(tmp_path: Path) -> No
     override_adapter = ClaudeAgentHarnessAdapter(override_cfg)
     assert override_adapter.resolve_model(ModelTier.HIGH_REASONING) == "claude-opus-custom"
     assert override_adapter.resolve_model(ModelTier.FAST_TIER) == "claude-sonnet-custom"
+    assert (
+        override_adapter.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.VAULT_FIRST_MATE)
+        == "claude-opus-custom"
+    )
+    assert (
+        override_adapter.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.SHIP_VAULT)
+        == "claude-opus-custom"
+    )
+    assert (
+        override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_SOURCE)
+        == "claude-sonnet-custom"
+    )
+    assert (
+        override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_UNSTRUCTURED)
+        == "claude-sonnet-custom"
+    )
+
+    # Verify per-agent agent_models take precedence over model_overrides
+    agent_override_cfg = _make_claude_config(
+        tmp_path,
+        model_overrides={
+            "reasoning": "claude-opus-custom",
+            "fast": "claude-sonnet-custom",
+        },
+        agent_models={
+            "scout-unstructured": "custom-unstructured-v1",
+            "ship-vault": "custom-ship-v1",
+        },
+    )
+    agent_override_adapter = ClaudeAgentHarnessAdapter(agent_override_cfg)
+    assert (
+        agent_override_adapter.resolve_model(
+            ModelTier.HIGH_REASONING, AgentPersona.VAULT_FIRST_MATE
+        )
+        == "claude-opus-custom"
+    )
+    assert (
+        agent_override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_SOURCE)
+        == "claude-sonnet-custom"
+    )
+    assert (
+        agent_override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_UNSTRUCTURED)
+        == "custom-unstructured-v1"
+    )
+    assert (
+        agent_override_adapter.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.SHIP_VAULT)
+        == "custom-ship-v1"
+    )
 
     # Verify strip_mcp_prefix
     assert (
@@ -562,3 +610,52 @@ async def test_wp04_claude_fail_closed_and_anthropic_rest_api_fallback(
     assert "system" in captured_requests[0]["body"]
     assert "tools" in captured_requests[0]["body"]
     assert captured_requests[0]["body"]["messages"][0]["role"] == "user"
+
+
+@pytest.mark.asyncio
+async def test_wp20_claude_agent_models_propagation_to_options_and_agent_definitions(
+    tmp_path: Path,
+) -> None:
+    fake_sdk, captured = _build_fake_claude_sdk()
+    cfg = _make_claude_config(
+        tmp_path,
+        model_overrides={
+            "reasoning": "claude-tier-reasoning",
+            "fast": "claude-tier-fast",
+        },
+        agent_models={
+            "scout-unstructured": "custom-unstructured-v1",
+            "ship-vault": "custom-ship-v1",
+        },
+    )
+    adapter = ClaudeAgentHarnessAdapter(cfg, sdk_module=fake_sdk)
+
+    vfm_spec = build_vault_first_mate_task_spec(
+        prompt="Orchestrate with Claude agent_models",
+        run_id="run-wp20-claude-01",
+        trace_id=SAMPLE_TRACE_ID,
+        output_schema=_ClaudeStructuredResult,
+    )
+    vfm_res = await adapter.run_task(vfm_spec)
+    assert vfm_res.model_used == "claude-tier-reasoning"
+    assert vfm_res.subagent_models == {
+        "scout-source": "claude-tier-fast",
+        "scout-unstructured": "custom-unstructured-v1",
+        "ship-vault": "custom-ship-v1",
+    }
+
+    opts = captured["options"][-1]
+    assert opts["model"] == "claude-tier-reasoning"
+    agents_map = opts["agents"]
+    assert agents_map["scout-source"].kwargs["model"] == "claude-tier-fast"
+    assert agents_map["scout-unstructured"].kwargs["model"] == "custom-unstructured-v1"
+    assert agents_map["ship-vault"].kwargs["model"] == "custom-ship-v1"
+
+    su_spec = build_scout_unstructured_task_spec(
+        prompt="Extract PDF spans with custom agent model",
+        run_id="run-wp20-claude-02",
+        trace_id=SAMPLE_TRACE_ID,
+    )
+    su_res = await adapter.run_task(su_spec)
+    assert su_res.model_used == "custom-unstructured-v1"
+    assert captured["options"][-1]["model"] == "custom-unstructured-v1"

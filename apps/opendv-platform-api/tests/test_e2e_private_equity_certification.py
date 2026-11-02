@@ -2,10 +2,10 @@
 
 Exercises the complete Open-DV platform lifecycle across Scenes 1-7:
 1. Platform capabilities inspection (`GET /api/v1/platform/capabilities` listing all 12 views
-   `WB-00`..`WB-11`, 6 gates `G0`..`G5`, 5 RBAC tiers, and `argon`/`flash` model tier support)
+   `WB-00`..`WB-11`, 6 gates `G0`..`G5`, 5 RBAC tiers, and `reasoning`/`fast` model tier support)
    & Project creation (`POST /api/v1/projects`).
-2. Pipeline run launch (`POST /api/v1/runs` with `argon`/`flash` tier verification), run inspection,
-   and W3C Server-Sent Events (`GET /api/v1/runs/{run_id}/events`) replay with `Last-Event-ID`.
+2. Pipeline run launch (`POST /api/v1/runs` with `reasoning`/`fast` tier verification),
+   run inspection, and W3C Server-Sent Events (`GET /api/v1/runs/{run_id}/events`) replay.
 3. `Tier-U3` Captain-Hold resolution (`GET/POST /api/v1/runs/{run_id}/decisions`) for
    `Horizon Sovereign Co-Invest Vehicle` (`hold-tier-u3-horizon-sovereign-vehicle`).
 4. 6-Gate closed-loop verification (`GET/POST /api/v1/runs/{run_id}/gates`) covering Gates 0-5
@@ -112,8 +112,8 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
                 "RESTRICTED_PII_CUSTODIAN",
             } <= set(cap_body["rbac_roles"])
             assert {ModelTier.HIGH_REASONING.value, ModelTier.FAST_TIER.value} == {
-                "argon",
-                "flash",
+                "reasoning",
+                "fast",
             }
 
             project_id = "proj-apex-buyout-iv-e2e-cert"
@@ -132,13 +132,13 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             assert project_resp.status_code == 201
             assert project_resp.json()["project_id"] == project_id
 
-            # Verify both flash and argon model_tier_override values are supported
+            # Verify both fast and reasoning model_tier_override values are supported
             flash_run_resp = await client.post(
                 "/api/v1/runs",
                 json={
                     "project_id": project_id,
                     "harness_provider": "deterministic-stub",
-                    "model_tier_override": "flash",
+                    "model_tier_override": "fast",
                     "execute_duckdb_sandbox": True,
                 },
             )
@@ -149,7 +149,7 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
                 json={
                     "project_id": project_id,
                     "harness_provider": "antigravity",
-                    "model_tier_override": "argon",
+                    "model_tier_override": "reasoning",
                     "execute_duckdb_sandbox": True,
                 },
             )

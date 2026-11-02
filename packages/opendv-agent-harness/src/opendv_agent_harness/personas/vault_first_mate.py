@@ -38,8 +38,8 @@ VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS: str = (
     "1. Enforce Hard Rule 1: Read-Only First Mate (`read_only_workspace=True`, "
     "`allow_shell_execution=False`). Never directly edit contracts or author SQL.\n"
     "2. Ground Enterprise Core Business Concepts (`Graph A`) and orchestrate the 3 specialized "
-    "subagents: `scout-source` (`flash`), `scout-unstructured` (`flash`), and "
-    "`ship-vault` (`argon`).\n"
+    "subagents: `scout-source` (`fast`), `scout-unstructured` (`fast`), and "
+    "`ship-vault` (`reasoning`).\n"
     "3. Inspect 6-Gate verification verdicts (`run_axi_dv_gates`), 4-Batch DuckDB Shadow Sandbox "
     "results (`execute_duckdb_sandbox`), and Canonical IR artifacts (`compile_canonical_ir`).\n"
     "4. Escalate `ASK-USER` Captain-Hold decisions (`request_steward_decision`) and record "
@@ -57,7 +57,7 @@ def build_vault_first_mate_subagents() -> tuple[SubagentSpec, ...]:
 
 
 def build_vault_first_mate_subagent_spec() -> SubagentSpec:
-    """Build a `SubagentSpec` descriptor for `vault-first-mate` (`argon` tier)."""
+    """Build a `SubagentSpec` descriptor for `vault-first-mate` (`reasoning` tier)."""
     profile = get_persona_capability(AgentPersona.VAULT_FIRST_MATE)
     tool_names = tuple(t.name for t in get_tools_for_persona(AgentPersona.VAULT_FIRST_MATE))
     return SubagentSpec(
@@ -86,6 +86,7 @@ def build_vault_first_mate_task_spec(
     workbench_view_id: WorkbenchViewId = WorkbenchViewId.WB_00,
     viz_id: VizId = VizId.VIZ_PIPE_00,
     model_tier: ModelTier = ModelTier.HIGH_REASONING,
+    model_override: str | None = None,
     tools: Sequence[AgentToolDefinition[Any, Any]] | None = None,
     subagents: Sequence[SubagentSpec] | None = None,
     output_schema: type[OutputT] | None = None,
@@ -94,7 +95,7 @@ def build_vault_first_mate_task_spec(
     context_refs: dict[str, str | None] | None = None,
     system_instructions: str = VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS,
 ) -> AgentTaskSpec[Any]:
-    """Build an `AgentTaskSpec` for `vault-first-mate` (`STAGE_00_ORCHESTRATION`, `argon` tier)."""
+    """Build an `AgentTaskSpec` for `vault-first-mate` (`STAGE_00`, `reasoning` tier)."""
     eff_trace = trace_id or uuid.uuid4().hex
     eff_tools = (
         tuple(tools)
@@ -115,6 +116,7 @@ def build_vault_first_mate_task_spec(
         "prompt": prompt,
         "system_instructions": system_instructions,
         "model_tier": model_tier,
+        "model_override": model_override,
         "tools": eff_tools,
         "subagents": eff_subagents,
         "output_schema": output_schema,

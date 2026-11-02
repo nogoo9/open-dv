@@ -298,6 +298,54 @@ def test_antigravity_model_tier_resolution_and_overrides(tmp_path: Path) -> None
     override_adapter = AntigravityHarnessAdapter(override_cfg)
     assert override_adapter.resolve_model(ModelTier.HIGH_REASONING) == "gemini-4-argon-ultra-custom"
     assert override_adapter.resolve_model(ModelTier.FAST_TIER) == "gemini-3.8-flash-lite-custom"
+    assert (
+        override_adapter.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.VAULT_FIRST_MATE)
+        == "gemini-4-argon-ultra-custom"
+    )
+    assert (
+        override_adapter.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.SHIP_VAULT)
+        == "gemini-4-argon-ultra-custom"
+    )
+    assert (
+        override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_SOURCE)
+        == "gemini-3.8-flash-lite-custom"
+    )
+    assert (
+        override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_UNSTRUCTURED)
+        == "gemini-3.8-flash-lite-custom"
+    )
+
+    # Verify per-agent agent_models take precedence over model_overrides
+    agent_override_cfg = _make_config(
+        tmp_path,
+        model_overrides={
+            "reasoning": "gemini-4-argon-ultra-custom",
+            "fast": "gemini-3.8-flash-lite-custom",
+        },
+        agent_models={
+            "scout-unstructured": "custom-unstructured-v1",
+            "ship-vault": "custom-ship-v1",
+        },
+    )
+    agent_override_adapter = AntigravityHarnessAdapter(agent_override_cfg)
+    assert (
+        agent_override_adapter.resolve_model(
+            ModelTier.HIGH_REASONING, AgentPersona.VAULT_FIRST_MATE
+        )
+        == "gemini-4-argon-ultra-custom"
+    )
+    assert (
+        agent_override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_SOURCE)
+        == "gemini-3.8-flash-lite-custom"
+    )
+    assert (
+        agent_override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_UNSTRUCTURED)
+        == "custom-unstructured-v1"
+    )
+    assert (
+        agent_override_adapter.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.SHIP_VAULT)
+        == "custom-ship-v1"
+    )
 
 
 def test_antigravity_9_tier_safety_policies_readonly_writable_and_shell_guard(
@@ -806,3 +854,118 @@ async def test_wp11_agy_cli_harness_adapter_subprocess_and_fallback(
     assert "gemini-4-argon-high" in captured_cmds[0]
     assert "--json-schema" in captured_cmds[0]
     assert "__OPENDV_STAGE_CONTEXT_JSON__" not in captured_cmds[0][2]
+
+
+@pytest.mark.asyncio
+async def test_wp20_antigravity_and_agy_cli_agent_models_propagation_to_agents_and_subagents(
+    tmp_path: Path,
+) -> None:
+    import json
+    import subprocess
+
+    fake_sdk, captured = _build_fake_antigravity_sdk()
+    cfg = _make_config(
+        tmp_path,
+        model_overrides={
+            "reasoning": "tier-reasoning-model",
+            "fast": "tier-fast-model",
+        },
+        agent_models={
+            "scout-unstructured": "custom-unstructured-v1",
+            "ship-vault": "custom-ship-v1",
+        },
+    )
+    adapter = AntigravityHarnessAdapter(cfg, sdk_module=fake_sdk)
+
+    vfm_spec = build_vault_first_mate_task_spec(
+        prompt="Orchestrate with fine-grained agent_models",
+        run_id="run-wp20-agy-01",
+        trace_id=SAMPLE_TRACE_ID,
+        output_schema=_SynthesisContractResult,
+    )
+    vfm_res = await adapter.run_task(vfm_spec)
+    assert vfm_res.model_used == "tier-reasoning-model"
+    assert vfm_res.subagent_models == {
+        "scout-source": "tier-fast-model",
+        "scout-unstructured": "custom-unstructured-v1",
+        "ship-vault": "custom-ship-v1",
+    }
+
+    local_cfg = captured["configs"][-1].kwargs
+    assert local_cfg["model"] == "tier-reasoning-model"
+    sub_models_by_name = {s.kwargs["name"]: s.kwargs["model"] for s in local_cfg["subagents"]}
+    assert sub_models_by_name == {
+        "scout-source": "tier-fast-model",
+        "scout-unstructured": "custom-unstructured-v1",
+        "ship-vault": "custom-ship-v1",
+    }
+
+    # Direct task execution for scout-unstructured and ship-vault uses agent_models override
+    su_spec = build_scout_unstructured_task_spec(
+        prompt="Extract spans",
+        run_id="run-wp20-agy-02",
+        trace_id=SAMPLE_TRACE_ID,
+    )
+    su_res = await adapter.run_task(su_spec)
+    assert su_res.model_used == "custom-unstructured-v1"
+    assert captured["configs"][-1].kwargs["model"] == "custom-unstructured-v1"
+
+    sv_spec = build_ship_vault_task_spec(
+        prompt="Compile contract",
+        run_id="run-wp20-agy-03",
+        trace_id=SAMPLE_TRACE_ID,
+    )
+    sv_res = await adapter.run_task(sv_spec)
+    assert sv_res.model_used == "custom-ship-v1"
+    assert captured["configs"][-1].kwargs["model"] == "custom-ship-v1"
+
+    # Also verify AgyCliHarnessAdapter physically passes resolved model to `agy -p --model`
+    fake_agy_exe = tmp_path / "fake_agy_wp20.exe"
+    fake_agy_exe.write_text("echo fake", encoding="utf-8")
+    cli_cmds: list[list[str]] = []
+
+    def _runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        cli_cmds.append(list(cmd))
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "conversation_id": "conv-wp20",
+                    "status": "SUCCESS",
+                    "response": '{"contract_id":"c1","hub_count":1,"verdict":"PASS"}',
+                }
+            ),
+            stderr="",
+        )
+
+    cli_cfg = cfg.model_copy(
+        update={
+            "provider": "agy",
+            "env": {"OPENDV_AGY_CLI_BIN": str(fake_agy_exe)},
+            "extra_provider_options": {"agy_cli_runner": _runner},
+        }
+    )
+    cli_adapter = create_agent_harness(cli_cfg)
+    cli_vfm_res = await cli_adapter.run_task(vfm_spec)
+    assert cli_vfm_res.model_used == "tier-reasoning-model"
+    assert cli_vfm_res.subagent_models == {
+        "scout-source": "tier-fast-model",
+        "scout-unstructured": "custom-unstructured-v1",
+        "ship-vault": "custom-ship-v1",
+    }
+    model_idx = cli_cmds[-1].index("--model")
+    assert cli_cmds[-1][model_idx + 1] == "tier-reasoning-model"
+    assert "scout-unstructured: model=custom-unstructured-v1" in cli_cmds[-1][2]
+    assert "ship-vault: model=custom-ship-v1" in cli_cmds[-1][2]
+
+    cli_su_res = await cli_adapter.run_task(su_spec)
+    assert cli_su_res.model_used == "custom-unstructured-v1"
+    su_model_idx = cli_cmds[-1].index("--model")
+    assert cli_cmds[-1][su_model_idx + 1] == "custom-unstructured-v1"

@@ -1,10 +1,10 @@
 """Persona Specification Builders for the 4 Canonical Open-DV Agent Personas.
 
 Provides task and subagent builders for:
-1. `vault-first-mate` (`argon` supervisor with 3 subagents)
-2. `scout-source` (`flash` leaf scout)
-3. `scout-unstructured` (`flash` leaf scout)
-4. `ship-vault` (`argon` isolated worktree worker)
+1. `vault-first-mate` (`reasoning` supervisor with 3 subagents)
+2. `scout-source` (`fast` leaf scout)
+3. `scout-unstructured` (`fast` leaf scout)
+4. `ship-vault` (`reasoning` isolated worktree worker)
 """
 
 from __future__ import annotations

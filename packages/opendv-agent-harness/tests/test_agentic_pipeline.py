@@ -602,8 +602,8 @@ def test_harness_auth_config_resolution_and_validation(
     agy_sample = HarnessSetupConfig.from_file(sample_dir / "harness_config_antigravity.yaml")
     assert agy_sample.provider == "antigravity"
     assert agy_sample.model_overrides in (
-        {"argon": "gemini-2.5-pro", "flash": "gemini-2.5-flash"},
-        {"argon": "gemini-4-argon-high", "flash": "gemini-3.8-flash-high"},
+        {"reasoning": "gemini-2.5-pro", "fast": "gemini-2.5-flash"},
+        {"reasoning": "gemini-4-argon-high", "fast": "gemini-3.8-flash-high"},
     )
     assert agy_sample.auth.auth_mode == "api_key_env"
     assert agy_sample.auth.api_key_env_var == "GEMINI_API_KEY"
@@ -612,8 +612,8 @@ def test_harness_auth_config_resolution_and_validation(
     claude_sample = HarnessSetupConfig.from_file(sample_dir / "harness_config_claude.yaml")
     assert claude_sample.provider == "claude"
     assert claude_sample.model_overrides == {
-        "argon": "claude-opus-4-6",
-        "flash": "claude-haiku-4-5",
+        "reasoning": "claude-opus-4-6",
+        "fast": "claude-haiku-4-5",
     }
     assert claude_sample.auth.auth_mode == "api_key_env"
     assert claude_sample.auth.api_key_env_var == "ANTHROPIC_API_KEY"
@@ -1247,3 +1247,134 @@ def test_incremental_multi_call_pipeline_evolution(tmp_path: Path) -> None:
         "mas_document_extractions",
     }
     assert len(contract_w3["column_triage_ledger"]) == 24
+
+
+def test_wp20_semantic_model_tiers_agent_models_and_schema_validation(tmp_path: Path) -> None:
+    """Verify WP-20 semantic model_overrides, agent_models, and strict YAML validation."""
+    sample_dir = _sample_dir()
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    wave0_and_3_spec = input_spec.model_copy(
+        update={
+            "waves": [
+                input_spec.waves[0],
+                input_spec.waves[3].model_copy(update={"wave_index": 1}),
+            ]
+        }
+    )
+
+    # 1. Legacy "argon"/"flash" and invalid keys fail with HARNESS_SETUP_INVALID
+    legacy_argon_yaml = tmp_path / "bad_legacy_argon.yaml"
+    legacy_argon_yaml.write_text(
+        "provider: antigravity\n"
+        "model_overrides:\n"
+        "  argon: gemini-4-argon-high\n"
+        "  flash: gemini-3.8-flash-high\n",
+        encoding="utf-8",
+    )
+    legacy_val = validate_pipeline_inputs(
+        wave0_and_3_spec,
+        legacy_argon_yaml,
+        base_dir=sample_dir,
+    )
+    assert legacy_val.passed is False
+    assert any(d["code"] == "HARNESS_SETUP_INVALID" for d in legacy_val.diagnostics)
+
+    bad_tier_yaml = tmp_path / "bad_tier_key.yaml"
+    bad_tier_yaml.write_text(
+        "provider: antigravity\nmodel_overrides:\n  ultra_heavy: gemini-4-argon-high\n",
+        encoding="utf-8",
+    )
+    bad_tier_val = validate_pipeline_inputs(
+        wave0_and_3_spec,
+        bad_tier_yaml,
+        base_dir=sample_dir,
+    )
+    assert bad_tier_val.passed is False
+    assert any(d["code"] == "HARNESS_SETUP_INVALID" for d in bad_tier_val.diagnostics)
+
+    bad_agent_yaml = tmp_path / "bad_agent_key.yaml"
+    bad_agent_yaml.write_text(
+        "provider: claude\n"
+        "model_overrides:\n"
+        "  reasoning: claude-opus-4-6\n"
+        "  fast: claude-haiku-4-5\n"
+        "agent_models:\n"
+        "  rogue-agent: claude-sonnet-4-6\n",
+        encoding="utf-8",
+    )
+    bad_agent_val = validate_pipeline_inputs(
+        wave0_and_3_spec,
+        bad_agent_yaml,
+        base_dir=sample_dir,
+    )
+    assert bad_agent_val.passed is False
+    assert any(d["code"] == "HARNESS_SETUP_INVALID" for d in bad_agent_val.diagnostics)
+
+    # 2. Verify model_overrides routes vault-first-mate & ship-vault to reasoning and scouts to fast
+    tier_setup = HarnessSetupConfig(
+        provider="antigravity",
+        model_overrides={
+            "reasoning": "tier-reasoning-v2",
+            "fast": "tier-fast-v2",
+        },
+        steward_hold_policy="auto_approve_top_candidate",
+    )
+    tier_rep = run_agentic_vault_pipeline(
+        wave0_and_3_spec,
+        tier_setup,
+        output_dir=tmp_path / "out_tier_only",
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert tier_rep.overall_passed is True
+    for step in tier_rep.step_reports:
+        if step.persona in {"vault-first-mate", "ship-vault"}:
+            assert step.model_tier == "reasoning"
+            assert step.model_used == "tier-reasoning-v2"
+        elif step.persona in {"scout-source", "scout-unstructured"}:
+            assert step.model_tier == "fast"
+            assert step.model_used == "tier-fast-v2"
+
+    # 3. Verify agent_models takes precedence over model_overrides in PipelineStepReport.model_used
+    agent_setup = HarnessSetupConfig(
+        provider="claude",
+        model_overrides={
+            "reasoning": "tier-reasoning-v2",
+            "fast": "tier-fast-v2",
+        },
+        agent_models={
+            "scout-unstructured": "custom-unstructured-v1",
+            "ship-vault": "custom-ship-v1",
+        },
+        steward_hold_policy="auto_approve_top_candidate",
+    )
+    agent_rep = run_agentic_vault_pipeline(
+        wave0_and_3_spec,
+        agent_setup,
+        output_dir=tmp_path / "out_agent_models",
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_claude_sdk_shim(),
+    )
+    assert agent_rep.overall_passed is True
+    assert agent_rep.harness_setup["model_overrides"] == {
+        "reasoning": "tier-reasoning-v2",
+        "fast": "tier-fast-v2",
+    }
+    assert agent_rep.harness_setup["agent_models"] == {
+        "scout-unstructured": "custom-unstructured-v1",
+        "ship-vault": "custom-ship-v1",
+    }
+
+    for step in agent_rep.step_reports:
+        if step.persona == "vault-first-mate":
+            assert step.model_tier == "reasoning"
+            assert step.model_used == "tier-reasoning-v2"
+        elif step.persona == "scout-source":
+            assert step.model_tier == "fast"
+            assert step.model_used == "tier-fast-v2"
+        elif step.persona == "scout-unstructured":
+            assert step.model_tier == "fast"
+            assert step.model_used == "custom-unstructured-v1"
+        elif step.persona == "ship-vault":
+            assert step.model_tier == "reasoning"
+            assert step.model_used == "custom-ship-v1"

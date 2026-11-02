@@ -44,7 +44,7 @@ SHIP_VAULT_SYSTEM_INSTRUCTIONS: str = (
 
 
 def build_ship_vault_subagent_spec() -> SubagentSpec:
-    """Build the canonical `SubagentSpec` for the `ship-vault` isolated worker (`argon` tier)."""
+    """Build the canonical `SubagentSpec` for `ship-vault` isolated worker (`reasoning` tier)."""
     profile = get_persona_capability(AgentPersona.SHIP_VAULT)
     tool_names = tuple(t.name for t in get_tools_for_persona(AgentPersona.SHIP_VAULT))
     return SubagentSpec(
@@ -73,6 +73,7 @@ def build_ship_vault_task_spec(
     workbench_view_id: WorkbenchViewId = WorkbenchViewId.WB_04,
     viz_id: VizId = VizId.VIZ_STEP_05,
     model_tier: ModelTier = ModelTier.HIGH_REASONING,
+    model_override: str | None = None,
     tools: Sequence[AgentToolDefinition[Any, Any]] | None = None,
     subagents: Sequence[SubagentSpec] = (),
     output_schema: type[OutputT] | None = None,
@@ -81,7 +82,7 @@ def build_ship_vault_task_spec(
     context_refs: dict[str, str | None] | None = None,
     system_instructions: str = SHIP_VAULT_SYSTEM_INSTRUCTIONS,
 ) -> AgentTaskSpec[Any]:
-    """Build an `AgentTaskSpec` for `ship-vault` (`STAGE_03..STAGE_07`, `argon` tier)."""
+    """Build an `AgentTaskSpec` for `ship-vault` (`STAGE_03..STAGE_07`, `reasoning` tier)."""
     eff_trace = trace_id or uuid.uuid4().hex
     eff_tools = (
         tuple(tools) if tools is not None else tuple(get_tools_for_persona(AgentPersona.SHIP_VAULT))
@@ -97,6 +98,7 @@ def build_ship_vault_task_spec(
         "prompt": prompt,
         "system_instructions": system_instructions,
         "model_tier": model_tier,
+        "model_override": model_override,
         "tools": eff_tools,
         "subagents": tuple(subagents),
         "output_schema": output_schema,

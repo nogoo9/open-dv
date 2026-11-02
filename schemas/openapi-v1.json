@@ -410,8 +410,8 @@
             "anyOf": [
               {
                 "enum": [
-                  "argon",
-                  "flash"
+                  "reasoning",
+                  "fast"
                 ],
                 "type": "string"
               },

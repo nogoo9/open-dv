@@ -185,7 +185,7 @@ class CreateRunRequest(BaseModel):
         "deterministic",
         "deterministic-stub",
     ] = "antigravity"
-    model_tier_override: Literal["argon", "flash"] | None = None
+    model_tier_override: Literal["reasoning", "fast"] | None = None
     contract_path: str | None = None
     pipeline_input_path: str | None = None
     harness_config_path: str | None = None

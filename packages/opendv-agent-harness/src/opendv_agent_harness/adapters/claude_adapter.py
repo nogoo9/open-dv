@@ -25,7 +25,7 @@ from opendv_agent_harness.models import (
     ToolExecutionContext,
 )
 from opendv_agent_harness.protocol import BaseVaultAgentHarness
-from opendv_agent_harness.routing import DEFAULT_CLAUDE_MODEL_MAP
+from opendv_agent_harness.routing import DEFAULT_CLAUDE_MODEL_MAP, resolve_provider_model
 from opendv_agent_harness.tools.bridge import build_claude_sdk_mcp_bundle
 
 
@@ -87,16 +87,15 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
     def resolve_model(
         self,
         tier: ModelTier,
-        persona: AgentPersona = AgentPersona.VAULT_FIRST_MATE,
+        persona: AgentPersona | None = None,
     ) -> str:
-        """Resolve logical ModelTier ('argon' or 'flash') to a Claude model ID."""
-        del persona
-        tier_enum = ModelTier(tier)
-        if tier_enum in self._config.model_overrides:
-            return str(self._config.model_overrides[tier_enum])
-        return DEFAULT_CLAUDE_MODEL_MAP.get(
-            tier_enum,
-            DEFAULT_CLAUDE_MODEL_MAP[ModelTier.HIGH_REASONING],
+        """Resolve logical ModelTier ('reasoning'/'fast') and AgentPersona to a Claude model ID."""
+        return resolve_provider_model(
+            self.provider_name,
+            tier,
+            overrides=self._config.model_overrides,
+            persona=persona,
+            agent_models=self._config.agent_models,
         )
 
     def _resolve_api_key(self) -> str | None:
@@ -383,13 +382,25 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
         model_id: str,
     ) -> AsyncIterator[HarnessStreamEvent]:
         """Stream events from `claude_agent_sdk.ClaudeSDKClient` or Anthropic REST API fallback."""
+        model_id = (
+            spec.model_override or model_id or self.resolve_model(spec.model_tier, spec.persona)
+        )
+        subagent_models: dict[str, str] = {
+            sub.name: (sub.model_override or self.resolve_model(sub.model_tier, sub.persona))
+            for sub in spec.subagents
+        }
         cas = self._load_sdk()
         if cas is None:
             api_key = self._resolve_api_key()
             if api_key is None:
                 raise RuntimeError("Missing ANTHROPIC_API_KEY for Anthropic REST execution.")
             async for ev in self._stream_anthropic_rest_task(spec, ctx, model_id, api_key):
-                yield ev
+                if ev.kind == HarnessEventKind.TURN_COMPLETE and isinstance(ev.tool_result, dict):
+                    merged_meta = dict(ev.tool_result)
+                    merged_meta["subagent_models"] = subagent_models
+                    yield ev.model_copy(update={"tool_result": merged_meta})
+                else:
+                    yield ev
             return
 
         sbx = self._config.sandbox
@@ -451,7 +462,7 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                     *([] if sub.read_only else ["Write", "Edit"]),
                     *[f"mcp__opendv__{t}" for t in sub.allowed_tool_names],
                 ],
-                model=self.resolve_model(sub.model_tier, sub.persona),
+                model=subagent_models[sub.name],
             )
             for sub in spec.subagents
         }
@@ -545,6 +556,7 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                         turn_meta: dict[str, Any] = {
                             "session_id": str(getattr(message, "session_id", session_id)),
                             "structured_output": raw_struct,
+                            "subagent_models": subagent_models,
                         }
                         msg_usage = getattr(message, "usage", None)
                         if isinstance(msg_usage, dict):

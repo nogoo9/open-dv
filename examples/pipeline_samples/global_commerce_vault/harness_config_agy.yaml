@@ -1,7 +1,13 @@
 provider: agy
 model_overrides:
-  argon: gemini-4-argon-high
-  flash: gemini-3.8-flash-high
+  reasoning: gemini-4-argon-high
+  fast: gemini-3.8-flash-high
+# Optional fine-grained per-agent model overrides (take precedence over model_overrides):
+# agent_models:
+#   vault-first-mate: gemini-4-argon-high
+#   scout-source: gemini-3.8-flash-high
+#   scout-unstructured: gemini-3.8-flash-high
+#   ship-vault: gemini-4-argon-high
 auth:
   auth_mode: cli_session
   require_credentials_present: false

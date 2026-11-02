@@ -32,7 +32,7 @@ from opendv_agent_harness.models import (
     ToolExecutionContext,
 )
 from opendv_agent_harness.protocol import BaseVaultAgentHarness
-from opendv_agent_harness.routing import DEFAULT_DETERMINISTIC_MODEL_MAP
+from opendv_agent_harness.routing import DEFAULT_DETERMINISTIC_MODEL_MAP, resolve_provider_model
 
 
 def _validate_candidate_with_schema(schema_cls: type[BaseModel], candidate: Any) -> Any:
@@ -174,16 +174,15 @@ class DeterministicHarnessAdapter(BaseVaultAgentHarness):
     def resolve_model(
         self,
         tier: ModelTier,
-        persona: AgentPersona = AgentPersona.VAULT_FIRST_MATE,
+        persona: AgentPersona | None = None,
     ) -> str:
-        """Resolve logical ModelTier ('argon' or 'flash') to a deterministic model ID."""
-        del persona
-        tier_enum = ModelTier(tier)
-        if tier_enum in self._config.model_overrides:
-            return str(self._config.model_overrides[tier_enum])
-        return DEFAULT_DETERMINISTIC_MODEL_MAP.get(
-            tier_enum,
-            DEFAULT_DETERMINISTIC_MODEL_MAP[ModelTier.HIGH_REASONING],
+        """Resolve logical ModelTier ('reasoning'/'fast') and AgentPersona to a deterministic ID."""
+        return resolve_provider_model(
+            self.provider_name,
+            tier,
+            overrides=self._config.model_overrides,
+            persona=persona,
+            agent_models=self._config.agent_models,
         )
 
     def _resolve_structured_output(self, spec: AgentTaskSpec[OutputT]) -> Any:
@@ -228,6 +227,13 @@ class DeterministicHarnessAdapter(BaseVaultAgentHarness):
         model_id: str,
     ) -> AsyncIterator[HarnessStreamEvent]:
         """Yield deterministic HarnessStreamEvent items for `spec`."""
+        model_id = (
+            spec.model_override or model_id or self.resolve_model(spec.model_tier, spec.persona)
+        )
+        subagent_models: dict[str, str] = {
+            sub.name: (sub.model_override or self.resolve_model(sub.model_tier, sub.persona))
+            for sub in spec.subagents
+        }
         cancelled = False
 
         async def _cancel() -> None:
@@ -332,6 +338,7 @@ class DeterministicHarnessAdapter(BaseVaultAgentHarness):
                 tool_result={
                     "session_id": session_id,
                     "structured_output": structured_out,
+                    "subagent_models": subagent_models,
                     "usage": {
                         "input_tokens": 128,
                         "cached_input_tokens": 32,
@@ -361,6 +368,7 @@ def build_deterministic_agy_sdk_shim() -> Any:
     class _SubagentConfig:
         def __init__(self, **kwargs: Any) -> None:
             self.kwargs = kwargs
+            self.__dict__.update(kwargs)
 
     class _CapabilitiesConfig:
         def __init__(self, **kwargs: Any) -> None:
@@ -540,6 +548,7 @@ def build_deterministic_claude_sdk_shim() -> Any:
     class _AgentDefinition:
         def __init__(self, **kwargs: Any) -> None:
             self.kwargs = kwargs
+            self.__dict__.update(kwargs)
 
     class _ClaudeAgentOptions:
         def __init__(self, **kwargs: Any) -> None:

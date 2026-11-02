@@ -3,7 +3,7 @@
 > **Module:** `docs/11-agent-worker-implementation-plan.md`  
 > **Parent Specification:** [`DV2_AGENT_REFERENCE_GUIDE.md`](DV2_AGENT_REFERENCE_GUIDE.md) (`v6.0.0`)  
 > **Companion Platform Specs:** [`08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) · [`09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md) · [`10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md)  
-> **Scope:** Turnkey, dependency-ordered Work Breakdown Structure (`WP-01` through `WP-12`) for autonomous agent workers (`argon` high-reasoning tier and `flash` fast-execution tier) to build the complete `open-dv` Platform MVP with zero file-ownership collisions.
+> **Scope:** Turnkey, dependency-ordered Work Breakdown Structure (`WP-01` through `WP-12`) for autonomous agent workers (`reasoning` high-reasoning tier and `fast` fast-execution tier) to build the complete `open-dv` Platform MVP with zero file-ownership collisions.
 
 ---
 
@@ -13,18 +13,18 @@ The `open-dv` Platform MVP implementation is partitioned into **12 self-containe
 
 ```mermaid
 flowchart TD
-    WP01["WP-01: Monorepo Toolchain Bootstrap\n(.prototools, .moon/*, uv & bun workspaces)\n[Tier: flash]"]
-    WP02["WP-02: Core Domain, Schemas, ELM & Alg A.5\n(packages/opendv-core)\n[Tier: argon]"]
-    WP03["WP-03: Telemetry Ledger, CAS & 5-Tier RBAC\n(packages/opendv-telemetry)\n[Tier: flash]"]
-    WP04["WP-04: 6-Gate AXI Verifier, Codemods & TOON\n(packages/opendv-axi-verifier)\n[Tier: argon]"]
-    WP05["WP-05: Graph B Profiler, 4-Zone SQL & DuckDB Sandbox\n(packages/opendv-duckdb-sandbox)\n[Tier: argon]"]
-    WP06["WP-06: Agnostic Agent Harness Core & 8 Domain Tools\n(packages/opendv-agent-harness Part 1)\n[Tier: argon]"]
-    WP07["WP-07: Antigravity & Claude SDK Adapters\n(packages/opendv-agent-harness Part 2)\n[Tier: argon]"]
-    WP08["WP-08: Headless Platform REST+SSE API & Unified CLI\n(apps/opendv-platform-api & apps/opendv-cli)\n[Tier: argon]"]
-    WP09["WP-09: Zero-Dep TypeScript Protocol SDK & Replay\n(packages/opendv-protocol-ts)\n[Tier: argon]"]
-    WP10["WP-10: Web Workbench Shell, Theme Engine & Plugins\n(apps/opendv-web-workbench Part 1)\n[Tier: argon]"]
-    WP11["WP-11: Workbench Views Part 1 (WB-00..WB-05)\n(Intake, Profiler, PDF Spans & Cold-Start)\n[Tier: flash]"]
-    WP12["WP-12: Workbench Views Part 2 (WB-06..WB-11) & E2E\n(DAG, YAGNI, TOON, Drift, Sandbox, SQL & E2E)\n[Tier: argon]"]
+    WP01["WP-01: Monorepo Toolchain Bootstrap\n(.prototools, .moon/*, uv & bun workspaces)\n[Tier: fast]"]
+    WP02["WP-02: Core Domain, Schemas, ELM & Alg A.5\n(packages/opendv-core)\n[Tier: reasoning]"]
+    WP03["WP-03: Telemetry Ledger, CAS & 5-Tier RBAC\n(packages/opendv-telemetry)\n[Tier: fast]"]
+    WP04["WP-04: 6-Gate AXI Verifier, Codemods & TOON\n(packages/opendv-axi-verifier)\n[Tier: reasoning]"]
+    WP05["WP-05: Graph B Profiler, 4-Zone SQL & DuckDB Sandbox\n(packages/opendv-duckdb-sandbox)\n[Tier: reasoning]"]
+    WP06["WP-06: Agnostic Agent Harness Core & 8 Domain Tools\n(packages/opendv-agent-harness Part 1)\n[Tier: reasoning]"]
+    WP07["WP-07: Antigravity & Claude SDK Adapters\n(packages/opendv-agent-harness Part 2)\n[Tier: reasoning]"]
+    WP08["WP-08: Headless Platform REST+SSE API & Unified CLI\n(apps/opendv-platform-api & apps/opendv-cli)\n[Tier: reasoning]"]
+    WP09["WP-09: Zero-Dep TypeScript Protocol SDK & Replay\n(packages/opendv-protocol-ts)\n[Tier: reasoning]"]
+    WP10["WP-10: Web Workbench Shell, Theme Engine & Plugins\n(apps/opendv-web-workbench Part 1)\n[Tier: reasoning]"]
+    WP11["WP-11: Workbench Views Part 1 (WB-00..WB-05)\n(Intake, Profiler, PDF Spans & Cold-Start)\n[Tier: fast]"]
+    WP12["WP-12: Workbench Views Part 2 (WB-06..WB-11) & E2E\n(DAG, YAGNI, TOON, Drift, Sandbox, SQL & E2E)\n[Tier: reasoning]"]
 
     WP01 --> WP02
     WP01 --> WP09
@@ -50,18 +50,18 @@ flowchart TD
 
 | Wave | Work Package ID | Target Branch | Scope / Package | Assigned Tier | `blocked-by` |
 | :---: | :--- | :--- | :--- | :---: | :--- |
-| **Wave 1** | **`WP-01`** | `fm/wp01-monorepo-bootstrap` | `.prototools`, `.moon/*`, root `pyproject.toml` & `package.json`, 9 project scaffolds | `flash` | `None` |
-| **Wave 2** | **`WP-02`** | `fm/wp02-opendv-core` | `packages/opendv-core` (Schemas, Contract v5, Canonical IR, ELM Math, Alg A.5) | `argon` | `WP-01` |
-| **Wave 2** | **`WP-09`** | `fm/wp09-protocol-ts-sdk` | `packages/opendv-protocol-ts` (Zero-Dep DTOs, `OpenDVPlatformClient`, `VaultEventStreamClient`, `MockVaultEventStreamClient`) | `argon` | `WP-01` |
-| **Wave 3** | **`WP-03`** | `fm/wp03-opendv-telemetry` | `packages/opendv-telemetry` (`VaultObservabilityEvent` JSONL, CAS, 5-Tier RBAC, Hash Pills) | `flash` | `WP-02` |
-| **Wave 3** | **`WP-10`** | `fm/wp10-web-workbench-shell` | `apps/opendv-web-workbench` (Part 1: React 19 + Vite 6 + Tailwind v4, Theme Engine, 3-Layer Shell, Plugin Registry) | `argon` | `WP-09` |
-| **Wave 4** | **`WP-04`** | `fm/wp04-opendv-axi-verifier` | `packages/opendv-axi-verifier` (Codemods `A.1`–`A.5`, `A.9a`, Gates `A.6`, `A.7`, `A.9b`, `networkx` DAG, `TOON`, `A.8`) | `argon` | `WP-02`, `WP-03` |
-| **Wave 4** | **`WP-06`** | `fm/wp06-agent-harness-core` | `packages/opendv-agent-harness` (Part 1: `VaultAgentHarness` Protocol, 8 Domain Tools, Dual-SDK Tool Bridge, Router) | `argon` | `WP-02`, `WP-03` |
-| **Wave 4** | **`WP-11`** | `fm/wp11-workbench-views-00-05` | `apps/opendv-web-workbench` (Part 2: Views `WB-00` through `WB-05` including `Tier-U3` Captain-Hold Modal) | `flash` | `WP-10` |
-| **Wave 5** | **`WP-05`** | `fm/wp05-opendv-duckdb-sandbox` | `packages/opendv-duckdb-sandbox` (Graph B Profiler, 4-Zone SQL Compiler, 4 Batches, `DV-DYN-001`–`015`, `Query D.10`) | `argon` | `WP-03`, `WP-04` |
-| **Wave 5** | **`WP-07`** | `fm/wp07-agent-harness-adapters` | `packages/opendv-agent-harness` (Part 2: `AntigravityHarnessAdapter`, `ClaudeAgentHarnessAdapter`, Personas) | `argon` | `WP-04`, `WP-06` |
-| **Wave 6** | **`WP-08`** | `fm/wp08-platform-api-and-cli` | `apps/opendv-platform-api` (`/api/v1/*` REST + SSE + OpenAPI 3.1) & `apps/opendv-cli` (`opendv` / `axi-dv`) | `argon` | `WP-05`, `WP-07` |
-| **Wave 7** | **`WP-12`** | `fm/wp12-workbench-views-06-11-e2e` | `apps/opendv-web-workbench` (Part 3: Views `WB-06` through `WB-11`) + Full-Stack E2E Private Equity Certification Suite | `argon` | `WP-08`, `WP-10`, `WP-11` |
+| **Wave 1** | **`WP-01`** | `fm/wp01-monorepo-bootstrap` | `.prototools`, `.moon/*`, root `pyproject.toml` & `package.json`, 9 project scaffolds | `fast` | `None` |
+| **Wave 2** | **`WP-02`** | `fm/wp02-opendv-core` | `packages/opendv-core` (Schemas, Contract v5, Canonical IR, ELM Math, Alg A.5) | `reasoning` | `WP-01` |
+| **Wave 2** | **`WP-09`** | `fm/wp09-protocol-ts-sdk` | `packages/opendv-protocol-ts` (Zero-Dep DTOs, `OpenDVPlatformClient`, `VaultEventStreamClient`, `MockVaultEventStreamClient`) | `reasoning` | `WP-01` |
+| **Wave 3** | **`WP-03`** | `fm/wp03-opendv-telemetry` | `packages/opendv-telemetry` (`VaultObservabilityEvent` JSONL, CAS, 5-Tier RBAC, Hash Pills) | `fast` | `WP-02` |
+| **Wave 3** | **`WP-10`** | `fm/wp10-web-workbench-shell` | `apps/opendv-web-workbench` (Part 1: React 19 + Vite 6 + Tailwind v4, Theme Engine, 3-Layer Shell, Plugin Registry) | `reasoning` | `WP-09` |
+| **Wave 4** | **`WP-04`** | `fm/wp04-opendv-axi-verifier` | `packages/opendv-axi-verifier` (Codemods `A.1`–`A.5`, `A.9a`, Gates `A.6`, `A.7`, `A.9b`, `networkx` DAG, `TOON`, `A.8`) | `reasoning` | `WP-02`, `WP-03` |
+| **Wave 4** | **`WP-06`** | `fm/wp06-agent-harness-core` | `packages/opendv-agent-harness` (Part 1: `VaultAgentHarness` Protocol, 8 Domain Tools, Dual-SDK Tool Bridge, Router) | `reasoning` | `WP-02`, `WP-03` |
+| **Wave 4** | **`WP-11`** | `fm/wp11-workbench-views-00-05` | `apps/opendv-web-workbench` (Part 2: Views `WB-00` through `WB-05` including `Tier-U3` Captain-Hold Modal) | `fast` | `WP-10` |
+| **Wave 5** | **`WP-05`** | `fm/wp05-opendv-duckdb-sandbox` | `packages/opendv-duckdb-sandbox` (Graph B Profiler, 4-Zone SQL Compiler, 4 Batches, `DV-DYN-001`–`015`, `Query D.10`) | `reasoning` | `WP-03`, `WP-04` |
+| **Wave 5** | **`WP-07`** | `fm/wp07-agent-harness-adapters` | `packages/opendv-agent-harness` (Part 2: `AntigravityHarnessAdapter`, `ClaudeAgentHarnessAdapter`, Personas) | `reasoning` | `WP-04`, `WP-06` |
+| **Wave 6** | **`WP-08`** | `fm/wp08-platform-api-and-cli` | `apps/opendv-platform-api` (`/api/v1/*` REST + SSE + OpenAPI 3.1) & `apps/opendv-cli` (`opendv` / `axi-dv`) | `reasoning` | `WP-05`, `WP-07` |
+| **Wave 7** | **`WP-12`** | `fm/wp12-workbench-views-06-11-e2e` | `apps/opendv-web-workbench` (Part 3: Views `WB-06` through `WB-11`) + Full-Stack E2E Private Equity Certification Suite | `reasoning` | `WP-08`, `WP-10`, `WP-11` |
 
 ---
 
@@ -69,7 +69,7 @@ flowchart TD
 
 ### `WP-01`: Monorepo Toolchain Bootstrap (`proto` + `moon` + `uv` + `bun`)
 - **Target Branch / Scope:** `fm/wp01-monorepo-bootstrap` (Root workspace & 9 package scaffolds)
-- **Assigned Agent Tier:** `flash`
+- **Assigned Agent Tier:** `fast`
 - **Prerequisites (`blocked-by`):** `None`
 - **Normative Spec References:** [`docs/08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) (§2–§3)
 - **Exact Files to Create / Modify:**
@@ -94,7 +94,7 @@ flowchart TD
 
 ### `WP-02`: Core Domain, Schemas, ELM Calculus & Algorithm A.5 Hashing (`packages/opendv-core`)
 - **Target Branch / Scope:** `fm/wp02-opendv-core` (`packages/opendv-core`)
-- **Assigned Agent Tier:** `argon`
+- **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-01`
 - **Normative Spec References:** [`docs/01-core-modelling-spec.md`](01-core-modelling-spec.md) (§3–§4), [`docs/02-schema-stability-and-evolution.md`](02-schema-stability-and-evolution.md) (§1–§3), [`docs/05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md) (§1, §3.5), [`docs/08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) (§4.1)
 - **Exact Files to Create / Modify:**
@@ -118,7 +118,7 @@ flowchart TD
 
 ### `WP-03`: Telemetry Ledger, Content-Addressable Store & 5-Tier RBAC Redaction (`packages/opendv-telemetry`)
 - **Target Branch / Scope:** `fm/wp03-opendv-telemetry` (`packages/opendv-telemetry`)
-- **Assigned Agent Tier:** `flash`
+- **Assigned Agent Tier:** `fast`
 - **Prerequisites (`blocked-by`):** `WP-02`
 - **Normative Spec References:** [`docs/06-explainability-and-observability-spec.md`](06-explainability-and-observability-spec.md) (§1), [`docs/08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) (§4.2, §5.2)
 - **Exact Files to Create / Modify:**
@@ -143,7 +143,7 @@ flowchart TD
 
 ### `WP-04`: 6-Gate `axi-dv` Static Verifier, AST Codemods & `TOON` Codec (`packages/opendv-axi-verifier`)
 - **Target Branch / Scope:** `fm/wp04-opendv-axi-verifier` (`packages/opendv-axi-verifier`)
-- **Assigned Agent Tier:** `argon`
+- **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-02`, `WP-03`
 - **Normative Spec References:** [`docs/03-verification-and-agentic-architecture.md`](03-verification-and-agentic-architecture.md) (§1–§3, §6), [`docs/04-unstructured-and-multimodal-dv2.md`](04-unstructured-and-multimodal-dv2.md) (§4.1), [`docs/05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md) (§3.1–§3.9), [`docs/08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) (§4.3)
 - **Exact Files to Create / Modify:**
@@ -165,7 +165,7 @@ flowchart TD
 
 ### `WP-05`: Graph B Profiler, 4-Zone SQL Compiler & 4-Batch Adversarial DuckDB Sandbox (`packages/opendv-duckdb-sandbox`)
 - **Target Branch / Scope:** `fm/wp05-opendv-duckdb-sandbox` (`packages/opendv-duckdb-sandbox`)
-- **Assigned Agent Tier:** `argon`
+- **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-03`, `WP-04`
 - **Normative Spec References:** [`docs/03-verification-and-agentic-architecture.md`](03-verification-and-agentic-architecture.md) (§2, §7), [`docs/05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md) (§3.10), [`docs/07-end-to-end-private-equity-demo.md`](07-end-to-end-private-equity-demo.md) (Scene 6–7), [`docs/08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) (§4.4)
 - **Exact Files to Create / Modify:**
@@ -190,14 +190,14 @@ flowchart TD
 
 ### `WP-06`: Agnostic Agent Harness Core, 8 Domain Tools & Dual-SDK Bridge (`packages/opendv-agent-harness` Part 1)
 - **Target Branch / Scope:** `fm/wp06-agent-harness-core` (`packages/opendv-agent-harness`)
-- **Assigned Agent Tier:** `argon`
+- **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-02`, `WP-03`
 - **Normative Spec References:** [`docs/09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md) (§1–§3, §5)
 - **Exact Files to Create / Modify:**
   - `packages/opendv-agent-harness/src/opendv_agent_harness/__init__.py`
   - `packages/opendv-agent-harness/src/opendv_agent_harness/models.py`
   - `packages/opendv-agent-harness/src/opendv_agent_harness/protocol.py` (`VaultAgentHarness`, `BaseVaultAgentHarness`)
-  - `packages/opendv-agent-harness/src/opendv_agent_harness/routing.py` (`ModelTier` `argon`/`flash` & 4 Persona profiles)
+  - `packages/opendv-agent-harness/src/opendv_agent_harness/routing.py` (`ModelTier` `reasoning`/`fast` & 4 Persona profiles)
   - `packages/opendv-agent-harness/src/opendv_agent_harness/tools/{__init__,base,catalog,bridge}.py`
   - `packages/opendv-agent-harness/src/opendv_agent_harness/telemetry/{__init__,translator}.py`
   - `packages/opendv-agent-harness/tests/test_tool_bridge_and_catalog.py`
@@ -213,7 +213,7 @@ flowchart TD
 
 ### `WP-07`: Google Antigravity Adapter & Claude Agent SDK Adapter (`packages/opendv-agent-harness` Part 2)
 - **Target Branch / Scope:** `fm/wp07-agent-harness-adapters` (`packages/opendv-agent-harness`)
-- **Assigned Agent Tier:** `argon`
+- **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-04`, `WP-06`
 - **Normative Spec References:** [`docs/09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md) (§4–§5)
 - **Exact Files to Create / Modify:**
@@ -234,7 +234,7 @@ flowchart TD
 
 ### `WP-08`: Headless Platform REST + SSE API Server & Unified CLI (`apps/opendv-platform-api` & `apps/opendv-cli`)
 - **Target Branch / Scope:** `fm/wp08-platform-api-and-cli` (`apps/opendv-platform-api` and `apps/opendv-cli`)
-- **Assigned Agent Tier:** `argon`
+- **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-05`, `WP-07`
 - **Normative Spec References:** [`docs/08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) (§4.6, §5)
 - **Exact Files to Create / Modify:**
@@ -258,7 +258,7 @@ flowchart TD
 
 ### `WP-09`: Zero-Dependency TypeScript Protocol SDK & Offline Replay Engine (`packages/opendv-protocol-ts`)
 - **Target Branch / Scope:** `fm/wp09-protocol-ts-sdk` (`packages/opendv-protocol-ts`)
-- **Assigned Agent Tier:** `argon`
+- **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-01`
 - **Normative Spec References:** [`docs/10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) (§2)
 - **Exact Files to Create / Modify:**
@@ -281,7 +281,7 @@ flowchart TD
 
 ### `WP-10`: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin Registry (`apps/opendv-web-workbench` Part 1)
 - **Target Branch / Scope:** `fm/wp10-web-workbench-shell` (`apps/opendv-web-workbench`)
-- **Assigned Agent Tier:** `argon`
+- **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-09`
 - **Normative Spec References:** [`docs/10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) (§1, §3)
 - **Exact Files to Create / Modify:**
@@ -306,7 +306,7 @@ flowchart TD
 
 ### `WP-11`: Workbench Views Part 1 — Intake, Empirical Profiler, PDF Span-Grounding & Cold-Start (`WB-00`–`WB-05`)
 - **Target Branch / Scope:** `fm/wp11-workbench-views-00-05` (`apps/opendv-web-workbench/src/views/wb00..wb05`)
-- **Assigned Agent Tier:** `flash`
+- **Assigned Agent Tier:** `fast`
 - **Prerequisites (`blocked-by`):** `WP-10`
 - **Normative Spec References:** [`docs/06-explainability-and-observability-spec.md`](06-explainability-and-observability-spec.md) (§2–§3), [`docs/10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) (§4)
 - **Exact Files to Create / Modify:**
@@ -330,7 +330,7 @@ flowchart TD
 
 ### `WP-12`: Workbench Views Part 2 (`WB-06`–`WB-11`) & Full-Stack End-to-End Platform Certification
 - **Target Branch / Scope:** `fm/wp12-workbench-views-06-11-e2e` (`apps/opendv-web-workbench/src/views/wb06..wb11` & E2E certification tests)
-- **Assigned Agent Tier:** `argon`
+- **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-08`, `WP-10`, `WP-11`
 - **Normative Spec References:** [`docs/06-explainability-and-observability-spec.md`](06-explainability-and-observability-spec.md) (§2–§3), [`docs/07-end-to-end-private-equity-demo.md`](07-end-to-end-private-equity-demo.md) (Scenes 1–7), [`docs/10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) (§4)
 - **Exact Files to Create / Modify:**
@@ -377,7 +377,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-01",
         branch="fm/wp01-monorepo-bootstrap",
-        tier="flash",
+        tier="fast",
         blocked_by=(),
         owned_paths=(
             ".prototools",
@@ -395,7 +395,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-02",
         branch="fm/wp02-opendv-core",
-        tier="argon",
+        tier="reasoning",
         blocked_by=("WP-01",),
         owned_paths=("packages/opendv-core/",),
         normative_docs=("docs/01-core-modelling-spec.md", "docs/05-elm-calculus-and-reference-algorithms.md", "docs/08-platform-mvp-monorepo-and-api-spec.md"),
@@ -404,7 +404,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-03",
         branch="fm/wp03-opendv-telemetry",
-        tier="flash",
+        tier="fast",
         blocked_by=("WP-02",),
         owned_paths=("packages/opendv-telemetry/",),
         normative_docs=("docs/06-explainability-and-observability-spec.md", "docs/08-platform-mvp-monorepo-and-api-spec.md"),
@@ -413,7 +413,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-04",
         branch="fm/wp04-opendv-axi-verifier",
-        tier="argon",
+        tier="reasoning",
         blocked_by=("WP-02", "WP-03"),
         owned_paths=("packages/opendv-axi-verifier/",),
         normative_docs=("docs/03-verification-and-agentic-architecture.md", "docs/05-elm-calculus-and-reference-algorithms.md", "docs/08-platform-mvp-monorepo-and-api-spec.md"),
@@ -422,7 +422,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-05",
         branch="fm/wp05-opendv-duckdb-sandbox",
-        tier="argon",
+        tier="reasoning",
         blocked_by=("WP-03", "WP-04"),
         owned_paths=("packages/opendv-duckdb-sandbox/",),
         normative_docs=("docs/03-verification-and-agentic-architecture.md", "docs/07-end-to-end-private-equity-demo.md", "docs/08-platform-mvp-monorepo-and-api-spec.md"),
@@ -431,7 +431,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-06",
         branch="fm/wp06-agent-harness-core",
-        tier="argon",
+        tier="reasoning",
         blocked_by=("WP-02", "WP-03"),
         owned_paths=(
             "packages/opendv-agent-harness/src/opendv_agent_harness/__init__.py",
@@ -448,7 +448,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-07",
         branch="fm/wp07-agent-harness-adapters",
-        tier="argon",
+        tier="reasoning",
         blocked_by=("WP-04", "WP-06"),
         owned_paths=(
             "packages/opendv-agent-harness/src/opendv_agent_harness/registry.py",
@@ -464,7 +464,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-08",
         branch="fm/wp08-platform-api-and-cli",
-        tier="argon",
+        tier="reasoning",
         blocked_by=("WP-05", "WP-07"),
         owned_paths=(
             "apps/opendv-platform-api/src/",
@@ -478,7 +478,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-09",
         branch="fm/wp09-protocol-ts-sdk",
-        tier="argon",
+        tier="reasoning",
         blocked_by=("WP-01",),
         owned_paths=("packages/opendv-protocol-ts/",),
         normative_docs=("docs/08-platform-mvp-monorepo-and-api-spec.md", "docs/10-decoupled-ui-workbench-and-theme-spec.md"),
@@ -487,7 +487,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-10",
         branch="fm/wp10-web-workbench-shell",
-        tier="argon",
+        tier="reasoning",
         blocked_by=("WP-09",),
         owned_paths=(
             "apps/opendv-web-workbench/index.html",
@@ -505,7 +505,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-11",
         branch="fm/wp11-workbench-views-00-05",
-        tier="flash",
+        tier="fast",
         blocked_by=("WP-10",),
         owned_paths=(
             "apps/opendv-web-workbench/src/views/wb00/",
@@ -522,7 +522,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
     WorkPackageSpec(
         wp_id="WP-12",
         branch="fm/wp12-workbench-views-06-11-e2e",
-        tier="argon",
+        tier="reasoning",
         blocked_by=("WP-08", "WP-10", "WP-11"),
         owned_paths=(
             "apps/opendv-web-workbench/src/views/wb06/",

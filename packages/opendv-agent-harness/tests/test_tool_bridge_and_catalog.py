@@ -2,7 +2,7 @@
 
 Verifies:
 1. Hexagonal protocol (`VaultAgentHarness`, `BaseVaultAgentHarness`) & domain models (`models.py`)
-2. Model-tier routing (`argon` / `flash`) & `PERSONA_CAPABILITY_MATRIX` (`routing.py`)
+2. Model-tier routing (`reasoning` / `fast`), `agent_models`, & `PERSONA_CAPABILITY_MATRIX`
 3. All 8 canonical domain tools, Pydantic v2 validation, CAS writes, and RBAC persona gating
 4. Dual-SDK Tool Bridge (`to_antigravity_tool_callable` & `build_claude_sdk_mcp_bundle`)
 5. Real-time telemetry translation (`HarnessTelemetryTranslator`, `VaultLedgerEmitter`)
@@ -119,9 +119,9 @@ def test_harness_config_requires_absolute_paths(tmp_path: Path) -> None:
         )
 
 
-def test_model_tier_routing_and_persona_capability_matrix() -> None:
-    assert ModelTier.HIGH_REASONING.value == "argon"
-    assert ModelTier.FAST_TIER.value == "flash"
+def test_model_tier_routing_and_persona_capability_matrix(tmp_path: Path) -> None:
+    assert ModelTier.HIGH_REASONING.value == "reasoning"
+    assert ModelTier.FAST_TIER.value == "fast"
 
     assert DEFAULT_AGY_MODEL_MAP[ModelTier.HIGH_REASONING] == "gemini-4-argon-high"
     assert DEFAULT_AGY_MODEL_MAP[ModelTier.FAST_TIER] == "gemini-3.8-flash-high"
@@ -138,6 +138,33 @@ def test_model_tier_routing_and_persona_capability_matrix() -> None:
         )
         == "custom-flash-v2"
     )
+    # 3-level resolution precedence: agent_models > model_overrides > provider default
+    assert (
+        resolve_provider_model(
+            "antigravity",
+            ModelTier.FAST_TIER,
+            overrides={ModelTier.FAST_TIER: "custom-flash-v2"},
+            persona=AgentPersona.SCOUT_UNSTRUCTURED,
+            agent_models={AgentPersona.SCOUT_UNSTRUCTURED: "custom-unstructured-v1"},
+        )
+        == "custom-unstructured-v1"
+    )
+    assert (
+        resolve_provider_model(
+            "claude",
+            ModelTier.HIGH_REASONING,
+            overrides={"reasoning": "claude-opus-tier-override"},
+            persona="ship-vault",
+            agent_models={"ship-vault": "claude-ship-vault-pin"},
+        )
+        == "claude-ship-vault-pin"
+    )
+
+    # HarnessConfig rejects legacy "argon" / "flash" and unknown agent_models keys
+    with pytest.raises(pydantic.ValidationError, match="Legacy model_overrides key"):
+        _make_harness_config(tmp_path, model_overrides={"argon": "gemini-4-argon-high"})
+    with pytest.raises(pydantic.ValidationError, match="Invalid agent_models key"):
+        _make_harness_config(tmp_path, agent_models={"unknown-agent": "gemini-4-argon-high"})
 
     assert (
         resolve_default_tier_for_persona(AgentPersona.VAULT_FIRST_MATE) == ModelTier.HIGH_REASONING
