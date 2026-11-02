@@ -6,7 +6,7 @@ Implements the `vault-first-mate` / `no-mistakes` agentic pipeline over the hexa
 `opendv-axi-verifier`, `opendv-duckdb-sandbox`, `opendv-telemetry`).
 
 Provides:
-- Input & Setup models: `HarnessSetupConfig`, `PipelineSourceFeedInput`,
+- Input & Setup models: `HarnessAuthConfig`, `HarnessSetupConfig`, `PipelineSourceFeedInput`,
   `PipelineUnstructuredCandidateInput`, `PipelineUnstructuredDocInput`,
   `PipelineWaveInput`, `PipelineInputSpec`
 - Output & Report models: `DeterministicValidationReport`, `PipelineArtifactRef`,
@@ -23,6 +23,7 @@ import asyncio
 import copy
 import hashlib
 import json
+import os
 import re
 import tempfile
 import time
@@ -107,6 +108,29 @@ def _load_yaml_or_json(path: str | Path) -> dict[str, Any]:
     return loaded
 
 
+def _first_non_empty(*values: str | None) -> str | None:
+    for val in values:
+        if val is not None and str(val).strip():
+            return str(val)
+    return None
+
+
+class HarnessAuthConfig(BaseModel):
+    """Declarative authentication and cloud provider options for a `VaultAgentHarness`."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    auth_mode: Literal["none", "api_key_env", "vertex_adc", "aws_bedrock", "cli_session"] = "none"
+    api_key_env_var: str | None = None
+    api_base_url: str | None = None
+    gcp_project: str | None = None
+    gcp_location: str | None = None
+    gcp_credentials_path: str | None = None
+    aws_region: str | None = None
+    aws_profile: str | None = None
+    require_credentials_present: bool = False
+
+
 class HarnessSetupConfig(BaseModel):
     """Configuration for setting up the `VaultAgentHarness` and self-healing policies."""
 
@@ -121,12 +145,15 @@ class HarnessSetupConfig(BaseModel):
             "flash": "gemini-2.5-flash",
         }
     )
+    auth: HarnessAuthConfig = Field(default_factory=HarnessAuthConfig)
     budget: HarnessBudget = Field(default_factory=HarnessBudget)
     sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)
     steward_hold_policy: Literal["pause", "auto_approve_top_candidate", "reject_on_hold"] = (
         "auto_approve_top_candidate"
     )
     inject_adversarial_fault_on_attempt_1: bool = True
+    env: dict[str, str] = Field(default_factory=dict)
+    extra_provider_options: dict[str, Any] = Field(default_factory=dict)
 
     def to_harness_config(
         self,
@@ -157,6 +184,103 @@ class HarnessSetupConfig(BaseModel):
             elif k in {ModelTier.FAST_TIER.value, "FAST_TIER"}:
                 tier_overrides[ModelTier.FAST_TIER] = str(v)
 
+        resolved_env: dict[str, str] = dict(self.env)
+        if self.auth.auth_mode == "api_key_env":
+            env_var_name = self.auth.api_key_env_var or (
+                "ANTHROPIC_API_KEY" if self.provider == "claude" else "GEMINI_API_KEY"
+            )
+            resolved_key = _first_non_empty(
+                resolved_env.get(env_var_name),
+                os.environ.get(env_var_name),
+            )
+            if resolved_key:
+                resolved_env[env_var_name] = resolved_key
+                if self.provider == "claude":
+                    resolved_env.setdefault("ANTHROPIC_API_KEY", resolved_key)
+                elif self.provider == "antigravity":
+                    resolved_env.setdefault("GEMINI_API_KEY", resolved_key)
+                    resolved_env.setdefault("GOOGLE_API_KEY", resolved_key)
+            if (
+                self.provider == "antigravity"
+                and "GEMINI_API_KEY" in resolved_env
+                and "GOOGLE_API_KEY" not in resolved_env
+            ):
+                resolved_env["GOOGLE_API_KEY"] = resolved_env["GEMINI_API_KEY"]
+        elif self.auth.auth_mode == "vertex_adc":
+            gcp_project = _first_non_empty(
+                self.auth.gcp_project,
+                resolved_env.get("ANTHROPIC_VERTEX_PROJECT_ID")
+                if self.provider == "claude"
+                else resolved_env.get("GOOGLE_CLOUD_PROJECT"),
+                resolved_env.get("GOOGLE_CLOUD_PROJECT")
+                if self.provider == "claude"
+                else resolved_env.get("ANTHROPIC_VERTEX_PROJECT_ID"),
+                os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID")
+                if self.provider == "claude"
+                else os.environ.get("GOOGLE_CLOUD_PROJECT"),
+                os.environ.get("GOOGLE_CLOUD_PROJECT")
+                if self.provider == "claude"
+                else os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"),
+            )
+            gcp_location = _first_non_empty(
+                self.auth.gcp_location,
+                resolved_env.get("CLOUD_ML_REGION")
+                if self.provider == "claude"
+                else resolved_env.get("GOOGLE_CLOUD_LOCATION"),
+                resolved_env.get("GOOGLE_CLOUD_LOCATION")
+                if self.provider == "claude"
+                else resolved_env.get("CLOUD_ML_REGION"),
+                os.environ.get("CLOUD_ML_REGION")
+                if self.provider == "claude"
+                else os.environ.get("GOOGLE_CLOUD_LOCATION"),
+                os.environ.get("GOOGLE_CLOUD_LOCATION")
+                if self.provider == "claude"
+                else os.environ.get("CLOUD_ML_REGION"),
+            )
+            gcp_credentials_path = _first_non_empty(
+                self.auth.gcp_credentials_path,
+                resolved_env.get("GOOGLE_APPLICATION_CREDENTIALS"),
+                os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"),
+            )
+            if self.provider == "claude":
+                resolved_env["CLAUDE_CODE_USE_VERTEX"] = "1"
+                if gcp_project:
+                    resolved_env["ANTHROPIC_VERTEX_PROJECT_ID"] = gcp_project
+                if gcp_location:
+                    resolved_env["CLOUD_ML_REGION"] = gcp_location
+            else:
+                resolved_env["GOOGLE_GENAI_USE_VERTEXAI"] = "true"
+                if gcp_project:
+                    resolved_env["GOOGLE_CLOUD_PROJECT"] = gcp_project
+                if gcp_location:
+                    resolved_env["GOOGLE_CLOUD_LOCATION"] = gcp_location
+            if gcp_credentials_path:
+                resolved_env["GOOGLE_APPLICATION_CREDENTIALS"] = gcp_credentials_path
+        elif self.auth.auth_mode == "aws_bedrock" and self.provider == "claude":
+            resolved_env["CLAUDE_CODE_USE_BEDROCK"] = "1"
+            aws_region = _first_non_empty(
+                self.auth.aws_region,
+                resolved_env.get("AWS_REGION"),
+                resolved_env.get("AWS_DEFAULT_REGION"),
+                os.environ.get("AWS_REGION"),
+                os.environ.get("AWS_DEFAULT_REGION"),
+            )
+            aws_profile = _first_non_empty(
+                self.auth.aws_profile,
+                resolved_env.get("AWS_PROFILE"),
+                os.environ.get("AWS_PROFILE"),
+            )
+            if aws_region:
+                resolved_env["AWS_REGION"] = aws_region
+            if aws_profile:
+                resolved_env["AWS_PROFILE"] = aws_profile
+
+        if self.auth.api_base_url:
+            if self.provider == "claude":
+                resolved_env["ANTHROPIC_BASE_URL"] = self.auth.api_base_url
+            else:
+                resolved_env["GOOGLE_GEMINI_BASE_URL"] = self.auth.api_base_url
+
         return HarnessConfig(
             provider=self.provider,
             workspace_dir=eff_ws,
@@ -166,7 +290,17 @@ class HarnessSetupConfig(BaseModel):
             model_overrides=tier_overrides,
             budget=self.budget,
             sandbox=self.sandbox,
+            env=resolved_env,
+            extra_provider_options=dict(self.extra_provider_options),
         )
+
+    def to_summary_dict(self) -> dict[str, Any]:
+        """Serialize setup metadata for `report.harness_setup` without exposing secret values."""
+        d = self.model_dump(mode="json")
+        d["auth_mode"] = self.auth.auth_mode
+        d["api_key_env_var"] = self.auth.api_key_env_var
+        d["env"] = {k: "[REDACTED]" for k in self.env}
+        return d
 
     @classmethod
     def from_file(cls, path: str | Path) -> HarnessSetupConfig:
@@ -502,6 +636,7 @@ def validate_pipeline_inputs(
     else:
         setup_obj = harness_setup
 
+    resolved_harness_env: dict[str, str] = {}
     if setup_obj.provider not in list_available_harnesses():
         diagnostics.append(
             {
@@ -513,7 +648,9 @@ def validate_pipeline_inputs(
         )
     else:
         try:
-            _ = get_harness_adapter(setup_obj.to_harness_config(workspace_dir=ws_root))
+            runtime_cfg = setup_obj.to_harness_config(workspace_dir=ws_root)
+            resolved_harness_env = runtime_cfg.env
+            _ = get_harness_adapter(runtime_cfg)
         except Exception as exc:
             diagnostics.append(
                 {
@@ -523,6 +660,74 @@ def validate_pipeline_inputs(
                     "message": str(exc),
                 }
             )
+
+    if setup_obj.auth.auth_mode == "aws_bedrock" and setup_obj.provider != "claude":
+        diagnostics.append(
+            {
+                "code": "HARNESS_AUTH_INCOMPATIBLE",
+                "severity": "ERROR",
+                "target": "harness_setup.auth.auth_mode",
+                "message": (
+                    f"Auth mode 'aws_bedrock' is only supported for provider 'claude', "
+                    f"got provider '{setup_obj.provider}'."
+                ),
+            }
+        )
+
+    if setup_obj.auth.require_credentials_present:
+        if setup_obj.auth.auth_mode == "api_key_env":
+            target_var = setup_obj.auth.api_key_env_var or (
+                "ANTHROPIC_API_KEY" if setup_obj.provider == "claude" else "GEMINI_API_KEY"
+            )
+            key_val = _first_non_empty(resolved_harness_env.get(target_var))
+            if not key_val:
+                diagnostics.append(
+                    {
+                        "code": "HARNESS_AUTH_MISSING",
+                        "severity": "ERROR",
+                        "target": f"harness_setup.auth.api_key_env_var:{target_var}",
+                        "message": (
+                            f"Required API key environment variable '{target_var}' is missing "
+                            f"or empty in os.environ and harness_setup.env."
+                        ),
+                    }
+                )
+        elif setup_obj.auth.auth_mode == "vertex_adc":
+            proj_var = (
+                "ANTHROPIC_VERTEX_PROJECT_ID"
+                if setup_obj.provider == "claude"
+                else "GOOGLE_CLOUD_PROJECT"
+            )
+            proj_val = _first_non_empty(resolved_harness_env.get(proj_var))
+            if not proj_val:
+                diagnostics.append(
+                    {
+                        "code": "HARNESS_AUTH_MISSING",
+                        "severity": "ERROR",
+                        "target": "harness_setup.auth.gcp_project",
+                        "message": (
+                            "Vertex AI ADC auth requires 'gcp_project' (or GOOGLE_CLOUD_PROJECT / "
+                            "ANTHROPIC_VERTEX_PROJECT_ID) when require_credentials_present=True."
+                        ),
+                    }
+                )
+        elif setup_obj.auth.auth_mode == "aws_bedrock":
+            region_val = _first_non_empty(
+                resolved_harness_env.get("AWS_REGION"),
+                setup_obj.auth.aws_region,
+            )
+            if not region_val:
+                diagnostics.append(
+                    {
+                        "code": "HARNESS_AUTH_MISSING",
+                        "severity": "ERROR",
+                        "target": "harness_setup.auth.aws_region",
+                        "message": (
+                            "AWS Bedrock auth requires 'aws_region' (or AWS_REGION) "
+                            "when require_credentials_present=True."
+                        ),
+                    }
+                )
 
     # 3. Validate Graph A Ontology path & schema
     checked_items += 1
@@ -1519,7 +1724,7 @@ class AgenticVaultPipeline:
                 started_at=started_at,
                 completed_at=completed_at,
                 total_duration_ms=total_ms,
-                harness_setup=self.harness_setup.model_dump(mode="json"),
+                harness_setup=self.harness_setup.to_summary_dict(),
                 input_validation=input_val,
                 output_validation=empty_out_val,
                 wave_reports=wave_reports,
@@ -3004,7 +3209,7 @@ class AgenticVaultPipeline:
             started_at=started_at,
             completed_at=completed_at,
             total_duration_ms=total_ms,
-            harness_setup=self.harness_setup.model_dump(mode="json"),
+            harness_setup=self.harness_setup.to_summary_dict(),
             input_validation=input_val,
             output_validation=DeterministicValidationReport(
                 stage="OUTPUT_VALIDATION",
@@ -3629,6 +3834,7 @@ __all__ = [
     "AgenticPipelineReport",
     "AgenticVaultPipeline",
     "DeterministicValidationReport",
+    "HarnessAuthConfig",
     "HarnessSetupConfig",
     "PipelineArtifactRef",
     "PipelineInputSpec",

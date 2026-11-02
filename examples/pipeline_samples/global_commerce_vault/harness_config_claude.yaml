@@ -1,0 +1,57 @@
+# ==============================================================================
+# Open-DV Agent Harness Configuration — Anthropic Claude (`claude_agent_sdk`)
+# ==============================================================================
+# Usage:
+#   export ANTHROPIC_API_KEY="sk-ant-..."
+#   uv run opendv pipeline validate \
+#     --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml \
+#     --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_claude.yaml
+# ==============================================================================
+
+provider: claude
+
+model_overrides:
+  argon: claude-opus-4-6
+  flash: claude-haiku-4-5
+
+auth:
+  # Option 1: Direct Anthropic API Key from environment variable
+  auth_mode: api_key_env
+  api_key_env_var: ANTHROPIC_API_KEY
+  # api_base_url: "https://api.anthropic.com"
+  require_credentials_present: false
+
+  # Option 2: AWS Bedrock IAM / SSO Credentials (`CLAUDE_CODE_USE_BEDROCK=1`)
+  # auth_mode: aws_bedrock
+  # aws_region: "us-east-1"
+  # aws_profile: "enterprise-bedrock-sso"
+  # require_credentials_present: true
+
+  # Option 3: Google Cloud Vertex AI Partner Endpoint (`CLAUDE_CODE_USE_VERTEX=1`)
+  # auth_mode: vertex_adc
+  # gcp_project: "your-gcp-project-id"
+  # gcp_location: "us-east5"
+  # gcp_credentials_path: "/path/to/service-account-key.json"
+  # require_credentials_present: true
+
+  # Option 4: Local Authenticated Claude Code CLI Session (`claude login`)
+  # auth_mode: cli_session
+  # require_credentials_present: false
+
+budget:
+  max_turns: 12
+  max_model_calls: 20
+  max_tool_calls: 40
+  max_input_tokens: 200000
+  max_output_tokens: 32000
+  max_total_tokens: 232000
+  max_cost_usd: 5.0
+  timeout_seconds: 300.0
+  max_schema_validation_retries: 3
+
+sandbox:
+  read_only_workspace: true
+  allow_shell_execution: false
+
+steward_hold_policy: auto_approve_top_candidate
+inject_adversarial_fault_on_attempt_1: true

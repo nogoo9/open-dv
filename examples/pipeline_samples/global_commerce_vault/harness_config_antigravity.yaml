@@ -1,0 +1,51 @@
+# ==============================================================================
+# Open-DV Agent Harness Configuration — Google Antigravity (`google.antigravity`)
+# ==============================================================================
+# Usage:
+#   export GEMINI_API_KEY="your-gemini-api-key"
+#   uv run opendv pipeline validate \
+#     --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml \
+#     --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_antigravity.yaml
+# ==============================================================================
+
+provider: antigravity
+
+model_overrides:
+  argon: gemini-2.5-pro
+  flash: gemini-2.5-flash
+
+auth:
+  # Option 1: Direct Gemini / Google AI Studio API Key from environment variable
+  auth_mode: api_key_env
+  api_key_env_var: GEMINI_API_KEY
+  # api_base_url: "https://generativelanguage.googleapis.com"
+  require_credentials_present: false
+
+  # Option 2: Google Cloud Vertex AI Application Default Credentials (ADC)
+  # auth_mode: vertex_adc
+  # gcp_project: "your-gcp-project-id"
+  # gcp_location: "us-central1"
+  # gcp_credentials_path: "/path/to/service-account-key.json"
+  # require_credentials_present: true
+
+  # Option 3: Local Authenticated Antigravity CLI Session (`agy auth login`)
+  # auth_mode: cli_session
+  # require_credentials_present: false
+
+budget:
+  max_turns: 12
+  max_model_calls: 20
+  max_tool_calls: 40
+  max_input_tokens: 200000
+  max_output_tokens: 32000
+  max_total_tokens: 232000
+  max_cost_usd: 5.0
+  timeout_seconds: 300.0
+  max_schema_validation_retries: 3
+
+sandbox:
+  read_only_workspace: true
+  allow_shell_execution: false
+
+steward_hold_policy: auto_approve_top_candidate
+inject_adversarial_fault_on_attempt_1: true
