@@ -316,7 +316,7 @@ In production Data Vault 2.0 operations, schema evolution does not happen inside
 
 ---
 
-### WP-09: End-to-End CLI Guide & Reference Documentation for Subsequent-CLI Evolution & Antigravity `gemini-4-argon-high` / `gemini-3.8-flash-high` Models (`README.md`, `docs/12`, `docs/13`)
+### WP-09: End-to-End CLI Guide & Reference Documentation for Subsequent-CLI Evolution, Semantic Model Tiers (`reasoning` / `fast`), & Per-Agent Model Routing (`agent_models`) (`README.md`, `docs/12`, `docs/13`)
 
 **Target Files:**
 - `README.md`
@@ -325,7 +325,7 @@ In production Data Vault 2.0 operations, schema evolution does not happen inside
 
 1. Document why production Data Vault 2.0 schema evolution executes as **subsequent CLI calls** referencing `--initial-contract <prev_final_contract.yaml>` rather than a single 1-pass run.
 2. Provide copy-pasteable 4-call CLI sequences (`wave0_cold_start.yaml` $\to$ `wave1_incremental_billing.yaml` $\to$ `wave2_schema_drift.yaml` $\to$ `wave3_unstructured_msa.yaml`) and a per-call schema evolution summary table in `README.md` and `docs/12-agentic-pipeline-inputs-and-harness-guide.md` (`§3.3`).
-3. Update Antigravity harness configuration documentation (`§1.1`, `§1.2`, `§1.6`, `§5.3`) to reflect `argon: gemini-4-argon-high` and `flash: gemini-3.8-flash-high`.
+3. Update harness configuration documentation (`§1.1`, `§1.2`, `§1.6`, `§5.3`) to reflect semantic `model_overrides` keys (`reasoning: gemini-4-argon-high` and `fast: gemini-3.8-flash-high` for Antigravity; `reasoning: claude-opus-4-6` and `fast: claude-haiku-4-5` for Claude), optional per-agent `agent_models` overrides (`vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`) with 3-level resolution precedence, and production-only CLI/API harness providers (`agy` / `agy-cli`, `antigravity`, and `claude`).
 
 ---
 
@@ -354,7 +354,7 @@ After implementing `WP-01` through `WP-10`, run the following verification suite
 
 1. **Zero Pre-Baked Hints & 4-Call Incremental Chain Test (`global_commerce_vault`)**:
    - Execute the 4 sequential CLI calls (`wave0_cold_start.yaml` $\to$ `wave1_incremental_billing.yaml` $\to$ `wave2_schema_drift.yaml` $\to$ `wave3_unstructured_msa.yaml`) chaining each run's `final_contract.yaml` via `--initial-contract`.
-   - Also run the combined `opendv pipeline run --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml --output-dir /tmp/gcv_real_run --provider antigravity` (or `--provider claude` / `--provider deterministic`).
+   - Also run the combined `opendv pipeline run --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml --output-dir /tmp/gcv_real_run --provider agy` (or `--provider antigravity` / `--provider claude`; `DeterministicHarnessAdapter` is reserved strictly for internal `pytest` unit/integration mocking and is rejected by the CLI and API).
    - Verify that:
      - `@scout-source` infers Business Keys, Surrogate Keys, Foreign Keys, and `PII` columns (`sat_customer_pii`) via `GraphBProfiler` + `GraphAOntology`.
      - `@scout-unstructured` reads the raw MSA document, extracts verbatim quotes, computes exact `char_start`/`char_end` offsets, and routes `Tier-U1` and `Tier-U3` candidates via `Algorithm A.9b`.
