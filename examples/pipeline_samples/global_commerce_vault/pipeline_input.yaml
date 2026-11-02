@@ -15,33 +15,9 @@ waves:
       - source_system: "crm_salesforce"
         table_name: "crm_customers"
         data_path: "sources/wave0_cold_start/crm_customers.csv"
-        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
-        bkcc_namespace: "GLOBAL"
-        record_source_code: "CRM_SFDC"
-        business_key_columns:
-          - "customer_tax_id"
-        surrogate_key_columns:
-          - "customer_row_seq"
-        cbc_mapping_hints:
-          crm_customers: "CBC_CUSTOMER"
-          customer_tax_id: "CBC_CUSTOMER"
-        pii_columns:
-          - "contact_email"
-          - "tax_ssn_tin"
       - source_system: "erp_netsuite"
         table_name: "erp_orders"
         data_path: "sources/wave0_cold_start/erp_orders.csv"
-        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
-        bkcc_namespace: "GLOBAL"
-        record_source_code: "ERP_NS"
-        business_key_columns:
-          - "order_id"
-        foreign_key_mappings:
-          customer_tax_id: "hub_customer"
-          promo_campaign_code: "hub_promotion"
-        cbc_mapping_hints:
-          erp_orders: "CBC_ORDER"
-          order_id: "CBC_ORDER"
 
   - wave_index: 1
     wave_name: "Wave 1 — Incremental Source (Stripe EU Billing Invoices)"
@@ -51,17 +27,6 @@ waves:
       - source_system: "billing_stripe"
         table_name: "stripe_invoices"
         data_path: "sources/wave1_incremental_billing/stripe_invoices.csv"
-        key_authority_tier: "TIER_3_LOCAL_SCOPED"
-        bkcc_namespace: "STRIPE_EU"
-        record_source_code: "STRIPE_EU"
-        business_key_columns:
-          - "invoice_number"
-        foreign_key_mappings:
-          order_id: "hub_order"
-          customer_tax_id: "hub_customer"
-        cbc_mapping_hints:
-          stripe_invoices: "CBC_INVOICE"
-          invoice_number: "CBC_INVOICE"
 
   - wave_index: 2
     wave_name: "Wave 2 — Intra-Source Schema Drift (CRM Customers v2)"
@@ -72,19 +37,6 @@ waves:
         table_name: "crm_customers"
         data_path: "sources/wave2_schema_drift/crm_customers_v2.csv"
         baseline_data_path: "sources/wave0_cold_start/crm_customers.csv"
-        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
-        bkcc_namespace: "GLOBAL"
-        record_source_code: "CRM_SFDC"
-        business_key_columns:
-          - "customer_tax_id"
-        surrogate_key_columns:
-          - "customer_row_seq"
-        cbc_mapping_hints:
-          crm_customers: "CBC_CUSTOMER"
-          customer_tax_id: "CBC_CUSTOMER"
-        pii_columns:
-          - "contact_email"
-          - "tax_ssn_tin"
 
   - wave_index: 3
     wave_name: "Wave 3 — Unstructured Document Onboarding (Enterprise MSA Addendum)"
@@ -94,40 +46,3 @@ waves:
       - doc_id: "DOC-MSA-2026-089"
         document_path: "sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt"
         record_source: "LEGAL_DOC_VAULT"
-        extracted_candidates:
-          - extraction_id: "ext_msa_counterparty_u1"
-            target_hub: "hub_customer"
-            extracted_business_key: "TAX-US-900101"
-            verbatim_quote: "Apex Industrial Holdings LLC (Tax ID: TAX-US-900101)"
-            char_start: 189
-            char_end: 241
-            page_number: 1
-            confidence_score: 0.98
-            candidate_hub_matches:
-              - candidate_key: "TAX-US-900101"
-                legal_name: "Apex Industrial Holdings LLC"
-                score: 0.98
-              - candidate_key: "TAX-CA-400606"
-                legal_name: "Boreal Cloud Infrastructure Inc"
-                score: 0.12
-            attributes:
-              payment_window_days: 90
-              volume_rebate_pct: 4.50
-          - extraction_id: "ext_msa_guarantor_u3"
-            target_hub: "hub_customer"
-            extracted_business_key: "TAX-DE-800202"
-            verbatim_quote: "Rheinland Precision Holding Group"
-            char_start: 538
-            char_end: 571
-            page_number: 1
-            confidence_score: 0.68
-            candidate_hub_matches:
-              - candidate_key: "TAX-DE-800202"
-                legal_name: "Rheinland Precision GmbH"
-                score: 0.68
-              - candidate_key: "TAX-GB-600404"
-                legal_name: "Thames Sovereign Analytics Ltd"
-                score: 0.61
-            attributes:
-              clause_section: "Section 4"
-              guarantee_scope: "Cross-border fulfilment obligations"

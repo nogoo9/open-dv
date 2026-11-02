@@ -9,6 +9,7 @@ import inspect
 from collections.abc import Callable
 from typing import Any
 
+from opendv_agent_harness.adapters.agy_cli_adapter import AgyCliHarnessAdapter
 from opendv_agent_harness.adapters.antigravity_adapter import AntigravityHarnessAdapter
 from opendv_agent_harness.adapters.claude_adapter import ClaudeAgentHarnessAdapter
 from opendv_agent_harness.adapters.deterministic_adapter import DeterministicHarnessAdapter
@@ -18,6 +19,8 @@ from opendv_agent_harness.protocol import VaultAgentHarness
 HarnessFactory = Callable[..., VaultAgentHarness]
 
 _DEFAULT_REGISTRY: dict[str, HarnessFactory] = {
+    "agy": AgyCliHarnessAdapter,
+    "agy-cli": AgyCliHarnessAdapter,
     "antigravity": AntigravityHarnessAdapter,
     "claude": ClaudeAgentHarnessAdapter,
     "deterministic": DeterministicHarnessAdapter,
@@ -48,6 +51,7 @@ def create_agent_harness(
     """Instantiate a `VaultAgentHarness` adapter matching `config.provider`.
 
     Dispatches:
+    - `'agy'` / `'agy-cli'` -> `AgyCliHarnessAdapter`
     - `'antigravity'` -> `AntigravityHarnessAdapter`
     - `'claude'` -> `ClaudeAgentHarnessAdapter`
     - `'deterministic'` / `'deterministic-stub'` -> `DeterministicHarnessAdapter`

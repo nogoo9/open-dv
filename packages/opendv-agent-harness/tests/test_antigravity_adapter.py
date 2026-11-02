@@ -454,6 +454,8 @@ async def test_antigravity_steward_hold_and_cancel_active_turn(tmp_path: Path) -
 
 def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> None:
     assert list_available_harnesses() == [
+        "agy",
+        "agy-cli",
         "antigravity",
         "claude",
         "deterministic",
@@ -472,6 +474,8 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
     finally:
         _HARNESS_REGISTRY.pop("custom-test", None)
     assert list_available_harnesses() == [
+        "agy",
+        "agy-cli",
         "antigravity",
         "claude",
         "deterministic",
@@ -546,3 +550,259 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
     assert resumed_spec.resume_session_id == "sess-agy-u3-01"
     assert "APEX_BO_IV" in resumed_spec.prompt
     assert "Confirmed with Fund Counsel." in resumed_spec.prompt
+
+
+@pytest.mark.asyncio
+async def test_wp04_antigravity_fail_closed_and_gemini_rest_api_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+    import urllib.request
+
+    from opendv_agent_harness.adapters.antigravity_adapter import GoogleAntigravityAdapter
+    from opendv_agent_harness.adapters.deterministic_adapter import DeterministicHarnessAdapter
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENDV_ALLOW_MOCK_SDK_SHIM", raising=False)
+
+    cfg_no_key = _make_config(tmp_path, env={})
+    adapter_no_key = GoogleAntigravityAdapter(cfg_no_key, sdk_module=None)
+    spec = build_vault_first_mate_task_spec(
+        prompt="Synthesize contract via Gemini REST",
+        run_id="run-agy-rest-01",
+        trace_id=SAMPLE_TRACE_ID,
+        output_schema=_SynthesisContractResult,
+    )
+
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+        await adapter_no_key.run_task(spec)
+
+    # Now configure GEMINI_API_KEY and mock urllib.request.urlopen
+    captured_requests: list[dict[str, Any]] = []
+
+    class _FakeHttpResponse:
+        def __init__(self, call_idx: int) -> None:
+            self.call_idx = call_idx
+
+        def __enter__(self) -> _FakeHttpResponse:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def read(self) -> bytes:
+            if self.call_idx == 0:
+                payload = {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {
+                                        "thought": True,
+                                        "text": "Reasoning over Graph A and Graph B...",
+                                    },
+                                    {
+                                        "functionCall": {
+                                            "id": "fc-gemini-01",
+                                            "name": "emit_observability_event",
+                                            "args": {
+                                                "status": "PASS",
+                                                "headline": "Gemini REST tool call",
+                                                "business_impact": "Verifies REST tool loop.",
+                                                "rule_ids_evaluated": ["HR-01"],
+                                            },
+                                        }
+                                    },
+                                ]
+                            }
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 160,
+                        "candidatesTokenCount": 40,
+                        "thoughtsTokenCount": 20,
+                        "totalTokenCount": 220,
+                    },
+                }
+            else:
+                payload = {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {
+                                        "text": json.dumps(
+                                            {
+                                                "contract_id": "dv_gemini_rest_v5",
+                                                "hub_count": 3,
+                                                "verdict": "PASS",
+                                            }
+                                        )
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 160,
+                        "candidatesTokenCount": 45,
+                        "thoughtsTokenCount": 25,
+                        "totalTokenCount": 230,
+                    },
+                }
+            return json.dumps(payload).encode("utf-8")
+
+    def _fake_urlopen(req: urllib.request.Request, timeout: float = 60.0) -> _FakeHttpResponse:
+        body = json.loads((req.data or b"{}").decode("utf-8"))
+        call_idx = len(captured_requests)
+        captured_requests.append(
+            {
+                "url": req.full_url,
+                "headers": dict(req.header_items()),
+                "body": body,
+                "timeout": timeout,
+            }
+        )
+        return _FakeHttpResponse(call_idx)
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    cfg_with_key = _make_config(
+        tmp_path,
+        env={
+            "GEMINI_API_KEY": "test-gemini-api-key-123",
+            "GOOGLE_GEMINI_BASE_URL": "https://custom-gemini.example.com/v1beta/models",
+        },
+    )
+    rest_adapter = GoogleAntigravityAdapter(cfg_with_key, sdk_module=None)
+    rest_res = await rest_adapter.run_task(spec)
+
+    assert rest_res.stop_reason == HarnessStopReason.COMPLETED
+    assert isinstance(rest_res.structured_output, _SynthesisContractResult)
+    assert rest_res.structured_output.contract_id == "dv_gemini_rest_v5"
+    assert rest_res.structured_output.hub_count == 3
+    assert rest_res.usage.total_tokens == 450
+    assert rest_res.usage.model_calls == 2
+    assert len(rest_res.emitted_events) == 1
+    assert len(captured_requests) == 2
+    assert captured_requests[0]["url"].startswith(
+        "https://custom-gemini.example.com/v1beta/models/"
+    )
+    assert ":generateContent" in captured_requests[0]["url"]
+    assert "tools" in captured_requests[0]["body"]
+    gen_cfg = captured_requests[0]["body"]["generationConfig"]
+    assert gen_cfg["responseMimeType"] == "application/json"
+    assert "properties" in gen_cfg["responseSchema"]
+
+    # Also verify DeterministicHarnessAdapter structured_output_factory
+    det_cfg = _make_config(tmp_path, provider="deterministic")
+    det_adapter = DeterministicHarnessAdapter(
+        det_cfg,
+        structured_output_factory=lambda s: _SynthesisContractResult(
+            contract_id=f"det_{s.run_id}",
+            hub_count=5,
+            verdict="PASS",
+        ),
+    )
+    det_res = await det_adapter.run_task(spec)
+    assert isinstance(det_res.structured_output, _SynthesisContractResult)
+    assert det_res.structured_output.contract_id == "det_run-agy-rest-01"
+    assert det_res.structured_output.hub_count == 5
+
+
+@pytest.mark.asyncio
+async def test_wp11_agy_cli_harness_adapter_subprocess_and_fallback(
+    tmp_path: Path,
+) -> None:
+    import json
+    import subprocess
+
+    from opendv_agent_harness.adapters.agy_cli_adapter import (
+        AgyCliHarnessAdapter,
+        _strip_internal_stage_context,
+    )
+
+    # 1. Verify internal stage context marker stripping
+    prompt_with_ctx = 'Synthesize Pass 1 Triage\n__OPENDV_STAGE_CONTEXT_JSON__:{"secret": 123}'
+    assert _strip_internal_stage_context(prompt_with_ctx) == "Synthesize Pass 1 Triage"
+
+    # 2. Verify subprocess invocation via custom agy_cli_runner
+    fake_agy_exe = tmp_path / "fake_agy.exe"
+    fake_agy_exe.write_text("echo fake", encoding="utf-8")
+
+    captured_cmds: list[list[str]] = []
+
+    def _fake_cli_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        captured_cmds.append(list(cmd))
+        out_payload = {
+            "conversation_id": "conv-agy-cli-777",
+            "status": "SUCCESS",
+            "response": json.dumps(
+                {
+                    "contract_id": "dv_agy_cli_contract_v5",
+                    "hub_count": 6,
+                    "verdict": "PASS",
+                }
+            ),
+            "duration_seconds": 4.2,
+            "num_turns": 1,
+            "structured_output": {
+                "contract_id": "dv_agy_cli_contract_v5",
+                "hub_count": 6,
+                "verdict": "PASS",
+            },
+            "usage": {
+                "input_tokens": 1200,
+                "output_tokens": 180,
+                "thinking_tokens": 90,
+                "cache_read_tokens": 0,
+                "total_tokens": 1470,
+            },
+        }
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=json.dumps(out_payload),
+            stderr="",
+        )
+
+    cfg = _make_config(
+        tmp_path,
+        provider="agy",
+        env={"OPENDV_AGY_CLI_BIN": str(fake_agy_exe)},
+        extra_provider_options={"agy_cli_runner": _fake_cli_runner},
+    )
+    agy_cli_adapter = create_agent_harness(cfg)
+    assert isinstance(agy_cli_adapter, AgyCliHarnessAdapter)
+    assert agy_cli_adapter.provider_name == "agy"
+    assert agy_cli_adapter.resolve_model(ModelTier.HIGH_REASONING) == "gemini-4-argon-high"
+    assert agy_cli_adapter.resolve_model(ModelTier.FAST_TIER) == "gemini-3.8-flash-high"
+
+    spec = build_vault_first_mate_task_spec(
+        prompt=prompt_with_ctx,
+        run_id="run-agy-cli-01",
+        trace_id=SAMPLE_TRACE_ID,
+        output_schema=_SynthesisContractResult,
+    )
+    res = await agy_cli_adapter.run_task(spec)
+    assert res.stop_reason == HarnessStopReason.COMPLETED
+    assert res.provider == "agy"
+    assert res.session_id == "conv-agy-cli-777"
+    assert res.model_used == "gemini-4-argon-high"
+    assert isinstance(res.structured_output, _SynthesisContractResult)
+    assert res.structured_output.contract_id == "dv_agy_cli_contract_v5"
+    assert res.structured_output.hub_count == 6
+    assert res.usage.total_tokens == 1470
+    assert len(captured_cmds) == 1
+    assert "--model" in captured_cmds[0]
+    assert "gemini-4-argon-high" in captured_cmds[0]
+    assert "--json-schema" in captured_cmds[0]
+    assert "__OPENDV_STAGE_CONTEXT_JSON__" not in captured_cmds[0][2]

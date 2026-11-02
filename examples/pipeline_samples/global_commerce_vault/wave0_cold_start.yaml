@@ -1,0 +1,20 @@
+pipeline_id: "pipe-global-commerce-wave0-cold-start"
+project_id: "proj-global-commerce-001"
+run_id: "run-global-commerce-wave0"
+display_name: "Global Commerce Vault — Wave 0 Cold Start (CRM & ERP)"
+domain_namespace: "global_commerce"
+graph_a_ontology_path: "ontology/commerce_graph_a_ontology.yaml"
+assertion_cutoff_ts: "2026-12-31 23:59:59"
+
+waves:
+  - wave_index: 0
+    wave_name: "Wave 0 — Cold Start (CRM Customers & ERP Orders)"
+    wave_type: "COLD_START"
+    description: "Initial cold-start onboarding of CRM customer master and ERP order feeds with PII isolation and sparse optional promotion FK splitting."
+    sources:
+      - source_system: "crm_salesforce"
+        table_name: "crm_customers"
+        data_path: "sources/wave0_cold_start/crm_customers.csv"
+      - source_system: "erp_netsuite"
+        table_name: "erp_orders"
+        data_path: "sources/wave0_cold_start/erp_orders.csv"

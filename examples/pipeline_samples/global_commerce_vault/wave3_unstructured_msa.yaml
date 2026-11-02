@@ -1,0 +1,17 @@
+pipeline_id: "pipe-global-commerce-wave3-unstructured-msa"
+project_id: "proj-global-commerce-001"
+run_id: "run-global-commerce-wave3"
+display_name: "Global Commerce Vault — Wave 3 Unstructured MSA Onboarding"
+domain_namespace: "global_commerce"
+graph_a_ontology_path: "ontology/commerce_graph_a_ontology.yaml"
+assertion_cutoff_ts: "2026-12-31 23:59:59"
+
+waves:
+  - wave_index: 3
+    wave_name: "Wave 3 — Unstructured MSA Document Grounding"
+    wave_type: "UNSTRUCTURED_ONBOARDING"
+    description: "Span-grounded extraction from Enterprise MSA Addendum 2026 with Tier-U1 exact match and Tier-U3 ambiguous entity Steward Hold."
+    unstructured_documents:
+      - doc_id: "DOC-MSA-2026-089"
+        document_path: "sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt"
+        record_source: "LEGAL_DOC_VAULT"

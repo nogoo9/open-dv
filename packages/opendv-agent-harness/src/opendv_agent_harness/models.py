@@ -157,13 +157,19 @@ class HarnessConfig(BaseModel):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    provider: Literal["antigravity", "claude", "deterministic", "deterministic-stub"] = (
-        "antigravity"
-    )
+    provider: Literal[
+        "agy",
+        "agy-cli",
+        "antigravity",
+        "claude",
+        "deterministic",
+        "deterministic-stub",
+    ] = "antigravity"
     workspace_dir: Path
     state_dir: Path
     app_data_dir: Path
     save_dir: Path
+    base_url: str | None = None
     model_overrides: dict[ModelTier, str] = Field(default_factory=dict)
     budget: HarnessBudget = Field(default_factory=HarnessBudget)
     sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)

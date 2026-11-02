@@ -33,6 +33,7 @@ def run_pipeline_command(
 
     input_path: str | None = getattr(args, "input_path", None)
     harness_config: str | None = getattr(args, "harness_config", None)
+    initial_contract: str | None = getattr(args, "initial_contract", None)
     output_dir: str | None = getattr(args, "output_dir", None)
     provider: str | None = getattr(args, "provider", None)
     hold_policy: str | None = getattr(args, "hold_policy", None)
@@ -58,6 +59,8 @@ def run_pipeline_command(
                 val_payload: dict[str, Any] = {"input_spec_path": input_path}
                 if harness_config:
                     val_payload["harness_config_path"] = harness_config
+                if initial_contract:
+                    val_payload["initial_contract_path"] = initial_contract
                 if provider:
                     val_payload["provider_override"] = provider
                 if hold_policy:
@@ -70,6 +73,8 @@ def run_pipeline_command(
                 run_payload: dict[str, Any] = {"input_spec_path": input_path}
                 if harness_config:
                     run_payload["harness_config_path"] = harness_config
+                if initial_contract:
+                    run_payload["initial_contract_path"] = initial_contract
                 if output_dir:
                     run_payload["output_dir"] = output_dir
                 if provider:
@@ -96,6 +101,7 @@ def run_pipeline_command(
         val_req = PipelineValidateRequest(
             input_spec_path=input_path,
             harness_config_path=harness_config,
+            initial_contract_path=initial_contract,
             provider_override=provider,
             steward_hold_policy=hold_policy,
         )
@@ -108,6 +114,7 @@ def run_pipeline_command(
         run_req = PipelineRunRequest(
             input_spec_path=input_path,
             harness_config_path=harness_config,
+            initial_contract_path=initial_contract,
             output_dir=output_dir,
             provider_override=provider,
             steward_hold_policy=hold_policy,

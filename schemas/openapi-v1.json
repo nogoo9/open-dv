@@ -388,6 +388,8 @@
           "harness_provider": {
             "default": "antigravity",
             "enum": [
+              "agy",
+              "agy-cli",
               "antigravity",
               "claude",
               "claude-agent",
@@ -534,6 +536,17 @@
             ],
             "title": "Harness Config Path"
           },
+          "initial_contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Contract Path"
+          },
           "input_spec": {
             "anyOf": [
               {
@@ -620,6 +633,17 @@
               }
             ],
             "title": "Harness Config Path"
+          },
+          "initial_contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Initial Contract Path"
           },
           "input_spec": {
             "anyOf": [
@@ -812,6 +836,8 @@
           },
           "harness_provider": {
             "enum": [
+              "agy",
+              "agy-cli",
               "antigravity",
               "claude",
               "claude-agent",

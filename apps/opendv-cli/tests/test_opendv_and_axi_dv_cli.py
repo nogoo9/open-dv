@@ -823,3 +823,143 @@ def test_opendv_pipeline_cli_local_and_remote_modes(
     assert out_rep_remote["run_id"] == remote_run_id
     assert out_rep_remote["overall_passed"] is True
     assert len(out_rep_remote["wave_reports"]) == 4
+
+
+def test_opendv_pipeline_cli_incremental_initial_contract_flag(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify `--initial-contract` flag on `opendv pipeline validate` and `run`."""
+    wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
+    wave1_spec = "examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml"
+    sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
+
+    # 1. Run Wave 0 Cold Start locally
+    w0_out_dir = tmp_path / "wave0_out"
+    rc_w0 = app_main(
+        [
+            "pipeline",
+            "run",
+            "--local",
+            "--input",
+            wave0_spec,
+            "--harness-config",
+            sample_harness,
+            "--output-dir",
+            str(w0_out_dir),
+            "--provider",
+            "deterministic",
+            "--json",
+        ]
+    )
+    assert rc_w0 == 0
+    out_w0 = json.loads(capsys.readouterr().out)
+    assert out_w0["status"] == "COMPLETED"
+    assert out_w0["overall_passed"] is True
+    w0_contract = w0_out_dir / "final_contract.yaml"
+    assert w0_contract.is_file()
+
+    # 2. Validate Wave 1 Incremental Billing locally with --initial-contract
+    rc_w1_val_local = app_main(
+        [
+            "pipeline",
+            "validate",
+            "--local",
+            "--input",
+            wave1_spec,
+            "--harness-config",
+            sample_harness,
+            "--initial-contract",
+            str(w0_contract),
+            "--provider",
+            "deterministic",
+            "--json",
+        ]
+    )
+    assert rc_w1_val_local == 0
+    out_w1_val_local = json.loads(capsys.readouterr().out)
+    assert out_w1_val_local["passed"] is True
+
+    # 3. Run Wave 1 Incremental Billing locally with --initial-contract
+    w1_out_dir = tmp_path / "wave1_out"
+    rc_w1_run_local = app_main(
+        [
+            "pipeline",
+            "run",
+            "--local",
+            "--input",
+            wave1_spec,
+            "--harness-config",
+            sample_harness,
+            "--initial-contract",
+            str(w0_contract),
+            "--output-dir",
+            str(w1_out_dir),
+            "--provider",
+            "deterministic",
+            "--json",
+        ]
+    )
+    assert rc_w1_run_local == 0
+    out_w1_run_local = json.loads(capsys.readouterr().out)
+    assert out_w1_run_local["status"] == "COMPLETED"
+    assert out_w1_run_local["overall_passed"] is True
+    w1_contract = w1_out_dir / "final_contract.yaml"
+    assert w1_contract.is_file()
+    w1_contract_doc = yaml.safe_load(w1_contract.read_text(encoding="utf-8"))
+    hub_names = {h["name"] for h in w1_contract_doc["hubs"]}
+    assert {"hub_customer", "hub_order", "hub_invoice"}.issubset(hub_names)
+
+    # 4. Validate and run Wave 1 over --api-url with --initial-contract
+    state = PlatformStateContainer(state_dir=tmp_path / "remote_inc_state")
+    app = create_app(platform_state=state)
+    transport = _AsgiSyncBridgeTransport(app)
+    api_url = "http://testserver"
+
+    rc_w1_val_remote = app_main(
+        [
+            "pipeline",
+            "validate",
+            "--api-url",
+            api_url,
+            "--input",
+            wave1_spec,
+            "--harness-config",
+            sample_harness,
+            "--initial-contract",
+            str(w0_contract),
+            "--provider",
+            "deterministic",
+            "--json",
+        ],
+        transport=transport,
+    )
+    assert rc_w1_val_remote == 0
+    out_w1_val_remote = json.loads(capsys.readouterr().out)
+    assert out_w1_val_remote["passed"] is True
+
+    w1_remote_out_dir = tmp_path / "wave1_remote_out"
+    rc_w1_run_remote = app_main(
+        [
+            "pipeline",
+            "run",
+            "--api-url",
+            api_url,
+            "--input",
+            wave1_spec,
+            "--harness-config",
+            sample_harness,
+            "--initial-contract",
+            str(w0_contract),
+            "--output-dir",
+            str(w1_remote_out_dir),
+            "--provider",
+            "deterministic",
+            "--json",
+        ],
+        transport=transport,
+    )
+    assert rc_w1_run_remote == 0
+    out_w1_run_remote = json.loads(capsys.readouterr().out)
+    assert out_w1_run_remote["status"] == "COMPLETED"
+    assert out_w1_run_remote["overall_passed"] is True

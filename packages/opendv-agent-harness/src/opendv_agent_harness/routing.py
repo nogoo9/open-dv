@@ -204,7 +204,15 @@ def resolve_default_tier_for_persona(persona: AgentPersona | str) -> ModelTier:
 
 
 def resolve_provider_model(
-    provider: Literal["antigravity", "claude", "deterministic", "deterministic-stub"] | str,
+    provider: Literal[
+        "agy",
+        "agy-cli",
+        "antigravity",
+        "claude",
+        "deterministic",
+        "deterministic-stub",
+    ]
+    | str,
     tier: ModelTier | str,
     overrides: dict[ModelTier, str] | None = None,
 ) -> str:

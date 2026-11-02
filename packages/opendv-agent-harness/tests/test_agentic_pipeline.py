@@ -44,8 +44,18 @@ from opendv_agent_harness import (
     validate_pipeline_outputs,
 )
 from opendv_agent_harness.adapters.deterministic_adapter import (
+    _synthesize_minimal_schema_instance,
     build_deterministic_agy_sdk_shim,
     build_deterministic_claude_sdk_shim,
+)
+from opendv_agent_harness.pipeline import (
+    PipelineUnstructuredCandidateInput,
+    Stage00OrchestrationPlanOutput,
+    Stage01FeedDiscoveryItem,
+    Stage01SourceDiscoveryOutput,
+    Stage02UnstructuredDiscoveryOutput,
+    Stage03ColumnTriageOutput,
+    Stage04ContractSynthesisOutput,
 )
 from opendv_core.schema_registry import find_workspace_root
 from opendv_telemetry import ContentAddressableStore
@@ -115,11 +125,13 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     assert any(d["code"] == "SOURCE_FILE_MISSING" for d in missing_csv_report.diagnostics)
 
     # 3. Out-of-bounds unstructured [char_start, char_end]
-    bad_cand = (
-        input_spec.waves[3]
-        .unstructured_documents[0]
-        .extracted_candidates[0]
-        .model_copy(update={"char_start": 0, "char_end": 999999})
+    bad_cand = PipelineUnstructuredCandidateInput(
+        candidate_id="cand-bad-span",
+        target_hub="hub_customer",
+        extracted_business_key="TAX-US-99100",
+        verbatim_quote="Tax ID: TAX-US-99100",
+        char_start=0,
+        char_end=999999,
     )
     bad_doc = (
         input_spec.waves[3]
@@ -170,7 +182,7 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     assert failed_pipeline_rep.overall_passed is False
     assert failed_pipeline_rep.input_validation.passed is False
 
-    # 6. Empty business_key_columns rejection
+    # 6. Discovery-first allows empty business_key_columns=[], but rejects blank column strings
     empty_bk_src = input_spec.waves[0].sources[0].model_copy(update={"business_key_columns": []})
     empty_bk_wave = input_spec.waves[0].model_copy(update={"sources": [empty_bk_src]})
     empty_bk_spec = input_spec.model_copy(update={"waves": [empty_bk_wave]})
@@ -179,8 +191,20 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
         harness_setup,
         base_dir=sample_dir,
     )
-    assert empty_bk_report.passed is False
-    assert any(d["code"] == "MISSING_BUSINESS_KEY_COLUMNS" for d in empty_bk_report.diagnostics)
+    assert empty_bk_report.passed is True
+
+    blank_bk_src = (
+        input_spec.waves[0].sources[0].model_copy(update={"business_key_columns": ["   "]})
+    )
+    blank_bk_wave = input_spec.waves[0].model_copy(update={"sources": [blank_bk_src]})
+    blank_bk_spec = input_spec.model_copy(update={"waves": [blank_bk_wave]})
+    blank_bk_report = validate_pipeline_inputs(
+        blank_bk_spec,
+        harness_setup,
+        base_dir=sample_dir,
+    )
+    assert blank_bk_report.passed is False
+    assert any(d["code"] == "MISSING_BUSINESS_KEY_COLUMNS" for d in blank_bk_report.diagnostics)
 
     # 7. Unstructured-only wave without prior relational source rejection
     unstructured_first_wave = input_spec.waves[3].model_copy(update={"wave_index": 0})
@@ -200,11 +224,13 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     missing_col_src = (
         input_spec.waves[0].sources[0].model_copy(update={"pii_columns": ["nonexistent_pii_col"]})
     )
-    bad_quote_cand = (
-        input_spec.waves[3]
-        .unstructured_documents[0]
-        .extracted_candidates[0]
-        .model_copy(update={"verbatim_quote": "TAMPERED QUOTE NOT IN DOCUMENT"})
+    bad_quote_cand = PipelineUnstructuredCandidateInput(
+        candidate_id="cand-bad-quote",
+        target_hub="hub_customer",
+        extracted_business_key="TAX-US-99100",
+        verbatim_quote="TAMPERED QUOTE NOT IN DOCUMENT",
+        char_start=0,
+        char_end=15,
     )
     bad_quote_doc = (
         input_spec.waves[3]
@@ -240,6 +266,7 @@ def test_run_agentic_vault_pipeline_four_waves_end_to_end(tmp_path: Path) -> Non
         output_dir=out_dir,
         base_dir=sample_dir,
         cas_store=cas,
+        sdk_module=build_deterministic_agy_sdk_shim(),
     )
 
     assert report.status == "COMPLETED"
@@ -574,7 +601,10 @@ def test_harness_auth_config_resolution_and_validation(
     # 1. Load sample harness_config_antigravity.yaml and harness_config_claude.yaml
     agy_sample = HarnessSetupConfig.from_file(sample_dir / "harness_config_antigravity.yaml")
     assert agy_sample.provider == "antigravity"
-    assert agy_sample.model_overrides == {"argon": "gemini-2.5-pro", "flash": "gemini-2.5-flash"}
+    assert agy_sample.model_overrides in (
+        {"argon": "gemini-2.5-pro", "flash": "gemini-2.5-flash"},
+        {"argon": "gemini-4-argon-high", "flash": "gemini-3.8-flash-high"},
+    )
     assert agy_sample.auth.auth_mode == "api_key_env"
     assert agy_sample.auth.api_key_env_var == "GEMINI_API_KEY"
     assert agy_sample.auth.require_credentials_present is False
@@ -810,3 +840,410 @@ def test_harness_auth_config_resolution_and_validation(
     assert rep.harness_setup["api_key_env_var"] == "CUSTOM_AGY_SECRET_VAR"
     assert rep.harness_setup["env"] == {"CUSTOM_AGY_SECRET_VAR": "[REDACTED]"}
     assert "super-secret-value-do-not-leak" not in rep.model_dump_json()
+
+
+def test_discovery_first_pipeline_without_prebaked_hints(tmp_path: Path) -> None:
+    """Verify WP-02 discovery-first PipelineInputSpec without pre-baked hints."""
+    assert HarnessSetupConfig().inject_adversarial_fault_on_attempt_1 is False
+    for stage_schema in (
+        Stage00OrchestrationPlanOutput,
+        Stage01SourceDiscoveryOutput,
+        Stage02UnstructuredDiscoveryOutput,
+        Stage03ColumnTriageOutput,
+        Stage04ContractSynthesisOutput,
+    ):
+        synthesized = _synthesize_minimal_schema_instance(stage_schema)
+        assert isinstance(synthesized, stage_schema)
+
+    sample_dir = _sample_dir()
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    for wave_obj in input_spec.waves:
+        for src_obj in wave_obj.sources:
+            assert src_obj.business_key_columns == []
+            assert src_obj.surrogate_key_columns == []
+            assert src_obj.pii_columns == []
+            assert src_obj.foreign_key_mappings == {}
+            assert src_obj.cbc_mapping_hints == {}
+        for doc_obj in wave_obj.unstructured_documents:
+            assert doc_obj.extracted_candidates == []
+
+    ambient_cli_setup = HarnessSetupConfig(
+        provider="antigravity",
+        auth=HarnessAuthConfig(auth_mode="ambient_cli", require_credentials_present=True),
+    )
+    ambient_val = validate_pipeline_inputs(input_spec, ambient_cli_setup, base_dir=sample_dir)
+    assert ambient_val.passed is False
+    assert any(d["code"] == "HARNESS_AUTH_MISSING" for d in ambient_val.diagnostics)
+
+    setup = HarnessSetupConfig(
+        provider="deterministic",
+        steward_hold_policy="auto_approve_top_candidate",
+    )
+    out_dir = tmp_path / "discovery_first_out"
+    rep = run_agentic_vault_pipeline(
+        input_spec,
+        setup,
+        output_dir=out_dir,
+        base_dir=sample_dir,
+    )
+    assert rep.status == "COMPLETED"
+    assert rep.overall_passed is True
+    assert rep.wave_reports[0].self_healing_attempts == 1
+    assert rep.wave_reports[3].unstructured_tier_counts["Tier-U1"] == 1
+    assert rep.wave_reports[3].unstructured_tier_counts["Tier-U3"] == 1
+
+    final_contract = yaml.safe_load((out_dir / "final_contract.yaml").read_text(encoding="utf-8"))
+    hub_names = {h["name"] for h in final_contract.get("hubs", [])}
+    assert {"hub_customer", "hub_order", "hub_document"}.issubset(hub_names)
+    sat_names = {s["name"] for s in final_contract.get("satellites", [])}
+    assert "sat_customer_pii" in sat_names
+    assert "sat_customer_core_ext_v2" in sat_names
+    assert "sat_document_customer_ai_provenance" in sat_names
+
+
+def test_real_llm_structured_output_consumption(tmp_path: Path) -> None:
+    """Verify WP-03 structured_output consumption across STAGE_00..STAGE_04."""
+    sample_dir = _sample_dir()
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    wave0_and_3_spec = input_spec.model_copy(
+        update={
+            "waves": [
+                input_spec.waves[0],
+                input_spec.waves[3].model_copy(update={"wave_index": 1}),
+            ]
+        }
+    )
+    doc_path = (
+        sample_dir / "sources" / "wave3_unstructured_msa" / "enterprise_msa_addendum_2026.txt"
+    )
+    doc_text = doc_path.read_text(encoding="utf-8")
+    quote_u1 = "Apex Industrial Holdings LLC (Tax ID: TAX-US-900101)"
+    start_u1 = doc_text.index(quote_u1)
+    end_u1 = start_u1 + len(quote_u1)
+
+    def _custom_structured_output_factory(spec: Any) -> Any:
+        stage_val = spec.stage_id.value
+        if stage_val == "STAGE_00_ORCHESTRATION":
+            return Stage00OrchestrationPlanOutput(
+                wave_execution_order=[0, 1],
+                risk_assessment="LLM-grounded ontology plan for commerce vault.",
+                recommended_max_retries=3,
+            )
+        if stage_val == "STAGE_01_SCOUT_SOURCE":
+            return Stage01SourceDiscoveryOutput(
+                discovered_feeds=[
+                    Stage01FeedDiscoveryItem(
+                        source_system="crm_salesforce",
+                        table_name="crm_customers",
+                        record_source_code="CRM_SALESFORCE",
+                        target_hub_name="hub_customer",
+                        business_key_columns=["customer_tax_id"],
+                        surrogate_key_columns=["customer_row_seq"],
+                        timestamp_column=None,
+                        pii_columns=["contact_email", "tax_ssn_tin"],
+                        key_authority_tier="TIER_1_GLOBAL_STANDARD",
+                        bkcc_namespace="GLOBAL",
+                        cbc_mapping_hints={"crm_customers": "CBC_CUSTOMER"},
+                    ),
+                    Stage01FeedDiscoveryItem(
+                        source_system="erp_netsuite",
+                        table_name="erp_orders",
+                        record_source_code="ERP_NETSUITE",
+                        target_hub_name="hub_order",
+                        business_key_columns=["order_id"],
+                        surrogate_key_columns=[],
+                        timestamp_column="order_date",
+                        pii_columns=[],
+                        key_authority_tier="TIER_1_GLOBAL_STANDARD",
+                        bkcc_namespace="GLOBAL",
+                        foreign_key_mappings={
+                            "customer_tax_id": "hub_customer",
+                            "promo_campaign_code": "hub_promotion",
+                        },
+                        cbc_mapping_hints={"erp_orders": "CBC_ORDER"},
+                    ),
+                ]
+            )
+        if stage_val == "STAGE_02_SCOUT_UNSTRUCTURED":
+            return Stage02UnstructuredDiscoveryOutput(
+                doc_id="DOC-MSA-2026-089",
+                target_hub_name="hub_document",
+                link_name="lnk_document_customer",
+                satellite_name="sat_document_customer_ai_provenance",
+                extracted_candidates=[
+                    PipelineUnstructuredCandidateInput(
+                        candidate_id="cand-llm-u1",
+                        target_hub="hub_customer",
+                        extracted_business_key="TAX-US-900101",
+                        verbatim_quote=quote_u1,
+                        char_start=start_u1,
+                        char_end=end_u1,
+                        confidence_score=0.99,
+                        er_tier="TIER_U1_DETERMINISTIC",
+                        top2_margin=0.95,
+                    )
+                ],
+            )
+        if stage_val == "STAGE_03_SHIP_VAULT_PASS1":
+            return Stage03ColumnTriageOutput.model_validate(
+                {
+                    "column_triage_ledger": [
+                        {
+                            "bronze_table": "crm_salesforce.crm_customers",
+                            "column_name": "customer_tax_id",
+                            "elm_classification": "BUSINESS_KEY",
+                            "target_dv_entity": "hub_customer",
+                        }
+                    ]
+                }
+            )
+        return None
+
+    setup = HarnessSetupConfig(
+        provider="deterministic",
+        steward_hold_policy="auto_approve_top_candidate",
+        extra_provider_options={"structured_output_factory": _custom_structured_output_factory},
+    )
+    out_dir = tmp_path / "llm_structured_out"
+    rep = run_agentic_vault_pipeline(
+        wave0_and_3_spec,
+        setup,
+        output_dir=out_dir,
+        base_dir=sample_dir,
+    )
+    assert rep.status == "COMPLETED"
+    assert rep.overall_passed is True
+
+    s00_step = next(s for s in rep.step_reports if s.stage_id == "STAGE_00_ORCHESTRATION")
+    assert s00_step.metrics.get("llm_structured_plan_used") is True
+    s01_step = next(s for s in rep.step_reports if s.stage_id == "STAGE_01_SCOUT_SOURCE")
+    assert s01_step.metrics.get("llm_structured_discovery_used") is True
+    s02_steps = [
+        s
+        for s in rep.step_reports
+        if s.stage_id == "STAGE_02_SCOUT_UNSTRUCTURED" and s.wave_index == 1
+    ]
+    assert len(s02_steps) == 1
+    assert s02_steps[0].metrics.get("llm_structured_extraction_used") is True
+    s03_step = next(s for s in rep.step_reports if s.stage_id == "STAGE_03_SHIP_VAULT_PASS1")
+    assert s03_step.metrics.get("llm_structured_triage_used") is True
+
+    final_contract = yaml.safe_load((out_dir / "final_contract.yaml").read_text(encoding="utf-8"))
+    triage_targets = {
+        (e["bronze_table"], e["column_name"], e["target_dv_entity"])
+        for e in final_contract.get("column_triage_ledger", [])
+    }
+    assert ("crm_salesforce.crm_customers", "customer_tax_id", "hub_customer") in triage_targets
+
+
+def test_incremental_multi_call_pipeline_evolution(tmp_path: Path) -> None:
+    """Verify WP-07 standalone multi-call incremental pipeline evolution across 4 waves."""
+    sample_dir = _sample_dir()
+    base_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    setup = HarnessSetupConfig.from_file(sample_dir / "harness_config.yaml")
+
+    # -----------------------------------------------------------------------
+    # Call 1: Wave 0 Cold Start (CRM Customers + ERP Orders)
+    # -----------------------------------------------------------------------
+    out_w0 = tmp_path / "call_0_wave0"
+    spec_w0 = base_spec.model_copy(
+        update={
+            "initial_contract_path": None,
+            "waves": [base_spec.waves[0].model_copy(update={"wave_index": 0})],
+        }
+    )
+    rep_w0 = run_agentic_vault_pipeline(
+        spec_w0,
+        setup,
+        output_dir=out_w0,
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert rep_w0.status == "COMPLETED"
+    assert rep_w0.overall_passed is True
+    assert len(rep_w0.wave_reports) == 1
+    assert all(v == "PASS" for v in rep_w0.wave_reports[0].gate_scorecard.values())
+    assert rep_w0.wave_reports[0].sandbox_summary["passed"] is True
+    assert rep_w0.wave_reports[0].sandbox_summary["dynamic_checks_passed"] == 15
+
+    contract_w0_path = out_w0 / "final_contract.yaml"
+    contract_w0 = yaml.safe_load(contract_w0_path.read_text(encoding="utf-8"))
+    assert contract_w0["lifecycle_stage"] == "COLD_START_N1"
+    assert {h["name"] for h in contract_w0["hubs"]} == {
+        "hub_customer",
+        "hub_order",
+        "hub_promotion",
+    }
+    assert {lnk["name"] for lnk in contract_w0["links"]} == {
+        "lnk_order_customer",
+        "lnk_order_customer_promotion",
+    }
+    assert {s["name"] for s in contract_w0["satellites"]} == {
+        "sat_customer_core",
+        "sat_customer_pii",
+        "sat_order_core",
+        "sat_promotion_ref",
+    }
+    assert len(contract_w0["column_triage_ledger"]) == 16
+
+    # -----------------------------------------------------------------------
+    # Call 2: Wave 1 Incremental Source (Stripe Invoices delta only)
+    # -----------------------------------------------------------------------
+    out_w1 = tmp_path / "call_1_wave1"
+    spec_w1 = base_spec.model_copy(
+        update={
+            "initial_contract_path": str(contract_w0_path),
+            "waves": [base_spec.waves[1].model_copy(update={"wave_index": 0})],
+        }
+    )
+    rep_w1 = run_agentic_vault_pipeline(
+        spec_w1,
+        setup,
+        output_dir=out_w1,
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert rep_w1.status == "COMPLETED"
+    assert rep_w1.overall_passed is True
+    assert len(rep_w1.wave_reports) == 1
+    assert all(v == "PASS" for v in rep_w1.wave_reports[0].gate_scorecard.values())
+    assert rep_w1.wave_reports[0].sandbox_summary["passed"] is True
+    assert rep_w1.wave_reports[0].sandbox_summary["dynamic_checks_passed"] == 15
+
+    contract_w1_path = out_w1 / "final_contract.yaml"
+    contract_w1 = yaml.safe_load(contract_w1_path.read_text(encoding="utf-8"))
+    assert contract_w1["lifecycle_stage"] == "MULTI_SOURCE_EXPANSION"
+    assert {h["name"] for h in contract_w1["hubs"]} == {
+        "hub_customer",
+        "hub_order",
+        "hub_promotion",
+        "hub_invoice",
+    }
+    assert {lnk["name"] for lnk in contract_w1["links"]} == {
+        "lnk_order_customer",
+        "lnk_order_customer_promotion",
+        "lnk_invoice_customer_order",
+    }
+    assert {s["name"] for s in contract_w1["satellites"]} == {
+        "sat_customer_core",
+        "sat_customer_pii",
+        "sat_order_core",
+        "sat_promotion_ref",
+        "sat_invoice_core",
+    }
+    assert len(contract_w1["column_triage_ledger"]) == 21
+
+    # -----------------------------------------------------------------------
+    # Call 3: Wave 2 Intra-Source Schema Drift (CRM Customers v2 delta only,
+    #         even when baseline_data_path is omitted and inferred from contract)
+    # -----------------------------------------------------------------------
+    out_w2 = tmp_path / "call_2_wave2"
+    w2_src_no_baseline = (
+        base_spec.waves[2].sources[0].model_copy(update={"baseline_data_path": None})
+    )
+    spec_w2 = base_spec.model_copy(
+        update={
+            "initial_contract_path": str(contract_w1_path),
+            "waves": [
+                base_spec.waves[2].model_copy(
+                    update={"wave_index": 0, "sources": [w2_src_no_baseline]}
+                )
+            ],
+        }
+    )
+    rep_w2 = run_agentic_vault_pipeline(
+        spec_w2,
+        setup,
+        output_dir=out_w2,
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert rep_w2.status == "COMPLETED"
+    assert rep_w2.overall_passed is True
+    assert len(rep_w2.wave_reports) == 1
+    assert len(rep_w2.wave_reports[0].schema_drift_events) == 2
+    assert "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT" in rep_w2.wave_reports[0].applied_codemods
+    assert all(v == "PASS" for v in rep_w2.wave_reports[0].gate_scorecard.values())
+    assert rep_w2.wave_reports[0].sandbox_summary["passed"] is True
+    assert rep_w2.wave_reports[0].sandbox_summary["dynamic_checks_passed"] == 15
+
+    contract_w2_path = out_w2 / "final_contract.yaml"
+    contract_w2 = yaml.safe_load(contract_w2_path.read_text(encoding="utf-8"))
+    assert contract_w2["lifecycle_stage"] == "MULTI_SOURCE_EXPANSION"
+    assert {h["name"] for h in contract_w2["hubs"]} == {
+        "hub_customer",
+        "hub_order",
+        "hub_promotion",
+        "hub_invoice",
+    }
+    assert {lnk["name"] for lnk in contract_w2["links"]} == {
+        "lnk_order_customer",
+        "lnk_order_customer_promotion",
+        "lnk_invoice_customer_order",
+    }
+    assert {s["name"] for s in contract_w2["satellites"]} == {
+        "sat_customer_core",
+        "sat_customer_core_ext_v2",
+        "sat_customer_pii",
+        "sat_order_core",
+        "sat_promotion_ref",
+        "sat_invoice_core",
+    }
+    assert len(contract_w2["column_triage_ledger"]) == 23
+
+    # -----------------------------------------------------------------------
+    # Call 4: Wave 3 Unstructured Document Onboarding (MSA Addendum only,
+    #         zero relational sources in wave input)
+    # -----------------------------------------------------------------------
+    out_w3 = tmp_path / "call_3_wave3"
+    spec_w3 = base_spec.model_copy(
+        update={
+            "initial_contract_path": str(contract_w2_path),
+            "waves": [base_spec.waves[3].model_copy(update={"wave_index": 0})],
+        }
+    )
+    assert validate_pipeline_inputs(spec_w3, setup, base_dir=sample_dir).passed is True
+    rep_w3 = run_agentic_vault_pipeline(
+        spec_w3,
+        setup,
+        output_dir=out_w3,
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert rep_w3.status == "COMPLETED"
+    assert rep_w3.overall_passed is True
+    assert len(rep_w3.wave_reports) == 1
+    assert rep_w3.wave_reports[0].unstructured_tier_counts["Tier-U1"] == 1
+    assert rep_w3.wave_reports[0].unstructured_tier_counts["Tier-U3"] == 1
+    assert len(rep_w3.resolved_holds) == 1
+    assert all(v == "PASS" for v in rep_w3.wave_reports[0].gate_scorecard.values())
+    assert rep_w3.wave_reports[0].sandbox_summary["passed"] is True
+    assert rep_w3.wave_reports[0].sandbox_summary["dynamic_checks_passed"] == 15
+
+    contract_w3_path = out_w3 / "final_contract.yaml"
+    contract_w3 = yaml.safe_load(contract_w3_path.read_text(encoding="utf-8"))
+    assert contract_w3["lifecycle_stage"] == "MULTI_SOURCE_EXPANSION"
+    assert {h["name"] for h in contract_w3["hubs"]} == {
+        "hub_customer",
+        "hub_order",
+        "hub_promotion",
+        "hub_invoice",
+        "hub_document",
+    }
+    assert {lnk["name"] for lnk in contract_w3["links"]} == {
+        "lnk_order_customer",
+        "lnk_order_customer_promotion",
+        "lnk_invoice_customer_order",
+        "lnk_document_customer",
+    }
+    assert {s["name"] for s in contract_w3["satellites"]} == {
+        "sat_customer_core",
+        "sat_customer_core_ext_v2",
+        "sat_customer_pii",
+        "sat_order_core",
+        "sat_promotion_ref",
+        "sat_invoice_core",
+        "sat_document_customer_ai_provenance",
+        "mas_document_extractions",
+    }
+    assert len(contract_w3["column_triage_ledger"]) == 24

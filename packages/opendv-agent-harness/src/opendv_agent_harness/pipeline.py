@@ -1,9 +1,9 @@
 """End-to-End 8-Stage Neuro-Symbolic Agentic Data Vault 2.0 Pipeline (`WP-14`).
 
 Implements the `vault-first-mate` / `no-mistakes` agentic pipeline over the hexagonal
-`VaultAgentHarness` protocol (`AntigravityHarnessAdapter`, `ClaudeAgentHarnessAdapter`,
-`DeterministicHarnessAdapter`) and deterministic verification engines (`opendv-core`,
-`opendv-axi-verifier`, `opendv-duckdb-sandbox`, `opendv-telemetry`).
+`VaultAgentHarness` protocol (`AgyCliHarnessAdapter`, `AntigravityHarnessAdapter`,
+`ClaudeAgentHarnessAdapter`, `DeterministicHarnessAdapter`) and deterministic verification
+engines (`opendv-core`, `opendv-axi-verifier`, `opendv-duckdb-sandbox`, `opendv-telemetry`).
 
 Provides:
 - Input & Setup models: `HarnessAuthConfig`, `HarnessSetupConfig`, `PipelineSourceFeedInput`,
@@ -34,7 +34,7 @@ from typing import Any, Literal
 
 import duckdb
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from opendv_agent_harness.hold_manager import StewardHoldManager, StewardHoldRecord
 from opendv_agent_harness.models import (
@@ -59,15 +59,20 @@ from opendv_agent_harness.protocol import VaultAgentHarness
 from opendv_agent_harness.registry import get_harness_adapter, list_available_harnesses
 from opendv_agent_harness.telemetry.translator import build_observability_event_dict
 from opendv_axi_verifier.alg_a8_orchestrator import run_axi_dv_verification_pipeline
+from opendv_axi_verifier.toon_codec import ToonViolation
 from opendv_axi_verifier.verifiers.alg_a9b_unstructured import classify_er_resolution_tier
 from opendv_core.models.canonical_ir import CanonicalIR
-from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
-from opendv_core.models.graph_a import GraphAOntology
+from opendv_core.models.contract_v5 import (
+    ColumnTriageEntry,
+    NoMistakeDataVault2ContractV5,
+)
+from opendv_core.models.graph_a import CanonicalBusinessConcept, GraphAOntology
 from opendv_core.models.graph_b import (
     CandidateRoleLiteral,
     ERTierLiteral,
     ExtractedSpan,
     GraphBProfile,
+    ProfiledBronzeTable,
     ProfiledColumn,
     ProfiledSourceSystem,
     ProfiledUnstructuredDocument,
@@ -120,7 +125,14 @@ class HarnessAuthConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    auth_mode: Literal["none", "api_key_env", "vertex_adc", "aws_bedrock", "cli_session"] = "none"
+    auth_mode: Literal[
+        "none",
+        "api_key_env",
+        "vertex_adc",
+        "aws_bedrock",
+        "cli_session",
+        "ambient_cli",
+    ] = "none"
     api_key_env_var: str | None = None
     api_base_url: str | None = None
     gcp_project: str | None = None
@@ -136,13 +148,18 @@ class HarnessSetupConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    provider: Literal["deterministic", "deterministic-stub", "antigravity", "claude"] = (
-        "deterministic"
-    )
+    provider: Literal[
+        "deterministic",
+        "deterministic-stub",
+        "agy",
+        "agy-cli",
+        "antigravity",
+        "claude",
+    ] = "deterministic"
     model_overrides: dict[str, str] = Field(
         default_factory=lambda: {
-            "argon": "gemini-2.5-pro",
-            "flash": "gemini-2.5-flash",
+            "argon": "gemini-4-argon-high",
+            "flash": "gemini-3.8-flash-high",
         }
     )
     auth: HarnessAuthConfig = Field(default_factory=HarnessAuthConfig)
@@ -151,7 +168,7 @@ class HarnessSetupConfig(BaseModel):
     steward_hold_policy: Literal["pause", "auto_approve_top_candidate", "reject_on_hold"] = (
         "auto_approve_top_candidate"
     )
-    inject_adversarial_fault_on_attempt_1: bool = True
+    inject_adversarial_fault_on_attempt_1: bool = False
     env: dict[str, str] = Field(default_factory=dict)
     extra_provider_options: dict[str, Any] = Field(default_factory=dict)
 
@@ -287,6 +304,7 @@ class HarnessSetupConfig(BaseModel):
             state_dir=eff_state,
             app_data_dir=eff_app,
             save_dir=eff_save,
+            base_url=self.auth.api_base_url,
             model_overrides=tier_overrides,
             budget=self.budget,
             sandbox=self.sandbox,
@@ -296,7 +314,7 @@ class HarnessSetupConfig(BaseModel):
 
     def to_summary_dict(self) -> dict[str, Any]:
         """Serialize setup metadata for `report.harness_setup` without exposing secret values."""
-        d = self.model_dump(mode="json")
+        d = self.model_dump(mode="json", fallback=str)
         d["auth_mode"] = self.auth.auth_mode
         d["api_key_env_var"] = self.auth.api_key_env_var
         d["env"] = {k: "[REDACTED]" for k in self.env}
@@ -308,25 +326,80 @@ class HarnessSetupConfig(BaseModel):
         return cls.model_validate(_load_yaml_or_json(path))
 
 
+class PipelineForeignKeyMapping(BaseModel):
+    """Foreign key mapping from a source column to a target Hub."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source_column: str
+    target_hub: str
+    role_alias: str | None = None
+    is_nullable: bool | None = None
+
+
+def _normalize_foreign_key_mappings(value: Any) -> dict[str, str]:
+    if value is None:
+        return {}
+    if isinstance(value, dict):
+        return {str(k): str(v) for k, v in value.items()}
+    if isinstance(value, list):
+        mapped: dict[str, str] = {}
+        for item in value:
+            if isinstance(item, PipelineForeignKeyMapping):
+                mapped[item.source_column] = item.target_hub
+            elif isinstance(item, dict):
+                src_col = item.get("source_column") or item.get("column_name")
+                tgt_hub = item.get("target_hub") or item.get("hub_name")
+                if src_col and tgt_hub:
+                    mapped[str(src_col)] = str(tgt_hub)
+        return mapped
+    msg = f"Expected dict or list for foreign_key_mappings, got {type(value).__name__}"
+    raise ValueError(msg)
+
+
 class PipelineSourceFeedInput(BaseModel):
     """Single Bronze relational source feed input within a pipeline wave."""
 
     model_config = ConfigDict(extra="forbid")
 
+    feed_id: str | None = None
     source_system: str
     table_name: str
-    data_path: str
-    key_authority_tier: Literal[
-        "TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR", "TIER_3_LOCAL_SCOPED"
-    ] = "TIER_1_GLOBAL_STANDARD"
-    bkcc_namespace: str = "GLOBAL"
-    record_source_code: str
+    data_path: str = ""
+    file_path: str | None = None
+    baseline_data_path: str | None = None
+    baseline_file_path: str | None = None
+    key_authority_tier: (
+        Literal["TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR", "TIER_3_LOCAL_SCOPED"] | None
+    ) = None
+    bkcc_namespace: str | None = None
+    record_source_code: str | None = None
+    target_hub_name: str | None = None
     business_key_columns: list[str] = Field(default_factory=list)
     surrogate_key_columns: list[str] = Field(default_factory=list)
+    timestamp_column: str | None = None
     foreign_key_mappings: dict[str, str] = Field(default_factory=dict)
     cbc_mapping_hints: dict[str, str] = Field(default_factory=dict)
     pii_columns: list[str] = Field(default_factory=list)
-    baseline_data_path: str | None = None
+
+    @field_validator("foreign_key_mappings", mode="before")
+    @classmethod
+    def _validate_fk_mappings(cls, value: Any) -> dict[str, str]:
+        return _normalize_foreign_key_mappings(value)
+
+    @model_validator(mode="after")
+    def _normalize_source_feed_paths(self) -> PipelineSourceFeedInput:
+        if not self.data_path and self.file_path:
+            self.data_path = self.file_path
+        elif self.data_path and self.file_path is None:
+            self.file_path = self.data_path
+        if self.baseline_data_path is None and self.baseline_file_path:
+            self.baseline_data_path = self.baseline_file_path
+        elif self.baseline_data_path and self.baseline_file_path is None:
+            self.baseline_file_path = self.baseline_data_path
+        if not self.feed_id:
+            self.feed_id = f"{self.source_system.lower()}_{self.table_name.lower()}"
+        return self
 
 
 class PipelineUnstructuredCandidateInput(BaseModel):
@@ -334,16 +407,34 @@ class PipelineUnstructuredCandidateInput(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    extraction_id: str
-    target_hub: str
+    extraction_id: str = ""
+    candidate_id: str | None = None
+    target_hub: str = "hub_customer"
     extracted_business_key: str
     verbatim_quote: str
-    char_start: int
-    char_end: int
+    char_start: int | None = None
+    char_end: int | None = None
     page_number: int = 1
-    confidence_score: float = Field(ge=0.0, le=1.0)
+    confidence_score: float = Field(default=0.95, ge=0.0, le=1.0)
+    er_tier: (
+        Literal["TIER_U1_DETERMINISTIC", "TIER_U2_HYBRID_EXACT", "TIER_U3_CAPTAIN_HOLD"] | None
+    ) = None
+    top2_margin: float = Field(default=0.25, ge=0.0, le=1.0)
     candidate_hub_matches: list[dict[str, Any]] = Field(default_factory=list)
     attributes: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _normalize_candidate_ids(self) -> PipelineUnstructuredCandidateInput:
+        if not self.extraction_id and self.candidate_id:
+            self.extraction_id = self.candidate_id
+        elif not self.extraction_id:
+            self.extraction_id = f"ext_{_slugify(self.extracted_business_key)}"
+        if self.candidate_id is None:
+            self.candidate_id = self.extraction_id
+        return self
+
+
+PipelineUnstructuredCandidate = PipelineUnstructuredCandidateInput
 
 
 class PipelineUnstructuredDocInput(BaseModel):
@@ -352,9 +443,142 @@ class PipelineUnstructuredDocInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     doc_id: str
-    document_path: str
-    record_source: str
+    document_path: str = ""
+    file_path: str | None = None
+    record_source: str = "UNSTRUCTURED_DOC"
+    record_source_code: str | None = None
+    target_hub_name: str | None = None
+    link_name: str | None = None
+    satellite_name: str | None = None
     extracted_candidates: list[PipelineUnstructuredCandidateInput] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _normalize_doc_fields(self) -> PipelineUnstructuredDocInput:
+        if not self.document_path and self.file_path:
+            self.document_path = self.file_path
+        elif self.document_path and self.file_path is None:
+            self.file_path = self.document_path
+        if self.record_source_code and self.record_source == "UNSTRUCTURED_DOC":
+            self.record_source = self.record_source_code
+        elif self.record_source_code is None:
+            self.record_source_code = self.record_source
+        return self
+
+
+class Stage00OrchestrationPlanOutput(BaseModel):
+    """Structured output returned by `@vault-first-mate` in Stage 00."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    wave_execution_order: list[int] = Field(min_length=1)
+    risk_assessment: str = Field(min_length=1)
+    recommended_max_retries: int = Field(default=3, ge=1, le=5)
+
+
+class Stage01FeedDiscoveryItem(BaseModel):
+    """Discovered semantic classification for a single Bronze relational feed."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    feed_id: str | None = None
+    source_system: str | None = None
+    table_name: str | None = None
+    record_source_code: str | None = None
+    target_hub_name: str | None = None
+    business_key_columns: list[str] = Field(default_factory=list)
+    surrogate_key_columns: list[str] = Field(default_factory=list)
+    timestamp_column: str | None = None
+    pii_columns: list[str] = Field(default_factory=list)
+    key_authority_tier: Literal[
+        "TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR", "TIER_3_LOCAL_SCOPED"
+    ] = "TIER_1_GLOBAL_STANDARD"
+    bkcc_namespace: str = "GLOBAL"
+    foreign_key_mappings: dict[str, str] = Field(default_factory=dict)
+    cbc_mapping_hints: dict[str, str] = Field(default_factory=dict)
+
+    @field_validator("foreign_key_mappings", mode="before")
+    @classmethod
+    def _validate_fk_mappings(cls, value: Any) -> dict[str, str]:
+        return _normalize_foreign_key_mappings(value)
+
+
+class Stage01SourceDiscoveryOutput(BaseModel):
+    """Structured output returned by `@scout-source` in Stage 01."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    feed_id: str | None = None
+    source_system: str | None = None
+    table_name: str | None = None
+    record_source_code: str | None = None
+    target_hub_name: str | None = None
+    business_key_columns: list[str] = Field(default_factory=list)
+    surrogate_key_columns: list[str] = Field(default_factory=list)
+    timestamp_column: str | None = None
+    pii_columns: list[str] = Field(default_factory=list)
+    key_authority_tier: Literal[
+        "TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR", "TIER_3_LOCAL_SCOPED"
+    ] = "TIER_1_GLOBAL_STANDARD"
+    bkcc_namespace: str = "GLOBAL"
+    foreign_key_mappings: dict[str, str] = Field(default_factory=dict)
+    cbc_mapping_hints: dict[str, str] = Field(default_factory=dict)
+    discovered_feeds: list[Stage01FeedDiscoveryItem] = Field(default_factory=list)
+
+    @field_validator("foreign_key_mappings", mode="before")
+    @classmethod
+    def _validate_fk_mappings(cls, value: Any) -> dict[str, str]:
+        return _normalize_foreign_key_mappings(value)
+
+    @model_validator(mode="after")
+    def _require_non_empty_discovery(self) -> Stage01SourceDiscoveryOutput:
+        if (
+            not self.discovered_feeds
+            and not self.feed_id
+            and not self.table_name
+            and not self.target_hub_name
+            and not self.business_key_columns
+        ):
+            msg = "Stage01SourceDiscoveryOutput requires at least one discovered feed or BK column."
+            raise ValueError(msg)
+        return self
+
+
+class Stage02UnstructuredDiscoveryOutput(BaseModel):
+    """Structured output returned by `@scout-unstructured` in Stage 02."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    doc_id: str | None = None
+    target_hub_name: str = "hub_document"
+    link_name: str | None = None
+    satellite_name: str | None = None
+    extracted_candidates: list[PipelineUnstructuredCandidateInput] = Field(default_factory=list)
+    documents: list[dict[str, Any]] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _require_non_empty_unstructured(self) -> Stage02UnstructuredDiscoveryOutput:
+        if not self.doc_id and not self.extracted_candidates and not self.documents:
+            msg = "Stage02UnstructuredDiscoveryOutput requires doc_id or extracted_candidates."
+            raise ValueError(msg)
+        return self
+
+
+class Stage03ColumnTriageOutput(BaseModel):
+    """Structured Pass 1 column triage ledger returned by `@ship-vault` in Stage 03."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    column_triage_ledger: list[ColumnTriageEntry] = Field(min_length=1)
+    unmapped_columns: list[str] = Field(default_factory=list)
+
+
+class Stage04ContractSynthesisOutput(BaseModel):
+    """Structured Pass 2 Data Vault 2.0 contract returned by `@ship-vault` in Stage 04/05."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    contract: NoMistakeDataVault2ContractV5
+    synthesis_rationale: str = ""
 
 
 class PipelineWaveInput(BaseModel):
@@ -534,6 +758,8 @@ def _resolve_and_check_safe_path(
             resolved = cand_base
 
     allowed_roots = {base_dir.resolve(), workspace_root.resolve()}
+    if p.is_absolute():
+        allowed_roots.add(Path(tempfile.gettempdir()).resolve())
     if not any(resolved == root or root in resolved.parents for root in allowed_roots):
         return (
             None,
@@ -674,6 +900,76 @@ def validate_pipeline_inputs(
             }
         )
 
+    if (
+        setup_obj.provider in {"agy", "agy-cli"}
+        and setup_obj.auth.auth_mode in {"cli_session", "ambient_cli"}
+        and (
+            setup_obj.auth.require_credentials_present or setup_obj.auth.auth_mode == "ambient_cli"
+        )
+    ):
+        from opendv_agent_harness.adapters.agy_cli_adapter import AgyCliHarnessAdapter
+
+        mock_allowed = setup_obj.extra_provider_options.get("allow_mock_sdk_fallback") is True or (
+            (
+                resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
+                or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
+                or ""
+            )
+            .strip()
+            .lower()
+            in {"1", "true", "yes"}
+        )
+        agy_cli_check = AgyCliHarnessAdapter(setup_obj.to_harness_config(workspace_dir=ws_root))
+        if agy_cli_check._resolve_agy_binary() is None and not mock_allowed:
+            diagnostics.append(
+                {
+                    "code": "HARNESS_AUTH_MISSING",
+                    "severity": "ERROR",
+                    "target": "harness_setup.auth.auth_mode",
+                    "message": (
+                        f"Auth mode '{setup_obj.auth.auth_mode}' for provider "
+                        f"'{setup_obj.provider}' requires the 'agy' CLI executable on PATH "
+                        "or in OPENDV_AGY_CLI_BIN."
+                    ),
+                }
+            )
+
+    if setup_obj.auth.auth_mode in {"cli_session", "ambient_cli"} and setup_obj.provider in {
+        "antigravity",
+        "claude",
+    }:
+        import importlib.util
+
+        sdk_pkg = (
+            "google.antigravity" if setup_obj.provider == "antigravity" else "claude_agent_sdk"
+        )
+        mock_allowed = setup_obj.extra_provider_options.get("allow_mock_sdk_fallback") is True or (
+            (
+                resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
+                or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
+                or ""
+            )
+            .strip()
+            .lower()
+            in {"1", "true", "yes"}
+        )
+        try:
+            sdk_spec = importlib.util.find_spec(sdk_pkg)
+        except (ImportError, ModuleNotFoundError, ValueError):
+            sdk_spec = None
+        if sdk_spec is None and not mock_allowed:
+            diagnostics.append(
+                {
+                    "code": "HARNESS_AUTH_MISSING",
+                    "severity": "ERROR",
+                    "target": "harness_setup.auth.auth_mode",
+                    "message": (
+                        f"Auth mode '{setup_obj.auth.auth_mode}' for provider "
+                        f"'{setup_obj.provider}' requires SDK package '{sdk_pkg}' to be installed."
+                    ),
+                }
+            )
+
     if setup_obj.auth.require_credentials_present:
         if setup_obj.auth.auth_mode == "api_key_env":
             target_var = setup_obj.auth.api_key_env_var or (
@@ -728,6 +1024,56 @@ def validate_pipeline_inputs(
                         ),
                     }
                 )
+        elif setup_obj.auth.auth_mode == "none" and setup_obj.provider in {
+            "antigravity",
+            "claude",
+        }:
+            import importlib.util
+
+            sdk_pkg = (
+                "google.antigravity" if setup_obj.provider == "antigravity" else "claude_agent_sdk"
+            )
+            mock_allowed = setup_obj.extra_provider_options.get(
+                "allow_mock_sdk_fallback"
+            ) is True or (
+                (
+                    resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
+                    or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
+                    or ""
+                )
+                .strip()
+                .lower()
+                in {"1", "true", "yes"}
+            )
+            try:
+                sdk_spec = importlib.util.find_spec(sdk_pkg)
+            except (ImportError, ModuleNotFoundError, ValueError):
+                sdk_spec = None
+            has_api_key = bool(
+                _first_non_empty(
+                    resolved_harness_env.get("ANTHROPIC_API_KEY"),
+                    os.environ.get("ANTHROPIC_API_KEY"),
+                )
+                if setup_obj.provider == "claude"
+                else _first_non_empty(
+                    resolved_harness_env.get("GEMINI_API_KEY"),
+                    resolved_harness_env.get("GOOGLE_API_KEY"),
+                    os.environ.get("GEMINI_API_KEY"),
+                    os.environ.get("GOOGLE_API_KEY"),
+                )
+            )
+            if sdk_spec is None and not has_api_key and not mock_allowed:
+                diagnostics.append(
+                    {
+                        "code": "HARNESS_AUTH_MISSING",
+                        "severity": "ERROR",
+                        "target": "harness_setup.auth",
+                        "message": (
+                            f"Provider '{setup_obj.provider}' requires SDK '{sdk_pkg}' or an API "
+                            f"key when require_credentials_present=True."
+                        ),
+                    }
+                )
 
     # 3. Validate Graph A Ontology path & schema
     checked_items += 1
@@ -768,6 +1114,7 @@ def validate_pipeline_inputs(
             )
 
     # 4. Validate optional initial_contract_path
+    initial_hub_count = 0
     if spec.initial_contract_path is not None:
         checked_items += 1
         init_path, init_err = _resolve_and_check_safe_path(
@@ -796,6 +1143,7 @@ def validate_pipeline_inputs(
                 raw_init = load_structured_file(init_path)
                 validate_contract_v5(raw_init)
                 NoMistakeDataVault2ContractV5.model_validate(raw_init)
+                initial_hub_count = len(raw_init.get("hubs", []))
             except Exception as exc:
                 diagnostics.append(
                     {
@@ -833,7 +1181,7 @@ def validate_pipeline_inputs(
 
     # 6. Validate each wave's sources and unstructured documents
     conn = duckdb.connect(":memory:")
-    seen_relational_sources = 0
+    seen_relational_sources = initial_hub_count
     try:
         for wave in spec.waves:
             checked_items += 1
@@ -851,7 +1199,7 @@ def validate_pipeline_inputs(
                 )
             for s_idx, src in enumerate(wave.sources):
                 checked_items += 1
-                if not src.business_key_columns or any(
+                if src.business_key_columns and any(
                     not c.strip() for c in src.business_key_columns
                 ):
                     diagnostics.append(
@@ -863,7 +1211,7 @@ def validate_pipeline_inputs(
                             ),
                             "message": (
                                 f"Source '{src.source_system}.{src.table_name}' in wave "
-                                f"{wave.wave_index} must declare at least one business key column."
+                                f"{wave.wave_index} cannot contain blank business key column names."
                             ),
                         }
                     )
@@ -1040,11 +1388,24 @@ def validate_pipeline_inputs(
                     continue
                 for cand in doc.extracted_candidates:
                     checked_items += 1
-                    if (
-                        cand.char_start < 0
-                        or cand.char_end <= cand.char_start
-                        or cand.char_end > len(doc_text)
-                    ):
+                    c_start = cand.char_start
+                    c_end = cand.char_end
+                    if c_start is None or c_end is None:
+                        found_idx = doc_text.find(cand.verbatim_quote)
+                        if found_idx < 0:
+                            diagnostics.append(
+                                {
+                                    "code": "SPAN_QUOTE_MISMATCH",
+                                    "severity": "ERROR",
+                                    "target": f"{doc.doc_id}:{cand.extraction_id}",
+                                    "message": (
+                                        f"Candidate '{cand.extraction_id}' verbatim_quote "
+                                        f"'{cand.verbatim_quote}' not found in '{doc.doc_id}'."
+                                    ),
+                                }
+                            )
+                        continue
+                    if c_start < 0 or c_end <= c_start or c_end > len(doc_text):
                         diagnostics.append(
                             {
                                 "code": "SPAN_OUT_OF_BOUNDS",
@@ -1052,13 +1413,13 @@ def validate_pipeline_inputs(
                                 "target": f"{doc.doc_id}:{cand.extraction_id}",
                                 "message": (
                                     f"Candidate '{cand.extraction_id}' span "
-                                    f"[{cand.char_start}, {cand.char_end}] is out of bounds "
+                                    f"[{c_start}, {c_end}] is out of bounds "
                                     f"for document '{doc.doc_id}' (length={len(doc_text)})."
                                 ),
                             }
                         )
-                    elif doc_text[cand.char_start : cand.char_end] != cand.verbatim_quote:
-                        actual_slice = doc_text[cand.char_start : cand.char_end]
+                    elif doc_text[c_start:c_end] != cand.verbatim_quote:
+                        actual_slice = doc_text[c_start:c_end]
                         diagnostics.append(
                             {
                                 "code": "SPAN_QUOTE_MISMATCH",
@@ -1067,7 +1428,7 @@ def validate_pipeline_inputs(
                                 "message": (
                                     f"Candidate '{cand.extraction_id}' verbatim_quote "
                                     f"'{cand.verbatim_quote}' != document slice "
-                                    f"'{actual_slice}' at [{cand.char_start}:{cand.char_end}]."
+                                    f"'{actual_slice}' at [{c_start}:{c_end}]."
                                 ),
                             }
                         )
@@ -1337,11 +1698,17 @@ def _build_profiled_unstructured_doc(
     extracted_spans_gb: list[ExtractedSpan] = []
     for cand in doc.extracted_candidates:
         margin, _short_tier, gb_tier, _action = _compute_candidate_er_metrics(cand)
+        c_start = cand.char_start
+        c_end = cand.char_end
+        if c_start is None or c_end is None:
+            found_idx = doc_text.find(cand.verbatim_quote)
+            c_start = max(0, found_idx)
+            c_end = c_start + len(cand.verbatim_quote)
         extracted_spans_gb.append(
             ExtractedSpan(
                 field=cand.extraction_id,
-                span_start=cand.char_start,
-                span_end=cand.char_end,
+                span_start=c_start,
+                span_end=c_end,
                 verbatim_quote=cand.verbatim_quote,
                 resolved_bk=cand.extracted_business_key,
                 er_tier=gb_tier,
@@ -1516,6 +1883,443 @@ def _build_markdown_report(
     return "\n".join(lines) + "\n"
 
 
+_STAGE_CONTEXT_MARKER = "\n__OPENDV_STAGE_CONTEXT_JSON__:"
+
+
+def _encode_stage_context(ctx: dict[str, Any]) -> str:
+    """Append a serialized stage context footer for deterministic/shim structured synthesis."""
+    return f"{_STAGE_CONTEXT_MARKER}{json.dumps(ctx, sort_keys=True)}"
+
+
+def _decode_stage_context(prompt: str) -> dict[str, Any] | None:
+    """Extract serialized stage context from `prompt` if present."""
+    if not prompt or _STAGE_CONTEXT_MARKER not in prompt:
+        return None
+    _, raw_json = prompt.rsplit(_STAGE_CONTEXT_MARKER, 1)
+    try:
+        parsed = json.loads(raw_json.strip())
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+
+
+def _seed_graph_b_systems_from_deployed_contract(
+    deployed_contract: dict[str, Any],
+    init_contract_path: Path | None = None,
+) -> dict[str, ProfiledSourceSystem]:
+    """Rehydrate `cumulative_source_systems` from a prior run's Graph B profile or contract."""
+    systems_by_code: dict[str, ProfiledSourceSystem] = {}
+    if init_contract_path is not None:
+        waves_dir = init_contract_path.parent / "waves"
+        if waves_dir.is_dir():
+            gb_files = sorted(
+                waves_dir.rglob("wave_*_graph_b_profile.json"),
+                key=lambda p: (
+                    int(m.group(1)) if (m := re.search(r"wave_(\d+)", p.name)) else 0,
+                    str(p),
+                ),
+            )
+            if gb_files:
+                try:
+                    prev_gb = GraphBProfile.model_validate(load_structured_file(gb_files[-1]))
+                    for sys_obj in prev_gb.source_systems:
+                        systems_by_code[sys_obj.source_system_code] = sys_obj
+                except Exception:
+                    pass
+
+    existing_tables = {
+        tbl.bronze_table for sys_obj in systems_by_code.values() for tbl in sys_obj.tables
+    }
+    pii_sat_names = {
+        str(sat.get("name", ""))
+        for sat in deployed_contract.get("satellites", [])
+        if isinstance(sat, dict)
+        and sat.get("security_classification") in {"PII_HIGH", "RESTRICTED_PII", "PCI"}
+    }
+    drift_sat_names = {
+        str(sat.get("name", ""))
+        for sat in deployed_contract.get("satellites", [])
+        if isinstance(sat, dict) and sat.get("volatility_tier") == "ADDITIVE_DRIFT_COMPANION"
+    }
+    bk_tier_by_col: dict[tuple[str, str], str] = {}
+    for hub in deployed_contract.get("hubs", []):
+        if not isinstance(hub, dict) or hub.get("name") == "hub_document":
+            continue
+        for bk_src in hub.get("business_key_sources", []):
+            if not isinstance(bk_src, dict):
+                continue
+            b_tbl = str(bk_src.get("bronze_table", ""))
+            tier = str(bk_src.get("key_authority_tier") or "TIER_1_GLOBAL_STANDARD")
+            for k_col in bk_src.get("key_columns", []):
+                bk_tier_by_col[(b_tbl, str(k_col))] = tier
+
+    entries_by_table: dict[str, list[dict[str, Any]]] = {}
+    for entry in deployed_contract.get("column_triage_ledger", []):
+        if not isinstance(entry, dict):
+            continue
+        b_tbl = str(entry.get("bronze_table", ""))
+        if b_tbl:
+            entries_by_table.setdefault(b_tbl, []).append(entry)
+
+    for b_tbl, entries in entries_by_table.items():
+        if b_tbl in existing_tables:
+            continue
+        raw_sys = b_tbl.split(".")[0].upper()
+        sys_code = re.sub(r"[^A-Z0-9_]+", "_", raw_sys).strip("_") or "SOURCE_SYSTEM"
+        cols: list[ProfiledColumn] = []
+        seen_cols: set[str] = set()
+        for entry in entries:
+            c_name = str(entry.get("column_name", ""))
+            if not c_name or c_name in seen_cols:
+                continue
+            seen_cols.add(c_name)
+            elm = str(entry.get("elm_classification", "DESCRIPTIVE_PAYLOAD"))
+            target_ent = str(entry.get("target_dv_entity", ""))
+            sec_tag: Literal["PUBLIC", "INTERNAL", "CONFIDENTIAL", "PII_HIGH", "PCI"] = "INTERNAL"
+            u_tot = 0.5
+            u_nn = 0.95
+            null_r = 0.0
+            cand_role: CandidateRoleLiteral = "DESCRIPTIVE_PAYLOAD"
+            if elm == "BUSINESS_KEY":
+                b_tier = bk_tier_by_col.get((b_tbl, c_name), "TIER_1_GLOBAL_STANDARD")
+                if b_tier == "TIER_3_LOCAL_SCOPED":
+                    cand_role = "TIER_3_LOCAL_SCOPED_KEY"
+                elif b_tier == "TIER_2_ENTERPRISE_SOR":
+                    cand_role = "TIER_2_BUSINESS_KEY"
+                else:
+                    cand_role = "TIER_1_BUSINESS_KEY"
+                u_tot = 1.0
+                u_nn = 1.0
+            elif elm == "FOREIGN_KEY_REF":
+                cand_role = "FOREIGN_KEY_REF"
+                u_nn = 1.0
+            elif elm == "OPTIONAL_FOREIGN_KEY_REF":
+                cand_role = "OPTIONAL_FOREIGN_KEY_REF"
+                u_nn = 0.8
+                null_r = 0.2
+            elif elm == "SYSTEM_SURROGATE_DROPPED":
+                cand_role = "SYSTEM_SURROGATE_DROPPED"
+            elif elm == "TECHNICAL_METADATA":
+                cand_role = "TECHNICAL_METADATA"
+            elif target_ent in pii_sat_names:
+                cand_role = "PII_RESTRICTED_PAYLOAD"
+                sec_tag = "PII_HIGH"
+            elif target_ent in drift_sat_names:
+                cand_role = "ADDITIVE_DRIFT_COMPANION"
+
+            cols.append(
+                ProfiledColumn(
+                    column_name=c_name,
+                    data_type="VARCHAR",
+                    u_total=u_tot,
+                    u_non_null=u_nn,
+                    null_rate=null_r,
+                    security_tag=sec_tag,
+                    candidate_role=cand_role,
+                )
+            )
+        if not cols:
+            continue
+        prof_tbl = ProfiledBronzeTable(
+            bronze_table=b_tbl,
+            row_count=10,
+            daily_delta_rows=2,
+            columns=cols,
+        )
+        existing_sys = systems_by_code.get(sys_code)
+        if existing_sys is None:
+            systems_by_code[sys_code] = ProfiledSourceSystem(
+                source_system_code=sys_code,
+                description=f"Seeded Bronze source system {sys_code}",
+                tables=[prof_tbl],
+            )
+        else:
+            systems_by_code[sys_code] = existing_sys.model_copy(
+                update={"tables": [*existing_sys.tables, prof_tbl]}
+            )
+
+    return systems_by_code
+
+
+def _extract_known_entities_from_cumulative_sources(
+    *,
+    ontology: GraphAOntology,
+    cumulative_sources: dict[str, tuple[PipelineSourceFeedInput, Path]],
+    deployed_contract: dict[str, Any] | None = None,
+    base_dir: Path | None = None,
+) -> list[tuple[str, str, str]]:
+    """Extract `(resolved_hub, business_key, entity_name)` tuples from active relational sources."""
+    known_entities: list[tuple[str, str, str]] = []
+    seen_hub_bks: set[tuple[str, str]] = set()
+    conn = duckdb.connect(":memory:")
+    try:
+        for q_tbl, (src, d_path) in cumulative_sources.items():
+            if not src.business_key_columns or not d_path.is_file():
+                continue
+            v_name = f"v_er_{_slugify(q_tbl)}"
+            _, cols = _load_table_into_duckdb(conn, v_name, d_path)
+            bk_col = src.business_key_columns[0]
+            if bk_col not in cols:
+                continue
+            name_col = next(
+                (
+                    c
+                    for c in cols
+                    if any(
+                        k in c.lower()
+                        for k in ("legal_name", "company_name", "customer_name", "name")
+                    )
+                ),
+                None,
+            )
+            hub_hint = (
+                src.target_hub_name or src.cbc_mapping_hints.get(src.table_name) or src.table_name
+            )
+            resolved_hub, _ = _resolve_hub_and_uri(hub_hint, ontology)
+            if name_col:
+                rows = conn.execute(f'SELECT "{bk_col}", "{name_col}" FROM "{v_name}"').fetchall()
+                for r in rows:
+                    if r[0] is not None:
+                        bk_s = str(r[0]).strip()
+                        if (resolved_hub, bk_s) not in seen_hub_bks:
+                            seen_hub_bks.add((resolved_hub, bk_s))
+                            known_entities.append((resolved_hub, bk_s, str(r[1] or "").strip()))
+            else:
+                rows = conn.execute(f'SELECT "{bk_col}" FROM "{v_name}"').fetchall()
+                for r in rows:
+                    if r[0] is not None:
+                        bk_s = str(r[0]).strip()
+                        if (resolved_hub, bk_s) not in seen_hub_bks:
+                            seen_hub_bks.add((resolved_hub, bk_s))
+                            known_entities.append((resolved_hub, bk_s, ""))
+
+        if deployed_contract is not None:
+            search_roots: list[Path] = []
+            if base_dir is not None:
+                if (base_dir / "sources").is_dir():
+                    search_roots.append(base_dir / "sources")
+                if base_dir.is_dir():
+                    search_roots.append(base_dir)
+            for hub in deployed_contract.get("hubs", []):
+                if not isinstance(hub, dict):
+                    continue
+                h_name = str(hub.get("name", ""))
+                if not h_name or h_name == "hub_document":
+                    continue
+                for bk_src in hub.get("business_key_sources", []):
+                    if not isinstance(bk_src, dict):
+                        continue
+                    b_tbl = str(bk_src.get("bronze_table", ""))
+                    key_cols = [str(c) for c in bk_src.get("key_columns", []) if c]
+                    if b_tbl in cumulative_sources or not key_cols:
+                        continue
+                    bk_col = key_cols[0]
+                    tbl_short = b_tbl.split(".")[-1].lower()
+                    matched_file: Path | None = None
+                    for s_root in search_roots:
+                        candidates = sorted(
+                            p
+                            for p in s_root.rglob("*")
+                            if p.is_file()
+                            and p.suffix.lower() in {".csv", ".parquet", ".json"}
+                            and p.stem.lower().startswith(tbl_short)
+                        )
+                        if candidates:
+                            matched_file = candidates[0]
+                            break
+                    if matched_file is None:
+                        continue
+                    v_name = f"v_er_dep_{_slugify(b_tbl)}"
+                    try:
+                        _, cols = _load_table_into_duckdb(conn, v_name, matched_file)
+                    except Exception:
+                        continue
+                    if bk_col not in cols:
+                        continue
+                    name_col = next(
+                        (
+                            c
+                            for c in cols
+                            if any(
+                                k in c.lower()
+                                for k in ("legal_name", "company_name", "customer_name", "name")
+                            )
+                        ),
+                        None,
+                    )
+                    if name_col:
+                        rows = conn.execute(
+                            f'SELECT "{bk_col}", "{name_col}" FROM "{v_name}"'
+                        ).fetchall()
+                        for r in rows:
+                            if r[0] is not None:
+                                bk_s = str(r[0]).strip()
+                                if (h_name, bk_s) not in seen_hub_bks:
+                                    seen_hub_bks.add((h_name, bk_s))
+                                    known_entities.append((h_name, bk_s, str(r[1] or "").strip()))
+                    else:
+                        rows = conn.execute(f'SELECT "{bk_col}" FROM "{v_name}"').fetchall()
+                        for r in rows:
+                            if r[0] is not None:
+                                bk_s = str(r[0]).strip()
+                                if (h_name, bk_s) not in seen_hub_bks:
+                                    seen_hub_bks.add((h_name, bk_s))
+                                    known_entities.append((h_name, bk_s, ""))
+    finally:
+        conn.close()
+    return known_entities
+
+
+def _discover_unstructured_doc_candidates_from_entities(
+    *,
+    doc: PipelineUnstructuredDocInput,
+    doc_text: str,
+    known_entities: list[tuple[str, str, str]],
+    default_hub: str = "hub_customer",
+) -> list[PipelineUnstructuredCandidateInput]:
+    """Discover Tier-U1 exact and Tier-U3 variant entity spans against `known_entities`."""
+    candidates: list[PipelineUnstructuredCandidateInput] = []
+    used_bks: set[str] = set()
+    variant_entities: list[tuple[re.Match[str], str, str, str]] = []
+
+    for r_hub, bk_val, legal_name in known_entities:
+        if not bk_val:
+            continue
+        name_tokens = legal_name.split() if legal_name else []
+        var_matches: list[re.Match[str]] = []
+        if len(name_tokens) >= 2:
+            first_tok = name_tokens[0]
+            pat = rf"\b{re.escape(first_tok)}(?:\s+[A-Z][A-Za-z0-9&.'-]+)+"
+            var_matches = [
+                m for m in re.finditer(pat, doc_text) if m.group(0).strip() != legal_name
+            ]
+        if var_matches:
+            variant_entities.append((var_matches[0], r_hub, bk_val, legal_name))
+            used_bks.add(bk_val)
+            continue
+
+        bk_idx = doc_text.find(bk_val)
+        if bk_idx >= 0:
+            line_start = doc_text.rfind("\n", 0, bk_idx) + 1
+            name_idx = doc_text.find(legal_name, line_start, bk_idx) if legal_name else -1
+            if name_idx >= 0:
+                c_start = name_idx
+                c_end = bk_idx + len(bk_val)
+                if c_end < len(doc_text) and doc_text[c_end] in {")", "]"}:
+                    c_end += 1
+            else:
+                c_start = bk_idx
+                c_end = bk_idx + len(bk_val)
+            quote_str = doc_text[c_start:c_end]
+            other_entity = next(
+                (e for e in known_entities if e[1] != bk_val and e[2]),
+                (r_hub, "CAND-ALT", "Alternative Entity"),
+            )
+            candidates.append(
+                PipelineUnstructuredCandidateInput(
+                    extraction_id=f"ext_{_slugify(doc.doc_id)}_{_slugify(bk_val)}_u1",
+                    target_hub=r_hub,
+                    extracted_business_key=bk_val,
+                    verbatim_quote=quote_str,
+                    char_start=c_start,
+                    char_end=c_end,
+                    page_number=1,
+                    confidence_score=0.98,
+                    candidate_hub_matches=[
+                        {
+                            "candidate_key": bk_val,
+                            "legal_name": legal_name or bk_val,
+                            "score": 0.98,
+                        },
+                        {
+                            "candidate_key": other_entity[1],
+                            "legal_name": other_entity[2] or other_entity[1],
+                            "score": 0.12,
+                        },
+                    ],
+                )
+            )
+            used_bks.add(bk_val)
+
+    for v_match, r_hub, bk_val, legal_name in variant_entities:
+        v_quote = v_match.group(0).strip()
+        v_start = v_match.start(0)
+        v_end = v_start + len(v_quote)
+        second_entity = next(
+            (e for e in known_entities if e[1] != bk_val and e[1] not in used_bks and e[2]),
+            next(
+                (e for e in known_entities if e[1] != bk_val),
+                (r_hub, "ALT-KEY", "Alternative Entity"),
+            ),
+        )
+        candidates.append(
+            PipelineUnstructuredCandidateInput(
+                extraction_id=f"ext_{_slugify(doc.doc_id)}_{_slugify(bk_val)}_u3",
+                target_hub=r_hub,
+                extracted_business_key=bk_val,
+                verbatim_quote=v_quote,
+                char_start=v_start,
+                char_end=v_end,
+                page_number=1,
+                confidence_score=0.68,
+                candidate_hub_matches=[
+                    {
+                        "candidate_key": bk_val,
+                        "legal_name": legal_name or bk_val,
+                        "score": 0.68,
+                    },
+                    {
+                        "candidate_key": second_entity[1],
+                        "legal_name": second_entity[2] or second_entity[1],
+                        "score": 0.61,
+                    },
+                ],
+            )
+        )
+
+    if not candidates:
+        code_match = re.search(
+            r"\b[A-Z]{2,6}-[A-Z0-9]{2,8}(?:-[A-Z0-9]{2,10})?\b",
+            doc_text,
+        )
+        if code_match is not None:
+            q_str = code_match.group(0)
+            c_start = code_match.start(0)
+            c_end = code_match.end(0)
+            candidates.append(
+                PipelineUnstructuredCandidateInput(
+                    extraction_id=f"ext_{_slugify(doc.doc_id)}_u1",
+                    target_hub=default_hub,
+                    extracted_business_key=q_str,
+                    verbatim_quote=q_str,
+                    char_start=c_start,
+                    char_end=c_end,
+                    page_number=1,
+                    confidence_score=0.96,
+                )
+            )
+        else:
+            first_line = next(
+                (ln.strip() for ln in doc_text.splitlines() if ln.strip()),
+                doc_text.strip()[:40],
+            )
+            c_start = max(0, doc_text.find(first_line))
+            c_end = c_start + len(first_line)
+            candidates.append(
+                PipelineUnstructuredCandidateInput(
+                    extraction_id=f"ext_{_slugify(doc.doc_id)}_u1",
+                    target_hub=default_hub,
+                    extracted_business_key=doc.doc_id,
+                    verbatim_quote=first_line,
+                    char_start=c_start,
+                    char_end=c_end,
+                    page_number=1,
+                    confidence_score=0.96,
+                )
+            )
+    return candidates
+
+
 # ---------------------------------------------------------------------------
 # 5. End-to-End Agentic Vault Pipeline Orchestrator
 # ---------------------------------------------------------------------------
@@ -1578,6 +2382,11 @@ class AgenticVaultPipeline:
             app_data_dir=self.output_dir / "app_data",
             save_dir=self.output_dir / "save",
         )
+        if not self.harness_setup.auth.require_credentials_present:
+            self.harness_config.extra_provider_options.setdefault(
+                "allow_mock_sdk_fallback",
+                True,
+            )
         self.harness: VaultAgentHarness = get_harness_adapter(
             self.harness_config,
             sdk_module=self._sdk_module,
@@ -1758,15 +2567,43 @@ class AgenticVaultPipeline:
             intermediate_list=intermediate_artifacts,
         )
 
+        s0_ctx = {
+            "stage": "STAGE_00_ORCHESTRATION",
+            "domain_namespace": self.input_spec.domain_namespace,
+            "wave_indices": [w.wave_index for w in self.input_spec.waves],
+            "max_retries": self.harness_setup.budget.max_schema_validation_retries,
+        }
         vfm_spec = build_vault_first_mate_task_spec(
             prompt=(
                 f"Orchestrate {len(self.input_spec.waves)} waves for pipeline "
-                f"'{self.input_spec.pipeline_id}' in domain '{self.input_spec.domain_namespace}'."
+                f"'{self.input_spec.pipeline_id}' in domain '{self.input_spec.domain_namespace}'.\n"
+                f"Graph A Ontology CBCs: "
+                f"{[c.concept_name for c in ontology.canonical_business_concepts]}"
+                f"{_encode_stage_context(s0_ctx)}"
             ),
             run_id=run_id,
             trace_id=trace_id,
-        )
+        ).model_copy(update={"output_schema": Stage00OrchestrationPlanOutput})
         vfm_res = await self.harness.run_task(vfm_spec)
+        s0_plan = (
+            vfm_res.structured_output
+            if isinstance(vfm_res.structured_output, Stage00OrchestrationPlanOutput)
+            else None
+        )
+        effective_max_retries = (
+            s0_plan.recommended_max_retries
+            if s0_plan is not None
+            else self.harness_setup.budget.max_schema_validation_retries
+        )
+        waves_by_idx = {w.wave_index: w for w in self.input_spec.waves}
+        if (
+            s0_plan is not None
+            and len(s0_plan.wave_execution_order) == len(self.input_spec.waves)
+            and set(s0_plan.wave_execution_order) == set(waves_by_idx.keys())
+        ):
+            ordered_waves = [waves_by_idx[i] for i in s0_plan.wave_execution_order]
+        else:
+            ordered_waves = list(self.input_spec.waves)
         s0_ms = round((time.perf_counter() - t0_s0) * 1000.0, 3)
 
         ev_wb00 = self._emit_wb_event(
@@ -1820,6 +2657,16 @@ class AgenticVaultPipeline:
         )
         observability_events.append(ev_wb01)
 
+        s0_metrics: dict[str, Any] = {
+            "checked_items_count": input_val.checked_items_count,
+            "cbc_count": len(ontology.canonical_business_concepts),
+            "effective_max_retries": effective_max_retries,
+        }
+        if s0_plan is not None:
+            s0_metrics["llm_structured_plan_used"] = True
+            s0_metrics["risk_assessment"] = s0_plan.risk_assessment
+            s0_metrics["wave_execution_order"] = list(s0_plan.wave_execution_order)
+
         step_reports.append(
             PipelineStepReport(
                 step_id="step-w0-stage00-orchestration",
@@ -1839,10 +2686,7 @@ class AgenticVaultPipeline:
                 tool_invocations=["emit_observability_event"],
                 input_artifact_sha256s=[],
                 output_artifact_sha256s=[ont_ref.sha256],
-                metrics={
-                    "checked_items_count": input_val.checked_items_count,
-                    "cbc_count": len(ontology.canonical_business_concepts),
-                },
+                metrics=s0_metrics,
             )
         )
 
@@ -1861,6 +2705,24 @@ class AgenticVaultPipeline:
             )
             if init_c_path is not None:
                 deployed_contract_dict = load_structured_file(init_c_path)
+                cumulative_source_systems = _seed_graph_b_systems_from_deployed_contract(
+                    deployed_contract_dict,
+                    init_c_path,
+                )
+                for sat_entry in deployed_contract_dict.get("satellites", []):
+                    if not isinstance(sat_entry, dict):
+                        continue
+                    sat_name = str(sat_entry.get("name", ""))
+                    vol_tier = str(sat_entry.get("volatility_tier", ""))
+                    b_tbl = str(sat_entry.get("source_bronze_table", "")).lower()
+                    if b_tbl and (
+                        vol_tier == "ADDITIVE_DRIFT_COMPANION" or sat_name.endswith("_ext_v2")
+                    ):
+                        drift_cols = added_drift_cols_by_table.setdefault(b_tbl, [])
+                        for p_c in sat_entry.get("payload_columns", []):
+                            p_str = str(p_c)
+                            if p_str and p_str not in drift_cols:
+                                drift_cols.append(p_str)
 
         last_verified_contract: dict[str, Any] = {}
         last_canonical_ir: CanonicalIR | None = None
@@ -1873,7 +2735,7 @@ class AgenticVaultPipeline:
         # -------------------------------------------------------------------
         # Execute Waves 0 .. N-1
         # -------------------------------------------------------------------
-        for wave in self.input_spec.waves:
+        for wave in ordered_waves:
             w_idx = wave.wave_index
             w_name = wave.wave_name
             wave_step_ids: list[str] = []
@@ -1889,6 +2751,10 @@ class AgenticVaultPipeline:
             wave_columns_profiled = 0
             wave_sources_profiled = len(wave.sources)
             current_wave_drift_tables: set[str] = set()
+            raw_prof_tables: list[
+                tuple[PipelineSourceFeedInput, Path, str, ProfiledBronzeTable]
+            ] = []
+            sample_rows_by_table: dict[str, list[dict[str, Any]]] = {}
 
             try:
                 for src in wave.sources:
@@ -1899,73 +2765,30 @@ class AgenticVaultPipeline:
                     )
                     assert d_path is not None
                     qualified_table = f"{src.source_system.lower()}.{src.table_name.lower()}"
-                    cumulative_sources[qualified_table] = (src, d_path)
 
                     view_t1 = f"v_{_slugify(src.source_system)}_{_slugify(src.table_name)}"
                     _load_table_into_duckdb(profiler.conn, view_t1, d_path)
+                    sample_cur = profiler.conn.execute(f'SELECT * FROM "{view_t1}" LIMIT 5')
+                    sample_cols = (
+                        [str(d[0]) for d in sample_cur.description]
+                        if sample_cur.description
+                        else []
+                    )
+                    sample_rows_by_table[qualified_table] = [
+                        {
+                            sample_cols[i]: (str(val) if val is not None else None)
+                            for i, val in enumerate(row)
+                        }
+                        for row in sample_cur.fetchall()
+                    ]
                     gb_single = profiler.build_graph_b_profile(
                         domain=self.input_spec.domain_namespace,
                         source_system_id=src.source_system.upper(),
-                        bkcc_namespace=src.bkcc_namespace,
+                        bkcc_namespace=src.bkcc_namespace or "GLOBAL",
                         table_names=[view_t1],
                     )
                     prof_tbl = gb_single.source_systems[0].tables[0]
-
-                    # Enrich profiled columns with input spec hints (BK, FK, Surrogate, PII)
-                    enriched_cols: list[ProfiledColumn] = []
-                    for p_col in prof_tbl.columns:
-                        wave_columns_profiled += 1
-                        c_name = p_col.column_name
-                        sec_tag = "PII_HIGH" if c_name in src.pii_columns else p_col.security_tag
-                        cand_role: CandidateRoleLiteral = p_col.candidate_role
-                        if c_name in src.surrogate_key_columns:
-                            cand_role = "SYSTEM_SURROGATE_DROPPED"
-                        elif c_name in src.business_key_columns:
-                            if src.key_authority_tier == "TIER_3_LOCAL_SCOPED":
-                                cand_role = "TIER_3_LOCAL_SCOPED_KEY"
-                            elif src.key_authority_tier == "TIER_2_ENTERPRISE_SOR":
-                                cand_role = "TIER_2_BUSINESS_KEY"
-                            else:
-                                cand_role = "TIER_1_BUSINESS_KEY"
-                        elif c_name in src.foreign_key_mappings:
-                            cand_role = (
-                                "OPTIONAL_FOREIGN_KEY_REF"
-                                if p_col.u_non_null < 0.95 or p_col.null_rate > 0.05
-                                else "FOREIGN_KEY_REF"
-                            )
-                        elif c_name in src.pii_columns:
-                            cand_role = "PII_RESTRICTED_PAYLOAD"
-
-                        enriched_cols.append(
-                            p_col.model_copy(
-                                update={
-                                    "security_tag": sec_tag,
-                                    "candidate_role": cand_role,
-                                }
-                            )
-                        )
-
-                    updated_tbl = prof_tbl.model_copy(
-                        update={
-                            "bronze_table": qualified_table,
-                            "columns": enriched_cols,
-                        }
-                    )
-                    sys_code = src.source_system.upper()
-                    existing_sys = cumulative_source_systems.get(sys_code)
-                    if existing_sys is None:
-                        cumulative_source_systems[sys_code] = ProfiledSourceSystem(
-                            source_system_code=sys_code,
-                            description=f"Profiled Bronze source system {sys_code}",
-                            tables=[updated_tbl],
-                        )
-                    else:
-                        other_tbls = [
-                            t for t in existing_sys.tables if t.bronze_table != qualified_table
-                        ]
-                        cumulative_source_systems[sys_code] = existing_sys.model_copy(
-                            update={"tables": [*other_tbls, updated_tbl]}
-                        )
+                    raw_prof_tables.append((src, d_path, qualified_table, prof_tbl))
 
                     # Detect schema drift if baseline_data_path is provided
                     if src.baseline_data_path is not None:
@@ -1989,31 +2812,148 @@ class AgenticVaultPipeline:
                                 )
                                 if dev.column_name not in drift_cols:
                                     drift_cols.append(dev.column_name)
+                    elif deployed_contract_dict is not None:
+                        prior_cols = {
+                            str(e.get("column_name", ""))
+                            for e in deployed_contract_dict.get("column_triage_ledger", [])
+                            if isinstance(e, dict)
+                            and str(e.get("bronze_table", "")).lower() == qualified_table.lower()
+                            and str(e.get("target_dv_entity", "")) != "hub_document"
+                        }
+                        if prior_cols:
+                            for p_col in prof_tbl.columns:
+                                if p_col.column_name not in prior_cols:
+                                    wave_drift_events.append(
+                                        {
+                                            "drift_kind": "ADD_COLUMN",
+                                            "column_name": p_col.column_name,
+                                            "source_table": qualified_table,
+                                            "prior_type": None,
+                                            "new_type": p_col.data_type,
+                                            "recommended_action": (
+                                                "SPAWN_COMPANION_SATELLITE_ALG_A9A"
+                                            ),
+                                        }
+                                    )
+                                    current_wave_drift_tables.add(qualified_table)
+                                    drift_cols = added_drift_cols_by_table.setdefault(
+                                        qualified_table, []
+                                    )
+                                    if p_col.column_name not in drift_cols:
+                                        drift_cols.append(p_col.column_name)
             finally:
                 profiler.close()
 
-            if wave.unstructured_documents and cumulative_source_systems:
-                first_sys_key = next(iter(cumulative_source_systems))
-                for doc in wave.unstructured_documents:
-                    u_path, _ = _resolve_and_check_safe_path(
-                        doc.document_path,
-                        base_dir=self.base_dir,
-                        workspace_root=self.workspace_root,
-                    )
-                    assert u_path is not None
-                    doc_text = u_path.read_text(encoding="utf-8")
-                    doc_sha256 = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
-                    prof_doc = _build_profiled_unstructured_doc(doc, doc_text, doc_sha256)
-                    if prof_doc is not None:
-                        first_sys = cumulative_source_systems[first_sys_key]
-                        existing_docs = [
-                            d
-                            for d in (first_sys.unstructured_documents or [])
-                            if d.doc_uri != doc.doc_id
-                        ]
-                        cumulative_source_systems[first_sys_key] = first_sys.model_copy(
-                            update={"unstructured_documents": [*existing_docs, prof_doc]}
+            s1_profiled_tables_dict = {
+                q_tbl: prof_tbl.model_dump(mode="json", exclude_none=True)
+                for _, _, q_tbl, prof_tbl in raw_prof_tables
+            }
+            s1_ctx = {
+                "stage": "STAGE_01_SCOUT_SOURCE",
+                "wave_index": w_idx,
+                "wave_name": w_name,
+                "ontology": raw_ontology,
+                "deployed_contract": deployed_contract_dict,
+                "sources": [
+                    raw_src.model_dump(mode="json", exclude_none=True)
+                    for raw_src, _, _, _ in raw_prof_tables
+                ],
+                "profiled_tables": s1_profiled_tables_dict,
+                "sample_rows": sample_rows_by_table,
+                "cumulative_sources": {
+                    q_tbl: prev_src.model_dump(mode="json", exclude_none=True)
+                    for q_tbl, (prev_src, _) in cumulative_sources.items()
+                },
+            }
+            scout_src_spec = build_scout_source_task_spec(
+                prompt=(
+                    f"Profile Wave {w_idx} ({w_name}) relational sources and discover "
+                    f"business keys, foreign keys, surrogates, and PII columns.\n"
+                    f"Graph A Ontology: {json.dumps(raw_ontology, sort_keys=True)}\n"
+                    f"Graph B Statistical Profile: "
+                    f"{json.dumps(s1_profiled_tables_dict, sort_keys=True)}\n"
+                    f"Sample Rows (up to 5 per table): "
+                    f"{json.dumps(sample_rows_by_table, sort_keys=True)}"
+                    f"{_encode_stage_context(s1_ctx)}"
+                ),
+                run_id=run_id,
+                trace_id=trace_id,
+            ).model_copy(update={"output_schema": Stage01SourceDiscoveryOutput})
+            s1_llm_discovery: Stage01SourceDiscoveryOutput | None = None
+            if raw_prof_tables:
+                scout_src_res = await self.harness.run_task(scout_src_spec)
+                s1_llm_discovery = (
+                    scout_src_res.structured_output
+                    if isinstance(scout_src_res.structured_output, Stage01SourceDiscoveryOutput)
+                    else None
+                )
+
+            for raw_src, d_path, qualified_table, prof_tbl in raw_prof_tables:
+                src = _discover_source_feed_semantics(
+                    src=raw_src,
+                    prof_tbl=prof_tbl,
+                    ontology=ontology,
+                    cumulative_sources=cumulative_sources,
+                    deployed_contract=deployed_contract_dict,
+                    llm_discovery=s1_llm_discovery,
+                )
+                cumulative_sources[qualified_table] = (src, d_path)
+
+                # Enrich profiled columns with discovered or declared semantics
+                enriched_cols: list[ProfiledColumn] = []
+                for p_col in prof_tbl.columns:
+                    wave_columns_profiled += 1
+                    c_name = p_col.column_name
+                    sec_tag = "PII_HIGH" if c_name in src.pii_columns else p_col.security_tag
+                    cand_role: CandidateRoleLiteral = p_col.candidate_role
+                    if c_name in src.surrogate_key_columns:
+                        cand_role = "SYSTEM_SURROGATE_DROPPED"
+                    elif c_name in src.business_key_columns:
+                        if src.key_authority_tier == "TIER_3_LOCAL_SCOPED":
+                            cand_role = "TIER_3_LOCAL_SCOPED_KEY"
+                        elif src.key_authority_tier == "TIER_2_ENTERPRISE_SOR":
+                            cand_role = "TIER_2_BUSINESS_KEY"
+                        else:
+                            cand_role = "TIER_1_BUSINESS_KEY"
+                    elif c_name in src.foreign_key_mappings:
+                        cand_role = (
+                            "OPTIONAL_FOREIGN_KEY_REF"
+                            if p_col.u_non_null < 0.95 or p_col.null_rate > 0.05
+                            else "FOREIGN_KEY_REF"
                         )
+                    elif c_name in src.pii_columns:
+                        cand_role = "PII_RESTRICTED_PAYLOAD"
+
+                    enriched_cols.append(
+                        p_col.model_copy(
+                            update={
+                                "security_tag": sec_tag,
+                                "candidate_role": cand_role,
+                            }
+                        )
+                    )
+
+                updated_tbl = prof_tbl.model_copy(
+                    update={
+                        "bronze_table": qualified_table,
+                        "columns": enriched_cols,
+                    }
+                )
+                sys_code = src.source_system.upper()
+                existing_sys = cumulative_source_systems.get(sys_code)
+                if existing_sys is None:
+                    cumulative_source_systems[sys_code] = ProfiledSourceSystem(
+                        source_system_code=sys_code,
+                        description=f"Profiled Bronze source system {sys_code}",
+                        tables=[updated_tbl],
+                    )
+                else:
+                    other_tbls = [
+                        t for t in existing_sys.tables if t.bronze_table != qualified_table
+                    ]
+                    cumulative_source_systems[sys_code] = existing_sys.model_copy(
+                        update={"tables": [*other_tbls, updated_tbl]}
+                    )
 
             # Assemble cumulative GraphBProfile for this wave
             wave_gb_profile = GraphBProfile(
@@ -2061,12 +3001,6 @@ class AgenticVaultPipeline:
                 )
                 s1_out_shas.append(drift_ref.sha256)
 
-            scout_src_spec = build_scout_source_task_spec(
-                prompt=f"Profile Wave {w_idx} ({w_name}) relational sources.",
-                run_id=run_id,
-                trace_id=trace_id,
-            )
-            await self.harness.run_task(scout_src_spec)
             s1_ms = round((time.perf_counter() - t0_s1) * 1000.0, 3)
 
             ev_wb02 = self._emit_wb_event(
@@ -2172,6 +3106,7 @@ class AgenticVaultPipeline:
                         "sources_profiled": wave_sources_profiled,
                         "columns_profiled": wave_columns_profiled,
                         "schema_drift_events": len(wave_drift_events),
+                        "llm_structured_discovery_used": s1_llm_discovery is not None,
                     },
                 )
             )
@@ -2186,18 +3121,129 @@ class AgenticVaultPipeline:
                 "PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"
             ] = "PASS"
 
-            for doc in wave.unstructured_documents:
+            raw_loaded_docs: list[tuple[PipelineUnstructuredDocInput, str, str]] = []
+            for raw_doc in wave.unstructured_documents:
                 u_path, _ = _resolve_and_check_safe_path(
-                    doc.document_path,
+                    raw_doc.document_path,
                     base_dir=self.base_dir,
                     workspace_root=self.workspace_root,
                 )
                 assert u_path is not None
                 doc_text = u_path.read_text(encoding="utf-8")
                 doc_sha256 = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
+                raw_loaded_docs.append((raw_doc, doc_text, doc_sha256))
+
+            known_entities = _extract_known_entities_from_cumulative_sources(
+                ontology=ontology,
+                cumulative_sources=cumulative_sources,
+                deployed_contract=deployed_contract_dict,
+                base_dir=self.base_dir,
+            )
+            s2_ctx = {
+                "stage": "STAGE_02_SCOUT_UNSTRUCTURED",
+                "wave_index": w_idx,
+                "wave_name": w_name,
+                "ontology": raw_ontology,
+                "active_hub_business_keys": [
+                    {"hub": h, "business_key": bk, "legal_name": name}
+                    for h, bk, name in known_entities
+                ],
+                "unstructured_documents": [
+                    {
+                        "doc": raw_doc.model_dump(mode="json", exclude_none=True),
+                        "doc_text": doc_text,
+                        "doc_sha256": doc_sha256,
+                    }
+                    for raw_doc, doc_text, doc_sha256 in raw_loaded_docs
+                ],
+            }
+            doc_texts_preview = "\n---\n".join(
+                f"[{d.doc_id}]\n{txt}" for d, txt, _ in raw_loaded_docs
+            )
+            scout_unstr_spec = build_scout_unstructured_task_spec(
+                prompt=(
+                    f"Ground unstructured spans for Wave {w_idx} ({w_name}).\n"
+                    f"Graph A Ontology: {json.dumps(raw_ontology, sort_keys=True)}\n"
+                    f"Active Hub Business Keys: "
+                    f"{json.dumps(s2_ctx['active_hub_business_keys'], sort_keys=True)}\n"
+                    f"Raw Unstructured Documents:\n{doc_texts_preview}"
+                    f"{_encode_stage_context(s2_ctx)}"
+                ),
+                run_id=run_id,
+                trace_id=trace_id,
+                model_tier=ModelTier.HIGH_REASONING,
+            ).model_copy(update={"output_schema": Stage02UnstructuredDiscoveryOutput})
+            s2_llm_discovery: Stage02UnstructuredDiscoveryOutput | None = None
+            if raw_loaded_docs:
+                scout_unstr_res = await self.harness.run_task(scout_unstr_spec)
+                s2_llm_discovery = (
+                    scout_unstr_res.structured_output
+                    if isinstance(
+                        scout_unstr_res.structured_output,
+                        Stage02UnstructuredDiscoveryOutput,
+                    )
+                    else None
+                )
+
+            for raw_doc, doc_text, doc_sha256 in raw_loaded_docs:
+                doc = _discover_unstructured_doc_candidates(
+                    doc=raw_doc,
+                    doc_text=doc_text,
+                    ontology=ontology,
+                    cumulative_sources=cumulative_sources,
+                    deployed_contract=deployed_contract_dict,
+                    base_dir=self.base_dir,
+                    llm_discovery=s2_llm_discovery,
+                )
+                if cumulative_source_systems:
+                    first_sys_key = next(iter(cumulative_source_systems))
+                    prof_doc = _build_profiled_unstructured_doc(doc, doc_text, doc_sha256)
+                    if prof_doc is not None:
+                        first_sys = cumulative_source_systems[first_sys_key]
+                        existing_docs = [
+                            d
+                            for d in (first_sys.unstructured_documents or [])
+                            if d.doc_uri != doc.doc_id
+                        ]
+                        cumulative_source_systems[first_sys_key] = first_sys.model_copy(
+                            update={"unstructured_documents": [*existing_docs, prof_doc]}
+                        )
+                        wave_gb_profile = GraphBProfile(
+                            profile_version="1.0.0",
+                            domain_namespace=_slugify(self.input_spec.domain_namespace),
+                            profiled_at_utc=wave_gb_profile.profiled_at_utc,
+                            source_systems=list(cumulative_source_systems.values()),
+                        )
+                        wave_gb_dict = wave_gb_profile.model_dump(mode="json", exclude_none=True)
+                        validate_graph_b(wave_gb_dict)
+                        intermediate_artifacts[:] = [
+                            a
+                            for a in intermediate_artifacts
+                            if a.artifact_id != f"art-w{w_idx}-stage01-graph-b-profile"
+                        ]
+                        gb_ref = self._record_artifact(
+                            artifact_id=f"art-w{w_idx}-stage01-graph-b-profile",
+                            name=f"wave_{w_idx}_graph_b_profile.json",
+                            stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
+                            content=json.dumps(wave_gb_dict, indent=2, sort_keys=True),
+                            media_type="application/json",
+                            rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_graph_b_profile.json",
+                            wave_index=w_idx,
+                            description=f"Wave {w_idx} Empirical Graph B Statistical Profile.",
+                            intermediate_list=intermediate_artifacts,
+                        )
+                        s1_out_shas[0] = gb_ref.sha256
+
                 doc_held_or_rejected = False
 
                 for cand in doc.extracted_candidates:
+                    c_start = cand.char_start
+                    c_end = cand.char_end
+                    if c_start is None or c_end is None:
+                        found_idx = doc_text.find(cand.verbatim_quote)
+                        c_start = max(0, found_idx)
+                        c_end = c_start + len(cand.verbatim_quote)
+                        cand = cand.model_copy(update={"char_start": c_start, "char_end": c_end})
                     _margin, short_tier, _gb_tier, action = _compute_candidate_er_metrics(cand)
                     tier_counts[short_tier] = tier_counts.get(short_tier, 0) + 1
 
@@ -2272,10 +3318,9 @@ class AgenticVaultPipeline:
                             "target_hub": cand.target_hub,
                             "extracted_business_key": cand.extracted_business_key,
                             "verbatim_quote": cand.verbatim_quote,
-                            "char_start": cand.char_start,
-                            "char_end": cand.char_end,
-                            "span_verified": doc_text[cand.char_start : cand.char_end]
-                            == cand.verbatim_quote,
+                            "char_start": c_start,
+                            "char_end": c_end,
+                            "span_verified": doc_text[c_start:c_end] == cand.verbatim_quote,
                             "confidence_score": cand.confidence_score,
                             "er_tier": short_tier,
                             "action": action,
@@ -2308,14 +3353,6 @@ class AgenticVaultPipeline:
                 description=f"Wave {w_idx} Unstructured Span Grounding & 3-Tier ER Report.",
                 intermediate_list=intermediate_artifacts,
             )
-
-            scout_unstr_spec = build_scout_unstructured_task_spec(
-                prompt=f"Ground unstructured spans for Wave {w_idx} ({w_name}).",
-                run_id=run_id,
-                trace_id=trace_id,
-                model_tier=ModelTier.HIGH_REASONING,
-            )
-            await self.harness.run_task(scout_unstr_spec)
             s2_ms = round((time.perf_counter() - t0_s2) * 1000.0, 3)
 
             ev_wb03 = self._emit_wb_event(
@@ -2379,7 +3416,10 @@ class AgenticVaultPipeline:
                     tool_invocations=["extract_pdf_spans", "emit_observability_event"],
                     input_artifact_sha256s=[gb_ref.sha256],
                     output_artifact_sha256s=[ug_ref.sha256],
-                    metrics={"tier_counts": tier_counts},
+                    metrics={
+                        "tier_counts": tier_counts,
+                        "llm_structured_extraction_used": s2_llm_discovery is not None,
+                    },
                 )
             )
 
@@ -2388,17 +3428,111 @@ class AgenticVaultPipeline:
             # & Pass 2 (CumulativeDV 2.0 Contract Synthesis)
             # ---------------------------------------------------------------
             t0_s3 = time.perf_counter()
-            candidate_contract = self._synthesize_cumulative_contract(
-                ontology=ontology,
-                cumulative_sources=cumulative_sources,
-                cumulative_source_systems=cumulative_source_systems,
-                cumulative_unstructured_docs=cumulative_unstructured_docs,
-                added_drift_cols_by_table=added_drift_cols_by_table,
-                current_wave_drift_tables=current_wave_drift_tables,
-                wave_index=w_idx,
+            s3_ctx = {
+                "stage": "STAGE_03_SHIP_VAULT_PASS1",
+                "wave_index": w_idx,
+                "wave_name": w_name,
+                "domain_namespace": self.input_spec.domain_namespace,
+                "ontology": raw_ontology,
+                "graph_b_profile": wave_gb_dict,
+                "deployed_contract": deployed_contract_dict,
+                "cumulative_sources": {
+                    q_tbl: src.model_dump(mode="json", exclude_none=True)
+                    for q_tbl, (src, _) in cumulative_sources.items()
+                },
+                "cumulative_unstructured_docs": [
+                    {
+                        "doc": doc_in.model_dump(mode="json", exclude_none=True),
+                        "sha256": doc_sha,
+                    }
+                    for doc_in, doc_sha in cumulative_unstructured_docs
+                ],
+                "added_drift_cols_by_table": added_drift_cols_by_table,
+                "current_wave_drift_tables": sorted(current_wave_drift_tables),
+            }
+            pass1_spec = build_ship_vault_task_spec(
+                prompt=(
+                    f"Synthesize Pass 1 100% Column Triage Ledger for Wave {w_idx} ({w_name}).\n"
+                    f"Graph A Ontology: {json.dumps(raw_ontology, sort_keys=True)}\n"
+                    f"Graph B Statistical Profile: {json.dumps(wave_gb_dict, sort_keys=True)}\n"
+                    f"Stage 01 Discovered Sources: "
+                    f"{json.dumps(s3_ctx['cumulative_sources'], sort_keys=True)}\n"
+                    f"Stage 02 Unstructured Extractions: "
+                    f"{json.dumps(s3_ctx['cumulative_unstructured_docs'], sort_keys=True)}\n"
+                    f"Deployed Contract: {json.dumps(deployed_contract_dict, sort_keys=True)}"
+                    f"{_encode_stage_context(s3_ctx)}"
+                ),
+                run_id=run_id,
+                trace_id=trace_id,
+                stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1,
+                workbench_view_id=WorkbenchViewId.WB_04,
+                viz_id=VizId.VIZ_STEP_05,
+                output_schema=Stage03ColumnTriageOutput,
             )
+            pass1_res = await self.harness.run_task(pass1_spec)
+            expected_col_keys = {
+                (tbl_obj.bronze_table, col_obj.column_name)
+                for sys_obj in wave_gb_profile.source_systems
+                for tbl_obj in sys_obj.tables
+                for col_obj in tbl_obj.columns
+            }
+            fallback_triage = synthesize_stage_output_from_prompt(
+                Stage03ColumnTriageOutput,
+                pass1_spec.prompt,
+            )
+            canonical_ledger = [
+                e.model_dump(mode="json", exclude_none=True)
+                for e in fallback_triage.column_triage_ledger
+            ]
+            if (
+                isinstance(pass1_res.structured_output, Stage03ColumnTriageOutput)
+                and pass1_res.structured_output.column_triage_ledger
+            ):
+                llm_ledger_entries = [
+                    entry.model_dump(mode="json", exclude_none=True)
+                    for entry in pass1_res.structured_output.column_triage_ledger
+                ]
+                covered_keys = {(e["bronze_table"], e["column_name"]) for e in llm_ledger_entries}
+                canon_full_keys = {
+                    (
+                        e["bronze_table"],
+                        e["column_name"],
+                        e.get("elm_classification"),
+                        e.get("target_dv_entity"),
+                    )
+                    for e in canonical_ledger
+                }
+                llm_full_keys = {
+                    (
+                        e["bronze_table"],
+                        e["column_name"],
+                        e.get("elm_classification"),
+                        e.get("target_dv_entity"),
+                    )
+                    for e in llm_ledger_entries
+                }
+                if expected_col_keys.issubset(covered_keys) and (
+                    canon_full_keys.issubset(llm_full_keys)
+                    or (
+                        not any(
+                            e["bronze_table"] == "source_system.bronze_table"
+                            for e in llm_ledger_entries
+                        )
+                        and len(llm_ledger_entries) >= len(canonical_ledger)
+                        and {e["bronze_table"] for e in canonical_ledger}.issubset(
+                            {e["bronze_table"] for e in llm_ledger_entries}
+                        )
+                        and {e.get("target_dv_entity") for e in llm_ledger_entries}.issubset(
+                            {e.get("target_dv_entity") for e in canonical_ledger}
+                        )
+                    )
+                ):
+                    pass1_ledger: list[dict[str, Any]] = llm_ledger_entries
+                else:
+                    pass1_ledger = list(canonical_ledger)
+            else:
+                pass1_ledger = canonical_ledger
 
-            pass1_ledger = list(candidate_contract["column_triage_ledger"])
             triage_ref = self._record_artifact(
                 artifact_id=f"art-w{w_idx}-stage03-pass1-triage",
                 name=f"wave_{w_idx}_pass1_column_triage.json",
@@ -2465,15 +3599,102 @@ class AgenticVaultPipeline:
                     tool_invocations=["emit_observability_event"],
                     input_artifact_sha256s=[gb_ref.sha256, ug_ref.sha256],
                     output_artifact_sha256s=[triage_ref.sha256],
-                    metrics={"triaged_column_count": len(pass1_ledger)},
+                    metrics={
+                        "triaged_column_count": len(pass1_ledger),
+                        "llm_structured_triage_used": isinstance(
+                            pass1_res.structured_output, Stage03ColumnTriageOutput
+                        ),
+                    },
                 )
             )
 
             # STAGE 04: Pass 2 Candidate Contract Synthesis
             t0_s4 = time.perf_counter()
+            s4_ctx = {
+                **s3_ctx,
+                "stage": "STAGE_04_SHIP_VAULT_PASS2",
+                "pass1_column_triage_ledger": pass1_ledger,
+            }
+            ship_spec = build_ship_vault_task_spec(
+                prompt=(
+                    f"Synthesize Pass 2 Data Vault 2.0 contract for Wave {w_idx} ({w_name}).\n"
+                    f"Pass 1 Column Triage Ledger: {json.dumps(pass1_ledger, sort_keys=True)}\n"
+                    f"Graph A Ontology: {json.dumps(raw_ontology, sort_keys=True)}\n"
+                    f"Graph B Statistical Profile: {json.dumps(wave_gb_dict, sort_keys=True)}\n"
+                    f"Deployed Contract: {json.dumps(deployed_contract_dict, sort_keys=True)}"
+                    f"{_encode_stage_context(s4_ctx)}"
+                ),
+                run_id=run_id,
+                trace_id=trace_id,
+                stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2,
+                workbench_view_id=WorkbenchViewId.WB_05,
+                viz_id=VizId.VIZ_STEP_06,
+                output_schema=Stage04ContractSynthesisOutput,
+            )
+            ship_res = await self.harness.run_task(ship_spec)
+            fallback_s4 = synthesize_stage_output_from_prompt(
+                Stage04ContractSynthesisOutput,
+                ship_spec.prompt,
+            )
+            canon_contract = fallback_s4.contract.model_dump(
+                mode="json",
+                exclude_none=True,
+            )
+            canon_contract["column_triage_ledger"] = list(pass1_ledger)
+            llm_candidate: dict[str, Any] | None = None
+            if isinstance(ship_res.structured_output, Stage04ContractSynthesisOutput):
+                llm_candidate = ship_res.structured_output.contract.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                )
+            elif isinstance(ship_res.structured_output, NoMistakeDataVault2ContractV5):
+                llm_candidate = ship_res.structured_output.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                )
+            if llm_candidate is not None:
+                llm_candidate["column_triage_ledger"] = list(pass1_ledger)
+                llm_hub_names = {h.get("name") for h in llm_candidate.get("hubs", [])}
+                canon_hub_names = {h.get("name") for h in canon_contract.get("hubs", [])}
+                llm_link_names = {lnk.get("name") for lnk in llm_candidate.get("links", [])}
+                canon_link_names = {lnk.get("name") for lnk in canon_contract.get("links", [])}
+                llm_sat_names = {s.get("name") for s in llm_candidate.get("satellites", [])}
+                canon_sat_names = {s.get("name") for s in canon_contract.get("satellites", [])}
+                if (
+                    llm_hub_names == canon_hub_names
+                    and llm_link_names == canon_link_names
+                    and llm_sat_names == canon_sat_names
+                ):
+                    precheck = run_axi_dv_verification_pipeline(
+                        candidate_contract=copy.deepcopy(llm_candidate),
+                        ontology_graph=raw_ontology,
+                        bronze_profile=wave_gb_dict,
+                        deployed_contract=deployed_contract_dict,
+                        parsed_doc_samples=cumulative_doc_texts if cumulative_doc_texts else None,
+                        apply_codemods=True,
+                        auto_fix_schema_drift=bool(wave_drift_events),
+                        strict_schema=True,
+                        require_grain_statements=False,
+                        check_full_ledger_coverage=True,
+                        check_isolated_hubs=True,
+                        enforce_er_holds_as_diagnostics=False,
+                        run_id=run_id,
+                        attempt=1,
+                        max_attempts=1,
+                    )
+                    if precheck.status in {"PASS", "ASK_USER"}:
+                        candidate_contract = llm_candidate
+                    else:
+                        candidate_contract = canon_contract
+                else:
+                    candidate_contract = canon_contract
+            else:
+                candidate_contract = canon_contract
+
             attempt1_contract = copy.deepcopy(candidate_contract)
             injected_fault = (
                 w_idx == 0
+                and deployed_contract_dict is None
                 and self.harness_setup.inject_adversarial_fault_on_attempt_1
                 and len(attempt1_contract["column_triage_ledger"]) > 1
             )
@@ -2499,16 +3720,6 @@ class AgenticVaultPipeline:
                 description=f"Wave {w_idx} Pass 2 Candidate Contract (Attempt 1).",
                 intermediate_list=intermediate_artifacts,
             )
-
-            ship_spec = build_ship_vault_task_spec(
-                prompt=f"Synthesize Pass 2 Data Vault 2.0 contract for Wave {w_idx} ({w_name}).",
-                run_id=run_id,
-                trace_id=trace_id,
-                stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2,
-                workbench_view_id=WorkbenchViewId.WB_05,
-                viz_id=VizId.VIZ_STEP_06,
-            )
-            await self.harness.run_task(ship_spec)
             s4_ms = round((time.perf_counter() - t0_s4) * 1000.0, 3)
 
             ev_wb05 = self._emit_wb_event(
@@ -2574,7 +3785,7 @@ class AgenticVaultPipeline:
             t0_s5 = time.perf_counter()
             s5_out_shas: list[str] = []
             current_attempt_contract = attempt1_contract
-            max_attempts = max(1, self.harness_setup.budget.max_schema_validation_retries)
+            max_attempts = max(1, effective_max_retries)
             attempt_num = 1
             axi_res = None
 
@@ -2617,19 +3828,76 @@ class AgenticVaultPipeline:
                     break
 
                 if attempt_num < max_attempts:
+                    s5_repair_ctx = {
+                        "stage": "STAGE_05_AXI_DV_STATIC_GATES",
+                        "wave_index": w_idx,
+                        "attempt_num": attempt_num,
+                        "toon_text": axi_res.toon_text,
+                        "failing_contract": current_attempt_contract,
+                        "graph_b_profile": wave_gb_dict,
+                        "ontology": raw_ontology,
+                    }
                     repair_spec = build_ship_vault_task_spec(
                         prompt=(
                             f"Repair @toon_v1 diagnostic trace on Wave {w_idx} "
-                            f"Attempt {attempt_num}:\n{axi_res.toon_text}"
+                            f"Attempt {attempt_num}:\n{axi_res.toon_text}\n\n"
+                            f"Failing Contract YAML:\n"
+                            f"{yaml.safe_dump(current_attempt_contract, sort_keys=False)}"
+                            f"{_encode_stage_context(s5_repair_ctx)}"
                         ),
                         run_id=run_id,
                         trace_id=trace_id,
                         stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
                         workbench_view_id=WorkbenchViewId.WB_08,
                         viz_id=VizId.VIZ_GATE_04,
+                        output_schema=Stage04ContractSynthesisOutput,
                     )
-                    await self.harness.run_task(repair_spec)
-                    current_attempt_contract = copy.deepcopy(candidate_contract)
+                    repair_res = await self.harness.run_task(repair_spec)
+                    fallback_rep = synthesize_stage_output_from_prompt(
+                        Stage04ContractSynthesisOutput,
+                        repair_spec.prompt,
+                    )
+                    canon_repaired = fallback_rep.contract.model_dump(
+                        mode="json",
+                        exclude_none=True,
+                    )
+                    llm_repaired: dict[str, Any] | None = None
+                    if isinstance(repair_res.structured_output, Stage04ContractSynthesisOutput):
+                        llm_repaired = repair_res.structured_output.contract.model_dump(
+                            mode="json",
+                            exclude_none=True,
+                        )
+                    elif isinstance(repair_res.structured_output, NoMistakeDataVault2ContractV5):
+                        llm_repaired = repair_res.structured_output.model_dump(
+                            mode="json",
+                            exclude_none=True,
+                        )
+                    if llm_repaired is not None:
+                        rep_check = run_axi_dv_verification_pipeline(
+                            candidate_contract=copy.deepcopy(llm_repaired),
+                            ontology_graph=raw_ontology,
+                            bronze_profile=wave_gb_dict,
+                            deployed_contract=deployed_contract_dict,
+                            parsed_doc_samples=(
+                                cumulative_doc_texts if cumulative_doc_texts else None
+                            ),
+                            apply_codemods=True,
+                            auto_fix_schema_drift=bool(wave_drift_events),
+                            strict_schema=True,
+                            require_grain_statements=False,
+                            check_full_ledger_coverage=True,
+                            check_isolated_hubs=True,
+                            enforce_er_holds_as_diagnostics=False,
+                            run_id=run_id,
+                            attempt=attempt_num + 1,
+                            max_attempts=max_attempts,
+                        )
+                        if rep_check.status in {"PASS", "ASK_USER"}:
+                            current_attempt_contract = llm_repaired
+                        else:
+                            current_attempt_contract = canon_repaired
+                    else:
+                        current_attempt_contract = canon_repaired
 
             assert axi_res is not None
             verified_contract_dict = axi_res.transformed_contract
@@ -2869,7 +4137,13 @@ class AgenticVaultPipeline:
             ir_dict = canonical_ir.model_dump(mode="json", exclude_none=True)
             validate_canonical_ir(ir_dict)
 
-            compiled_bundle = compile_canonical_ir_to_4zone_sql(canonical_ir)
+            wave_bronze_tables: dict[str, Any] = {
+                q_tbl: d_path for q_tbl, (_src_spec, d_path) in cumulative_sources.items()
+            }
+            compiled_bundle = compile_canonical_ir_to_4zone_sql(
+                canonical_ir,
+                bronze_tables=wave_bronze_tables,
+            )
 
             # Execute the wave's own 4-Zone DDL + Ghost Records in DuckDB to prove SQL validity
             wave_conn = duckdb.connect(":memory:")
@@ -2882,6 +4156,8 @@ class AgenticVaultPipeline:
             sandbox = DuckDbShadowSandbox()
             try:
                 sbx_report = sandbox.run_full_verification(
+                    source=canonical_ir,
+                    bronze_tables=wave_bronze_tables,
                     emit_telemetry=False,
                     run_id=run_id,
                 )
@@ -3288,8 +4564,692 @@ class AgenticVaultPipeline:
         )
         return final_report
 
-    def _synthesize_cumulative_contract(
-        self,
+    def run(self) -> AgenticPipelineReport:
+        """Synchronous convenience wrapper around `run_async()`."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(asyncio.run, self.run_async())
+                return future.result()
+        return asyncio.run(self.run_async())
+
+
+class _DeterministicStageSynthesizer:
+    @staticmethod
+    def discover_source_feed_semantics(
+        *,
+        src: PipelineSourceFeedInput,
+        prof_tbl: ProfiledBronzeTable,
+        ontology: GraphAOntology,
+        cumulative_sources: dict[str, tuple[PipelineSourceFeedInput, Path]],
+        deployed_contract: dict[str, Any] | None = None,
+        llm_discovery: Stage01SourceDiscoveryOutput | Stage01FeedDiscoveryItem | None = None,
+    ) -> PipelineSourceFeedInput:
+        """Discover BKs, surrogates, FKs, PII, authority tier, and CBC hints when omitted."""
+        llm_item: Stage01SourceDiscoveryOutput | Stage01FeedDiscoveryItem | None = None
+        if isinstance(llm_discovery, Stage01FeedDiscoveryItem):
+            llm_item = llm_discovery
+        elif isinstance(llm_discovery, Stage01SourceDiscoveryOutput):
+            qualified_table = f"{src.source_system.lower()}.{src.table_name.lower()}"
+            for item in llm_discovery.discovered_feeds:
+                if (
+                    item.feed_id == src.feed_id
+                    or item.table_name == src.table_name
+                    or (item.feed_id and item.feed_id.lower() == qualified_table)
+                ):
+                    llm_item = item
+                    break
+            if llm_item is None and len(llm_discovery.discovered_feeds) == 1:
+                llm_item = llm_discovery.discovered_feeds[0]
+            if (
+                llm_item is None
+                and (
+                    llm_discovery.business_key_columns
+                    or llm_discovery.target_hub_name
+                    or llm_discovery.foreign_key_mappings
+                    or llm_discovery.pii_columns
+                )
+                and (
+                    llm_discovery.feed_id is None
+                    or llm_discovery.feed_id == src.feed_id
+                    or llm_discovery.table_name in {None, src.table_name}
+                )
+            ):
+                llm_item = llm_discovery
+
+        # 1. Build lookup maps from Graph A Ontology
+        ont_col_to_cbc: dict[
+            str,
+            tuple[
+                CanonicalBusinessConcept,
+                str,
+                Literal["TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR", "TIER_3_LOCAL_SCOPED"],
+                str,
+            ],
+        ] = {}
+        ont_pii_cols: set[str] = set()
+        for cbc in ontology.canonical_business_concepts:
+            c_hub, _ = _resolve_hub_and_uri(cbc.concept_name, ontology)
+            if cbc.governance_constraints is not None:
+                for pii_c in cbc.governance_constraints.pii_confidential_attributes or []:
+                    ont_pii_cols.add(pii_c.lower())
+                for mnpi_c in cbc.governance_constraints.mnpi_confidential_attributes or []:
+                    ont_pii_cols.add(mnpi_c.lower())
+            if cbc.elm_archetype == "WHAT_UNSTRUCTURED_ARTIFACT" or c_hub == "hub_document":
+                continue
+            if cbc.key_authority_tiers is not None:
+                tier_specs: list[
+                    tuple[
+                        Any,
+                        Literal[
+                            "TIER_1_GLOBAL_STANDARD",
+                            "TIER_2_ENTERPRISE_SOR",
+                            "TIER_3_LOCAL_SCOPED",
+                        ],
+                    ]
+                ] = [
+                    (cbc.key_authority_tiers.tier_1_global_standard, "TIER_1_GLOBAL_STANDARD"),
+                    (cbc.key_authority_tiers.tier_2_enterprise_sor, "TIER_2_ENTERPRISE_SOR"),
+                    (cbc.key_authority_tiers.tier_3_local_scoped, "TIER_3_LOCAL_SCOPED"),
+                ]
+                for t_spec, t_lit in tier_specs:
+                    if t_spec is not None and t_spec.column_patterns:
+                        for pat in t_spec.column_patterns:
+                            ont_col_to_cbc.setdefault(
+                                pat.lower(),
+                                (
+                                    cbc,
+                                    c_hub,
+                                    t_lit,
+                                    t_spec.bkcc_policy,
+                                ),
+                            )
+
+        # 2. Resolve primary CBC and target Hub for this table
+        def _tokens(text: str) -> set[str]:
+            raw_toks = re.split(r"[^a-z0-9]+", text.lower())
+            return {t.rstrip("s") for t in raw_toks if len(t.rstrip("s")) >= 2}
+
+        tbl_tokens = _tokens(src.table_name)
+        primary_cbc: CanonicalBusinessConcept | None = None
+        explicit_hint = (
+            src.target_hub_name
+            or src.cbc_mapping_hints.get(src.table_name)
+            or (llm_item.target_hub_name if llm_item is not None else None)
+            or (llm_item.cbc_mapping_hints.get(src.table_name) if llm_item is not None else None)
+        )
+        if explicit_hint:
+            resolved_h, _ = _resolve_hub_and_uri(explicit_hint, ontology)
+            for cbc in ontology.canonical_business_concepts:
+                c_hub, _ = _resolve_hub_and_uri(cbc.concept_name, ontology)
+                if cbc.concept_name.upper() == explicit_hint.upper() or c_hub == resolved_h:
+                    primary_cbc = cbc
+                    break
+        if primary_cbc is None:
+            best_score = 0
+            for cbc in ontology.canonical_business_concepts:
+                c_toks = _tokens(cbc.concept_name.removeprefix("CBC_")) | _tokens(
+                    (cbc.target_hub or "").removeprefix("hub_")
+                )
+                overlap = len(tbl_tokens & c_toks)
+                if overlap > best_score:
+                    best_score = overlap
+                    primary_cbc = cbc
+
+        if primary_cbc is not None:
+            primary_hub_name, _ = _resolve_hub_and_uri(primary_cbc.concept_name, ontology)
+        elif explicit_hint:
+            primary_hub_name, _ = _resolve_hub_and_uri(explicit_hint, ontology)
+        else:
+            primary_hub_name, _ = _resolve_hub_and_uri(src.table_name, ontology)
+
+        actual_col_names = {p_col.column_name for p_col in prof_tbl.columns}
+
+        # 3. Discover surrogate_key_columns
+        surrogate_cols: list[str] = list(src.surrogate_key_columns)
+        if not surrogate_cols:
+            if llm_item is not None and llm_item.surrogate_key_columns:
+                for s_col in llm_item.surrogate_key_columns:
+                    if s_col in actual_col_names and s_col.lower() not in ont_col_to_cbc:
+                        surrogate_cols.append(s_col)
+            for p_col in prof_tbl.columns:
+                c_low = p_col.column_name.lower()
+                if c_low in ont_col_to_cbc or p_col.column_name in surrogate_cols:
+                    continue
+                if p_col.candidate_role == "SYSTEM_SURROGATE_DROPPED" or re.search(
+                    r"(^|_)(sk|seq|row_seq|seq_id|row_id|surrogate|autogen)(_id)?$",
+                    c_low,
+                ):
+                    surrogate_cols.append(p_col.column_name)
+
+        surrogate_set = set(surrogate_cols)
+
+        # 4. Discover business_key_columns, key_authority_tier, and bkcc_namespace
+        bk_cols: list[str] = list(src.business_key_columns)
+        inferred_tier: (
+            Literal["TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR", "TIER_3_LOCAL_SCOPED"] | None
+        ) = None
+        inferred_bkcc: str | None = None
+
+        if not bk_cols:
+            # First try ontology column_patterns matching primary_cbc
+            for p_col in prof_tbl.columns:
+                c_low = p_col.column_name.lower()
+                if p_col.column_name in surrogate_set:
+                    continue
+                if c_low in ont_col_to_cbc:
+                    matched_cbc, matched_hub, m_tier, m_bkcc = ont_col_to_cbc[c_low]
+                    if matched_hub == primary_hub_name or (
+                        primary_cbc is not None
+                        and matched_cbc.concept_name == primary_cbc.concept_name
+                    ):
+                        bk_cols.append(p_col.column_name)
+                        inferred_tier = m_tier
+                        inferred_bkcc = m_bkcc
+                        break
+
+        if not bk_cols and llm_item is not None and llm_item.business_key_columns:
+            for l_bk in llm_item.business_key_columns:
+                if l_bk in actual_col_names and l_bk not in surrogate_set:
+                    c_low = l_bk.lower()
+                    if c_low in ont_col_to_cbc and ont_col_to_cbc[c_low][1] != primary_hub_name:
+                        continue
+                    bk_cols.append(l_bk)
+
+        if not bk_cols:
+            # Second fallback: empirical uniqueness + name affinity with table/hub
+            hub_toks = _tokens(primary_hub_name.removeprefix("hub_")) | tbl_tokens
+            candidates: list[tuple[int, float, str]] = []
+            for p_col in prof_tbl.columns:
+                if p_col.column_name in surrogate_set:
+                    continue
+                c_low = p_col.column_name.lower()
+                if c_low in ont_col_to_cbc:
+                    # Belongs to another concept (FK), skip as primary BK if other candidates exist
+                    continue
+                col_toks = _tokens(c_low)
+                has_key_suffix = c_low.endswith(
+                    ("_id", "_key", "_code", "_number", "_num", "_no", "_uri")
+                )
+                affinity = len(col_toks & hub_toks) * 2 + (1 if has_key_suffix else 0)
+                if p_col.null_rate == 0.0 and p_col.u_non_null >= 0.95:
+                    candidates.append((affinity, p_col.u_non_null, p_col.column_name))
+            if candidates:
+                candidates.sort(key=lambda item: (item[0], item[1]), reverse=True)
+                bk_cols.append(candidates[0][2])
+            elif prof_tbl.columns:
+                non_surr = [
+                    c.column_name for c in prof_tbl.columns if c.column_name not in surrogate_set
+                ]
+                bk_cols.append(non_surr[0] if non_surr else prof_tbl.columns[0].column_name)
+
+        # Check ontology tier for explicit or discovered BK column
+        if inferred_tier is None and bk_cols:
+            first_bk_low = bk_cols[0].lower()
+            if first_bk_low in ont_col_to_cbc:
+                _, _, inferred_tier, inferred_bkcc = ont_col_to_cbc[first_bk_low]
+
+        eff_tier: Literal[
+            "TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR", "TIER_3_LOCAL_SCOPED"
+        ] = (
+            src.key_authority_tier
+            or inferred_tier
+            or (llm_item.key_authority_tier if llm_item is not None else None)
+            or "TIER_1_GLOBAL_STANDARD"
+        )
+        raw_bkcc = (
+            src.bkcc_namespace
+            or inferred_bkcc
+            or (
+                llm_item.bkcc_namespace
+                if (
+                    llm_item is not None
+                    and llm_item.bkcc_namespace
+                    and not (
+                        eff_tier == "TIER_3_LOCAL_SCOPED" and llm_item.bkcc_namespace == "GLOBAL"
+                    )
+                )
+                else None
+            )
+            or ("GLOBAL" if eff_tier != "TIER_3_LOCAL_SCOPED" else src.source_system.upper())
+        )
+        eff_bkcc = (
+            src.source_system.upper() if raw_bkcc == "SOURCE_SYSTEM_PREFIX_REQUIRED" else raw_bkcc
+        )
+        eff_record_source = (
+            src.record_source_code
+            or (llm_item.record_source_code if llm_item is not None else None)
+            or (
+                eff_bkcc
+                if eff_tier == "TIER_3_LOCAL_SCOPED" and eff_bkcc != "GLOBAL"
+                else src.source_system.upper()
+            )
+        )
+
+        # 5. Discover foreign_key_mappings
+        fk_mappings: dict[str, str] = dict(src.foreign_key_mappings)
+        if not src.foreign_key_mappings:
+            bk_set = set(bk_cols)
+            if llm_item is not None and llm_item.foreign_key_mappings:
+                for fk_col, raw_target_hub in llm_item.foreign_key_mappings.items():
+                    if (
+                        fk_col in actual_col_names
+                        and fk_col not in surrogate_set
+                        and fk_col not in bk_set
+                    ):
+                        resolved_fk_hub, _ = _resolve_hub_and_uri(raw_target_hub, ontology)
+                        if resolved_fk_hub != primary_hub_name:
+                            fk_mappings[fk_col] = resolved_fk_hub
+            known_bk_to_hub: dict[str, str] = {}
+            if deployed_contract is not None:
+                for d_hub in deployed_contract.get("hubs", []):
+                    if not isinstance(d_hub, dict):
+                        continue
+                    d_hub_name = str(d_hub.get("name", ""))
+                    if not d_hub_name or d_hub_name == "hub_document":
+                        continue
+                    for bk_src in d_hub.get("business_key_sources", []):
+                        if not isinstance(bk_src, dict):
+                            continue
+                        for k_col in bk_src.get("key_columns", []):
+                            known_bk_to_hub[str(k_col).lower()] = d_hub_name
+            for prev_src, _ in cumulative_sources.values():
+                prev_hub = prev_src.target_hub_name
+                if not prev_hub:
+                    prev_hint = prev_src.cbc_mapping_hints.get(prev_src.table_name) or (
+                        prev_src.table_name
+                    )
+                    prev_hub, _ = _resolve_hub_and_uri(prev_hint, ontology)
+                for prev_bk in prev_src.business_key_columns:
+                    known_bk_to_hub[prev_bk.lower()] = prev_hub
+
+            for p_col in prof_tbl.columns:
+                c_name = p_col.column_name
+                c_low = c_name.lower()
+                if c_name in surrogate_set or c_name in bk_set:
+                    continue
+                if c_low in ont_col_to_cbc:
+                    _, target_hub, _, _ = ont_col_to_cbc[c_low]
+                    if target_hub != primary_hub_name:
+                        fk_mappings[c_name] = target_hub
+                        continue
+                if c_low in known_bk_to_hub and known_bk_to_hub[c_low] != primary_hub_name:
+                    fk_mappings[c_name] = known_bk_to_hub[c_low]
+                    continue
+                if c_name not in fk_mappings and c_low.endswith(("_id", "_code", "_key")):
+                    col_toks = _tokens(c_low)
+                    for cbc in ontology.canonical_business_concepts:
+                        c_hub, _ = _resolve_hub_and_uri(cbc.concept_name, ontology)
+                        if c_hub == primary_hub_name or c_hub == "hub_document":
+                            continue
+                        c_toks = _tokens(cbc.concept_name.removeprefix("CBC_")) | _tokens(
+                            c_hub.removeprefix("hub_")
+                        )
+                        if col_toks & c_toks:
+                            fk_mappings[c_name] = c_hub
+                            break
+
+        # 6. Discover pii_columns
+        pii_cols: list[str] = list(src.pii_columns)
+        if not src.pii_columns:
+            excluded = set(surrogate_cols) | set(bk_cols) | set(fk_mappings.keys())
+            if llm_item is not None and llm_item.pii_columns:
+                for p_c in llm_item.pii_columns:
+                    if p_c in actual_col_names and p_c not in excluded and p_c not in pii_cols:
+                        pii_cols.append(p_c)
+            pii_keywords = (
+                "email",
+                "phone",
+                "ssn",
+                "tin",
+                "social_security",
+                "passport",
+                "dob",
+                "birth",
+                "credit_card",
+                "iban",
+                "home_address",
+            )
+            for p_col in prof_tbl.columns:
+                c_name = p_col.column_name
+                c_low = c_name.lower()
+                if c_name in excluded or c_name in pii_cols:
+                    continue
+                if (
+                    c_low in ont_pii_cols
+                    or p_col.security_tag in {"PII_HIGH", "RESTRICTED_PII"}
+                    or p_col.candidate_role == "PII_RESTRICTED_PAYLOAD"
+                    or any(kw in c_low for kw in pii_keywords)
+                ):
+                    pii_cols.append(c_name)
+
+        # 7. Discover timestamp_column & cbc_mapping_hints
+        ts_col = src.timestamp_column or (
+            llm_item.timestamp_column
+            if (llm_item is not None and llm_item.timestamp_column in actual_col_names)
+            else None
+        )
+        if ts_col is None:
+            for p_col in prof_tbl.columns:
+                c_low = p_col.column_name.lower()
+                sql_t = p_col.data_type.upper()
+                if any(k in sql_t for k in ("DATE", "TIME", "TIMESTAMP")) or c_low.endswith(
+                    ("_ts", "_dts", "_date", "_at")
+                ):
+                    ts_col = p_col.column_name
+                    break
+
+        cbc_hints = dict(src.cbc_mapping_hints)
+        if llm_item is not None and llm_item.cbc_mapping_hints:
+            for k, v in llm_item.cbc_mapping_hints.items():
+                cbc_hints.setdefault(k, v)
+        if primary_cbc is not None:
+            cbc_hints.setdefault(src.table_name, primary_cbc.concept_name)
+            for bk_c in bk_cols:
+                cbc_hints.setdefault(bk_c, primary_cbc.concept_name)
+
+        return src.model_copy(
+            update={
+                "key_authority_tier": eff_tier,
+                "bkcc_namespace": eff_bkcc,
+                "record_source_code": eff_record_source,
+                "target_hub_name": primary_hub_name,
+                "business_key_columns": bk_cols,
+                "surrogate_key_columns": surrogate_cols,
+                "timestamp_column": ts_col,
+                "foreign_key_mappings": fk_mappings,
+                "cbc_mapping_hints": cbc_hints,
+                "pii_columns": pii_cols,
+            }
+        )
+
+    @staticmethod
+    def discover_unstructured_doc_candidates(
+        *,
+        doc: PipelineUnstructuredDocInput,
+        doc_text: str,
+        ontology: GraphAOntology,
+        cumulative_sources: dict[str, tuple[PipelineSourceFeedInput, Path]],
+        deployed_contract: dict[str, Any] | None = None,
+        base_dir: Path | None = None,
+        llm_discovery: Stage02UnstructuredDiscoveryOutput | None = None,
+    ) -> PipelineUnstructuredDocInput:
+        """Discover or ground character-offset candidate spans in an unstructured document."""
+        candidates: list[PipelineUnstructuredCandidateInput] = list(doc.extracted_candidates)
+        target_hub_name = doc.target_hub_name
+        link_name = doc.link_name
+        satellite_name = doc.satellite_name
+
+        # If candidates are not explicitly pre-populated on `doc`, discover empirically against
+        # cumulative_sources + deployed_contract and reconcile with any LLM-discovered spans
+        if not candidates:
+            known_entities = _extract_known_entities_from_cumulative_sources(
+                ontology=ontology,
+                cumulative_sources=cumulative_sources,
+                deployed_contract=deployed_contract,
+                base_dir=base_dir,
+            )
+            default_hub = "hub_customer"
+            if cumulative_sources:
+                first_src = next(iter(cumulative_sources.values()))[0]
+                default_hub = first_src.target_hub_name or "hub_customer"
+            elif known_entities:
+                default_hub = known_entities[0][0]
+            empirical_candidates = _discover_unstructured_doc_candidates_from_entities(
+                doc=doc,
+                doc_text=doc_text,
+                known_entities=known_entities,
+                default_hub=default_hub,
+            )
+            llm_candidates: list[PipelineUnstructuredCandidateInput] = []
+            if llm_discovery is not None:
+                if llm_discovery.extracted_candidates and llm_discovery.doc_id in {
+                    None,
+                    doc.doc_id,
+                }:
+                    llm_candidates = list(llm_discovery.extracted_candidates)
+                elif llm_discovery.documents:
+                    for d_entry in llm_discovery.documents:
+                        if d_entry.get("doc_id") in {None, doc.doc_id}:
+                            raw_cands = d_entry.get("extracted_candidates", [])
+                            llm_candidates = [
+                                PipelineUnstructuredCandidateInput.model_validate(c)
+                                for c in raw_cands
+                            ]
+                            break
+
+            if empirical_candidates:
+                emp_by_bk = {c.extracted_business_key: c for c in empirical_candidates}
+                merged_cands: list[PipelineUnstructuredCandidateInput] = list(empirical_candidates)
+                for l_cand in llm_candidates:
+                    if (
+                        l_cand.extracted_business_key not in emp_by_bk
+                        and l_cand.verbatim_quote
+                        and doc_text.find(l_cand.verbatim_quote) >= 0
+                    ):
+                        merged_cands.append(l_cand)
+                candidates = merged_cands
+            else:
+                candidates = [
+                    c
+                    for c in llm_candidates
+                    if c.verbatim_quote and doc_text.find(c.verbatim_quote) >= 0
+                ]
+
+        # Ground any candidate missing char_start / char_end against doc_text
+        grounded_candidates: list[PipelineUnstructuredCandidateInput] = []
+        for cand in candidates:
+            found_idx = doc_text.find(cand.verbatim_quote)
+            if (
+                cand.char_start is None
+                or cand.char_end is None
+                or (
+                    found_idx >= 0
+                    and doc_text[cand.char_start : cand.char_end] != cand.verbatim_quote
+                )
+            ):
+                c_start = max(0, found_idx)
+                c_end = c_start + len(cand.verbatim_quote)
+                grounded_candidates.append(
+                    cand.model_copy(update={"char_start": c_start, "char_end": c_end})
+                )
+            else:
+                grounded_candidates.append(cand)
+
+        return doc.model_copy(
+            update={
+                "target_hub_name": target_hub_name or "hub_document",
+                "link_name": link_name,
+                "satellite_name": satellite_name,
+                "extracted_candidates": grounded_candidates,
+            }
+        )
+
+    @staticmethod
+    def repair_contract_from_axi_violations(
+        *,
+        failing_contract: dict[str, Any],
+        violations: list[ToonViolation],
+        diagnostics: list[str],
+        bronze_profile: GraphBProfile,
+        ontology: GraphAOntology,
+    ) -> dict[str, Any]:
+        """Deterministically repair a failing contract AST from `@toon_v1` violations."""
+        del violations, diagnostics, ontology
+        repaired = copy.deepcopy(failing_contract)
+        ledger: list[dict[str, Any]] = list(repaired.get("column_triage_ledger", []))
+        existing_triples = {
+            (
+                str(e.get("bronze_table", "")),
+                str(e.get("column_name", "")),
+                str(e.get("target_dv_entity", "")),
+            )
+            for e in ledger
+        }
+
+        # Map bronze_table -> primary hub, satellites, links
+        hubs_by_table: dict[str, str] = {}
+        bk_cols_by_table: dict[str, set[str]] = {}
+        for hub in repaired.get("hubs", []):
+            h_name = str(hub.get("name", ""))
+            for bk_src in hub.get("business_key_sources", []):
+                b_tbl = str(bk_src.get("bronze_table", ""))
+                hubs_by_table.setdefault(b_tbl, h_name)
+                for k_col in bk_src.get("key_columns", []):
+                    k_str = str(k_col)
+                    bk_cols_by_table.setdefault(b_tbl, set()).add(k_str)
+                    if (b_tbl, k_str, h_name) not in existing_triples:
+                        ledger.append(
+                            {
+                                "bronze_table": b_tbl,
+                                "column_name": k_str,
+                                "elm_classification": "BUSINESS_KEY",
+                                "target_dv_entity": h_name,
+                            }
+                        )
+                        existing_triples.add((b_tbl, k_str, h_name))
+                if bk_src.get("key_authority_tier") == "TIER_3_LOCAL_SCOPED":
+                    bk_src["require_src_qualifier"] = True
+                    if not bk_src.get("bkcc_prefix"):
+                        bk_src["bkcc_prefix"] = bk_src.get("record_source_code") or "LOCAL"
+                    if not bk_src.get("system_scoped_bk_justification"):
+                        bk_src["system_scoped_bk_justification"] = (
+                            f"Auto-repaired Tier-3 local-scoped BK justification for {b_tbl}."
+                        )
+
+        fk_col_to_link: dict[tuple[str, str], tuple[str, str]] = {}
+        for lnk in repaired.get("links", []):
+            l_name = str(lnk.get("name", ""))
+            b_tbl = str(lnk.get("source_bronze_table", ""))
+            is_opt = bool(lnk.get("where_filter_condition"))
+            elm = "OPTIONAL_FOREIGN_KEY_REF" if is_opt else "FOREIGN_KEY_REF"
+            primary_h = hubs_by_table.get(b_tbl, "")
+            for h_ref in lnk.get("hub_references", []):
+                if str(h_ref.get("target_hub", "")) == primary_h:
+                    continue
+                for fk_c in h_ref.get("source_fk_columns", []):
+                    fk_str = str(fk_c)
+                    fk_col_to_link[(b_tbl, fk_str)] = (l_name, elm)
+                    if (b_tbl, fk_str, l_name) not in existing_triples:
+                        ledger.append(
+                            {
+                                "bronze_table": b_tbl,
+                                "column_name": fk_str,
+                                "elm_classification": elm,
+                                "target_dv_entity": l_name,
+                            }
+                        )
+                        existing_triples.add((b_tbl, fk_str, l_name))
+
+        existing_pairs = {
+            (str(e.get("bronze_table", "")), str(e.get("column_name", ""))) for e in ledger
+        }
+
+        sats_by_table: dict[str, list[dict[str, Any]]] = {}
+        for sat in repaired.get("satellites", []):
+            b_tbl = str(sat.get("source_bronze_table", ""))
+            sats_by_table.setdefault(b_tbl, []).append(sat)
+
+        # 1. Repair any unaccounted Bronze columns across bronze_profile
+        sys_meta_names = {"load_dts", "rec_src", "record_source", "extract_dts"}
+        for sys_obj in bronze_profile.source_systems:
+            for tbl_obj in sys_obj.tables:
+                b_tbl = tbl_obj.bronze_table
+                primary_hub = hubs_by_table.get(
+                    b_tbl,
+                    repaired["hubs"][0]["name"] if repaired.get("hubs") else "hub_entity",
+                )
+                for p_col in tbl_obj.columns:
+                    c_name = p_col.column_name
+                    if (b_tbl, c_name) in existing_pairs:
+                        continue
+                    if c_name in bk_cols_by_table.get(b_tbl, set()):
+                        ledger.append(
+                            {
+                                "bronze_table": b_tbl,
+                                "column_name": c_name,
+                                "elm_classification": "BUSINESS_KEY",
+                                "target_dv_entity": primary_hub,
+                            }
+                        )
+                    elif (b_tbl, c_name) in fk_col_to_link:
+                        t_lnk, t_elm = fk_col_to_link[(b_tbl, c_name)]
+                        ledger.append(
+                            {
+                                "bronze_table": b_tbl,
+                                "column_name": c_name,
+                                "elm_classification": t_elm,
+                                "target_dv_entity": t_lnk,
+                            }
+                        )
+                    elif p_col.candidate_role == "SYSTEM_SURROGATE_DROPPED":
+                        ledger.append(
+                            {
+                                "bronze_table": b_tbl,
+                                "column_name": c_name,
+                                "elm_classification": "SYSTEM_SURROGATE_DROPPED",
+                                "target_dv_entity": "DROPPED_SURROGATE",
+                            }
+                        )
+                    elif c_name.lower() in sys_meta_names:
+                        ledger.append(
+                            {
+                                "bronze_table": b_tbl,
+                                "column_name": c_name,
+                                "elm_classification": "TECHNICAL_METADATA",
+                                "target_dv_entity": primary_hub,
+                            }
+                        )
+                    else:
+                        tbl_sats = sats_by_table.get(b_tbl, [])
+                        matched_sat_name: str | None = None
+                        for sat in tbl_sats:
+                            if c_name in sat.get("payload_columns", []):
+                                matched_sat_name = str(sat["name"])
+                                break
+                        if matched_sat_name is None:
+                            is_pii = (
+                                p_col.security_tag in {"PII_HIGH", "RESTRICTED_PII"}
+                                or p_col.candidate_role == "PII_RESTRICTED_PAYLOAD"
+                            )
+                            for sat in tbl_sats:
+                                if sat.get("satellite_type") != "STANDARD_SATELLITE":
+                                    continue
+                                if is_pii and sat.get("security_classification") in {
+                                    "PII_HIGH",
+                                    "RESTRICTED_PII",
+                                }:
+                                    sat.setdefault("payload_columns", []).append(c_name)
+                                    matched_sat_name = str(sat["name"])
+                                    break
+                                if not is_pii and sat.get("security_classification") == "INTERNAL":
+                                    sat.setdefault("payload_columns", []).append(c_name)
+                                    matched_sat_name = str(sat["name"])
+                                    break
+                        if matched_sat_name is None and tbl_sats:
+                            tbl_sats[0].setdefault("payload_columns", []).append(c_name)
+                            matched_sat_name = str(tbl_sats[0]["name"])
+                        ledger.append(
+                            {
+                                "bronze_table": b_tbl,
+                                "column_name": c_name,
+                                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                                "target_dv_entity": matched_sat_name or f"sat_{_slugify(b_tbl)}",
+                            }
+                        )
+                    existing_pairs.add((b_tbl, c_name))
+
+        repaired["column_triage_ledger"] = ledger
+        return repaired
+
+    @staticmethod
+    def synthesize_cumulative_contract(
         *,
         ontology: GraphAOntology,
         cumulative_sources: dict[str, tuple[PipelineSourceFeedInput, Path]],
@@ -3298,6 +5258,8 @@ class AgenticVaultPipeline:
         added_drift_cols_by_table: dict[str, list[str]],
         current_wave_drift_tables: set[str] | None = None,
         wave_index: int,
+        domain_namespace: str | None = None,
+        deployed_contract: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Synthesize a cumulative `NoMistakeDataVault2ContractV5` dict for the current wave."""
         hubs_by_name: dict[str, dict[str, Any]] = {}
@@ -3305,6 +5267,21 @@ class AgenticVaultPipeline:
         sats_by_name: dict[str, dict[str, Any]] = {}
         ledger: list[dict[str, Any]] = []
         active_drift_tables = current_wave_drift_tables or set()
+        is_cold_start = wave_index == 0 and deployed_contract is None
+
+        if deployed_contract is not None:
+            for d_hub in deployed_contract.get("hubs", []):
+                if isinstance(d_hub, dict) and d_hub.get("name"):
+                    hubs_by_name[str(d_hub["name"])] = copy.deepcopy(d_hub)
+            for d_lnk in deployed_contract.get("links", []):
+                if isinstance(d_lnk, dict) and d_lnk.get("name"):
+                    links_by_name[str(d_lnk["name"])] = copy.deepcopy(d_lnk)
+            for d_sat in deployed_contract.get("satellites", []):
+                if isinstance(d_sat, dict) and d_sat.get("name"):
+                    sats_by_name[str(d_sat["name"])] = copy.deepcopy(d_sat)
+            for d_entry in deployed_contract.get("column_triage_ledger", []):
+                if isinstance(d_entry, dict):
+                    ledger.append(copy.deepcopy(d_entry))
 
         # Map profiled columns by (qualified_table, column_name)
         prof_col_map: dict[tuple[str, str], ProfiledColumn] = {}
@@ -3315,9 +5292,19 @@ class AgenticVaultPipeline:
 
         # 1. Process all relational sources accumulated through this wave
         for qualified_table, (src, _path) in cumulative_sources.items():
+            # Remove prior ledger entries for this table (except hub_document) before re-populating
+            ledger = [
+                e
+                for e in ledger
+                if not (
+                    str(e.get("bronze_table", "")).lower() == qualified_table.lower()
+                    and str(e.get("target_dv_entity", "")) != "hub_document"
+                )
+            ]
             # Determine primary Hub for this table
             primary_hint = (
-                src.cbc_mapping_hints.get(src.table_name)
+                src.target_hub_name
+                or src.cbc_mapping_hints.get(src.table_name)
                 or (
                     src.cbc_mapping_hints.get(src.business_key_columns[0])
                     if src.business_key_columns
@@ -3326,22 +5313,27 @@ class AgenticVaultPipeline:
                 or src.table_name
             )
             primary_hub_name, primary_uri = _resolve_hub_and_uri(primary_hint, ontology)
+            eff_tier = src.key_authority_tier or "TIER_1_GLOBAL_STANDARD"
+            eff_bkcc = src.bkcc_namespace or "GLOBAL"
+            eff_rec_src = (
+                src.record_source_code or f"{src.source_system.upper()}_{src.table_name.upper()}"
+            )
 
             bk_cols = list(src.business_key_columns)
             if bk_cols:
-                is_tier3 = src.key_authority_tier == "TIER_3_LOCAL_SCOPED"
+                is_tier3 = eff_tier == "TIER_3_LOCAL_SCOPED"
                 bk_src_entry: dict[str, Any] = {
                     "bronze_table": qualified_table,
                     "key_columns": bk_cols,
-                    "record_source_code": src.record_source_code,
-                    "key_authority_tier": src.key_authority_tier,
+                    "record_source_code": eff_rec_src,
+                    "key_authority_tier": eff_tier,
                     "require_src_qualifier": is_tier3,
-                    "bkcc_prefix": src.bkcc_namespace if is_tier3 else None,
+                    "bkcc_prefix": eff_bkcc if is_tier3 else None,
                 }
                 if is_tier3:
                     bk_src_entry["system_scoped_bk_justification"] = (
-                        f"Tier-3 local-scoped business key in namespace {src.bkcc_namespace} "
-                        f"from source {src.record_source_code}."
+                        f"Tier-3 local-scoped business key in namespace {eff_bkcc} "
+                        f"from source {eff_rec_src}."
                     )
                 if primary_hub_name not in hubs_by_name:
                     hubs_by_name[primary_hub_name] = {
@@ -3356,7 +5348,7 @@ class AgenticVaultPipeline:
                         for b in existing_bks
                         if not (
                             b["bronze_table"] == qualified_table
-                            and b["record_source_code"] == src.record_source_code
+                            and b["record_source_code"] == eff_rec_src
                         )
                     ]
                     existing_bks.append(bk_src_entry)
@@ -3368,18 +5360,18 @@ class AgenticVaultPipeline:
             for fk_col, target_hint in src.foreign_key_mappings.items():
                 fk_hub_name, fk_uri = _resolve_hub_and_uri(target_hint, ontology)
                 if fk_hub_name not in hubs_by_name:
-                    is_t3_fk = src.key_authority_tier == "TIER_3_LOCAL_SCOPED"
+                    is_t3_fk = eff_tier == "TIER_3_LOCAL_SCOPED"
                     fk_bk_src: dict[str, Any] = {
                         "bronze_table": qualified_table,
                         "key_columns": [fk_col],
-                        "record_source_code": src.record_source_code,
-                        "key_authority_tier": src.key_authority_tier,
+                        "record_source_code": eff_rec_src,
+                        "key_authority_tier": eff_tier,
                         "require_src_qualifier": is_t3_fk,
-                        "bkcc_prefix": src.bkcc_namespace if is_t3_fk else None,
+                        "bkcc_prefix": eff_bkcc if is_t3_fk else None,
                     }
                     if is_t3_fk:
                         fk_bk_src["system_scoped_bk_justification"] = (
-                            f"Tier-3 foreign key hub source from {src.record_source_code}."
+                            f"Tier-3 foreign key hub source from {eff_rec_src}."
                         )
                     hubs_by_name[fk_hub_name] = {
                         "name": fk_hub_name,
@@ -3436,9 +5428,9 @@ class AgenticVaultPipeline:
                 base_lnk_name = f"lnk_{lnk_slug}"
                 rel_uri = _resolve_relationship_uri(base_lnk_name, involved_hubs, ontology)
 
-                # On Wave 0, if optional_fk_refs is non-empty, include it in the 3-ary link
-                # so Algorithm A.4 (codemod_enforce_cold_start_extensibility) splits it out!
-                if wave_index == 0 and optional_fk_refs:
+                # On cold-start Wave 0, if optional_fk_refs is non-empty, include it in the 3-ary
+                # link so Algorithm A.4 (codemod_enforce_cold_start_extensibility) splits it out!
+                if is_cold_start and optional_fk_refs:
                     combined_refs = [
                         primary_ref,
                         *mandatory_fk_refs,
@@ -3536,8 +5528,8 @@ class AgenticVaultPipeline:
             core_sat_name = f"sat_{hub_slug}_core"
             pii_sat_name = f"sat_{hub_slug}_pii"
 
-            if wave_index == 0 and pii_payload_cols and general_payload_cols:
-                # Place general + PII columns in `sat_<slug>` on Wave 0 so Algorithm A.1
+            if is_cold_start and pii_payload_cols and general_payload_cols:
+                # Place general + PII columns in `sat_<slug>` on cold-start Wave 0 so Algorithm A.1
                 # (`codemod_split_satellites_3axis`) splits `sat_<slug>_core` and `sat_<slug>_pii`!
                 combined_sat_name = f"sat_{hub_slug}"
                 sats_by_name[combined_sat_name] = {
@@ -3668,15 +5660,27 @@ class AgenticVaultPipeline:
             del drift_added_set
 
         # 2. Process unstructured documents accumulated through this wave
-        if cumulative_unstructured_docs and cumulative_sources:
-            doc_hub_name, doc_uri = _resolve_hub_and_uri("CBC_CONTRACT_DOCUMENT", ontology)
-            first_bronze_table = next(iter(cumulative_sources.keys()))
-            first_src = cumulative_sources[first_bronze_table][0]
-            first_bk_col = (
-                first_src.business_key_columns[0]
-                if first_src.business_key_columns
-                else first_src.table_name
-            )
+        if cumulative_unstructured_docs and (cumulative_sources or hubs_by_name):
+            first_doc_input = cumulative_unstructured_docs[0][0]
+            doc_hub_hint = first_doc_input.target_hub_name or "CBC_CONTRACT_DOCUMENT"
+            doc_hub_name, doc_uri = _resolve_hub_and_uri(doc_hub_hint, ontology)
+            if cumulative_sources:
+                first_bronze_table = next(iter(cumulative_sources.keys()))
+                first_src = cumulative_sources[first_bronze_table][0]
+                first_bk_col = (
+                    first_src.business_key_columns[0]
+                    if first_src.business_key_columns
+                    else first_src.table_name
+                )
+            else:
+                non_doc_hubs = [h for h_name, h in hubs_by_name.items() if h_name != doc_hub_name]
+                fallback_hub = (
+                    non_doc_hubs[0] if non_doc_hubs else next(iter(hubs_by_name.values()))
+                )
+                first_bk_src = (fallback_hub.get("business_key_sources") or [{}])[0]
+                first_bronze_table = str(first_bk_src.get("bronze_table", "bronze.unknown"))
+                first_bk_cols = first_bk_src.get("key_columns") or ["id"]
+                first_bk_col = str(first_bk_cols[0])
             if doc_hub_name not in hubs_by_name:
                 hubs_by_name[doc_hub_name] = {
                     "name": doc_hub_name,
@@ -3685,7 +5689,7 @@ class AgenticVaultPipeline:
                         {
                             "bronze_table": first_bronze_table,
                             "key_columns": [first_bk_col],
-                            "record_source_code": cumulative_unstructured_docs[0][0].record_source,
+                            "record_source_code": first_doc_input.record_source,
                             "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
                             "require_src_qualifier": False,
                             "bkcc_prefix": None,
@@ -3699,8 +5703,15 @@ class AgenticVaultPipeline:
                     t_hub, _ = _resolve_hub_and_uri(cand.target_hub, ontology)
                     if t_hub not in target_hubs_in_docs and t_hub in hubs_by_name:
                         target_hubs_in_docs.append(t_hub)
-            linked_hub = target_hubs_in_docs[0] if target_hubs_in_docs else next(iter(hubs_by_name))
-            unstr_lnk_name = f"lnk_document_{linked_hub.removeprefix('hub_')}"
+            non_doc_hub_names = [h for h in hubs_by_name if h != doc_hub_name]
+            linked_hub = (
+                target_hubs_in_docs[0]
+                if target_hubs_in_docs
+                else (non_doc_hub_names[0] if non_doc_hub_names else next(iter(hubs_by_name)))
+            )
+            unstr_lnk_name = (
+                first_doc_input.link_name or f"lnk_document_{linked_hub.removeprefix('hub_')}"
+            )
             unstr_rel_uri = _resolve_relationship_uri(
                 unstr_lnk_name, [doc_hub_name, linked_hub], ontology
             )
@@ -3722,7 +5733,10 @@ class AgenticVaultPipeline:
                     },
                 ],
             }
-            prov_sat_name = f"sat_{unstr_lnk_name.removeprefix('lnk_')}_ai_provenance"
+            prov_sat_name = (
+                first_doc_input.satellite_name
+                or f"sat_{unstr_lnk_name.removeprefix('lnk_')}_ai_provenance"
+            )
             sats_by_name[prov_sat_name] = {
                 "name": prov_sat_name,
                 "satellite_type": "AI_PROVENANCE_SATELLITE",
@@ -3752,21 +5766,28 @@ class AgenticVaultPipeline:
                 ],
                 "soft_deprecated_columns": [],
             }
-            ledger.append(
-                {
-                    "bronze_table": first_bronze_table,
-                    "column_name": first_bk_col,
-                    "elm_classification": "BUSINESS_KEY",
-                    "target_dv_entity": doc_hub_name,
-                }
-            )
+            if not any(
+                e.get("bronze_table") == first_bronze_table
+                and e.get("column_name") == first_bk_col
+                and e.get("target_dv_entity") == doc_hub_name
+                for e in ledger
+            ):
+                ledger.append(
+                    {
+                        "bronze_table": first_bronze_table,
+                        "column_name": first_bk_col,
+                        "elm_classification": "BUSINESS_KEY",
+                        "target_dv_entity": doc_hub_name,
+                    }
+                )
 
         lifecycle: Literal["COLD_START_N1", "MULTI_SOURCE_EXPANSION"] = (
-            "COLD_START_N1" if wave_index == 0 else "MULTI_SOURCE_EXPANSION"
+            "COLD_START_N1" if is_cold_start else "MULTI_SOURCE_EXPANSION"
         )
+        eff_domain = domain_namespace or "enterprise_dv"
         return {
             "contract_version": "5.0",
-            "domain_namespace": _slugify(self.input_spec.domain_namespace),
+            "domain_namespace": _slugify(eff_domain),
             "lifecycle_stage": lifecycle,
             "column_triage_ledger": ledger,
             "hubs": list(hubs_by_name.values()),
@@ -3776,20 +5797,328 @@ class AgenticVaultPipeline:
             "unmapped_escalations": [],
         }
 
-    def run(self) -> AgenticPipelineReport:
-        """Synchronous convenience wrapper around `run_async()`."""
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:
-            loop = None
 
-        if loop is not None and loop.is_running():
-            import concurrent.futures
+_discover_source_feed_semantics = _DeterministicStageSynthesizer.discover_source_feed_semantics
+_discover_unstructured_doc_candidates = (
+    _DeterministicStageSynthesizer.discover_unstructured_doc_candidates
+)
+_repair_contract_from_axi_violations = (
+    _DeterministicStageSynthesizer.repair_contract_from_axi_violations
+)
+_synthesize_cumulative_contract = _DeterministicStageSynthesizer.synthesize_cumulative_contract
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
-                future = pool.submit(asyncio.run, self.run_async())
-                return future.result()
-        return asyncio.run(self.run_async())
+
+def synthesize_stage_output_from_prompt(
+    schema_cls: type[BaseModel],
+    prompt: str = "",
+) -> Any:
+    """Synthesize a schema-valid stage output for deterministic harness and SDK shim runs."""
+    ctx = _decode_stage_context(prompt)
+    schema_name = schema_cls.__name__
+
+    if schema_name == "Stage00OrchestrationPlanOutput":
+        if ctx is not None:
+            wave_order = [int(x) for x in ctx.get("wave_indices", [0])]
+            max_retries = max(1, int(ctx.get("max_retries", 2)))
+            domain_ns = str(ctx.get("domain_namespace", "enterprise_dv"))
+            return Stage00OrchestrationPlanOutput(
+                wave_execution_order=wave_order,
+                recommended_max_retries=max_retries,
+                risk_assessment=(f"Validated {len(wave_order)} wave(s) for domain '{domain_ns}'."),
+            )
+        return Stage00OrchestrationPlanOutput(
+            wave_execution_order=[0],
+            recommended_max_retries=2,
+            risk_assessment="Default deterministic orchestration plan.",
+        )
+
+    if schema_name == "Stage01SourceDiscoveryOutput":
+        if ctx is not None and "ontology" in ctx and "sources" in ctx:
+            ontology = GraphAOntology.model_validate(ctx["ontology"])
+            raw_sources = [
+                PipelineSourceFeedInput.model_validate(s) for s in ctx.get("sources", [])
+            ]
+            profiled_tables = {
+                k: ProfiledBronzeTable.model_validate(v)
+                for k, v in ctx.get("profiled_tables", {}).items()
+            }
+            cum_sources: dict[str, tuple[PipelineSourceFeedInput, Path]] = {
+                k: (
+                    PipelineSourceFeedInput.model_validate(v),
+                    Path(str(v.get("data_path", "."))),
+                )
+                for k, v in ctx.get("cumulative_sources", {}).items()
+            }
+            items: list[Stage01FeedDiscoveryItem] = []
+            for raw_src in raw_sources:
+                q_tbl = f"{raw_src.source_system.lower()}.{raw_src.table_name.lower()}"
+                prof_tbl = profiled_tables.get(q_tbl)
+                if prof_tbl is None:
+                    continue
+                disc = _discover_source_feed_semantics(
+                    src=raw_src,
+                    prof_tbl=prof_tbl,
+                    ontology=ontology,
+                    cumulative_sources=cum_sources,
+                    deployed_contract=ctx.get("deployed_contract"),
+                )
+                cum_sources[q_tbl] = (disc, Path(disc.data_path))
+                items.append(
+                    Stage01FeedDiscoveryItem(
+                        feed_id=disc.feed_id,
+                        source_system=disc.source_system,
+                        table_name=disc.table_name,
+                        target_hub_name=disc.target_hub_name,
+                        key_authority_tier=disc.key_authority_tier or "TIER_1_GLOBAL_STANDARD",
+                        bkcc_namespace=disc.bkcc_namespace or "GLOBAL",
+                        record_source_code=disc.record_source_code,
+                        business_key_columns=list(disc.business_key_columns),
+                        surrogate_key_columns=list(disc.surrogate_key_columns),
+                        timestamp_column=disc.timestamp_column,
+                        foreign_key_mappings=dict(disc.foreign_key_mappings),
+                        cbc_mapping_hints=dict(disc.cbc_mapping_hints),
+                        pii_columns=list(disc.pii_columns),
+                    )
+                )
+            if items:
+                first = items[0]
+                return Stage01SourceDiscoveryOutput(
+                    feed_id=first.feed_id,
+                    table_name=first.table_name,
+                    target_hub_name=first.target_hub_name,
+                    key_authority_tier=first.key_authority_tier,
+                    bkcc_namespace=first.bkcc_namespace,
+                    record_source_code=first.record_source_code,
+                    business_key_columns=list(first.business_key_columns),
+                    surrogate_key_columns=list(first.surrogate_key_columns),
+                    timestamp_column=first.timestamp_column,
+                    foreign_key_mappings=dict(first.foreign_key_mappings),
+                    cbc_mapping_hints=dict(first.cbc_mapping_hints),
+                    pii_columns=list(first.pii_columns),
+                    discovered_feeds=items,
+                )
+        default_item = Stage01FeedDiscoveryItem(
+            feed_id="crm.customers",
+            source_system="crm",
+            table_name="customers",
+            target_hub_name="hub_customer",
+            key_authority_tier="TIER_1_GLOBAL_STANDARD",
+            bkcc_namespace="GLOBAL",
+            record_source_code="CRM_CUSTOMERS",
+            business_key_columns=["customer_id"],
+        )
+        return Stage01SourceDiscoveryOutput(
+            feed_id=default_item.feed_id,
+            table_name=default_item.table_name,
+            target_hub_name=default_item.target_hub_name,
+            key_authority_tier=default_item.key_authority_tier,
+            bkcc_namespace=default_item.bkcc_namespace,
+            record_source_code=default_item.record_source_code,
+            business_key_columns=list(default_item.business_key_columns),
+            discovered_feeds=[default_item],
+        )
+
+    if schema_name == "Stage02UnstructuredDiscoveryOutput":
+        if ctx is not None and "unstructured_documents" in ctx:
+            known_entities = [
+                (
+                    str(item.get("hub", "hub_customer")),
+                    str(item.get("business_key", "")),
+                    str(item.get("legal_name", "")),
+                )
+                for item in ctx.get("active_hub_business_keys", [])
+            ]
+            default_hub = known_entities[0][0] if known_entities else "hub_customer"
+            docs_out: list[dict[str, Any]] = []
+            first_cands: list[PipelineUnstructuredCandidateInput] = []
+            first_doc_id: str | None = None
+            first_target_hub: str = "hub_document"
+            for d_entry in ctx.get("unstructured_documents", []):
+                raw_doc = PipelineUnstructuredDocInput.model_validate(d_entry["doc"])
+                doc_text = str(d_entry.get("doc_text", ""))
+                cands = (
+                    list(raw_doc.extracted_candidates)
+                    if raw_doc.extracted_candidates
+                    else _discover_unstructured_doc_candidates_from_entities(
+                        doc=raw_doc,
+                        doc_text=doc_text,
+                        known_entities=known_entities,
+                        default_hub=default_hub,
+                    )
+                )
+                if first_doc_id is None:
+                    first_doc_id = raw_doc.doc_id
+                    first_target_hub = raw_doc.target_hub_name or "hub_document"
+                    first_cands = cands
+                docs_out.append(
+                    {
+                        "doc_id": raw_doc.doc_id,
+                        "target_hub_name": raw_doc.target_hub_name or "hub_document",
+                        "link_name": raw_doc.link_name,
+                        "satellite_name": raw_doc.satellite_name,
+                        "extracted_candidates": [c.model_dump(mode="json") for c in cands],
+                    }
+                )
+            return Stage02UnstructuredDiscoveryOutput(
+                doc_id=first_doc_id,
+                target_hub_name=first_target_hub,
+                extracted_candidates=first_cands,
+                documents=docs_out,
+            )
+        default_cand = PipelineUnstructuredCandidateInput(
+            extraction_id="ext_doc_sample_u1",
+            target_hub="hub_customer",
+            extracted_business_key="CUST-001",
+            verbatim_quote="CUST-001",
+            char_start=0,
+            char_end=8,
+            page_number=1,
+            confidence_score=0.98,
+        )
+        return Stage02UnstructuredDiscoveryOutput(
+            doc_id="doc_sample",
+            target_hub_name="hub_document",
+            extracted_candidates=[default_cand],
+            documents=[
+                {
+                    "doc_id": "doc_sample",
+                    "target_hub_name": "hub_document",
+                    "extracted_candidates": [default_cand.model_dump(mode="json")],
+                }
+            ],
+        )
+
+    if schema_name in {
+        "Stage03ColumnTriageOutput",
+        "Stage04ContractSynthesisOutput",
+        "NoMistakeDataVault2ContractV5",
+    }:
+        if ctx is not None:
+            if (
+                ctx.get("stage") == "STAGE_05_AXI_DV_STATIC_GATES"
+                and "failing_contract" in ctx
+                and "graph_b_profile" in ctx
+                and "ontology" in ctx
+            ):
+                ontology = GraphAOntology.model_validate(ctx["ontology"])
+                gb_prof = GraphBProfile.model_validate(ctx["graph_b_profile"])
+                repaired_dict = _repair_contract_from_axi_violations(
+                    failing_contract=dict(ctx["failing_contract"]),
+                    violations=[],
+                    diagnostics=[],
+                    bronze_profile=gb_prof,
+                    ontology=ontology,
+                )
+                contract_obj = NoMistakeDataVault2ContractV5.model_validate(repaired_dict)
+                if schema_name == "NoMistakeDataVault2ContractV5":
+                    return contract_obj
+                return Stage04ContractSynthesisOutput(contract=contract_obj)
+
+            if "ontology" in ctx and "graph_b_profile" in ctx and "cumulative_sources" in ctx:
+                ontology = GraphAOntology.model_validate(ctx["ontology"])
+                gb_prof = GraphBProfile.model_validate(ctx["graph_b_profile"])
+                cum_sys = {s.source_system_code: s for s in gb_prof.source_systems}
+                cum_sources = {
+                    k: (
+                        PipelineSourceFeedInput.model_validate(v),
+                        Path(str(v.get("data_path", "."))),
+                    )
+                    for k, v in ctx.get("cumulative_sources", {}).items()
+                }
+                cum_unstr = [
+                    (
+                        PipelineUnstructuredDocInput.model_validate(d["doc"]),
+                        str(d.get("sha256", "")),
+                    )
+                    for d in ctx.get("cumulative_unstructured_docs", [])
+                ]
+                contract_dict = _synthesize_cumulative_contract(
+                    ontology=ontology,
+                    cumulative_sources=cum_sources,
+                    cumulative_source_systems=cum_sys,
+                    cumulative_unstructured_docs=cum_unstr,
+                    added_drift_cols_by_table={
+                        str(k): [str(c) for c in v]
+                        for k, v in ctx.get("added_drift_cols_by_table", {}).items()
+                    },
+                    current_wave_drift_tables={
+                        str(t) for t in ctx.get("current_wave_drift_tables", [])
+                    },
+                    wave_index=int(ctx.get("wave_index", 0)),
+                    domain_namespace=str(ctx.get("domain_namespace", "enterprise_dv")),
+                    deployed_contract=ctx.get("deployed_contract"),
+                )
+                if schema_name == "Stage03ColumnTriageOutput":
+                    return Stage03ColumnTriageOutput.model_validate(
+                        {"column_triage_ledger": contract_dict["column_triage_ledger"]}
+                    )
+                if ctx.get("pass1_column_triage_ledger"):
+                    contract_dict["column_triage_ledger"] = list(ctx["pass1_column_triage_ledger"])
+                contract_obj = NoMistakeDataVault2ContractV5.model_validate(contract_dict)
+                if schema_name == "NoMistakeDataVault2ContractV5":
+                    return contract_obj
+                return Stage04ContractSynthesisOutput(contract=contract_obj)
+
+        minimal_contract_dict: dict[str, Any] = {
+            "contract_version": "5.0",
+            "domain_namespace": "enterprise_dv",
+            "lifecycle_stage": "COLD_START_N1",
+            "column_triage_ledger": [
+                {
+                    "bronze_table": "crm.customers",
+                    "column_name": "customer_id",
+                    "elm_classification": "BUSINESS_KEY",
+                    "target_dv_entity": "hub_customer",
+                },
+                {
+                    "bronze_table": "crm.customers",
+                    "column_name": "customer_name",
+                    "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                    "target_dv_entity": "sat_customer_core",
+                },
+            ],
+            "hubs": [
+                {
+                    "name": "hub_customer",
+                    "ontology_concept_uri": "urn:ontology:entity:customer",
+                    "business_key_sources": [
+                        {
+                            "bronze_table": "crm.customers",
+                            "key_columns": ["customer_id"],
+                            "record_source_code": "CRM_CUSTOMERS",
+                            "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                            "require_src_qualifier": False,
+                            "bkcc_prefix": None,
+                        }
+                    ],
+                }
+            ],
+            "links": [],
+            "satellites": [
+                {
+                    "name": "sat_customer_core",
+                    "satellite_type": "STANDARD_SATELLITE",
+                    "parent_entity": "hub_customer",
+                    "source_bronze_table": "crm.customers",
+                    "security_classification": "INTERNAL",
+                    "volatility_tier": "STANDARD",
+                    "payload_columns": ["customer_name"],
+                    "soft_deprecated_columns": [],
+                }
+            ],
+            "reference_tables": [],
+            "unmapped_escalations": [],
+        }
+        if schema_name == "Stage03ColumnTriageOutput":
+            return Stage03ColumnTriageOutput.model_validate(
+                {"column_triage_ledger": minimal_contract_dict["column_triage_ledger"]}
+            )
+        contract_obj = NoMistakeDataVault2ContractV5.model_validate(minimal_contract_dict)
+        if schema_name == "NoMistakeDataVault2ContractV5":
+            return contract_obj
+        return Stage04ContractSynthesisOutput(contract=contract_obj)
+
+    return None
 
 
 def run_agentic_vault_pipeline(
@@ -3837,14 +6166,23 @@ __all__ = [
     "HarnessAuthConfig",
     "HarnessSetupConfig",
     "PipelineArtifactRef",
+    "PipelineForeignKeyMapping",
     "PipelineInputSpec",
     "PipelineSourceFeedInput",
     "PipelineStepReport",
+    "PipelineUnstructuredCandidate",
     "PipelineUnstructuredCandidateInput",
     "PipelineUnstructuredDocInput",
     "PipelineWaveInput",
     "PipelineWaveReport",
+    "Stage00OrchestrationPlanOutput",
+    "Stage01FeedDiscoveryItem",
+    "Stage01SourceDiscoveryOutput",
+    "Stage02UnstructuredDiscoveryOutput",
+    "Stage03ColumnTriageOutput",
+    "Stage04ContractSynthesisOutput",
     "run_agentic_vault_pipeline",
+    "synthesize_stage_output_from_prompt",
     "validate_pipeline_inputs",
     "validate_pipeline_outputs",
 ]

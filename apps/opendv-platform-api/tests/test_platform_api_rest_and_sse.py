@@ -24,7 +24,7 @@ from opendv_platform_api import (
     redact_event_for_role,
     store_cas_artifact,
 )
-from opendv_platform_api.deps import REPO_ROOT
+from opendv_platform_api.deps import REPO_ROOT, _resolve_sdk_shim_if_needed
 
 
 def _run_async(coro: Any) -> Any:
@@ -151,7 +151,7 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
             new_run_id = created_run["run_id"]
             assert created_run["harness_provider"] == "claude"
             assert created_run["status"] == RunStatus.PAUSED_HOLD.value
-            assert created_run["event_count"] == 9
+            assert created_run["event_count"] == 0
 
             res_no_contract_gates = await client.post(
                 f"/api/v1/runs/{new_run_id}/gates",
@@ -931,3 +931,86 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
 
 async def _collect_async_iter(aiter: Any) -> list[str]:
     return [item async for item in aiter]
+
+
+def test_wp06_sdk_resolution_and_dynamic_project_run(
+    tmp_path: Path,
+    monkeypatch: Any,
+) -> None:
+    """Verify WP-06 SDK shim resolution and dynamic project runs from bronze_sources."""
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
+    monkeypatch.delenv("CLAUDE_CODE_USE_BEDROCK", raising=False)
+    monkeypatch.delenv("OPENDV_ALLOW_MOCK_SDK_SHIM", raising=False)
+
+    # Without OPENDV_ALLOW_MOCK_SDK_SHIM, None is returned; when enabled, shim is returned
+    assert _resolve_sdk_shim_if_needed("antigravity") is None
+    assert _resolve_sdk_shim_if_needed("claude") is None
+    assert (
+        _resolve_sdk_shim_if_needed(
+            "claude",
+            env={"OPENDV_ALLOW_MOCK_SDK_SHIM": "1"},
+        )
+        is not None
+    )
+    assert _resolve_sdk_shim_if_needed("antigravity", env={"GEMINI_API_KEY": "real-key"}) is None
+    assert _resolve_sdk_shim_if_needed("claude", env={"ANTHROPIC_API_KEY": "real-key"}) is None
+    assert (
+        _resolve_sdk_shim_if_needed(
+            "antigravity",
+            env={
+                "GEMINI_API_KEY": "real-key",
+                "OPENDV_ALLOW_MOCK_SDK_SHIM": "true",
+            },
+        )
+        is not None
+    )
+
+    state = PlatformStateContainer(state_dir=tmp_path / "state")
+    app = create_app(platform_state=state)
+    ont_rel = (
+        "examples/pipeline_samples/global_commerce_vault/ontology/commerce_graph_a_ontology.yaml"
+    )
+    src_cust_rel = (
+        "examples/pipeline_samples/global_commerce_vault/sources/wave0_cold_start/crm_customers.csv"
+    )
+    src_ord_rel = (
+        "examples/pipeline_samples/global_commerce_vault/sources/wave0_cold_start/erp_orders.csv"
+    )
+
+    async def _scenario() -> None:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            res_proj = await client.post(
+                "/api/v1/projects",
+                json={
+                    "project_id": "proj-dynamic-commerce",
+                    "display_name": "Dynamic Commerce Vault",
+                    "domain_namespace": "global_commerce_vault",
+                    "graph_a_ontology_path": ont_rel,
+                    "bronze_sources": [src_cust_rel, src_ord_rel],
+                },
+            )
+            assert res_proj.status_code == 201
+            proj_body = res_proj.json()
+            assert proj_body["project_id"] == "proj-dynamic-commerce"
+            assert proj_body["graph_a_sha256"] != PE_DEMO_CONTEXT_REFS["graph_a_sha256"]
+
+            res_run = await client.post(
+                "/api/v1/runs",
+                json={
+                    "project_id": "proj-dynamic-commerce",
+                    "harness_provider": "deterministic",
+                },
+            )
+            assert res_run.status_code == 201
+            run_body = res_run.json()
+            dyn_run_id = run_body["run_id"]
+            assert run_body["status"] == RunStatus.COMPLETED.value
+            assert dyn_run_id in state.pipeline_reports
+            assert state.pipeline_reports[dyn_run_id]["overall_passed"] is True
+
+    _run_async(_scenario())
