@@ -1476,7 +1476,13 @@ class PlatformStateContainer:
         ],
         started_at_utc: str,
     ) -> ProjectRunDTO:
-        canonical_9, all_workbench = build_pe_canonical_events(run_id=run_id)
+        proj = self.projects.get(project_id)
+        if project_id == "proj-apex-horizon-pe" or (
+            proj is not None and proj.contract_path is not None
+        ):
+            canonical_9, all_workbench = build_pe_canonical_events(run_id=run_id)
+        else:
+            canonical_9, all_workbench = [], []
         ledger_path = self.ledger_dir / f"{run_id}.jsonl"
         ledger_path.unlink(missing_ok=True)
         ledger = VaultLedgerEmitter(
