@@ -1,9 +1,8 @@
-"""Deterministic Neuro-Symbolic Adapter for the Open-DV Agent Harness.
+"""Deterministic Neuro-Symbolic Mock Adapter for Open-DV Agent Harness Tests.
 
-Provides an offline, zero-network, reproducible `VaultAgentHarness` implementation
-(`provider="deterministic"` / `provider="deterministic-stub"`) as well as deterministic
-SDK shims for local/CI verification of `antigravity` and `claude` adapters when external
-vendor SDK packages are not installed.
+Provides an internal test-only, offline, zero-network `VaultAgentHarness` mock implementation
+(`DeterministicHarnessAdapter`) as well as deterministic SDK shims for unit and integration
+test suites when external vendor SDK packages are not installed.
 
 Conforms to docs/03-verification-and-agentic-architecture.md,
 docs/06-explainability-and-observability-spec.md,
@@ -140,7 +139,7 @@ def _synthesize_minimal_schema_instance(
 
 
 class DeterministicHarnessAdapter(BaseVaultAgentHarness):
-    """Deterministic Adapter for reproducible neuro-symbolic pipeline execution and CI."""
+    """Test-only deterministic mock adapter for offline unit and integration tests."""
 
     def __init__(
         self,

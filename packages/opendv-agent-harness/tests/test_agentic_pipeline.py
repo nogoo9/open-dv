@@ -12,9 +12,9 @@ Tests:
      (`DV-DYN-001`-`015`)
    - All intermediate and final artifacts exist on disk, match their CAS SHA-256 digests,
      and `pipeline_report.md` + `pipeline_report.json` are generated.
-3. Multi-provider harness execution (`"deterministic"`, `"deterministic-stub"`,
-   `"antigravity"`, and `"claude"`) as well as `steward_hold_policy` modes
-   (`"auto_approve_top_candidate"`, `"pause"`, `"reject_on_hold"`).
+3. Multi-provider harness execution (`"agy"`, `"antigravity"`, and `"claude"`,
+   plus negative rejection of `"deterministic"` / `"deterministic-stub"`) as well as
+   `steward_hold_policy` modes (`"auto_approve_top_candidate"`, `"pause"`, `"reject_on_hold"`).
 """
 
 from __future__ import annotations

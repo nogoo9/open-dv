@@ -2,7 +2,7 @@
 
 Implements the `vault-first-mate` / `no-mistakes` agentic pipeline over the hexagonal
 `VaultAgentHarness` protocol (`AgyCliHarnessAdapter`, `AntigravityHarnessAdapter`,
-`ClaudeAgentHarnessAdapter`, `DeterministicHarnessAdapter`) and deterministic verification
+`ClaudeAgentHarnessAdapter`) and deterministic verification
 engines (`opendv-core`, `opendv-axi-verifier`, `opendv-duckdb-sandbox`, `opendv-telemetry`).
 
 Provides:
