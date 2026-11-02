@@ -546,3 +546,114 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
     assert resumed_spec.resume_session_id == "sess-agy-u3-01"
     assert "APEX_BO_IV" in resumed_spec.prompt
     assert "Confirmed with Fund Counsel." in resumed_spec.prompt
+
+
+@pytest.mark.asyncio
+async def test_wp04_antigravity_fail_closed_and_gemini_rest_api_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+    import urllib.request
+
+    from opendv_agent_harness.adapters.antigravity_adapter import GoogleAntigravityAdapter
+    from opendv_agent_harness.adapters.deterministic_adapter import DeterministicHarnessAdapter
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("OPENDV_ALLOW_MOCK_SDK_SHIM", raising=False)
+
+    cfg_no_key = _make_config(tmp_path, env={})
+    adapter_no_key = GoogleAntigravityAdapter(cfg_no_key, sdk_module=None)
+    spec = build_vault_first_mate_task_spec(
+        prompt="Synthesize contract via Gemini REST",
+        run_id="run-agy-rest-01",
+        trace_id=SAMPLE_TRACE_ID,
+        output_schema=_SynthesisContractResult,
+    )
+
+    with pytest.raises(RuntimeError, match="GEMINI_API_KEY"):
+        await adapter_no_key.run_task(spec)
+
+    # Now configure GEMINI_API_KEY and mock urllib.request.urlopen
+    captured_requests: list[dict[str, Any]] = []
+
+    class _FakeHttpResponse:
+        def __enter__(self) -> _FakeHttpResponse:
+            return self
+
+        def __exit__(self, *args: Any) -> None:
+            return None
+
+        def read(self) -> bytes:
+            payload = {
+                "candidates": [
+                    {
+                        "content": {
+                            "parts": [
+                                {"thought": True, "text": "Reasoning over Graph A and Graph B..."},
+                                {
+                                    "text": json.dumps(
+                                        {
+                                            "contract_id": "dv_gemini_rest_v5",
+                                            "hub_count": 3,
+                                            "verdict": "PASS",
+                                        }
+                                    )
+                                },
+                            ]
+                        }
+                    }
+                ],
+                "usageMetadata": {
+                    "promptTokenCount": 320,
+                    "candidatesTokenCount": 85,
+                    "thoughtsTokenCount": 45,
+                    "totalTokenCount": 450,
+                },
+            }
+            return json.dumps(payload).encode("utf-8")
+
+    def _fake_urlopen(req: urllib.request.Request, timeout: float = 60.0) -> _FakeHttpResponse:
+        body = json.loads((req.data or b"{}").decode("utf-8"))
+        captured_requests.append(
+            {
+                "url": req.full_url,
+                "headers": dict(req.header_items()),
+                "body": body,
+                "timeout": timeout,
+            }
+        )
+        return _FakeHttpResponse()
+
+    monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
+
+    cfg_with_key = _make_config(tmp_path, env={"GEMINI_API_KEY": "test-gemini-api-key-123"})
+    rest_adapter = GoogleAntigravityAdapter(cfg_with_key, sdk_module=None)
+    rest_res = await rest_adapter.run_task(spec)
+
+    assert rest_res.stop_reason == HarnessStopReason.COMPLETED
+    assert isinstance(rest_res.structured_output, _SynthesisContractResult)
+    assert rest_res.structured_output.contract_id == "dv_gemini_rest_v5"
+    assert rest_res.structured_output.hub_count == 3
+    assert rest_res.usage.total_tokens == 450
+    assert len(captured_requests) == 1
+    assert ":generateContent" in captured_requests[0]["url"]
+    gen_cfg = captured_requests[0]["body"]["generationConfig"]
+    assert gen_cfg["responseMimeType"] == "application/json"
+    assert "properties" in gen_cfg["responseSchema"]
+
+    # Also verify DeterministicHarnessAdapter structured_output_factory
+    det_cfg = _make_config(tmp_path, provider="deterministic")
+    det_adapter = DeterministicHarnessAdapter(
+        det_cfg,
+        structured_output_factory=lambda s: _SynthesisContractResult(
+            contract_id=f"det_{s.run_id}",
+            hub_count=5,
+            verdict="PASS",
+        ),
+    )
+    det_res = await det_adapter.run_task(spec)
+    assert isinstance(det_res.structured_output, _SynthesisContractResult)
+    assert det_res.structured_output.contract_id == "det_run-agy-rest-01"
+    assert det_res.structured_output.hub_count == 5

@@ -47,6 +47,14 @@ from opendv_agent_harness.adapters.deterministic_adapter import (
     build_deterministic_agy_sdk_shim,
     build_deterministic_claude_sdk_shim,
 )
+from opendv_agent_harness.pipeline import (
+    PipelineUnstructuredCandidateInput,
+    Stage00OrchestrationPlanOutput,
+    Stage01FeedDiscoveryItem,
+    Stage01SourceDiscoveryOutput,
+    Stage02UnstructuredDiscoveryOutput,
+    Stage03ColumnTriageOutput,
+)
 from opendv_core.schema_registry import find_workspace_root
 from opendv_telemetry import ContentAddressableStore
 
@@ -115,11 +123,13 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     assert any(d["code"] == "SOURCE_FILE_MISSING" for d in missing_csv_report.diagnostics)
 
     # 3. Out-of-bounds unstructured [char_start, char_end]
-    bad_cand = (
-        input_spec.waves[3]
-        .unstructured_documents[0]
-        .extracted_candidates[0]
-        .model_copy(update={"char_start": 0, "char_end": 999999})
+    bad_cand = PipelineUnstructuredCandidateInput(
+        candidate_id="cand-bad-span",
+        target_hub="hub_customer",
+        extracted_business_key="TAX-US-99100",
+        verbatim_quote="Tax ID: TAX-US-99100",
+        char_start=0,
+        char_end=999999,
     )
     bad_doc = (
         input_spec.waves[3]
@@ -170,7 +180,7 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     assert failed_pipeline_rep.overall_passed is False
     assert failed_pipeline_rep.input_validation.passed is False
 
-    # 6. Empty business_key_columns rejection
+    # 6. Discovery-first allows empty business_key_columns=[], but rejects blank column strings
     empty_bk_src = input_spec.waves[0].sources[0].model_copy(update={"business_key_columns": []})
     empty_bk_wave = input_spec.waves[0].model_copy(update={"sources": [empty_bk_src]})
     empty_bk_spec = input_spec.model_copy(update={"waves": [empty_bk_wave]})
@@ -179,8 +189,20 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
         harness_setup,
         base_dir=sample_dir,
     )
-    assert empty_bk_report.passed is False
-    assert any(d["code"] == "MISSING_BUSINESS_KEY_COLUMNS" for d in empty_bk_report.diagnostics)
+    assert empty_bk_report.passed is True
+
+    blank_bk_src = (
+        input_spec.waves[0].sources[0].model_copy(update={"business_key_columns": ["   "]})
+    )
+    blank_bk_wave = input_spec.waves[0].model_copy(update={"sources": [blank_bk_src]})
+    blank_bk_spec = input_spec.model_copy(update={"waves": [blank_bk_wave]})
+    blank_bk_report = validate_pipeline_inputs(
+        blank_bk_spec,
+        harness_setup,
+        base_dir=sample_dir,
+    )
+    assert blank_bk_report.passed is False
+    assert any(d["code"] == "MISSING_BUSINESS_KEY_COLUMNS" for d in blank_bk_report.diagnostics)
 
     # 7. Unstructured-only wave without prior relational source rejection
     unstructured_first_wave = input_spec.waves[3].model_copy(update={"wave_index": 0})
@@ -200,11 +222,13 @@ def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
     missing_col_src = (
         input_spec.waves[0].sources[0].model_copy(update={"pii_columns": ["nonexistent_pii_col"]})
     )
-    bad_quote_cand = (
-        input_spec.waves[3]
-        .unstructured_documents[0]
-        .extracted_candidates[0]
-        .model_copy(update={"verbatim_quote": "TAMPERED QUOTE NOT IN DOCUMENT"})
+    bad_quote_cand = PipelineUnstructuredCandidateInput(
+        candidate_id="cand-bad-quote",
+        target_hub="hub_customer",
+        extracted_business_key="TAX-US-99100",
+        verbatim_quote="TAMPERED QUOTE NOT IN DOCUMENT",
+        char_start=0,
+        char_end=15,
     )
     bad_quote_doc = (
         input_spec.waves[3]
@@ -810,3 +834,181 @@ def test_harness_auth_config_resolution_and_validation(
     assert rep.harness_setup["api_key_env_var"] == "CUSTOM_AGY_SECRET_VAR"
     assert rep.harness_setup["env"] == {"CUSTOM_AGY_SECRET_VAR": "[REDACTED]"}
     assert "super-secret-value-do-not-leak" not in rep.model_dump_json()
+
+
+def test_discovery_first_pipeline_without_prebaked_hints(tmp_path: Path) -> None:
+    """Verify WP-02 discovery-first PipelineInputSpec without pre-baked hints."""
+    assert HarnessSetupConfig().inject_adversarial_fault_on_attempt_1 is False
+
+    sample_dir = _sample_dir()
+    raw_yaml = yaml.safe_load((sample_dir / "pipeline_input.yaml").read_text(encoding="utf-8"))
+    for wave_dict in raw_yaml["waves"]:
+        for src_dict in wave_dict.get("sources", []):
+            assert "business_key_columns" not in src_dict
+            assert "surrogate_key_columns" not in src_dict
+            assert "pii_columns" not in src_dict
+            assert "foreign_key_mappings" not in src_dict
+            assert "cbc_mapping_hints" not in src_dict
+        for doc_dict in wave_dict.get("unstructured_documents", []):
+            assert "extracted_candidates" not in doc_dict
+
+    input_spec = PipelineInputSpec.model_validate(raw_yaml)
+    setup = HarnessSetupConfig(
+        provider="deterministic",
+        steward_hold_policy="auto_approve_top_candidate",
+    )
+    out_dir = tmp_path / "discovery_first_out"
+    rep = run_agentic_vault_pipeline(
+        input_spec,
+        setup,
+        output_dir=out_dir,
+        base_dir=sample_dir,
+    )
+    assert rep.status == "COMPLETED"
+    assert rep.overall_passed is True
+    assert rep.wave_reports[0].self_healing_attempts == 1
+    assert rep.wave_reports[3].unstructured_tier_counts["Tier-U1"] == 1
+    assert rep.wave_reports[3].unstructured_tier_counts["Tier-U3"] == 1
+
+    final_contract = yaml.safe_load((out_dir / "final_contract.yaml").read_text(encoding="utf-8"))
+    hub_names = {h["name"] for h in final_contract.get("hubs", [])}
+    assert {"hub_customer", "hub_order", "hub_document"}.issubset(hub_names)
+    sat_names = {s["name"] for s in final_contract.get("satellites", [])}
+    assert "sat_customer_pii" in sat_names
+    assert "sat_customer_core_ext_v2" in sat_names
+    assert "sat_document_customer_ai_provenance" in sat_names
+
+
+def test_real_llm_structured_output_consumption(tmp_path: Path) -> None:
+    """Verify WP-03 structured_output consumption across STAGE_00..STAGE_04."""
+    sample_dir = _sample_dir()
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    wave0_and_3_spec = input_spec.model_copy(
+        update={
+            "waves": [
+                input_spec.waves[0],
+                input_spec.waves[3].model_copy(update={"wave_index": 1}),
+            ]
+        }
+    )
+    doc_path = (
+        sample_dir / "sources" / "wave3_unstructured_msa" / "enterprise_msa_addendum_2026.txt"
+    )
+    doc_text = doc_path.read_text(encoding="utf-8")
+    quote_u1 = "Apex Industrial Holdings LLC (Tax ID: TAX-US-900101)"
+    start_u1 = doc_text.index(quote_u1)
+    end_u1 = start_u1 + len(quote_u1)
+
+    def _custom_structured_output_factory(spec: Any) -> Any:
+        stage_val = spec.stage_id.value
+        if stage_val == "STAGE_00_ORCHESTRATION":
+            return Stage00OrchestrationPlanOutput(
+                wave_execution_order=[0, 1],
+                risk_assessment="LLM-grounded ontology plan for commerce vault.",
+                recommended_max_retries=3,
+            )
+        if stage_val == "STAGE_01_SCOUT_SOURCE":
+            return Stage01SourceDiscoveryOutput(
+                discovered_feeds=[
+                    Stage01FeedDiscoveryItem(
+                        source_system="crm_salesforce",
+                        table_name="crm_customers",
+                        record_source_code="CRM_SALESFORCE",
+                        target_hub_name="hub_customer",
+                        business_key_columns=["customer_tax_id"],
+                        surrogate_key_columns=["customer_row_seq"],
+                        timestamp_column=None,
+                        pii_columns=["contact_email", "tax_ssn_tin"],
+                        key_authority_tier="TIER_1_GLOBAL_STANDARD",
+                        bkcc_namespace="GLOBAL",
+                        cbc_mapping_hints={"crm_customers": "CBC_CUSTOMER"},
+                    ),
+                    Stage01FeedDiscoveryItem(
+                        source_system="erp_netsuite",
+                        table_name="erp_orders",
+                        record_source_code="ERP_NETSUITE",
+                        target_hub_name="hub_order",
+                        business_key_columns=["order_id"],
+                        surrogate_key_columns=[],
+                        timestamp_column="order_date",
+                        pii_columns=[],
+                        key_authority_tier="TIER_1_GLOBAL_STANDARD",
+                        bkcc_namespace="GLOBAL",
+                        foreign_key_mappings={
+                            "customer_tax_id": "hub_customer",
+                            "promo_campaign_code": "hub_promotion",
+                        },
+                        cbc_mapping_hints={"erp_orders": "CBC_ORDER"},
+                    ),
+                ]
+            )
+        if stage_val == "STAGE_02_SCOUT_UNSTRUCTURED":
+            return Stage02UnstructuredDiscoveryOutput(
+                doc_id="DOC-MSA-2026-089",
+                target_hub_name="hub_document",
+                link_name="lnk_document_customer",
+                satellite_name="sat_document_customer_ai_provenance",
+                extracted_candidates=[
+                    PipelineUnstructuredCandidateInput(
+                        candidate_id="cand-llm-u1",
+                        target_hub="hub_customer",
+                        extracted_business_key="TAX-US-900101",
+                        verbatim_quote=quote_u1,
+                        char_start=start_u1,
+                        char_end=end_u1,
+                        confidence_score=0.99,
+                        er_tier="TIER_U1_DETERMINISTIC",
+                        top2_margin=0.95,
+                    )
+                ],
+            )
+        if stage_val == "STAGE_03_SHIP_VAULT_PASS1":
+            return Stage03ColumnTriageOutput.model_validate(
+                {
+                    "column_triage_ledger": [
+                        {
+                            "bronze_table": "crm_salesforce.crm_customers",
+                            "column_name": "customer_tax_id",
+                            "elm_classification": "BUSINESS_KEY",
+                            "target_dv_entity": "hub_customer",
+                        }
+                    ]
+                }
+            )
+        return None
+
+    setup = HarnessSetupConfig(
+        provider="deterministic",
+        steward_hold_policy="auto_approve_top_candidate",
+        extra_provider_options={"structured_output_factory": _custom_structured_output_factory},
+    )
+    out_dir = tmp_path / "llm_structured_out"
+    rep = run_agentic_vault_pipeline(
+        wave0_and_3_spec,
+        setup,
+        output_dir=out_dir,
+        base_dir=sample_dir,
+    )
+    assert rep.status == "COMPLETED"
+    assert rep.overall_passed is True
+
+    s00_step = next(s for s in rep.step_reports if s.stage_id == "STAGE_00_ORCHESTRATION")
+    assert s00_step.metrics.get("llm_structured_plan_used") is True
+    s01_step = next(s for s in rep.step_reports if s.stage_id == "STAGE_01_SCOUT_SOURCE")
+    assert s01_step.metrics.get("llm_structured_discovery_used") is True
+    s02_steps = [
+        s
+        for s in rep.step_reports
+        if s.stage_id == "STAGE_02_SCOUT_UNSTRUCTURED" and s.wave_index == 1
+    ]
+    assert len(s02_steps) == 1
+    assert s02_steps[0].metrics.get("llm_structured_extraction_used") is True
+    s03_step = next(s for s in rep.step_reports if s.stage_id == "STAGE_03_SHIP_VAULT_PASS1")
+    assert s03_step.metrics.get("llm_structured_triage_used") is True
+
+    final_contract = yaml.safe_load((out_dir / "final_contract.yaml").read_text(encoding="utf-8"))
+    triage_targets = {
+        (e["bronze_table"], e["column_name"], e["target_dv_entity"])
+        for e in final_contract.get("column_triage_ledger", [])
+    }
+    assert ("crm_salesforce.crm_customers", "customer_tax_id", "hub_customer") in triage_targets

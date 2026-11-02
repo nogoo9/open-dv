@@ -31,7 +31,16 @@ from opendv_core.constants import (
     ZERO_KEY_REC_SRC,
     ZERO_KEY_UNKNOWN,
 )
-from opendv_core.models.canonical_ir import CanonicalIR, IRHub, IRLink, IRSatellite
+from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+from opendv_core.models.canonical_ir import (
+    CanonicalIR,
+    IRColumnDef,
+    IRHub,
+    IRLink,
+    IRPitTable,
+    IRReferenceTable,
+    IRSatellite,
+)
 from opendv_duckdb_sandbox.ir_lowerer import topological_load_dag
 
 _SAFE_IDENT_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -81,6 +90,11 @@ class Compiled4ZoneBundle(BaseModel):
     def full_sql_bundle(self) -> str:
         """Complete 4-Zone SQL script (Zones 0-4)."""
         return f"{self.zones_0_to_3_sql}\n\n{self.zone_4_sql}"
+
+    @property
+    def full_sql(self) -> str:
+        """Alias for `full_sql_bundle`."""
+        return self.full_sql_bundle
 
 
 def build_length_prefixed_token_sql(
@@ -1683,6 +1697,177 @@ LEFT JOIN (
 # ============================================================================
 
 
+def is_pe_domain(ir: CanonicalIR | None) -> bool:
+    """Return True if `ir` is None or represents the normative Private Equity domain."""
+    if ir is None:
+        return True
+    hub_names = {h.name for h in ir.hubs}
+    return {"hub_fund", "hub_limited_partner", "hub_portfolio_company"}.issubset(hub_names)
+
+
+def _hub_slug(hub_name: str) -> str:
+    """Derive an uppercase business key token prefix from a Hub table name."""
+    return hub_name.removeprefix("hub_").removeprefix("bhub_").upper()
+
+
+def _hub_seed_bk_values(
+    hub: IRHub,
+    row_idx: int,
+    *,
+    bkcc_override: str | None = None,
+) -> list[str]:
+    """Return deterministic business key token values for `row_idx` of `hub`."""
+    slug = _hub_slug(hub.name)
+    values: list[str] = []
+    for bk in hub.business_keys:
+        if bk.is_bkcc:
+            values.append(bkcc_override or "GLOBAL")
+        else:
+            values.append(f"{slug}-{row_idx:03d}")
+    return values
+
+
+def _hub_seed_hk(
+    hub: IRHub,
+    row_idx: int,
+    *,
+    bkcc_override: str | None = None,
+) -> str:
+    """Compute the deterministic lowercase 64-char SHA-256 hash key for `row_idx` of `hub`."""
+    tokens = _hub_seed_bk_values(hub, row_idx, bkcc_override=bkcc_override)
+    return compute_dv2_length_prefixed_sha256(tokens, is_business_key=True).lower()
+
+
+def _normalize_duckdb_type(data_type: str) -> str:
+    """Normalize an `IRColumnDef.data_type` into a DuckDB-compatible SQL column type."""
+    upper = data_type.strip().upper()
+    if upper == "CHAR(64)":
+        return "CHAR(64)"
+    if upper.startswith(("VARCHAR", "TEXT", "STRING", "CHAR", "BINARY", "VARBINARY")):
+        return "VARCHAR"
+    if upper.startswith("TIMESTAMP"):
+        return "TIMESTAMP"
+    if upper == "DATE":
+        return "DATE"
+    if upper.startswith(("DECIMAL", "NUMERIC")):
+        return upper
+    if upper.startswith(("BIGINT", "INT8")):
+        return "BIGINT"
+    if upper.startswith(("SMALLINT", "TINYINT", "INT", "INTEGER")):
+        return "INTEGER"
+    if upper.startswith("BOOL"):
+        return "BOOLEAN"
+    if upper.startswith(("DOUBLE", "FLOAT", "REAL")):
+        return "DOUBLE"
+    return "VARCHAR"
+
+
+def _satellite_seed_sql_literal(col: IRColumnDef, row_idx: int) -> str:
+    """Return a deterministic SQL literal for a Satellite payload column at `row_idx`."""
+    col_lower = col.name.lower()
+    norm_type = _normalize_duckdb_type(col.data_type)
+
+    # Governance & provenance columns (DV-DYN-011, DV-DYN-012, DV-DYN-013)
+    if col_lower == "is_active_flag":
+        return "TRUE"
+    if col_lower in {"effective_to_dts", "effective_to_date"}:
+        return "NULL"
+    if col_lower == "effective_from_dts":
+        return "TIMESTAMP '2026-10-01 06:00:00'"
+    if col_lower in {
+        "effective_from_date",
+        "effective_from_dt",
+        "as_of_quarter_end",
+        "reporting_quarter",
+    }:
+        return "DATE '2026-09-30'"
+    if col_lower == "extractor_model_id":
+        return "'gemini-2.5-pro'"
+    if col_lower.endswith("_sha256") or norm_type == "CHAR(64)":
+        return "'9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08'"
+    if col_lower in {
+        "extraction_confidence",
+        "confidence_score",
+        "tier2_token_jaccard",
+        "tier3_cosine_sim",
+    }:
+        return "0.9500" if row_idx == 1 else ("0.9200" if row_idx == 2 else "0.9800")
+    if col_lower in {"human_review_status", "routing_action"}:
+        return "'AUTO_ACCEPTED_TIER_2'"
+    if col_lower.endswith("_quote") or col_lower in {"source_text_quote", "verbatim_quote"}:
+        return f"'Verified contractual clause quote #{row_idx} from source document.'"
+    if col_lower in {"source_page_number", "page_number"}:
+        return str(row_idx)
+    if col_lower in {"source_char_start", "char_start"}:
+        return str(10 * row_idx)
+    if col_lower in {"source_char_end", "char_end"}:
+        return str(10 * row_idx + 45)
+
+    if norm_type == "BOOLEAN":
+        return "TRUE" if row_idx % 2 == 1 else "FALSE"
+    if norm_type in {"INTEGER", "BIGINT"}:
+        return str(100 * row_idx)
+    if norm_type.startswith(("DECIMAL", "NUMERIC", "DOUBLE")):
+        return f"{1000 * row_idx + 0.50:.2f}"
+    if norm_type == "DATE":
+        return "DATE '2026-09-30'"
+    if norm_type == "TIMESTAMP":
+        return "TIMESTAMP '2026-10-01 06:00:00'"
+    return f"'{col.name}_val_{row_idx}'"
+
+
+def _link_schema(link: IRLink) -> str:
+    """Return the target Vault schema (`business_vault` or `raw_vault`) for `link`."""
+    if link.name.startswith(("sal_", "hal_")) or link.link_type == "SAME_AS":
+        return "business_vault"
+    return "raw_vault"
+
+
+def _satellite_schema(sat: IRSatellite) -> str:
+    """Return the target Vault schema (`business_vault` or `raw_vault`) for `sat`."""
+    if sat.satellite_type in {"BUSINESS", "EFFECTIVITY"} or sat.name.startswith("esat_"):
+        return "business_vault"
+    return "raw_vault"
+
+
+def _effective_pit_tables(ir_obj: CanonicalIR) -> list[IRPitTable]:
+    """Return configured `IRPitTable` list or synthesize a default PIT table if omitted."""
+    hub_names = {h.name for h in ir_obj.hubs}
+    sat_names = {s.name for s in ir_obj.satellites}
+    if ir_obj.pit_tables:
+        valid_pits: list[IRPitTable] = []
+        for pit in ir_obj.pit_tables:
+            if pit.parent_entity in hub_names:
+                tracked = [s for s in pit.tracked_satellites if s in sat_names]
+                if tracked:
+                    valid_pits.append(
+                        IRPitTable(
+                            name=pit.name,
+                            parent_entity=pit.parent_entity,
+                            as_of_dts_column=pit.as_of_dts_column,
+                            snapshot_window_policy=pit.snapshot_window_policy or "LOGARITHMIC",
+                            tracked_satellites=tracked,
+                        )
+                    )
+        if valid_pits:
+            return valid_pits
+
+    for hub in ir_obj.hubs:
+        attached = [s.name for s in ir_obj.satellites if s.parent_entity == hub.name]
+        if attached:
+            slug = hub.name.removeprefix("hub_").removeprefix("bhub_")
+            return [
+                IRPitTable(
+                    name=f"pit_{slug}",
+                    parent_entity=hub.name,
+                    as_of_dts_column="as_of_dts",
+                    snapshot_window_policy="LOGARITHMIC",
+                    tracked_satellites=attached,
+                )
+            ]
+    return []
+
+
 def _compile_generic_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     """Compile DDL and Dual Zero-Key (`'0'*64` and `'f'*64`) inserts for an `IRHub`."""
     tbl = _validate_ident(hub.name)
@@ -1710,9 +1895,25 @@ def _compile_generic_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     return f"{ddl}\n{zero_insert}"
 
 
+def _compile_generic_reference_ddl_and_seed(ref: IRReferenceTable) -> str:
+    """Compile DDL and baseline seed rows for an `IRReferenceTable`."""
+    tbl = _validate_ident(ref.name)
+    code_col = _validate_ident(ref.natural_code_column)
+    return (
+        f"CREATE OR REPLACE TABLE raw_vault.{tbl} (\n"
+        f"    {code_col} VARCHAR NOT NULL PRIMARY KEY,\n"
+        f"    load_dts TIMESTAMP NOT NULL,\n"
+        f"    rec_src VARCHAR NOT NULL\n"
+        f");\n"
+        f"INSERT INTO raw_vault.{tbl} VALUES\n"
+        f"    ('REF-001', TIMESTAMP '2026-10-01 06:00:00', 'SYSTEM_SEED'),\n"
+        f"    ('REF-002', TIMESTAMP '2026-10-01 06:00:00', 'SYSTEM_SEED');"
+    )
+
+
 def _compile_generic_link_ddl_and_zero_keys(link: IRLink) -> str:
     """Compile DDL and Dual Zero-Key (`'0'*64` and `'f'*64`) inserts for an `IRLink`."""
-    schema = "business_vault" if link.name.startswith(("sal_", "hal_")) else "raw_vault"
+    schema = _link_schema(link)
     tbl = _validate_ident(link.name)
     hk = _validate_ident(link.hk_column.name)
     fk_defs = [
@@ -1743,11 +1944,7 @@ def _compile_generic_link_ddl_and_zero_keys(link: IRLink) -> str:
 
 def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
     """Compile DDL and `SYSTEM_GHOST` record insert for an `IRSatellite`."""
-    schema = (
-        "business_vault"
-        if sat.satellite_type in {"BUSINESS", "EFFECTIVITY"} or sat.name.startswith("esat_")
-        else "raw_vault"
-    )
+    schema = _satellite_schema(sat)
     tbl = _validate_ident(sat.name)
     parent_hk = _validate_ident(sat.parent_hk_column.name)
     has_applied = sat.applied_dts_column is not None
@@ -1766,9 +1963,7 @@ def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
     )
     for col in sat.payload_columns:
         c_name = _validate_ident(col.name)
-        c_type = "VARCHAR" if col.data_type.startswith("VARCHAR") else col.data_type
-        if c_type.startswith("TIMESTAMP"):
-            c_type = "TIMESTAMP"
+        c_type = _normalize_duckdb_type(col.data_type)
         col_lines.append(f"    {c_name} {c_type},")
     col_lines.append(f"    PRIMARY KEY ({parent_hk}, load_dts)")
 
@@ -1783,6 +1978,602 @@ def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
     return f"{ddl}\n{ghost_insert}"
 
 
+def _compile_generic_zone_0_sql(
+    ir_obj: CanonicalIR,
+    *,
+    include_batch4_restatement_in_seed: bool = False,
+) -> str:
+    """Compile Zone 0 schemas, synthetic Bronze seed tables, Vault DDL, Zero Keys, and Ghosts."""
+    hub_by_name = {h.name: h for h in ir_obj.hubs}
+    link_by_name = {lnk.name: lnk for lnk in ir_obj.links}
+    bitemp_sat_name = next(
+        (s.name for s in ir_obj.satellites if s.applied_dts_column is not None),
+        ir_obj.satellites[0].name if ir_obj.satellites else None,
+    )
+
+    parts = [
+        "-- =============================================================================",
+        "-- ZONE 0: TARGET SCHEMAS, BRONZE SOURCE SEEDS, VAULT DDL & GHOST/ZERO RECORDS",
+        "-- =============================================================================",
+        "CREATE SCHEMA IF NOT EXISTS bronze;",
+        "CREATE SCHEMA IF NOT EXISTS staging;",
+        "CREATE SCHEMA IF NOT EXISTS raw_vault;",
+        "CREATE SCHEMA IF NOT EXISTS business_vault;",
+        "CREATE SCHEMA IF NOT EXISTS information_mart;",
+    ]
+
+    # 1. Bronze source tables & deterministic seed rows for each Hub
+    for hub in ir_obj.hubs:
+        tbl = _validate_ident(hub.name)
+        rec_src = hub.source_mappings[0].rec_src_value if hub.source_mappings else "SYSTEM_SEED"
+        bk_defs = [f"    {_validate_ident(bk.name)} VARCHAR," for bk in hub.business_keys]
+        row1_vals = ", ".join(f"'{v}'" for v in _hub_seed_bk_values(hub, 1))
+        row2_vals = ", ".join(f"'{v}'" for v in _hub_seed_bk_values(hub, 2))
+        parts.append(
+            "\n".join(
+                [
+                    f"CREATE OR REPLACE TABLE bronze.src_{tbl} (",
+                    *bk_defs,
+                    "    load_dts TIMESTAMP,",
+                    "    rec_src VARCHAR",
+                    ");",
+                    f"INSERT INTO bronze.src_{tbl} VALUES",
+                    f"    ({row1_vals}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                    f"    ({row2_vals}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}');",
+                ]
+            )
+        )
+
+    # 2. Bronze source tables & deterministic seed rows for each Link
+    #    Row 1: valid BKs for all referenced Hubs.
+    #    Row 2: valid BK for Hub ref 0, NULL for optional/subsequent Hub refs -> maps to '0'*64.
+    for link in ir_obj.links:
+        tbl = _validate_ident(link.name)
+        rec_src = (
+            str(link.source_mappings[0].get("rec_src_value", "SYSTEM_SEED"))
+            if link.source_mappings
+            else "SYSTEM_SEED"
+        )
+        col_defs: list[str] = []
+        row1_tokens: list[str] = []
+        row2_tokens: list[str] = []
+        target_counts: dict[str, int] = {}
+        for ref_idx, ref in enumerate(link.hub_references):
+            fk_col = _validate_ident(ref.fk_column_name)
+            t_hub = hub_by_name[ref.target_hub]
+            occ = target_counts.get(t_hub.name, 0)
+            target_counts[t_hub.name] = occ + 1
+            row1_hub_idx = 1 if occ == 0 else 2
+            r1_bks = _hub_seed_bk_values(t_hub, row1_hub_idx)
+            r2_bks = _hub_seed_bk_values(t_hub, 2)
+            for bk, val1, val2 in zip(t_hub.business_keys, r1_bks, r2_bks, strict=True):
+                raw_col = _validate_ident(f"{fk_col}__{bk.name}")
+                col_defs.append(f"    {raw_col} VARCHAR,")
+                row1_tokens.append(f"'{val1}'")
+                if ref_idx == 0:
+                    row2_tokens.append(f"'{val2}'")
+                else:
+                    row2_tokens.append(f"'{val2}'" if bk.is_bkcc else "NULL")
+
+        r1_sql = ", ".join(row1_tokens)
+        r2_sql = ", ".join(row2_tokens)
+        parts.append(
+            "\n".join(
+                [
+                    f"CREATE OR REPLACE TABLE bronze.src_{tbl} (",
+                    *col_defs,
+                    "    load_dts TIMESTAMP,",
+                    "    rec_src VARCHAR",
+                    ");",
+                    f"INSERT INTO bronze.src_{tbl} VALUES",
+                    f"    ({r1_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                    f"    ({r2_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}');",
+                ]
+            )
+        )
+
+    # 3. Bronze source tables & deterministic seed rows for each Satellite
+    for sat in ir_obj.satellites:
+        tbl = _validate_ident(sat.name)
+        rec_src = sat.source_mapping.rec_src_value or "SYSTEM_SEED"
+        has_applied = sat.applied_dts_column is not None
+        col_defs = []
+        r1_parent_vals: list[str] = []
+        r2_parent_vals: list[str] = []
+
+        if sat.parent_entity in hub_by_name:
+            p_hub = hub_by_name[sat.parent_entity]
+            for bk in p_hub.business_keys:
+                col_defs.append(f"    parent_bk__{_validate_ident(bk.name)} VARCHAR,")
+            r1_parent_vals = [f"'{v}'" for v in _hub_seed_bk_values(p_hub, 1)]
+            r2_parent_vals = [f"'{v}'" for v in _hub_seed_bk_values(p_hub, 2)]
+        elif sat.parent_entity in link_by_name:
+            p_lnk = link_by_name[sat.parent_entity]
+            target_counts = {}
+            for ref_idx, ref in enumerate(p_lnk.hub_references):
+                fk_col = _validate_ident(ref.fk_column_name)
+                col_defs.append(f"    parent_fk__{fk_col} VARCHAR,")
+                t_hub = hub_by_name[ref.target_hub]
+                occ = target_counts.get(t_hub.name, 0)
+                target_counts[t_hub.name] = occ + 1
+                r1_idx = 1 if occ == 0 else 2
+                r1_parent_vals.append(f"'{_hub_seed_hk(t_hub, r1_idx)}'")
+                if ref_idx == 0:
+                    r2_parent_vals.append(f"'{_hub_seed_hk(t_hub, 2)}'")
+                else:
+                    r2_parent_vals.append(f"'{ZERO_KEY_UNKNOWN}'")
+
+        col_defs.append("    load_dts TIMESTAMP,")
+        if has_applied:
+            col_defs.append("    applied_dts TIMESTAMP,")
+        col_defs.append("    rec_src VARCHAR,")
+
+        for idx_c, col in enumerate(sat.payload_columns):
+            c_name = _validate_ident(col.name)
+            c_type = _normalize_duckdb_type(col.data_type)
+            comma = "," if idx_c < len(sat.payload_columns) - 1 else ""
+            col_defs.append(f"    {c_name} {c_type}{comma}")
+
+        r1_payload = [_satellite_seed_sql_literal(c, 1) for c in sat.payload_columns]
+        r2_payload = [_satellite_seed_sql_literal(c, 2) for c in sat.payload_columns]
+        app_r1 = "TIMESTAMP '2026-09-30 00:00:00', " if has_applied else ""
+        app_r2 = "TIMESTAMP '2026-09-30 00:00:00', " if has_applied else ""
+
+        insert_rows = [
+            f"    ({', '.join(r1_parent_vals)}, TIMESTAMP '2026-10-01 06:00:00', "
+            f"{app_r1}'{rec_src}', {', '.join(r1_payload)})",
+            f"    ({', '.join(r2_parent_vals)}, TIMESTAMP '2026-10-01 06:00:00', "
+            f"{app_r2}'{rec_src}', {', '.join(r2_payload)})",
+        ]
+        if include_batch4_restatement_in_seed and sat.name == bitemp_sat_name:
+            r3_payload = [_satellite_seed_sql_literal(c, 3) for c in sat.payload_columns]
+            insert_rows.append(
+                f"    ({', '.join(r1_parent_vals)}, TIMESTAMP '2026-11-15 09:15:00', "
+                f"{app_r1}'{rec_src}', {', '.join(r3_payload)})"
+            )
+
+        parts.append(
+            "\n".join(
+                [
+                    f"CREATE OR REPLACE TABLE bronze.src_{tbl} (",
+                    *col_defs,
+                    ");",
+                    f"INSERT INTO bronze.src_{tbl} VALUES",
+                    ",\n".join(insert_rows) + ";",
+                ]
+            )
+        )
+
+    # 4. Target Vault DDL + Dual Zero Keys + Ghost Records
+    for hub in ir_obj.hubs:
+        parts.append(_compile_generic_hub_ddl_and_zero_keys(hub))
+    for ref in ir_obj.reference_tables or []:
+        parts.append(_compile_generic_reference_ddl_and_seed(ref))
+    for link in ir_obj.links:
+        parts.append(_compile_generic_link_ddl_and_zero_keys(link))
+    for sat in ir_obj.satellites:
+        parts.append(_compile_generic_satellite_ddl_and_ghost(sat))
+
+    return "\n\n".join(parts)
+
+
+def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
+    """Compile Zone 1 Hashed Staging Views (`staging.stg_*`) with Algorithm A.5 SHA-256."""
+    hub_by_name = {h.name: h for h in ir_obj.hubs}
+    link_by_name = {lnk.name: lnk for lnk in ir_obj.links}
+    parts = [
+        "-- =============================================================================",
+        "-- ZONE 1: HASHED STAGING VIEWS (ALGORITHM A.5 LENGTH-PREFIXED SHA-256)",
+        "-- =============================================================================",
+    ]
+    created_views: set[str] = set()
+    alias_targets: list[tuple[str, str]] = []
+
+    for hub in ir_obj.hubs:
+        tbl = _validate_ident(hub.name)
+        view_name = f"stg_{tbl}"
+        created_views.add(view_name)
+        hk_col = _validate_ident(hub.hk_column.name)
+        bk_cols = [_validate_ident(bk.name) for bk in hub.business_keys]
+        hk_expr = build_algorithm_a5_sha256_sql(bk_cols, is_business_key=True)
+        bk_csv = ", ".join(bk_cols)
+        parts.append(
+            f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
+            f"SELECT\n"
+            f"    {hk_expr} AS {hk_col},\n"
+            f"    {bk_csv},\n"
+            f"    load_dts,\n"
+            f"    rec_src\n"
+            f"FROM bronze.src_{tbl};"
+        )
+        for sm in hub.source_mappings:
+            alias_targets.append((_validate_ident(sm.staging_table), view_name))
+
+    for link in ir_obj.links:
+        tbl = _validate_ident(link.name)
+        view_name = f"stg_{tbl}"
+        created_views.add(view_name)
+        hk_col = _validate_ident(link.hk_column.name)
+        fk_cols: list[str] = []
+        fk_cte_exprs: list[str] = []
+        for ref in link.hub_references:
+            fk_col = _validate_ident(ref.fk_column_name)
+            fk_cols.append(fk_col)
+            t_hub = hub_by_name[ref.target_hub]
+            raw_bk_cols = [_validate_ident(f"{fk_col}__{bk.name}") for bk in t_hub.business_keys]
+            non_bkcc_cols = [
+                _validate_ident(f"{fk_col}__{bk.name}")
+                for bk in t_hub.business_keys
+                if not bk.is_bkcc
+            ] or raw_bk_cols
+            null_pred = " AND ".join(
+                f"NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL" for c in non_bkcc_cols
+            )
+            raw_hash = build_algorithm_a5_sha256_sql(raw_bk_cols, is_business_key=True)
+            fk_cte_exprs.append(
+                f"        COALESCE(\n"
+                f"            CASE WHEN {null_pred} THEN NULL ELSE {raw_hash} END,\n"
+                f"            REPEAT('0', 64)\n"
+                f"        ) AS {fk_col}"
+            )
+        link_hk_expr = build_algorithm_a5_sha256_sql(fk_cols, is_business_key=True)
+        fk_csv = ", ".join(fk_cols)
+        fk_cte_body = ",\n".join(fk_cte_exprs)
+        parts.append(
+            f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
+            f"WITH fk_resolved AS (\n"
+            f"    SELECT\n"
+            f"{fk_cte_body},\n"
+            f"        load_dts,\n"
+            f"        rec_src\n"
+            f"    FROM bronze.src_{tbl}\n"
+            f")\n"
+            f"SELECT\n"
+            f"    {link_hk_expr} AS {hk_col},\n"
+            f"    {fk_csv},\n"
+            f"    load_dts,\n"
+            f"    rec_src\n"
+            f"FROM fk_resolved;"
+        )
+        for sm_dict in link.source_mappings:
+            if "staging_table" in sm_dict:
+                alias_targets.append((_validate_ident(str(sm_dict["staging_table"])), view_name))
+
+    for sat in ir_obj.satellites:
+        tbl = _validate_ident(sat.name)
+        view_name = f"stg_{tbl}"
+        created_views.add(view_name)
+        parent_hk = _validate_ident(sat.parent_hk_column.name)
+        has_applied = sat.applied_dts_column is not None
+
+        if sat.parent_entity in hub_by_name:
+            p_hub = hub_by_name[sat.parent_entity]
+            p_cols = [f"parent_bk__{_validate_ident(bk.name)}" for bk in p_hub.business_keys]
+            parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+        else:
+            p_lnk = link_by_name[sat.parent_entity]
+            p_cols = [
+                f"parent_fk__{_validate_ident(ref.fk_column_name)}" for ref in p_lnk.hub_references
+            ]
+            parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+
+        payload_names = [_validate_ident(c.name) for c in sat.payload_columns]
+        hash_diff_expr = build_algorithm_a5_sha256_sql(payload_names, is_business_key=False)
+        payload_csv = ", ".join(payload_names)
+        applied_sel = "    applied_dts,\n" if has_applied else ""
+        parts.append(
+            f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
+            f"SELECT\n"
+            f"    {parent_hk_expr} AS {parent_hk},\n"
+            f"    load_dts,\n"
+            f"{applied_sel}"
+            f"    rec_src,\n"
+            f"    {hash_diff_expr} AS hash_diff,\n"
+            f"    {payload_csv}\n"
+            f"FROM bronze.src_{tbl};"
+        )
+        alias_targets.append((_validate_ident(sat.source_mapping.staging_table), view_name))
+
+    for alias_name, target_view in alias_targets:
+        if alias_name not in created_views:
+            created_views.add(alias_name)
+            parts.append(
+                f"CREATE OR REPLACE VIEW staging.{alias_name} AS\n"
+                f"SELECT * FROM staging.{target_view};"
+            )
+
+    return "\n\n".join(parts)
+
+
+def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
+    """Compile Zone 2 idempotent INSERT-only Raw/Business Vault load statements."""
+    parts = [
+        "-- =============================================================================",
+        "-- ZONE 2: IDEMPOTENT INSERT-ONLY RAW & BUSINESS VAULT LOADS",
+        "-- =============================================================================",
+    ]
+
+    for hub in ir_obj.hubs:
+        tbl = _validate_ident(hub.name)
+        hk = _validate_ident(hub.hk_column.name)
+        bk_cols = [_validate_ident(bk.name) for bk in hub.business_keys]
+        bk_csv = ", ".join(bk_cols)
+        src_bk_csv = ", ".join(f"src.{c}" for c in bk_cols)
+        parts.append(
+            f"INSERT INTO raw_vault.{tbl} ({hk}, {bk_csv}, load_dts, rec_src)\n"
+            f"SELECT\n"
+            f"    src.{hk},\n"
+            f"    {src_bk_csv},\n"
+            f"    MIN(src.load_dts) AS load_dts,\n"
+            f"    ANY_VALUE(src.rec_src) AS rec_src\n"
+            f"FROM staging.stg_{tbl} src\n"
+            f"WHERE src.{hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+            f"  AND NOT EXISTS (\n"
+            f"      SELECT 1 FROM raw_vault.{tbl} h\n"
+            f"      WHERE h.{hk} = src.{hk}\n"
+            f"  )\n"
+            f"GROUP BY src.{hk}, {src_bk_csv};"
+        )
+
+    for link in ir_obj.links:
+        schema = _link_schema(link)
+        tbl = _validate_ident(link.name)
+        hk = _validate_ident(link.hk_column.name)
+        fk_cols = [_validate_ident(ref.fk_column_name) for ref in link.hub_references]
+        fk_csv = ", ".join(fk_cols)
+        src_fk_csv = ", ".join(f"src.{c}" for c in fk_cols)
+        parts.append(
+            f"INSERT INTO {schema}.{tbl} ({hk}, {fk_csv}, load_dts, rec_src)\n"
+            f"SELECT\n"
+            f"    src.{hk},\n"
+            f"    {src_fk_csv},\n"
+            f"    MIN(src.load_dts) AS load_dts,\n"
+            f"    ANY_VALUE(src.rec_src) AS rec_src\n"
+            f"FROM staging.stg_{tbl} src\n"
+            f"WHERE src.{hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+            f"  AND NOT EXISTS (\n"
+            f"      SELECT 1 FROM {schema}.{tbl} l\n"
+            f"      WHERE l.{hk} = src.{hk}\n"
+            f"  )\n"
+            f"GROUP BY src.{hk}, {src_fk_csv};"
+        )
+
+    for sat in ir_obj.satellites:
+        schema = _satellite_schema(sat)
+        tbl = _validate_ident(sat.name)
+        parent_hk = _validate_ident(sat.parent_hk_column.name)
+        has_applied = sat.applied_dts_column is not None
+        payload_cols = [_validate_ident(c.name) for c in sat.payload_columns]
+        payload_csv = ", ".join(payload_cols)
+        src_payload_csv = ", ".join(f"src.{c}" for c in payload_cols)
+        app_col = "applied_dts, " if has_applied else ""
+        src_app_col = "src.applied_dts, " if has_applied else ""
+        parts.append(
+            f"INSERT INTO {schema}.{tbl} (\n"
+            f"    {parent_hk}, load_dts, {app_col}rec_src, hash_diff, {payload_csv}\n"
+            f")\n"
+            f"SELECT\n"
+            f"    src.{parent_hk},\n"
+            f"    src.load_dts,\n"
+            f"    {src_app_col}src.rec_src,\n"
+            f"    src.hash_diff,\n"
+            f"    {src_payload_csv}\n"
+            f"FROM staging.stg_{tbl} src\n"
+            f"LEFT JOIN (\n"
+            f"    SELECT {parent_hk}, load_dts, hash_diff\n"
+            f"    FROM {schema}.{tbl}\n"
+            f"    WHERE rec_src <> '{GHOST_REC_SRC}'\n"
+            f"    QUALIFY ROW_NUMBER() OVER (PARTITION BY {parent_hk} ORDER BY load_dts DESC) = 1\n"
+            f") cur ON cur.{parent_hk} = src.{parent_hk}\n"
+            f"WHERE src.{parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+            f"  AND (\n"
+            f"      cur.{parent_hk} IS NULL\n"
+            f"      OR (src.load_dts > cur.load_dts AND cur.hash_diff <> src.hash_diff)\n"
+            f"  );"
+        )
+
+    return "\n\n".join(parts)
+
+
+def _build_generic_pit_view_sql(
+    pit: IRPitTable,
+    hub_by_name: dict[str, IRHub],
+    sat_by_name: dict[str, IRSatellite],
+) -> str:
+    """Build `CREATE OR REPLACE VIEW information_mart.vw_<pit_name>_current` SQL."""
+    pit_tbl = _validate_ident(pit.name)
+    parent_hub = hub_by_name[pit.parent_entity]
+    hub_tbl = _validate_ident(parent_hub.name)
+    hub_hk = _validate_ident(parent_hub.hk_column.name)
+    as_of_col = _validate_ident(pit.as_of_dts_column)
+
+    select_cols = [
+        f"    pit.{as_of_col}",
+        f"    h.{hub_hk}",
+        *[f"    h.{_validate_ident(bk.name)}" for bk in parent_hub.business_keys],
+    ]
+    join_clauses = [
+        f"FROM business_vault.{pit_tbl} pit",
+        f"INNER JOIN raw_vault.{hub_tbl} h ON h.{hub_hk} = pit.{hub_hk}",
+    ]
+    seen_col_names = {as_of_col, hub_hk, *(bk.name for bk in parent_hub.business_keys)}
+
+    for idx_s, sat_name in enumerate(pit.tracked_satellites):
+        sat = sat_by_name[sat_name]
+        sat_tbl = _validate_ident(sat.name)
+        sat_schema = _satellite_schema(sat)
+        sat_parent_hk = _validate_ident(sat.parent_hk_column.name)
+        alias = f"s{idx_s}"
+        join_clauses.append(
+            f"INNER JOIN {sat_schema}.{sat_tbl} {alias}\n"
+            f"    ON {alias}.{sat_parent_hk} = pit.{sat_tbl}_hk\n"
+            f"   AND {alias}.load_dts = pit.{sat_tbl}_load_dts"
+        )
+        for col in sat.payload_columns:
+            c_ident = _validate_ident(col.name)
+            out_alias = f"{sat_tbl}__{c_ident}" if c_ident in seen_col_names else c_ident
+            seen_col_names.add(out_alias)
+            select_cols.append(f"    {alias}.{c_ident} AS {out_alias}")
+
+    select_body = ",\n".join(select_cols)
+    join_body = "\n".join(join_clauses)
+    return (
+        f"CREATE OR REPLACE VIEW information_mart.vw_{pit_tbl}_current AS\n"
+        f"SELECT\n"
+        f"{select_body}\n"
+        f"{join_body};"
+    )
+
+
+def _compile_generic_zone_3_business_vault_sql(ir_obj: CanonicalIR) -> str:
+    """Compile Zone 3 Business Vault PIT tables and logarithmic snapshot calendar."""
+    hub_by_name = {h.name: h for h in ir_obj.hubs}
+    sat_by_name = {s.name: s for s in ir_obj.satellites}
+    effective_pits = _effective_pit_tables(ir_obj)
+
+    parts = [
+        "-- =============================================================================",
+        "-- ZONE 3: BUSINESS VAULT & POINT-IN-TIME (PIT) HELPER TABLES",
+        "-- =============================================================================",
+        "CREATE TABLE IF NOT EXISTS business_vault.snap_logarithmic_calendar (\n"
+        "    as_of_dts TIMESTAMP NOT NULL PRIMARY KEY,\n"
+        "    window_tier VARCHAR NOT NULL\n"
+        ");",
+        "INSERT INTO business_vault.snap_logarithmic_calendar\n"
+        "SELECT * FROM (\n"
+        "    VALUES\n"
+        "        (TIMESTAMP '2026-10-01 12:00:00', 'DAILY_ROLLING_30D'),\n"
+        "        (TIMESTAMP '2026-10-15 12:00:00', 'DAILY_ROLLING_30D'),\n"
+        "        (TIMESTAMP '2026-11-15 23:59:59', 'QUARTER_END_PERMANENT')\n"
+        ") v(as_of_dts, window_tier)\n"
+        "WHERE NOT EXISTS (\n"
+        "    SELECT 1 FROM business_vault.snap_logarithmic_calendar c\n"
+        "    WHERE c.as_of_dts = v.as_of_dts\n"
+        ");",
+        "CREATE OR REPLACE VIEW information_mart.snap_logarithmic_calendar AS\n"
+        "SELECT * FROM business_vault.snap_logarithmic_calendar;",
+    ]
+
+    for pit in effective_pits:
+        pit_tbl = _validate_ident(pit.name)
+        pit_hk = f"hk_{pit_tbl}"
+        parent_hub = hub_by_name[pit.parent_entity]
+        hub_tbl = _validate_ident(parent_hub.name)
+        hub_hk = _validate_ident(parent_hub.hk_column.name)
+        as_of_col = _validate_ident(pit.as_of_dts_column)
+
+        ddl_cols = [
+            f"    {pit_hk} CHAR(64) NOT NULL PRIMARY KEY,",
+            f"    {hub_hk} CHAR(64) NOT NULL,",
+            f"    {as_of_col} TIMESTAMP NOT NULL,",
+        ]
+        ptr_col_names: list[str] = []
+        subquery_selects: list[str] = [
+            f"        LOWER(SHA256(\n"
+            f"            '64:' || h.{hub_hk} || '||'\n"
+            f"            || CAST(STRLEN(CAST(cal.as_of_dts AS VARCHAR)) AS VARCHAR)\n"
+            f"            || ':' || CAST(cal.as_of_dts AS VARCHAR)\n"
+            f"        )) AS {pit_hk}",
+            f"        h.{hub_hk}",
+            f"        cal.as_of_dts AS {as_of_col}",
+        ]
+        asof_joins: list[str] = []
+
+        for idx_s, sat_name in enumerate(pit.tracked_satellites):
+            sat = sat_by_name[sat_name]
+            sat_tbl = _validate_ident(sat.name)
+            sat_schema = _satellite_schema(sat)
+            sat_parent_hk = _validate_ident(sat.parent_hk_column.name)
+            alias = f"s{idx_s}"
+            hk_ptr = f"{sat_tbl}_hk"
+            dts_ptr = f"{sat_tbl}_load_dts"
+            ptr_col_names.extend([hk_ptr, dts_ptr])
+            comma = "," if idx_s < len(pit.tracked_satellites) - 1 else ""
+            ddl_cols.append(f"    {hk_ptr} CHAR(64) NOT NULL,")
+            ddl_cols.append(f"    {dts_ptr} TIMESTAMP NOT NULL{comma}")
+            subquery_selects.append(
+                f"        COALESCE({alias}.{sat_parent_hk}, '{ZERO_KEY_UNKNOWN}') AS {hk_ptr}"
+            )
+            subquery_selects.append(
+                f"        COALESCE({alias}.load_dts, TIMESTAMP '{GHOST_DTS}') AS {dts_ptr}"
+            )
+            asof_joins.append(
+                f"    ASOF LEFT JOIN {sat_schema}.{sat_tbl} {alias}\n"
+                f"        ON {alias}.{sat_parent_hk} = h.{hub_hk}\n"
+                f"       AND {alias}.load_dts <= cal.as_of_dts"
+            )
+
+        all_cols = [pit_hk, hub_hk, as_of_col, *ptr_col_names]
+        cols_csv = ", ".join(all_cols)
+        src_cols_csv = ", ".join(f"src.{c}" for c in all_cols)
+        subquery_sel_str = ",\n".join(subquery_selects)
+        asof_join_str = "\n".join(asof_joins)
+
+        parts.append(
+            f"CREATE TABLE IF NOT EXISTS business_vault.{pit_tbl} (\n"
+            + "\n".join(ddl_cols)
+            + "\n);"
+        )
+        parts.append(
+            f"INSERT INTO business_vault.{pit_tbl} ({cols_csv})\n"
+            f"SELECT {src_cols_csv}\n"
+            f"FROM (\n"
+            f"    SELECT\n"
+            f"{subquery_sel_str}\n"
+            f"    FROM raw_vault.{hub_tbl} h\n"
+            f"    CROSS JOIN business_vault.snap_logarithmic_calendar cal\n"
+            f"{asof_join_str}\n"
+            f"    WHERE h.{hub_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+            f") src\n"
+            f"WHERE NOT EXISTS (\n"
+            f"    SELECT 1 FROM business_vault.{pit_tbl} p\n"
+            f"    WHERE p.{pit_hk} = src.{pit_hk}\n"
+            f");"
+        )
+        parts.append(
+            f"CREATE OR REPLACE VIEW information_mart.{pit_tbl} AS\n"
+            f"SELECT * FROM business_vault.{pit_tbl};"
+        )
+        parts.append(_build_generic_pit_view_sql(pit, hub_by_name, sat_by_name))
+
+    return "\n\n".join(parts)
+
+
+def _compile_generic_zone_4_information_mart_views(ir_obj: CanonicalIR) -> tuple[str, str]:
+    """Compile Zone 4 Information Mart current views and bi-temporal PIT audit queries."""
+    hub_by_name = {h.name: h for h in ir_obj.hubs}
+    sat_by_name = {s.name: s for s in ir_obj.satellites}
+    effective_pits = _effective_pit_tables(ir_obj)
+
+    if not effective_pits:
+        first_hub = ir_obj.hubs[0]
+        hub_tbl = _validate_ident(first_hub.name)
+        q1 = f"SELECT * FROM raw_vault.{hub_tbl};"
+        return q1, q1
+
+    view_defs = [
+        _build_generic_pit_view_sql(pit, hub_by_name, sat_by_name) for pit in effective_pits
+    ]
+    first_pit = effective_pits[0]
+    first_pit_tbl = _validate_ident(first_pit.name)
+    as_of_col = _validate_ident(first_pit.as_of_dts_column)
+
+    q_d10 = "\n\n".join(
+        [
+            "-- ZONE 4: INFORMATION MART CURRENT VIEWS (INNER JOIN OVER PIT + GHOST)",
+            *view_defs,
+            f"SELECT * FROM information_mart.vw_{first_pit_tbl}_current;",
+        ]
+    )
+    q_d10b = (
+        f"-- ZONE 4: BI-TEMPORAL POINT-IN-TIME AUDIT QUERY\n"
+        f"SELECT *\n"
+        f"FROM information_mart.vw_{first_pit_tbl}_current\n"
+        f"WHERE {as_of_col} = TIMESTAMP '2026-11-15 23:59:59';"
+    )
+    return q_d10, q_d10b
+
+
 def compile_canonical_ir_to_4zone_sql(
     ir: CanonicalIR | dict[str, Any],
     *,
@@ -1794,15 +2585,12 @@ def compile_canonical_ir_to_4zone_sql(
     `hub_limited_partner` and `hub_portfolio_company`), emits the full normative 4-Zone SQL
     bundle with Bronze seed tables, Hashed Staging Views, Raw Vault, Business Vault, and
     Bi-Temporal Queries D.10 / D.10b. For arbitrary custom `CanonicalIR` models, synthesizes
-    the complete schema/DDL/Ghost/Zero-Key/Staging/Load bundle directly from the IR.
+    the complete schema/DDL/Ghost/Zero-Key/Staging/Load/PIT/Mart bundle directly from the IR.
     """
     ir_obj = CanonicalIR.model_validate(ir) if isinstance(ir, dict) else ir
     load_order = topological_load_dag(ir_obj)
 
-    hub_names = {h.name for h in ir_obj.hubs}
-    is_pe_vault = {"hub_fund", "hub_limited_partner", "hub_portfolio_company"}.issubset(hub_names)
-
-    if is_pe_vault:
+    if is_pe_domain(ir_obj):
         return Compiled4ZoneBundle(
             model_name=ir_obj.model_name,
             ir_version=ir_obj.ir_version,
@@ -1817,40 +2605,23 @@ def compile_canonical_ir_to_4zone_sql(
             zone_4_query_d10b_sql=build_query_d10b_sql(),
         )
 
-    # Generic CanonicalIR compilation path
-    zone_0_parts = [
-        "-- ZONE 0: SCHEMAS, DDL, ZERO KEYS & GHOST RECORDS",
-        "CREATE SCHEMA IF NOT EXISTS staging;",
-        "CREATE SCHEMA IF NOT EXISTS raw_vault;",
-        "CREATE SCHEMA IF NOT EXISTS business_vault;",
-        "CREATE SCHEMA IF NOT EXISTS information_mart;",
-    ]
-    for hub in ir_obj.hubs:
-        zone_0_parts.append(_compile_generic_hub_ddl_and_zero_keys(hub))
-    for link in ir_obj.links:
-        zone_0_parts.append(_compile_generic_link_ddl_and_zero_keys(link))
-    for sat in ir_obj.satellites:
-        zone_0_parts.append(_compile_generic_satellite_ddl_and_ghost(sat))
+    zone_0_sql = _compile_generic_zone_0_sql(
+        ir_obj,
+        include_batch4_restatement_in_seed=include_batch4_restatement_in_seed,
+    )
+    zone_1_sql = _compile_generic_zone_1_staging_views(ir_obj)
+    zone_2_sql = _compile_generic_zone_2_raw_vault_dml(ir_obj)
+    zone_3_sql = _compile_generic_zone_3_business_vault_sql(ir_obj)
+    zone_4_d10, zone_4_d10b = _compile_generic_zone_4_information_mart_views(ir_obj)
 
-    zone_1_parts = ["-- ZONE 1: HASHED STAGING EXPRESSIONS (ALGORITHM A.5)"]
-    for sat in ir_obj.satellites:
-        payload_names = [c.name for c in sat.payload_columns]
-        hash_expr = build_algorithm_a5_sha256_sql(payload_names, is_business_key=False)
-        zone_1_parts.append(f"-- Satellite {sat.name} hash_diff: {hash_expr}")
-
-    zone_2_parts = ["-- ZONE 2: INSERT-ONLY RAW VAULT LOADS"]
-    for entity_name in load_order:
-        zone_2_parts.append(f"-- Load wave target: {entity_name}")
-
-    zone_3_parts = ["-- ZONE 3: BUSINESS VAULT & PIT TABLES"]
     return Compiled4ZoneBundle(
         model_name=ir_obj.model_name,
         ir_version=ir_obj.ir_version,
         topological_load_order=load_order,
-        zone_0_sql="\n\n".join(zone_0_parts),
-        zone_1_sql="\n".join(zone_1_parts),
-        zone_2_sql="\n".join(zone_2_parts),
-        zone_3_sql="\n".join(zone_3_parts),
-        zone_4_query_d10_sql=build_query_d10_sql(),
-        zone_4_query_d10b_sql=build_query_d10b_sql(),
+        zone_0_sql=zone_0_sql,
+        zone_1_sql=zone_1_sql,
+        zone_2_sql=zone_2_sql,
+        zone_3_sql=zone_3_sql,
+        zone_4_query_d10_sql=zone_4_d10,
+        zone_4_query_d10b_sql=zone_4_d10b,
     )

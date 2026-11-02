@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -1322,9 +1323,26 @@ def _load_structured_mapping(path: Path, label: str) -> dict[str, Any]:
     return loaded
 
 
-def _resolve_sdk_shim_if_needed(provider: str) -> Any | None:
-    """Return deterministic SDK shims when `antigravity` or `claude` is selected offline."""
+def _resolve_sdk_shim_if_needed(
+    provider: str,
+    env: dict[str, str] | None = None,
+) -> Any | None:
+    """Resolve SDK shims only when offline/unconfigured or explicitly requested via env."""
+    merged_env = {**os.environ, **(env or {})}
+    force_shim = merged_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM", "").strip().lower() in {
+        "true",
+        "1",
+        "yes",
+    }
     if provider == "antigravity":
+        if force_shim:
+            return build_deterministic_agy_sdk_shim()
+        has_real_creds = any(
+            bool(merged_env.get(k, "").strip())
+            for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI")
+        )
+        if has_real_creds:
+            return None
         try:
             import google.antigravity  # type: ignore[import-not-found]  # noqa: F401
 
@@ -1332,6 +1350,18 @@ def _resolve_sdk_shim_if_needed(provider: str) -> Any | None:
         except ImportError:
             return build_deterministic_agy_sdk_shim()
     if provider in {"claude", "claude-agent"}:
+        if force_shim:
+            return build_deterministic_claude_sdk_shim()
+        has_real_creds = any(
+            bool(merged_env.get(k, "").strip())
+            for k in (
+                "ANTHROPIC_API_KEY",
+                "CLAUDE_CODE_USE_VERTEX",
+                "CLAUDE_CODE_USE_BEDROCK",
+            )
+        )
+        if has_real_creds:
+            return None
         try:
             import claude_agent_sdk  # type: ignore[import-not-found]  # noqa: F401
 
@@ -1371,6 +1401,7 @@ class PlatformStateContainer:
         self.schema_registry: SchemaRegistry = get_default_schema_registry()
 
         self.projects: dict[str, ProjectResponse] = {}
+        self.project_bronze_sources: dict[str, list[str]] = {}
         self.runs: dict[str, ProjectRunDTO] = {}
         self.run_events: dict[str, list[dict[str, Any]]] = {}
         self.run_workbench_events: dict[str, list[dict[str, Any]]] = {}
@@ -1617,15 +1648,37 @@ class PlatformStateContainer:
             req.canonical_ir_path,
             req.graph_a_ontology_path,
             req.graph_b_path,
+            *req.bronze_sources,
         ]:
             if rel_path is not None:
                 self._resolve_repo_path(rel_path)
 
+        graph_a_sha = PE_DEMO_CONTEXT_REFS["graph_a_sha256"]
+        if req.graph_a_ontology_path is not None:
+            resolved_ont = self._resolve_repo_path(req.graph_a_ontology_path)
+            if resolved_ont.is_file():
+                raw_bytes = resolved_ont.read_bytes()
+                graph_a_sha = store_cas_artifact(self.cas_root, raw_bytes).upper()
+                try:
+                    parsed_ont: Any = yaml.safe_load(raw_bytes.decode("utf-8"))
+                except Exception:
+                    parsed_ont = raw_bytes.decode("utf-8", errors="replace")
+                art_meta = ArtifactMetadataResponse(
+                    sha256=graph_a_sha,
+                    byte_length=len(raw_bytes),
+                    media_type="application/yaml",
+                    artifact_name=resolved_ont.name,
+                    content=parsed_ont,
+                )
+                self.artifacts[graph_a_sha] = art_meta
+                self.artifacts[graph_a_sha.lower()] = art_meta
+
+        self.project_bronze_sources[req.project_id] = list(req.bronze_sources)
         proj = ProjectResponse(
             project_id=req.project_id,
             display_name=req.display_name,
             domain_namespace=req.domain_namespace,
-            graph_a_sha256=PE_DEMO_CONTEXT_REFS["graph_a_sha256"],
+            graph_a_sha256=graph_a_sha,
             latest_run_id=None,
             created_at_utc=datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
             contract_path=req.contract_path,
@@ -1798,7 +1851,7 @@ class PlatformStateContainer:
             shutil.rmtree(spec_out_cand / "state" / "holds", ignore_errors=True)
             (spec_out_cand / "vault-ledger.jsonl").unlink(missing_ok=True)
 
-        sdk_shim = _resolve_sdk_shim_if_needed(setup_obj.provider)
+        sdk_shim = _resolve_sdk_shim_if_needed(setup_obj.provider, env=setup_obj.env)
         report: AgenticPipelineReport = run_agentic_vault_pipeline(
             spec_obj,
             setup_obj,
@@ -2244,12 +2297,12 @@ class PlatformStateContainer:
 
     def create_run(self, req: CreateRunRequest) -> ProjectRunDTO:
         """Start a new verification/sandbox run and populate its observability ledger."""
+        provider_override = (
+            req.harness_provider
+            if (req.harness_config_path is None or req.harness_provider != "antigravity")
+            else None
+        )
         if req.pipeline_input_path is not None:
-            provider_override = (
-                req.harness_provider
-                if (req.harness_config_path is None or req.harness_provider != "antigravity")
-                else None
-            )
             rep_dict = self.execute_agentic_pipeline_run(
                 PipelineRunRequest(
                     input_spec_path=req.pipeline_input_path,
@@ -2267,6 +2320,56 @@ class PlatformStateContainer:
             self.projects[req.project_id] = self.projects[req.project_id].model_copy(
                 update={"contract_path": req.contract_path}
             )
+
+        proj = self.projects[req.project_id]
+        bronze_sources = self.project_bronze_sources.get(req.project_id, [])
+        if bronze_sources and proj.graph_a_ontology_path is not None:
+            source_feeds: list[dict[str, Any]] = []
+            unstructured_documents: list[dict[str, Any]] = []
+            for idx, src_rel in enumerate(bronze_sources):
+                resolved_src = self._resolve_repo_path(src_rel)
+                ext = resolved_src.suffix.lower()
+                if ext in {".txt", ".md", ".pdf"}:
+                    unstructured_documents.append(
+                        {
+                            "doc_id": f"doc_{idx + 1:02d}_{resolved_src.stem}",
+                            "document_path": str(resolved_src),
+                        }
+                    )
+                else:
+                    source_feeds.append(
+                        {
+                            "feed_id": f"feed_{idx + 1:02d}_{resolved_src.stem}",
+                            "source_system": resolved_src.parent.name or "BRONZE_SOURCE",
+                            "table_name": resolved_src.stem,
+                            "file_path": str(resolved_src),
+                        }
+                    )
+            dynamic_input_spec: dict[str, Any] = {
+                "pipeline_id": f"pipe-{req.project_id}",
+                "project_id": req.project_id,
+                "display_name": proj.display_name,
+                "domain_namespace": proj.domain_namespace,
+                "graph_a_ontology_path": str(self._resolve_repo_path(proj.graph_a_ontology_path)),
+                "waves": [
+                    {
+                        "wave_index": 0,
+                        "wave_name": "Dynamic Project Discovery Wave",
+                        "wave_type": "COLD_START",
+                        "sources": source_feeds,
+                        "unstructured_documents": unstructured_documents,
+                    }
+                ],
+            }
+            rep_dict = self.execute_agentic_pipeline_run(
+                PipelineRunRequest(
+                    input_spec=dynamic_input_spec,
+                    harness_config_path=req.harness_config_path,
+                    provider_override=provider_override,
+                    steward_hold_policy="auto_approve_top_candidate",
+                )
+            )
+            return self.runs[str(rep_dict["run_id"])]
 
         run_index = len(self.runs) + 1
         run_id = f"run-{req.project_id}-{run_index:04d}"

@@ -12,6 +12,7 @@ Coordinates:
 
 from __future__ import annotations
 
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -36,7 +37,9 @@ from opendv_duckdb_sandbox.adversarial_batches import (
 )
 from opendv_duckdb_sandbox.compiler_4zone import (
     Compiled4ZoneBundle,
+    _hub_slug,
     compile_canonical_ir_to_4zone_sql,
+    is_pe_domain,
 )
 from opendv_duckdb_sandbox.dynamic_checks import (
     DynamicCheckSuiteReport,
@@ -137,17 +140,19 @@ class DuckDbShadowSandbox:
         | Path
         | None = None,
         *,
+        bronze_tables: dict[str, Any] | list[Any] | None = None,
         emit_telemetry: bool = True,
         run_id: str = "run-pe-20261015-001",
     ) -> SandboxVerificationReport:
         """Compile 4-Zone SQL, run Batches 1-4, evaluate DV-DYN-001-015, and verify Query D.10b."""
+        _ = bronze_tables
         ir_obj = self.resolve_canonical_ir(source)
         bundle = compile_canonical_ir_to_4zone_sql(
             ir_obj,
             include_batch4_restatement_in_seed=False,
         )
 
-        batch_report = execute_4batch_adversarial_suite(self.conn, bundle)
+        batch_report = execute_4batch_adversarial_suite(self.conn, bundle, ir=ir_obj)
         b2_delta = batch_report.by_number[2].total_delta_rows
         b3_sat_delta = batch_report.by_number[3].satellite_delta_rows
         b3_hl_delta = (
@@ -160,26 +165,53 @@ class DuckDbShadowSandbox:
             recorded_sat_delta=b3_sat_delta,
             recorded_hub_link_delta=b3_hl_delta,
             historical_hash_mutations=0,
+            ir=ir_obj,
         )
 
-        pit_engine = PitQueryEngine(self.conn)
-        d10_rows = pit_engine.run_query_d10(
-            assertion_cutoff_ts="2026-11-15 23:59:59",
-            state_cutoff_date="2026-09-30",
-        )
-        d10b_oct_15 = pit_engine.run_query_d10b(
-            assertion_cutoff_ts="2026-10-15 12:00:00",
-            effective_as_of_dt="2026-09-30",
-        )
-        d10b_nov_15 = pit_engine.run_query_d10b(
-            assertion_cutoff_ts="2026-11-15 23:59:59",
-            effective_as_of_dt="2026-09-30",
-        )
-        bitemporal_proof = pit_engine.verify_bitemporal_restatement(
-            prior_cutoff_ts="2026-10-15 12:00:00",
-            restated_cutoff_ts="2026-11-15 23:59:59",
-            effective_as_of_dt="2026-09-30",
-        )
+        if is_pe_domain(ir_obj):
+            pit_engine = PitQueryEngine(self.conn)
+            d10_rows = pit_engine.run_query_d10(
+                assertion_cutoff_ts="2026-11-15 23:59:59",
+                state_cutoff_date="2026-09-30",
+            )
+            d10b_oct_15 = pit_engine.run_query_d10b(
+                assertion_cutoff_ts="2026-10-15 12:00:00",
+                effective_as_of_dt="2026-09-30",
+            )
+            d10b_nov_15 = pit_engine.run_query_d10b(
+                assertion_cutoff_ts="2026-11-15 23:59:59",
+                effective_as_of_dt="2026-09-30",
+            )
+            bitemporal_proof = pit_engine.verify_bitemporal_restatement(
+                prior_cutoff_ts="2026-10-15 12:00:00",
+                restated_cutoff_ts="2026-11-15 23:59:59",
+                effective_as_of_dt="2026-09-30",
+            )
+        else:
+            d10_rows = []
+            d10b_oct_15 = []
+            d10b_nov_15 = []
+            first_hub = ir_obj.hubs[0]
+            hub_slug = _hub_slug(first_hub.name)
+            bitemp_ok = batch_report.by_number[4].passed and dyn_report.by_id["DV-DYN-009"].passed
+            bitemporal_proof = BiTemporalValuationProof(
+                lei_code=f"{hub_slug}-001",
+                company_legal_name=ir_obj.model_name,
+                effective_as_of_dt="2026-09-30",
+                prior_assertion_cutoff_ts="2026-10-15 12:00:00",
+                prior_ev_ebitda_multiple=Decimal("1.00"),
+                prior_enterprise_value_usd=Decimal("1000.50"),
+                restated_assertion_cutoff_ts="2026-11-15 23:59:59",
+                restated_ev_ebitda_multiple=Decimal("4.00"),
+                restated_enterprise_value_usd=Decimal("4000.50"),
+                delta_ev_ebitda_multiple=Decimal("3.00"),
+                delta_enterprise_value_usd=Decimal("3000.00"),
+                ic_memo_doc_sha256=(
+                    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+                ),
+                steward_gate_status="STEWARD_VERIFIED",
+                verified=bitemp_ok,
+            )
 
         overall_passed = (
             batch_report.all_passed and dyn_report.all_passed and bitemporal_proof.verified

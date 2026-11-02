@@ -6,6 +6,10 @@ and docs/06-explainability-and-observability-spec.md.
 
 from __future__ import annotations
 
+import asyncio
+import json
+import os
+import urllib.request
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -24,16 +28,55 @@ from opendv_agent_harness.routing import DEFAULT_CLAUDE_MODEL_MAP
 from opendv_agent_harness.tools.bridge import build_claude_sdk_mcp_bundle
 
 
+class ProviderConfigurationError(RuntimeError, ImportError):
+    """Raised when neither the vendor SDK nor REST API credentials are configured."""
+
+
+def _strip_markdown_json_fences(raw_text: str) -> str:
+    """Strip optional ```json ... ``` markdown fences around JSON text."""
+    stripped = raw_text.strip()
+    if stripped.startswith("```"):
+        lines = stripped.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip() == "```":
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+    return stripped
+
+
+def _allow_mock_sdk_shim(config: HarnessConfig) -> bool:
+    """Return True only when mock SDK fallback is explicitly enabled via config or env."""
+    if config.extra_provider_options.get("allow_mock_sdk_fallback") is True:
+        return True
+    env_flag = (
+        config.env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
+        or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
+        or ""
+    )
+    return env_flag.strip().lower() in {"1", "true", "yes"}
+
+
 class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
     """Production Adapter 2: Anthropic Claude Agent SDK for Python (`claude-agent-sdk`).
 
     Uses `ClaudeSDKClient`, `ClaudeAgentOptions`, `@tool` + `create_sdk_mcp_server`,
-    `AgentDefinition` subagents, `HookMatcher` guardrails, and `output_format` JSON Schema.
+    `AgentDefinition` subagents, `HookMatcher` guardrails, `output_format` JSON Schema,
+    and Anthropic Messages REST API execution when `claude_agent_sdk` is absent but
+    `ANTHROPIC_API_KEY` is configured.
     """
 
     def __init__(self, config: HarnessConfig, *, sdk_module: Any | None = None) -> None:
         super().__init__(config)
         self._sdk_override = sdk_module
+
+    @property
+    def _sdk_module(self) -> Any | None:
+        return self._sdk_override
+
+    @_sdk_module.setter
+    def _sdk_module(self, value: Any | None) -> None:
+        self._sdk_override = value
 
     @property
     def provider_name(self) -> str:
@@ -55,13 +98,39 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
             DEFAULT_CLAUDE_MODEL_MAP[ModelTier.HIGH_REASONING],
         )
 
-    def _load_sdk(self) -> Any:
-        """Lazily load `claude_agent_sdk` or return the injected test SDK override."""
+    def _resolve_api_key(self) -> str | None:
+        """Resolve `ANTHROPIC_API_KEY` from config or process environment."""
+        for candidate in (
+            self._config.env.get("ANTHROPIC_API_KEY"),
+            self._config.extra_provider_options.get("api_key"),
+            os.environ.get("ANTHROPIC_API_KEY"),
+        ):
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip()
+        return None
+
+    def _load_sdk(self) -> Any | None:
+        """Lazily load `claude_agent_sdk`, return `None` for REST fallback, or fail closed."""
         if self._sdk_override is not None:
             return self._sdk_override
-        import claude_agent_sdk  # type: ignore[import-not-found]
+        try:
+            import claude_agent_sdk  # type: ignore[import-not-found]
 
-        return claude_agent_sdk
+            return claude_agent_sdk
+        except ImportError:
+            if self._resolve_api_key() is not None:
+                return None
+            if _allow_mock_sdk_shim(self._config):
+                from opendv_agent_harness.adapters.deterministic_adapter import (
+                    build_deterministic_claude_sdk_shim,
+                )
+
+                return build_deterministic_claude_sdk_shim()
+            raise ProviderConfigurationError(
+                "Claude Agent SDK ('claude_agent_sdk') is not installed and "
+                "ANTHROPIC_API_KEY is not present in the environment. "
+                "Configure ANTHROPIC_API_KEY or install claude_agent_sdk."
+            ) from None
 
     @staticmethod
     def strip_mcp_prefix(tool_name: str) -> str:
@@ -70,14 +139,121 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
             return tool_name.removeprefix("mcp__opendv__")
         return tool_name
 
+    async def _stream_anthropic_rest_task(
+        self,
+        spec: AgentTaskSpec[OutputT],
+        ctx: ToolExecutionContext,
+        model_id: str,
+        api_key: str,
+    ) -> AsyncIterator[HarnessStreamEvent]:
+        """Execute task against the Anthropic Messages REST API (`https://api.anthropic.com/v1/messages`)."""
+
+        def make_event(kind: HarnessEventKind, **kwargs: Any) -> HarnessStreamEvent:
+            return self._make_event(spec, ctx, kind, **kwargs)
+
+        yield make_event(HarnessEventKind.SESSION_START)
+        session_id = spec.resume_session_id or spec.task_id
+
+        system_prompt = spec.system_instructions
+        if spec.output_schema is not None:
+            schema_json = json.dumps(spec.output_schema.model_json_schema())
+            system_prompt = (
+                f"{system_prompt}\n\n"
+                f"Respond ONLY with valid JSON conforming to this JSON Schema:\n{schema_json}"
+            )
+
+        request_payload: dict[str, Any] = {
+            "model": model_id,
+            "max_tokens": min(self._config.budget.max_output_tokens, 8192),
+            "system": system_prompt,
+            "messages": [
+                {"role": "user", "content": spec.prompt},
+            ],
+        }
+
+        req = urllib.request.Request(
+            url="https://api.anthropic.com/v1/messages",
+            data=json.dumps(request_payload).encode("utf-8"),
+            headers={
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            },
+            method="POST",
+        )
+
+        def _do_http_post() -> dict[str, Any]:
+            with urllib.request.urlopen(req, timeout=self._config.budget.timeout_seconds) as resp:
+                raw_bytes = resp.read()
+                return json.loads(raw_bytes.decode("utf-8"))  # type: ignore[no-any-return]
+
+        resp_json = await asyncio.to_thread(_do_http_post)
+
+        text_chunks: list[str] = []
+        for block in resp_json.get("content") or []:
+            if not isinstance(block, dict):
+                continue
+            b_type = block.get("type")
+            if b_type == "thinking":
+                yield make_event(
+                    HarnessEventKind.THOUGHT_DELTA,
+                    delta_text=str(block.get("thinking", "")),
+                )
+            elif b_type == "text":
+                txt = str(block.get("text", ""))
+                text_chunks.append(txt)
+                yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=txt)
+
+        for obs_ev in ctx.pop_unstreamed_events():
+            yield make_event(HarnessEventKind.OBSERVABILITY_EVENT, obs_event=obs_ev)
+            if obs_ev.get("status") == "ASK-USER":
+                yield make_event(HarnessEventKind.STEWARD_HOLD, obs_event=obs_ev)
+
+        full_text = "".join(text_chunks).strip()
+        structured_data: Any = None
+        if spec.output_schema is not None and full_text:
+            cleaned = _strip_markdown_json_fences(full_text)
+            structured_data = spec.output_schema.model_validate_json(cleaned)
+
+        raw_usage = resp_json.get("usage") or {}
+        in_tok = int(raw_usage.get("input_tokens", 0))
+        cached_tok = int(
+            raw_usage.get("cache_read_input_tokens", raw_usage.get("cached_input_tokens", 0))
+        )
+        out_tok = int(raw_usage.get("output_tokens", 0))
+        total_tok = int(raw_usage.get("total_tokens", in_tok + cached_tok + out_tok))
+
+        turn_meta: dict[str, Any] = {
+            "session_id": str(resp_json.get("id") or session_id),
+            "structured_output": structured_data,
+            "usage": {
+                "input_tokens": in_tok,
+                "cached_input_tokens": cached_tok,
+                "output_tokens": out_tok,
+                "reasoning_tokens": 0,
+                "total_tokens": total_tok,
+                "model_calls": 1,
+                "cost_usd": 0.0,
+            },
+        }
+        yield make_event(HarnessEventKind.TURN_COMPLETE, tool_result=turn_meta)
+
     async def _stream_provider_task(
         self,
         spec: AgentTaskSpec[OutputT],
         ctx: ToolExecutionContext,
         model_id: str,
     ) -> AsyncIterator[HarnessStreamEvent]:
-        """Stream events from `claude_agent_sdk.ClaudeSDKClient`."""
+        """Stream events from `claude_agent_sdk.ClaudeSDKClient` or Anthropic REST API fallback."""
         cas = self._load_sdk()
+        if cas is None:
+            api_key = self._resolve_api_key()
+            if api_key is None:
+                raise RuntimeError("Missing ANTHROPIC_API_KEY for Anthropic REST execution.")
+            async for ev in self._stream_anthropic_rest_task(spec, ctx, model_id, api_key):
+                yield ev
+            return
+
         sbx = self._config.sandbox
         mcp_servers, qualified_tool_names, _ = build_claude_sdk_mcp_bundle(spec.tools, ctx)
 
@@ -233,7 +409,10 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                 self._active_cancels.pop(spec.task_id, None)
 
 
+ClaudeAgentSdkAdapter = ClaudeAgentHarnessAdapter
+
 __all__ = [
     "DEFAULT_CLAUDE_MODEL_MAP",
     "ClaudeAgentHarnessAdapter",
+    "ClaudeAgentSdkAdapter",
 ]
