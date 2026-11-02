@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import re
 import shutil
 import tempfile
@@ -28,10 +27,6 @@ from opendv_agent_harness import (
     build_observability_event_dict,
     run_agentic_vault_pipeline,
     validate_pipeline_inputs,
-)
-from opendv_agent_harness.adapters.deterministic_adapter import (
-    build_deterministic_agy_sdk_shim,
-    build_deterministic_claude_sdk_shim,
 )
 from opendv_axi_verifier import AxiDvPipelineResult
 from opendv_core import (
@@ -181,9 +176,6 @@ class CreateRunRequest(BaseModel):
         "agy-cli",
         "antigravity",
         "claude",
-        "claude-agent",
-        "deterministic",
-        "deterministic-stub",
     ] = "antigravity"
     model_tier_override: Literal["reasoning", "fast"] | None = None
     contract_path: str | None = None
@@ -230,9 +222,6 @@ class ProjectRunDTO(BaseModel):
         "agy-cli",
         "antigravity",
         "claude",
-        "claude-agent",
-        "deterministic",
-        "deterministic-stub",
     ]
     status: RunStatus
     started_at_utc: str
@@ -1328,26 +1317,6 @@ def _load_structured_mapping(path: Path, label: str) -> dict[str, Any]:
     return loaded
 
 
-def _resolve_sdk_shim_if_needed(
-    provider: str,
-    env: dict[str, str] | None = None,
-) -> Any | None:
-    """Resolve SDK shims only when explicitly requested via OPENDV_ALLOW_MOCK_SDK_SHIM."""
-    merged_env = {**os.environ, **(env or {})}
-    force_shim = merged_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM", "").strip().lower() in {
-        "true",
-        "1",
-        "yes",
-    }
-    if not force_shim:
-        return None
-    if provider in {"agy", "agy-cli", "antigravity"}:
-        return build_deterministic_agy_sdk_shim()
-    if provider in {"claude", "claude-agent"}:
-        return build_deterministic_claude_sdk_shim()
-    return None
-
-
 class PlatformStateContainer:
     """In-memory and CAS/JSONL-backed platform state container for `/api/v1` routers."""
 
@@ -1477,9 +1446,6 @@ class PlatformStateContainer:
             "agy-cli",
             "antigravity",
             "claude",
-            "claude-agent",
-            "deterministic",
-            "deterministic-stub",
         ],
         started_at_utc: str,
     ) -> ProjectRunDTO:
@@ -1737,9 +1703,7 @@ class PlatformStateContainer:
             raw_setup = {}
 
         if provider_override is not None:
-            raw_setup["provider"] = (
-                "claude" if provider_override == "claude-agent" else provider_override
-            )
+            raw_setup["provider"] = provider_override
         if steward_hold_policy is not None:
             raw_setup["steward_hold_policy"] = steward_hold_policy
 
@@ -1847,14 +1811,12 @@ class PlatformStateContainer:
             shutil.rmtree(spec_out_cand / "state" / "holds", ignore_errors=True)
             (spec_out_cand / "vault-ledger.jsonl").unlink(missing_ok=True)
 
-        sdk_shim = _resolve_sdk_shim_if_needed(setup_obj.provider, env=setup_obj.env)
         report: AgenticPipelineReport = run_agentic_vault_pipeline(
             spec_obj,
             setup_obj,
             output_dir=out_dir,
             base_dir=base_dir,
             cas_store=self.cas_store,
-            sdk_module=sdk_shim,
         )
 
         # Store all intermediate and final artifacts in self.cas_store and self.artifacts

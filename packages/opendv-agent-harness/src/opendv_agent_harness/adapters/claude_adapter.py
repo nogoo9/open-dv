@@ -46,18 +46,6 @@ def _strip_markdown_json_fences(raw_text: str) -> str:
     return stripped
 
 
-def _allow_mock_sdk_shim(config: HarnessConfig) -> bool:
-    """Return True only when mock SDK fallback is explicitly enabled via config or env."""
-    if config.extra_provider_options.get("allow_mock_sdk_fallback") is True:
-        return True
-    env_flag = (
-        config.env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-        or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-        or ""
-    )
-    return env_flag.strip().lower() in {"1", "true", "yes"}
-
-
 class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
     """Production Adapter 2: Anthropic Claude Agent SDK for Python (`claude-agent-sdk`).
 
@@ -120,12 +108,6 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
         except ImportError:
             if self._resolve_api_key() is not None:
                 return None
-            if _allow_mock_sdk_shim(self._config):
-                from opendv_agent_harness.adapters.deterministic_adapter import (
-                    build_deterministic_claude_sdk_shim,
-                )
-
-                return build_deterministic_claude_sdk_shim()
             raise ProviderConfigurationError(
                 "Claude Agent SDK ('claude_agent_sdk') is not installed and "
                 "ANTHROPIC_API_KEY is not present in the environment. "

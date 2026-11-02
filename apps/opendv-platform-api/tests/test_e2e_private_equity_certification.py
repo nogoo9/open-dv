@@ -137,7 +137,7 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
                 "/api/v1/runs",
                 json={
                     "project_id": project_id,
-                    "harness_provider": "deterministic-stub",
+                    "harness_provider": "agy",
                     "model_tier_override": "fast",
                     "execute_duckdb_sandbox": True,
                 },

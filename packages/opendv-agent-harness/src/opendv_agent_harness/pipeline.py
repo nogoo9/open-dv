@@ -2,7 +2,7 @@
 
 Implements the `vault-first-mate` / `no-mistakes` agentic pipeline over the hexagonal
 `VaultAgentHarness` protocol (`AgyCliHarnessAdapter`, `AntigravityHarnessAdapter`,
-`ClaudeAgentHarnessAdapter`, `DeterministicHarnessAdapter`) and deterministic verification
+`ClaudeAgentHarnessAdapter`) and deterministic verification
 engines (`opendv-core`, `opendv-axi-verifier`, `opendv-duckdb-sandbox`, `opendv-telemetry`).
 
 Provides:
@@ -149,13 +149,11 @@ class HarnessSetupConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: Literal[
-        "deterministic",
-        "deterministic-stub",
         "agy",
         "agy-cli",
         "antigravity",
         "claude",
-    ] = "deterministic"
+    ] = "agy"
     model_overrides: dict[str, str] = Field(
         default_factory=lambda: {
             "reasoning": "gemini-4-argon-high",
@@ -1046,18 +1044,8 @@ def validate_pipeline_inputs(
     ):
         from opendv_agent_harness.adapters.agy_cli_adapter import AgyCliHarnessAdapter
 
-        mock_allowed = setup_obj.extra_provider_options.get("allow_mock_sdk_fallback") is True or (
-            (
-                resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                or ""
-            )
-            .strip()
-            .lower()
-            in {"1", "true", "yes"}
-        )
         agy_cli_check = AgyCliHarnessAdapter(setup_obj.to_harness_config(workspace_dir=ws_root))
-        if agy_cli_check._resolve_agy_binary() is None and not mock_allowed:
+        if agy_cli_check._resolve_agy_binary() is None:
             diagnostics.append(
                 {
                     "code": "HARNESS_AUTH_MISSING",
@@ -1080,21 +1068,11 @@ def validate_pipeline_inputs(
         sdk_pkg = (
             "google.antigravity" if setup_obj.provider == "antigravity" else "claude_agent_sdk"
         )
-        mock_allowed = setup_obj.extra_provider_options.get("allow_mock_sdk_fallback") is True or (
-            (
-                resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                or ""
-            )
-            .strip()
-            .lower()
-            in {"1", "true", "yes"}
-        )
         try:
             sdk_spec = importlib.util.find_spec(sdk_pkg)
         except (ImportError, ModuleNotFoundError, ValueError):
             sdk_spec = None
-        if sdk_spec is None and not mock_allowed:
+        if sdk_spec is None:
             diagnostics.append(
                 {
                     "code": "HARNESS_AUTH_MISSING",
@@ -1170,18 +1148,6 @@ def validate_pipeline_inputs(
             sdk_pkg = (
                 "google.antigravity" if setup_obj.provider == "antigravity" else "claude_agent_sdk"
             )
-            mock_allowed = setup_obj.extra_provider_options.get(
-                "allow_mock_sdk_fallback"
-            ) is True or (
-                (
-                    resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                    or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                    or ""
-                )
-                .strip()
-                .lower()
-                in {"1", "true", "yes"}
-            )
             try:
                 sdk_spec = importlib.util.find_spec(sdk_pkg)
             except (ImportError, ModuleNotFoundError, ValueError):
@@ -1199,7 +1165,7 @@ def validate_pipeline_inputs(
                     os.environ.get("GOOGLE_API_KEY"),
                 )
             )
-            if sdk_spec is None and not has_api_key and not mock_allowed:
+            if sdk_spec is None and not has_api_key:
                 diagnostics.append(
                     {
                         "code": "HARNESS_AUTH_MISSING",
@@ -2474,6 +2440,7 @@ class AgenticVaultPipeline:
         base_dir: Path | None = None,
         cas_store: ContentAddressableStore | None = None,
         sdk_module: Any | None = None,
+        harness: VaultAgentHarness | None = None,
     ) -> None:
         self.input_spec = input_spec
         self.harness_setup = harness_setup or HarnessSetupConfig()
@@ -2485,6 +2452,7 @@ class AgenticVaultPipeline:
         self._explicit_output_dir = Path(output_dir).resolve() if output_dir is not None else None
         self._explicit_cas_store = cas_store
         self._sdk_module = sdk_module
+        self._explicit_harness = harness
         self._runtime_initialized = False
 
     def _ensure_runtime_initialized(self) -> None:
@@ -2519,15 +2487,13 @@ class AgenticVaultPipeline:
             app_data_dir=self.output_dir / "app_data",
             save_dir=self.output_dir / "save",
         )
-        if not self.harness_setup.auth.require_credentials_present:
-            self.harness_config.extra_provider_options.setdefault(
-                "allow_mock_sdk_fallback",
-                True,
+        if self._explicit_harness is not None:
+            self.harness: VaultAgentHarness = self._explicit_harness
+        else:
+            self.harness = get_harness_adapter(
+                self.harness_config,
+                sdk_module=self._sdk_module,
             )
-        self.harness: VaultAgentHarness = get_harness_adapter(
-            self.harness_config,
-            sdk_module=self._sdk_module,
-        )
         self._runtime_initialized = True
 
     def _record_artifact(
@@ -6286,6 +6252,7 @@ def run_agentic_vault_pipeline(
     base_dir: str | Path | None = None,
     cas_store: ContentAddressableStore | None = None,
     sdk_module: Any | None = None,
+    harness: VaultAgentHarness | None = None,
 ) -> AgenticPipelineReport:
     """Execute the end-to-end 8-stage neuro-symbolic Data Vault 2.0 pipeline."""
     eff_base: Path | None = Path(base_dir).resolve() if base_dir is not None else None
@@ -6312,6 +6279,7 @@ def run_agentic_vault_pipeline(
         base_dir=eff_base,
         cas_store=cas_store,
         sdk_module=sdk_module,
+        harness=harness,
     )
     return pipeline.run()
 

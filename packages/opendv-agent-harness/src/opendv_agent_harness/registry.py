@@ -12,7 +12,6 @@ from typing import Any
 from opendv_agent_harness.adapters.agy_cli_adapter import AgyCliHarnessAdapter
 from opendv_agent_harness.adapters.antigravity_adapter import AntigravityHarnessAdapter
 from opendv_agent_harness.adapters.claude_adapter import ClaudeAgentHarnessAdapter
-from opendv_agent_harness.adapters.deterministic_adapter import DeterministicHarnessAdapter
 from opendv_agent_harness.models import HarnessConfig
 from opendv_agent_harness.protocol import VaultAgentHarness
 
@@ -23,8 +22,6 @@ _DEFAULT_REGISTRY: dict[str, HarnessFactory] = {
     "agy-cli": AgyCliHarnessAdapter,
     "antigravity": AntigravityHarnessAdapter,
     "claude": ClaudeAgentHarnessAdapter,
-    "deterministic": DeterministicHarnessAdapter,
-    "deterministic-stub": DeterministicHarnessAdapter,
 }
 
 _HARNESS_REGISTRY = _DEFAULT_REGISTRY
@@ -54,7 +51,6 @@ def create_agent_harness(
     - `'agy'` / `'agy-cli'` -> `AgyCliHarnessAdapter`
     - `'antigravity'` -> `AntigravityHarnessAdapter`
     - `'claude'` -> `ClaudeAgentHarnessAdapter`
-    - `'deterministic'` / `'deterministic-stub'` -> `DeterministicHarnessAdapter`
     - Any custom provider registered via `register_harness(...)`
     """
     provider_key = str(config.provider).strip().lower()

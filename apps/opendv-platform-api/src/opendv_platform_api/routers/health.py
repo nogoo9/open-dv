@@ -40,11 +40,10 @@ async def get_health(
 async def get_platform_capabilities() -> dict[str, Any]:
     """Return supported agent harnesses, 5-Tier RBAC roles, WB-00..WB-11 views, and gates."""
     harnesses = [
+        "agy",
+        "agy-cli",
         "antigravity",
         "claude",
-        "claude-agent",
-        "deterministic",
-        "deterministic-stub",
     ]
     roles = [r.value for r in RbacRole]
     gates = ["G0", "G1", "G2", "G3", "G4", "G5"]

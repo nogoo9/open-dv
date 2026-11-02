@@ -12,9 +12,9 @@ Tests:
      (`DV-DYN-001`-`015`)
    - All intermediate and final artifacts exist on disk, match their CAS SHA-256 digests,
      and `pipeline_report.md` + `pipeline_report.json` are generated.
-3. Multi-provider harness execution (`"deterministic"`, `"deterministic-stub"`,
-   `"antigravity"`, and `"claude"`) as well as `steward_hold_policy` modes
-   (`"auto_approve_top_candidate"`, `"pause"`, `"reject_on_hold"`).
+3. Multi-provider harness execution (`"agy"`, `"antigravity"`, and `"claude"`,
+   plus negative rejection of `"deterministic"` / `"deterministic-stub"`) as well as
+   `steward_hold_policy` modes (`"auto_approve_top_candidate"`, `"pause"`, `"reject_on_hold"`).
 """
 
 from __future__ import annotations
@@ -66,19 +66,38 @@ def _sample_dir() -> Path:
 
 
 def test_deterministic_harness_adapter_registration(tmp_path: Path) -> None:
-    for provider in ("deterministic", "deterministic-stub"):
-        setup = HarnessSetupConfig(provider=provider)
-        cfg = setup.to_harness_config(
-            workspace_dir=tmp_path,
-            state_dir=tmp_path / "state",
-            app_data_dir=tmp_path / "app",
-            save_dir=tmp_path / "save",
-        )
-        adapter_1 = create_agent_harness(cfg)
-        adapter_2 = get_harness_adapter(cfg)
-        assert isinstance(adapter_1, DeterministicHarnessAdapter)
-        assert isinstance(adapter_2, DeterministicHarnessAdapter)
-        assert adapter_1.provider_name == provider
+    from pydantic import ValidationError
+
+    for invalid_provider in ("deterministic", "deterministic-stub"):
+        with pytest.raises(ValidationError):
+            HarnessSetupConfig(provider=invalid_provider)  # type: ignore[arg-type]
+
+    sample_dir = _sample_dir()
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    invalid_override_report = validate_pipeline_inputs(
+        input_spec,
+        {"provider": "deterministic"},
+        base_dir=sample_dir,
+    )
+    assert invalid_override_report.passed is False
+    assert any(d["code"] == "HARNESS_SETUP_INVALID" for d in invalid_override_report.diagnostics)
+
+    setup = HarnessSetupConfig(provider="agy")
+    cfg = setup.to_harness_config(
+        workspace_dir=tmp_path,
+        state_dir=tmp_path / "state",
+        app_data_dir=tmp_path / "app",
+        save_dir=tmp_path / "save",
+    )
+    unregistered_cfg = cfg.model_copy(update={"provider": "deterministic"})
+    with pytest.raises(ValueError, match="Unsupported harness provider 'deterministic'"):
+        create_agent_harness(unregistered_cfg)
+    with pytest.raises(ValueError, match="Unsupported harness provider 'deterministic'"):
+        get_harness_adapter(unregistered_cfg)
+
+    direct_adapter = DeterministicHarnessAdapter(cfg)
+    assert isinstance(direct_adapter, DeterministicHarnessAdapter)
+    assert direct_adapter.provider_name == "deterministic"
 
 
 def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
@@ -392,12 +411,12 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
         ClaudeAgentHarnessAdapter(claude_cfg)._load_sdk()
 
     sdk_shims: dict[
-        Literal["deterministic", "deterministic-stub", "antigravity", "claude"],
+        Literal["agy", "antigravity", "claude"],
         Any,
     ] = {
+        "agy": build_deterministic_agy_sdk_shim(),
         "antigravity": build_deterministic_agy_sdk_shim(),
         "claude": build_deterministic_claude_sdk_shim(),
-        "deterministic-stub": None,
     }
     for provider, sdk_shim in sdk_shims.items():
         p_out = tmp_path / f"out_{provider}"
@@ -426,7 +445,7 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
         }
     )
     pause_setup = HarnessSetupConfig(
-        provider="deterministic",
+        provider="agy",
         steward_hold_policy="pause",
         inject_adversarial_fault_on_attempt_1=False,
     )
@@ -436,6 +455,7 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
         pause_setup,
         output_dir=pause_out,
         base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert pause_rep.status == "PAUSED_HOLD"
     assert pause_rep.overall_passed is False
@@ -452,7 +472,7 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
 
     # Test steward_hold_policy="reject_on_hold" on Wave 3 Tier-U3 candidate
     reject_setup = HarnessSetupConfig(
-        provider="deterministic",
+        provider="agy",
         steward_hold_policy="reject_on_hold",
         inject_adversarial_fault_on_attempt_1=False,
     )
@@ -462,6 +482,7 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
         reject_setup,
         output_dir=reject_out,
         base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert reject_rep.status == "FAILED"
     assert reject_rep.overall_passed is False
@@ -487,7 +508,7 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
     sample_dir = _sample_dir()
     input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
     harness_setup = HarnessSetupConfig(
-        provider="deterministic",
+        provider="agy",
         inject_adversarial_fault_on_attempt_1=False,
     )
 
@@ -547,6 +568,7 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
         harness_setup,
         output_dir=out_dir,
         base_dir=tmp_path,
+        sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert rep.status == "COMPLETED"
     assert rep.overall_passed is True
@@ -565,7 +587,7 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
 
     # Verify Stage 5 retry exhaustion propagates REJECT-WITH-TRACE and FAILED status
     exhausted_setup = HarnessSetupConfig(
-        provider="deterministic",
+        provider="agy",
         budget=HarnessBudget(max_schema_validation_retries=1),
         inject_adversarial_fault_on_attempt_1=True,
     )
@@ -575,6 +597,7 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
         exhausted_setup,
         output_dir=exhausted_out,
         base_dir=tmp_path,
+        sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert exhausted_rep.status == "FAILED"
     assert exhausted_rep.overall_passed is False
@@ -876,7 +899,7 @@ def test_discovery_first_pipeline_without_prebaked_hints(tmp_path: Path) -> None
     assert any(d["code"] == "HARNESS_AUTH_MISSING" for d in ambient_val.diagnostics)
 
     setup = HarnessSetupConfig(
-        provider="deterministic",
+        provider="agy",
         steward_hold_policy="auto_approve_top_candidate",
     )
     out_dir = tmp_path / "discovery_first_out"
@@ -885,6 +908,7 @@ def test_discovery_first_pipeline_without_prebaked_hints(tmp_path: Path) -> None
         setup,
         output_dir=out_dir,
         base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert rep.status == "COMPLETED"
     assert rep.overall_passed is True
@@ -1000,16 +1024,26 @@ def test_real_llm_structured_output_consumption(tmp_path: Path) -> None:
         return None
 
     setup = HarnessSetupConfig(
-        provider="deterministic",
+        provider="agy",
         steward_hold_policy="auto_approve_top_candidate",
         extra_provider_options={"structured_output_factory": _custom_structured_output_factory},
     )
     out_dir = tmp_path / "llm_structured_out"
+    injected_harness = DeterministicHarnessAdapter(
+        setup.to_harness_config(
+            workspace_dir=tmp_path,
+            state_dir=out_dir / "state",
+            app_data_dir=out_dir / "app_data",
+            save_dir=out_dir / "save",
+        ),
+        structured_output_factory=_custom_structured_output_factory,
+    )
     rep = run_agentic_vault_pipeline(
         wave0_and_3_spec,
         setup,
         output_dir=out_dir,
         base_dir=sample_dir,
+        harness=injected_harness,
     )
     assert rep.status == "COMPLETED"
     assert rep.overall_passed is True

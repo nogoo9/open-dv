@@ -47,18 +47,6 @@ def _strip_markdown_json_fences(raw_text: str) -> str:
     return stripped
 
 
-def _allow_mock_sdk_shim(config: HarnessConfig) -> bool:
-    """Return True only when mock SDK fallback is explicitly enabled via config or env."""
-    if config.extra_provider_options.get("allow_mock_sdk_fallback") is True:
-        return True
-    env_flag = (
-        config.env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-        or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-        or ""
-    )
-    return env_flag.strip().lower() in {"1", "true", "yes"}
-
-
 class AntigravityHarnessAdapter(BaseVaultAgentHarness):
     """Production Adapter 1: Google Antigravity Python SDK (`google.antigravity`).
 
@@ -123,12 +111,6 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
         except ImportError:
             if self._resolve_api_key() is not None:
                 return None
-            if _allow_mock_sdk_shim(self._config):
-                from opendv_agent_harness.adapters.deterministic_adapter import (
-                    build_deterministic_agy_sdk_shim,
-                )
-
-                return build_deterministic_agy_sdk_shim()
             raise ProviderConfigurationError(
                 "Google Antigravity SDK ('google.antigravity') is not installed and neither "
                 "GEMINI_API_KEY nor GOOGLE_API_KEY is present in the environment. "

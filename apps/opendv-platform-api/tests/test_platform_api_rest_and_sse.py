@@ -24,7 +24,7 @@ from opendv_platform_api import (
     redact_event_for_role,
     store_cas_artifact,
 )
-from opendv_platform_api.deps import REPO_ROOT, _resolve_sdk_shim_if_needed
+from opendv_platform_api.deps import REPO_ROOT
 
 
 def _run_async(coro: Any) -> Any:
@@ -66,10 +66,14 @@ def test_health_and_capabilities_endpoints(tmp_path: Path) -> None:
             res_cap = await client.get("/api/v1/platform/capabilities")
             assert res_cap.status_code == 200
             body_cap = res_cap.json()
-            assert "antigravity" in body_cap["harness_providers"]
-            assert "claude" in body_cap["harness_providers"]
-            assert "deterministic" in body_cap["harness_providers"]
-            assert "deterministic-stub" in body_cap["harness_providers"]
+            assert body_cap["harness_providers"] == [
+                "agy",
+                "agy-cli",
+                "antigravity",
+                "claude",
+            ]
+            assert "deterministic" not in body_cap["harness_providers"]
+            assert "deterministic-stub" not in body_cap["harness_providers"]
             assert len(body_cap["rbac_roles"]) == len(RbacRole)
             assert "PII_STEWARD" in body_cap["rbac_roles"]
             assert len(body_cap["workbench_views"]) == 12
@@ -679,10 +683,25 @@ def test_cas_artifacts_and_openapi_v1_schema_freshness(tmp_path: Path) -> None:
 
 def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
     tmp_path: Path,
+    monkeypatch: Any,
 ) -> None:
     """Verify `/api/v1/pipelines/validate`, `/api/v1/pipelines/runs`,
     `/api/v1/runs/{run_id}/report`, and SSE + WB-00..WB-11 integration.
     """
+    import opendv_platform_api.deps as deps_mod
+    from opendv_agent_harness.adapters.deterministic_adapter import (
+        build_deterministic_agy_sdk_shim,
+    )
+
+    orig_run_pipeline = deps_mod.run_agentic_vault_pipeline
+    monkeypatch.setattr(
+        deps_mod,
+        "run_agentic_vault_pipeline",
+        lambda *args, **kwargs: orig_run_pipeline(
+            *args,
+            **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
+        ),
+    )
     state = PlatformStateContainer(state_dir=tmp_path / "state")
     app = create_app(platform_state=state)
     sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
@@ -714,12 +733,37 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert val_bad_body["passed"] is False
             assert val_bad_body["diagnostics"][0]["code"] == "INPUT_SPEC_SCHEMA_INVALID"
 
-            res_val = await client.post(
+            # Negative check: provider_override="deterministic" fails with HARNESS_SETUP_INVALID
+            res_val_det = await client.post(
                 "/api/v1/pipelines/validate",
                 json={
                     "input_spec_path": sample_input,
                     "harness_config_path": sample_harness,
                     "provider_override": "deterministic",
+                },
+            )
+            assert res_val_det.status_code == 200
+            val_det_body = res_val_det.json()
+            assert val_det_body["passed"] is False
+            assert any(d["code"] == "HARNESS_SETUP_INVALID" for d in val_det_body["diagnostics"])
+
+            # Negative check: POST /api/v1/runs with harness_provider="deterministic" returns 422
+            res_run_det_422 = await client.post(
+                "/api/v1/runs",
+                json={
+                    "pipeline_input_path": sample_input,
+                    "harness_config_path": sample_harness,
+                    "harness_provider": "deterministic",
+                },
+            )
+            assert res_run_det_422.status_code == 422
+
+            res_val = await client.post(
+                "/api/v1/pipelines/validate",
+                json={
+                    "input_spec_path": sample_input,
+                    "harness_config_path": sample_harness,
+                    "provider_override": "agy",
                     "steward_hold_policy": "auto_approve_top_candidate",
                 },
             )
@@ -737,7 +781,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                 json={
                     "input_spec_path": sample_input,
                     "harness_config_path": sample_harness,
-                    "provider_override": "deterministic",
+                    "provider_override": "agy",
                     "steward_hold_policy": "auto_approve_top_candidate",
                     "output_dir": str(out_dir),
                 },
@@ -849,7 +893,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                 json={
                     "pipeline_input_path": sample_input,
                     "harness_config_path": sample_harness,
-                    "harness_provider": "deterministic",
+                    "harness_provider": "agy",
                 },
             )
             assert res_via_runs.status_code == 201
@@ -864,7 +908,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                 json={
                     "input_spec_path": sample_input,
                     "harness_config_path": sample_harness,
-                    "provider_override": "deterministic",
+                    "provider_override": "agy",
                     "steward_hold_policy": "pause",
                     "output_dir": str(tmp_path / "paused_out"),
                 },
@@ -912,7 +956,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                 "/api/v1/pipelines/runs",
                 json={
                     "input_spec": bad_spec,
-                    "provider_override": "deterministic",
+                    "provider_override": "agy",
                     "output_dir": str(tmp_path / "s0_fail_out"),
                 },
             )
@@ -937,38 +981,21 @@ def test_wp06_sdk_resolution_and_dynamic_project_run(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
-    """Verify WP-06 SDK shim resolution and dynamic project runs from bronze_sources."""
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
-    monkeypatch.delenv("CLAUDE_CODE_USE_BEDROCK", raising=False)
-    monkeypatch.delenv("OPENDV_ALLOW_MOCK_SDK_SHIM", raising=False)
-
-    # Without OPENDV_ALLOW_MOCK_SDK_SHIM, None is returned; when enabled, shim is returned
-    assert _resolve_sdk_shim_if_needed("antigravity") is None
-    assert _resolve_sdk_shim_if_needed("claude") is None
-    assert (
-        _resolve_sdk_shim_if_needed(
-            "claude",
-            env={"OPENDV_ALLOW_MOCK_SDK_SHIM": "1"},
-        )
-        is not None
-    )
-    assert _resolve_sdk_shim_if_needed("antigravity", env={"GEMINI_API_KEY": "real-key"}) is None
-    assert _resolve_sdk_shim_if_needed("claude", env={"ANTHROPIC_API_KEY": "real-key"}) is None
-    assert (
-        _resolve_sdk_shim_if_needed(
-            "antigravity",
-            env={
-                "GEMINI_API_KEY": "real-key",
-                "OPENDV_ALLOW_MOCK_SDK_SHIM": "true",
-            },
-        )
-        is not None
+    """Verify WP-06 dynamic project runs from bronze_sources with test-injected SDK shim."""
+    import opendv_platform_api.deps as deps_mod
+    from opendv_agent_harness.adapters.deterministic_adapter import (
+        build_deterministic_agy_sdk_shim,
     )
 
+    orig_run_pipeline = deps_mod.run_agentic_vault_pipeline
+    monkeypatch.setattr(
+        deps_mod,
+        "run_agentic_vault_pipeline",
+        lambda *args, **kwargs: orig_run_pipeline(
+            *args,
+            **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
+        ),
+    )
     state = PlatformStateContainer(state_dir=tmp_path / "state")
     app = create_app(platform_state=state)
     ont_rel = (
@@ -1003,7 +1030,7 @@ def test_wp06_sdk_resolution_and_dynamic_project_run(
                 "/api/v1/runs",
                 json={
                     "project_id": "proj-dynamic-commerce",
-                    "harness_provider": "deterministic",
+                    "harness_provider": "agy",
                 },
             )
             assert res_run.status_code == 201
