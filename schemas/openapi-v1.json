@@ -391,7 +391,9 @@
               "agy",
               "agy-cli",
               "antigravity",
-              "claude"
+              "claude",
+              "claude-cli",
+              "claude-code"
             ],
             "title": "Harness Provider",
             "type": "string"
@@ -581,6 +583,17 @@
           "provider_override": {
             "anyOf": [
               {
+                "enum": [
+                  "agy",
+                  "agy-cli",
+                  "antigravity",
+                  "claude",
+                  "claude-cli",
+                  "claude-code"
+                ],
+                "type": "string"
+              },
+              {
                 "type": "string"
               },
               {
@@ -667,6 +680,17 @@
           },
           "provider_override": {
             "anyOf": [
+              {
+                "enum": [
+                  "agy",
+                  "agy-cli",
+                  "antigravity",
+                  "claude",
+                  "claude-cli",
+                  "claude-code"
+                ],
+                "type": "string"
+              },
               {
                 "type": "string"
               },
@@ -836,7 +860,9 @@
               "agy",
               "agy-cli",
               "antigravity",
-              "claude"
+              "claude",
+              "claude-cli",
+              "claude-code"
             ],
             "title": "Harness Provider",
             "type": "string"

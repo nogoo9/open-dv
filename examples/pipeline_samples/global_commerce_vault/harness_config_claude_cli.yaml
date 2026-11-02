@@ -1,0 +1,43 @@
+# ==============================================================================
+# Open-DV Agent Harness Configuration — Claude Code CLI (`claude` / `claude-cli`)
+# ==============================================================================
+# Usage:
+#   uv run opendv pipeline validate \
+#     --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml \
+#     --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_claude_cli.yaml
+# ==============================================================================
+
+provider: claude-cli
+
+model_overrides:
+  reasoning: claude-opus-4-6
+  fast: claude-haiku-4-5
+
+# Optional fine-grained per-agent model overrides (take precedence over model_overrides):
+# agent_models:
+#   vault-first-mate: claude-opus-4-6
+#   scout-source: claude-haiku-4-5
+#   scout-unstructured: claude-haiku-4-5
+#   ship-vault: claude-opus-4-6
+
+auth:
+  mode: cli_session
+  require_preflight: false
+
+budget:
+  max_turns: 12
+  max_model_calls: 20
+  max_tool_calls: 40
+  max_input_tokens: 200000
+  max_output_tokens: 32000
+  max_total_tokens: 232000
+  max_cost_usd: 5.0
+  timeout_seconds: 300.0
+  max_schema_validation_retries: 3
+
+sandbox:
+  read_only_workspace: true
+  allow_shell_execution: false
+
+steward_hold_policy: auto_approve_top_candidate
+inject_adversarial_fault_on_attempt_1: true

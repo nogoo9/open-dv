@@ -15,7 +15,8 @@ export type HarnessProviderOverrideOption =
 	| ""
 	| "agy"
 	| "antigravity"
-	| "claude";
+	| "claude"
+	| "claude-cli";
 
 export type StewardHoldPolicyOption =
 	| "auto_approve_top_candidate"
@@ -812,6 +813,7 @@ export function WB00CommandCenter({
 							<option value="agy">agy</option>
 							<option value="antigravity">antigravity</option>
 							<option value="claude">claude</option>
+							<option value="claude-cli">claude-cli</option>
 						</select>
 					</label>
 

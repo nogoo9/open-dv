@@ -71,6 +71,8 @@ def test_health_and_capabilities_endpoints(tmp_path: Path) -> None:
                 "agy-cli",
                 "antigravity",
                 "claude",
+                "claude-cli",
+                "claude-code",
             ]
             assert "deterministic" not in body_cap["harness_providers"]
             assert "deterministic-stub" not in body_cap["harness_providers"]
@@ -772,6 +774,21 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert val_body["stage"] == "INPUT_VALIDATION"
             assert val_body["passed"] is True
             assert val_body["checked_items_count"] >= 10
+
+            res_val_claude_cli = await client.post(
+                "/api/v1/pipelines/validate",
+                json={
+                    "input_spec_path": sample_input,
+                    "harness_config_path": (
+                        "examples/pipeline_samples/global_commerce_vault/"
+                        "harness_config_claude_cli.yaml"
+                    ),
+                    "provider_override": "claude-cli",
+                    "steward_hold_policy": "auto_approve_top_candidate",
+                },
+            )
+            assert res_val_claude_cli.status_code == 200
+            assert res_val_claude_cli.json()["passed"] is True
 
             # 3. Execute 4-wave agentic pipeline via POST /api/v1/pipelines/runs
             out_dir = tmp_path / "pipeline_out"

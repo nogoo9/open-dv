@@ -411,12 +411,14 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
         ClaudeAgentHarnessAdapter(claude_cfg)._load_sdk()
 
     sdk_shims: dict[
-        Literal["agy", "antigravity", "claude"],
+        Literal["agy", "antigravity", "claude", "claude-cli", "claude-code"],
         Any,
     ] = {
         "agy": build_deterministic_agy_sdk_shim(),
         "antigravity": build_deterministic_agy_sdk_shim(),
         "claude": build_deterministic_claude_sdk_shim(),
+        "claude-cli": build_deterministic_claude_sdk_shim(),
+        "claude-code": build_deterministic_claude_sdk_shim(),
     }
     for provider, sdk_shim in sdk_shims.items():
         p_out = tmp_path / f"out_{provider}"
@@ -1412,3 +1414,120 @@ def test_wp20_semantic_model_tiers_agent_models_and_schema_validation(tmp_path: 
         elif step.persona == "ship-vault":
             assert step.model_tier == "reasoning"
             assert step.model_used == "custom-ship-v1"
+
+
+def test_wp23_claude_cli_harness_config_validation_and_four_waves_end_to_end(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify WP-23 claude-cli sample config, auth preflight/mode validation, and 4-wave run."""
+    import shutil
+
+    sample_dir = _sample_dir()
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    single_wave_spec = input_spec.model_copy(update={"waves": [input_spec.waves[0]]})
+
+    # 1. Load sample harness_config_claude_cli.yaml and verify defaults
+    claude_cli_sample = HarnessSetupConfig.from_file(sample_dir / "harness_config_claude_cli.yaml")
+    assert claude_cli_sample.provider == "claude-cli"
+    assert claude_cli_sample.auth.mode == "cli_session"
+    assert claude_cli_sample.auth.auth_mode == "cli_session"
+    assert claude_cli_sample.auth.require_preflight is False
+    assert claude_cli_sample.model_overrides == {
+        "reasoning": "claude-opus-4-6",
+        "fast": "claude-haiku-4-5",
+    }
+    assert (
+        validate_pipeline_inputs(
+            single_wave_spec,
+            claude_cli_sample,
+            base_dir=sample_dir,
+        ).passed
+        is True
+    )
+
+    # 2. Invalid auth.mode (such as "adc") on claude-cli emits HARNESS_AUTH_INVALID
+    bad_adc_setup = HarnessSetupConfig.model_validate(
+        {
+            "provider": "claude-cli",
+            "auth": {
+                "mode": "adc",
+                "require_preflight": False,
+            },
+        }
+    )
+    bad_adc_val = validate_pipeline_inputs(
+        single_wave_spec,
+        bad_adc_setup,
+        base_dir=sample_dir,
+    )
+    assert bad_adc_val.passed is False
+    assert any(d["code"] == "HARNESS_AUTH_INVALID" for d in bad_adc_val.diagnostics)
+
+    # 3. require_preflight=True when claude binary is missing emits HARNESS_PROVIDER_UNAVAILABLE
+    monkeypatch.delenv("OPENDV_CLAUDE_CLI_BIN", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    preflight_missing_setup = HarnessSetupConfig.model_validate(
+        {
+            "provider": "claude-cli",
+            "auth": {
+                "mode": "cli_session",
+                "require_preflight": True,
+            },
+        }
+    )
+    preflight_missing_val = validate_pipeline_inputs(
+        single_wave_spec,
+        preflight_missing_setup,
+        base_dir=sample_dir,
+    )
+    assert preflight_missing_val.passed is False
+    assert any(
+        d["code"] == "HARNESS_PROVIDER_UNAVAILABLE" for d in preflight_missing_val.diagnostics
+    )
+
+    # When claude binary is resolvable via extra_provider_options["claude_binary"], preflight passes
+    fake_claude_bin = tmp_path / "claude"
+    fake_claude_bin.write_text("#!/bin/sh\necho '{}'\n", encoding="utf-8")
+    preflight_ok_setup = preflight_missing_setup.model_copy(
+        update={"extra_provider_options": {"claude_binary": str(fake_claude_bin)}}
+    )
+    assert (
+        validate_pipeline_inputs(
+            single_wave_spec,
+            preflight_ok_setup,
+            base_dir=sample_dir,
+        ).passed
+        is True
+    )
+
+    # 4. Run full 4-wave pipeline with harness_config_claude_cli.yaml and agent_models override
+    custom_claude_cli_setup = claude_cli_sample.model_copy(
+        update={
+            "agent_models": {
+                "scout-unstructured": "claude-sonnet-4-6",
+                "ship-vault": "claude-opus-4-6-custom",
+            }
+        }
+    )
+    out_dir = tmp_path / "out_claude_cli_4waves"
+    rep = run_agentic_vault_pipeline(
+        input_spec,
+        custom_claude_cli_setup,
+        output_dir=out_dir,
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_claude_sdk_shim(),
+    )
+    assert rep.status == "COMPLETED"
+    assert rep.overall_passed is True
+    assert len(rep.wave_reports) == 4
+    assert rep.harness_setup["provider"] == "claude-cli"
+    for step in rep.step_reports:
+        if step.persona == "vault-first-mate":
+            assert step.model_used == "claude-opus-4-6"
+        elif step.persona == "scout-source":
+            assert step.model_used == "claude-haiku-4-5"
+        elif step.persona == "scout-unstructured":
+            assert step.model_used == "claude-sonnet-4-6"
+        elif step.persona == "ship-vault":
+            assert step.model_used == "claude-opus-4-6-custom"

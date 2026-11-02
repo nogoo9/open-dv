@@ -162,6 +162,8 @@ class HarnessConfig(BaseModel):
         "agy-cli",
         "antigravity",
         "claude",
+        "claude-cli",
+        "claude-code",
     ] = "antigravity"
     workspace_dir: Path
     state_dir: Path

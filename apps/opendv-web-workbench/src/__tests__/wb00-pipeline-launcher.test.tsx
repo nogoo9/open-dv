@@ -363,6 +363,9 @@ describe("WB-00 Agentic Pipeline Launcher & Report Inspector", () => {
 			'<option value="antigravity">antigravity</option>',
 		);
 		expect(reportHtml).toContain('<option value="claude">claude</option>');
+		expect(reportHtml).toContain(
+			'<option value="claude-cli">claude-cli</option>',
+		);
 		expect(reportHtml).toContain('data-testid="wb00-pipeline-report-panel"');
 		expect(reportHtml).toContain("run-agentic-pipeline-20261101");
 		expect(reportHtml).toContain("COMPLETED");
@@ -613,5 +616,7 @@ describe("WB-00 Agentic Pipeline Launcher & Report Inspector", () => {
 
 		store.getState().setProviderOverride("antigravity");
 		expect(store.getState().validationError).toBeNull();
+		store.getState().setProviderOverride("claude-cli");
+		expect(store.getState().providerOverride).toBe("claude-cli");
 	});
 });

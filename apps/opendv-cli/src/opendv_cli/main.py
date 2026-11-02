@@ -231,6 +231,8 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
             "agy-cli",
             "antigravity",
             "claude",
+            "claude-cli",
+            "claude-code",
         ],
         help="Agent harness provider when creating a run.",
     )
@@ -342,8 +344,13 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
             "agy-cli",
             "antigravity",
             "claude",
+            "claude-cli",
+            "claude-code",
         ],
-        help="Optional agent harness provider override (agy, agy-cli, antigravity, claude).",
+        help=(
+            "Optional agent harness provider override "
+            "(agy, agy-cli, antigravity, claude, claude-cli, claude-code)."
+        ),
     )
     p_pipeline.add_argument(
         "--hold-policy",

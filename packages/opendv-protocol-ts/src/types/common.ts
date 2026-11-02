@@ -27,7 +27,13 @@ export type RbacRole =
 	| "RESTRICTED_PII_CUSTODIAN";
 
 /** Agnostic Agent Harness Provider identifiers (docs/08 & docs/09). */
-export type HarnessProvider = "antigravity" | "claude";
+export type HarnessProvider =
+	| "agy"
+	| "agy-cli"
+	| "antigravity"
+	| "claude"
+	| "claude-cli"
+	| "claude-code";
 
 /** Reasoning / Execution Model Tiers (docs/09 & docs/11). */
 export type ModelTier = "reasoning" | "fast";

@@ -12,6 +12,7 @@ from typing import Any
 from opendv_agent_harness.adapters.agy_cli_adapter import AgyCliHarnessAdapter
 from opendv_agent_harness.adapters.antigravity_adapter import AntigravityHarnessAdapter
 from opendv_agent_harness.adapters.claude_adapter import ClaudeAgentHarnessAdapter
+from opendv_agent_harness.adapters.claude_cli_adapter import ClaudeCliHarnessAdapter
 from opendv_agent_harness.models import HarnessConfig
 from opendv_agent_harness.protocol import VaultAgentHarness
 
@@ -22,6 +23,8 @@ _DEFAULT_REGISTRY: dict[str, HarnessFactory] = {
     "agy-cli": AgyCliHarnessAdapter,
     "antigravity": AntigravityHarnessAdapter,
     "claude": ClaudeAgentHarnessAdapter,
+    "claude-cli": ClaudeCliHarnessAdapter,
+    "claude-code": ClaudeCliHarnessAdapter,
 }
 
 _HARNESS_REGISTRY = _DEFAULT_REGISTRY

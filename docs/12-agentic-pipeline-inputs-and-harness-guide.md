@@ -18,7 +18,7 @@ The Open-DV pipeline decouples its 8-stage neuro-symbolic workflow from any sing
 
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :---: | :--- | :--- |
-| `provider` | `"agy" \| "agy-cli" \| "antigravity" \| "claude"` | No | `"agy"` | Selects the concrete `VaultAgentHarness` adapter:<ul><li>`"agy"` / `"agy-cli"`: `AgyCliHarnessAdapter` backed by the local logged-in Antigravity Coding CLI (`agy -p --output-format json --json-schema <path>`).</li><li>`"antigravity"`: `AntigravityHarnessAdapter` backed by the Google Antigravity Python SDK (`google.antigravity`) or Gemini REST API (`GEMINI_API_KEY`).</li><li>`"claude"`: `ClaudeAgentHarnessAdapter` backed by the Anthropic Claude Agent SDK (`claude_agent_sdk`) or Anthropic Messages API (`ANTHROPIC_API_KEY`).</li></ul>*(Note: `DeterministicHarnessAdapter` and SDK shims exist strictly inside internal `pytest` suites for unit/integration mocking and are rejected by the CLI and API.)* |
+| `provider` | `"agy" \| "agy-cli" \| "antigravity" \| "claude" \| "claude-cli" \| "claude-code"` | No | `"agy"` | Selects the concrete `VaultAgentHarness` adapter:<ul><li>`"agy"` / `"agy-cli"`: `AgyCliHarnessAdapter` backed by the local logged-in Antigravity Coding CLI (`agy -p --output-format json --json-schema <path>`).</li><li>`"antigravity"`: `AntigravityHarnessAdapter` backed by the Google Antigravity Python SDK (`google.antigravity`) or Gemini REST API (`GEMINI_API_KEY`).</li><li>`"claude"`: `ClaudeAgentHarnessAdapter` backed by the Anthropic Claude Agent SDK (`claude_agent_sdk`) or Anthropic Messages API (`ANTHROPIC_API_KEY`).</li><li>`"claude-cli"` / `"claude-code"`: `ClaudeCliHarnessAdapter` (`ClaudeCodeCliAdapter`) backed by the local logged-in Claude Code CLI (`claude -p --model <id> --output-format json --json-schema <schema> --agents <subagents_json>`).</li></ul>*(Note: `DeterministicHarnessAdapter` and SDK shims exist strictly inside internal `pytest` suites for unit/integration mocking and are rejected by the CLI and API.)* |
 | `model_overrides` | `dict[str, str]` | No | `{"reasoning": "gemini-4-argon-high", "fast": "gemini-3.8-flash-high"}` | Maps semantic model tiers (`reasoning` for `ModelTier.HIGH_REASONING` and `fast` for `ModelTier.FAST_TIER`) to concrete provider model IDs. Legacy keys `argon` and `flash` are rejected during schema validation (`HARNESS_SETUP_INVALID`). |
 | `agent_models` | `dict[str, str]` | No | `{}` | Optional fine-grained per-agent model overrides keyed by canonical persona identifier (`"vault-first-mate"`, `"scout-source"`, `"scout-unstructured"`, `"ship-vault"`). Takes highest precedence over `model_overrides[tier]` and provider defaults for both top-level agent tasks and delegated subagents. |
 | `auth` | `HarnessAuthConfig` | No | `HarnessAuthConfig(auth_mode="none")` | Declarative authentication and cloud provider routing configuration (API key environment variable lookup, Vertex AI ADC, AWS Bedrock, or CLI session). Secrets are resolved from environment variables at runtime so raw credentials are never committed to YAML files. |
@@ -255,6 +255,39 @@ model_overrides:
 auth:
   auth_mode: cli_session
   require_credentials_present: false
+budget:
+  max_turns: 12
+  max_model_calls: 20
+  max_tool_calls: 40
+  max_input_tokens: 200000
+  max_output_tokens: 32000
+  max_total_tokens: 232000
+  max_cost_usd: 5.0
+  timeout_seconds: 300.0
+  max_schema_validation_retries: 3
+sandbox:
+  read_only_workspace: true
+  allow_shell_execution: false
+steward_hold_policy: auto_approve_top_candidate
+inject_adversarial_fault_on_attempt_1: true
+```
+
+#### Example D: Local Claude Code CLI Harness (`examples/pipeline_samples/global_commerce_vault/harness_config_claude_cli.yaml`)
+
+```yaml
+provider: claude-cli
+model_overrides:
+  reasoning: claude-opus-4-6
+  fast: claude-haiku-4-5
+# Optional fine-grained per-agent model overrides (take precedence over model_overrides):
+# agent_models:
+#   vault-first-mate: claude-opus-4-6
+#   scout-source: claude-haiku-4-5
+#   scout-unstructured: claude-haiku-4-5
+#   ship-vault: claude-opus-4-6
+auth:
+  mode: cli_session
+  require_preflight: false
 budget:
   max_turns: 12
   max_model_calls: 20
