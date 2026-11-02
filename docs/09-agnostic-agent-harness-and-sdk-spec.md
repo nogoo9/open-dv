@@ -416,7 +416,11 @@ class VaultAgentHarness(Protocol):
     @property
     def config(self) -> HarnessConfig: ...
 
-    def resolve_model(self, tier: ModelTier, persona: AgentPersona) -> str: ...
+    def resolve_model(
+        self,
+        tier: ModelTier,
+        persona: AgentPersona | None = None,
+    ) -> str: ...
 
     def stream_task(
         self,
@@ -448,7 +452,11 @@ class BaseVaultAgentHarness(abc.ABC):
         return self._config
 
     @abc.abstractmethod
-    def resolve_model(self, tier: ModelTier, persona: AgentPersona) -> str:
+    def resolve_model(
+        self,
+        tier: ModelTier,
+        persona: AgentPersona | None = None,
+    ) -> str:
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -887,6 +895,7 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
             agy_types.SubagentConfig(
                 name=sub.name,
                 description=sub.description,
+                model=self.resolve_model(sub.model_tier, sub.persona),
                 capabilities=agy_types.SubagentCapabilities(
                     agent_behavior=agy_types.AgentBehavior.AUTONOMOUS,
                     enabled_tools=[

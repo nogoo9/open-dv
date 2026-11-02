@@ -4398,9 +4398,7 @@ class AgenticVaultPipeline:
                     stage_id=PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
                     persona=AgentPersona.AXI_DV.value,
                     model_tier=ModelTier.FAST_TIER.value,
-                    model_used=self.harness.resolve_model(
-                        ModelTier.FAST_TIER, AgentPersona.AXI_DV
-                    ),
+                    model_used=self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV),
                     status=s6_status,
                     attempt_count=1,
                     duration_ms=s6_ms,
