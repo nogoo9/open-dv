@@ -1,7 +1,7 @@
 """Antigravity Coding CLI (`agy`) Adapter for the Open-DV Agent Harness.
 
 Executes non-interactive agentic turns via the local logged-in Antigravity CLI (`agy -p`)
-with `--output-format json`, `--json-schema <schema_path>`, `--model <model_id>`,
+with `--output-format stream-json`, `--json-schema <schema_path>`, `--model <model_id>`,
 `--disable-slash-commands`, and `--sandbox`.
 
 Conforms to docs/03-verification-and-agentic-architecture.md,
@@ -53,8 +53,150 @@ def _strip_internal_stage_context(prompt: str) -> str:
     return cleaned.strip()
 
 
+def _parse_ndjson_stream_line(
+    raw_line: str,
+    *,
+    seen_fine_grained_deltas: bool = False,
+) -> tuple[list[str], list[str], dict[str, Any] | None, bool]:
+    """Parse a single NDJSON line emitted by `agy -p --output-format stream-json`.
+
+    Returns `(thought_deltas, text_deltas, result_payload, is_fine_grained_delta)`.
+    """
+    candidate = raw_line.strip()
+    if not (candidate.startswith("{") and candidate.endswith("}")):
+        return ([], [], None, False)
+    try:
+        obj = json.loads(candidate)
+    except json.JSONDecodeError:
+        return ([], [], None, False)
+    if not isinstance(obj, dict):
+        return ([], [], None, False)
+
+    target: dict[str, Any] = (
+        obj["event"]
+        if str(obj.get("type") or "").lower() == "stream_event"
+        and isinstance(obj.get("event"), dict)
+        else obj
+    )
+    ev_type = str(target.get("type") or "").lower()
+
+    non_result_types = {
+        "text_delta",
+        "delta",
+        "thought_delta",
+        "thinking_delta",
+        "thinking",
+        "thought",
+        "content_block_delta",
+        "assistant",
+        "message_start",
+        "message_delta",
+        "message_stop",
+        "content_block_start",
+        "content_block_stop",
+        "system",
+        "init",
+    }
+    if ev_type == "result" or (
+        ev_type not in non_result_types
+        and any(k in target for k in ("status", "response", "result", "structured_output"))
+    ):
+        return ([], [], target, False)
+
+    thought_deltas: list[str] = []
+    text_deltas: list[str] = []
+    is_fine_grained = False
+
+    if ev_type in {"thought_delta", "thinking_delta", "thinking", "thought"}:
+        chunk = (
+            target.get("thinking")
+            or target.get("thought")
+            or target.get("delta")
+            or target.get("text")
+            or target.get("delta_text")
+        )
+        if isinstance(chunk, str) and chunk:
+            thought_deltas.append(chunk)
+            is_fine_grained = True
+    elif ev_type in {"text_delta", "delta"}:
+        delta_val = target.get("delta")
+        if isinstance(delta_val, dict):
+            d_type = str(delta_val.get("type") or "").lower()
+            if d_type in {"thinking_delta", "thought_delta", "thinking", "thought"}:
+                t_c = delta_val.get("thinking") or delta_val.get("thought") or delta_val.get("text")
+                if isinstance(t_c, str) and t_c:
+                    thought_deltas.append(t_c)
+                    is_fine_grained = True
+            else:
+                c_c = (
+                    delta_val.get("text") or delta_val.get("delta") or delta_val.get("partial_json")
+                )
+                if isinstance(c_c, str) and c_c:
+                    text_deltas.append(c_c)
+                    is_fine_grained = True
+        else:
+            chunk = (
+                target.get("text")
+                or target.get("delta")
+                or target.get("delta_text")
+                or target.get("content")
+            )
+            if isinstance(chunk, str) and chunk:
+                text_deltas.append(chunk)
+                is_fine_grained = True
+    elif ev_type == "content_block_delta":
+        delta_obj = target.get("delta")
+        if isinstance(delta_obj, dict):
+            d_type = str(delta_obj.get("type") or "").lower()
+            if d_type in {"thinking_delta", "thought_delta", "thinking", "thought"}:
+                t_c = delta_obj.get("thinking") or delta_obj.get("thought") or delta_obj.get("text")
+                if isinstance(t_c, str) and t_c:
+                    thought_deltas.append(t_c)
+                    is_fine_grained = True
+            else:
+                c_c = (
+                    delta_obj.get("text") or delta_obj.get("delta") or delta_obj.get("partial_json")
+                )
+                if isinstance(c_c, str) and c_c:
+                    text_deltas.append(c_c)
+                    is_fine_grained = True
+        elif isinstance(delta_obj, str) and delta_obj:
+            text_deltas.append(delta_obj)
+            is_fine_grained = True
+    elif ev_type == "assistant":
+        if not seen_fine_grained_deltas:
+            msg = target.get("message")
+            content_list = msg.get("content") if isinstance(msg, dict) else target.get("content")
+            if isinstance(content_list, list):
+                for block in content_list:
+                    if isinstance(block, dict):
+                        b_type = str(block.get("type") or "text").lower()
+                        if b_type in {"thinking", "thought"}:
+                            t_val = (
+                                block.get("thinking") or block.get("thought") or block.get("text")
+                            )
+                            if isinstance(t_val, str) and t_val:
+                                thought_deltas.append(t_val)
+                        elif b_type == "text":
+                            c_val = block.get("text")
+                            if isinstance(c_val, str) and c_val:
+                                text_deltas.append(c_val)
+            elif isinstance(content_list, str) and content_list:
+                text_deltas.append(content_list)
+    else:
+        dt = target.get("delta_text")
+        if isinstance(dt, str) and dt:
+            if ev_type in {"thought", "thinking"}:
+                thought_deltas.append(dt)
+            else:
+                text_deltas.append(dt)
+            is_fine_grained = True
+
+    return (thought_deltas, text_deltas, None, is_fine_grained)
+
+
 def _extract_json_from_stdout(raw_stdout: str) -> dict[str, Any]:
-    """Extract the JSON result object emitted by `agy -p --output-format json`."""
+    """Extract the JSON result object emitted by `agy -p --output-format stream-json`."""
     stripped = raw_stdout.strip()
     if not stripped:
         raise ProviderConfigurationError("Antigravity CLI ('agy') returned empty stdout.")
@@ -65,6 +207,32 @@ def _extract_json_from_stdout(raw_stdout: str) -> dict[str, Any]:
             return parsed
     except json.JSONDecodeError:
         pass
+
+    last_result: dict[str, Any] | None = None
+    streamed_text_chunks: list[str] = []
+    seen_fine = False
+    for raw_line in stripped.splitlines():
+        _, text_deltas, result_obj, is_fine = _parse_ndjson_stream_line(
+            raw_line,
+            seen_fine_grained_deltas=seen_fine,
+        )
+        if is_fine:
+            seen_fine = True
+        if text_deltas:
+            streamed_text_chunks.extend(text_deltas)
+        if result_obj is not None:
+            last_result = dict(result_obj)
+
+    if last_result is not None:
+        if not last_result.get("response") and streamed_text_chunks:
+            last_result["response"] = "".join(streamed_text_chunks)
+        return last_result
+
+    if streamed_text_chunks:
+        return {
+            "status": "SUCCESS",
+            "response": "".join(streamed_text_chunks),
+        }
 
     for line in reversed(stripped.splitlines()):
         candidate = line.strip()
@@ -96,7 +264,7 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
 
     Registered under `provider: 'agy'` and `provider: 'agy-cli'`.
     Invokes the local `agy` binary in non-interactive `--print` (`-p`) mode with
-    `--model <model_id>`, `--output-format json`, `--json-schema <schema_file>`,
+    `--model <model_id>`, `--output-format stream-json`, `--json-schema <schema_file>`,
     `--disable-slash-commands`, and `--sandbox`.
     """
 
@@ -222,6 +390,64 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
             check=False,
         )
 
+    async def _stream_agy_subprocess_lines(
+        self,
+        cmd: list[str],
+        env: dict[str, str],
+        timeout_seconds: float,
+        state_out: dict[str, Any],
+    ) -> AsyncIterator[str]:
+        """Execute `agy` CLI and yield stdout lines in real time (or from `agy_cli_runner`)."""
+        custom_runner = self._config.extra_provider_options.get("agy_cli_runner")
+        if (
+            callable(custom_runner)
+            or getattr(subprocess.run, "__module__", "subprocess") != "subprocess"
+        ):
+            completed = await asyncio.to_thread(
+                self._invoke_agy_subprocess,
+                cmd,
+                env,
+                timeout_seconds,
+            )
+            state_out["returncode"] = completed.returncode
+            state_out["stdout"] = completed.stdout or ""
+            state_out["stderr"] = completed.stderr or ""
+            for line in (completed.stdout or "").splitlines():
+                yield line
+            return
+
+        self._config.state_dir.mkdir(parents=True, exist_ok=True)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            cwd=str(self._config.state_dir),
+        )
+        stdout_lines: list[str] = []
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                assert proc.stdout is not None
+                while True:
+                    raw_bytes = await proc.stdout.readline()
+                    if not raw_bytes:
+                        break
+                    decoded_line = raw_bytes.decode("utf-8", errors="replace")
+                    stdout_lines.append(decoded_line)
+                    yield decoded_line.rstrip("\r\n")
+                stderr_bytes = await proc.stderr.read() if proc.stderr is not None else b""
+                returncode = await proc.wait()
+        except TimeoutError as exc:
+            proc.kill()
+            await proc.wait()
+            raise ProviderConfigurationError(
+                f"Antigravity CLI ('agy') timed out after {timeout_seconds}s."
+            ) from exc
+
+        state_out["returncode"] = returncode
+        state_out["stdout"] = "".join(stdout_lines)
+        state_out["stderr"] = stderr_bytes.decode("utf-8", errors="replace")
+
     async def _stream_provider_task(
         self,
         spec: AgentTaskSpec[OutputT],
@@ -259,6 +485,11 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
         proc_env.update(self._config.env)
         proc_env["NO_COLOR"] = "1"
 
+        streamed_text_chunks: list[str] = []
+        emitted_any_text_delta = False
+        seen_fine_grained = False
+        last_result_payload: dict[str, Any] | None = None
+
         schema_file_path: Path | None = None
         try:
             if spec.output_schema is not None:
@@ -282,7 +513,7 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
                 "--model",
                 model_id,
                 "--output-format",
-                "json",
+                "stream-json",
                 "--disable-slash-commands",
                 "--sandbox",
             ]
@@ -291,15 +522,33 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
             if spec.resume_session_id:
                 cmd.extend(["--conversation", spec.resume_session_id])
 
-            completed = await asyncio.to_thread(
-                self._invoke_agy_subprocess,
+            run_state: dict[str, Any] = {"returncode": 0, "stdout": "", "stderr": ""}
+            async for raw_line in self._stream_agy_subprocess_lines(
                 cmd,
                 proc_env,
                 self._config.budget.timeout_seconds,
-            )
+                run_state,
+            ):
+                thought_deltas, text_deltas, result_obj, is_fine = _parse_ndjson_stream_line(
+                    raw_line,
+                    seen_fine_grained_deltas=seen_fine_grained,
+                )
+                if is_fine:
+                    seen_fine_grained = True
+                for t_chunk in thought_deltas:
+                    yield make_event(HarnessEventKind.THOUGHT_DELTA, delta_text=t_chunk)
+                for c_chunk in text_deltas:
+                    streamed_text_chunks.append(c_chunk)
+                    emitted_any_text_delta = True
+                    yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=c_chunk)
+                if result_obj is not None:
+                    last_result_payload = dict(result_obj)
 
             # Fallback without --json-schema flag if the CLI rejected a complex $defs schema
-            if completed.returncode != 0 and schema_file_path is not None:
+            if run_state["returncode"] != 0 and schema_file_path is not None:
+                streamed_text_chunks.clear()
+                seen_fine_grained = False
+                last_result_payload = None
                 fallback_prompt = self._build_cli_prompt(spec, include_inline_schema=True)
                 fallback_cmd: list[str] = [
                     agy_bin,
@@ -308,27 +557,49 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
                     "--model",
                     model_id,
                     "--output-format",
-                    "json",
+                    "stream-json",
                     "--disable-slash-commands",
                     "--sandbox",
                 ]
                 if spec.resume_session_id:
                     fallback_cmd.extend(["--conversation", spec.resume_session_id])
-                completed = await asyncio.to_thread(
-                    self._invoke_agy_subprocess,
+                run_state = {"returncode": 0, "stdout": "", "stderr": ""}
+                async for raw_line in self._stream_agy_subprocess_lines(
                     fallback_cmd,
                     proc_env,
                     self._config.budget.timeout_seconds,
-                )
+                    run_state,
+                ):
+                    thought_deltas, text_deltas, result_obj, is_fine = _parse_ndjson_stream_line(
+                        raw_line,
+                        seen_fine_grained_deltas=seen_fine_grained,
+                    )
+                    if is_fine:
+                        seen_fine_grained = True
+                    for t_chunk in thought_deltas:
+                        yield make_event(HarnessEventKind.THOUGHT_DELTA, delta_text=t_chunk)
+                    for c_chunk in text_deltas:
+                        streamed_text_chunks.append(c_chunk)
+                        emitted_any_text_delta = True
+                        yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=c_chunk)
+                    if result_obj is not None:
+                        last_result_payload = dict(result_obj)
 
-            if completed.returncode != 0 and not completed.stdout.strip():
-                stderr_msg = completed.stderr.strip() or f"exit code {completed.returncode}"
+            if run_state["returncode"] != 0 and not str(run_state["stdout"]).strip():
+                stderr_msg = (
+                    str(run_state["stderr"]).strip() or f"exit code {run_state['returncode']}"
+                )
                 raise ProviderConfigurationError(
                     f"Antigravity CLI ('agy') failed ({stderr_msg}). "
                     "Ensure 'agy' is logged in and accessible."
                 )
 
-            payload = _extract_json_from_stdout(completed.stdout)
+            if last_result_payload is not None:
+                payload = last_result_payload
+                if not payload.get("response") and streamed_text_chunks:
+                    payload["response"] = "".join(streamed_text_chunks)
+            else:
+                payload = _extract_json_from_stdout(str(run_state["stdout"]))
         finally:
             if schema_file_path is not None:
                 schema_file_path.unlink(missing_ok=True)
@@ -342,10 +613,12 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
 
         raw_response_text = str(payload.get("response") or "")
         raw_structured = payload.get("structured_output")
+        if not raw_response_text and streamed_text_chunks:
+            raw_response_text = "".join(streamed_text_chunks)
         if not raw_response_text and raw_structured is not None:
             raw_response_text = json.dumps(raw_structured)
 
-        if raw_response_text:
+        if raw_response_text and not emitted_any_text_delta:
             yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=raw_response_text)
 
         for obs_ev in ctx.pop_unstreamed_events():
@@ -406,5 +679,6 @@ __all__ = [
     "AgyCliHarnessAdapter",
     "AntigravityCliAdapter",
     "_extract_json_from_stdout",
+    "_parse_ndjson_stream_line",
     "_strip_internal_stage_context",
 ]

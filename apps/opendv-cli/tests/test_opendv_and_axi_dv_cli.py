@@ -1049,3 +1049,105 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
     out_w1_run_remote = json.loads(capsys.readouterr().out)
     assert out_w1_run_remote["status"] == "COMPLETED"
     assert out_w1_run_remote["overall_passed"] is True
+
+
+def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify WP-24 live stage progress & token streaming on `opendv pipeline run`."""
+    import opendv_platform_api.deps as deps_mod
+    from opendv_agent_harness.adapters.deterministic_adapter import (
+        build_deterministic_agy_sdk_shim,
+    )
+
+    orig_run_pipeline = deps_mod.run_agentic_vault_pipeline
+    monkeypatch.setattr(
+        deps_mod,
+        "run_agentic_vault_pipeline",
+        lambda *args, **kwargs: orig_run_pipeline(
+            *args,
+            **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
+        ),
+    )
+    wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
+    sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
+
+    # 1. Human mode (no --json): live [Wave 0][STAGE 00..07] progress & streamed tokens go to stdout
+    out_human_dir = tmp_path / "wp24_human_out"
+    rc_human = app_main(
+        [
+            "pipeline",
+            "run",
+            "--local",
+            "--input",
+            wave0_spec,
+            "--harness-config",
+            sample_harness,
+            "--output-dir",
+            str(out_human_dir),
+            "--provider",
+            "agy",
+        ]
+    )
+    assert rc_human == 0
+    captured_human = capsys.readouterr()
+    assert "[Wave 0][STAGE 00] STAGE_00_ORCHESTRATION" in captured_human.out
+    assert "[Wave 0][STAGE 01] STAGE_01_SCOUT_SOURCE" in captured_human.out
+    assert "[Wave 0][STAGE 07] STAGE_07_DETERMINISTIC_COMPILER" in captured_human.out
+    assert "Profiled 2 source(s) (15 columns)" in captured_human.out
+    assert "[opendv pipeline] status=COMPLETED" in captured_human.out
+
+    # 2. JSON mode (--json + default --stream + --stream-tokens):
+    #    stdout remains 100% pure JSON while live progress & tokens stream to stderr
+    out_json_dir = tmp_path / "wp24_json_out"
+    rc_json = app_main(
+        [
+            "pipeline",
+            "run",
+            "--local",
+            "--input",
+            wave0_spec,
+            "--harness-config",
+            sample_harness,
+            "--output-dir",
+            str(out_json_dir),
+            "--provider",
+            "agy",
+            "--stream-tokens",
+            "--json",
+        ]
+    )
+    assert rc_json == 0
+    captured_json = capsys.readouterr()
+    parsed_json = json.loads(captured_json.out)
+    assert parsed_json["status"] == "COMPLETED"
+    assert parsed_json["overall_passed"] is True
+    assert "[Wave 0][STAGE 00] STAGE_00_ORCHESTRATION" in captured_json.err
+    assert "[Wave 0][STAGE 01] STAGE_01_SCOUT_SOURCE" in captured_json.err
+    assert "[Wave 0][STAGE 07] STAGE_07_DETERMINISTIC_COMPILER" in captured_json.err
+
+    # 3. --no-stream suppresses live stage progress lines
+    out_nostream_dir = tmp_path / "wp24_nostream_out"
+    rc_nostream = app_main(
+        [
+            "pipeline",
+            "run",
+            "--local",
+            "--no-stream",
+            "--input",
+            wave0_spec,
+            "--harness-config",
+            sample_harness,
+            "--output-dir",
+            str(out_nostream_dir),
+            "--provider",
+            "agy",
+            "--json",
+        ]
+    )
+    assert rc_nostream == 0
+    captured_nostream = capsys.readouterr()
+    assert json.loads(captured_nostream.out)["overall_passed"] is True
+    assert "[STAGE " not in captured_nostream.err

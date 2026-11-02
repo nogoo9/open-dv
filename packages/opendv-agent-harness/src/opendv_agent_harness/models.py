@@ -463,6 +463,11 @@ class HarnessStreamEvent(BaseModel):
     tool_result: dict[str, Any] | None = None
     observability_event: dict[str, Any] | None = None
 
+    @property
+    def event_kind(self) -> HarnessEventKind:
+        """Convenience alias for `kind`."""
+        return self.kind
+
 
 class HarnessStopReason(StrEnum):
     """Terminal stop reason for a completed or halted HarnessRunResult."""
