@@ -172,8 +172,8 @@ def run_pipeline_command(
             short_stage = _format_short_stage_label(step_report.stage_id)
             print(
                 f"[Wave {wave_idx}][{short_stage}] {step_report.stage_id} "
-                f"({step_report.agent_persona}, model={step_report.model_used}) -> "
-                f"{step_report.verdict}: {step_report.summary} ({step_report.duration_ms}ms)",
+                f"({step_report.persona}, model={step_report.model_used}) -> "
+                f"{step_report.status}: {step_report.summary} ({step_report.duration_ms}ms)",
                 file=stream_target,
                 flush=True,
             )

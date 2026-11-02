@@ -926,10 +926,10 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     ndjson_adapter = ClaudeCliHarnessAdapter(ndjson_cfg)
     streamed_events = [ev async for ev in ndjson_adapter.stream_task(vfm_spec)]
     thought_deltas = [
-        ev.delta_text for ev in streamed_events if ev.event_kind == HarnessEventKind.THOUGHT_DELTA
+        ev.delta_text for ev in streamed_events if ev.kind == HarnessEventKind.THOUGHT_DELTA
     ]
     text_deltas = [
-        ev.delta_text for ev in streamed_events if ev.event_kind == HarnessEventKind.TEXT_DELTA
+        ev.delta_text for ev in streamed_events if ev.kind == HarnessEventKind.TEXT_DELTA
     ]
     assert thought_deltas == ["Checking DV2 grain..."]
     assert text_deltas == [
@@ -958,7 +958,7 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
             return subprocess.CompletedProcess(
                 args=cmd,
                 returncode=1,
-                stdout="",
+                stdout=json.dumps({"type": "text_delta", "text": "discarded-attempt-1"}),
                 stderr="--json-schema validation unsupported for $defs",
             )
         return subprocess.CompletedProcess(
@@ -997,8 +997,13 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     assert "--resume" in fallback_cmds[1]
     assert isinstance(fb_res.structured_output, _ClaudeStructuredResult)
     assert fb_res.structured_output.contract_id == "dv_fallback_v5"
+    assert "dv_fallback_v5" in fb_res.text_output
 
-    # 6. Verify error handling when binary is missing or is_error=True is returned
+    # 6. Verify error handling when binary is missing, non-zero exit after NDJSON, or is_error=True
+    assert _extract_json_from_stdout('{"type": "text_delta", "text": "ok"}') == {
+        "status": "SUCCESS",
+        "result": "ok",
+    }
     monkeypatch.delenv("OPENDV_CLAUDE_CLI_BIN", raising=False)
     monkeypatch.setattr(shutil, "which", lambda _name: None)
     missing_bin_cfg = cli_cfg.model_copy(update={"env": {}, "extra_provider_options": {}})
@@ -1020,3 +1025,18 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     )
     with pytest.raises(ProviderConfigurationError, match="Authentication expired"):
         await ClaudeCliHarnessAdapter(err_cfg).run_task(vfm_spec)
+
+    nonzero_ndjson_cfg = cli_cfg.model_copy(
+        update={
+            "extra_provider_options": {
+                "claude_cli_runner": lambda cmd, *, env, timeout: subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=1,
+                    stdout=json.dumps({"type": "init", "session_id": "s-crash"}),
+                    stderr="Rate limit exceeded",
+                )
+            }
+        }
+    )
+    with pytest.raises(ProviderConfigurationError, match="Rate limit exceeded"):
+        await ClaudeCliHarnessAdapter(nonzero_ndjson_cfg).run_task(vfm_spec)

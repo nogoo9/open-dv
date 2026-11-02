@@ -34,7 +34,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 import duckdb
-import pydantic
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -45,11 +44,8 @@ from opendv_agent_harness.models import (
     DataClassification,
     HarnessBudget,
     HarnessConfig,
-    HarnessEventKind,
     HarnessRunResult,
-    HarnessStopReason,
     HarnessStreamEvent,
-    HarnessUsageMetrics,
     ModelTier,
     ObservabilityVerdict,
     OutputT,
@@ -853,16 +849,6 @@ class PipelineStepReport(BaseModel):
     output_artifact_sha256s: list[str] = Field(default_factory=list)
     metrics: dict[str, Any] = Field(default_factory=dict)
     diagnostics: list[dict[str, Any]] = Field(default_factory=list)
-
-    @property
-    def agent_persona(self) -> str:
-        """Alias for `persona` used by live stage progress callbacks."""
-        return self.persona
-
-    @property
-    def verdict(self) -> str:
-        """Alias for `status` used by live stage progress callbacks."""
-        return self.status
 
 
 class PipelineWaveReport(BaseModel):
@@ -2655,103 +2641,12 @@ class AgenticVaultPipeline:
         spec: AgentTaskSpec[OutputT],
     ) -> HarnessRunResult[OutputT]:
         """Execute `spec` on `self.harness`, streaming `HarnessStreamEvent`s if subscribed."""
-        if self._on_stream_event is None or not hasattr(self.harness, "stream_task"):
+        if self._on_stream_event is None:
             return await self.harness.run_task(spec)
-
-        start_ns = time.perf_counter_ns()
-        model_id = spec.model_override or self.harness.resolve_model(spec.model_tier, spec.persona)
-        text_chunks: list[str] = []
-        tool_call_count = 0
-        session_id = spec.resume_session_id or f"sess-{uuid.uuid4().hex[:12]}"
-        stop_reason = HarnessStopReason.COMPLETED
-        structured_payload: OutputT | dict[str, Any] | None = None
-        subagent_models: dict[str, str] = {}
-        usage = HarnessUsageMetrics()
-        emitted_events: list[dict[str, Any]] = []
-        span_id = uuid.uuid4().hex[:16]
-
         try:
-            async with asyncio.timeout(self.harness.config.budget.timeout_seconds):
-                async for event in self.harness.stream_task(spec):
-                    span_id = event.span_id or span_id
-                    self._on_stream_event(event)
-                    if event.kind == HarnessEventKind.TEXT_DELTA and event.delta_text:
-                        text_chunks.append(event.delta_text)
-                    elif event.kind == HarnessEventKind.TOOL_CALL_START:
-                        tool_call_count += 1
-                    elif event.kind == HarnessEventKind.OBSERVABILITY_EVENT:
-                        if isinstance(event.observability_event, dict):
-                            emitted_events.append(event.observability_event)
-                            if event.observability_event.get("status") == "ASK-USER":
-                                stop_reason = HarnessStopReason.STEWARD_HOLD
-                    elif event.kind == HarnessEventKind.STEWARD_HOLD:
-                        stop_reason = HarnessStopReason.STEWARD_HOLD
-                        if (
-                            isinstance(event.observability_event, dict)
-                            and event.observability_event not in emitted_events
-                        ):
-                            emitted_events.append(event.observability_event)
-                    elif event.kind == HarnessEventKind.TURN_COMPLETE and event.tool_result:
-                        meta = event.tool_result
-                        session_id = str(meta.get("session_id", session_id))
-                        raw_struct = meta.get("structured_output")
-                        if raw_struct is not None:
-                            if spec.output_schema is not None:
-                                if isinstance(raw_struct, spec.output_schema):
-                                    structured_payload = raw_struct
-                                elif isinstance(raw_struct, dict):
-                                    structured_payload = spec.output_schema.model_validate(
-                                        raw_struct
-                                    )
-                                elif isinstance(raw_struct, str):
-                                    structured_payload = spec.output_schema.model_validate_json(
-                                        raw_struct
-                                    )
-                                else:
-                                    structured_payload = raw_struct
-                            else:
-                                structured_payload = raw_struct
-                        if "subagent_models" in meta and isinstance(meta["subagent_models"], dict):
-                            subagent_models.update(
-                                {str(k): str(v) for k, v in meta["subagent_models"].items()}
-                            )
-                        if "usage" in meta and isinstance(meta["usage"], dict):
-                            u = meta["usage"]
-                            usage = HarnessUsageMetrics(
-                                input_tokens=int(u.get("input_tokens", 0)),
-                                cached_input_tokens=int(u.get("cached_input_tokens", 0)),
-                                output_tokens=int(u.get("output_tokens", 0)),
-                                reasoning_tokens=int(u.get("reasoning_tokens", 0)),
-                                total_tokens=int(u.get("total_tokens", 0)),
-                                model_calls=int(u.get("model_calls", 1)),
-                                tool_calls=tool_call_count,
-                                cost_usd=float(u.get("cost_usd", 0.0)),
-                            )
-        except asyncio.CancelledError:
-            stop_reason = HarnessStopReason.CANCELLED
-        except TimeoutError:
-            stop_reason = HarnessStopReason.MAX_TURNS_EXCEEDED
-        except pydantic.ValidationError:
-            stop_reason = HarnessStopReason.VALIDATION_ERROR
-
-        usage.duration_ms = int((time.perf_counter_ns() - start_ns) / 1_000_000)
-        usage.tool_calls = tool_call_count
-        return HarnessRunResult(
-            task_id=spec.task_id,
-            run_id=spec.run_id,
-            session_id=session_id,
-            trace_id=spec.trace_id,
-            span_id=span_id,
-            provider=self.harness.provider_name,
-            model_used=model_id,
-            stop_reason=stop_reason,
-            text_output="".join(text_chunks),
-            structured_output=structured_payload,
-            usage=usage,
-            emitted_events=emitted_events,
-            artifacts_written={},
-            subagent_models=subagent_models,
-        )
+            return await self.harness.run_task(spec, on_event=self._on_stream_event)
+        except TypeError:
+            return await self.harness.run_task(spec)
 
     def _ensure_runtime_initialized(self) -> None:
         if self._runtime_initialized:

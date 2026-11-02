@@ -12,6 +12,7 @@ and docs/09-agnostic-agent-harness-and-sdk-spec.md.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -53,6 +54,40 @@ def _strip_internal_stage_context(prompt: str) -> str:
     return cleaned.strip()
 
 
+_NON_RESULT_STREAM_TYPES: frozenset[str] = frozenset(
+    {
+        "text_delta",
+        "delta",
+        "thought_delta",
+        "thinking_delta",
+        "thinking",
+        "thought",
+        "content_block_delta",
+        "assistant",
+        "message_start",
+        "message_delta",
+        "message_stop",
+        "content_block_start",
+        "content_block_stop",
+        "system",
+        "init",
+        "stream_event",
+    }
+)
+
+
+def _is_non_result_stream_event(obj: dict[str, Any]) -> bool:
+    """Return True if `obj` is an intermediate NDJSON stream event rather than a terminal result."""
+    target = (
+        obj["event"]
+        if str(obj.get("type") or "").lower() == "stream_event"
+        and isinstance(obj.get("event"), dict)
+        else obj
+    )
+    ev_type = str(target.get("type") or "").lower()
+    return ev_type in _NON_RESULT_STREAM_TYPES
+
+
 def _parse_ndjson_stream_line(
     raw_line: str,
     *,
@@ -80,26 +115,20 @@ def _parse_ndjson_stream_line(
     )
     ev_type = str(target.get("type") or "").lower()
 
-    non_result_types = {
-        "text_delta",
-        "delta",
-        "thought_delta",
-        "thinking_delta",
-        "thinking",
-        "thought",
-        "content_block_delta",
-        "assistant",
-        "message_start",
-        "message_delta",
-        "message_stop",
-        "content_block_start",
-        "content_block_stop",
-        "system",
-        "init",
-    }
     if ev_type == "result" or (
-        ev_type not in non_result_types
-        and any(k in target for k in ("status", "response", "result", "structured_output"))
+        ev_type not in _NON_RESULT_STREAM_TYPES
+        and any(
+            k in target
+            for k in (
+                "status",
+                "response",
+                "result",
+                "structured_output",
+                "is_error",
+                "error",
+                "subtype",
+            )
+        )
     ):
         return ([], [], target, False)
 
@@ -201,13 +230,6 @@ def _extract_json_from_stdout(raw_stdout: str) -> dict[str, Any]:
     if not stripped:
         raise ProviderConfigurationError("Antigravity CLI ('agy') returned empty stdout.")
 
-    try:
-        parsed = json.loads(stripped)
-        if isinstance(parsed, dict):
-            return parsed
-    except json.JSONDecodeError:
-        pass
-
     last_result: dict[str, Any] | None = None
     streamed_text_chunks: list[str] = []
     seen_fine = False
@@ -234,12 +256,19 @@ def _extract_json_from_stdout(raw_stdout: str) -> dict[str, Any]:
             "response": "".join(streamed_text_chunks),
         }
 
+    try:
+        parsed = json.loads(stripped)
+        if isinstance(parsed, dict) and not _is_non_result_stream_event(parsed):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+
     for line in reversed(stripped.splitlines()):
         candidate = line.strip()
         if candidate.startswith("{") and candidate.endswith("}"):
             try:
                 parsed_line = json.loads(candidate)
-                if isinstance(parsed_line, dict):
+                if isinstance(parsed_line, dict) and not _is_non_result_stream_event(parsed_line):
                     return parsed_line
             except json.JSONDecodeError:
                 continue
@@ -249,7 +278,7 @@ def _extract_json_from_stdout(raw_stdout: str) -> dict[str, Any]:
     if 0 <= first_brace < last_brace:
         try:
             parsed_slice = json.loads(stripped[first_brace : last_brace + 1])
-            if isinstance(parsed_slice, dict):
+            if isinstance(parsed_slice, dict) and not _is_non_result_stream_event(parsed_slice):
                 return parsed_slice
         except json.JSONDecodeError:
             pass
@@ -423,26 +452,33 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
             stderr=asyncio.subprocess.PIPE,
             env=env,
             cwd=str(self._config.state_dir),
+            limit=16 * 1024 * 1024,
         )
         stdout_lines: list[str] = []
+        stderr_bytes = b""
+        returncode = -1
         try:
-            async with asyncio.timeout(timeout_seconds):
-                assert proc.stdout is not None
-                while True:
-                    raw_bytes = await proc.stdout.readline()
-                    if not raw_bytes:
-                        break
-                    decoded_line = raw_bytes.decode("utf-8", errors="replace")
-                    stdout_lines.append(decoded_line)
-                    yield decoded_line.rstrip("\r\n")
-                stderr_bytes = await proc.stderr.read() if proc.stderr is not None else b""
-                returncode = await proc.wait()
-        except TimeoutError as exc:
-            proc.kill()
-            await proc.wait()
-            raise ProviderConfigurationError(
-                f"Antigravity CLI ('agy') timed out after {timeout_seconds}s."
-            ) from exc
+            try:
+                async with asyncio.timeout(timeout_seconds):
+                    assert proc.stdout is not None
+                    while True:
+                        raw_bytes = await proc.stdout.readline()
+                        if not raw_bytes:
+                            break
+                        decoded_line = raw_bytes.decode("utf-8", errors="replace")
+                        stdout_lines.append(decoded_line)
+                        yield decoded_line.rstrip("\r\n")
+                    stderr_bytes = await proc.stderr.read() if proc.stderr is not None else b""
+                    returncode = await proc.wait()
+            except TimeoutError as exc:
+                raise ProviderConfigurationError(
+                    f"Antigravity CLI ('agy') timed out after {timeout_seconds}s."
+                ) from exc
+        finally:
+            if proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+                await proc.wait()
 
         state_out["returncode"] = returncode
         state_out["stdout"] = "".join(stdout_lines)
@@ -547,6 +583,7 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
             # Fallback without --json-schema flag if the CLI rejected a complex $defs schema
             if run_state["returncode"] != 0 and schema_file_path is not None:
                 streamed_text_chunks.clear()
+                emitted_any_text_delta = False
                 seen_fine_grained = False
                 last_result_payload = None
                 fallback_prompt = self._build_cli_prompt(spec, include_inline_schema=True)
@@ -585,10 +622,16 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
                     if result_obj is not None:
                         last_result_payload = dict(result_obj)
 
-            if run_state["returncode"] != 0 and not str(run_state["stdout"]).strip():
-                stderr_msg = (
-                    str(run_state["stderr"]).strip() or f"exit code {run_state['returncode']}"
-                )
+            if run_state["returncode"] != 0:
+                stderr_msg = str(run_state["stderr"]).strip()
+                if not stderr_msg and last_result_payload is not None:
+                    stderr_msg = str(
+                        last_result_payload.get("error")
+                        or last_result_payload.get("response")
+                        or ""
+                    ).strip()
+                if not stderr_msg:
+                    stderr_msg = f"exit code {run_state['returncode']}"
                 raise ProviderConfigurationError(
                     f"Antigravity CLI ('agy') failed ({stderr_msg}). "
                     "Ensure 'agy' is logged in and accessible."

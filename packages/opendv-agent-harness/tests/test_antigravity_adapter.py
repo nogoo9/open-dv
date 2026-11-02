@@ -915,10 +915,10 @@ async def test_wp11_agy_cli_harness_adapter_subprocess_and_fallback(
     streamed_events = [ev async for ev in stream_adapter.stream_task(spec)]
 
     thought_deltas = [
-        ev.delta_text for ev in streamed_events if ev.event_kind == HarnessEventKind.THOUGHT_DELTA
+        ev.delta_text for ev in streamed_events if ev.kind == HarnessEventKind.THOUGHT_DELTA
     ]
     text_deltas = [
-        ev.delta_text for ev in streamed_events if ev.event_kind == HarnessEventKind.TEXT_DELTA
+        ev.delta_text for ev in streamed_events if ev.kind == HarnessEventKind.TEXT_DELTA
     ]
     assert thought_deltas == ["Evaluating ontology..."]
     assert text_deltas == [
@@ -934,6 +934,40 @@ async def test_wp11_agy_cli_harness_adapter_subprocess_and_fallback(
     assert stream_res.structured_output.hub_count == 4
     assert stream_res.usage.total_tokens == 620
     assert stream_cmds[0][stream_cmds[0].index("--output-format") + 1] == "stream-json"
+
+    # 4. Single-line NDJSON text_delta extraction and non-zero exit with partial NDJSON stream
+    from opendv_agent_harness.adapters.agy_cli_adapter import (
+        ProviderConfigurationError,
+        _extract_json_from_stdout,
+    )
+
+    assert _extract_json_from_stdout('{"type": "text_delta", "text": "{\\"ok\\": true}"}') == {
+        "status": "SUCCESS",
+        "response": '{"ok": true}',
+    }
+
+    def _partial_fail_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=1,
+            stdout=json.dumps({"type": "text_delta", "text": '{"contract_id": "partial"'}),
+            stderr="CLI session interrupted",
+        )
+
+    fail_cfg = _make_config(
+        tmp_path,
+        provider="agy",
+        env={"OPENDV_AGY_CLI_BIN": str(fake_agy_exe)},
+        extra_provider_options={"agy_cli_runner": _partial_fail_runner},
+    )
+    with pytest.raises(ProviderConfigurationError, match="CLI session interrupted"):
+        await create_agent_harness(fail_cfg).run_task(spec)
 
 
 @pytest.mark.asyncio

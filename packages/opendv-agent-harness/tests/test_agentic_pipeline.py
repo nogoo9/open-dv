@@ -1579,15 +1579,21 @@ def test_wp24_pipeline_stage_and_stream_callbacks_order_and_metadata(tmp_path: P
     assert [c[1].stage_id for c in completed_stages] == expected_stage_ids
     for wave_idx, step_report in completed_stages:
         assert wave_idx == 0
-        assert step_report.agent_persona == step_report.persona
-        assert step_report.verdict == step_report.status
-        assert step_report.verdict in {"PASS", "AUTO_REPAIRED"}
+        assert step_report.persona in {
+            "vault-first-mate",
+            "scout-source",
+            "scout-unstructured",
+            "ship-vault",
+            "axi-dv",
+            "deterministic-compiler",
+        }
+        assert step_report.status in {"PASS", "AUTO_REPAIRED"}
         assert step_report.duration_ms >= 0.0
         assert len(step_report.summary) > 0
 
     text_deltas = [
         ev.delta_text
         for ev in stream_events
-        if ev.event_kind == HarnessEventKind.TEXT_DELTA and ev.delta_text
+        if ev.kind == HarnessEventKind.TEXT_DELTA and ev.delta_text
     ]
     assert len(text_deltas) > 0
