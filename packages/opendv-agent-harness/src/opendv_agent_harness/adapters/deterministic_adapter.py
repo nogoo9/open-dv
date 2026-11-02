@@ -48,7 +48,7 @@ def _validate_candidate_with_schema(schema_cls: type[BaseModel], candidate: Any)
     return candidate
 
 
-def _default_for_annotation(annotation: Any) -> Any:
+def _default_for_annotation(annotation: Any, *, non_empty_collections: bool = False) -> Any:
     """Construct a minimal valid default value for a type annotation."""
     origin = get_origin(annotation)
     args = get_args(annotation)
@@ -56,15 +56,21 @@ def _default_for_annotation(annotation: Any) -> Any:
     if origin is Literal and args:
         return args[0]
     if origin in (list, tuple, set, frozenset):
+        if non_empty_collections and args:
+            elem = _default_for_annotation(args[0], non_empty_collections=True)
+            return [elem] if elem is not None else []
         return []
     if origin is dict:
         return {}
     if origin is not None and args:
         non_none = [a for a in args if a is not type(None)]
-        if len(non_none) < len(args):
+        if len(non_none) < len(args) and not non_empty_collections:
             return None
         if non_none:
-            return _default_for_annotation(non_none[0])
+            return _default_for_annotation(
+                non_none[0],
+                non_empty_collections=non_empty_collections,
+            )
 
     if isinstance(annotation, type):
         if issubclass(annotation, enum.Enum):
@@ -84,23 +90,53 @@ def _default_for_annotation(annotation: Any) -> Any:
     return "deterministic"
 
 
-def _synthesize_minimal_schema_instance(schema_cls: type[BaseModel]) -> Any:
-    """Synthesize a minimal valid instance of `schema_cls` from its Pydantic `model_fields`."""
+_PIPELINE_STAGE_SCHEMA_NAMES = frozenset(
+    {
+        "Stage00OrchestrationPlanOutput",
+        "Stage01SourceDiscoveryOutput",
+        "Stage02UnstructuredDiscoveryOutput",
+        "Stage03ColumnTriageOutput",
+        "Stage04ContractSynthesisOutput",
+        "NoMistakeDataVault2ContractV5",
+    }
+)
+
+
+def _synthesize_minimal_schema_instance(
+    schema_cls: type[BaseModel],
+    prompt: str = "",
+) -> Any:
+    """Synthesize a valid instance of `schema_cls` from `prompt` context or field defaults."""
+    if schema_cls.__name__ in _PIPELINE_STAGE_SCHEMA_NAMES:
+        try:
+            from opendv_agent_harness.pipeline import synthesize_stage_output_from_prompt
+
+            stage_out = synthesize_stage_output_from_prompt(schema_cls, prompt)
+            if stage_out is not None:
+                return stage_out
+        except Exception:
+            pass
+
     try:
         return schema_cls.model_validate({})
     except Exception:
         pass
 
-    payload: dict[str, Any] = {}
-    for field_name, field_info in schema_cls.model_fields.items():
-        if not field_info.is_required():
+    for non_empty in (False, True):
+        payload: dict[str, Any] = {}
+        for field_name, field_info in schema_cls.model_fields.items():
+            if not field_info.is_required() and not non_empty:
+                continue
+            payload[field_name] = _default_for_annotation(
+                field_info.annotation,
+                non_empty_collections=non_empty,
+            )
+        try:
+            return schema_cls.model_validate(payload)
+        except Exception:
             continue
-        payload[field_name] = _default_for_annotation(field_info.annotation)
 
-    try:
-        return schema_cls.model_validate(payload)
-    except Exception:
-        return None
+    return None
 
 
 class DeterministicHarnessAdapter(BaseVaultAgentHarness):
@@ -183,7 +219,7 @@ class DeterministicHarnessAdapter(BaseVaultAgentHarness):
         if cfg_override is not None:
             return _validate_candidate_with_schema(spec.output_schema, cfg_override)
 
-        return _synthesize_minimal_schema_instance(spec.output_schema)
+        return _synthesize_minimal_schema_instance(spec.output_schema, prompt=spec.prompt)
 
     async def _stream_provider_task(
         self,
@@ -423,7 +459,7 @@ def build_deterministic_agy_sdk_shim() -> Any:
         async def structured_output(self) -> Any:
             schema = getattr(self._cfg, "response_schema", None)
             if schema is not None and isinstance(schema, type) and issubclass(schema, BaseModel):
-                return _synthesize_minimal_schema_instance(schema)
+                return _synthesize_minimal_schema_instance(schema, prompt=self._prompt)
             return None
 
     class _Agent:
@@ -540,6 +576,7 @@ def build_deterministic_claude_sdk_shim() -> Any:
             yield ResultMessage(session_id=sess_id)
 
     return types.SimpleNamespace(
+        _is_deterministic_shim=True,
         HookMatcher=_HookMatcher,
         AgentDefinition=_AgentDefinition,
         ClaudeAgentOptions=_ClaudeAgentOptions,

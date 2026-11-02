@@ -579,6 +579,9 @@ async def test_wp04_antigravity_fail_closed_and_gemini_rest_api_fallback(
     captured_requests: list[dict[str, Any]] = []
 
     class _FakeHttpResponse:
+        def __init__(self, call_idx: int) -> None:
+            self.call_idx = call_idx
+
         def __enter__(self) -> _FakeHttpResponse:
             return self
 
@@ -586,36 +589,70 @@ async def test_wp04_antigravity_fail_closed_and_gemini_rest_api_fallback(
             return None
 
         def read(self) -> bytes:
-            payload = {
-                "candidates": [
-                    {
-                        "content": {
-                            "parts": [
-                                {"thought": True, "text": "Reasoning over Graph A and Graph B..."},
-                                {
-                                    "text": json.dumps(
-                                        {
-                                            "contract_id": "dv_gemini_rest_v5",
-                                            "hub_count": 3,
-                                            "verdict": "PASS",
+            if self.call_idx == 0:
+                payload = {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {
+                                        "thought": True,
+                                        "text": "Reasoning over Graph A and Graph B...",
+                                    },
+                                    {
+                                        "functionCall": {
+                                            "id": "fc-gemini-01",
+                                            "name": "emit_observability_event",
+                                            "args": {
+                                                "status": "PASS",
+                                                "headline": "Gemini REST tool call",
+                                                "business_impact": "Verifies REST tool loop.",
+                                                "rule_ids_evaluated": ["HR-01"],
+                                            },
                                         }
-                                    )
-                                },
-                            ]
+                                    },
+                                ]
+                            }
                         }
-                    }
-                ],
-                "usageMetadata": {
-                    "promptTokenCount": 320,
-                    "candidatesTokenCount": 85,
-                    "thoughtsTokenCount": 45,
-                    "totalTokenCount": 450,
-                },
-            }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 160,
+                        "candidatesTokenCount": 40,
+                        "thoughtsTokenCount": 20,
+                        "totalTokenCount": 220,
+                    },
+                }
+            else:
+                payload = {
+                    "candidates": [
+                        {
+                            "content": {
+                                "parts": [
+                                    {
+                                        "text": json.dumps(
+                                            {
+                                                "contract_id": "dv_gemini_rest_v5",
+                                                "hub_count": 3,
+                                                "verdict": "PASS",
+                                            }
+                                        )
+                                    }
+                                ]
+                            }
+                        }
+                    ],
+                    "usageMetadata": {
+                        "promptTokenCount": 160,
+                        "candidatesTokenCount": 45,
+                        "thoughtsTokenCount": 25,
+                        "totalTokenCount": 230,
+                    },
+                }
             return json.dumps(payload).encode("utf-8")
 
     def _fake_urlopen(req: urllib.request.Request, timeout: float = 60.0) -> _FakeHttpResponse:
         body = json.loads((req.data or b"{}").decode("utf-8"))
+        call_idx = len(captured_requests)
         captured_requests.append(
             {
                 "url": req.full_url,
@@ -624,11 +661,17 @@ async def test_wp04_antigravity_fail_closed_and_gemini_rest_api_fallback(
                 "timeout": timeout,
             }
         )
-        return _FakeHttpResponse()
+        return _FakeHttpResponse(call_idx)
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
-    cfg_with_key = _make_config(tmp_path, env={"GEMINI_API_KEY": "test-gemini-api-key-123"})
+    cfg_with_key = _make_config(
+        tmp_path,
+        env={
+            "GEMINI_API_KEY": "test-gemini-api-key-123",
+            "GOOGLE_GEMINI_BASE_URL": "https://custom-gemini.example.com/v1beta/models",
+        },
+    )
     rest_adapter = GoogleAntigravityAdapter(cfg_with_key, sdk_module=None)
     rest_res = await rest_adapter.run_task(spec)
 
@@ -637,8 +680,14 @@ async def test_wp04_antigravity_fail_closed_and_gemini_rest_api_fallback(
     assert rest_res.structured_output.contract_id == "dv_gemini_rest_v5"
     assert rest_res.structured_output.hub_count == 3
     assert rest_res.usage.total_tokens == 450
-    assert len(captured_requests) == 1
+    assert rest_res.usage.model_calls == 2
+    assert len(rest_res.emitted_events) == 1
+    assert len(captured_requests) == 2
+    assert captured_requests[0]["url"].startswith(
+        "https://custom-gemini.example.com/v1beta/models/"
+    )
     assert ":generateContent" in captured_requests[0]["url"]
+    assert "tools" in captured_requests[0]["body"]
     gen_cfg = captured_requests[0]["body"]["generationConfig"]
     assert gen_cfg["responseMimeType"] == "application/json"
     assert "properties" in gen_cfg["responseSchema"]

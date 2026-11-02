@@ -164,6 +164,7 @@ class HarnessConfig(BaseModel):
     state_dir: Path
     app_data_dir: Path
     save_dir: Path
+    base_url: str | None = None
     model_overrides: dict[ModelTier, str] = Field(default_factory=dict)
     budget: HarnessBudget = Field(default_factory=HarnessBudget)
     sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)

@@ -114,18 +114,42 @@ _PII_COLUMN_HINTS: frozenset[str] = frozenset(
 
 
 def _resolve_existing_file(raw_path: str, ctx: ToolExecutionContext) -> Path | None:
-    """Resolve `raw_path` to an existing file on disk if it exists directly or under workspace."""
+    """Resolve `raw_path` to an existing file strictly contained within workspace/state dirs."""
     if not raw_path or not raw_path.strip():
         return None
-    try:
-        direct = Path(raw_path)
-        if direct.is_file():
-            return direct.resolve()
-        ws_candidate = ctx.config.workspace_dir / raw_path
-        if ws_candidate.is_file():
-            return ws_candidate.resolve()
-    except OSError:
-        return None
+    candidate = Path(raw_path.strip())
+    if ".." in candidate.parts:
+        raise PermissionError(f"Path traversal ('..') is not allowed: {raw_path}")
+
+    allowed_roots = tuple(
+        {
+            ctx.config.workspace_dir.resolve(),
+            ctx.config.state_dir.resolve(),
+            ctx.config.app_data_dir.resolve(),
+            ctx.config.save_dir.resolve(),
+            *(p.resolve() for p in ctx.config.sandbox.allowed_workspaces),
+        }
+    )
+
+    if candidate.is_absolute():
+        resolved = candidate.resolve()
+        if not any(resolved.is_relative_to(root) for root in allowed_roots):
+            raise PermissionError(
+                f"Path '{raw_path}' is outside allowed workspace directories."
+            )
+        return resolved if resolved.is_file() else None
+
+    for root in (
+        ctx.config.workspace_dir,
+        ctx.config.state_dir,
+        *ctx.config.sandbox.allowed_workspaces,
+    ):
+        try:
+            resolved = (root / candidate).resolve()
+            if any(resolved.is_relative_to(allowed) for allowed in allowed_roots) and resolved.is_file():
+                return resolved
+        except OSError:
+            continue
     return None
 
 
@@ -747,6 +771,46 @@ def _rewrite_sql_with_alg_a5(
     return sql_text
 
 
+_CANONICAL_CODEMOD_IDS: dict[str, str] = {
+    "A.1": "ALG-A1",
+    "ALG-A1": "ALG-A1",
+    "ALG_A1_3AXIS_SATELLITE_SPLIT": "ALG-A1",
+    "A.2": "ALG-A2",
+    "ALG-A2": "ALG-A2",
+    "ALG_A2_ENUM_TO_ATTRIBUTE_DEMOTION": "ALG-A2",
+    "A.3": "ALG-A3",
+    "ALG-A3": "ALG-A3",
+    "ALG_A3_LINK_ATTRIBUTE_TO_EFFECTIVITY_SAT": "ALG-A3",
+    "A.4": "ALG-A4",
+    "ALG-A4": "ALG-A4",
+    "ALG_A4_COLD_START_EXTENSIBILITY": "ALG-A4",
+    "A.5": "ALG-A5",
+    "ALG-A5": "ALG-A5",
+    "ALG_A5_SQLGLOT_HASH_REWRITE": "ALG-A5",
+    "A.9a": "ALG-A9A",
+    "A.9A": "ALG-A9A",
+    "ALG-A9A": "ALG-A9A",
+    "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT": "ALG-A9A",
+}
+
+
+def _entity_exists_in_contract(parsed_doc: dict[str, Any], target_entity: str) -> bool:
+    """Return True if `target_entity` matches an entity in `parsed_doc`."""
+    if not target_entity:
+        return False
+    if parsed_doc.get("entity") == target_entity:
+        return True
+    for key in ("hubs", "links", "satellites", "reference_tables"):
+        items = parsed_doc.get(key)
+        if isinstance(items, list):
+            for item in items:
+                if isinstance(item, dict) and item.get("name") == target_entity:
+                    return True
+    if "staging_sql" in parsed_doc and isinstance(parsed_doc["staging_sql"], str):
+        return target_entity in parsed_doc["staging_sql"]
+    return False
+
+
 def _apply_structural_codemod_to_dict(
     codemod_id: str,
     target_entity: str,
@@ -755,9 +819,22 @@ def _apply_structural_codemod_to_dict(
     ctx: ToolExecutionContext,
 ) -> dict[str, Any]:
     """Dispatch `codemod_id` (`ALG-A1..A5`, `ALG-A9A`) against a parsed contract dictionary."""
-    norm_id = codemod_id.upper().replace(".", "").replace("_", "-")
-    if not norm_id.startswith("ALG-"):
-        norm_id = f"ALG-{norm_id}"
+    norm_id = _CANONICAL_CODEMOD_IDS.get(codemod_id) or _CANONICAL_CODEMOD_IDS.get(
+        codemod_id.upper()
+    )
+    if norm_id is None:
+        raise ValueError(f"Unsupported codemod_id: {codemod_id!r}")
+
+    if not _entity_exists_in_contract(parsed_doc, target_entity):
+        return copy.deepcopy(parsed_doc)
+
+    if (
+        parsed_doc.get("entity") == target_entity
+        and not any(k in parsed_doc for k in ("hubs", "links", "satellites"))
+    ):
+        mutated_minimal = copy.deepcopy(parsed_doc)
+        mutated_minimal["applied_codemod"] = norm_id
+        return mutated_minimal
 
     bronze_profile: dict[str, Any] = dict(
         parameters.get("bronze_profile") or ctx.get_state("bronze_profile") or {}
@@ -771,7 +848,7 @@ def _apply_structural_codemod_to_dict(
             explicit_pii = set(parameters.get("pii_columns") or [])
             synth_profile: dict[str, dict[str, dict[str, Any]]] = {}
             for sat in parsed_doc.get("satellites", []):
-                if not isinstance(sat, dict):
+                if not isinstance(sat, dict) or sat.get("name") != target_entity:
                     continue
                 b_tbl = str(sat.get("source_bronze_table", "bronze.default"))
                 t_cols = synth_profile.setdefault(b_tbl, {})
@@ -789,9 +866,7 @@ def _apply_structural_codemod_to_dict(
         if not ontology_graph and "hubs" in parsed_doc:
             enum_list: list[dict[str, str]] = []
             for hub in parsed_doc.get("hubs", []):
-                if isinstance(hub, dict) and (
-                    hub.get("name") == target_entity or len(parsed_doc.get("hubs", [])) == 1
-                ):
+                if isinstance(hub, dict) and hub.get("name") == target_entity:
                     uri = str(
                         hub.get("ontology_concept_uri") or f"urn:ontology:enum:{target_entity}"
                     )
@@ -805,9 +880,7 @@ def _apply_structural_codemod_to_dict(
         cdc_profile: dict[str, dict[str, float]] = dict(parameters.get("cdc_profile") or {})
         if not cdc_profile and "links" in parsed_doc:
             for lnk in parsed_doc.get("links", []):
-                if isinstance(lnk, dict) and (
-                    lnk.get("name") == target_entity or len(parsed_doc.get("links", [])) == 1
-                ):
+                if isinstance(lnk, dict) and lnk.get("name") == target_entity:
                     b_tbl = str(lnk.get("source_bronze_table", "bronze.default"))
                     refs = list(lnk.get("hub_references") or [])
                     if refs and isinstance(refs[0], dict):
@@ -827,16 +900,6 @@ def _apply_structural_codemod_to_dict(
             mutated = codemod_extract_hub_mutable_attributes(
                 mutated,
                 {str(k): set(v) for k, v in mutable_cols.items()},
-            )
-        if mutated == parsed_doc:
-            mutated = copy.deepcopy(parsed_doc)
-            mutated.setdefault(
-                "zero_keys",
-                {
-                    "unknown": ZERO_KEY_UNKNOWN,
-                    "error": ZERO_KEY_ERROR,
-                    "ghost_rec_src": GHOST_REC_SRC,
-                },
             )
         return mutated
 
@@ -871,6 +934,12 @@ async def _handle_apply_ast_codemod(
     ctx: ToolExecutionContext,
 ) -> ApplyAstCodemodOutput:
     """Apply a deterministic AST/YAML codemod (ALG-A1..A5, ALG-A9A) and persist CAS diffs."""
+    norm_id = _CANONICAL_CODEMOD_IDS.get(args.codemod_id) or _CANONICAL_CODEMOD_IDS.get(
+        args.codemod_id.upper()
+    )
+    if norm_id is None:
+        raise ValueError(f"Unsupported codemod_id: {args.codemod_id!r}")
+
     pre_content = (
         args.contract_yaml or f"# Contract before {args.codemod_id}\nentity: {args.target_entity}\n"
     )
@@ -880,16 +949,21 @@ async def _handle_apply_ast_codemod(
 
     post_content: str
     patched_dict: dict[str, Any] | None = None
+    was_applied = False
 
     stripped_input = pre_content.strip()
     is_raw_sql = stripped_input.upper().startswith(("SELECT ", "WITH ", "CREATE "))
-    if args.codemod_id == "ALG-A5" and is_raw_sql:
+    if norm_id == "ALG-A5" and is_raw_sql:
         rewritten_sql = _rewrite_sql_with_alg_a5(
             stripped_input,
             args.target_entity,
             args.parameters,
         )
-        post_content = f"{rewritten_sql.rstrip()}\n{provenance_comment}\n"
+        was_applied = rewritten_sql.strip() != stripped_input
+        if was_applied:
+            post_content = f"{rewritten_sql.rstrip()}\n{provenance_comment}\n"
+        else:
+            post_content = pre_content
     else:
         try:
             loaded = yaml.safe_load(pre_content)
@@ -898,20 +972,21 @@ async def _handle_apply_ast_codemod(
 
         if isinstance(loaded, dict):
             mutated = _apply_structural_codemod_to_dict(
-                codemod_id=args.codemod_id,
+                codemod_id=norm_id,
                 target_entity=args.target_entity,
                 parsed_doc=loaded,
                 parameters=args.parameters,
                 ctx=ctx,
             )
             patched_dict = mutated
-            if mutated != loaded:
+            was_applied = mutated != loaded
+            if was_applied:
                 serialized = yaml.safe_dump(mutated, sort_keys=False).rstrip("\n")
                 post_content = f"{serialized}\n{provenance_comment}\n"
             else:
-                post_content = f"{pre_content.rstrip(chr(10))}\n{provenance_comment}\n"
+                post_content = pre_content
         else:
-            post_content = f"{pre_content.rstrip(chr(10))}\n{provenance_comment}\n"
+            post_content = pre_content
 
     pre_sha = ctx.write_cas_artifact("contract_yaml_pre_sha256", pre_content)
     post_sha = ctx.write_cas_artifact("contract_yaml_post_sha256", post_content)
@@ -925,10 +1000,18 @@ async def _handle_apply_ast_codemod(
             lineterm="",
         )
     )
-    patch_diff = "\n".join(diff_lines) if diff_lines else f"+{provenance_comment}"
-    action_desc = (
-        f"Applied deterministic codemod {args.codemod_id} to target entity '{args.target_entity}'."
-    )
+    patch_diff = "\n".join(diff_lines)
+    if was_applied:
+        action_desc = (
+            f"Applied deterministic codemod {args.codemod_id} to target entity '{args.target_entity}'."
+        )
+        verdict = ObservabilityVerdict.AUTO_REPAIRED
+    else:
+        action_desc = (
+            f"No matching target entity '{args.target_entity}' or AST change for codemod {args.codemod_id}."
+        )
+        verdict = ObservabilityVerdict.REJECT_WITH_TRACE
+
     ctx.set_state("last_codemod_id", args.codemod_id)
     if patched_dict is not None:
         ctx.set_state("last_patched_contract_dict", patched_dict)
@@ -937,8 +1020,8 @@ async def _handle_apply_ast_codemod(
     return ApplyAstCodemodOutput(
         codemod_id=args.codemod_id,
         target_entity=args.target_entity,
-        applied=True,
-        verdict=ObservabilityVerdict.AUTO_REPAIRED,
+        applied=was_applied,
+        verdict=verdict,
         contract_yaml_pre_sha256=pre_sha,
         contract_yaml_post_sha256=post_sha,
         patch_diff=patch_diff,
@@ -1001,9 +1084,15 @@ def _inspect_and_verify_duckdb_tables(
         elif t_str.startswith(("sat_", "bsat_", "esat_", "ma_sat_", "mas_")) and hk_cols:
             parent_hk = hk_cols[0]
             if "load_dts" in col_names:
+                seq_cols = [c for c in col_names if c.endswith("_seq") or c == "sub_sequence"]
+                pk_parts = [
+                    f'"{parent_hk}"',
+                    'CAST("load_dts" AS VARCHAR)',
+                    *(f'CAST("{sc}" AS VARCHAR)' for sc in seq_cols),
+                ]
+                pk_expr = " || '|' || ".join(pk_parts)
                 dup_row = con.execute(
-                    f"SELECT COUNT(*) - COUNT(DISTINCT \"{parent_hk}\" || '|' "
-                    f'|| CAST("load_dts" AS VARCHAR)) FROM {q_full}'
+                    f"SELECT COUNT(*) - COUNT(DISTINCT {pk_expr}) FROM {q_full}"
                 ).fetchone()
                 if dup_row is not None and int(dup_row[0]) > 0:
                     all_passed = False

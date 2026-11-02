@@ -32,6 +32,7 @@ from opendv_duckdb_sandbox.compiler_4zone import (
     _compile_generic_zone_3_business_vault_sql,
     _effective_pit_tables,
     _hub_slug,
+    _satellite_all_data_columns,
     _satellite_schema,
     _satellite_seed_sql_literal,
     _validate_ident,
@@ -296,13 +297,21 @@ def run_batch_3_delta_and_boundary_shift(
         )
     else:
         target_sat = next(
-            (s for s in ir.satellites if _satellite_schema(s) == "raw_vault"),
-            ir.satellites[0],
+            (
+                s
+                for s in ir.satellites
+                if _satellite_schema(s) == "raw_vault" and s.satellite_type != "MULTI_ACTIVE"
+            ),
+            next(
+                (s for s in ir.satellites if _satellite_schema(s) == "raw_vault"),
+                ir.satellites[0],
+            ),
         )
         sat_schema = _satellite_schema(target_sat)
         sat_tbl = _validate_ident(target_sat.name)
         parent_hk = _validate_ident(target_sat.parent_hk_column.name)
         has_applied = target_sat.applied_dts_column is not None
+        data_cols = _satellite_all_data_columns(target_sat)
 
         existing_row = conn.execute(
             f"""
@@ -316,12 +325,12 @@ def run_batch_3_delta_and_boundary_shift(
         assert existing_row is not None
         target_hk_val = str(existing_row[0])
 
-        payload_cols = [_validate_ident(c.name) for c in target_sat.payload_columns]
+        payload_cols = [_validate_ident(c.name) for c in data_cols]
         payload_csv = ", ".join(payload_cols)
         src_payload_csv = ", ".join(f"src.{c}" for c in payload_cols)
         mutated_selects = ",\n                ".join(
             f"{_satellite_seed_sql_literal(c, 3)} AS {_validate_ident(c.name)}"
-            for c in target_sat.payload_columns
+            for c in data_cols
         )
         app_col = "applied_dts, " if has_applied else ""
         src_app_col = "src.applied_dts, " if has_applied else ""
@@ -330,6 +339,15 @@ def run_batch_3_delta_and_boundary_shift(
             if has_applied
             else ""
         )
+        part_cols = [
+            parent_hk,
+            *(
+                _validate_ident(c.name if hasattr(c, "name") else str(c))
+                for c in (target_sat.child_dependent_keys or [])
+            ),
+        ]
+        part_csv = ", ".join(part_cols)
+        join_on = " AND ".join(f"cur.{c} = src.{c}" for c in part_cols)
 
         conn.execute(
             f"""
@@ -351,11 +369,11 @@ def run_batch_3_delta_and_boundary_shift(
                     {mutated_selects}
             ) src
             LEFT JOIN (
-                SELECT {parent_hk}, hash_diff
+                SELECT {part_csv}, hash_diff
                 FROM {sat_schema}.{sat_tbl}
                 WHERE rec_src <> '{GHOST_REC_SRC}'
-                QUALIFY ROW_NUMBER() OVER (PARTITION BY {parent_hk} ORDER BY load_dts DESC) = 1
-            ) cur ON cur.{parent_hk} = src.{parent_hk}
+                QUALIFY ROW_NUMBER() OVER (PARTITION BY {part_csv} ORDER BY load_dts DESC) = 1
+            ) cur ON {join_on}
             WHERE cur.{parent_hk} IS NULL OR cur.hash_diff <> src.hash_diff;
             """
         )
@@ -514,26 +532,33 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
         )
 
     # Generic non-PE Batch 4: Cross-Source BKCC Collision Isolation & Bi-Temporal Restatement
-    first_hub = ir.hubs[0]
-    hub_tbl = _validate_ident(first_hub.name)
-    hk_col = _validate_ident(first_hub.hk_column.name)
-    slug = _hub_slug(first_hub.name)
-    shared_bk = f"{slug}-001"
+    target_hub = next(
+        (h for h in ir.hubs if any(bk.is_bkcc for bk in h.business_keys)),
+        ir.hubs[0],
+    )
+    hub_tbl = _validate_ident(target_hub.name)
+    hk_col = _validate_ident(target_hub.hk_column.name)
+    slug = _hub_slug(target_hub.name)
+    shared_bk = f"{slug}-999"
+    has_bkcc_col = any(bk.is_bkcc for bk in target_hub.business_keys)
 
-    hk_global = compute_dv2_length_prefixed_sha256(
-        [shared_bk], bkcc_prefix="GLOBAL", is_business_key=True
-    ).lower()
-    hk_alt = compute_dv2_length_prefixed_sha256(
-        [shared_bk], bkcc_prefix="ALT_NAMESPACE", is_business_key=True
-    ).lower()
-
-    for ns_label, hk_val in (("GLOBAL", hk_global), ("ALT_NAMESPACE", hk_alt)):
+    inserted_hks: list[str] = []
+    for ns_label in ("GLOBAL", "ALT_NAMESPACE"):
+        row_tokens: list[str] = []
         bk_literals: list[str] = []
-        for bk in first_hub.business_keys:
+        for bk in target_hub.business_keys:
             if bk.is_bkcc:
-                bk_literals.append(f"'{ns_label}'")
+                token = ns_label
+            elif has_bkcc_col:
+                token = shared_bk
             else:
-                bk_literals.append(f"'{ns_label}:{shared_bk}'")
+                token = f"{ns_label}:{shared_bk}"
+            row_tokens.append(token)
+            bk_literals.append(f"'{token}'")
+        hk_val = compute_dv2_length_prefixed_sha256(
+            row_tokens, is_business_key=True
+        ).lower()
+        inserted_hks.append(hk_val)
         bk_vals_sql = ", ".join(bk_literals)
         conn.execute(
             f"""
@@ -549,6 +574,7 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
             );
             """
         )
+    hk_global, hk_alt = inserted_hks[0], inserted_hks[1]
 
     matched_hks = conn.execute(
         f"""
@@ -569,6 +595,7 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
     sat_tbl = _validate_ident(bitemp_sat.name)
     parent_hk = _validate_ident(bitemp_sat.parent_hk_column.name)
     has_applied = bitemp_sat.applied_dts_column is not None
+    bitemp_data_cols = _satellite_all_data_columns(bitemp_sat)
 
     existing_sat_row = conn.execute(
         f"""
@@ -582,9 +609,9 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
     assert existing_sat_row is not None
     target_sat_hk = str(existing_sat_row[0])
 
-    payload_cols = [_validate_ident(c.name) for c in bitemp_sat.payload_columns]
+    payload_cols = [_validate_ident(c.name) for c in bitemp_data_cols]
     payload_csv = ", ".join(payload_cols)
-    restated_vals = ", ".join(_satellite_seed_sql_literal(c, 4) for c in bitemp_sat.payload_columns)
+    restated_vals = ", ".join(_satellite_seed_sql_literal(c, 4) for c in bitemp_data_cols)
     app_col = "applied_dts, " if has_applied else ""
     app_val = "TIMESTAMP '2026-09-30 00:00:00', " if has_applied else ""
 

@@ -10,6 +10,7 @@ import asyncio
 import json
 import os
 import urllib.request
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -139,6 +140,18 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
             return tool_name.removeprefix("mcp__opendv__")
         return tool_name
 
+    def _resolve_base_url(self) -> str:
+        """Resolve Anthropic REST base URL from config, extra options, or environment."""
+        for candidate in (
+            self._config.base_url,
+            self._config.env.get("ANTHROPIC_BASE_URL"),
+            self._config.extra_provider_options.get("base_url"),
+            os.environ.get("ANTHROPIC_BASE_URL"),
+        ):
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip().rstrip("/")
+        return "https://api.anthropic.com"
+
     async def _stream_anthropic_rest_task(
         self,
         spec: AgentTaskSpec[OutputT],
@@ -162,47 +175,185 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                 f"Respond ONLY with valid JSON conforming to this JSON Schema:\n{schema_json}"
             )
 
-        request_payload: dict[str, Any] = {
-            "model": model_id,
-            "max_tokens": min(self._config.budget.max_output_tokens, 8192),
-            "system": system_prompt,
-            "messages": [
-                {"role": "user", "content": spec.prompt},
-            ],
-        }
+        tools_by_name = {t.name: t for t in spec.tools}
+        tools_payload: list[dict[str, Any]] = [
+            {
+                "name": t.name,
+                "description": t.description,
+                "input_schema": t.json_schema(),
+            }
+            for t in spec.tools
+        ]
 
-        req = urllib.request.Request(
-            url="https://api.anthropic.com/v1/messages",
-            data=json.dumps(request_payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-            },
-            method="POST",
-        )
+        messages: list[dict[str, Any]] = [
+            {"role": "user", "content": spec.prompt},
+        ]
 
-        def _do_http_post() -> dict[str, Any]:
-            with urllib.request.urlopen(req, timeout=self._config.budget.timeout_seconds) as resp:
-                raw_bytes = resp.read()
-                return json.loads(raw_bytes.decode("utf-8"))  # type: ignore[no-any-return]
-
-        resp_json = await asyncio.to_thread(_do_http_post)
+        base_url = self._resolve_base_url()
+        if base_url.endswith("/v1"):
+            url = f"{base_url}/messages"
+        else:
+            url = f"{base_url}/v1/messages"
 
         text_chunks: list[str] = []
-        for block in resp_json.get("content") or []:
-            if not isinstance(block, dict):
-                continue
-            b_type = block.get("type")
-            if b_type == "thinking":
+        in_tok = 0
+        cached_tok = 0
+        out_tok = 0
+        total_tok = 0
+        model_calls = 0
+        last_msg_id: str | None = None
+        max_turns = max(1, int(self._config.budget.max_turns))
+
+        for _turn in range(max_turns):
+            request_payload: dict[str, Any] = {
+                "model": model_id,
+                "max_tokens": min(self._config.budget.max_output_tokens, 8192),
+                "system": system_prompt,
+                "messages": messages,
+            }
+            if tools_payload:
+                request_payload["tools"] = tools_payload
+
+            req = urllib.request.Request(
+                url=url,
+                data=json.dumps(request_payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "x-api-key": api_key,
+                    "anthropic-version": "2023-06-01",
+                },
+                method="POST",
+            )
+
+            def _do_http_post(request_obj: urllib.request.Request = req) -> dict[str, Any]:
+                with urllib.request.urlopen(
+                    request_obj,
+                    timeout=self._config.budget.timeout_seconds,
+                ) as resp:
+                    raw_bytes = resp.read()
+                    return json.loads(raw_bytes.decode("utf-8"))  # type: ignore[no-any-return]
+
+            resp_json = await asyncio.to_thread(_do_http_post)
+            model_calls += 1
+            if resp_json.get("id"):
+                last_msg_id = str(resp_json["id"])
+
+            raw_usage = resp_json.get("usage") or {}
+            turn_in = int(raw_usage.get("input_tokens", 0))
+            turn_cached = int(
+                raw_usage.get("cache_read_input_tokens", raw_usage.get("cached_input_tokens", 0))
+            )
+            turn_out = int(raw_usage.get("output_tokens", 0))
+            turn_total = int(raw_usage.get("total_tokens", turn_in + turn_cached + turn_out))
+            in_tok += turn_in
+            cached_tok += turn_cached
+            out_tok += turn_out
+            total_tok += turn_total
+
+            content_blocks: list[dict[str, Any]] = []
+            tool_use_blocks: list[dict[str, Any]] = []
+
+            for block in resp_json.get("content") or []:
+                if not isinstance(block, dict):
+                    continue
+                content_blocks.append(block)
+                b_type = block.get("type")
+                if b_type == "thinking":
+                    yield make_event(
+                        HarnessEventKind.THOUGHT_DELTA,
+                        delta_text=str(block.get("thinking", "")),
+                    )
+                elif b_type == "tool_use":
+                    tool_use_blocks.append(block)
+                elif b_type == "text":
+                    txt = str(block.get("text", ""))
+                    text_chunks.append(txt)
+                    yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=txt)
+
+            if not tool_use_blocks:
+                break
+
+            messages.append({"role": "assistant", "content": content_blocks})
+            tool_result_blocks: list[dict[str, Any]] = []
+
+            for block in tool_use_blocks:
+                raw_name = str(block.get("name", ""))
+                fn_name = self.strip_mcp_prefix(raw_name)
+                call_id = str(block.get("id") or f"tu-rest-{uuid.uuid4().hex[:8]}")
+                raw_input = block.get("input")
+                fn_args = dict(raw_input) if isinstance(raw_input, dict) else {}
+
                 yield make_event(
-                    HarnessEventKind.THOUGHT_DELTA,
-                    delta_text=str(block.get("thinking", "")),
+                    HarnessEventKind.TOOL_CALL_START,
+                    tool_name=fn_name,
+                    tool_call_id=call_id,
+                    tool_args=fn_args,
                 )
-            elif b_type == "text":
-                txt = str(block.get("text", ""))
-                text_chunks.append(txt)
-                yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=txt)
+                tool_def = tools_by_name.get(fn_name)
+                if tool_def is None:
+                    err_msg = f"Unknown tool '{fn_name}'"
+                    yield make_event(
+                        HarnessEventKind.TOOL_CALL_ERROR,
+                        tool_name=fn_name,
+                        tool_call_id=call_id,
+                        error_message=err_msg,
+                    )
+                    tool_result_blocks.append(
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": call_id,
+                            "content": err_msg,
+                            "is_error": True,
+                        }
+                    )
+                else:
+                    try:
+                        res_model = await tool_def.invoke(fn_args, ctx)
+                        res_dict = (
+                            res_model.model_dump(mode="json")
+                            if hasattr(res_model, "model_dump")
+                            else (
+                                res_model
+                                if isinstance(res_model, dict)
+                                else {"result": res_model}
+                            )
+                        )
+                        yield make_event(
+                            HarnessEventKind.TOOL_CALL_RESULT,
+                            tool_name=fn_name,
+                            tool_call_id=call_id,
+                            tool_result=res_dict,
+                        )
+                        tool_result_blocks.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": call_id,
+                                "content": json.dumps(res_dict),
+                            }
+                        )
+                    except Exception as exc:
+                        err_msg = f"{type(exc).__name__}: {exc}"
+                        yield make_event(
+                            HarnessEventKind.TOOL_CALL_ERROR,
+                            tool_name=fn_name,
+                            tool_call_id=call_id,
+                            error_message=err_msg,
+                        )
+                        tool_result_blocks.append(
+                            {
+                                "type": "tool_result",
+                                "tool_use_id": call_id,
+                                "content": err_msg,
+                                "is_error": True,
+                            }
+                        )
+
+                for obs_ev in ctx.pop_unstreamed_events():
+                    yield make_event(HarnessEventKind.OBSERVABILITY_EVENT, obs_event=obs_ev)
+                    if obs_ev.get("status") == "ASK-USER":
+                        yield make_event(HarnessEventKind.STEWARD_HOLD, obs_event=obs_ev)
+
+            messages.append({"role": "user", "content": tool_result_blocks})
 
         for obs_ev in ctx.pop_unstreamed_events():
             yield make_event(HarnessEventKind.OBSERVABILITY_EVENT, obs_event=obs_ev)
@@ -215,16 +366,8 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
             cleaned = _strip_markdown_json_fences(full_text)
             structured_data = spec.output_schema.model_validate_json(cleaned)
 
-        raw_usage = resp_json.get("usage") or {}
-        in_tok = int(raw_usage.get("input_tokens", 0))
-        cached_tok = int(
-            raw_usage.get("cache_read_input_tokens", raw_usage.get("cached_input_tokens", 0))
-        )
-        out_tok = int(raw_usage.get("output_tokens", 0))
-        total_tok = int(raw_usage.get("total_tokens", in_tok + cached_tok + out_tok))
-
         turn_meta: dict[str, Any] = {
-            "session_id": str(resp_json.get("id") or session_id),
+            "session_id": str(last_msg_id or session_id),
             "structured_output": structured_data,
             "usage": {
                 "input_tokens": in_tok,
@@ -232,7 +375,7 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                 "output_tokens": out_tok,
                 "reasoning_tokens": 0,
                 "total_tokens": total_tok,
-                "model_calls": 1,
+                "model_calls": model_calls,
                 "cost_usd": 0.0,
             },
         }
@@ -390,9 +533,23 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                         if obs_ev.get("status") == "ASK-USER":
                             yield make_event(HarnessEventKind.STEWARD_HOLD, obs_event=obs_ev)
                     if msg_type == "ResultMessage":
+                        raw_struct = getattr(message, "structured_output", None)
+                        if (
+                            raw_struct is None
+                            and spec.output_schema is not None
+                            and getattr(cas, "_is_deterministic_shim", False)
+                        ):
+                            from opendv_agent_harness.adapters.deterministic_adapter import (
+                                _synthesize_minimal_schema_instance,
+                            )
+
+                            raw_struct = _synthesize_minimal_schema_instance(
+                                spec.output_schema,
+                                prompt=spec.prompt,
+                            )
                         turn_meta: dict[str, Any] = {
                             "session_id": str(getattr(message, "session_id", session_id)),
-                            "structured_output": getattr(message, "structured_output", None),
+                            "structured_output": raw_struct,
                         }
                         msg_usage = getattr(message, "usage", None)
                         if isinstance(msg_usage, dict):

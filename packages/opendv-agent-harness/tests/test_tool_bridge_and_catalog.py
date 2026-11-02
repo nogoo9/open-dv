@@ -676,7 +676,9 @@ async def test_harness_timeout_and_cancel_active_turn(tmp_path: Path) -> None:
 
 @pytest.mark.asyncio
 async def test_wp01_real_profile_source_feed_from_csv_file(tmp_path: Path) -> None:
-    csv_file = tmp_path / "customers.csv"
+    tool_map = build_default_domain_tool_map()
+    ctx = _make_tool_context(tmp_path, persona=AgentPersona.SCOUT_SOURCE)
+    csv_file = ctx.config.workspace_dir / "customers.csv"
     csv_file.write_text(
         "customer_id,email,tier,spend_usd\n"
         "CUST-001,alice@example.com,VIP,1250.50\n"
@@ -685,8 +687,26 @@ async def test_wp01_real_profile_source_feed_from_csv_file(tmp_path: Path) -> No
         "CUST-004,,STANDARD,120.00\n",
         encoding="utf-8",
     )
-    tool_map = build_default_domain_tool_map()
-    ctx = _make_tool_context(tmp_path, persona=AgentPersona.SCOUT_SOURCE)
+
+    with pytest.raises(PermissionError, match="Path traversal"):
+        await tool_map["profile_source_feed"].invoke(
+            {
+                "source_system": "SHOPIFY_COMMERCE",
+                "table_or_path": "../../../etc/passwd",
+            },
+            ctx,
+        )
+
+    outside_file = tmp_path / "outside.csv"
+    outside_file.write_text("id\n1\n", encoding="utf-8")
+    with pytest.raises(PermissionError, match="outside allowed workspace"):
+        await tool_map["profile_source_feed"].invoke(
+            {
+                "source_system": "SHOPIFY_COMMERCE",
+                "table_or_path": str(outside_file),
+            },
+            ctx,
+        )
 
     out = await tool_map["profile_source_feed"].invoke(
         {
@@ -870,6 +890,17 @@ async def test_wp01_real_compile_gates_codemods_and_sandbox(tmp_path: Path) -> N
     patched_dict = ship_ctx.get_state("last_patched_contract_dict")
     sat_names = [s["name"] for s in patched_dict["satellites"]]
     assert "sat_customer_core_pii" in sat_names
+
+    noop_out = await tool_map["apply_ast_codemod"].invoke(
+        {
+            "codemod_id": "ALG-A1",
+            "target_entity": "sat_nonexistent_entity",
+            "contract_yaml": sat_yaml,
+        },
+        ship_ctx,
+    )
+    assert noop_out.applied is False
+    assert noop_out.verdict == ObservabilityVerdict.REJECT_WITH_TRACE
 
     a5_out = await tool_map["apply_ast_codemod"].invoke(
         {

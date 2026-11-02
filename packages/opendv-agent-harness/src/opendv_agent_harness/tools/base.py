@@ -208,7 +208,26 @@ class RunAxiDvGatesOutput(DomainToolOutput):
 class ApplyAstCodemodInput(DomainToolInput):
     """Input model for `apply_ast_codemod` (`STAGE_04` / `STAGE_05`)."""
 
-    codemod_id: Literal["ALG-A1", "ALG-A2", "ALG-A3", "ALG-A4", "ALG-A5", "ALG-A9A"] = Field(
+    codemod_id: Literal[
+        "ALG-A1",
+        "ALG-A2",
+        "ALG-A3",
+        "ALG-A4",
+        "ALG-A5",
+        "ALG-A9A",
+        "A.1",
+        "A.2",
+        "A.3",
+        "A.4",
+        "A.5",
+        "A.9a",
+        "ALG_A1_3AXIS_SATELLITE_SPLIT",
+        "ALG_A2_ENUM_TO_ATTRIBUTE_DEMOTION",
+        "ALG_A3_LINK_ATTRIBUTE_TO_EFFECTIVITY_SAT",
+        "ALG_A4_COLD_START_EXTENSIBILITY",
+        "ALG_A5_SQLGLOT_HASH_REWRITE",
+        "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT",
+    ] = Field(
         description="Deterministic codemod algorithm identifier.",
     )
     target_entity: str = Field(

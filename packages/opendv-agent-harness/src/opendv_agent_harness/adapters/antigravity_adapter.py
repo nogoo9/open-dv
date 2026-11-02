@@ -11,6 +11,7 @@ import contextlib
 import json
 import os
 import urllib.request
+import uuid
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -170,6 +171,20 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
 
         return policies
 
+    def _resolve_base_url(self) -> str:
+        """Resolve Gemini REST base URL from config, extra options, or environment."""
+        for candidate in (
+            self._config.base_url,
+            self._config.env.get("GOOGLE_GEMINI_BASE_URL"),
+            self._config.env.get("GEMINI_BASE_URL"),
+            self._config.extra_provider_options.get("base_url"),
+            os.environ.get("GOOGLE_GEMINI_BASE_URL"),
+            os.environ.get("GEMINI_BASE_URL"),
+        ):
+            if isinstance(candidate, str) and candidate.strip():
+                return candidate.strip().rstrip("/")
+        return "https://generativelanguage.googleapis.com"
+
     async def _stream_gemini_rest_task(
         self,
         spec: AgentTaskSpec[OutputT],
@@ -189,58 +204,203 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
             generation_config["responseMimeType"] = "application/json"
             generation_config["responseSchema"] = spec.output_schema.model_json_schema()
 
-        request_payload: dict[str, Any] = {
-            "systemInstruction": {
-                "parts": [{"text": spec.system_instructions}],
-            },
-            "contents": [
+        tools_by_name = {t.name: t for t in spec.tools}
+        tools_payload: list[dict[str, Any]] = []
+        if spec.tools:
+            tools_payload = [
                 {
-                    "role": "user",
-                    "parts": [{"text": spec.prompt}],
+                    "functionDeclarations": [
+                        {
+                            "name": t.name,
+                            "description": t.description,
+                            "parameters": t.json_schema(),
+                        }
+                        for t in spec.tools
+                    ]
                 }
-            ],
-        }
-        if generation_config:
-            request_payload["generationConfig"] = generation_config
+            ]
 
-        url = (
-            f"https://generativelanguage.googleapis.com/v1beta/models/"
-            f"{model_id}:generateContent?key={api_key}"
-        )
-        req = urllib.request.Request(
-            url=url,
-            data=json.dumps(request_payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "x-goog-api-key": api_key,
-            },
-            method="POST",
-        )
+        contents: list[dict[str, Any]] = [
+            {
+                "role": "user",
+                "parts": [{"text": spec.prompt}],
+            }
+        ]
 
-        def _do_http_post() -> dict[str, Any]:
-            with urllib.request.urlopen(req, timeout=self._config.budget.timeout_seconds) as resp:
-                raw_bytes = resp.read()
-                return json.loads(raw_bytes.decode("utf-8"))  # type: ignore[no-any-return]
-
-        resp_json = await asyncio.to_thread(_do_http_post)
+        base_url = self._resolve_base_url()
+        if base_url.endswith("/v1beta"):
+            url = f"{base_url}/models/{model_id}:generateContent?key={api_key}"
+        else:
+            url = f"{base_url}/v1beta/models/{model_id}:generateContent?key={api_key}"
 
         text_chunks: list[str] = []
-        for candidate in resp_json.get("candidates") or []:
-            if not isinstance(candidate, dict):
-                continue
-            content_obj = candidate.get("content") or {}
-            for part in content_obj.get("parts") or []:
-                if not isinstance(part, dict):
+        in_tokens = 0
+        cached_tokens = 0
+        out_tokens = 0
+        thought_tokens = 0
+        total_tokens = 0
+        model_calls = 0
+        max_turns = max(1, int(self._config.budget.max_turns))
+
+        for _turn in range(max_turns):
+            request_payload: dict[str, Any] = {
+                "systemInstruction": {
+                    "parts": [{"text": spec.system_instructions}],
+                },
+                "contents": contents,
+            }
+            if generation_config:
+                request_payload["generationConfig"] = generation_config
+            if tools_payload:
+                request_payload["tools"] = tools_payload
+
+            req = urllib.request.Request(
+                url=url,
+                data=json.dumps(request_payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "x-goog-api-key": api_key,
+                },
+                method="POST",
+            )
+
+            def _do_http_post(request_obj: urllib.request.Request = req) -> dict[str, Any]:
+                with urllib.request.urlopen(
+                    request_obj,
+                    timeout=self._config.budget.timeout_seconds,
+                ) as resp:
+                    raw_bytes = resp.read()
+                    return json.loads(raw_bytes.decode("utf-8"))  # type: ignore[no-any-return]
+
+            resp_json = await asyncio.to_thread(_do_http_post)
+            model_calls += 1
+
+            usage_meta = resp_json.get("usageMetadata") or {}
+            turn_in = int(usage_meta.get("promptTokenCount", usage_meta.get("input_tokens", 0)))
+            turn_cached = int(usage_meta.get("cachedContentTokenCount", 0))
+            turn_out = int(
+                usage_meta.get("candidatesTokenCount", usage_meta.get("output_tokens", 0))
+            )
+            turn_thought = int(usage_meta.get("thoughtsTokenCount", 0))
+            turn_total = int(
+                usage_meta.get(
+                    "totalTokenCount",
+                    usage_meta.get("total_tokens", turn_in + turn_out + turn_thought),
+                )
+            )
+            in_tokens += turn_in
+            cached_tokens += turn_cached
+            out_tokens += turn_out
+            thought_tokens += turn_thought
+            total_tokens += turn_total
+
+            model_parts: list[dict[str, Any]] = []
+            function_calls: list[tuple[str, dict[str, Any], dict[str, Any]]] = []
+
+            for candidate in resp_json.get("candidates") or []:
+                if not isinstance(candidate, dict):
                     continue
-                if part.get("thought"):
+                content_obj = candidate.get("content") or {}
+                for part in content_obj.get("parts") or []:
+                    if not isinstance(part, dict):
+                        continue
+                    model_parts.append(part)
+                    if part.get("thought"):
+                        yield make_event(
+                            HarnessEventKind.THOUGHT_DELTA,
+                            delta_text=str(part.get("text", "")),
+                        )
+                    elif "functionCall" in part and isinstance(part["functionCall"], dict):
+                        fc = part["functionCall"]
+                        fn_name = str(fc.get("name", ""))
+                        raw_args = fc.get("args")
+                        fn_args = dict(raw_args) if isinstance(raw_args, dict) else {}
+                        function_calls.append((fn_name, fn_args, fc))
+                    elif "text" in part:
+                        txt = str(part["text"])
+                        text_chunks.append(txt)
+                        yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=txt)
+
+            if not function_calls:
+                break
+
+            contents.append({"role": "model", "parts": model_parts})
+            response_parts: list[dict[str, Any]] = []
+
+            for fn_name, fn_args, fc_meta in function_calls:
+                call_id = str(fc_meta.get("id") or f"gemini-call-{uuid.uuid4().hex[:8]}")
+                yield make_event(
+                    HarnessEventKind.TOOL_CALL_START,
+                    tool_name=fn_name,
+                    tool_call_id=call_id,
+                    tool_args=fn_args,
+                )
+                tool_def = tools_by_name.get(fn_name)
+                if tool_def is None:
+                    err_msg = f"Unknown tool '{fn_name}'"
                     yield make_event(
-                        HarnessEventKind.THOUGHT_DELTA,
-                        delta_text=str(part.get("text", "")),
+                        HarnessEventKind.TOOL_CALL_ERROR,
+                        tool_name=fn_name,
+                        tool_call_id=call_id,
+                        error_message=err_msg,
                     )
-                elif "text" in part:
-                    txt = str(part["text"])
-                    text_chunks.append(txt)
-                    yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=txt)
+                    response_parts.append(
+                        {
+                            "functionResponse": {
+                                "name": fn_name,
+                                "response": {"error": err_msg},
+                            }
+                        }
+                    )
+                else:
+                    try:
+                        res_model = await tool_def.invoke(fn_args, ctx)
+                        res_dict = (
+                            res_model.model_dump(mode="json")
+                            if hasattr(res_model, "model_dump")
+                            else (
+                                res_model
+                                if isinstance(res_model, dict)
+                                else {"result": res_model}
+                            )
+                        )
+                        yield make_event(
+                            HarnessEventKind.TOOL_CALL_RESULT,
+                            tool_name=fn_name,
+                            tool_call_id=call_id,
+                            tool_result=res_dict,
+                        )
+                        response_parts.append(
+                            {
+                                "functionResponse": {
+                                    "name": fn_name,
+                                    "response": res_dict,
+                                }
+                            }
+                        )
+                    except Exception as exc:
+                        err_msg = f"{type(exc).__name__}: {exc}"
+                        yield make_event(
+                            HarnessEventKind.TOOL_CALL_ERROR,
+                            tool_name=fn_name,
+                            tool_call_id=call_id,
+                            error_message=err_msg,
+                        )
+                        response_parts.append(
+                            {
+                                "functionResponse": {
+                                    "name": fn_name,
+                                    "response": {"error": err_msg},
+                                }
+                            }
+                        )
+
+                for obs_ev in ctx.pop_unstreamed_events():
+                    yield make_event(HarnessEventKind.OBSERVABILITY_EVENT, obs_event=obs_ev)
+                    if obs_ev.get("status") == "ASK-USER":
+                        yield make_event(HarnessEventKind.STEWARD_HOLD, obs_event=obs_ev)
+
+            contents.append({"role": "user", "parts": response_parts})
 
         for obs_ev in ctx.pop_unstreamed_events():
             yield make_event(HarnessEventKind.OBSERVABILITY_EVENT, obs_event=obs_ev)
@@ -253,18 +413,6 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
             cleaned = _strip_markdown_json_fences(full_text)
             structured_data = spec.output_schema.model_validate_json(cleaned)
 
-        usage_meta = resp_json.get("usageMetadata") or {}
-        in_tokens = int(usage_meta.get("promptTokenCount", usage_meta.get("input_tokens", 0)))
-        cached_tokens = int(usage_meta.get("cachedContentTokenCount", 0))
-        out_tokens = int(usage_meta.get("candidatesTokenCount", usage_meta.get("output_tokens", 0)))
-        thought_tokens = int(usage_meta.get("thoughtsTokenCount", 0))
-        total_tokens = int(
-            usage_meta.get(
-                "totalTokenCount",
-                usage_meta.get("total_tokens", in_tokens + out_tokens + thought_tokens),
-            )
-        )
-
         turn_meta: dict[str, Any] = {
             "session_id": spec.resume_session_id or spec.task_id,
             "structured_output": structured_data,
@@ -274,7 +422,7 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
                 "output_tokens": out_tokens,
                 "reasoning_tokens": thought_tokens,
                 "total_tokens": total_tokens,
-                "model_calls": 1,
+                "model_calls": model_calls,
                 "cost_usd": 0.0,
             },
         }

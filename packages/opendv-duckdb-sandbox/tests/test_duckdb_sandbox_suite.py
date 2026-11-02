@@ -377,7 +377,7 @@ def test_global_commerce_vault_4zone_compiler_and_full_verification(tmp_path: Pa
         assert fk_check.failing_rows == 1
 
 
-def test_generic_contract_yaml_full_sandbox_verification() -> None:
+def test_generic_contract_yaml_full_sandbox_verification(tmp_path: Path) -> None:
     """Verify `examples/dv_model_contract.yaml` lowers and passes full 4-batch verification."""
     generic_contract_path = get_examples_dir() / "dv_model_contract.yaml"
     with DuckDbShadowSandbox() as sandbox:
@@ -389,3 +389,73 @@ def test_generic_contract_yaml_full_sandbox_verification() -> None:
         assert report.batch_report.all_passed is True
         assert report.dynamic_check_report.all_passed is True
         assert report.dynamic_check_report.passed_count == 15
+
+    # Verify MULTI_ACTIVE satellite sub-sequence PK + bronze_tables CSV hydration + Batch 4 BK/HK parity
+    csv_path = tmp_path / "crm_customers.csv"
+    csv_path.write_text(
+        "customer_code,customer_name,tier\nCUST-REAL-101,Acme Global,VIP\nCUST-REAL-202,Beta Corp,STD\n",
+        encoding="utf-8",
+    )
+    base_ir = _build_global_commerce_canonical_ir()
+    mas_sat = IRSatellite(
+        name="mas_customer_tags",
+        satellite_type="MULTI_ACTIVE",
+        split_classification="CORE",
+        parent_entity="hub_customer",
+        parent_hk_column=IRParentHkColumn(
+            name="hk_customer",
+            target_column="hk_customer",
+            data_type="BINARY(32)",
+            nullable=False,
+        ),
+        child_dependent_keys=[
+            IRColumnDef(name="tag_seq", data_type="INTEGER", nullable=False),
+        ],
+        load_dts_column=IRColumnDef(
+            name="load_dts", data_type="TIMESTAMP_NTZ(9)", nullable=False
+        ),
+        rec_src_column=IRColumnDef(
+            name="rec_src", data_type="VARCHAR(255)", nullable=False
+        ),
+        hash_diff_column=IRHashColumn(
+            name="hash_diff",
+            data_type="BINARY(32)",
+            nullable=False,
+            hash_expression=IRHashExpression(
+                algorithm="SHA256",
+                input_columns=["tag_seq", "tier"],
+                normalization="EXACT_TRIM",
+            ),
+        ),
+        hash_diff_migration_policy="SPLIT_NEW_SATELLITE",
+        payload_columns=[
+            IRColumnDef(name="tier", data_type="VARCHAR(255)", nullable=True),
+        ],
+        source_mapping=IRSourceMapping(
+            staging_table="stg_crm_customers",
+            rec_src_value="CRM_SFDC",
+        ),
+    )
+    mas_ir = base_ir.model_copy(
+        update={
+            "model_name": "commerce_mas_vault",
+            "satellites": [*base_ir.satellites, mas_sat],
+        }
+    )
+    with DuckDbShadowSandbox() as mas_sbx:
+        mas_rep = mas_sbx.run_full_verification(
+            source=mas_ir,
+            bronze_tables={"bronze.crm_customers": csv_path},
+            emit_telemetry=True,
+        )
+        assert mas_rep.passed is True
+        assert mas_rep.observability_event is not None
+        assert mas_rep.observability_event.context_refs.canonical_ir_sha256 != "a" * 64
+        cust_bks = {
+            str(r[0])
+            for r in mas_sbx.conn.execute(
+                "SELECT customer_code FROM raw_vault.hub_customer WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
+            ).fetchall()
+        }
+        assert "CUST-REAL-101" in cust_bks
+        assert "CUST-REAL-202" in cust_bks

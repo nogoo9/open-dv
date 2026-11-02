@@ -461,6 +461,9 @@ async def test_wp04_claude_fail_closed_and_anthropic_rest_api_fallback(
     captured_requests: list[dict[str, Any]] = []
 
     class _FakeAnthropicHttpResponse:
+        def __init__(self, call_idx: int) -> None:
+            self.call_idx = call_idx
+
         def __enter__(self) -> _FakeAnthropicHttpResponse:
             return self
 
@@ -468,29 +471,54 @@ async def test_wp04_claude_fail_closed_and_anthropic_rest_api_fallback(
             return None
 
         def read(self) -> bytes:
-            payload = {
-                "id": "msg_anthropic_rest_001",
-                "type": "message",
-                "role": "assistant",
-                "content": [
-                    {"type": "thinking", "thinking": "Evaluating DV 2.0 invariants..."},
-                    {
-                        "type": "text",
-                        "text": json.dumps(
-                            {
-                                "contract_id": "dv_claude_rest_v5",
-                                "verified_gates": 6,
+            if self.call_idx == 0:
+                payload = {
+                    "id": "msg_anthropic_rest_000",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {"type": "thinking", "thinking": "Evaluating DV 2.0 invariants..."},
+                        {
+                            "type": "tool_use",
+                            "id": "toolu_rest_01",
+                            "name": "emit_observability_event",
+                            "input": {
                                 "status": "PASS",
-                            }
-                        ),
+                                "headline": "Anthropic REST tool call",
+                                "business_impact": "Verifies Anthropic REST tool loop.",
+                                "rule_ids_evaluated": ["HR-01"],
+                            },
+                        },
+                    ],
+                    "usage": {
+                        "input_tokens": 140,
+                        "cache_read_input_tokens": 20,
+                        "output_tokens": 45,
                     },
-                ],
-                "usage": {
-                    "input_tokens": 280,
-                    "cache_read_input_tokens": 40,
-                    "output_tokens": 90,
-                },
-            }
+                }
+            else:
+                payload = {
+                    "id": "msg_anthropic_rest_001",
+                    "type": "message",
+                    "role": "assistant",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(
+                                {
+                                    "contract_id": "dv_claude_rest_v5",
+                                    "verified_gates": 6,
+                                    "status": "PASS",
+                                }
+                            ),
+                        },
+                    ],
+                    "usage": {
+                        "input_tokens": 140,
+                        "cache_read_input_tokens": 20,
+                        "output_tokens": 45,
+                    },
+                }
             return json.dumps(payload).encode("utf-8")
 
     def _fake_urlopen(
@@ -498,6 +526,7 @@ async def test_wp04_claude_fail_closed_and_anthropic_rest_api_fallback(
         timeout: float = 60.0,
     ) -> _FakeAnthropicHttpResponse:
         body = json.loads((req.data or b"{}").decode("utf-8"))
+        call_idx = len(captured_requests)
         captured_requests.append(
             {
                 "url": req.full_url,
@@ -506,13 +535,16 @@ async def test_wp04_claude_fail_closed_and_anthropic_rest_api_fallback(
                 "timeout": timeout,
             }
         )
-        return _FakeAnthropicHttpResponse()
+        return _FakeAnthropicHttpResponse(call_idx)
 
     monkeypatch.setattr(urllib.request, "urlopen", _fake_urlopen)
 
     cfg_with_key = _make_claude_config(
         tmp_path,
-        env={"ANTHROPIC_API_KEY": "sk-ant-test-key-456"},
+        env={
+            "ANTHROPIC_API_KEY": "sk-ant-test-key-456",
+            "ANTHROPIC_BASE_URL": "https://custom-anthropic.example.com",
+        },
     )
     rest_adapter = ClaudeAgentSdkAdapter(cfg_with_key, sdk_module=None)
     rest_res = await rest_adapter.run_task(spec)
@@ -523,7 +555,10 @@ async def test_wp04_claude_fail_closed_and_anthropic_rest_api_fallback(
     assert rest_res.structured_output.contract_id == "dv_claude_rest_v5"
     assert rest_res.structured_output.verified_gates == 6
     assert rest_res.usage.total_tokens == 410
-    assert len(captured_requests) == 1
-    assert captured_requests[0]["url"] == "https://api.anthropic.com/v1/messages"
+    assert rest_res.usage.model_calls == 2
+    assert len(rest_res.emitted_events) == 1
+    assert len(captured_requests) == 2
+    assert captured_requests[0]["url"] == "https://custom-anthropic.example.com/v1/messages"
     assert "system" in captured_requests[0]["body"]
+    assert "tools" in captured_requests[0]["body"]
     assert captured_requests[0]["body"]["messages"][0]["role"] == "user"

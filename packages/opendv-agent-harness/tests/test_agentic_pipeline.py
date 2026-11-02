@@ -44,6 +44,7 @@ from opendv_agent_harness import (
     validate_pipeline_outputs,
 )
 from opendv_agent_harness.adapters.deterministic_adapter import (
+    _synthesize_minimal_schema_instance,
     build_deterministic_agy_sdk_shim,
     build_deterministic_claude_sdk_shim,
 )
@@ -54,6 +55,7 @@ from opendv_agent_harness.pipeline import (
     Stage01SourceDiscoveryOutput,
     Stage02UnstructuredDiscoveryOutput,
     Stage03ColumnTriageOutput,
+    Stage04ContractSynthesisOutput,
 )
 from opendv_core.schema_registry import find_workspace_root
 from opendv_telemetry import ContentAddressableStore
@@ -839,20 +841,36 @@ def test_harness_auth_config_resolution_and_validation(
 def test_discovery_first_pipeline_without_prebaked_hints(tmp_path: Path) -> None:
     """Verify WP-02 discovery-first PipelineInputSpec without pre-baked hints."""
     assert HarnessSetupConfig().inject_adversarial_fault_on_attempt_1 is False
+    for stage_schema in (
+        Stage00OrchestrationPlanOutput,
+        Stage01SourceDiscoveryOutput,
+        Stage02UnstructuredDiscoveryOutput,
+        Stage03ColumnTriageOutput,
+        Stage04ContractSynthesisOutput,
+    ):
+        synthesized = _synthesize_minimal_schema_instance(stage_schema)
+        assert isinstance(synthesized, stage_schema)
 
     sample_dir = _sample_dir()
-    raw_yaml = yaml.safe_load((sample_dir / "pipeline_input.yaml").read_text(encoding="utf-8"))
-    for wave_dict in raw_yaml["waves"]:
-        for src_dict in wave_dict.get("sources", []):
-            assert "business_key_columns" not in src_dict
-            assert "surrogate_key_columns" not in src_dict
-            assert "pii_columns" not in src_dict
-            assert "foreign_key_mappings" not in src_dict
-            assert "cbc_mapping_hints" not in src_dict
-        for doc_dict in wave_dict.get("unstructured_documents", []):
-            assert "extracted_candidates" not in doc_dict
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    for wave_obj in input_spec.waves:
+        for src_obj in wave_obj.sources:
+            assert src_obj.business_key_columns == []
+            assert src_obj.surrogate_key_columns == []
+            assert src_obj.pii_columns == []
+            assert src_obj.foreign_key_mappings == {}
+            assert src_obj.cbc_mapping_hints == {}
+        for doc_obj in wave_obj.unstructured_documents:
+            assert doc_obj.extracted_candidates == []
 
-    input_spec = PipelineInputSpec.model_validate(raw_yaml)
+    ambient_cli_setup = HarnessSetupConfig(
+        provider="antigravity",
+        auth=HarnessAuthConfig(auth_mode="ambient_cli", require_credentials_present=True),
+    )
+    ambient_val = validate_pipeline_inputs(input_spec, ambient_cli_setup, base_dir=sample_dir)
+    assert ambient_val.passed is False
+    assert any(d["code"] == "HARNESS_AUTH_MISSING" for d in ambient_val.diagnostics)
+
     setup = HarnessSetupConfig(
         provider="deterministic",
         steward_hold_policy="auto_approve_top_candidate",

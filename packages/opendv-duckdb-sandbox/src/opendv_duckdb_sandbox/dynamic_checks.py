@@ -245,11 +245,30 @@ def check_dv_dyn_001_pk_uniqueness(
     dup_count = 0
     for tbl, pk in {**hub_pk_map, **link_pk_map}.items():
         dup_count += _scalar_int(conn, f"SELECT COUNT(*) - COUNT(DISTINCT {pk}) FROM {tbl}")
+    sat_by_qname: dict[str, Any] = {}
+    if ir is not None:
+        for sat in ir.satellites:
+            q_sat = f"{_satellite_schema(sat)}.{_validate_ident(sat.name)}"
+            sat_by_qname[q_sat] = sat
     for tbl, parent_hk in satellite_pk_map.items():
+        sat_ir = sat_by_qname.get(tbl)
+        seq_cols = (
+            [
+                _validate_ident(c.name if hasattr(c, "name") else str(c))
+                for c in (sat_ir.child_dependent_keys or [])
+            ]
+            if sat_ir
+            else []
+        )
+        pk_parts = [
+            parent_hk,
+            "CAST(load_dts AS VARCHAR)",
+            *(f"CAST({c} AS VARCHAR)" for c in seq_cols),
+        ]
+        pk_expr = " || '||' || ".join(pk_parts)
         dup_count += _scalar_int(
             conn,
-            f"SELECT COUNT(*) - COUNT(DISTINCT ({parent_hk} || '||' || "
-            f"CAST(load_dts AS VARCHAR))) FROM {tbl}",
+            f"SELECT COUNT(*) - COUNT(DISTINCT ({pk_expr})) FROM {tbl}",
         )
     table_total = len(hub_pk_map) + len(link_pk_map) + len(satellite_pk_map)
     return DynamicCheckResult(

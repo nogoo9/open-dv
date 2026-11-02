@@ -151,7 +151,7 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
             new_run_id = created_run["run_id"]
             assert created_run["harness_provider"] == "claude"
             assert created_run["status"] == RunStatus.PAUSED_HOLD.value
-            assert created_run["event_count"] == 9
+            assert created_run["event_count"] == 0
 
             res_no_contract_gates = await client.post(
                 f"/api/v1/runs/{new_run_id}/gates",
@@ -946,9 +946,16 @@ def test_wp06_sdk_resolution_and_dynamic_project_run(
     monkeypatch.delenv("CLAUDE_CODE_USE_BEDROCK", raising=False)
     monkeypatch.delenv("OPENDV_ALLOW_MOCK_SDK_SHIM", raising=False)
 
-    # Without credentials, offline shim is returned; with real credentials, None is returned
-    assert _resolve_sdk_shim_if_needed("antigravity") is not None
-    assert _resolve_sdk_shim_if_needed("claude") is not None
+    # Without OPENDV_ALLOW_MOCK_SDK_SHIM, None is returned; when explicitly enabled, shim is returned
+    assert _resolve_sdk_shim_if_needed("antigravity") is None
+    assert _resolve_sdk_shim_if_needed("claude") is None
+    assert (
+        _resolve_sdk_shim_if_needed(
+            "claude",
+            env={"OPENDV_ALLOW_MOCK_SDK_SHIM": "1"},
+        )
+        is not None
+    )
     assert _resolve_sdk_shim_if_needed("antigravity", env={"GEMINI_API_KEY": "real-key"}) is None
     assert _resolve_sdk_shim_if_needed("claude", env={"ANTHROPIC_API_KEY": "real-key"}) is None
     assert (

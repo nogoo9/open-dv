@@ -1327,47 +1327,19 @@ def _resolve_sdk_shim_if_needed(
     provider: str,
     env: dict[str, str] | None = None,
 ) -> Any | None:
-    """Resolve SDK shims only when offline/unconfigured or explicitly requested via env."""
+    """Resolve SDK shims only when explicitly requested via OPENDV_ALLOW_MOCK_SDK_SHIM."""
     merged_env = {**os.environ, **(env or {})}
     force_shim = merged_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM", "").strip().lower() in {
         "true",
         "1",
         "yes",
     }
+    if not force_shim:
+        return None
     if provider == "antigravity":
-        if force_shim:
-            return build_deterministic_agy_sdk_shim()
-        has_real_creds = any(
-            bool(merged_env.get(k, "").strip())
-            for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "GOOGLE_GENAI_USE_VERTEXAI")
-        )
-        if has_real_creds:
-            return None
-        try:
-            import google.antigravity  # type: ignore[import-not-found]  # noqa: F401
-
-            return None
-        except ImportError:
-            return build_deterministic_agy_sdk_shim()
+        return build_deterministic_agy_sdk_shim()
     if provider in {"claude", "claude-agent"}:
-        if force_shim:
-            return build_deterministic_claude_sdk_shim()
-        has_real_creds = any(
-            bool(merged_env.get(k, "").strip())
-            for k in (
-                "ANTHROPIC_API_KEY",
-                "CLAUDE_CODE_USE_VERTEX",
-                "CLAUDE_CODE_USE_BEDROCK",
-            )
-        )
-        if has_real_creds:
-            return None
-        try:
-            import claude_agent_sdk  # type: ignore[import-not-found]  # noqa: F401
-
-            return None
-        except ImportError:
-            return build_deterministic_claude_sdk_shim()
+        return build_deterministic_claude_sdk_shim()
     return None
 
 

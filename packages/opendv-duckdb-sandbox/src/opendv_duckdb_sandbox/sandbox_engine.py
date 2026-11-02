@@ -12,7 +12,7 @@ Coordinates:
 
 from __future__ import annotations
 
-from decimal import Decimal
+import hashlib
 from pathlib import Path
 from typing import Any
 
@@ -145,11 +145,14 @@ class DuckDbShadowSandbox:
         run_id: str = "run-pe-20261015-001",
     ) -> SandboxVerificationReport:
         """Compile 4-Zone SQL, run Batches 1-4, evaluate DV-DYN-001-015, and verify Query D.10b."""
-        _ = bronze_tables
         ir_obj = self.resolve_canonical_ir(source)
+        normalized_bronze: dict[str, Any] | None = (
+            bronze_tables if isinstance(bronze_tables, dict) else None
+        )
         bundle = compile_canonical_ir_to_4zone_sql(
             ir_obj,
             include_batch4_restatement_in_seed=False,
+            bronze_tables=normalized_bronze,
         )
 
         batch_report = execute_4batch_adversarial_suite(self.conn, bundle, ir=ir_obj)
@@ -168,8 +171,8 @@ class DuckDbShadowSandbox:
             ir=ir_obj,
         )
 
+        pit_engine = PitQueryEngine(self.conn)
         if is_pe_domain(ir_obj):
-            pit_engine = PitQueryEngine(self.conn)
             d10_rows = pit_engine.run_query_d10(
                 assertion_cutoff_ts="2026-11-15 23:59:59",
                 state_cutoff_date="2026-09-30",
@@ -191,26 +194,11 @@ class DuckDbShadowSandbox:
             d10_rows = []
             d10b_oct_15 = []
             d10b_nov_15 = []
-            first_hub = ir_obj.hubs[0]
-            hub_slug = _hub_slug(first_hub.name)
-            bitemp_ok = batch_report.by_number[4].passed and dyn_report.by_id["DV-DYN-009"].passed
-            bitemporal_proof = BiTemporalValuationProof(
-                lei_code=f"{hub_slug}-001",
-                company_legal_name=ir_obj.model_name,
+            bitemporal_proof = pit_engine.verify_generic_bitemporal_restatement(
+                ir_obj,
+                prior_cutoff_ts="2026-10-15 12:00:00",
+                restated_cutoff_ts="2026-11-15 23:59:59",
                 effective_as_of_dt="2026-09-30",
-                prior_assertion_cutoff_ts="2026-10-15 12:00:00",
-                prior_ev_ebitda_multiple=Decimal("1.00"),
-                prior_enterprise_value_usd=Decimal("1000.50"),
-                restated_assertion_cutoff_ts="2026-11-15 23:59:59",
-                restated_ev_ebitda_multiple=Decimal("4.00"),
-                restated_enterprise_value_usd=Decimal("4000.50"),
-                delta_ev_ebitda_multiple=Decimal("3.00"),
-                delta_enterprise_value_usd=Decimal("3000.00"),
-                ic_memo_doc_sha256=(
-                    "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
-                ),
-                steward_gate_status="STEWARD_VERIFIED",
-                verified=bitemp_ok,
             )
 
         overall_passed = (
@@ -225,6 +213,8 @@ class DuckDbShadowSandbox:
                 dyn_report=dyn_report,
                 bitemporal_proof=bitemporal_proof,
                 run_id=run_id,
+                ir_obj=ir_obj,
+                compiled_bundle=bundle,
             )
             if self.ledger_emitter is not None:
                 self.ledger_emitter.emit(obs_event)
@@ -250,33 +240,77 @@ class DuckDbShadowSandbox:
         dyn_report: DynamicCheckSuiteReport,
         bitemporal_proof: BiTemporalValuationProof,
         run_id: str,
+        ir_obj: CanonicalIR | None = None,
+        compiled_bundle: Compiled4ZoneBundle | None = None,
     ) -> VaultObservabilityEvent:
         """Construct a schema-valid `VIZ-GATE-08` (`WB-10`) `VaultObservabilityEvent`."""
-        portco_digest = compute_dv2_length_prefixed_sha256(
-            ["529900T8BM49AURSDO55"],
-            is_business_key=True,
+        ir_sha256 = (
+            hashlib.sha256(ir_obj.model_dump_json().encode("utf-8")).hexdigest()
+            if ir_obj is not None
+            else hashlib.sha256(b"pe_canonical_ir").hexdigest()
         )
-        lp_digest = compute_dv2_length_prefixed_sha256(
-            ["LP-101"],
-            bkcc_prefix="GLOBAL",
-            is_business_key=True,
+        sql_sha256 = (
+            hashlib.sha256(compiled_bundle.full_sql.encode("utf-8")).hexdigest()
+            if compiled_bundle is not None
+            else hashlib.sha256(b"pe_compiled_4zone_sql").hexdigest()
         )
-        portco_pill = SemanticHashPill.model_validate(
-            format_hub_pill(
-                full_sha256_hex=portco_digest,
-                bkcc_prefix="GLOBAL",
-                business_key="529900T8BM49AURSDO55",
-                entity_label="Nordic Cloud Infrastructure AB",
+
+        if is_pe_domain(ir_obj):
+            portco_digest = compute_dv2_length_prefixed_sha256(
+                ["529900T8BM49AURSDO55"],
+                is_business_key=True,
             )
-        )
-        lp_pill = SemanticHashPill.model_validate(
-            format_hub_pill(
-                full_sha256_hex=lp_digest,
+            lp_digest = compute_dv2_length_prefixed_sha256(
+                ["LP-101"],
                 bkcc_prefix="GLOBAL",
-                business_key="LP-101",
-                entity_label="CalPERS",
+                is_business_key=True,
             )
-        )
+            pills = [
+                SemanticHashPill.model_validate(
+                    format_hub_pill(
+                        full_sha256_hex=portco_digest,
+                        bkcc_prefix="GLOBAL",
+                        business_key="529900T8BM49AURSDO55",
+                        entity_label="Nordic Cloud Infrastructure AB",
+                    )
+                ),
+                SemanticHashPill.model_validate(
+                    format_hub_pill(
+                        full_sha256_hex=lp_digest,
+                        bkcc_prefix="GLOBAL",
+                        business_key="LP-101",
+                        entity_label="CalPERS",
+                    )
+                ),
+            ]
+            business_impact = (
+                "Verified Q3 valuation restatement from 12.80x ($216.28M EV) to "
+                "14.50x ($245.00M EV) with 100% Ghost/Zero-Key join completeness."
+            )
+        else:
+            pills = []
+            for hub in (ir_obj.hubs[:2] if ir_obj else []):
+                slug = _hub_slug(hub.name)
+                bk_val = f"{slug}-001"
+                digest = compute_dv2_length_prefixed_sha256(
+                    [bk_val],
+                    bkcc_prefix="GLOBAL",
+                    is_business_key=True,
+                )
+                pills.append(
+                    SemanticHashPill.model_validate(
+                        format_hub_pill(
+                            full_sha256_hex=digest,
+                            bkcc_prefix="GLOBAL",
+                            business_key=bk_val,
+                            entity_label=hub.name,
+                        )
+                    )
+                )
+            business_impact = (
+                f"Verified bi-temporal PIT restatement ({bitemporal_proof.prior_ev_ebitda_multiple}x "
+                f"-> {bitemporal_proof.restated_ev_ebitda_multiple}x) for {bitemporal_proof.company_legal_name}."
+            )[:200]
 
         event = VaultObservabilityEvent(
             event_id="evt-pe-sandbox-viz-gate-08",
@@ -298,8 +332,8 @@ class DuckDbShadowSandbox:
             status="PASS" if overall_passed else "REJECT-WITH-TRACE",
             rule_ids_evaluated=[c.check_id for c in dyn_report.checks],
             context_refs=EventContextRefs(
-                canonical_ir_sha256="a" * 64,
-                compiled_sql_sha256="b" * 64,
+                canonical_ir_sha256=ir_sha256,
+                compiled_sql_sha256=sql_sha256,
             ),
             data_classification="MNPI",
             layer1_story_banner=Layer1StoryBanner(
@@ -307,15 +341,12 @@ class DuckDbShadowSandbox:
                     "4-Batch DuckDB Shadow Sandbox passed all 15 DV-DYN checks "
                     "(0 orphans, 0 replay drift)."
                 ),
-                business_impact=(
-                    "Verified Q3 valuation restatement from 12.80x ($216.28M EV) to "
-                    "14.50x ($245.00M EV) with 100% Ghost/Zero-Key join completeness."
-                ),
+                business_impact=business_impact,
                 verdict_pill="PASS" if overall_passed else "REJECT-WITH-TRACE",
             ),
             layer2_visual_payload=Layer2VisualPayload.model_validate(
                 {
-                    "semantic_hash_pills": [portco_pill, lp_pill],
+                    "semantic_hash_pills": pills,
                     "summary_metrics": {
                         "batches_passed": sum(1 for b in batch_report.batches if b.passed),
                         "dyn_checks_passed": dyn_report.passed_count,
