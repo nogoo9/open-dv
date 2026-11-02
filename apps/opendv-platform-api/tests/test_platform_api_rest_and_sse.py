@@ -24,7 +24,7 @@ from opendv_platform_api import (
     redact_event_for_role,
     store_cas_artifact,
 )
-from opendv_platform_api.deps import REPO_ROOT, _resolve_sdk_shim_if_needed
+from opendv_platform_api.deps import REPO_ROOT
 
 
 def _run_async(coro: Any) -> Any:
@@ -688,7 +688,20 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
     """Verify `/api/v1/pipelines/validate`, `/api/v1/pipelines/runs`,
     `/api/v1/runs/{run_id}/report`, and SSE + WB-00..WB-11 integration.
     """
-    monkeypatch.setenv("OPENDV_ALLOW_MOCK_SDK_SHIM", "1")
+    import opendv_platform_api.deps as deps_mod
+    from opendv_agent_harness.adapters.deterministic_adapter import (
+        build_deterministic_agy_sdk_shim,
+    )
+
+    orig_run_pipeline = deps_mod.run_agentic_vault_pipeline
+    monkeypatch.setattr(
+        deps_mod,
+        "run_agentic_vault_pipeline",
+        lambda *args, **kwargs: orig_run_pipeline(
+            *args,
+            **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
+        ),
+    )
     state = PlatformStateContainer(state_dir=tmp_path / "state")
     app = create_app(platform_state=state)
     sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
@@ -968,39 +981,21 @@ def test_wp06_sdk_resolution_and_dynamic_project_run(
     tmp_path: Path,
     monkeypatch: Any,
 ) -> None:
-    """Verify WP-06 SDK shim resolution and dynamic project runs from bronze_sources."""
-    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("CLAUDE_CODE_USE_VERTEX", raising=False)
-    monkeypatch.delenv("CLAUDE_CODE_USE_BEDROCK", raising=False)
-    monkeypatch.delenv("OPENDV_ALLOW_MOCK_SDK_SHIM", raising=False)
-
-    # Without OPENDV_ALLOW_MOCK_SDK_SHIM, None is returned; when enabled, shim is returned
-    assert _resolve_sdk_shim_if_needed("antigravity") is None
-    assert _resolve_sdk_shim_if_needed("claude") is None
-    assert (
-        _resolve_sdk_shim_if_needed(
-            "claude",
-            env={"OPENDV_ALLOW_MOCK_SDK_SHIM": "1"},
-        )
-        is not None
-    )
-    assert _resolve_sdk_shim_if_needed("antigravity", env={"GEMINI_API_KEY": "real-key"}) is None
-    assert _resolve_sdk_shim_if_needed("claude", env={"ANTHROPIC_API_KEY": "real-key"}) is None
-    assert (
-        _resolve_sdk_shim_if_needed(
-            "antigravity",
-            env={
-                "GEMINI_API_KEY": "real-key",
-                "OPENDV_ALLOW_MOCK_SDK_SHIM": "true",
-            },
-        )
-        is not None
+    """Verify WP-06 dynamic project runs from bronze_sources with test-injected SDK shim."""
+    import opendv_platform_api.deps as deps_mod
+    from opendv_agent_harness.adapters.deterministic_adapter import (
+        build_deterministic_agy_sdk_shim,
     )
 
-    monkeypatch.setenv("OPENDV_ALLOW_MOCK_SDK_SHIM", "1")
+    orig_run_pipeline = deps_mod.run_agentic_vault_pipeline
+    monkeypatch.setattr(
+        deps_mod,
+        "run_agentic_vault_pipeline",
+        lambda *args, **kwargs: orig_run_pipeline(
+            *args,
+            **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
+        ),
+    )
     state = PlatformStateContainer(state_dir=tmp_path / "state")
     app = create_app(platform_state=state)
     ont_rel = (

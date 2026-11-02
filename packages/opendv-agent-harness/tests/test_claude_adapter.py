@@ -492,7 +492,6 @@ async def test_wp04_claude_fail_closed_and_anthropic_rest_api_fallback(
     from opendv_agent_harness.adapters.claude_adapter import ClaudeAgentSdkAdapter
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("OPENDV_ALLOW_MOCK_SDK_SHIM", raising=False)
 
     cfg_no_key = _make_claude_config(tmp_path, env={})
     adapter_no_key = ClaudeAgentSdkAdapter(cfg_no_key, sdk_module=None)

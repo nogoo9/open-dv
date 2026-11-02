@@ -901,7 +901,6 @@ def validate_pipeline_inputs(
     harness_setup: HarnessSetupConfig | dict[str, Any] | str | Path | None = None,
     *,
     base_dir: Path | None = None,
-    provider_override: str | None = None,
 ) -> DeterministicValidationReport:
     """Deterministically validate `PipelineInputSpec`, `HarnessSetupConfig`, ontology, and data."""
     diagnostics: list[dict[str, Any]] = []
@@ -957,40 +956,11 @@ def validate_pipeline_inputs(
     # 2. Validate HarnessSetupConfig & registered provider
     checked_items += 1
     setup_obj: HarnessSetupConfig
-    eff_provider_override = (
-        provider_override.strip()
-        if isinstance(provider_override, str) and provider_override.strip()
-        else None
-    )
     if harness_setup is None:
-        if eff_provider_override is not None:
-            try:
-                setup_obj = HarnessSetupConfig.model_validate({"provider": eff_provider_override})
-            except Exception as exc:
-                diagnostics.append(
-                    {
-                        "code": "HARNESS_SETUP_INVALID",
-                        "severity": "ERROR",
-                        "target": "harness_setup",
-                        "message": str(exc),
-                    }
-                )
-                return DeterministicValidationReport(
-                    stage="INPUT_VALIDATION",
-                    passed=False,
-                    checked_items_count=checked_items,
-                    diagnostics=diagnostics,
-                )
-        else:
-            setup_obj = HarnessSetupConfig()
+        setup_obj = HarnessSetupConfig()
     elif isinstance(harness_setup, dict):
         try:
-            raw_setup_dict = (
-                {**harness_setup, "provider": eff_provider_override}
-                if eff_provider_override is not None
-                else harness_setup
-            )
-            setup_obj = HarnessSetupConfig.model_validate(raw_setup_dict)
+            setup_obj = HarnessSetupConfig.model_validate(harness_setup)
         except Exception as exc:
             diagnostics.append(
                 {
@@ -1008,12 +978,7 @@ def validate_pipeline_inputs(
             )
     elif isinstance(harness_setup, (str, Path)):
         try:
-            if eff_provider_override is not None:
-                loaded_dict = dict(_load_yaml_or_json(harness_setup))
-                loaded_dict["provider"] = eff_provider_override
-                setup_obj = HarnessSetupConfig.model_validate(loaded_dict)
-            else:
-                setup_obj = HarnessSetupConfig.from_file(harness_setup)
+            setup_obj = HarnessSetupConfig.from_file(harness_setup)
         except Exception as exc:
             diagnostics.append(
                 {
@@ -1030,46 +995,7 @@ def validate_pipeline_inputs(
                 diagnostics=diagnostics,
             )
     else:
-        if eff_provider_override is not None:
-            try:
-                dumped = harness_setup.model_dump()
-                dumped["provider"] = eff_provider_override
-                setup_obj = HarnessSetupConfig.model_validate(dumped)
-            except Exception as exc:
-                diagnostics.append(
-                    {
-                        "code": "HARNESS_SETUP_INVALID",
-                        "severity": "ERROR",
-                        "target": "harness_setup",
-                        "message": str(exc),
-                    }
-                )
-                return DeterministicValidationReport(
-                    stage="INPUT_VALIDATION",
-                    passed=False,
-                    checked_items_count=checked_items,
-                    diagnostics=diagnostics,
-                )
-        else:
-            setup_obj = harness_setup
-
-    if setup_obj.provider in {"deterministic", "deterministic-stub"}:
-        diagnostics.append(
-            {
-                "code": "HARNESS_SETUP_INVALID",
-                "severity": "ERROR",
-                "target": "harness_setup.provider",
-                "message": (
-                    f"Provider '{setup_obj.provider}' is not permitted in harness configuration."
-                ),
-            }
-        )
-        return DeterministicValidationReport(
-            stage="INPUT_VALIDATION",
-            passed=False,
-            checked_items_count=checked_items,
-            diagnostics=diagnostics,
-        )
+        setup_obj = harness_setup
 
     resolved_harness_env: dict[str, str] = {}
     if setup_obj.provider not in list_available_harnesses():
@@ -1118,18 +1044,8 @@ def validate_pipeline_inputs(
     ):
         from opendv_agent_harness.adapters.agy_cli_adapter import AgyCliHarnessAdapter
 
-        mock_allowed = setup_obj.extra_provider_options.get("allow_mock_sdk_fallback") is True or (
-            (
-                resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                or ""
-            )
-            .strip()
-            .lower()
-            in {"1", "true", "yes"}
-        )
         agy_cli_check = AgyCliHarnessAdapter(setup_obj.to_harness_config(workspace_dir=ws_root))
-        if agy_cli_check._resolve_agy_binary() is None and not mock_allowed:
+        if agy_cli_check._resolve_agy_binary() is None:
             diagnostics.append(
                 {
                     "code": "HARNESS_AUTH_MISSING",
@@ -1152,21 +1068,11 @@ def validate_pipeline_inputs(
         sdk_pkg = (
             "google.antigravity" if setup_obj.provider == "antigravity" else "claude_agent_sdk"
         )
-        mock_allowed = setup_obj.extra_provider_options.get("allow_mock_sdk_fallback") is True or (
-            (
-                resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                or ""
-            )
-            .strip()
-            .lower()
-            in {"1", "true", "yes"}
-        )
         try:
             sdk_spec = importlib.util.find_spec(sdk_pkg)
         except (ImportError, ModuleNotFoundError, ValueError):
             sdk_spec = None
-        if sdk_spec is None and not mock_allowed:
+        if sdk_spec is None:
             diagnostics.append(
                 {
                     "code": "HARNESS_AUTH_MISSING",
@@ -1242,18 +1148,6 @@ def validate_pipeline_inputs(
             sdk_pkg = (
                 "google.antigravity" if setup_obj.provider == "antigravity" else "claude_agent_sdk"
             )
-            mock_allowed = setup_obj.extra_provider_options.get(
-                "allow_mock_sdk_fallback"
-            ) is True or (
-                (
-                    resolved_harness_env.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                    or os.environ.get("OPENDV_ALLOW_MOCK_SDK_SHIM")
-                    or ""
-                )
-                .strip()
-                .lower()
-                in {"1", "true", "yes"}
-            )
             try:
                 sdk_spec = importlib.util.find_spec(sdk_pkg)
             except (ImportError, ModuleNotFoundError, ValueError):
@@ -1271,7 +1165,7 @@ def validate_pipeline_inputs(
                     os.environ.get("GOOGLE_API_KEY"),
                 )
             )
-            if sdk_spec is None and not has_api_key and not mock_allowed:
+            if sdk_spec is None and not has_api_key:
                 diagnostics.append(
                     {
                         "code": "HARNESS_AUTH_MISSING",

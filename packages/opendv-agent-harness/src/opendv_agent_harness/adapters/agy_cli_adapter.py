@@ -23,7 +23,6 @@ from typing import Any
 
 from opendv_agent_harness.adapters.antigravity_adapter import (
     ProviderConfigurationError,
-    _allow_mock_sdk_shim,
     _strip_markdown_json_fences,
 )
 from opendv_agent_harness.models import (
@@ -244,41 +243,8 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
                 yield ev.model_copy(update={"provider": self.provider_name})
             return
 
-        has_explicit_cli_override = (
-            callable(self._config.extra_provider_options.get("agy_cli_runner"))
-            or bool(self._config.env.get("OPENDV_AGY_CLI_BIN"))
-            or bool(self._config.extra_provider_options.get("agy_binary"))
-            or bool(os.environ.get("OPENDV_AGY_CLI_BIN"))
-        )
-        if not has_explicit_cli_override and _allow_mock_sdk_shim(self._config):
-            from opendv_agent_harness.adapters.antigravity_adapter import (
-                AntigravityHarnessAdapter,
-            )
-            from opendv_agent_harness.adapters.deterministic_adapter import (
-                build_deterministic_agy_sdk_shim,
-            )
-
-            shim = build_deterministic_agy_sdk_shim()
-            delegate = AntigravityHarnessAdapter(self._config, sdk_module=shim)
-            async for ev in delegate._stream_provider_task(spec, ctx, model_id):
-                yield ev.model_copy(update={"provider": self.provider_name})
-            return
-
         agy_bin = self._resolve_agy_binary()
         if agy_bin is None:
-            if _allow_mock_sdk_shim(self._config):
-                from opendv_agent_harness.adapters.antigravity_adapter import (
-                    AntigravityHarnessAdapter,
-                )
-                from opendv_agent_harness.adapters.deterministic_adapter import (
-                    build_deterministic_agy_sdk_shim,
-                )
-
-                shim = build_deterministic_agy_sdk_shim()
-                delegate = AntigravityHarnessAdapter(self._config, sdk_module=shim)
-                async for ev in delegate._stream_provider_task(spec, ctx, model_id):
-                    yield ev.model_copy(update={"provider": self.provider_name})
-                return
             raise ProviderConfigurationError(
                 "Antigravity CLI ('agy') executable was not found on PATH or in "
                 "OPENDV_AGY_CLI_BIN. Install and log in to 'agy' or set OPENDV_AGY_CLI_BIN."

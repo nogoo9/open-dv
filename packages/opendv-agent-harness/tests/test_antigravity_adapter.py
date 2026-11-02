@@ -503,8 +503,6 @@ async def test_antigravity_steward_hold_and_cancel_active_turn(tmp_path: Path) -
 def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> None:
     from pydantic import ValidationError
 
-    from opendv_agent_harness.registry import create_harness
-
     assert list_available_harnesses() == [
         "agy",
         "agy-cli",
@@ -524,7 +522,7 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
 
     unregistered_det_cfg = agy_cfg.model_copy(update={"provider": "deterministic"})
     with pytest.raises(ValueError, match="Unsupported harness provider 'deterministic'"):
-        create_harness(unregistered_det_cfg)
+        create_agent_harness(unregistered_det_cfg)
 
     # Register custom provider factory
     try:
@@ -622,7 +620,6 @@ async def test_wp04_antigravity_fail_closed_and_gemini_rest_api_fallback(
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
-    monkeypatch.delenv("OPENDV_ALLOW_MOCK_SDK_SHIM", raising=False)
 
     cfg_no_key = _make_config(tmp_path, env={})
     adapter_no_key = GoogleAntigravityAdapter(cfg_no_key, sdk_module=None)

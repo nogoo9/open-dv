@@ -37,6 +37,8 @@ from opendv_agent_harness import (
     HarnessSetupConfig,
     ObservabilityVerdict,
     PipelineInputSpec,
+    create_agent_harness,
+    get_harness_adapter,
     run_agentic_vault_pipeline,
     validate_pipeline_inputs,
     validate_pipeline_outputs,
@@ -66,8 +68,6 @@ def _sample_dir() -> Path:
 def test_deterministic_harness_adapter_registration(tmp_path: Path) -> None:
     from pydantic import ValidationError
 
-    from opendv_agent_harness.registry import create_harness
-
     for invalid_provider in ("deterministic", "deterministic-stub"):
         with pytest.raises(ValidationError):
             HarnessSetupConfig(provider=invalid_provider)  # type: ignore[arg-type]
@@ -76,8 +76,8 @@ def test_deterministic_harness_adapter_registration(tmp_path: Path) -> None:
     input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
     invalid_override_report = validate_pipeline_inputs(
         input_spec,
+        {"provider": "deterministic"},
         base_dir=sample_dir,
-        provider_override="deterministic",
     )
     assert invalid_override_report.passed is False
     assert any(d["code"] == "HARNESS_SETUP_INVALID" for d in invalid_override_report.diagnostics)
@@ -91,18 +91,13 @@ def test_deterministic_harness_adapter_registration(tmp_path: Path) -> None:
     )
     unregistered_cfg = cfg.model_copy(update={"provider": "deterministic"})
     with pytest.raises(ValueError, match="Unsupported harness provider 'deterministic'"):
-        create_harness(unregistered_cfg)
+        create_agent_harness(unregistered_cfg)
+    with pytest.raises(ValueError, match="Unsupported harness provider 'deterministic'"):
+        get_harness_adapter(unregistered_cfg)
 
     direct_adapter = DeterministicHarnessAdapter(cfg)
     assert isinstance(direct_adapter, DeterministicHarnessAdapter)
     assert direct_adapter.provider_name == "deterministic"
-
-    custom_reg_adapter = create_harness(
-        unregistered_cfg,
-        registry={"deterministic": DeterministicHarnessAdapter},
-    )
-    assert isinstance(custom_reg_adapter, DeterministicHarnessAdapter)
-    assert custom_reg_adapter.provider_name == "deterministic"
 
 
 def test_validate_pipeline_inputs_valid_and_invalid(tmp_path: Path) -> None:
