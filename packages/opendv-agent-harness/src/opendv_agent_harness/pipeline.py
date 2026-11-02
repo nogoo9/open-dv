@@ -149,13 +149,11 @@ class HarnessSetupConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     provider: Literal[
-        "deterministic",
-        "deterministic-stub",
         "agy",
         "agy-cli",
         "antigravity",
         "claude",
-    ] = "deterministic"
+    ] = "agy"
     model_overrides: dict[str, str] = Field(
         default_factory=lambda: {
             "reasoning": "gemini-4-argon-high",
@@ -903,6 +901,7 @@ def validate_pipeline_inputs(
     harness_setup: HarnessSetupConfig | dict[str, Any] | str | Path | None = None,
     *,
     base_dir: Path | None = None,
+    provider_override: str | None = None,
 ) -> DeterministicValidationReport:
     """Deterministically validate `PipelineInputSpec`, `HarnessSetupConfig`, ontology, and data."""
     diagnostics: list[dict[str, Any]] = []
@@ -958,11 +957,40 @@ def validate_pipeline_inputs(
     # 2. Validate HarnessSetupConfig & registered provider
     checked_items += 1
     setup_obj: HarnessSetupConfig
+    eff_provider_override = (
+        provider_override.strip()
+        if isinstance(provider_override, str) and provider_override.strip()
+        else None
+    )
     if harness_setup is None:
-        setup_obj = HarnessSetupConfig()
+        if eff_provider_override is not None:
+            try:
+                setup_obj = HarnessSetupConfig.model_validate({"provider": eff_provider_override})
+            except Exception as exc:
+                diagnostics.append(
+                    {
+                        "code": "HARNESS_SETUP_INVALID",
+                        "severity": "ERROR",
+                        "target": "harness_setup",
+                        "message": str(exc),
+                    }
+                )
+                return DeterministicValidationReport(
+                    stage="INPUT_VALIDATION",
+                    passed=False,
+                    checked_items_count=checked_items,
+                    diagnostics=diagnostics,
+                )
+        else:
+            setup_obj = HarnessSetupConfig()
     elif isinstance(harness_setup, dict):
         try:
-            setup_obj = HarnessSetupConfig.model_validate(harness_setup)
+            raw_setup_dict = (
+                {**harness_setup, "provider": eff_provider_override}
+                if eff_provider_override is not None
+                else harness_setup
+            )
+            setup_obj = HarnessSetupConfig.model_validate(raw_setup_dict)
         except Exception as exc:
             diagnostics.append(
                 {
@@ -980,7 +1008,12 @@ def validate_pipeline_inputs(
             )
     elif isinstance(harness_setup, (str, Path)):
         try:
-            setup_obj = HarnessSetupConfig.from_file(harness_setup)
+            if eff_provider_override is not None:
+                loaded_dict = dict(_load_yaml_or_json(harness_setup))
+                loaded_dict["provider"] = eff_provider_override
+                setup_obj = HarnessSetupConfig.model_validate(loaded_dict)
+            else:
+                setup_obj = HarnessSetupConfig.from_file(harness_setup)
         except Exception as exc:
             diagnostics.append(
                 {
@@ -997,7 +1030,46 @@ def validate_pipeline_inputs(
                 diagnostics=diagnostics,
             )
     else:
-        setup_obj = harness_setup
+        if eff_provider_override is not None:
+            try:
+                dumped = harness_setup.model_dump()
+                dumped["provider"] = eff_provider_override
+                setup_obj = HarnessSetupConfig.model_validate(dumped)
+            except Exception as exc:
+                diagnostics.append(
+                    {
+                        "code": "HARNESS_SETUP_INVALID",
+                        "severity": "ERROR",
+                        "target": "harness_setup",
+                        "message": str(exc),
+                    }
+                )
+                return DeterministicValidationReport(
+                    stage="INPUT_VALIDATION",
+                    passed=False,
+                    checked_items_count=checked_items,
+                    diagnostics=diagnostics,
+                )
+        else:
+            setup_obj = harness_setup
+
+    if setup_obj.provider in {"deterministic", "deterministic-stub"}:
+        diagnostics.append(
+            {
+                "code": "HARNESS_SETUP_INVALID",
+                "severity": "ERROR",
+                "target": "harness_setup.provider",
+                "message": (
+                    f"Provider '{setup_obj.provider}' is not permitted in harness configuration."
+                ),
+            }
+        )
+        return DeterministicValidationReport(
+            stage="INPUT_VALIDATION",
+            passed=False,
+            checked_items_count=checked_items,
+            diagnostics=diagnostics,
+        )
 
     resolved_harness_env: dict[str, str] = {}
     if setup_obj.provider not in list_available_harnesses():
@@ -2474,6 +2546,7 @@ class AgenticVaultPipeline:
         base_dir: Path | None = None,
         cas_store: ContentAddressableStore | None = None,
         sdk_module: Any | None = None,
+        harness: VaultAgentHarness | None = None,
     ) -> None:
         self.input_spec = input_spec
         self.harness_setup = harness_setup or HarnessSetupConfig()
@@ -2485,6 +2558,7 @@ class AgenticVaultPipeline:
         self._explicit_output_dir = Path(output_dir).resolve() if output_dir is not None else None
         self._explicit_cas_store = cas_store
         self._sdk_module = sdk_module
+        self._explicit_harness = harness
         self._runtime_initialized = False
 
     def _ensure_runtime_initialized(self) -> None:
@@ -2519,15 +2593,13 @@ class AgenticVaultPipeline:
             app_data_dir=self.output_dir / "app_data",
             save_dir=self.output_dir / "save",
         )
-        if not self.harness_setup.auth.require_credentials_present:
-            self.harness_config.extra_provider_options.setdefault(
-                "allow_mock_sdk_fallback",
-                True,
+        if self._explicit_harness is not None:
+            self.harness: VaultAgentHarness = self._explicit_harness
+        else:
+            self.harness = get_harness_adapter(
+                self.harness_config,
+                sdk_module=self._sdk_module,
             )
-        self.harness: VaultAgentHarness = get_harness_adapter(
-            self.harness_config,
-            sdk_module=self._sdk_module,
-        )
         self._runtime_initialized = True
 
     def _record_artifact(
@@ -6286,6 +6358,7 @@ def run_agentic_vault_pipeline(
     base_dir: str | Path | None = None,
     cas_store: ContentAddressableStore | None = None,
     sdk_module: Any | None = None,
+    harness: VaultAgentHarness | None = None,
 ) -> AgenticPipelineReport:
     """Execute the end-to-end 8-stage neuro-symbolic Data Vault 2.0 pipeline."""
     eff_base: Path | None = Path(base_dir).resolve() if base_dir is not None else None
@@ -6312,6 +6385,7 @@ def run_agentic_vault_pipeline(
         base_dir=eff_base,
         cas_store=cas_store,
         sdk_module=sdk_module,
+        harness=harness,
     )
     return pipeline.run()
 

@@ -162,8 +162,6 @@ class HarnessConfig(BaseModel):
         "agy-cli",
         "antigravity",
         "claude",
-        "deterministic",
-        "deterministic-stub",
     ] = "antigravity"
     workspace_dir: Path
     state_dir: Path

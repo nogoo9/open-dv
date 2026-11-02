@@ -391,10 +391,7 @@
               "agy",
               "agy-cli",
               "antigravity",
-              "claude",
-              "claude-agent",
-              "deterministic",
-              "deterministic-stub"
+              "claude"
             ],
             "title": "Harness Provider",
             "type": "string"
@@ -839,10 +836,7 @@
               "agy",
               "agy-cli",
               "antigravity",
-              "claude",
-              "claude-agent",
-              "deterministic",
-              "deterministic-stub"
+              "claude"
             ],
             "title": "Harness Provider",
             "type": "string"

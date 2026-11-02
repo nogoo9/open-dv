@@ -6,13 +6,12 @@ Conforms to docs/09-agnostic-agent-harness-and-sdk-spec.md (§4).
 from __future__ import annotations
 
 import inspect
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any
 
 from opendv_agent_harness.adapters.agy_cli_adapter import AgyCliHarnessAdapter
 from opendv_agent_harness.adapters.antigravity_adapter import AntigravityHarnessAdapter
 from opendv_agent_harness.adapters.claude_adapter import ClaudeAgentHarnessAdapter
-from opendv_agent_harness.adapters.deterministic_adapter import DeterministicHarnessAdapter
 from opendv_agent_harness.models import HarnessConfig
 from opendv_agent_harness.protocol import VaultAgentHarness
 
@@ -23,8 +22,6 @@ _DEFAULT_REGISTRY: dict[str, HarnessFactory] = {
     "agy-cli": AgyCliHarnessAdapter,
     "antigravity": AntigravityHarnessAdapter,
     "claude": ClaudeAgentHarnessAdapter,
-    "deterministic": DeterministicHarnessAdapter,
-    "deterministic-stub": DeterministicHarnessAdapter,
 }
 
 _HARNESS_REGISTRY = _DEFAULT_REGISTRY
@@ -47,6 +44,7 @@ def create_agent_harness(
     config: HarnessConfig,
     *,
     sdk_module: Any | None = None,
+    registry: Mapping[str, HarnessFactory] | None = None,
 ) -> VaultAgentHarness:
     """Instantiate a `VaultAgentHarness` adapter matching `config.provider`.
 
@@ -54,13 +52,13 @@ def create_agent_harness(
     - `'agy'` / `'agy-cli'` -> `AgyCliHarnessAdapter`
     - `'antigravity'` -> `AntigravityHarnessAdapter`
     - `'claude'` -> `ClaudeAgentHarnessAdapter`
-    - `'deterministic'` / `'deterministic-stub'` -> `DeterministicHarnessAdapter`
-    - Any custom provider registered via `register_harness(...)`
+    - Any custom provider registered via `register_harness(...)` or `registry`
     """
+    active_registry = registry if registry is not None else _HARNESS_REGISTRY
     provider_key = str(config.provider).strip().lower()
-    factory = _HARNESS_REGISTRY.get(provider_key)
+    factory = active_registry.get(provider_key)
     if factory is None:
-        available = ", ".join(list_available_harnesses())
+        available = ", ".join(sorted(active_registry.keys()))
         raise ValueError(
             f"Unsupported harness provider '{config.provider}'. Available providers: [{available}]."
         )
@@ -74,13 +72,17 @@ def create_agent_harness(
     return factory(config)
 
 
+create_harness = create_agent_harness
+
+
 def get_harness_adapter(
     config: HarnessConfig,
     *,
     sdk_module: Any | None = None,
+    registry: Mapping[str, HarnessFactory] | None = None,
 ) -> VaultAgentHarness:
-    """Alias for `create_agent_harness(config, sdk_module=sdk_module)`."""
-    return create_agent_harness(config, sdk_module=sdk_module)
+    """Alias for `create_agent_harness(config, sdk_module=sdk_module, registry=registry)`."""
+    return create_agent_harness(config, sdk_module=sdk_module, registry=registry)
 
 
 __all__ = [
@@ -88,6 +90,7 @@ __all__ = [
     "_HARNESS_REGISTRY",
     "HarnessFactory",
     "create_agent_harness",
+    "create_harness",
     "get_harness_adapter",
     "list_available_harnesses",
     "register_harness",

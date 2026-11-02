@@ -181,9 +181,6 @@ class CreateRunRequest(BaseModel):
         "agy-cli",
         "antigravity",
         "claude",
-        "claude-agent",
-        "deterministic",
-        "deterministic-stub",
     ] = "antigravity"
     model_tier_override: Literal["reasoning", "fast"] | None = None
     contract_path: str | None = None
@@ -230,9 +227,6 @@ class ProjectRunDTO(BaseModel):
         "agy-cli",
         "antigravity",
         "claude",
-        "claude-agent",
-        "deterministic",
-        "deterministic-stub",
     ]
     status: RunStatus
     started_at_utc: str
@@ -1477,9 +1471,6 @@ class PlatformStateContainer:
             "agy-cli",
             "antigravity",
             "claude",
-            "claude-agent",
-            "deterministic",
-            "deterministic-stub",
         ],
         started_at_utc: str,
     ) -> ProjectRunDTO:

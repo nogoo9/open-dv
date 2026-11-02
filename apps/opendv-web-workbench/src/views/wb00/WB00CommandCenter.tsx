@@ -13,7 +13,7 @@ import { SixGateFunnelCard } from "./SixGateFunnelCard";
 
 export type HarnessProviderOverrideOption =
 	| ""
-	| "deterministic"
+	| "agy"
 	| "antigravity"
 	| "claude";
 
@@ -809,7 +809,7 @@ export function WB00CommandCenter({
 							}}
 						>
 							<option value="">Use Config File</option>
-							<option value="deterministic">deterministic</option>
+							<option value="agy">agy</option>
 							<option value="antigravity">antigravity</option>
 							<option value="claude">claude</option>
 						</select>

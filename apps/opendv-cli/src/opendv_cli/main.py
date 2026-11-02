@@ -231,9 +231,6 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
             "agy-cli",
             "antigravity",
             "claude",
-            "claude-agent",
-            "deterministic",
-            "deterministic-stub",
         ],
         help="Agent harness provider when creating a run.",
     )
@@ -340,7 +337,13 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
         "--provider",
         dest="provider",
         default=None,
-        help="Optional agent harness provider override (agy, antigravity, claude, deterministic).",
+        choices=[
+            "agy",
+            "agy-cli",
+            "antigravity",
+            "claude",
+        ],
+        help="Optional agent harness provider override (agy, agy-cli, antigravity, claude).",
     )
     p_pipeline.add_argument(
         "--hold-policy",
@@ -449,7 +452,19 @@ def app_main(
         raw_args
     ):
         raw_args = ["verify", *raw_args]
-    args = parser.parse_args(raw_args)
+    try:
+        args = parser.parse_args(raw_args)
+    except SystemExit as exc:
+        code = int(exc.code) if isinstance(exc.code, int) else 2
+        if code != 0 and "--json" in raw_args:
+            print(
+                json.dumps(
+                    {"status": "ERROR", "detail": "Invalid CLI arguments."},
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        return code
     return _dispatch(args, transport=transport)
 
 
@@ -473,7 +488,19 @@ def axi_dv_main(
         raw_args = ["verify", *raw_args]
 
     parser = build_parser(prog="axi-dv")
-    args = parser.parse_args(raw_args)
+    try:
+        args = parser.parse_args(raw_args)
+    except SystemExit as exc:
+        code = int(exc.code) if isinstance(exc.code, int) else 2
+        if code != 0 and "--json" in raw_args:
+            print(
+                json.dumps(
+                    {"status": "ERROR", "detail": "Invalid CLI arguments."},
+                    indent=2,
+                    sort_keys=True,
+                )
+            )
+        return code
     return _dispatch(args, transport=transport)
 
 

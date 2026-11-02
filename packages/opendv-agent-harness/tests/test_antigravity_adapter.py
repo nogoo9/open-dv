@@ -501,19 +501,30 @@ async def test_antigravity_steward_hold_and_cancel_active_turn(tmp_path: Path) -
 
 
 def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> None:
+    from pydantic import ValidationError
+
+    from opendv_agent_harness.registry import create_harness
+
     assert list_available_harnesses() == [
         "agy",
         "agy-cli",
         "antigravity",
         "claude",
-        "deterministic",
-        "deterministic-stub",
     ]
+
+    with pytest.raises(ValidationError):
+        _make_config(tmp_path, provider="deterministic")
+    with pytest.raises(ValidationError):
+        _make_config(tmp_path, provider="deterministic-stub")
 
     fake_agy, _ = _build_fake_antigravity_sdk()
     agy_cfg = _make_config(tmp_path, provider="antigravity")
     h_agy = create_agent_harness(agy_cfg, sdk_module=fake_agy)
     assert isinstance(h_agy, AntigravityHarnessAdapter)
+
+    unregistered_det_cfg = agy_cfg.model_copy(update={"provider": "deterministic"})
+    with pytest.raises(ValueError, match="Unsupported harness provider 'deterministic'"):
+        create_harness(unregistered_det_cfg)
 
     # Register custom provider factory
     try:
@@ -526,8 +537,6 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
         "agy-cli",
         "antigravity",
         "claude",
-        "deterministic",
-        "deterministic-stub",
     ]
 
     # Verify all 4 persona builders & generic dispatchers
@@ -744,8 +753,8 @@ async def test_wp04_antigravity_fail_closed_and_gemini_rest_api_fallback(
     assert gen_cfg["responseMimeType"] == "application/json"
     assert "properties" in gen_cfg["responseSchema"]
 
-    # Also verify DeterministicHarnessAdapter structured_output_factory
-    det_cfg = _make_config(tmp_path, provider="deterministic")
+    # Also verify DeterministicHarnessAdapter structured_output_factory as a test-only mock adapter
+    det_cfg = _make_config(tmp_path, provider="agy")
     det_adapter = DeterministicHarnessAdapter(
         det_cfg,
         structured_output_factory=lambda s: _SynthesisContractResult(

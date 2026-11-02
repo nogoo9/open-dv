@@ -302,7 +302,7 @@ describe("WB-00 Agentic Pipeline Launcher & Report Inspector", () => {
 			target: { value: "/custom/workspace/harness_config.yaml" },
 		});
 		providerSelect?.props.onChange?.({
-			target: { value: "deterministic" },
+			target: { value: "agy" },
 		});
 		policySelect?.props.onChange?.({
 			target: { value: "auto_approve_top_candidate" },
@@ -317,7 +317,7 @@ describe("WB-00 Agentic Pipeline Launcher & Report Inspector", () => {
 			body: {
 				input_spec_path: "/custom/workspace/pipeline_input.yaml",
 				harness_config_path: "/custom/workspace/harness_config.yaml",
-				provider_override: "deterministic",
+				provider_override: "agy",
 				steward_hold_policy: "auto_approve_top_candidate",
 			},
 		});
@@ -342,7 +342,7 @@ describe("WB-00 Agentic Pipeline Launcher & Report Inspector", () => {
 			body: {
 				input_spec_path: "/custom/workspace/pipeline_input.yaml",
 				harness_config_path: "/custom/workspace/harness_config.yaml",
-				provider_override: "deterministic",
+				provider_override: "agy",
 				steward_hold_policy: "auto_approve_top_candidate",
 			},
 		});
@@ -357,6 +357,12 @@ describe("WB-00 Agentic Pipeline Launcher & Report Inspector", () => {
 			/>,
 		);
 
+		expect(reportHtml).not.toContain('value="deterministic"');
+		expect(reportHtml).toContain(">agy</option>");
+		expect(reportHtml).toContain(
+			'<option value="antigravity">antigravity</option>',
+		);
+		expect(reportHtml).toContain('<option value="claude">claude</option>');
 		expect(reportHtml).toContain('data-testid="wb00-pipeline-report-panel"');
 		expect(reportHtml).toContain("run-agentic-pipeline-20261101");
 		expect(reportHtml).toContain("COMPLETED");
@@ -605,7 +611,7 @@ describe("WB-00 Agentic Pipeline Launcher & Report Inspector", () => {
 		);
 		expect(store.getState().validationResponse).toBeNull();
 
-		store.getState().setProviderOverride("deterministic");
+		store.getState().setProviderOverride("antigravity");
 		expect(store.getState().validationError).toBeNull();
 	});
 });

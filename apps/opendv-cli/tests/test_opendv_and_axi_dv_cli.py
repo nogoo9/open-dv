@@ -630,10 +630,43 @@ def test_verify_cli_rejected_and_ask_user_contracts(
 def test_opendv_pipeline_cli_local_and_remote_modes(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify `opendv pipeline validate`, `run --local`, `run --api-url`, and `report`."""
+    monkeypatch.setenv("OPENDV_ALLOW_MOCK_SDK_SHIM", "1")
     sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
     sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
+
+    # Negative check: --provider deterministic fails with non-zero exit code
+    rc_bad_provider = app_main(
+        [
+            "pipeline",
+            "validate",
+            "--local",
+            "--input",
+            sample_input,
+            "--provider",
+            "deterministic",
+            "--json",
+        ]
+    )
+    assert rc_bad_provider != 0
+    capsys.readouterr()
+
+    rc_bad_run_provider = app_main(
+        [
+            "pipeline",
+            "run",
+            "--local",
+            "--input",
+            sample_input,
+            "--provider",
+            "deterministic",
+            "--json",
+        ]
+    )
+    assert rc_bad_run_provider != 0
+    capsys.readouterr()
 
     # 1. opendv pipeline validate --local
     rc_val_local = app_main(
@@ -646,7 +679,7 @@ def test_opendv_pipeline_cli_local_and_remote_modes(
             "--harness-config",
             sample_harness,
             "--provider",
-            "deterministic",
+            "agy",
             "--hold-policy",
             "auto_approve_top_candidate",
             "--json",
@@ -671,7 +704,7 @@ def test_opendv_pipeline_cli_local_and_remote_modes(
             "--output-dir",
             str(local_out_dir),
             "--provider",
-            "deterministic",
+            "agy",
             "--hold-policy",
             "auto_approve_top_candidate",
             "--json",
@@ -792,7 +825,7 @@ def test_opendv_pipeline_cli_local_and_remote_modes(
             "--output-dir",
             str(remote_out_dir),
             "--provider",
-            "deterministic",
+            "agy",
             "--hold-policy",
             "auto_approve_top_candidate",
             "--json",
@@ -828,8 +861,10 @@ def test_opendv_pipeline_cli_local_and_remote_modes(
 def test_opendv_pipeline_cli_incremental_initial_contract_flag(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify `--initial-contract` flag on `opendv pipeline validate` and `run`."""
+    monkeypatch.setenv("OPENDV_ALLOW_MOCK_SDK_SHIM", "1")
     wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
     wave1_spec = "examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml"
     sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
@@ -848,7 +883,7 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
             "--output-dir",
             str(w0_out_dir),
             "--provider",
-            "deterministic",
+            "agy",
             "--json",
         ]
     )
@@ -872,7 +907,7 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
             "--initial-contract",
             str(w0_contract),
             "--provider",
-            "deterministic",
+            "agy",
             "--json",
         ]
     )
@@ -896,7 +931,7 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
             "--output-dir",
             str(w1_out_dir),
             "--provider",
-            "deterministic",
+            "agy",
             "--json",
         ]
     )
@@ -929,7 +964,7 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
             "--initial-contract",
             str(w0_contract),
             "--provider",
-            "deterministic",
+            "agy",
             "--json",
         ],
         transport=transport,
@@ -954,7 +989,7 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
             "--output-dir",
             str(w1_remote_out_dir),
             "--provider",
-            "deterministic",
+            "agy",
             "--json",
         ],
         transport=transport,
