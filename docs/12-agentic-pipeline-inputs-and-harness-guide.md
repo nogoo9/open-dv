@@ -19,8 +19,8 @@ The Open-DV pipeline decouples its 8-stage neuro-symbolic workflow from any sing
 | Field | Type | Required | Default | Description |
 | :--- | :--- | :---: | :--- | :--- |
 | `provider` | `"agy" \| "agy-cli" \| "antigravity" \| "claude"` | No | `"agy"` | Selects the concrete `VaultAgentHarness` adapter:<ul><li>`"agy"` / `"agy-cli"`: `AgyCliHarnessAdapter` backed by the local logged-in Antigravity Coding CLI (`agy -p --output-format json --json-schema <path>`).</li><li>`"antigravity"`: `AntigravityHarnessAdapter` backed by the Google Antigravity Python SDK (`google.antigravity`) or Gemini REST API (`GEMINI_API_KEY`).</li><li>`"claude"`: `ClaudeAgentHarnessAdapter` backed by the Anthropic Claude Agent SDK (`claude_agent_sdk`) or Anthropic Messages API (`ANTHROPIC_API_KEY`).</li></ul>*(Note: `DeterministicHarnessAdapter` and SDK shims exist strictly inside internal `pytest` suites for unit/integration mocking and are rejected by the CLI and API.)* |
-| `model_overrides` | `dict[str, str]` | No | `{"reasoning": "gemini-4-argon-high", "fast": "gemini-3.8-flash-high"}` | Maps semantic model tiers (`reasoning` for `ModelTier.HIGH_REASONING` and `fast` for `ModelTier.FAST_TIER`) to concrete provider model IDs. |
-| `agent_models` | `dict[str, str]` | No | `{}` | Optional fine-grained per-agent model overrides keyed by canonical persona identifier (`"vault-first-mate"`, `"scout-source"`, `"scout-unstructured"`, `"ship-vault"`). Takes highest precedence over `model_overrides[tier]` and provider defaults. |
+| `model_overrides` | `dict[str, str]` | No | `{"reasoning": "gemini-4-argon-high", "fast": "gemini-3.8-flash-high"}` | Maps semantic model tiers (`reasoning` for `ModelTier.HIGH_REASONING` and `fast` for `ModelTier.FAST_TIER`) to concrete provider model IDs. Legacy keys `argon` and `flash` are rejected during schema validation (`HARNESS_SETUP_INVALID`). |
+| `agent_models` | `dict[str, str]` | No | `{}` | Optional fine-grained per-agent model overrides keyed by canonical persona identifier (`"vault-first-mate"`, `"scout-source"`, `"scout-unstructured"`, `"ship-vault"`). Takes highest precedence over `model_overrides[tier]` and provider defaults for both top-level agent tasks and delegated subagents. |
 | `auth` | `HarnessAuthConfig` | No | `HarnessAuthConfig(auth_mode="none")` | Declarative authentication and cloud provider routing configuration (API key environment variable lookup, Vertex AI ADC, AWS Bedrock, or CLI session). Secrets are resolved from environment variables at runtime so raw credentials are never committed to YAML files. |
 | `budget` | `HarnessBudget` | No | `HarnessBudget()` | Per-task execution guardrails for turns, model calls, tool invocations, input/output tokens, USD cost ceiling, wall-clock timeout, and `@toon_v1` self-healing retries. |
 | `sandbox` | `SandboxPolicy` | No | `SandboxPolicy()` | Workspace read/write isolation, allowed directories, shell execution toggle, blocked command substrings, and built-in tool allow/deny lists. |
@@ -147,7 +147,7 @@ model_overrides:
   reasoning: gemini-4-argon-high
   fast: gemini-3.8-flash-high
 
-# Optional fine-grained per-agent model overrides (precedence level 1):
+# Optional fine-grained per-agent model overrides (take precedence over model_overrides):
 # agent_models:
 #   vault-first-mate: gemini-4-argon-high
 #   scout-source: gemini-3.8-flash-high
@@ -195,11 +195,11 @@ model_overrides:
   reasoning: claude-opus-4-6
   fast: claude-haiku-4-5
 
-# Optional fine-grained per-agent model overrides (precedence level 1):
+# Optional fine-grained per-agent model overrides (take precedence over model_overrides):
 # agent_models:
 #   vault-first-mate: claude-opus-4-6
 #   scout-source: claude-haiku-4-5
-#   scout-unstructured: claude-sonnet-4-6
+#   scout-unstructured: claude-haiku-4-5
 #   ship-vault: claude-opus-4-6
 
 auth:
@@ -246,7 +246,7 @@ provider: agy
 model_overrides:
   reasoning: gemini-4-argon-high
   fast: gemini-3.8-flash-high
-# Optional fine-grained per-agent model overrides:
+# Optional fine-grained per-agent model overrides (take precedence over model_overrides):
 # agent_models:
 #   vault-first-mate: gemini-4-argon-high
 #   scout-source: gemini-3.8-flash-high
@@ -474,7 +474,7 @@ Before any agent task or DuckDB compilation runs, `STAGE_00_ORCHESTRATION` execu
 | Diagnostic Code | Target | Trigger Condition & Remediation |
 | :--- | :--- | :--- |
 | `INPUT_SPEC_SCHEMA_INVALID` | `input_spec` | `pipeline_input.yaml` fails `PipelineInputSpec` Pydantic v2 validation (e.g., missing required field, unknown extra field, or `waves` is empty). |
-| `HARNESS_SETUP_INVALID` | `harness_setup` | `harness_config.yaml` fails `HarnessSetupConfig` / `HarnessAuthConfig` / `HarnessBudget` / `SandboxPolicy` Pydantic validation. |
+| `HARNESS_SETUP_INVALID` | `harness_setup` | `harness_config.yaml` fails `HarnessSetupConfig` / `HarnessAuthConfig` / `HarnessBudget` / `SandboxPolicy` Pydantic validation (including legacy `argon`/`flash` or unknown `model_overrides` keys and invalid `agent_models` persona keys). |
 | `UNKNOWN_HARNESS_PROVIDER` | `harness_setup.provider` | `provider` is not a supported harness provider (`"agy"`, `"agy-cli"`, `"antigravity"`, `"claude"`). |
 | `HARNESS_INIT_FAILED` | `harness_setup` | Adapter instantiation via `get_harness_adapter()` raised an error (e.g., non-absolute path in `HarnessConfig`). |
 | `HARNESS_AUTH_INCOMPATIBLE` | `harness_setup.auth.auth_mode` | Incompatible `(provider, auth_mode)` pair—specifically using `auth_mode: aws_bedrock` with `provider: agy`, `antigravity`, or any non-`claude` provider. Switch `provider` to `claude` or `auth_mode` to `vertex_adc` / `api_key_env` / `cli_session`. |

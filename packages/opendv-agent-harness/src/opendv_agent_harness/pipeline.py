@@ -158,9 +158,17 @@ class HarnessSetupConfig(BaseModel):
     ] = "deterministic"
     model_overrides: dict[str, str] = Field(
         default_factory=lambda: {
-            "argon": "gemini-4-argon-high",
-            "flash": "gemini-3.8-flash-high",
-        }
+            "reasoning": "gemini-4-argon-high",
+            "fast": "gemini-3.8-flash-high",
+        },
+        description="Semantic tier model overrides keyed by 'reasoning' or 'fast'.",
+    )
+    agent_models: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Optional fine-grained model override per agent persona "
+            "('vault-first-mate', 'scout-source', 'scout-unstructured', 'ship-vault')."
+        ),
     )
     auth: HarnessAuthConfig = Field(default_factory=HarnessAuthConfig)
     budget: HarnessBudget = Field(default_factory=HarnessBudget)
@@ -171,6 +179,92 @@ class HarnessSetupConfig(BaseModel):
     inject_adversarial_fault_on_attempt_1: bool = False
     env: dict[str, str] = Field(default_factory=dict)
     extra_provider_options: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("model_overrides", mode="before")
+    @classmethod
+    def _validate_model_overrides(cls, v: Any) -> dict[str, str]:
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError(
+                "model_overrides must be a mapping of semantic tier "
+                "('reasoning' or 'fast') to model ID."
+            )
+        normalized: dict[str, str] = {}
+        for raw_key, raw_val in v.items():
+            if isinstance(raw_key, ModelTier):
+                norm_key = raw_key.value
+            elif isinstance(raw_key, str):
+                key_str = raw_key.strip()
+                if key_str in {"argon", "flash"}:
+                    raise ValueError(
+                        f"Legacy model_overrides key '{key_str}' is no longer supported; "
+                        "use semantic tier keys 'reasoning' or 'fast'."
+                    )
+                if key_str in {"reasoning", "HIGH_REASONING"}:
+                    norm_key = ModelTier.HIGH_REASONING.value
+                elif key_str in {"fast", "FAST_TIER"}:
+                    norm_key = ModelTier.FAST_TIER.value
+                else:
+                    raise ValueError(
+                        f"Invalid model_overrides key '{raw_key}'; expected 'reasoning' or 'fast'."
+                    )
+            else:
+                raise ValueError(
+                    f"Invalid model_overrides key '{raw_key}'; expected 'reasoning' or 'fast'."
+                )
+            if not isinstance(raw_val, str) or not raw_val.strip():
+                raise ValueError(
+                    f"model_overrides['{norm_key}'] must be a non-empty model identifier string."
+                )
+            normalized[norm_key] = raw_val.strip()
+        return normalized
+
+    @field_validator("agent_models", mode="before")
+    @classmethod
+    def _validate_agent_models(cls, v: Any) -> dict[str, str]:
+        if v is None:
+            return {}
+        if not isinstance(v, dict):
+            raise ValueError("agent_models must be a mapping of agent persona to model ID.")
+        allowed_personas = {
+            AgentPersona.VAULT_FIRST_MATE,
+            AgentPersona.SCOUT_SOURCE,
+            AgentPersona.SCOUT_UNSTRUCTURED,
+            AgentPersona.SHIP_VAULT,
+            AgentPersona.AXI_DV,
+            AgentPersona.DETERMINISTIC_COMPILER,
+        }
+        normalized: dict[str, str] = {}
+        for raw_key, raw_val in v.items():
+            persona_enum: AgentPersona | None = None
+            if isinstance(raw_key, AgentPersona):
+                persona_enum = raw_key
+            elif isinstance(raw_key, str):
+                key_str = raw_key.strip()
+                if key_str in AgentPersona.__members__:
+                    persona_enum = AgentPersona[key_str]
+                else:
+                    try:
+                        persona_enum = AgentPersona(key_str)
+                    except ValueError as exc:
+                        raise ValueError(
+                            f"Invalid agent_models key '{raw_key}'; expected one of "
+                            "'vault-first-mate', 'scout-source', "
+                            "'scout-unstructured', 'ship-vault'."
+                        ) from exc
+            if persona_enum is None or persona_enum not in allowed_personas:
+                raise ValueError(
+                    f"Invalid agent_models key '{raw_key}'; expected one of "
+                    "'vault-first-mate', 'scout-source', 'scout-unstructured', 'ship-vault'."
+                )
+            if not isinstance(raw_val, str) or not raw_val.strip():
+                raise ValueError(
+                    f"agent_models['{persona_enum.value}'] must be a non-empty "
+                    "model identifier string."
+                )
+            normalized[persona_enum.value] = raw_val.strip()
+        return normalized
 
     def to_harness_config(
         self,
@@ -200,6 +294,11 @@ class HarnessSetupConfig(BaseModel):
                 tier_overrides[ModelTier.HIGH_REASONING] = str(v)
             elif k in {ModelTier.FAST_TIER.value, "FAST_TIER"}:
                 tier_overrides[ModelTier.FAST_TIER] = str(v)
+
+        persona_overrides: dict[AgentPersona, str] = {}
+        for k, v in self.agent_models.items():
+            persona_key = AgentPersona[k] if k in AgentPersona.__members__ else AgentPersona(k)
+            persona_overrides[persona_key] = str(v)
 
         resolved_env: dict[str, str] = dict(self.env)
         if self.auth.auth_mode == "api_key_env":
@@ -306,6 +405,7 @@ class HarnessSetupConfig(BaseModel):
             save_dir=eff_save,
             base_url=self.auth.api_base_url,
             model_overrides=tier_overrides,
+            agent_models=persona_overrides,
             budget=self.budget,
             sandbox=self.sandbox,
             env=resolved_env,
@@ -668,6 +768,7 @@ class PipelineStepReport(BaseModel):
     stage_id: str
     persona: str
     model_tier: str
+    model_used: str = ""
     status: Literal["PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"]
     attempt_count: int = 1
     duration_ms: float
@@ -798,8 +899,8 @@ def _load_table_into_duckdb(
 
 
 def validate_pipeline_inputs(
-    input_spec: PipelineInputSpec | dict[str, Any],
-    harness_setup: HarnessSetupConfig | dict[str, Any] | None = None,
+    input_spec: PipelineInputSpec | dict[str, Any] | str | Path,
+    harness_setup: HarnessSetupConfig | dict[str, Any] | str | Path | None = None,
     *,
     base_dir: Path | None = None,
 ) -> DeterministicValidationReport:
@@ -833,6 +934,24 @@ def validate_pipeline_inputs(
                 checked_items_count=checked_items,
                 diagnostics=diagnostics,
             )
+    elif isinstance(input_spec, (str, Path)):
+        try:
+            spec = PipelineInputSpec.from_file(input_spec)
+        except Exception as exc:
+            diagnostics.append(
+                {
+                    "code": "INPUT_SPEC_SCHEMA_INVALID",
+                    "severity": "ERROR",
+                    "target": "input_spec",
+                    "message": str(exc),
+                }
+            )
+            return DeterministicValidationReport(
+                stage="INPUT_VALIDATION",
+                passed=False,
+                checked_items_count=checked_items,
+                diagnostics=diagnostics,
+            )
     else:
         spec = input_spec
 
@@ -844,6 +963,24 @@ def validate_pipeline_inputs(
     elif isinstance(harness_setup, dict):
         try:
             setup_obj = HarnessSetupConfig.model_validate(harness_setup)
+        except Exception as exc:
+            diagnostics.append(
+                {
+                    "code": "HARNESS_SETUP_INVALID",
+                    "severity": "ERROR",
+                    "target": "harness_setup",
+                    "message": str(exc),
+                }
+            )
+            return DeterministicValidationReport(
+                stage="INPUT_VALIDATION",
+                passed=False,
+                checked_items_count=checked_items,
+                diagnostics=diagnostics,
+            )
+    elif isinstance(harness_setup, (str, Path)):
+        try:
+            setup_obj = HarnessSetupConfig.from_file(harness_setup)
         except Exception as exc:
             diagnostics.append(
                 {
@@ -2675,6 +2812,7 @@ class AgenticVaultPipeline:
                 stage_id=PipelineStageId.STAGE_00_ORCHESTRATION.value,
                 persona=AgentPersona.VAULT_FIRST_MATE.value,
                 model_tier=ModelTier.HIGH_REASONING.value,
+                model_used=vfm_res.model_used,
                 status="PASS",
                 attempt_count=1,
                 duration_ms=s0_ms,
@@ -2880,8 +3018,12 @@ class AgenticVaultPipeline:
                 trace_id=trace_id,
             ).model_copy(update={"output_schema": Stage01SourceDiscoveryOutput})
             s1_llm_discovery: Stage01SourceDiscoveryOutput | None = None
+            s1_model_used = self.harness.resolve_model(
+                scout_src_spec.model_tier, scout_src_spec.persona
+            )
             if raw_prof_tables:
                 scout_src_res = await self.harness.run_task(scout_src_spec)
+                s1_model_used = scout_src_res.model_used
                 s1_llm_discovery = (
                     scout_src_res.structured_output
                     if isinstance(scout_src_res.structured_output, Stage01SourceDiscoveryOutput)
@@ -3092,6 +3234,7 @@ class AgenticVaultPipeline:
                     stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
                     persona=AgentPersona.SCOUT_SOURCE.value,
                     model_tier=ModelTier.FAST_TIER.value,
+                    model_used=s1_model_used,
                     status="AUTO_REPAIRED" if wave_drift_events else "PASS",
                     attempt_count=1,
                     duration_ms=s1_ms,
@@ -3171,11 +3314,15 @@ class AgenticVaultPipeline:
                 ),
                 run_id=run_id,
                 trace_id=trace_id,
-                model_tier=ModelTier.HIGH_REASONING,
+                model_tier=ModelTier.FAST_TIER,
             ).model_copy(update={"output_schema": Stage02UnstructuredDiscoveryOutput})
             s2_llm_discovery: Stage02UnstructuredDiscoveryOutput | None = None
+            s2_model_used = self.harness.resolve_model(
+                scout_unstr_spec.model_tier, scout_unstr_spec.persona
+            )
             if raw_loaded_docs:
                 scout_unstr_res = await self.harness.run_task(scout_unstr_spec)
+                s2_model_used = scout_unstr_res.model_used
                 s2_llm_discovery = (
                     scout_unstr_res.structured_output
                     if isinstance(
@@ -3405,7 +3552,8 @@ class AgenticVaultPipeline:
                     wave_name=w_name,
                     stage_id=PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED.value,
                     persona=AgentPersona.SCOUT_UNSTRUCTURED.value,
-                    model_tier=ModelTier.HIGH_REASONING.value,
+                    model_tier=ModelTier.FAST_TIER.value,
+                    model_used=s2_model_used,
                     status=s2_status,
                     attempt_count=1,
                     duration_ms=s2_ms,
@@ -3589,6 +3737,7 @@ class AgenticVaultPipeline:
                     stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
                     persona=AgentPersona.SHIP_VAULT.value,
                     model_tier=ModelTier.HIGH_REASONING.value,
+                    model_used=pass1_res.model_used,
                     status="PASS",
                     attempt_count=1,
                     duration_ms=s3_ms,
@@ -3760,6 +3909,7 @@ class AgenticVaultPipeline:
                     stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
                     persona=AgentPersona.SHIP_VAULT.value,
                     model_tier=ModelTier.HIGH_REASONING.value,
+                    model_used=ship_res.model_used,
                     status="PASS",
                     attempt_count=1,
                     duration_ms=s4_ms,
@@ -3788,6 +3938,7 @@ class AgenticVaultPipeline:
             max_attempts = max(1, effective_max_retries)
             attempt_num = 1
             axi_res = None
+            s5_model_used = self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV)
 
             for attempt_num in range(1, max_attempts + 1):
                 axi_res = run_axi_dv_verification_pipeline(
@@ -3853,6 +4004,7 @@ class AgenticVaultPipeline:
                         output_schema=Stage04ContractSynthesisOutput,
                     )
                     repair_res = await self.harness.run_task(repair_spec)
+                    s5_model_used = repair_res.model_used
                     fallback_rep = synthesize_stage_output_from_prompt(
                         Stage04ContractSynthesisOutput,
                         repair_spec.prompt,
@@ -4097,6 +4249,7 @@ class AgenticVaultPipeline:
                     stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
                     persona=AgentPersona.AXI_DV.value,
                     model_tier=ModelTier.FAST_TIER.value,
+                    model_used=s5_model_used,
                     status=s5_status,
                     attempt_count=attempt_num,
                     duration_ms=s5_ms,
@@ -4245,6 +4398,7 @@ class AgenticVaultPipeline:
                     stage_id=PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
                     persona=AgentPersona.AXI_DV.value,
                     model_tier=ModelTier.FAST_TIER.value,
+                    model_used=self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV),
                     status=s6_status,
                     attempt_count=1,
                     duration_ms=s6_ms,
@@ -4430,6 +4584,9 @@ class AgenticVaultPipeline:
                 stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
                 persona=AgentPersona.DETERMINISTIC_COMPILER.value,
                 model_tier=ModelTier.FAST_TIER.value,
+                model_used=self.harness.resolve_model(
+                    ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER
+                ),
                 status="PASS",
                 attempt_count=1,
                 duration_ms=s7_ms,

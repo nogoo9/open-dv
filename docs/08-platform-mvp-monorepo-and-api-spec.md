@@ -661,7 +661,7 @@ All endpoints are versioned under `/api/v1`. Error responses conform to **RFC 94
 | Resource Group | HTTP Method & Path | Description | Primary Backing Package |
 | :--- | :--- | :--- | :--- |
 | **Health & Capabilities** | `GET /api/v1/health` | Liveness, DuckDB version, active harness adapters (`antigravity`, `claude`), and schema versions. | `opendv-platform-api` |
-| **Health & Capabilities** | `GET /api/v1/platform/capabilities` | Supported model tiers (`argon`, `flash`), RBAC tiers, 6 gates, and 12 workbench views (`WB-00`–`WB-11`). | `opendv-platform-api` |
+| **Health & Capabilities** | `GET /api/v1/platform/capabilities` | Supported model tiers (`reasoning`, `fast`), RBAC tiers, 6 gates, and 12 workbench views (`WB-00`–`WB-11`). | `opendv-platform-api` |
 | **Projects** | `POST /api/v1/projects` | Register a project workspace with `Graph A` ontology, Bronze source feeds, and optional baseline contract. | `opendv-core` |
 | **Projects** | `GET /api/v1/projects` | List registered projects and their latest pipeline run status. | `opendv-core` |
 | **Projects** | `GET /api/v1/projects/{project_id}` | Inspect project manifest, `Graph A` ontology summary, and registered Bronze tables/documents. | `opendv-core` |
@@ -738,7 +738,7 @@ class CreateRunRequest(BaseModel):
 
     project_id: str
     harness_provider: Literal["antigravity", "claude"] = "antigravity"
-    model_tier_override: Literal["argon", "flash"] | None = None
+    model_tier_override: Literal["reasoning", "fast"] | None = None
     contract_path: str | None = None
     max_repair_retries: int = Field(default=3, ge=0, le=5)
     run_sandbox_batches: bool = True

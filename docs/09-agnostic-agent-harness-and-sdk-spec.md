@@ -3,7 +3,7 @@
 > **Module:** `docs/09-agnostic-agent-harness-and-sdk-spec.md`  
 > **Parent Specification:** [`DV2_AGENT_REFERENCE_GUIDE.md`](DV2_AGENT_REFERENCE_GUIDE.md) (`v6.0.0`)  
 > **Companion Platform Specs:** [`08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) · [`10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) · [`11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)  
-> **Scope:** Vendor-neutral `VaultAgentHarness` protocol, `AgentTaskSpec`, `AgentToolDefinition`, `SubagentSpec`, `argon`/`flash` model-tier routing, automatic dual-SDK tool bridges, concrete `AntigravityHarnessAdapter` (`google.antigravity`) and `ClaudeAgentHarnessAdapter` (`claude_agent_sdk`) implementations, and real-time translation of SDK streams into `VaultObservabilityEvent` ledger records.
+> **Scope:** Vendor-neutral `VaultAgentHarness` protocol, `AgentTaskSpec`, `AgentToolDefinition`, `SubagentSpec`, `reasoning`/`fast` model-tier routing, automatic dual-SDK tool bridges, concrete `AntigravityHarnessAdapter` (`google.antigravity`) and `ClaudeAgentHarnessAdapter` (`claude_agent_sdk`) implementations, and real-time translation of SDK streams into `VaultObservabilityEvent` ledger records.
 
 ---
 
@@ -132,8 +132,8 @@ class DataClassification(StrEnum):
 class ModelTier(StrEnum):
     """Logical model routing tiers decoupled from vendor model IDs."""
 
-    HIGH_REASONING = "argon"  # Deep architectural reasoning, 3-Pass CoT, TOON repair, orchestration
-    FAST_TIER = "flash"       # High-throughput profiling orchestration, PDF span extraction, triage
+    HIGH_REASONING = "reasoning"  # Deep architectural reasoning, 3-Pass CoT, TOON repair, orchestration
+    FAST_TIER = "fast"            # High-throughput profiling orchestration, PDF span extraction, triage
 
 
 class SandboxPolicy(BaseModel):
@@ -181,6 +181,7 @@ class HarnessConfig(BaseModel):
     app_data_dir: Path
     save_dir: Path
     model_overrides: dict[ModelTier, str] = Field(default_factory=dict)
+    agent_models: dict[AgentPersona, str] = Field(default_factory=dict)
     budget: HarnessBudget = Field(default_factory=HarnessBudget)
     sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)
     env: dict[str, str] = Field(default_factory=dict)
@@ -415,7 +416,11 @@ class VaultAgentHarness(Protocol):
     @property
     def config(self) -> HarnessConfig: ...
 
-    def resolve_model(self, tier: ModelTier, persona: AgentPersona) -> str: ...
+    def resolve_model(
+        self,
+        tier: ModelTier,
+        persona: AgentPersona | None = None,
+    ) -> str: ...
 
     def stream_task(
         self,
@@ -447,7 +452,11 @@ class BaseVaultAgentHarness(abc.ABC):
         return self._config
 
     @abc.abstractmethod
-    def resolve_model(self, tier: ModelTier, persona: AgentPersona) -> str:
+    def resolve_model(
+        self,
+        tier: ModelTier,
+        persona: AgentPersona | None = None,
+    ) -> str:
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -790,9 +799,10 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
     def resolve_model(
         self,
         tier: ModelTier,
-        persona: AgentPersona = AgentPersona.VAULT_FIRST_MATE,
+        persona: AgentPersona | None = None,
     ) -> str:
-        del persona
+        if persona is not None and persona in self._config.agent_models:
+            return str(self._config.agent_models[persona])
         tier_enum = ModelTier(tier)
         if tier_enum in self._config.model_overrides:
             return str(self._config.model_overrides[tier_enum])
@@ -885,6 +895,7 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
             agy_types.SubagentConfig(
                 name=sub.name,
                 description=sub.description,
+                model=self.resolve_model(sub.model_tier, sub.persona),
                 capabilities=agy_types.SubagentCapabilities(
                     agent_behavior=agy_types.AgentBehavior.AUTONOMOUS,
                     enabled_tools=[
@@ -1037,9 +1048,10 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
     def resolve_model(
         self,
         tier: ModelTier,
-        persona: AgentPersona = AgentPersona.VAULT_FIRST_MATE,
+        persona: AgentPersona | None = None,
     ) -> str:
-        del persona
+        if persona is not None and persona in self._config.agent_models:
+            return str(self._config.agent_models[persona])
         tier_enum = ModelTier(tier)
         if tier_enum in self._config.model_overrides:
             return str(self._config.model_overrides[tier_enum])
@@ -1224,7 +1236,7 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
 
 | Persona (`AgentPersona`) | Default `ModelTier` | Filesystem Sandbox (`SandboxPolicy`) | Authorized Domain Tools | Allowed Subagents | Primary Stages & Workbench Views |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`vault-first-mate`** *(Read-Only Supervisor & Ontology Steward)* | `HIGH_REASONING` (`argon`) | `read_only_workspace=True`, `allow_shell_execution=False` | `profile_source_feed`, `run_axi_dv_gates`, `execute_duckdb_sandbox`, `compile_canonical_ir`, `emit_observability_event`, `request_steward_decision` | `scout-source`, `scout-unstructured`, `ship-vault` | `STAGE_00_ORCHESTRATION` (`WB-00`, `WB-01`) |
-| **`scout-source`** *(Bronze Statistical Profiler & Drift Detective)* | `FAST_TIER` (`flash`) | `read_only_workspace=True`, `allow_shell_execution=False` | `profile_source_feed`, `emit_observability_event` | None (`leaf scout`) | `STAGE_01_SCOUT_SOURCE` (`WB-02`, `WB-09`) |
-| **`scout-unstructured`** *(Span-Grounded NER & 3-Tier ER Scout)* | `FAST_TIER` (`flash`) | `read_only_workspace=True`, `allow_shell_execution=False` | `extract_pdf_spans`, `emit_observability_event`, `request_steward_decision` | None (`leaf scout`) | `STAGE_02_SCOUT_UNSTRUCTURED` (`WB-03`) |
-| **`ship-vault`** *(3-Pass CoT Modeller & Closed-Loop TOON Repair Worker)* | `HIGH_REASONING` (`argon`) | `read_only_workspace=False` *(isolated worktree)*, `allow_shell_execution=False` | `apply_ast_codemod`, `run_axi_dv_gates`, `execute_duckdb_sandbox`, `compile_canonical_ir`, `emit_observability_event`, `request_steward_decision` | None (`isolated worker`) | `STAGE_03` .. `STAGE_07` (`WB-04`..`WB-08`, `WB-10`, `WB-11`) |
+| **`vault-first-mate`** *(Read-Only Supervisor & Ontology Steward)* | `HIGH_REASONING` (`reasoning`) | `read_only_workspace=True`, `allow_shell_execution=False` | `profile_source_feed`, `run_axi_dv_gates`, `execute_duckdb_sandbox`, `compile_canonical_ir`, `emit_observability_event`, `request_steward_decision` | `scout-source`, `scout-unstructured`, `ship-vault` | `STAGE_00_ORCHESTRATION` (`WB-00`, `WB-01`) |
+| **`scout-source`** *(Bronze Statistical Profiler & Drift Detective)* | `FAST_TIER` (`fast`) | `read_only_workspace=True`, `allow_shell_execution=False` | `profile_source_feed`, `emit_observability_event` | None (`leaf scout`) | `STAGE_01_SCOUT_SOURCE` (`WB-02`, `WB-09`) |
+| **`scout-unstructured`** *(Span-Grounded NER & 3-Tier ER Scout)* | `FAST_TIER` (`fast`) | `read_only_workspace=True`, `allow_shell_execution=False` | `extract_pdf_spans`, `emit_observability_event`, `request_steward_decision` | None (`leaf scout`) | `STAGE_02_SCOUT_UNSTRUCTURED` (`WB-03`) |
+| **`ship-vault`** *(3-Pass CoT Modeller & Closed-Loop TOON Repair Worker)* | `HIGH_REASONING` (`reasoning`) | `read_only_workspace=False` *(isolated worktree)*, `allow_shell_execution=False` | `apply_ast_codemod`, `run_axi_dv_gates`, `execute_duckdb_sandbox`, `compile_canonical_ir`, `emit_observability_event`, `request_steward_decision` | None (`isolated worker`) | `STAGE_03` .. `STAGE_07` (`WB-04`..`WB-08`, `WB-10`, `WB-11`) |

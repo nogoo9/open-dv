@@ -30,7 +30,7 @@ export type RbacRole =
 export type HarnessProvider = "antigravity" | "claude";
 
 /** Reasoning / Execution Model Tiers (docs/09 & docs/11). */
-export type ModelTier = "argon" | "flash";
+export type ModelTier = "reasoning" | "fast";
 
 /** Pipeline Run Execution Lifecycle Status (docs/08 §5.2). */
 export type RunStatus =

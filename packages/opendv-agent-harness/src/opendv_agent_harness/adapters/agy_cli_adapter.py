@@ -37,7 +37,7 @@ from opendv_agent_harness.models import (
     ToolExecutionContext,
 )
 from opendv_agent_harness.protocol import BaseVaultAgentHarness
-from opendv_agent_harness.routing import DEFAULT_AGY_MODEL_MAP
+from opendv_agent_harness.routing import resolve_provider_model
 
 _STAGE_CONTEXT_MARKERS: tuple[str, ...] = (
     "\n__OPENDV_STAGE_CONTEXT_JSON__:",
@@ -113,16 +113,15 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
     def resolve_model(
         self,
         tier: ModelTier,
-        persona: AgentPersona = AgentPersona.VAULT_FIRST_MATE,
+        persona: AgentPersona | None = None,
     ) -> str:
-        """Resolve logical ModelTier ('argon' or 'flash') to an `agy` CLI model ID."""
-        del persona
-        tier_enum = ModelTier(tier)
-        if tier_enum in self._config.model_overrides:
-            return str(self._config.model_overrides[tier_enum])
-        return DEFAULT_AGY_MODEL_MAP.get(
-            tier_enum,
-            DEFAULT_AGY_MODEL_MAP[ModelTier.HIGH_REASONING],
+        """Resolve logical ModelTier ('reasoning'/'fast') and AgentPersona to an `agy` model ID."""
+        return resolve_provider_model(
+            self.provider_name,
+            tier,
+            overrides=self._config.model_overrides,
+            persona=persona,
+            agent_models=self._config.agent_models,
         )
 
     def _resolve_agy_binary(self) -> str | None:
@@ -152,6 +151,13 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
                 return str(fb_path)
         return None
 
+    def _resolve_subagent_models(self, spec: AgentTaskSpec[Any]) -> dict[str, str]:
+        """Resolve concrete model IDs for all subagents attached to `spec`."""
+        return {
+            sub.name: (sub.model_override or self.resolve_model(sub.model_tier, sub.persona))
+            for sub in spec.subagents
+        }
+
     def _build_cli_prompt(self, spec: AgentTaskSpec[Any], *, include_inline_schema: bool) -> str:
         """Construct the clean non-interactive prompt sent to `agy -p`."""
         clean_prompt = _strip_internal_stage_context(spec.prompt)
@@ -164,6 +170,13 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
             ),
             clean_prompt,
         ]
+        if spec.subagents:
+            subagent_models = self._resolve_subagent_models(spec)
+            sub_lines = [
+                f"- {sub_name}: model={sub_model}"
+                for sub_name, sub_model in subagent_models.items()
+            ]
+            parts.append("DELEGATED SUBAGENT MODELS:\n" + "\n".join(sub_lines))
         if include_inline_schema and spec.output_schema is not None:
             schema_json = json.dumps(
                 spec.output_schema.model_json_schema(),
@@ -217,6 +230,10 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
         model_id: str,
     ) -> AsyncIterator[HarnessStreamEvent]:
         """Execute task via the local `agy` CLI (`agy -p`) and stream normalized events."""
+        model_id = (
+            spec.model_override or model_id or self.resolve_model(spec.model_tier, spec.persona)
+        )
+        subagent_models = self._resolve_subagent_models(spec)
         if self._sdk_override is not None:
             from opendv_agent_harness.adapters.antigravity_adapter import (
                 AntigravityHarnessAdapter,
@@ -383,6 +400,7 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
                 payload.get("conversation_id") or spec.resume_session_id or spec.task_id
             ),
             "structured_output": validated_structured,
+            "subagent_models": subagent_models,
             "usage": {
                 "input_tokens": in_tok,
                 "cached_input_tokens": cached_tok,

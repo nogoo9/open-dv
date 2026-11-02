@@ -542,7 +542,7 @@ def test_doc08_monorepo_configs_rbac_redaction_and_sse_wire_vectors() -> None:
     run_req = create_run_req_cls(
         project_id="proj-pe-01",
         harness_provider="claude",
-        model_tier_override="argon",
+        model_tier_override="reasoning",
     )
     assert run_req.harness_provider == "claude"
     with pytest.raises(ValidationError):
@@ -649,7 +649,7 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
     to_antigravity_tool_callable = ns09["to_antigravity_tool_callable"]
     build_claude_sdk_mcp_bundle = ns09["build_claude_sdk_mcp_bundle"]
 
-    assert [t.value for t in model_tier_cls] == ["argon", "flash"]
+    assert [t.value for t in model_tier_cls] == ["reasoning", "fast"]
     assert [c.value for c in ns09["DataClassification"]] == [
         "PUBLIC",
         "INTERNAL",
@@ -999,11 +999,11 @@ def test_doc11_work_package_manifest_waves_and_disjoint_ownership() -> None:
     with pytest.raises(ValueError, match="Path prefix collision"):
         verify_disjoint(
             (
-                wp_spec_cls("WP-A", "b-a", "flash", (), ("apps/api/",), (), "true"),
+                wp_spec_cls("WP-A", "b-a", "fast", (), ("apps/api/",), (), "true"),
                 wp_spec_cls(
                     "WP-B",
                     "b-b",
-                    "flash",
+                    "fast",
                     (),
                     ("apps/api/tests/test_e2e.py",),
                     (),

@@ -7,6 +7,7 @@ and docs/06-explainability-and-observability-spec.md.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict
@@ -196,11 +197,29 @@ def get_persona_capability(persona: AgentPersona | str) -> PersonaCapabilityProf
 
 
 def resolve_default_tier_for_persona(persona: AgentPersona | str) -> ModelTier:
-    """Return the default ModelTier ('argon' or 'flash') for a persona."""
+    """Return the default ModelTier ('reasoning' or 'fast') for a persona."""
     persona_enum = AgentPersona(persona)
     if persona_enum in PERSONA_CAPABILITY_MATRIX:
         return PERSONA_CAPABILITY_MATRIX[persona_enum].default_model_tier
     return ModelTier.HIGH_REASONING
+
+
+def _normalize_tier_key(tier: ModelTier | str) -> ModelTier:
+    if isinstance(tier, ModelTier):
+        return tier
+    key_str = str(tier).strip()
+    if key_str in ModelTier.__members__:
+        return ModelTier[key_str]
+    return ModelTier(key_str)
+
+
+def _normalize_persona_key(persona: AgentPersona | str) -> AgentPersona:
+    if isinstance(persona, AgentPersona):
+        return persona
+    key_str = str(persona).strip()
+    if key_str in AgentPersona.__members__:
+        return AgentPersona[key_str]
+    return AgentPersona(key_str)
 
 
 def resolve_provider_model(
@@ -214,12 +233,42 @@ def resolve_provider_model(
     ]
     | str,
     tier: ModelTier | str,
-    overrides: dict[ModelTier, str] | None = None,
+    overrides: Mapping[ModelTier, str] | Mapping[str, str] | None = None,
+    persona: AgentPersona | str | None = None,
+    agent_models: Mapping[AgentPersona, str] | Mapping[str, str] | None = None,
 ) -> str:
-    """Resolve a logical ModelTier to a provider-specific model identifier."""
-    tier_enum = ModelTier(tier)
-    if overrides and tier_enum in overrides:
-        return str(overrides[tier_enum])
+    """Resolve a logical ModelTier and optional AgentPersona to a provider-specific model ID.
+
+    Precedence:
+    1. Fine-grained per-agent override in `agent_models` when `persona` is provided.
+    2. Semantic tier override in `overrides` ('reasoning' or 'fast').
+    3. Provider default model map (`DEFAULT_AGY_MODEL_MAP`, `DEFAULT_CLAUDE_MODEL_MAP`,
+       or `DEFAULT_DETERMINISTIC_MODEL_MAP`).
+    """
+    if persona is not None and agent_models:
+        try:
+            persona_enum = _normalize_persona_key(persona)
+        except ValueError:
+            persona_enum = None
+        for candidate_key in (
+            persona,
+            persona_enum,
+            persona_enum.value if persona_enum is not None else None,
+            persona_enum.name if persona_enum is not None else None,
+        ):
+            if candidate_key is not None and candidate_key in agent_models:
+                candidate_val = str(agent_models[candidate_key]).strip()  # type: ignore[index]
+                if candidate_val:
+                    return candidate_val
+
+    tier_enum = _normalize_tier_key(tier)
+    if overrides:
+        for candidate_tier in (tier, tier_enum, tier_enum.value, tier_enum.name):
+            if candidate_tier in overrides:
+                candidate_val = str(overrides[candidate_tier]).strip()  # type: ignore[index]
+                if candidate_val:
+                    return candidate_val
+
     if provider == "claude":
         return DEFAULT_CLAUDE_MODEL_MAP.get(
             tier_enum,
