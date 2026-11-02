@@ -13,7 +13,12 @@ from opendv_agent_harness.adapters import (
     AntigravityCliAdapter,
     AntigravityHarnessAdapter,
     ClaudeAgentHarnessAdapter,
+    ClaudeCliHarnessAdapter,
+    ClaudeCodeCliAdapter,
     DeterministicHarnessAdapter,
+)
+from opendv_agent_harness.adapters.antigravity_adapter import (
+    ProviderConfigurationError,
 )
 from opendv_agent_harness.hold_manager import (
     StewardDecisionAction,
@@ -166,6 +171,8 @@ __all__ = [
     "ApplyAstCodemodOutput",
     "BaseVaultAgentHarness",
     "ClaudeAgentHarnessAdapter",
+    "ClaudeCliHarnessAdapter",
+    "ClaudeCodeCliAdapter",
     "CompileCanonicalIrInput",
     "CompileCanonicalIrOutput",
     "DataClassification",
@@ -209,6 +216,7 @@ __all__ = [
     "PipelineWaveReport",
     "ProfileSourceFeedInput",
     "ProfileSourceFeedOutput",
+    "ProviderConfigurationError",
     "RequestStewardDecisionInput",
     "RequestStewardDecisionOutput",
     "RunAxiDvGatesInput",

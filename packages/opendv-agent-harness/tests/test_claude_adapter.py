@@ -658,3 +658,288 @@ async def test_wp20_claude_agent_models_propagation_to_options_and_agent_definit
     su_res = await adapter.run_task(su_spec)
     assert su_res.model_used == "custom-unstructured-v1"
     assert captured["options"][-1]["model"] == "custom-unstructured-v1"
+
+
+@pytest.mark.asyncio
+async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_and_fallback(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import json
+    import shutil
+    import subprocess
+
+    from opendv_agent_harness import (
+        ClaudeCliHarnessAdapter,
+        ClaudeCodeCliAdapter,
+        ProviderConfigurationError,
+        create_agent_harness,
+        get_harness_adapter,
+    )
+    from opendv_agent_harness.adapters.claude_cli_adapter import (
+        _extract_json_from_stdout,
+        _strip_internal_stage_context,
+    )
+
+    assert ClaudeCodeCliAdapter is ClaudeCliHarnessAdapter
+
+    # 1. Verify internal stage context stripping & JSON extraction helper
+    prompt_with_ctx = 'Synthesize Pass 1 Triage\n__OPENDV_STAGE_CONTEXT_JSON__:{"secret": 456}'
+    assert _strip_internal_stage_context(prompt_with_ctx) == "Synthesize Pass 1 Triage"
+    assert _extract_json_from_stdout('log line\n{"status": "SUCCESS", "result": "ok"}\n') == {
+        "status": "SUCCESS",
+        "result": "ok",
+    }
+
+    fake_claude_exe = tmp_path / "fake_claude"
+    fake_claude_exe.write_text("#!/bin/sh\necho fake\n", encoding="utf-8")
+
+    # 2. Verify registration under both 'claude-cli' and 'claude-code' and model resolution
+    for prov_alias in ("claude-cli", "claude-code"):
+        default_cfg = HarnessConfig(
+            provider=prov_alias,  # type: ignore[arg-type]
+            workspace_dir=tmp_path,
+            state_dir=tmp_path / "state",
+            app_data_dir=tmp_path / "app_data",
+            save_dir=tmp_path / "save",
+        )
+        h_cli = create_agent_harness(default_cfg)
+        assert isinstance(h_cli, ClaudeCliHarnessAdapter)
+        assert isinstance(get_harness_adapter(default_cfg), ClaudeCliHarnessAdapter)
+        assert h_cli.provider_name == "claude-cli"
+        assert (
+            h_cli.resolve_model(ModelTier.HIGH_REASONING)
+            == DEFAULT_CLAUDE_MODEL_MAP[ModelTier.HIGH_REASONING]
+        )
+        assert (
+            h_cli.resolve_model(ModelTier.FAST_TIER)
+            == DEFAULT_CLAUDE_MODEL_MAP[ModelTier.FAST_TIER]
+        )
+
+    # 3. Verify model_overrides and fine-grained agent_models precedence across all 4 personas
+    override_cfg = HarnessConfig(
+        provider="claude-cli",
+        workspace_dir=tmp_path,
+        state_dir=tmp_path / "state",
+        app_data_dir=tmp_path / "app_data",
+        save_dir=tmp_path / "save",
+        model_overrides={
+            "reasoning": "claude-opus-4-6",
+            "fast": "claude-haiku-4-5",
+        },
+        agent_models={
+            "vault-first-mate": "claude-vfm-custom",
+            "scout-source": "claude-ss-custom",
+            "scout-unstructured": "claude-su-custom",
+            "ship-vault": "claude-sv-custom",
+        },
+    )
+    override_adapter = ClaudeCliHarnessAdapter(override_cfg)
+    assert (
+        override_adapter.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.VAULT_FIRST_MATE)
+        == "claude-vfm-custom"
+    )
+    assert (
+        override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_SOURCE)
+        == "claude-ss-custom"
+    )
+    assert (
+        override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_UNSTRUCTURED)
+        == "claude-su-custom"
+    )
+    assert (
+        override_adapter.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.SHIP_VAULT)
+        == "claude-sv-custom"
+    )
+    assert (
+        override_adapter.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV)
+        == "claude-haiku-4-5"
+    )
+
+    # 4. Verify subprocess invocation via claude_cli_runner (flags, --agents, --resume)
+    captured_cmds: list[list[str]] = []
+
+    def _fake_claude_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        assert env.get("NO_COLOR") == "1"
+        assert timeout > 0
+        captured_cmds.append(list(cmd))
+        out_payload = {
+            "type": "result",
+            "subtype": "success",
+            "is_error": False,
+            "session_id": "sess-claude-cli-901",
+            "result": json.dumps(
+                {
+                    "contract_id": "dv_claude_cli_contract_v5",
+                    "verified_gates": 6,
+                    "status": "PASS",
+                }
+            ),
+            "structured_output": {
+                "contract_id": "dv_claude_cli_contract_v5",
+                "verified_gates": 6,
+                "status": "PASS",
+            },
+            "num_turns": 1,
+            "total_cost_usd": 0.042,
+            "usage": {
+                "input_tokens": 950,
+                "cache_read_input_tokens": 250,
+                "output_tokens": 140,
+            },
+        }
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=json.dumps(out_payload),
+            stderr="",
+        )
+
+    cli_cfg = HarnessConfig(
+        provider="claude-cli",
+        workspace_dir=tmp_path,
+        state_dir=tmp_path / "state",
+        app_data_dir=tmp_path / "app_data",
+        save_dir=tmp_path / "save",
+        env={"OPENDV_CLAUDE_CLI_BIN": str(fake_claude_exe)},
+        model_overrides={
+            "reasoning": "claude-opus-4-6",
+            "fast": "claude-haiku-4-5",
+        },
+        agent_models={
+            "scout-unstructured": "claude-sonnet-4-6",
+            "ship-vault": "claude-opus-4-6-custom",
+        },
+        extra_provider_options={"claude_cli_runner": _fake_claude_runner},
+    )
+    cli_adapter = create_agent_harness(cli_cfg)
+    assert isinstance(cli_adapter, ClaudeCliHarnessAdapter)
+
+    vfm_spec = build_vault_first_mate_task_spec(
+        prompt=prompt_with_ctx,
+        run_id="run-claude-cli-01",
+        trace_id=SAMPLE_TRACE_ID,
+        output_schema=_ClaudeStructuredResult,
+        resume_session_id="sess-prev-claude-cli-00",
+    )
+    res = await cli_adapter.run_task(vfm_spec)
+    assert res.stop_reason == HarnessStopReason.COMPLETED
+    assert res.provider == "claude-cli"
+    assert res.session_id == "sess-claude-cli-901"
+    assert res.model_used == "claude-opus-4-6"
+    assert res.subagent_models == {
+        "scout-source": "claude-haiku-4-5",
+        "scout-unstructured": "claude-sonnet-4-6",
+        "ship-vault": "claude-opus-4-6-custom",
+    }
+    assert isinstance(res.structured_output, _ClaudeStructuredResult)
+    assert res.structured_output.contract_id == "dv_claude_cli_contract_v5"
+    assert res.structured_output.verified_gates == 6
+    assert res.usage.input_tokens == 950
+    assert res.usage.cached_input_tokens == 250
+    assert res.usage.output_tokens == 140
+    assert res.usage.total_tokens == 1090
+    assert res.usage.cost_usd == pytest.approx(0.042)
+
+    assert len(captured_cmds) == 1
+    cmd0 = captured_cmds[0]
+    assert cmd0[0] == str(fake_claude_exe)
+    assert cmd0[1] == "-p"
+    assert "__OPENDV_STAGE_CONTEXT_JSON__" not in cmd0[2]
+    assert cmd0[cmd0.index("--model") + 1] == "claude-opus-4-6"
+    assert cmd0[cmd0.index("--output-format") + 1] == "json"
+    assert "--disable-slash-commands" in cmd0
+    assert cmd0[cmd0.index("--tools") + 1] == ""
+    assert cmd0[cmd0.index("--system-prompt") + 1] == vfm_spec.system_instructions.strip()
+    assert cmd0[cmd0.index("--resume") + 1] == "sess-prev-claude-cli-00"
+    assert "--json-schema" in cmd0
+    parsed_schema = json.loads(cmd0[cmd0.index("--json-schema") + 1])
+    assert "properties" in parsed_schema
+
+    parsed_agents = json.loads(cmd0[cmd0.index("--agents") + 1])
+    assert parsed_agents["scout-source"]["model"] == "claude-haiku-4-5"
+    assert parsed_agents["scout-unstructured"]["model"] == "claude-sonnet-4-6"
+    assert parsed_agents["ship-vault"]["model"] == "claude-opus-4-6-custom"
+
+    # 5. Verify fallback retry without --json-schema when Attempt 1 returns non-zero exit code
+    fallback_cmds: list[list[str]] = []
+
+    def _fallback_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        fallback_cmds.append(list(cmd))
+        if "--json-schema" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=1,
+                stdout="",
+                stderr="--json-schema validation unsupported for $defs",
+            )
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "session_id": "sess-fallback-02",
+                    "is_error": False,
+                    "result": (
+                        '```json\n{"contract_id": "dv_fallback_v5", '
+                        '"verified_gates": 6, "status": "PASS"}\n```'
+                    ),
+                    "usage": {"input_tokens": 100, "output_tokens": 50},
+                }
+            ),
+            stderr="",
+        )
+
+    fb_cfg = cli_cfg.model_copy(
+        update={
+            "extra_provider_options": {
+                "claude_binary": str(fake_claude_exe),
+                "claude_cli_runner": _fallback_runner,
+            },
+            "env": {},
+        }
+    )
+    fb_adapter = ClaudeCliHarnessAdapter(fb_cfg)
+    fb_res = await fb_adapter.run_task(vfm_spec)
+    assert len(fallback_cmds) == 2
+    assert "--json-schema" in fallback_cmds[0]
+    assert "--json-schema" not in fallback_cmds[1]
+    assert "--agents" in fallback_cmds[1]
+    assert "--system-prompt" in fallback_cmds[1]
+    assert "--resume" in fallback_cmds[1]
+    assert isinstance(fb_res.structured_output, _ClaudeStructuredResult)
+    assert fb_res.structured_output.contract_id == "dv_fallback_v5"
+
+    # 6. Verify error handling when binary is missing or is_error=True is returned
+    monkeypatch.delenv("OPENDV_CLAUDE_CLI_BIN", raising=False)
+    monkeypatch.setattr(shutil, "which", lambda _name: None)
+    missing_bin_cfg = cli_cfg.model_copy(update={"env": {}, "extra_provider_options": {}})
+    missing_adapter = ClaudeCliHarnessAdapter(missing_bin_cfg)
+    with pytest.raises(ProviderConfigurationError, match="Claude Code CLI"):
+        await missing_adapter.run_task(vfm_spec)
+
+    err_cfg = cli_cfg.model_copy(
+        update={
+            "extra_provider_options": {
+                "claude_cli_runner": lambda cmd, *, env, timeout: subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=0,
+                    stdout=json.dumps({"is_error": True, "result": "Authentication expired"}),
+                    stderr="",
+                )
+            }
+        }
+    )
+    with pytest.raises(ProviderConfigurationError, match="Authentication expired"):
+        await ClaudeCliHarnessAdapter(err_cfg).run_task(vfm_spec)

@@ -3,7 +3,7 @@
 > **Module:** `docs/09-agnostic-agent-harness-and-sdk-spec.md`  
 > **Parent Specification:** [`DV2_AGENT_REFERENCE_GUIDE.md`](DV2_AGENT_REFERENCE_GUIDE.md) (`v6.0.0`)  
 > **Companion Platform Specs:** [`08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) · [`10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) · [`11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)  
-> **Scope:** Vendor-neutral `VaultAgentHarness` protocol, `AgentTaskSpec`, `AgentToolDefinition`, `SubagentSpec`, `reasoning`/`fast` model-tier routing, automatic dual-SDK tool bridges, concrete `AntigravityHarnessAdapter` (`google.antigravity`) and `ClaudeAgentHarnessAdapter` (`claude_agent_sdk`) implementations, and real-time translation of SDK streams into `VaultObservabilityEvent` ledger records.
+> **Scope:** Vendor-neutral `VaultAgentHarness` protocol, `AgentTaskSpec`, `AgentToolDefinition`, `SubagentSpec`, `reasoning`/`fast` model-tier routing, automatic dual-SDK tool bridges, concrete `AgyCliHarnessAdapter` (`agy` CLI), `ClaudeCliHarnessAdapter` (`claude` CLI), `AntigravityHarnessAdapter` (`google.antigravity`) and `ClaudeAgentHarnessAdapter` (`claude_agent_sdk`) implementations, and real-time translation of SDK streams into `VaultObservabilityEvent` ledger records.
 
 ---
 
@@ -175,7 +175,7 @@ class HarnessBudget(BaseModel):
 class HarnessConfig(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    provider: Literal["antigravity", "claude"] = "antigravity"
+    provider: Literal["agy", "agy-cli", "antigravity", "claude", "claude-cli", "claude-code"] = "antigravity"
     workspace_dir: Path
     state_dir: Path
     app_data_dir: Path

@@ -1,8 +1,8 @@
 """End-to-End 8-Stage Neuro-Symbolic Agentic Data Vault 2.0 Pipeline (`WP-14`).
 
 Implements the `vault-first-mate` / `no-mistakes` agentic pipeline over the hexagonal
-`VaultAgentHarness` protocol (`AgyCliHarnessAdapter`, `AntigravityHarnessAdapter`,
-`ClaudeAgentHarnessAdapter`) and deterministic verification
+`VaultAgentHarness` protocol (`AgyCliHarnessAdapter`, `ClaudeCliHarnessAdapter`,
+`AntigravityHarnessAdapter`, `ClaudeAgentHarnessAdapter`) and deterministic verification
 engines (`opendv-core`, `opendv-axi-verifier`, `opendv-duckdb-sandbox`, `opendv-telemetry`).
 
 Provides:
@@ -125,14 +125,8 @@ class HarnessAuthConfig(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    auth_mode: Literal[
-        "none",
-        "api_key_env",
-        "vertex_adc",
-        "aws_bedrock",
-        "cli_session",
-        "ambient_cli",
-    ] = "none"
+    auth_mode: str = "none"
+    mode: str = "none"
     api_key_env_var: str | None = None
     api_base_url: str | None = None
     gcp_project: str | None = None
@@ -141,6 +135,44 @@ class HarnessAuthConfig(BaseModel):
     aws_region: str | None = None
     aws_profile: str | None = None
     require_credentials_present: bool = False
+    require_preflight: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _sync_mode_and_preflight_before(cls, data: Any) -> Any:
+        if not isinstance(data, dict):
+            return data
+        copied = dict(data)
+        if "mode" in copied and "auth_mode" not in copied and copied["mode"] is not None:
+            copied["auth_mode"] = str(copied["mode"]).strip()
+        elif "auth_mode" in copied and "mode" not in copied and copied["auth_mode"] is not None:
+            copied["mode"] = str(copied["auth_mode"]).strip()
+
+        if (
+            "require_preflight" in copied
+            and "require_credentials_present" not in copied
+            and copied["require_preflight"] is not None
+        ):
+            copied["require_credentials_present"] = bool(copied["require_preflight"])
+        elif (
+            "require_credentials_present" in copied
+            and "require_preflight" not in copied
+            and copied["require_credentials_present"] is not None
+        ):
+            copied["require_preflight"] = bool(copied["require_credentials_present"])
+        return copied
+
+    @model_validator(mode="after")
+    def _sync_mode_and_preflight_after(self) -> HarnessAuthConfig:
+        effective_mode = (
+            self.mode if (self.mode != "none" and self.auth_mode == "none") else self.auth_mode
+        )
+        object.__setattr__(self, "auth_mode", effective_mode)
+        object.__setattr__(self, "mode", effective_mode)
+        effective_preflight = bool(self.require_credentials_present or self.require_preflight)
+        object.__setattr__(self, "require_credentials_present", effective_preflight)
+        object.__setattr__(self, "require_preflight", effective_preflight)
+        return self
 
 
 class HarnessSetupConfig(BaseModel):
@@ -153,6 +185,8 @@ class HarnessSetupConfig(BaseModel):
         "agy-cli",
         "antigravity",
         "claude",
+        "claude-cli",
+        "claude-code",
     ] = "agy"
     model_overrides: dict[str, str] = Field(
         default_factory=lambda: {
@@ -264,6 +298,28 @@ class HarnessSetupConfig(BaseModel):
             normalized[persona_enum.value] = raw_val.strip()
         return normalized
 
+    @model_validator(mode="after")
+    def _apply_provider_defaults(self) -> HarnessSetupConfig:
+        if self.provider in {"claude-cli", "claude-code"}:
+            if "auth" not in self.model_fields_set or (
+                "auth_mode" not in self.auth.model_fields_set
+                and "mode" not in self.auth.model_fields_set
+                and self.auth.auth_mode == "none"
+                and self.auth.mode == "none"
+            ):
+                object.__setattr__(self.auth, "auth_mode", "cli_session")
+                object.__setattr__(self.auth, "mode", "cli_session")
+            if "model_overrides" not in self.model_fields_set:
+                object.__setattr__(
+                    self,
+                    "model_overrides",
+                    {
+                        "reasoning": "claude-opus-4-6",
+                        "fast": "claude-haiku-4-5",
+                    },
+                )
+        return self
+
     def to_harness_config(
         self,
         *,
@@ -298,10 +354,17 @@ class HarnessSetupConfig(BaseModel):
             persona_key = AgentPersona[k] if k in AgentPersona.__members__ else AgentPersona(k)
             persona_overrides[persona_key] = str(v)
 
+        eff_auth_mode = (
+            self.auth.mode
+            if (self.auth.mode != "none" and self.auth.auth_mode == "none")
+            else self.auth.auth_mode
+        )
+        is_claude_family = self.provider in {"claude", "claude-cli", "claude-code"}
+
         resolved_env: dict[str, str] = dict(self.env)
-        if self.auth.auth_mode == "api_key_env":
+        if eff_auth_mode in {"api_key_env", "api_key"}:
             env_var_name = self.auth.api_key_env_var or (
-                "ANTHROPIC_API_KEY" if self.provider == "claude" else "GEMINI_API_KEY"
+                "ANTHROPIC_API_KEY" if is_claude_family else "GEMINI_API_KEY"
             )
             resolved_key = _first_non_empty(
                 resolved_env.get(env_var_name),
@@ -309,7 +372,7 @@ class HarnessSetupConfig(BaseModel):
             )
             if resolved_key:
                 resolved_env[env_var_name] = resolved_key
-                if self.provider == "claude":
+                if is_claude_family:
                     resolved_env.setdefault("ANTHROPIC_API_KEY", resolved_key)
                 elif self.provider == "antigravity":
                     resolved_env.setdefault("GEMINI_API_KEY", resolved_key)
@@ -320,35 +383,35 @@ class HarnessSetupConfig(BaseModel):
                 and "GOOGLE_API_KEY" not in resolved_env
             ):
                 resolved_env["GOOGLE_API_KEY"] = resolved_env["GEMINI_API_KEY"]
-        elif self.auth.auth_mode == "vertex_adc":
+        elif eff_auth_mode in {"vertex_adc", "vertex"}:
             gcp_project = _first_non_empty(
                 self.auth.gcp_project,
                 resolved_env.get("ANTHROPIC_VERTEX_PROJECT_ID")
-                if self.provider == "claude"
+                if is_claude_family
                 else resolved_env.get("GOOGLE_CLOUD_PROJECT"),
                 resolved_env.get("GOOGLE_CLOUD_PROJECT")
-                if self.provider == "claude"
+                if is_claude_family
                 else resolved_env.get("ANTHROPIC_VERTEX_PROJECT_ID"),
                 os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID")
-                if self.provider == "claude"
+                if is_claude_family
                 else os.environ.get("GOOGLE_CLOUD_PROJECT"),
                 os.environ.get("GOOGLE_CLOUD_PROJECT")
-                if self.provider == "claude"
+                if is_claude_family
                 else os.environ.get("ANTHROPIC_VERTEX_PROJECT_ID"),
             )
             gcp_location = _first_non_empty(
                 self.auth.gcp_location,
                 resolved_env.get("CLOUD_ML_REGION")
-                if self.provider == "claude"
+                if is_claude_family
                 else resolved_env.get("GOOGLE_CLOUD_LOCATION"),
                 resolved_env.get("GOOGLE_CLOUD_LOCATION")
-                if self.provider == "claude"
+                if is_claude_family
                 else resolved_env.get("CLOUD_ML_REGION"),
                 os.environ.get("CLOUD_ML_REGION")
-                if self.provider == "claude"
+                if is_claude_family
                 else os.environ.get("GOOGLE_CLOUD_LOCATION"),
                 os.environ.get("GOOGLE_CLOUD_LOCATION")
-                if self.provider == "claude"
+                if is_claude_family
                 else os.environ.get("CLOUD_ML_REGION"),
             )
             gcp_credentials_path = _first_non_empty(
@@ -356,7 +419,7 @@ class HarnessSetupConfig(BaseModel):
                 resolved_env.get("GOOGLE_APPLICATION_CREDENTIALS"),
                 os.environ.get("GOOGLE_APPLICATION_CREDENTIALS"),
             )
-            if self.provider == "claude":
+            if is_claude_family:
                 resolved_env["CLAUDE_CODE_USE_VERTEX"] = "1"
                 if gcp_project:
                     resolved_env["ANTHROPIC_VERTEX_PROJECT_ID"] = gcp_project
@@ -370,7 +433,7 @@ class HarnessSetupConfig(BaseModel):
                     resolved_env["GOOGLE_CLOUD_LOCATION"] = gcp_location
             if gcp_credentials_path:
                 resolved_env["GOOGLE_APPLICATION_CREDENTIALS"] = gcp_credentials_path
-        elif self.auth.auth_mode == "aws_bedrock" and self.provider == "claude":
+        elif eff_auth_mode == "aws_bedrock" and is_claude_family:
             resolved_env["CLAUDE_CODE_USE_BEDROCK"] = "1"
             aws_region = _first_non_empty(
                 self.auth.aws_region,
@@ -390,7 +453,7 @@ class HarnessSetupConfig(BaseModel):
                 resolved_env["AWS_PROFILE"] = aws_profile
 
         if self.auth.api_base_url:
-            if self.provider == "claude":
+            if is_claude_family:
                 resolved_env["ANTHROPIC_BASE_URL"] = self.auth.api_base_url
             else:
                 resolved_env["GOOGLE_GEMINI_BASE_URL"] = self.auth.api_base_url
@@ -412,8 +475,13 @@ class HarnessSetupConfig(BaseModel):
 
     def to_summary_dict(self) -> dict[str, Any]:
         """Serialize setup metadata for `report.harness_setup` without exposing secret values."""
+        eff_auth_mode = (
+            self.auth.mode
+            if (self.auth.mode != "none" and self.auth.auth_mode == "none")
+            else self.auth.auth_mode
+        )
         d = self.model_dump(mode="json", fallback=str)
-        d["auth_mode"] = self.auth.auth_mode
+        d["auth_mode"] = eff_auth_mode
         d["api_key_env_var"] = self.auth.api_key_env_var
         d["env"] = {k: "[REDACTED]" for k in self.env}
         return d
@@ -1022,7 +1090,69 @@ def validate_pipeline_inputs(
                 }
             )
 
-    if setup_obj.auth.auth_mode == "aws_bedrock" and setup_obj.provider != "claude":
+    eff_auth_mode = (
+        setup_obj.auth.mode
+        if (setup_obj.auth.mode != "none" and setup_obj.auth.auth_mode == "none")
+        else setup_obj.auth.auth_mode
+    )
+    eff_require_preflight = bool(
+        setup_obj.auth.require_credentials_present or setup_obj.auth.require_preflight
+    )
+    is_claude_family = setup_obj.provider in {"claude", "claude-cli", "claude-code"}
+
+    valid_all_auth_modes = {
+        "none",
+        "api_key_env",
+        "api_key",
+        "oauth_token",
+        "vertex_adc",
+        "vertex",
+        "aws_bedrock",
+        "cli_session",
+        "ambient_cli",
+        "foundry",
+        "auto",
+    }
+    valid_claude_cli_modes = {
+        "none",
+        "cli_session",
+        "ambient_cli",
+        "api_key",
+        "api_key_env",
+        "oauth_token",
+        "vertex",
+        "vertex_adc",
+        "aws_bedrock",
+        "foundry",
+        "auto",
+    }
+
+    if setup_obj.provider in {"claude-cli", "claude-code"}:
+        if eff_auth_mode not in valid_claude_cli_modes:
+            diagnostics.append(
+                {
+                    "code": "HARNESS_AUTH_INVALID",
+                    "severity": "ERROR",
+                    "target": "harness_setup.auth.mode",
+                    "message": (
+                        f"Invalid auth mode '{eff_auth_mode}' for provider "
+                        f"'{setup_obj.provider}'. Supported modes: cli_session, api_key, "
+                        "oauth_token, vertex, foundry, auto."
+                    ),
+                }
+            )
+    elif eff_auth_mode not in valid_all_auth_modes:
+        diagnostics.append(
+            {
+                "code": "HARNESS_AUTH_INVALID",
+                "severity": "ERROR",
+                "target": "harness_setup.auth.auth_mode",
+                "message": (
+                    f"Invalid auth mode '{eff_auth_mode}' for provider '{setup_obj.provider}'."
+                ),
+            }
+        )
+    elif eff_auth_mode == "aws_bedrock" and not is_claude_family:
         diagnostics.append(
             {
                 "code": "HARNESS_AUTH_INCOMPATIBLE",
@@ -1037,10 +1167,8 @@ def validate_pipeline_inputs(
 
     if (
         setup_obj.provider in {"agy", "agy-cli"}
-        and setup_obj.auth.auth_mode in {"cli_session", "ambient_cli"}
-        and (
-            setup_obj.auth.require_credentials_present or setup_obj.auth.auth_mode == "ambient_cli"
-        )
+        and eff_auth_mode in {"cli_session", "ambient_cli"}
+        and (eff_require_preflight or eff_auth_mode == "ambient_cli")
     ):
         from opendv_agent_harness.adapters.agy_cli_adapter import AgyCliHarnessAdapter
 
@@ -1052,14 +1180,37 @@ def validate_pipeline_inputs(
                     "severity": "ERROR",
                     "target": "harness_setup.auth.auth_mode",
                     "message": (
-                        f"Auth mode '{setup_obj.auth.auth_mode}' for provider "
+                        f"Auth mode '{eff_auth_mode}' for provider "
                         f"'{setup_obj.provider}' requires the 'agy' CLI executable on PATH "
                         "or in OPENDV_AGY_CLI_BIN."
                     ),
                 }
             )
 
-    if setup_obj.auth.auth_mode in {"cli_session", "ambient_cli"} and setup_obj.provider in {
+    if (
+        setup_obj.provider in {"claude-cli", "claude-code"}
+        and eff_auth_mode in valid_claude_cli_modes
+        and (eff_require_preflight or eff_auth_mode == "ambient_cli")
+    ):
+        from opendv_agent_harness.adapters.claude_cli_adapter import ClaudeCliHarnessAdapter
+
+        claude_cli_check = ClaudeCliHarnessAdapter(
+            setup_obj.to_harness_config(workspace_dir=ws_root)
+        )
+        if claude_cli_check._resolve_claude_binary() is None:
+            diagnostics.append(
+                {
+                    "code": "HARNESS_PROVIDER_UNAVAILABLE",
+                    "severity": "ERROR",
+                    "target": "harness_setup.provider",
+                    "message": (
+                        f"Provider '{setup_obj.provider}' requires the 'claude' CLI executable "
+                        "on PATH or in OPENDV_CLAUDE_CLI_BIN when require_preflight=True."
+                    ),
+                }
+            )
+
+    if eff_auth_mode in {"cli_session", "ambient_cli"} and setup_obj.provider in {
         "antigravity",
         "claude",
     }:
@@ -1079,16 +1230,19 @@ def validate_pipeline_inputs(
                     "severity": "ERROR",
                     "target": "harness_setup.auth.auth_mode",
                     "message": (
-                        f"Auth mode '{setup_obj.auth.auth_mode}' for provider "
+                        f"Auth mode '{eff_auth_mode}' for provider "
                         f"'{setup_obj.provider}' requires SDK package '{sdk_pkg}' to be installed."
                     ),
                 }
             )
 
-    if setup_obj.auth.require_credentials_present:
-        if setup_obj.auth.auth_mode == "api_key_env":
+    if eff_require_preflight:
+        if eff_auth_mode in {"api_key_env", "api_key"} and setup_obj.provider not in {
+            "claude-cli",
+            "claude-code",
+        }:
             target_var = setup_obj.auth.api_key_env_var or (
-                "ANTHROPIC_API_KEY" if setup_obj.provider == "claude" else "GEMINI_API_KEY"
+                "ANTHROPIC_API_KEY" if is_claude_family else "GEMINI_API_KEY"
             )
             key_val = _first_non_empty(resolved_harness_env.get(target_var))
             if not key_val:
@@ -1103,12 +1257,8 @@ def validate_pipeline_inputs(
                         ),
                     }
                 )
-        elif setup_obj.auth.auth_mode == "vertex_adc":
-            proj_var = (
-                "ANTHROPIC_VERTEX_PROJECT_ID"
-                if setup_obj.provider == "claude"
-                else "GOOGLE_CLOUD_PROJECT"
-            )
+        elif eff_auth_mode == "vertex_adc":
+            proj_var = "ANTHROPIC_VERTEX_PROJECT_ID" if is_claude_family else "GOOGLE_CLOUD_PROJECT"
             proj_val = _first_non_empty(resolved_harness_env.get(proj_var))
             if not proj_val:
                 diagnostics.append(
@@ -1122,7 +1272,7 @@ def validate_pipeline_inputs(
                         ),
                     }
                 )
-        elif setup_obj.auth.auth_mode == "aws_bedrock":
+        elif eff_auth_mode == "aws_bedrock":
             region_val = _first_non_empty(
                 resolved_harness_env.get("AWS_REGION"),
                 setup_obj.auth.aws_region,
@@ -1139,7 +1289,7 @@ def validate_pipeline_inputs(
                         ),
                     }
                 )
-        elif setup_obj.auth.auth_mode == "none" and setup_obj.provider in {
+        elif eff_auth_mode == "none" and setup_obj.provider in {
             "antigravity",
             "claude",
         }:

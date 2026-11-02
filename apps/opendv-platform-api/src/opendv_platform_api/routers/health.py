@@ -44,6 +44,8 @@ async def get_platform_capabilities() -> dict[str, Any]:
         "agy-cli",
         "antigravity",
         "claude",
+        "claude-cli",
+        "claude-code",
     ]
     roles = [r.value for r in RbacRole]
     gates = ["G0", "G1", "G2", "G3", "G4", "G5"]

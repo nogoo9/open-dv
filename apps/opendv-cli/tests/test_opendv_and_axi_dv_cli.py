@@ -703,6 +703,31 @@ def test_opendv_pipeline_cli_local_and_remote_modes(
     assert out_val_local["stage"] == "INPUT_VALIDATION"
     assert out_val_local["passed"] is True
 
+    # 1b. opendv pipeline validate --local with harness_config_claude_cli.yaml & claude-cli
+    sample_harness_claude_cli = (
+        "examples/pipeline_samples/global_commerce_vault/harness_config_claude_cli.yaml"
+    )
+    rc_val_claude_cli = app_main(
+        [
+            "pipeline",
+            "validate",
+            "--local",
+            "--input",
+            sample_input,
+            "--harness-config",
+            sample_harness_claude_cli,
+            "--provider",
+            "claude-cli",
+            "--hold-policy",
+            "auto_approve_top_candidate",
+            "--json",
+        ]
+    )
+    assert rc_val_claude_cli == 0
+    out_val_claude_cli = json.loads(capsys.readouterr().out)
+    assert out_val_claude_cli["stage"] == "INPUT_VALIDATION"
+    assert out_val_claude_cli["passed"] is True
+
     # 2. opendv pipeline run --local with --output-dir
     local_out_dir = tmp_path / "cli_local_pipeline_out"
     rc_run_local = app_main(

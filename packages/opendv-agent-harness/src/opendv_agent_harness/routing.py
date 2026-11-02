@@ -228,6 +228,9 @@ def resolve_provider_model(
         "agy-cli",
         "antigravity",
         "claude",
+        "claude-agent",
+        "claude-cli",
+        "claude-code",
         "deterministic",
         "deterministic-stub",
     ]
@@ -269,7 +272,7 @@ def resolve_provider_model(
                 if candidate_val:
                     return candidate_val
 
-    if provider == "claude":
+    if provider in {"claude", "claude-agent", "claude-cli", "claude-code"}:
         return DEFAULT_CLAUDE_MODEL_MAP.get(
             tier_enum,
             DEFAULT_CLAUDE_MODEL_MAP[ModelTier.HIGH_REASONING],

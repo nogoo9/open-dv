@@ -153,7 +153,18 @@ class PipelineValidateRequest(BaseModel):
     harness_config: dict[str, Any] | None = None
     harness_config_path: str | None = None
     initial_contract_path: str | None = None
-    provider_override: str | None = None
+    provider_override: (
+        Literal[
+            "agy",
+            "agy-cli",
+            "antigravity",
+            "claude",
+            "claude-cli",
+            "claude-code",
+        ]
+        | str
+        | None
+    ) = None
     steward_hold_policy: str | None = None
 
 
@@ -176,6 +187,8 @@ class CreateRunRequest(BaseModel):
         "agy-cli",
         "antigravity",
         "claude",
+        "claude-cli",
+        "claude-code",
     ] = "antigravity"
     model_tier_override: Literal["reasoning", "fast"] | None = None
     contract_path: str | None = None
@@ -222,6 +235,8 @@ class ProjectRunDTO(BaseModel):
         "agy-cli",
         "antigravity",
         "claude",
+        "claude-cli",
+        "claude-code",
     ]
     status: RunStatus
     started_at_utc: str
@@ -1446,6 +1461,8 @@ class PlatformStateContainer:
             "agy-cli",
             "antigravity",
             "claude",
+            "claude-cli",
+            "claude-code",
         ],
         started_at_utc: str,
     ) -> ProjectRunDTO:

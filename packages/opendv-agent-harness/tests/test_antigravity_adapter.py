@@ -508,6 +508,8 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
         "agy-cli",
         "antigravity",
         "claude",
+        "claude-cli",
+        "claude-code",
     ]
 
     with pytest.raises(ValidationError):
@@ -535,6 +537,8 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
         "agy-cli",
         "antigravity",
         "claude",
+        "claude-cli",
+        "claude-code",
     ]
 
     # Verify all 4 persona builders & generic dispatchers
