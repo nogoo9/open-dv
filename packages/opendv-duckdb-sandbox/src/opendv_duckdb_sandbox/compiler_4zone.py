@@ -2284,12 +2284,16 @@ def _effective_hub_sm_bkcc_literal(hub: IRHub, sm: Any) -> str | None:
         if explicit_lit and explicit_lit not in {"NONE", "SOURCE_SYSTEM_PREFIX_REQUIRED"}:
             return explicit_lit
     tier = str(getattr(sm, "key_authority_tier", "") or "").strip().upper()
+    if tier in {"TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR"}:
+        return GLOBAL_BKCC
     if tier == "TIER_3_LOCAL_SCOPED":
         rec = str(getattr(sm, "rec_src_value", "") or GLOBAL_BKCC).strip().upper()
         return rec or GLOBAL_BKCC
     hub_lit = _effective_hub_bkcc_literal(hub)
     if hub_lit:
         return hub_lit.strip().upper()
+    if any(bool(bk.is_bkcc) for bk in hub.business_keys):
+        return None
     return GLOBAL_BKCC
 
 
@@ -3115,15 +3119,23 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                 f"FROM bronze.src_{tbl};"
             )
         elif len(distinct_sm_bkccs) <= 1:
-            scoped_bkcc = (
-                distinct_sm_bkccs[0] if distinct_sm_bkccs else (bkcc_lit or GLOBAL_BKCC)
-            ) or (bkcc_lit or GLOBAL_BKCC)
-            hk_expr = build_algorithm_a5_sha256_sql(
-                non_bkcc_cols,
-                bkcc_literal=scoped_bkcc,
-                is_business_key=True,
-                key_columns=non_bkcc_cols,
-            )
+            has_bkcc_col = any(bool(bk.is_bkcc) for bk in hub.business_keys)
+            scoped_bkcc = distinct_sm_bkccs[0] if distinct_sm_bkccs else bkcc_lit
+            if scoped_bkcc is None and not has_bkcc_col:
+                scoped_bkcc = GLOBAL_BKCC
+            if scoped_bkcc is None and has_bkcc_col:
+                hk_expr = build_algorithm_a5_sha256_sql(
+                    bk_cols,
+                    is_business_key=True,
+                    key_columns=non_bkcc_cols,
+                )
+            else:
+                hk_expr = build_algorithm_a5_sha256_sql(
+                    non_bkcc_cols,
+                    bkcc_literal=scoped_bkcc,
+                    is_business_key=True,
+                    key_columns=non_bkcc_cols,
+                )
             bk_select_exprs = [
                 f"'{_sql_lit(scoped_bkcc)}' AS {_validate_ident(bk.name)}"
                 if bk.is_bkcc and scoped_bkcc is not None
@@ -3219,6 +3231,8 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
             )
             t_bkcc_col_expr = _effective_hub_bkcc_column_expr(t_hub)
             t_bkcc_lit = _effective_hub_bkcc_literal(t_hub)
+            t_has_bkcc_col = any(bool(bk.is_bkcc) for bk in t_hub.business_keys)
+            eff_fk_bkcc_lit = ref_bkcc_lit or t_bkcc_lit
             if t_bkcc_col_expr:
                 raw_hash = build_algorithm_a5_sha256_sql(
                     non_bkcc_cols,
@@ -3226,10 +3240,16 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                     bkcc_column_expr=_validate_ident(f"{fk_col}__{t_bkcc_col_expr}"),
                     key_columns=non_bkcc_cols,
                 )
+            elif eff_fk_bkcc_lit is None and t_has_bkcc_col:
+                raw_hash = build_algorithm_a5_sha256_sql(
+                    raw_bk_cols,
+                    is_business_key=True,
+                    key_columns=non_bkcc_cols,
+                )
             else:
                 raw_hash = build_algorithm_a5_sha256_sql(
                     non_bkcc_cols,
-                    bkcc_literal=ref_bkcc_lit or t_bkcc_lit or GLOBAL_BKCC,
+                    bkcc_literal=eff_fk_bkcc_lit or GLOBAL_BKCC,
                     is_business_key=True,
                     key_columns=non_bkcc_cols,
                 )
@@ -3292,6 +3312,7 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
             ] or p_cols
             p_bkcc_col_expr = _effective_hub_bkcc_column_expr(p_hub)
             p_bkcc_lit = _effective_hub_bkcc_literal(p_hub)
+            p_has_bkcc_col = any(bool(bk.is_bkcc) for bk in p_hub.business_keys)
             if p_bkcc_col_expr:
                 parent_hk_expr = build_algorithm_a5_sha256_sql(
                     non_bkcc_p_cols,
@@ -3307,12 +3328,20 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                     p_hub.name,
                     registry=bkcc_registry,
                 )
-                parent_hk_expr = build_algorithm_a5_sha256_sql(
-                    non_bkcc_p_cols,
-                    bkcc_literal=sat_bkcc_lit or p_bkcc_lit or GLOBAL_BKCC,
-                    is_business_key=True,
-                    key_columns=non_bkcc_p_cols,
-                )
+                eff_sat_bkcc_lit = sat_bkcc_lit or p_bkcc_lit
+                if eff_sat_bkcc_lit is None and p_has_bkcc_col:
+                    parent_hk_expr = build_algorithm_a5_sha256_sql(
+                        p_cols,
+                        is_business_key=True,
+                        key_columns=non_bkcc_p_cols,
+                    )
+                else:
+                    parent_hk_expr = build_algorithm_a5_sha256_sql(
+                        non_bkcc_p_cols,
+                        bkcc_literal=eff_sat_bkcc_lit or GLOBAL_BKCC,
+                        is_business_key=True,
+                        key_columns=non_bkcc_p_cols,
+                    )
         else:
             p_lnk = link_by_name[sat.parent_entity]
             p_cols = [
