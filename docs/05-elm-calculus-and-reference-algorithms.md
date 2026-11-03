@@ -454,7 +454,8 @@ def codemod_enforce_cold_start_extensibility(
     Enforces Cold-Start (N=1) extensibility invariants:
     1. 3-Tier Business Key Authority & BKCC collision prefixing on Hub keys.
     2. Splitting sparse/nullable foreign keys (U_nn < 0.95) out of N-ary Links
-       into dedicated binary contextual Links.
+       into dedicated binary contextual Links, or filtering sparse binary Links
+       in-place with where_filter_condition = '<fk> IS NOT NULL'.
     """
     mutated = deepcopy(contract)
 

@@ -5852,6 +5852,8 @@ class _DeterministicStageSynthesizer:
                         [primary_hub_name, opt_ref["target_hub"]],
                         ontology,
                     )
+                    # On cold-start Wave 0, leave the sparse binary Link unfiltered so
+                    # Stage 05 Algorithm A.4 (DV-G2-001b) attaches where_filter_condition in-place.
                     if is_cold_start:
                         links_by_name[opt_lnk_name] = {
                             "name": opt_lnk_name,

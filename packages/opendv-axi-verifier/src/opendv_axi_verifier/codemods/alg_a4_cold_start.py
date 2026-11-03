@@ -11,6 +11,9 @@ Enforces two cold-start extensibility invariants:
        at `U_nn = 0.286 < 0.95`) out of N-ary Links (`lnk_lp_commitment`) into dedicated
        filtered Links (`lnk_lp_commitment_co_invest` with
        `where_filter_condition = 'co_invest_portco_lei IS NOT NULL'`).
+     - Filters sparse binary Links (`len(refs) == 2`) in-place with
+       `where_filter_condition = '<fk> IS NOT NULL'` and promotes matching
+       `column_triage_ledger` entries to `OPTIONAL_FOREIGN_KEY_REF` (`DV-G2-001b`).
 """
 
 from __future__ import annotations
