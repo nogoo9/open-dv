@@ -168,6 +168,30 @@ class IRLink(StrictIRModel):
             raise ValueError(msg)
         return self
 
+    @property
+    def requires_steward_approval_gate(self) -> bool:
+        """Return True if this Link is an unstructured extraction link requiring Steward gate."""
+        for sm in self.source_mappings:
+            if isinstance(sm, dict) and (
+                sm.get("requires_steward_approval_gate") is True
+                or sm.get("unstructured_extraction_link") is True
+                or bool(sm.get("steward_gate_filter"))
+            ):
+                return True
+        return self.name.startswith(("lnk_doc_", "lnk_document_"))
+
+    @property
+    def steward_filter_predicate(self) -> str | None:
+        """Return the Steward approval SQL filter predicate when configured on this Link."""
+        for sm in self.source_mappings:
+            if isinstance(sm, dict):
+                pred = sm.get("steward_filter_predicate") or sm.get("steward_gate_filter")
+                if isinstance(pred, str) and pred.strip():
+                    return pred
+        if self.requires_steward_approval_gate:
+            return "steward_gate_status = 'APPROVED'"
+        return None
+
 
 class IRParentHkColumn(StrictIRModel):
     """Parent Hub/Link hash key foreign key column on a Satellite."""

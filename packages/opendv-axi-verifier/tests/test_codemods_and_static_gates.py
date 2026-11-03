@@ -1034,3 +1034,135 @@ def test_alg_a8_orchestrator_end_to_end_pe_verification_and_telemetry(
     assert ask_res.toon_trace.status == "ASK-USER"
     assert ask_res.emitted_events[0]["status"] == "ASK-USER"
     assert ask_res.emitted_events[0]["layer1_story_banner"]["verdict_pill"] == "ASK-USER"
+
+
+def test_alg_a6_dv_ast_007_unstructured_link_steward_approval_filter() -> None:
+    """Issue #32 (DV-AST-007 / Rule U4): Verify Algorithm A.6 rejects unstructured extraction
+    Link INSERT statements that omit `AND src.steward_gate_status = 'APPROVED'` or wrap it in OR,
+    and passes compliant Zone 2 unstructured Link INSERT statements.
+    """
+    from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import (
+        verify_physical_dv2_sql_ast,
+        verify_sql_models_batch,
+    )
+
+    missing_filter_sql = """
+    INSERT INTO raw_vault.lnk_doc_portco_memo (
+        hk_lnk_doc_portco_memo, hk_doc, hk_portco, load_dts, rec_src
+    )
+    SELECT
+        src.hk_lnk_doc_portco_memo,
+        src.hk_doc,
+        src.hk_portco,
+        src.load_dts,
+        src.rec_src
+    FROM staging.stg_unstructured_vdr_llm_extractions src
+    WHERE src.target_domain = 'PORTCO_VALUATION_RESTATEMENT'
+      AND NOT EXISTS (
+          SELECT 1 FROM raw_vault.lnk_doc_portco_memo l
+          WHERE l.hk_lnk_doc_portco_memo = src.hk_lnk_doc_portco_memo
+      );
+    """
+    v_missing = verify_physical_dv2_sql_ast(
+        missing_filter_sql, entity_name="lnk_doc_portco_memo"
+    )
+    assert any("DV-AST-007" in v for v in v_missing)
+
+    or_bypass_sql = """
+    INSERT INTO raw_vault.lnk_document_customer (
+        hk_lnk_document_customer, hk_document, hk_customer, load_dts, rec_src
+    )
+    SELECT
+        src.hk_lnk_document_customer,
+        src.hk_document,
+        src.hk_customer,
+        src.load_dts,
+        src.rec_src
+    FROM staging.stg_lnk_document_customer src
+    WHERE src.steward_gate_status = 'APPROVED' OR src.hk_lnk_document_customer IS NOT NULL;
+    """
+    v_or_bypass = verify_physical_dv2_sql_ast(
+        or_bypass_sql, entity_name="lnk_document_customer"
+    )
+    assert any("DV-AST-007" in v for v in v_or_bypass)
+
+    compliant_sql = """
+    INSERT INTO raw_vault.lnk_doc_portco_memo (
+        hk_lnk_doc_portco_memo, hk_doc, hk_portco, load_dts, rec_src
+    )
+    SELECT
+        src.hk_lnk_doc_portco_memo,
+        src.hk_doc,
+        src.hk_portco,
+        src.load_dts,
+        src.rec_src
+    FROM staging.stg_unstructured_vdr_llm_extractions src
+    WHERE src.target_domain = 'PORTCO_VALUATION_RESTATEMENT'
+      AND src.steward_gate_status = 'APPROVED'
+      AND NOT EXISTS (
+          SELECT 1 FROM raw_vault.lnk_doc_portco_memo l
+          WHERE l.hk_lnk_doc_portco_memo = src.hk_lnk_doc_portco_memo
+      );
+    """
+    v_compliant = verify_physical_dv2_sql_ast(
+        compliant_sql, entity_name="lnk_doc_portco_memo"
+    )
+    assert v_compliant == []
+
+    batch_violations = verify_sql_models_batch(
+        {"lnk_custom_unstructured": missing_filter_sql},
+        unstructured_link_names={"lnk_custom_unstructured"},
+    )
+    assert any("DV-AST-007" in v for v in batch_violations)
+
+
+def test_issue_32_alg_a6_dv_ast_007_requires_steward_gate() -> None:
+    """Issue #32 (DV-AST-007): Verify `requires_steward_gate=True` on
+    `verify_physical_dv2_sql_ast` enforces `steward_gate_status = 'APPROVED'`
+    on arbitrary unstructured extraction link names.
+    """
+    from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import verify_physical_dv2_sql_ast
+
+    custom_unfiltered = """
+    INSERT INTO raw_vault.lnk_vdr_clause_party (
+        hk_lnk_vdr_clause_party, hk_clause, hk_party, load_dts, rec_src
+    )
+    SELECT
+        src.hk_lnk_vdr_clause_party,
+        src.hk_clause,
+        src.hk_party,
+        src.load_dts,
+        src.rec_src
+    FROM staging.stg_lnk_vdr_clause_party src
+    WHERE src.hk_lnk_vdr_clause_party IS NOT NULL;
+    """
+    violations = verify_physical_dv2_sql_ast(
+        custom_unfiltered,
+        entity_name="lnk_vdr_clause_party",
+        requires_steward_gate=True,
+    )
+    assert any("DV-AST-007" in v for v in violations)
+
+    custom_filtered = """
+    INSERT INTO raw_vault.lnk_vdr_clause_party (
+        hk_lnk_vdr_clause_party, hk_clause, hk_party, load_dts, rec_src
+    )
+    SELECT
+        src.hk_lnk_vdr_clause_party,
+        src.hk_clause,
+        src.hk_party,
+        src.load_dts,
+        src.rec_src
+    FROM staging.stg_lnk_vdr_clause_party src
+    WHERE src.hk_lnk_vdr_clause_party IS NOT NULL
+      AND src.steward_gate_status = 'APPROVED';
+    """
+    assert (
+        verify_physical_dv2_sql_ast(
+            custom_filtered,
+            entity_name="lnk_vdr_clause_party",
+            requires_steward_gate=True,
+        )
+        == []
+    )
+

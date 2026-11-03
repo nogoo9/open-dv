@@ -54,14 +54,64 @@ def _infer_entity_type(entity_name: str, explicit_type: str | None = None) -> st
     return "RAW_VAULT"
 
 
+def _is_unstructured_link_target(
+    target_name: str,
+    entity_name: str,
+    resolved_type: str,
+    *,
+    requires_steward_gate: bool = False,
+) -> bool:
+    """Return True when `target_name` or `entity_name` is an unstructured extraction Link."""
+    if requires_steward_gate or resolved_type == "UNSTRUCTURED_EXTRACTION_LINK":
+        return True
+    for candidate in (target_name.lower(), entity_name.lower()):
+        short = candidate.split(".")[-1]
+        if short.startswith(("lnk_doc_", "lnk_document_")):
+            return True
+    return False
+
+
+def _has_steward_approval_predicate(where_node: exp.Where | None) -> bool:
+    """Return True if `where_node` has `steward_gate_status = 'APPROVED'` at top level."""
+    if where_node is None or isinstance(where_node.this, exp.Or):
+        return False
+    for eq_node in where_node.find_all(exp.EQ):
+        parent = eq_node.parent
+        inside_or_or_subquery = False
+        while parent is not None and parent is not where_node:
+            if isinstance(parent, (exp.Or, exp.Subquery, exp.Exists)):
+                inside_or_or_subquery = True
+                break
+            parent = parent.parent
+        if inside_or_or_subquery:
+            continue
+        lhs, rhs = eq_node.this, eq_node.expression
+        if (
+            isinstance(lhs, exp.Column)
+            and lhs.name.lower() == "steward_gate_status"
+            and isinstance(rhs, exp.Literal)
+            and rhs.is_string
+            and rhs.this.upper() == "APPROVED"
+        ) or (
+            isinstance(rhs, exp.Column)
+            and rhs.name.lower() == "steward_gate_status"
+            and isinstance(lhs, exp.Literal)
+            and lhs.is_string
+            and lhs.this.upper() == "APPROVED"
+        ):
+            return True
+    return False
+
+
 def verify_physical_dv2_sql_ast(
     sql_text: str,
     *,
     entity_name: str = "raw_vault_model",
     entity_type: str | None = None,
+    requires_steward_gate: bool = False,
     dialect: str = "duckdb",
 ) -> list[str]:
-    """Algorithm A.6: Static SQLGlot AST Verifier enforcing `DV-AST-001`-`006`
+    """Algorithm A.6: Static SQLGlot AST Verifier enforcing `DV-AST-001`-`007`
     and `DV-G6-001`-`005`.
     """
     violations: list[str] = []
@@ -202,7 +252,7 @@ def verify_physical_dv2_sql_ast(
                             f"[DV-AST-006 / DV-G6-005] Hub '{entity_name}' must not contain "
                             f"a 'hash_diff' column."
                         )
-                elif resolved_type == "LINK":
+                elif resolved_type in {"LINK", "UNSTRUCTURED_EXTRACTION_LINK"}:
                     if not any(c.startswith("hk_lnk_") for c in projected_cols):
                         violations.append(
                             f"[DV-AST-006 / DV-G6-005] Link '{entity_name}' is missing a "
@@ -231,6 +281,29 @@ def verify_physical_dv2_sql_ast(
                         f"a 'hash_diff' delta comparison in its WHERE clause."
                     )
 
+            # 6. DV-AST-007 / Rule U4: Unstructured Extraction Link Steward Approval Filter
+            if isinstance(stmt, exp.Insert):
+                target_tbl_node = stmt.this.find(exp.Table) if stmt.this is not None else None
+                if isinstance(stmt.this, exp.Table):
+                    target_tbl_node = stmt.this
+                target_name = target_tbl_node.name if target_tbl_node is not None else entity_name
+                if _is_unstructured_link_target(
+                    target_name,
+                    entity_name,
+                    resolved_type,
+                    requires_steward_gate=requires_steward_gate,
+                ):
+                    top_where = select_node.args.get("where") if select_node is not None else None
+                    if not isinstance(top_where, exp.Where):
+                        top_where = stmt.find(exp.Where)
+                    if not _has_steward_approval_predicate(top_where):
+                        violations.append(
+                            f"[DV-AST-007 / Rule U4] Unstructured extraction Link INSERT on "
+                            f"'{target_name}' in '{entity_name}' lacks mandatory steward approval "
+                            f"filter (\"AND src.steward_gate_status = 'APPROVED'\") "
+                            f"in its WHERE clause."
+                        )
+
             if resolved_type == "EFFECTIVITY_SATELLITE":
                 for win in stmt.find_all(exp.Window):
                     win_sql = win.sql(dialect=dialect).lower()
@@ -250,14 +323,21 @@ def verify_physical_dv2_sql_ast(
 def verify_sql_models_batch(
     compiled_sql_models: dict[str, str],
     dialect: str = "duckdb",
+    *,
+    unstructured_link_names: set[str] | None = None,
 ) -> list[str]:
     """Run Algorithm A.6 across a dictionary of `{entity_name: sql_text}`."""
     all_violations: list[str] = []
+    unstructured_set = {n.lower() for n in (unstructured_link_names or set())}
     for entity_name, sql_text in compiled_sql_models.items():
+        is_unstructured = entity_name.lower() in unstructured_set
+        explicit_type = "UNSTRUCTURED_EXTRACTION_LINK" if is_unstructured else None
         all_violations.extend(
             verify_physical_dv2_sql_ast(
                 sql_text,
                 entity_name=entity_name,
+                entity_type=explicit_type,
+                requires_steward_gate=is_unstructured,
                 dialect=dialect,
             )
         )

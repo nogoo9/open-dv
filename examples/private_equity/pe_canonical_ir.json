@@ -309,7 +309,14 @@
       "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
-        { "staging_table": "stg_dms_src_side_letter_extractions", "rec_src_value": "OBJECT_STORE_S3" }
+        {
+          "staging_table": "stg_dms_src_side_letter_extractions",
+          "rec_src_value": "OBJECT_STORE_S3",
+          "unstructured_extraction_link": true,
+          "requires_steward_approval_gate": true,
+          "steward_gate_filter": "src.steward_gate_status = 'APPROVED'",
+          "steward_filter_predicate": "steward_gate_status = 'APPROVED'"
+        }
       ]
     },
     {
@@ -347,7 +354,14 @@
       "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
-        { "staging_table": "stg_dms_src_ic_memo_extractions", "rec_src_value": "OBJECT_STORE_S3" }
+        {
+          "staging_table": "stg_dms_src_ic_memo_extractions",
+          "rec_src_value": "OBJECT_STORE_S3",
+          "unstructured_extraction_link": true,
+          "requires_steward_approval_gate": true,
+          "steward_gate_filter": "src.steward_gate_status = 'APPROVED'",
+          "steward_filter_predicate": "steward_gate_status = 'APPROVED'"
+        }
       ]
     }
   ],

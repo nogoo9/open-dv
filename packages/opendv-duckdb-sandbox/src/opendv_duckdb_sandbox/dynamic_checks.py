@@ -1035,6 +1035,7 @@ def check_dv_dyn_013_tier2_confidence_governance(
                           AND human_review_status = 'AUTO_ACCEPTED_TIER_2'
                       )
                       OR human_review_status IS NULL
+                      OR human_review_status IN ('STEWARD_HOLD', 'PENDING', 'REJECTED')
                   )
             ) + (
                 SELECT COUNT(*) FROM business_vault.sat_lnk_doc_portco_ai_provenance
@@ -1046,9 +1047,10 @@ def check_dv_dyn_013_tier2_confidence_governance(
                       )
                       OR (
                           tier2_token_jaccard < 0.85
-                          AND human_review_status NOT IN ('STEWARD_VERIFIED', 'STEWARD_HOLD')
+                          AND human_review_status NOT IN ('STEWARD_VERIFIED', 'APPROVED')
                       )
                       OR human_review_status IS NULL
+                      OR human_review_status IN ('STEWARD_HOLD', 'PENDING', 'REJECTED')
                   )
             )
             """,
@@ -1070,7 +1072,11 @@ def check_dv_dyn_013_tier2_confidence_governance(
         tbl = f"{_satellite_schema(sat)}.{_validate_ident(sat.name)}"
         col_map = {c.name.lower(): _validate_ident(c.name) for c in sat.payload_columns}
         conf_col = col_map.get("extraction_confidence") or col_map.get("confidence_score")
-        status_col = col_map.get("human_review_status") or col_map.get("routing_action")
+        status_col = (
+            col_map.get("human_review_status")
+            or col_map.get("routing_action")
+            or col_map.get("steward_gate_status")
+        )
         if conf_col and status_col:
             invalid_governance += _scalar_int(
                 conn,
@@ -1080,6 +1086,7 @@ def check_dv_dyn_013_tier2_confidence_governance(
                   AND (
                       ({conf_col} < 0.85 AND {status_col} = 'AUTO_ACCEPTED_TIER_2')
                       OR {status_col} IS NULL
+                      OR {status_col} IN ('STEWARD_HOLD', 'PENDING', 'REJECTED')
                   )
                 """,
             )

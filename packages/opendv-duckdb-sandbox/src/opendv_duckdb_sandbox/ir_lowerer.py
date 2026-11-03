@@ -255,12 +255,32 @@ def _lower_link(
         contract_link.source_bronze_table.split(".")[0].upper(),
     )
     staging_tbl = _staging_table_name(contract_link.source_bronze_table)
+    is_unstructured_extraction = contract_link.link_type == "UNSTRUCTURED_EXTRACTION_LINK"
+    source_mapping_entry: dict[str, Any] = {
+        "staging_table": staging_tbl,
+        "fk_source_columns": {r.fk_column_name: r.fk_column_name for r in hub_references},
+        "rec_src_value": rec_src_val,
+    }
+    if is_unstructured_extraction:
+        steward_pred = (
+            contract_link.where_filter_condition or "steward_gate_status = 'APPROVED'"
+        )
+        source_mapping_entry["unstructured_extraction_link"] = True
+        source_mapping_entry["requires_steward_approval_gate"] = True
+        source_mapping_entry["steward_gate_filter"] = "src.steward_gate_status = 'APPROVED'"
+        source_mapping_entry["steward_filter_predicate"] = steward_pred
 
     return IRLink(
         name=contract_link.name,
         link_type=ir_link_type,  # type: ignore[arg-type]
         semantic_role=(
-            f"Relationship {contract_link.name} sourced from {contract_link.source_bronze_table}"
+            f"Unstructured extraction relationship {contract_link.name} sourced from "
+            f"{contract_link.source_bronze_table}"
+            if is_unstructured_extraction
+            else (
+                f"Relationship {contract_link.name} sourced from "
+                f"{contract_link.source_bronze_table}"
+            )
         ),
         max_recursion_depth=10 if ir_link_type == "HIERARCHICAL" else None,
         cycle_prevention_predicate=True if ir_link_type == "HIERARCHICAL" else None,
@@ -280,13 +300,7 @@ def _lower_link(
         immutable_measures=[],
         load_dts_column=IRColumnDef(name="load_dts", data_type="TIMESTAMP_NTZ(9)", nullable=False),
         rec_src_column=IRColumnDef(name="rec_src", data_type="VARCHAR(255)", nullable=False),
-        source_mappings=[
-            {
-                "staging_table": staging_tbl,
-                "fk_source_columns": {r.fk_column_name: r.fk_column_name for r in hub_references},
-                "rec_src_value": rec_src_val,
-            }
-        ],
+        source_mappings=[source_mapping_entry],
     )
 
 

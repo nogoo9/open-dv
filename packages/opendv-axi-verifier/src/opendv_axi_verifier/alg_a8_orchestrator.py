@@ -251,7 +251,17 @@ def run_axi_dv_verification_pipeline(
 
     # 7. Gate 6 Assertion: SQLGlot Physical SQL AST Linter (Algorithm A.6)
     if compiled_sql_models:
-        diagnostics.extend(verify_sql_models_batch(compiled_sql_models))
+        unstructured_links = {
+            str(lnk.get("name"))
+            for lnk in contract.get("links", [])
+            if isinstance(lnk, dict) and lnk.get("link_type") == "UNSTRUCTURED_EXTRACTION_LINK"
+        }
+        diagnostics.extend(
+            verify_sql_models_batch(
+                compiled_sql_models,
+                unstructured_link_names=unstructured_links,
+            )
+        )
 
     # 8. Determine overall status & build @toon_v1 trace
     if diagnostics:
