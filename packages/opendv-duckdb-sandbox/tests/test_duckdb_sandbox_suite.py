@@ -522,9 +522,9 @@ def test_scenario_s7_intrabatch_deduplication_ast_and_duckdb_e2e() -> None:
     generic_ir = lower_contract_to_canonical_ir(generic_contract_path, validate_schema=True)
     generic_bundle = compile_canonical_ir_to_4zone_sql(generic_ir)
     generic_sql_models = {
-        stmt.find(exp.Table).name: stmt.sql(dialect="duckdb")
+        tbl.name: stmt.sql(dialect="duckdb")
         for stmt in sqlglot.parse(generic_bundle.zone_2_sql, read="duckdb")
-        if stmt is not None and stmt.find(exp.Table) is not None
+        if stmt is not None and (tbl := stmt.find(exp.Table)) is not None
     }
     axi_res = run_axi_dv_verification_pipeline(
         candidate_contract=generic_contract_dict,
@@ -541,7 +541,7 @@ def test_scenario_s7_intrabatch_deduplication_ast_and_duckdb_e2e() -> None:
         assert report.passed is True
 
         # Inject 3 duplicate natural-key rows for ('CRM_SFDC', 'CUST-S7-DUP-777') and
-        # 2 duplicate rows for 'ORD-S7-DUP-999' with unordered load_dts timestamps in one micro-batch
+        # 2 duplicate rows for 'ORD-S7-DUP-999' with unordered load_dts in one micro-batch
         sandbox.conn.execute(
             """
             INSERT INTO bronze.src_hub_customer (bkcc, customer_code, load_dts, rec_src) VALUES
@@ -560,8 +560,14 @@ def test_scenario_s7_intrabatch_deduplication_ast_and_duckdb_e2e() -> None:
                 load_dts,
                 rec_src
             ) VALUES
-                ('CRM_SFDC', 'CUST-S7-DUP-777', 'ORD-S7-DUP-999', TIMESTAMP '2026-10-01 05:25:00', 'ERP_NS_LATE'),
-                ('CRM_SFDC', 'CUST-S7-DUP-777', 'ORD-S7-DUP-999', TIMESTAMP '2026-10-01 05:10:00', 'ERP_NS_EARLY');
+                (
+                    'CRM_SFDC', 'CUST-S7-DUP-777', 'ORD-S7-DUP-999',
+                    TIMESTAMP '2026-10-01 05:25:00', 'ERP_NS_LATE'
+                ),
+                (
+                    'CRM_SFDC', 'CUST-S7-DUP-777', 'ORD-S7-DUP-999',
+                    TIMESTAMP '2026-10-01 05:10:00', 'ERP_NS_EARLY'
+                );
             """
         )
         sandbox.conn.execute(bundle.zone_2_sql)
@@ -600,4 +606,3 @@ def test_scenario_s7_intrabatch_deduplication_ast_and_duckdb_e2e() -> None:
         dyn_report = evaluate_all_dynamic_checks(sandbox.conn, ir=commerce_ir)
         assert dyn_report.all_passed is True
         assert dyn_report.passed_count == 15
-

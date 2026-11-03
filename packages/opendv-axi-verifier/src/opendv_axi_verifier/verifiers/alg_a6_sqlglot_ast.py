@@ -12,7 +12,8 @@ Performs static SQLGlot AST inspection on staging and Raw Vault SQL models:
   - `DV-AST-005` (`DV-G6-004`): Satellite `INSERT` load `hash_diff` delta guard in `WHERE`
     clause and `esat_*` windowing partitioned by `driving_hk_*` (never `hk_lnk_*`).
   - `DV-AST-006` (`DV-G6-005`): Raw Vault structural column purity (`load_dts`, `rec_src`,
-    `hk_*`, `hk_lnk_*`, `hash_diff`) and ban on `GROUP BY` / `HAVING` aggregations.
+    `hk_*`, `hk_lnk_*`, `hash_diff`) and ban on `GROUP BY` / `HAVING` aggregations
+    (except idempotent Hub/Link micro-batch key deduplication).
 """
 
 from __future__ import annotations
@@ -60,7 +61,7 @@ def _infer_entity_type(entity_name: str, explicit_type: str | None = None) -> st
 
 
 def _is_idempotent_microbatch_dedup_group_by(
-    stmt: exp.Expression,
+    stmt: exp.Expr,
     resolved_type: str,
 ) -> bool:
     """Return True if `stmt` uses `GROUP BY` strictly for idempotent Hub/Link
@@ -98,12 +99,12 @@ def _is_idempotent_microbatch_dedup_group_by(
     if "load_dts" in group_col_names or "rec_src" in group_col_names:
         return False
 
-    if resolved_type == "HUB":
-        if not any(c.startswith("hk_") for c in group_col_names):
-            return False
-    elif resolved_type == "LINK":
-        if not any(c.startswith(LINK_KEY_PREFIXES) for c in group_col_names):
-            return False
+    if resolved_type == "HUB" and not any(c.startswith("hk_") for c in group_col_names):
+        return False
+    if resolved_type == "LINK" and not any(
+        c.startswith(LINK_KEY_PREFIXES) for c in group_col_names
+    ):
+        return False
 
     insert_cols: list[str] = []
     if isinstance(stmt, exp.Insert) and isinstance(stmt.this, exp.Schema):
@@ -220,14 +221,15 @@ def verify_physical_dv2_sql_ast(
                 stmt_type = _infer_entity_type(target_tbl.name)
 
         # 3. DV-AST-006 / DV-G6-005: No Aggregations (GROUP BY / HAVING) in Raw Vault
-        if stmt_type != "STAGE" and (
-            stmt.find(exp.Group) is not None or stmt.find(exp.Having) is not None
+        if (
+            stmt_type != "STAGE"
+            and (stmt.find(exp.Group) is not None or stmt.find(exp.Having) is not None)
+            and not _is_idempotent_microbatch_dedup_group_by(stmt, stmt_type)
         ):
-            if not _is_idempotent_microbatch_dedup_group_by(stmt, stmt_type):
-                violations.append(
-                    f"[DV-AST-006 / DV-G6-005] Raw Vault entity '{entity_name}' contains "
-                    f"GROUP BY or HAVING aggregation; aggregations belong in Business Vault."
-                )
+            violations.append(
+                f"[DV-AST-006 / DV-G6-005] Raw Vault entity '{entity_name}' contains "
+                f"GROUP BY or HAVING aggregation; aggregations belong in Business Vault."
+            )
 
         # 4. Inspect Projections for Hash Discipline & Archetype Signatures
         select_node = stmt.find(exp.Select)

@@ -796,7 +796,7 @@ def verify_physical_dv2_sql_ast(
     against the canonical IR column names (hk_*, hk_lnk_*, load_dts, rec_src, hash_diff):
     1. Insert-Only guarantee (no UPDATE, DELETE, TRUNCATE, DROP).
     2. Entity column signature contracts for Hubs, Links, and Satellites.
-    3. Raw Vault purity (no GROUP BY or HAVING inside Raw Vault models).
+    3. Raw Vault purity (no GROUP BY or HAVING inside Raw Vault models, except idempotent Hub/Link micro-batch deduplication).
     """
     violations: List[str] = []
     parsed = sqlglot.parse_one(sql_text, read=dialect)

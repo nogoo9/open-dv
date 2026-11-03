@@ -526,7 +526,7 @@ def test_alg_a5_and_a6_sqlglot_hash_recipe_and_linter() -> None:
     assert "DV-AST-006" in joined
 
 
-def test_alg_a6_dv_ast_006_whitelists_idempotent_hub_and_link_dedup_and_blocks_kpi_aggregations() -> None:
+def test_alg_a6_dv_ast_006_whitelists_idempotent_hub_and_link_dedup_and_blocks_kpis() -> None:
     """Issue #44 / Scenario S7: `DV-AST-006` (`DV-G6-005`) must whitelist idempotent
     Hub and Link micro-batch key deduplication (`GROUP BY <hk>, <bk_or_fk>` with
     `MIN(load_dts)` and `ANY_VALUE(rec_src)` / `MIN(rec_src)`) while rejecting
@@ -549,17 +549,10 @@ def test_alg_a6_dv_ast_006_whitelists_idempotent_hub_and_link_dedup_and_blocks_k
     GROUP BY src.hk_customer, src.bkcc, src.customer_code;
     """
     assert (
-        verify_physical_dv2_sql_ast(
-            hub_dedup_sql, entity_name="hub_customer", entity_type="HUB"
-        )
+        verify_physical_dv2_sql_ast(hub_dedup_sql, entity_name="hub_customer", entity_type="HUB")
         == []
     )
-    assert (
-        verify_physical_dv2_sql_ast(
-            hub_dedup_sql, entity_name="raw_vault.hub_customer"
-        )
-        == []
-    )
+    assert verify_physical_dv2_sql_ast(hub_dedup_sql, entity_name="raw_vault.hub_customer") == []
 
     # 2. Positive: Generic compiler Zone 2 Link micro-batch deduplication
     link_dedup_sql = """
@@ -611,20 +604,38 @@ def test_alg_a6_dv_ast_006_whitelists_idempotent_hub_and_link_dedup_and_blocks_k
     assert verify_physical_dv2_sql_ast(ansi_hub_dedup_sql, entity_name="hub_customer") == []
 
     # 5. Negative: Hub GROUP BY with business KPI aggregations (SUM / AVG / COUNT)
-    for kpi_expr in ("SUM(src.amount) AS total_amt", "AVG(src.amount) AS avg_amt", "COUNT(*) AS cnt"):
+    kpi_exprs = (
+        "SUM(src.amount) AS total_amt",
+        "AVG(src.amount) AS avg_amt",
+        "COUNT(*) AS cnt",
+    )
+    for kpi_expr in kpi_exprs:
         bad_kpi_sql = f"""
-        INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src, metric_val)
-        SELECT src.hk_customer, src.customer_code, MIN(src.load_dts) AS load_dts, ANY_VALUE(src.rec_src) AS rec_src, {kpi_expr}
+        INSERT INTO raw_vault.hub_customer (
+            hk_customer, customer_code, load_dts, rec_src, metric_val
+        )
+        SELECT
+            src.hk_customer,
+            src.customer_code,
+            MIN(src.load_dts) AS load_dts,
+            ANY_VALUE(src.rec_src) AS rec_src,
+            {kpi_expr}
         FROM staging.stg_hub_customer src
         GROUP BY src.hk_customer, src.customer_code;
         """
         v_kpi = verify_physical_dv2_sql_ast(bad_kpi_sql, entity_name="hub_customer")
-        assert any("DV-AST-006" in v for v in v_kpi), f"Expected DV-AST-006 for {kpi_expr}, got {v_kpi}"
+        assert any("DV-AST-006" in v for v in v_kpi), (
+            f"Expected DV-AST-006 for {kpi_expr}, got {v_kpi}"
+        )
 
     # 6. Negative: Hub GROUP BY with MAX(src.load_dts) instead of MIN(src.load_dts)
     bad_max_sql = """
     INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
-    SELECT src.hk_customer, src.customer_code, MAX(src.load_dts) AS load_dts, ANY_VALUE(src.rec_src) AS rec_src
+    SELECT
+        src.hk_customer,
+        src.customer_code,
+        MAX(src.load_dts) AS load_dts,
+        ANY_VALUE(src.rec_src) AS rec_src
     FROM staging.stg_hub_customer src
     GROUP BY src.hk_customer, src.customer_code;
     """
@@ -637,7 +648,11 @@ def test_alg_a6_dv_ast_006_whitelists_idempotent_hub_and_link_dedup_and_blocks_k
     for non_key_col in ("src.rec_src", "src.load_dts"):
         bad_group_col_sql = f"""
         INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
-        SELECT src.hk_customer, src.customer_code, MIN(src.load_dts) AS load_dts, ANY_VALUE(src.rec_src) AS rec_src
+        SELECT
+            src.hk_customer,
+            src.customer_code,
+            MIN(src.load_dts) AS load_dts,
+            ANY_VALUE(src.rec_src) AS rec_src
         FROM staging.stg_hub_customer src
         GROUP BY src.hk_customer, src.customer_code, {non_key_col};
         """
@@ -649,7 +664,11 @@ def test_alg_a6_dv_ast_006_whitelists_idempotent_hub_and_link_dedup_and_blocks_k
     # 8. Negative: Hub GROUP BY with HAVING clause
     bad_having_sql = """
     INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
-    SELECT src.hk_customer, src.customer_code, MIN(src.load_dts) AS load_dts, ANY_VALUE(src.rec_src) AS rec_src
+    SELECT
+        src.hk_customer,
+        src.customer_code,
+        MIN(src.load_dts) AS load_dts,
+        ANY_VALUE(src.rec_src) AS rec_src
     FROM staging.stg_hub_customer src
     GROUP BY src.hk_customer, src.customer_code
     HAVING COUNT(*) > 1;
@@ -663,7 +682,11 @@ def test_alg_a6_dv_ast_006_whitelists_idempotent_hub_and_link_dedup_and_blocks_k
     for sat_name in ("sat_customer_core", "mas_customer_tags", "esat_customer_link"):
         bad_sat_sql = f"""
         INSERT INTO raw_vault.{sat_name} (hk_customer, load_dts, rec_src, hash_diff)
-        SELECT src.hk_customer, MIN(src.load_dts) AS load_dts, ANY_VALUE(src.rec_src) AS rec_src, src.hash_diff
+        SELECT
+            src.hk_customer,
+            MIN(src.load_dts) AS load_dts,
+            ANY_VALUE(src.rec_src) AS rec_src,
+            src.hash_diff
         FROM staging.stg_customer src
         WHERE src.hash_diff <> ''
         GROUP BY src.hk_customer, src.hash_diff;
@@ -672,7 +695,6 @@ def test_alg_a6_dv_ast_006_whitelists_idempotent_hub_and_link_dedup_and_blocks_k
             "DV-AST-006" in v
             for v in verify_physical_dv2_sql_ast(bad_sat_sql, entity_name=sat_name)
         )
-
 
 
 # ==============================================================================

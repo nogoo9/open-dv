@@ -357,7 +357,8 @@ def verify_algorithm_a6_sqlglot_ast_linter(
       - `DV-G6-002`: Destructive physical mutations (`DELETE`, `UPDATE`, `TRUNCATE`, `DROP`, `ALTER`, `MERGE ... UPDATE/DELETE`).
       - `DV-G6-003`: Wildcard `SELECT *` projection.
       - `DV-G6-004`: Satellite `INSERT INTO ... sat_*` load missing `hash_diff` change comparison in `WHERE`.
-      - `DV-G6-005`: Raw Vault (`hub_*`, `lnk_*`, `sat_*`) load containing `GROUP BY` or `HAVING` aggregations.
+      - `DV-G6-005`: Raw Vault (`hub_*`, `lnk_*`, `sat_*`) load containing `GROUP BY` or
+        `HAVING` aggregations (except idempotent Hub/Link micro-batch key deduplication).
     """
     violations: list[str] = []
     statements = sqlglot.parse(sql_text, read=dialect)
@@ -453,25 +454,29 @@ def verify_algorithm_a6_sqlglot_ast_linter(
             )
             is_sat_target = target_name.startswith(("sat_", "bsat_", "mas_", "ma_sat_"))
             select_query = stmt.expression
-            if is_raw_vault_target and isinstance(select_query, exp.Select):
-                if select_query.args.get("group") is not None or select_query.args.get("having") is not None:
-                    resolved_target_type = (
-                        "HUB"
-                        if target_name.startswith(("hub_", "bhub_"))
-                        else (
-                            "LINK"
-                            if target_name.startswith(("lnk_", "t_lnk_", "nh_lnk_", "sal_", "hal_", "x_lnk_"))
-                            else "RAW_VAULT"
-                        )
-                    )
-                    from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import (
-                        _is_idempotent_microbatch_dedup_group_by,
-                    )
+            if (
+                is_raw_vault_target
+                and isinstance(select_query, exp.Select)
+                and (
+                    select_query.args.get("group") is not None
+                    or select_query.args.get("having") is not None
+                )
+            ):
+                link_prefixes = ("lnk_", "t_lnk_", "nh_lnk_", "sal_", "hal_", "x_lnk_")
+                resolved_target_type = (
+                    "HUB"
+                    if target_name.startswith(("hub_", "bhub_"))
+                    else ("LINK" if target_name.startswith(link_prefixes) else "RAW_VAULT")
+                )
+                from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import (
+                    _is_idempotent_microbatch_dedup_group_by,
+                )
 
-                    if not _is_idempotent_microbatch_dedup_group_by(stmt, resolved_target_type):
-                        violations.append(
-                            f"DV-G6-005:Raw Vault load into '{target_name}' contains forbidden GROUP BY / HAVING aggregation"
-                        )
+                if not _is_idempotent_microbatch_dedup_group_by(stmt, resolved_target_type):
+                    violations.append(
+                        f"DV-G6-005:Raw Vault load into '{target_name}' contains "
+                        "forbidden GROUP BY / HAVING aggregation"
+                    )
             if is_sat_target and isinstance(select_query, exp.Select):
                 # Exempt static 1-row SYSTEM_GHOST seed inserts that have no FROM table
                 has_from_clause = select_query.args.get("from") is not None or select_query.args.get("from_") is not None
@@ -1027,18 +1032,31 @@ def test_algorithm_a6_positive_staging_hub_and_satellite_sql() -> None:
     );
 
     INSERT INTO raw_vault.hub_fund (hk_fund, bkcc, fund_code, load_dts, rec_src)
-    SELECT stg.hk_fund, stg.bkcc, stg.fund_code, MIN(stg.load_dts) AS load_dts, ANY_VALUE(stg.rec_src) AS rec_src
+    SELECT
+        stg.hk_fund,
+        stg.bkcc,
+        stg.fund_code,
+        MIN(stg.load_dts) AS load_dts,
+        ANY_VALUE(stg.rec_src) AS rec_src
     FROM staging.stg_investran_pe_funds stg
     WHERE NOT EXISTS (
         SELECT 1 FROM raw_vault.hub_fund h WHERE h.hk_fund = stg.hk_fund
     )
     GROUP BY stg.hk_fund, stg.bkcc, stg.fund_code;
 
-    INSERT INTO raw_vault.lnk_lp_commitment (hk_lnk_lp_commitment, hk_lp, hk_fund, load_dts, rec_src)
-    SELECT stg.hk_lnk_lp_commitment, stg.hk_lp, stg.hk_fund, MIN(stg.load_dts) AS load_dts, ANY_VALUE(stg.rec_src) AS rec_src
+    INSERT INTO raw_vault.lnk_lp_commitment (
+        hk_lnk_lp_commitment, hk_lp, hk_fund, load_dts, rec_src
+    )
+    SELECT
+        stg.hk_lnk_lp_commitment,
+        stg.hk_lp,
+        stg.hk_fund,
+        MIN(stg.load_dts) AS load_dts,
+        ANY_VALUE(stg.rec_src) AS rec_src
     FROM staging.stg_lp_commitments stg
     WHERE NOT EXISTS (
-        SELECT 1 FROM raw_vault.lnk_lp_commitment l WHERE l.hk_lnk_lp_commitment = stg.hk_lnk_lp_commitment
+        SELECT 1 FROM raw_vault.lnk_lp_commitment l
+        WHERE l.hk_lnk_lp_commitment = stg.hk_lnk_lp_commitment
     )
     GROUP BY stg.hk_lnk_lp_commitment, stg.hk_lp, stg.hk_fund;
 
