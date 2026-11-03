@@ -5733,7 +5733,7 @@ class _DeterministicStageSynthesizer:
             optional_fk_refs: list[tuple[str, dict[str, Any]]] = []
             for fk_col, target_hint in src.foreign_key_mappings.items():
                 fk_hub_name, fk_uri = _resolve_hub_and_uri(target_hint, ontology)
-                fk_tier = eff_tier
+                fk_tier: str = eff_tier
                 fk_bkcc = eff_bkcc
                 fk_col_low = fk_col.lower()
                 for cbc in ontology.canonical_business_concepts:

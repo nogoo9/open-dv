@@ -18,6 +18,7 @@ an executable 4-Zone DuckDB SQL bundle (`docs/03` §7, `docs/05` §3.5, `docs/07
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -2051,7 +2052,7 @@ def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
 
 
 def _load_bronze_table_rows(
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None,
+    bronze_tables: Mapping[str, list[dict[str, Any]] | Any] | None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Load rows from `bronze_tables` (CSV/Parquet paths or in-memory row lists)."""
     if not bronze_tables:
@@ -2300,9 +2301,7 @@ def _resolve_hub_bk_rows_from_bronze(
         if eff_lit not in distinct_sm_bkccs:
             distinct_sm_bkccs.append(eff_lit)
     primary_bkcc = distinct_sm_bkccs[0] if distinct_sm_bkccs else "GLOBAL"
-    secondary_bkcc = (
-        distinct_sm_bkccs[1] if len(distinct_sm_bkccs) > 1 else primary_bkcc
-    )
+    secondary_bkcc = distinct_sm_bkccs[1] if len(distinct_sm_bkccs) > 1 else primary_bkcc
     default_r1 = _hub_seed_bk_values(hub, 1, bkcc_override=primary_bkcc)
     default_r2 = _hub_seed_bk_values(hub, 2, bkcc_override=secondary_bkcc)
     if not loaded_bronze:
@@ -2450,7 +2449,7 @@ def _compile_generic_zone_0_sql(
     ir_obj: CanonicalIR,
     *,
     include_batch4_restatement_in_seed: bool = False,
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None = None,
+    bronze_tables: Mapping[str, list[dict[str, Any]] | Any] | None = None,
 ) -> str:
     """Compile Zone 0 schemas, Bronze source tables, Vault DDL, Zero Keys, and Ghosts."""
     hub_by_name = {h.name: h for h in ir_obj.hubs}
@@ -2554,16 +2553,12 @@ def _compile_generic_zone_0_sql(
                     val_found = f"'VAL-{r_idx + 1:03d}'"
                     for h, sm in pairs:
                         src_non_bkcc = [
-                            _validate_ident(c)
-                            for c in sm.bk_source_columns
-                            if c.lower() != "bkcc"
+                            _validate_ident(c) for c in sm.bk_source_columns if c.lower() != "bkcc"
                         ]
                         if c_ident in src_non_bkcc:
                             pos = src_non_bkcc.index(c_ident)
                             scoped_lit = _effective_hub_sm_bkcc_literal(h, sm)
-                            h_cand = _filter_hub_rows_for_bkcc(
-                                h, hub_bk_rows[h.name], scoped_lit
-                            )
+                            h_cand = _filter_hub_rows_for_bkcc(h, hub_bk_rows[h.name], scoped_lit)
                             chosen_row = h_cand[r_idx % len(h_cand)]
                             non_bkcc_vals = [
                                 v
@@ -2607,11 +2602,7 @@ def _compile_generic_zone_0_sql(
             if isinstance(sm0_dict, dict)
             else f"stg_{tbl}"
         )
-        fk_src_map = (
-            sm0_dict.get("fk_source_columns") or {}
-            if isinstance(sm0_dict, dict)
-            else {}
-        )
+        fk_src_map = sm0_dict.get("fk_source_columns") or {} if isinstance(sm0_dict, dict) else {}
         col_defs = []
         row1_tokens: list[str] = []
         row2_tokens: list[str] = []
@@ -2637,11 +2628,7 @@ def _compile_generic_zone_0_sql(
             )
             h_r1 = scoped_rows[0]
             h_r2 = scoped_rows[1] if len(scoped_rows) > 1 else scoped_rows[0]
-            r1_bks = (
-                h_r1
-                if (occ == 0 or scoped_rows != hub_bk_rows[t_hub.name])
-                else h_r2
-            )
+            r1_bks = h_r1 if (occ == 0 or scoped_rows != hub_bk_rows[t_hub.name]) else h_r2
             r2_bks = h_r2
             for bk, val1, val2 in zip(t_hub.business_keys, r1_bks, r2_bks, strict=True):
                 raw_col = _validate_ident(f"{fk_col}__{bk.name}")
@@ -2723,9 +2710,7 @@ def _compile_generic_zone_0_sql(
                 else f"stg_{p_lnk.name}"
             )
             lnk_fk_src_map = (
-                lnk_sm0.get("fk_source_columns") or {}
-                if isinstance(lnk_sm0, dict)
-                else {}
+                lnk_sm0.get("fk_source_columns") or {} if isinstance(lnk_sm0, dict) else {}
             )
             target_counts = {}
             r1_parent_vals: list[str] = []
@@ -2752,11 +2737,7 @@ def _compile_generic_zone_0_sql(
                 )
                 h_r1 = scoped_rows[0]
                 h_r2 = scoped_rows[1] if len(scoped_rows) > 1 else scoped_rows[0]
-                r1_tokens = (
-                    h_r1
-                    if (occ == 0 or scoped_rows != hub_bk_rows[t_hub.name])
-                    else h_r2
-                )
+                r1_tokens = h_r1 if (occ == 0 or scoped_rows != hub_bk_rows[t_hub.name]) else h_r2
                 r1_hk = compute_dv2_length_prefixed_sha256(r1_tokens, is_business_key=True).lower()
                 r2_hk = compute_dv2_length_prefixed_sha256(h_r2, is_business_key=True).lower()
                 r1_parent_vals.append(f"'{r1_hk}'")
@@ -2934,11 +2915,7 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
             if isinstance(sm0_dict, dict)
             else f"stg_{tbl}"
         )
-        fk_src_map = (
-            sm0_dict.get("fk_source_columns") or {}
-            if isinstance(sm0_dict, dict)
-            else {}
-        )
+        fk_src_map = sm0_dict.get("fk_source_columns") or {} if isinstance(sm0_dict, dict) else {}
         fk_cols: list[str] = []
         fk_cte_exprs: list[str] = []
         for ref in link.hub_references:
@@ -3093,9 +3070,7 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
             select_exprs.extend(["    load_dts", "    rec_src"])
             parts.append(
                 f"CREATE OR REPLACE VIEW staging.{alias_name} AS\n"
-                f"SELECT\n"
-                + ",\n".join(select_exprs)
-                + f"\nFROM bronze.{raw_short};"
+                f"SELECT\n" + ",\n".join(select_exprs) + f"\nFROM bronze.{raw_short};"
             )
         elif len(hub_pairs) == 1:
             only_hub, sm = hub_pairs[0]
@@ -3452,7 +3427,7 @@ def compile_canonical_ir_to_4zone_sql(
     ir: CanonicalIR | dict[str, Any],
     *,
     include_batch4_restatement_in_seed: bool = False,
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None = None,
+    bronze_tables: Mapping[str, list[dict[str, Any]] | Any] | None = None,
 ) -> Compiled4ZoneBundle:
     """Compile a `CanonicalIR` model into a `Compiled4ZoneBundle`.
 

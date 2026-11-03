@@ -960,4 +960,3 @@ def test_issue_39_synthesize_cumulative_contract_per_column_bkcc_tier() -> None:
     sentinel_deal_sm = sentinel_hubs["hub_deal"]["business_key_sources"][0]
     assert sentinel_deal_sm["key_authority_tier"] == "TIER_3_LOCAL_SCOPED"
     assert sentinel_deal_sm["bkcc_prefix"] == "DEALCLOUD_FEED"
-
