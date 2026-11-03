@@ -717,6 +717,75 @@ HASH_DIFF_SAT_PREFIXES = ("sat_", "bsat_", "mas_", "ma_sat_")
 RAW_VAULT_PREFIXES = ("hub_", "lnk_", "t_lnk_", "nh_lnk_", "sal_", "hal_", "sat_", "mas_", "ma_sat_", "esat_", "sts_", "rts_")
 LINK_KEY_PREFIXES = tuple(f"hk_{p}" for p in LINK_PREFIXES)
 
+
+def _is_idempotent_microbatch_dedup_group_by(
+    stmt: exp.Expression,
+    model_name: str,
+) -> bool:
+    lower_name = model_name.lower().rsplit(".", 1)[-1]
+    is_hub = lower_name.startswith(HUB_PREFIXES)
+    is_link = lower_name.startswith(LINK_PREFIXES)
+    if not (is_hub or is_link):
+        return False
+    if stmt.find(exp.Having) is not None:
+        return False
+
+    select_node = stmt.expression if isinstance(stmt, exp.Insert) and isinstance(stmt.expression, exp.Select) else (stmt if isinstance(stmt, exp.Select) else None)
+    if select_node is None:
+        return False
+
+    group_nodes = list(stmt.find_all(exp.Group))
+    group_node = select_node.args.get("group")
+    if group_node is None or len(group_nodes) != 1 or group_nodes[0] is not group_node:
+        return False
+
+    group_col_names = []
+    for g_expr in group_node.expressions or []:
+        if not isinstance(g_expr, exp.Column) or not g_expr.name:
+            return False
+        group_col_names.append(g_expr.name.lower())
+    if not group_col_names or "load_dts" in group_col_names or "rec_src" in group_col_names:
+        return False
+    if is_hub and not any(c.startswith("hk_") for c in group_col_names):
+        return False
+    if is_link and not any(c.startswith(LINK_KEY_PREFIXES) for c in group_col_names):
+        return False
+
+    insert_cols = (
+        [c.alias_or_name.lower() for c in stmt.this.expressions]
+        if isinstance(stmt, exp.Insert) and isinstance(stmt.this, exp.Schema)
+        else []
+    )
+    has_min_load_dts = False
+    group_col_set = set(group_col_names)
+
+    for idx, proj in enumerate(select_node.expressions):
+        target_col = proj.alias_or_name.lower() or (insert_cols[idx] if idx < len(insert_cols) else "")
+        aggs = list(proj.find_all(exp.AggFunc))
+        if aggs:
+            if len(aggs) != 1:
+                return False
+            agg = aggs[0]
+            unwrapped = proj.unalias()
+            if isinstance(unwrapped, exp.IgnoreNulls):
+                unwrapped = unwrapped.this
+            if unwrapped is not agg or not isinstance(agg.this, exp.Column) or not agg.this.name:
+                return False
+            inner_col = agg.this.name.lower()
+            effective_col = target_col or inner_col
+            if inner_col == "load_dts" and effective_col == "load_dts" and isinstance(agg, exp.Min):
+                has_min_load_dts = True
+            elif inner_col == "rec_src" and effective_col == "rec_src" and isinstance(agg, (exp.AnyValue, exp.Min)):
+                continue
+            else:
+                return False
+        else:
+            unwrapped = proj.unalias()
+            if not isinstance(unwrapped, exp.Column) or unwrapped.name.lower() not in group_col_set:
+                return False
+    return has_min_load_dts
+
+
 def verify_physical_dv2_sql_ast(
     model_name: str,
     sql_text: str,
@@ -778,12 +847,13 @@ def verify_physical_dv2_sql_ast(
         if model_name.startswith(HASH_DIFF_SAT_PREFIXES) and not hash_diff_cols:
             violations.append(f"AST_ERROR [{model_name}]: Standard Satellite must project a hash_diff column.")
 
-    # 4. Raw Vault Purity Check (No Aggregations in Raw Vault)
+    # 4. Raw Vault Purity Check (No Aggregations in Raw Vault, except idempotent Hub/Link micro-batch deduplication)
     if model_name.startswith(RAW_VAULT_PREFIXES):
         if parsed.find(exp.Group) or parsed.find(exp.Having):
-            violations.append(
-                f"AST_ERROR [{model_name}]: Aggregations (GROUP BY / HAVING) are forbidden in Raw Vault models."
-            )
+            if not _is_idempotent_microbatch_dedup_group_by(parsed, model_name):
+                violations.append(
+                    f"AST_ERROR [{model_name}]: Aggregations (GROUP BY / HAVING) are forbidden in Raw Vault models."
+                )
 
     return violations
 ```

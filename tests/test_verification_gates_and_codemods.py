@@ -455,9 +455,23 @@ def verify_algorithm_a6_sqlglot_ast_linter(
             select_query = stmt.expression
             if is_raw_vault_target and isinstance(select_query, exp.Select):
                 if select_query.args.get("group") is not None or select_query.args.get("having") is not None:
-                    violations.append(
-                        f"DV-G6-005:Raw Vault load into '{target_name}' contains forbidden GROUP BY / HAVING aggregation"
+                    resolved_target_type = (
+                        "HUB"
+                        if target_name.startswith(("hub_", "bhub_"))
+                        else (
+                            "LINK"
+                            if target_name.startswith(("lnk_", "t_lnk_", "nh_lnk_", "sal_", "hal_", "x_lnk_"))
+                            else "RAW_VAULT"
+                        )
                     )
+                    from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import (
+                        _is_idempotent_microbatch_dedup_group_by,
+                    )
+
+                    if not _is_idempotent_microbatch_dedup_group_by(stmt, resolved_target_type):
+                        violations.append(
+                            f"DV-G6-005:Raw Vault load into '{target_name}' contains forbidden GROUP BY / HAVING aggregation"
+                        )
             if is_sat_target and isinstance(select_query, exp.Select):
                 # Exempt static 1-row SYSTEM_GHOST seed inserts that have no FROM table
                 has_from_clause = select_query.args.get("from") is not None or select_query.args.get("from_") is not None
@@ -1012,6 +1026,22 @@ def test_algorithm_a6_positive_staging_hub_and_satellite_sql() -> None:
         SELECT 1 FROM raw_vault.hub_fund h WHERE h.hk_fund = stg.hk_fund
     );
 
+    INSERT INTO raw_vault.hub_fund (hk_fund, bkcc, fund_code, load_dts, rec_src)
+    SELECT stg.hk_fund, stg.bkcc, stg.fund_code, MIN(stg.load_dts) AS load_dts, ANY_VALUE(stg.rec_src) AS rec_src
+    FROM staging.stg_investran_pe_funds stg
+    WHERE NOT EXISTS (
+        SELECT 1 FROM raw_vault.hub_fund h WHERE h.hk_fund = stg.hk_fund
+    )
+    GROUP BY stg.hk_fund, stg.bkcc, stg.fund_code;
+
+    INSERT INTO raw_vault.lnk_lp_commitment (hk_lnk_lp_commitment, hk_lp, hk_fund, load_dts, rec_src)
+    SELECT stg.hk_lnk_lp_commitment, stg.hk_lp, stg.hk_fund, MIN(stg.load_dts) AS load_dts, ANY_VALUE(stg.rec_src) AS rec_src
+    FROM staging.stg_lp_commitments stg
+    WHERE NOT EXISTS (
+        SELECT 1 FROM raw_vault.lnk_lp_commitment l WHERE l.hk_lnk_lp_commitment = stg.hk_lnk_lp_commitment
+    )
+    GROUP BY stg.hk_lnk_lp_commitment, stg.hk_lp, stg.hk_fund;
+
     INSERT INTO raw_vault.sat_fund_investran (hk_fund, load_dts, hash_diff, fund_name, rec_src)
     SELECT stg.hk_fund, stg.load_dts, stg.hash_diff_sat_fund_investran, stg.fund_name, stg.rec_src
     FROM staging.stg_investran_pe_funds stg
@@ -1407,6 +1437,15 @@ def test_doc05_reference_algorithms_a1_through_a8_direct_execution(
         dialect="snowflake",
     )
     assert ast_errors == []
+    ast_dedup_errors = ast_fn(
+        "hub_fund",
+        "INSERT INTO raw_vault.hub_fund (hk_fund, bkcc, fund_code, load_dts, rec_src) "
+        "SELECT stg.hk_fund, stg.bkcc, stg.fund_code, MIN(stg.load_dts) AS load_dts, "
+        "ANY_VALUE(stg.rec_src) AS rec_src FROM staging.stg_fund stg "
+        "GROUP BY stg.hk_fund, stg.bkcc, stg.fund_code",
+        dialect="snowflake",
+    )
+    assert ast_dedup_errors == []
 
     # 7. Algorithm A.7: verify_additive_evolution_invariants
     evo_fn = doc05_algos["verify_additive_evolution_invariants"]
