@@ -136,11 +136,91 @@ def _derive_hub_hk_name(hub_name: str) -> str:
     return f"hk_{abbreviations.get(slug, slug)}"
 
 
+def _resolve_source_bkcc_literal(
+    src: Any,
+    *,
+    verified_global: bool = False,
+) -> str | None:
+    """Resolve the effective BKCC literal for a Hub `BusinessKeySource`."""
+    _ = verified_global
+    raw_pfx = str(getattr(src, "bkcc_prefix", None) or "").strip().upper()
+    if raw_pfx and raw_pfx not in {"NONE", "SOURCE_SYSTEM_PREFIX_REQUIRED"}:
+        return raw_pfx
+    if getattr(src, "key_authority_tier", "") == "TIER_3_LOCAL_SCOPED" or getattr(
+        src, "require_src_qualifier", False
+    ):
+        return str(getattr(src, "record_source_code", "GLOBAL")).strip().upper() or "GLOBAL"
+    return GLOBAL_BKCC
+
+
+def _resolve_link_ref_bkcc_literal(
+    source_bronze_table: str,
+    fk_src_col: str,
+    target_hub: str,
+    *,
+    role_alias: str,
+    scoped_bkcc_map: dict[tuple[str, str, str], str | None],
+    hub_source_specs: dict[str, list[tuple[list[str], str, str | None]]],
+) -> str | None:
+    """Resolve the BKCC literal for a `(bronze_table, fk_column_name, target_hub)` tuple."""
+    tbl_candidates = (
+        source_bronze_table.lower(),
+        _staging_table_name(source_bronze_table).lower(),
+        source_bronze_table.split(".")[-1].lower(),
+    )
+    col_lower = fk_src_col.lower()
+    for tbl_key in tbl_candidates:
+        if (tbl_key, col_lower, target_hub) in scoped_bkcc_map:
+            return scoped_bkcc_map[(tbl_key, col_lower, target_hub)]
+
+    specs = hub_source_specs.get(target_hub, [])
+    if not specs:
+        return None
+
+    # If the source table appears exactly once on target_hub, use that source's BKCC
+    for tbl_key in tbl_candidates:
+        if (tbl_key, "*", target_hub) in scoped_bkcc_map:
+            return scoped_bkcc_map[(tbl_key, "*", target_hub)]
+
+    # Match by column name or stripped role prefix (e.g. master_lei_code -> lei_code)
+    stripped_col = col_lower
+    for prefix in ("master_", "duplicate_", "primary_", "secondary_", "parent_", "child_", "fk_"):
+        if stripped_col.startswith(prefix) and len(stripped_col) > len(prefix):
+            stripped_col = stripped_col[len(prefix) :]
+            break
+
+    for key_cols, _tier, bkcc_lit in specs:
+        low_keys = [k.lower() for k in key_cols]
+        if col_lower in low_keys or stripped_col in low_keys:
+            return bkcc_lit
+        if any(k.endswith(f"_{stripped_col}") or stripped_col.endswith(f"_{k}") for k in low_keys):
+            return bkcc_lit
+
+    # Role-based disambiguation for Same-As / Hierarchical links on multi-source Hubs
+    role_low = role_alias.lower()
+    if role_low in {"duplicate", "secondary", "legacy", "alias"} and len(specs) > 1:
+        for _key_cols, tier, bkcc_lit in reversed(specs):
+            if tier == "TIER_3_LOCAL_SCOPED":
+                return bkcc_lit
+        return specs[-1][2]
+    if role_low in {"master", "primary", "canonical", "golden"}:
+        for _key_cols, tier, bkcc_lit in specs:
+            if tier in {"TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR"}:
+                return bkcc_lit
+
+    return specs[0][2]
+
+
 def _lower_hub(
     contract_hub: ContractHubSpec,
     profile_types: dict[str, str],
-) -> tuple[IRHub, dict[str, str]]:
-    """Lower a `ContractHubSpec` into an `IRHub` and return `(ir_hub, bronze_to_rec_src_map)`."""
+) -> tuple[
+    IRHub,
+    dict[str, str],
+    dict[tuple[str, str, str], str | None],
+    list[tuple[list[str], str, str | None]],
+]:
+    """Lower a `ContractHubSpec` into an `IRHub` and return scoped BKCC metadata."""
     hk_name = _derive_hub_hk_name(contract_hub.name)
     verified_global = all(
         src.key_authority_tier == "TIER_1_GLOBAL_STANDARD" and not src.require_src_qualifier
@@ -191,40 +271,61 @@ def _lower_hub(
 
     source_mappings: list[IRHubSourceMapping] = []
     bronze_to_rec_src: dict[str, str] = {}
+    scoped_bkcc_map: dict[tuple[str, str, str], str | None] = {}
+    hub_specs: list[tuple[list[str], str, str | None]] = []
+
     for src in contract_hub.business_key_sources:
-        bronze_to_rec_src[src.bronze_table] = src.record_source_code
+        bronze_to_rec_src.setdefault(src.bronze_table, src.record_source_code)
         src_bkcc_col = (
             src.bkcc_column_expr.strip()
             if src.bkcc_column_expr and src.bkcc_column_expr.strip()
             else None
         )
+        bkcc_lit = (
+            _resolve_source_bkcc_literal(src, verified_global=verified_global)
+            if not src_bkcc_col
+            else None
+        )
         resolved_bkcc = (
             resolve_canonical_bkcc_prefix(
-                bkcc_prefix=src.bkcc_prefix,
+                bkcc_prefix=bkcc_lit or src.bkcc_prefix,
                 key_authority_tier=src.key_authority_tier,
                 require_src_qualifier=src.require_src_qualifier,
             )
             if not src_bkcc_col
             else (src.bkcc_prefix.strip() if src.bkcc_prefix and src.bkcc_prefix.strip() else None)
         )
-        src_bkcc_lit = (
-            src.bkcc_prefix.strip()
-            if not src_bkcc_col and src.bkcc_prefix and src.bkcc_prefix.strip()
-            else ((resolved_bkcc or GLOBAL_BKCC) if not src_bkcc_col else None)
-        )
+        stg_name = _staging_table_name(src.bronze_table)
         bk_prefix_col = src_bkcc_col or "bkcc"
         non_bkcc_key_cols = [
             c for c in src.key_columns if c.strip() not in {bk_prefix_col, "bkcc"}
         ] or list(src.key_columns)
         bk_src_cols = [bk_prefix_col, *non_bkcc_key_cols]
+        col_bkcc_map = {col: bkcc_lit for col in src.key_columns}
+
+        for tbl_alias in (
+            src.bronze_table.lower(),
+            stg_name.lower(),
+            src.bronze_table.split(".")[-1].lower(),
+        ):
+            scoped_bkcc_map.setdefault((tbl_alias, "*", contract_hub.name), bkcc_lit)
+            for col in src.key_columns:
+                scoped_bkcc_map[(tbl_alias, col.lower(), contract_hub.name)] = bkcc_lit
+            for pk_col in primary_key_cols:
+                scoped_bkcc_map.setdefault((tbl_alias, pk_col.lower(), contract_hub.name), bkcc_lit)
+
+        hub_specs.append((list(src.key_columns), src.key_authority_tier, bkcc_lit))
         source_mappings.append(
             IRHubSourceMapping(
-                staging_table=_staging_table_name(src.bronze_table),
+                staging_table=stg_name,
                 bk_source_columns=bk_src_cols,
                 bkcc_prefix=resolved_bkcc or (GLOBAL_BKCC if not src_bkcc_col else None),
                 rec_src_value=src.record_source_code,
-                bkcc_literal=src_bkcc_lit,
+                bronze_table=src.bronze_table,
+                key_authority_tier=src.key_authority_tier,
+                bkcc_literal=bkcc_lit,
                 bkcc_column_expr=src_bkcc_col,
+                column_bkcc_map=col_bkcc_map,
             )
         )
 
@@ -252,19 +353,23 @@ def _lower_hub(
         rec_src_column=IRColumnDef(name="rec_src", data_type="VARCHAR(255)", nullable=False),
         source_mappings=source_mappings,
     )
-    return ir_hub, bronze_to_rec_src
+    return ir_hub, bronze_to_rec_src, scoped_bkcc_map, hub_specs
 
 
 def _lower_link(
     contract_link: ContractLinkSpec,
     hub_hk_map: dict[str, str],
     bronze_to_rec_src: dict[str, str],
+    scoped_bkcc_map: dict[tuple[str, str, str], str | None] | None = None,
+    hub_source_specs: dict[str, list[tuple[list[str], str, str | None]]] | None = None,
 ) -> IRLink:
     """Lower a `ContractLinkSpec` into a schema-valid `IRLink`."""
     ir_link_type = _LINK_TYPE_MAP.get(contract_link.link_type, "STANDARD")
     hk_name = f"hk_{contract_link.name}"
 
     hub_references: list[IRLinkHubReference] = []
+    fk_source_columns: dict[str, str] = {}
+    fk_bkcc_literals: dict[str, str | None] = {}
     seen_hub_counts: dict[str, int] = {}
     total_occurrences: dict[str, int] = {}
     for ref in contract_link.hub_references:
@@ -283,6 +388,17 @@ def _lower_link(
         else:
             fk_col_name = target_hk
             role_name = role_slug or h_name.removeprefix("hub_").removeprefix("bhub_")
+
+        src_fk_col = ref.source_fk_columns[0] if ref.source_fk_columns else fk_col_name
+        fk_source_columns[fk_col_name] = src_fk_col
+        fk_bkcc_literals[fk_col_name] = _resolve_link_ref_bkcc_literal(
+            contract_link.source_bronze_table,
+            src_fk_col,
+            h_name,
+            role_alias=role_name,
+            scoped_bkcc_map=scoped_bkcc_map or {},
+            hub_source_specs=hub_source_specs or {},
+        )
 
         hub_references.append(
             IRLinkHubReference(
@@ -337,7 +453,9 @@ def _lower_link(
         source_mappings=[
             {
                 "staging_table": staging_tbl,
-                "fk_source_columns": {r.fk_column_name: r.fk_column_name for r in hub_references},
+                "bronze_table": contract_link.source_bronze_table,
+                "fk_source_columns": fk_source_columns,
+                "fk_bkcc_literals": fk_bkcc_literals,
                 "rec_src_value": rec_src_val,
             }
         ],
@@ -483,16 +601,27 @@ def lower_contract_to_canonical_ir(
     ir_hubs: list[IRHub] = []
     entity_hk_map: dict[str, str] = {}
     bronze_to_rec_src: dict[str, str] = {}
+    scoped_bkcc_map: dict[tuple[str, str, str], str | None] = {}
+    hub_source_specs: dict[str, list[tuple[list[str], str, str | None]]] = {}
 
     for c_hub in contract_obj.hubs:
-        ir_hub, hub_rec_map = _lower_hub(c_hub, profile_types)
+        ir_hub, hub_rec_map, hub_bkcc_map, hub_specs = _lower_hub(c_hub, profile_types)
         ir_hubs.append(ir_hub)
         entity_hk_map[ir_hub.name] = ir_hub.hk_column.name
-        bronze_to_rec_src.update(hub_rec_map)
+        for k, v in hub_rec_map.items():
+            bronze_to_rec_src.setdefault(k, v)
+        scoped_bkcc_map.update(hub_bkcc_map)
+        hub_source_specs[c_hub.name] = hub_specs
 
     ir_links: list[IRLink] = []
     for c_link in contract_obj.links:
-        ir_link = _lower_link(c_link, entity_hk_map, bronze_to_rec_src)
+        ir_link = _lower_link(
+            c_link,
+            entity_hk_map,
+            bronze_to_rec_src,
+            scoped_bkcc_map=scoped_bkcc_map,
+            hub_source_specs=hub_source_specs,
+        )
         ir_links.append(ir_link)
         entity_hk_map[ir_link.name] = ir_link.hk_column.name
 
