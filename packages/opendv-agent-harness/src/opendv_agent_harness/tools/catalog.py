@@ -339,11 +339,15 @@ async def _handle_extract_pdf_spans(
     verified_items: list[ExtractedPdfSpanItem] = []
     all_verified = True
 
-    doc_text = args.document_text
+    doc_text = (args.document_text or "").replace("\r\n", "\n").replace("\r", "\n")
     if not doc_text:
         doc_file = _resolve_existing_file(args.document_uri, ctx)
         if doc_file is not None:
-            doc_text = doc_file.read_text(encoding="utf-8", errors="replace")
+            doc_text = (
+                doc_file.read_text(encoding="utf-8", errors="replace")
+                .replace("\r\n", "\n")
+                .replace("\r", "\n")
+            )
 
     default_tier: Literal["Tier-U1", "Tier-U2", "Tier-U3"] = (
         "Tier-U3" if args.er_margin < 0.15 else ("Tier-U2" if args.er_margin < 0.5 else "Tier-U1")
@@ -357,7 +361,11 @@ async def _handle_extract_pdf_spans(
             or "extracted_term"
         )
         extracted_value = str(raw_span.get("extracted_value", ""))
-        verbatim_quote = str(raw_span.get("verbatim_quote", extracted_value))
+        verbatim_quote = (
+            str(raw_span.get("verbatim_quote", extracted_value))
+            .replace("\r\n", "\n")
+            .replace("\r", "\n")
+        )
         raw_start = raw_span.get("char_start")
         raw_end = raw_span.get("char_end")
         char_start = int(raw_start) if raw_start is not None else -1

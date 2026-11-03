@@ -73,7 +73,7 @@ class ProfileSourceFeedOutput(DomainToolOutput):
     added_columns: list[str] = Field(default_factory=list)
     dropped_columns: list[str] = Field(default_factory=list)
     drift_status: ObservabilityVerdict = ObservabilityVerdict.PASS
-    graph_b_sha256: str = Field(pattern=r"^[0-9A-F]{64}$")
+    graph_b_sha256: str = Field(pattern=r"^[0-9A-Fa-f]{64}$")
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +121,7 @@ class ExtractPdfSpansOutput(DomainToolOutput):
     """Output model for `extract_pdf_spans`."""
 
     document_uri: str
-    document_hk_sha256: str = Field(pattern=r"^[0-9A-F]{64}$")
+    document_hk_sha256: str = Field(pattern=r"^[0-9A-Fa-f]{64}$")
     verified_spans: list[ExtractedPdfSpanItem] = Field(default_factory=list)
     all_spans_verified: bool = True
     er_tier: Literal["Tier-U1", "Tier-U2", "Tier-U3"] = "Tier-U1"
@@ -156,8 +156,8 @@ class CompileCanonicalIrOutput(DomainToolOutput):
 
     contract_id: str
     target_dialect: str
-    canonical_ir_sha256: str = Field(pattern=r"^[0-9A-F]{64}$")
-    compiled_sql_sha256: str = Field(pattern=r"^[0-9A-F]{64}$")
+    canonical_ir_sha256: str = Field(pattern=r"^[0-9A-Fa-f]{64}$")
+    compiled_sql_sha256: str = Field(pattern=r"^[0-9A-Fa-f]{64}$")
     hub_count: int = Field(default=0, ge=0)
     link_count: int = Field(default=0, ge=0)
     satellite_count: int = Field(default=0, ge=0)
@@ -251,8 +251,8 @@ class ApplyAstCodemodOutput(DomainToolOutput):
     target_entity: str
     applied: bool = True
     verdict: ObservabilityVerdict = ObservabilityVerdict.AUTO_REPAIRED
-    contract_yaml_pre_sha256: str = Field(pattern=r"^[0-9A-F]{64}$")
-    contract_yaml_post_sha256: str = Field(pattern=r"^[0-9A-F]{64}$")
+    contract_yaml_pre_sha256: str = Field(pattern=r"^[0-9A-Fa-f]{64}$")
+    contract_yaml_post_sha256: str = Field(pattern=r"^[0-9A-Fa-f]{64}$")
     patch_diff: str
     action_description: str
 

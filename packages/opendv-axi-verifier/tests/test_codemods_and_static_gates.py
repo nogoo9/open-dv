@@ -478,6 +478,19 @@ def test_alg_a5_and_a6_sqlglot_hash_recipe_and_linter() -> None:
             assert row is not None
             assert row[0] == ZERO_KEY
 
+        from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+
+        non_null_row = con.execute(
+            f"SELECT {sql_expr} FROM (SELECT 'LP-101' AS lp_number)"
+        ).fetchone()
+        assert non_null_row is not None
+        assert non_null_row[0] == compute_dv2_length_prefixed_sha256(
+            ["LP-101"],
+            is_business_key=True,
+            bkcc_prefix="LEGACY_GP_ADMIN",
+        )
+        assert non_null_row[0] == "6b7c7180b62164f31f14eebcd16cc5fd2b0ce58143de66a4b67521113ec5d8b9"
+
     raw_staging_sql = (
         "SELECT fund_code, fund_legal_name, CURRENT_TIMESTAMP AS load_dts, "
         "'INVESTRAN' AS rec_src FROM src_funds"
@@ -524,6 +537,177 @@ def test_alg_a5_and_a6_sqlglot_hash_recipe_and_linter() -> None:
     assert "DV-AST-004" in joined
     assert "DV-AST-005" in joined
     assert "DV-AST-006" in joined
+
+
+def test_alg_a6_dv_ast_006_whitelists_idempotent_hub_and_link_dedup_and_blocks_kpis() -> None:
+    """Issue #44 / Scenario S7: `DV-AST-006` (`DV-G6-005`) must whitelist idempotent
+    Hub and Link micro-batch key deduplication (`GROUP BY <hk>, <bk_or_fk>` with
+    `MIN(load_dts)` and `ANY_VALUE(rec_src)` / `MIN(rec_src)`) while rejecting
+    business KPI aggregations (`SUM`, `AVG`, `COUNT`, `MAX`), `HAVING`, non-key
+    grouping (`load_dts`, `rec_src`), and Satellite `GROUP BY`.
+    """
+    # 1. Positive: Generic compiler Zone 2 Hub micro-batch deduplication
+    hub_dedup_sql = """
+    INSERT INTO raw_vault.hub_customer (hk_customer, bkcc, customer_code, load_dts, rec_src)
+    SELECT
+        src.hk_customer,
+        src.bkcc,
+        src.customer_code,
+        MIN(src.load_dts) AS load_dts,
+        ANY_VALUE(src.rec_src) AS rec_src
+    FROM staging.stg_hub_customer src
+    WHERE NOT EXISTS (
+        SELECT 1 FROM raw_vault.hub_customer h WHERE h.hk_customer = src.hk_customer
+    )
+    GROUP BY src.hk_customer, src.bkcc, src.customer_code;
+    """
+    assert (
+        verify_physical_dv2_sql_ast(hub_dedup_sql, entity_name="hub_customer", entity_type="HUB")
+        == []
+    )
+    assert verify_physical_dv2_sql_ast(hub_dedup_sql, entity_name="raw_vault.hub_customer") == []
+
+    # 2. Positive: Generic compiler Zone 2 Link micro-batch deduplication
+    link_dedup_sql = """
+    INSERT INTO raw_vault.lnk_customer_order (
+        hk_lnk_customer_order, hk_customer, hk_sales_order, load_dts, rec_src
+    )
+    SELECT
+        src.hk_lnk_customer_order,
+        src.hk_customer,
+        src.hk_sales_order,
+        MIN(src.load_dts) AS load_dts,
+        ANY_VALUE(src.rec_src) AS rec_src
+    FROM staging.stg_lnk_customer_order src
+    WHERE NOT EXISTS (
+        SELECT 1 FROM raw_vault.lnk_customer_order l
+        WHERE l.hk_lnk_customer_order = src.hk_lnk_customer_order
+    )
+    GROUP BY src.hk_lnk_customer_order, src.hk_customer, src.hk_sales_order;
+    """
+    assert (
+        verify_physical_dv2_sql_ast(
+            link_dedup_sql, entity_name="lnk_customer_order", entity_type="LINK"
+        )
+        == []
+    )
+
+    # 3. Positive: PE compiler Zone 2 Hub with unaliased MIN(load_dts) and ANY_VALUE(rec_src)
+    # matched against INSERT target columns
+    pe_hub_dedup_sql = """
+    INSERT INTO raw_vault.hub_fund (hk_fund, fund_code, load_dts, rec_src)
+    SELECT hk_fund, fund_code, MIN(load_dts), ANY_VALUE(rec_src)
+    FROM staging.stg_pe_funds src
+    WHERE NOT EXISTS (SELECT 1 FROM raw_vault.hub_fund h WHERE h.hk_fund = src.hk_fund)
+    GROUP BY hk_fund, fund_code;
+    """
+    assert verify_physical_dv2_sql_ast(pe_hub_dedup_sql, entity_name="hub_fund") == []
+
+    # 4. Positive: ANSI fallback MIN(src.rec_src) AS rec_src alongside MIN(src.load_dts) AS load_dts
+    ansi_hub_dedup_sql = """
+    INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
+    SELECT
+        src.hk_customer,
+        src.customer_code,
+        MIN(src.load_dts) AS load_dts,
+        MIN(src.rec_src) AS rec_src
+    FROM staging.stg_hub_customer src
+    GROUP BY src.hk_customer, src.customer_code;
+    """
+    assert verify_physical_dv2_sql_ast(ansi_hub_dedup_sql, entity_name="hub_customer") == []
+
+    # 5. Negative: Hub GROUP BY with business KPI aggregations (SUM / AVG / COUNT)
+    kpi_exprs = (
+        "SUM(src.amount) AS total_amt",
+        "AVG(src.amount) AS avg_amt",
+        "COUNT(*) AS cnt",
+    )
+    for kpi_expr in kpi_exprs:
+        bad_kpi_sql = f"""
+        INSERT INTO raw_vault.hub_customer (
+            hk_customer, customer_code, load_dts, rec_src, metric_val
+        )
+        SELECT
+            src.hk_customer,
+            src.customer_code,
+            MIN(src.load_dts) AS load_dts,
+            ANY_VALUE(src.rec_src) AS rec_src,
+            {kpi_expr}
+        FROM staging.stg_hub_customer src
+        GROUP BY src.hk_customer, src.customer_code;
+        """
+        v_kpi = verify_physical_dv2_sql_ast(bad_kpi_sql, entity_name="hub_customer")
+        assert any("DV-AST-006" in v for v in v_kpi), (
+            f"Expected DV-AST-006 for {kpi_expr}, got {v_kpi}"
+        )
+
+    # 6. Negative: Hub GROUP BY with MAX(src.load_dts) instead of MIN(src.load_dts)
+    bad_max_sql = """
+    INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
+    SELECT
+        src.hk_customer,
+        src.customer_code,
+        MAX(src.load_dts) AS load_dts,
+        ANY_VALUE(src.rec_src) AS rec_src
+    FROM staging.stg_hub_customer src
+    GROUP BY src.hk_customer, src.customer_code;
+    """
+    assert any(
+        "DV-AST-006" in v
+        for v in verify_physical_dv2_sql_ast(bad_max_sql, entity_name="hub_customer")
+    )
+
+    # 7. Negative: Hub GROUP BY that includes rec_src or load_dts in GROUP BY
+    for non_key_col in ("src.rec_src", "src.load_dts"):
+        bad_group_col_sql = f"""
+        INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
+        SELECT
+            src.hk_customer,
+            src.customer_code,
+            MIN(src.load_dts) AS load_dts,
+            ANY_VALUE(src.rec_src) AS rec_src
+        FROM staging.stg_hub_customer src
+        GROUP BY src.hk_customer, src.customer_code, {non_key_col};
+        """
+        assert any(
+            "DV-AST-006" in v
+            for v in verify_physical_dv2_sql_ast(bad_group_col_sql, entity_name="hub_customer")
+        )
+
+    # 8. Negative: Hub GROUP BY with HAVING clause
+    bad_having_sql = """
+    INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
+    SELECT
+        src.hk_customer,
+        src.customer_code,
+        MIN(src.load_dts) AS load_dts,
+        ANY_VALUE(src.rec_src) AS rec_src
+    FROM staging.stg_hub_customer src
+    GROUP BY src.hk_customer, src.customer_code
+    HAVING COUNT(*) > 1;
+    """
+    assert any(
+        "DV-AST-006" in v
+        for v in verify_physical_dv2_sql_ast(bad_having_sql, entity_name="hub_customer")
+    )
+
+    # 9. Negative: Satellite (sat_*, mas_*, esat_*) INSERT containing GROUP BY
+    for sat_name in ("sat_customer_core", "mas_customer_tags", "esat_customer_link"):
+        bad_sat_sql = f"""
+        INSERT INTO raw_vault.{sat_name} (hk_customer, load_dts, rec_src, hash_diff)
+        SELECT
+            src.hk_customer,
+            MIN(src.load_dts) AS load_dts,
+            ANY_VALUE(src.rec_src) AS rec_src,
+            src.hash_diff
+        FROM staging.stg_customer src
+        WHERE src.hash_diff <> ''
+        GROUP BY src.hk_customer, src.hash_diff;
+        """
+        assert any(
+            "DV-AST-006" in v
+            for v in verify_physical_dv2_sql_ast(bad_sat_sql, entity_name=sat_name)
+        )
 
 
 # ==============================================================================
@@ -891,6 +1075,139 @@ def test_alg_a9b_unstructured_spans_and_3tier_er_routing(
     assert len(v_with_holds) == 1
     assert "TIER_U3_CAPTAIN_HOLD" in v_with_holds[0]
     assert "Horizon Sovereign Co-Invest Vehicle" in v_with_holds[0]
+
+
+def _load_pe_pdf_corpus_lf() -> dict[str, str]:
+    """Load verbatim LF unstructured PDF texts from docs/07 §1.3."""
+    import re
+
+    doc07_path = REPO_ROOT / "docs" / "07-end-to-end-private-equity-demo.md"
+    doc07_text = doc07_path.read_text(encoding="utf-8")
+    text_blocks = re.findall(r"```text\n(.*?)\n```", doc07_text, flags=re.DOTALL)
+    assert len(text_blocks) >= 2
+    side_letter_text = text_blocks[0]
+    ic_memo_text = text_blocks[1]
+    side_letter_uri = (
+        "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf"
+    )
+    ic_memo_uri = "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf"
+    return {
+        side_letter_uri: side_letter_text,
+        "calpers_side_letter_fund_iv_2026.pdf": side_letter_text,
+        ic_memo_uri: ic_memo_text,
+        "ic_q3_valuation_nordic_cloud.pdf": ic_memo_text,
+    }
+
+
+def test_issue_33_alg_a9b_crlf_and_cr_line_ending_normalization(
+    pe_golden_contract: dict[str, Any],
+    pe_ontology: dict[str, Any],
+    pe_bronze_profile: dict[str, Any],
+) -> None:
+    """Issue #33 (BUG-04 / FR-DOM-05 / Rule U2 / Scenario S8 / UF-5):
+    Verifies that Windows CRLF (`\\r\\n`) and legacy CR (`\\r`) line endings in unstructured
+    document bodies and extracted verbatim quotes are normalized to LF (`\\n`) before
+    character-offset span validation in Algorithm A.9b (`evaluate_unstructured_er_routing`,
+    `verify_gate5_unstructured_invariants`, and `run_axi_dv_verification_pipeline`).
+    """
+    lf_corpus = _load_pe_pdf_corpus_lf()
+    doc_001_uri = (
+        "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf"
+    )
+    doc_001_lf = lf_corpus[doc_001_uri]
+
+    crlf_doc_samples = {k: v.replace("\n", "\r\n") for k, v in lf_corpus.items()}
+    cr_only_doc_samples = {k: v.replace("\n", "\r") for k, v in lf_corpus.items()}
+
+    # 1. evaluate_unstructured_er_routing must produce zero span_errors on CRLF & CR bodies
+    decisions_crlf = evaluate_unstructured_er_routing(
+        pe_bronze_profile,
+        parsed_doc_samples=crlf_doc_samples,
+    )
+    assert len(decisions_crlf) == 7
+    for dec in decisions_crlf:
+        assert dec["span_errors"] == []
+
+    decisions_cr = evaluate_unstructured_er_routing(
+        pe_bronze_profile,
+        parsed_doc_samples=cr_only_doc_samples,
+    )
+    assert len(decisions_cr) == 7
+    for dec in decisions_cr:
+        assert dec["span_errors"] == []
+
+    # 2. Multi-line sample_extractions with CRLF quotes and LF-indexed spans
+    contract_with_samples = copy.deepcopy(pe_golden_contract)
+    multiline_lf_quote = doc_001_lf[0:98]
+    assert "\n" in multiline_lf_quote
+    multiline_crlf_quote = multiline_lf_quote.replace("\n", "\r\n")
+
+    for sat in contract_with_samples["satellites"]:
+        if sat["name"] == "sat_lp_side_letter_llm_ext":
+            sat["sample_extractions"] = [
+                {
+                    "doc_id": doc_001_uri,
+                    "evidence_quote": multiline_crlf_quote,
+                    "char_start": 0,
+                    "char_end": 98,
+                    "confidence_score": 0.96,
+                    "top2_margin": 0.30,
+                },
+            ]
+
+    violations_crlf = verify_gate5_unstructured_invariants(
+        contract_with_samples,
+        parsed_doc_samples=crlf_doc_samples,
+        bronze_profile=pe_bronze_profile,
+    )
+    assert violations_crlf == []
+
+    # 3. Full 6-Gate run_axi_dv_verification_pipeline with CRLF parsed_doc_samples
+    pipeline_report = run_axi_dv_verification_pipeline(
+        pe_golden_contract,
+        pe_ontology,
+        pe_bronze_profile,
+        parsed_doc_samples=crlf_doc_samples,
+    )
+    assert pipeline_report.status == "PASS"
+    assert not any("SPAN_HALLUCINATION" in d for d in pipeline_report.diagnostics)
+
+
+def test_issue_33_gate5_deduplicates_span_errors_across_decisions(
+    pe_golden_contract: dict[str, Any],
+    pe_bronze_profile: dict[str, Any],
+) -> None:
+    """Issue #33 Negative Invariant Test (Rule U2 / Scenario S8 / UF-5):
+    Ensures that genuine fabricated quotes and off-by-one/shifted character offsets on
+    CRLF-encoded documents are still strictly rejected with `SPAN_HALLUCINATION` and that
+    document-level span errors are not duplicated across multiple ER spans (`decisions`).
+    """
+    lf_corpus = _load_pe_pdf_corpus_lf()
+    crlf_samples = {k: v.replace("\n", "\r\n") for k, v in lf_corpus.items()}
+
+    # Mutate one span in bronze_profile to have a genuine hallucinated quote
+    bad_profile = copy.deepcopy(pe_bronze_profile)
+    s3_sys = next(
+        s for s in bad_profile["source_systems"] if s["source_system_code"] == "OBJECT_STORE_S3"
+    )
+    s3_sys["unstructured_documents"][0]["extracted_spans"][0] = {
+        "field": "hallucinated_fee_cap",
+        "span_start": 499,
+        "span_end": 506,
+        "verbatim_quote": "999 bps",
+        "resolved_bk": None,
+        "er_tier": "EXTRACTED_ATTRIBUTE",
+        "confidence": 0.99,
+    }
+    violations = verify_gate5_unstructured_invariants(
+        pe_golden_contract,
+        parsed_doc_samples=crlf_samples,
+        bronze_profile=bad_profile,
+    )
+    # Exactly 1 violation (not duplicated 4x across the 4 er_spans of doc_001)
+    assert len(violations) == 1
+    assert "SPAN_HALLUCINATION" in violations[0]
+    assert "hallucinated_fee_cap" in violations[0]
 
 
 # ==============================================================================

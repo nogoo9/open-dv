@@ -590,7 +590,7 @@ def check_dv_dyn_007_ghost_and_zero_key_completeness(
             missing_ghosts += abs(1 - cnt)
 
     if is_pe_domain(ir) or ir is None:
-        # Verify INNER JOIN preserves the NULL-FK DealCloud row ('PC-NULL-FK')
+        # Verify INNER JOIN preserves the NULL-FK ('PC-NULL-FK') and Error-FK ('PC-ERR-FK') rows
         inner_join_null_fk = _scalar_int(
             conn,
             f"""
@@ -606,6 +606,22 @@ def check_dv_dyn_007_ghost_and_zero_key_completeness(
               AND sc.rec_src = '{GHOST_REC_SRC}'
             """,
         )
+        inner_join_error_fk = _scalar_int(
+            conn,
+            f"""
+            SELECT COUNT(*)
+            FROM raw_vault.lnk_fund_portco_investment l
+            INNER JOIN raw_vault.hub_fund hf ON hf.hk_fund = l.hk_fund
+            INNER JOIN raw_vault.hub_portfolio_company hp ON hp.hk_portco = l.hk_portco
+            INNER JOIN raw_vault.sat_lnk_fund_portco_deal sd
+                ON sd.hk_lnk_fund_portco_investment = l.hk_lnk_fund_portco_investment
+            WHERE sd.deal_id = 'PC-ERR-FK'
+              AND hp.hk_portco = '{ZERO_KEY_ERROR}'
+              AND hp.rec_src = 'SYSTEM_ZERO_KEY'
+            """,
+        )
+        if inner_join_error_fk < 1:
+            inner_join_null_fk = 0
     elif ir.links:
         lnk = ir.links[0]
         lnk_tbl = f"{_link_schema(lnk)}.{_validate_ident(lnk.name)}"
@@ -637,6 +653,20 @@ def check_dv_dyn_007_ghost_and_zero_key_completeness(
               AND s.rec_src = '{GHOST_REC_SRC}'
             """,
         )
+        inner_join_error_fk = _scalar_int(
+            conn,
+            f"""
+            SELECT COUNT(*)
+            FROM {lnk_tbl} l
+            INNER JOIN {h0_tbl} h0 ON h0.{h0_hk} = l.{fk0}
+            INNER JOIN {h1_tbl} h1 ON h1.{h1_hk} = l.{fk1}
+            WHERE l.{lnk_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
+              AND h1.{h1_hk} = '{ZERO_KEY_ERROR}'
+              AND h1.rec_src = 'SYSTEM_ZERO_KEY'
+            """,
+        )
+        if inner_join_error_fk < 1:
+            inner_join_null_fk = 0
     else:
         first_hub = ir.hubs[0]
         h_tbl = f"raw_vault.{_validate_ident(first_hub.name)}"

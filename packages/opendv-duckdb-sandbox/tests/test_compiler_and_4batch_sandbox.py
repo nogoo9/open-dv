@@ -18,20 +18,30 @@ Covers:
    `12.80x` (`$216.28M` EV = `216280000.00`) at `assertion_cutoff_ts = '2026-10-15 12:00:00'`.
 5. Telemetry integration: Emitting schema-valid `VIZ-GATE-08` (`WB-10`) `VaultObservabilityEvent`
    records via `VaultLedgerEmitter`.
+6. Issue #38 (`Scenario S4` / `UF-1`): `compile_zone_0_migration_sql` idempotent
+   `ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS` statements and multi-wave in-place
+   Satellite schema evolution (`EVO-01`, `DV-EVO-006`, `DV-AST-001`, `DV-DYN-014`).
 """
 
 from __future__ import annotations
 
+import copy
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
 
+from opendv_axi_verifier import (
+    verify_additive_evolution_invariants,
+    verify_physical_dv2_sql_ast,
+)
 from opendv_core.constants import GHOST_DTS, GHOST_REC_SRC, ZERO_KEY_ERROR, ZERO_KEY_UNKNOWN
 from opendv_core.schema_registry import (
     get_examples_dir,
     validate_canonical_ir,
+    validate_contract_v5,
     validate_graph_b,
     validate_observability_event,
 )
@@ -43,7 +53,9 @@ from opendv_duckdb_sandbox import (
     build_algorithm_a5_sha256_sql,
     check_dv_dyn_001_pk_uniqueness,
     check_dv_dyn_002_referential_integrity,
+    check_dv_dyn_014_additive_schema_evolution,
     compile_canonical_ir_to_4zone_sql,
+    compile_zone_0_migration_sql,
     compute_topological_load_waves,
     evaluate_all_dynamic_checks,
     execute_4batch_adversarial_suite,
@@ -58,9 +70,11 @@ from opendv_duckdb_sandbox import (
 )
 from opendv_telemetry.ledger_emitter import VaultLedgerEmitter
 
-# ============================================================================
+# =====================================================================
+
 # 1. Canonical IR Lowerer & Topological Load DAG Tests
-# ============================================================================
+# =====================================================================
+
 
 
 def test_ir_lowerer_pe_contract_validates_against_canonical_ir_schema() -> None:
@@ -131,9 +145,11 @@ def test_ir_lowerer_generic_contract_and_4zone_compile() -> None:
         con.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 2. Graph B Empirical Profiler & Schema Drift Detection Tests
-# ============================================================================
+# =====================================================================
+
 
 
 def test_graph_b_profiler_metrics_parquet_csv_and_schema_drift(tmp_path: Path) -> None:
@@ -259,9 +275,11 @@ def test_graph_b_profiler_metrics_parquet_csv_and_schema_drift(tmp_path: Path) -
         profiler.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 3. 4-Zone SQL Compiler, 4 Adversarial Batches & DV-DYN-001..015 Tests
-# ============================================================================
+# =====================================================================
+
 
 
 def test_4zone_compiler_and_4batch_adversarial_sandbox_all_15_dyn_checks() -> None:
@@ -327,9 +345,11 @@ def test_4zone_compiler_and_4batch_adversarial_sandbox_all_15_dyn_checks() -> No
         con.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 4. Bi-Temporal Query D.10 & Query D.10b Verification Tests
-# ============================================================================
+# =====================================================================
+
 
 
 def test_pit_query_engine_d10_and_d10b_bitemporal_audit() -> None:
@@ -397,9 +417,11 @@ def test_pit_query_engine_d10_and_d10b_bitemporal_audit() -> None:
         con.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 5. High-Level DuckDbShadowSandbox & Observability Telemetry Tests
-# ============================================================================
+# =====================================================================
+
 
 
 def test_duckdb_shadow_sandbox_full_verification_and_telemetry(tmp_path: Path) -> None:
@@ -458,7 +480,7 @@ def test_dynamic_checks_detect_injected_orphan_fk() -> None:
 
 
 def test_algorithm_a5_sql_helper_matches_expected_tokens() -> None:
-    """Verify `build_algorithm_a5_sha256_sql` generates null-safe length-prefixed SQL."""
+    """Verify `build_algorithm_a5_sha256_sql` implements 3-way Zero-Key branching (-1 vs -2)."""
     sql_expr = build_algorithm_a5_sha256_sql(
         ["lp_id"],
         is_business_key=True,
@@ -466,10 +488,53 @@ def test_algorithm_a5_sql_helper_matches_expected_tokens() -> None:
     )
     con = duckdb.connect(":memory:")
     try:
-        con.execute("CREATE TABLE t (lp_id VARCHAR); INSERT INTO t VALUES ('lp-101'), (NULL);")
+        con.execute(
+            "CREATE TABLE t (lp_id VARCHAR); "
+            "INSERT INTO t VALUES ('lp-101'), (NULL), ('   '), ('-1'), ('-2');"
+        )
         rows = con.execute(f"SELECT {sql_expr} FROM t").fetchall()
         assert rows[0][0] == "5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4"
         assert rows[1][0] == ZERO_KEY_UNKNOWN
+        assert rows[2][0] == ZERO_KEY_UNKNOWN
+        assert rows[3][0] == ZERO_KEY_UNKNOWN
+        assert rows[4][0] == ZERO_KEY_ERROR
+    finally:
+        con.close()
+
+
+def test_algorithm_a5_sql_helper_3way_zero_key_and_error_predicate() -> None:
+    """Verify composite `(bkcc, bk)` key_columns exclusion and explicit `error_predicate`."""
+    sql_expr = build_algorithm_a5_sha256_sql(
+        ["bkcc", "customer_code"],
+        is_business_key=True,
+        error_predicate="record_status = 'REJECTED'",
+    )
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(
+            """
+            CREATE TABLE src_cust (
+                bkcc VARCHAR,
+                customer_code VARCHAR,
+                record_status VARCHAR
+            );
+            INSERT INTO src_cust VALUES
+                ('GLOBAL', 'CUST-001', 'VALID'),
+                ('GLOBAL', NULL, 'VALID'),
+                ('GLOBAL', '', 'VALID'),
+                ('GLOBAL', '-1', 'VALID'),
+                ('GLOBAL', '-2', 'VALID'),
+                ('GLOBAL', 'CUST-999', 'REJECTED');
+            """
+        )
+        rows = [r[0] for r in con.execute(f"SELECT {sql_expr} FROM src_cust").fetchall()]
+        assert rows[0] not in (ZERO_KEY_UNKNOWN, ZERO_KEY_ERROR)
+        assert len(rows[0]) == 64
+        assert rows[1] == ZERO_KEY_UNKNOWN
+        assert rows[2] == ZERO_KEY_UNKNOWN
+        assert rows[3] == ZERO_KEY_UNKNOWN
+        assert rows[4] == ZERO_KEY_ERROR
+        assert rows[5] == ZERO_KEY_ERROR
     finally:
         con.close()
 
@@ -505,6 +570,432 @@ def test_parametrized_query_d10b_cutoff_coordinates(
         assert rows[0].enterprise_value_usd == expected_ev
     finally:
         con.close()
+
+
+# =====================================================================
+
+# 6. Issue #38 — Scenario S4 (UF-1): Idempotent Zone 0 Migration SQL & Multi-Wave Evolution
+# =====================================================================
+
+
+
+def _build_issue_38_contracts() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build baseline Wave 0 and evolved Wave 2 contracts for Scenario S4 (UF-1)."""
+    wave0_contract: dict[str, Any] = {
+        "contract_version": "5.0",
+        "domain_namespace": "global_commerce",
+        "lifecycle_stage": "COLD_START_N1",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "customer_tax_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_customer",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "legal_name",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "country_iso2",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "account_segment",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "credit_limit_usd",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+        ],
+        "hubs": [
+            {
+                "name": "hub_customer",
+                "ontology_concept_uri": "urn:ontology:entity:customer",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "crm_salesforce.crm_customers",
+                        "key_columns": ["customer_tax_id"],
+                        "record_source_code": "CRM_SALESFORCE",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "require_src_qualifier": False,
+                    }
+                ],
+            }
+        ],
+        "links": [],
+        "satellites": [
+            {
+                "name": "sat_customer_core",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_customer",
+                "source_bronze_table": "crm_salesforce.crm_customers",
+                "volatility_tier": "STANDARD",
+                "security_classification": "INTERNAL",
+                "payload_columns": [
+                    "legal_name",
+                    "country_iso2",
+                    "account_segment",
+                    "credit_limit_usd",
+                ],
+            }
+        ],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+
+    wave2_contract = copy.deepcopy(wave0_contract)
+    wave2_contract["lifecycle_stage"] = "MULTI_SOURCE_EXPANSION"
+    wave2_contract["column_triage_ledger"].extend(
+        [
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "loyalty_tier_code",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "annual_spend_band",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+        ]
+    )
+    wave2_contract["satellites"][0]["hash_diff_migration_policy"] = "NULL_EQUIVALENT_PADDING"
+    wave2_contract["satellites"][0]["payload_columns"].extend(
+        ["loyalty_tier_code", "annual_spend_band"]
+    )
+    return wave0_contract, wave2_contract
+
+
+def test_issue_38_zone_0_migration_sql_idempotent_alter_table_add_column() -> None:
+    """Verify `compile_zone_0_migration_sql` emits idempotent `ALTER TABLE ADD COLUMN`."""
+    wave0_contract, wave2_contract = _build_issue_38_contracts()
+    validate_contract_v5(wave0_contract)
+    validate_contract_v5(wave2_contract)
+
+    ir_w0 = lower_contract_to_canonical_ir(wave0_contract, validate_schema=True)
+    ir_w2 = lower_contract_to_canonical_ir(wave2_contract, validate_schema=True)
+    assert ir_w2.satellites[0].hash_diff_migration_policy == "NULL_EQUIVALENT_PADDING"
+
+    migration_sql = compile_zone_0_migration_sql(ir_w2, baseline_ir=ir_w0)
+    alter_lines = [
+        line.strip()
+        for line in migration_sql.splitlines()
+        if line.strip().startswith("ALTER TABLE")
+    ]
+    assert alter_lines == [
+        (
+            "ALTER TABLE raw_vault.sat_customer_core "
+            "ADD COLUMN IF NOT EXISTS loyalty_tier_code VARCHAR;"
+        ),
+        (
+            "ALTER TABLE raw_vault.sat_customer_core "
+            "ADD COLUMN IF NOT EXISTS annual_spend_band VARCHAR;"
+        ),
+    ]
+    for col in ("legal_name", "country_iso2", "account_segment", "credit_limit_usd"):
+        assert f"ADD COLUMN IF NOT EXISTS {col}" not in migration_sql
+
+    full_migration_sql = compile_zone_0_migration_sql(ir_w2)
+    full_alter_lines = [
+        line.strip()
+        for line in full_migration_sql.splitlines()
+        if line.strip().startswith("ALTER TABLE")
+    ]
+    assert len(full_alter_lines) == 6
+    for col in (
+        "legal_name",
+        "country_iso2",
+        "account_segment",
+        "credit_limit_usd",
+        "loyalty_tier_code",
+        "annual_spend_band",
+    ):
+        assert (
+            f"ALTER TABLE raw_vault.sat_customer_core ADD COLUMN IF NOT EXISTS {col} "
+            in full_migration_sql
+        )
+
+    assert verify_physical_dv2_sql_ast(migration_sql, entity_name="sat_customer_core") == []
+    destructive_violations = verify_physical_dv2_sql_ast(
+        "ALTER TABLE raw_vault.sat_customer_core DROP COLUMN legal_name;",
+        entity_name="sat_customer_core",
+    )
+    assert len(destructive_violations) == 1
+    assert "DV-AST-001" in destructive_violations[0]
+
+    evo_violations = verify_additive_evolution_invariants(
+        wave0_contract,
+        wave2_contract,
+        sql_scripts=[migration_sql],
+    )
+    assert evo_violations == []
+
+
+def test_issue_38_in_place_satellite_evolution_e2e_duckdb() -> None:
+    """Verify multi-wave in-place Satellite evolution in DuckDB preserves Wave 0 history."""
+    wave0_contract, wave2_contract = _build_issue_38_contracts()
+    ir_w0 = lower_contract_to_canonical_ir(wave0_contract, validate_schema=True)
+    ir_w2 = lower_contract_to_canonical_ir(wave2_contract, validate_schema=True)
+
+    wave0_rows = [
+        {
+            "customer_tax_id": "TAX-US-900101",
+            "legal_name": "Apex Industrial Holdings LLC",
+            "country_iso2": "US",
+            "account_segment": "ENTERPRISE",
+            "credit_limit_usd": 1250000.00,
+            "load_dts": "2026-10-01 06:00:00",
+        },
+        {
+            "customer_tax_id": "TAX-DE-800202",
+            "legal_name": "Rheinland Precision GmbH",
+            "country_iso2": "DE",
+            "account_segment": "ENTERPRISE",
+            "credit_limit_usd": 980000.00,
+            "load_dts": "2026-10-01 06:00:00",
+        },
+    ]
+    wave2_rows = [
+        {
+            "customer_tax_id": "TAX-US-900101",
+            "legal_name": "Apex Industrial Holdings LLC",
+            "country_iso2": "US",
+            "account_segment": "ENTERPRISE",
+            "credit_limit_usd": 1250000.00,
+            "loyalty_tier_code": "PLATINUM",
+            "annual_spend_band": "BAND_1M_5M",
+            "load_dts": "2026-11-01 06:00:00",
+        },
+        {
+            "customer_tax_id": "TAX-DE-800202",
+            "legal_name": "Rheinland Precision GmbH",
+            "country_iso2": "DE",
+            "account_segment": "ENTERPRISE",
+            "credit_limit_usd": 980000.00,
+            "loyalty_tier_code": "GOLD",
+            "annual_spend_band": "BAND_500K_1M",
+            "load_dts": "2026-11-01 06:00:00",
+        },
+    ]
+
+    bundle_w0 = compile_canonical_ir_to_4zone_sql(
+        ir_w0,
+        bronze_tables={"crm_salesforce.crm_customers": wave0_rows},
+    )
+    bundle_w2 = compile_canonical_ir_to_4zone_sql(
+        ir_w2,
+        bronze_tables={"crm_salesforce.crm_customers": wave2_rows},
+        baseline_ir=ir_w0,
+    )
+    assert bundle_w2.zone_0_migration_sql.strip() != ""
+    assert bundle_w2.zone_0_migration_sql in bundle_w2.zones_0_to_3_sql
+
+    conn = duckdb.connect(":memory:")
+    try:
+        conn.execute(bundle_w0.zones_0_to_3_sql)
+        w0_rows_before = conn.execute(
+            """
+            SELECT hk_customer, load_dts, legal_name, hash_diff
+            FROM raw_vault.sat_customer_core
+            WHERE rec_src <> 'SYSTEM_GHOST'
+            ORDER BY legal_name
+            """
+        ).fetchall()
+        assert len(w0_rows_before) == 2
+
+        # Prove failure mode if zone_0_migration_sql is skipped before Zone 2 INSERT
+        conn.execute(bundle_w2.zone_0_sql)
+        conn.execute(bundle_w2.zone_1_sql)
+        with pytest.raises(duckdb.BinderException, match="loyalty_tier_code"):
+            conn.execute(bundle_w2.zone_2_sql)
+
+        # Execute full Wave 2 bundle (with zone_0_migration_sql) and replay for idempotency
+        conn.execute(bundle_w2.zones_0_to_3_sql)
+        conn.execute(bundle_w2.zone_0_migration_sql)
+        conn.execute(bundle_w2.zones_0_to_3_sql)
+
+        w0_rows_after = conn.execute(
+            """
+            SELECT
+                hk_customer, load_dts, legal_name, hash_diff,
+                loyalty_tier_code, annual_spend_band
+            FROM raw_vault.sat_customer_core
+            WHERE rec_src <> 'SYSTEM_GHOST'
+              AND load_dts = TIMESTAMP '2026-10-01 06:00:00'
+            ORDER BY legal_name
+            """
+        ).fetchall()
+        assert [(r[0], r[1], r[2], r[3]) for r in w0_rows_after] == w0_rows_before
+        assert all(r[4] is None and r[5] is None for r in w0_rows_after)
+
+        w2_rows_after = conn.execute(
+            """
+            SELECT legal_name, loyalty_tier_code, annual_spend_band
+            FROM raw_vault.sat_customer_core
+            WHERE rec_src <> 'SYSTEM_GHOST'
+              AND load_dts = TIMESTAMP '2026-11-01 06:00:00'
+            ORDER BY legal_name
+            """
+        ).fetchall()
+        assert w2_rows_after == [
+            ("Apex Industrial Holdings LLC", "PLATINUM", "BAND_1M_5M"),
+            ("Rheinland Precision GmbH", "GOLD", "BAND_500K_1M"),
+        ]
+
+        total_business_rows = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.sat_customer_core WHERE rec_src <> 'SYSTEM_GHOST'"
+        ).fetchone()
+        assert total_business_rows is not None and int(total_business_rows[0]) == 4
+
+        dyn_014 = check_dv_dyn_014_additive_schema_evolution(
+            conn,
+            historical_hash_mutations=0,
+            ir=ir_w2,
+        )
+        assert dyn_014.passed is True
+    finally:
+        conn.close()
+
+
+def test_issue37_scenario_s7_cross_engine_hash_parity_e2e() -> None:
+    """Issue #37 / Scenario S7 (FR-VER-01, FR-INT-01, Algorithm A.5, DV-COL-005):
+    End-to-end cross-engine SHA-256 hex parity across Python (`opendv_core.hashing`),
+    SQLGlot AST (`alg_a5_sqlglot_hash`), and 4-Zone DuckDB (`compiler_4zone`) without
+    any `.lower()` or `.upper()` post-processing workarounds.
+    """
+    import re
+
+    from opendv_axi_verifier.codemods.alg_a5_sqlglot_hash import build_canonical_sha256_hash_ast
+    from opendv_core.hashing import (
+        compute_dv2_length_prefixed_sha256,
+        dv2_canonical_hash,
+        resolve_fk_hash_key_with_zero_keys,
+    )
+    from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
+    from opendv_core.schema_registry import load_structured_file
+
+    lower_hex_re = re.compile(r"^[0-9a-f]{64}$")
+
+    # 1. Validate real v5 Contract -> CanonicalIR -> 4-Zone SQL and execute in :memory: DuckDB
+    pe_contract_path = get_examples_dir() / "private_equity" / "dv_pe_model_contract.yaml"
+    pe_contract_dict = load_structured_file(pe_contract_path)
+    contract = NoMistakeDataVault2ContractV5.model_validate(pe_contract_dict)
+    ir = lower_contract_to_canonical_ir(contract)
+    bundle = compile_canonical_ir_to_4zone_sql(ir)
+
+    with duckdb.connect(":memory:") as conn:
+        conn.execute("CREATE MACRO SHA2(s, bits) AS sha256(s)")
+        conn.execute("CREATE MACRO OCTET_LENGTH(s) AS strlen(s)")
+        conn.execute(bundle.full_sql_bundle)
+
+        # 2. Direct parameterized lookup of Python-computed Hub HKs in DuckDB raw_vault tables
+        calpers_py_hk = compute_dv2_length_prefixed_sha256(
+            ["LP-101"], is_business_key=True, bkcc_prefix="GLOBAL"
+        )
+        bavarian_py_hk = compute_dv2_length_prefixed_sha256(
+            ["LP-101"], is_business_key=True, bkcc_prefix="LEGACY_GP_ADMIN"
+        )
+        fund_iv_vector_hk = dv2_canonical_hash(
+            ["APEX_BO_IV"], is_business_key=True, bkcc_prefix="GLOBAL"
+        )
+        fund_iv_py_hk = dv2_canonical_hash(
+            ["APEX-BUYOUT-IV"], is_business_key=True, bkcc_prefix=None
+        )
+
+        for digest in (calpers_py_hk, bavarian_py_hk, fund_iv_vector_hk, fund_iv_py_hk):
+            assert lower_hex_re.match(digest), f"Expected lowercase 64-char hex, got {digest}"
+
+        # Query DuckDB raw_vault.hub_limited_partner and raw_vault.hub_fund directly with Python HK
+        lp_match = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.hub_limited_partner WHERE hk_lp = ?",
+            [calpers_py_hk],
+        ).fetchone()
+        assert lp_match is not None and lp_match[0] == 1
+
+        bav_match = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.hub_limited_partner WHERE hk_lp = ?",
+            [bavarian_py_hk],
+        ).fetchone()
+        assert bav_match is not None and bav_match[0] == 1
+
+        fund_match = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.hub_fund WHERE hk_fund = ?",
+            [fund_iv_py_hk],
+        ).fetchone()
+        assert fund_match is not None and fund_match[0] == 1
+
+        # 3. Verify 3-way parity: Python vs compiler_4zone SQL vs SQLGlot AST codemod SQL
+        vectors: list[tuple[list[str], dict[str, str | None], bool, str | None]] = [
+            (["lp_id"], {"lp_id": "LP-101"}, True, "GLOBAL"),
+            (["lp_id"], {"lp_id": "LP-101"}, True, "LEGACY_GP_ADMIN"),
+            (["c1", "c2"], {"c1": "AB", "c2": "C"}, False, None),
+            (["c1", "c2"], {"c1": "A", "c2": "BC"}, False, None),
+            (["c1", "c2"], {"c1": "ANNE||O", "c2": "BRIEN"}, False, None),
+            (["c1", "c2"], {"c1": "ANNE", "c2": "O||BRIEN"}, False, None),
+            (["c1", "c2", "c3"], {"c1": "VAL_X", "c2": None, "c3": "VAL_Y"}, False, None),
+            (["c1", "c2", "c3"], {"c1": "VAL_X", "c2": "VAL_Y", "c3": None}, False, None),
+            (["city", "org"], {"city": "München", "org": "株式会社"}, False, None),
+            (["lp_id"], {"lp_id": None}, True, "GLOBAL"),
+        ]
+
+        for cols, row_dict, is_bk, bkcc in vectors:
+            ordered_cols = sorted(cols) if not is_bk else cols
+            py_digest = compute_dv2_length_prefixed_sha256(
+                [row_dict[c] for c in ordered_cols],
+                is_business_key=is_bk,
+                bkcc_prefix=bkcc,
+            )
+            c4z_sql = build_algorithm_a5_sha256_sql(
+                cols,
+                is_business_key=is_bk,
+                bkcc_literal=bkcc,
+                sort_alphabetically=not is_bk,
+            )
+            ast_sql = build_canonical_sha256_hash_ast(
+                cols,
+                is_business_key=is_bk,
+                bkcc_prefix=bkcc,
+                sort_alphabetically=not is_bk,
+            ).sql("duckdb")
+
+            select_list = ", ".join(
+                f"CAST(NULL AS VARCHAR) AS {c}"
+                if row_dict[c] is None
+                else f"'{row_dict[c]}' AS {c}"
+                for c in cols
+            )
+            row_vals = conn.execute(
+                f"SELECT {c4z_sql}, {ast_sql} FROM (SELECT {select_list})"
+            ).fetchone()
+            assert row_vals is not None
+            c4z_val, ast_val = row_vals
+
+            assert lower_hex_re.match(py_digest)
+            assert py_digest == c4z_val == ast_val
+
+        # 4. Zero-Key & FK resolution lowercase uniformity
+        assert resolve_fk_hash_key_with_zero_keys([None], bkcc_prefix="GLOBAL") == ZERO_KEY_UNKNOWN
+        assert resolve_fk_hash_key_with_zero_keys(["-1"], bkcc_prefix="GLOBAL") == ZERO_KEY_UNKNOWN
+        assert (
+            resolve_fk_hash_key_with_zero_keys(
+                [None], bkcc_prefix="GLOBAL", is_optional_inapplicable=True
+            )
+            == ZERO_KEY_ERROR
+        )
+        assert resolve_fk_hash_key_with_zero_keys(["-2"], bkcc_prefix="GLOBAL") == ZERO_KEY_ERROR
+        assert resolve_fk_hash_key_with_zero_keys(["LP-101"], bkcc_prefix="GLOBAL") == calpers_py_hk
 
 
 def test_scenario_s2_sal_canonical_ordering_and_dv_dyn_006_enforcement() -> None:
