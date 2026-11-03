@@ -226,7 +226,7 @@ def run_axi_dv_verification_pipeline(
     )
     diagnostics.extend(verify_column_invariants(contract))
 
-    # 5. Gate 3 Assertion: NetworkX Bipartite DAG Structural Invariants (DV-STR-001..014)
+    # 5. Gate 3 Assertion: NetworkX Bipartite DAG Structural Invariants (DV-STR-001..015)
     diagnostics.extend(
         verify_structural_invariants(
             contract,

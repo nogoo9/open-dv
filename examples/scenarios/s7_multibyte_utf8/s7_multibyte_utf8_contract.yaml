@@ -1,0 +1,73 @@
+contract_version: "5.0"
+domain_namespace: "global_commerce"
+lifecycle_stage: "COLD_START_N1"
+
+column_triage_ledger:
+  - { bronze_table: "crm_salesforce.crm_customers", column_name: "customer_row_seq", elm_classification: "SYSTEM_SURROGATE_DROPPED", target_dv_entity: "DROPPED" }
+  - { bronze_table: "crm_salesforce.crm_customers", column_name: "customer_tax_id", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_customer" }
+  - { bronze_table: "crm_salesforce.crm_customers", column_name: "legal_name", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_customer_core" }
+  - { bronze_table: "crm_salesforce.crm_customers", column_name: "country_iso2", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_customer_core" }
+  - { bronze_table: "crm_salesforce.crm_customers", column_name: "account_segment", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_customer_core" }
+  - { bronze_table: "erp_netsuite.erp_orders", column_name: "order_id", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_order" }
+  - { bronze_table: "erp_netsuite.erp_orders", column_name: "customer_tax_id", elm_classification: "FOREIGN_KEY_REF", target_dv_entity: "lnk_order_customer" }
+  - { bronze_table: "erp_netsuite.erp_orders", column_name: "order_total_usd", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_order_core" }
+  - { bronze_table: "erp_netsuite.erp_orders", column_name: "order_notes", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_order_core" }
+
+hubs:
+  - name: "hub_customer"
+    ontology_concept_uri: "urn:ontology:entity:customer"
+    business_key_sources:
+      - bronze_table: "crm_salesforce.crm_customers"
+        key_columns: ["customer_tax_id"]
+        record_source_code: "CRM_SALESFORCE"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: null
+
+  - name: "hub_order"
+    ontology_concept_uri: "urn:ontology:entity:order"
+    business_key_sources:
+      - bronze_table: "erp_netsuite.erp_orders"
+        key_columns: ["order_id"]
+        record_source_code: "ERP_NETSUITE"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: null
+
+links:
+  - name: "lnk_order_customer"
+    link_type: "STANDARD_LINK"
+    ontology_concept_uri: "urn:ontology:relationship:order_customer"
+    source_bronze_table: "erp_netsuite.erp_orders"
+    hub_references:
+      - target_hub: "hub_order"
+        role_alias: "COMMERCIAL_ORDER"
+        source_fk_columns: ["order_id"]
+      - target_hub: "hub_customer"
+        role_alias: "ORDERING_CUSTOMER"
+        source_fk_columns: ["customer_tax_id"]
+
+satellites:
+  - name: "sat_customer_core"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_customer"
+    source_bronze_table: "crm_salesforce.crm_customers"
+    security_classification: "INTERNAL"
+    volatility_tier: "STANDARD"
+    payload_columns:
+      - "account_segment"
+      - "country_iso2"
+      - "legal_name"
+
+  - name: "sat_order_core"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_order"
+    source_bronze_table: "erp_netsuite.erp_orders"
+    security_classification: "INTERNAL"
+    volatility_tier: "STANDARD"
+    payload_columns:
+      - "order_notes"
+      - "order_total_usd"
+
+reference_tables: []
+unmapped_escalations: []

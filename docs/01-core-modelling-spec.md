@@ -697,7 +697,7 @@ Data Vault 2.0 replaces stateful sequential integer surrogate keys (`IDENTITY` /
 | **SHA-1** | 160 bits | 20 bytes (`BINARY(20)`) | 40 bytes (`CHAR(40)`) | $\approx 1.4 \times 10^{24}$ keys | $\approx 3.4 \times 10^{-27}$ | Deprecated (not recommended over SHA-256). |
 
 > [!TIP]
-> **Always Prefer `BINARY(32)` (`BYTEA` / `VARBINARY`) Over `CHAR(64)` Hex Strings:** Storing SHA-256 hashes as raw 32-byte binary values cuts hash-column storage, memory footprint, and shuffle network I/O **in half (50% reduction)** compared to 64-character hexadecimal strings. If the target engine lacks native fixed-width binary joins, use **uppercase hexadecimal `CHAR(64)`** (`'0'..'9'`, `'A'..'F'`).
+> **Always Prefer `BINARY(32)` (`BYTEA` / `VARBINARY`) Over `CHAR(64)` Hex Strings:** Storing SHA-256 hashes as raw 32-byte binary values cuts hash-column storage, memory footprint, and shuffle network I/O **in half (50% reduction)** compared to 64-character hexadecimal strings. If the target engine lacks native fixed-width binary joins, use **lowercase hexadecimal `CHAR(64)`** (`'0'..'9'`, `'a'..'f'`).
 
 ### 4.2 The 6-Stage Pre-Hash Canonicalization Pipeline
 
@@ -742,9 +742,9 @@ flowchart LR
 6. **Stage 6: Null Substitution & Cryptographic Digest**
    - Substitute every `NULL` position with the encoding's null token (`'-1:^^'` in the default length-prefixed mode, `'^^'` in escaped mode) before concatenation (never pass raw `NULL` into `CONCAT_WS`, which silently skips `NULL` arguments and shifts column positions!).
    - **Hub/Link keys only:** if *every* business key column (excluding `bkcc`) is `NULL`, emit the Zero Key `REPEAT('0', 64)` instead of hashing (`KEY-02b`); never hash `bkcc` alone.
-   - Concatenate all encoded columns with `'||'`, hash the UTF-8 bytes with `SHA-256`, and store the digest as uppercase hex (`CHAR(64)`) or its raw bytes (`BINARY(32)`).
+   - Concatenate all encoded columns with `'||'`, hash the UTF-8 bytes with `SHA-256`, and store the digest as lowercase hex (`CHAR(64)`) or its raw bytes (`BINARY(32)`).
 
-#### Canonical SQL Macro Template (Snowflake / ANSI SQL, Length-Prefixed Mode; on DuckDB use `STRLEN` for `OCTET_LENGTH` and `SHA256(x)` for `SHA2(x, 256)`)
+#### Canonical SQL Macro Template (Snowflake / ANSI SQL, Length-Prefixed Mode; on DuckDB use `OCTET_LENGTH(ENCODE(x))` for `OCTET_LENGTH(x)` and `SHA256(x)` for `SHA2(x, 256)`)
 
 This is the exact encoding emitted by the Gate 2 hash codemod (`Algorithm A.5` in [`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md)) and by the Python reference in Section 6.1, so all three produce the same digest for the same input.
 
@@ -756,7 +756,7 @@ SELECT
     CASE
         WHEN NULLIF(UPPER(TRIM(CAST(src.customer_id AS VARCHAR))), '') IS NULL
         THEN REPEAT('0', 64)
-        ELSE UPPER(SHA2(
+        ELSE LOWER(SHA2(
             '6:CRM_US'
             || '||' || CAST(OCTET_LENGTH(UPPER(TRIM(CAST(src.customer_id AS VARCHAR)))) AS VARCHAR)
             || ':' || UPPER(TRIM(CAST(src.customer_id AS VARCHAR))),
@@ -765,7 +765,7 @@ SELECT
     END AS hk_customer,
 
     -- 2. Satellite Hash Diff (Alphabetical Columns: email_address, full_name, loyalty_tier; CASE PRESERVED!)
-    UPPER(SHA2(
+    LOWER(SHA2(
         CASE WHEN NULLIF(TRIM(CAST(src.email_address AS VARCHAR)), '') IS NULL THEN '-1:^^'
              ELSE CAST(OCTET_LENGTH(TRIM(CAST(src.email_address AS VARCHAR))) AS VARCHAR) || ':' || TRIM(CAST(src.email_address AS VARCHAR)) END
         || '||' ||
@@ -909,7 +909,7 @@ def dv2_canonical_hash(
         normalized.insert(0, bkcc.strip().upper())
 
     parts = [NULL_TOKEN if s is None else f"{len(s.encode('utf-8'))}:{s}" for s in normalized]
-    return digest(delimiter.join(parts).encode("utf-8")).hexdigest().upper()
+    return digest(delimiter.join(parts).encode("utf-8")).hexdigest().lower()
 ```
 
 ### 6.2 Empirical Verification Summary
@@ -978,8 +978,8 @@ Every generated Data Vault node must conform to a strict **SQLGlot Abstract Synt
 | Node Type | Target Layer | Primary Key (`PK`) | Required Metadata Columns | Allowed Payload Columns | Required SQLGlot AST Signature |
 | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Staging (`stg_*`)** | Stage (Views / Transient) | None (1:1 row parity with landing batch) | `load_dts`, `rec_src`, `bkcc`, all derived `hk_*` & `hash_diff_*` | All raw source columns + hard-rule technical casts | `SELECT` only; **0 `JOIN`**, **0 `WHERE`**, **0 `GROUP BY`**, **0 `HAVING`**; `UNION ALL` for Ghost Records (`0x00..00`, `0xFF..FF`). |
-| **Hub (`hub_*`)** | Raw Vault (`INSERT`-Only) | `hk_<cbc>` (`BINARY(32)` / `CHAR(64)`) | `load_dts`, `rec_src`, `bkcc` | Clean Business Key column(s) `bk_*` ONLY (**0 descriptive attributes, 0 FKs**) | `INSERT INTO ... SELECT DISTINCT` with `LEFT JOIN ... WHERE tgt.hk IS NULL` or `WHERE NOT EXISTS`. **0 `UPDATE`/`DELETE`/`MERGE UPDATE`**. |
-| **Standard Link (`lnk_*`)** | Raw Vault (`INSERT`-Only) | `hk_lnk_<rel>` | `load_dts`, `rec_src` | 2+ Parent Hub FKs (`hk_*`) + optional Dependent Child Keys (`cdk_*`) (**0 mutable attributes**) | `INSERT INTO ... SELECT DISTINCT` with `WHERE NOT EXISTS` on `hk_lnk_<rel>`. Every nullable FK wrapped in `COALESCE(hk, 0x00..00)`. |
+| **Hub (`hub_*`)** | Raw Vault (`INSERT`-Only) | `hk_<cbc>` (`BINARY(32)` / `CHAR(64)`) | `load_dts`, `rec_src`, `bkcc` | Clean Business Key column(s) `bk_*` ONLY (**0 descriptive attributes, 0 FKs**) | `INSERT INTO ... SELECT DISTINCT` (or `GROUP BY hk_<cbc>, bkcc, bk_*` with `MIN(load_dts)`, `ANY_VALUE(rec_src)`) with `LEFT JOIN ... WHERE tgt.hk IS NULL` or `WHERE NOT EXISTS`. **0 `UPDATE`/`DELETE`/`MERGE UPDATE`**. |
+| **Standard Link (`lnk_*`)** | Raw Vault (`INSERT`-Only) | `hk_lnk_<rel>` | `load_dts`, `rec_src` | 2+ Parent Hub FKs (`hk_*`) + optional Dependent Child Keys (`cdk_*`) (**0 mutable attributes**) | `INSERT INTO ... SELECT DISTINCT` (or `GROUP BY hk_lnk_<rel>, hk_*` with `MIN(load_dts)`, `ANY_VALUE(rec_src)`) with `WHERE NOT EXISTS` on `hk_lnk_<rel>`. Every nullable FK wrapped in `COALESCE(hk, 0x00..00)`. |
 | **Non-Historized Link (`t_lnk_*` / `nh_lnk_*`)** | Raw Vault (`INSERT`-Only) | `hk_t_lnk_<event>` | `load_dts`, `rec_src`, `event_dts` | Parent Hub FKs + degenerate transaction ID + immutable event measures | `INSERT INTO ... WHERE NOT EXISTS`. Strictly append-only atomic event stream; no updates. |
 | **Standard Satellite (`sat_*`)** | Raw Vault (`INSERT`-Only) | `(hk_<parent>, load_dts)` | `hash_diff`, `rec_src` | Descriptive attributes co-evolving at homogeneous frequency $\lambda$ (**0 `load_end_dts`, 0 `is_current`**) | Windowed latest-state subquery `QUALIFY ROW_NUMBER() OVER (PARTITION BY hk ORDER BY load_dts DESC) = 1` + `WHERE stg.hash_diff <> curr.hash_diff OR curr.hk IS NULL`. |
 | **Multi-Active Satellite (`mas_*`)** | Raw Vault (`INSERT`-Only) | `(hk_<parent>, load_dts, cdk_<child>)` | `hash_diff` (or set-level `mas_set_hash_diff`), `rec_src` | Concurrent multi-valued child attributes | Set-level or grain-level delta comparison against current active child set; `INSERT`-only. |

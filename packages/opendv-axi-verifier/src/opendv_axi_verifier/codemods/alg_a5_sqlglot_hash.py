@@ -107,7 +107,7 @@ def build_canonical_sha256_hash_ast(
         interleaved.append(part)
 
     concat_expr = reduce(lambda a, b: exp.DPipe(this=a, expression=b), interleaved)
-    sha256_upper = exp.Upper(
+    sha256_lower = exp.Lower(
         this=exp.Anonymous(
             this="SHA2",
             expressions=[concat_expr, exp.Literal.number(256)],
@@ -124,10 +124,10 @@ def build_canonical_sha256_hash_ast(
         all_null_pred = reduce(lambda a, b: exp.And(this=a, expression=b), all_null_checks)
         return exp.Case(
             ifs=[exp.If(this=all_null_pred, true=exp.Literal.string(ZERO_KEY))],
-            default=sha256_upper,
+            default=sha256_lower,
         )
 
-    return sha256_upper
+    return sha256_lower
 
 
 def codemod_enforce_staging_hashes_sql(

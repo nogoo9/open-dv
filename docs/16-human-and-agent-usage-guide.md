@@ -601,7 +601,7 @@ for sat in ir.satellites:
 If you author custom SQL templates for Snowflake, Databricks, BigQuery, or Postgres instead of using `open-dv`'s built-in compiler, preserve these five mathematical invariants from [`docs/01-core-modelling-spec.md`](01-core-modelling-spec.md) and [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](14-end-to-end-consistency-and-scenarios-audit.md):
 
 1. **Use UTF-8 Byte Length (`OCTET_LENGTH` / `BYTE_LENGTH`), Never Character Count (`LENGTH` / `STRLEN`):**
-   - `open-dv`'s Python reference hasher (`Algorithm A.5` in `opendv-core/hashing.py`) prefixes every value with `len(val.encode('utf-8'))`. In SQL dialects, always use `OCTET_LENGTH(col)` (Snowflake/Postgres/DuckDB) or `BYTE_LENGTH(col)` (BigQuery) so multi-byte UTF-8 characters (e.g., `'ä'`, `'€'`) produce identical SHA-256 digests across Python and SQL (`BUG-01` in `docs/14`).
+   - `open-dv`'s Python reference hasher (`Algorithm A.5` in `opendv-core/hashing.py`) prefixes every value with `len(val.encode('utf-8'))`. In SQL dialects, always use `OCTET_LENGTH(col)` (Snowflake/Postgres), `OCTET_LENGTH(ENCODE(col))` (DuckDB), or `BYTE_LENGTH(col)` (BigQuery) so multi-byte UTF-8 characters (e.g., `'ä'`, `'€'`) produce identical SHA-256 digests across Python and SQL (`BUG-01` in `docs/14`).
 2. **Harmonize Hex Digest Casing:**
    - Standardize on consistent hex casing (`LOWER(SHA2(..., 256))` or `UPPER(...)`) across all Staging views and Zero Key seeds so joins between Python-computed Hash Pills and warehouse tables never fail on case sensitivity (`BUG-06` in `docs/14`).
 3. **Preserve Strict Alphabetical `hash_diff` Column Ordering (`INV-04` / `DV-COL-006`):**

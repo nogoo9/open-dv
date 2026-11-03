@@ -390,7 +390,17 @@ def _lower_satellite(
 
     has_applied_dts = any(
         col.name
-        in {"effective_from_date", "effective_from_dt", "as_of_quarter_end", "call_due_date"}
+        in {
+            "applied_dts",
+            "effective_from_date",
+            "effective_from_dt",
+            "effective_from_dts",
+            "effective_date",
+            "as_of_quarter_end",
+            "call_due_date",
+            "reporting_quarter",
+            "commitment_date",
+        }
         for col in payload_cols
     )
     applied_dts_col = (
@@ -430,7 +440,7 @@ def _lower_satellite(
                 normalization="EXACT_TRIM",
             ),
         ),
-        hash_diff_migration_policy="SPLIT_NEW_SATELLITE",
+        hash_diff_migration_policy=contract_sat.hash_diff_migration_policy or "SPLIT_NEW_SATELLITE",
         payload_columns=payload_cols,
         source_mapping=IRSourceMapping(
             staging_table=_staging_table_name(contract_sat.source_bronze_table),

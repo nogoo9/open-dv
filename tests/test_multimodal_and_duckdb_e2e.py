@@ -104,7 +104,7 @@ def verify_multimodal_span_audit(
             "hk_document/doc_id and extractor_model_id provenance."
         )
 
-    doc_text = parsed_doc_samples.get(doc_id, "")
+    doc_text = parsed_doc_samples.get(doc_id, "").replace("\r\n", "\n").replace("\r", "\n")
     if not doc_text:
         violations.append(
             f"DV-AUD-005 [MISSING_AI_PROVENANCE]: Source document '{doc_id}' not found in parsed_doc_samples."
@@ -113,7 +113,7 @@ def verify_multimodal_span_audit(
 
     char_start = extraction.get("char_start")
     char_end = extraction.get("char_end")
-    quote = extraction.get("evidence_quote", "")
+    quote = str(extraction.get("evidence_quote", "")).replace("\r\n", "\n").replace("\r", "\n")
 
     if (
         not isinstance(char_start, int)
@@ -1533,3 +1533,134 @@ def test_dv_dyn_negative_fault_injection_detection(
     con.execute(fault_sql)
     # After fault injection: >0 violations detected
     assert con.execute(detection_sql).fetchone()[0] > 0, f"{rule_id} failed to detect injected fault"
+
+
+def test_issue_33_crlf_unstructured_document_ingestion_and_4zone_duckdb_e2e(
+    pe_contract: dict[str, Any],
+    graph_a: dict[str, Any],
+    pe_profile: dict[str, Any],
+    doc05_algos: dict[str, Any],
+    pdf_corpus: dict[str, str],
+) -> None:
+    """Issue #33 End-to-End Verification (FR-DOM-05 / Rule U2 / Scenario S8 / UF-5):
+    1. Converts the 2 unstructured PE PDF documents (`calpers_side_letter_fund_iv_2026.pdf`
+       and `ic_q3_valuation_nordic_cloud.pdf`) to Windows CRLF (`\\r\\n`) line endings.
+    2. Verifies all 17 character-offset spans, 3-Tier ER routing (`Tier-U1`, `Tier-U2`,
+       `Tier-U3` `STEWARD_HOLD`), `verify_gate5_unstructured_invariants` (both package
+       implementation and Doc 05 reference algorithm), and full 6-Gate
+       `run_axi_dv_verification_pipeline`.
+    3. Lowers the verified contract to `CanonicalIR`, compiles the 4-Zone DuckDB SQL bundle,
+       executes the 4-Batch Adversarial Shadow Sandbox in `:memory:` DuckDB, and verifies all
+       15 runtime invariants (`DV-DYN-001`..`015`) and bi-temporal PIT non-retroactivity.
+    """
+    from opendv_axi_verifier.alg_a8_orchestrator import run_axi_dv_verification_pipeline
+    from opendv_axi_verifier.verifiers.alg_a9b_unstructured import (
+        evaluate_unstructured_er_routing,
+        verify_gate5_unstructured_invariants,
+    )
+    from opendv_duckdb_sandbox import (
+        compile_canonical_ir_to_4zone_sql,
+        evaluate_all_dynamic_checks,
+        execute_4batch_adversarial_suite,
+        execute_query_d10b,
+        lower_contract_to_canonical_ir,
+    )
+
+    crlf_corpus = {doc_id: text.replace("\n", "\r\n") for doc_id, text in pdf_corpus.items()}
+    assert all("\r\n" in body for body in crlf_corpus.values())
+
+    # Step 1: Verify all 17 PDF spans against CRLF corpus via Doc 05 reference Algorithm A.9b
+    verify_gate5_doc05 = doc05_algos["verify_gate5_unstructured_invariants"]
+    for (
+        doc_uri,
+        field,
+        span_start,
+        span_end,
+        verbatim_quote,
+        _er_tier,
+        _confidence,
+        _top2_margin,
+    ) in ALL_17_PDF_SPANS:
+        contract_with_sample = deepcopy(pe_contract)
+        contract_with_sample["sample_extractions"] = [
+            {
+                "doc_id": doc_uri,
+                "attribute": field,
+                "evidence_quote": verbatim_quote,
+                "char_start": span_start,
+                "char_end": span_end,
+            }
+        ]
+        assert verify_gate5_doc05(contract_with_sample, crlf_corpus) == []
+
+    # Step 2: Verify package Algorithm A.9b routing & Gate 5 invariants with CRLF corpus
+    er_decisions = evaluate_unstructured_er_routing(
+        pe_profile,
+        parsed_doc_samples=crlf_corpus,
+    )
+    assert len(er_decisions) == 7
+    assert all(d["span_errors"] == [] for d in er_decisions)
+    tier_u3_holds = [d for d in er_decisions if d["action"] == "ASK-USER"]
+    assert len(tier_u3_holds) == 1
+
+    pkg_gate5_errors = verify_gate5_unstructured_invariants(
+        pe_contract,
+        parsed_doc_samples=crlf_corpus,
+        bronze_profile=pe_profile,
+    )
+    assert pkg_gate5_errors == []
+
+    # Step 3: Run full 6-Gate verification pipeline with CRLF corpus
+    gate_report = run_axi_dv_verification_pipeline(
+        pe_contract,
+        graph_a,
+        pe_profile,
+        parsed_doc_samples=crlf_corpus,
+    )
+    assert gate_report.status == "PASS"
+    assert not any("SPAN_HALLUCINATION" in d for d in gate_report.diagnostics)
+
+    # Step 4: Compile verified contract to CanonicalIR + 4-Zone SQL and run 4-Batch DuckDB Sandbox
+    canonical_ir = lower_contract_to_canonical_ir(
+        gate_report.transformed_contract,
+        graph_b_profile=pe_profile,
+        validate_schema=True,
+    )
+    sql_bundle = compile_canonical_ir_to_4zone_sql(
+        canonical_ir,
+        include_batch4_restatement_in_seed=False,
+    )
+
+    con = duckdb.connect(":memory:")
+    try:
+        batch_report = execute_4batch_adversarial_suite(con, sql_bundle)
+        assert batch_report.all_passed is True
+        assert batch_report.batches[1].total_delta_rows == 0
+
+        dyn_report = evaluate_all_dynamic_checks(
+            con,
+            recorded_replay_delta=batch_report.batches[1].total_delta_rows,
+            recorded_sat_delta=batch_report.batches[2].satellite_delta_rows,
+            recorded_hub_link_delta=(
+                batch_report.batches[2].hub_delta_rows + batch_report.batches[2].link_delta_rows
+            ),
+            historical_hash_mutations=0,
+        )
+        assert dyn_report.all_passed is True
+        assert dyn_report.passed_count == 15
+
+        # Step 5: Verify bi-temporal PIT query non-retroactivity for unstructured valuation
+        rows_oct_15 = execute_query_d10b(
+            con,
+            assertion_cutoff_ts="2026-10-15 12:00:00",
+            effective_as_of_dt="2026-09-30",
+        )
+        rows_nov_15 = execute_query_d10b(
+            con,
+            assertion_cutoff_ts="2026-11-15 23:59:59",
+            effective_as_of_dt="2026-09-30",
+        )
+        assert len(rows_oct_15) == 1 and rows_oct_15[0].ev_ebitda_multiple == Decimal("12.80")
+        assert len(rows_nov_15) == 1 and rows_nov_15[0].ev_ebitda_multiple == Decimal("14.50")
+    finally:
+        con.close()

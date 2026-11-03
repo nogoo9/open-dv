@@ -244,7 +244,7 @@ When `not is_pe_domain`:
 2. **Zone 2 (`_compile_generic_zone_2_raw_vault_dml`)**:
    - For every `HubIR` in `ir.hubs`: emit idempotent `INSERT INTO raw_vault.<hub_name> (...) SELECT ... FROM staging.stg_... WHERE NOT EXISTS (SELECT 1 FROM raw_vault.<hub_name> h WHERE h.<hk> = src.<hk>)`.
    - For every `LinkIR` in `ir.links`: emit idempotent `INSERT INTO raw_vault.<link_name> (...) SELECT ... WHERE NOT EXISTS (...)`.
-   - For every `SatelliteIR` in `ir.satellites`: emit `INSERT INTO <schema>.<sat_name> (...) SELECT ...` with latest-version `QUALIFY ROW_NUMBER() OVER (PARTITION BY <parent_hk> ORDER BY load_dts DESC) = 1` anti-join (`cur.hash_diff <> src.hash_diff`).
+   - For every `SatelliteIR` in `ir.satellites`: emit `INSERT INTO <schema>.<sat_name> (...) SELECT ...` using lexicographic `(applied_dts ASC, load_dts ASC)` `LAG(hash_diff)` delta detection for bi-temporal Satellites (`sat.applied_dts_column is not None`) and latest-version `QUALIFY ROW_NUMBER() OVER (PARTITION BY <parent_hk> ORDER BY load_dts DESC) = 1` anti-join (`cur.hash_diff <> src.hash_diff`) for uni-temporal Satellites.
 3. **Zone 3 (`_compile_generic_zone_3_business_vault_sql`)**:
    - For every `PitTableIR` in `ir.pit_tables`: emit `CREATE TABLE IF NOT EXISTS business_vault.<pit_name>` and populate snapshot rows joining the Hub with each tracked Satellite using `AS OF` temporal join semantics and Ghost Record fallback `COALESCE(s.<parent_hk>, REPEAT('0', 64))` / `COALESCE(s.load_dts, TIMESTAMP '1900-01-01 00:00:00')`.
 4. **Zone 4 (`_compile_generic_zone_4_information_mart_views`)**:
