@@ -612,7 +612,7 @@ def build_canonical_sha256_hash_ast(
     bkcc_prefix: Optional[str] = None,
 ) -> exp.Alias:
     """
-    Builds UPPER(SHA2(enc(c_1) || '||' || ... || enc(c_n), 256)) with enc() = length-prefixed encoding.
+    Builds LOWER(SHA2(enc(c_1) || '||' || ... || enc(c_n), 256)) with enc() = length-prefixed encoding.
     - If bkcc_prefix is set (Tier-3 local key), prepends the encoded BKCC literal.
     - For Business Keys (is_business_key=True), preserves semantic composite key order and
       resolves to the Zero Key REPEAT('0', 64) when every BK column (excluding bkcc) is NULL.
@@ -639,7 +639,7 @@ def build_canonical_sha256_hash_ast(
         encoded_args[1:],
         encoded_args[0],
     )
-    digest = exp.Upper(this=exp.SHA2(this=concatenated, length=exp.Literal.number(256)))
+    digest = exp.Lower(this=exp.SHA2(this=concatenated, length=exp.Literal.number(256)))
 
     if is_business_key:
         all_null = reduce(

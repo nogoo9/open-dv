@@ -697,7 +697,7 @@ Data Vault 2.0 replaces stateful sequential integer surrogate keys (`IDENTITY` /
 | **SHA-1** | 160 bits | 20 bytes (`BINARY(20)`) | 40 bytes (`CHAR(40)`) | $\approx 1.4 \times 10^{24}$ keys | $\approx 3.4 \times 10^{-27}$ | Deprecated (not recommended over SHA-256). |
 
 > [!TIP]
-> **Always Prefer `BINARY(32)` (`BYTEA` / `VARBINARY`) Over `CHAR(64)` Hex Strings:** Storing SHA-256 hashes as raw 32-byte binary values cuts hash-column storage, memory footprint, and shuffle network I/O **in half (50% reduction)** compared to 64-character hexadecimal strings. If the target engine lacks native fixed-width binary joins, use **uppercase hexadecimal `CHAR(64)`** (`'0'..'9'`, `'A'..'F'`).
+> **Always Prefer `BINARY(32)` (`BYTEA` / `VARBINARY`) Over `CHAR(64)` Hex Strings:** Storing SHA-256 hashes as raw 32-byte binary values cuts hash-column storage, memory footprint, and shuffle network I/O **in half (50% reduction)** compared to 64-character hexadecimal strings. If the target engine lacks native fixed-width binary joins, use **lowercase hexadecimal `CHAR(64)`** (`'0'..'9'`, `'a'..'f'`).
 
 ### 4.2 The 6-Stage Pre-Hash Canonicalization Pipeline
 
@@ -742,7 +742,7 @@ flowchart LR
 6. **Stage 6: Null Substitution & Cryptographic Digest**
    - Substitute every `NULL` position with the encoding's null token (`'-1:^^'` in the default length-prefixed mode, `'^^'` in escaped mode) before concatenation (never pass raw `NULL` into `CONCAT_WS`, which silently skips `NULL` arguments and shifts column positions!).
    - **Hub/Link keys only:** if *every* business key column (excluding `bkcc`) is `NULL`, emit the Zero Key `REPEAT('0', 64)` instead of hashing (`KEY-02b`); never hash `bkcc` alone.
-   - Concatenate all encoded columns with `'||'`, hash the UTF-8 bytes with `SHA-256`, and store the digest as uppercase hex (`CHAR(64)`) or its raw bytes (`BINARY(32)`).
+   - Concatenate all encoded columns with `'||'`, hash the UTF-8 bytes with `SHA-256`, and store the digest as lowercase hex (`CHAR(64)`) or its raw bytes (`BINARY(32)`).
 
 #### Canonical SQL Macro Template (Snowflake / ANSI SQL, Length-Prefixed Mode; on DuckDB use `STRLEN` for `OCTET_LENGTH` and `SHA256(x)` for `SHA2(x, 256)`)
 
@@ -756,7 +756,7 @@ SELECT
     CASE
         WHEN NULLIF(UPPER(TRIM(CAST(src.customer_id AS VARCHAR))), '') IS NULL
         THEN REPEAT('0', 64)
-        ELSE UPPER(SHA2(
+        ELSE LOWER(SHA2(
             '6:CRM_US'
             || '||' || CAST(OCTET_LENGTH(UPPER(TRIM(CAST(src.customer_id AS VARCHAR)))) AS VARCHAR)
             || ':' || UPPER(TRIM(CAST(src.customer_id AS VARCHAR))),
@@ -765,7 +765,7 @@ SELECT
     END AS hk_customer,
 
     -- 2. Satellite Hash Diff (Alphabetical Columns: email_address, full_name, loyalty_tier; CASE PRESERVED!)
-    UPPER(SHA2(
+    LOWER(SHA2(
         CASE WHEN NULLIF(TRIM(CAST(src.email_address AS VARCHAR)), '') IS NULL THEN '-1:^^'
              ELSE CAST(OCTET_LENGTH(TRIM(CAST(src.email_address AS VARCHAR))) AS VARCHAR) || ':' || TRIM(CAST(src.email_address AS VARCHAR)) END
         || '||' ||
@@ -909,7 +909,7 @@ def dv2_canonical_hash(
         normalized.insert(0, bkcc.strip().upper())
 
     parts = [NULL_TOKEN if s is None else f"{len(s.encode('utf-8'))}:{s}" for s in normalized]
-    return digest(delimiter.join(parts).encode("utf-8")).hexdigest().upper()
+    return digest(delimiter.join(parts).encode("utf-8")).hexdigest().lower()
 ```
 
 ### 6.2 Empirical Verification Summary
