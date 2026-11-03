@@ -463,7 +463,7 @@ When `initial_contract_path` is set in `pipeline_input.yaml` (or passed via the 
 | `column_triage_ledger` | `list[ColumnTriageEntry]` (`min_length=1`) | **Yes** | 100% column triage accounting ledger (`bronze_table`, `column_name`, `elm_classification`, `target_dv_entity`). |
 | `hubs` | `list[ContractHubSpec]` | **Yes** | Deployed Hubs (`name` matching `^hub_[a-z0-9_]+$`, `ontology_concept_uri`, `business_key_sources`). Protected by `Algorithm A.7` against deletion or grain mutation in subsequent waves. |
 | `links` | `list[ContractLinkSpec]` | **Yes** | Deployed Links (`name`, `link_type`, `ontology_concept_uri`, `source_bronze_table`, `where_filter_condition`, `hub_references` with `min_length=2`). |
-| `satellites` | `list[ContractSatelliteSpec]` | **Yes** | Deployed Satellites (`name`, `satellite_type`, `parent_entity`, `source_bronze_table`, `security_classification`, `volatility_tier`, `payload_columns`, `soft_deprecated_columns`). |
+| `satellites` | `list[ContractSatelliteSpec]` | **Yes** | Deployed Satellites (`name`, `satellite_type`, `parent_entity`, `source_bronze_table`, `security_classification`, `volatility_tier`, `hash_diff_migration_policy`, `payload_columns`, `soft_deprecated_columns`). |
 | `reference_tables` | `list[ContractReferenceTableSpec]` | **Yes** | Deployed `ref_*` tables (`[]` if none). |
 | `unmapped_escalations` | `list[UnmappedEscalation]` | **Yes** | Escalated ambiguous columns (`[]` in verified contracts). |
 
@@ -483,9 +483,9 @@ In production Data Vault 2.0 environments, enterprise schemas are **not** built 
    - `STAGE_01_SCOUT_SOURCE` resolves foreign keys in new relational feeds (e.g., `stripe_invoices.csv` in Wave 1) against existing Hubs in `deployed_contract` (`hub_customer`, `hub_order` / `hub_sales_order`) and appends new `TIER_3_LOCAL_SCOPED` `BKCC` sources (e.g., `STRIPE_EU`) to existing Hubs without duplicating Hub tables.
    - When an existing source table evolves (e.g., `crm_customers_v2.csv` in Wave 2), `STAGE_01_SCOUT_SOURCE` compares the incoming columns against `deployed_contract` (and optional `baseline_data_path`) to detect `ADD_COLUMN` intra-source schema drift (`loyalty_tier_code`, `annual_spend_band`).
    - `STAGE_02_SCOUT_UNSTRUCTURED` links extracted document entities (`hub_document` $\to$ `lnk_document_customer`) directly against existing Hubs in `deployed_contract`.
-3. **Additive Evolution Lock & Companion Satellite Synthesis (`STAGE_05_AXI_DV_STATIC_GATES`):**
-   - `STAGE_05_AXI_DV_STATIC_GATES` executes **`Algorithm A.7` (`verify_additive_evolution_invariants`, `DV-EVO-001`–`007`)** against `deployed_contract`, guaranteeing zero destructive changes: no existing Hub, Link, or Satellite can be dropped, no Hub business key grain or `BKCC` prefix can be mutated, and no existing Satellite's `payload_columns` (`hash_diff` calculation) can be altered.
-   - Simultaneously, **`Algorithm A.9a` (`codemod_intra_source_schema_drift`)** routes newly added drift columns (`loyalty_tier_code`, `annual_spend_band`) into an additive companion satellite (`sat_customer_core_ext_v2`) while leaving the historical `sat_customer_core` table untouched.
+3. **Additive Evolution Lock, Companion Satellite Synthesis & Migration DDL (`STAGE_05_AXI_DV_STATIC_GATES` & `STAGE_06_AXI_DV_DYNAMIC_SANDBOX`):**
+   - `STAGE_05_AXI_DV_STATIC_GATES` executes **`Algorithm A.7` (`verify_additive_evolution_invariants`, `DV-EVO-001`–`007`)** against `deployed_contract`, guaranteeing zero destructive changes: no existing Hub, Link, or Satellite can be dropped, no Hub business key grain or `BKCC` prefix can be mutated, and no existing Satellite's `payload_columns` (`hash_diff` calculation) can be altered without an explicit `hash_diff_migration_policy` (`DV-EVO-006`).
+   - Simultaneously, **`Algorithm A.9a` (`codemod_intra_source_schema_drift`)** routes newly added drift columns (`loyalty_tier_code`, `annual_spend_band`) into an additive companion satellite (`sat_customer_core_ext_v2`) while leaving the historical `sat_customer_core` table untouched; when in-place Satellite column additions are declared with `hash_diff_migration_policy`, `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` compiles idempotent `ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS` statements in `zone_0_migration_sql` against `baseline_ir`.
 
 #### Schema Evolution Summary Across the 4 Sequential CLI Calls
 

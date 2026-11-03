@@ -1,8 +1,9 @@
 """Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`006` / `DV-G6-001`-`005`).
 
 Performs static SQLGlot AST inspection on staging and Raw Vault SQL models:
-  - `DV-AST-001` (`DV-G6-002`): No `UPDATE`, `DELETE`, `TRUNCATE`, `DROP`, `ALTER`, or
-    destructive `MERGE` on Raw Vault tables (`hub_*`, `lnk_*`, `sat_*`, `esat_*`, `mas_*`).
+  - `DV-AST-001` (`DV-G6-002`): No `UPDATE`, `DELETE`, `TRUNCATE`, `DROP`, destructive `ALTER`
+    (only additive `ALTER TABLE ... ADD COLUMN` is permitted), or destructive `MERGE` on Raw Vault
+    tables (`hub_*`, `lnk_*`, `sat_*`, `esat_*`, `mas_*`).
   - `DV-AST-002` (`DV-G6-001`): Canonical length-prefixed `||` (`DPipe`) hash recipe
     (`OCTET_LENGTH` / `LENGTH` + `||` delimiter).
   - `DV-AST-003` (`DV-G6-001`): Positional null token `'-1:^^'` in every `hk_*`,
@@ -184,10 +185,20 @@ def verify_physical_dv2_sql_ast(
             continue
 
         # 1. DV-AST-001 / DV-G6-002: Insert-Only Raw Vault DML Enforcement
-        if isinstance(stmt, (exp.Update, exp.Delete, exp.Drop, exp.Alter, exp.Command)):
+        if isinstance(stmt, exp.Alter):
+            actions = stmt.args.get("actions") or []
+            is_additive_col_only = bool(actions) and all(
+                isinstance(act, exp.ColumnDef) for act in actions
+            )
+            if not is_additive_col_only:
+                violations.append(
+                    f"[DV-AST-001 / DV-G6-002] Destructive DML 'ALTER' is strictly "
+                    f"forbidden on Raw Vault entity '{entity_name}'."
+                )
+        elif isinstance(stmt, (exp.Update, exp.Delete, exp.Drop, exp.Command)):
             stmt_kind = stmt.key.upper()
             raw_sql_u = stmt.sql().upper()
-            if stmt_kind in {"UPDATE", "DELETE", "DROP", "ALTER"} or any(
+            if stmt_kind in {"UPDATE", "DELETE", "DROP"} or any(
                 kw in raw_sql_u for kw in ("TRUNCATE", "UPDATE ", "DELETE ")
             ):
                 violations.append(

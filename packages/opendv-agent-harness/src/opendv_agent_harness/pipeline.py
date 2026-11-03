@@ -4508,6 +4508,7 @@ class AgenticVaultPipeline:
             compiled_bundle = compile_canonical_ir_to_4zone_sql(
                 canonical_ir,
                 bronze_tables=wave_bronze_tables,
+                baseline_ir=last_canonical_ir,
             )
 
             # Execute the wave's own 4-Zone DDL + Ghost Records in DuckDB to prove SQL validity
