@@ -61,7 +61,7 @@
 6. [Static & Dynamic Verification Rule Catalogs (`DV-STR-*`, `DV-COL-*`, `DV-EVO-*`, `DV-DYN-*`)](#6-static--dynamic-verification-rule-catalogs-dv-str--dv-col--dv-evo--dv-dyn-)
    - [6.1 Mathematical Bipartite Graph Formulation](#61-mathematical-bipartite-graph-formulation)
    - [6.2 Static Structural & Graph Topology Rules (`DV-STR-001`–`DV-STR-014`)](#62-static-structural--graph-topology-rules-dv-str-001dv-str-014)
-   - [6.3 Static Column, DDL, & Hash Contract Rules (`DV-COL-001`–`DV-COL-012`)](#63-static-column-ddl--hash-contract-rules-dv-col-001dv-col-012)
+   - [6.3 Static Column, DDL, & Hash Contract Rules (`DV-COL-001`–`DV-COL-013`)](#63-static-column-ddl--hash-contract-rules-dv-col-001dv-col-013)
    - [6.4 Schema Evolution & Immutability Diff Gate Rules (`DV-EVO-001`–`DV-EVO-008`)](#64-schema-evolution--immutability-diff-gate-rules-dv-evo-001dv-evo-008)
    - [6.5 Dynamic Data & Runtime Verification Rules (`DV-DYN-001`–`DV-DYN-015`)](#65-dynamic-data--runtime-verification-rules-dv-dyn-001dv-dyn-015)
    - [6.6 Executable Parametric SQL Verification Templates](#66-executable-parametric-sql-verification-templates)
@@ -679,22 +679,9 @@ flowchart TD
 
 ---
 
-### 6.3 Static Column, DDL, & Hash Contract Rules (`DV-COL-001`–`DV-COL-012`)
+### 6.3 Static Column, DDL, & Hash Contract Rules (`DV-COL-001`–`DV-COL-013`)
 
-| Rule ID | Rule Name | Target Entity | Severity | Formal Pass Predicate (IR / SQL AST Check) | Remediation Routing |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **`DV-COL-001`** | **Primary Hash Key Non-Null & Vault-Wide Type Parity** | `ALL` | `BLOCKER` | $\forall e \in V,\ e.\text{hk\_column}.\text{nullable} = \text{false} \land e.\text{hk\_column}.\text{data\_type} = \text{ir.hash\_config.storage\_type}$ | `TopologyArchitect`: Set `nullable: false` and match global `hash_config.storage_type` (`CHAR(64)` or `BINARY(32)`). |
-| **`DV-COL-002`** | **Hub Business Keys Non-Nullable** | `HUB` | `BLOCKER` | $\forall h \in V_H,\ \|h.\text{business\_keys}\| \ge 1 \land \forall b \in h.\text{business\_keys},\ b.\text{nullable} = \text{false}$ | `GrainAndKeyDiscovery`: Mark all Hub business key columns `nullable: false` (stage loader maps missing source keys to `-1` Zero Key before insert). |
-| **`DV-COL-003`** | **Hub Hash Key Input Exact Parity** | `HUB` | `BLOCKER` | $\forall h \in V_H,\ h.\text{hk\_column}.\text{hash\_expression}.\text{input\_columns} = [b.\text{name} \mid b \in h.\text{business\_keys}] \land \text{algo} = \text{ir.hash\_config.algorithm}$ | `TopologyArchitect`: Align `hk_column.hash_expression.input_columns` with the ordered `business_keys` list. |
-| **`DV-COL-004`** | **Link Foreign Hash Key Type Parity & Non-Nullability** | `LINK` | `BLOCKER` | $\forall l \in V_L,\ \forall r \in l.\text{hub\_references},\ r.\text{nullable} = \text{false} \land r.\text{data\_type} = \text{hubs}[r.\text{target\_hub}].\text{hk\_column}.\text{data\_type}$ | `TopologyArchitect`: Enforce `nullable: false` and exact data type parity with referenced Hub `hk`. |
-| **`DV-COL-005`** | **Satellite Parent HK Type Parity & Non-Nullability** | `SATELLITE` | `BLOCKER` | $\forall s \in V_S,\ s.\text{parent\_hk\_column}.\text{nullable} = \text{false} \land s.\text{parent\_hk\_column}.\text{data\_type} = p(s).\text{hk\_column}.\text{data\_type}$ | `TopologyArchitect`: Match Satellite `parent_hk_column` type and non-nullability to parent Hub/Link `hk`. |
-| **`DV-COL-006`** | **Satellite `hash_diff` Lexicographical Input Ordering** | `SATELLITE` | `BLOCKER` | $\forall s \in V_S,\ s.\text{hash\_diff}.\text{input\_columns} = \text{sort}([c.\text{name} \mid c \in s.\text{payload\_columns} \cup s.\text{child\_dependent\_keys}])$ | `TopologyArchitect`: Sort `hash_diff.input_columns` alphabetically and include all payload + CDK columns. |
-| **`DV-COL-007`** | **Satellite `hash_diff` Case-Preserving Normalization** | `SATELLITE` | `ERROR` | $\forall s \in V_S,\ s.\text{hash\_diff}.\text{normalization} = \text{'EXACT\_TRIM'}$ | `TopologyArchitect`: Set `normalization: EXACT_TRIM` on `hash_diff` so case changes in attributes are tracked. |
-| **`DV-COL-008`** | **Exclusion of System Audit Columns from `hash_diff`** | `SATELLITE` | `BLOCKER` | $\forall s \in V_S,\ s.\text{hash\_diff}.\text{input\_columns} \cap \{\text{load\_dts}, \text{rec\_src}, s.\text{parent\_hk}\} = \emptyset$ | `TopologyArchitect`: Remove `load_dts`, `rec_src`, and `hk` from `hash_diff` inputs (including `load_dts` in `hash_diff` forces a false delta on every batch run!). |
-| **`DV-COL-009`** | **Mandatory Audit Columns (`load_dts`, `rec_src`) Presence & Type** | `ALL` | `BLOCKER` | $\forall e \in V_H \cup V_L \cup V_S,\ e.\text{load\_dts}.\text{nullable} = \text{false} \land e.\text{rec\_src}.\text{nullable} = \text{false} \land e.\text{load\_dts}.\text{data\_type} = \text{sys.load\_dts\_type}$ | `TopologyArchitect`: Include non-nullable `load_dts` and `rec_src` with vault-standard data types on every entity. |
-| **`DV-COL-010`** | **Delimiter & Null-Token Disjointness** | `MODEL` | `BLOCKER` | $\text{hash\_config.delimiter} \neq \text{hash\_config.null\_token\_bk} \land \text{hash\_config.delimiter} \neq \text{hash\_config.null\_token\_payload} \land \|\text{delimiter}\| \ge 1$ | `TopologyArchitect`: Use disjoint tokens (e.g., delimiter `'||'`, BK null token `'-1'`, payload null token `'^^'`). |
-| **`DV-COL-011`** | **Forbidden Stored `end_dts` in Raw Vault Satellites** | `SAT` / `MAS` | `WARNING` | $\forall s \in V_{SAT} \cup V_{MAS},\ \text{'end\_dts'} \notin \{c.\text{name} \mid c \in s.\text{payload\_columns}\}$ | `TopologyArchitect`: Do not store mutable `end_dts` in Raw Satellites; derive `effective_to_dts` dynamically via `LEAD(load_dts) OVER (PARTITION BY hk ORDER BY load_dts)`. |
-| **`DV-COL-012`** | **Multi-Source Hub Business Key Collision Code (`bkcc`) Requirement** | `HUB` | `ERROR` | $\forall h \in V_H:\ \|h.\text{source\_mappings}\| > 1 \land \neg h.\text{verified\_global\_master\_key} \implies \exists b \in h.\text{business\_keys}: b.\text{is\_bkcc} = \text{true}$ | `GrainAndKeyDiscovery`: Add a non-null `bkcc` column to `business_keys` when integrating uncoordinated source systems whose local IDs could collide. |
+See the authoritative Column & DDL Contract Rule Catalog (`DV-COL-001`–`DV-COL-013`) in [`docs/03-verification-and-agentic-architecture.md` §1.3.3](03-verification-and-agentic-architecture.md#133-column--ddl-contract-rule-catalog-dv-col-).
 
 ---
 
@@ -975,17 +962,7 @@ stateDiagram-v2
 
 ### 7.4 Deterministic Error-Routing & Remediation Table
 
-| Violation Code Group | Root Cause Class | Target Agent | Automated Self-Healing Action | Escalation Trigger |
-| :--- | :--- | :--- | :--- | :--- |
-| **`DV-IR-001`** | Malformed JSON/YAML syntax or missing required IR keys | `TopologyArchitect` | Re-serialize IR strictly conforming to `dv2-canonical-ir.schema.json`. | $> 3$ consecutive schema validation failures. |
-| **`DV-STR-001..007`, `009..013`** | Graph topology violation (Hub-to-Hub FK, Sat-to-Sat edge, multi-parent Sat, invalid ESAT driving key) | `TopologyArchitect` | Apply graph rewrite transformation (e.g., extract Hub FK to Link, re-parent Satellite to root Hub/Link, split multi-source Satellite). | $> 3$ retries or cyclic IR hash detected ($H(\text{IR}_k) \in \{H(\text{IR}_0)..H(\text{IR}_{k-1})\}$). |
-| **`DV-STR-008`, `DV-COL-002`, `DV-COL-012`** | Missing Multi-Active `child_dependent_keys`, nullable Hub BK, or missing `bkcc` | `GrainAndKeyDiscovery` | Re-inspect `SourceProfileManifest` functional dependencies to select non-null composite grain / CDK / `bkcc`, then regenerate IR via `TopologyArchitect`. | Source data genuinely lacks a unique sub-key (requires source remediation or surrogate sequence generation policy). |
-| **`DV-COL-001`, `003..011`** | Column type mismatch, unsorted `hash_diff` inputs, or metadata included in `hash_diff` | `TopologyArchitect` | Normalize data types to `hash_config.storage_type`, sort `hash_diff.input_columns` alphabetically, and strip audit columns from hash inputs. | $> 3$ retries. |
-| **`DV-EVO-002`, `004`, `006`, `008`** | Accidental drop of existing table/column or in-place Satellite column addition | `TopologyArchitect` | Restore dropped entities/columns from `BaselineCatalogIR` and move newly discovered attributes into a new companion Satellite `sat_<entity>_<ext>`. | Never escalates unless user explicitly requested destructive purge. |
-| **`DV-EVO-001`, `003`, `007`** | Breaking mutation of Vault hash config or existing Hub/Link/MAS key grain | `HumanEscalation` | Immediately halt autonomous loop and emit a structured `SchemaEvolutionReviewRequest` comparing baseline vs. proposed grain. | Immediate (0 autonomous retries permitted for breaking grain mutations). |
-| **`DV-DYN-001..005`, `013`** | Post-load duplicate grain rows in Hub, Link, SAT, MAS, or active ESAT | `GrainAndKeyDiscovery` | Analyze sample duplicate counterexample rows from Sandbox DB; promote standard `SAT` to `MAS` with discovered CDK, or add missing degenerate key to `LINK`. | $> 3$ retries. |
-| **`DV-DYN-006..007`, `010..011`** | Orphaned Satellite/Link keys or staging-to-vault reconciliation mismatch | `TopologyArchitect` | Fix `source_mappings` join/filter misalignment so staging extracts feed both parent Hub and child Link/Satellite consistently (including automated Hub stubbing). | $> 3$ retries. |
-| **`DV-DYN-008`, `012`** | Consecutive identical `hash_diff` rows or non-idempotent duplicate rows on Run 2 replay | `DeterministicCompiler` | Bug in compiler template (e.g., missing `LEFT ANTI JOIN` or broken `LAG(hash_diff)` window filter); halt pipeline and alert platform engineering. | Immediate compiler defect alert. |
+See the authoritative Deterministic Error Routing & Self-Healing Table in [`docs/03-verification-and-agentic-architecture.md` §3.3](03-verification-and-agentic-architecture.md#deterministic-error-routing--self-healing-table).
 
 ---
 

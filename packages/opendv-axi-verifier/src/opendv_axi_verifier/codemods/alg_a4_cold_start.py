@@ -2,7 +2,7 @@
 
 Enforces two cold-start extensibility invariants:
   1. 3-Tier Business Key Collision Code (`BKCC`) Authority:
-     - `TIER_1_GLOBAL_STANDARD`: `require_src_qualifier=False`, `bkcc_prefix=None`
+     - `TIER_1_GLOBAL_STANDARD`: `require_src_qualifier=False`, `bkcc_prefix='GLOBAL'`
      - `TIER_2_ENTERPRISE_SOR`: `require_src_qualifier=False`, `bkcc_prefix=None`
      - `TIER_3_LOCAL_SCOPED`: `require_src_qualifier=True`, `bkcc_prefix=<rec_src>`
        (e.g., `'LEGACY_GP_ADMIN'` on `legacy_gp.src_legacy_lp_roster`)

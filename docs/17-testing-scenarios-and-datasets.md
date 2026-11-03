@@ -17,7 +17,7 @@ The E2E test suite (`tests/test_issue40_tier1_global_bkcc_e2e.py`) materializes 
 | Wave | Qualified Bronze Table | Record Source | Authority Tier | BK Column | Sample Values | Expected Canonical Pre-Hash (`Algorithm A.5`) | Expected SHA-256 Hub Hash Key (`hk_*`) |
 | :---: | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
 | **Wave 0 (`S1`)** | `bronze_crm.accounts` | `SFDC_CRM` | `TIER_1_GLOBAL_STANDARD` | `company_uen` | `202601234K` | `6:GLOBAL\|\|10:202601234K` | `452e5f90e20e894cf6fb9ab6dd799752b60915669d7ddba0ed2ff283774992e8` |
-| **Wave 0 (`S1`)** | `bronze_erp.invoices` | `SAP_ERP` | `TIER_1_GLOBAL_STANDARD` | `invoice_global_id` | `INV-SG-2026-0001` | `6:GLOBAL\|\|16:INV-SG-2026-0001` | `c509665f95f979e5194689416288687266586e1389566e226253c769269395d8` |
+| **Wave 0 (`S1`)** | `bronze_erp.invoices` | `SAP_ERP` | `TIER_1_GLOBAL_STANDARD` | `invoice_global_id` | `INV-SG-2026-0001` | `6:GLOBAL\|\|16:INV-SG-2026-0001` | `0b26bb8471756644be558a60b03ca26bc7f3f84168dd04e3b7711ef73fef4895` |
 | **Wave 1 (`S2`)** | `bronze_erp.invoices` | `SAP_ERP` | `TIER_1_GLOBAL_STANDARD` | `tax_reg_no` | `202601234K` | `6:GLOBAL\|\|10:202601234K` | `452e5f90e20e894cf6fb9ab6dd799752b60915669d7ddba0ed2ff283774992e8` *(passive convergence)* |
 | **Wave 1 (`S2`)** | `bronze_legacy.tickets` | `LEGACY_TICKET_DB` | `TIER_3_LOCAL_SCOPED` | `legacy_client_no` | `1001` | `16:LEGACY_TICKET_DB\|\|4:1001` | `28f087bb678034b531ff6991fdd613f6793d0a66ef6b5ece88bd5945d5f8488f` *(namespace isolated)* |
 

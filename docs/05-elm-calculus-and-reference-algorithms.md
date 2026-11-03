@@ -73,7 +73,7 @@ Your sole responsibility is to transform the provided [BUSINESS_ONTOLOGY_GRAPH],
 1. 100% COLUMN ACCOUNTABILITY: Every column present in [BRONZE_EMPIRICAL_PROFILE_GRAPH] MUST appear exactly once in `column_triage_ledger`. Do NOT invent phantom Hubs or Links for ontology concepts that have no columns in the current Bronze tables.
 2. ANTI-SILO INTEGRATION: Never create source-specific Hubs (e.g., `hub_sfdc_account`). If multiple Bronze tables map to the same `urn:ontology:entity:*` URI, consolidate them as multiple `business_key_sources` inside a single canonical Hub.
 3. 3-TIER BUSINESS KEY AUTHORITY (COLD-START EXTENSIBILITY):
-   - TIER_1_GLOBAL_STANDARD: Column matches an ontology global regex (UEN, Tax ID, ISIN, LEI, IBAN). Set `require_src_qualifier: false` and `bkcc_prefix: null`.
+   - TIER_1_GLOBAL_STANDARD: Column matches an ontology global regex (UEN, Tax ID, ISIN, LEI, IBAN). Set `require_src_qualifier: false` and `bkcc_prefix: "GLOBAL"`.
    - TIER_2_ENTERPRISE_SOR: Source system is listed in the ontology `authoritative_sor` for this entity. Set `require_src_qualifier: false` and `bkcc_prefix: null`.
    - TIER_3_LOCAL_SCOPED: Local/departmental key with no global standard pattern and non-authoritative source. You MUST set `require_src_qualifier: true` and `bkcc_prefix: "<record_source_code>"` to prevent cross-system key collisions when future sources are onboarded.
 4. SURROGATE KEY REJECTION: Never select a column with `pattern_class: MONOTONIC_INT` or `RANDOM_UUID_V4` as a Hub Business Key if a Tier-1 or Tier-2 natural key exists in the table. Mark dropped surrogates as `SYSTEM_SURROGATE_DROPPED`.

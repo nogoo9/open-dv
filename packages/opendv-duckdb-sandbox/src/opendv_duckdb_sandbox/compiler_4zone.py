@@ -18,6 +18,7 @@ an executable 4-Zone DuckDB SQL bundle (`docs/03` §7, `docs/05` §3.5, `docs/07
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -2057,7 +2058,7 @@ def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
 
 
 def _load_bronze_table_rows(
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None,
+    bronze_tables: Mapping[str, Any] | None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Load rows from `bronze_tables` (CSV/Parquet paths or in-memory row lists)."""
     if not bronze_tables:
@@ -2207,7 +2208,7 @@ def _compile_generic_zone_0_sql(
     ir_obj: CanonicalIR,
     *,
     include_batch4_restatement_in_seed: bool = False,
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None = None,
+    bronze_tables: Mapping[str, Any] | None = None,
 ) -> str:
     """Compile Zone 0 schemas, Bronze source tables, Vault DDL, Zero Keys, and Ghosts."""
     hub_by_name = {h.name: h for h in ir_obj.hubs}
@@ -2884,7 +2885,7 @@ def compile_canonical_ir_to_4zone_sql(
     ir: CanonicalIR | dict[str, Any],
     *,
     include_batch4_restatement_in_seed: bool = False,
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None = None,
+    bronze_tables: Mapping[str, Any] | None = None,
 ) -> Compiled4ZoneBundle:
     """Compile a `CanonicalIR` model into a `Compiled4ZoneBundle`.
 
