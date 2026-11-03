@@ -20,7 +20,7 @@
      - `EXT-IC-002` (`PORTCO_VALUATION_RESTATEMENT`, `529900T8BM49AURSDO55`, `extraction_confidence = 0.9140`, `tier2_token_jaccard = 0.7200`, `human_review_status = 'STEWARD_VERIFIED'`) $\to$ normalized to `steward_gate_status = 'APPROVED'` in `staging.stg_unstructured_vdr_llm_extractions`.
    - **Injected Adversarial `Tier-U3` (`UF-5`) Steward-Hold Records:**
      - `EXT-SL-HOLD-003` (`SIDE_LETTER_TERMS`, `LP-102`, `extraction_confidence = 0.7200 < 0.85`, `human_review_status = 'STEWARD_HOLD'`) $\to$ normalized to `steward_gate_status = 'STEWARD_HOLD'` and blocked from `raw_vault.lnk_doc_lp_side_letter` and `business_vault.sat_lp_side_letter_llm_ext`.
-     - `EXT-IC-HOLD-004` (`PORTCO_VALUATION_RESTATEMENT`, `529900T8BM49AURSDO55`, `extraction_confidence = 0.6900 < 0.85`, `human_review_status = 'STEWARD_HOLD'`) $\to$ blocked from `raw_vault.lnk_doc_portco_memo` until updated to `'STEWARD_VERIFIED'`.
+     - `EXT-IC-HOLD-004` (`PORTCO_VALUATION_RESTATEMENT`, `529900T8BM49AURSDO55`, `extraction_confidence = 0.6900 < 0.85`, `human_review_status = 'STEWARD_HOLD'`) $\to$ blocked from `raw_vault.lnk_doc_portco_memo` until updated to `'STEWARD_VERIFIED'`, and flagged by `DV-DYN-013` if promoted while `extraction_confidence < 0.85`.
 2. **Generic `CanonicalIR` Unstructured Dataset (`bronze.src_lnk_document_portfolio_company` / `bronze.src_sat_lnk_doc_portco_ai_provenance`):**
    - Contains 1 baseline `'APPROVED'` seed row and 1 baseline `'STEWARD_HOLD'` seed row across unstructured extraction links and attached link-satellites, plus 4 adversarial rows spanning `'STEWARD_HOLD'`, `'PENDING'`, `'REJECTED'`, and `'APPROVED'` governance states. Only `'APPROVED'` rows are promoted into `raw_vault.lnk_document_*` and `raw_vault.sat_*`.
 
@@ -33,8 +33,8 @@ uv run pytest tests/test_multimodal_and_duckdb_e2e.py -k test_issue_32_scenario_
 # 2. Run the 4-Zone Compiler & DV-DYN-013 unit test in opendv-duckdb-sandbox
 uv run pytest packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py -k test_compiler_4zone_enforces_steward_gate_status_on_unstructured_links -vv
 
-# 3. Run the Gate 6 SQLGlot AST Linter (DV-AST-007) unit test in opendv-axi-verifier
-uv run pytest packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py -k test_alg_a6_dv_ast_007_unstructured_link_steward_approval_filter -vv
+# 3. Run the Gate 6 SQLGlot AST Linter (DV-AST-007) unit tests in opendv-axi-verifier
+uv run pytest packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py -k "test_alg_a6_dv_ast_007_unstructured_link_steward_approval_filter or test_issue_32_alg_a6_dv_ast_007_requires_steward_gate" -vv
 
 # 4. Run CLI compile & 4-Batch Adversarial Shadow Sandbox verification
 uv run opendv compile --local \

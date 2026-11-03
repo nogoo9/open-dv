@@ -1,4 +1,4 @@
-"""Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`006` / `DV-G6-001`-`005`).
+"""Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`007` / `DV-G6-001`-`005`).
 
 Performs static SQLGlot AST inspection on staging and Raw Vault SQL models:
   - `DV-AST-001` (`DV-G6-002`): No `UPDATE`, `DELETE`, `TRUNCATE`, `DROP`, `ALTER`, or
@@ -13,6 +13,8 @@ Performs static SQLGlot AST inspection on staging and Raw Vault SQL models:
     clause and `esat_*` windowing partitioned by `driving_hk_*` (never `hk_lnk_*`).
   - `DV-AST-006` (`DV-G6-005`): Raw Vault structural column purity (`load_dts`, `rec_src`,
     `hk_*`, `hk_lnk_*`, `hash_diff`) and ban on `GROUP BY` / `HAVING` aggregations.
+  - `DV-AST-007` (`Rule U4`): Unstructured extraction Link `INSERT` statements must
+    enforce `steward_gate_status = 'APPROVED'` in their top-level `WHERE` clause.
 """
 
 from __future__ import annotations

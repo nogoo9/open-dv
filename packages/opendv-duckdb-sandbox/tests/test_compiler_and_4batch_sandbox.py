@@ -542,9 +542,7 @@ def test_compiler_4zone_enforces_steward_gate_status_on_unstructured_links(
     lowered_ir = lower_contract_to_canonical_ir(
         pe_contract_path, model_name="generic_unstructured_check"
     )
-    unstructured_links = [
-        lnk for lnk in lowered_ir.links if lnk.name.startswith("lnk_document_")
-    ]
+    unstructured_links = [lnk for lnk in lowered_ir.links if lnk.name.startswith("lnk_document_")]
     assert len(unstructured_links) == 2
     for lnk in unstructured_links:
         assert lnk.link_type == "UNSTRUCTURED_EXTRACTION_LINK"
@@ -636,4 +634,3 @@ def test_compiler_4zone_enforces_steward_gate_status_on_unstructured_links(
     gen_dyn_after = check_dv_dyn_013_tier2_confidence_governance(gconn, ir=gen_ir_obj)
     assert gen_dyn_after.passed is False
     assert gen_dyn_after.failing_rows >= 1
-

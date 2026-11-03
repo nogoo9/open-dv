@@ -1704,4 +1704,3 @@ def test_issue_32_scenario_s8_uf5_unstructured_link_steward_gate_e2e() -> None:
     assert promoted_row is not None and promoted_row[0] == 1
     assert sat_promoted_row is not None and sat_promoted_row[0] == 1
     assert check_dv_dyn_013_tier2_confidence_governance(gconn, ir=gen_ir_obj).passed is True
-

@@ -264,9 +264,7 @@ def _lower_link(
         "rec_src_value": rec_src_val,
     }
     if is_unstructured_extraction:
-        steward_pred = (
-            contract_link.where_filter_condition or "steward_gate_status = 'APPROVED'"
-        )
+        steward_pred = contract_link.where_filter_condition or "steward_gate_status = 'APPROVED'"
         source_mapping_entry["unstructured_extraction_link"] = True
         source_mapping_entry["requires_steward_approval_gate"] = True
         source_mapping_entry["steward_gate_filter"] = "src.steward_gate_status = 'APPROVED'"

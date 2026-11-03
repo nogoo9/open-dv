@@ -1148,7 +1148,7 @@ def check_dv_dyn_013_tier2_confidence_governance(
                     f"""
                     SELECT COUNT(*) FROM {extra_tbl} t
                     WHERE t.rec_src NOT IN ('SYSTEM_GHOST', 'SYSTEM_ZERO_KEY')
-                      AND ({' OR '.join(extra_preds)})
+                      AND ({" OR ".join(extra_preds)})
                     """,
                 )
         return DynamicCheckResult(
@@ -1189,7 +1189,7 @@ def check_dv_dyn_013_tier2_confidence_governance(
                 f"""
                 SELECT COUNT(*) FROM {tbl} t
                 WHERE t.rec_src NOT IN ('SYSTEM_ZERO_KEY', 'SYSTEM_GHOST')
-                  AND ({' OR '.join(preds)})
+                  AND ({" OR ".join(preds)})
                 """,
             )
 
@@ -1219,7 +1219,7 @@ def check_dv_dyn_013_tier2_confidence_governance(
                 f"""
                 SELECT COUNT(*) FROM {tbl} t
                 WHERE t.rec_src NOT IN ('SYSTEM_GHOST', 'SYSTEM_ZERO_KEY')
-                  AND ({' OR '.join(preds)})
+                  AND ({" OR ".join(preds)})
                 """,
             )
     return DynamicCheckResult(

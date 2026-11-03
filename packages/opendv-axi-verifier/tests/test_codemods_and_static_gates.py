@@ -6,7 +6,7 @@ Covers:
   - Algorithm A.3: Link Effectivity Satellite (`esat_*`) Auto-Injection
   - Algorithm A.4: 3-Tier BKCC Authority & Nullable-FK Link Splitter (`U_nn >= 0.95`)
   - Algorithm A.5: SQLGlot AST Canonical Length-Prefixed SHA-256 Hash Recipe Builder
-  - Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`006`)
+  - Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`007`)
   - Gate 1 & Gate 2: Contract Schema, Grain Statement (`>= 8` words), 100% Column Triage Ledger
   - Gate 3: NetworkX Bipartite DAG Structural Verifier (`DV-STR-001`-`014` & `DV-COL-001`-`012`)
   - Algorithm A.7: `N -> N+1` Additive Evolution Lock Verifier (`DV-EVO-001`-`006`)
@@ -1063,9 +1063,7 @@ def test_alg_a6_dv_ast_007_unstructured_link_steward_approval_filter() -> None:
           WHERE l.hk_lnk_doc_portco_memo = src.hk_lnk_doc_portco_memo
       );
     """
-    v_missing = verify_physical_dv2_sql_ast(
-        missing_filter_sql, entity_name="lnk_doc_portco_memo"
-    )
+    v_missing = verify_physical_dv2_sql_ast(missing_filter_sql, entity_name="lnk_doc_portco_memo")
     assert any("DV-AST-007" in v for v in v_missing)
 
     or_bypass_sql = """
@@ -1081,9 +1079,7 @@ def test_alg_a6_dv_ast_007_unstructured_link_steward_approval_filter() -> None:
     FROM staging.stg_lnk_document_customer src
     WHERE src.steward_gate_status = 'APPROVED' OR src.hk_lnk_document_customer IS NOT NULL;
     """
-    v_or_bypass = verify_physical_dv2_sql_ast(
-        or_bypass_sql, entity_name="lnk_document_customer"
-    )
+    v_or_bypass = verify_physical_dv2_sql_ast(or_bypass_sql, entity_name="lnk_document_customer")
     assert any("DV-AST-007" in v for v in v_or_bypass)
 
     compliant_sql = """
@@ -1104,9 +1100,7 @@ def test_alg_a6_dv_ast_007_unstructured_link_steward_approval_filter() -> None:
           WHERE l.hk_lnk_doc_portco_memo = src.hk_lnk_doc_portco_memo
       );
     """
-    v_compliant = verify_physical_dv2_sql_ast(
-        compliant_sql, entity_name="lnk_doc_portco_memo"
-    )
+    v_compliant = verify_physical_dv2_sql_ast(compliant_sql, entity_name="lnk_doc_portco_memo")
     assert v_compliant == []
 
     batch_violations = verify_sql_models_batch(
@@ -1220,7 +1214,9 @@ def test_issue_32_alg_a6_dv_ast_007_requires_steward_gate() -> None:
     FROM staging.stg_hub_fund src
     WHERE src.hk_fund IS NOT NULL;
 
-    INSERT INTO raw_vault.lnk_lp_commitment (hk_lnk_lp_commitment, hk_lp, hk_fund, load_dts, rec_src)
+    INSERT INTO raw_vault.lnk_lp_commitment (
+        hk_lnk_lp_commitment, hk_lp, hk_fund, load_dts, rec_src
+    )
     SELECT src.hk_lnk_lp_commitment, src.hk_lp, src.hk_fund, src.load_dts, src.rec_src
     FROM staging.stg_lnk_lp_commitment src
     WHERE src.hk_lnk_lp_commitment IS NOT NULL;
@@ -1243,4 +1239,3 @@ def test_issue_32_alg_a6_dv_ast_007_requires_steward_gate() -> None:
         requires_steward_gate=True,
     )
     assert not any("DV-AST-007" in v for v in v_multi)
-
