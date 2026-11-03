@@ -18,6 +18,8 @@
 > - [12 — Agentic Pipeline Inputs, Setup, Authentication, and Execution Guide](12-agentic-pipeline-inputs-and-harness-guide.md)
 > - [13 — Real Agentic Pipeline Remediation Specification](13-real-agentic-pipeline-remediation-spec.md)
 > - [14 — End-to-End Consistency Review, Scenarios Audit, and Data Vault 2.0 Invariant Analysis](14-end-to-end-consistency-and-scenarios-audit.md)
+> - [15 — End-to-End Pipeline Execution & Interactive Component Specification](15-end-to-end-pipeline-execution-and-interactive-spec.md)
+> - [📄 Data Vault 2.0 Architectural & Mathematical Consistency Evaluation (Unabridged Reference)](references/dv2-architectural-consistency-evaluation.md)
 > - **Formal Schemas & Contracts:**
 >   - [No-Mistake DV 2.0 Contract V5 JSON Schema (`schemas/no-mistake-dv2-contract-v5.schema.json`)](../schemas/no-mistake-dv2-contract-v5.schema.json)
 >   - [Canonical Intermediate Representation (IR) JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json)
