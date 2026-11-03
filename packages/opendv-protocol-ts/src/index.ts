@@ -8,6 +8,7 @@ export * from "./types/observability-event";
 export * from "./types/canonical-ir";
 export * from "./types/contract-v5";
 export * from "./types/api-dtos";
+export * from "./types/workbench-explorer";
 
 export * from "./client/platform-client";
 export * from "./client/sse-client";
