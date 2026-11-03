@@ -79,7 +79,6 @@ from opendv_telemetry.ledger_emitter import VaultLedgerEmitter
 # =====================================================================
 
 
-
 def test_ir_lowerer_pe_contract_validates_against_canonical_ir_schema() -> None:
     """Lowering `dv_pe_model_contract.yaml` produces a schema-valid `CanonicalIR`."""
     pe_contract_path = get_examples_dir() / "private_equity" / "dv_pe_model_contract.yaml"
@@ -152,7 +151,6 @@ def test_ir_lowerer_generic_contract_and_4zone_compile() -> None:
 
 # 2. Graph B Empirical Profiler & Schema Drift Detection Tests
 # =====================================================================
-
 
 
 def test_graph_b_profiler_metrics_parquet_csv_and_schema_drift(tmp_path: Path) -> None:
@@ -284,7 +282,6 @@ def test_graph_b_profiler_metrics_parquet_csv_and_schema_drift(tmp_path: Path) -
 # =====================================================================
 
 
-
 def test_4zone_compiler_and_4batch_adversarial_sandbox_all_15_dyn_checks() -> None:
     """Execute 4-Zone SQL bundle and all 4 Adversarial Batches with all 15 DV-DYN checks passing."""
     pe_ir = DuckDbShadowSandbox.load_default_pe_canonical_ir()
@@ -352,7 +349,6 @@ def test_4zone_compiler_and_4batch_adversarial_sandbox_all_15_dyn_checks() -> No
 
 # 4. Bi-Temporal Query D.10 & Query D.10b Verification Tests
 # =====================================================================
-
 
 
 def test_pit_query_engine_d10_and_d10b_bitemporal_audit() -> None:
@@ -424,7 +420,6 @@ def test_pit_query_engine_d10_and_d10b_bitemporal_audit() -> None:
 
 # 5. High-Level DuckDbShadowSandbox & Observability Telemetry Tests
 # =====================================================================
-
 
 
 def test_duckdb_shadow_sandbox_full_verification_and_telemetry(tmp_path: Path) -> None:
@@ -750,7 +745,6 @@ def test_issue_30_scenario_s7_multibyte_utf8_e2e_sandbox() -> None:
 # =====================================================================
 
 
-
 def _build_issue_38_contracts() -> tuple[dict[str, Any], dict[str, Any]]:
     """Build baseline Wave 0 and evolved Wave 2 contracts for Scenario S4 (UF-1)."""
     wave0_contract: dict[str, Any] = {
@@ -1069,7 +1063,10 @@ def test_issue37_scenario_s7_cross_engine_hash_parity_e2e() -> None:
 
     with duckdb.connect(":memory:") as conn:
         conn.execute("CREATE MACRO SHA2(s, bits) AS sha256(s)")
-        conn.execute("CREATE MACRO OCTET_LENGTH(s) AS strlen(s)")
+        conn.execute(
+            "CREATE MACRO OCTET_LENGTH(s) AS "
+            "CASE WHEN typeof(s) = 'BLOB' THEN strlen(decode(s::BLOB)) ELSE strlen(s::VARCHAR) END"
+        )
         conn.execute(bundle.full_sql_bundle)
 
         # 2. Direct parameterized lookup of Python-computed Hub HKs in DuckDB raw_vault tables
