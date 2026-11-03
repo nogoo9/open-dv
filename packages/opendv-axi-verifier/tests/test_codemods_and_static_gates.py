@@ -1034,3 +1034,46 @@ def test_alg_a8_orchestrator_end_to_end_pe_verification_and_telemetry(
     assert ask_res.toon_trace.status == "ASK-USER"
     assert ask_res.emitted_events[0]["status"] == "ASK-USER"
     assert ask_res.emitted_events[0]["layer1_story_banner"]["verdict_pill"] == "ASK-USER"
+
+
+def test_dv_col_013_tier1_global_bkcc_invariant_and_alg_a4_normalization(
+    pe_golden_contract: dict[str, Any],
+    pe_ontology: dict[str, Any],
+    pe_bronze_profile: dict[str, Any],
+) -> None:
+    """Verify Gate 1 and Gate 3 enforce DV-COL-013 on TIER_1_GLOBAL_STANDARD sources
+    and Algorithm A.4 normalizes Tier-1 bkcc_prefix to 'GLOBAL' without breaking A.7.
+    """
+    corrupted = copy.deepcopy(pe_golden_contract)
+    portco_hub = next(h for h in corrupted["hubs"] if h["name"] == "hub_portfolio_company")
+    portco_hub["business_key_sources"][0]["require_src_qualifier"] = True
+    portco_hub["business_key_sources"][0]["bkcc_prefix"] = "DEALCLOUD_LOCAL_SILO"
+
+    g1_diags = verify_gate1_contract_and_grain(
+        corrupted, pe_ontology, pe_bronze_profile, check_full_ledger_coverage=True
+    )
+    g3_diags = verify_column_invariants(corrupted)
+    assert any("DV-COL-013" in d and "hub_portfolio_company" in d for d in g1_diags)
+    assert any("DV-COL-013" in d and "hub_portfolio_company" in d for d in g3_diags)
+
+    # Also verify bkcc_prefix=None on TIER_1_GLOBAL_STANDARD triggers DV-COL-013 prior to A.4
+    null_bkcc_contract = copy.deepcopy(pe_golden_contract)
+    next(h for h in null_bkcc_contract["hubs"] if h["name"] == "hub_portfolio_company")[
+        "business_key_sources"
+    ][0]["bkcc_prefix"] = None
+    assert any(
+        "DV-COL-013" in d
+        for d in verify_gate1_contract_and_grain(null_bkcc_contract, pe_ontology, pe_bronze_profile)
+    )
+
+    # Algorithm A.4 repairs both corruptions to require_src_qualifier=False, bkcc_prefix='GLOBAL'
+    repaired = codemod_enforce_cold_start_extensibility(corrupted, pe_ontology, pe_bronze_profile)
+    repaired_src = next(h for h in repaired["hubs"] if h["name"] == "hub_portfolio_company")[
+        "business_key_sources"
+    ][0]
+    assert repaired_src["key_authority_tier"] == "TIER_1_GLOBAL_STANDARD"
+    assert repaired_src["require_src_qualifier"] is False
+    assert repaired_src["bkcc_prefix"] == "GLOBAL"
+    assert verify_gate1_contract_and_grain(repaired, pe_ontology, pe_bronze_profile) == []
+    assert verify_column_invariants(repaired) == []
+    assert verify_additive_evolution_invariants(null_bkcc_contract, repaired) == []

@@ -395,3 +395,59 @@ def test_observability_event_validation_and_invariants() -> None:
     }
     with pytest.raises(ValidationError):
         VaultObservabilityEvent.model_validate(invalid_non_p6)
+
+
+def test_resolve_canonical_bkcc_prefix_and_tier1_hashing() -> None:
+    """Verify Issue #40 (DV-COL-013 / KEY-04) Tier-1 global BKCC prefix resolution and hashing."""
+    from opendv_core import GLOBAL_BKCC, resolve_canonical_bkcc_prefix
+
+    assert (
+        resolve_canonical_bkcc_prefix(None, key_authority_tier="TIER_1_GLOBAL_STANDARD")
+        == GLOBAL_BKCC
+    )
+    assert (
+        resolve_canonical_bkcc_prefix("  global ", key_authority_tier="TIER_1_GLOBAL_STANDARD")
+        == GLOBAL_BKCC
+    )
+    assert (
+        resolve_canonical_bkcc_prefix(None, key_authority_tier="TIER_2_ENTERPRISE_SOR")
+        == GLOBAL_BKCC
+    )
+    assert (
+        resolve_canonical_bkcc_prefix(
+            "LEGACY_GP_ADMIN",
+            key_authority_tier="TIER_3_LOCAL_SCOPED",
+            require_src_qualifier=True,
+        )
+        == "LEGACY_GP_ADMIN"
+    )
+    with pytest.raises(ValueError, match="DV-COL-012"):
+        resolve_canonical_bkcc_prefix(
+            None, key_authority_tier="TIER_3_LOCAL_SCOPED", require_src_qualifier=True
+        )
+
+    expected_calpers = "5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4"
+    # dv2_canonical_hash defaults to GLOBAL_BKCC ('GLOBAL')
+    assert dv2_canonical_hash(["LP-101"]) == expected_calpers
+    # Explicit key_authority_tier='TIER_1_GLOBAL_STANDARD' prepends '6:GLOBAL||'
+    assert (
+        compute_dv2_prehash_string(
+            ["LP-101"], bkcc_prefix=None, key_authority_tier="TIER_1_GLOBAL_STANDARD"
+        )
+        == "6:GLOBAL||6:LP-101"
+    )
+    assert (
+        compute_dv2_length_prefixed_sha256(
+            ["LP-101"], bkcc_prefix=None, key_authority_tier="TIER_1_GLOBAL_STANDARD"
+        )
+        == expected_calpers
+    )
+    # Avoiding double prefix when 'GLOBAL' is already the first token
+    assert (
+        compute_dv2_prehash_string(
+            ["GLOBAL", "LP-101"],
+            bkcc_prefix="GLOBAL",
+            key_authority_tier="TIER_1_GLOBAL_STANDARD",
+        )
+        == "6:GLOBAL||6:LP-101"
+    )

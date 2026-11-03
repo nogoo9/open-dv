@@ -5486,6 +5486,9 @@ class _DeterministicStageSynthesizer:
                         bk_src["system_scoped_bk_justification"] = (
                             f"Auto-repaired Tier-3 local-scoped BK justification for {b_tbl}."
                         )
+                elif bk_src.get("key_authority_tier") == "TIER_1_GLOBAL_STANDARD":
+                    bk_src["require_src_qualifier"] = False
+                    bk_src["bkcc_prefix"] = "GLOBAL"
 
         fk_col_to_link: dict[tuple[str, str], tuple[str, str]] = {}
         for lnk in repaired.get("links", []):
@@ -5686,13 +5689,14 @@ class _DeterministicStageSynthesizer:
             bk_cols = list(src.business_key_columns)
             if bk_cols:
                 is_tier3 = eff_tier == "TIER_3_LOCAL_SCOPED"
+                is_tier1 = eff_tier == "TIER_1_GLOBAL_STANDARD"
                 bk_src_entry: dict[str, Any] = {
                     "bronze_table": qualified_table,
                     "key_columns": bk_cols,
                     "record_source_code": eff_rec_src,
                     "key_authority_tier": eff_tier,
                     "require_src_qualifier": is_tier3,
-                    "bkcc_prefix": eff_bkcc if is_tier3 else None,
+                    "bkcc_prefix": eff_bkcc if is_tier3 else ("GLOBAL" if is_tier1 else None),
                 }
                 if is_tier3:
                     bk_src_entry["system_scoped_bk_justification"] = (
@@ -5725,13 +5729,14 @@ class _DeterministicStageSynthesizer:
                 fk_hub_name, fk_uri = _resolve_hub_and_uri(target_hint, ontology)
                 if fk_hub_name not in hubs_by_name:
                     is_t3_fk = eff_tier == "TIER_3_LOCAL_SCOPED"
+                    is_t1_fk = eff_tier == "TIER_1_GLOBAL_STANDARD"
                     fk_bk_src: dict[str, Any] = {
                         "bronze_table": qualified_table,
                         "key_columns": [fk_col],
                         "record_source_code": eff_rec_src,
                         "key_authority_tier": eff_tier,
                         "require_src_qualifier": is_t3_fk,
-                        "bkcc_prefix": eff_bkcc if is_t3_fk else None,
+                        "bkcc_prefix": eff_bkcc if is_t3_fk else ("GLOBAL" if is_t1_fk else None),
                     }
                     if is_t3_fk:
                         fk_bk_src["system_scoped_bk_justification"] = (
@@ -6056,7 +6061,7 @@ class _DeterministicStageSynthesizer:
                             "record_source_code": first_doc_input.record_source,
                             "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
                             "require_src_qualifier": False,
-                            "bkcc_prefix": None,
+                            "bkcc_prefix": "GLOBAL",
                         }
                     ],
                 }
@@ -6452,7 +6457,7 @@ def synthesize_stage_output_from_prompt(
                             "record_source_code": "CRM_CUSTOMERS",
                             "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
                             "require_src_qualifier": False,
-                            "bkcc_prefix": None,
+                            "bkcc_prefix": "GLOBAL",
                         }
                     ],
                 }

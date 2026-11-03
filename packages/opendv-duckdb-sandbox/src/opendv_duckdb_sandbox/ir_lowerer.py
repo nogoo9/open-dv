@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from opendv_core.constants import GLOBAL_BKCC
+from opendv_core.hashing import resolve_canonical_bkcc_prefix
 from opendv_core.models.canonical_ir import (
     CanonicalIR,
     IRBridgeTable,
@@ -146,16 +148,14 @@ def _lower_hub(
     )
 
     primary_key_cols = contract_hub.business_key_sources[0].key_columns
-    business_keys: list[IRBusinessKeyColumn] = []
-    if not verified_global:
-        business_keys.append(
-            IRBusinessKeyColumn(
-                name="bkcc",
-                data_type="VARCHAR(64)",
-                nullable=False,
-                is_bkcc=True,
-            )
+    business_keys: list[IRBusinessKeyColumn] = [
+        IRBusinessKeyColumn(
+            name="bkcc",
+            data_type="VARCHAR(64)",
+            nullable=False,
+            is_bkcc=True,
         )
+    ]
     for key_col in primary_key_cols:
         business_keys.append(
             IRBusinessKeyColumn(
@@ -169,11 +169,16 @@ def _lower_hub(
     bronze_to_rec_src: dict[str, str] = {}
     for src in contract_hub.business_key_sources:
         bronze_to_rec_src[src.bronze_table] = src.record_source_code
-        bk_src_cols = (["bkcc"] if not verified_global else []) + list(src.key_columns)
+        resolved_bkcc = resolve_canonical_bkcc_prefix(
+            bkcc_prefix=src.bkcc_prefix,
+            key_authority_tier=src.key_authority_tier,
+            require_src_qualifier=src.require_src_qualifier,
+        )
         source_mappings.append(
             IRHubSourceMapping(
                 staging_table=_staging_table_name(src.bronze_table),
-                bk_source_columns=bk_src_cols,
+                bk_source_columns=["bkcc", *src.key_columns],
+                bkcc_prefix=resolved_bkcc or GLOBAL_BKCC,
                 rec_src_value=src.record_source_code,
             )
         )

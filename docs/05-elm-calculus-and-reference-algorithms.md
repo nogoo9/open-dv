@@ -478,7 +478,7 @@ def codemod_enforce_cold_start_extensibility(
             if is_tier1_global:
                 src["key_authority_tier"] = "TIER_1_GLOBAL_STANDARD"
                 src["require_src_qualifier"] = False
-                src["bkcc_prefix"] = None
+                src["bkcc_prefix"] = "GLOBAL"
             elif is_tier2_sor:
                 src["key_authority_tier"] = "TIER_2_ENTERPRISE_SOR"
                 src["require_src_qualifier"] = False

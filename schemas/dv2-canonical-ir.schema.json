@@ -245,6 +245,9 @@
                 },
                 "rec_src_value": {
                   "type": "string"
+                },
+                "bkcc_prefix": {
+                  "type": ["string", "null"]
                 }
               }
             }
