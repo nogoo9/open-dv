@@ -505,3 +505,348 @@ def test_parametrized_query_d10b_cutoff_coordinates(
         assert rows[0].enterprise_value_usd == expected_ev
     finally:
         con.close()
+
+
+def test_build_algorithm_a5_sha256_sql_dynamic_bkcc_column_expr_and_zero_key() -> None:
+    """Issue #42 (GAP-11 / S9): `build_algorithm_a5_sha256_sql` supports `bkcc_column_expr`
+    for dynamic row-level tenant namespace prefixing while preserving `KEY-02(b)` Zero-Key
+    (`REPEAT('0', 64)`) when business key columns are NULL.
+    """
+    from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+
+    sql_expr = build_algorithm_a5_sha256_sql(
+        ["account_id"],
+        is_business_key=True,
+        bkcc_column_expr="tenant_id",
+    )
+    # Deduplicates if caller also includes tenant_id in columns list
+    sql_expr_dedup = build_algorithm_a5_sha256_sql(
+        ["tenant_id", "account_id"],
+        is_business_key=True,
+        bkcc_column_expr="tenant_id",
+    )
+    assert sql_expr == sql_expr_dedup
+
+    con = duckdb.connect(":memory:")
+    try:
+        rows = con.execute(
+            f"""
+            SELECT
+                tenant_id,
+                account_id,
+                {sql_expr} AS computed_hk
+            FROM (
+                VALUES
+                    ('TENANT_US', 'ACCT-1001'),
+                    ('TENANT_EU', 'ACCT-1001'),
+                    ('  tenant_us ', ' acct-1001 '),
+                    ('TENANT_US', NULL),
+                    ('TENANT_US', '   ')
+            ) AS t(tenant_id, account_id)
+            """
+        ).fetchall()
+    finally:
+        con.close()
+
+    expected_us = compute_dv2_length_prefixed_sha256(
+        ["ACCT-1001"], is_business_key=True, bkcc_prefix="TENANT_US"
+    ).lower()
+    expected_eu = compute_dv2_length_prefixed_sha256(
+        ["ACCT-1001"], is_business_key=True, bkcc_prefix="TENANT_EU"
+    ).lower()
+
+    assert rows[0][2] == expected_us
+    assert rows[1][2] == expected_eu
+    assert rows[0][2] != rows[1][2]
+    assert rows[2][2] == expected_us
+    assert rows[3][2] == ZERO_KEY_UNKNOWN
+    assert rows[4][2] == ZERO_KEY_UNKNOWN
+
+
+def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path: Path) -> None:
+    """Issue #42 (Scenario S9): E2E verification of single-table multi-tenant CSV feeds
+    using `bkcc_column_expr='tenant_id'` across Contract V5, Gate 1, Canonical IR lowering,
+    4-Zone DuckDB compilation, and 4-Batch Adversarial Shadow Sandbox (`DV-DYN-001..015`).
+    """
+    from opendv_axi_verifier.codemods.alg_a5_sqlglot_hash import (
+        codemod_enforce_staging_hashes_sql,
+    )
+    from opendv_axi_verifier.verifiers.alg_a7_evolution_lock import verify_evolution_lock_alg_a7
+    from opendv_axi_verifier.verifiers.gate1_contract_grain import verify_gate1_contract_grain
+    from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+    from opendv_core.schema_registry import validate_contract_v5
+
+    accounts_csv = tmp_path / "tenant_accounts.csv"
+    accounts_csv.write_text(
+        "tenant_id,account_id,account_name,plan_tier\n"
+        "TENANT_US,ACCT-1001,Acme US Holdings,ENTERPRISE\n"
+        "TENANT_EU,ACCT-1001,Acme EU GmbH,GROWTH\n"
+        "TENANT_US,ACCT-1002,Beta US Corp,STARTER\n",
+        encoding="utf-8",
+    )
+    subs_csv = tmp_path / "tenant_subscriptions.csv"
+    subs_csv.write_text(
+        "tenant_id,account_id,subscription_id\n"
+        "TENANT_US,ACCT-1001,SUB-9001\n"
+        "TENANT_EU,ACCT-1001,SUB-9002\n",
+        encoding="utf-8",
+    )
+
+    contract_dict = {
+        "contract_version": "5.0",
+        "domain_namespace": "multi_tenant_saas",
+        "lifecycle_stage": "COLD_START_N1",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "bronze_saas.tenant_accounts",
+                "column_name": "tenant_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_tenant_account",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_accounts",
+                "column_name": "account_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_tenant_account",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_accounts",
+                "column_name": "account_name",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_tenant_account_core",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_accounts",
+                "column_name": "plan_tier",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_tenant_account_core",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_subscriptions",
+                "column_name": "tenant_id",
+                "elm_classification": "FOREIGN_KEY_REF",
+                "target_dv_entity": "lnk_tenant_account_subscription",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_subscriptions",
+                "column_name": "account_id",
+                "elm_classification": "FOREIGN_KEY_REF",
+                "target_dv_entity": "lnk_tenant_account_subscription",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_subscriptions",
+                "column_name": "subscription_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_subscription",
+            },
+        ],
+        "hubs": [
+            {
+                "name": "hub_tenant_account",
+                "ontology_concept_uri": "urn:ontology:entity:tenant_account",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "bronze_saas.tenant_accounts",
+                        "key_columns": ["account_id"],
+                        "record_source_code": "SAAS_CORE",
+                        "key_authority_tier": "TIER_3_LOCAL_SCOPED",
+                        "require_src_qualifier": True,
+                        "bkcc_column_expr": "tenant_id",
+                        "system_scoped_bk_justification": (
+                            "Single-table multi-tenant feed where ACCT-1001 collides across "
+                            "TENANT_US and TENANT_EU."
+                        ),
+                    }
+                ],
+            },
+            {
+                "name": "hub_subscription",
+                "ontology_concept_uri": "urn:ontology:entity:subscription",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "bronze_saas.tenant_subscriptions",
+                        "key_columns": ["subscription_id"],
+                        "record_source_code": "SAAS_BILLING",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "require_src_qualifier": False,
+                    }
+                ],
+            },
+        ],
+        "links": [
+            {
+                "name": "lnk_tenant_account_subscription",
+                "link_type": "STANDARD_LINK",
+                "ontology_concept_uri": "urn:ontology:relationship:account_subscription",
+                "source_bronze_table": "bronze_saas.tenant_subscriptions",
+                "hub_references": [
+                    {
+                        "target_hub": "hub_tenant_account",
+                        "role_alias": "subscriber_account",
+                        "source_fk_columns": ["tenant_id", "account_id"],
+                    },
+                    {
+                        "target_hub": "hub_subscription",
+                        "role_alias": "subscription",
+                        "source_fk_columns": ["subscription_id"],
+                    },
+                ],
+            }
+        ],
+        "satellites": [
+            {
+                "name": "sat_tenant_account_core",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_tenant_account",
+                "source_bronze_table": "bronze_saas.tenant_accounts",
+                "security_classification": "INTERNAL",
+                "volatility_tier": "STANDARD",
+                "payload_columns": ["account_name", "plan_tier"],
+            }
+        ],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+    graph_a = {
+        "concepts": [
+            {"uri": "urn:ontology:entity:tenant_account"},
+            {"uri": "urn:ontology:entity:subscription"},
+            {"uri": "urn:ontology:relationship:account_subscription"},
+        ]
+    }
+    graph_b = {
+        "source_systems": [
+            {
+                "system_id": "bronze_saas",
+                "tables": [
+                    {
+                        "table_name": "bronze_saas.tenant_accounts",
+                        "columns": [
+                            {"column_name": "tenant_id", "data_type": "VARCHAR(64)"},
+                            {"column_name": "account_id", "data_type": "VARCHAR(64)"},
+                            {"column_name": "account_name", "data_type": "VARCHAR(255)"},
+                            {"column_name": "plan_tier", "data_type": "VARCHAR(64)"},
+                        ],
+                    },
+                    {
+                        "table_name": "bronze_saas.tenant_subscriptions",
+                        "columns": [
+                            {"column_name": "tenant_id", "data_type": "VARCHAR(64)"},
+                            {"column_name": "account_id", "data_type": "VARCHAR(64)"},
+                            {"column_name": "subscription_id", "data_type": "VARCHAR(64)"},
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+    # 1. Validate Contract V5, Gate 1, and Gate 4 Evolution Lock
+    contract = validate_contract_v5(contract_dict)
+    g1_diags = verify_gate1_contract_grain(contract_dict, graph_a, graph_b)
+    assert g1_diags == []
+
+    mutated_contract = {
+        **contract_dict,
+        "hubs": [
+            {
+                **contract_dict["hubs"][0],
+                "business_key_sources": [
+                    {
+                        **contract_dict["hubs"][0]["business_key_sources"][0],
+                        "bkcc_column_expr": "org_code",
+                    }
+                ],
+            },
+            contract_dict["hubs"][1],
+        ],
+    }
+    evo_violations = verify_evolution_lock_alg_a7(contract_dict, mutated_contract)
+    assert any("BKCC_MUTATED" in v for v in evo_violations)
+
+    # 2. Verify SQLGlot AST codemod with dynamic bkcc_column_expr
+    rewritten_sql = codemod_enforce_staging_hashes_sql(
+        "SELECT tenant_id, account_id FROM bronze_saas.tenant_accounts",
+        {
+            "hk_tenant_account": {
+                "columns": ["account_id"],
+                "is_business_key": True,
+                "bkcc_column_expr": "tenant_id",
+            }
+        },
+    )
+    assert "tenant_id" in rewritten_sql and "account_id" in rewritten_sql
+
+    # 3. Lower to Canonical IR & validate against JSON Schema
+    ir = lower_contract_to_canonical_ir(
+        contract,
+        model_name="s9_multitenant_saas_vault",
+        validate_schema=True,
+    )
+    validated_ir = validate_canonical_ir(ir.model_dump(mode="json", exclude_none=True))
+    assert validated_ir.hubs[0].bkcc_column_expr == "tenant_id"
+    assert validated_ir.hubs[0].hk_column.hash_expression.bkcc_column_expr == "tenant_id"
+    assert validated_ir.hubs[0].source_mappings[0].bkcc_column_expr == "tenant_id"
+
+    # 4. Compile 4-Zone SQL & execute in DuckDB with real CSV files
+    bronze_map = {
+        "bronze_saas.tenant_accounts": accounts_csv,
+        "bronze_saas.tenant_subscriptions": subs_csv,
+    }
+    bundle = compile_canonical_ir_to_4zone_sql(ir, bronze_tables=bronze_map)
+    assert "tenant_id" in bundle.zone_1_sql
+
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(bundle.full_sql)
+        hub_rows = con.execute(
+            f"""
+            SELECT hk_tenant_account, bkcc, account_id, rec_src
+            FROM raw_vault.hub_tenant_account
+            WHERE hk_tenant_account NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
+            ORDER BY bkcc, account_id
+            """
+        ).fetchall()
+        sat_rows = con.execute(
+            f"""
+            SELECT hk_tenant_account, account_name, plan_tier
+            FROM raw_vault.sat_tenant_account_core
+            WHERE hk_tenant_account NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
+            ORDER BY account_name
+            """
+        ).fetchall()
+    finally:
+        con.close()
+
+    expected_eu_hk = compute_dv2_length_prefixed_sha256(
+        ["ACCT-1001"], is_business_key=True, bkcc_prefix="TENANT_EU"
+    ).lower()
+    expected_us_hk = compute_dv2_length_prefixed_sha256(
+        ["ACCT-1001"], is_business_key=True, bkcc_prefix="TENANT_US"
+    ).lower()
+    expected_us_2_hk = compute_dv2_length_prefixed_sha256(
+        ["ACCT-1002"], is_business_key=True, bkcc_prefix="TENANT_US"
+    ).lower()
+
+    assert hub_rows == [
+        (expected_eu_hk, "TENANT_EU", "ACCT-1001", "SAAS_CORE"),
+        (expected_us_hk, "TENANT_US", "ACCT-1001", "SAAS_CORE"),
+        (expected_us_2_hk, "TENANT_US", "ACCT-1002", "SAAS_CORE"),
+    ]
+    assert sat_rows == [
+        (expected_eu_hk, "Acme EU GmbH", "GROWTH"),
+        (expected_us_hk, "Acme US Holdings", "ENTERPRISE"),
+        (expected_us_2_hk, "Beta US Corp", "STARTER"),
+    ]
+
+    # 5. Full 4-Batch Adversarial Shadow Sandbox + 15 DV-DYN checks
+    with DuckDbShadowSandbox() as sandbox:
+        report = sandbox.run_full_verification(
+            ir,
+            bronze_tables=bronze_map,
+            emit_telemetry=False,
+        )
+        assert report.passed
+        assert report.batch_report.all_passed
+        assert report.dynamic_check_report.all_passed
+

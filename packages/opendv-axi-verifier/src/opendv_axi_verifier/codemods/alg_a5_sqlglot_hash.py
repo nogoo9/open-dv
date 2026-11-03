@@ -78,6 +78,7 @@ def build_canonical_sha256_hash_ast(
     *,
     is_business_key: bool = True,
     bkcc_prefix: str | None = None,
+    bkcc_column_expr: str | None = None,
     sort_alphabetically: bool = False,
 ) -> exp.Expression:
     """Construct the canonical length-prefixed SHA-256 SQLGlot AST expression."""
@@ -87,7 +88,11 @@ def build_canonical_sha256_hash_ast(
     ordered_cols = sorted(columns) if sort_alphabetically else list(columns)
     parts: list[exp.Expression] = []
 
-    if bkcc_prefix and bkcc_prefix.strip():
+    if is_business_key and bkcc_column_expr and bkcc_column_expr.strip():
+        clean_bkcc_col = bkcc_column_expr.strip()
+        ordered_cols = [c for c in ordered_cols if c.strip() != clean_bkcc_col]
+        parts.append(build_length_prefixed_ast(clean_bkcc_col, is_business_key=True))
+    elif bkcc_prefix and bkcc_prefix.strip():
         clean_prefix = bkcc_prefix.strip().upper()
         prefix_str = f"{len(clean_prefix.encode('utf-8'))}:{clean_prefix}"
         parts.append(exp.Literal.string(prefix_str))
@@ -149,6 +154,7 @@ def codemod_enforce_staging_hashes_sql(
             columns=list(spec["columns"]),
             is_business_key=bool(spec.get("is_business_key", True)),
             bkcc_prefix=spec.get("bkcc_prefix"),
+            bkcc_column_expr=spec.get("bkcc_column_expr"),
             sort_alphabetically=bool(spec.get("sort_alphabetically", False)),
         )
         aliased_node = exp.alias_(canonical_expr, target_alias)

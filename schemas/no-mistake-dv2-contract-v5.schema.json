@@ -126,6 +126,9 @@
                 "bkcc_prefix": {
                   "type": ["string", "null"]
                 },
+                "bkcc_column_expr": {
+                  "type": ["string", "null"]
+                },
                 "system_scoped_bk_justification": {
                   "type": "string"
                 }
