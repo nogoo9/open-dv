@@ -478,6 +478,19 @@ def test_alg_a5_and_a6_sqlglot_hash_recipe_and_linter() -> None:
             assert row is not None
             assert row[0] == ZERO_KEY
 
+        from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+
+        non_null_row = con.execute(
+            f"SELECT {sql_expr} FROM (SELECT 'LP-101' AS lp_number)"
+        ).fetchone()
+        assert non_null_row is not None
+        assert non_null_row[0] == compute_dv2_length_prefixed_sha256(
+            ["LP-101"],
+            is_business_key=True,
+            bkcc_prefix="LEGACY_GP_ADMIN",
+        )
+        assert non_null_row[0] == "6b7c7180b62164f31f14eebcd16cc5fd2b0ce58143de66a4b67521113ec5d8b9"
+
     raw_staging_sql = (
         "SELECT fund_code, fund_legal_name, CURRENT_TIMESTAMP AS load_dts, "
         "'INVESTRAN' AS rec_src FROM src_funds"
