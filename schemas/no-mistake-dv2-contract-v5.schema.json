@@ -126,6 +126,9 @@
                 "bkcc_prefix": {
                   "type": ["string", "null"]
                 },
+                "bkcc_column_expr": {
+                  "type": ["string", "null"]
+                },
                 "system_scoped_bk_justification": {
                   "type": "string"
                 }
@@ -266,6 +269,14 @@
               "STANDARD",
               "HIGH_FREQ",
               "ADDITIVE_DRIFT_COMPANION"
+            ]
+          },
+          "hash_diff_migration_policy": {
+            "type": "string",
+            "enum": [
+              "SPLIT_NEW_SATELLITE",
+              "NULL_EQUIVALENT_PADDING",
+              "VERSIONED_CUTOVER"
             ]
           },
           "soft_deprecated_columns": {

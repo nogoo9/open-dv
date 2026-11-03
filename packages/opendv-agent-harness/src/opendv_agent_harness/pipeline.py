@@ -1633,7 +1633,9 @@ def validate_pipeline_inputs(
                         }
                     )
                     continue
-                doc_text = u_path.read_text(encoding="utf-8")
+                doc_text = (
+                    u_path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+                )
                 if not doc_text.strip():
                     diagnostics.append(
                         {
@@ -1648,8 +1650,9 @@ def validate_pipeline_inputs(
                     checked_items += 1
                     c_start = cand.char_start
                     c_end = cand.char_end
+                    cand_quote = cand.verbatim_quote.replace("\r\n", "\n").replace("\r", "\n")
                     if c_start is None or c_end is None:
-                        found_idx = doc_text.find(cand.verbatim_quote)
+                        found_idx = doc_text.find(cand_quote)
                         if found_idx < 0:
                             diagnostics.append(
                                 {
@@ -1658,7 +1661,7 @@ def validate_pipeline_inputs(
                                     "target": f"{doc.doc_id}:{cand.extraction_id}",
                                     "message": (
                                         f"Candidate '{cand.extraction_id}' verbatim_quote "
-                                        f"'{cand.verbatim_quote}' not found in '{doc.doc_id}'."
+                                        f"'{cand_quote}' not found in '{doc.doc_id}'."
                                     ),
                                 }
                             )
@@ -1676,7 +1679,7 @@ def validate_pipeline_inputs(
                                 ),
                             }
                         )
-                    elif doc_text[c_start:c_end] != cand.verbatim_quote:
+                    elif doc_text[c_start:c_end] != cand_quote:
                         actual_slice = doc_text[c_start:c_end]
                         diagnostics.append(
                             {
@@ -1685,7 +1688,7 @@ def validate_pipeline_inputs(
                                 "target": f"{doc.doc_id}:{cand.extraction_id}",
                                 "message": (
                                     f"Candidate '{cand.extraction_id}' verbatim_quote "
-                                    f"'{cand.verbatim_quote}' != document slice "
+                                    f"'{cand_quote}' != document slice "
                                     f"'{actual_slice}' at [{c_start}:{c_end}]."
                                 ),
                             }
@@ -1953,21 +1956,23 @@ def _build_profiled_unstructured_doc(
     doc_text: str,
     doc_sha256: str,
 ) -> ProfiledUnstructuredDocument | None:
+    doc_text = doc_text.replace("\r\n", "\n").replace("\r", "\n")
     extracted_spans_gb: list[ExtractedSpan] = []
     for cand in doc.extracted_candidates:
         margin, _short_tier, gb_tier, _action = _compute_candidate_er_metrics(cand)
+        quote = cand.verbatim_quote.replace("\r\n", "\n").replace("\r", "\n")
         c_start = cand.char_start
         c_end = cand.char_end
         if c_start is None or c_end is None:
-            found_idx = doc_text.find(cand.verbatim_quote)
+            found_idx = doc_text.find(quote)
             c_start = max(0, found_idx)
-            c_end = c_start + len(cand.verbatim_quote)
+            c_end = c_start + len(quote)
         extracted_spans_gb.append(
             ExtractedSpan(
                 field=cand.extraction_id,
                 span_start=c_start,
                 span_end=c_end,
-                verbatim_quote=cand.verbatim_quote,
+                verbatim_quote=quote,
                 resolved_bk=cand.extracted_business_key,
                 er_tier=gb_tier,
                 confidence=cand.confidence_score,
@@ -2436,6 +2441,7 @@ def _discover_unstructured_doc_candidates_from_entities(
     default_hub: str = "hub_customer",
 ) -> list[PipelineUnstructuredCandidateInput]:
     """Discover Tier-U1 exact and Tier-U3 variant entity spans against `known_entities`."""
+    doc_text = doc_text.replace("\r\n", "\n").replace("\r", "\n")
     candidates: list[PipelineUnstructuredCandidateInput] = []
     used_bks: set[str] = set()
     variant_entities: list[tuple[re.Match[str], str, str, str]] = []
@@ -3449,7 +3455,9 @@ class AgenticVaultPipeline:
                     workspace_root=self.workspace_root,
                 )
                 assert u_path is not None
-                doc_text = u_path.read_text(encoding="utf-8")
+                doc_text = (
+                    u_path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+                )
                 doc_sha256 = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
                 raw_loaded_docs.append((raw_doc, doc_text, doc_sha256))
 
@@ -3561,12 +3569,15 @@ class AgenticVaultPipeline:
                 doc_held_or_rejected = False
 
                 for cand in doc.extracted_candidates:
+                    cand_quote = cand.verbatim_quote.replace("\r\n", "\n").replace("\r", "\n")
+                    if cand_quote != cand.verbatim_quote:
+                        cand = cand.model_copy(update={"verbatim_quote": cand_quote})
                     c_start = cand.char_start
                     c_end = cand.char_end
                     if c_start is None or c_end is None:
-                        found_idx = doc_text.find(cand.verbatim_quote)
+                        found_idx = doc_text.find(cand_quote)
                         c_start = max(0, found_idx)
-                        c_end = c_start + len(cand.verbatim_quote)
+                        c_end = c_start + len(cand_quote)
                         cand = cand.model_copy(update={"char_start": c_start, "char_end": c_end})
                     _margin, short_tier, _gb_tier, action = _compute_candidate_er_metrics(cand)
                     tier_counts[short_tier] = tier_counts.get(short_tier, 0) + 1
@@ -3641,10 +3652,10 @@ class AgenticVaultPipeline:
                             "extraction_id": cand.extraction_id,
                             "target_hub": cand.target_hub,
                             "extracted_business_key": cand.extracted_business_key,
-                            "verbatim_quote": cand.verbatim_quote,
+                            "verbatim_quote": cand_quote,
                             "char_start": c_start,
                             "char_end": c_end,
-                            "span_verified": doc_text[c_start:c_end] == cand.verbatim_quote,
+                            "span_verified": doc_text[c_start:c_end] == cand_quote,
                             "confidence_score": cand.confidence_score,
                             "er_tier": short_tier,
                             "action": action,
@@ -4497,6 +4508,7 @@ class AgenticVaultPipeline:
             compiled_bundle = compile_canonical_ir_to_4zone_sql(
                 canonical_ir,
                 bronze_tables=wave_bronze_tables,
+                baseline_ir=last_canonical_ir,
             )
 
             # Execute the wave's own 4-Zone DDL + Ghost Records in DuckDB to prove SQL validity
@@ -5345,6 +5357,7 @@ class _DeterministicStageSynthesizer:
         llm_discovery: Stage02UnstructuredDiscoveryOutput | None = None,
     ) -> PipelineUnstructuredDocInput:
         """Discover or ground character-offset candidate spans in an unstructured document."""
+        doc_text = doc_text.replace("\r\n", "\n").replace("\r", "\n")
         candidates: list[PipelineUnstructuredCandidateInput] = list(doc.extracted_candidates)
         target_hub_name = doc.target_hub_name
         link_name = doc.link_name
@@ -5387,6 +5400,14 @@ class _DeterministicStageSynthesizer:
                                 for c in raw_cands
                             ]
                             break
+            llm_candidates = [
+                c.model_copy(
+                    update={
+                        "verbatim_quote": c.verbatim_quote.replace("\r\n", "\n").replace("\r", "\n")
+                    }
+                )
+                for c in llm_candidates
+            ]
 
             if empirical_candidates:
                 emp_by_bk = {c.extracted_business_key: c for c in empirical_candidates}
@@ -5409,17 +5430,17 @@ class _DeterministicStageSynthesizer:
         # Ground any candidate missing char_start / char_end against doc_text
         grounded_candidates: list[PipelineUnstructuredCandidateInput] = []
         for cand in candidates:
-            found_idx = doc_text.find(cand.verbatim_quote)
+            norm_quote = cand.verbatim_quote.replace("\r\n", "\n").replace("\r", "\n")
+            if norm_quote != cand.verbatim_quote:
+                cand = cand.model_copy(update={"verbatim_quote": norm_quote})
+            found_idx = doc_text.find(norm_quote)
             if (
                 cand.char_start is None
                 or cand.char_end is None
-                or (
-                    found_idx >= 0
-                    and doc_text[cand.char_start : cand.char_end] != cand.verbatim_quote
-                )
+                or (found_idx >= 0 and doc_text[cand.char_start : cand.char_end] != norm_quote)
             ):
                 c_start = max(0, found_idx)
-                c_end = c_start + len(cand.verbatim_quote)
+                c_end = c_start + len(norm_quote)
                 grounded_candidates.append(
                     cand.model_copy(update={"char_start": c_start, "char_end": c_end})
                 )
@@ -5857,18 +5878,33 @@ class _DeterministicStageSynthesizer:
                         [primary_hub_name, opt_ref["target_hub"]],
                         ontology,
                     )
-                    links_by_name[opt_lnk_name] = {
-                        "name": opt_lnk_name,
-                        "link_type": "STANDARD_LINK",
-                        "ontology_concept_uri": opt_uri,
-                        "source_bronze_table": qualified_table,
-                        "where_filter_condition": f"{fk_col} IS NOT NULL",
-                        "hub_references": [primary_ref, opt_ref],
-                    }
-                    fk_col_to_link_and_elm[fk_col] = (
-                        opt_lnk_name,
-                        "OPTIONAL_FOREIGN_KEY_REF",
-                    )
+                    # On cold-start Wave 0, leave the sparse binary Link unfiltered so
+                    # Stage 05 Algorithm A.4 (DV-G2-001b) attaches where_filter_condition in-place.
+                    if is_cold_start:
+                        links_by_name[opt_lnk_name] = {
+                            "name": opt_lnk_name,
+                            "link_type": "STANDARD_LINK",
+                            "ontology_concept_uri": opt_uri,
+                            "source_bronze_table": qualified_table,
+                            "hub_references": [primary_ref, opt_ref],
+                        }
+                        fk_col_to_link_and_elm[fk_col] = (
+                            opt_lnk_name,
+                            "FOREIGN_KEY_REF",
+                        )
+                    else:
+                        links_by_name[opt_lnk_name] = {
+                            "name": opt_lnk_name,
+                            "link_type": "STANDARD_LINK",
+                            "ontology_concept_uri": opt_uri,
+                            "source_bronze_table": qualified_table,
+                            "where_filter_condition": f"{fk_col} IS NOT NULL",
+                            "hub_references": [primary_ref, opt_ref],
+                        }
+                        fk_col_to_link_and_elm[fk_col] = (
+                            opt_lnk_name,
+                            "OPTIONAL_FOREIGN_KEY_REF",
+                        )
 
             # Collect table columns from Graph B profile
             table_cols = [

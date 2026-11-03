@@ -148,15 +148,39 @@ def _lower_hub(
     )
 
     primary_key_cols = contract_hub.business_key_sources[0].key_columns
+    first_src = contract_hub.business_key_sources[0]
+    hub_bkcc_col_expr = next(
+        (
+            src.bkcc_column_expr.strip()
+            for src in contract_hub.business_key_sources
+            if src.bkcc_column_expr and src.bkcc_column_expr.strip()
+        ),
+        None,
+    )
+    hub_bkcc_literal = (
+        first_src.bkcc_prefix.strip()
+        if (
+            not hub_bkcc_col_expr
+            and len(contract_hub.business_key_sources) == 1
+            and first_src.bkcc_prefix
+            and first_src.bkcc_prefix.strip()
+        )
+        else None
+    )
+    excluded_hub_bkcc = {"bkcc", *([hub_bkcc_col_expr] if hub_bkcc_col_expr else [])}
+    filtered_primary_key_cols = [
+        c for c in primary_key_cols if c.strip() not in excluded_hub_bkcc
+    ] or list(primary_key_cols)
     business_keys: list[IRBusinessKeyColumn] = [
         IRBusinessKeyColumn(
             name="bkcc",
             data_type="VARCHAR(64)",
             nullable=False,
             is_bkcc=True,
+            is_tenant_id=True if hub_bkcc_col_expr else None,
         )
     ]
-    for key_col in primary_key_cols:
+    for key_col in filtered_primary_key_cols:
         business_keys.append(
             IRBusinessKeyColumn(
                 name=key_col,
@@ -169,17 +193,38 @@ def _lower_hub(
     bronze_to_rec_src: dict[str, str] = {}
     for src in contract_hub.business_key_sources:
         bronze_to_rec_src[src.bronze_table] = src.record_source_code
-        resolved_bkcc = resolve_canonical_bkcc_prefix(
-            bkcc_prefix=src.bkcc_prefix,
-            key_authority_tier=src.key_authority_tier,
-            require_src_qualifier=src.require_src_qualifier,
+        src_bkcc_col = (
+            src.bkcc_column_expr.strip()
+            if src.bkcc_column_expr and src.bkcc_column_expr.strip()
+            else None
         )
+        resolved_bkcc = (
+            resolve_canonical_bkcc_prefix(
+                bkcc_prefix=src.bkcc_prefix,
+                key_authority_tier=src.key_authority_tier,
+                require_src_qualifier=src.require_src_qualifier,
+            )
+            if not src_bkcc_col
+            else (src.bkcc_prefix.strip() if src.bkcc_prefix and src.bkcc_prefix.strip() else None)
+        )
+        src_bkcc_lit = (
+            src.bkcc_prefix.strip()
+            if not src_bkcc_col and src.bkcc_prefix and src.bkcc_prefix.strip()
+            else ((resolved_bkcc or GLOBAL_BKCC) if not src_bkcc_col else None)
+        )
+        bk_prefix_col = src_bkcc_col or "bkcc"
+        non_bkcc_key_cols = [
+            c for c in src.key_columns if c.strip() not in {bk_prefix_col, "bkcc"}
+        ] or list(src.key_columns)
+        bk_src_cols = [bk_prefix_col, *non_bkcc_key_cols]
         source_mappings.append(
             IRHubSourceMapping(
                 staging_table=_staging_table_name(src.bronze_table),
-                bk_source_columns=["bkcc", *src.key_columns],
-                bkcc_prefix=resolved_bkcc or GLOBAL_BKCC,
+                bk_source_columns=bk_src_cols,
+                bkcc_prefix=resolved_bkcc or (GLOBAL_BKCC if not src_bkcc_col else None),
                 rec_src_value=src.record_source_code,
+                bkcc_literal=src_bkcc_lit,
+                bkcc_column_expr=src_bkcc_col,
             )
         )
 
@@ -188,6 +233,8 @@ def _lower_hub(
         name=contract_hub.name,
         business_concept=concept_label,
         verified_global_master_key=verified_global,
+        bkcc_literal=hub_bkcc_literal,
+        bkcc_column_expr=hub_bkcc_col_expr,
         hk_column=IRHashColumn(
             name=hk_name,
             data_type="BINARY(32)",
@@ -196,6 +243,8 @@ def _lower_hub(
                 algorithm="SHA256",
                 input_columns=[bk.name for bk in business_keys],
                 normalization="UPPER_TRIM",
+                bkcc_literal=hub_bkcc_literal,
+                bkcc_column_expr=hub_bkcc_col_expr,
             ),
         ),
         business_keys=business_keys,
@@ -347,7 +396,17 @@ def _lower_satellite(
 
     has_applied_dts = any(
         col.name
-        in {"effective_from_date", "effective_from_dt", "as_of_quarter_end", "call_due_date"}
+        in {
+            "applied_dts",
+            "effective_from_date",
+            "effective_from_dt",
+            "effective_from_dts",
+            "effective_date",
+            "as_of_quarter_end",
+            "call_due_date",
+            "reporting_quarter",
+            "commitment_date",
+        }
         for col in payload_cols
     )
     applied_dts_col = (
@@ -387,7 +446,7 @@ def _lower_satellite(
                 normalization="EXACT_TRIM",
             ),
         ),
-        hash_diff_migration_policy="SPLIT_NEW_SATELLITE",
+        hash_diff_migration_policy=contract_sat.hash_diff_migration_policy or "SPLIT_NEW_SATELLITE",
         payload_columns=payload_cols,
         source_mapping=IRSourceMapping(
             staging_table=_staging_table_name(contract_sat.source_bronze_table),

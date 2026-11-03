@@ -77,30 +77,30 @@ def test_normative_constants() -> None:
 
 def test_algorithm_a5_private_equity_vectors() -> None:
     """Verify Algorithm A.5 Private Equity benchmark vectors (docs/06 §2.4, docs/07)."""
-    # 1. CalPERS: ('GLOBAL', 'LP-101') -> '6:GLOBAL||6:LP-101' -> 5D15..0AE4
+    # 1. CalPERS: ('GLOBAL', 'LP-101') -> '6:GLOBAL||6:LP-101' -> 5d15..0ae4
     calpers_prehash = compute_dv2_prehash_string(("GLOBAL", "LP-101"))
     assert calpers_prehash == "6:GLOBAL||6:LP-101"
     calpers_hk = compute_dv2_length_prefixed_sha256(("GLOBAL", "LP-101"))
-    assert calpers_hk == "5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4"
-    assert calpers_hk.startswith("5D15")
-    assert calpers_hk.endswith("0AE4")
+    assert calpers_hk == "5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4"
+    assert calpers_hk.startswith("5d15")
+    assert calpers_hk.endswith("0ae4")
     assert dv2_canonical_hash(["LP-101"], bkcc_prefix="GLOBAL") == calpers_hk
 
-    # 2. Apex Buyout Fund IV: ('GLOBAL', 'APEX_BO_IV') -> '6:GLOBAL||10:APEX_BO_IV' -> 94A6..8759
+    # 2. Apex Buyout Fund IV: ('GLOBAL', 'APEX_BO_IV') -> '6:GLOBAL||10:APEX_BO_IV' -> 94a6..8759
     fund_iv_prehash = compute_dv2_prehash_string(("GLOBAL", "APEX_BO_IV"))
     assert fund_iv_prehash == "6:GLOBAL||10:APEX_BO_IV"
     fund_iv_hk = compute_dv2_length_prefixed_sha256(("GLOBAL", "APEX_BO_IV"))
-    assert fund_iv_hk == "94A60FCDA278C5AEC284C595413935793D5CEC113C511F20690046061D388759"
-    assert fund_iv_hk.startswith("94A6")
+    assert fund_iv_hk == "94a60fcda278c5aec284c595413935793d5cec113c511f20690046061d388759"
+    assert fund_iv_hk.startswith("94a6")
     assert fund_iv_hk.endswith("8759")
 
-    # 3. Bavarian Pension (Legacy GP Admin): ('LEGACY_GP_ADMIN', 'LP-101') -> 6B7C..D8B9
+    # 3. Bavarian Pension (Legacy GP Admin): ('LEGACY_GP_ADMIN', 'LP-101') -> 6b7c..d8b9
     bavarian_prehash = compute_dv2_prehash_string(("LEGACY_GP_ADMIN", "LP-101"))
     assert bavarian_prehash == "15:LEGACY_GP_ADMIN||6:LP-101"
     bavarian_hk = compute_dv2_length_prefixed_sha256(("LEGACY_GP_ADMIN", "LP-101"))
-    assert bavarian_hk == "6B7C7180B62164F31F14EEBCD16CC5FD2B0CE58143DE66A4B67521113EC5D8B9"
-    assert bavarian_hk.startswith("6B7C")
-    assert bavarian_hk.endswith("D8B9")
+    assert bavarian_hk == "6b7c7180b62164f31f14eebcd16cc5fd2b0ce58143de66a4b67521113ec5d8b9"
+    assert bavarian_hk.startswith("6b7c")
+    assert bavarian_hk.endswith("d8b9")
 
     # Cross-source homonym collision immunity proof
     assert calpers_hk != bavarian_hk
@@ -196,6 +196,49 @@ def test_zero_key_resolution() -> None:
     expected_calpers = compute_dv2_length_prefixed_sha256(("GLOBAL", "LP-101"))
     assert resolve_fk_hash_key_with_zero_keys(["LP-101"], bkcc_prefix="GLOBAL") == expected_calpers
     assert resolve_fk_hash_key_with_zero_keys(["GLOBAL", "LP-101"]) == expected_calpers
+
+
+def test_issue37_sha256_lowercase_hex_uniformity_and_zero_key_parity() -> None:
+    """Issue #37 (FR-VER-01, DV-COL-005): Verify all hashing entrypoints emit lowercase
+    [0-9a-f]{64} digests while preserving Stage 2 uppercase normalization of BK pre-hash tokens.
+    """
+    import re
+
+    lower_hex_re = re.compile(r"^[0-9a-f]{64}$")
+
+    # Stage 2 still uppercases BK tokens inside the pre-hash string, while Stage 5 hex is lowercase
+    assert compute_dv2_prehash_string(["lp-101"], is_business_key=True, bkcc_prefix="global") == (
+        "6:GLOBAL||6:LP-101"
+    )
+    bk_hk = compute_dv2_length_prefixed_sha256(
+        ["lp-101"], is_business_key=True, bkcc_prefix="global"
+    )
+    assert lower_hex_re.match(bk_hk)
+    assert bk_hk == "5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4"
+
+    # Satellite hash_diff preserves token case in pre-hash, emits lowercase hex digest
+    sat_hd_lower = compute_dv2_length_prefixed_sha256(
+        {"status": "active", "city": "München"}, is_business_key=False
+    )
+    sat_hd_upper = compute_dv2_length_prefixed_sha256(
+        {"status": "ACTIVE", "city": "München"}, is_business_key=False
+    )
+    assert lower_hex_re.match(sat_hd_lower)
+    assert lower_hex_re.match(sat_hd_upper)
+    assert sat_hd_lower != sat_hd_upper
+
+    # FK resolution returns uniform lowercase [0-9a-f]{64} across valid FKs and Zero Keys
+    for fk_input, is_opt in (
+        (["LP-101"], False),
+        ([None], False),
+        (["-1"], False),
+        ([None], True),
+        (["-2"], False),
+    ):
+        resolved = resolve_fk_hash_key_with_zero_keys(
+            fk_input, bkcc_prefix="GLOBAL", is_optional_inapplicable=is_opt
+        )
+        assert lower_hex_re.match(resolved)
 
 
 def test_elm_calculus_metrics() -> None:
@@ -426,7 +469,7 @@ def test_resolve_canonical_bkcc_prefix_and_tier1_hashing() -> None:
             None, key_authority_tier="TIER_3_LOCAL_SCOPED", require_src_qualifier=True
         )
 
-    expected_calpers = "5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4"
+    expected_calpers = "5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4"
     # dv2_canonical_hash defaults to GLOBAL_BKCC ('GLOBAL')
     assert dv2_canonical_hash(["LP-101"]) == expected_calpers
     # Explicit key_authority_tier='TIER_1_GLOBAL_STANDARD' prepends '6:GLOBAL||'
@@ -469,3 +512,129 @@ def test_resolve_canonical_bkcc_prefix_and_tier1_hashing() -> None:
         is_business_key=False,
         key_authority_tier="TIER_1_GLOBAL_STANDARD",
     ) == compute_dv2_length_prefixed_sha256(["Active"], is_business_key=False)
+
+
+def test_contract_v5_and_canonical_ir_accept_bkcc_column_expr() -> None:
+    """Issue #42 (GAP-11): Verify `BusinessKeySource`, `IRHashExpression`,
+    `IRHubSourceMapping`, and `IRHub` validate `bkcc_column_expr` against both
+    Pydantic v2 models and JSON Schemas (`no-mistake-dv2-contract-v5.schema.json`
+    and `dv2-canonical-ir.schema.json`).
+    """
+    from opendv_core.models.canonical_ir import (
+        IRBusinessKeyColumn,
+        IRColumnDef,
+        IRHashColumn,
+        IRHashConfig,
+        IRHashExpression,
+        IRHub,
+        IRHubSourceMapping,
+        IRSystemColumns,
+    )
+    from opendv_core.models.contract_v5 import BusinessKeySource
+
+    bk_src = BusinessKeySource(
+        bronze_table="bronze_saas.tenant_accounts",
+        key_columns=["account_id"],
+        record_source_code="SAAS_CORE",
+        key_authority_tier="TIER_3_LOCAL_SCOPED",
+        require_src_qualifier=True,
+        bkcc_column_expr="tenant_id",
+        system_scoped_bk_justification="Single-table multi-tenant source partitioned by tenant_id.",
+    )
+    assert bk_src.bkcc_column_expr == "tenant_id"
+
+    hash_expr = IRHashExpression(
+        algorithm="SHA256",
+        input_columns=["bkcc", "account_id"],
+        normalization="UPPER_TRIM",
+        bkcc_column_expr="tenant_id",
+    )
+    assert hash_expr.bkcc_column_expr == "tenant_id"
+
+    sm = IRHubSourceMapping(
+        staging_table="stg_saas_tenant_accounts",
+        bk_source_columns=["tenant_id", "account_id"],
+        rec_src_value="SAAS_CORE",
+        bkcc_column_expr="tenant_id",
+    )
+    assert sm.bkcc_column_expr == "tenant_id"
+
+    ir_hub = IRHub(
+        name="hub_tenant_account",
+        business_concept="Tenant Account",
+        verified_global_master_key=False,
+        bkcc_column_expr="tenant_id",
+        hk_column=IRHashColumn(
+            name="hk_tenant_account",
+            data_type="BINARY(32)",
+            nullable=False,
+            hash_expression=hash_expr,
+        ),
+        business_keys=[
+            IRBusinessKeyColumn(
+                name="bkcc",
+                data_type="VARCHAR(64)",
+                nullable=False,
+                is_bkcc=True,
+                is_tenant_id=True,
+            ),
+            IRBusinessKeyColumn(
+                name="account_id",
+                data_type="VARCHAR(64)",
+                nullable=False,
+            ),
+        ],
+        load_dts_column=IRColumnDef(name="load_dts", data_type="TIMESTAMP_NTZ(9)", nullable=False),
+        rec_src_column=IRColumnDef(name="rec_src", data_type="VARCHAR(255)", nullable=False),
+        source_mappings=[sm],
+    )
+    assert ir_hub.bkcc_column_expr == "tenant_id"
+
+    validated_contract = validate_contract_v5(
+        {
+            "contract_version": "5.0",
+            "domain_namespace": "multi_tenant_saas",
+            "lifecycle_stage": "COLD_START_N1",
+            "column_triage_ledger": [
+                {
+                    "bronze_table": "bronze_saas.tenant_accounts",
+                    "column_name": "tenant_id",
+                    "elm_classification": "BUSINESS_KEY",
+                    "target_dv_entity": "hub_tenant_account",
+                },
+                {
+                    "bronze_table": "bronze_saas.tenant_accounts",
+                    "column_name": "account_id",
+                    "elm_classification": "BUSINESS_KEY",
+                    "target_dv_entity": "hub_tenant_account",
+                },
+            ],
+            "hubs": [
+                {
+                    "name": "hub_tenant_account",
+                    "ontology_concept_uri": "urn:ontology:entity:tenant_account",
+                    "business_key_sources": [bk_src.model_dump(mode="json", exclude_none=True)],
+                }
+            ],
+            "links": [],
+            "satellites": [],
+            "reference_tables": [],
+            "unmapped_escalations": [],
+        }
+    )
+    assert validated_contract.hubs[0].business_key_sources[0].bkcc_column_expr == "tenant_id"
+
+    validated_ir = validate_canonical_ir(
+        CanonicalIR(
+            ir_version="1.0.0",
+            model_name="multi_tenant_saas_vault",
+            hash_config=IRHashConfig(),
+            system_columns=IRSystemColumns(),
+            hubs=[ir_hub],
+            links=[],
+            satellites=[],
+        ).model_dump(mode="json", exclude_none=True)
+    )
+    assert validated_ir.hubs[0].bkcc_column_expr == "tenant_id"
+    assert validated_ir.hubs[0].hk_column.hash_expression.bkcc_column_expr == "tenant_id"
+    assert validated_ir.hubs[0].source_mappings[0].bkcc_column_expr == "tenant_id"

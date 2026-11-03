@@ -282,7 +282,7 @@ class GraphBProfiler:
     def __enter__(self) -> GraphBProfiler:
         return self
 
-    def __exit__(self, *_exc: object) -> None:
+    def __exit__(self, *args: object) -> None:
         self.close()
 
     def profile_table_columns(

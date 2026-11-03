@@ -18,20 +18,34 @@ Covers:
    `12.80x` (`$216.28M` EV = `216280000.00`) at `assertion_cutoff_ts = '2026-10-15 12:00:00'`.
 5. Telemetry integration: Emitting schema-valid `VIZ-GATE-08` (`WB-10`) `VaultObservabilityEvent`
    records via `VaultLedgerEmitter`.
+6. Issue #38 (`Scenario S4` / `UF-1`): `compile_zone_0_migration_sql` idempotent
+   `ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS` statements and multi-wave in-place
+   Satellite schema evolution (`EVO-01`, `DV-EVO-006`, `DV-AST-001`, `DV-DYN-014`).
+6. Issue #34 (`BUG-05` / Scenario `S6`): Bi-temporal adjacent effective state delta detection
+   (`LAG(hash_diff) OVER (... ORDER BY applied_dts ASC, load_dts ASC)`), Point-in-Time
+   reconstruction, and 4-Batch Adversarial Sandbox verification.
 """
 
 from __future__ import annotations
 
+import copy
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
+import sqlglot
 
+from opendv_axi_verifier import (
+    verify_additive_evolution_invariants,
+    verify_physical_dv2_sql_ast,
+)
 from opendv_core.constants import GHOST_DTS, GHOST_REC_SRC, ZERO_KEY_ERROR, ZERO_KEY_UNKNOWN
 from opendv_core.schema_registry import (
     get_examples_dir,
     validate_canonical_ir,
+    validate_contract_v5,
     validate_graph_b,
     validate_observability_event,
 )
@@ -43,7 +57,9 @@ from opendv_duckdb_sandbox import (
     build_algorithm_a5_sha256_sql,
     check_dv_dyn_001_pk_uniqueness,
     check_dv_dyn_002_referential_integrity,
+    check_dv_dyn_014_additive_schema_evolution,
     compile_canonical_ir_to_4zone_sql,
+    compile_zone_0_migration_sql,
     compute_topological_load_waves,
     evaluate_all_dynamic_checks,
     execute_4batch_adversarial_suite,
@@ -58,9 +74,10 @@ from opendv_duckdb_sandbox import (
 )
 from opendv_telemetry.ledger_emitter import VaultLedgerEmitter
 
-# ============================================================================
+# =====================================================================
+
 # 1. Canonical IR Lowerer & Topological Load DAG Tests
-# ============================================================================
+# =====================================================================
 
 
 def test_ir_lowerer_pe_contract_validates_against_canonical_ir_schema() -> None:
@@ -131,9 +148,10 @@ def test_ir_lowerer_generic_contract_and_4zone_compile() -> None:
         con.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 2. Graph B Empirical Profiler & Schema Drift Detection Tests
-# ============================================================================
+# =====================================================================
 
 
 def test_graph_b_profiler_metrics_parquet_csv_and_schema_drift(tmp_path: Path) -> None:
@@ -259,9 +277,10 @@ def test_graph_b_profiler_metrics_parquet_csv_and_schema_drift(tmp_path: Path) -
         profiler.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 3. 4-Zone SQL Compiler, 4 Adversarial Batches & DV-DYN-001..015 Tests
-# ============================================================================
+# =====================================================================
 
 
 def test_4zone_compiler_and_4batch_adversarial_sandbox_all_15_dyn_checks() -> None:
@@ -327,9 +346,10 @@ def test_4zone_compiler_and_4batch_adversarial_sandbox_all_15_dyn_checks() -> No
         con.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 4. Bi-Temporal Query D.10 & Query D.10b Verification Tests
-# ============================================================================
+# =====================================================================
 
 
 def test_pit_query_engine_d10_and_d10b_bitemporal_audit() -> None:
@@ -397,9 +417,10 @@ def test_pit_query_engine_d10_and_d10b_bitemporal_audit() -> None:
         con.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 5. High-Level DuckDbShadowSandbox & Observability Telemetry Tests
-# ============================================================================
+# =====================================================================
 
 
 def test_duckdb_shadow_sandbox_full_verification_and_telemetry(tmp_path: Path) -> None:
@@ -458,7 +479,7 @@ def test_dynamic_checks_detect_injected_orphan_fk() -> None:
 
 
 def test_algorithm_a5_sql_helper_matches_expected_tokens() -> None:
-    """Verify `build_algorithm_a5_sha256_sql` generates null-safe length-prefixed SQL."""
+    """Verify `build_algorithm_a5_sha256_sql` implements 3-way Zero-Key branching (-1 vs -2)."""
     sql_expr = build_algorithm_a5_sha256_sql(
         ["lp_id"],
         is_business_key=True,
@@ -466,10 +487,53 @@ def test_algorithm_a5_sql_helper_matches_expected_tokens() -> None:
     )
     con = duckdb.connect(":memory:")
     try:
-        con.execute("CREATE TABLE t (lp_id VARCHAR); INSERT INTO t VALUES ('lp-101'), (NULL);")
+        con.execute(
+            "CREATE TABLE t (lp_id VARCHAR); "
+            "INSERT INTO t VALUES ('lp-101'), (NULL), ('   '), ('-1'), ('-2');"
+        )
         rows = con.execute(f"SELECT {sql_expr} FROM t").fetchall()
         assert rows[0][0] == "5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4"
         assert rows[1][0] == ZERO_KEY_UNKNOWN
+        assert rows[2][0] == ZERO_KEY_UNKNOWN
+        assert rows[3][0] == ZERO_KEY_UNKNOWN
+        assert rows[4][0] == ZERO_KEY_ERROR
+    finally:
+        con.close()
+
+
+def test_algorithm_a5_sql_helper_3way_zero_key_and_error_predicate() -> None:
+    """Verify composite `(bkcc, bk)` key_columns exclusion and explicit `error_predicate`."""
+    sql_expr = build_algorithm_a5_sha256_sql(
+        ["bkcc", "customer_code"],
+        is_business_key=True,
+        error_predicate="record_status = 'REJECTED'",
+    )
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(
+            """
+            CREATE TABLE src_cust (
+                bkcc VARCHAR,
+                customer_code VARCHAR,
+                record_status VARCHAR
+            );
+            INSERT INTO src_cust VALUES
+                ('GLOBAL', 'CUST-001', 'VALID'),
+                ('GLOBAL', NULL, 'VALID'),
+                ('GLOBAL', '', 'VALID'),
+                ('GLOBAL', '-1', 'VALID'),
+                ('GLOBAL', '-2', 'VALID'),
+                ('GLOBAL', 'CUST-999', 'REJECTED');
+            """
+        )
+        rows = [r[0] for r in con.execute(f"SELECT {sql_expr} FROM src_cust").fetchall()]
+        assert rows[0] not in (ZERO_KEY_UNKNOWN, ZERO_KEY_ERROR)
+        assert len(rows[0]) == 64
+        assert rows[1] == ZERO_KEY_UNKNOWN
+        assert rows[2] == ZERO_KEY_UNKNOWN
+        assert rows[3] == ZERO_KEY_UNKNOWN
+        assert rows[4] == ZERO_KEY_ERROR
+        assert rows[5] == ZERO_KEY_ERROR
     finally:
         con.close()
 
@@ -505,3 +569,1262 @@ def test_parametrized_query_d10b_cutoff_coordinates(
         assert rows[0].enterprise_value_usd == expected_ev
     finally:
         con.close()
+
+
+@pytest.mark.parametrize(
+    ("raw_text", "expected_byte_len", "expected_payload_prehash", "expected_payload_sha256"),
+    [
+        (
+            "Nordisk Suverän Fond",
+            21,
+            "21:Nordisk Suverän Fond",
+            "8f158a694b28984db2ddd2d99d3fa4e67a624791dc3e1d7e27df363a49cd1ff7",
+        ),
+        (
+            "München €25M",
+            15,
+            "15:München €25M",
+            "e8cdf47ea5d7fc86222aea1232609e57f960e5e5d03c6c8c041e9dac72e34f57",
+        ),
+        (
+            "日本国年金積立金管理運用独立行政法人",
+            54,
+            "54:日本国年金積立金管理運用独立行政法人",
+            "b537f8a15b4fd2f74743b6b2245607c346e89f22d321934a67872854e02807d1",
+        ),
+        (
+            "🏦 Sovereign Fund",
+            19,
+            "19:🏦 Sovereign Fund",
+            "49828efad954c7a21d6ce5723459a90d2727b6a08d7ec02db3604c84cdcf2ae0",
+        ),
+    ],
+)
+def test_issue_30_octet_length_encode_multibyte_utf8_parity(
+    raw_text: str,
+    expected_byte_len: int,
+    expected_payload_prehash: str,
+    expected_payload_sha256: str,
+) -> None:
+    """Issue #30 (BUG-01 / DV-HASH-004): Verify `build_length_prefixed_token_sql` and
+    `build_algorithm_a5_sha256_sql` emit `OCTET_LENGTH(ENCODE(...))` (never `STRLEN(...)`)
+    and produce bit-identical pre-hash strings and SHA-256 digests to `opendv_core.hashing`
+    across 2-byte Latin, 3-byte Euro/CJK, and 4-byte Emoji UTF-8 inputs.
+    """
+    from opendv_core.hashing import compute_dv2_length_prefixed_sha256, compute_dv2_prehash_string
+    from opendv_duckdb_sandbox.compiler_4zone import build_length_prefixed_token_sql
+
+    token_sql_pl = build_length_prefixed_token_sql("v.val", is_business_key=False)
+    sha_sql_pl = build_algorithm_a5_sha256_sql(["v.val"], is_business_key=False)
+    token_sql_bk = build_length_prefixed_token_sql("v.val", is_business_key=True)
+    sha_sql_bk = build_algorithm_a5_sha256_sql(
+        ["v.val"], is_business_key=True, bkcc_literal="LEGACY_GP_ADMIN"
+    )
+
+    assert "OCTET_LENGTH(ENCODE(" in token_sql_pl
+    assert "STRLEN(" not in token_sql_pl
+    assert "OCTET_LENGTH(ENCODE(" in sha_sql_pl
+    assert "STRLEN(" not in sha_sql_pl
+
+    assert len(raw_text.encode("utf-8")) == expected_byte_len
+    assert len(raw_text) < expected_byte_len
+
+    py_pre_pl = compute_dv2_prehash_string([raw_text], is_business_key=False)
+    py_sha_pl = compute_dv2_length_prefixed_sha256([raw_text], is_business_key=False).lower()
+    py_pre_bk = compute_dv2_prehash_string([raw_text], is_business_key=True)
+    py_sha_bk = compute_dv2_length_prefixed_sha256(
+        [raw_text], bkcc_prefix="LEGACY_GP_ADMIN", is_business_key=True
+    ).lower()
+
+    assert py_pre_pl == expected_payload_prehash
+    assert py_sha_pl == expected_payload_sha256
+
+    con = duckdb.connect(":memory:")
+    try:
+        row = con.execute(
+            f"SELECT {token_sql_pl}, {sha_sql_pl}, {token_sql_bk}, {sha_sql_bk} "
+            f"FROM (SELECT ? AS val) AS v",
+            [raw_text],
+        ).fetchone()
+        assert row is not None
+        assert row[0] == py_pre_pl
+        assert row[1] == py_sha_pl
+        assert row[2] == py_pre_bk
+        assert row[3] == py_sha_bk
+    finally:
+        con.close()
+
+
+def test_issue_30_scenario_s7_multibyte_utf8_e2e_sandbox() -> None:
+    """Issue #30 (Scenario S7 E2E): Profile, lower, compile, lint, and execute the
+    Scenario S7 multi-byte UTF-8 dataset in `DuckDbShadowSandbox` with zero mocks.
+    """
+    from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import verify_physical_dv2_sql_ast
+    from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+    from opendv_core.schema_registry import get_examples_dir, load_structured_file
+    from opendv_duckdb_sandbox import GraphBProfiler, lower_contract_to_canonical_ir
+
+    pe_ir = DuckDbShadowSandbox.load_default_pe_canonical_ir()
+    pe_bundle = compile_canonical_ir_to_4zone_sql(pe_ir)
+    assert "STRLEN(" not in pe_bundle.full_sql
+    assert pe_bundle.full_sql.count("OCTET_LENGTH(ENCODE(") == 50
+
+    s7_dir = get_examples_dir() / "scenarios" / "s7_multibyte_utf8"
+    s7_contract = load_structured_file(s7_dir / "s7_multibyte_utf8_contract.yaml")
+    crm_csv = s7_dir / "crm_customers.csv"
+    orders_csv = s7_dir / "erp_orders.csv"
+
+    with GraphBProfiler() as profiler:
+        crm_metrics = profiler.profile_csv(crm_csv)
+        assert len(crm_metrics) == 5
+        assert crm_metrics[0].row_count == 4
+
+    s7_ir = lower_contract_to_canonical_ir(s7_contract)
+    bronze_tables = {
+        "crm_salesforce.crm_customers": crm_csv,
+        "erp_netsuite.erp_orders": orders_csv,
+    }
+
+    with DuckDbShadowSandbox() as sandbox:
+        report = sandbox.run_full_verification(
+            s7_ir,
+            bronze_tables=bronze_tables,
+            emit_telemetry=False,
+            run_id="run-s7-multibyte-utf8",
+        )
+        assert report.passed is True
+        assert report.batch_report.all_passed is True
+        assert report.dynamic_check_report.all_passed is True
+        assert "STRLEN(" not in report.compiled_bundle.full_sql
+        assert "OCTET_LENGTH(ENCODE(" in report.compiled_bundle.zone_1_sql
+        assert "OCTET_LENGTH(ENCODE(" in report.compiled_bundle.zone_3_sql
+
+        for stmt in report.compiled_bundle.zone_1_sql.split(";"):
+            stmt_clean = stmt.strip()
+            if stmt_clean and (
+                "VIEW staging.stg_hub_" in stmt_clean or "VIEW staging.stg_sat_" in stmt_clean
+            ):
+                violations = verify_physical_dv2_sql_ast(
+                    stmt_clean,
+                    entity_name="stg_s7_check",
+                    entity_type="STAGE",
+                    dialect="duckdb",
+                )
+                assert violations == []
+
+        cust_row = sandbox.conn.execute(
+            """
+            SELECT hk_customer, customer_tax_id
+            FROM raw_vault.hub_customer
+            WHERE customer_tax_id = 'TAX-SE-ÅÄÖ-102'
+            """
+        ).fetchone()
+        assert cust_row is not None
+        expected_hk_cust = compute_dv2_length_prefixed_sha256(
+            ["TAX-SE-ÅÄÖ-102"],
+            is_business_key=True,
+            key_authority_tier="TIER_1_GLOBAL_STANDARD",
+        ).lower()
+        assert cust_row[0] == expected_hk_cust
+
+        sat_nordisk = sandbox.conn.execute(
+            """
+            SELECT hash_diff, account_segment, country_iso2, legal_name
+            FROM raw_vault.sat_customer_core
+            WHERE legal_name = 'Nordisk Suverän Fond'
+            """
+        ).fetchone()
+        assert sat_nordisk is not None
+        expected_hd_nordisk = compute_dv2_length_prefixed_sha256(
+            ["SOVEREIGN_€", "SE", "Nordisk Suverän Fond"],
+            is_business_key=False,
+        ).lower()
+        assert sat_nordisk[0] == expected_hd_nordisk
+
+
+# =====================================================================
+
+# 6. Issue #38 — Scenario S4 (UF-1): Idempotent Zone 0 Migration SQL & Multi-Wave Evolution
+# =====================================================================
+
+
+def _build_issue_38_contracts() -> tuple[dict[str, Any], dict[str, Any]]:
+    """Build baseline Wave 0 and evolved Wave 2 contracts for Scenario S4 (UF-1)."""
+    wave0_contract: dict[str, Any] = {
+        "contract_version": "5.0",
+        "domain_namespace": "global_commerce",
+        "lifecycle_stage": "COLD_START_N1",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "customer_tax_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_customer",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "legal_name",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "country_iso2",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "account_segment",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "credit_limit_usd",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+        ],
+        "hubs": [
+            {
+                "name": "hub_customer",
+                "ontology_concept_uri": "urn:ontology:entity:customer",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "crm_salesforce.crm_customers",
+                        "key_columns": ["customer_tax_id"],
+                        "record_source_code": "CRM_SALESFORCE",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "require_src_qualifier": False,
+                        "bkcc_prefix": "GLOBAL",
+                    }
+                ],
+            }
+        ],
+        "links": [],
+        "satellites": [
+            {
+                "name": "sat_customer_core",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_customer",
+                "source_bronze_table": "crm_salesforce.crm_customers",
+                "volatility_tier": "STANDARD",
+                "security_classification": "INTERNAL",
+                "payload_columns": [
+                    "legal_name",
+                    "country_iso2",
+                    "account_segment",
+                    "credit_limit_usd",
+                ],
+            }
+        ],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+
+    wave2_contract = copy.deepcopy(wave0_contract)
+    wave2_contract["lifecycle_stage"] = "MULTI_SOURCE_EXPANSION"
+    wave2_contract["column_triage_ledger"].extend(
+        [
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "loyalty_tier_code",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "annual_spend_band",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+        ]
+    )
+    wave2_contract["satellites"][0]["hash_diff_migration_policy"] = "NULL_EQUIVALENT_PADDING"
+    wave2_contract["satellites"][0]["payload_columns"].extend(
+        ["loyalty_tier_code", "annual_spend_band"]
+    )
+    return wave0_contract, wave2_contract
+
+
+def test_issue_38_zone_0_migration_sql_idempotent_alter_table_add_column() -> None:
+    """Verify `compile_zone_0_migration_sql` emits idempotent `ALTER TABLE ADD COLUMN`."""
+    wave0_contract, wave2_contract = _build_issue_38_contracts()
+    validate_contract_v5(wave0_contract)
+    validate_contract_v5(wave2_contract)
+
+    ir_w0 = lower_contract_to_canonical_ir(wave0_contract, validate_schema=True)
+    ir_w2 = lower_contract_to_canonical_ir(wave2_contract, validate_schema=True)
+    assert ir_w2.satellites[0].hash_diff_migration_policy == "NULL_EQUIVALENT_PADDING"
+
+    migration_sql = compile_zone_0_migration_sql(ir_w2, baseline_ir=ir_w0)
+    alter_lines = [
+        line.strip()
+        for line in migration_sql.splitlines()
+        if line.strip().startswith("ALTER TABLE")
+    ]
+    assert alter_lines == [
+        (
+            "ALTER TABLE raw_vault.sat_customer_core "
+            "ADD COLUMN IF NOT EXISTS loyalty_tier_code VARCHAR;"
+        ),
+        (
+            "ALTER TABLE raw_vault.sat_customer_core "
+            "ADD COLUMN IF NOT EXISTS annual_spend_band VARCHAR;"
+        ),
+    ]
+    for col in ("legal_name", "country_iso2", "account_segment", "credit_limit_usd"):
+        assert f"ADD COLUMN IF NOT EXISTS {col}" not in migration_sql
+
+    full_migration_sql = compile_zone_0_migration_sql(ir_w2)
+    full_alter_lines = [
+        line.strip()
+        for line in full_migration_sql.splitlines()
+        if line.strip().startswith("ALTER TABLE")
+    ]
+    assert len(full_alter_lines) == 6
+    for col in (
+        "legal_name",
+        "country_iso2",
+        "account_segment",
+        "credit_limit_usd",
+        "loyalty_tier_code",
+        "annual_spend_band",
+    ):
+        assert (
+            f"ALTER TABLE raw_vault.sat_customer_core ADD COLUMN IF NOT EXISTS {col} "
+            in full_migration_sql
+        )
+
+    assert verify_physical_dv2_sql_ast(migration_sql, entity_name="sat_customer_core") == []
+    destructive_violations = verify_physical_dv2_sql_ast(
+        "ALTER TABLE raw_vault.sat_customer_core DROP COLUMN legal_name;",
+        entity_name="sat_customer_core",
+    )
+    assert len(destructive_violations) == 1
+    assert "DV-AST-001" in destructive_violations[0]
+
+    evo_violations = verify_additive_evolution_invariants(
+        wave0_contract,
+        wave2_contract,
+        sql_scripts=[migration_sql],
+    )
+    assert evo_violations == []
+
+
+def test_issue_38_in_place_satellite_evolution_e2e_duckdb() -> None:
+    """Verify multi-wave in-place Satellite evolution in DuckDB preserves Wave 0 history."""
+    wave0_contract, wave2_contract = _build_issue_38_contracts()
+    ir_w0 = lower_contract_to_canonical_ir(wave0_contract, validate_schema=True)
+    ir_w2 = lower_contract_to_canonical_ir(wave2_contract, validate_schema=True)
+
+    wave0_rows = [
+        {
+            "customer_tax_id": "TAX-US-900101",
+            "legal_name": "Apex Industrial Holdings LLC",
+            "country_iso2": "US",
+            "account_segment": "ENTERPRISE",
+            "credit_limit_usd": 1250000.00,
+            "load_dts": "2026-10-01 06:00:00",
+        },
+        {
+            "customer_tax_id": "TAX-DE-800202",
+            "legal_name": "Rheinland Precision GmbH",
+            "country_iso2": "DE",
+            "account_segment": "ENTERPRISE",
+            "credit_limit_usd": 980000.00,
+            "load_dts": "2026-10-01 06:00:00",
+        },
+    ]
+    wave2_rows = [
+        {
+            "customer_tax_id": "TAX-US-900101",
+            "legal_name": "Apex Industrial Holdings LLC",
+            "country_iso2": "US",
+            "account_segment": "ENTERPRISE",
+            "credit_limit_usd": 1250000.00,
+            "loyalty_tier_code": "PLATINUM",
+            "annual_spend_band": "BAND_1M_5M",
+            "load_dts": "2026-11-01 06:00:00",
+        },
+        {
+            "customer_tax_id": "TAX-DE-800202",
+            "legal_name": "Rheinland Precision GmbH",
+            "country_iso2": "DE",
+            "account_segment": "ENTERPRISE",
+            "credit_limit_usd": 980000.00,
+            "loyalty_tier_code": "GOLD",
+            "annual_spend_band": "BAND_500K_1M",
+            "load_dts": "2026-11-01 06:00:00",
+        },
+    ]
+
+    bundle_w0 = compile_canonical_ir_to_4zone_sql(
+        ir_w0,
+        bronze_tables={"crm_salesforce.crm_customers": wave0_rows},
+    )
+    bundle_w2 = compile_canonical_ir_to_4zone_sql(
+        ir_w2,
+        bronze_tables={"crm_salesforce.crm_customers": wave2_rows},
+        baseline_ir=ir_w0,
+    )
+    assert bundle_w2.zone_0_migration_sql.strip() != ""
+    assert bundle_w2.zone_0_migration_sql in bundle_w2.zones_0_to_3_sql
+
+    conn = duckdb.connect(":memory:")
+    try:
+        conn.execute(bundle_w0.zones_0_to_3_sql)
+        w0_rows_before = conn.execute(
+            """
+            SELECT hk_customer, load_dts, legal_name, hash_diff
+            FROM raw_vault.sat_customer_core
+            WHERE rec_src <> 'SYSTEM_GHOST'
+            ORDER BY legal_name
+            """
+        ).fetchall()
+        assert len(w0_rows_before) == 2
+
+        # Prove failure mode if zone_0_migration_sql is skipped before Zone 2 INSERT
+        conn.execute(bundle_w2.zone_0_sql)
+        conn.execute(bundle_w2.zone_1_sql)
+        with pytest.raises(duckdb.BinderException, match="loyalty_tier_code"):
+            conn.execute(bundle_w2.zone_2_sql)
+
+        # Execute full Wave 2 bundle (with zone_0_migration_sql) and replay for idempotency
+        conn.execute(bundle_w2.zones_0_to_3_sql)
+        conn.execute(bundle_w2.zone_0_migration_sql)
+        conn.execute(bundle_w2.zones_0_to_3_sql)
+
+        w0_rows_after = conn.execute(
+            """
+            SELECT
+                hk_customer, load_dts, legal_name, hash_diff,
+                loyalty_tier_code, annual_spend_band
+            FROM raw_vault.sat_customer_core
+            WHERE rec_src <> 'SYSTEM_GHOST'
+              AND load_dts = TIMESTAMP '2026-10-01 06:00:00'
+            ORDER BY legal_name
+            """
+        ).fetchall()
+        assert [(r[0], r[1], r[2], r[3]) for r in w0_rows_after] == w0_rows_before
+        assert all(r[4] is None and r[5] is None for r in w0_rows_after)
+
+        w2_rows_after = conn.execute(
+            """
+            SELECT legal_name, loyalty_tier_code, annual_spend_band
+            FROM raw_vault.sat_customer_core
+            WHERE rec_src <> 'SYSTEM_GHOST'
+              AND load_dts = TIMESTAMP '2026-11-01 06:00:00'
+            ORDER BY legal_name
+            """
+        ).fetchall()
+        assert w2_rows_after == [
+            ("Apex Industrial Holdings LLC", "PLATINUM", "BAND_1M_5M"),
+            ("Rheinland Precision GmbH", "GOLD", "BAND_500K_1M"),
+        ]
+
+        total_business_rows = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.sat_customer_core WHERE rec_src <> 'SYSTEM_GHOST'"
+        ).fetchone()
+        assert total_business_rows is not None and int(total_business_rows[0]) == 4
+
+        dyn_014 = check_dv_dyn_014_additive_schema_evolution(
+            conn,
+            historical_hash_mutations=0,
+            ir=ir_w2,
+        )
+        assert dyn_014.passed is True
+    finally:
+        conn.close()
+
+
+def test_issue37_scenario_s7_cross_engine_hash_parity_e2e() -> None:
+    """Issue #37 / Scenario S7 (FR-VER-01, FR-INT-01, Algorithm A.5, DV-COL-005):
+    End-to-end cross-engine SHA-256 hex parity across Python (`opendv_core.hashing`),
+    SQLGlot AST (`alg_a5_sqlglot_hash`), and 4-Zone DuckDB (`compiler_4zone`) without
+    any `.lower()` or `.upper()` post-processing workarounds.
+    """
+    import re
+
+    from opendv_axi_verifier.codemods.alg_a5_sqlglot_hash import build_canonical_sha256_hash_ast
+    from opendv_core.hashing import (
+        compute_dv2_length_prefixed_sha256,
+        dv2_canonical_hash,
+        resolve_fk_hash_key_with_zero_keys,
+    )
+    from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
+    from opendv_core.schema_registry import load_structured_file
+
+    lower_hex_re = re.compile(r"^[0-9a-f]{64}$")
+
+    # 1. Validate real v5 Contract -> CanonicalIR -> 4-Zone SQL and execute in :memory: DuckDB
+    pe_contract_path = get_examples_dir() / "private_equity" / "dv_pe_model_contract.yaml"
+    pe_contract_dict = load_structured_file(pe_contract_path)
+    contract = NoMistakeDataVault2ContractV5.model_validate(pe_contract_dict)
+    ir = lower_contract_to_canonical_ir(contract)
+    bundle = compile_canonical_ir_to_4zone_sql(ir)
+
+    with duckdb.connect(":memory:") as conn:
+        conn.execute("CREATE MACRO SHA2(s, bits) AS sha256(s)")
+        conn.execute(
+            "CREATE MACRO OCTET_LENGTH(s) AS "
+            "CASE WHEN typeof(s) = 'BLOB' THEN strlen(decode(s::BLOB)) ELSE strlen(s::VARCHAR) END"
+        )
+        conn.execute(bundle.full_sql_bundle)
+
+        # 2. Direct parameterized lookup of Python-computed Hub HKs in DuckDB raw_vault tables
+        calpers_py_hk = compute_dv2_length_prefixed_sha256(
+            ["LP-101"], is_business_key=True, bkcc_prefix="GLOBAL"
+        )
+        bavarian_py_hk = compute_dv2_length_prefixed_sha256(
+            ["LP-101"], is_business_key=True, bkcc_prefix="LEGACY_GP_ADMIN"
+        )
+        fund_iv_vector_hk = dv2_canonical_hash(
+            ["APEX_BO_IV"], is_business_key=True, bkcc_prefix="GLOBAL"
+        )
+        fund_iv_py_hk = dv2_canonical_hash(
+            ["APEX-BUYOUT-IV"], is_business_key=True, bkcc_prefix=None
+        )
+
+        for digest in (calpers_py_hk, bavarian_py_hk, fund_iv_vector_hk, fund_iv_py_hk):
+            assert lower_hex_re.match(digest), f"Expected lowercase 64-char hex, got {digest}"
+
+        # Query DuckDB raw_vault.hub_limited_partner and raw_vault.hub_fund directly with Python HK
+        lp_match = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.hub_limited_partner WHERE hk_lp = ?",
+            [calpers_py_hk],
+        ).fetchone()
+        assert lp_match is not None and lp_match[0] == 1
+
+        bav_match = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.hub_limited_partner WHERE hk_lp = ?",
+            [bavarian_py_hk],
+        ).fetchone()
+        assert bav_match is not None and bav_match[0] == 1
+
+        fund_match = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.hub_fund WHERE hk_fund = ?",
+            [fund_iv_py_hk],
+        ).fetchone()
+        assert fund_match is not None and fund_match[0] == 1
+
+        # 3. Verify 3-way parity: Python vs compiler_4zone SQL vs SQLGlot AST codemod SQL
+        vectors: list[tuple[list[str], dict[str, str | None], bool, str | None]] = [
+            (["lp_id"], {"lp_id": "LP-101"}, True, "GLOBAL"),
+            (["lp_id"], {"lp_id": "LP-101"}, True, "LEGACY_GP_ADMIN"),
+            (["c1", "c2"], {"c1": "AB", "c2": "C"}, False, None),
+            (["c1", "c2"], {"c1": "A", "c2": "BC"}, False, None),
+            (["c1", "c2"], {"c1": "ANNE||O", "c2": "BRIEN"}, False, None),
+            (["c1", "c2"], {"c1": "ANNE", "c2": "O||BRIEN"}, False, None),
+            (["c1", "c2", "c3"], {"c1": "VAL_X", "c2": None, "c3": "VAL_Y"}, False, None),
+            (["c1", "c2", "c3"], {"c1": "VAL_X", "c2": "VAL_Y", "c3": None}, False, None),
+            (["city", "org"], {"city": "München", "org": "株式会社"}, False, None),
+            (["lp_id"], {"lp_id": None}, True, "GLOBAL"),
+        ]
+
+        for cols, row_dict, is_bk, bkcc in vectors:
+            ordered_cols = sorted(cols) if not is_bk else cols
+            py_digest = compute_dv2_length_prefixed_sha256(
+                [row_dict[c] for c in ordered_cols],
+                is_business_key=is_bk,
+                bkcc_prefix=bkcc,
+            )
+            c4z_sql = build_algorithm_a5_sha256_sql(
+                cols,
+                is_business_key=is_bk,
+                bkcc_literal=bkcc,
+                sort_alphabetically=not is_bk,
+            )
+            ast_sql = build_canonical_sha256_hash_ast(
+                cols,
+                is_business_key=is_bk,
+                bkcc_prefix=bkcc,
+                sort_alphabetically=not is_bk,
+            ).sql("duckdb")
+
+            select_list = ", ".join(
+                f"CAST(NULL AS VARCHAR) AS {c}"
+                if row_dict[c] is None
+                else f"'{row_dict[c]}' AS {c}"
+                for c in cols
+            )
+            row_vals = conn.execute(
+                f"SELECT {c4z_sql}, {ast_sql} FROM (SELECT {select_list})"
+            ).fetchone()
+            assert row_vals is not None
+            c4z_val, ast_val = row_vals
+
+            assert lower_hex_re.match(py_digest)
+            assert py_digest == c4z_val == ast_val
+
+        # 4. Zero-Key & FK resolution lowercase uniformity
+        assert resolve_fk_hash_key_with_zero_keys([None], bkcc_prefix="GLOBAL") == ZERO_KEY_UNKNOWN
+        assert resolve_fk_hash_key_with_zero_keys(["-1"], bkcc_prefix="GLOBAL") == ZERO_KEY_UNKNOWN
+        assert (
+            resolve_fk_hash_key_with_zero_keys(
+                [None], bkcc_prefix="GLOBAL", is_optional_inapplicable=True
+            )
+            == ZERO_KEY_ERROR
+        )
+        assert resolve_fk_hash_key_with_zero_keys(["-2"], bkcc_prefix="GLOBAL") == ZERO_KEY_ERROR
+        assert resolve_fk_hash_key_with_zero_keys(["LP-101"], bkcc_prefix="GLOBAL") == calpers_py_hk
+
+
+def test_scenario_s2_sal_canonical_ordering_and_dv_dyn_006_enforcement() -> None:
+    """Issue #41 (GAP-10 / Scenario S2): End-to-end verification of Multi-Source Entity
+    Convergence with Same-As Link canonical ordering across Gate 3, 4-Zone SQL compilation,
+    and Gate 5 DuckDB Shadow Sandbox (DV-DYN-006 & DV-DYN-007).
+    """
+    from opendv_axi_verifier.verifiers.gate3_networkx_dag import verify_structural_invariants
+    from opendv_core.models import NoMistakeDataVault2ContractV5
+    from opendv_duckdb_sandbox.dynamic_checks import check_dv_dyn_006_bkcc_collision_and_sal
+
+    s2_contract_dict = {
+        "contract_version": "5.0",
+        "domain_namespace": "s2_multi_source_customer_convergence",
+        "lifecycle_stage": "MULTI_SOURCE_EXPANSION",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "erp.src_sap_customers",
+                "column_name": "customer_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_customer",
+            },
+            {
+                "bronze_table": "erp.src_sap_customers",
+                "column_name": "legal_name",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_erp",
+            },
+            {
+                "bronze_table": "crm.src_sfdc_accounts",
+                "column_name": "sf_account_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_customer",
+            },
+            {
+                "bronze_table": "crm.src_sfdc_accounts",
+                "column_name": "account_tier",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_crm",
+            },
+            {
+                "bronze_table": "mdm.src_customer_steward_crosswalk",
+                "column_name": "master_customer_id",
+                "elm_classification": "FOREIGN_KEY_REF",
+                "target_dv_entity": "sal_customer",
+            },
+            {
+                "bronze_table": "mdm.src_customer_steward_crosswalk",
+                "column_name": "sf_account_id",
+                "elm_classification": "FOREIGN_KEY_REF",
+                "target_dv_entity": "sal_customer",
+            },
+        ],
+        "hubs": [
+            {
+                "name": "hub_customer",
+                "ontology_concept_uri": "urn:ontology:entity:customer",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "erp.src_sap_customers",
+                        "key_columns": ["customer_id"],
+                        "record_source_code": "ERP_SAP_CORE",
+                        "key_authority_tier": "TIER_2_ENTERPRISE_SOR",
+                        "require_src_qualifier": False,
+                        "bkcc_prefix": None,
+                    },
+                    {
+                        "bronze_table": "crm.src_sfdc_accounts",
+                        "key_columns": ["sf_account_id"],
+                        "record_source_code": "CRM_SALESFORCE",
+                        "key_authority_tier": "TIER_3_LOCAL_SCOPED",
+                        "require_src_qualifier": True,
+                        "bkcc_prefix": "CRM_SALESFORCE",
+                        "system_scoped_bk_justification": (
+                            "Salesforce local account IDs collide with SAP customer numbers "
+                            "and require BKCC scoping."
+                        ),
+                    },
+                ],
+            }
+        ],
+        "links": [
+            {
+                "name": "sal_customer",
+                "link_type": "SAME_AS_LINK",
+                "ontology_concept_uri": "urn:ontology:relationship:entity_equivalence",
+                "source_bronze_table": "mdm.src_customer_steward_crosswalk",
+                "hub_references": [
+                    {
+                        "target_hub": "hub_customer",
+                        "role_alias": "MASTER_CUSTOMER",
+                        "source_fk_columns": ["master_customer_id"],
+                    },
+                    {
+                        "target_hub": "hub_customer",
+                        "role_alias": "DUPLICATE_ALIAS_CUSTOMER",
+                        "source_fk_columns": ["sf_account_id"],
+                    },
+                ],
+            }
+        ],
+        "satellites": [
+            {
+                "name": "sat_customer_erp",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_customer",
+                "source_bronze_table": "erp.src_sap_customers",
+                "security_classification": "PUBLIC",
+                "volatility_tier": "STATIC",
+                "payload_columns": ["legal_name"],
+            },
+            {
+                "name": "sat_customer_crm",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_customer",
+                "source_bronze_table": "crm.src_sfdc_accounts",
+                "security_classification": "PUBLIC",
+                "volatility_tier": "STANDARD",
+                "payload_columns": ["account_tier"],
+            },
+        ],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+
+    # 1. Gate 3 static verification passes on canonical S2 contract
+    assert verify_structural_invariants(s2_contract_dict) == []
+
+    # 2. Full 4-Batch Shadow Sandbox passes all 15 dynamic invariants (DV-DYN-001..015)
+    contract = NoMistakeDataVault2ContractV5.model_validate(s2_contract_dict)
+    ir = lower_contract_to_canonical_ir(contract)
+    sandbox_report = DuckDbShadowSandbox().run_full_verification(ir)
+    assert sandbox_report.passed is True
+
+    # 3. Verify Zone 2 SAL DML filters out reflexive (A, A) and inverted (B, A) staging rows
+    bundle = compile_canonical_ir_to_4zone_sql(ir)
+    conn = duckdb.connect(":memory:")
+    conn.execute(bundle.zone_0_sql)
+    conn.execute(bundle.zone_1_sql)
+
+    # Inject adversarial (A, A) self-loop and (A, B) + (B, A) inverted pair into Bronze crosswalk
+    conn.execute(
+        """
+        INSERT INTO bronze.src_sal_customer VALUES
+            (
+                'GLOBAL',
+                'CUST-100',
+                'GLOBAL',
+                'CUST-100',
+                TIMESTAMP '2026-10-02 00:00:00',
+                'ADVERSARIAL_SELF_LOOP'
+            ),
+            (
+                'GLOBAL',
+                'CUST-100',
+                'CRM_SALESFORCE',
+                'CUST-200',
+                TIMESTAMP '2026-10-02 01:00:00',
+                'ADVERSARIAL_PAIR_AB'
+            ),
+            (
+                'CRM_SALESFORCE',
+                'CUST-200',
+                'GLOBAL',
+                'CUST-100',
+                TIMESTAMP '2026-10-02 02:00:00',
+                'ADVERSARIAL_PAIR_BA'
+            );
+        """
+    )
+    conn.execute(bundle.zone_2_sql)
+
+    # Verify that Zone 2 DML actually filtered out reflexive (A, A) and inverted (B, A) rows
+    self_loop_cnt = conn.execute(
+        """
+        SELECT COUNT(*) FROM business_vault.sal_customer
+        WHERE hk_sal_customer NOT IN (
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        )
+          AND hk_customer_master_customer = hk_customer_duplicate_alias_customer;
+        """
+    ).fetchone()
+    assert self_loop_cnt is not None and int(self_loop_cnt[0]) == 0
+
+    inv_pair_cnt = conn.execute(
+        """
+        SELECT COUNT(*) FROM business_vault.sal_customer s1
+        INNER JOIN business_vault.sal_customer s2
+            ON s1.hk_customer_master_customer = s2.hk_customer_duplicate_alias_customer
+           AND s1.hk_customer_duplicate_alias_customer = s2.hk_customer_master_customer
+        WHERE s1.hk_sal_customer NOT IN (
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        )
+          AND s2.hk_sal_customer NOT IN (
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        )
+          AND s1.hk_customer_master_customer <> s1.hk_customer_duplicate_alias_customer;
+        """
+    ).fetchone()
+    assert inv_pair_cnt is not None and int(inv_pair_cnt[0]) == 0
+
+    # Verify DV-DYN-006 passes because Zone 2 DML filtered out (A, A) and (B, A)
+    dyn_006_clean = check_dv_dyn_006_bkcc_collision_and_sal(conn, ir=ir)
+    assert dyn_006_clean.passed is True
+    assert dyn_006_clean.failing_rows == 0
+
+    # 4. Directly insert a reflexive (A, A) row and an inverted (B, A) row into
+    # business_vault.sal_customer to prove DV-DYN-006 catches bypassed SAL violations
+    existing_edge = conn.execute(
+        """
+        SELECT hk_customer_master_customer, hk_customer_duplicate_alias_customer
+        FROM business_vault.sal_customer
+        WHERE hk_sal_customer NOT IN (
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        )
+          AND hk_customer_duplicate_alias_customer NOT IN (
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        )
+        LIMIT 1;
+        """
+    ).fetchone()
+    assert existing_edge is not None
+    hk_a, hk_b = existing_edge[0], existing_edge[1]
+
+    conn.execute(
+        f"""
+        INSERT INTO business_vault.sal_customer (
+            hk_sal_customer,
+            hk_customer_master_customer,
+            hk_customer_duplicate_alias_customer,
+            load_dts,
+            rec_src
+        ) VALUES
+            (
+                '1111111111111111111111111111111111111111111111111111111111111111',
+                '{hk_a}',
+                '{hk_a}',
+                TIMESTAMP '2026-10-03 00:00:00',
+                'BYPASS_SELF_LOOP'
+            ),
+            (
+                '2222222222222222222222222222222222222222222222222222222222222222',
+                '{hk_b}',
+                '{hk_a}',
+                TIMESTAMP '2026-10-03 00:00:00',
+                'BYPASS_INVERTED_DUP'
+            );
+        """
+    )
+    dyn_006_corrupted = check_dv_dyn_006_bkcc_collision_and_sal(conn, ir=ir)
+    assert dyn_006_corrupted.passed is False
+    assert dyn_006_corrupted.failing_rows >= 2
+    conn.close()
+
+
+# =====================================================================
+# Issue #42 — Scenario S9: Dynamic bkcc_column_expr Multi-Tenant Hashing
+# =====================================================================
+
+
+def test_build_algorithm_a5_sha256_sql_dynamic_bkcc_column_expr_and_zero_key() -> None:
+    """Issue #42 (GAP-11 / S9): `build_algorithm_a5_sha256_sql` supports `bkcc_column_expr`
+    for dynamic row-level tenant namespace prefixing while preserving `KEY-02(b)` Zero-Key
+    (`REPEAT('0', 64)`) when business key columns are NULL.
+    """
+    from opendv_axi_verifier.codemods.alg_a5_sqlglot_hash import build_canonical_sha256_hash_ast
+    from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+
+    sql_expr = build_algorithm_a5_sha256_sql(
+        ["account_id"],
+        is_business_key=True,
+        bkcc_column_expr="tenant_id",
+    )
+    # Deduplicates if caller also includes tenant_id in columns list
+    sql_expr_dedup = build_algorithm_a5_sha256_sql(
+        ["tenant_id", "account_id"],
+        is_business_key=True,
+        bkcc_column_expr="tenant_id",
+    )
+    assert sql_expr == sql_expr_dedup
+
+    sql_single_col = build_algorithm_a5_sha256_sql(
+        ["tenant_id"],
+        is_business_key=True,
+        bkcc_column_expr="tenant_id",
+    )
+    ast_single_col = build_canonical_sha256_hash_ast(
+        ["tenant_id"],
+        is_business_key=True,
+        bkcc_column_expr="tenant_id",
+    )
+    assert isinstance(ast_single_col, sqlglot.exp.Case)
+
+    con = duckdb.connect(":memory:")
+    try:
+        rows = con.execute(
+            f"""
+            SELECT
+                tenant_id,
+                account_id,
+                {sql_expr} AS computed_hk,
+                {sql_single_col} AS single_col_hk
+            FROM (
+                VALUES
+                    ('TENANT_US', 'ACCT-1001'),
+                    ('TENANT_EU', 'ACCT-1001'),
+                    ('  tenant_us ', ' acct-1001 '),
+                    ('TENANT_US', NULL),
+                    ('TENANT_US', '   '),
+                    (NULL, 'ACCT-1001')
+            ) AS t(tenant_id, account_id)
+            """
+        ).fetchall()
+    finally:
+        con.close()
+
+    expected_us = compute_dv2_length_prefixed_sha256(
+        ["ACCT-1001"], is_business_key=True, bkcc_prefix="TENANT_US"
+    ).lower()
+    expected_eu = compute_dv2_length_prefixed_sha256(
+        ["ACCT-1001"], is_business_key=True, bkcc_prefix="TENANT_EU"
+    ).lower()
+
+    assert rows[0][2] == expected_us
+    assert rows[1][2] == expected_eu
+    assert rows[0][2] != rows[1][2]
+    assert rows[2][2] == expected_us
+    assert rows[3][2] == ZERO_KEY_UNKNOWN
+    assert rows[4][2] == ZERO_KEY_UNKNOWN
+    assert rows[5][3] == ZERO_KEY_UNKNOWN
+
+
+def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path: Path) -> None:
+    """Issue #42 (Scenario S9): E2E verification of single-table multi-tenant CSV feeds
+    using `bkcc_column_expr='tenant_id'` across Contract V5, Gate 1, Canonical IR lowering,
+    4-Zone DuckDB compilation, and 4-Batch Adversarial Shadow Sandbox (`DV-DYN-001..015`).
+    """
+    from opendv_axi_verifier.codemods.alg_a5_sqlglot_hash import (
+        codemod_enforce_staging_hashes_sql,
+    )
+    from opendv_axi_verifier.verifiers.alg_a7_evolution_lock import verify_evolution_lock_alg_a7
+    from opendv_axi_verifier.verifiers.gate1_contract_grain import verify_gate1_contract_and_grain
+    from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+    from opendv_core.schema_registry import validate_contract_v5
+
+    accounts_csv = tmp_path / "tenant_accounts.csv"
+    accounts_csv.write_text(
+        "tenant_id,account_id,account_name,plan_tier\n"
+        "TENANT_US,ACCT-1001,Acme US Holdings,ENTERPRISE\n"
+        "TENANT_EU,ACCT-1001,Acme EU GmbH,GROWTH\n"
+        "TENANT_US,ACCT-1002,Beta US Corp,STARTER\n",
+        encoding="utf-8",
+    )
+    subs_csv = tmp_path / "tenant_subscriptions.csv"
+    subs_csv.write_text(
+        "tenant_id,account_id,subscription_id\n"
+        "TENANT_US,ACCT-1001,SUB-9001\n"
+        "TENANT_EU,ACCT-1001,SUB-9002\n",
+        encoding="utf-8",
+    )
+
+    contract_dict: dict[str, Any] = {
+        "contract_version": "5.0",
+        "domain_namespace": "multi_tenant_saas",
+        "lifecycle_stage": "COLD_START_N1",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "bronze_saas.tenant_accounts",
+                "column_name": "tenant_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_tenant_account",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_accounts",
+                "column_name": "account_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_tenant_account",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_accounts",
+                "column_name": "account_name",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_tenant_account_core",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_accounts",
+                "column_name": "plan_tier",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_tenant_account_core",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_subscriptions",
+                "column_name": "tenant_id",
+                "elm_classification": "FOREIGN_KEY_REF",
+                "target_dv_entity": "lnk_tenant_account_subscription",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_subscriptions",
+                "column_name": "account_id",
+                "elm_classification": "FOREIGN_KEY_REF",
+                "target_dv_entity": "lnk_tenant_account_subscription",
+            },
+            {
+                "bronze_table": "bronze_saas.tenant_subscriptions",
+                "column_name": "subscription_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_subscription",
+            },
+        ],
+        "hubs": [
+            {
+                "name": "hub_tenant_account",
+                "ontology_concept_uri": "urn:ontology:entity:tenant_account",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "bronze_saas.tenant_accounts",
+                        "key_columns": ["tenant_id", "account_id"],
+                        "record_source_code": "SAAS_CORE",
+                        "key_authority_tier": "TIER_3_LOCAL_SCOPED",
+                        "require_src_qualifier": True,
+                        "bkcc_column_expr": "tenant_id",
+                        "system_scoped_bk_justification": (
+                            "Single-table multi-tenant feed where ACCT-1001 collides across "
+                            "TENANT_US and TENANT_EU."
+                        ),
+                    }
+                ],
+            },
+            {
+                "name": "hub_subscription",
+                "ontology_concept_uri": "urn:ontology:entity:subscription",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "bronze_saas.tenant_subscriptions",
+                        "key_columns": ["subscription_id"],
+                        "record_source_code": "SAAS_BILLING",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "require_src_qualifier": False,
+                        "bkcc_prefix": "GLOBAL",
+                    }
+                ],
+            },
+        ],
+        "links": [
+            {
+                "name": "lnk_tenant_account_subscription",
+                "link_type": "STANDARD_LINK",
+                "ontology_concept_uri": "urn:ontology:relationship:account_subscription",
+                "source_bronze_table": "bronze_saas.tenant_subscriptions",
+                "hub_references": [
+                    {
+                        "target_hub": "hub_tenant_account",
+                        "role_alias": "subscriber_account",
+                        "source_fk_columns": ["tenant_id", "account_id"],
+                    },
+                    {
+                        "target_hub": "hub_subscription",
+                        "role_alias": "subscription",
+                        "source_fk_columns": ["subscription_id"],
+                    },
+                ],
+            }
+        ],
+        "satellites": [
+            {
+                "name": "sat_tenant_account_core",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_tenant_account",
+                "source_bronze_table": "bronze_saas.tenant_accounts",
+                "security_classification": "INTERNAL",
+                "volatility_tier": "STANDARD",
+                "payload_columns": ["account_name", "plan_tier"],
+            }
+        ],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+    graph_a = {
+        "concepts": [
+            {"uri": "urn:ontology:entity:tenant_account"},
+            {"uri": "urn:ontology:entity:subscription"},
+            {"uri": "urn:ontology:relationship:account_subscription"},
+        ]
+    }
+    graph_b = {
+        "source_systems": [
+            {
+                "system_id": "bronze_saas",
+                "tables": [
+                    {
+                        "table_name": "bronze_saas.tenant_accounts",
+                        "columns": [
+                            {"column_name": "tenant_id", "data_type": "VARCHAR(64)"},
+                            {"column_name": "account_id", "data_type": "VARCHAR(64)"},
+                            {"column_name": "account_name", "data_type": "VARCHAR(255)"},
+                            {"column_name": "plan_tier", "data_type": "VARCHAR(64)"},
+                        ],
+                    },
+                    {
+                        "table_name": "bronze_saas.tenant_subscriptions",
+                        "columns": [
+                            {"column_name": "tenant_id", "data_type": "VARCHAR(64)"},
+                            {"column_name": "account_id", "data_type": "VARCHAR(64)"},
+                            {"column_name": "subscription_id", "data_type": "VARCHAR(64)"},
+                        ],
+                    },
+                ],
+            }
+        ]
+    }
+
+    # 1. Validate Contract V5, Gate 1, and Gate 4 Evolution Lock
+    contract = validate_contract_v5(contract_dict)
+    g1_diags = verify_gate1_contract_and_grain(contract_dict, graph_a, graph_b)
+    assert g1_diags == []
+
+    whitespace_bkcc_contract = {
+        **contract_dict,
+        "hubs": [
+            {
+                **contract_dict["hubs"][0],
+                "business_key_sources": [
+                    {
+                        **contract_dict["hubs"][0]["business_key_sources"][0],
+                        "bkcc_column_expr": "   ",
+                        "bkcc_prefix": "   ",
+                    }
+                ],
+            },
+            contract_dict["hubs"][1],
+        ],
+    }
+    ws_diags = verify_gate1_contract_and_grain(whitespace_bkcc_contract, graph_a, graph_b)
+    assert any("DV-COL-012" in d for d in ws_diags)
+
+    mutated_contract = {
+        **contract_dict,
+        "hubs": [
+            {
+                **contract_dict["hubs"][0],
+                "business_key_sources": [
+                    {
+                        **contract_dict["hubs"][0]["business_key_sources"][0],
+                        "bkcc_column_expr": "org_code",
+                    }
+                ],
+            },
+            contract_dict["hubs"][1],
+        ],
+    }
+    evo_violations = verify_evolution_lock_alg_a7(contract_dict, mutated_contract)
+    assert any("BKCC_MUTATED" in v for v in evo_violations)
+
+    # 2. Verify SQLGlot AST codemod with dynamic bkcc_column_expr
+    rewritten_sql = codemod_enforce_staging_hashes_sql(
+        "SELECT tenant_id, account_id FROM bronze_saas.tenant_accounts",
+        {
+            "hk_tenant_account": {
+                "columns": ["account_id"],
+                "is_business_key": True,
+                "bkcc_column_expr": "tenant_id",
+            }
+        },
+    )
+    parsed_rewritten = sqlglot.parse_one(rewritten_sql, read="duckdb")
+    hk_proj = next(
+        expr
+        for expr in parsed_rewritten.expressions
+        if expr.alias_or_name.lower() == "hk_tenant_account"
+    )
+    hk_case = hk_proj.this
+    assert isinstance(hk_case, sqlglot.exp.Case)
+    zero_key_pred_cols = {
+        c.name.lower() for c in hk_case.args["ifs"][0].this.find_all(sqlglot.exp.Column)
+    }
+    assert zero_key_pred_cols == {"account_id"}
+    hashed_col_sequence = [
+        c.name.lower() for c in hk_case.args["default"].find_all(sqlglot.exp.Column, bfs=False)
+    ]
+    assert set(hashed_col_sequence) == {"tenant_id", "account_id"}
+    assert hashed_col_sequence.index("tenant_id") < hashed_col_sequence.index("account_id")
+
+    # 3. Lower to Canonical IR & validate against JSON Schema
+    ir = lower_contract_to_canonical_ir(
+        contract,
+        model_name="s9_multitenant_saas_vault",
+        validate_schema=True,
+    )
+    validated_ir = validate_canonical_ir(ir.model_dump(mode="json", exclude_none=True))
+    assert validated_ir.hubs[0].bkcc_column_expr == "tenant_id"
+    assert [bk.name for bk in validated_ir.hubs[0].business_keys] == ["bkcc", "account_id"]
+    assert validated_ir.hubs[0].hk_column.hash_expression.bkcc_column_expr == "tenant_id"
+    assert validated_ir.hubs[0].source_mappings[0].bkcc_column_expr == "tenant_id"
+
+    # 4. Compile 4-Zone SQL & execute in DuckDB with real CSV files
+    bronze_map: dict[str, Any] = {
+        "bronze_saas.tenant_accounts": accounts_csv,
+        "bronze_saas.tenant_subscriptions": subs_csv,
+    }
+    bundle = compile_canonical_ir_to_4zone_sql(ir, bronze_tables=bronze_map)
+
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(bundle.full_sql)
+        hub_rows = con.execute(
+            f"""
+            SELECT hk_tenant_account, bkcc, account_id, rec_src
+            FROM raw_vault.hub_tenant_account
+            WHERE hk_tenant_account NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
+            ORDER BY bkcc, account_id
+            """
+        ).fetchall()
+        sat_rows = con.execute(
+            f"""
+            SELECT hk_tenant_account, account_name, plan_tier
+            FROM raw_vault.sat_tenant_account_core
+            WHERE hk_tenant_account NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
+            ORDER BY account_name
+            """
+        ).fetchall()
+    finally:
+        con.close()
+
+    expected_eu_hk = compute_dv2_length_prefixed_sha256(
+        ["ACCT-1001"], is_business_key=True, bkcc_prefix="TENANT_EU"
+    ).lower()
+    expected_us_hk = compute_dv2_length_prefixed_sha256(
+        ["ACCT-1001"], is_business_key=True, bkcc_prefix="TENANT_US"
+    ).lower()
+    expected_us_2_hk = compute_dv2_length_prefixed_sha256(
+        ["ACCT-1002"], is_business_key=True, bkcc_prefix="TENANT_US"
+    ).lower()
+
+    assert hub_rows == [
+        (expected_eu_hk, "TENANT_EU", "ACCT-1001", "SAAS_CORE"),
+        (expected_us_hk, "TENANT_US", "ACCT-1001", "SAAS_CORE"),
+        (expected_us_2_hk, "TENANT_US", "ACCT-1002", "SAAS_CORE"),
+    ]
+    assert sat_rows == [
+        (expected_eu_hk, "Acme EU GmbH", "GROWTH"),
+        (expected_us_hk, "Acme US Holdings", "ENTERPRISE"),
+        (expected_us_2_hk, "Beta US Corp", "STARTER"),
+    ]
+
+    # 5. Full 4-Batch Adversarial Shadow Sandbox + 15 DV-DYN checks
+    with DuckDbShadowSandbox() as sandbox:
+        report = sandbox.run_full_verification(
+            ir,
+            bronze_tables=bronze_map,
+            emit_telemetry=False,
+        )
+        assert report.passed
+        assert report.batch_report.all_passed
+        assert report.dynamic_check_report.all_passed

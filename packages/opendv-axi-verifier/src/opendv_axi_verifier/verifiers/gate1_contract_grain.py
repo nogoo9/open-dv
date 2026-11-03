@@ -218,15 +218,19 @@ def verify_gate1_contract_and_grain(
             tbl_collision = table_collisions.get(b_table, {})
             src_tier = str(src.get("key_authority_tier") or src.get("bk_authority_tier") or "")
 
+            bkcc_prefix_val = str(src.get("bkcc_prefix") or "").strip()
+            bkcc_col_expr_val = str(src.get("bkcc_column_expr") or "").strip()
             if (
                 src_tier == "TIER_3_LOCAL_SCOPED"
                 or tbl_collision.get("requires_tier3_bkcc_prefix")
                 or tbl_collision.get("required_bkcc_prefix")
-            ) and (not src.get("require_src_qualifier") or not src.get("bkcc_prefix")):
+            ) and (
+                not src.get("require_src_qualifier") or not (bkcc_prefix_val or bkcc_col_expr_val)
+            ):
                 diagnostics.append(
                     f"SEMANTIC_ERROR [Gate 1 - DV-COL-012]: Hub '{h_name}' source "
                     f"'{b_table}' is Tier-3 local-scoped / colliding but lacks "
-                    f"require_src_qualifier=true and non-empty bkcc_prefix."
+                    f"require_src_qualifier=true and non-empty bkcc_prefix or bkcc_column_expr."
                 )
             elif src_tier == "TIER_1_GLOBAL_STANDARD":
                 raw_bkcc = src.get("bkcc_prefix")
@@ -271,25 +275,38 @@ def verify_gate1_contract_and_grain(
                         f"key_columns."
                     )
 
-    # 6. Gate 2 Nullable Optional FK Check on >= 3-way Links (DV-G2-001)
+    # 6. Gate 2 Nullable Optional FK Check on >= 2-way Links (DV-G2-001 / DV-G2-001b)
     for lnk in contract.get("links", []):
         l_name = str(lnk.get("name", ""))
         refs = list(lnk.get("hub_references", []))
-        if len(refs) < 3 or lnk.get("where_filter_condition"):
+        if len(refs) < 2 or lnk.get("where_filter_condition"):
             continue
         b_table = str(lnk.get("source_bronze_table", ""))
         for ref in refs:
             for fk_col in ref.get("source_fk_columns", []):
                 prof = col_profiles.get(b_table, {}).get(str(fk_col), {})
-                non_null = prof.get("non_null_ratio", prof.get("u_non_null"))
-                if non_null is None and "null_rate" in prof:
-                    non_null = 1.0 - float(prof["null_rate"])
+                nn_candidates: list[float] = []
+                if prof.get("non_null_ratio") is not None:
+                    nn_candidates.append(float(prof["non_null_ratio"]))
+                if prof.get("u_non_null") is not None:
+                    nn_candidates.append(float(prof["u_non_null"]))
+                if prof.get("null_rate") is not None:
+                    nn_candidates.append(1.0 - float(prof["null_rate"]))
+                non_null = min(nn_candidates) if nn_candidates else None
                 if non_null is not None and float(non_null) < 0.95:
-                    diagnostics.append(
-                        f"SEMANTIC_ERROR [Gate 2 - DV-G2-001]: Link '{l_name}' includes "
-                        f"sparse optional FK '{b_table}.{fk_col}' "
-                        f"(U_nn={float(non_null):.3f} < 0.95) "
-                        f"without splitting into a dedicated filtered Link."
-                    )
+                    if len(refs) == 2:
+                        diagnostics.append(
+                            f"SEMANTIC_ERROR [Gate 2 - DV-G2-001]: Binary Link '{l_name}' "
+                            f"includes sparse optional FK '{b_table}.{fk_col}' "
+                            f"(U_nn={float(non_null):.3f} < 0.95; DV-G2-001b) without "
+                            f"where_filter_condition = '{fk_col} IS NOT NULL'."
+                        )
+                    else:
+                        diagnostics.append(
+                            f"SEMANTIC_ERROR [Gate 2 - DV-G2-001]: Link '{l_name}' includes "
+                            f"sparse optional FK '{b_table}.{fk_col}' "
+                            f"(U_nn={float(non_null):.3f} < 0.95) "
+                            f"without splitting into a dedicated filtered Link."
+                        )
 
     return diagnostics

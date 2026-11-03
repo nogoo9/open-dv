@@ -1,0 +1,48 @@
+pipeline_id: "global_commerce_s5_sparse_binary_link"
+project_id: "proj_global_commerce_s5"
+display_name: "Scenario S5 (Issue #31): Cold-start wave with a sparse 0..1 binary Link FK (customer_tax_id, 50% NULL)."
+domain_namespace: "global_commerce"
+graph_a_ontology_path: "examples/pipeline_samples/global_commerce_vault/ontology/commerce_graph_a_ontology.yaml"
+output_dir: "./out_s5"
+
+waves:
+  - wave_index: 0
+    wave_name: "wave0_s5_sparse_binary_link"
+    wave_type: "COLD_START"
+    description: "Onboard CRM Customers and ERP Orders where customer_tax_id is an optional 0..1 FK (U_nn = 0.50 < 0.95)."
+    sources:
+      - feed_id: "crm.customers"
+        source_system: "crm_salesforce"
+        table_name: "crm_customers"
+        data_path: "crm_customers.csv"
+        target_hub_name: "hub_customer"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        bkcc_namespace: "GLOBAL"
+        record_source_code: "CRM_SALESFORCE"
+        business_key_columns:
+          - "customer_tax_id"
+        surrogate_key_columns: []
+        timestamp_column: "updated_at"
+        foreign_key_mappings: {}
+        cbc_mapping_hints:
+          customer_tax_id: "CBC_CUSTOMER"
+        pii_columns: []
+
+      - feed_id: "erp.orders"
+        source_system: "erp_netsuite"
+        table_name: "erp_orders"
+        data_path: "erp_orders_optional_customer.csv"
+        target_hub_name: "hub_order"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        bkcc_namespace: "GLOBAL"
+        record_source_code: "ERP_NETSUITE"
+        business_key_columns:
+          - "order_id"
+        surrogate_key_columns: []
+        timestamp_column: "updated_at"
+        foreign_key_mappings:
+          customer_tax_id: "hub_customer"
+        cbc_mapping_hints:
+          order_id: "CBC_SALES_ORDER"
+        pii_columns: []
+    unstructured_documents: []

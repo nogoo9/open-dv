@@ -532,3 +532,234 @@ def test_ir_lowerer_and_compiler_4zone_tier1_global_bkcc_standardization() -> No
         ).fetchone()
         assert r1 == r2 == (expected_t1_hk, "GLOBAL", "202601234K")
         assert r2_t3 == (expected_t3_hk, "LEGACY_TICKET_DB", "1001")
+
+
+def test_scenario_s10_dual_zero_key_3way_branching_e2e(tmp_path: Path) -> None:
+    """Scenario S10 (Issue #43): Verify 3-way Zero-Key branching across Zone 1 -> 2 -> Gate 5."""
+    import duckdb
+
+    from opendv_core.constants import ZERO_KEY_ERROR, ZERO_KEY_UNKNOWN
+    from opendv_duckdb_sandbox.dynamic_checks import (
+        check_dv_dyn_002_referential_integrity,
+        check_dv_dyn_007_ghost_and_zero_key_completeness,
+    )
+
+    commerce_ir = _build_global_commerce_canonical_ir()
+    csv_path = tmp_path / "crm_customers_s10.csv"
+    csv_path.write_text(
+        "bkcc,customer_code,customer_name,credit_limit_usd,is_vip_flag\n"
+        "GLOBAL,CUST-S10-101,Apex Industrial Holdings LLC,1250000.00,true\n"
+        "GLOBAL,CUST-S10-202,Rheinland Precision GmbH,980000.00,false\n"
+        "GLOBAL,-1,Unknown Customer Sentinel,0.00,false\n"
+        "GLOBAL,-2,Error Customer Sentinel,0.00,false\n",
+        encoding="utf-8",
+    )
+
+    bundle = compile_canonical_ir_to_4zone_sql(
+        commerce_ir,
+        bronze_tables={"bronze.crm_customers": csv_path},
+    )
+
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(bundle.zones_0_to_3_sql)
+        # Inject explicit NULL, '-1', and '-2' rows into bronze Hub & Satellite sources
+        con.execute(
+            """
+            INSERT INTO bronze.src_hub_customer VALUES
+                ('GLOBAL', NULL, TIMESTAMP '2026-10-02 06:00:00', 'CRM_SFDC'),
+                ('GLOBAL', '-1', TIMESTAMP '2026-10-02 06:00:00', 'CRM_SFDC'),
+                ('GLOBAL', '-2', TIMESTAMP '2026-10-02 06:00:00', 'CRM_SFDC');
+            INSERT INTO bronze.src_sat_customer_core VALUES
+                ('GLOBAL', NULL, TIMESTAMP '2026-10-02 06:00:00', TIMESTAMP '2026-09-30 00:00:00',
+                 'CRM_SFDC', 'Null Customer', 0.00, FALSE),
+                ('GLOBAL', '-1', TIMESTAMP '2026-10-02 06:00:00', TIMESTAMP '2026-09-30 00:00:00',
+                 'CRM_SFDC', 'Unknown Customer', 0.00, FALSE),
+                ('GLOBAL', '-2', TIMESTAMP '2026-10-02 06:00:00', TIMESTAMP '2026-09-30 00:00:00',
+                 'CRM_SFDC', 'Error Customer', 0.00, FALSE);
+            """
+        )
+        # Re-run Zone 2 load to verify idempotency and Zero-Key filtering
+        con.execute(bundle.zone_2_sql)
+
+        # 1. Verify stg_hub_customer 3-way branching
+        stg_hub_map = {
+            r[0]: r[1]
+            for r in con.execute(
+                "SELECT customer_code, hk_customer FROM staging.stg_hub_customer"
+            ).fetchall()
+        }
+        assert stg_hub_map["CUST-S10-101"] not in (ZERO_KEY_UNKNOWN, ZERO_KEY_ERROR)
+        assert stg_hub_map["CUST-S10-202"] not in (ZERO_KEY_UNKNOWN, ZERO_KEY_ERROR)
+        assert stg_hub_map[None] == ZERO_KEY_UNKNOWN
+        assert stg_hub_map["-1"] == ZERO_KEY_UNKNOWN
+        assert stg_hub_map["-2"] == ZERO_KEY_ERROR
+
+        # 2. Verify stg_lnk_customer_order resolves NULL & '-1' -> UNKNOWN and '-2' -> ERROR
+        stg_lnk_fks = [
+            r[0]
+            for r in con.execute(
+                "SELECT hk_sales_order FROM staging.stg_lnk_customer_order"
+            ).fetchall()
+        ]
+        assert ZERO_KEY_UNKNOWN in stg_lnk_fks
+        assert ZERO_KEY_ERROR in stg_lnk_fks
+
+        # 3. Verify DV-DYN-002 (0 orphans) and DV-DYN-007 (Ghost & Dual Zero-Key INNER JOIN)
+        dyn_002 = check_dv_dyn_002_referential_integrity(con, ir=commerce_ir)
+        assert dyn_002.passed is True
+        assert dyn_002.failing_rows == 0
+
+        dyn_007 = check_dv_dyn_007_ghost_and_zero_key_completeness(con, ir=commerce_ir)
+        assert dyn_007.passed is True
+        assert dyn_007.failing_rows == 0
+    finally:
+        con.close()
+
+
+def test_scenario_s7_intrabatch_deduplication_ast_and_duckdb_e2e() -> None:
+    """Scenario S7 (Issue #44): Compiled Zone 2 Hub/Link micro-batch deduplication SQL
+    must pass Algorithm A.6 (`DV-AST-006` / `DV-G6-005`) and deduplicate duplicate
+    natural keys within a single micro-batch in DuckDB using `MIN(load_dts)`.
+    """
+    import sqlglot
+    from sqlglot import exp
+
+    from opendv_axi_verifier import (
+        run_axi_dv_verification_pipeline,
+        verify_physical_dv2_sql_ast,
+        verify_sql_models_batch,
+    )
+    from opendv_core.schema_registry import load_structured_file
+    from opendv_duckdb_sandbox import (
+        evaluate_all_dynamic_checks,
+        lower_contract_to_canonical_ir,
+    )
+
+    commerce_ir = _build_global_commerce_canonical_ir()
+    bundle = compile_canonical_ir_to_4zone_sql(commerce_ir)
+
+    # 1. Parse compiled Zone 2 DML into per-entity SQL models and verify Gate 6 AST rules
+    compiled_sql_models: dict[str, str] = {}
+    for stmt in sqlglot.parse(bundle.zone_2_sql, read="duckdb"):
+        if stmt is None:
+            continue
+        tbl = stmt.find(exp.Table)
+        if tbl is not None and tbl.name:
+            compiled_sql_models[tbl.name] = stmt.sql(dialect="duckdb")
+
+    assert set(compiled_sql_models) == {
+        "hub_customer",
+        "hub_sales_order",
+        "lnk_customer_order",
+        "sat_customer_core",
+        "sat_sales_order_metrics",
+    }
+    assert verify_sql_models_batch(compiled_sql_models) == []
+    assert (
+        verify_physical_dv2_sql_ast(
+            compiled_sql_models["hub_customer"],
+            entity_name="hub_customer",
+            entity_type="HUB",
+        )
+        == []
+    )
+    assert (
+        verify_physical_dv2_sql_ast(
+            compiled_sql_models["lnk_customer_order"],
+            entity_name="lnk_customer_order",
+            entity_type="LINK",
+        )
+        == []
+    )
+
+    # 2. Verify full 6-Gate orchestrator (Algorithm A.8) with compiled Zone 2 SQL models
+    generic_contract_path = get_examples_dir() / "dv_model_contract.yaml"
+    generic_contract_dict = load_structured_file(generic_contract_path)
+    generic_ir = lower_contract_to_canonical_ir(generic_contract_path, validate_schema=True)
+    generic_bundle = compile_canonical_ir_to_4zone_sql(generic_ir)
+    generic_sql_models = {
+        tbl.name: stmt.sql(dialect="duckdb")
+        for stmt in sqlglot.parse(generic_bundle.zone_2_sql, read="duckdb")
+        if stmt is not None and (tbl := stmt.find(exp.Table)) is not None
+    }
+    axi_res = run_axi_dv_verification_pipeline(
+        candidate_contract=generic_contract_dict,
+        ontology_graph={},
+        bronze_profile={},
+        compiled_sql_models=generic_sql_models,
+        apply_codemods=False,
+    )
+    assert axi_res.status == "PASS", f"Expected PASS, got {axi_res.status}: {axi_res.diagnostics}"
+
+    # 3. Execute in-memory DuckDB sandbox with Scenario S7 intra-batch duplicate keys
+    with DuckDbShadowSandbox() as sandbox:
+        report = sandbox.run_full_verification(source=commerce_ir, emit_telemetry=False)
+        assert report.passed is True
+
+        # Inject 3 duplicate natural-key rows for ('CRM_SFDC', 'CUST-S7-DUP-777') and
+        # 2 duplicate rows for 'ORD-S7-DUP-999' with unordered load_dts in one micro-batch
+        sandbox.conn.execute(
+            """
+            INSERT INTO bronze.src_hub_customer (bkcc, customer_code, load_dts, rec_src) VALUES
+                ('CRM_SFDC', 'CUST-S7-DUP-777', TIMESTAMP '2026-10-01 05:30:00', 'CRM_SFDC_LATE'),
+                ('CRM_SFDC', 'CUST-S7-DUP-777', TIMESTAMP '2026-10-01 05:00:00', 'CRM_SFDC_EARLY'),
+                ('CRM_SFDC', 'CUST-S7-DUP-777', TIMESTAMP '2026-10-01 05:45:00', 'CRM_SFDC_LATEST');
+
+            INSERT INTO bronze.src_hub_sales_order (order_number, load_dts, rec_src) VALUES
+                ('ORD-S7-DUP-999', TIMESTAMP '2026-10-01 05:20:00', 'ERP_NS_LATE'),
+                ('ORD-S7-DUP-999', TIMESTAMP '2026-10-01 05:05:00', 'ERP_NS_EARLY');
+
+            INSERT INTO bronze.src_lnk_customer_order (
+                hk_customer__bkcc,
+                hk_customer__customer_code,
+                hk_sales_order__order_number,
+                load_dts,
+                rec_src
+            ) VALUES
+                (
+                    'CRM_SFDC', 'CUST-S7-DUP-777', 'ORD-S7-DUP-999',
+                    TIMESTAMP '2026-10-01 05:25:00', 'ERP_NS_LATE'
+                ),
+                (
+                    'CRM_SFDC', 'CUST-S7-DUP-777', 'ORD-S7-DUP-999',
+                    TIMESTAMP '2026-10-01 05:10:00', 'ERP_NS_EARLY'
+                );
+            """
+        )
+        sandbox.conn.execute(bundle.zone_2_sql)
+        sandbox.conn.execute(bundle.zone_3_sql)
+
+        hub_rows = sandbox.conn.execute(
+            """
+            SELECT bkcc, customer_code, CAST(load_dts AS VARCHAR)
+            FROM raw_vault.hub_customer
+            WHERE customer_code = 'CUST-S7-DUP-777'
+            """
+        ).fetchall()
+        assert hub_rows == [("CRM_SFDC", "CUST-S7-DUP-777", "2026-10-01 05:00:00")]
+
+        order_rows = sandbox.conn.execute(
+            """
+            SELECT order_number, CAST(load_dts AS VARCHAR)
+            FROM raw_vault.hub_sales_order
+            WHERE order_number = 'ORD-S7-DUP-999'
+            """
+        ).fetchall()
+        assert order_rows == [("ORD-S7-DUP-999", "2026-10-01 05:05:00")]
+
+        link_rows = sandbox.conn.execute(
+            """
+            SELECT COUNT(*), CAST(MIN(l.load_dts) AS VARCHAR)
+            FROM raw_vault.lnk_customer_order l
+            INNER JOIN raw_vault.hub_customer c ON c.hk_customer = l.hk_customer
+            INNER JOIN raw_vault.hub_sales_order o ON o.hk_sales_order = l.hk_sales_order
+            WHERE c.customer_code = 'CUST-S7-DUP-777'
+              AND o.order_number = 'ORD-S7-DUP-999'
+            """
+        ).fetchall()
+        assert link_rows == [(1, "2026-10-01 05:10:00")]
+
+        dyn_report = evaluate_all_dynamic_checks(sandbox.conn, ir=commerce_ir)
+        assert dyn_report.all_passed is True
+        assert dyn_report.passed_count == 15

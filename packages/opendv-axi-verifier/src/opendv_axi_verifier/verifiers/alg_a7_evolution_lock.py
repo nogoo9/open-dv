@@ -130,6 +130,12 @@ def verify_additive_evolution_invariants(
                     f"'{h_name}' source {src_key} mutated bkcc_prefix from "
                     f"'{s_old.get('bkcc_prefix')}' to '{s_new.get('bkcc_prefix')}'."
                 )
+            if s_old.get("bkcc_column_expr") != s_new.get("bkcc_column_expr"):
+                violations.append(
+                    f"BREAKING_EVOLUTION [DV-EVO-003 / DV-EVO-007 / BKCC_MUTATED]: Hub "
+                    f"'{h_name}' source {src_key} mutated bkcc_column_expr from "
+                    f"'{s_old.get('bkcc_column_expr')}' to '{s_new.get('bkcc_column_expr')}'."
+                )
 
     # 3. Link Evolution Invariants (DV-EVO-002, DV-EVO-003, DV-EVO-004)
     links_prev = {
@@ -246,3 +252,4 @@ def verify_additive_evolution_invariants(
 
 
 verify_evolution_invariants = verify_additive_evolution_invariants
+verify_evolution_lock_alg_a7 = verify_additive_evolution_invariants
