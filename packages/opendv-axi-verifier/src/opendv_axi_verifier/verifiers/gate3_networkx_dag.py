@@ -610,6 +610,17 @@ def verify_column_invariants(ir: dict[str, Any]) -> list[str]:
         if h.get("has_cross_source_bk_collision", False) and not h.get("bkcc_column"):
             violations.append(f"DV-COL-012: Hub {h_id} has cross-source BK collision without BKCC.")
 
+        for src in bk_sources:
+            src_tier = str(src.get("key_authority_tier") or src.get("bk_authority_tier") or "")
+            if src_tier == "TIER_1_GLOBAL_STANDARD":
+                raw_bkcc = src.get("bkcc_prefix")
+                if bool(src.get("require_src_qualifier")) or raw_bkcc != "GLOBAL":
+                    violations.append(
+                        f"DV-COL-013: Hub {h_id} Tier-1 global standard source "
+                        f"'{src.get('bronze_table')}' must use require_src_qualifier=false "
+                        f"and canonical bkcc_prefix='GLOBAL'."
+                    )
+
     for lnk in ir.get("links", []):
         l_id = _entity_id(lnk)
         if "hk_digest_bits" in lnk and lnk.get("hk_digest_bits") != expected_digest_bits:

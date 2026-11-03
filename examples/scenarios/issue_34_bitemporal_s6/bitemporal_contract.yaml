@@ -17,7 +17,7 @@ hubs:
         record_source_code: "SFDC_CRM"
         key_authority_tier: "TIER_1_GLOBAL_STANDARD"
         require_src_qualifier: false
-        bkcc_prefix: null
+        bkcc_prefix: "GLOBAL"
 
 links: []
 

@@ -23,6 +23,7 @@ an executable 4-Zone DuckDB SQL bundle (`docs/03` §7, `docs/05` §3.5, `docs/07
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -31,6 +32,7 @@ from opendv_core.constants import (
     DEFAULT_DELIMITER,
     GHOST_DTS,
     GHOST_REC_SRC,
+    GLOBAL_BKCC,
     NULL_TOKEN,
     ZERO_KEY_ERROR,
     ZERO_KEY_ERROR_TOKEN,
@@ -1851,7 +1853,14 @@ def _hub_seed_hk(
 ) -> str:
     """Compute the deterministic lowercase 64-char SHA-256 hash key for `row_idx` of `hub`."""
     tokens = _hub_seed_bk_values(hub, row_idx, bkcc_override=bkcc_override)
-    return compute_dv2_length_prefixed_sha256(tokens, is_business_key=True)
+    has_bkcc_col = any(bool(bk.is_bkcc) for bk in hub.business_keys)
+    return compute_dv2_length_prefixed_sha256(
+        tokens,
+        is_business_key=True,
+        bkcc_prefix=None
+        if has_bkcc_col
+        else (bkcc_override or _effective_hub_bkcc_literal(hub) or GLOBAL_BKCC),
+    ).lower()
 
 
 def _normalize_duckdb_type(data_type: str) -> str:
@@ -2177,7 +2186,7 @@ def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
 
 
 def _load_bronze_table_rows(
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None,
+    bronze_tables: Mapping[str, Any] | None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Load rows from `bronze_tables` (CSV/Parquet paths or in-memory row lists)."""
     if not bronze_tables:
@@ -2230,61 +2239,73 @@ def _resolve_hub_bk_rows_from_bronze(
     if not loaded_bronze:
         return [default_r1, default_r2]
 
-    candidate_rows: list[dict[str, Any]] = []
-    for sm in hub.source_mappings:
-        stg_tbl = sm.staging_table
-        for key in (stg_tbl, stg_tbl.removeprefix("stg_"), stg_tbl.split(".")[-1]):
-            if key in loaded_bronze:
-                candidate_rows.extend(loaded_bronze[key])
-                break
-    if not candidate_rows:
-        return [default_r1, default_r2]
-
     extracted: list[list[str]] = []
     seen_tuples: set[tuple[str, ...]] = set()
-    sm0 = hub.source_mappings[0] if hub.source_mappings else None
-    bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
-    bkcc_lit = _effective_hub_bkcc_literal(hub)
-    excluded_bkcc_names = {"bkcc"}
-    if bkcc_col_expr:
-        excluded_bkcc_names.add(bkcc_col_expr.lower())
-    raw_src_bk_cols = list(sm0.bk_source_columns) if sm0 else []
-    src_bk_cols = [
-        c for c in raw_src_bk_cols if c.lower() not in excluded_bkcc_names
-    ] or raw_src_bk_cols
-
-    for row in candidate_rows:
-        tokens: list[str] = []
-        valid_row = True
-        non_bkcc_idx = 0
-        for bk in hub.business_keys:
-            if bk.is_bkcc:
-                raw_bkcc = (
-                    (row.get(bkcc_col_expr) if bkcc_col_expr else None)
-                    or row.get(bk.name)
-                    or row.get("bkcc")
-                    or bkcc_lit
-                    or (sm0.rec_src_value if sm0 else "GLOBAL")
-                )
-                bkcc_val = str(raw_bkcc).strip()
-                tokens.append(bkcc_val or "GLOBAL")
-            else:
-                src_col = src_bk_cols[non_bkcc_idx] if non_bkcc_idx < len(src_bk_cols) else bk.name
-                non_bkcc_idx += 1
-                raw_val = row.get(src_col, row.get(bk.name))
-                if raw_val is None or str(raw_val).strip() in {
-                    "",
-                    ZERO_KEY_UNKNOWN_TOKEN,
-                    ZERO_KEY_ERROR_TOKEN,
-                }:
-                    valid_row = False
-                    break
-                tokens.append(str(raw_val).strip())
-        if valid_row and len(tokens) == len(hub.business_keys):
-            tup = tuple(tokens)
-            if tup not in seen_tuples:
-                seen_tuples.add(tup)
-                extracted.append(tokens)
+    hub_bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
+    hub_bkcc_lit = _effective_hub_bkcc_literal(hub)
+    for sm in hub.source_mappings:
+        stg_tbl = sm.staging_table
+        sm_rows: list[dict[str, Any]] = []
+        for key in (
+            stg_tbl,
+            stg_tbl.removeprefix("stg_"),
+            stg_tbl.split(".")[-1],
+            f"bronze.{stg_tbl.removeprefix('stg_')}",
+            hub.name,
+            f"src_{hub.name}",
+        ):
+            if key in loaded_bronze:
+                sm_rows = loaded_bronze[key]
+                break
+        if not sm_rows:
+            continue
+        sm_bkcc_col = sm.bkcc_column_expr or hub_bkcc_col_expr
+        fallback_bkcc = (
+            GLOBAL_BKCC if hub.verified_global_master_key else (sm.rec_src_value or GLOBAL_BKCC)
+        )
+        sm_bkcc = (
+            sm.bkcc_prefix or sm.bkcc_literal or hub_bkcc_lit or fallback_bkcc
+        ).strip() or GLOBAL_BKCC
+        excluded_bkcc_names = {"bkcc"}
+        if sm_bkcc_col:
+            excluded_bkcc_names.add(sm_bkcc_col.lower())
+        raw_src_bk_cols = list(sm.bk_source_columns)
+        src_bk_cols = [
+            c for c in raw_src_bk_cols if c.lower() not in excluded_bkcc_names
+        ] or raw_src_bk_cols
+        for row in sm_rows:
+            tokens: list[str] = []
+            valid_row = True
+            non_bkcc_idx = 0
+            for bk in hub.business_keys:
+                if bk.is_bkcc:
+                    raw_bkcc = (
+                        (row.get(sm_bkcc_col) if sm_bkcc_col else None)
+                        or row.get(bk.name)
+                        or row.get("bkcc")
+                        or sm_bkcc
+                    )
+                    bkcc_val = str(raw_bkcc).strip()
+                    tokens.append(bkcc_val or GLOBAL_BKCC)
+                else:
+                    src_col = (
+                        src_bk_cols[non_bkcc_idx] if non_bkcc_idx < len(src_bk_cols) else bk.name
+                    )
+                    non_bkcc_idx += 1
+                    raw_val = row.get(src_col, row.get(bk.name))
+                    if raw_val is None or str(raw_val).strip() in {
+                        "",
+                        ZERO_KEY_UNKNOWN_TOKEN,
+                        ZERO_KEY_ERROR_TOKEN,
+                    }:
+                        valid_row = False
+                        break
+                    tokens.append(str(raw_val).strip())
+            if valid_row and len(tokens) == len(hub.business_keys):
+                tup = tuple(tokens)
+                if tup not in seen_tuples:
+                    seen_tuples.add(tup)
+                    extracted.append(tokens)
 
     if len(extracted) >= 2:
         return extracted
@@ -2346,7 +2367,7 @@ def _compile_generic_zone_0_sql(
     ir_obj: CanonicalIR,
     *,
     include_batch4_restatement_in_seed: bool = False,
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None = None,
+    bronze_tables: Mapping[str, Any] | None = None,
 ) -> str:
     """Compile Zone 0 schemas, Bronze source tables, Vault DDL, Zero Keys, and Ghosts."""
     hub_by_name = {h.name: h for h in ir_obj.hubs}
@@ -2553,8 +2574,18 @@ def _compile_generic_zone_0_sql(
                 h_rows = hub_bk_rows[t_hub.name]
                 h_r1, h_r2 = h_rows[0], h_rows[1]
                 r1_tokens = h_r1 if occ == 0 else h_r2
-                r1_hk = compute_dv2_length_prefixed_sha256(r1_tokens, is_business_key=True)
-                r2_hk = compute_dv2_length_prefixed_sha256(h_r2, is_business_key=True)
+                t_has_bkcc = any(bool(bk.is_bkcc) for bk in t_hub.business_keys)
+                t_bkcc_lit = _effective_hub_bkcc_literal(t_hub) or GLOBAL_BKCC
+                r1_hk = compute_dv2_length_prefixed_sha256(
+                    r1_tokens,
+                    is_business_key=True,
+                    bkcc_prefix=None if t_has_bkcc else t_bkcc_lit,
+                ).lower()
+                r2_hk = compute_dv2_length_prefixed_sha256(
+                    h_r2,
+                    is_business_key=True,
+                    bkcc_prefix=None if t_has_bkcc else t_bkcc_lit,
+                ).lower()
                 r1_parent_vals.append(f"'{r1_hk}'")
                 if ref_idx == 0:
                     r2_parent_vals.append(f"'{r2_hk}'")
@@ -2655,7 +2686,7 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
         ] or bk_cols
         bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
         bkcc_lit = _effective_hub_bkcc_literal(hub)
-        has_bkcc_col = any(bk.is_bkcc for bk in hub.business_keys)
+        has_bkcc_col = any(bool(bk.is_bkcc) for bk in hub.business_keys)
         if bkcc_col_expr:
             hk_expr = build_algorithm_a5_sha256_sql(
                 non_bkcc_cols,
@@ -2663,11 +2694,11 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                 bkcc_column_expr=_validate_ident(bkcc_col_expr),
                 key_columns=non_bkcc_cols,
             )
-        elif bkcc_lit and not has_bkcc_col:
+        elif not has_bkcc_col:
             hk_expr = build_algorithm_a5_sha256_sql(
                 non_bkcc_cols,
                 is_business_key=True,
-                bkcc_literal=bkcc_lit,
+                bkcc_literal=bkcc_lit or GLOBAL_BKCC,
                 key_columns=non_bkcc_cols,
             )
         else:
@@ -2716,7 +2747,7 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
             )
             t_bkcc_col_expr = _effective_hub_bkcc_column_expr(t_hub)
             t_bkcc_lit = _effective_hub_bkcc_literal(t_hub)
-            t_has_bkcc_col = any(bk.is_bkcc for bk in t_hub.business_keys)
+            t_has_bkcc_col = any(bool(bk.is_bkcc) for bk in t_hub.business_keys)
             if t_bkcc_col_expr:
                 raw_hash = build_algorithm_a5_sha256_sql(
                     non_bkcc_cols,
@@ -2724,11 +2755,11 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                     bkcc_column_expr=_validate_ident(f"{fk_col}__{t_bkcc_col_expr}"),
                     key_columns=non_bkcc_cols,
                 )
-            elif t_bkcc_lit and not t_has_bkcc_col:
+            elif not t_has_bkcc_col:
                 raw_hash = build_algorithm_a5_sha256_sql(
                     non_bkcc_cols,
                     is_business_key=True,
-                    bkcc_literal=t_bkcc_lit,
+                    bkcc_literal=t_bkcc_lit or GLOBAL_BKCC,
                     key_columns=non_bkcc_cols,
                 )
             else:
@@ -2795,7 +2826,7 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
             ] or p_cols
             p_bkcc_col_expr = _effective_hub_bkcc_column_expr(p_hub)
             p_bkcc_lit = _effective_hub_bkcc_literal(p_hub)
-            p_has_bkcc_col = any(bk.is_bkcc for bk in p_hub.business_keys)
+            p_has_bkcc_col = any(bool(bk.is_bkcc) for bk in p_hub.business_keys)
             if p_bkcc_col_expr:
                 parent_hk_expr = build_algorithm_a5_sha256_sql(
                     non_bkcc_p_cols,
@@ -2803,11 +2834,11 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                     bkcc_column_expr=f"parent_bk__{_validate_ident(p_bkcc_col_expr)}",
                     key_columns=non_bkcc_p_cols,
                 )
-            elif p_bkcc_lit and not p_has_bkcc_col:
+            elif not p_has_bkcc_col:
                 parent_hk_expr = build_algorithm_a5_sha256_sql(
                     non_bkcc_p_cols,
                     is_business_key=True,
-                    bkcc_literal=p_bkcc_lit,
+                    bkcc_literal=p_bkcc_lit or GLOBAL_BKCC,
                     key_columns=non_bkcc_p_cols,
                 )
             else:
@@ -3313,7 +3344,7 @@ def compile_canonical_ir_to_4zone_sql(
     ir: CanonicalIR | dict[str, Any],
     *,
     include_batch4_restatement_in_seed: bool = False,
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None = None,
+    bronze_tables: Mapping[str, Any] | None = None,
     baseline_ir: CanonicalIR | dict[str, Any] | None = None,
 ) -> Compiled4ZoneBundle:
     """Compile a `CanonicalIR` model into a `Compiled4ZoneBundle`.

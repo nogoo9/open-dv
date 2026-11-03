@@ -51,11 +51,46 @@ def encode_dv2_token(
     return f"{byte_len}:{normalized}"
 
 
+def resolve_canonical_bkcc_prefix(
+    bkcc_prefix: str | None = None,
+    *,
+    key_authority_tier: str | None = None,
+    require_src_qualifier: bool = False,
+) -> str | None:
+    """Resolve the canonical 3-Tier Business Key Collision Code (`BKCC`) prefix (`DV-COL-013`).
+
+    - `TIER_1_GLOBAL_STANDARD`: Always resolves to `GLOBAL_BKCC` (`'GLOBAL'`).
+    - `TIER_2_ENTERPRISE_SOR`: Resolves to `GLOBAL_BKCC` unless an explicit override is supplied.
+    - `TIER_3_LOCAL_SCOPED` (or `require_src_qualifier=True`): Requires a non-empty prefix.
+    """
+    cleaned = (
+        bkcc_prefix.strip().upper()
+        if isinstance(bkcc_prefix, str) and bkcc_prefix.strip()
+        else None
+    )
+    tier_upper = key_authority_tier.strip().upper() if isinstance(key_authority_tier, str) else None
+
+    if tier_upper == "TIER_1_GLOBAL_STANDARD":
+        return GLOBAL_BKCC
+    if tier_upper == "TIER_2_ENTERPRISE_SOR":
+        return cleaned or GLOBAL_BKCC
+    if tier_upper == "TIER_3_LOCAL_SCOPED" or require_src_qualifier:
+        if not cleaned:
+            msg = (
+                "DV-COL-012 violation: TIER_3_LOCAL_SCOPED business key requires a "
+                "non-empty bkcc_prefix when require_src_qualifier=True."
+            )
+            raise ValueError(msg)
+        return cleaned
+    return cleaned
+
+
 def compute_dv2_prehash_string(
     tokens: Sequence[TokenValue] | Mapping[str, TokenValue],
     *,
     is_business_key: bool = True,
     bkcc_prefix: str | None = None,
+    key_authority_tier: str | None = None,
     delimiter: str = DEFAULT_DELIMITER,
     null_token: str = NULL_TOKEN,
     sort_tokens: bool = False,
@@ -70,6 +105,8 @@ def compute_dv2_prehash_string(
             `hash_diff` (preserves case).
         bkcc_prefix: Optional Business Key Collision Code (e.g., `'GLOBAL'`) to prepend
             as the first token when `is_business_key=True`.
+        key_authority_tier: Optional 3-Tier Business Key Authority (`TIER_1_GLOBAL_STANDARD`,
+            `TIER_2_ENTERPRISE_SOR`, `TIER_3_LOCAL_SCOPED`) used to resolve `bkcc_prefix`.
         delimiter: Token separator (default `'||'`).
         null_token: Sentinel representation for NULL or empty strings (default `'-1:^^'`).
         sort_tokens: Whether to sort tokens alphabetically (used for `hash_diff` when
@@ -95,8 +132,22 @@ def compute_dv2_prehash_string(
                 key=lambda v: "" if v is None else str(v).strip(),
             )
 
-    if bkcc_prefix is not None and bkcc_prefix.strip() != "":
-        ordered_values = [bkcc_prefix.strip(), *ordered_values]
+    effective_bkcc = (
+        resolve_canonical_bkcc_prefix(
+            bkcc_prefix,
+            key_authority_tier=key_authority_tier,
+        )
+        if is_business_key
+        else None
+    )
+    if effective_bkcc is not None:
+        first_norm = (
+            str(ordered_values[0]).strip().upper()
+            if (len(ordered_values) >= 2 and ordered_values[0] is not None)
+            else None
+        )
+        if first_norm != effective_bkcc:
+            ordered_values = [effective_bkcc, *ordered_values]
 
     encoded_parts = [
         encode_dv2_token(tok, is_business_key=is_business_key, null_token=null_token)
@@ -110,6 +161,7 @@ def compute_dv2_length_prefixed_sha256(
     *,
     is_business_key: bool = True,
     bkcc_prefix: str | None = None,
+    key_authority_tier: str | None = None,
     delimiter: str = DEFAULT_DELIMITER,
     null_token: str = NULL_TOKEN,
     sort_tokens: bool = False,
@@ -132,6 +184,7 @@ def compute_dv2_length_prefixed_sha256(
         tokens,
         is_business_key=is_business_key,
         bkcc_prefix=bkcc_prefix,
+        key_authority_tier=key_authority_tier,
         delimiter=delimiter,
         null_token=null_token,
         sort_tokens=sort_tokens,
@@ -142,15 +195,18 @@ def compute_dv2_length_prefixed_sha256(
 def dv2_canonical_hash(
     values: Sequence[TokenValue],
     is_business_key: bool = True,
-    bkcc_prefix: str | None = None,
+    bkcc_prefix: str | None = GLOBAL_BKCC,
     delimiter: str = DEFAULT_DELIMITER,
     null_token: str = NULL_TOKEN,
+    *,
+    key_authority_tier: str | None = None,
 ) -> str:
     """Reference alias for `compute_dv2_length_prefixed_sha256` (docs/05 §3.5)."""
     return compute_dv2_length_prefixed_sha256(
         values,
         is_business_key=is_business_key,
-        bkcc_prefix=bkcc_prefix,
+        bkcc_prefix=bkcc_prefix if is_business_key else None,
+        key_authority_tier=key_authority_tier if is_business_key else None,
         delimiter=delimiter,
         null_token=null_token,
     )
@@ -207,5 +263,6 @@ __all__ = [
     "compute_dv2_prehash_string",
     "dv2_canonical_hash",
     "encode_dv2_token",
+    "resolve_canonical_bkcc_prefix",
     "resolve_fk_hash_key_with_zero_keys",
 ]

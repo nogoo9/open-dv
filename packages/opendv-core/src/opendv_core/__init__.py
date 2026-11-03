@@ -42,6 +42,7 @@ from opendv_core.hashing import (
     compute_dv2_prehash_string,
     dv2_canonical_hash,
     encode_dv2_token,
+    resolve_canonical_bkcc_prefix,
     resolve_fk_hash_key_with_zero_keys,
 )
 from opendv_core.models import (
@@ -278,6 +279,7 @@ __all__ = [
     "get_examples_dir",
     "get_schemas_dir",
     "load_structured_file",
+    "resolve_canonical_bkcc_prefix",
     "resolve_fk_hash_key_with_zero_keys",
     "validate_all_examples",
     "validate_canonical_ir",

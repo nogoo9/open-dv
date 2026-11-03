@@ -104,6 +104,7 @@ export interface IrHubSourceMappingDTO {
 	staging_table: string;
 	bk_source_columns: string[];
 	rec_src_value: string;
+	bkcc_prefix?: string | null | undefined;
 	bkcc_literal?: string | null | undefined;
 	bkcc_column_expr?: string | null | undefined;
 }

@@ -12,6 +12,8 @@ import re
 from pathlib import Path
 from typing import Any
 
+from opendv_core.constants import GLOBAL_BKCC
+from opendv_core.hashing import resolve_canonical_bkcc_prefix
 from opendv_core.models.canonical_ir import (
     CanonicalIR,
     IRBridgeTable,
@@ -165,25 +167,19 @@ def _lower_hub(
         )
         else None
     )
-    business_keys: list[IRBusinessKeyColumn] = []
-    excluded_hub_bkcc = (
-        {"bkcc", *([hub_bkcc_col_expr] if hub_bkcc_col_expr else [])}
-        if not verified_global
-        else set()
-    )
+    excluded_hub_bkcc = {"bkcc", *([hub_bkcc_col_expr] if hub_bkcc_col_expr else [])}
     filtered_primary_key_cols = [
         c for c in primary_key_cols if c.strip() not in excluded_hub_bkcc
     ] or list(primary_key_cols)
-    if not verified_global:
-        business_keys.append(
-            IRBusinessKeyColumn(
-                name="bkcc",
-                data_type="VARCHAR(64)",
-                nullable=False,
-                is_bkcc=True,
-                is_tenant_id=True if hub_bkcc_col_expr else None,
-            )
+    business_keys: list[IRBusinessKeyColumn] = [
+        IRBusinessKeyColumn(
+            name="bkcc",
+            data_type="VARCHAR(64)",
+            nullable=False,
+            is_bkcc=True,
+            is_tenant_id=True if hub_bkcc_col_expr else None,
         )
+    ]
     for key_col in filtered_primary_key_cols:
         business_keys.append(
             IRBusinessKeyColumn(
@@ -202,20 +198,30 @@ def _lower_hub(
             if src.bkcc_column_expr and src.bkcc_column_expr.strip()
             else None
         )
+        resolved_bkcc = (
+            resolve_canonical_bkcc_prefix(
+                bkcc_prefix=src.bkcc_prefix,
+                key_authority_tier=src.key_authority_tier,
+                require_src_qualifier=src.require_src_qualifier,
+            )
+            if not src_bkcc_col
+            else (src.bkcc_prefix.strip() if src.bkcc_prefix and src.bkcc_prefix.strip() else None)
+        )
         src_bkcc_lit = (
             src.bkcc_prefix.strip()
             if not src_bkcc_col and src.bkcc_prefix and src.bkcc_prefix.strip()
-            else None
+            else ((resolved_bkcc or GLOBAL_BKCC) if not src_bkcc_col else None)
         )
         bk_prefix_col = src_bkcc_col or "bkcc"
         non_bkcc_key_cols = [
             c for c in src.key_columns if c.strip() not in {bk_prefix_col, "bkcc"}
         ] or list(src.key_columns)
-        bk_src_cols = ([bk_prefix_col] if not verified_global else []) + non_bkcc_key_cols
+        bk_src_cols = [bk_prefix_col, *non_bkcc_key_cols]
         source_mappings.append(
             IRHubSourceMapping(
                 staging_table=_staging_table_name(src.bronze_table),
                 bk_source_columns=bk_src_cols,
+                bkcc_prefix=resolved_bkcc or (GLOBAL_BKCC if not src_bkcc_col else None),
                 rec_src_value=src.record_source_code,
                 bkcc_literal=src_bkcc_lit,
                 bkcc_column_expr=src_bkcc_col,

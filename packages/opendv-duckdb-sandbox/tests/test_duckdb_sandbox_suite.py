@@ -460,6 +460,80 @@ def test_generic_contract_yaml_full_sandbox_verification(tmp_path: Path) -> None
         assert "CUST-REAL-202" in cust_bks
 
 
+def test_ir_lowerer_and_compiler_4zone_tier1_global_bkcc_standardization() -> None:
+    """Verify lower_contract_to_canonical_ir and compile_canonical_ir_to_4zone_sql
+    always include 'bkcc' and hash Tier-1 global keys with '6:GLOBAL||<len>:<bk>'
+    across both Cold Start (S1) and Multi-Source Convergence (S2).
+    """
+    import copy
+
+    import duckdb
+    import yaml
+
+    from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+    from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
+    from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
+
+    raw_contract = yaml.safe_load(
+        (get_examples_dir() / "dv_model_contract.yaml").read_text(encoding="utf-8")
+    )
+    s1_raw = copy.deepcopy(raw_contract)
+    s1_raw["hubs"][0]["business_key_sources"] = [
+        s
+        for s in s1_raw["hubs"][0]["business_key_sources"]
+        if s["key_authority_tier"] == "TIER_1_GLOBAL_STANDARD"
+    ]
+
+    s1_ir = lower_contract_to_canonical_ir(NoMistakeDataVault2ContractV5.model_validate(s1_raw))
+    s2_ir = lower_contract_to_canonical_ir(
+        NoMistakeDataVault2ContractV5.model_validate(raw_contract)
+    )
+
+    assert [b.name for b in s1_ir.hubs[0].business_keys] == ["bkcc", "company_uen"]
+    assert [b.name for b in s2_ir.hubs[0].business_keys] == ["bkcc", "company_uen"]
+    assert [sm.bkcc_prefix for sm in s1_ir.hubs[0].source_mappings] == ["GLOBAL", "GLOBAL"]
+    assert [sm.bkcc_prefix for sm in s2_ir.hubs[0].source_mappings] == [
+        "GLOBAL",
+        "GLOBAL",
+        "LEGACY_TICKET_DB",
+    ]
+
+    bronze_rows = {
+        "bronze_crm.accounts": [{"company_uen": "202601234K", "legal_name": "Acme"}],
+        "bronze_erp.debtors": [{"tax_reg_no": "202601234K", "credit_limit_sgd": 1000}],
+        "bronze_legacy.tickets": [{"legacy_client_no": "1001"}],
+    }
+    s1_sql = compile_canonical_ir_to_4zone_sql(s1_ir, bronze_tables=bronze_rows).full_sql
+    s2_sql = compile_canonical_ir_to_4zone_sql(s2_ir, bronze_tables=bronze_rows).full_sql
+
+    expected_t1_hk = compute_dv2_length_prefixed_sha256(
+        ["202601234K"], key_authority_tier="TIER_1_GLOBAL_STANDARD"
+    ).lower()
+    expected_t3_hk = compute_dv2_length_prefixed_sha256(
+        ["1001"],
+        bkcc_prefix="LEGACY_TICKET_DB",
+        key_authority_tier="TIER_3_LOCAL_SCOPED",
+    ).lower()
+
+    with duckdb.connect(":memory:") as c1, duckdb.connect(":memory:") as c2:
+        c1.execute(s1_sql)
+        c2.execute(s2_sql)
+        r1 = c1.execute(
+            "SELECT hk_customer, bkcc, company_uen FROM raw_vault.hub_customer "
+            "WHERE company_uen = '202601234K'"
+        ).fetchone()
+        r2 = c2.execute(
+            "SELECT hk_customer, bkcc, company_uen FROM raw_vault.hub_customer "
+            "WHERE company_uen = '202601234K'"
+        ).fetchone()
+        r2_t3 = c2.execute(
+            "SELECT hk_customer, bkcc, company_uen FROM raw_vault.hub_customer "
+            "WHERE company_uen = '1001'"
+        ).fetchone()
+        assert r1 == r2 == (expected_t1_hk, "GLOBAL", "202601234K")
+        assert r2_t3 == (expected_t3_hk, "LEGACY_TICKET_DB", "1001")
+
+
 def test_scenario_s10_dual_zero_key_3way_branching_e2e(tmp_path: Path) -> None:
     """Scenario S10 (Issue #43): Verify 3-way Zero-Key branching across Zone 1 -> 2 -> Gate 5."""
     import duckdb

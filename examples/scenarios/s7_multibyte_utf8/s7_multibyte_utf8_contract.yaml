@@ -22,7 +22,7 @@ hubs:
         record_source_code: "CRM_SALESFORCE"
         key_authority_tier: "TIER_1_GLOBAL_STANDARD"
         require_src_qualifier: false
-        bkcc_prefix: null
+        bkcc_prefix: "GLOBAL"
 
   - name: "hub_order"
     ontology_concept_uri: "urn:ontology:entity:order"
@@ -32,7 +32,7 @@ hubs:
         record_source_code: "ERP_NETSUITE"
         key_authority_tier: "TIER_1_GLOBAL_STANDARD"
         require_src_qualifier: false
-        bkcc_prefix: null
+        bkcc_prefix: "GLOBAL"
 
 links:
   - name: "lnk_order_customer"

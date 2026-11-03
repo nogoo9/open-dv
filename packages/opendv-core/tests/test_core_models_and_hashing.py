@@ -440,6 +440,80 @@ def test_observability_event_validation_and_invariants() -> None:
         VaultObservabilityEvent.model_validate(invalid_non_p6)
 
 
+def test_resolve_canonical_bkcc_prefix_and_tier1_hashing() -> None:
+    """Verify Issue #40 (DV-COL-013 / KEY-04) Tier-1 global BKCC prefix resolution and hashing."""
+    from opendv_core import GLOBAL_BKCC, resolve_canonical_bkcc_prefix
+
+    assert (
+        resolve_canonical_bkcc_prefix(None, key_authority_tier="TIER_1_GLOBAL_STANDARD")
+        == GLOBAL_BKCC
+    )
+    assert (
+        resolve_canonical_bkcc_prefix("  global ", key_authority_tier="TIER_1_GLOBAL_STANDARD")
+        == GLOBAL_BKCC
+    )
+    assert (
+        resolve_canonical_bkcc_prefix(None, key_authority_tier="TIER_2_ENTERPRISE_SOR")
+        == GLOBAL_BKCC
+    )
+    assert (
+        resolve_canonical_bkcc_prefix(
+            "LEGACY_GP_ADMIN",
+            key_authority_tier="TIER_3_LOCAL_SCOPED",
+            require_src_qualifier=True,
+        )
+        == "LEGACY_GP_ADMIN"
+    )
+    with pytest.raises(ValueError, match="DV-COL-012"):
+        resolve_canonical_bkcc_prefix(
+            None, key_authority_tier="TIER_3_LOCAL_SCOPED", require_src_qualifier=True
+        )
+
+    expected_calpers = "5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4"
+    # dv2_canonical_hash defaults to GLOBAL_BKCC ('GLOBAL')
+    assert dv2_canonical_hash(["LP-101"]) == expected_calpers
+    # Explicit key_authority_tier='TIER_1_GLOBAL_STANDARD' prepends '6:GLOBAL||'
+    assert (
+        compute_dv2_prehash_string(
+            ["LP-101"], bkcc_prefix=None, key_authority_tier="TIER_1_GLOBAL_STANDARD"
+        )
+        == "6:GLOBAL||6:LP-101"
+    )
+    assert (
+        compute_dv2_length_prefixed_sha256(
+            ["LP-101"], bkcc_prefix=None, key_authority_tier="TIER_1_GLOBAL_STANDARD"
+        )
+        == expected_calpers
+    )
+    # Avoiding double prefix when 'GLOBAL' is already the first token
+    assert (
+        compute_dv2_prehash_string(
+            ["GLOBAL", "LP-101"],
+            bkcc_prefix="GLOBAL",
+            key_authority_tier="TIER_1_GLOBAL_STANDARD",
+        )
+        == "6:GLOBAL||6:LP-101"
+    )
+    assert compute_dv2_prehash_string(["GLOBAL"], bkcc_prefix="GLOBAL") == "6:GLOBAL||6:GLOBAL"
+    assert dv2_canonical_hash(["GLOBAL"]) == resolve_fk_hash_key_with_zero_keys(
+        ["GLOBAL"], bkcc_prefix="GLOBAL"
+    )
+    assert (
+        compute_dv2_prehash_string(
+            ["Active"],
+            is_business_key=False,
+            bkcc_prefix="GLOBAL",
+            key_authority_tier="TIER_1_GLOBAL_STANDARD",
+        )
+        == "6:Active"
+    )
+    assert dv2_canonical_hash(
+        ["Active"],
+        is_business_key=False,
+        key_authority_tier="TIER_1_GLOBAL_STANDARD",
+    ) == compute_dv2_length_prefixed_sha256(["Active"], is_business_key=False)
+
+
 def test_contract_v5_and_canonical_ir_accept_bkcc_column_expr() -> None:
     """Issue #42 (GAP-11): Verify `BusinessKeySource`, `IRHashExpression`,
     `IRHubSourceMapping`, and `IRHub` validate `bkcc_column_expr` against both

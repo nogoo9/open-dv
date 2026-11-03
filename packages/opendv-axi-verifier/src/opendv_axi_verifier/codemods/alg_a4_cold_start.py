@@ -2,7 +2,7 @@
 
 Enforces two cold-start extensibility invariants:
   1. 3-Tier Business Key Collision Code (`BKCC`) Authority:
-     - `TIER_1_GLOBAL_STANDARD`: `require_src_qualifier=False`, `bkcc_prefix=None`
+     - `TIER_1_GLOBAL_STANDARD`: `require_src_qualifier=False`, `bkcc_prefix='GLOBAL'`
      - `TIER_2_ENTERPRISE_SOR`: `require_src_qualifier=False`, `bkcc_prefix=None`
      - `TIER_3_LOCAL_SCOPED`: `require_src_qualifier=True`, `bkcc_prefix=<rec_src>`
        (e.g., `'LEGACY_GP_ADMIN'` on `legacy_gp.src_legacy_lp_roster`)
@@ -20,6 +20,8 @@ from __future__ import annotations
 
 import copy
 from typing import Any
+
+from opendv_core.constants import GLOBAL_BKCC
 
 GLOBAL_STANDARD_COLUMN_HINTS: frozenset[str] = frozenset(
     {"lei", "isin", "lei_code", "isin_code", "iban", "cusip", "figi_code", "swift_bic"}
@@ -217,19 +219,28 @@ def codemod_enforce_cold_start_extensibility(
                 "requires_tier3_bkcc_prefix"
             )
 
+            declared_tier = str(src.get("key_authority_tier") or src.get("bk_authority_tier") or "")
             is_tier3_forced = (
-                any(cp.get("candidate_role") == "TIER_3_LOCAL_SCOPED_KEY" for cp in c_profs)
+                any(
+                    cp.get("candidate_role") == "TIER_3_LOCAL_SCOPED_KEY"
+                    or cp.get("pattern_class")
+                    in {"MONOTONIC_INT", "LOCAL_SEQUENCE", "LOCAL_INTEGER_SEQ"}
+                    for cp in c_profs
+                )
                 or rec_src in auth_info["tier3"]
                 or any(c in auth_info["tier3_cols"] for c in key_cols)
                 or bool(required_bkcc)
             )
-            is_tier1 = not is_tier3_forced and all(
-                cp.get("pattern_class") == "GLOBAL_STANDARD_CODE"
-                or cp.get("candidate_role") == "TIER_1_BUSINESS_KEY"
-                or rec_src in auth_info["tier1"]
-                or c in auth_info["tier1_cols"]
-                or c in GLOBAL_STANDARD_COLUMN_HINTS
-                for c, cp in zip(key_cols, c_profs, strict=False)
+            is_tier1 = not is_tier3_forced and (
+                declared_tier == "TIER_1_GLOBAL_STANDARD"
+                or all(
+                    cp.get("pattern_class") == "GLOBAL_STANDARD_CODE"
+                    or cp.get("candidate_role") == "TIER_1_BUSINESS_KEY"
+                    or rec_src in auth_info["tier1"]
+                    or c in auth_info["tier1_cols"]
+                    or c in GLOBAL_STANDARD_COLUMN_HINTS
+                    for c, cp in zip(key_cols, c_profs, strict=False)
+                )
             )
             is_tier2 = (
                 not is_tier3_forced
@@ -252,7 +263,7 @@ def codemod_enforce_cold_start_extensibility(
             if is_tier1:
                 src[tier_key] = "TIER_1_GLOBAL_STANDARD"
                 src["require_src_qualifier"] = False
-                src["bkcc_prefix"] = None
+                src["bkcc_prefix"] = GLOBAL_BKCC
                 if src.get("system_scoped_bk_justification") is None:
                     src.pop("system_scoped_bk_justification", None)
             elif is_tier2:

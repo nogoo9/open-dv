@@ -94,6 +94,7 @@ class IRHubSourceMapping(StrictIRModel):
     staging_table: str
     bk_source_columns: list[str]
     rec_src_value: str
+    bkcc_prefix: str | None = None
     bkcc_literal: str | None = None
     bkcc_column_expr: str | None = None
 

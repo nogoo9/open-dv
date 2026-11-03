@@ -721,7 +721,9 @@ def test_issue_30_scenario_s7_multibyte_utf8_e2e_sandbox() -> None:
         ).fetchone()
         assert cust_row is not None
         expected_hk_cust = compute_dv2_length_prefixed_sha256(
-            ["TAX-SE-ÅÄÖ-102"], is_business_key=True
+            ["TAX-SE-ÅÄÖ-102"],
+            is_business_key=True,
+            key_authority_tier="TIER_1_GLOBAL_STANDARD",
         ).lower()
         assert cust_row[0] == expected_hk_cust
 
@@ -795,6 +797,7 @@ def _build_issue_38_contracts() -> tuple[dict[str, Any], dict[str, Any]]:
                         "record_source_code": "CRM_SALESFORCE",
                         "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
                         "require_src_qualifier": False,
+                        "bkcc_prefix": "GLOBAL",
                     }
                 ],
             }
@@ -1609,6 +1612,7 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
                         "record_source_code": "SAAS_BILLING",
                         "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
                         "require_src_qualifier": False,
+                        "bkcc_prefix": "GLOBAL",
                     }
                 ],
             },

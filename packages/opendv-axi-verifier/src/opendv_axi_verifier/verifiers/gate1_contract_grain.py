@@ -232,6 +232,16 @@ def verify_gate1_contract_and_grain(
                     f"'{b_table}' is Tier-3 local-scoped / colliding but lacks "
                     f"require_src_qualifier=true and non-empty bkcc_prefix or bkcc_column_expr."
                 )
+            elif src_tier == "TIER_1_GLOBAL_STANDARD":
+                raw_bkcc = src.get("bkcc_prefix")
+                if bool(src.get("require_src_qualifier")) or raw_bkcc != "GLOBAL":
+                    diagnostics.append(
+                        f"SEMANTIC_ERROR [Gate 1 - DV-COL-013]: Hub '{h_name}' source "
+                        f"'{b_table}' is Tier-1 global-standard (TIER_1_GLOBAL_STANDARD) "
+                        f"but has require_src_qualifier={src.get('require_src_qualifier')} "
+                        f"or non-standard bkcc_prefix={raw_bkcc!r} (expected "
+                        f"require_src_qualifier=false and bkcc_prefix='GLOBAL')."
+                    )
 
             for k_col in src.get("key_columns", []):
                 prof = col_profiles.get(b_table, {}).get(str(k_col), {})
