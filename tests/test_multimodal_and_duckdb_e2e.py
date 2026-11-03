@@ -1547,7 +1547,8 @@ def test_issue_33_crlf_unstructured_document_ingestion_and_4zone_duckdb_e2e(
        and `ic_q3_valuation_nordic_cloud.pdf`) to Windows CRLF (`\\r\\n`) line endings.
     2. Verifies all 17 character-offset spans, 3-Tier ER routing (`Tier-U1`, `Tier-U2`,
        `Tier-U3` `STEWARD_HOLD`), `verify_gate5_unstructured_invariants` (both package
-       implementation and Doc 05 reference algorithm), and full 6-Gate `run_axi_dv_verification_pipeline`.
+       implementation and Doc 05 reference algorithm), and full 6-Gate
+       `run_axi_dv_verification_pipeline`.
     3. Lowers the verified contract to `CanonicalIR`, compiles the 4-Zone DuckDB SQL bundle,
        executes the 4-Batch Adversarial Shadow Sandbox in `:memory:` DuckDB, and verifies all
        15 runtime invariants (`DV-DYN-001`..`015`) and bi-temporal PIT non-retroactivity.
@@ -1648,7 +1649,7 @@ def test_issue_33_crlf_unstructured_document_ingestion_and_4zone_duckdb_e2e(
         assert dyn_report.all_passed is True
         assert dyn_report.passed_count == 15
 
-        # Step 5: Verify bi-temporal PIT query non-retroactivity for unstructured valuation extraction
+        # Step 5: Verify bi-temporal PIT query non-retroactivity for unstructured valuation
         rows_oct_15 = execute_query_d10b(
             con,
             assertion_cutoff_ts="2026-10-15 12:00:00",
@@ -1663,4 +1664,3 @@ def test_issue_33_crlf_unstructured_document_ingestion_and_4zone_duckdb_e2e(
         assert len(rows_nov_15) == 1 and rows_nov_15[0].ev_ebitda_multiple == Decimal("14.50")
     finally:
         con.close()
-

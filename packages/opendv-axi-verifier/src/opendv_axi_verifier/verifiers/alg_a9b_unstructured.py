@@ -54,7 +54,6 @@ def _span_matches_document(
     return end <= len(norm_body) and norm_body[start:end] == norm_quote
 
 
-
 def classify_er_resolution_tier(
     confidence_score: float,
     top2_margin: float = 1.0,

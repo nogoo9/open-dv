@@ -1757,4 +1757,3 @@ def test_issue_33_wave3_crlf_unstructured_document_pipeline_e2e(tmp_path: Path) 
     assert rep.output_validation.passed is True
     assert rep.wave_reports[-1].sandbox_summary["passed"] is True
     assert rep.wave_reports[-1].sandbox_summary["dynamic_checks_passed"] == 15
-

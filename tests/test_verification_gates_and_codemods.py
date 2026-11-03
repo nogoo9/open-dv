@@ -1514,5 +1514,3 @@ def test_issue_33_doc04_and_doc05_reference_alg_a9b_crlf_normalization(
         errs = fn(contract_hallucinated, crlf_corpus)
         assert len(errs) == 1
         assert "SPAN_HALLUCINATION" in errs[0]
-
-

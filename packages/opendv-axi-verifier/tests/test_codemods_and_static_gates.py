@@ -906,9 +906,7 @@ def _load_pe_pdf_corpus_lf() -> dict[str, str]:
     side_letter_uri = (
         "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf"
     )
-    ic_memo_uri = (
-        "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf"
-    )
+    ic_memo_uri = "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf"
     return {
         side_letter_uri: side_letter_text,
         "calpers_side_letter_fund_iv_2026.pdf": side_letter_text,

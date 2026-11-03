@@ -5436,10 +5436,7 @@ class _DeterministicStageSynthesizer:
             if (
                 cand.char_start is None
                 or cand.char_end is None
-                or (
-                    found_idx >= 0
-                    and doc_text[cand.char_start : cand.char_end] != norm_quote
-                )
+                or (found_idx >= 0 and doc_text[cand.char_start : cand.char_end] != norm_quote)
             ):
                 c_start = max(0, found_idx)
                 c_end = c_start + len(norm_quote)

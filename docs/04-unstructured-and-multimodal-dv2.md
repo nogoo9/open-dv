@@ -124,7 +124,7 @@ flowchart TD
 
 When extracting structured attributes from unstructured documents into a Business Vault Satellite (such as extracting `covenant_max_leverage_ratio` and `early_repayment_fee_pct` from a PDF credit agreement into `sat_contract_doc_extracted_bv`), Gate 5 enforces **Cryptographic Span Grounding**:
 1. Every LLM extraction call uses grammar-constrained decoding requiring `{value, evidence_quote, page_no, char_start, char_end}`.
-2. **Algorithm A.9b** deterministically checks `parsed_doc_samples[doc_id][char_start:char_end] == evidence_quote`. Any fabricated quote or mismatched span triggers an immediate `GATE5_ERROR [SPAN_HALLUCINATION]` (`reject-with-trace`) diagnostic back to the extraction agent.
+2. **Algorithm A.9b** normalizes line endings (`\r\n` and `\r` to `\n`) on both the document text and quote, then deterministically checks `parsed_doc_samples[doc_id][char_start:char_end] == evidence_quote`. Any fabricated quote or mismatched span triggers an immediate `GATE5_ERROR [SPAN_HALLUCINATION]` (`reject-with-trace`) diagnostic back to the extraction agent.
 
 ```python
 def verify_gate5_unstructured_invariants(
