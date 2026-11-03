@@ -21,11 +21,15 @@ Covers:
 6. Issue #38 (`Scenario S4` / `UF-1`): `compile_zone_0_migration_sql` idempotent
    `ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS` statements and multi-wave in-place
    Satellite schema evolution (`EVO-01`, `DV-EVO-006`, `DV-AST-001`, `DV-DYN-014`).
+6. Issue #34 (`BUG-05` / Scenario `S6`): Bi-temporal adjacent effective state delta detection
+   (`LAG(hash_diff) OVER (... ORDER BY applied_dts ASC, load_dts ASC)`), Point-in-Time
+   reconstruction, and 4-Batch Adversarial Sandbox verification.
 """
 
 from __future__ import annotations
 
 import copy
+import csv
 from decimal import Decimal
 from pathlib import Path
 from typing import Any

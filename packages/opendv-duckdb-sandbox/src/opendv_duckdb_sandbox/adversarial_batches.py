@@ -29,6 +29,7 @@ from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_duckdb_sandbox.compiler_4zone import (
     Compiled4ZoneBundle,
+    _compile_generic_zone_2_raw_vault_dml,
     _compile_generic_zone_3_business_vault_sql,
     _effective_pit_tables,
     _hub_slug,
@@ -36,6 +37,7 @@ from opendv_duckdb_sandbox.compiler_4zone import (
     _satellite_schema,
     _satellite_seed_sql_literal,
     _validate_ident,
+    build_algorithm_a5_sha256_sql,
     is_pe_domain,
 )
 from opendv_duckdb_sandbox.dynamic_checks import (
@@ -300,11 +302,20 @@ def run_batch_3_delta_and_boundary_shift(
             (
                 s
                 for s in ir.satellites
-                if _satellite_schema(s) == "raw_vault" and s.satellite_type != "MULTI_ACTIVE"
+                if _satellite_schema(s) == "raw_vault"
+                and s.satellite_type != "MULTI_ACTIVE"
+                and s.applied_dts_column is not None
             ),
             next(
-                (s for s in ir.satellites if _satellite_schema(s) == "raw_vault"),
-                ir.satellites[0],
+                (
+                    s
+                    for s in ir.satellites
+                    if _satellite_schema(s) == "raw_vault" and s.satellite_type != "MULTI_ACTIVE"
+                ),
+                next(
+                    (s for s in ir.satellites if _satellite_schema(s) == "raw_vault"),
+                    ir.satellites[0],
+                ),
             ),
         )
         sat_schema = _satellite_schema(target_sat)
@@ -318,7 +329,7 @@ def run_batch_3_delta_and_boundary_shift(
             SELECT {parent_hk}
             FROM {sat_schema}.{sat_tbl}
             WHERE rec_src <> '{GHOST_REC_SRC}'
-            ORDER BY load_dts DESC
+            ORDER BY load_dts ASC, {parent_hk} ASC
             LIMIT 1
             """
         ).fetchone()
@@ -599,7 +610,7 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
         SELECT {parent_hk}
         FROM {sat_schema}.{sat_tbl}
         WHERE rec_src <> '{GHOST_REC_SRC}'
-        ORDER BY load_dts ASC
+        ORDER BY load_dts ASC, {parent_hk} ASC
         LIMIT 1
         """
     ).fetchone()
@@ -612,24 +623,84 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
     app_col = "applied_dts, " if has_applied else ""
     app_val = "TIMESTAMP '2026-09-30 00:00:00', " if has_applied else ""
 
-    conn.execute(
-        f"""
-        INSERT INTO {sat_schema}.{sat_tbl} (
-            {parent_hk}, load_dts, {app_col}rec_src, hash_diff, {payload_csv}
+    if has_applied:
+        hub_by_name = {h.name: h for h in ir.hubs}
+        link_by_name = {lnk.name: lnk for lnk in ir.links}
+        if bitemp_sat.parent_entity in hub_by_name:
+            p_hub = hub_by_name[bitemp_sat.parent_entity]
+            p_cols = [f"parent_bk__{_validate_ident(bk.name)}" for bk in p_hub.business_keys]
+        else:
+            p_lnk = link_by_name[bitemp_sat.parent_entity]
+            p_cols = [
+                f"parent_fk__{_validate_ident(ref.fk_column_name)}" for ref in p_lnk.hub_references
+            ]
+        parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+        p_cols_csv = ", ".join(p_cols)
+        pay_col_tail = f", {payload_csv}" if payload_csv else ""
+        restated_tail = f", {restated_vals}" if restated_vals else ""
+
+        conn.execute(
+            f"""
+            INSERT INTO bronze.src_{sat_tbl} (
+                {p_cols_csv}, load_dts, applied_dts, rec_src{pay_col_tail}
+            )
+            SELECT
+                {p_cols_csv},
+                TIMESTAMP '2026-11-10 09:00:00',
+                TIMESTAMP '2026-09-30 00:00:00',
+                'BATCH4_LATE_DUPLICATE'{pay_col_tail}
+            FROM bronze.src_{sat_tbl}
+            WHERE {parent_hk_expr} = '{target_sat_hk}'
+              AND load_dts = TIMESTAMP '2026-10-01 06:00:00'
+              AND NOT EXISTS (
+                  SELECT 1 FROM bronze.src_{sat_tbl} b
+                  WHERE b.load_dts = TIMESTAMP '2026-11-10 09:00:00'
+                    AND b.rec_src = 'BATCH4_LATE_DUPLICATE'
+              )
+            LIMIT 1;
+            """
         )
-        SELECT
-            '{target_sat_hk}',
-            TIMESTAMP '2026-11-15 09:15:00',
-            {app_val}'BATCH4_RESTATEMENT',
-            LOWER(SHA256('4:REST||4:ATED||2:V4')),
-            {restated_vals}
-        WHERE NOT EXISTS (
-            SELECT 1 FROM {sat_schema}.{sat_tbl} s
-            WHERE s.{parent_hk} = '{target_sat_hk}'
-              AND s.load_dts = TIMESTAMP '2026-11-15 09:15:00'
-        );
-        """
-    )
+        conn.execute(
+            f"""
+            INSERT INTO bronze.src_{sat_tbl} (
+                {p_cols_csv}, load_dts, applied_dts, rec_src{pay_col_tail}
+            )
+            SELECT
+                {p_cols_csv},
+                TIMESTAMP '2026-11-15 09:15:00',
+                TIMESTAMP '2026-09-30 00:00:00',
+                'BATCH4_RESTATEMENT'{restated_tail}
+            FROM bronze.src_{sat_tbl}
+            WHERE {parent_hk_expr} = '{target_sat_hk}'
+              AND load_dts = TIMESTAMP '2026-10-01 06:00:00'
+              AND NOT EXISTS (
+                  SELECT 1 FROM bronze.src_{sat_tbl} b
+                  WHERE b.load_dts = TIMESTAMP '2026-11-15 09:15:00'
+                    AND b.rec_src = 'BATCH4_RESTATEMENT'
+              )
+            LIMIT 1;
+            """
+        )
+        conn.execute(_compile_generic_zone_2_raw_vault_dml(ir))
+    else:
+        conn.execute(
+            f"""
+            INSERT INTO {sat_schema}.{sat_tbl} (
+                {parent_hk}, load_dts, {app_col}rec_src, hash_diff, {payload_csv}
+            )
+            SELECT
+                '{target_sat_hk}',
+                TIMESTAMP '2026-11-15 09:15:00',
+                {app_val}'BATCH4_RESTATEMENT',
+                LOWER(SHA256('4:REST||4:ATED||2:V4')),
+                {restated_vals}
+            WHERE NOT EXISTS (
+                SELECT 1 FROM {sat_schema}.{sat_tbl} s
+                WHERE s.{parent_hk} = '{target_sat_hk}'
+                  AND s.load_dts = TIMESTAMP '2026-11-15 09:15:00'
+            );
+            """
+        )
 
     # Refresh PIT tables in business_vault so PIT lookup parity holds across all snapshots
     for pit in _effective_pit_tables(ir):
