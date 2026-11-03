@@ -70,9 +70,11 @@ from opendv_duckdb_sandbox import (
 )
 from opendv_telemetry.ledger_emitter import VaultLedgerEmitter
 
-# ============================================================================
+# =====================================================================
+
 # 1. Canonical IR Lowerer & Topological Load DAG Tests
-# ============================================================================
+# =====================================================================
+
 
 
 def test_ir_lowerer_pe_contract_validates_against_canonical_ir_schema() -> None:
@@ -143,9 +145,11 @@ def test_ir_lowerer_generic_contract_and_4zone_compile() -> None:
         con.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 2. Graph B Empirical Profiler & Schema Drift Detection Tests
-# ============================================================================
+# =====================================================================
+
 
 
 def test_graph_b_profiler_metrics_parquet_csv_and_schema_drift(tmp_path: Path) -> None:
@@ -271,9 +275,11 @@ def test_graph_b_profiler_metrics_parquet_csv_and_schema_drift(tmp_path: Path) -
         profiler.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 3. 4-Zone SQL Compiler, 4 Adversarial Batches & DV-DYN-001..015 Tests
-# ============================================================================
+# =====================================================================
+
 
 
 def test_4zone_compiler_and_4batch_adversarial_sandbox_all_15_dyn_checks() -> None:
@@ -339,9 +345,11 @@ def test_4zone_compiler_and_4batch_adversarial_sandbox_all_15_dyn_checks() -> No
         con.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 4. Bi-Temporal Query D.10 & Query D.10b Verification Tests
-# ============================================================================
+# =====================================================================
+
 
 
 def test_pit_query_engine_d10_and_d10b_bitemporal_audit() -> None:
@@ -409,9 +417,11 @@ def test_pit_query_engine_d10_and_d10b_bitemporal_audit() -> None:
         con.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 5. High-Level DuckDbShadowSandbox & Observability Telemetry Tests
-# ============================================================================
+# =====================================================================
+
 
 
 def test_duckdb_shadow_sandbox_full_verification_and_telemetry(tmp_path: Path) -> None:
@@ -470,7 +480,7 @@ def test_dynamic_checks_detect_injected_orphan_fk() -> None:
 
 
 def test_algorithm_a5_sql_helper_matches_expected_tokens() -> None:
-    """Verify `build_algorithm_a5_sha256_sql` generates null-safe length-prefixed SQL."""
+    """Verify `build_algorithm_a5_sha256_sql` implements 3-way Zero-Key branching (-1 vs -2)."""
     sql_expr = build_algorithm_a5_sha256_sql(
         ["lp_id"],
         is_business_key=True,
@@ -478,10 +488,53 @@ def test_algorithm_a5_sql_helper_matches_expected_tokens() -> None:
     )
     con = duckdb.connect(":memory:")
     try:
-        con.execute("CREATE TABLE t (lp_id VARCHAR); INSERT INTO t VALUES ('lp-101'), (NULL);")
+        con.execute(
+            "CREATE TABLE t (lp_id VARCHAR); "
+            "INSERT INTO t VALUES ('lp-101'), (NULL), ('   '), ('-1'), ('-2');"
+        )
         rows = con.execute(f"SELECT {sql_expr} FROM t").fetchall()
         assert rows[0][0] == "5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4"
         assert rows[1][0] == ZERO_KEY_UNKNOWN
+        assert rows[2][0] == ZERO_KEY_UNKNOWN
+        assert rows[3][0] == ZERO_KEY_UNKNOWN
+        assert rows[4][0] == ZERO_KEY_ERROR
+    finally:
+        con.close()
+
+
+def test_algorithm_a5_sql_helper_3way_zero_key_and_error_predicate() -> None:
+    """Verify composite `(bkcc, bk)` key_columns exclusion and explicit `error_predicate`."""
+    sql_expr = build_algorithm_a5_sha256_sql(
+        ["bkcc", "customer_code"],
+        is_business_key=True,
+        error_predicate="record_status = 'REJECTED'",
+    )
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(
+            """
+            CREATE TABLE src_cust (
+                bkcc VARCHAR,
+                customer_code VARCHAR,
+                record_status VARCHAR
+            );
+            INSERT INTO src_cust VALUES
+                ('GLOBAL', 'CUST-001', 'VALID'),
+                ('GLOBAL', NULL, 'VALID'),
+                ('GLOBAL', '', 'VALID'),
+                ('GLOBAL', '-1', 'VALID'),
+                ('GLOBAL', '-2', 'VALID'),
+                ('GLOBAL', 'CUST-999', 'REJECTED');
+            """
+        )
+        rows = [r[0] for r in con.execute(f"SELECT {sql_expr} FROM src_cust").fetchall()]
+        assert rows[0] not in (ZERO_KEY_UNKNOWN, ZERO_KEY_ERROR)
+        assert len(rows[0]) == 64
+        assert rows[1] == ZERO_KEY_UNKNOWN
+        assert rows[2] == ZERO_KEY_UNKNOWN
+        assert rows[3] == ZERO_KEY_UNKNOWN
+        assert rows[4] == ZERO_KEY_ERROR
+        assert rows[5] == ZERO_KEY_ERROR
     finally:
         con.close()
 
@@ -519,9 +572,11 @@ def test_parametrized_query_d10b_cutoff_coordinates(
         con.close()
 
 
-# ============================================================================
+# =====================================================================
+
 # 6. Issue #38 — Scenario S4 (UF-1): Idempotent Zone 0 Migration SQL & Multi-Wave Evolution
-# ============================================================================
+# =====================================================================
+
 
 
 def _build_issue_38_contracts() -> tuple[dict[str, Any], dict[str, Any]]:
@@ -812,3 +867,132 @@ def test_issue_38_in_place_satellite_evolution_e2e_duckdb() -> None:
         assert dyn_014.passed is True
     finally:
         conn.close()
+
+
+def test_issue37_scenario_s7_cross_engine_hash_parity_e2e() -> None:
+    """Issue #37 / Scenario S7 (FR-VER-01, FR-INT-01, Algorithm A.5, DV-COL-005):
+    End-to-end cross-engine SHA-256 hex parity across Python (`opendv_core.hashing`),
+    SQLGlot AST (`alg_a5_sqlglot_hash`), and 4-Zone DuckDB (`compiler_4zone`) without
+    any `.lower()` or `.upper()` post-processing workarounds.
+    """
+    import re
+
+    from opendv_axi_verifier.codemods.alg_a5_sqlglot_hash import build_canonical_sha256_hash_ast
+    from opendv_core.hashing import (
+        compute_dv2_length_prefixed_sha256,
+        dv2_canonical_hash,
+        resolve_fk_hash_key_with_zero_keys,
+    )
+    from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
+    from opendv_core.schema_registry import load_structured_file
+
+    lower_hex_re = re.compile(r"^[0-9a-f]{64}$")
+
+    # 1. Validate real v5 Contract -> CanonicalIR -> 4-Zone SQL and execute in :memory: DuckDB
+    pe_contract_path = get_examples_dir() / "private_equity" / "dv_pe_model_contract.yaml"
+    pe_contract_dict = load_structured_file(pe_contract_path)
+    contract = NoMistakeDataVault2ContractV5.model_validate(pe_contract_dict)
+    ir = lower_contract_to_canonical_ir(contract)
+    bundle = compile_canonical_ir_to_4zone_sql(ir)
+
+    with duckdb.connect(":memory:") as conn:
+        conn.execute("CREATE MACRO SHA2(s, bits) AS sha256(s)")
+        conn.execute("CREATE MACRO OCTET_LENGTH(s) AS strlen(s)")
+        conn.execute(bundle.full_sql_bundle)
+
+        # 2. Direct parameterized lookup of Python-computed Hub HKs in DuckDB raw_vault tables
+        calpers_py_hk = compute_dv2_length_prefixed_sha256(
+            ["LP-101"], is_business_key=True, bkcc_prefix="GLOBAL"
+        )
+        bavarian_py_hk = compute_dv2_length_prefixed_sha256(
+            ["LP-101"], is_business_key=True, bkcc_prefix="LEGACY_GP_ADMIN"
+        )
+        fund_iv_vector_hk = dv2_canonical_hash(
+            ["APEX_BO_IV"], is_business_key=True, bkcc_prefix="GLOBAL"
+        )
+        fund_iv_py_hk = dv2_canonical_hash(
+            ["APEX-BUYOUT-IV"], is_business_key=True, bkcc_prefix=None
+        )
+
+        for digest in (calpers_py_hk, bavarian_py_hk, fund_iv_vector_hk, fund_iv_py_hk):
+            assert lower_hex_re.match(digest), f"Expected lowercase 64-char hex, got {digest}"
+
+        # Query DuckDB raw_vault.hub_limited_partner and raw_vault.hub_fund directly with Python HK
+        lp_match = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.hub_limited_partner WHERE hk_lp = ?",
+            [calpers_py_hk],
+        ).fetchone()
+        assert lp_match is not None and lp_match[0] == 1
+
+        bav_match = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.hub_limited_partner WHERE hk_lp = ?",
+            [bavarian_py_hk],
+        ).fetchone()
+        assert bav_match is not None and bav_match[0] == 1
+
+        fund_match = conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.hub_fund WHERE hk_fund = ?",
+            [fund_iv_py_hk],
+        ).fetchone()
+        assert fund_match is not None and fund_match[0] == 1
+
+        # 3. Verify 3-way parity: Python vs compiler_4zone SQL vs SQLGlot AST codemod SQL
+        vectors: list[tuple[list[str], dict[str, str | None], bool, str | None]] = [
+            (["lp_id"], {"lp_id": "LP-101"}, True, "GLOBAL"),
+            (["lp_id"], {"lp_id": "LP-101"}, True, "LEGACY_GP_ADMIN"),
+            (["c1", "c2"], {"c1": "AB", "c2": "C"}, False, None),
+            (["c1", "c2"], {"c1": "A", "c2": "BC"}, False, None),
+            (["c1", "c2"], {"c1": "ANNE||O", "c2": "BRIEN"}, False, None),
+            (["c1", "c2"], {"c1": "ANNE", "c2": "O||BRIEN"}, False, None),
+            (["c1", "c2", "c3"], {"c1": "VAL_X", "c2": None, "c3": "VAL_Y"}, False, None),
+            (["c1", "c2", "c3"], {"c1": "VAL_X", "c2": "VAL_Y", "c3": None}, False, None),
+            (["city", "org"], {"city": "München", "org": "株式会社"}, False, None),
+            (["lp_id"], {"lp_id": None}, True, "GLOBAL"),
+        ]
+
+        for cols, row_dict, is_bk, bkcc in vectors:
+            ordered_cols = sorted(cols) if not is_bk else cols
+            py_digest = compute_dv2_length_prefixed_sha256(
+                [row_dict[c] for c in ordered_cols],
+                is_business_key=is_bk,
+                bkcc_prefix=bkcc,
+            )
+            c4z_sql = build_algorithm_a5_sha256_sql(
+                cols,
+                is_business_key=is_bk,
+                bkcc_literal=bkcc,
+                sort_alphabetically=not is_bk,
+            )
+            ast_sql = build_canonical_sha256_hash_ast(
+                cols,
+                is_business_key=is_bk,
+                bkcc_prefix=bkcc,
+                sort_alphabetically=not is_bk,
+            ).sql("duckdb")
+
+            select_list = ", ".join(
+                f"CAST(NULL AS VARCHAR) AS {c}"
+                if row_dict[c] is None
+                else f"'{row_dict[c]}' AS {c}"
+                for c in cols
+            )
+            row_vals = conn.execute(
+                f"SELECT {c4z_sql}, {ast_sql} FROM (SELECT {select_list})"
+            ).fetchone()
+            assert row_vals is not None
+            c4z_val, ast_val = row_vals
+
+            assert lower_hex_re.match(py_digest)
+            assert py_digest == c4z_val == ast_val
+
+        # 4. Zero-Key & FK resolution lowercase uniformity
+        assert resolve_fk_hash_key_with_zero_keys([None], bkcc_prefix="GLOBAL") == ZERO_KEY_UNKNOWN
+        assert resolve_fk_hash_key_with_zero_keys(["-1"], bkcc_prefix="GLOBAL") == ZERO_KEY_UNKNOWN
+        assert (
+            resolve_fk_hash_key_with_zero_keys(
+                [None], bkcc_prefix="GLOBAL", is_optional_inapplicable=True
+            )
+            == ZERO_KEY_ERROR
+        )
+        assert resolve_fk_hash_key_with_zero_keys(["-2"], bkcc_prefix="GLOBAL") == ZERO_KEY_ERROR
+        assert resolve_fk_hash_key_with_zero_keys(["LP-101"], bkcc_prefix="GLOBAL") == calpers_py_hk
