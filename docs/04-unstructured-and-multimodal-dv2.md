@@ -166,9 +166,9 @@ def verify_gate5_unstructured_invariants(
 
     for sample in contract.get("sample_extractions", []):
         doc_id = sample["doc_id"]
-        quote = sample.get("evidence_quote", "")
+        quote = sample.get("evidence_quote", "").replace("\r\n", "\n").replace("\r", "\n")
         start, end = sample.get("char_start", 0), sample.get("char_end", 0)
-        body = parsed_doc_samples.get(doc_id, "")
+        body = parsed_doc_samples.get(doc_id, "").replace("\r\n", "\n").replace("\r", "\n")
         if not quote or body[start:end] != quote:
             errors.append(
                 f"GATE5_ERROR [SPAN_HALLUCINATION]: Extracted attribute '{sample.get('attribute')}' "
