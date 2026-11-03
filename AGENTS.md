@@ -28,26 +28,33 @@ The primary outputs of `open-dv` for downstream enterprise data platforms are **
 
 ---
 
-## 3. "Clear on What, Non-Prescriptive on How" Engineering Guardrails
+## 3. "Clear on What, Non-Prescriptive on How" Engineering Guardrails & Rationale
 
-To preserve architectural integrity while encouraging rapid innovation, all contributions and agent actions are governed by **Immutable Outcomes (The "What")** paired with **Implementation Freedom (The "How")**.
+To preserve architectural integrity while encouraging rapid innovation, all contributions and agent actions are governed by **Immutable Outcomes (The "What")** paired with **Implementation Freedom (The "How")**, backed by explicit **Design Rationale (The "Why")** (see [`docs/00-mission-vision-and-functional-requirements.md` §3.1](docs/00-mission-vision-and-functional-requirements.md#31-normative-guarantee-what-vs-implementation-flexibility-how--design-rationale-why-matrix)):
 
-### 3.1 Immutable Outcomes (The "What" — Strictly Non-Negotiable)
-No PR, codemod, prompt change, or feature extension may weaken or bypass these seven guarantees (defined normatively in [`docs/00-mission-vision-and-functional-requirements.md`](docs/00-mission-vision-and-functional-requirements.md)):
+### 3.1 Immutable Outcomes (The "What" — Strictly Non-Negotiable) & Design Rationale (The "Why")
+No PR, codemod, prompt change, or feature extension may weaken or bypass these seven guarantees:
 1. **Zero Unverified LLM SQL Generation (`OBJ-01`):** LLM agents (`@vault-first-mate`, `@scout-source`, `@scout-unstructured`, `@ship-vault`) emit and repair **only** declarative YAML/JSON contracts (`NoMistakeDataVault2ContractV5` / `CanonicalIR`). Physical SQL is emitted exclusively by deterministic symbolic compilers.
+   - *Rationale:* LLMs excel at semantic discovery but are probabilistic; a single hallucinated SQL expression, unsorted `hash_diff` column list, or unescaped delimiter permanently corrupts an insert-only Data Vault. Restricting LLMs to an Intermediate Representation eliminates SQL hallucination by construction.
 2. **100% Column Triage Accountability (`FR-DOM-01` / `DV-G4-002`):** Every physical source column in every wave must be accounted for in `column_triage_ledger` (`BUSINESS_KEY`, `FOREIGN_KEY_REF`, `DESCRIPTIVE_PAYLOAD`, `SYSTEM_SURROGATE_DROPPED`, or `OMITTED_INTENTIONALLY` with a $\ge 15$-character rationale). Silent column dropping is a hard gate failure.
+   - *Rationale:* Prevents autonomous agents from taking the "easy way out" by silently ignoring difficult, ambiguous, or drifted upstream columns, guaranteeing a 100% auditable regulatory lineage.
 3. **Deterministic, Injective, Collision-Free Hashing (`FR-VER-01` / `Algorithm A.5`):** All Hub/Link hash keys (`_hk`) and Satellite change digests (`hash_diff`) must use length-prefixed (`<octet_len>:<val>`) or delimiter-escaped canonical serialization with explicit null-token substitution (`'-1:^^'`), 3-Tier `BKCC` namespace isolation (`TIER_1_GLOBAL_STANDARD`, `TIER_2_ENTERPRISE_SOR`, `TIER_3_LOCAL_SCOPED`), and Dual Zero-Key sentinels (`0x00..00` for `-1` Unknown, `0xFF..FF` for `-2` Inapplicable/Error).
+   - *Rationale:* In Data Vault 2.0, cryptographic hashes replace physical RDBMS foreign-key lookups to enable parallel loading. If pre-hash serialization is non-injective (`'A||B','C'` vs `'A','B||C'`), skips NULLs (`CONCAT_WS`), or diverges between Python byte-length and SQL character-length on multi-byte UTF-8, silent cross-entity data corruption or orphan joins occur.
 4. **Insert-Only Raw Vault History (`FR-VER-01` / `INV-01..06`):** Raw Data Vault tables (`hub_*`, `lnk_*`, `sat_*`, `mas_*`) are strictly `INSERT`-only. Physical `UPDATE`, `DELETE`, `DROP COLUMN`, or mutable `load_end_dts` columns on base Satellites are forbidden; effective intervals are derived virtually via `LEAD(load_dts)` windowing or PIT tables.
+   - *Rationale:* Guarantees 100% non-destructive historical auditability (reconstructing exact system state as of any past timestamp) and eliminates expensive physical table locks/rewrites caused by SCD Type 2 end-date updates.
 5. **Additive-Only Schema Evolution Across Waves (`FR-DOM-02..04` / `Algorithm A.7` & `EVO-01..08`):** Across $N \to N+1$ source onboarding and $S_k(t) \to S_k(t+1)$ schema drift waves, previously deployed Hub/Link grains and historical Satellite `hash_diff` digests are immutable. Added columns route to additive companion satellites (`sat_<base>_ext_*`), dropped source columns project `CAST(NULL AS <type>)`, and sparse optional FKs ($U_{\text{nn}} < 0.95$) split into filtered companion links (`Algorithm A.4`).
+   - *Rationale:* Enterprise data warehouses evolve continuously as new sources arrive periodically. Freezing existing grains and isolating drift into companion structures ensures zero downtime, zero historical re-hashing storms, and zero broken downstream queries across release waves.
 6. **Span-Grounded Unstructured Extraction & Steward Gating (`FR-DOM-05` / `Rules U1–U4`, `Algorithm A.9b`):** Raw blobs and embedding vectors never enter relational Satellites (`Rule U1`). Extracted claims require verbatim `[char_start, char_end]` document span provenance (`Rule U2/U3`), and low-confidence/ambiguous entity matches (`Tier-U3`) or unmapped ontology concepts (`DV-G4-001`) must pause for human Data Steward approval (`STEWARD_HOLD` / `ASK-USER`).
+   - *Rationale:* Prevents LLM document hallucinations from entering the system of record and ensures that ambiguous business identity matches are governed by human stewards before irreversible Hub/Link promotion.
 7. **5-Tier RBAC & Zero PII/Hash Leakage (`FR-INT-02`):** All telemetry (`state/vault-ledger.jsonl`), reports, and UI payloads must respect 5-Tier RBAC redaction and Semantic Hash Pill formatting (`validate_no_pii_leaks`).
+   - *Rationale:* Isolating PII into dedicated Satellites and redacting telemetry by role enables GDPR/CCPA right-to-erasure (crypto-shredding) and safe multi-tenant observability without exposing sensitive payloads or raw cryptographic keys.
 
-### 3.2 Implementation Freedom (The "How" — Extensible by Design)
+### 3.2 Implementation Freedom (The "How" — Extensible by Design) & Rationale
 Provided all Immutable Outcomes and verification gates pass, contributors have full freedom to evolve and extend:
-- **Agent Harnesses & Foundation Models (`packages/opendv-agent-harness`):** Add new LLM providers, CLI/SDK adapters beyond `agy`, `claude-cli`, `antigravity`, and `claude`, or refine prompt decomposition and `@toon_v1` repair loops.
-- **Target Dialect Compilers & Exporters:** Add downstream compilers lowering `CanonicalIR` / `NoMistakeDataVault2ContractV5` to **dbt (`AutomateDV` / `datavault4dbt`)**, **Snowflake**, **BigQuery**, **Databricks Delta Live Tables**, **SQLMesh**, or **Apache Iceberg**.
-- **Profiling & Graph Discovery Engines:** Enhance `GraphBProfiler`, functional dependency discovery, semantic similarity matchers, and multimodal OCR/PDF chunking strategies.
-- **UI & API Transports (`apps/opendv-platform-api`, `apps/opendv-web-workbench`, `packages/opendv-protocol-ts`):** Evolve workbench visualizations (`WB-00`–`WB-11`), state persistence backends, and enterprise catalog integrations.
+- **Agent Harnesses & Foundation Models (`packages/opendv-agent-harness`):** Add new LLM providers, CLI/SDK adapters beyond `agy`, `claude-cli`, `antigravity`, and `claude`, or refine prompt decomposition and `@toon_v1` repair loops. *(Rationale: Avoids LLM vendor lock-in as reasoning models evolve.)*
+- **Target Dialect Compilers & Exporters:** Add downstream compilers lowering `CanonicalIR` / `NoMistakeDataVault2ContractV5` to **dbt (`AutomateDV` / `datavault4dbt`)**, **Snowflake**, **BigQuery**, **Databricks Delta Live Tables**, **SQLMesh**, or **Apache Iceberg**. *(Rationale: Decouples DV 2.0 architectural modelling from the user's physical production warehouse technology.)*
+- **Profiling & Graph Discovery Engines:** Enhance `GraphBProfiler`, functional dependency discovery, semantic similarity matchers, and multimodal OCR/PDF chunking strategies. *(Rationale: Allows scaling from local CSV/Parquet files to push-down cloud warehouse metadata profiling.)*
+- **UI & API Transports (`apps/opendv-platform-api`, `apps/opendv-web-workbench`, `packages/opendv-protocol-ts`):** Evolve workbench visualizations (`WB-00`–`WB-11`), state persistence backends, and enterprise catalog integrations. *(Rationale: Enables seamless embedding into diverse enterprise governance portals and CI/CD pipelines.)*
 
 ---
 
