@@ -63,6 +63,7 @@ class Compiled4ZoneBundle(BaseModel):
     ir_version: str = "1.0.0"
     topological_load_order: list[str] = Field(default_factory=list)
     zone_0_sql: str
+    zone_0_migration_sql: str = ""
     zone_1_sql: str
     zone_2_sql: str
     zone_3_sql: str
@@ -77,14 +78,17 @@ class Compiled4ZoneBundle(BaseModel):
     @property
     def zones_0_to_3_sql(self) -> str:
         """Executable DDL + DML bundle for Zones 0 through 3."""
-        return "\n\n".join(
+        sections = [self.zone_0_sql]
+        if self.zone_0_migration_sql.strip():
+            sections.append(self.zone_0_migration_sql)
+        sections.extend(
             [
-                self.zone_0_sql,
                 self.zone_1_sql,
                 self.zone_2_sql,
                 self.zone_3_sql,
             ]
         )
+        return "\n\n".join(sections)
 
     @property
     def full_sql_bundle(self) -> str:
@@ -1941,7 +1945,7 @@ def _compile_generic_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     bk_defs = [f"    {_validate_ident(bk.name)} VARCHAR NOT NULL," for bk in hub.business_keys]
     ddl = "\n".join(
         [
-            f"CREATE OR REPLACE TABLE raw_vault.{tbl} (",
+            f"CREATE TABLE IF NOT EXISTS raw_vault.{tbl} (",
             f"    {hk} CHAR(64) NOT NULL PRIMARY KEY,",
             *bk_defs,
             "    load_dts TIMESTAMP NOT NULL,",
@@ -1952,7 +1956,7 @@ def _compile_generic_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     unknown_bks = ", ".join("'SYSTEM'" if bk.is_bkcc else "'-1'" for bk in hub.business_keys)
     error_bks = ", ".join("'SYSTEM'" if bk.is_bkcc else "'-2'" for bk in hub.business_keys)
     zero_insert = (
-        f"INSERT INTO raw_vault.{tbl} VALUES\n"
+        f"INSERT OR IGNORE INTO raw_vault.{tbl} VALUES\n"
         f"    ('{ZERO_KEY_UNKNOWN}', {unknown_bks}, "
         f"TIMESTAMP '{GHOST_DTS}', '{ZERO_KEY_REC_SRC}'),\n"
         f"    ('{ZERO_KEY_ERROR}', {error_bks}, "
@@ -1966,12 +1970,12 @@ def _compile_generic_reference_ddl_and_seed(ref: IRReferenceTable) -> str:
     tbl = _validate_ident(ref.name)
     code_col = _validate_ident(ref.natural_code_column)
     return (
-        f"CREATE OR REPLACE TABLE raw_vault.{tbl} (\n"
+        f"CREATE TABLE IF NOT EXISTS raw_vault.{tbl} (\n"
         f"    {code_col} VARCHAR NOT NULL PRIMARY KEY,\n"
         f"    load_dts TIMESTAMP NOT NULL,\n"
         f"    rec_src VARCHAR NOT NULL\n"
         f");\n"
-        f"INSERT INTO raw_vault.{tbl} VALUES\n"
+        f"INSERT OR IGNORE INTO raw_vault.{tbl} VALUES\n"
         f"    ('REF-001', TIMESTAMP '2026-10-01 06:00:00', 'SYSTEM_SEED'),\n"
         f"    ('REF-002', TIMESTAMP '2026-10-01 06:00:00', 'SYSTEM_SEED');"
     )
@@ -1988,7 +1992,7 @@ def _compile_generic_link_ddl_and_zero_keys(link: IRLink) -> str:
     ]
     ddl = "\n".join(
         [
-            f"CREATE OR REPLACE TABLE {schema}.{tbl} (",
+            f"CREATE TABLE IF NOT EXISTS {schema}.{tbl} (",
             f"    {hk} CHAR(64) NOT NULL PRIMARY KEY,",
             *fk_defs,
             "    load_dts TIMESTAMP NOT NULL,",
@@ -1999,7 +2003,7 @@ def _compile_generic_link_ddl_and_zero_keys(link: IRLink) -> str:
     unknown_fks = ", ".join(f"'{ZERO_KEY_UNKNOWN}'" for _ in link.hub_references)
     error_fks = ", ".join(f"'{ZERO_KEY_ERROR}'" for _ in link.hub_references)
     zero_insert = (
-        f"INSERT INTO {schema}.{tbl} VALUES\n"
+        f"INSERT OR IGNORE INTO {schema}.{tbl} VALUES\n"
         f"    ('{ZERO_KEY_UNKNOWN}', {unknown_fks}, "
         f"TIMESTAMP '{GHOST_DTS}', '{ZERO_KEY_REC_SRC}'),\n"
         f"    ('{ZERO_KEY_ERROR}', {error_fks}, "
@@ -2038,14 +2042,21 @@ def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
     pk_cols = [parent_hk, "load_dts", *(_validate_ident(c) for c in child_keys)]
     col_lines.append(f"    PRIMARY KEY ({', '.join(pk_cols)})")
 
-    ddl = f"CREATE OR REPLACE TABLE {schema}.{tbl} (\n" + "\n".join(col_lines) + "\n);"
-    ghost_payloads = ", ".join(_ghost_literal_for_sat_column(col, sub_seq_set) for col in data_cols)
-    applied_val = f"TIMESTAMP '{GHOST_DTS}', " if has_applied else ""
-    payload_suffix = f", {ghost_payloads}" if ghost_payloads else ""
+    ddl = f"CREATE TABLE IF NOT EXISTS {schema}.{tbl} (\n" + "\n".join(col_lines) + "\n);"
+    ghost_cols = [parent_hk, "load_dts"]
+    ghost_vals = [f"'{ZERO_KEY_UNKNOWN}'", f"TIMESTAMP '{GHOST_DTS}'"]
+    if has_applied:
+        ghost_cols.append("applied_dts")
+        ghost_vals.append(f"TIMESTAMP '{GHOST_DTS}'")
+    ghost_cols.extend(["rec_src", "hash_diff"])
+    ghost_vals.extend([f"'{GHOST_REC_SRC}'", f"'{ZERO_KEY_UNKNOWN}'"])
+    for col in data_cols:
+        if col.name in sub_seq_set:
+            ghost_cols.append(_validate_ident(col.name))
+            ghost_vals.append(_ghost_literal_for_sat_column(col, sub_seq_set))
     ghost_insert = (
-        f"INSERT INTO {schema}.{tbl} VALUES\n"
-        f"    ('{ZERO_KEY_UNKNOWN}', TIMESTAMP '{GHOST_DTS}', {applied_val}"
-        f"'{GHOST_REC_SRC}', '{ZERO_KEY_UNKNOWN}'{payload_suffix});"
+        f"INSERT OR IGNORE INTO {schema}.{tbl} ({', '.join(ghost_cols)}) VALUES\n"
+        f"    ({', '.join(ghost_vals)});"
     )
     return f"{ddl}\n{ghost_insert}"
 
@@ -2378,13 +2389,24 @@ def _compile_generic_zone_0_sql(
         insert_rows: list[str] = []
         for idx_r, p_vals in enumerate(parent_val_rows):
             src_row = sat_source_rows[idx_r] if idx_r < len(sat_source_rows) else None
+            row_load_dts = (
+                str(src_row.get("load_dts") or "2026-10-01 06:00:00").replace("'", "''")
+                if src_row is not None
+                else "2026-10-01 06:00:00"
+            )
+            row_app_dts = (
+                str(src_row.get("applied_dts") or "2026-09-30 00:00:00").replace("'", "''")
+                if src_row is not None
+                else "2026-09-30 00:00:00"
+            )
+            row_app_lit = f"TIMESTAMP '{row_app_dts}', " if has_applied else ""
             r_payload = [
                 _format_bronze_payload_sql_literal(c, src_row, idx_r + 1) for c in data_cols
             ]
             r_pay_sql = f", {', '.join(r_payload)}" if r_payload else ""
             insert_rows.append(
-                f"    ({', '.join(p_vals)}, TIMESTAMP '2026-10-01 06:00:00', "
-                f"{app_lit}'{rec_src}'{r_pay_sql})"
+                f"    ({', '.join(p_vals)}, TIMESTAMP '{row_load_dts}', "
+                f"{row_app_lit}'{rec_src}'{r_pay_sql})"
             )
 
         if include_batch4_restatement_in_seed and sat.name == bitemp_sat_name and parent_val_rows:
@@ -2848,11 +2870,68 @@ def _compile_generic_zone_4_information_mart_views(ir_obj: CanonicalIR) -> tuple
     return q_d10, q_d10b
 
 
+def compile_zone_0_migration_sql(
+    ir: CanonicalIR | dict[str, Any],
+    *,
+    baseline_ir: CanonicalIR | dict[str, Any] | None = None,
+) -> str:
+    """Compile idempotent `ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS` statements.
+
+    When `baseline_ir` is provided, emits `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+    statements only for columns added in-place to existing Satellites (`EVO-01` / `DV-EVO-006`).
+    When `baseline_ir` is omitted, emits idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+    statements for all Satellite payload columns so any pre-existing physical Satellite table
+    is safely migrated before Zone 1 and Zone 2 execute.
+    """
+    ir_obj = CanonicalIR.model_validate(ir) if isinstance(ir, dict) else ir
+    base_obj = (
+        CanonicalIR.model_validate(baseline_ir)
+        if isinstance(baseline_ir, dict)
+        else baseline_ir
+    )
+    prev_sats = {s.name: s for s in base_obj.satellites} if base_obj is not None else None
+
+    stmts: list[str] = []
+    for sat in ir_obj.satellites:
+        schema = _satellite_schema(sat)
+        tbl = _validate_ident(sat.name)
+        child_keys = set(_satellite_child_key_names(sat))
+        data_cols = [c for c in _satellite_all_data_columns(sat) if c.name not in child_keys]
+        if prev_sats is not None:
+            if sat.name not in prev_sats:
+                continue
+            prev_col_names = {
+                c.name.lower() for c in _satellite_all_data_columns(prev_sats[sat.name])
+            }
+            target_cols = [c for c in data_cols if c.name.lower() not in prev_col_names]
+        else:
+            target_cols = data_cols
+
+        for col in target_cols:
+            c_name = _validate_ident(col.name)
+            c_type = _normalize_duckdb_type(col.data_type)
+            stmts.append(
+                f"ALTER TABLE {schema}.{tbl} ADD COLUMN IF NOT EXISTS {c_name} {c_type};"
+            )
+
+    if not stmts:
+        return ""
+    return "\n".join(
+        [
+            "-- =============================================================================",
+            "-- ZONE 0 MIGRATION: IDEMPOTENT ADDITIVE SATELLITE SCHEMA EVOLUTION (EVO-01)",
+            "-- =============================================================================",
+            *stmts,
+        ]
+    )
+
+
 def compile_canonical_ir_to_4zone_sql(
     ir: CanonicalIR | dict[str, Any],
     *,
     include_batch4_restatement_in_seed: bool = False,
     bronze_tables: dict[str, list[dict[str, Any]] | Any] | None = None,
+    baseline_ir: CanonicalIR | dict[str, Any] | None = None,
 ) -> Compiled4ZoneBundle:
     """Compile a `CanonicalIR` model into a `Compiled4ZoneBundle`.
 
@@ -2866,6 +2945,11 @@ def compile_canonical_ir_to_4zone_sql(
     load_order = topological_load_dag(ir_obj)
 
     if is_pe_domain(ir_obj):
+        pe_migration_sql = (
+            compile_zone_0_migration_sql(ir_obj, baseline_ir=baseline_ir)
+            if baseline_ir is not None
+            else ""
+        )
         return Compiled4ZoneBundle(
             model_name=ir_obj.model_name,
             ir_version=ir_obj.ir_version,
@@ -2873,6 +2957,7 @@ def compile_canonical_ir_to_4zone_sql(
             zone_0_sql=_build_pe_zone_0_sql(
                 include_batch4_restatement_in_seed=include_batch4_restatement_in_seed
             ),
+            zone_0_migration_sql=pe_migration_sql,
             zone_1_sql=_build_pe_zone_1_sql(),
             zone_2_sql=_build_pe_zone_2_sql(),
             zone_3_sql=_build_pe_zone_3_sql(),
@@ -2885,6 +2970,7 @@ def compile_canonical_ir_to_4zone_sql(
         include_batch4_restatement_in_seed=include_batch4_restatement_in_seed,
         bronze_tables=bronze_tables,
     )
+    zone_0_migration_sql = compile_zone_0_migration_sql(ir_obj, baseline_ir=baseline_ir)
     zone_1_sql = _compile_generic_zone_1_staging_views(ir_obj)
     zone_2_sql = _compile_generic_zone_2_raw_vault_dml(ir_obj)
     zone_3_sql = _compile_generic_zone_3_business_vault_sql(ir_obj)
@@ -2895,6 +2981,7 @@ def compile_canonical_ir_to_4zone_sql(
         ir_version=ir_obj.ir_version,
         topological_load_order=load_order,
         zone_0_sql=zone_0_sql,
+        zone_0_migration_sql=zone_0_migration_sql,
         zone_1_sql=zone_1_sql,
         zone_2_sql=zone_2_sql,
         zone_3_sql=zone_3_sql,

@@ -86,10 +86,20 @@ def verify_physical_dv2_sql_ast(
             continue
 
         # 1. DV-AST-001 / DV-G6-002: Insert-Only Raw Vault DML Enforcement
-        if isinstance(stmt, (exp.Update, exp.Delete, exp.Drop, exp.Alter, exp.Command)):
+        if isinstance(stmt, exp.Alter):
+            actions = stmt.args.get("actions") or []
+            is_additive_col_only = bool(actions) and all(
+                isinstance(act, exp.ColumnDef) for act in actions
+            )
+            if not is_additive_col_only:
+                violations.append(
+                    f"[DV-AST-001 / DV-G6-002] Destructive DML 'ALTER' is strictly "
+                    f"forbidden on Raw Vault entity '{entity_name}'."
+                )
+        elif isinstance(stmt, (exp.Update, exp.Delete, exp.Drop, exp.Command)):
             stmt_kind = stmt.key.upper()
             raw_sql_u = stmt.sql().upper()
-            if stmt_kind in {"UPDATE", "DELETE", "DROP", "ALTER"} or any(
+            if stmt_kind in {"UPDATE", "DELETE", "DROP"} or any(
                 kw in raw_sql_u for kw in ("TRUNCATE", "UPDATE ", "DELETE ")
             ):
                 violations.append(

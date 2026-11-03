@@ -39,6 +39,7 @@ from opendv_duckdb_sandbox.compiler_4zone import (
     build_query_d10_sql,
     build_query_d10b_sql,
     compile_canonical_ir_to_4zone_sql,
+    compile_zone_0_migration_sql,
 )
 from opendv_duckdb_sandbox.dynamic_checks import (
     DynamicCheckResult,
@@ -126,6 +127,7 @@ __all__ = [
     "check_dv_dyn_014_additive_schema_evolution",
     "check_dv_dyn_015_insert_only_audit_invariant",
     "compile_canonical_ir_to_4zone_sql",
+    "compile_zone_0_migration_sql",
     "compute_topological_load_waves",
     "ensure_pit_snapshot_for_cutoff",
     "evaluate_all_dynamic_checks",
