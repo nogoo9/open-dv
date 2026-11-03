@@ -1,0 +1,159 @@
+contract_version: '5.0'
+domain_namespace: corporate_mna_s2
+lifecycle_stage: MULTI_SOURCE_EXPANSION
+column_triage_ledger:
+- bronze_table: dealcloud.src_composite_deals
+  column_name: lei_code
+  elm_classification: BUSINESS_KEY
+  target_dv_entity: hub_company
+- bronze_table: dealcloud.src_composite_deals
+  column_name: internal_deal_id
+  elm_classification: BUSINESS_KEY
+  target_dv_entity: hub_deal
+- bronze_table: dealcloud.src_composite_deals
+  column_name: company_legal_name
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_company_dealcloud
+- bronze_table: dealcloud.src_composite_deals
+  column_name: deal_stage
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_deal_dealcloud
+- bronze_table: bloomberg.src_global_issuers
+  column_name: lei_code
+  elm_classification: BUSINESS_KEY
+  target_dv_entity: hub_company
+- bronze_table: bloomberg.src_global_issuers
+  column_name: credit_rating_code
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_company_bloomberg
+- bronze_table: legacy_crm.src_local_companies
+  column_name: legacy_co_num
+  elm_classification: BUSINESS_KEY
+  target_dv_entity: hub_company
+- bronze_table: legacy_crm.src_local_companies
+  column_name: local_company_name
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_company_legacy_crm
+- bronze_table: mdm.src_company_convergence
+  column_name: master_lei_code
+  elm_classification: FOREIGN_KEY_REF
+  target_dv_entity: sal_company
+- bronze_table: mdm.src_company_convergence
+  column_name: duplicate_legacy_co_num
+  elm_classification: FOREIGN_KEY_REF
+  target_dv_entity: sal_company
+- bronze_table: mdm.src_company_convergence
+  column_name: confidence_score
+  elm_classification: DESCRIPTIVE_PAYLOAD
+  target_dv_entity: sat_sal_company_mdm
+hubs:
+- name: hub_company
+  ontology_concept_uri: urn:ontology:entity:company
+  business_key_sources:
+  - bronze_table: dealcloud.src_composite_deals
+    key_columns:
+    - lei_code
+    record_source_code: DEALCLOUD_FEED
+    key_authority_tier: TIER_1_GLOBAL_STANDARD
+    require_src_qualifier: false
+    bkcc_prefix: null
+  - bronze_table: bloomberg.src_global_issuers
+    key_columns:
+    - lei_code
+    record_source_code: BLOOMBERG_FEED
+    key_authority_tier: TIER_1_GLOBAL_STANDARD
+    require_src_qualifier: false
+    bkcc_prefix: null
+  - bronze_table: legacy_crm.src_local_companies
+    key_columns:
+    - legacy_co_num
+    record_source_code: LEGACY_CRM_FEED
+    key_authority_tier: TIER_3_LOCAL_SCOPED
+    require_src_qualifier: true
+    bkcc_prefix: LEGACY_CRM_LOCAL
+    system_scoped_bk_justification: Legacy regional CRM company number lacks ISO LEI;
+      isolated via LEGACY_CRM_LOCAL BKCC for Same-As Link convergence.
+- name: hub_deal
+  ontology_concept_uri: urn:ontology:entity:deal
+  business_key_sources:
+  - bronze_table: dealcloud.src_composite_deals
+    key_columns:
+    - internal_deal_id
+    record_source_code: DEALCLOUD_FEED
+    key_authority_tier: TIER_3_LOCAL_SCOPED
+    require_src_qualifier: true
+    bkcc_prefix: DEALCLOUD_LOCAL
+    system_scoped_bk_justification: DealCloud internal pipeline ID is local to DealCloud
+      instance; scoped via DEALCLOUD_LOCAL BKCC.
+links:
+- name: lnk_deal_company
+  link_type: STANDARD_LINK
+  ontology_concept_uri: urn:ontology:relationship:deal_company
+  source_bronze_table: dealcloud.src_composite_deals
+  degenerate_columns: []
+  hub_references:
+  - target_hub: hub_deal
+    role_alias: DEAL
+    source_fk_columns:
+    - internal_deal_id
+  - target_hub: hub_company
+    role_alias: TARGET_COMPANY
+    source_fk_columns:
+    - lei_code
+- name: sal_company
+  link_type: SAME_AS_LINK
+  ontology_concept_uri: urn:ontology:relationship:company_equivalence
+  source_bronze_table: mdm.src_company_convergence
+  degenerate_columns: []
+  hub_references:
+  - target_hub: hub_company
+    role_alias: MASTER
+    source_fk_columns:
+    - master_lei_code
+  - target_hub: hub_company
+    role_alias: DUPLICATE
+    source_fk_columns:
+    - duplicate_legacy_co_num
+satellites:
+- name: sat_company_dealcloud
+  satellite_type: STANDARD_SATELLITE
+  parent_entity: hub_company
+  source_bronze_table: dealcloud.src_composite_deals
+  security_classification: INTERNAL
+  volatility_tier: STATIC
+  payload_columns:
+  - company_legal_name
+- name: sat_deal_dealcloud
+  satellite_type: STANDARD_SATELLITE
+  parent_entity: hub_deal
+  source_bronze_table: dealcloud.src_composite_deals
+  security_classification: INTERNAL
+  volatility_tier: STANDARD
+  payload_columns:
+  - deal_stage
+- name: sat_company_bloomberg
+  satellite_type: STANDARD_SATELLITE
+  parent_entity: hub_company
+  source_bronze_table: bloomberg.src_global_issuers
+  security_classification: INTERNAL
+  volatility_tier: STATIC
+  payload_columns:
+  - credit_rating_code
+- name: sat_company_legacy_crm
+  satellite_type: STANDARD_SATELLITE
+  parent_entity: hub_company
+  source_bronze_table: legacy_crm.src_local_companies
+  security_classification: INTERNAL
+  volatility_tier: STATIC
+  payload_columns:
+  - local_company_name
+- name: sat_sal_company_mdm
+  satellite_type: STANDARD_SATELLITE
+  parent_entity: sal_company
+  source_bronze_table: mdm.src_company_convergence
+  security_classification: INTERNAL
+  volatility_tier: STATIC
+  payload_columns:
+  - confidence_score
+reference_tables: []
+unmapped_escalations: []

@@ -1,0 +1,68 @@
+ontology_version: 1.0.0
+domain_namespace: corporate_mna_s2
+enterprise_owner: Corporate M&A Data Architecture Committee
+standards_references:
+- ISO 17442 Global Legal Entity Identifier (LEI)
+canonical_business_concepts:
+- concept_uri: urn:ontology:entity:company
+  concept_name: Company
+  elm_archetype: WHO_LEGAL_ENTITY
+  definition: Legal entity participating in M&A transactions and issuer ratings.
+  target_hub: hub_company
+  key_authority_tiers:
+    tier_1_global_standard:
+      authority_name: ISO 17442 LEI
+      column_patterns:
+      - lei_code
+      - master_lei_code
+      regex_pattern: ^[A-Z0-9]{20}$
+      bkcc_policy: GLOBAL
+      require_src_qualifier: false
+    tier_2_enterprise_sor:
+      authority_name: Enterprise Company Master ID
+      column_patterns:
+      - company_id
+      bkcc_policy: GLOBAL
+      require_src_qualifier: false
+    tier_3_local_scoped:
+      authority_name: Legacy CRM Local Company Number
+      column_patterns:
+      - legacy_co_num
+      - duplicate_legacy_co_num
+      bkcc_policy: LEGACY_CRM_LOCAL
+      require_src_qualifier: true
+      cross_source_resolution_target: sal_company
+- concept_uri: urn:ontology:entity:deal
+  concept_name: Deal
+  elm_archetype: WHAT_DEAL_OPPORTUNITY
+  definition: M&A deal tracked in DealCloud with system-local deal numbers.
+  target_hub: hub_deal
+  key_authority_tiers:
+    tier_2_enterprise_sor:
+      authority_name: Enterprise Deal Code
+      column_patterns:
+      - enterprise_deal_code
+      bkcc_policy: GLOBAL
+      require_src_qualifier: false
+    tier_3_local_scoped:
+      authority_name: DealCloud Local Pipeline Deal ID
+      column_patterns:
+      - internal_deal_id
+      bkcc_policy: DEALCLOUD_LOCAL
+      require_src_qualifier: true
+canonical_relationships:
+- relationship_uri: urn:ontology:relationship:deal_company
+  relationship_name: DealCompanyAssociation
+  target_link: lnk_deal_company
+  endpoints:
+  - hub_deal
+  - hub_company
+  grain_semantics: Associates a local DealCloud deal with its target Company.
+- relationship_uri: urn:ontology:relationship:company_equivalence
+  relationship_name: CompanySameAsConvergence
+  target_link: sal_company
+  endpoints:
+  - hub_company
+  - hub_company
+  grain_semantics: Equates a Tier-1 global LEI Company identity with a Tier-3 Legacy
+    CRM Company record.

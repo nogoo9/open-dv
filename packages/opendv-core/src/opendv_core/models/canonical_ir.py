@@ -92,6 +92,10 @@ class IRHubSourceMapping(StrictIRModel):
     staging_table: str
     bk_source_columns: list[str]
     rec_src_value: str
+    bronze_table: str | None = None
+    key_authority_tier: str | None = None
+    bkcc_literal: str | None = None
+    column_bkcc_map: dict[str, str | None] | None = None
 
 
 class IRHub(StrictIRModel):

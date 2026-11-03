@@ -38,7 +38,9 @@ from opendv_duckdb_sandbox.compiler_4zone import (
     build_length_prefixed_token_sql,
     build_query_d10_sql,
     build_query_d10b_sql,
+    build_staging_bkcc_registry,
     compile_canonical_ir_to_4zone_sql,
+    resolve_staging_bkcc_literal,
 )
 from opendv_duckdb_sandbox.dynamic_checks import (
     DynamicCheckResult,
@@ -110,6 +112,7 @@ __all__ = [
     "build_length_prefixed_token_sql",
     "build_query_d10_sql",
     "build_query_d10b_sql",
+    "build_staging_bkcc_registry",
     "check_dv_dyn_001_pk_uniqueness",
     "check_dv_dyn_002_referential_integrity",
     "check_dv_dyn_003_replay_idempotency",
@@ -133,6 +136,7 @@ __all__ = [
     "execute_query_d10",
     "execute_query_d10b",
     "lower_contract_to_canonical_ir",
+    "resolve_staging_bkcc_literal",
     "run_batch_1_baseline_and_ghost_completeness",
     "run_batch_2_replay_idempotency",
     "run_batch_3_delta_and_boundary_shift",

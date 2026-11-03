@@ -1,0 +1,160 @@
+{
+  "profile_version": "1.0.0",
+  "domain_namespace": "corporate_mna_s2",
+  "profiled_at_utc": "2026-10-01T06:00:00Z",
+  "source_systems": [
+    {
+      "source_system_code": "DEALCLOUD_FEED",
+      "description": "DealCloud Composite M&A Pipeline Feed (Tier-1 LEI + Tier-3 Local Deal ID)",
+      "tables": [
+        {
+          "bronze_table": "dealcloud.src_composite_deals",
+          "row_count": 2,
+          "daily_delta_rows": 2,
+          "columns": [
+            {
+              "column_name": "lei_code",
+              "data_type": "CHAR(20)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "shannon_entropy_bits": 1.0,
+              "candidate_role": "TIER_1_BUSINESS_KEY"
+            },
+            {
+              "column_name": "internal_deal_id",
+              "data_type": "VARCHAR(32)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "shannon_entropy_bits": 1.0,
+              "candidate_role": "TIER_3_LOCAL_SCOPED_KEY"
+            },
+            {
+              "column_name": "company_legal_name",
+              "data_type": "VARCHAR(255)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "shannon_entropy_bits": 1.0,
+              "candidate_role": "DESCRIPTIVE_PAYLOAD"
+            },
+            {
+              "column_name": "deal_stage",
+              "data_type": "VARCHAR(64)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "shannon_entropy_bits": 1.0,
+              "candidate_role": "DESCRIPTIVE_PAYLOAD"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source_system_code": "BLOOMBERG_FEED",
+      "description": "Bloomberg Global Issuers Feed (Tier-1 LEI)",
+      "tables": [
+        {
+          "bronze_table": "bloomberg.src_global_issuers",
+          "row_count": 2,
+          "daily_delta_rows": 2,
+          "columns": [
+            {
+              "column_name": "lei_code",
+              "data_type": "CHAR(20)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "shannon_entropy_bits": 1.0,
+              "candidate_role": "TIER_1_BUSINESS_KEY"
+            },
+            {
+              "column_name": "credit_rating_code",
+              "data_type": "VARCHAR(16)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "shannon_entropy_bits": 1.0,
+              "candidate_role": "DESCRIPTIVE_PAYLOAD"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source_system_code": "LEGACY_CRM_FEED",
+      "description": "Legacy Regional CRM Account Feed (Tier-3 Local Company Number)",
+      "tables": [
+        {
+          "bronze_table": "legacy_crm.src_local_companies",
+          "row_count": 2,
+          "daily_delta_rows": 2,
+          "columns": [
+            {
+              "column_name": "legacy_co_num",
+              "data_type": "VARCHAR(32)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "shannon_entropy_bits": 1.0,
+              "candidate_role": "TIER_3_LOCAL_SCOPED_KEY"
+            },
+            {
+              "column_name": "local_company_name",
+              "data_type": "VARCHAR(255)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "shannon_entropy_bits": 1.0,
+              "candidate_role": "DESCRIPTIVE_PAYLOAD"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "source_system_code": "MDM_STEWARD_XWALK",
+      "description": "MDM Steward Entity Resolution Crosswalk",
+      "tables": [
+        {
+          "bronze_table": "mdm.src_company_convergence",
+          "row_count": 2,
+          "daily_delta_rows": 2,
+          "columns": [
+            {
+              "column_name": "master_lei_code",
+              "data_type": "CHAR(20)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "inclusion_in_parent": 1.0,
+              "target_parent": "dealcloud.src_composite_deals.lei_code",
+              "candidate_role": "FOREIGN_KEY_REF"
+            },
+            {
+              "column_name": "duplicate_legacy_co_num",
+              "data_type": "VARCHAR(32)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "inclusion_in_parent": 1.0,
+              "target_parent": "legacy_crm.src_local_companies.legacy_co_num",
+              "candidate_role": "FOREIGN_KEY_REF"
+            },
+            {
+              "column_name": "confidence_score",
+              "data_type": "NUMERIC(5,4)",
+              "u_total": 1.0,
+              "u_non_null": 1.0,
+              "null_rate": 0.0,
+              "shannon_entropy_bits": 1.0,
+              "candidate_role": "DESCRIPTIVE_PAYLOAD"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

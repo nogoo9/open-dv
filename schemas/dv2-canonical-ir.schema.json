@@ -245,6 +245,21 @@
                 },
                 "rec_src_value": {
                   "type": "string"
+                },
+                "bronze_table": {
+                  "type": ["string", "null"]
+                },
+                "key_authority_tier": {
+                  "type": ["string", "null"]
+                },
+                "bkcc_literal": {
+                  "type": ["string", "null"]
+                },
+                "column_bkcc_map": {
+                  "type": ["object", "null"],
+                  "additionalProperties": {
+                    "type": ["string", "null"]
+                  }
                 }
               }
             }

@@ -505,3 +505,606 @@ def test_parametrized_query_d10b_cutoff_coordinates(
         assert rows[0].enterprise_value_usd == expected_ev
     finally:
         con.close()
+
+
+# ============================================================================
+# 6. Issue #39 — Scoped (bronze_table, column_name, target_hub) BKCC Tests
+# ============================================================================
+
+
+def test_issue_39_composite_feed_scopes_bkcc_per_table_column_target_hub() -> None:
+    """Verify composite feed with Tier-1 and Tier-3 columns scopes BKCC per (table, col, hub)."""
+    from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import verify_physical_dv2_sql_ast
+    from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+    from opendv_core.schema_registry import validate_contract_v5
+    from opendv_duckdb_sandbox import (
+        build_staging_bkcc_registry,
+        resolve_staging_bkcc_literal,
+    )
+
+    contract = validate_contract_v5(
+        {
+            "contract_version": "5.0",
+            "domain_namespace": "corporate_mna_composite",
+            "lifecycle_stage": "COLD_START_N1",
+            "column_triage_ledger": [
+                {
+                    "bronze_table": "dealcloud.src_composite_deals",
+                    "column_name": "lei_code",
+                    "elm_classification": "BUSINESS_KEY",
+                    "target_dv_entity": "hub_company",
+                },
+                {
+                    "bronze_table": "dealcloud.src_composite_deals",
+                    "column_name": "internal_deal_id",
+                    "elm_classification": "BUSINESS_KEY",
+                    "target_dv_entity": "hub_deal",
+                },
+                {
+                    "bronze_table": "dealcloud.src_composite_deals",
+                    "column_name": "deal_stage",
+                    "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                    "target_dv_entity": "sat_deal_dealcloud",
+                },
+            ],
+            "hubs": [
+                {
+                    "name": "hub_company",
+                    "ontology_concept_uri": "urn:ontology:entity:company",
+                    "business_key_sources": [
+                        {
+                            "bronze_table": "dealcloud.src_composite_deals",
+                            "key_columns": ["lei_code"],
+                            "record_source_code": "DEALCLOUD_FEED",
+                            "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                            "require_src_qualifier": False,
+                            "bkcc_prefix": None,
+                        }
+                    ],
+                },
+                {
+                    "name": "hub_deal",
+                    "ontology_concept_uri": "urn:ontology:entity:deal",
+                    "business_key_sources": [
+                        {
+                            "bronze_table": "dealcloud.src_composite_deals",
+                            "key_columns": ["internal_deal_id"],
+                            "record_source_code": "DEALCLOUD_FEED",
+                            "key_authority_tier": "TIER_3_LOCAL_SCOPED",
+                            "require_src_qualifier": True,
+                            "bkcc_prefix": "DEALCLOUD_LOCAL",
+                            "system_scoped_bk_justification": (
+                                "DealCloud pipeline ID is local to instance; "
+                                "scoped via DEALCLOUD_LOCAL."
+                            ),
+                        }
+                    ],
+                },
+            ],
+            "links": [
+                {
+                    "name": "lnk_deal_company",
+                    "link_type": "STANDARD_LINK",
+                    "ontology_concept_uri": "urn:ontology:relationship:deal_company",
+                    "source_bronze_table": "dealcloud.src_composite_deals",
+                    "degenerate_columns": [],
+                    "hub_references": [
+                        {
+                            "target_hub": "hub_deal",
+                            "role_alias": "DEAL",
+                            "source_fk_columns": ["internal_deal_id"],
+                        },
+                        {
+                            "target_hub": "hub_company",
+                            "role_alias": "TARGET_COMPANY",
+                            "source_fk_columns": ["lei_code"],
+                        },
+                    ],
+                }
+            ],
+            "satellites": [
+                {
+                    "name": "sat_deal_dealcloud",
+                    "satellite_type": "STANDARD_SATELLITE",
+                    "parent_entity": "hub_deal",
+                    "source_bronze_table": "dealcloud.src_composite_deals",
+                    "security_classification": "INTERNAL",
+                    "volatility_tier": "STANDARD",
+                    "payload_columns": ["deal_stage"],
+                }
+            ],
+            "reference_tables": [],
+            "unmapped_escalations": [],
+        }
+    )
+
+    ir = lower_contract_to_canonical_ir(contract, validate_schema=True)
+    registry = build_staging_bkcc_registry(ir)
+
+    assert (
+        resolve_staging_bkcc_literal(
+            ir, "dealcloud.src_composite_deals", "lei_code", "hub_company", registry=registry
+        )
+        is None
+    )
+    assert (
+        resolve_staging_bkcc_literal(
+            ir, "dealcloud.src_composite_deals", "internal_deal_id", "hub_deal", registry=registry
+        )
+        == "DEALCLOUD_LOCAL"
+    )
+
+    bronze_rows = {
+        "dealcloud.src_composite_deals": [
+            {
+                "lei_code": "5493001KJTIIGC8Y1R12",
+                "internal_deal_id": "DL-9001",
+                "deal_stage": "LOI_SIGNED",
+            },
+            {
+                "lei_code": "5493002KJTIIGC8Y1R99",
+                "internal_deal_id": "DL-9002",
+                "deal_stage": "CLOSING",
+            },
+        ]
+    }
+    bundle = compile_canonical_ir_to_4zone_sql(
+        ir,
+        include_batch4_restatement_in_seed=True,
+        bronze_tables=bronze_rows,
+    )
+
+    # Algorithm A.6 SQLGlot AST check must pass and find '15:DEALCLOUD_LOCAL'
+    ast_violations = verify_physical_dv2_sql_ast(
+        bundle.zone_1_sql,
+        entity_name="stg_dealcloud_composite_deals",
+    )
+    assert ast_violations == [], f"AST violations: {ast_violations}"
+    assert "15:DEALCLOUD_LOCAL" in bundle.zone_1_sql
+
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(bundle.zones_0_to_3_sql)
+        stg_cols = [
+            d[0]
+            for d in con.execute(
+                "SELECT * FROM staging.stg_dealcloud_composite_deals LIMIT 1"
+            ).description
+        ]
+        assert "hk_company" in stg_cols
+        assert "hk_deal" in stg_cols
+
+        expected_hk_company = compute_dv2_length_prefixed_sha256(
+            ["5493001KJTIIGC8Y1R12"], is_business_key=True
+        ).lower()
+        expected_hk_deal = compute_dv2_length_prefixed_sha256(
+            ["DEALCLOUD_LOCAL", "DL-9001"], is_business_key=True
+        ).lower()
+
+        row = con.execute(
+            "SELECT hk_company, hk_deal FROM staging.stg_dealcloud_composite_deals "
+            "WHERE lei_code = '5493001KJTIIGC8Y1R12'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == expected_hk_company
+        assert row[1] == expected_hk_deal
+    finally:
+        con.close()
+
+
+def test_issue_39_scenario_s2_multi_source_convergence_and_4batch_sandbox() -> None:
+    """Verify Scenario S2 multi-source convergence on hub_company + hub_deal + sal_company."""
+    from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import verify_physical_dv2_sql_ast
+    from opendv_core.schema_registry import validate_contract_v5
+
+    contract = validate_contract_v5(
+        {
+            "contract_version": "5.0",
+            "domain_namespace": "corporate_mna_s2",
+            "lifecycle_stage": "MULTI_SOURCE_EXPANSION",
+            "column_triage_ledger": [
+                {
+                    "bronze_table": "dealcloud.src_composite_deals",
+                    "column_name": "lei_code",
+                    "elm_classification": "BUSINESS_KEY",
+                    "target_dv_entity": "hub_company",
+                },
+                {
+                    "bronze_table": "dealcloud.src_composite_deals",
+                    "column_name": "internal_deal_id",
+                    "elm_classification": "BUSINESS_KEY",
+                    "target_dv_entity": "hub_deal",
+                },
+                {
+                    "bronze_table": "dealcloud.src_composite_deals",
+                    "column_name": "company_legal_name",
+                    "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                    "target_dv_entity": "sat_company_dealcloud",
+                },
+                {
+                    "bronze_table": "dealcloud.src_composite_deals",
+                    "column_name": "deal_stage",
+                    "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                    "target_dv_entity": "sat_deal_dealcloud",
+                },
+                {
+                    "bronze_table": "legacy_crm.src_local_companies",
+                    "column_name": "legacy_co_num",
+                    "elm_classification": "BUSINESS_KEY",
+                    "target_dv_entity": "hub_company",
+                },
+                {
+                    "bronze_table": "legacy_crm.src_local_companies",
+                    "column_name": "local_company_name",
+                    "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                    "target_dv_entity": "sat_company_legacy_crm",
+                },
+                {
+                    "bronze_table": "mdm.src_company_convergence",
+                    "column_name": "master_lei_code",
+                    "elm_classification": "FOREIGN_KEY_REF",
+                    "target_dv_entity": "sal_company",
+                },
+                {
+                    "bronze_table": "mdm.src_company_convergence",
+                    "column_name": "duplicate_legacy_co_num",
+                    "elm_classification": "FOREIGN_KEY_REF",
+                    "target_dv_entity": "sal_company",
+                },
+                {
+                    "bronze_table": "mdm.src_company_convergence",
+                    "column_name": "confidence_score",
+                    "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                    "target_dv_entity": "sat_sal_company_mdm",
+                },
+            ],
+            "hubs": [
+                {
+                    "name": "hub_company",
+                    "ontology_concept_uri": "urn:ontology:entity:company",
+                    "business_key_sources": [
+                        {
+                            "bronze_table": "dealcloud.src_composite_deals",
+                            "key_columns": ["lei_code"],
+                            "record_source_code": "DEALCLOUD_FEED",
+                            "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                            "require_src_qualifier": False,
+                            "bkcc_prefix": None,
+                        },
+                        {
+                            "bronze_table": "legacy_crm.src_local_companies",
+                            "key_columns": ["legacy_co_num"],
+                            "record_source_code": "LEGACY_CRM_FEED",
+                            "key_authority_tier": "TIER_3_LOCAL_SCOPED",
+                            "require_src_qualifier": True,
+                            "bkcc_prefix": "LEGACY_CRM_LOCAL",
+                            "system_scoped_bk_justification": (
+                                "Legacy regional CRM company number lacks ISO LEI; "
+                                "isolated via LEGACY_CRM_LOCAL."
+                            ),
+                        },
+                    ],
+                },
+                {
+                    "name": "hub_deal",
+                    "ontology_concept_uri": "urn:ontology:entity:deal",
+                    "business_key_sources": [
+                        {
+                            "bronze_table": "dealcloud.src_composite_deals",
+                            "key_columns": ["internal_deal_id"],
+                            "record_source_code": "DEALCLOUD_FEED",
+                            "key_authority_tier": "TIER_3_LOCAL_SCOPED",
+                            "require_src_qualifier": True,
+                            "bkcc_prefix": "DEALCLOUD_LOCAL",
+                            "system_scoped_bk_justification": (
+                                "DealCloud internal pipeline ID is local to instance; "
+                                "scoped via DEALCLOUD_LOCAL."
+                            ),
+                        }
+                    ],
+                },
+            ],
+            "links": [
+                {
+                    "name": "lnk_deal_company",
+                    "link_type": "STANDARD_LINK",
+                    "ontology_concept_uri": "urn:ontology:relationship:deal_company",
+                    "source_bronze_table": "dealcloud.src_composite_deals",
+                    "degenerate_columns": [],
+                    "hub_references": [
+                        {
+                            "target_hub": "hub_deal",
+                            "role_alias": "DEAL",
+                            "source_fk_columns": ["internal_deal_id"],
+                        },
+                        {
+                            "target_hub": "hub_company",
+                            "role_alias": "TARGET_COMPANY",
+                            "source_fk_columns": ["lei_code"],
+                        },
+                    ],
+                },
+                {
+                    "name": "sal_company",
+                    "link_type": "SAME_AS_LINK",
+                    "ontology_concept_uri": "urn:ontology:relationship:company_equivalence",
+                    "source_bronze_table": "mdm.src_company_convergence",
+                    "degenerate_columns": [],
+                    "hub_references": [
+                        {
+                            "target_hub": "hub_company",
+                            "role_alias": "MASTER",
+                            "source_fk_columns": ["master_lei_code"],
+                        },
+                        {
+                            "target_hub": "hub_company",
+                            "role_alias": "DUPLICATE",
+                            "source_fk_columns": ["duplicate_legacy_co_num"],
+                        },
+                    ],
+                },
+            ],
+            "satellites": [
+                {
+                    "name": "sat_company_dealcloud",
+                    "satellite_type": "STANDARD_SATELLITE",
+                    "parent_entity": "hub_company",
+                    "source_bronze_table": "dealcloud.src_composite_deals",
+                    "security_classification": "INTERNAL",
+                    "volatility_tier": "STATIC",
+                    "payload_columns": ["company_legal_name"],
+                },
+                {
+                    "name": "sat_deal_dealcloud",
+                    "satellite_type": "STANDARD_SATELLITE",
+                    "parent_entity": "hub_deal",
+                    "source_bronze_table": "dealcloud.src_composite_deals",
+                    "security_classification": "INTERNAL",
+                    "volatility_tier": "STANDARD",
+                    "payload_columns": ["deal_stage"],
+                },
+                {
+                    "name": "sat_company_legacy_crm",
+                    "satellite_type": "STANDARD_SATELLITE",
+                    "parent_entity": "hub_company",
+                    "source_bronze_table": "legacy_crm.src_local_companies",
+                    "security_classification": "INTERNAL",
+                    "volatility_tier": "STATIC",
+                    "payload_columns": ["local_company_name"],
+                },
+                {
+                    "name": "sat_sal_company_mdm",
+                    "satellite_type": "STANDARD_SATELLITE",
+                    "parent_entity": "sal_company",
+                    "source_bronze_table": "mdm.src_company_convergence",
+                    "security_classification": "INTERNAL",
+                    "volatility_tier": "STATIC",
+                    "payload_columns": ["confidence_score"],
+                },
+            ],
+            "reference_tables": [],
+            "unmapped_escalations": [],
+        }
+    )
+
+    ir = lower_contract_to_canonical_ir(contract, validate_schema=True)
+    bronze_tables = {
+        "dealcloud.src_composite_deals": [
+            {
+                "lei_code": "5493001KJTIIGC8Y1R12",
+                "internal_deal_id": "DL-9001",
+                "company_legal_name": "Alpha Holdings Plc",
+                "deal_stage": "LOI_SIGNED",
+            },
+            {
+                "lei_code": "5493002KJTIIGC8Y1R99",
+                "internal_deal_id": "DL-9002",
+                "company_legal_name": "Beta Industrials GmbH",
+                "deal_stage": "CLOSING",
+            },
+        ],
+        "legacy_crm.src_local_companies": [
+            {"legacy_co_num": "CO-101", "local_company_name": "Alpha Holdings Legacy Ltd"},
+            {"legacy_co_num": "CO-102", "local_company_name": "Beta Industrials Local AG"},
+        ],
+        "mdm.src_company_convergence": [
+            {
+                "master_lei_code": "5493001KJTIIGC8Y1R12",
+                "duplicate_legacy_co_num": "CO-101",
+                "confidence_score": "0.9900",
+            },
+            {
+                "master_lei_code": "5493002KJTIIGC8Y1R99",
+                "duplicate_legacy_co_num": "CO-102",
+                "confidence_score": "0.9800",
+            },
+        ],
+    }
+
+    bundle = compile_canonical_ir_to_4zone_sql(
+        ir,
+        bronze_tables=bronze_tables,
+    )
+    ast_violations = verify_physical_dv2_sql_ast(
+        bundle.zone_1_sql,
+        entity_name="stg_dealcloud_composite_deals",
+    )
+    assert ast_violations == [], f"AST failed: {ast_violations}"
+    assert "15:DEALCLOUD_LOCAL" in bundle.zone_1_sql
+    assert "16:LEGACY_CRM_LOCAL" in bundle.zone_1_sql
+
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(bundle.zones_0_to_3_sql)
+        co_rows = con.execute(
+            "SELECT bkcc, lei_code, rec_src FROM raw_vault.hub_company "
+            "WHERE rec_src != 'SYSTEM_ZERO_KEY' ORDER BY bkcc, lei_code"
+        ).fetchall()
+        assert co_rows == [
+            ("GLOBAL", "5493001KJTIIGC8Y1R12", "DEALCLOUD_FEED"),
+            ("GLOBAL", "5493002KJTIIGC8Y1R99", "DEALCLOUD_FEED"),
+            ("LEGACY_CRM_LOCAL", "CO-101", "LEGACY_CRM_FEED"),
+            ("LEGACY_CRM_LOCAL", "CO-102", "LEGACY_CRM_FEED"),
+        ]
+        deal_rows = con.execute(
+            "SELECT bkcc, internal_deal_id, rec_src FROM raw_vault.hub_deal "
+            "WHERE rec_src != 'SYSTEM_ZERO_KEY' ORDER BY bkcc, internal_deal_id"
+        ).fetchall()
+        assert deal_rows == [
+            ("DEALCLOUD_LOCAL", "DL-9001", "DEALCLOUD_FEED"),
+            ("DEALCLOUD_LOCAL", "DL-9002", "DEALCLOUD_FEED"),
+        ]
+    finally:
+        con.close()
+
+    con_suite = duckdb.connect(":memory:")
+    try:
+        suite_res = execute_4batch_adversarial_suite(con_suite, ir=ir, bundle=bundle)
+        assert suite_res.all_passed is True
+    finally:
+        con_suite.close()
+
+
+def test_issue_39_synthesize_cumulative_contract_per_column_bkcc_tier(tmp_path: Path) -> None:
+    """Verify AgenticVaultPipeline.synthesize_cumulative_contract scopes FK Hub tier per column."""
+    from opendv_agent_harness.pipeline import (
+        PipelineSourceFeedInput,
+        _DeterministicStageSynthesizer,
+    )
+    from opendv_core.schema_registry import validate_graph_a, validate_graph_b
+
+    ontology = validate_graph_a(
+        {
+            "ontology_version": "1.0.0",
+            "domain_namespace": "corporate_mna_synth",
+            "enterprise_owner": "Corporate M&A Data Architecture Committee",
+            "standards_references": ["ISO 17442 Global Legal Entity Identifier (LEI)"],
+            "canonical_business_concepts": [
+                {
+                    "concept_uri": "urn:ontology:entity:company",
+                    "concept_name": "Company",
+                    "elm_archetype": "WHO_LEGAL_ENTITY",
+                    "definition": "Company identified by global LEI.",
+                    "target_hub": "hub_company",
+                    "key_authority_tiers": {
+                        "tier_1_global_standard": {
+                            "authority_name": "ISO 17442 LEI",
+                            "column_patterns": ["lei_code"],
+                            "regex_pattern": "^[A-Z0-9]{20}$",
+                            "bkcc_policy": "GLOBAL",
+                            "require_src_qualifier": False,
+                        }
+                    },
+                },
+                {
+                    "concept_uri": "urn:ontology:entity:deal",
+                    "concept_name": "Deal",
+                    "elm_archetype": "WHAT_DEAL_OPPORTUNITY",
+                    "definition": "Local deal opportunity.",
+                    "target_hub": "hub_deal",
+                    "key_authority_tiers": {
+                        "tier_3_local_scoped": {
+                            "authority_name": "Local Deal ID",
+                            "column_patterns": ["internal_deal_id"],
+                            "bkcc_policy": "DEALCLOUD_LOCAL",
+                            "require_src_qualifier": True,
+                        }
+                    },
+                },
+            ],
+            "canonical_relationships": [
+                {
+                    "relationship_uri": "urn:ontology:relationship:deal_company",
+                    "relationship_name": "DealCompanyAssociation",
+                    "target_link": "lnk_deal_company",
+                    "endpoints": ["hub_deal", "hub_company"],
+                    "grain_semantics": "Associates a local DealCloud deal with its target Company.",
+                }
+            ],
+        }
+    )
+
+    profile = validate_graph_b(
+        {
+            "profile_version": "1.0.0",
+            "domain_namespace": "corporate_mna_synth",
+            "profiled_at_utc": "2026-10-01T06:00:00Z",
+            "source_systems": [
+                {
+                    "source_system_code": "DEALCLOUD",
+                    "description": "DealCloud composite feed",
+                    "tables": [
+                        {
+                            "bronze_table": "dealcloud.src_composite_deals",
+                            "row_count": 2,
+                            "daily_delta_rows": 2,
+                            "columns": [
+                                {
+                                    "column_name": "internal_deal_id",
+                                    "data_type": "VARCHAR(32)",
+                                    "u_total": 1.0,
+                                    "u_non_null": 1.0,
+                                    "null_rate": 0.0,
+                                    "shannon_entropy_bits": 1.0,
+                                    "candidate_role": "TIER_3_LOCAL_SCOPED_KEY",
+                                },
+                                {
+                                    "column_name": "lei_code",
+                                    "data_type": "CHAR(20)",
+                                    "u_total": 1.0,
+                                    "u_non_null": 1.0,
+                                    "null_rate": 0.0,
+                                    "shannon_entropy_bits": 1.0,
+                                    "candidate_role": "FOREIGN_KEY_REF",
+                                },
+                                {
+                                    "column_name": "deal_stage",
+                                    "data_type": "VARCHAR(64)",
+                                    "u_total": 1.0,
+                                    "u_non_null": 1.0,
+                                    "null_rate": 0.0,
+                                    "shannon_entropy_bits": 1.0,
+                                    "candidate_role": "DESCRIPTIVE_PAYLOAD",
+                                },
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    src_feed = PipelineSourceFeedInput(
+        source_system="dealcloud",
+        table_name="src_composite_deals",
+        data_path="src_composite_deals.csv",
+        record_source_code="DEALCLOUD_FEED",
+        bkcc_namespace="DEALCLOUD_LOCAL",
+        key_authority_tier="TIER_3_LOCAL_SCOPED",
+        target_hub_name="hub_deal",
+        business_key_columns=["internal_deal_id"],
+        foreign_key_mappings={"lei_code": "hub_company"},
+    )
+
+    synthesized = _DeterministicStageSynthesizer.synthesize_cumulative_contract(
+        ontology=ontology,
+        cumulative_sources={"dealcloud.src_composite_deals": (src_feed, tmp_path / "dummy.csv")},
+        cumulative_source_systems={"DEALCLOUD": profile.source_systems[0]},
+        cumulative_unstructured_docs=[],
+        added_drift_cols_by_table={},
+        wave_index=0,
+        domain_namespace="corporate_mna_synth",
+    )
+
+    hubs_by_name = {h["name"]: h for h in synthesized["hubs"]}
+    assert "hub_deal" in hubs_by_name
+    assert "hub_company" in hubs_by_name
+
+    deal_sm = hubs_by_name["hub_deal"]["business_key_sources"][0]
+    company_sm = hubs_by_name["hub_company"]["business_key_sources"][0]
+
+    assert deal_sm["key_authority_tier"] == "TIER_3_LOCAL_SCOPED"
+    assert deal_sm["bkcc_prefix"] == "DEALCLOUD_LOCAL"
+    assert company_sm["key_authority_tier"] == "TIER_1_GLOBAL_STANDARD"
+    assert company_sm["bkcc_prefix"] is None
+

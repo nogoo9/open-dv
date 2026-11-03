@@ -1,0 +1,3 @@
+lei_code,internal_deal_id,company_legal_name,deal_stage,load_dts,rec_src
+5493001KJTIIGC8Y1R12,DL-9001,Alpha Holdings Plc,LOI_SIGNED,2026-10-01 06:00:00,DEALCLOUD_FEED
+5493002KJTIIGC8Y1R99,DL-9002,Beta Industrials GmbH,CLOSING,2026-10-01 06:00:00,DEALCLOUD_FEED
