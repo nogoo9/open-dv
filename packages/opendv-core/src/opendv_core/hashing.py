@@ -132,14 +132,18 @@ def compute_dv2_prehash_string(
                 key=lambda v: "" if v is None else str(v).strip(),
             )
 
-    effective_bkcc = resolve_canonical_bkcc_prefix(
-        bkcc_prefix,
-        key_authority_tier=key_authority_tier,
+    effective_bkcc = (
+        resolve_canonical_bkcc_prefix(
+            bkcc_prefix,
+            key_authority_tier=key_authority_tier,
+        )
+        if is_business_key
+        else None
     )
     if effective_bkcc is not None:
         first_norm = (
             str(ordered_values[0]).strip().upper()
-            if (ordered_values and ordered_values[0] is not None)
+            if (len(ordered_values) >= 2 and ordered_values[0] is not None)
             else None
         )
         if first_norm != effective_bkcc:
@@ -202,7 +206,7 @@ def dv2_canonical_hash(
         values,
         is_business_key=is_business_key,
         bkcc_prefix=bkcc_prefix if is_business_key else None,
-        key_authority_tier=key_authority_tier,
+        key_authority_tier=key_authority_tier if is_business_key else None,
         delimiter=delimiter,
         null_token=null_token,
     )

@@ -451,3 +451,21 @@ def test_resolve_canonical_bkcc_prefix_and_tier1_hashing() -> None:
         )
         == "6:GLOBAL||6:LP-101"
     )
+    assert compute_dv2_prehash_string(["GLOBAL"], bkcc_prefix="GLOBAL") == "6:GLOBAL||6:GLOBAL"
+    assert dv2_canonical_hash(["GLOBAL"]) == resolve_fk_hash_key_with_zero_keys(
+        ["GLOBAL"], bkcc_prefix="GLOBAL"
+    )
+    assert (
+        compute_dv2_prehash_string(
+            ["Active"],
+            is_business_key=False,
+            bkcc_prefix="GLOBAL",
+            key_authority_tier="TIER_1_GLOBAL_STANDARD",
+        )
+        == "6:Active"
+    )
+    assert dv2_canonical_hash(
+        ["Active"],
+        is_business_key=False,
+        key_authority_tier="TIER_1_GLOBAL_STANDARD",
+    ) == compute_dv2_length_prefixed_sha256(["Active"], is_business_key=False)
