@@ -489,7 +489,7 @@ In production Data Vault 2.0 environments, enterprise schemas are **not** built 
 
 #### Schema Evolution Summary Across the 4 Sequential CLI Calls
 
-See [`README.md` — Recommended Production Workflow: Multi-Call Incremental Schema Evolution (`--initial-contract`)](../README.md#1-trigger-via-unified-cli-opendv-pipeline) for the copy-pasteable 4-call `opendv pipeline run` CLI sequence.
+See [`README.md` — Production Multi-Call Incremental Evolution Commands (`--initial-contract`)](../README.md#production-multi-call-incremental-evolution-commands---initial-contract) for the copy-pasteable 4-call `opendv pipeline run` CLI sequence.
 
 | CLI Call | Per-Wave Input Spec | `--initial-contract` Input | Output Contract & `lifecycle_stage` | Key Algorithms & Gates Executed | Schema Changes & Cumulative Vault Topology |
 | :--- | :--- | :--- | :--- | :--- | :--- |

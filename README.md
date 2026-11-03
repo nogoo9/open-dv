@@ -232,7 +232,7 @@ uv run --package opendv-platform-api uvicorn opendv_platform_api.main:app --relo
 # (Or with moonrepo: moon run opendv-platform-api:dev)
 
 # Terminal 2: Start the 12-View Web Workbench on http://127.0.0.1:5173
-bun --cwd apps/opendv-web-workbench run dev
+bun run --cwd apps/opendv-web-workbench dev
 # (Or with moonrepo: moon run opendv-web-workbench:dev)
 ```
 
@@ -672,7 +672,7 @@ curl -sS http://127.0.0.1:8420/api/v1/runs/run-global-commerce-sample-001/report
 4. Click **"Validate Inputs"** (`POST /api/v1/pipelines/validate`) or **"Run Agentic Pipeline"** (`POST /api/v1/pipelines/runs`) to inspect the resulting `AgenticPipelineReport` directly inside `WB-00`.
 
 > [!NOTE]
-> The Web Workbench dev server automatically proxies all `/api/*` requests to `http://127.0.0.1:8420` by default. Override the upstream target via `OPENDV_API_URL` (e.g., `OPENDV_API_URL="http://127.0.0.1:8420" bun --cwd apps/opendv-web-workbench run dev`). If the upstream API server is unreachable, the proxy returns a structured RFC 9457 `502 Bad Gateway` problem response.
+> The Web Workbench dev server automatically proxies all `/api/*` requests to `http://127.0.0.1:8420` by default. Override the upstream target via `OPENDV_API_URL` (e.g., `OPENDV_API_URL="http://127.0.0.1:8420" bun run --cwd apps/opendv-web-workbench dev`). If the upstream API server is unreachable, the proxy returns a structured RFC 9457 `502 Bad Gateway` problem response.
 
 ---
 
@@ -692,8 +692,8 @@ The [CI workflow](.github/workflows/ci.yml) validates all JSON Schemas against D
 uv run pytest -v
 
 # Run TypeScript unit & component tests for the Protocol SDK and 12-View Web Workbench
-bun test --cwd packages/opendv-protocol-ts
-bun test --cwd apps/opendv-web-workbench
+bun run --cwd packages/opendv-protocol-ts test
+bun run --cwd apps/opendv-web-workbench test
 
 # Or run the full polyglot toolchain via proto & moon
 proto install
