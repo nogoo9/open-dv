@@ -2441,6 +2441,7 @@ def _discover_unstructured_doc_candidates_from_entities(
     default_hub: str = "hub_customer",
 ) -> list[PipelineUnstructuredCandidateInput]:
     """Discover Tier-U1 exact and Tier-U3 variant entity spans against `known_entities`."""
+    doc_text = doc_text.replace("\r\n", "\n").replace("\r", "\n")
     candidates: list[PipelineUnstructuredCandidateInput] = []
     used_bks: set[str] = set()
     variant_entities: list[tuple[re.Match[str], str, str, str]] = []
@@ -5355,6 +5356,7 @@ class _DeterministicStageSynthesizer:
         llm_discovery: Stage02UnstructuredDiscoveryOutput | None = None,
     ) -> PipelineUnstructuredDocInput:
         """Discover or ground character-offset candidate spans in an unstructured document."""
+        doc_text = doc_text.replace("\r\n", "\n").replace("\r", "\n")
         candidates: list[PipelineUnstructuredCandidateInput] = list(doc.extracted_candidates)
         target_hub_name = doc.target_hub_name
         link_name = doc.link_name
@@ -5397,6 +5399,14 @@ class _DeterministicStageSynthesizer:
                                 for c in raw_cands
                             ]
                             break
+            llm_candidates = [
+                c.model_copy(
+                    update={
+                        "verbatim_quote": c.verbatim_quote.replace("\r\n", "\n").replace("\r", "\n")
+                    }
+                )
+                for c in llm_candidates
+            ]
 
             if empirical_candidates:
                 emp_by_bk = {c.extracted_business_key: c for c in empirical_candidates}
@@ -5416,7 +5426,6 @@ class _DeterministicStageSynthesizer:
                     if c.verbatim_quote and doc_text.find(c.verbatim_quote) >= 0
                 ]
 
-        doc_text = doc_text.replace("\r\n", "\n").replace("\r", "\n")
         # Ground any candidate missing char_start / char_end against doc_text
         grounded_candidates: list[PipelineUnstructuredCandidateInput] = []
         for cand in candidates:

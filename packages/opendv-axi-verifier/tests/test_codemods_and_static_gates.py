@@ -954,12 +954,11 @@ def test_issue_33_alg_a9b_crlf_and_cr_line_ending_normalization(
     for dec in decisions_cr:
         assert dec["span_errors"] == []
 
-    # 2. Multi-line sample_extractions with CRLF quotes and LF-indexed or CRLF-indexed spans
+    # 2. Multi-line sample_extractions with CRLF quotes and LF-indexed spans
     contract_with_samples = copy.deepcopy(pe_golden_contract)
     multiline_lf_quote = doc_001_lf[0:98]
     assert "\n" in multiline_lf_quote
     multiline_crlf_quote = multiline_lf_quote.replace("\n", "\r\n")
-    raw_crlf_end = len(multiline_crlf_quote)
 
     for sat in contract_with_samples["satellites"]:
         if sat["name"] == "sat_lp_side_letter_llm_ext":
@@ -969,14 +968,6 @@ def test_issue_33_alg_a9b_crlf_and_cr_line_ending_normalization(
                     "evidence_quote": multiline_crlf_quote,
                     "char_start": 0,
                     "char_end": 98,
-                    "confidence_score": 0.96,
-                    "top2_margin": 0.30,
-                },
-                {
-                    "doc_id": doc_001_uri,
-                    "evidence_quote": multiline_lf_quote,
-                    "char_start": 0,
-                    "char_end": raw_crlf_end,
                     "confidence_score": 0.96,
                     "top2_margin": 0.30,
                 },
@@ -998,19 +989,6 @@ def test_issue_33_alg_a9b_crlf_and_cr_line_ending_normalization(
     )
     assert pipeline_report.status == "PASS"
     assert not any("SPAN_HALLUCINATION" in d for d in pipeline_report.diagnostics)
-
-
-def test_alg_a9b_crlf_line_ending_normalization_prevents_false_span_hallucination(
-    pe_golden_contract: dict[str, Any],
-    pe_ontology: dict[str, Any],
-    pe_bronze_profile: dict[str, Any],
-) -> None:
-    """Alias for Issue #33 CRLF/CR line ending normalization unit test."""
-    test_issue_33_alg_a9b_crlf_and_cr_line_ending_normalization(
-        pe_golden_contract=pe_golden_contract,
-        pe_ontology=pe_ontology,
-        pe_bronze_profile=pe_bronze_profile,
-    )
 
 
 def test_issue_33_gate5_deduplicates_span_errors_across_decisions(
@@ -1048,17 +1026,6 @@ def test_issue_33_gate5_deduplicates_span_errors_across_decisions(
     assert len(violations) == 1
     assert "SPAN_HALLUCINATION" in violations[0]
     assert "hallucinated_fee_cap" in violations[0]
-
-
-def test_alg_a9b_crlf_genuine_hallucination_and_offset_mismatch_still_rejected(
-    pe_golden_contract: dict[str, Any],
-    pe_bronze_profile: dict[str, Any],
-) -> None:
-    """Alias for Issue #33 negative invariant & span_errors deduplication unit test."""
-    test_issue_33_gate5_deduplicates_span_errors_across_decisions(
-        pe_golden_contract=pe_golden_contract,
-        pe_bronze_profile=pe_bronze_profile,
-    )
 
 
 # ==============================================================================

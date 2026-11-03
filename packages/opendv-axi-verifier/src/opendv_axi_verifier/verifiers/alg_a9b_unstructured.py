@@ -46,24 +46,12 @@ def _span_matches_document(
     end: int,
     raw_quote: str,
 ) -> bool:
-    """Return True if `[start:end]` matches `raw_quote` after CRLF/CR -> LF normalization.
-
-    Supports both:
-    1. Canonical LF-normalized span offsets `[start:end]` sliced against LF-normalized `body`.
-    2. Raw CRLF span offsets `[start:end]` computed directly against an un-normalized CRLF
-       `raw_body` buffer prior to LF normalization.
-    """
+    """Return True if `[start:end]` matches `raw_quote` after CRLF/CR -> LF normalization."""
     norm_quote = _normalize_line_endings(raw_quote)
     if not norm_quote or start < 0 or end <= start:
         return False
     norm_body = _normalize_line_endings(raw_body)
-    if end <= len(norm_body) and norm_body[start:end] == norm_quote:
-        return True
-    return (
-        "\r" in raw_body
-        and end <= len(raw_body)
-        and _normalize_line_endings(raw_body[start:end]) == norm_quote
-    )
+    return end <= len(norm_body) and norm_body[start:end] == norm_quote
 
 
 
@@ -149,7 +137,9 @@ def evaluate_unstructured_er_routing(
                 for sp in er_spans:
                     conf = float(sp.get("confidence", sp.get("confidence_score", 0.0)))
                     margin = float(sp.get("top2_margin", 1.0))
-                    cand_name = str(sp.get("verbatim_quote") or sp.get("field") or "")
+                    cand_name = _normalize_line_endings(
+                        str(sp.get("verbatim_quote") or sp.get("field") or "")
+                    )
                     field_name = str(sp.get("field") or sp.get("attribute_name") or "")
                     tier, action = classify_er_resolution_tier(conf, margin)
                     diag_msg = (
@@ -178,7 +168,7 @@ def evaluate_unstructured_er_routing(
             else:
                 conf = float(doc.get("er_confidence_score", 0.0))
                 margin = float(doc.get("er_top2_margin", 1.0))
-                cand_name = str(doc.get("er_candidate_lp_name", ""))
+                cand_name = _normalize_line_endings(str(doc.get("er_candidate_lp_name", "")))
                 tier, action = classify_er_resolution_tier(conf, margin)
                 diag_msg = (
                     f"ASK_USER [Gate 5 - TIER_U3_CAPTAIN_HOLD]: Document '{doc_id}' "
