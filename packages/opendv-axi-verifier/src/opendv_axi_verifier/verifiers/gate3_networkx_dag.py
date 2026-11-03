@@ -171,7 +171,7 @@ def verify_structural_invariants(
     *,
     check_isolated_hubs: bool = True,
 ) -> list[str]:
-    """Gate 3 Verifier: Enforce `DV-STR-001` through `DV-STR-014` (`DV-G3-001`-`005`)
+    """Gate 3 Verifier: Enforce `DV-STR-001` through `DV-STR-015` (`DV-G3-001`-`005`)
     using a `networkx.MultiDiGraph` bipartite DAG model.
     """
     violations: list[str] = []
@@ -354,9 +354,7 @@ def verify_structural_invariants(
                 r1_has_d = any(tok in r1_u for tok in _SAL_DUPLICATE_TOKENS)
 
                 if r0_has_m or r0_has_d or r1_has_m or r1_has_d:
-                    canonical_role_order = (
-                        r0_has_m and not r0_has_d and r1_has_d and not r1_has_m
-                    )
+                    canonical_role_order = r0_has_m and not r0_has_d and r1_has_d and not r1_has_m
                 else:
                     fk0_has_m = any(tok in fk0_u for tok in _SAL_MASTER_TOKENS)
                     fk0_has_d = any(tok in fk0_u for tok in _SAL_DUPLICATE_TOKENS)

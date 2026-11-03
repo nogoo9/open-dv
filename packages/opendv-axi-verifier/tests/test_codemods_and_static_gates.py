@@ -8,7 +8,7 @@ Covers:
   - Algorithm A.5: SQLGlot AST Canonical Length-Prefixed SHA-256 Hash Recipe Builder
   - Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`006`)
   - Gate 1 & Gate 2: Contract Schema, Grain Statement (`>= 8` words), 100% Column Triage Ledger
-  - Gate 3: NetworkX Bipartite DAG Structural Verifier (`DV-STR-001`-`014` & `DV-COL-001`-`012`)
+  - Gate 3: NetworkX Bipartite DAG Structural Verifier (`DV-STR-001`-`015` & `DV-COL-001`-`012`)
   - Algorithm A.7: `N -> N+1` Additive Evolution Lock Verifier (`DV-EVO-001`-`006`)
   - Algorithm A.9a: Intra-Source Schema Drift Detector & Codemod (5 categories, Levenshtein >= 0.85)
   - Algorithm A.9b: Unstructured Document Grounding, Span Substring & 3-Tier ER Routing
@@ -1124,7 +1124,4 @@ def test_gate3_dv_str_015_canonical_sal_edge_ordering(
         }
     )
     v_dup_sal = verify_structural_invariants(dup_sal_contract)
-    assert any(
-        "DV-STR-015" in v and "sal_limited_partner_inverted" in v for v in v_dup_sal
-    )
-
+    assert any("DV-STR-015" in v and "sal_limited_partner_inverted" in v for v in v_dup_sal)

@@ -763,4 +763,3 @@ def test_scenario_s2_sal_canonical_ordering_and_dv_dyn_006_enforcement() -> None
     assert dyn_006_corrupted.passed is False
     assert dyn_006_corrupted.failing_rows >= 2
     conn.close()
-

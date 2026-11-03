@@ -442,7 +442,9 @@ def check_dv_dyn_006_bkcc_collision_and_sal(
     *,
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
-    """DV-DYN-006: Multi-Source BK Convergence & BKCC Isolation (`LP-101` & `sal`)."""
+    """DV-DYN-006: Multi-Source BK Convergence, BKCC Isolation & Canonical SAL Resolution
+    (`LP-101` & `sal_*`, rejecting reflexive `(A, A)` self-loops and inverted `(B, A)` pairs).
+    """
     if is_pe_domain(ir) or ir is None:
         lp_101_count = _scalar_int(
             conn,
