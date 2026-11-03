@@ -3,12 +3,18 @@
 from __future__ import annotations
 
 import argparse
+import sys
 from pathlib import Path
 from typing import Any
 
 import httpx
 
-from opendv_agent_harness import AgenticPipelineReport
+from opendv_agent_harness import (
+    AgenticPipelineReport,
+    HarnessEventKind,
+    HarnessStreamEvent,
+    PipelineStepReport,
+)
 from opendv_cli.api_client import OpenDVCliApiClient
 from opendv_platform_api.deps import (
     PipelineRunRequest,
@@ -18,6 +24,14 @@ from opendv_platform_api.deps import (
     normalize_rbac_role,
     redact_event_for_role,
 )
+
+
+def _format_short_stage_label(stage_id: str) -> str:
+    """Format `STAGE_01_SCOUT_SOURCE` as `STAGE 01`."""
+    parts = stage_id.split("_")
+    if len(parts) >= 2 and parts[0].upper() == "STAGE":
+        return f"STAGE {parts[1]}"
+    return stage_id
 
 
 def run_pipeline_command(
@@ -119,7 +133,68 @@ def run_pipeline_command(
             provider_override=provider,
             steward_hold_policy=hold_policy,
         )
-        res = state.execute_agentic_pipeline_run(run_req, role=eff_role)
+        stream_enabled = bool(getattr(args, "stream", True))
+        is_structured_stdout = bool(
+            getattr(args, "json_output", False) or getattr(args, "toon", False)
+        )
+        raw_stream_tokens = getattr(args, "stream_tokens", None)
+        stream_tokens_enabled = (
+            bool(raw_stream_tokens)
+            if raw_stream_tokens is not None
+            else bool(stream_enabled and not is_structured_stdout)
+        )
+        stream_target = sys.stderr if is_structured_stdout else sys.stdout
+        token_line_open = False
+
+        def _on_stage_start(
+            wave_idx: int,
+            stage_id: str,
+            agent_persona: str,
+            model_used: str,
+        ) -> None:
+            nonlocal token_line_open
+            if token_line_open:
+                print("", file=stream_target, flush=True)
+                token_line_open = False
+            short_stage = _format_short_stage_label(stage_id)
+            print(
+                f"[Wave {wave_idx}][{short_stage}] Starting {stage_id} "
+                f"({agent_persona}, model={model_used})...",
+                file=stream_target,
+                flush=True,
+            )
+
+        def _on_stage_complete(wave_idx: int, step_report: PipelineStepReport) -> None:
+            nonlocal token_line_open
+            if token_line_open:
+                print("", file=stream_target, flush=True)
+                token_line_open = False
+            short_stage = _format_short_stage_label(step_report.stage_id)
+            print(
+                f"[Wave {wave_idx}][{short_stage}] {step_report.stage_id} "
+                f"({step_report.persona}, model={step_report.model_used}) -> "
+                f"{step_report.status}: {step_report.summary} ({step_report.duration_ms}ms)",
+                file=stream_target,
+                flush=True,
+            )
+
+        def _on_stream_event(ev: HarnessStreamEvent) -> None:
+            nonlocal token_line_open
+            if ev.kind == HarnessEventKind.TEXT_DELTA and ev.delta_text:
+                print(ev.delta_text, end="", file=stream_target, flush=True)
+                token_line_open = not ev.delta_text.endswith("\n")
+
+        res = state.execute_agentic_pipeline_run(
+            run_req,
+            role=eff_role,
+            on_stage_start=_on_stage_start if stream_enabled else None,
+            on_stage_complete=_on_stage_complete if stream_enabled else None,
+            on_stream_event=_on_stream_event
+            if (stream_enabled and stream_tokens_enabled)
+            else None,
+        )
+        if token_line_open:
+            print("", file=stream_target, flush=True)
         passed = bool(res.get("overall_passed", False)) or (res.get("status") == "PAUSED_HOLD")
         return (0 if passed else 1), res
 

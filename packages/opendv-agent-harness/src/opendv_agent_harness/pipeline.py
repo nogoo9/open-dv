@@ -28,6 +28,7 @@ import re
 import tempfile
 import time
 import uuid
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -39,11 +40,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from opendv_agent_harness.hold_manager import StewardHoldManager, StewardHoldRecord
 from opendv_agent_harness.models import (
     AgentPersona,
+    AgentTaskSpec,
     DataClassification,
     HarnessBudget,
     HarnessConfig,
+    HarnessRunResult,
+    HarnessStreamEvent,
     ModelTier,
     ObservabilityVerdict,
+    OutputT,
     PipelineStageId,
     SandboxPolicy,
     VizId,
@@ -2591,6 +2596,9 @@ class AgenticVaultPipeline:
         cas_store: ContentAddressableStore | None = None,
         sdk_module: Any | None = None,
         harness: VaultAgentHarness | None = None,
+        on_stage_start: Callable[[int, str, str, str], None] | None = None,
+        on_stage_complete: Callable[[int, PipelineStepReport], None] | None = None,
+        on_stream_event: Callable[[HarnessStreamEvent], None] | None = None,
     ) -> None:
         self.input_spec = input_spec
         self.harness_setup = harness_setup or HarnessSetupConfig()
@@ -2603,7 +2611,42 @@ class AgenticVaultPipeline:
         self._explicit_cas_store = cas_store
         self._sdk_module = sdk_module
         self._explicit_harness = harness
+        self._on_stage_start = on_stage_start
+        self._on_stage_complete = on_stage_complete
+        self._on_stream_event = on_stream_event
         self._runtime_initialized = False
+
+    def _notify_stage_start(
+        self,
+        wave_index: int,
+        stage_id: str,
+        agent_persona: str,
+        model_used: str,
+    ) -> None:
+        """Invoke `on_stage_start` callback if configured."""
+        if self._on_stage_start is not None:
+            self._on_stage_start(wave_index, stage_id, agent_persona, model_used)
+
+    def _notify_stage_complete(
+        self,
+        wave_index: int,
+        step_report: PipelineStepReport,
+    ) -> None:
+        """Invoke `on_stage_complete` callback if configured."""
+        if self._on_stage_complete is not None:
+            self._on_stage_complete(wave_index, step_report)
+
+    async def _run_task_with_streaming(
+        self,
+        spec: AgentTaskSpec[OutputT],
+    ) -> HarnessRunResult[OutputT]:
+        """Execute `spec` on `self.harness`, streaming `HarnessStreamEvent`s if subscribed."""
+        if self._on_stream_event is None:
+            return await self.harness.run_task(spec)
+        try:
+            return await self.harness.run_task(spec, on_event=self._on_stream_event)
+        except TypeError:
+            return await self.harness.run_task(spec)
 
     def _ensure_runtime_initialized(self) -> None:
         if self._runtime_initialized:
@@ -2798,6 +2841,12 @@ class AgenticVaultPipeline:
             )
 
         self._ensure_runtime_initialized()
+        self._notify_stage_start(
+            0,
+            PipelineStageId.STAGE_00_ORCHESTRATION.value,
+            AgentPersona.VAULT_FIRST_MATE.value,
+            self.harness.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.VAULT_FIRST_MATE),
+        )
 
         ont_path, _ = _resolve_and_check_safe_path(
             self.input_spec.graph_a_ontology_path,
@@ -2837,7 +2886,7 @@ class AgenticVaultPipeline:
             run_id=run_id,
             trace_id=trace_id,
         ).model_copy(update={"output_schema": Stage00OrchestrationPlanOutput})
-        vfm_res = await self.harness.run_task(vfm_spec)
+        vfm_res = await self._run_task_with_streaming(vfm_spec)
         s0_plan = (
             vfm_res.structured_output
             if isinstance(vfm_res.structured_output, Stage00OrchestrationPlanOutput)
@@ -2920,29 +2969,29 @@ class AgenticVaultPipeline:
             s0_metrics["risk_assessment"] = s0_plan.risk_assessment
             s0_metrics["wave_execution_order"] = list(s0_plan.wave_execution_order)
 
-        step_reports.append(
-            PipelineStepReport(
-                step_id="step-w0-stage00-orchestration",
-                wave_index=0,
-                wave_name=self.input_spec.waves[0].wave_name,
-                stage_id=PipelineStageId.STAGE_00_ORCHESTRATION.value,
-                persona=AgentPersona.VAULT_FIRST_MATE.value,
-                model_tier=ModelTier.HIGH_REASONING.value,
-                model_used=vfm_res.model_used,
-                status="PASS",
-                attempt_count=1,
-                duration_ms=s0_ms,
-                summary=(
-                    f"Validated {input_val.checked_items_count} input items, loaded Graph A "
-                    f"ontology ({len(ontology.canonical_business_concepts)} CBCs), and "
-                    f"initialized {self.harness.provider_name} harness."
-                ),
-                tool_invocations=["emit_observability_event"],
-                input_artifact_sha256s=[],
-                output_artifact_sha256s=[ont_ref.sha256],
-                metrics=s0_metrics,
-            )
+        s0_step_report = PipelineStepReport(
+            step_id="step-w0-stage00-orchestration",
+            wave_index=0,
+            wave_name=self.input_spec.waves[0].wave_name,
+            stage_id=PipelineStageId.STAGE_00_ORCHESTRATION.value,
+            persona=AgentPersona.VAULT_FIRST_MATE.value,
+            model_tier=ModelTier.HIGH_REASONING.value,
+            model_used=vfm_res.model_used,
+            status="PASS",
+            attempt_count=1,
+            duration_ms=s0_ms,
+            summary=(
+                f"Validated {input_val.checked_items_count} input items, loaded Graph A "
+                f"ontology ({len(ontology.canonical_business_concepts)} CBCs), and "
+                f"initialized {self.harness.provider_name} harness."
+            ),
+            tool_invocations=["emit_observability_event"],
+            input_artifact_sha256s=[],
+            output_artifact_sha256s=[ont_ref.sha256],
+            metrics=s0_metrics,
         )
+        step_reports.append(s0_step_report)
+        self._notify_stage_complete(0, s0_step_report)
 
         # Cumulative state across waves
         cumulative_sources: dict[str, tuple[PipelineSourceFeedInput, Path]] = {}
@@ -3000,6 +3049,12 @@ class AgenticVaultPipeline:
             # STAGE 01: Scout-Source (Bronze Statistical Profiling & Drift)
             # ---------------------------------------------------------------
             t0_s1 = time.perf_counter()
+            self._notify_stage_start(
+                w_idx,
+                PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
+                AgentPersona.SCOUT_SOURCE.value,
+                self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_SOURCE),
+            )
             profiler = GraphBProfiler()
             wave_drift_events: list[dict[str, Any]] = []
             wave_columns_profiled = 0
@@ -3138,7 +3193,7 @@ class AgenticVaultPipeline:
                 scout_src_spec.model_tier, scout_src_spec.persona
             )
             if raw_prof_tables:
-                scout_src_res = await self.harness.run_task(scout_src_spec)
+                scout_src_res = await self._run_task_with_streaming(scout_src_spec)
                 s1_model_used = scout_src_res.model_used
                 s1_llm_discovery = (
                     scout_src_res.structured_output
@@ -3342,38 +3397,44 @@ class AgenticVaultPipeline:
 
             s1_step_id = f"step-w{w_idx}-stage01-scout-source"
             wave_step_ids.append(s1_step_id)
-            step_reports.append(
-                PipelineStepReport(
-                    step_id=s1_step_id,
-                    wave_index=w_idx,
-                    wave_name=w_name,
-                    stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
-                    persona=AgentPersona.SCOUT_SOURCE.value,
-                    model_tier=ModelTier.FAST_TIER.value,
-                    model_used=s1_model_used,
-                    status="AUTO_REPAIRED" if wave_drift_events else "PASS",
-                    attempt_count=1,
-                    duration_ms=s1_ms,
-                    summary=(
-                        f"Profiled {wave_sources_profiled} source(s) ({wave_columns_profiled} "
-                        f"columns); detected {len(wave_drift_events)} schema drift event(s)."
-                    ),
-                    tool_invocations=["profile_source_feed", "emit_observability_event"],
-                    input_artifact_sha256s=[ont_ref.sha256],
-                    output_artifact_sha256s=s1_out_shas,
-                    metrics={
-                        "sources_profiled": wave_sources_profiled,
-                        "columns_profiled": wave_columns_profiled,
-                        "schema_drift_events": len(wave_drift_events),
-                        "llm_structured_discovery_used": s1_llm_discovery is not None,
-                    },
-                )
+            s1_step_report = PipelineStepReport(
+                step_id=s1_step_id,
+                wave_index=w_idx,
+                wave_name=w_name,
+                stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
+                persona=AgentPersona.SCOUT_SOURCE.value,
+                model_tier=ModelTier.FAST_TIER.value,
+                model_used=s1_model_used,
+                status="AUTO_REPAIRED" if wave_drift_events else "PASS",
+                attempt_count=1,
+                duration_ms=s1_ms,
+                summary=(
+                    f"Profiled {wave_sources_profiled} source(s) ({wave_columns_profiled} "
+                    f"columns); detected {len(wave_drift_events)} schema drift event(s)."
+                ),
+                tool_invocations=["profile_source_feed", "emit_observability_event"],
+                input_artifact_sha256s=[ont_ref.sha256],
+                output_artifact_sha256s=s1_out_shas,
+                metrics={
+                    "sources_profiled": wave_sources_profiled,
+                    "columns_profiled": wave_columns_profiled,
+                    "schema_drift_events": len(wave_drift_events),
+                    "llm_structured_discovery_used": s1_llm_discovery is not None,
+                },
             )
+            step_reports.append(s1_step_report)
+            self._notify_stage_complete(w_idx, s1_step_report)
 
             # ---------------------------------------------------------------
             # STAGE 02: Scout-Unstructured (Span Grounding & 3-Tier ER)
             # ---------------------------------------------------------------
             t0_s2 = time.perf_counter()
+            self._notify_stage_start(
+                w_idx,
+                PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED.value,
+                AgentPersona.SCOUT_UNSTRUCTURED.value,
+                self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.SCOUT_UNSTRUCTURED),
+            )
             tier_counts: dict[str, int] = {"Tier-U1": 0, "Tier-U2": 0, "Tier-U3": 0}
             grounding_records: list[dict[str, Any]] = []
             s2_status: Literal[
@@ -3437,7 +3498,7 @@ class AgenticVaultPipeline:
                 scout_unstr_spec.model_tier, scout_unstr_spec.persona
             )
             if raw_loaded_docs:
-                scout_unstr_res = await self.harness.run_task(scout_unstr_spec)
+                scout_unstr_res = await self._run_task_with_streaming(scout_unstr_spec)
                 s2_model_used = scout_unstr_res.model_used
                 s2_llm_discovery = (
                     scout_unstr_res.structured_output
@@ -3661,37 +3722,43 @@ class AgenticVaultPipeline:
 
             s2_step_id = f"step-w{w_idx}-stage02-scout-unstructured"
             wave_step_ids.append(s2_step_id)
-            step_reports.append(
-                PipelineStepReport(
-                    step_id=s2_step_id,
-                    wave_index=w_idx,
-                    wave_name=w_name,
-                    stage_id=PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED.value,
-                    persona=AgentPersona.SCOUT_UNSTRUCTURED.value,
-                    model_tier=ModelTier.FAST_TIER.value,
-                    model_used=s2_model_used,
-                    status=s2_status,
-                    attempt_count=1,
-                    duration_ms=s2_ms,
-                    summary=(
-                        f"Processed {len(wave.unstructured_documents)} unstructured document(s) "
-                        f"with {len(grounding_records)} verified spans (tiers={tier_counts})."
-                    ),
-                    tool_invocations=["extract_pdf_spans", "emit_observability_event"],
-                    input_artifact_sha256s=[gb_ref.sha256],
-                    output_artifact_sha256s=[ug_ref.sha256],
-                    metrics={
-                        "tier_counts": tier_counts,
-                        "llm_structured_extraction_used": s2_llm_discovery is not None,
-                    },
-                )
+            s2_step_report = PipelineStepReport(
+                step_id=s2_step_id,
+                wave_index=w_idx,
+                wave_name=w_name,
+                stage_id=PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED.value,
+                persona=AgentPersona.SCOUT_UNSTRUCTURED.value,
+                model_tier=ModelTier.FAST_TIER.value,
+                model_used=s2_model_used,
+                status=s2_status,
+                attempt_count=1,
+                duration_ms=s2_ms,
+                summary=(
+                    f"Processed {len(wave.unstructured_documents)} unstructured document(s) "
+                    f"with {len(grounding_records)} verified spans (tiers={tier_counts})."
+                ),
+                tool_invocations=["extract_pdf_spans", "emit_observability_event"],
+                input_artifact_sha256s=[gb_ref.sha256],
+                output_artifact_sha256s=[ug_ref.sha256],
+                metrics={
+                    "tier_counts": tier_counts,
+                    "llm_structured_extraction_used": s2_llm_discovery is not None,
+                },
             )
+            step_reports.append(s2_step_report)
+            self._notify_stage_complete(w_idx, s2_step_report)
 
             # ---------------------------------------------------------------
             # STAGE 03 & STAGE 04: Ship-Vault Pass 1 (100% Column Triage)
             # & Pass 2 (CumulativeDV 2.0 Contract Synthesis)
             # ---------------------------------------------------------------
             t0_s3 = time.perf_counter()
+            self._notify_stage_start(
+                w_idx,
+                PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
+                AgentPersona.SHIP_VAULT.value,
+                self.harness.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.SHIP_VAULT),
+            )
             s3_ctx = {
                 "stage": "STAGE_03_SHIP_VAULT_PASS1",
                 "wave_index": w_idx,
@@ -3733,7 +3800,7 @@ class AgenticVaultPipeline:
                 viz_id=VizId.VIZ_STEP_05,
                 output_schema=Stage03ColumnTriageOutput,
             )
-            pass1_res = await self.harness.run_task(pass1_spec)
+            pass1_res = await self._run_task_with_streaming(pass1_spec)
             expected_col_keys = {
                 (tbl_obj.bronze_table, col_obj.column_name)
                 for sys_obj in wave_gb_profile.source_systems
@@ -3845,36 +3912,42 @@ class AgenticVaultPipeline:
 
             s3_step_id = f"step-w{w_idx}-stage03-ship-vault-pass1"
             wave_step_ids.append(s3_step_id)
-            step_reports.append(
-                PipelineStepReport(
-                    step_id=s3_step_id,
-                    wave_index=w_idx,
-                    wave_name=w_name,
-                    stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
-                    persona=AgentPersona.SHIP_VAULT.value,
-                    model_tier=ModelTier.HIGH_REASONING.value,
-                    model_used=pass1_res.model_used,
-                    status="PASS",
-                    attempt_count=1,
-                    duration_ms=s3_ms,
-                    summary=(
-                        f"Synthesized Pass 1 Column Triage Ledger covering "
-                        f"{len(pass1_ledger)} cumulative column(s)."
+            s3_step_report = PipelineStepReport(
+                step_id=s3_step_id,
+                wave_index=w_idx,
+                wave_name=w_name,
+                stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
+                persona=AgentPersona.SHIP_VAULT.value,
+                model_tier=ModelTier.HIGH_REASONING.value,
+                model_used=pass1_res.model_used,
+                status="PASS",
+                attempt_count=1,
+                duration_ms=s3_ms,
+                summary=(
+                    f"Synthesized Pass 1 Column Triage Ledger covering "
+                    f"{len(pass1_ledger)} cumulative column(s)."
+                ),
+                tool_invocations=["emit_observability_event"],
+                input_artifact_sha256s=[gb_ref.sha256, ug_ref.sha256],
+                output_artifact_sha256s=[triage_ref.sha256],
+                metrics={
+                    "triaged_column_count": len(pass1_ledger),
+                    "llm_structured_triage_used": isinstance(
+                        pass1_res.structured_output, Stage03ColumnTriageOutput
                     ),
-                    tool_invocations=["emit_observability_event"],
-                    input_artifact_sha256s=[gb_ref.sha256, ug_ref.sha256],
-                    output_artifact_sha256s=[triage_ref.sha256],
-                    metrics={
-                        "triaged_column_count": len(pass1_ledger),
-                        "llm_structured_triage_used": isinstance(
-                            pass1_res.structured_output, Stage03ColumnTriageOutput
-                        ),
-                    },
-                )
+                },
             )
+            step_reports.append(s3_step_report)
+            self._notify_stage_complete(w_idx, s3_step_report)
 
             # STAGE 04: Pass 2 Candidate Contract Synthesis
             t0_s4 = time.perf_counter()
+            self._notify_stage_start(
+                w_idx,
+                PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
+                AgentPersona.SHIP_VAULT.value,
+                self.harness.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.SHIP_VAULT),
+            )
             s4_ctx = {
                 **s3_ctx,
                 "stage": "STAGE_04_SHIP_VAULT_PASS2",
@@ -3896,7 +3969,7 @@ class AgenticVaultPipeline:
                 viz_id=VizId.VIZ_STEP_06,
                 output_schema=Stage04ContractSynthesisOutput,
             )
-            ship_res = await self.harness.run_task(ship_spec)
+            ship_res = await self._run_task_with_streaming(ship_spec)
             fallback_s4 = synthesize_stage_output_from_prompt(
                 Stage04ContractSynthesisOutput,
                 ship_spec.prompt,
@@ -4017,33 +4090,33 @@ class AgenticVaultPipeline:
 
             s4_step_id = f"step-w{w_idx}-stage04-ship-vault-pass2"
             wave_step_ids.append(s4_step_id)
-            step_reports.append(
-                PipelineStepReport(
-                    step_id=s4_step_id,
-                    wave_index=w_idx,
-                    wave_name=w_name,
-                    stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
-                    persona=AgentPersona.SHIP_VAULT.value,
-                    model_tier=ModelTier.HIGH_REASONING.value,
-                    model_used=ship_res.model_used,
-                    status="PASS",
-                    attempt_count=1,
-                    duration_ms=s4_ms,
-                    summary=(
-                        f"Synthesized candidate contract v5.0 ({len(candidate_contract['hubs'])} "
-                        f"Hubs, {len(candidate_contract['links'])} Links, "
-                        f"{len(candidate_contract['satellites'])} Satellites)."
-                    ),
-                    tool_invocations=["apply_ast_codemod", "emit_observability_event"],
-                    input_artifact_sha256s=[triage_ref.sha256],
-                    output_artifact_sha256s=[att1_ref.sha256],
-                    metrics={
-                        "hubs": len(candidate_contract["hubs"]),
-                        "links": len(candidate_contract["links"]),
-                        "satellites": len(candidate_contract["satellites"]),
-                    },
-                )
+            s4_step_report = PipelineStepReport(
+                step_id=s4_step_id,
+                wave_index=w_idx,
+                wave_name=w_name,
+                stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
+                persona=AgentPersona.SHIP_VAULT.value,
+                model_tier=ModelTier.HIGH_REASONING.value,
+                model_used=ship_res.model_used,
+                status="PASS",
+                attempt_count=1,
+                duration_ms=s4_ms,
+                summary=(
+                    f"Synthesized candidate contract v5.0 ({len(candidate_contract['hubs'])} "
+                    f"Hubs, {len(candidate_contract['links'])} Links, "
+                    f"{len(candidate_contract['satellites'])} Satellites)."
+                ),
+                tool_invocations=["apply_ast_codemod", "emit_observability_event"],
+                input_artifact_sha256s=[triage_ref.sha256],
+                output_artifact_sha256s=[att1_ref.sha256],
+                metrics={
+                    "hubs": len(candidate_contract["hubs"]),
+                    "links": len(candidate_contract["links"]),
+                    "satellites": len(candidate_contract["satellites"]),
+                },
             )
+            step_reports.append(s4_step_report)
+            self._notify_stage_complete(w_idx, s4_step_report)
 
             # ---------------------------------------------------------------
             # STAGE 05: AXI-DV Static Gates (G0-G5) & @toon_v1 Self-Healing
@@ -4055,6 +4128,12 @@ class AgenticVaultPipeline:
             attempt_num = 1
             axi_res = None
             s5_model_used = self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV)
+            self._notify_stage_start(
+                w_idx,
+                PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
+                AgentPersona.AXI_DV.value,
+                s5_model_used,
+            )
 
             for attempt_num in range(1, max_attempts + 1):
                 axi_res = run_axi_dv_verification_pipeline(
@@ -4119,7 +4198,7 @@ class AgenticVaultPipeline:
                         viz_id=VizId.VIZ_GATE_04,
                         output_schema=Stage04ContractSynthesisOutput,
                     )
-                    repair_res = await self.harness.run_task(repair_spec)
+                    repair_res = await self._run_task_with_streaming(repair_spec)
                     s5_model_used = repair_res.model_used
                     fallback_rep = synthesize_stage_output_from_prompt(
                         Stage04ContractSynthesisOutput,
@@ -4357,47 +4436,53 @@ class AgenticVaultPipeline:
 
             s5_step_id = f"step-w{w_idx}-stage05-axi-dv-static-gates"
             wave_step_ids.append(s5_step_id)
-            step_reports.append(
-                PipelineStepReport(
-                    step_id=s5_step_id,
-                    wave_index=w_idx,
-                    wave_name=w_name,
-                    stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
-                    persona=AgentPersona.AXI_DV.value,
-                    model_tier=ModelTier.FAST_TIER.value,
-                    model_used=s5_model_used,
-                    status=s5_status,
-                    attempt_count=attempt_num,
-                    duration_ms=s5_ms,
-                    summary=(
-                        f"6-Gate static verification finished in {attempt_num} attempt(s) "
-                        f"with status {s5_status}; codemods={axi_res.applied_codemods}."
-                    ),
-                    tool_invocations=[
-                        "run_axi_dv_gates",
-                        "apply_ast_codemod",
-                        "emit_observability_event",
-                    ],
-                    input_artifact_sha256s=[att1_ref.sha256],
-                    output_artifact_sha256s=s5_out_shas,
-                    metrics={
-                        "self_healing_attempts": attempt_num,
-                        "applied_codemods": axi_res.applied_codemods,
-                        "gate_scorecard": gate_scorecard,
-                    },
-                    diagnostics=[
-                        {"message": d}
-                        for d in axi_res.diagnostics
-                        if not d.startswith("ALL_GATES_GREEN")
-                    ],
-                )
+            s5_step_report = PipelineStepReport(
+                step_id=s5_step_id,
+                wave_index=w_idx,
+                wave_name=w_name,
+                stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
+                persona=AgentPersona.AXI_DV.value,
+                model_tier=ModelTier.FAST_TIER.value,
+                model_used=s5_model_used,
+                status=s5_status,
+                attempt_count=attempt_num,
+                duration_ms=s5_ms,
+                summary=(
+                    f"6-Gate static verification finished in {attempt_num} attempt(s) "
+                    f"with status {s5_status}; codemods={axi_res.applied_codemods}."
+                ),
+                tool_invocations=[
+                    "run_axi_dv_gates",
+                    "apply_ast_codemod",
+                    "emit_observability_event",
+                ],
+                input_artifact_sha256s=[att1_ref.sha256],
+                output_artifact_sha256s=s5_out_shas,
+                metrics={
+                    "self_healing_attempts": attempt_num,
+                    "applied_codemods": axi_res.applied_codemods,
+                    "gate_scorecard": gate_scorecard,
+                },
+                diagnostics=[
+                    {"message": d}
+                    for d in axi_res.diagnostics
+                    if not d.startswith("ALL_GATES_GREEN")
+                ],
             )
+            step_reports.append(s5_step_report)
+            self._notify_stage_complete(w_idx, s5_step_report)
 
             # ---------------------------------------------------------------
             # STAGE 06: AXI-DV Dynamic Sandbox (Canonical IR, 4-Zone SQL,
             #           4-Batch DuckDB Shadow Sandbox + DV-DYN-001..015)
             # ---------------------------------------------------------------
             t0_s6 = time.perf_counter()
+            self._notify_stage_start(
+                w_idx,
+                PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
+                AgentPersona.AXI_DV.value,
+                self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV),
+            )
             canonical_ir = lower_contract_to_canonical_ir(
                 verified_contract_dict,
                 graph_b_profile=wave_gb_profile,
@@ -4506,33 +4591,33 @@ class AgenticVaultPipeline:
 
             s6_step_id = f"step-w{w_idx}-stage06-axi-dv-dynamic-sandbox"
             wave_step_ids.append(s6_step_id)
-            step_reports.append(
-                PipelineStepReport(
-                    step_id=s6_step_id,
-                    wave_index=w_idx,
-                    wave_name=w_name,
-                    stage_id=PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
-                    persona=AgentPersona.AXI_DV.value,
-                    model_tier=ModelTier.FAST_TIER.value,
-                    model_used=self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV),
-                    status=s6_status,
-                    attempt_count=1,
-                    duration_ms=s6_ms,
-                    summary=(
-                        f"Lowered Canonical IR, compiled 4-Zone SQL, and ran 4-Batch "
-                        f"DuckDB Shadow Sandbox ({sbx_report.dynamic_check_report.passed_count}/"
-                        f"{total_dyn_checks} DV-DYN checks)."
-                    ),
-                    tool_invocations=[
-                        "compile_canonical_ir",
-                        "execute_duckdb_sandbox",
-                        "emit_observability_event",
-                    ],
-                    input_artifact_sha256s=[ver_contract_ref.sha256],
-                    output_artifact_sha256s=[ir_ref.sha256, sql_ref.sha256],
-                    metrics=sandbox_summary,
-                )
+            s6_step_report = PipelineStepReport(
+                step_id=s6_step_id,
+                wave_index=w_idx,
+                wave_name=w_name,
+                stage_id=PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
+                persona=AgentPersona.AXI_DV.value,
+                model_tier=ModelTier.FAST_TIER.value,
+                model_used=self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV),
+                status=s6_status,
+                attempt_count=1,
+                duration_ms=s6_ms,
+                summary=(
+                    f"Lowered Canonical IR, compiled 4-Zone SQL, and ran 4-Batch "
+                    f"DuckDB Shadow Sandbox ({sbx_report.dynamic_check_report.passed_count}/"
+                    f"{total_dyn_checks} DV-DYN checks)."
+                ),
+                tool_invocations=[
+                    "compile_canonical_ir",
+                    "execute_duckdb_sandbox",
+                    "emit_observability_event",
+                ],
+                input_artifact_sha256s=[ver_contract_ref.sha256],
+                output_artifact_sha256s=[ir_ref.sha256, sql_ref.sha256],
+                metrics=sandbox_summary,
             )
+            step_reports.append(s6_step_report)
+            self._notify_stage_complete(w_idx, s6_step_report)
 
             wave_status: Literal[
                 "PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"
@@ -4598,6 +4683,12 @@ class AgenticVaultPipeline:
         # STAGE 07: Deterministic Compiler & Final Output Certification
         # -------------------------------------------------------------------
         t0_s7 = time.perf_counter()
+        self._notify_stage_start(
+            wave_reports[-1].wave_index,
+            PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+            AgentPersona.DETERMINISTIC_COMPILER.value,
+            self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER),
+        )
         assert last_canonical_ir is not None
         assert last_contract_ref is not None
         assert last_ir_ref is not None
@@ -4692,39 +4783,39 @@ class AgenticVaultPipeline:
         s7_ms = round((time.perf_counter() - t0_s7) * 1000.0, 3)
         s7_step_id = f"step-w{wave_reports[-1].wave_index}-stage07-deterministic-compiler"
         wave_reports[-1].step_ids.append(s7_step_id)
-        step_reports.append(
-            PipelineStepReport(
-                step_id=s7_step_id,
-                wave_index=wave_reports[-1].wave_index,
-                wave_name=wave_reports[-1].wave_name,
-                stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
-                persona=AgentPersona.DETERMINISTIC_COMPILER.value,
-                model_tier=ModelTier.FAST_TIER.value,
-                model_used=self.harness.resolve_model(
-                    ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER
-                ),
-                status="PASS",
-                attempt_count=1,
-                duration_ms=s7_ms,
-                summary=(
-                    "Materialized final contract, Canonical IR, 4-Zone SQL, and "
-                    "certified CAS + PII output invariants."
-                ),
-                tool_invocations=["compile_canonical_ir", "emit_observability_event"],
-                input_artifact_sha256s=[
-                    last_contract_ref.sha256,
-                    last_ir_ref.sha256,
-                    last_sql_ref.sha256,
-                ],
-                output_artifact_sha256s=[
-                    final_contract_ref.sha256,
-                    final_ir_ref.sha256,
-                    final_sql_ref.sha256,
-                    final_ledger_ref.sha256,
-                ],
-                metrics={"observability_events_emitted": len(observability_events)},
-            )
+        s7_step_report = PipelineStepReport(
+            step_id=s7_step_id,
+            wave_index=wave_reports[-1].wave_index,
+            wave_name=wave_reports[-1].wave_name,
+            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+            persona=AgentPersona.DETERMINISTIC_COMPILER.value,
+            model_tier=ModelTier.FAST_TIER.value,
+            model_used=self.harness.resolve_model(
+                ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER
+            ),
+            status="PASS",
+            attempt_count=1,
+            duration_ms=s7_ms,
+            summary=(
+                "Materialized final contract, Canonical IR, 4-Zone SQL, and "
+                "certified CAS + PII output invariants."
+            ),
+            tool_invocations=["compile_canonical_ir", "emit_observability_event"],
+            input_artifact_sha256s=[
+                last_contract_ref.sha256,
+                last_ir_ref.sha256,
+                last_sql_ref.sha256,
+            ],
+            output_artifact_sha256s=[
+                final_contract_ref.sha256,
+                final_ir_ref.sha256,
+                final_sql_ref.sha256,
+                final_ledger_ref.sha256,
+            ],
+            metrics={"observability_events_emitted": len(observability_events)},
         )
+        step_reports.append(s7_step_report)
+        self._notify_stage_complete(wave_reports[-1].wave_index, s7_step_report)
 
         active_holds = [
             h.model_dump(mode="json")
@@ -6403,6 +6494,9 @@ def run_agentic_vault_pipeline(
     cas_store: ContentAddressableStore | None = None,
     sdk_module: Any | None = None,
     harness: VaultAgentHarness | None = None,
+    on_stage_start: Callable[[int, str, str, str], None] | None = None,
+    on_stage_complete: Callable[[int, PipelineStepReport], None] | None = None,
+    on_stream_event: Callable[[HarnessStreamEvent], None] | None = None,
 ) -> AgenticPipelineReport:
     """Execute the end-to-end 8-stage neuro-symbolic Data Vault 2.0 pipeline."""
     eff_base: Path | None = Path(base_dir).resolve() if base_dir is not None else None
@@ -6430,6 +6524,9 @@ def run_agentic_vault_pipeline(
         cas_store=cas_store,
         sdk_module=sdk_module,
         harness=harness,
+        on_stage_start=on_stage_start,
+        on_stage_complete=on_stage_complete,
+        on_stream_event=on_stream_event,
     )
     return pipeline.run()
 

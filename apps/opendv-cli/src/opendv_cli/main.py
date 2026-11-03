@@ -21,7 +21,19 @@ from opendv_cli.commands import (
 )
 
 SUBCOMMANDS = {"verify", "profile", "compile", "sandbox", "run", "hold", "pipeline"}
-_BOOLEAN_FLAGS = frozenset({"-h", "--help", "--local", "--json", "--toon"})
+_BOOLEAN_FLAGS = frozenset(
+    {
+        "-h",
+        "--help",
+        "--local",
+        "--json",
+        "--toon",
+        "--stream",
+        "--no-stream",
+        "--stream-tokens",
+        "--no-stream-tokens",
+    }
+)
 
 
 def _has_explicit_subcommand(raw_args: list[str]) -> bool:
@@ -366,6 +378,25 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
         dest="report_path",
         default=None,
         help="Optional local path to a pipeline_report.json file for 'pipeline report'.",
+    )
+    p_pipeline.add_argument(
+        "--stream",
+        dest="stream",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Enable or disable live stage progress streaming during 'pipeline run' (default: True)."
+        ),
+    )
+    p_pipeline.add_argument(
+        "--stream-tokens",
+        dest="stream_tokens",
+        action=argparse.BooleanOptionalAction,
+        default=None,
+        help=(
+            "Enable or disable live LLM token/text delta streaming during 'pipeline run' "
+            "(default: True when --stream is enabled and --json/--toon is not set)."
+        ),
     )
 
     return parser

@@ -1,7 +1,7 @@
 """Claude Code CLI (`claude`) Adapter for the Open-DV Agent Harness.
 
 Executes non-interactive agentic turns via the local logged-in Claude Code CLI (`claude -p`)
-with `--output-format json`, `--json-schema <schema_json>`, `--model <model_id>`,
+with `--output-format stream-json`, `--json-schema <schema_json>`, `--model <model_id>`,
 `--system-prompt <instructions>`, `--agents <subagents_json>`, `--disable-slash-commands`,
 and `--tools ""`.
 
@@ -13,6 +13,7 @@ and docs/09-agnostic-agent-harness-and-sdk-spec.md.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import os
 import shutil
@@ -21,6 +22,10 @@ from collections.abc import AsyncIterator, Callable
 from pathlib import Path
 from typing import Any
 
+from opendv_agent_harness.adapters.agy_cli_adapter import (
+    _is_non_result_stream_event,
+    _parse_ndjson_stream_line,
+)
 from opendv_agent_harness.adapters.antigravity_adapter import (
     ProviderConfigurationError,
     _strip_markdown_json_fences,
@@ -54,14 +59,40 @@ def _strip_internal_stage_context(prompt: str) -> str:
 
 
 def _extract_json_from_stdout(raw_stdout: str) -> dict[str, Any]:
-    """Extract the JSON result object emitted by `claude -p --output-format json`."""
+    """Extract the JSON result object emitted by `claude -p --output-format stream-json`."""
     stripped = raw_stdout.strip()
     if not stripped:
         raise ProviderConfigurationError("Claude Code CLI ('claude') returned empty stdout.")
 
+    last_result: dict[str, Any] | None = None
+    streamed_text_chunks: list[str] = []
+    seen_fine = False
+    for raw_line in stripped.splitlines():
+        _, text_deltas, result_obj, is_fine = _parse_ndjson_stream_line(
+            raw_line,
+            seen_fine_grained_deltas=seen_fine,
+        )
+        if is_fine:
+            seen_fine = True
+        if text_deltas:
+            streamed_text_chunks.extend(text_deltas)
+        if result_obj is not None:
+            last_result = dict(result_obj)
+
+    if last_result is not None:
+        if not (last_result.get("result") or last_result.get("response")) and streamed_text_chunks:
+            last_result["result"] = "".join(streamed_text_chunks)
+        return last_result
+
+    if streamed_text_chunks:
+        return {
+            "status": "SUCCESS",
+            "result": "".join(streamed_text_chunks),
+        }
+
     try:
         parsed = json.loads(stripped)
-        if isinstance(parsed, dict):
+        if isinstance(parsed, dict) and not _is_non_result_stream_event(parsed):
             return parsed
     except json.JSONDecodeError:
         pass
@@ -71,7 +102,7 @@ def _extract_json_from_stdout(raw_stdout: str) -> dict[str, Any]:
         if candidate.startswith("{") and candidate.endswith("}"):
             try:
                 parsed_line = json.loads(candidate)
-                if isinstance(parsed_line, dict):
+                if isinstance(parsed_line, dict) and not _is_non_result_stream_event(parsed_line):
                     return parsed_line
             except json.JSONDecodeError:
                 continue
@@ -81,7 +112,7 @@ def _extract_json_from_stdout(raw_stdout: str) -> dict[str, Any]:
     if 0 <= first_brace < last_brace:
         try:
             parsed_slice = json.loads(stripped[first_brace : last_brace + 1])
-            if isinstance(parsed_slice, dict):
+            if isinstance(parsed_slice, dict) and not _is_non_result_stream_event(parsed_slice):
                 return parsed_slice
         except json.JSONDecodeError:
             pass
@@ -96,7 +127,7 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
 
     Registered under `provider: 'claude-cli'` and `provider: 'claude-code'`.
     Invokes the local `claude` binary in non-interactive `--print` (`-p`) mode with
-    `--model <model_id>`, `--output-format json`, `--json-schema <schema_json>`,
+    `--model <model_id>`, `--output-format stream-json`, `--json-schema <schema_json>`,
     `--system-prompt <instructions>`, `--agents <subagents_json>`,
     `--disable-slash-commands`, and `--tools ""`.
     """
@@ -246,6 +277,69 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             check=False,
         )
 
+    async def _stream_claude_subprocess_lines(
+        self,
+        cmd: list[str],
+        env: dict[str, str],
+        timeout_seconds: float,
+        state_out: dict[str, Any],
+    ) -> AsyncIterator[str]:
+        """Execute `claude` CLI and yield stdout lines in real time."""
+        custom_runner = self._config.extra_provider_options.get("claude_cli_runner")
+        is_mock_subproc = getattr(subprocess.run, "__module__", "subprocess") != "subprocess"
+        if callable(custom_runner) or is_mock_subproc:
+            completed = await asyncio.to_thread(
+                self._invoke_claude_subprocess,
+                cmd,
+                env,
+                timeout_seconds,
+            )
+            state_out["returncode"] = completed.returncode
+            state_out["stdout"] = completed.stdout or ""
+            state_out["stderr"] = completed.stderr or ""
+            for line in (completed.stdout or "").splitlines():
+                yield line
+            return
+
+        self._config.state_dir.mkdir(parents=True, exist_ok=True)
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+            cwd=str(self._config.state_dir),
+            limit=16 * 1024 * 1024,
+        )
+        stdout_lines: list[str] = []
+        stderr_bytes = b""
+        returncode = -1
+        try:
+            try:
+                async with asyncio.timeout(timeout_seconds):
+                    assert proc.stdout is not None
+                    while True:
+                        raw_bytes = await proc.stdout.readline()
+                        if not raw_bytes:
+                            break
+                        decoded_line = raw_bytes.decode("utf-8", errors="replace")
+                        stdout_lines.append(decoded_line)
+                        yield decoded_line.rstrip("\r\n")
+                    stderr_bytes = await proc.stderr.read() if proc.stderr is not None else b""
+                    returncode = await proc.wait()
+            except TimeoutError as exc:
+                raise ProviderConfigurationError(
+                    f"Claude Code CLI ('claude') timed out after {timeout_seconds}s."
+                ) from exc
+        finally:
+            if proc.returncode is None:
+                with contextlib.suppress(ProcessLookupError):
+                    proc.kill()
+                await proc.wait()
+
+        state_out["returncode"] = returncode
+        state_out["stdout"] = "".join(stdout_lines)
+        state_out["stderr"] = stderr_bytes.decode("utf-8", errors="replace")
+
     async def _stream_provider_task(
         self,
         spec: AgentTaskSpec[OutputT],
@@ -293,6 +387,11 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
                 separators=(",", ":"),
             )
 
+        streamed_text_chunks: list[str] = []
+        emitted_any_text_delta = False
+        seen_fine_grained = False
+        last_result_payload: dict[str, Any] | None = None
+
         prompt_text = self._build_cli_prompt(spec, include_inline_schema=False)
         cmd: list[str] = [
             claude_bin,
@@ -301,7 +400,7 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             "--model",
             model_id,
             "--output-format",
-            "json",
+            "stream-json",
             "--disable-slash-commands",
             "--tools",
             "",
@@ -315,15 +414,34 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
         if spec.resume_session_id:
             cmd.extend(["--resume", spec.resume_session_id])
 
-        completed = await asyncio.to_thread(
-            self._invoke_claude_subprocess,
+        run_state: dict[str, Any] = {"returncode": 0, "stdout": "", "stderr": ""}
+        async for raw_line in self._stream_claude_subprocess_lines(
             cmd,
             proc_env,
             self._config.budget.timeout_seconds,
-        )
+            run_state,
+        ):
+            thought_deltas, text_deltas, result_obj, is_fine = _parse_ndjson_stream_line(
+                raw_line,
+                seen_fine_grained_deltas=seen_fine_grained,
+            )
+            if is_fine:
+                seen_fine_grained = True
+            for t_chunk in thought_deltas:
+                yield make_event(HarnessEventKind.THOUGHT_DELTA, delta_text=t_chunk)
+            for c_chunk in text_deltas:
+                streamed_text_chunks.append(c_chunk)
+                emitted_any_text_delta = True
+                yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=c_chunk)
+            if result_obj is not None:
+                last_result_payload = dict(result_obj)
 
         # Fallback without --json-schema flag if the CLI rejected a complex $defs schema
-        if completed.returncode != 0 and schema_json_str is not None:
+        if run_state["returncode"] != 0 and schema_json_str is not None:
+            streamed_text_chunks.clear()
+            emitted_any_text_delta = False
+            seen_fine_grained = False
+            last_result_payload = None
             fallback_prompt = self._build_cli_prompt(spec, include_inline_schema=True)
             fallback_cmd: list[str] = [
                 claude_bin,
@@ -332,7 +450,7 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
                 "--model",
                 model_id,
                 "--output-format",
-                "json",
+                "stream-json",
                 "--disable-slash-commands",
                 "--tools",
                 "",
@@ -343,21 +461,50 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
                 fallback_cmd.extend(["--agents", agents_json])
             if spec.resume_session_id:
                 fallback_cmd.extend(["--resume", spec.resume_session_id])
-            completed = await asyncio.to_thread(
-                self._invoke_claude_subprocess,
+            run_state = {"returncode": 0, "stdout": "", "stderr": ""}
+            async for raw_line in self._stream_claude_subprocess_lines(
                 fallback_cmd,
                 proc_env,
                 self._config.budget.timeout_seconds,
-            )
+                run_state,
+            ):
+                thought_deltas, text_deltas, result_obj, is_fine = _parse_ndjson_stream_line(
+                    raw_line,
+                    seen_fine_grained_deltas=seen_fine_grained,
+                )
+                if is_fine:
+                    seen_fine_grained = True
+                for t_chunk in thought_deltas:
+                    yield make_event(HarnessEventKind.THOUGHT_DELTA, delta_text=t_chunk)
+                for c_chunk in text_deltas:
+                    streamed_text_chunks.append(c_chunk)
+                    emitted_any_text_delta = True
+                    yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=c_chunk)
+                if result_obj is not None:
+                    last_result_payload = dict(result_obj)
 
-        if completed.returncode != 0 and not completed.stdout.strip():
-            stderr_msg = completed.stderr.strip() or f"exit code {completed.returncode}"
+        if run_state["returncode"] != 0:
+            stderr_msg = str(run_state["stderr"]).strip()
+            if not stderr_msg and last_result_payload is not None:
+                stderr_msg = str(
+                    last_result_payload.get("error")
+                    or last_result_payload.get("result")
+                    or last_result_payload.get("response")
+                    or ""
+                ).strip()
+            if not stderr_msg:
+                stderr_msg = f"exit code {run_state['returncode']}"
             raise ProviderConfigurationError(
                 f"Claude Code CLI ('claude') failed ({stderr_msg}). "
                 "Ensure 'claude' is logged in and accessible."
             )
 
-        payload = _extract_json_from_stdout(completed.stdout)
+        if last_result_payload is not None:
+            payload = last_result_payload
+            if not (payload.get("result") or payload.get("response")) and streamed_text_chunks:
+                payload["result"] = "".join(streamed_text_chunks)
+        else:
+            payload = _extract_json_from_stdout(str(run_state["stdout"]))
 
         status_raw = payload.get("status") or payload.get("subtype") or "SUCCESS"
         status_val = str(status_raw).upper()
@@ -380,12 +527,14 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             raw_structured = raw_result
 
         raw_response_text = str(raw_result) if isinstance(raw_result, str) else ""
+        if not raw_response_text and streamed_text_chunks:
+            raw_response_text = "".join(streamed_text_chunks)
         if not raw_response_text and raw_structured is not None:
             raw_response_text = (
                 raw_structured if isinstance(raw_structured, str) else json.dumps(raw_structured)
             )
 
-        if raw_response_text:
+        if raw_response_text and not emitted_any_text_delta:
             yield make_event(HarnessEventKind.TEXT_DELTA, delta_text=raw_response_text)
 
         for obs_ev in ctx.pop_unstreamed_events():

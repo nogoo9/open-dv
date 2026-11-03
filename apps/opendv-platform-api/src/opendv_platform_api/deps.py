@@ -7,6 +7,7 @@ import json
 import re
 import shutil
 import tempfile
+from collections.abc import Callable
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
@@ -22,7 +23,9 @@ from opendv_agent_harness import (
     AgenticPipelineReport,
     DeterministicValidationReport,
     HarnessSetupConfig,
+    HarnessStreamEvent,
     PipelineInputSpec,
+    PipelineStepReport,
     StewardHoldManager,
     build_observability_event_dict,
     run_agentic_vault_pipeline,
@@ -1800,6 +1803,10 @@ class PlatformStateContainer:
         self,
         req: PipelineRunRequest,
         role: RbacRole | str = RbacRole.PUBLIC,
+        *,
+        on_stage_start: Callable[[int, str, str, str], None] | None = None,
+        on_stage_complete: Callable[[int, PipelineStepReport], None] | None = None,
+        on_stream_event: Callable[[HarnessStreamEvent], None] | None = None,
     ) -> dict[str, Any]:
         """Execute an end-to-end 8-stage agentic pipeline run and register state in platform."""
         eff_role = normalize_rbac_role(role, default=RbacRole.PUBLIC)
@@ -1834,6 +1841,9 @@ class PlatformStateContainer:
             output_dir=out_dir,
             base_dir=base_dir,
             cas_store=self.cas_store,
+            on_stage_start=on_stage_start,
+            on_stage_complete=on_stage_complete,
+            on_stream_event=on_stream_event,
         )
 
         # Store all intermediate and final artifacts in self.cas_store and self.artifacts

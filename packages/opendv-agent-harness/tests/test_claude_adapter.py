@@ -852,7 +852,7 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     assert cmd0[1] == "-p"
     assert "__OPENDV_STAGE_CONTEXT_JSON__" not in cmd0[2]
     assert cmd0[cmd0.index("--model") + 1] == "claude-opus-4-6"
-    assert cmd0[cmd0.index("--output-format") + 1] == "json"
+    assert cmd0[cmd0.index("--output-format") + 1] == "stream-json"
     assert "--disable-slash-commands" in cmd0
     assert cmd0[cmd0.index("--tools") + 1] == ""
     assert cmd0[cmd0.index("--system-prompt") + 1] == vfm_spec.system_instructions.strip()
@@ -865,6 +865,83 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     assert parsed_agents["scout-source"]["model"] == "claude-haiku-4-5"
     assert parsed_agents["scout-unstructured"]["model"] == "claude-sonnet-4-6"
     assert parsed_agents["ship-vault"]["model"] == "claude-opus-4-6-custom"
+
+    # 4b. Verify NDJSON stream-json incremental TEXT_DELTA & THOUGHT_DELTA streaming
+    def _claude_ndjson_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        ndjson_lines = [
+            json.dumps(
+                {
+                    "type": "content_block_delta",
+                    "delta": {"type": "thinking_delta", "thinking": "Checking DV2 grain..."},
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "content_block_delta",
+                    "delta": {
+                        "type": "text_delta",
+                        "text": '{"contract_id": "dv_claude_stream_v5", ',
+                    },
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "text_delta",
+                    "text": '"verified_gates": 6, "status": "PASS"}',
+                }
+            ),
+            json.dumps(
+                {
+                    "type": "result",
+                    "session_id": "sess-claude-ndjson-77",
+                    "is_error": False,
+                    "result": "",
+                    "num_turns": 1,
+                    "total_cost_usd": 0.019,
+                    "usage": {"input_tokens": 400, "output_tokens": 80},
+                }
+            ),
+        ]
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout="\n".join(ndjson_lines),
+            stderr="",
+        )
+
+    ndjson_cfg = cli_cfg.model_copy(
+        update={
+            "extra_provider_options": {
+                "claude_binary": str(fake_claude_exe),
+                "claude_cli_runner": _claude_ndjson_runner,
+            }
+        }
+    )
+    ndjson_adapter = ClaudeCliHarnessAdapter(ndjson_cfg)
+    streamed_events = [ev async for ev in ndjson_adapter.stream_task(vfm_spec)]
+    thought_deltas = [
+        ev.delta_text for ev in streamed_events if ev.kind == HarnessEventKind.THOUGHT_DELTA
+    ]
+    text_deltas = [
+        ev.delta_text for ev in streamed_events if ev.kind == HarnessEventKind.TEXT_DELTA
+    ]
+    assert thought_deltas == ["Checking DV2 grain..."]
+    assert text_deltas == [
+        '{"contract_id": "dv_claude_stream_v5", ',
+        '"verified_gates": 6, "status": "PASS"}',
+    ]
+    ndjson_res = await ndjson_adapter.run_task(vfm_spec)
+    assert ndjson_res.stop_reason == HarnessStopReason.COMPLETED
+    assert ndjson_res.session_id == "sess-claude-ndjson-77"
+    assert isinstance(ndjson_res.structured_output, _ClaudeStructuredResult)
+    assert ndjson_res.structured_output.contract_id == "dv_claude_stream_v5"
+    assert ndjson_res.structured_output.verified_gates == 6
 
     # 5. Verify fallback retry without --json-schema when Attempt 1 returns non-zero exit code
     fallback_cmds: list[list[str]] = []
@@ -881,7 +958,7 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
             return subprocess.CompletedProcess(
                 args=cmd,
                 returncode=1,
-                stdout="",
+                stdout=json.dumps({"type": "text_delta", "text": "discarded-attempt-1"}),
                 stderr="--json-schema validation unsupported for $defs",
             )
         return subprocess.CompletedProcess(
@@ -920,8 +997,13 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     assert "--resume" in fallback_cmds[1]
     assert isinstance(fb_res.structured_output, _ClaudeStructuredResult)
     assert fb_res.structured_output.contract_id == "dv_fallback_v5"
+    assert "dv_fallback_v5" in fb_res.text_output
 
-    # 6. Verify error handling when binary is missing or is_error=True is returned
+    # 6. Verify error handling when binary is missing, non-zero exit after NDJSON, or is_error=True
+    assert _extract_json_from_stdout('{"type": "text_delta", "text": "ok"}') == {
+        "status": "SUCCESS",
+        "result": "ok",
+    }
     monkeypatch.delenv("OPENDV_CLAUDE_CLI_BIN", raising=False)
     monkeypatch.setattr(shutil, "which", lambda _name: None)
     missing_bin_cfg = cli_cfg.model_copy(update={"env": {}, "extra_provider_options": {}})
@@ -943,3 +1025,18 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     )
     with pytest.raises(ProviderConfigurationError, match="Authentication expired"):
         await ClaudeCliHarnessAdapter(err_cfg).run_task(vfm_spec)
+
+    nonzero_ndjson_cfg = cli_cfg.model_copy(
+        update={
+            "extra_provider_options": {
+                "claude_cli_runner": lambda cmd, *, env, timeout: subprocess.CompletedProcess(
+                    args=cmd,
+                    returncode=1,
+                    stdout=json.dumps({"type": "init", "session_id": "s-crash"}),
+                    stderr="Rate limit exceeded",
+                )
+            }
+        }
+    )
+    with pytest.raises(ProviderConfigurationError, match="Rate limit exceeded"):
+        await ClaudeCliHarnessAdapter(nonzero_ndjson_cfg).run_task(vfm_spec)

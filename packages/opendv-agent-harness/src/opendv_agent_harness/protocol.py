@@ -54,6 +54,8 @@ class VaultAgentHarness(Protocol):
     async def run_task(
         self,
         spec: AgentTaskSpec[OutputT],
+        *,
+        on_event: Callable[[HarnessStreamEvent], None] | None = None,
     ) -> HarnessRunResult[OutputT]: ...
 
     async def cancel_active_turn(self, task_id: str) -> None: ...
@@ -152,6 +154,8 @@ class BaseVaultAgentHarness(abc.ABC):
     async def run_task(
         self,
         spec: AgentTaskSpec[OutputT],
+        *,
+        on_event: Callable[[HarnessStreamEvent], None] | None = None,
     ) -> HarnessRunResult[OutputT]:
         """Execute a task to completion, aggregating text, tool counts, holds, and output."""
         start_ns = time.perf_counter_ns()
@@ -168,6 +172,8 @@ class BaseVaultAgentHarness(abc.ABC):
         try:
             async with asyncio.timeout(self._config.budget.timeout_seconds):
                 async for event in self._stream_provider_task(spec, ctx, model_id):
+                    if on_event is not None:
+                        on_event(event)
                     if event.kind == HarnessEventKind.TEXT_DELTA and event.delta_text:
                         text_chunks.append(event.delta_text)
                     elif event.kind == HarnessEventKind.TOOL_CALL_START:

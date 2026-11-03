@@ -862,8 +862,112 @@ async def test_wp11_agy_cli_harness_adapter_subprocess_and_fallback(
     assert len(captured_cmds) == 1
     assert "--model" in captured_cmds[0]
     assert "gemini-4-argon-high" in captured_cmds[0]
+    assert captured_cmds[0][captured_cmds[0].index("--output-format") + 1] == "stream-json"
     assert "--json-schema" in captured_cmds[0]
     assert "__OPENDV_STAGE_CONTEXT_JSON__" not in captured_cmds[0][2]
+
+    # 3. Verify real-time NDJSON stream-json parsing (TEXT_DELTA & THOUGHT_DELTA)
+    stream_cmds: list[list[str]] = []
+
+    def _ndjson_stream_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        stream_cmds.append(list(cmd))
+        ndjson_lines = [
+            json.dumps({"type": "thought_delta", "thought": "Evaluating ontology..."}),
+            json.dumps({"type": "text_delta", "text": '{"contract_id": "dv_stream_agy_v5", '}),
+            json.dumps({"type": "delta", "delta": '"hub_count": 4, "verdict": "PASS"}'}),
+            json.dumps(
+                {
+                    "type": "result",
+                    "conversation_id": "conv-agy-ndjson-888",
+                    "status": "SUCCESS",
+                    "response": "",
+                    "duration_seconds": 1.5,
+                    "num_turns": 1,
+                    "usage": {
+                        "input_tokens": 500,
+                        "output_tokens": 90,
+                        "thinking_tokens": 30,
+                        "total_tokens": 620,
+                    },
+                }
+            ),
+        ]
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout="\n".join(ndjson_lines),
+            stderr="",
+        )
+
+    stream_cfg = _make_config(
+        tmp_path,
+        provider="agy",
+        env={"OPENDV_AGY_CLI_BIN": str(fake_agy_exe)},
+        extra_provider_options={"agy_cli_runner": _ndjson_stream_runner},
+    )
+    stream_adapter = create_agent_harness(stream_cfg)
+    streamed_events = [ev async for ev in stream_adapter.stream_task(spec)]
+
+    thought_deltas = [
+        ev.delta_text for ev in streamed_events if ev.kind == HarnessEventKind.THOUGHT_DELTA
+    ]
+    text_deltas = [
+        ev.delta_text for ev in streamed_events if ev.kind == HarnessEventKind.TEXT_DELTA
+    ]
+    assert thought_deltas == ["Evaluating ontology..."]
+    assert text_deltas == [
+        '{"contract_id": "dv_stream_agy_v5", ',
+        '"hub_count": 4, "verdict": "PASS"}',
+    ]
+
+    stream_res = await stream_adapter.run_task(spec)
+    assert stream_res.stop_reason == HarnessStopReason.COMPLETED
+    assert stream_res.session_id == "conv-agy-ndjson-888"
+    assert isinstance(stream_res.structured_output, _SynthesisContractResult)
+    assert stream_res.structured_output.contract_id == "dv_stream_agy_v5"
+    assert stream_res.structured_output.hub_count == 4
+    assert stream_res.usage.total_tokens == 620
+    assert stream_cmds[0][stream_cmds[0].index("--output-format") + 1] == "stream-json"
+
+    # 4. Single-line NDJSON text_delta extraction and non-zero exit with partial NDJSON stream
+    from opendv_agent_harness.adapters.agy_cli_adapter import (
+        ProviderConfigurationError,
+        _extract_json_from_stdout,
+    )
+
+    assert _extract_json_from_stdout('{"type": "text_delta", "text": "{\\"ok\\": true}"}') == {
+        "status": "SUCCESS",
+        "response": '{"ok": true}',
+    }
+
+    def _partial_fail_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=1,
+            stdout=json.dumps({"type": "text_delta", "text": '{"contract_id": "partial"'}),
+            stderr="CLI session interrupted",
+        )
+
+    fail_cfg = _make_config(
+        tmp_path,
+        provider="agy",
+        env={"OPENDV_AGY_CLI_BIN": str(fake_agy_exe)},
+        extra_provider_options={"agy_cli_runner": _partial_fail_runner},
+    )
+    with pytest.raises(ProviderConfigurationError, match="CLI session interrupted"):
+        await create_agent_harness(fail_cfg).run_task(spec)
 
 
 @pytest.mark.asyncio

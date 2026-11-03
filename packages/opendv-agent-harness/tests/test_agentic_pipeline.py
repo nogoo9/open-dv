@@ -1531,3 +1531,69 @@ def test_wp23_claude_cli_harness_config_validation_and_four_waves_end_to_end(
             assert step.model_used == "claude-sonnet-4-6"
         elif step.persona == "ship-vault":
             assert step.model_used == "claude-opus-4-6-custom"
+
+
+def test_wp24_pipeline_stage_and_stream_callbacks_order_and_metadata(tmp_path: Path) -> None:
+    """Verify WP-24 on_stage_start, on_stage_complete, and on_stream_event callbacks."""
+    from opendv_agent_harness.models import HarnessEventKind, HarnessStreamEvent
+    from opendv_agent_harness.pipeline import PipelineStepReport
+
+    sample_dir = _sample_dir()
+    input_spec = PipelineInputSpec.from_file(sample_dir / "wave0_cold_start.yaml")
+    setup = HarnessSetupConfig(
+        provider="antigravity",
+        model_overrides={
+            "reasoning": "gemini-4-argon-high",
+            "fast": "gemini-3.8-flash-high",
+        },
+        steward_hold_policy="auto_approve_top_candidate",
+    )
+
+    started_stages: list[tuple[int, str, str, str]] = []
+    completed_stages: list[tuple[int, PipelineStepReport]] = []
+    stream_events: list[HarnessStreamEvent] = []
+
+    rep = run_agentic_vault_pipeline(
+        input_spec,
+        setup,
+        output_dir=tmp_path / "wp24_callbacks_out",
+        base_dir=sample_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+        on_stage_start=lambda w, s, p, m: started_stages.append((w, s, p, m)),
+        on_stage_complete=lambda w, sr: completed_stages.append((w, sr)),
+        on_stream_event=lambda ev: stream_events.append(ev),
+    )
+    assert rep.overall_passed is True
+
+    expected_stage_ids = [
+        "STAGE_00_ORCHESTRATION",
+        "STAGE_01_SCOUT_SOURCE",
+        "STAGE_02_SCOUT_UNSTRUCTURED",
+        "STAGE_03_SHIP_VAULT_PASS1",
+        "STAGE_04_SHIP_VAULT_PASS2",
+        "STAGE_05_AXI_DV_STATIC_GATES",
+        "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+        "STAGE_07_DETERMINISTIC_COMPILER",
+    ]
+    assert [s[1] for s in started_stages] == expected_stage_ids
+    assert [c[1].stage_id for c in completed_stages] == expected_stage_ids
+    for wave_idx, step_report in completed_stages:
+        assert wave_idx == 0
+        assert step_report.persona in {
+            "vault-first-mate",
+            "scout-source",
+            "scout-unstructured",
+            "ship-vault",
+            "axi-dv",
+            "deterministic-compiler",
+        }
+        assert step_report.status in {"PASS", "AUTO_REPAIRED"}
+        assert step_report.duration_ms >= 0.0
+        assert len(step_report.summary) > 0
+
+    text_deltas = [
+        ev.delta_text
+        for ev in stream_events
+        if ev.kind == HarnessEventKind.TEXT_DELTA and ev.delta_text
+    ]
+    assert len(text_deltas) > 0
