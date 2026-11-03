@@ -5873,18 +5873,33 @@ class _DeterministicStageSynthesizer:
                         [primary_hub_name, opt_ref["target_hub"]],
                         ontology,
                     )
-                    links_by_name[opt_lnk_name] = {
-                        "name": opt_lnk_name,
-                        "link_type": "STANDARD_LINK",
-                        "ontology_concept_uri": opt_uri,
-                        "source_bronze_table": qualified_table,
-                        "where_filter_condition": f"{fk_col} IS NOT NULL",
-                        "hub_references": [primary_ref, opt_ref],
-                    }
-                    fk_col_to_link_and_elm[fk_col] = (
-                        opt_lnk_name,
-                        "OPTIONAL_FOREIGN_KEY_REF",
-                    )
+                    # On cold-start Wave 0, leave the sparse binary Link unfiltered so
+                    # Stage 05 Algorithm A.4 (DV-G2-001b) attaches where_filter_condition in-place.
+                    if is_cold_start:
+                        links_by_name[opt_lnk_name] = {
+                            "name": opt_lnk_name,
+                            "link_type": "STANDARD_LINK",
+                            "ontology_concept_uri": opt_uri,
+                            "source_bronze_table": qualified_table,
+                            "hub_references": [primary_ref, opt_ref],
+                        }
+                        fk_col_to_link_and_elm[fk_col] = (
+                            opt_lnk_name,
+                            "FOREIGN_KEY_REF",
+                        )
+                    else:
+                        links_by_name[opt_lnk_name] = {
+                            "name": opt_lnk_name,
+                            "link_type": "STANDARD_LINK",
+                            "ontology_concept_uri": opt_uri,
+                            "source_bronze_table": qualified_table,
+                            "where_filter_condition": f"{fk_col} IS NOT NULL",
+                            "hub_references": [primary_ref, opt_ref],
+                        }
+                        fk_col_to_link_and_elm[fk_col] = (
+                            opt_lnk_name,
+                            "OPTIONAL_FOREIGN_KEY_REF",
+                        )
 
             # Collect table columns from Graph B profile
             table_cols = [

@@ -574,9 +574,20 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
     )
     assert rep.status == "COMPLETED"
     assert rep.overall_passed is True
+    assert "ALG_A4_COLD_START_EXTENSIBILITY" in rep.wave_reports[0].applied_codemods
+    attempt1_contract = yaml.safe_load(
+        (out_dir / "waves" / "wave_0" / "wave_0_contract_attempt_1.yaml").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert attempt1_contract["links"][0].get("where_filter_condition") is None
     final_contract = yaml.safe_load((out_dir / "final_contract.yaml").read_text(encoding="utf-8"))
-    link_names = {lnk["name"] for lnk in final_contract.get("links", [])}
-    assert "lnk_order_customer" in link_names
+    links_by_name = {lnk["name"]: lnk for lnk in final_contract.get("links", [])}
+    assert "lnk_order_customer" in links_by_name
+    assert (
+        links_by_name["lnk_order_customer"].get("where_filter_condition")
+        == "customer_tax_id IS NOT NULL"
+    )
     fk_ledger_entries = [
         entry
         for entry in final_contract.get("column_triage_ledger", [])
