@@ -342,7 +342,17 @@ def _lower_satellite(
 
     has_applied_dts = any(
         col.name
-        in {"effective_from_date", "effective_from_dt", "as_of_quarter_end", "call_due_date"}
+        in {
+            "applied_dts",
+            "effective_from_date",
+            "effective_from_dt",
+            "effective_from_dts",
+            "effective_date",
+            "as_of_quarter_end",
+            "call_due_date",
+            "reporting_quarter",
+            "commitment_date",
+        }
         for col in payload_cols
     )
     applied_dts_col = (

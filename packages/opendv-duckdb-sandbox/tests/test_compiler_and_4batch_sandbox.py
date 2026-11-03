@@ -22,12 +22,14 @@ Covers:
 
 from __future__ import annotations
 
+import csv
 from decimal import Decimal
 from pathlib import Path
 
 import duckdb
 import pytest
 
+from opendv_axi_verifier import verify_physical_dv2_sql_ast
 from opendv_core.constants import GHOST_DTS, GHOST_REC_SRC, ZERO_KEY_ERROR, ZERO_KEY_UNKNOWN
 from opendv_core.schema_registry import (
     get_examples_dir,
@@ -505,3 +507,366 @@ def test_parametrized_query_d10b_cutoff_coordinates(
         assert rows[0].enterprise_value_usd == expected_ev
     finally:
         con.close()
+
+
+# ============================================================================
+# 6. Issue #34 (BUG-05 / Scenario S6): Bi-Temporal Adjacent Effective State
+# ============================================================================
+
+
+def _load_issue_34_bitemporal_scenario_waves(
+    con: duckdb.DuckDBPyConnection,
+) -> tuple[str, list[dict[str, str]]]:
+    """Load `bitemporal_contract.yaml` & `bitemporal_events.csv` wave-by-wave into `con`."""
+    scenario_dir = get_examples_dir() / "scenarios" / "issue_34_bitemporal_s6"
+    contract_path = scenario_dir / "bitemporal_contract.yaml"
+    events_path = scenario_dir / "bitemporal_events.csv"
+
+    ir = lower_contract_to_canonical_ir(contract_path, validate_schema=True)
+    bundle = compile_canonical_ir_to_4zone_sql(ir)
+
+    with events_path.open("r", encoding="utf-8", newline="") as f:
+        events = list(csv.DictReader(f))
+
+    con.execute(bundle.zone_0_sql)
+    con.execute(bundle.zone_1_sql)
+    con.execute("DELETE FROM bronze.src_hub_customer;")
+    con.execute("DELETE FROM bronze.src_sat_customer_crm;")
+
+    seen_uens: set[str] = set()
+    for row in events:
+        uen = row["company_uen"]
+        if uen not in seen_uens:
+            seen_uens.add(uen)
+            con.execute(
+                """
+                INSERT INTO bronze.src_hub_customer (company_uen, load_dts, rec_src)
+                VALUES (?, CAST(? AS TIMESTAMP), ?)
+                """,
+                [uen, row["load_dts"], row["rec_src"]],
+            )
+    con.execute(bundle.zone_2_sql)
+    return bundle.zone_2_sql, events
+
+
+def test_issue_34_bitemporal_zone2_adjacent_effective_state_delta_detection() -> None:
+    """Verify Zone 2 bi-temporal Satellite DML compares adjacent business effective states."""
+    scenario_dir = get_examples_dir() / "scenarios" / "issue_34_bitemporal_s6"
+    contract_path = scenario_dir / "bitemporal_contract.yaml"
+    from opendv_core.schema_registry import load_structured_file
+    from opendv_duckdb_sandbox.compiler_4zone import _satellite_all_data_columns
+
+    ir = lower_contract_to_canonical_ir(contract_path, validate_schema=True)
+    assert len(ir.satellites) == 1
+    assert ir.satellites[0].applied_dts_column is not None
+    assert ir.satellites[0].applied_dts_column.name == "applied_dts"
+
+    bundle = compile_canonical_ir_to_4zone_sql(ir)
+    sat_dml = next(s for s in bundle.zone_2_sql.split(";") if "sat_customer_crm" in s) + ";"
+    ast_violations = verify_physical_dv2_sql_ast(sat_dml, entity_name="sat_customer_crm")
+    assert ast_violations == []
+
+    con = duckdb.connect(":memory:")
+    try:
+        zone_2_sql, events = _load_issue_34_bitemporal_scenario_waves(con)
+
+        def _insert_sat_event(ev: dict[str, str]) -> None:
+            con.execute(
+                """
+                INSERT INTO bronze.src_sat_customer_crm (
+                    parent_bk__company_uen,
+                    load_dts,
+                    applied_dts,
+                    rec_src,
+                    legal_name,
+                    credit_score_live,
+                    effective_from_dt
+                ) VALUES (
+                    ?,
+                    CAST(? AS TIMESTAMP),
+                    CAST(? AS TIMESTAMP),
+                    ?,
+                    ?,
+                    ?,
+                    CAST(? AS DATE)
+                )
+                """,
+                [
+                    ev["company_uen"],
+                    ev["load_dts"],
+                    ev["applied_dts"],
+                    ev["rec_src"],
+                    ev["legal_name"],
+                    ev["credit_score_live"],
+                    ev["effective_from_dt"],
+                ],
+            )
+
+        def _non_ghost_count() -> int:
+            row = con.execute(
+                f"SELECT COUNT(*) FROM raw_vault.sat_customer_crm "
+                f"WHERE rec_src <> '{GHOST_REC_SRC}'"
+            ).fetchone()
+            assert row is not None
+            return int(row[0])
+
+        # Wave 1: Baseline Q3 records for CUSTOMER-001 and CUSTOMER-002 (+2 rows)
+        _insert_sat_event(events[0])
+        _insert_sat_event(events[1])
+        con.execute(zone_2_sql)
+        assert _non_ghost_count() == 2
+
+        # Wave 2: On-time Q4 upgrade for CUSTOMER-001 (+1 row -> 3 rows)
+        _insert_sat_event(events[2])
+        con.execute(zone_2_sql)
+        assert _non_ghost_count() == 3
+
+        # Wave 3: Late-arriving unchanged Q3 duplicate (`SFDC_CRM_RETRY`) -> SUPPRESSED (+0 rows)
+        _insert_sat_event(events[3])
+        con.execute(zone_2_sql)
+        assert _non_ghost_count() == 3
+
+        # Wave 4: Retroactive Q3 restatement (`SFDC_CRM_RESTATEMENT`) -> INSERTED (+1 row)
+        _insert_sat_event(events[4])
+        con.execute(zone_2_sql)
+        assert _non_ghost_count() == 4
+
+        # Wave 5: Back-filled Q2 historical record (`SFDC_CRM_BACKFILL`) -> INSERTED (+1 row)
+        _insert_sat_event(events[5])
+        con.execute(zone_2_sql)
+        assert _non_ghost_count() == 5
+
+        # Wave 6: Out-of-order intermediate effective date (`2026-10-31`) -> SUPPRESSED (+0 rows)
+        _insert_sat_event(events[6])
+        con.execute(zone_2_sql)
+        assert _non_ghost_count() == 5
+
+        # Wave 7: Out-of-order intermediate effective date (`2026-10-31`, `AA+`) -> INSERTED (+1)
+        _insert_sat_event(events[7])
+        con.execute(zone_2_sql)
+        assert _non_ghost_count() == 6
+
+        # Replay idempotency: re-running Zone 2 DML adds 0 rows
+        con.execute(zone_2_sql)
+        assert _non_ghost_count() == 6
+
+        rec_sources = [
+            str(r[0])
+            for r in con.execute(
+                f"""
+                SELECT rec_src
+                FROM raw_vault.sat_customer_crm
+                WHERE rec_src <> '{GHOST_REC_SRC}'
+                ORDER BY applied_dts ASC, load_dts ASC, rec_src ASC
+                """
+            ).fetchall()
+        ]
+        assert "SFDC_CRM_RETRY" not in rec_sources
+        assert "SFDC_CRM_INTERIM_SAME" not in rec_sources
+        assert "SFDC_CRM_RESTATEMENT" in rec_sources
+        assert "SFDC_CRM_BACKFILL" in rec_sources
+        assert "SFDC_CRM_INTERIM_CHANGED" in rec_sources
+    finally:
+        con.close()
+
+    # Single-batch all-at-once load verification
+    con_batch = duckdb.connect(":memory:")
+    try:
+        zone_2_sql_b, events_b = _load_issue_34_bitemporal_scenario_waves(con_batch)
+        for ev in events_b:
+            con_batch.execute(
+                """
+                INSERT INTO bronze.src_sat_customer_crm (
+                    parent_bk__company_uen,
+                    load_dts,
+                    applied_dts,
+                    rec_src,
+                    legal_name,
+                    credit_score_live,
+                    effective_from_dt
+                ) VALUES (
+                    ?,
+                    CAST(? AS TIMESTAMP),
+                    CAST(? AS TIMESTAMP),
+                    ?,
+                    ?,
+                    ?,
+                    CAST(? AS DATE)
+                )
+                """,
+                [
+                    ev["company_uen"],
+                    ev["load_dts"],
+                    ev["applied_dts"],
+                    ev["rec_src"],
+                    ev["legal_name"],
+                    ev["credit_score_live"],
+                    ev["effective_from_dt"],
+                ],
+            )
+        con_batch.execute(zone_2_sql_b)
+        batch_cnt = con_batch.execute(
+            f"SELECT COUNT(*) FROM raw_vault.sat_customer_crm WHERE rec_src <> '{GHOST_REC_SRC}'"
+        ).fetchone()
+        assert batch_cnt is not None and int(batch_cnt[0]) == 6
+        con_batch.execute(zone_2_sql_b)
+        replay_cnt = con_batch.execute(
+            f"SELECT COUNT(*) FROM raw_vault.sat_customer_crm WHERE rec_src <> '{GHOST_REC_SRC}'"
+        ).fetchone()
+        assert replay_cnt is not None and int(replay_cnt[0]) == 6
+    finally:
+        con_batch.close()
+
+    # Verify all expanded business effective date column names lower to `applied_dts_column`
+    # and do not emit duplicate `applied_dts` columns in `_satellite_all_data_columns`.
+    raw_contract = load_structured_file(contract_path)
+    for eff_col_name in (
+        "applied_dts",
+        "effective_from_date",
+        "effective_from_dt",
+        "effective_from_dts",
+        "effective_date",
+        "as_of_quarter_end",
+        "call_due_date",
+        "reporting_quarter",
+        "commitment_date",
+    ):
+        mut_contract = {
+            **raw_contract,
+            "column_triage_ledger": [
+                entry
+                if entry["column_name"] != "effective_from_dt"
+                else {**entry, "column_name": eff_col_name}
+                for entry in raw_contract["column_triage_ledger"]
+            ],
+            "satellites": [
+                {
+                    **raw_contract["satellites"][0],
+                    "payload_columns": ["legal_name", "credit_score_live", eff_col_name],
+                }
+            ],
+        }
+        eff_ir = lower_contract_to_canonical_ir(mut_contract, validate_schema=True)
+        eff_sat = eff_ir.satellites[0]
+        assert eff_sat.applied_dts_column is not None, (
+            f"Missing applied_dts_column for {eff_col_name}"
+        )
+        data_col_names = [c.name for c in _satellite_all_data_columns(eff_sat)]
+        assert "applied_dts" not in data_col_names
+
+
+def test_issue_34_bitemporal_pit_point_in_time_reconstruction() -> None:
+    """Verify bi-temporal Point-in-Time reconstruction across knowledge and effective cutoffs."""
+    con = duckdb.connect(":memory:")
+    try:
+        zone_2_sql, events = _load_issue_34_bitemporal_scenario_waves(con)
+        for ev in events:
+            con.execute(
+                """
+                INSERT INTO bronze.src_sat_customer_crm (
+                    parent_bk__company_uen,
+                    load_dts,
+                    applied_dts,
+                    rec_src,
+                    legal_name,
+                    credit_score_live,
+                    effective_from_dt
+                ) VALUES (
+                    ?,
+                    CAST(? AS TIMESTAMP),
+                    CAST(? AS TIMESTAMP),
+                    ?,
+                    ?,
+                    ?,
+                    CAST(? AS DATE)
+                )
+                """,
+                [
+                    ev["company_uen"],
+                    ev["load_dts"],
+                    ev["applied_dts"],
+                    ev["rec_src"],
+                    ev["legal_name"],
+                    ev["credit_score_live"],
+                    ev["effective_from_dt"],
+                ],
+            )
+            con.execute(zone_2_sql)
+
+        cust_hk_row = con.execute(
+            "SELECT hk_customer FROM raw_vault.hub_customer WHERE company_uen = 'CUSTOMER-001'"
+        ).fetchone()
+        assert cust_hk_row is not None
+        cust_hk = str(cust_hk_row[0])
+
+        def _pit_state(knowledge_cutoff: str, effective_as_of: str) -> tuple[str, str]:
+            row = con.execute(
+                f"""
+                SELECT legal_name, credit_score_live
+                FROM raw_vault.sat_customer_crm
+                WHERE hk_customer = ?
+                  AND rec_src <> '{GHOST_REC_SRC}'
+                  AND load_dts <= CAST(? AS TIMESTAMP)
+                  AND applied_dts <= CAST(? AS TIMESTAMP)
+                QUALIFY ROW_NUMBER() OVER (
+                    PARTITION BY hk_customer
+                    ORDER BY applied_dts DESC, load_dts DESC
+                ) = 1
+                """,
+                [cust_hk, knowledge_cutoff, effective_as_of],
+            ).fetchone()
+            assert row is not None
+            return str(row[0]), str(row[1])
+
+        assert _pit_state("2026-10-22 00:00:00", "2026-09-30 00:00:00") == (
+            "Acme Holdings Q3 Initial",
+            "AA",
+        )
+        assert _pit_state("2026-11-05 00:00:00", "2026-09-30 00:00:00") == (
+            "Acme Holdings Q4 Upgrade",
+            "AAA",
+        )
+        assert _pit_state("2026-11-05 00:00:00", "2026-06-30 00:00:00") == (
+            "Acme Holdings Q2 Historical",
+            "BBB",
+        )
+        assert _pit_state("2026-11-05 00:00:00", "2026-11-15 00:00:00") == (
+            "Acme Holdings Oct Interim",
+            "AA+",
+        )
+    finally:
+        con.close()
+
+
+def test_issue_34_bitemporal_4batch_adversarial_sandbox_e2e() -> None:
+    """Verify 4-Batch Adversarial Sandbox stages Batch 4 through Zone 2 DML and passes 15 checks."""
+    contract_path = (
+        get_examples_dir() / "scenarios" / "issue_34_bitemporal_s6" / "bitemporal_contract.yaml"
+    )
+    ir = lower_contract_to_canonical_ir(contract_path, validate_schema=True)
+
+    with DuckDbShadowSandbox() as sandbox:
+        rep = sandbox.run_full_verification(source=ir, emit_telemetry=False)
+        assert rep.passed is True
+        assert rep.batch_report.all_passed is True
+        assert rep.batch_report.batches[3].satellite_delta_rows == 1
+        assert rep.dynamic_check_report.passed_count == 15
+
+        bronze_rec_srcs = {
+            str(r[0])
+            for r in sandbox.conn.execute(
+                "SELECT DISTINCT rec_src FROM bronze.src_sat_customer_crm"
+            ).fetchall()
+        }
+        assert "BATCH4_LATE_DUPLICATE" in bronze_rec_srcs
+        assert "BATCH4_RESTATEMENT" in bronze_rec_srcs
+
+        vault_rec_srcs = {
+            str(r[0])
+            for r in sandbox.conn.execute(
+                "SELECT DISTINCT rec_src FROM raw_vault.sat_customer_crm"
+            ).fetchall()
+        }
+        assert "BATCH4_RESTATEMENT" in vault_rec_srcs
+        assert "BATCH4_LATE_DUPLICATE" not in vault_rec_srcs
+

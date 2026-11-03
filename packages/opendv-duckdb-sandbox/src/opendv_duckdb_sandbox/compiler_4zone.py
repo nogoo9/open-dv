@@ -1839,11 +1839,12 @@ def _satellite_all_data_columns(sat: IRSatellite) -> list[IRColumnDef]:
     """Return sub-sequence columns followed by payload columns without duplicates."""
     child_defs = list(sat.child_dependent_keys or [])
     sub_seq_set = {c.name if hasattr(c, "name") else str(c) for c in child_defs}
+    applied_col_name = sat.applied_dts_column.name if sat.applied_dts_column is not None else None
     existing_names = {c.name for c in sat.payload_columns}
     cols: list[IRColumnDef] = []
     for c_def in child_defs:
         seq_name = c_def.name if hasattr(c_def, "name") else str(c_def)
-        if seq_name not in existing_names:
+        if seq_name not in existing_names and seq_name != applied_col_name:
             if isinstance(c_def, IRColumnDef):
                 cols.append(c_def.model_copy(update={"nullable": False}))
             else:
@@ -1855,6 +1856,8 @@ def _satellite_all_data_columns(sat: IRSatellite) -> list[IRColumnDef]:
                     )
                 )
     for col in sat.payload_columns:
+        if col.name == applied_col_name:
+            continue
         if col.name in sub_seq_set and col.nullable:
             cols.append(col.model_copy(update={"nullable": False}))
         else:
@@ -2621,28 +2624,101 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
         join_on = " AND ".join(f"cur.{c} = src.{c}" for c in part_cols)
         col_tail = f", {payload_csv}" if payload_csv else ""
         sel_tail = f",\n    {src_payload_csv}" if src_payload_csv else ""
-        parts.append(
-            f"INSERT INTO {schema}.{tbl} (\n"
-            f"    {parent_hk}, load_dts, {app_col}rec_src, hash_diff{col_tail}\n"
-            f")\n"
-            f"SELECT\n"
-            f"    src.{parent_hk},\n"
-            f"    src.load_dts,\n"
-            f"    {src_app_col}src.rec_src,\n"
-            f"    src.hash_diff{sel_tail}\n"
-            f"FROM staging.stg_{tbl} src\n"
-            f"LEFT JOIN (\n"
-            f"    SELECT {part_csv}, load_dts, hash_diff\n"
-            f"    FROM {schema}.{tbl}\n"
-            f"    WHERE rec_src <> '{GHOST_REC_SRC}'\n"
-            f"    QUALIFY ROW_NUMBER() OVER (PARTITION BY {part_csv} ORDER BY load_dts DESC) = 1\n"
-            f") cur ON {join_on}\n"
-            f"WHERE src.{parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
-            f"  AND (\n"
-            f"      cur.{parent_hk} IS NULL\n"
-            f"      OR (src.load_dts > cur.load_dts AND cur.hash_diff <> src.hash_diff)\n"
-            f"  );"
-        )
+        if has_applied:
+            assert sat.applied_dts_column is not None
+            applied_ident = _validate_ident(sat.applied_dts_column.name)
+            v_payload_csv = ", ".join(f"v.{c}" for c in payload_cols)
+            s_payload_csv = ", ".join(f"s.{c}" for c in payload_cols)
+            comb_payload_csv = ", ".join(f"combined.{c}" for c in payload_cols)
+            cand_payload_csv = ", ".join(f"cand.{c}" for c in payload_cols)
+            v_sel_tail = f", {v_payload_csv}" if v_payload_csv else ""
+            s_sel_tail = f", {s_payload_csv}" if s_payload_csv else ""
+            comb_sel_tail = f",\n        {comb_payload_csv}" if comb_payload_csv else ""
+            cand_sel_tail = f",\n    {cand_payload_csv}" if cand_payload_csv else ""
+            comb_part_csv = ", ".join(f"combined.{c}" for c in part_cols)
+            existing_on = " AND ".join(f"existing.{c} = s.{c}" for c in part_cols)
+            parts.append(
+                f"INSERT INTO {schema}.{tbl} (\n"
+                f"    {parent_hk}, load_dts, {applied_ident}, rec_src, hash_diff{col_tail}\n"
+                f")\n"
+                f"SELECT\n"
+                f"    cand.{parent_hk},\n"
+                f"    cand.load_dts,\n"
+                f"    cand.{applied_ident},\n"
+                f"    cand.rec_src,\n"
+                f"    cand.hash_diff{cand_sel_tail}\n"
+                f"FROM (\n"
+                f"    SELECT\n"
+                f"        combined.{parent_hk},\n"
+                f"        combined.load_dts,\n"
+                f"        combined.{applied_ident},\n"
+                f"        combined.rec_src,\n"
+                f"        combined.hash_diff{comb_sel_tail},\n"
+                f"        combined.is_new,\n"
+                f"        LAG(combined.hash_diff) OVER (\n"
+                f"            PARTITION BY {comb_part_csv}\n"
+                f"            ORDER BY combined.{applied_ident} ASC, combined.load_dts ASC\n"
+                f"        ) AS prev_hash_diff\n"
+                f"    FROM (\n"
+                f"        SELECT\n"
+                f"            v.{parent_hk}, v.load_dts, v.{applied_ident}, "
+                f"v.rec_src, v.hash_diff{v_sel_tail},\n"
+                f"            0 AS is_new\n"
+                f"        FROM {schema}.{tbl} v\n"
+                f"        WHERE v.rec_src <> '{GHOST_REC_SRC}'\n"
+                f"        UNION ALL\n"
+                f"        SELECT\n"
+                f"            s.{parent_hk}, s.load_dts, s.{applied_ident}, "
+                f"s.rec_src, s.hash_diff{s_sel_tail},\n"
+                f"            1 AS is_new\n"
+                f"        FROM (\n"
+                f"            SELECT {parent_hk}, load_dts, {applied_ident}, "
+                f"rec_src, hash_diff{col_tail}\n"
+                f"            FROM staging.stg_{tbl}\n"
+                f"            WHERE {parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+                f"            QUALIFY ROW_NUMBER() OVER (\n"
+                f"                PARTITION BY {part_csv}, load_dts\n"
+                f"                ORDER BY {applied_ident} DESC\n"
+                f"            ) = 1\n"
+                f"        ) s\n"
+                f"        WHERE NOT EXISTS (\n"
+                f"            SELECT 1 FROM {schema}.{tbl} existing\n"
+                f"            WHERE {existing_on}\n"
+                f"              AND existing.load_dts = s.load_dts\n"
+                f"        )\n"
+                f"    ) combined\n"
+                f") cand\n"
+                f"WHERE cand.is_new = 1\n"
+                f"  AND (\n"
+                f"      cand.prev_hash_diff IS NULL\n"
+                f"      OR cand.prev_hash_diff <> cand.hash_diff\n"
+                f"  );"
+            )
+        else:
+            parts.append(
+                f"INSERT INTO {schema}.{tbl} (\n"
+                f"    {parent_hk}, load_dts, {app_col}rec_src, hash_diff{col_tail}\n"
+                f")\n"
+                f"SELECT\n"
+                f"    src.{parent_hk},\n"
+                f"    src.load_dts,\n"
+                f"    {src_app_col}src.rec_src,\n"
+                f"    src.hash_diff{sel_tail}\n"
+                f"FROM staging.stg_{tbl} src\n"
+                f"LEFT JOIN (\n"
+                f"    SELECT {part_csv}, load_dts, hash_diff\n"
+                f"    FROM {schema}.{tbl}\n"
+                f"    WHERE rec_src <> '{GHOST_REC_SRC}'\n"
+                f"    QUALIFY ROW_NUMBER() OVER (\n"
+                f"        PARTITION BY {part_csv} ORDER BY load_dts DESC\n"
+                f"    ) = 1\n"
+                f") cur ON {join_on}\n"
+                f"WHERE src.{parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+                f"  AND (\n"
+                f"      cur.{parent_hk} IS NULL\n"
+                f"      OR (src.load_dts > cur.load_dts AND cur.hash_diff <> src.hash_diff)\n"
+                f"  );"
+            )
 
     return "\n\n".join(parts)
 
