@@ -10,6 +10,7 @@ import { PROTOCOL_VERSION } from "@opendv/protocol-ts";
 import { createElement } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { WorkbenchShell } from "./components/shell/WorkbenchShell";
+import { OpenDVWorkbenchExplorer } from "./explorer/OpenDVWorkbenchExplorer";
 import { defaultWorkbenchPluginRegistry } from "./plugins/plugin-registry";
 import { defaultThemeRegistry } from "./theme/theme-registry";
 import { registerWB00toWB05 } from "./views/register-wb00-wb05";
@@ -34,8 +35,12 @@ export function mountWorkbenchApp(container?: HTMLElement | null): Root | null {
 	}
 	registerWb06ToWb11Views(defaultWorkbenchPluginRegistry);
 	defaultThemeRegistry.initializeFromEnvironment();
+	const useLegacyShell =
+		target.getAttribute?.("data-shell-mode") === "legacy-12-view";
 	const root = createRoot(target);
-	root.render(createElement(WorkbenchShell));
+	root.render(
+		createElement(useLegacyShell ? WorkbenchShell : OpenDVWorkbenchExplorer),
+	);
 	return root;
 }
 
@@ -106,3 +111,13 @@ export * from "./views/wb10/WB10DuckDBSandboxView";
 export * from "./views/wb11/PreHashStepper";
 export * from "./views/wb11/FourZoneSQLViewer";
 export * from "./views/wb11/WB11RosettaStoneView";
+
+// 3-Level Pipeline Explorer Workbench (Pipeline -> Stage -> Artifact) (HANDOFF.md)
+export * from "./explorer/design-tokens";
+export * from "./explorer/explorer-store";
+export * from "./explorer/ArtifactVisualizers";
+export * from "./explorer/ArtifactFullModal";
+export * from "./explorer/InspectorPanel";
+export * from "./explorer/PipelineOverviewView";
+export * from "./explorer/StageDrillDownView";
+export * from "./explorer/OpenDVWorkbenchExplorer";

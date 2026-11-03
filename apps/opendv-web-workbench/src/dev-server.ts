@@ -122,8 +122,12 @@ export function createWorkbenchDevServer(
 				}
 			}
 
-			// 2. Serve index.html at / or /index.html
-			if (url.pathname === "/" || url.pathname === "/index.html") {
+			// 2. Serve index.html at /, /index.html, or deep-linked /stages/00..07 routes
+			if (
+				url.pathname === "/" ||
+				url.pathname === "/index.html" ||
+				/^\/stages\/0?[0-7]\/?$/.test(url.pathname)
+			) {
 				const htmlPath = join(workbenchRoot, "index.html");
 				if (existsSync(htmlPath)) {
 					const html = readFileSync(htmlPath, "utf-8");
