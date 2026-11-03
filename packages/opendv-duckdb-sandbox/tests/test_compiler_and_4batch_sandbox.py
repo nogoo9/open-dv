@@ -18,6 +18,9 @@ Covers:
    `12.80x` (`$216.28M` EV = `216280000.00`) at `assertion_cutoff_ts = '2026-10-15 12:00:00'`.
 5. Telemetry integration: Emitting schema-valid `VIZ-GATE-08` (`WB-10`) `VaultObservabilityEvent`
    records via `VaultLedgerEmitter`.
+6. Issue #34 (`BUG-05` / Scenario `S6`): Bi-temporal adjacent effective state delta detection
+   (`LAG(hash_diff) OVER (... ORDER BY applied_dts ASC, load_dts ASC)`), Point-in-Time
+   reconstruction, and 4-Batch Adversarial Sandbox verification.
 """
 
 from __future__ import annotations
@@ -869,4 +872,3 @@ def test_issue_34_bitemporal_4batch_adversarial_sandbox_e2e() -> None:
         }
         assert "BATCH4_RESTATEMENT" in vault_rec_srcs
         assert "BATCH4_LATE_DUPLICATE" not in vault_rec_srcs
-

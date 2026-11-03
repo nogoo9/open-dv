@@ -632,8 +632,7 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
         else:
             p_lnk = link_by_name[bitemp_sat.parent_entity]
             p_cols = [
-                f"parent_fk__{_validate_ident(ref.fk_column_name)}"
-                for ref in p_lnk.hub_references
+                f"parent_fk__{_validate_ident(ref.fk_column_name)}" for ref in p_lnk.hub_references
             ]
         parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
         p_cols_csv = ", ".join(p_cols)

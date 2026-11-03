@@ -8,8 +8,10 @@ an executable 4-Zone DuckDB SQL bundle (`docs/03` §7, `docs/05` §3.5, `docs/07
 - **Zone 1**: Hashed Staging Views (`staging.stg_*`) using Algorithm A.5 length-prefixed
   SHA-256 (`<len>:<val>` and `'-1:^^'` null token) and `BKCC` namespace injection.
 - **Zone 2**: Insert-Only Raw Vault DML for Hubs, Reference tables, Links, and Satellites
-  using idempotent `WHERE NOT EXISTS` and `LEFT JOIN ... WHERE cur.hk IS NULL OR`
-  `cur.hash_diff <> src.hash_diff` anti-joins.
+  using idempotent `WHERE NOT EXISTS`, lexicographic `(applied_dts ASC, load_dts ASC)`
+  `LAG(hash_diff)` delta detection for bi-temporal Satellites (`DV-DML-003`), and
+  `LEFT JOIN ... WHERE cur.hk IS NULL OR cur.hash_diff <> src.hash_diff` anti-joins for
+  uni-temporal Satellites.
 - **Zone 3**: Business Vault (`sal_limited_partner`, `sal_investor_golden`,
   `esat_sal_limited_partner`, AI provenance satellites, and `pit_portfolio_company`).
 - **Zone 4**: Bi-temporal Point-in-Time audit queries (`Query D.10` and `Query D.10b`).
@@ -1836,7 +1838,7 @@ def _satellite_child_key_names(sat: IRSatellite) -> list[str]:
 
 
 def _satellite_all_data_columns(sat: IRSatellite) -> list[IRColumnDef]:
-    """Return sub-sequence columns followed by payload columns without duplicates."""
+    """Return sub-sequence and payload columns without duplicates or duplicate `applied_dts`."""
     child_defs = list(sat.child_dependent_keys or [])
     sub_seq_set = {c.name if hasattr(c, "name") else str(c) for c in child_defs}
     applied_col_name = sat.applied_dts_column.name if sat.applied_dts_column is not None else None
