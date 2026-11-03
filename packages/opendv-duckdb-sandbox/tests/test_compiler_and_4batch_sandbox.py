@@ -458,7 +458,7 @@ def test_dynamic_checks_detect_injected_orphan_fk() -> None:
 
 
 def test_algorithm_a5_sql_helper_matches_expected_tokens() -> None:
-    """Verify `build_algorithm_a5_sha256_sql` generates null-safe length-prefixed SQL."""
+    """Verify `build_algorithm_a5_sha256_sql` implements 3-way Zero-Key branching (-1 vs -2)."""
     sql_expr = build_algorithm_a5_sha256_sql(
         ["lp_id"],
         is_business_key=True,
@@ -466,10 +466,53 @@ def test_algorithm_a5_sql_helper_matches_expected_tokens() -> None:
     )
     con = duckdb.connect(":memory:")
     try:
-        con.execute("CREATE TABLE t (lp_id VARCHAR); INSERT INTO t VALUES ('lp-101'), (NULL);")
+        con.execute(
+            "CREATE TABLE t (lp_id VARCHAR); "
+            "INSERT INTO t VALUES ('lp-101'), (NULL), ('   '), ('-1'), ('-2');"
+        )
         rows = con.execute(f"SELECT {sql_expr} FROM t").fetchall()
         assert rows[0][0] == "5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4"
         assert rows[1][0] == ZERO_KEY_UNKNOWN
+        assert rows[2][0] == ZERO_KEY_UNKNOWN
+        assert rows[3][0] == ZERO_KEY_UNKNOWN
+        assert rows[4][0] == ZERO_KEY_ERROR
+    finally:
+        con.close()
+
+
+def test_algorithm_a5_sql_helper_3way_zero_key_and_error_predicate() -> None:
+    """Verify composite `(bkcc, bk)` key_columns exclusion and explicit `error_predicate`."""
+    sql_expr = build_algorithm_a5_sha256_sql(
+        ["bkcc", "customer_code"],
+        is_business_key=True,
+        error_predicate="record_status = 'REJECTED'",
+    )
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(
+            """
+            CREATE TABLE src_cust (
+                bkcc VARCHAR,
+                customer_code VARCHAR,
+                record_status VARCHAR
+            );
+            INSERT INTO src_cust VALUES
+                ('GLOBAL', 'CUST-001', 'VALID'),
+                ('GLOBAL', NULL, 'VALID'),
+                ('GLOBAL', '', 'VALID'),
+                ('GLOBAL', '-1', 'VALID'),
+                ('GLOBAL', '-2', 'VALID'),
+                ('GLOBAL', 'CUST-999', 'REJECTED');
+            """
+        )
+        rows = [r[0] for r in con.execute(f"SELECT {sql_expr} FROM src_cust").fetchall()]
+        assert rows[0] not in (ZERO_KEY_UNKNOWN, ZERO_KEY_ERROR)
+        assert len(rows[0]) == 64
+        assert rows[1] == ZERO_KEY_UNKNOWN
+        assert rows[2] == ZERO_KEY_UNKNOWN
+        assert rows[3] == ZERO_KEY_UNKNOWN
+        assert rows[4] == ZERO_KEY_ERROR
+        assert rows[5] == ZERO_KEY_ERROR
     finally:
         con.close()
 
