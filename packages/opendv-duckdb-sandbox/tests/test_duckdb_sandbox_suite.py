@@ -460,6 +460,89 @@ def test_generic_contract_yaml_full_sandbox_verification(tmp_path: Path) -> None
         assert "CUST-REAL-202" in cust_bks
 
 
+def test_scenario_s10_dual_zero_key_3way_branching_e2e(tmp_path: Path) -> None:
+    """Scenario S10 (Issue #43): Verify 3-way Zero-Key branching across Zone 1 -> 2 -> Gate 5."""
+    import duckdb
+
+    from opendv_core.constants import ZERO_KEY_ERROR, ZERO_KEY_UNKNOWN
+    from opendv_duckdb_sandbox.dynamic_checks import (
+        check_dv_dyn_002_referential_integrity,
+        check_dv_dyn_007_ghost_and_zero_key_completeness,
+    )
+
+    commerce_ir = _build_global_commerce_canonical_ir()
+    csv_path = tmp_path / "crm_customers_s10.csv"
+    csv_path.write_text(
+        "bkcc,customer_code,customer_name,credit_limit_usd,is_vip_flag\n"
+        "GLOBAL,CUST-S10-101,Apex Industrial Holdings LLC,1250000.00,true\n"
+        "GLOBAL,CUST-S10-202,Rheinland Precision GmbH,980000.00,false\n"
+        "GLOBAL,-1,Unknown Customer Sentinel,0.00,false\n"
+        "GLOBAL,-2,Error Customer Sentinel,0.00,false\n",
+        encoding="utf-8",
+    )
+
+    bundle = compile_canonical_ir_to_4zone_sql(
+        commerce_ir,
+        bronze_tables={"bronze.crm_customers": csv_path},
+    )
+
+    con = duckdb.connect(":memory:")
+    try:
+        con.execute(bundle.zones_0_to_3_sql)
+        # Inject explicit NULL, '-1', and '-2' rows into bronze Hub & Satellite sources
+        con.execute(
+            """
+            INSERT INTO bronze.src_hub_customer VALUES
+                ('GLOBAL', NULL, TIMESTAMP '2026-10-02 06:00:00', 'CRM_SFDC'),
+                ('GLOBAL', '-1', TIMESTAMP '2026-10-02 06:00:00', 'CRM_SFDC'),
+                ('GLOBAL', '-2', TIMESTAMP '2026-10-02 06:00:00', 'CRM_SFDC');
+            INSERT INTO bronze.src_sat_customer_core VALUES
+                ('GLOBAL', NULL, TIMESTAMP '2026-10-02 06:00:00', TIMESTAMP '2026-09-30 00:00:00',
+                 'CRM_SFDC', 'Null Customer', 0.00, FALSE),
+                ('GLOBAL', '-1', TIMESTAMP '2026-10-02 06:00:00', TIMESTAMP '2026-09-30 00:00:00',
+                 'CRM_SFDC', 'Unknown Customer', 0.00, FALSE),
+                ('GLOBAL', '-2', TIMESTAMP '2026-10-02 06:00:00', TIMESTAMP '2026-09-30 00:00:00',
+                 'CRM_SFDC', 'Error Customer', 0.00, FALSE);
+            """
+        )
+        # Re-run Zone 2 load to verify idempotency and Zero-Key filtering
+        con.execute(bundle.zone_2_sql)
+
+        # 1. Verify stg_hub_customer 3-way branching
+        stg_hub_map = {
+            r[0]: r[1]
+            for r in con.execute(
+                "SELECT customer_code, hk_customer FROM staging.stg_hub_customer"
+            ).fetchall()
+        }
+        assert stg_hub_map["CUST-S10-101"] not in (ZERO_KEY_UNKNOWN, ZERO_KEY_ERROR)
+        assert stg_hub_map["CUST-S10-202"] not in (ZERO_KEY_UNKNOWN, ZERO_KEY_ERROR)
+        assert stg_hub_map[None] == ZERO_KEY_UNKNOWN
+        assert stg_hub_map["-1"] == ZERO_KEY_UNKNOWN
+        assert stg_hub_map["-2"] == ZERO_KEY_ERROR
+
+        # 2. Verify stg_lnk_customer_order resolves NULL & '-1' -> UNKNOWN and '-2' -> ERROR
+        stg_lnk_fks = [
+            r[0]
+            for r in con.execute(
+                "SELECT hk_sales_order FROM staging.stg_lnk_customer_order"
+            ).fetchall()
+        ]
+        assert ZERO_KEY_UNKNOWN in stg_lnk_fks
+        assert ZERO_KEY_ERROR in stg_lnk_fks
+
+        # 3. Verify DV-DYN-002 (0 orphans) and DV-DYN-007 (Ghost & Dual Zero-Key INNER JOIN)
+        dyn_002 = check_dv_dyn_002_referential_integrity(con, ir=commerce_ir)
+        assert dyn_002.passed is True
+        assert dyn_002.failing_rows == 0
+
+        dyn_007 = check_dv_dyn_007_ghost_and_zero_key_completeness(con, ir=commerce_ir)
+        assert dyn_007.passed is True
+        assert dyn_007.failing_rows == 0
+    finally:
+        con.close()
+
+
 def test_scenario_s7_intrabatch_deduplication_ast_and_duckdb_e2e() -> None:
     """Scenario S7 (Issue #44): Compiled Zone 2 Hub/Link micro-batch deduplication SQL
     must pass Algorithm A.6 (`DV-AST-006` / `DV-G6-005`) and deduplicate duplicate
