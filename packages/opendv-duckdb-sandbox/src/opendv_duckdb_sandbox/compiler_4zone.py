@@ -129,6 +129,7 @@ def build_algorithm_a5_sha256_sql(
     *,
     is_business_key: bool = False,
     bkcc_literal: str | None = None,
+    bkcc_column_expr: str | None = None,
     sort_alphabetically: bool = False,
     delimiter: str = DEFAULT_DELIMITER,
     null_token: str = NULL_TOKEN,
@@ -145,7 +146,17 @@ def build_algorithm_a5_sha256_sql(
     """
     ordered = sorted(columns) if sort_alphabetically else list(columns)
     tokens: list[str] = []
-    if is_business_key and bkcc_literal:
+    if is_business_key and bkcc_column_expr and bkcc_column_expr.strip():
+        clean_bkcc_col = bkcc_column_expr.strip()
+        ordered = [c for c in ordered if c.strip() != clean_bkcc_col] or ordered
+        tokens.append(
+            build_length_prefixed_token_sql(
+                clean_bkcc_col,
+                is_business_key=True,
+                null_token=null_token,
+            )
+        )
+    elif is_business_key and bkcc_literal and bkcc_literal.strip():
         clean_bkcc = bkcc_literal.strip().upper()
         tokens.append(f"'{len(clean_bkcc.encode('utf-8'))}:{clean_bkcc}'")
     for col in ordered:
@@ -1782,6 +1793,30 @@ def _hub_slug(hub_name: str) -> str:
     return hub_name.removeprefix("hub_").removeprefix("bhub_").upper()
 
 
+def _effective_hub_bkcc_column_expr(hub: IRHub) -> str | None:
+    """Return the dynamic BKCC column expression configured on `hub`, if any."""
+    for candidate in (
+        hub.bkcc_column_expr,
+        hub.hk_column.hash_expression.bkcc_column_expr,
+        *(sm.bkcc_column_expr for sm in hub.source_mappings),
+    ):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    return None
+
+
+def _effective_hub_bkcc_literal(hub: IRHub) -> str | None:
+    """Return the static BKCC literal configured on `hub`, if any."""
+    for candidate in (
+        hub.bkcc_literal,
+        hub.hk_column.hash_expression.bkcc_literal,
+        *(sm.bkcc_literal for sm in hub.source_mappings),
+    ):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    return None
+
+
 def _hub_seed_bk_values(
     hub: IRHub,
     row_idx: int,
@@ -1790,10 +1825,19 @@ def _hub_seed_bk_values(
 ) -> list[str]:
     """Return deterministic business key token values for `row_idx` of `hub`."""
     slug = _hub_slug(hub.name)
+    bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
+    bkcc_lit = _effective_hub_bkcc_literal(hub)
     values: list[str] = []
     for bk in hub.business_keys:
         if bk.is_bkcc:
-            values.append(bkcc_override or "GLOBAL")
+            if bkcc_override:
+                values.append(bkcc_override)
+            elif bkcc_col_expr or bk.is_tenant_id:
+                values.append(f"TENANT_{row_idx:03d}")
+            elif bkcc_lit:
+                values.append(bkcc_lit)
+            else:
+                values.append("GLOBAL")
         else:
             values.append(f"{slug}-{row_idx:03d}")
     return values
@@ -2167,9 +2211,11 @@ def _load_bronze_table_rows(
         if rows:
             loaded[raw_key] = rows
             short_key = raw_key.split(".")[-1]
+            stripped_schema_key = raw_key.lower().removeprefix("bronze_").replace(".", "_")
             loaded.setdefault(short_key, rows)
             loaded.setdefault(f"bronze.{short_key}", rows)
             loaded.setdefault(f"stg_{raw_key.replace('.', '_')}", rows)
+            loaded.setdefault(f"stg_{stripped_schema_key}", rows)
             loaded.setdefault(f"stg_{short_key}", rows)
     return loaded
 
@@ -2197,7 +2243,15 @@ def _resolve_hub_bk_rows_from_bronze(
     extracted: list[list[str]] = []
     seen_tuples: set[tuple[str, ...]] = set()
     sm0 = hub.source_mappings[0] if hub.source_mappings else None
-    src_bk_cols = [c for c in (sm0.bk_source_columns if sm0 else []) if c.lower() != "bkcc"]
+    bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
+    bkcc_lit = _effective_hub_bkcc_literal(hub)
+    excluded_bkcc_names = {"bkcc"}
+    if bkcc_col_expr:
+        excluded_bkcc_names.add(bkcc_col_expr.lower())
+    raw_src_bk_cols = list(sm0.bk_source_columns) if sm0 else []
+    src_bk_cols = [
+        c for c in raw_src_bk_cols if c.lower() not in excluded_bkcc_names
+    ] or raw_src_bk_cols
 
     for row in candidate_rows:
         tokens: list[str] = []
@@ -2205,7 +2259,14 @@ def _resolve_hub_bk_rows_from_bronze(
         non_bkcc_idx = 0
         for bk in hub.business_keys:
             if bk.is_bkcc:
-                bkcc_val = str(row.get("bkcc") or (sm0.rec_src_value if sm0 else "GLOBAL")).strip()
+                raw_bkcc = (
+                    (row.get(bkcc_col_expr) if bkcc_col_expr else None)
+                    or row.get(bk.name)
+                    or row.get("bkcc")
+                    or bkcc_lit
+                    or (sm0.rec_src_value if sm0 else "GLOBAL")
+                )
+                bkcc_val = str(raw_bkcc).strip()
                 tokens.append(bkcc_val or "GLOBAL")
             else:
                 src_col = src_bk_cols[non_bkcc_idx] if non_bkcc_idx < len(src_bk_cols) else bk.name
@@ -2315,14 +2376,29 @@ def _compile_generic_zone_0_sql(
     for hub in ir_obj.hubs:
         tbl = _validate_ident(hub.name)
         rec_src = hub.source_mappings[0].rec_src_value if hub.source_mappings else "SYSTEM_SEED"
+        bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
+        bk_names = {bk.name for bk in hub.business_keys}
+        extra_bkcc_col = (
+            _validate_ident(bkcc_col_expr)
+            if bkcc_col_expr and bkcc_col_expr not in bk_names
+            else None
+        )
+        bkcc_idx = next((idx for idx, bk in enumerate(hub.business_keys) if bk.is_bkcc), 0)
         bk_defs = [f"    {_validate_ident(bk.name)} VARCHAR," for bk in hub.business_keys]
+        if extra_bkcc_col:
+            bk_defs.append(f"    {extra_bkcc_col} VARCHAR,")
         bk_rows = hub_bk_rows[hub.name]
-        hub_insert_rows = [
-            "    ("
-            + ", ".join(chr(39) + v.replace(chr(39), chr(39) * 2) + chr(39) for v in row_bks)
-            + f", TIMESTAMP '2026-10-01 06:00:00', '{rec_src}')"
-            for row_bks in bk_rows
-        ]
+        hub_insert_rows = []
+        for row_bks in bk_rows:
+            row_vals = list(row_bks)
+            if extra_bkcc_col:
+                row_vals.append(row_bks[bkcc_idx] if bkcc_idx < len(row_bks) else "GLOBAL")
+            lit_vals = ", ".join(
+                chr(39) + v.replace(chr(39), chr(39) * 2) + chr(39) for v in row_vals
+            )
+            hub_insert_rows.append(
+                f"    ({lit_vals}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}')"
+            )
         parts.append(
             "\n".join(
                 [
@@ -2381,6 +2457,19 @@ def _compile_generic_zone_0_sql(
                     row2_tokens.append(f"'{esc2}'" if bk.is_bkcc else "NULL")
                     row3_tokens.append(f"'{esc1}'" if bk.is_bkcc else f"'{ZERO_KEY_UNKNOWN_TOKEN}'")
                     row4_tokens.append(f"'{esc2}'" if bk.is_bkcc else f"'{ZERO_KEY_ERROR_TOKEN}'")
+            t_bkcc_col_expr = _effective_hub_bkcc_column_expr(t_hub)
+            if t_bkcc_col_expr and t_bkcc_col_expr not in {bk.name for bk in t_hub.business_keys}:
+                t_bkcc_idx = next(
+                    (idx for idx, bk in enumerate(t_hub.business_keys) if bk.is_bkcc), 0
+                )
+                extra_fk_bkcc_col = _validate_ident(f"{fk_col}__{t_bkcc_col_expr}")
+                col_defs.append(f"    {extra_fk_bkcc_col} VARCHAR,")
+                v1_bkcc = r1_bks[t_bkcc_idx].replace("'", "''")
+                v2_bkcc = r2_bks[t_bkcc_idx].replace("'", "''")
+                row1_tokens.append(f"'{v1_bkcc}'")
+                row2_tokens.append(f"'{v2_bkcc}'")
+                row3_tokens.append(f"'{v1_bkcc}'")
+                row4_tokens.append(f"'{v2_bkcc}'")
 
         r1_sql = ", ".join(row1_tokens)
         r2_sql = ", ".join(row2_tokens)
@@ -2420,10 +2509,24 @@ def _compile_generic_zone_0_sql(
 
         if sat.parent_entity in hub_by_name:
             p_hub = hub_by_name[sat.parent_entity]
+            p_bkcc_col_expr = _effective_hub_bkcc_column_expr(p_hub)
+            p_bk_names = {bk.name for bk in p_hub.business_keys}
+            p_extra_bkcc = (
+                _validate_ident(p_bkcc_col_expr)
+                if p_bkcc_col_expr and p_bkcc_col_expr not in p_bk_names
+                else None
+            )
+            p_bkcc_idx = next((idx for idx, bk in enumerate(p_hub.business_keys) if bk.is_bkcc), 0)
             for bk in p_hub.business_keys:
                 col_defs.append(f"    parent_bk__{_validate_ident(bk.name)} VARCHAR,")
+            if p_extra_bkcc:
+                col_defs.append(f"    parent_bk__{p_extra_bkcc} VARCHAR,")
             for row_bks in hub_bk_rows[p_hub.name]:
-                parent_val_rows.append([f"'{v.replace(chr(39), chr(39) * 2)}'" for v in row_bks])
+                p_vals = [f"'{v.replace(chr(39), chr(39) * 2)}'" for v in row_bks]
+                if p_extra_bkcc:
+                    bkcc_v = row_bks[p_bkcc_idx] if p_bkcc_idx < len(row_bks) else "GLOBAL"
+                    p_vals.append(f"'{bkcc_v.replace(chr(39), chr(39) * 2)}'")
+                parent_val_rows.append(p_vals)
             if not sat_source_rows:
                 for sm in p_hub.source_mappings:
                     for key in (
@@ -2550,11 +2653,29 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
         non_bkcc_cols = [
             _validate_ident(bk.name) for bk in hub.business_keys if not bk.is_bkcc
         ] or bk_cols
-        hk_expr = build_algorithm_a5_sha256_sql(
-            bk_cols,
-            is_business_key=True,
-            key_columns=non_bkcc_cols,
-        )
+        bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
+        bkcc_lit = _effective_hub_bkcc_literal(hub)
+        has_bkcc_col = any(bk.is_bkcc for bk in hub.business_keys)
+        if bkcc_col_expr:
+            hk_expr = build_algorithm_a5_sha256_sql(
+                non_bkcc_cols,
+                is_business_key=True,
+                bkcc_column_expr=_validate_ident(bkcc_col_expr),
+                key_columns=non_bkcc_cols,
+            )
+        elif bkcc_lit and not has_bkcc_col:
+            hk_expr = build_algorithm_a5_sha256_sql(
+                non_bkcc_cols,
+                is_business_key=True,
+                bkcc_literal=bkcc_lit,
+                key_columns=non_bkcc_cols,
+            )
+        else:
+            hk_expr = build_algorithm_a5_sha256_sql(
+                bk_cols,
+                is_business_key=True,
+                key_columns=non_bkcc_cols,
+            )
         bk_csv = ", ".join(bk_cols)
         parts.append(
             f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
@@ -2593,11 +2714,29 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                 f"OR TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_UNKNOWN_TOKEN}')"
                 for c in non_bkcc_cols
             )
-            raw_hash = build_algorithm_a5_sha256_sql(
-                raw_bk_cols,
-                is_business_key=True,
-                key_columns=non_bkcc_cols,
-            )
+            t_bkcc_col_expr = _effective_hub_bkcc_column_expr(t_hub)
+            t_bkcc_lit = _effective_hub_bkcc_literal(t_hub)
+            t_has_bkcc_col = any(bk.is_bkcc for bk in t_hub.business_keys)
+            if t_bkcc_col_expr:
+                raw_hash = build_algorithm_a5_sha256_sql(
+                    non_bkcc_cols,
+                    is_business_key=True,
+                    bkcc_column_expr=_validate_ident(f"{fk_col}__{t_bkcc_col_expr}"),
+                    key_columns=non_bkcc_cols,
+                )
+            elif t_bkcc_lit and not t_has_bkcc_col:
+                raw_hash = build_algorithm_a5_sha256_sql(
+                    non_bkcc_cols,
+                    is_business_key=True,
+                    bkcc_literal=t_bkcc_lit,
+                    key_columns=non_bkcc_cols,
+                )
+            else:
+                raw_hash = build_algorithm_a5_sha256_sql(
+                    raw_bk_cols,
+                    is_business_key=True,
+                    key_columns=non_bkcc_cols,
+                )
             fk_cte_exprs.append(
                 f"        COALESCE(\n"
                 f"            CASE\n"
@@ -2654,11 +2793,29 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                 for bk in p_hub.business_keys
                 if not bk.is_bkcc
             ] or p_cols
-            parent_hk_expr = build_algorithm_a5_sha256_sql(
-                p_cols,
-                is_business_key=True,
-                key_columns=non_bkcc_p_cols,
-            )
+            p_bkcc_col_expr = _effective_hub_bkcc_column_expr(p_hub)
+            p_bkcc_lit = _effective_hub_bkcc_literal(p_hub)
+            p_has_bkcc_col = any(bk.is_bkcc for bk in p_hub.business_keys)
+            if p_bkcc_col_expr:
+                parent_hk_expr = build_algorithm_a5_sha256_sql(
+                    non_bkcc_p_cols,
+                    is_business_key=True,
+                    bkcc_column_expr=f"parent_bk__{_validate_ident(p_bkcc_col_expr)}",
+                    key_columns=non_bkcc_p_cols,
+                )
+            elif p_bkcc_lit and not p_has_bkcc_col:
+                parent_hk_expr = build_algorithm_a5_sha256_sql(
+                    non_bkcc_p_cols,
+                    is_business_key=True,
+                    bkcc_literal=p_bkcc_lit,
+                    key_columns=non_bkcc_p_cols,
+                )
+            else:
+                parent_hk_expr = build_algorithm_a5_sha256_sql(
+                    p_cols,
+                    is_business_key=True,
+                    key_columns=non_bkcc_p_cols,
+                )
         else:
             p_lnk = link_by_name[sat.parent_entity]
             p_cols = [

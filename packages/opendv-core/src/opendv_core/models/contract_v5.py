@@ -102,6 +102,7 @@ class BusinessKeySource(StrictContractModel):
     key_authority_tier: KeyAuthorityTierLiteral
     require_src_qualifier: bool
     bkcc_prefix: str | None = None
+    bkcc_column_expr: str | None = None
     system_scoped_bk_justification: str | None = None
 
 

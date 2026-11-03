@@ -438,3 +438,129 @@ def test_observability_event_validation_and_invariants() -> None:
     }
     with pytest.raises(ValidationError):
         VaultObservabilityEvent.model_validate(invalid_non_p6)
+
+
+def test_contract_v5_and_canonical_ir_accept_bkcc_column_expr() -> None:
+    """Issue #42 (GAP-11): Verify `BusinessKeySource`, `IRHashExpression`,
+    `IRHubSourceMapping`, and `IRHub` validate `bkcc_column_expr` against both
+    Pydantic v2 models and JSON Schemas (`no-mistake-dv2-contract-v5.schema.json`
+    and `dv2-canonical-ir.schema.json`).
+    """
+    from opendv_core.models.canonical_ir import (
+        IRBusinessKeyColumn,
+        IRColumnDef,
+        IRHashColumn,
+        IRHashConfig,
+        IRHashExpression,
+        IRHub,
+        IRHubSourceMapping,
+        IRSystemColumns,
+    )
+    from opendv_core.models.contract_v5 import BusinessKeySource
+
+    bk_src = BusinessKeySource(
+        bronze_table="bronze_saas.tenant_accounts",
+        key_columns=["account_id"],
+        record_source_code="SAAS_CORE",
+        key_authority_tier="TIER_3_LOCAL_SCOPED",
+        require_src_qualifier=True,
+        bkcc_column_expr="tenant_id",
+        system_scoped_bk_justification="Single-table multi-tenant source partitioned by tenant_id.",
+    )
+    assert bk_src.bkcc_column_expr == "tenant_id"
+
+    hash_expr = IRHashExpression(
+        algorithm="SHA256",
+        input_columns=["bkcc", "account_id"],
+        normalization="UPPER_TRIM",
+        bkcc_column_expr="tenant_id",
+    )
+    assert hash_expr.bkcc_column_expr == "tenant_id"
+
+    sm = IRHubSourceMapping(
+        staging_table="stg_saas_tenant_accounts",
+        bk_source_columns=["tenant_id", "account_id"],
+        rec_src_value="SAAS_CORE",
+        bkcc_column_expr="tenant_id",
+    )
+    assert sm.bkcc_column_expr == "tenant_id"
+
+    ir_hub = IRHub(
+        name="hub_tenant_account",
+        business_concept="Tenant Account",
+        verified_global_master_key=False,
+        bkcc_column_expr="tenant_id",
+        hk_column=IRHashColumn(
+            name="hk_tenant_account",
+            data_type="BINARY(32)",
+            nullable=False,
+            hash_expression=hash_expr,
+        ),
+        business_keys=[
+            IRBusinessKeyColumn(
+                name="bkcc",
+                data_type="VARCHAR(64)",
+                nullable=False,
+                is_bkcc=True,
+                is_tenant_id=True,
+            ),
+            IRBusinessKeyColumn(
+                name="account_id",
+                data_type="VARCHAR(64)",
+                nullable=False,
+            ),
+        ],
+        load_dts_column=IRColumnDef(name="load_dts", data_type="TIMESTAMP_NTZ(9)", nullable=False),
+        rec_src_column=IRColumnDef(name="rec_src", data_type="VARCHAR(255)", nullable=False),
+        source_mappings=[sm],
+    )
+    assert ir_hub.bkcc_column_expr == "tenant_id"
+
+    validated_contract = validate_contract_v5(
+        {
+            "contract_version": "5.0",
+            "domain_namespace": "multi_tenant_saas",
+            "lifecycle_stage": "COLD_START_N1",
+            "column_triage_ledger": [
+                {
+                    "bronze_table": "bronze_saas.tenant_accounts",
+                    "column_name": "tenant_id",
+                    "elm_classification": "BUSINESS_KEY",
+                    "target_dv_entity": "hub_tenant_account",
+                },
+                {
+                    "bronze_table": "bronze_saas.tenant_accounts",
+                    "column_name": "account_id",
+                    "elm_classification": "BUSINESS_KEY",
+                    "target_dv_entity": "hub_tenant_account",
+                },
+            ],
+            "hubs": [
+                {
+                    "name": "hub_tenant_account",
+                    "ontology_concept_uri": "urn:ontology:entity:tenant_account",
+                    "business_key_sources": [bk_src.model_dump(mode="json", exclude_none=True)],
+                }
+            ],
+            "links": [],
+            "satellites": [],
+            "reference_tables": [],
+            "unmapped_escalations": [],
+        }
+    )
+    assert validated_contract.hubs[0].business_key_sources[0].bkcc_column_expr == "tenant_id"
+
+    validated_ir = validate_canonical_ir(
+        CanonicalIR(
+            ir_version="1.0.0",
+            model_name="multi_tenant_saas_vault",
+            hash_config=IRHashConfig(),
+            system_columns=IRSystemColumns(),
+            hubs=[ir_hub],
+            links=[],
+            satellites=[],
+        ).model_dump(mode="json", exclude_none=True)
+    )
+    assert validated_ir.hubs[0].bkcc_column_expr == "tenant_id"
+    assert validated_ir.hubs[0].hk_column.hash_expression.bkcc_column_expr == "tenant_id"
+    assert validated_ir.hubs[0].source_mappings[0].bkcc_column_expr == "tenant_id"

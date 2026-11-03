@@ -218,15 +218,19 @@ def verify_gate1_contract_and_grain(
             tbl_collision = table_collisions.get(b_table, {})
             src_tier = str(src.get("key_authority_tier") or src.get("bk_authority_tier") or "")
 
+            bkcc_prefix_val = str(src.get("bkcc_prefix") or "").strip()
+            bkcc_col_expr_val = str(src.get("bkcc_column_expr") or "").strip()
             if (
                 src_tier == "TIER_3_LOCAL_SCOPED"
                 or tbl_collision.get("requires_tier3_bkcc_prefix")
                 or tbl_collision.get("required_bkcc_prefix")
-            ) and (not src.get("require_src_qualifier") or not src.get("bkcc_prefix")):
+            ) and (
+                not src.get("require_src_qualifier") or not (bkcc_prefix_val or bkcc_col_expr_val)
+            ):
                 diagnostics.append(
                     f"SEMANTIC_ERROR [Gate 1 - DV-COL-012]: Hub '{h_name}' source "
                     f"'{b_table}' is Tier-3 local-scoped / colliding but lacks "
-                    f"require_src_qualifier=true and non-empty bkcc_prefix."
+                    f"require_src_qualifier=true and non-empty bkcc_prefix or bkcc_column_expr."
                 )
 
             for k_col in src.get("key_columns", []):

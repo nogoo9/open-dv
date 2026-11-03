@@ -84,6 +84,8 @@ export interface IrHashExpressionDTO {
 	algorithm: string;
 	input_columns: string[];
 	normalization: HashNormalization;
+	bkcc_literal?: string | null | undefined;
+	bkcc_column_expr?: string | null | undefined;
 }
 
 export interface IrHkColumnDTO {
@@ -102,12 +104,16 @@ export interface IrHubSourceMappingDTO {
 	staging_table: string;
 	bk_source_columns: string[];
 	rec_src_value: string;
+	bkcc_literal?: string | null | undefined;
+	bkcc_column_expr?: string | null | undefined;
 }
 
 export interface IrHubDTO {
 	name: string;
 	business_concept?: string | undefined;
 	verified_global_master_key?: boolean | undefined;
+	bkcc_literal?: string | null | undefined;
+	bkcc_column_expr?: string | null | undefined;
 	hk_column: IrHkColumnDTO;
 	business_keys: IrBusinessKeyColumnDTO[];
 	load_dts_column: IrColumnSpecDTO;
