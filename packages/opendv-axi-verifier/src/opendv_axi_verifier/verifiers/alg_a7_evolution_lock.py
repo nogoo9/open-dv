@@ -29,6 +29,15 @@ def _ref_tuple(ref: dict[str, Any]) -> tuple[str, str]:
     return (target, role)
 
 
+def _canonicalize_source_bkcc_for_lock(src: dict[str, Any]) -> str | None:
+    """Normalize Tier-1/Tier-2 None and 'GLOBAL' bkcc_prefix to 'GLOBAL' for EVO-03 comparison."""
+    raw = src.get("bkcc_prefix")
+    tier = str(src.get("key_authority_tier") or src.get("bk_authority_tier") or "")
+    if tier in {"TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR"} and raw in (None, "GLOBAL"):
+        return "GLOBAL"
+    return str(raw) if raw is not None else None
+
+
 def verify_additive_evolution_invariants(
     contract_v_prev: dict[str, Any],
     contract_v_next: dict[str, Any],
@@ -113,11 +122,19 @@ def verify_additive_evolution_invariants(
                     f"source {src_key} mutated key_columns from {s_old.get('key_columns')} "
                     f"to {s_new.get('key_columns')}."
                 )
-            if s_old.get("bkcc_prefix") != s_new.get("bkcc_prefix"):
+            if _canonicalize_source_bkcc_for_lock(s_old) != _canonicalize_source_bkcc_for_lock(
+                s_new
+            ):
                 violations.append(
                     f"BREAKING_EVOLUTION [DV-EVO-003 / DV-EVO-007 / BKCC_MUTATED]: Hub "
                     f"'{h_name}' source {src_key} mutated bkcc_prefix from "
                     f"'{s_old.get('bkcc_prefix')}' to '{s_new.get('bkcc_prefix')}'."
+                )
+            if s_old.get("bkcc_column_expr") != s_new.get("bkcc_column_expr"):
+                violations.append(
+                    f"BREAKING_EVOLUTION [DV-EVO-003 / DV-EVO-007 / BKCC_MUTATED]: Hub "
+                    f"'{h_name}' source {src_key} mutated bkcc_column_expr from "
+                    f"'{s_old.get('bkcc_column_expr')}' to '{s_new.get('bkcc_column_expr')}'."
                 )
 
     # 3. Link Evolution Invariants (DV-EVO-002, DV-EVO-003, DV-EVO-004)
@@ -235,3 +252,4 @@ def verify_additive_evolution_invariants(
 
 
 verify_evolution_invariants = verify_additive_evolution_invariants
+verify_evolution_lock_alg_a7 = verify_additive_evolution_invariants

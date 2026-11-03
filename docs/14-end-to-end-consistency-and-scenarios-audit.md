@@ -56,8 +56,8 @@ When live source data contains fields that cannot be matched to the declared Gra
   - Gate 1 enforces `ANTI_SILO_VIOLATION` preventing duplicate Hubs binding to the same ontology concept URI.
   - In Business Vault, `sal_limited_partner` (`hk_lp_master`, `hk_lp_duplicate`) converges identities, while `esat_sal_limited_partner` tracks validity periods.
 - **DV 2.0 Consistency Critique & Gaps:**
-  - *Staging BKCC derivation:* In `compiler_4zone.py`, BKCC literal is scoped at the table level rather than the `(table, column, target_hub)` tuple level, risking misapplication if one table feeds multiple Hubs with differing authorities.
-  - *SAL Directionality:* Gate 3 lacks canonical sorting on `(hk_master, hk_duplicate)` to mathematically prevent reflexive `(A, A)` or duplicate inverted pairs `(B, A)`.
+  - *Staging BKCC derivation (Resolved in [#39](https://github.com/nogoo9/open-dv/issues/39)):* `ir_lowerer.py` (`_lower_hub`, `_lower_link`) and `compiler_4zone.py` (`build_staging_bkcc_registry`, `resolve_staging_bkcc_literal`) scope BKCC literals per `(bronze_table, column_name, target_hub)` tuple; see [`docs/17-testing-scenarios-and-datasets.md`](17-testing-scenarios-and-datasets.md) for the Scenario S2 verification dataset and tests.
+  - *SAL Directionality (Resolved in [#41](https://github.com/nogoo9/open-dv/issues/41)):* Gate 3 (`DV-STR-015`), Zone 2 SAL DML (`compiler_4zone.py`), and Gate 5 (`DV-DYN-006`) enforce canonical `(hk_master, hk_duplicate)` ordering and 3-Tier `BKCC` authority hierarchy, rejecting reflexive `(A, A)` self-loops and duplicate inverted `(B, A)` pairs.
 
 ### Scenario S3: Completely Unmapped Feed / Absent Ontology Concept
 - **Data Input Profile:** Source feed containing tables or entities completely absent from Graph A ontology.
@@ -96,16 +96,14 @@ When live source data contains fields that cannot be matched to the declared Gra
   - In generic `compiler_4zone.py` Zone 2 DML, satellite delta detection partitions by `hk` and orders strictly by `load_dts DESC`. A late-arriving restatement with an older `load_dts` is dropped by `src.load_dts > cur.load_dts`, even if `applied_dts` is novel.
 
 ### Scenario S7: Malformed / Adversarial Raw Data
-- **Data Input Profile:** Duplicate BKs in micro-batch, whitespace/null BKs, SQL injection payloads (`' OR 1=1; --`).
+- **Data Input Profile:** Duplicate BKs in micro-batch, whitespace/null BKs, multi-byte UTF-8 keys/payloads, SQL injection payloads (`' OR 1=1; --`).
 - **Observed Codebase Behavior:**
   - Zone 2 DML groups by BK columns (`GROUP BY src.{hk}, {src_bk_csv}`) and uses `WHERE NOT EXISTS`, deduplicating micro-batches.
-  - Length-prefixed SHA-256 (`<len>:<val>`) prevents delimiter injection collisions (`['AB', 'C']` vs `['A', 'BC']`).
-  - Identifier regex `^[A-Za-z_][A-Za-z0-9_]*$` and SQLGlot AST prevent dynamic SQL injection.
+  - Length-prefixed SHA-256 (`<len>:<val>`) via `OCTET_LENGTH(ENCODE(...))` prevents delimiter injection collisions (`['AB', 'C']` vs `['A', 'BC']`) and preserves multi-byte UTF-8 byte-length parity (`DV-HASH-004`; see [`docs/17-testing-scenarios-and-datasets.md`](17-testing-scenarios-and-datasets.md)).
+  - Identifier regex `^[A-Za-z_][A-Za-z0-9_]*$` and SQLGlot AST (`DV-AST-002`) prevent dynamic SQL injection and reject `STRLEN`/`LENGTH` in hash expressions.
 - **DV 2.0 Consistency Critique & Gaps:**
-  - **CRITICAL BUG: DuckDB `STRLEN()` vs. UTF-8 `OCTET_LENGTH()`:**
-    In `compiler_4zone.py` line 112:
-    `CAST(STRLEN({nullif_expr}) AS VARCHAR) || ':' || {nullif_expr}`
-    DuckDB's `STRLEN()` returns Unicode character count, whereas Python `len(s.encode('utf-8'))` in `hashing.py` returns UTF-8 byte length. For multi-byte characters (e.g. `'ä'`), DuckDB produces `'20:...'` while Python produces `'21:...'`, causing **cryptographic hash mismatch between Python and DuckDB**!
+  - **RESOLVED (`BUG-01` / [#30](https://github.com/nogoo9/open-dv/issues/30)): DuckDB `STRLEN()` vs. UTF-8 `OCTET_LENGTH(ENCODE(...))`:**
+    Replaced `STRLEN(...)` (Unicode codepoint count) with `OCTET_LENGTH(ENCODE(...))` (UTF-8 byte length) across `compiler_4zone.py`, `pit_query_engine.py`, `adversarial_batches.py`, and `dynamic_checks.py`, and tightened `DV-AST-002` in `alg_a6_sqlglot_ast.py` to accept only `OCTET_LENGTH`/`BYTE_LENGTH`.
   - **Case Divergence:** Python `hashing.py` produces uppercase hex (`.hexdigest().upper()`), whereas DuckDB SQL produces lowercase hex (`LOWER(SHA256(...))`).
 
 ### Scenario S8: Unstructured Document Ingestion
@@ -121,8 +119,9 @@ When live source data contains fields that cannot be matched to the declared Gra
 - **Data Input Profile:** Same natural key (e.g. account `1001`) originating from different tenants or business units.
 - **Observed Codebase Behavior:**
   - BKCC namespaces prefix keys during Algorithm A.5 hashing (`<bkcc_len>:<bkcc>||<bk_len>:<bk>`), isolating hash keys in Hubs.
+  - Single-table multi-tenant feeds declare `bkcc_column_expr` (e.g., `"tenant_id"`) on `BusinessKeySource`, which lowers into `CanonicalIR` (`IRHub`, `IRHashExpression`, `IRHubSourceMapping`) and compiles Zone 1 staging views via `build_algorithm_a5_sha256_sql(..., bkcc_column_expr=...)` while preserving `KEY-02(b)` Zero-Key resolution on business key columns.
 - **DV 2.0 Consistency Critique & Gaps:**
-  - `compiler_4zone.py` only accepts static `bkcc_literal`. If a single multi-tenant feed contains rows with a dynamic `tenant_id` column, the compiler cannot prefix hashes with that column unless modeled manually as a composite business key.
+  - *Resolved (`GAP-11` / [#42](https://github.com/nogoo9/open-dv/issues/42)):* Added `bkcc_column_expr` support across `NoMistakeDataVault2ContractV5`, `CanonicalIR`, Gate 1 (`DV-COL-012`), Gate 4 (`DV-EVO-003` / `DV-EVO-007`), `ir_lowerer.py`, and `compiler_4zone.py` (see [`docs/17-testing-scenarios-and-datasets.md`](17-testing-scenarios-and-datasets.md)).
 
 ### Scenario S10: Ghost Record & Unknown Value Handling
 - **Data Input Profile:** Missing parent keys in links, outer joins in analytical queries.
@@ -139,16 +138,16 @@ When live source data contains fields that cannot be matched to the declared Gra
 
 | Issue ID | Severity | Subsystem & File Location | Description & Root Cause | Proposed Fix | GitHub Issue |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **BUG-01** | **CRITICAL** | `opendv-duckdb-sandbox/compiler_4zone.py` (lines 112, 750, 787, 852, 1013) | `STRLEN()` in DuckDB counts characters, while Python `hashing.py` counts UTF-8 bytes. Diverges on multi-byte characters. | Replace `STRLEN(...)` with `OCTET_LENGTH(...)` across `compiler_4zone.py`. | [#30](https://github.com/nogoo9/open-dv/issues/30) |
+| **BUG-01** | **CRITICAL** *(Resolved)* | `opendv-duckdb-sandbox/compiler_4zone.py`, `pit_query_engine.py`, `alg_a6_sqlglot_ast.py` | `STRLEN()` in DuckDB counts characters, while Python `hashing.py` counts UTF-8 bytes. Diverges on multi-byte characters. | Replaced `STRLEN(...)` with `OCTET_LENGTH(ENCODE(...))` and restricted `DV-AST-002` to `OCTET_LENGTH`/`BYTE_LENGTH` ([`docs/17`](17-testing-scenarios-and-datasets.md)). | [#30](https://github.com/nogoo9/open-dv/issues/30) |
 | **BUG-02** | **HIGH** | `opendv-axi-verifier/codemods/alg_a4_cold_start.py` (line 294) | `if len(refs) < 3: continue` skips binary links with sparse foreign keys ($U_{nn} < 0.95$), generating synthetic zero-key relationships. | Extend Algorithm A.4 and Gate 2 to binary links: filter `WHERE fk IS NOT NULL` or demote FK to satellite attribute. | [#31](https://github.com/nogoo9/open-dv/issues/31) |
 | **BUG-03** | **HIGH** | `opendv-duckdb-sandbox/compiler_4zone.py` (Zone 2 templates) | Zone 2 DML lacks approval filter for unstructured extraction links. | Inject `WHERE steward_gate_status = 'APPROVED'` into Zone 2 DML for unstructured links. | [#32](https://github.com/nogoo9/open-dv/issues/32) |
 | **BUG-04** | **MEDIUM** | `opendv-axi-verifier/verifiers/alg_a9b_unstructured.py` (line 107) | Windows CRLF line endings cause 1-character-per-line shifts, spuriously triggering `SPAN_HALLUCINATION`. | Explicitly normalize newlines (`replace('\r\n', '\n')`) prior to span verification. | [#33](https://github.com/nogoo9/open-dv/issues/33) |
 | **BUG-05** | **MEDIUM** | `opendv-duckdb-sandbox/compiler_4zone.py` (Zone 2) | Satellite delta detection uses strict `src.load_dts > cur.load_dts`, rejecting late-arriving restatements with older load timestamps. | Window against adjacent state in business effective time (`applied_dts`) rather than strictly by `load_dts`. | [#34](https://github.com/nogoo9/open-dv/issues/34) |
 | **BUG-06** | **MEDIUM** | `opendv-core/hashing.py` & `compiler_4zone.py` | Hash hex casing divergence: `.upper()` in Python vs `LOWER(...)` in DuckDB. | Harmonize all SHA-256 digests to lowercase hex strings across Python, IR, and SQL. | [#37](https://github.com/nogoo9/open-dv/issues/37) |
 | **BUG-07** | **MEDIUM** | `opendv-duckdb-sandbox/compiler_4zone.py` (Zone 0) | Missing `ALTER TABLE ADD COLUMN` migration DDL for non-breaking in-place schema evolution. | Emit idempotent `ALTER TABLE <sat> ADD COLUMN IF NOT EXISTS ...` in `zone_0_migration_sql`. | [#38](https://github.com/nogoo9/open-dv/issues/38) |
-| **BUG-08** | **MEDIUM** | `opendv-duckdb-sandbox/compiler_4zone.py` (Zone 1) | BKCC literal is scoped per table rather than `(table, column, target_hub)`. | Scope staging BKCC mapping per `(table, column, target_hub)` tuple. | [#39](https://github.com/nogoo9/open-dv/issues/39) |
+| **BUG-08** | **MEDIUM** | `opendv-duckdb-sandbox/compiler_4zone.py` & `ir_lowerer.py` (Zone 1) | BKCC literal was scoped per table rather than `(table, column, target_hub)`. | **Resolved:** Scoped staging BKCC mapping per `(table, column, target_hub)` tuple via `build_staging_bkcc_registry` and `resolve_staging_bkcc_literal` (see [`docs/17-testing-scenarios-and-datasets.md`](17-testing-scenarios-and-datasets.md)). | [#39](https://github.com/nogoo9/open-dv/issues/39) |
 | **GAP-09** | **MEDIUM** | `opendv-axi-verifier` & `opendv-core` | Invariant `DV-COL-013`: Discrepancy between literal `'GLOBAL'` prefix vs empty prefix for Tier-1 keys. | Standardize Tier-1 global key prefixing formula across Python, IR, and SQL. | [#40](https://github.com/nogoo9/open-dv/issues/40) |
-| **GAP-10** | **MEDIUM** | `opendv-axi-verifier/gate3_networkx_dag.py` | Invariant `DV-STR-015`: Lack of canonical edge sorting on Same-As Links (`sal_*`). | Enforce asymmetric canonical ordering and reject reflexive `(A, A)` loops. | [#41](https://github.com/nogoo9/open-dv/issues/41) |
+| **GAP-10** | **MEDIUM** | `opendv-axi-verifier/gate3_networkx_dag.py` & `opendv-duckdb-sandbox` (`compiler_4zone.py`, `dynamic_checks.py`) | Invariant `DV-STR-015`: Lack of canonical edge sorting on Same-As Links (`sal_*`). | Enforce asymmetric canonical ordering (`MASTER` before `DUPLICATE`, 3-Tier `BKCC` rank) and reject reflexive `(A, A)` loops and inverted `(B, A)` pairs across Gate 3, Zone 2 DML, and `DV-DYN-006`. | [#41](https://github.com/nogoo9/open-dv/issues/41) |
 | **GAP-11** | **MEDIUM** | `opendv-duckdb-sandbox/compiler_4zone.py` | Dynamic tenant columns in single-table multi-tenant feeds cannot be passed as dynamic BKCC. | Add `bkcc_column_expr` parameter to `build_algorithm_a5_sha256_sql`. | [#42](https://github.com/nogoo9/open-dv/issues/42) |
 | **GAP-12** | **MEDIUM** | `opendv-duckdb-sandbox/compiler_4zone.py` (Zone 1) | Error Zero Key sentinel `'f'*64` is pre-seeded in Zone 0 but never emitted by Zone 1 staging SQL. | Implement 3-way conditional staging branch for Unknown (`-1`) vs Error (`-2`) Zero Keys. | [#43](https://github.com/nogoo9/open-dv/issues/43) |
 | **GAP-13** | **MEDIUM** | `opendv-axi-verifier/alg_a6_sqlglot_ast.py` | Rule `DV-AST-006` bans all `GROUP BY` in Raw Vault, flagging Hub micro-batch deduplication SQL. | Whitelist idempotent micro-batch deduplication aggregations in `DV-AST-006`. | [#44](https://github.com/nogoo9/open-dv/issues/44) |

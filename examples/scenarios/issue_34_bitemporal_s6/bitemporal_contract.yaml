@@ -1,0 +1,37 @@
+contract_version: "5.0"
+domain_namespace: "commercial_lending_bitemporal"
+lifecycle_stage: "COLD_START_N1"
+
+column_triage_ledger:
+  - { bronze_table: "bronze_crm.accounts", column_name: "company_uen", elm_classification: "BUSINESS_KEY", target_dv_entity: "hub_customer" }
+  - { bronze_table: "bronze_crm.accounts", column_name: "legal_name", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_customer_crm" }
+  - { bronze_table: "bronze_crm.accounts", column_name: "credit_score_live", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_customer_crm" }
+  - { bronze_table: "bronze_crm.accounts", column_name: "effective_from_dt", elm_classification: "DESCRIPTIVE_PAYLOAD", target_dv_entity: "sat_customer_crm" }
+
+hubs:
+  - name: "hub_customer"
+    ontology_concept_uri: "urn:ontology:entity:customer"
+    business_key_sources:
+      - bronze_table: "bronze_crm.accounts"
+        key_columns: ["company_uen"]
+        record_source_code: "SFDC_CRM"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: "GLOBAL"
+
+links: []
+
+satellites:
+  - name: "sat_customer_crm"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_customer"
+    source_bronze_table: "bronze_crm.accounts"
+    security_classification: "INTERNAL"
+    volatility_tier: "UNCLASSIFIED"
+    payload_columns:
+      - "legal_name"
+      - "credit_score_live"
+      - "effective_from_dt"
+
+reference_tables: []
+unmapped_escalations: []

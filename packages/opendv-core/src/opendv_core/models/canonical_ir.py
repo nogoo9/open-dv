@@ -57,6 +57,8 @@ class IRHashExpression(StrictIRModel):
     algorithm: str
     input_columns: list[str] = Field(min_length=1)
     normalization: Literal["UPPER_TRIM", "EXACT_TRIM"]
+    bkcc_literal: str | None = None
+    bkcc_column_expr: str | None = None
 
 
 class IRHashColumn(StrictIRModel):
@@ -92,6 +94,12 @@ class IRHubSourceMapping(StrictIRModel):
     staging_table: str
     bk_source_columns: list[str]
     rec_src_value: str
+    bronze_table: str | None = None
+    key_authority_tier: str | None = None
+    bkcc_prefix: str | None = None
+    bkcc_literal: str | None = None
+    bkcc_column_expr: str | None = None
+    column_bkcc_map: dict[str, str | None] | None = None
 
 
 class IRHub(StrictIRModel):
@@ -100,6 +108,8 @@ class IRHub(StrictIRModel):
     name: str = Field(pattern=r"^(b?hub)_[a-z0-9_]+$")
     business_concept: str | None = None
     verified_global_master_key: bool | None = None
+    bkcc_literal: str | None = None
+    bkcc_column_expr: str | None = None
     hk_column: IRHashColumn
     business_keys: list[IRBusinessKeyColumn] = Field(min_length=1)
     load_dts_column: IRColumnDef

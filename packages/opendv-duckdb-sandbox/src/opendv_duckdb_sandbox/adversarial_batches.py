@@ -29,6 +29,7 @@ from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_duckdb_sandbox.compiler_4zone import (
     Compiled4ZoneBundle,
+    _compile_generic_zone_2_raw_vault_dml,
     _compile_generic_zone_3_business_vault_sql,
     _effective_pit_tables,
     _hub_slug,
@@ -36,6 +37,8 @@ from opendv_duckdb_sandbox.compiler_4zone import (
     _satellite_schema,
     _satellite_seed_sql_literal,
     _validate_ident,
+    build_algorithm_a5_sha256_sql,
+    build_length_prefixed_token_sql,
     is_pe_domain,
 )
 from opendv_duckdb_sandbox.dynamic_checks import (
@@ -233,31 +236,53 @@ def run_batch_3_delta_and_boundary_shift(
     before_hubs, before_links, before_sats = _snapshot_vault_counts(conn, ir)
 
     # 1. Verify Python & DuckDB length-prefixed SHA-256 boundary-shift collision immunity
+    #    and DV-HASH-004 multi-byte UTF-8 byte-length prefixing ('Nordisk Suverän Fond' -> 21 bytes)
     py_hash_ab_c = compute_dv2_length_prefixed_sha256(["AB", "C"], is_business_key=False).lower()
     py_hash_a_bc = compute_dv2_length_prefixed_sha256(["A", "BC"], is_business_key=False).lower()
+    py_hash_utf8 = compute_dv2_length_prefixed_sha256(
+        ["Nordisk Suverän Fond"], is_business_key=False
+    ).lower()
+    utf8_token_sql = build_length_prefixed_token_sql("v.val", is_business_key=False)
+    utf8_sha_sql = build_algorithm_a5_sha256_sql(["v.val"], is_business_key=False)
 
     sql_hashes = conn.execute(
-        """
+        f"""
         SELECT
             LOWER(SHA256(CONCAT_WS('||',
-                CAST(STRLEN('AB') AS VARCHAR) || ':' || 'AB',
-                CAST(STRLEN('C') AS VARCHAR) || ':' || 'C'
+                CAST(OCTET_LENGTH(ENCODE('AB')) AS VARCHAR) || ':' || 'AB',
+                CAST(OCTET_LENGTH(ENCODE('C')) AS VARCHAR) || ':' || 'C'
             ))) AS h_ab_c,
             LOWER(SHA256(CONCAT_WS('||',
-                CAST(STRLEN('A') AS VARCHAR) || ':' || 'A',
-                CAST(STRLEN('BC') AS VARCHAR) || ':' || 'BC'
-            ))) AS h_a_bc
-        """
+                CAST(OCTET_LENGTH(ENCODE('A')) AS VARCHAR) || ':' || 'A',
+                CAST(OCTET_LENGTH(ENCODE('BC')) AS VARCHAR) || ':' || 'BC'
+            ))) AS h_a_bc,
+            {utf8_token_sql} AS utf8_prehash,
+            {utf8_sha_sql} AS h_utf8,
+            (
+                SELECT COUNT(*) FROM duckdb_views()
+                WHERE schema_name = 'staging' AND UPPER(sql) LIKE '%STRLEN(%'
+            ) AS staging_strlen_views
+        FROM (SELECT ? AS val) AS v
+        """,
+        ["Nordisk Suverän Fond"],
     ).fetchone()
     assert sql_hashes is not None
     duck_hash_ab_c = str(sql_hashes[0])
     duck_hash_a_bc = str(sql_hashes[1])
+    duck_utf8_prehash = str(sql_hashes[2])
+    duck_hash_utf8 = str(sql_hashes[3])
+    staging_strlen_views = int(sql_hashes[4])
 
     boundary_shift_distinct = (
         py_hash_ab_c != py_hash_a_bc
         and duck_hash_ab_c != duck_hash_a_bc
         and py_hash_ab_c == duck_hash_ab_c
         and py_hash_a_bc == duck_hash_a_bc
+        and duck_utf8_prehash == "21:Nordisk Suverän Fond"
+        and duck_hash_utf8 == py_hash_utf8
+        and "OCTET_LENGTH(" in utf8_token_sql.upper()
+        and "STRLEN(" not in utf8_token_sql.upper()
+        and staging_strlen_views == 0
     )
 
     if is_pe_domain(ir) or ir is None:
@@ -300,11 +325,20 @@ def run_batch_3_delta_and_boundary_shift(
             (
                 s
                 for s in ir.satellites
-                if _satellite_schema(s) == "raw_vault" and s.satellite_type != "MULTI_ACTIVE"
+                if _satellite_schema(s) == "raw_vault"
+                and s.satellite_type != "MULTI_ACTIVE"
+                and s.applied_dts_column is not None
             ),
             next(
-                (s for s in ir.satellites if _satellite_schema(s) == "raw_vault"),
-                ir.satellites[0],
+                (
+                    s
+                    for s in ir.satellites
+                    if _satellite_schema(s) == "raw_vault" and s.satellite_type != "MULTI_ACTIVE"
+                ),
+                next(
+                    (s for s in ir.satellites if _satellite_schema(s) == "raw_vault"),
+                    ir.satellites[0],
+                ),
             ),
         )
         sat_schema = _satellite_schema(target_sat)
@@ -318,7 +352,7 @@ def run_batch_3_delta_and_boundary_shift(
             SELECT {parent_hk}
             FROM {sat_schema}.{sat_tbl}
             WHERE rec_src <> '{GHOST_REC_SRC}'
-            ORDER BY load_dts DESC
+            ORDER BY load_dts ASC, {parent_hk} ASC
             LIMIT 1
             """
         ).fetchone()
@@ -554,7 +588,7 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
                 token = f"{ns_label}:{shared_bk}"
             row_tokens.append(token)
             bk_literals.append(f"'{token}'")
-        hk_val = compute_dv2_length_prefixed_sha256(row_tokens, is_business_key=True).lower()
+        hk_val = compute_dv2_length_prefixed_sha256(row_tokens, is_business_key=True)
         inserted_hks.append(hk_val)
         bk_vals_sql = ", ".join(bk_literals)
         conn.execute(
@@ -599,7 +633,7 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
         SELECT {parent_hk}
         FROM {sat_schema}.{sat_tbl}
         WHERE rec_src <> '{GHOST_REC_SRC}'
-        ORDER BY load_dts ASC
+        ORDER BY load_dts ASC, {parent_hk} ASC
         LIMIT 1
         """
     ).fetchone()
@@ -612,24 +646,84 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
     app_col = "applied_dts, " if has_applied else ""
     app_val = "TIMESTAMP '2026-09-30 00:00:00', " if has_applied else ""
 
-    conn.execute(
-        f"""
-        INSERT INTO {sat_schema}.{sat_tbl} (
-            {parent_hk}, load_dts, {app_col}rec_src, hash_diff, {payload_csv}
+    if has_applied:
+        hub_by_name = {h.name: h for h in ir.hubs}
+        link_by_name = {lnk.name: lnk for lnk in ir.links}
+        if bitemp_sat.parent_entity in hub_by_name:
+            p_hub = hub_by_name[bitemp_sat.parent_entity]
+            p_cols = [f"parent_bk__{_validate_ident(bk.name)}" for bk in p_hub.business_keys]
+        else:
+            p_lnk = link_by_name[bitemp_sat.parent_entity]
+            p_cols = [
+                f"parent_fk__{_validate_ident(ref.fk_column_name)}" for ref in p_lnk.hub_references
+            ]
+        parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+        p_cols_csv = ", ".join(p_cols)
+        pay_col_tail = f", {payload_csv}" if payload_csv else ""
+        restated_tail = f", {restated_vals}" if restated_vals else ""
+
+        conn.execute(
+            f"""
+            INSERT INTO bronze.src_{sat_tbl} (
+                {p_cols_csv}, load_dts, applied_dts, rec_src{pay_col_tail}
+            )
+            SELECT
+                {p_cols_csv},
+                TIMESTAMP '2026-11-10 09:00:00',
+                TIMESTAMP '2026-09-30 00:00:00',
+                'BATCH4_LATE_DUPLICATE'{pay_col_tail}
+            FROM bronze.src_{sat_tbl}
+            WHERE {parent_hk_expr} = '{target_sat_hk}'
+              AND load_dts = TIMESTAMP '2026-10-01 06:00:00'
+              AND NOT EXISTS (
+                  SELECT 1 FROM bronze.src_{sat_tbl} b
+                  WHERE b.load_dts = TIMESTAMP '2026-11-10 09:00:00'
+                    AND b.rec_src = 'BATCH4_LATE_DUPLICATE'
+              )
+            LIMIT 1;
+            """
         )
-        SELECT
-            '{target_sat_hk}',
-            TIMESTAMP '2026-11-15 09:15:00',
-            {app_val}'BATCH4_RESTATEMENT',
-            LOWER(SHA256('4:REST||4:ATED||2:V4')),
-            {restated_vals}
-        WHERE NOT EXISTS (
-            SELECT 1 FROM {sat_schema}.{sat_tbl} s
-            WHERE s.{parent_hk} = '{target_sat_hk}'
-              AND s.load_dts = TIMESTAMP '2026-11-15 09:15:00'
-        );
-        """
-    )
+        conn.execute(
+            f"""
+            INSERT INTO bronze.src_{sat_tbl} (
+                {p_cols_csv}, load_dts, applied_dts, rec_src{pay_col_tail}
+            )
+            SELECT
+                {p_cols_csv},
+                TIMESTAMP '2026-11-15 09:15:00',
+                TIMESTAMP '2026-09-30 00:00:00',
+                'BATCH4_RESTATEMENT'{restated_tail}
+            FROM bronze.src_{sat_tbl}
+            WHERE {parent_hk_expr} = '{target_sat_hk}'
+              AND load_dts = TIMESTAMP '2026-10-01 06:00:00'
+              AND NOT EXISTS (
+                  SELECT 1 FROM bronze.src_{sat_tbl} b
+                  WHERE b.load_dts = TIMESTAMP '2026-11-15 09:15:00'
+                    AND b.rec_src = 'BATCH4_RESTATEMENT'
+              )
+            LIMIT 1;
+            """
+        )
+        conn.execute(_compile_generic_zone_2_raw_vault_dml(ir))
+    else:
+        conn.execute(
+            f"""
+            INSERT INTO {sat_schema}.{sat_tbl} (
+                {parent_hk}, load_dts, {app_col}rec_src, hash_diff, {payload_csv}
+            )
+            SELECT
+                '{target_sat_hk}',
+                TIMESTAMP '2026-11-15 09:15:00',
+                {app_val}'BATCH4_RESTATEMENT',
+                LOWER(SHA256('4:REST||4:ATED||2:V4')),
+                {restated_vals}
+            WHERE NOT EXISTS (
+                SELECT 1 FROM {sat_schema}.{sat_tbl} s
+                WHERE s.{parent_hk} = '{target_sat_hk}'
+                  AND s.load_dts = TIMESTAMP '2026-11-15 09:15:00'
+            );
+            """
+        )
 
     # Refresh PIT tables in business_vault so PIT lookup parity holds across all snapshots
     for pit in _effective_pit_tables(ir):

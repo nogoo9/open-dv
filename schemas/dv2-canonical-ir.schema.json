@@ -130,6 +130,12 @@
           "verified_global_master_key": {
             "type": "boolean"
           },
+          "bkcc_literal": {
+            "type": ["string", "null"]
+          },
+          "bkcc_column_expr": {
+            "type": ["string", "null"]
+          },
           "hk_column": {
             "type": "object",
             "required": ["name", "data_type", "nullable", "hash_expression"],
@@ -161,6 +167,12 @@
                   "normalization": {
                     "type": "string",
                     "enum": ["UPPER_TRIM", "EXACT_TRIM"]
+                  },
+                  "bkcc_literal": {
+                    "type": ["string", "null"]
+                  },
+                  "bkcc_column_expr": {
+                    "type": ["string", "null"]
                   }
                 }
               }
@@ -245,6 +257,27 @@
                 },
                 "rec_src_value": {
                   "type": "string"
+                },
+                "bronze_table": {
+                  "type": ["string", "null"]
+                },
+                "key_authority_tier": {
+                  "type": ["string", "null"]
+                },
+                "bkcc_prefix": {
+                  "type": ["string", "null"]
+                },
+                "bkcc_literal": {
+                  "type": ["string", "null"]
+                },
+                "bkcc_column_expr": {
+                  "type": ["string", "null"]
+                },
+                "column_bkcc_map": {
+                  "type": ["object", "null"],
+                  "additionalProperties": {
+                    "type": ["string", "null"]
+                  }
                 }
               }
             }

@@ -2,14 +2,19 @@
 
 Compiles verified `CanonicalIR` models (including the Private Equity reference vault) into
 an executable 4-Zone DuckDB SQL bundle (`docs/03` §7, `docs/05` §3.5, `docs/07` Scene 6):
-- **Zone 0**: Target schemas, Bronze staging seed tables, Raw/Business Vault DDL, and
-  mandatory Ghost Records (`SYSTEM_GHOST` at `1900-01-01 00:00:00`) & Dual Zero Keys
-  (`'0'*64` Unknown and `'f'*64` Error with `rec_src = 'SYSTEM_ZERO_KEY'`).
+- **Zone 0**: Target schemas, Bronze staging seed tables, Raw/Business Vault DDL
+  (`CREATE TABLE IF NOT EXISTS`), mandatory Ghost Records (`SYSTEM_GHOST` at
+  `1900-01-01 00:00:00`) & Dual Zero Keys (`'0'*64` Unknown and `'f'*64` Error with
+  `rec_src = 'SYSTEM_ZERO_KEY'`), plus idempotent `zone_0_migration_sql`
+  (`ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS`) for additive Satellite evolution.
 - **Zone 1**: Hashed Staging Views (`staging.stg_*`) using Algorithm A.5 length-prefixed
-  SHA-256 (`<len>:<val>` and `'-1:^^'` null token) and `BKCC` namespace injection.
+  SHA-256 (`<len>:<val>` and `'-1:^^'` null token), `BKCC` namespace injection, and
+  3-way Zero-Key sentinel branching (`'-2'` -> `'f'*64`, `NULL`/`'-1'` -> `'0'*64`).
 - **Zone 2**: Insert-Only Raw Vault DML for Hubs, Reference tables, Links, and Satellites
-  using idempotent `WHERE NOT EXISTS` and `LEFT JOIN ... WHERE cur.hk IS NULL OR`
-  `cur.hash_diff <> src.hash_diff` anti-joins.
+  using idempotent `WHERE NOT EXISTS`, lexicographic `(applied_dts ASC, load_dts ASC)`
+  `LAG(hash_diff)` delta detection for bi-temporal Satellites (`DV-DML-003`), and
+  `LEFT JOIN ... WHERE cur.hk IS NULL OR cur.hash_diff <> src.hash_diff` anti-joins for
+  uni-temporal Satellites.
 - **Zone 3**: Business Vault (`sal_limited_partner`, `sal_investor_golden`,
   `esat_sal_limited_partner`, AI provenance satellites, and `pit_portfolio_company`).
 - **Zone 4**: Bi-temporal Point-in-Time audit queries (`Query D.10` and `Query D.10b`).
@@ -18,6 +23,7 @@ an executable 4-Zone DuckDB SQL bundle (`docs/03` §7, `docs/05` §3.5, `docs/07
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -26,10 +32,13 @@ from opendv_core.constants import (
     DEFAULT_DELIMITER,
     GHOST_DTS,
     GHOST_REC_SRC,
+    GLOBAL_BKCC,
     NULL_TOKEN,
     ZERO_KEY_ERROR,
+    ZERO_KEY_ERROR_TOKEN,
     ZERO_KEY_REC_SRC,
     ZERO_KEY_UNKNOWN,
+    ZERO_KEY_UNKNOWN_TOKEN,
 )
 from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import (
@@ -63,6 +72,7 @@ class Compiled4ZoneBundle(BaseModel):
     ir_version: str = "1.0.0"
     topological_load_order: list[str] = Field(default_factory=list)
     zone_0_sql: str
+    zone_0_migration_sql: str = ""
     zone_1_sql: str
     zone_2_sql: str
     zone_3_sql: str
@@ -77,14 +87,17 @@ class Compiled4ZoneBundle(BaseModel):
     @property
     def zones_0_to_3_sql(self) -> str:
         """Executable DDL + DML bundle for Zones 0 through 3."""
-        return "\n\n".join(
+        sections = [self.zone_0_sql]
+        if self.zone_0_migration_sql.strip():
+            sections.append(self.zone_0_migration_sql)
+        sections.extend(
             [
-                self.zone_0_sql,
                 self.zone_1_sql,
                 self.zone_2_sql,
                 self.zone_3_sql,
             ]
         )
+        return "\n\n".join(sections)
 
     @property
     def full_sql_bundle(self) -> str:
@@ -109,7 +122,7 @@ def build_length_prefixed_token_sql(
     nullif_expr = f"NULLIF({norm_expr}, '')"
     return (
         f"CASE WHEN {nullif_expr} IS NULL THEN '{null_token}' "
-        f"ELSE CAST(STRLEN({nullif_expr}) AS VARCHAR) || ':' || {nullif_expr} END"
+        f"ELSE CAST(OCTET_LENGTH(ENCODE({nullif_expr})) AS VARCHAR) || ':' || {nullif_expr} END"
     )
 
 
@@ -118,14 +131,34 @@ def build_algorithm_a5_sha256_sql(
     *,
     is_business_key: bool = False,
     bkcc_literal: str | None = None,
+    bkcc_column_expr: str | None = None,
     sort_alphabetically: bool = False,
     delimiter: str = DEFAULT_DELIMITER,
     null_token: str = NULL_TOKEN,
+    error_predicate: str | None = None,
+    unknown_predicate: str | None = None,
+    key_columns: list[str] | None = None,
 ) -> str:
-    """Build a DuckDB Algorithm A.5 length-prefixed SHA-256 SQL expression."""
+    """Build a DuckDB Algorithm A.5 length-prefixed SHA-256 SQL expression.
+
+    When `is_business_key=True`, emits a 3-way `CASE` expression routing `'-2'` /
+    `error_predicate` to `REPEAT('f', 64)` (`ZERO_KEY_ERROR`) and `NULL` / `''` / `'-1'` /
+    `unknown_predicate` on `key_columns` (excluding constant `bkcc` / `*__bkcc` columns by
+    default) to `REPEAT('0', 64)` (`ZERO_KEY_UNKNOWN`).
+    """
     ordered = sorted(columns) if sort_alphabetically else list(columns)
     tokens: list[str] = []
-    if is_business_key and bkcc_literal:
+    if is_business_key and bkcc_column_expr and bkcc_column_expr.strip():
+        clean_bkcc_col = bkcc_column_expr.strip()
+        ordered = [c for c in ordered if c.strip() != clean_bkcc_col] or ordered
+        tokens.append(
+            build_length_prefixed_token_sql(
+                clean_bkcc_col,
+                is_business_key=True,
+                null_token=null_token,
+            )
+        )
+    elif is_business_key and bkcc_literal and bkcc_literal.strip():
         clean_bkcc = bkcc_literal.strip().upper()
         tokens.append(f"'{len(clean_bkcc.encode('utf-8'))}:{clean_bkcc}'")
     for col in ordered:
@@ -139,10 +172,34 @@ def build_algorithm_a5_sha256_sql(
     concat_sql = f" || '{delimiter}' || ".join(tokens)
     sha_expr = f"LOWER(SHA256({concat_sql}))"
     if is_business_key and ordered:
-        all_null_pred = " AND ".join(
-            f"NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL" for c in ordered
+        if key_columns is not None:
+            pred_cols = list(key_columns)
+        else:
+            non_bkcc = [
+                c for c in ordered if c.lower() != "bkcc" and not c.lower().endswith("__bkcc")
+            ]
+            pred_cols = non_bkcc or ordered
+        default_err_pred = " OR ".join(
+            f"TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_ERROR_TOKEN}'" for c in pred_cols
         )
-        return f"CASE WHEN {all_null_pred} THEN REPEAT('0', 64) ELSE {sha_expr} END"
+        err_branch_pred = (
+            f"({error_predicate}) OR ({default_err_pred})" if error_predicate else default_err_pred
+        )
+        default_unk_pred = " OR ".join(
+            f"(NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL "
+            f"OR TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_UNKNOWN_TOKEN}')"
+            for c in pred_cols
+        )
+        unk_branch_pred = (
+            f"({unknown_predicate}) OR ({default_unk_pred})"
+            if unknown_predicate
+            else default_unk_pred
+        )
+        return (
+            f"CASE WHEN {err_branch_pred} THEN REPEAT('f', 64) "
+            f"WHEN {unk_branch_pred} THEN REPEAT('0', 64) "
+            f"ELSE {sha_expr} END"
+        )
     return sha_expr
 
 
@@ -226,6 +283,9 @@ INSERT INTO dealcloud.src_portfolio_companies VALUES
     ('PC-DEAL-01', '529900T8BM49AURSDO55', 'Nordic Cloud Infrastructure AB', '45102010', 'SE', 2023,
      16896550.00, 12.80, 216280000.00, DATE '2026-09-30', TIMESTAMP '2026-10-01 07:30:00'),
     ('PC-NULL-FK', NULL, 'Unassigned Pipeline Target', '45103010', 'US', 2026,
+     5000000.00, 10.00, 50000000.00, DATE '2026-09-30',
+     TIMESTAMP '2026-10-01 07:30:00'),
+    ('PC-ERR-FK', '-2', 'Inapplicable Pipeline Target', '45103010', 'US', 2026,
      5000000.00, 10.00, 50000000.00, DATE '2026-09-30',
      TIMESTAMP '2026-10-01 07:30:00'){restatement_seed_portco};
 
@@ -745,15 +805,20 @@ keys AS (
     SELECT
         *,
         CASE
-            WHEN lp_id_norm IS NULL OR lp_id_norm = '' THEN REPEAT('0', 64)
+            WHEN lp_id_norm = '-2' THEN REPEAT('f', 64)
+            WHEN lp_id_norm IS NULL OR lp_id_norm = '' OR lp_id_norm = '-1' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
-                '6:GLOBAL||' || CAST(STRLEN(lp_id_norm) AS VARCHAR) || ':' || lp_id_norm
+                '6:GLOBAL||'
+                || CAST(OCTET_LENGTH(ENCODE(lp_id_norm)) AS VARCHAR)
+                || ':' || lp_id_norm
             ))
         END AS hk_lp,
         CASE
-            WHEN fund_code_norm IS NULL OR fund_code_norm = '' THEN REPEAT('0', 64)
+            WHEN fund_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN fund_code_norm IS NULL OR fund_code_norm = '' OR fund_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
-                CAST(STRLEN(fund_code_norm) AS VARCHAR) || ':' || fund_code_norm
+                CAST(OCTET_LENGTH(ENCODE(fund_code_norm)) AS VARCHAR) || ':' || fund_code_norm
             ))
         END AS hk_fund
     FROM norm
@@ -784,42 +849,46 @@ SELECT
     rec_src,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN lp_legal_name IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(lp_legal_name) AS VARCHAR) || ':' || lp_legal_name END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(lp_legal_name)) AS VARCHAR) || ':' || lp_legal_name END,
         CASE WHEN lp_type IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(lp_type) AS VARCHAR) || ':' || lp_type END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(lp_type)) AS VARCHAR) || ':' || lp_type END,
         CASE WHEN country_code IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(country_code) AS VARCHAR) || ':' || country_code END
+             ELSE CAST(OCTET_LENGTH(ENCODE(country_code)) AS VARCHAR) || ':' || country_code END
     ))) AS hash_diff_lp_core,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN tax_id_ein IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(tax_id_ein) AS VARCHAR) || ':' || tax_id_ein END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(tax_id_ein)) AS VARCHAR) || ':' || tax_id_ein END,
         CASE WHEN kyc_aml_risk_tier IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(kyc_aml_risk_tier) AS VARCHAR) || ':' || kyc_aml_risk_tier END
+             ELSE CAST(OCTET_LENGTH(ENCODE(kyc_aml_risk_tier)) AS VARCHAR)
+                  || ':' || kyc_aml_risk_tier END
     ))) AS hash_diff_lp_kyc_pii,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN fund_legal_name IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(fund_legal_name) AS VARCHAR) || ':' || fund_legal_name END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(fund_legal_name)) AS VARCHAR)
+                  || ':' || fund_legal_name END,
         CASE WHEN vintage_year IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(vintage_year AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(vintage_year AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(vintage_year AS VARCHAR) END,
         CASE WHEN fund_strategy IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(fund_strategy) AS VARCHAR) || ':' || fund_strategy END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(fund_strategy)) AS VARCHAR) || ':' || fund_strategy END,
         CASE WHEN base_currency_iso IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(base_currency_iso) AS VARCHAR) || ':' || base_currency_iso END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(base_currency_iso)) AS VARCHAR)
+                  || ':' || base_currency_iso END,
         CASE WHEN target_size_usd IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(target_size_usd AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(target_size_usd AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(target_size_usd AS VARCHAR) END
     ))) AS hash_diff_fund_core,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN committed_amount IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(committed_amount AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(committed_amount AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(committed_amount AS VARCHAR) END,
         CASE WHEN commitment_currency IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(commitment_currency) AS VARCHAR) || ':' || commitment_currency END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(commitment_currency)) AS VARCHAR)
+                  || ':' || commitment_currency END,
         CASE WHEN closing_round IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(closing_round) AS VARCHAR) || ':' || closing_round END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(closing_round)) AS VARCHAR) || ':' || closing_round END,
         CASE WHEN commitment_date IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(commitment_date AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(commitment_date AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(commitment_date AS VARCHAR) END
     ))) AS hash_diff_commitment_terms
 FROM keys;
@@ -848,8 +917,12 @@ keys AS (
     SELECT
         *,
         CASE
-            WHEN lei_code_norm IS NULL OR lei_code_norm = '' THEN REPEAT('0', 64)
-            ELSE LOWER(SHA256(CAST(STRLEN(lei_code_norm) AS VARCHAR) || ':' || lei_code_norm))
+            WHEN lei_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN lei_code_norm IS NULL OR lei_code_norm = '' OR lei_code_norm = '-1'
+                THEN REPEAT('0', 64)
+            ELSE LOWER(SHA256(
+                CAST(OCTET_LENGTH(ENCODE(lei_code_norm)) AS VARCHAR) || ':' || lei_code_norm
+            ))
         END AS hk_portco,
         LOWER(SHA256('14:APEX-BUYOUT-IV')) AS hk_fund
     FROM norm
@@ -873,33 +946,35 @@ SELECT
     rec_src,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN company_legal_name IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(company_legal_name) AS VARCHAR) || ':' || company_legal_name END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(company_legal_name)) AS VARCHAR)
+                  || ':' || company_legal_name END,
         CASE WHEN gics_sub_industry_code IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(gics_sub_industry_code) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(gics_sub_industry_code)) AS VARCHAR)
                   || ':' || gics_sub_industry_code END,
         CASE WHEN hq_country_iso IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(hq_country_iso) AS VARCHAR) || ':' || hq_country_iso END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(hq_country_iso)) AS VARCHAR)
+                  || ':' || hq_country_iso END,
         CASE WHEN acquisition_year IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(acquisition_year AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(acquisition_year AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(acquisition_year AS VARCHAR) END
     ))) AS hash_diff_portco_core,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN entry_ebitda_usd IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(entry_ebitda_usd AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(entry_ebitda_usd AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(entry_ebitda_usd AS VARCHAR) END,
         CASE WHEN entry_ev_multiple IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(entry_ev_multiple AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(entry_ev_multiple AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(entry_ev_multiple AS VARCHAR) END,
         CASE WHEN current_nav_usd IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(current_nav_usd AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(current_nav_usd AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(current_nav_usd AS VARCHAR) END,
         CASE WHEN as_of_quarter_end IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(as_of_quarter_end AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(as_of_quarter_end AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(as_of_quarter_end AS VARCHAR) END
     ))) AS hash_diff_portco_valuation,
     LOWER(SHA256(
         CASE WHEN deal_id IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(deal_id) AS VARCHAR) || ':' || deal_id END
+             ELSE CAST(OCTET_LENGTH(ENCODE(deal_id)) AS VARCHAR) || ':' || deal_id END
     )) AS hash_diff_deal
 FROM keys;
 
@@ -928,23 +1003,30 @@ keys AS (
     SELECT
         *,
         CASE
-            WHEN lp_id_norm IS NULL OR lp_id_norm = '' THEN REPEAT('0', 64)
+            WHEN lp_id_norm = '-2' THEN REPEAT('f', 64)
+            WHEN lp_id_norm IS NULL OR lp_id_norm = '' OR lp_id_norm = '-1' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
-                '15:LEGACY_GP_ADMIN||' || CAST(STRLEN(lp_id_norm) AS VARCHAR) || ':' || lp_id_norm
+                '15:LEGACY_GP_ADMIN||'
+                || CAST(OCTET_LENGTH(ENCODE(lp_id_norm)) AS VARCHAR)
+                || ':' || lp_id_norm
             ))
         END AS hk_lp,
         CASE
-            WHEN cap_acct_code_norm IS NULL OR cap_acct_code_norm = '' THEN REPEAT('0', 64)
+            WHEN cap_acct_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN cap_acct_code_norm IS NULL OR cap_acct_code_norm = '' OR cap_acct_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 '15:LEGACY_GP_ADMIN||'
-                || CAST(STRLEN(cap_acct_code_norm) AS VARCHAR)
+                || CAST(OCTET_LENGTH(ENCODE(cap_acct_code_norm)) AS VARCHAR)
                 || ':' || cap_acct_code_norm
             ))
         END AS hk_cap_acct,
         CASE
-            WHEN fund_code_norm IS NULL OR fund_code_norm = '' THEN REPEAT('0', 64)
+            WHEN fund_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN fund_code_norm IS NULL OR fund_code_norm = '' OR fund_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
-                CAST(STRLEN(fund_code_norm) AS VARCHAR) || ':' || fund_code_norm
+                CAST(OCTET_LENGTH(ENCODE(fund_code_norm)) AS VARCHAR) || ':' || fund_code_norm
             ))
         END AS hk_fund
     FROM norm
@@ -973,27 +1055,28 @@ SELECT
     rec_src,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN lp_legal_name IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(lp_legal_name) AS VARCHAR) || ':' || lp_legal_name END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(lp_legal_name)) AS VARCHAR) || ':' || lp_legal_name END,
         CASE WHEN lp_type IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(lp_type) AS VARCHAR) || ':' || lp_type END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(lp_type)) AS VARCHAR) || ':' || lp_type END,
         CASE WHEN country_code IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(country_code) AS VARCHAR) || ':' || country_code END
+             ELSE CAST(OCTET_LENGTH(ENCODE(country_code)) AS VARCHAR) || ':' || country_code END
     ))) AS hash_diff_lp_core,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN tax_id_ein IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(tax_id_ein) AS VARCHAR) || ':' || tax_id_ein END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(tax_id_ein)) AS VARCHAR) || ':' || tax_id_ein END,
         CASE WHEN kyc_aml_risk_tier IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(kyc_aml_risk_tier) AS VARCHAR) || ':' || kyc_aml_risk_tier END
+             ELSE CAST(OCTET_LENGTH(ENCODE(kyc_aml_risk_tier)) AS VARCHAR)
+                  || ':' || kyc_aml_risk_tier END
     ))) AS hash_diff_lp_kyc_pii,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN ending_nav_amt IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(ending_nav_amt AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(ending_nav_amt AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(ending_nav_amt AS VARCHAR) END,
         CASE WHEN unfunded_balance_amt IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(unfunded_balance_amt AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(unfunded_balance_amt AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(unfunded_balance_amt AS VARCHAR) END,
         CASE WHEN reporting_quarter IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(reporting_quarter AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(reporting_quarter AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(reporting_quarter AS VARCHAR) END
     ))) AS hash_diff_cap_acct_nav
 FROM keys;
@@ -1010,11 +1093,12 @@ SELECT
     ingested_dts AS load_dts,
     'UNSTRUCTURED_VDR' AS rec_src,
     LOWER(SHA256(CONCAT_WS('||',
-        CAST(STRLEN(doc_uri) AS VARCHAR) || ':' || doc_uri,
-        CAST(STRLEN(doc_type) AS VARCHAR) || ':' || doc_type,
-        CAST(STRLEN(doc_title) AS VARCHAR) || ':' || doc_title,
-        CAST(STRLEN(CAST(page_count AS VARCHAR)) AS VARCHAR) || ':' || CAST(page_count AS VARCHAR),
-        CAST(STRLEN(mime_type) AS VARCHAR) || ':' || mime_type
+        CAST(OCTET_LENGTH(ENCODE(doc_uri)) AS VARCHAR) || ':' || doc_uri,
+        CAST(OCTET_LENGTH(ENCODE(doc_type)) AS VARCHAR) || ':' || doc_type,
+        CAST(OCTET_LENGTH(ENCODE(doc_title)) AS VARCHAR) || ':' || doc_title,
+        CAST(OCTET_LENGTH(ENCODE(CAST(page_count AS VARCHAR))) AS VARCHAR)
+            || ':' || CAST(page_count AS VARCHAR),
+        CAST(OCTET_LENGTH(ENCODE(mime_type)) AS VARCHAR) || ':' || mime_type
     ))) AS hash_diff_doc_metadata
 FROM unstructured_vdr.src_document_manifest;
 
@@ -1388,13 +1472,14 @@ SELECT
     CAST(e.effective_from_date AS TIMESTAMP) AS applied_dts,
     'LLM_EXT_PIPELINE' AS rec_src,
     LOWER(SHA256(CONCAT_WS('||',
-        CAST(STRLEN(CAST(e.mgmt_fee_discount_bps AS VARCHAR)) AS VARCHAR)
+        CAST(OCTET_LENGTH(ENCODE(CAST(e.mgmt_fee_discount_bps AS VARCHAR))) AS VARCHAR)
             || ':' || CAST(e.mgmt_fee_discount_bps AS VARCHAR),
-        CAST(STRLEN(CAST(e.mfn_election_flag AS VARCHAR)) AS VARCHAR)
+        CAST(OCTET_LENGTH(ENCODE(CAST(e.mfn_election_flag AS VARCHAR))) AS VARCHAR)
             || ':' || CAST(e.mfn_election_flag AS VARCHAR),
-        CAST(STRLEN(CAST(e.co_invest_rights_flag AS VARCHAR)) AS VARCHAR)
+        CAST(OCTET_LENGTH(ENCODE(CAST(e.co_invest_rights_flag AS VARCHAR))) AS VARCHAR)
             || ':' || CAST(e.co_invest_rights_flag AS VARCHAR),
-        CAST(STRLEN(e.esg_exclusion_clause) AS VARCHAR) || ':' || e.esg_exclusion_clause
+        CAST(OCTET_LENGTH(ENCODE(e.esg_exclusion_clause)) AS VARCHAR)
+            || ':' || e.esg_exclusion_clause
     ))) AS hash_diff,
     e.mgmt_fee_discount_bps,
     e.mfn_election_flag,
@@ -1433,11 +1518,11 @@ SELECT
         + INTERVAL '23 hours 59 minutes 59 seconds' AS applied_dts,
     'LLM_EXT_PIPELINE' AS rec_src,
     LOWER(SHA256(CONCAT_WS('||',
-        CAST(STRLEN(CAST(e.restated_ev_multiple AS VARCHAR)) AS VARCHAR)
+        CAST(OCTET_LENGTH(ENCODE(CAST(e.restated_ev_multiple AS VARCHAR))) AS VARCHAR)
             || ':' || CAST(e.restated_ev_multiple AS VARCHAR),
-        CAST(STRLEN(CAST(e.effective_from_date AS VARCHAR)) AS VARCHAR)
+        CAST(OCTET_LENGTH(ENCODE(CAST(e.effective_from_date AS VARCHAR))) AS VARCHAR)
             || ':' || CAST(e.effective_from_date AS VARCHAR),
-        CAST(STRLEN(e.source_text_quote) AS VARCHAR) || ':' || e.source_text_quote
+        CAST(OCTET_LENGTH(ENCODE(e.source_text_quote)) AS VARCHAR) || ':' || e.source_text_quote
     ))) AS hash_diff,
     e.restated_ev_multiple,
     e.effective_from_date,
@@ -1477,7 +1562,7 @@ CREATE OR REPLACE TABLE information_mart.pit_portfolio_company AS
 SELECT
     LOWER(SHA256(
         '64:' || h.hk_portco || '||'
-        || CAST(STRLEN(CAST(cal.as_of_dts AS VARCHAR)) AS VARCHAR)
+        || CAST(OCTET_LENGTH(ENCODE(CAST(cal.as_of_dts AS VARCHAR))) AS VARCHAR)
         || ':' || CAST(cal.as_of_dts AS VARCHAR)
     )) AS hk_pit_portco,
     h.hk_portco,
@@ -1728,6 +1813,30 @@ def _hub_slug(hub_name: str) -> str:
     return hub_name.removeprefix("hub_").removeprefix("bhub_").upper()
 
 
+def _effective_hub_bkcc_column_expr(hub: IRHub) -> str | None:
+    """Return the dynamic BKCC column expression configured on `hub`, if any."""
+    for candidate in (
+        hub.bkcc_column_expr,
+        hub.hk_column.hash_expression.bkcc_column_expr,
+        *(sm.bkcc_column_expr for sm in hub.source_mappings),
+    ):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    return None
+
+
+def _effective_hub_bkcc_literal(hub: IRHub) -> str | None:
+    """Return the static BKCC literal configured on `hub`, if any."""
+    for candidate in (
+        hub.bkcc_literal,
+        hub.hk_column.hash_expression.bkcc_literal,
+        *(sm.bkcc_literal for sm in hub.source_mappings),
+    ):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    return None
+
+
 def _hub_seed_bk_values(
     hub: IRHub,
     row_idx: int,
@@ -1736,10 +1845,19 @@ def _hub_seed_bk_values(
 ) -> list[str]:
     """Return deterministic business key token values for `row_idx` of `hub`."""
     slug = _hub_slug(hub.name)
+    bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
+    bkcc_lit = _effective_hub_bkcc_literal(hub)
     values: list[str] = []
     for bk in hub.business_keys:
         if bk.is_bkcc:
-            values.append(bkcc_override or "GLOBAL")
+            if bkcc_override:
+                values.append(bkcc_override)
+            elif bkcc_col_expr or bk.is_tenant_id:
+                values.append(f"TENANT_{row_idx:03d}")
+            elif bkcc_lit:
+                values.append(bkcc_lit)
+            else:
+                values.append("GLOBAL")
         else:
             values.append(f"{slug}-{row_idx:03d}")
     return values
@@ -1753,7 +1871,14 @@ def _hub_seed_hk(
 ) -> str:
     """Compute the deterministic lowercase 64-char SHA-256 hash key for `row_idx` of `hub`."""
     tokens = _hub_seed_bk_values(hub, row_idx, bkcc_override=bkcc_override)
-    return compute_dv2_length_prefixed_sha256(tokens, is_business_key=True).lower()
+    has_bkcc_col = any(bool(bk.is_bkcc) for bk in hub.business_keys)
+    return compute_dv2_length_prefixed_sha256(
+        tokens,
+        is_business_key=True,
+        bkcc_prefix=None
+        if has_bkcc_col
+        else (bkcc_override or _effective_hub_bkcc_literal(hub) or GLOBAL_BKCC),
+    ).lower()
 
 
 def _normalize_duckdb_type(data_type: str) -> str:
@@ -1864,14 +1989,15 @@ def _satellite_child_key_names(sat: IRSatellite) -> list[str]:
 
 
 def _satellite_all_data_columns(sat: IRSatellite) -> list[IRColumnDef]:
-    """Return sub-sequence columns followed by payload columns without duplicates."""
+    """Return sub-sequence and payload columns without duplicates or duplicate `applied_dts`."""
     child_defs = list(sat.child_dependent_keys or [])
     sub_seq_set = {c.name if hasattr(c, "name") else str(c) for c in child_defs}
+    applied_col_name = sat.applied_dts_column.name if sat.applied_dts_column is not None else None
     existing_names = {c.name for c in sat.payload_columns}
     cols: list[IRColumnDef] = []
     for c_def in child_defs:
         seq_name = c_def.name if hasattr(c_def, "name") else str(c_def)
-        if seq_name not in existing_names:
+        if seq_name not in existing_names and seq_name != applied_col_name:
             if isinstance(c_def, IRColumnDef):
                 cols.append(c_def.model_copy(update={"nullable": False}))
             else:
@@ -1883,6 +2009,8 @@ def _satellite_all_data_columns(sat: IRSatellite) -> list[IRColumnDef]:
                     )
                 )
     for col in sat.payload_columns:
+        if col.name == applied_col_name:
+            continue
         if col.name in sub_seq_set and col.nullable:
             cols.append(col.model_copy(update={"nullable": False}))
         else:
@@ -1969,7 +2097,7 @@ def _compile_generic_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     bk_defs = [f"    {_validate_ident(bk.name)} VARCHAR NOT NULL," for bk in hub.business_keys]
     ddl = "\n".join(
         [
-            f"CREATE OR REPLACE TABLE raw_vault.{tbl} (",
+            f"CREATE TABLE IF NOT EXISTS raw_vault.{tbl} (",
             f"    {hk} CHAR(64) NOT NULL PRIMARY KEY,",
             *bk_defs,
             "    load_dts TIMESTAMP NOT NULL,",
@@ -1980,7 +2108,7 @@ def _compile_generic_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     unknown_bks = ", ".join("'SYSTEM'" if bk.is_bkcc else "'-1'" for bk in hub.business_keys)
     error_bks = ", ".join("'SYSTEM'" if bk.is_bkcc else "'-2'" for bk in hub.business_keys)
     zero_insert = (
-        f"INSERT INTO raw_vault.{tbl} VALUES\n"
+        f"INSERT OR IGNORE INTO raw_vault.{tbl} VALUES\n"
         f"    ('{ZERO_KEY_UNKNOWN}', {unknown_bks}, "
         f"TIMESTAMP '{GHOST_DTS}', '{ZERO_KEY_REC_SRC}'),\n"
         f"    ('{ZERO_KEY_ERROR}', {error_bks}, "
@@ -1994,12 +2122,12 @@ def _compile_generic_reference_ddl_and_seed(ref: IRReferenceTable) -> str:
     tbl = _validate_ident(ref.name)
     code_col = _validate_ident(ref.natural_code_column)
     return (
-        f"CREATE OR REPLACE TABLE raw_vault.{tbl} (\n"
+        f"CREATE TABLE IF NOT EXISTS raw_vault.{tbl} (\n"
         f"    {code_col} VARCHAR NOT NULL PRIMARY KEY,\n"
         f"    load_dts TIMESTAMP NOT NULL,\n"
         f"    rec_src VARCHAR NOT NULL\n"
         f");\n"
-        f"INSERT INTO raw_vault.{tbl} VALUES\n"
+        f"INSERT OR IGNORE INTO raw_vault.{tbl} VALUES\n"
         f"    ('REF-001', TIMESTAMP '2026-10-01 06:00:00', 'SYSTEM_SEED'),\n"
         f"    ('REF-002', TIMESTAMP '2026-10-01 06:00:00', 'SYSTEM_SEED');"
     )
@@ -2016,7 +2144,7 @@ def _compile_generic_link_ddl_and_zero_keys(link: IRLink) -> str:
     ]
     ddl = "\n".join(
         [
-            f"CREATE OR REPLACE TABLE {schema}.{tbl} (",
+            f"CREATE TABLE IF NOT EXISTS {schema}.{tbl} (",
             f"    {hk} CHAR(64) NOT NULL PRIMARY KEY,",
             *fk_defs,
             "    load_dts TIMESTAMP NOT NULL,",
@@ -2027,7 +2155,7 @@ def _compile_generic_link_ddl_and_zero_keys(link: IRLink) -> str:
     unknown_fks = ", ".join(f"'{ZERO_KEY_UNKNOWN}'" for _ in link.hub_references)
     error_fks = ", ".join(f"'{ZERO_KEY_ERROR}'" for _ in link.hub_references)
     zero_insert = (
-        f"INSERT INTO {schema}.{tbl} VALUES\n"
+        f"INSERT OR IGNORE INTO {schema}.{tbl} VALUES\n"
         f"    ('{ZERO_KEY_UNKNOWN}', {unknown_fks}, "
         f"TIMESTAMP '{GHOST_DTS}', '{ZERO_KEY_REC_SRC}'),\n"
         f"    ('{ZERO_KEY_ERROR}', {error_fks}, "
@@ -2066,20 +2194,27 @@ def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
     pk_cols = [parent_hk, "load_dts", *(_validate_ident(c) for c in child_keys)]
     col_lines.append(f"    PRIMARY KEY ({', '.join(pk_cols)})")
 
-    ddl = f"CREATE OR REPLACE TABLE {schema}.{tbl} (\n" + "\n".join(col_lines) + "\n);"
-    ghost_payloads = ", ".join(_ghost_literal_for_sat_column(col, sub_seq_set) for col in data_cols)
-    applied_val = f"TIMESTAMP '{GHOST_DTS}', " if has_applied else ""
-    payload_suffix = f", {ghost_payloads}" if ghost_payloads else ""
+    ddl = f"CREATE TABLE IF NOT EXISTS {schema}.{tbl} (\n" + "\n".join(col_lines) + "\n);"
+    ghost_cols = [parent_hk, "load_dts"]
+    ghost_vals = [f"'{ZERO_KEY_UNKNOWN}'", f"TIMESTAMP '{GHOST_DTS}'"]
+    if has_applied:
+        ghost_cols.append("applied_dts")
+        ghost_vals.append(f"TIMESTAMP '{GHOST_DTS}'")
+    ghost_cols.extend(["rec_src", "hash_diff"])
+    ghost_vals.extend([f"'{GHOST_REC_SRC}'", f"'{ZERO_KEY_UNKNOWN}'"])
+    for col in data_cols:
+        if col.name in sub_seq_set:
+            ghost_cols.append(_validate_ident(col.name))
+            ghost_vals.append(_ghost_literal_for_sat_column(col, sub_seq_set))
     ghost_insert = (
-        f"INSERT INTO {schema}.{tbl} VALUES\n"
-        f"    ('{ZERO_KEY_UNKNOWN}', TIMESTAMP '{GHOST_DTS}', {applied_val}"
-        f"'{GHOST_REC_SRC}', '{ZERO_KEY_UNKNOWN}'{payload_suffix});"
+        f"INSERT OR IGNORE INTO {schema}.{tbl} ({', '.join(ghost_cols)}) VALUES\n"
+        f"    ({', '.join(ghost_vals)});"
     )
     return f"{ddl}\n{ghost_insert}"
 
 
 def _load_bronze_table_rows(
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None,
+    bronze_tables: Mapping[str, list[dict[str, Any]] | Any] | None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Load rows from `bronze_tables` (CSV/Parquet paths or in-memory row lists)."""
     if not bronze_tables:
@@ -2112,60 +2247,333 @@ def _load_bronze_table_rows(
                         con.close()
         if rows:
             loaded[raw_key] = rows
+            loaded[raw_key.lower()] = rows
             short_key = raw_key.split(".")[-1]
+            clean_leaf = short_key
+            for pfx in ("src_", "raw_", "bronze_"):
+                if clean_leaf.lower().startswith(pfx) and len(clean_leaf) > len(pfx):
+                    clean_leaf = clean_leaf[len(pfx) :]
+                    break
+            stripped_schema_key = raw_key.lower().removeprefix("bronze_").replace(".", "_")
             loaded.setdefault(short_key, rows)
+            loaded.setdefault(clean_leaf, rows)
             loaded.setdefault(f"bronze.{short_key}", rows)
+            loaded.setdefault(f"bronze.{clean_leaf}", rows)
             loaded.setdefault(f"stg_{raw_key.replace('.', '_')}", rows)
+            loaded.setdefault(f"stg_{stripped_schema_key}", rows)
             loaded.setdefault(f"stg_{short_key}", rows)
+            loaded.setdefault(f"stg_{clean_leaf}", rows)
+            if "." in raw_key:
+                sys_pfx = raw_key.split(".")[0].lower().removeprefix("bronze_")
+                if not clean_leaf.lower().startswith(sys_pfx):
+                    loaded.setdefault(f"stg_{sys_pfx}_{clean_leaf.lower()}", rows)
     return loaded
+
+
+def _sql_lit(val: str) -> str:
+    """Escape single quotes in a SQL string literal."""
+    return str(val).replace("'", "''")
+
+
+def _table_lookup_keys(table_name: str) -> list[str]:
+    """Return normalized lookup keys for a Bronze or staging table identifier."""
+    raw = table_name.strip().lower()
+    if not raw:
+        return []
+    keys: list[str] = [raw]
+    leaf = raw.split(".")[-1]
+    if leaf not in keys:
+        keys.append(leaf)
+    clean_leaf = leaf
+    for pfx in ("stg_", "src_", "raw_", "bronze_"):
+        if clean_leaf.startswith(pfx) and len(clean_leaf) > len(pfx):
+            clean_leaf = clean_leaf[len(pfx) :]
+    if clean_leaf not in keys:
+        keys.append(clean_leaf)
+    if f"stg_{clean_leaf}" not in keys:
+        keys.append(f"stg_{clean_leaf}")
+    if "." in raw:
+        sys_pfx = raw.split(".")[0].removeprefix("bronze_")
+        if not clean_leaf.startswith(sys_pfx):
+            comp = f"{sys_pfx}_{clean_leaf}"
+            if comp not in keys:
+                keys.append(comp)
+            if f"stg_{comp}" not in keys:
+                keys.append(f"stg_{comp}")
+    return keys
+
+
+def _effective_hub_sm_bkcc_literal(hub: IRHub, sm: Any) -> str | None:
+    """Resolve the effective BKCC literal for a single `(hub, source_mapping)` pair."""
+    if getattr(sm, "bkcc_column_expr", None) or _effective_hub_bkcc_column_expr(hub):
+        return None
+    for attr in ("bkcc_literal", "bkcc_prefix"):
+        explicit_lit = str(getattr(sm, attr, None) or "").strip().upper()
+        if explicit_lit and explicit_lit not in {"NONE", "SOURCE_SYSTEM_PREFIX_REQUIRED"}:
+            return explicit_lit
+    tier = str(getattr(sm, "key_authority_tier", "") or "").strip().upper()
+    if tier in {"TIER_1_GLOBAL_STANDARD", "TIER_2_ENTERPRISE_SOR"}:
+        return GLOBAL_BKCC
+    if tier == "TIER_3_LOCAL_SCOPED":
+        rec = str(getattr(sm, "rec_src_value", "") or GLOBAL_BKCC).strip().upper()
+        return rec or GLOBAL_BKCC
+    hub_lit = _effective_hub_bkcc_literal(hub)
+    if hub_lit:
+        return hub_lit.strip().upper()
+    if any(bool(bk.is_bkcc) for bk in hub.business_keys):
+        return None
+    return GLOBAL_BKCC
+
+
+def build_staging_bkcc_registry(
+    ir_obj: CanonicalIR,
+) -> dict[tuple[str, str, str], str | None]:
+    """Build a `(bronze_table, column_name, target_hub) -> bkcc_literal` lookup registry."""
+    registry: dict[tuple[str, str, str], str | None] = {}
+    for hub in ir_obj.hubs:
+        non_bkcc_hub_cols = [bk.name.lower() for bk in hub.business_keys if not bk.is_bkcc]
+        for sm in hub.source_mappings:
+            eff_lit = _effective_hub_sm_bkcc_literal(hub, sm)
+            col_map = getattr(sm, "column_bkcc_map", None) or {}
+            src_cols = [
+                c.lower() for c in getattr(sm, "bk_source_columns", []) if c.lower() != "bkcc"
+            ]
+            tbl_keys = _table_lookup_keys(getattr(sm, "staging_table", ""))
+            bronze_tbl = getattr(sm, "bronze_table", None)
+            if bronze_tbl:
+                for k in _table_lookup_keys(str(bronze_tbl)):
+                    if k not in tbl_keys:
+                        tbl_keys.append(k)
+            for t_key in tbl_keys:
+                registry.setdefault((t_key, "*", hub.name), eff_lit)
+                for c_name in src_cols:
+                    registry[(t_key, c_name, hub.name)] = eff_lit
+                for c_name in non_bkcc_hub_cols:
+                    registry.setdefault((t_key, c_name, hub.name), eff_lit)
+                for c_name, c_lit in col_map.items():
+                    norm_lit = str(c_lit).strip().upper() if c_lit else eff_lit
+                    registry[(t_key, str(c_name).lower(), hub.name)] = norm_lit
+
+    for link in ir_obj.links:
+        for sm_dict in link.source_mappings:
+            if not isinstance(sm_dict, dict):
+                continue
+            stg_tbl = str(sm_dict.get("staging_table", ""))
+            brz_tbl = str(sm_dict.get("bronze_table", ""))
+            fk_src_map = sm_dict.get("fk_source_columns") or {}
+            fk_bkcc_map = sm_dict.get("fk_bkcc_literals") or {}
+            tbl_keys = _table_lookup_keys(stg_tbl)
+            for k in _table_lookup_keys(brz_tbl):
+                if k not in tbl_keys:
+                    tbl_keys.append(k)
+            for ref in link.hub_references:
+                fk_col = ref.fk_column_name
+                if fk_col in fk_bkcc_map:
+                    fk_lit = fk_bkcc_map[fk_col]
+                    norm_fk_lit = str(fk_lit).strip().upper() if fk_lit else None
+                    src_col = str(fk_src_map.get(fk_col, fk_col)).lower()
+                    for t_key in tbl_keys:
+                        registry[(t_key, fk_col.lower(), ref.target_hub)] = norm_fk_lit
+                        registry[(t_key, src_col, ref.target_hub)] = norm_fk_lit
+
+    return registry
+
+
+def resolve_staging_bkcc_literal(
+    ir_obj: CanonicalIR,
+    bronze_or_staging_table: str,
+    column_name: str,
+    target_hub: str,
+    *,
+    role_name: str | None = None,
+    registry: dict[tuple[str, str, str], str | None] | None = None,
+) -> str | None:
+    """Resolve the scoped `bkcc_literal` for `(bronze_table, column_name, target_hub)`."""
+    reg = registry if registry is not None else build_staging_bkcc_registry(ir_obj)
+    col_low = column_name.strip().lower()
+    tbl_keys = _table_lookup_keys(bronze_or_staging_table)
+
+    # 1. Exact (table, column, target_hub) match
+    for t_key in tbl_keys:
+        if (t_key, col_low, target_hub) in reg:
+            return reg[(t_key, col_low, target_hub)]
+
+    # 2. Table-scoped wildcard match on target_hub when column is '*' or unambiguous
+    if col_low == "*":
+        for t_key in tbl_keys:
+            if (t_key, "*", target_hub) in reg:
+                return reg[(t_key, "*", target_hub)]
+
+    hub_obj = next((h for h in ir_obj.hubs if h.name == target_hub), None)
+    if hub_obj is None:
+        return None
+
+    # 3. Match against target_hub's source_mappings by column name or stripped role prefix
+    stripped_col = col_low
+    for prefix in ("master_", "duplicate_", "primary_", "secondary_", "parent_", "child_", "fk_"):
+        if stripped_col.startswith(prefix) and len(stripped_col) > len(prefix):
+            stripped_col = stripped_col[len(prefix) :]
+            break
+
+    if col_low != "*":
+        for sm in hub_obj.source_mappings:
+            src_cols = [c.lower() for c in sm.bk_source_columns if c.lower() != "bkcc"]
+            if col_low in src_cols or stripped_col in src_cols:
+                return _effective_hub_sm_bkcc_literal(hub_obj, sm)
+            if any(
+                c.endswith(f"_{stripped_col}") or stripped_col.endswith(f"_{c}") for c in src_cols
+            ):
+                return _effective_hub_sm_bkcc_literal(hub_obj, sm)
+
+    # 4. Role-based disambiguation for Same-As / Hierarchical links on multi-source Hubs
+    if role_name:
+        r_low = role_name.strip().lower()
+        if (
+            r_low in {"duplicate", "secondary", "legacy", "alias"}
+            and len(hub_obj.source_mappings) > 1
+        ):
+            for sm in reversed(hub_obj.source_mappings):
+                if getattr(sm, "key_authority_tier", None) == "TIER_3_LOCAL_SCOPED":
+                    return _effective_hub_sm_bkcc_literal(hub_obj, sm)
+            return _effective_hub_sm_bkcc_literal(hub_obj, hub_obj.source_mappings[-1])
+        if r_low in {"master", "primary", "canonical", "golden"}:
+            for sm in hub_obj.source_mappings:
+                if getattr(sm, "key_authority_tier", None) in {
+                    "TIER_1_GLOBAL_STANDARD",
+                    "TIER_2_ENTERPRISE_SOR",
+                }:
+                    return _effective_hub_sm_bkcc_literal(hub_obj, sm)
+
+    # 5. Table wildcard fallback or primary source_mapping fallback
+    for t_key in tbl_keys:
+        if (t_key, "*", target_hub) in reg:
+            return reg[(t_key, "*", target_hub)]
+
+    if hub_obj.source_mappings:
+        return _effective_hub_sm_bkcc_literal(hub_obj, hub_obj.source_mappings[0])
+    return None
 
 
 def _resolve_hub_bk_rows_from_bronze(
     hub: IRHub,
     loaded_bronze: dict[str, list[dict[str, Any]]],
+    *,
+    ir_obj: CanonicalIR | None = None,
+    bkcc_registry: dict[tuple[str, str, str], str | None] | None = None,
 ) -> list[list[str]]:
     """Resolve distinct business key token tuples for `hub` from `loaded_bronze` or defaults."""
-    default_r1 = _hub_seed_bk_values(hub, 1)
-    default_r2 = _hub_seed_bk_values(hub, 2)
-    if not loaded_bronze:
-        return [default_r1, default_r2]
-
-    candidate_rows: list[dict[str, Any]] = []
+    distinct_sm_bkccs: list[str | None] = []
     for sm in hub.source_mappings:
-        stg_tbl = sm.staging_table
-        for key in (stg_tbl, stg_tbl.removeprefix("stg_"), stg_tbl.split(".")[-1]):
-            if key in loaded_bronze:
-                candidate_rows.extend(loaded_bronze[key])
-                break
-    if not candidate_rows:
+        eff_lit = _effective_hub_sm_bkcc_literal(hub, sm)
+        if eff_lit not in distinct_sm_bkccs:
+            distinct_sm_bkccs.append(eff_lit)
+    primary_bkcc = distinct_sm_bkccs[0] if distinct_sm_bkccs else None
+    secondary_bkcc = distinct_sm_bkccs[1] if len(distinct_sm_bkccs) > 1 else primary_bkcc
+    default_r1 = _hub_seed_bk_values(hub, 1, bkcc_override=primary_bkcc)
+    default_r2 = _hub_seed_bk_values(hub, 2, bkcc_override=secondary_bkcc)
+    if not loaded_bronze:
+        if len(distinct_sm_bkccs) > 1:
+            extra_rows: list[list[str]] = [default_r1, default_r2]
+            for extra_bkcc in distinct_sm_bkccs:
+                r_a = _hub_seed_bk_values(hub, 1, bkcc_override=extra_bkcc)
+                r_b = _hub_seed_bk_values(hub, 2, bkcc_override=extra_bkcc)
+                if r_a not in extra_rows:
+                    extra_rows.append(r_a)
+                if r_b not in extra_rows:
+                    extra_rows.append(r_b)
+            return extra_rows
         return [default_r1, default_r2]
 
     extracted: list[list[str]] = []
     seen_tuples: set[tuple[str, ...]] = set()
-    sm0 = hub.source_mappings[0] if hub.source_mappings else None
-    src_bk_cols = [c for c in (sm0.bk_source_columns if sm0 else []) if c.lower() != "bkcc"]
+    hub_bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
+    hub_bkcc_lit = _effective_hub_bkcc_literal(hub)
 
-    for row in candidate_rows:
-        tokens: list[str] = []
-        valid_row = True
-        non_bkcc_idx = 0
-        for bk in hub.business_keys:
-            if bk.is_bkcc:
-                bkcc_val = str(row.get("bkcc") or (sm0.rec_src_value if sm0 else "GLOBAL")).strip()
-                tokens.append(bkcc_val or "GLOBAL")
-            else:
-                src_col = src_bk_cols[non_bkcc_idx] if non_bkcc_idx < len(src_bk_cols) else bk.name
-                non_bkcc_idx += 1
-                raw_val = row.get(src_col, row.get(bk.name))
-                if raw_val is None or str(raw_val).strip() == "":
-                    valid_row = False
-                    break
-                tokens.append(str(raw_val).strip())
-        if valid_row and len(tokens) == len(hub.business_keys):
-            tup = tuple(tokens)
-            if tup not in seen_tuples:
-                seen_tuples.add(tup)
-                extracted.append(tokens)
+    for sm in hub.source_mappings:
+        stg_tbl = sm.staging_table
+        sm_rows: list[dict[str, Any]] = []
+        lookup_candidates = list(_table_lookup_keys(stg_tbl))
+        if getattr(sm, "bronze_table", None):
+            for k in _table_lookup_keys(str(sm.bronze_table)):
+                if k not in lookup_candidates:
+                    lookup_candidates.append(k)
+        for extra_k in (
+            f"bronze.{stg_tbl.removeprefix('stg_')}",
+            hub.name,
+            f"src_{hub.name}",
+        ):
+            if extra_k not in lookup_candidates:
+                lookup_candidates.append(extra_k)
+        for key in lookup_candidates:
+            if key in loaded_bronze:
+                sm_rows = loaded_bronze[key]
+                break
+        if not sm_rows:
+            continue
+
+        sm_bkcc_col = getattr(sm, "bkcc_column_expr", None) or hub_bkcc_col_expr
+        excluded_bkcc_names = {"bkcc"}
+        if sm_bkcc_col:
+            excluded_bkcc_names.add(sm_bkcc_col.lower())
+        raw_src_bk_cols = list(sm.bk_source_columns)
+        src_bk_cols = [
+            c for c in raw_src_bk_cols if c.lower() not in excluded_bkcc_names
+        ] or raw_src_bk_cols
+        primary_src_col = src_bk_cols[0] if src_bk_cols else "*"
+        if ir_obj is not None and not sm_bkcc_col:
+            scoped_bkcc = resolve_staging_bkcc_literal(
+                ir_obj,
+                getattr(sm, "bronze_table", None) or sm.staging_table,
+                primary_src_col,
+                hub.name,
+                registry=bkcc_registry,
+            )
+        else:
+            scoped_bkcc = _effective_hub_sm_bkcc_literal(hub, sm)
+        fallback_bkcc = (
+            GLOBAL_BKCC if hub.verified_global_master_key else (sm.rec_src_value or GLOBAL_BKCC)
+        )
+        sm_bkcc = (
+            scoped_bkcc
+            or getattr(sm, "bkcc_prefix", None)
+            or getattr(sm, "bkcc_literal", None)
+            or hub_bkcc_lit
+            or fallback_bkcc
+        ).strip() or GLOBAL_BKCC
+
+        for row in sm_rows:
+            tokens: list[str] = []
+            valid_row = True
+            non_bkcc_idx = 0
+            for bk in hub.business_keys:
+                if bk.is_bkcc:
+                    if sm_bkcc_col:
+                        raw_bkcc = (
+                            row.get(sm_bkcc_col) or row.get(bk.name) or row.get("bkcc") or sm_bkcc
+                        )
+                    else:
+                        raw_bkcc = scoped_bkcc or row.get(bk.name) or row.get("bkcc") or sm_bkcc
+                    bkcc_val = str(raw_bkcc).strip()
+                    tokens.append(bkcc_val or GLOBAL_BKCC)
+                else:
+                    src_col = (
+                        src_bk_cols[non_bkcc_idx] if non_bkcc_idx < len(src_bk_cols) else bk.name
+                    )
+                    non_bkcc_idx += 1
+                    raw_val = row.get(src_col, row.get(bk.name))
+                    if raw_val is None or str(raw_val).strip() in {
+                        "",
+                        ZERO_KEY_UNKNOWN_TOKEN,
+                        ZERO_KEY_ERROR_TOKEN,
+                    }:
+                        valid_row = False
+                        break
+                    tokens.append(str(raw_val).strip())
+            if valid_row and len(tokens) == len(hub.business_keys):
+                tup = tuple(tokens)
+                if tup not in seen_tuples:
+                    seen_tuples.add(tup)
+                    extracted.append(tokens)
 
     if len(extracted) >= 2:
         return extracted
@@ -2223,11 +2631,26 @@ def _format_bronze_payload_sql_literal(
     return f"'{esc}'"
 
 
+def _filter_hub_rows_for_bkcc(
+    hub: IRHub,
+    rows: list[list[str]],
+    bkcc_lit: str | None,
+) -> list[list[str]]:
+    """Filter `rows` for `hub` to those matching `bkcc_lit` when `hub` has an `is_bkcc` column."""
+    if not rows or bkcc_lit is None:
+        return rows
+    bkcc_idx = next((i for i, bk in enumerate(hub.business_keys) if bk.is_bkcc), None)
+    if bkcc_idx is None:
+        return rows
+    matched = [r for r in rows if len(r) > bkcc_idx and r[bkcc_idx].upper() == bkcc_lit.upper()]
+    return matched if matched else rows
+
+
 def _compile_generic_zone_0_sql(
     ir_obj: CanonicalIR,
     *,
     include_batch4_restatement_in_seed: bool = False,
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None = None,
+    bronze_tables: Mapping[str, list[dict[str, Any]] | Any] | None = None,
 ) -> str:
     """Compile Zone 0 schemas, Bronze source tables, Vault DDL, Zero Keys, and Ghosts."""
     hub_by_name = {h.name: h for h in ir_obj.hubs}
@@ -2237,8 +2660,15 @@ def _compile_generic_zone_0_sql(
         ir_obj.satellites[0].name if ir_obj.satellites else None,
     )
     loaded_bronze = _load_bronze_table_rows(bronze_tables)
+    bkcc_registry = build_staging_bkcc_registry(ir_obj)
     hub_bk_rows: dict[str, list[list[str]]] = {
-        hub.name: _resolve_hub_bk_rows_from_bronze(hub, loaded_bronze) for hub in ir_obj.hubs
+        hub.name: _resolve_hub_bk_rows_from_bronze(
+            hub,
+            loaded_bronze,
+            ir_obj=ir_obj,
+            bkcc_registry=bkcc_registry,
+        )
+        for hub in ir_obj.hubs
     }
 
     parts = [
@@ -2253,18 +2683,48 @@ def _compile_generic_zone_0_sql(
     ]
 
     # 1. Bronze source tables & seed rows for each Hub (hydrated from bronze_tables when provided)
-    emitted_raw_bronze_aliases: set[str] = set()
+    raw_bronze_hub_pairs: dict[str, list[tuple[IRHub, Any]]] = {}
     for hub in ir_obj.hubs:
         tbl = _validate_ident(hub.name)
-        rec_src = hub.source_mappings[0].rec_src_value if hub.source_mappings else "SYSTEM_SEED"
+        default_rec_src = (
+            hub.source_mappings[0].rec_src_value if hub.source_mappings else "SYSTEM_SEED"
+        )
+        bkcc_to_rec_src: dict[str, str] = {}
+        for sm in hub.source_mappings:
+            eff_lit = _effective_hub_sm_bkcc_literal(hub, sm)
+            if eff_lit:
+                bkcc_to_rec_src.setdefault(eff_lit.upper(), sm.rec_src_value)
+            raw_short = _validate_ident(sm.staging_table.removeprefix("stg_").split(".")[-1])
+            if raw_short != f"src_{tbl}":
+                raw_bronze_hub_pairs.setdefault(raw_short, []).append((hub, sm))
+
+        bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
+        bk_names = {bk.name for bk in hub.business_keys}
+        extra_bkcc_col = (
+            _validate_ident(bkcc_col_expr)
+            if bkcc_col_expr and bkcc_col_expr not in bk_names
+            else None
+        )
         bk_defs = [f"    {_validate_ident(bk.name)} VARCHAR," for bk in hub.business_keys]
+        if extra_bkcc_col:
+            bk_defs.append(f"    {extra_bkcc_col} VARCHAR,")
         bk_rows = hub_bk_rows[hub.name]
-        hub_insert_rows = [
-            "    ("
-            + ", ".join(chr(39) + v.replace(chr(39), chr(39) * 2) + chr(39) for v in row_bks)
-            + f", TIMESTAMP '2026-10-01 06:00:00', '{rec_src}')"
-            for row_bks in bk_rows
-        ]
+        bkcc_idx = next((i for i, bk in enumerate(hub.business_keys) if bk.is_bkcc), None)
+        hub_insert_rows = []
+        for row_bks in bk_rows:
+            row_rec_src = default_rec_src
+            if bkcc_idx is not None and len(row_bks) > bkcc_idx:
+                row_rec_src = bkcc_to_rec_src.get(row_bks[bkcc_idx].upper(), default_rec_src)
+            row_vals = list(row_bks)
+            if extra_bkcc_col:
+                eff_idx = bkcc_idx if bkcc_idx is not None else 0
+                row_vals.append(row_bks[eff_idx] if eff_idx < len(row_bks) else "GLOBAL")
+            lit_vals = ", ".join(
+                chr(39) + v.replace(chr(39), chr(39) * 2) + chr(39) for v in row_vals
+            )
+            hub_insert_rows.append(
+                f"    ({lit_vals}, TIMESTAMP '2026-10-01 06:00:00', '{_sql_lit(row_rec_src)}')"
+            )
         parts.append(
             "\n".join(
                 [
@@ -2278,13 +2738,70 @@ def _compile_generic_zone_0_sql(
                 ]
             )
         )
-        for sm in hub.source_mappings:
-            raw_short = _validate_ident(sm.staging_table.removeprefix("stg_").split(".")[-1])
-            if raw_short != f"src_{tbl}" and raw_short not in emitted_raw_bronze_aliases:
-                emitted_raw_bronze_aliases.add(raw_short)
-                parts.append(
-                    f"CREATE OR REPLACE VIEW bronze.{raw_short} AS SELECT * FROM bronze.src_{tbl};"
+
+    for raw_short, pairs in raw_bronze_hub_pairs.items():
+        if len(pairs) == 1:
+            only_hub, _ = pairs[0]
+            parts.append(
+                f"CREATE OR REPLACE VIEW bronze.{raw_short} AS "
+                f"SELECT * FROM bronze.src_{_validate_ident(only_hub.name)};"
+            )
+        else:
+            # Composite Bronze feed mapping to multiple Hubs
+            comp_cols: list[str] = []
+            for _h, sm in pairs:
+                for c in sm.bk_source_columns:
+                    if c.lower() != "bkcc":
+                        c_ident = _validate_ident(c)
+                        if c_ident not in comp_cols:
+                            comp_cols.append(c_ident)
+            comp_rec_src = pairs[0][1].rec_src_value or "SYSTEM_SEED"
+            col_defs = [f"    {c} VARCHAR," for c in comp_cols]
+            row_count = max(
+                (len(hub_bk_rows[h.name]) for h, _ in pairs),
+                default=2,
+            )
+            comp_insert_rows: list[str] = []
+            for r_idx in range(min(max(row_count, 2), 4)):
+                row_vals: list[str] = []
+                for c_ident in comp_cols:
+                    val_found = f"'VAL-{r_idx + 1:03d}'"
+                    for h, sm in pairs:
+                        src_non_bkcc = [
+                            _validate_ident(c) for c in sm.bk_source_columns if c.lower() != "bkcc"
+                        ]
+                        if c_ident in src_non_bkcc:
+                            pos = src_non_bkcc.index(c_ident)
+                            scoped_lit = _effective_hub_sm_bkcc_literal(h, sm)
+                            h_cand = _filter_hub_rows_for_bkcc(h, hub_bk_rows[h.name], scoped_lit)
+                            chosen_row = h_cand[r_idx % len(h_cand)]
+                            non_bkcc_vals = [
+                                v
+                                for bk, v in zip(h.business_keys, chosen_row, strict=True)
+                                if not bk.is_bkcc
+                            ]
+                            if pos < len(non_bkcc_vals):
+                                esc_v = non_bkcc_vals[pos].replace("'", "''")
+                                val_found = f"'{esc_v}'"
+                            break
+                    row_vals.append(val_found)
+                comp_insert_rows.append(
+                    f"    ({', '.join(row_vals)}, TIMESTAMP '2026-10-01 06:00:00', "
+                    f"'{_sql_lit(comp_rec_src)}')"
                 )
+            parts.append(
+                "\n".join(
+                    [
+                        f"CREATE OR REPLACE TABLE bronze.{raw_short} (",
+                        *col_defs,
+                        "    load_dts TIMESTAMP,",
+                        "    rec_src VARCHAR",
+                        ");",
+                        f"INSERT INTO bronze.{raw_short} VALUES",
+                        ",\n".join(comp_insert_rows) + ";",
+                    ]
+                )
+            )
 
     unstructured_links_by_name = {
         lnk.name: lnk for lnk in ir_obj.links if lnk.requires_steward_approval_gate
@@ -2293,37 +2810,81 @@ def _compile_generic_zone_0_sql(
     # 2. Bronze source tables & seed rows for each Link
     for link in ir_obj.links:
         tbl = _validate_ident(link.name)
+        sm0_dict = link.source_mappings[0] if link.source_mappings else {}
         rec_src = (
-            str(link.source_mappings[0].get("rec_src_value", "SYSTEM_SEED"))
-            if link.source_mappings
+            str(sm0_dict.get("rec_src_value", "SYSTEM_SEED"))
+            if isinstance(sm0_dict, dict)
             else "SYSTEM_SEED"
         )
-        col_defs: list[str] = []
+        link_stg_tbl = (
+            str(sm0_dict.get("staging_table", f"stg_{tbl}"))
+            if isinstance(sm0_dict, dict)
+            else f"stg_{tbl}"
+        )
+        fk_src_map = sm0_dict.get("fk_source_columns") or {} if isinstance(sm0_dict, dict) else {}
+        col_defs = []
         row1_tokens: list[str] = []
         row2_tokens: list[str] = []
+        row3_tokens: list[str] = []
+        row4_tokens: list[str] = []
         target_counts: dict[str, int] = {}
         for ref_idx, ref in enumerate(link.hub_references):
             fk_col = _validate_ident(ref.fk_column_name)
             t_hub = hub_by_name[ref.target_hub]
             occ = target_counts.get(t_hub.name, 0)
             target_counts[t_hub.name] = occ + 1
-            h_rows = hub_bk_rows[t_hub.name]
-            h_r1, h_r2 = h_rows[0], h_rows[1]
-            r1_bks = h_r1 if occ == 0 else h_r2
+            fk_src_col = str(fk_src_map.get(ref.fk_column_name, ref.fk_column_name))
+            ref_bkcc_lit = resolve_staging_bkcc_literal(
+                ir_obj,
+                link_stg_tbl,
+                fk_src_col,
+                ref.target_hub,
+                role_name=ref.role_name,
+                registry=bkcc_registry,
+            )
+            scoped_rows = _filter_hub_rows_for_bkcc(
+                t_hub,
+                hub_bk_rows[t_hub.name],
+                ref_bkcc_lit,
+            )
+            h_r1 = scoped_rows[0]
+            h_r2 = scoped_rows[1] if len(scoped_rows) > 1 else scoped_rows[0]
+            r1_bks = h_r1 if (occ == 0 or scoped_rows != hub_bk_rows[t_hub.name]) else h_r2
             r2_bks = h_r2
             for bk, val1, val2 in zip(t_hub.business_keys, r1_bks, r2_bks, strict=True):
                 raw_col = _validate_ident(f"{fk_col}__{bk.name}")
                 col_defs.append(f"    {raw_col} VARCHAR,")
-                esc1 = val1.replace("'", "''")
-                esc2 = val2.replace("'", "''")
+                eff_v1 = (ref_bkcc_lit or val1) if bk.is_bkcc else val1
+                eff_v2 = (ref_bkcc_lit or val2) if bk.is_bkcc else val2
+                esc1 = eff_v1.replace("'", "''")
+                esc2 = eff_v2.replace("'", "''")
                 row1_tokens.append(f"'{esc1}'")
                 if ref_idx == 0:
                     row2_tokens.append(f"'{esc2}'")
+                    row3_tokens.append(f"'{esc1}'")
+                    row4_tokens.append(f"'{esc2}'")
                 else:
                     row2_tokens.append(f"'{esc2}'" if bk.is_bkcc else "NULL")
+                    row3_tokens.append(f"'{esc1}'" if bk.is_bkcc else f"'{ZERO_KEY_UNKNOWN_TOKEN}'")
+                    row4_tokens.append(f"'{esc2}'" if bk.is_bkcc else f"'{ZERO_KEY_ERROR_TOKEN}'")
+            t_bkcc_col_expr = _effective_hub_bkcc_column_expr(t_hub)
+            if t_bkcc_col_expr and t_bkcc_col_expr not in {bk.name for bk in t_hub.business_keys}:
+                t_bkcc_idx = next(
+                    (idx for idx, bk in enumerate(t_hub.business_keys) if bk.is_bkcc), 0
+                )
+                extra_fk_bkcc_col = _validate_ident(f"{fk_col}__{t_bkcc_col_expr}")
+                col_defs.append(f"    {extra_fk_bkcc_col} VARCHAR,")
+                v1_bkcc = r1_bks[t_bkcc_idx].replace("'", "''")
+                v2_bkcc = r2_bks[t_bkcc_idx].replace("'", "''")
+                row1_tokens.append(f"'{v1_bkcc}'")
+                row2_tokens.append(f"'{v2_bkcc}'")
+                row3_tokens.append(f"'{v1_bkcc}'")
+                row4_tokens.append(f"'{v2_bkcc}'")
 
         r1_sql = ", ".join(row1_tokens)
         r2_sql = ", ".join(row2_tokens)
+        r3_sql = ", ".join(row3_tokens)
+        r4_sql = ", ".join(row4_tokens)
         is_unstructured_link = link.name in unstructured_links_by_name
         if is_unstructured_link:
             parts.append(
@@ -2358,7 +2919,9 @@ def _compile_generic_zone_0_sql(
                         ");",
                         f"INSERT INTO bronze.src_{tbl} VALUES",
                         f"    ({r1_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
-                        f"    ({r2_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}');",
+                        f"    ({r2_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                        f"    ({r3_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                        f"    ({r4_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}');",
                     ]
                 )
             )
@@ -2376,24 +2939,50 @@ def _compile_generic_zone_0_sql(
         parent_val_rows: list[list[str]] = []
         sat_source_rows: list[dict[str, Any]] = []
         sat_stg = sat.source_mapping.staging_table
-        for key in (sat_stg, sat_stg.removeprefix("stg_"), sat_stg.split(".")[-1]):
+        for key in _table_lookup_keys(sat_stg):
             if key in loaded_bronze:
                 sat_source_rows = loaded_bronze[key]
                 break
 
         if sat.parent_entity in hub_by_name:
             p_hub = hub_by_name[sat.parent_entity]
+            p_bkcc_col_expr = _effective_hub_bkcc_column_expr(p_hub)
+            p_bk_names = {bk.name for bk in p_hub.business_keys}
+            p_extra_bkcc = (
+                _validate_ident(p_bkcc_col_expr)
+                if p_bkcc_col_expr and p_bkcc_col_expr not in p_bk_names
+                else None
+            )
+            p_bkcc_idx = next((idx for idx, bk in enumerate(p_hub.business_keys) if bk.is_bkcc), 0)
+            sat_bkcc_lit = (
+                resolve_staging_bkcc_literal(
+                    ir_obj,
+                    sat_stg,
+                    "*",
+                    p_hub.name,
+                    registry=bkcc_registry,
+                )
+                if not p_bkcc_col_expr
+                else None
+            )
             for bk in p_hub.business_keys:
                 col_defs.append(f"    parent_bk__{_validate_ident(bk.name)} VARCHAR,")
-            for row_bks in hub_bk_rows[p_hub.name]:
-                parent_val_rows.append([f"'{v.replace(chr(39), chr(39) * 2)}'" for v in row_bks])
+            if p_extra_bkcc:
+                col_defs.append(f"    parent_bk__{p_extra_bkcc} VARCHAR,")
+            scoped_hub_rows = _filter_hub_rows_for_bkcc(
+                p_hub,
+                hub_bk_rows[p_hub.name],
+                sat_bkcc_lit,
+            )
+            for row_bks in scoped_hub_rows:
+                p_vals = [f"'{v.replace(chr(39), chr(39) * 2)}'" for v in row_bks]
+                if p_extra_bkcc:
+                    bkcc_v = row_bks[p_bkcc_idx] if p_bkcc_idx < len(row_bks) else "GLOBAL"
+                    p_vals.append(f"'{bkcc_v.replace(chr(39), chr(39) * 2)}'")
+                parent_val_rows.append(p_vals)
             if not sat_source_rows:
                 for sm in p_hub.source_mappings:
-                    for key in (
-                        sm.staging_table,
-                        sm.staging_table.removeprefix("stg_"),
-                        sm.staging_table.split(".")[-1],
-                    ):
+                    for key in _table_lookup_keys(sm.staging_table):
                         if key in loaded_bronze:
                             sat_source_rows = loaded_bronze[key]
                             break
@@ -2401,6 +2990,15 @@ def _compile_generic_zone_0_sql(
                         break
         elif sat.parent_entity in link_by_name:
             p_lnk = link_by_name[sat.parent_entity]
+            lnk_sm0 = p_lnk.source_mappings[0] if p_lnk.source_mappings else {}
+            lnk_stg = (
+                str(lnk_sm0.get("staging_table", f"stg_{p_lnk.name}"))
+                if isinstance(lnk_sm0, dict)
+                else f"stg_{p_lnk.name}"
+            )
+            lnk_fk_src_map = (
+                lnk_sm0.get("fk_source_columns") or {} if isinstance(lnk_sm0, dict) else {}
+            )
             target_counts = {}
             r1_parent_vals: list[str] = []
             r2_parent_vals: list[str] = []
@@ -2410,11 +3008,35 @@ def _compile_generic_zone_0_sql(
                 t_hub = hub_by_name[ref.target_hub]
                 occ = target_counts.get(t_hub.name, 0)
                 target_counts[t_hub.name] = occ + 1
-                h_rows = hub_bk_rows[t_hub.name]
-                h_r1, h_r2 = h_rows[0], h_rows[1]
-                r1_tokens = h_r1 if occ == 0 else h_r2
-                r1_hk = compute_dv2_length_prefixed_sha256(r1_tokens, is_business_key=True).lower()
-                r2_hk = compute_dv2_length_prefixed_sha256(h_r2, is_business_key=True).lower()
+                fk_src_col = str(lnk_fk_src_map.get(ref.fk_column_name, ref.fk_column_name))
+                ref_bkcc_lit = resolve_staging_bkcc_literal(
+                    ir_obj,
+                    lnk_stg,
+                    fk_src_col,
+                    ref.target_hub,
+                    role_name=ref.role_name,
+                    registry=bkcc_registry,
+                )
+                scoped_rows = _filter_hub_rows_for_bkcc(
+                    t_hub,
+                    hub_bk_rows[t_hub.name],
+                    ref_bkcc_lit,
+                )
+                h_r1 = scoped_rows[0]
+                h_r2 = scoped_rows[1] if len(scoped_rows) > 1 else scoped_rows[0]
+                r1_tokens = h_r1 if (occ == 0 or scoped_rows != hub_bk_rows[t_hub.name]) else h_r2
+                t_has_bkcc = any(bool(bk.is_bkcc) for bk in t_hub.business_keys)
+                t_bkcc_lit = ref_bkcc_lit or _effective_hub_bkcc_literal(t_hub) or GLOBAL_BKCC
+                r1_hk = compute_dv2_length_prefixed_sha256(
+                    r1_tokens,
+                    is_business_key=True,
+                    bkcc_prefix=None if t_has_bkcc else t_bkcc_lit,
+                ).lower()
+                r2_hk = compute_dv2_length_prefixed_sha256(
+                    h_r2,
+                    is_business_key=True,
+                    bkcc_prefix=None if t_has_bkcc else t_bkcc_lit,
+                ).lower()
                 r1_parent_vals.append(f"'{r1_hk}'")
                 if ref_idx == 0:
                     r2_parent_vals.append(f"'{r2_hk}'")
@@ -2440,6 +3062,17 @@ def _compile_generic_zone_0_sql(
         insert_rows: list[str] = []
         for idx_r, p_vals in enumerate(parent_val_rows):
             src_row = sat_source_rows[idx_r] if idx_r < len(sat_source_rows) else None
+            row_load_dts = (
+                str(src_row.get("load_dts") or "2026-10-01 06:00:00").replace("'", "''")
+                if src_row is not None
+                else "2026-10-01 06:00:00"
+            )
+            row_app_dts = (
+                str(src_row.get("applied_dts") or "2026-09-30 00:00:00").replace("'", "''")
+                if src_row is not None
+                else "2026-09-30 00:00:00"
+            )
+            row_app_lit = f"TIMESTAMP '{row_app_dts}', " if has_applied else ""
             r_payload = [
                 _format_bronze_payload_sql_literal(c, src_row, idx_r + 1) for c in data_cols
             ]
@@ -2449,8 +3082,8 @@ def _compile_generic_zone_0_sql(
                 steward_val = "STEWARD_HOLD" if idx_r == 1 else "APPROVED"
                 steward_lit = f", '{steward_val}'"
             insert_rows.append(
-                f"    ({', '.join(p_vals)}, TIMESTAMP '2026-10-01 06:00:00', "
-                f"{app_lit}'{rec_src}'{r_pay_sql}{steward_lit})"
+                f"    ({', '.join(p_vals)}, TIMESTAMP '{row_load_dts}', "
+                f"{row_app_lit}'{rec_src}'{r_pay_sql}{steward_lit})"
             )
 
         if include_batch4_restatement_in_seed and sat.name == bitemp_sat_name and parent_val_rows:
@@ -2493,6 +3126,7 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
     """Compile Zone 1 Hashed Staging Views (`staging.stg_*`) with Algorithm A.5 SHA-256."""
     hub_by_name = {h.name: h for h in ir_obj.hubs}
     link_by_name = {lnk.name: lnk for lnk in ir_obj.links}
+    bkcc_registry = build_staging_bkcc_registry(ir_obj)
     parts = [
         "-- =============================================================================",
         "-- ZONE 1: HASHED STAGING VIEWS (ALGORITHM A.5 LENGTH-PREFIXED SHA-256)",
@@ -2500,6 +3134,8 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
     ]
     created_views: set[str] = set()
     alias_targets: list[tuple[str, str]] = []
+    stg_to_hub_mappings: dict[str, list[tuple[IRHub, Any]]] = {}
+    view_body_by_name: dict[str, str] = {}
 
     for hub in ir_obj.hubs:
         tbl = _validate_ident(hub.name)
@@ -2507,54 +3143,206 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
         created_views.add(view_name)
         hk_col = _validate_ident(hub.hk_column.name)
         bk_cols = [_validate_ident(bk.name) for bk in hub.business_keys]
-        hk_expr = build_algorithm_a5_sha256_sql(bk_cols, is_business_key=True)
-        bk_csv = ", ".join(bk_cols)
-        parts.append(
-            f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
-            f"SELECT\n"
-            f"    {hk_expr} AS {hk_col},\n"
-            f"    {bk_csv},\n"
-            f"    load_dts,\n"
-            f"    rec_src\n"
-            f"FROM bronze.src_{tbl};"
-        )
+        non_bkcc_cols = [
+            _validate_ident(bk.name) for bk in hub.business_keys if not bk.is_bkcc
+        ] or bk_cols
+        bkcc_col_expr = _effective_hub_bkcc_column_expr(hub)
+        bkcc_lit = _effective_hub_bkcc_literal(hub)
+
+        distinct_sm_bkccs: list[str | None] = []
         for sm in hub.source_mappings:
-            alias_targets.append((_validate_ident(sm.staging_table), view_name))
+            stg_alias = _validate_ident(sm.staging_table)
+            stg_to_hub_mappings.setdefault(stg_alias, []).append((hub, sm))
+            alias_targets.append((stg_alias, view_name))
+            primary_src_col = next(
+                (c for c in sm.bk_source_columns if c.lower() != "bkcc"),
+                non_bkcc_cols[0] if non_bkcc_cols else "*",
+            )
+            sm_bkcc = resolve_staging_bkcc_literal(
+                ir_obj,
+                getattr(sm, "bronze_table", None) or sm.staging_table,
+                primary_src_col,
+                hub.name,
+                registry=bkcc_registry,
+            )
+            if sm_bkcc not in distinct_sm_bkccs:
+                distinct_sm_bkccs.append(sm_bkcc)
+
+        if bkcc_col_expr:
+            hk_expr = build_algorithm_a5_sha256_sql(
+                non_bkcc_cols,
+                is_business_key=True,
+                bkcc_column_expr=_validate_ident(bkcc_col_expr),
+                key_columns=non_bkcc_cols,
+            )
+            bk_csv = ", ".join(bk_cols)
+            parts.append(
+                f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
+                f"SELECT\n"
+                f"    {hk_expr} AS {hk_col},\n"
+                f"    {bk_csv},\n"
+                f"    load_dts,\n"
+                f"    rec_src\n"
+                f"FROM bronze.src_{tbl};"
+            )
+        elif len(distinct_sm_bkccs) <= 1:
+            has_bkcc_col = any(bool(bk.is_bkcc) for bk in hub.business_keys)
+            scoped_bkcc = distinct_sm_bkccs[0] if distinct_sm_bkccs else bkcc_lit
+            if scoped_bkcc is None and not has_bkcc_col:
+                scoped_bkcc = GLOBAL_BKCC
+            if scoped_bkcc is None and has_bkcc_col:
+                hk_expr = build_algorithm_a5_sha256_sql(
+                    bk_cols,
+                    is_business_key=True,
+                    key_columns=non_bkcc_cols,
+                )
+            else:
+                hk_expr = build_algorithm_a5_sha256_sql(
+                    non_bkcc_cols,
+                    bkcc_literal=scoped_bkcc,
+                    is_business_key=True,
+                    key_columns=non_bkcc_cols,
+                )
+            bk_select_exprs = [
+                f"'{_sql_lit(scoped_bkcc)}' AS {_validate_ident(bk.name)}"
+                if bk.is_bkcc and scoped_bkcc is not None
+                else _validate_ident(bk.name)
+                for bk in hub.business_keys
+            ]
+            bk_csv = ", ".join(bk_select_exprs)
+            parts.append(
+                f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
+                f"SELECT\n"
+                f"    {hk_expr} AS {hk_col},\n"
+                f"    {bk_csv},\n"
+                f"    load_dts,\n"
+                f"    rec_src\n"
+                f"FROM bronze.src_{tbl};"
+            )
+        else:
+            union_branches: list[str] = []
+            for sm_bkcc in distinct_sm_bkccs:
+                eff_sm_bkcc = sm_bkcc or bkcc_lit or GLOBAL_BKCC
+                hk_expr = build_algorithm_a5_sha256_sql(
+                    non_bkcc_cols,
+                    bkcc_literal=eff_sm_bkcc,
+                    is_business_key=True,
+                    key_columns=non_bkcc_cols,
+                )
+                bk_select_exprs = [
+                    f"'{_sql_lit(eff_sm_bkcc)}' AS {_validate_ident(bk.name)}"
+                    if bk.is_bkcc and eff_sm_bkcc is not None
+                    else _validate_ident(bk.name)
+                    for bk in hub.business_keys
+                ]
+                bk_csv = ", ".join(bk_select_exprs)
+                where_clause = (
+                    f"\nWHERE UPPER(TRIM(CAST(bkcc AS VARCHAR))) = '{_sql_lit(eff_sm_bkcc)}'"
+                    if eff_sm_bkcc is not None and any(bk.is_bkcc for bk in hub.business_keys)
+                    else ""
+                )
+                union_branches.append(
+                    f"SELECT\n"
+                    f"    {hk_expr} AS {hk_col},\n"
+                    f"    {bk_csv},\n"
+                    f"    load_dts,\n"
+                    f"    rec_src\n"
+                    f"FROM bronze.src_{tbl}{where_clause}"
+                )
+            parts.append(
+                f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
+                + "\nUNION ALL\n".join(union_branches)
+                + ";"
+            )
 
     for link in ir_obj.links:
         tbl = _validate_ident(link.name)
         view_name = f"stg_{tbl}"
         created_views.add(view_name)
         hk_col = _validate_ident(link.hk_column.name)
+        sm0_dict = link.source_mappings[0] if link.source_mappings else {}
+        link_stg_tbl = (
+            str(sm0_dict.get("staging_table", f"stg_{tbl}"))
+            if isinstance(sm0_dict, dict)
+            else f"stg_{tbl}"
+        )
+        fk_src_map = sm0_dict.get("fk_source_columns") or {} if isinstance(sm0_dict, dict) else {}
         fk_cols: list[str] = []
         fk_cte_exprs: list[str] = []
         for ref in link.hub_references:
             fk_col = _validate_ident(ref.fk_column_name)
             fk_cols.append(fk_col)
             t_hub = hub_by_name[ref.target_hub]
+            fk_src_col = str(fk_src_map.get(ref.fk_column_name, ref.fk_column_name))
+            ref_bkcc_lit = resolve_staging_bkcc_literal(
+                ir_obj,
+                link_stg_tbl,
+                fk_src_col,
+                ref.target_hub,
+                role_name=ref.role_name,
+                registry=bkcc_registry,
+            )
             raw_bk_cols = [_validate_ident(f"{fk_col}__{bk.name}") for bk in t_hub.business_keys]
             non_bkcc_cols = [
                 _validate_ident(f"{fk_col}__{bk.name}")
                 for bk in t_hub.business_keys
                 if not bk.is_bkcc
             ] or raw_bk_cols
-            null_pred = " AND ".join(
-                f"NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL" for c in non_bkcc_cols
+            error_pred = " OR ".join(
+                f"TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_ERROR_TOKEN}'" for c in non_bkcc_cols
             )
-            raw_hash = build_algorithm_a5_sha256_sql(raw_bk_cols, is_business_key=True)
+            unknown_pred = " OR ".join(
+                f"(NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL "
+                f"OR TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_UNKNOWN_TOKEN}')"
+                for c in non_bkcc_cols
+            )
+            t_bkcc_col_expr = _effective_hub_bkcc_column_expr(t_hub)
+            t_bkcc_lit = _effective_hub_bkcc_literal(t_hub)
+            t_has_bkcc_col = any(bool(bk.is_bkcc) for bk in t_hub.business_keys)
+            eff_fk_bkcc_lit = ref_bkcc_lit or t_bkcc_lit
+            if t_bkcc_col_expr:
+                raw_hash = build_algorithm_a5_sha256_sql(
+                    non_bkcc_cols,
+                    is_business_key=True,
+                    bkcc_column_expr=_validate_ident(f"{fk_col}__{t_bkcc_col_expr}"),
+                    key_columns=non_bkcc_cols,
+                )
+            elif eff_fk_bkcc_lit is None and t_has_bkcc_col:
+                raw_hash = build_algorithm_a5_sha256_sql(
+                    raw_bk_cols,
+                    is_business_key=True,
+                    key_columns=non_bkcc_cols,
+                )
+            else:
+                raw_hash = build_algorithm_a5_sha256_sql(
+                    non_bkcc_cols,
+                    bkcc_literal=eff_fk_bkcc_lit or GLOBAL_BKCC,
+                    is_business_key=True,
+                    key_columns=non_bkcc_cols,
+                )
             fk_cte_exprs.append(
                 f"        COALESCE(\n"
-                f"            CASE WHEN {null_pred} THEN NULL ELSE {raw_hash} END,\n"
+                f"            CASE\n"
+                f"                WHEN {error_pred} THEN REPEAT('f', 64)\n"
+                f"                WHEN {unknown_pred} THEN REPEAT('0', 64)\n"
+                f"                ELSE {raw_hash}\n"
+                f"            END,\n"
                 f"            REPEAT('0', 64)\n"
                 f"        ) AS {fk_col}"
             )
-        link_hk_expr = build_algorithm_a5_sha256_sql(fk_cols, is_business_key=True)
+        all_fk_err_pred = " AND ".join(f"{c} = REPEAT('f', 64)" for c in fk_cols)
+        all_fk_unk_pred = " AND ".join(f"{c} = REPEAT('0', 64)" for c in fk_cols)
+        link_hk_expr = build_algorithm_a5_sha256_sql(
+            fk_cols,
+            is_business_key=True,
+            error_predicate=all_fk_err_pred,
+            unknown_predicate=all_fk_unk_pred,
+        )
         fk_csv = ", ".join(fk_cols)
         fk_cte_body = ",\n".join(fk_cte_exprs)
         is_unstructured_link = link.requires_steward_approval_gate
         if is_unstructured_link:
-            parts.append(
-                f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
+            link_body = (
                 f"WITH fk_resolved AS (\n"
                 f"    SELECT\n"
                 f"{fk_cte_body},\n"
@@ -2582,8 +3370,7 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                 f"FROM fk_resolved;"
             )
         else:
-            parts.append(
-                f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
+            link_body = (
                 f"WITH fk_resolved AS (\n"
                 f"    SELECT\n"
                 f"{fk_cte_body},\n"
@@ -2598,6 +3385,8 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                 f"    rec_src\n"
                 f"FROM fk_resolved;"
             )
+        view_body_by_name[view_name] = link_body
+        parts.append(f"CREATE OR REPLACE VIEW staging.{view_name} AS\n{link_body}")
         for sm_dict in link.source_mappings:
             if "staging_table" in sm_dict:
                 alias_targets.append((_validate_ident(str(sm_dict["staging_table"])), view_name))
@@ -2613,13 +3402,56 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
         if sat.parent_entity in hub_by_name:
             p_hub = hub_by_name[sat.parent_entity]
             p_cols = [f"parent_bk__{_validate_ident(bk.name)}" for bk in p_hub.business_keys]
-            parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+            non_bkcc_p_cols = [
+                f"parent_bk__{_validate_ident(bk.name)}"
+                for bk in p_hub.business_keys
+                if not bk.is_bkcc
+            ] or p_cols
+            p_bkcc_col_expr = _effective_hub_bkcc_column_expr(p_hub)
+            p_bkcc_lit = _effective_hub_bkcc_literal(p_hub)
+            p_has_bkcc_col = any(bool(bk.is_bkcc) for bk in p_hub.business_keys)
+            if p_bkcc_col_expr:
+                parent_hk_expr = build_algorithm_a5_sha256_sql(
+                    non_bkcc_p_cols,
+                    is_business_key=True,
+                    bkcc_column_expr=f"parent_bk__{_validate_ident(p_bkcc_col_expr)}",
+                    key_columns=non_bkcc_p_cols,
+                )
+            else:
+                sat_bkcc_lit = resolve_staging_bkcc_literal(
+                    ir_obj,
+                    sat.source_mapping.staging_table,
+                    "*",
+                    p_hub.name,
+                    registry=bkcc_registry,
+                )
+                eff_sat_bkcc_lit = sat_bkcc_lit or p_bkcc_lit
+                if eff_sat_bkcc_lit is None and p_has_bkcc_col:
+                    parent_hk_expr = build_algorithm_a5_sha256_sql(
+                        p_cols,
+                        is_business_key=True,
+                        key_columns=non_bkcc_p_cols,
+                    )
+                else:
+                    parent_hk_expr = build_algorithm_a5_sha256_sql(
+                        non_bkcc_p_cols,
+                        bkcc_literal=eff_sat_bkcc_lit or GLOBAL_BKCC,
+                        is_business_key=True,
+                        key_columns=non_bkcc_p_cols,
+                    )
         else:
             p_lnk = link_by_name[sat.parent_entity]
             p_cols = [
                 f"parent_fk__{_validate_ident(ref.fk_column_name)}" for ref in p_lnk.hub_references
             ]
-            parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+            all_p_err_pred = " AND ".join(f"{c} = REPEAT('f', 64)" for c in p_cols)
+            all_p_unk_pred = " AND ".join(f"{c} = REPEAT('0', 64)" for c in p_cols)
+            parent_hk_expr = build_algorithm_a5_sha256_sql(
+                p_cols,
+                is_business_key=True,
+                error_predicate=all_p_err_pred,
+                unknown_predicate=all_p_unk_pred,
+            )
 
         payload_names = [_validate_ident(c.name) for c in data_cols]
         hash_diff_expr = build_algorithm_a5_sha256_sql(payload_names, is_business_key=False)
@@ -2646,8 +3478,7 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
             if (is_unstructured_link_sat and not has_steward_col)
             else ""
         )
-        parts.append(
-            f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
+        sat_body = (
             f"SELECT\n"
             f"    {parent_hk_expr} AS {parent_hk},\n"
             f"    load_dts,\n"
@@ -2658,15 +3489,105 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
             f"{steward_sel}\n"
             f"FROM bronze.src_{tbl};"
         )
+        view_body_by_name[view_name] = sat_body
+        parts.append(f"CREATE OR REPLACE VIEW staging.{view_name} AS\n{sat_body}")
         alias_targets.append((_validate_ident(sat.source_mapping.staging_table), view_name))
 
     for alias_name, target_view in alias_targets:
-        if alias_name not in created_views:
-            created_views.add(alias_name)
+        if alias_name in created_views:
+            continue
+        created_views.add(alias_name)
+        hub_pairs = stg_to_hub_mappings.get(alias_name, [])
+        if len(hub_pairs) > 1:
+            raw_short = _validate_ident(alias_name.removeprefix("stg_").split(".")[-1])
+            select_exprs: list[str] = []
+            seen_cols: set[str] = set()
+            for hub, sm in hub_pairs:
+                hk_col = _validate_ident(hub.hk_column.name)
+                src_non_bkcc_cols = [
+                    _validate_ident(c) for c in sm.bk_source_columns if c.lower() != "bkcc"
+                ]
+                primary_col = src_non_bkcc_cols[0] if src_non_bkcc_cols else "*"
+                sm_bkcc = resolve_staging_bkcc_literal(
+                    ir_obj,
+                    getattr(sm, "bronze_table", None) or sm.staging_table,
+                    primary_col,
+                    hub.name,
+                    registry=bkcc_registry,
+                )
+                hk_expr = build_algorithm_a5_sha256_sql(
+                    src_non_bkcc_cols,
+                    bkcc_literal=sm_bkcc,
+                    is_business_key=True,
+                )
+                if hk_col not in seen_cols:
+                    seen_cols.add(hk_col)
+                    select_exprs.append(f"    {hk_expr} AS {hk_col}")
+                if sm_bkcc is not None:
+                    bkcc_alias = f"bkcc__{_validate_ident(hub.name)}"
+                    if bkcc_alias not in seen_cols:
+                        seen_cols.add(bkcc_alias)
+                        select_exprs.append(f"    '{_sql_lit(sm_bkcc)}' AS {bkcc_alias}")
+                for c_ident in src_non_bkcc_cols:
+                    if c_ident not in seen_cols:
+                        seen_cols.add(c_ident)
+                        select_exprs.append(f"    {c_ident}")
+            select_exprs.extend(["    load_dts", "    rec_src"])
             parts.append(
                 f"CREATE OR REPLACE VIEW staging.{alias_name} AS\n"
-                f"SELECT * FROM staging.{target_view};"
+                f"SELECT\n" + ",\n".join(select_exprs) + f"\nFROM bronze.{raw_short};"
             )
+        elif len(hub_pairs) == 1:
+            only_hub, sm = hub_pairs[0]
+            tbl = _validate_ident(only_hub.name)
+            hk_col = _validate_ident(only_hub.hk_column.name)
+            non_bkcc_cols = [
+                _validate_ident(bk.name) for bk in only_hub.business_keys if not bk.is_bkcc
+            ]
+            primary_col = next(
+                (c for c in sm.bk_source_columns if c.lower() != "bkcc"),
+                non_bkcc_cols[0] if non_bkcc_cols else "*",
+            )
+            sm_bkcc = resolve_staging_bkcc_literal(
+                ir_obj,
+                getattr(sm, "bronze_table", None) or sm.staging_table,
+                primary_col,
+                only_hub.name,
+                registry=bkcc_registry,
+            )
+            hk_expr = build_algorithm_a5_sha256_sql(
+                non_bkcc_cols,
+                bkcc_literal=sm_bkcc,
+                is_business_key=True,
+            )
+            bk_select_exprs = [
+                f"'{_sql_lit(sm_bkcc)}' AS {_validate_ident(bk.name)}"
+                if bk.is_bkcc and sm_bkcc is not None
+                else _validate_ident(bk.name)
+                for bk in only_hub.business_keys
+            ]
+            where_clause = (
+                f"\nWHERE UPPER(TRIM(CAST(bkcc AS VARCHAR))) = '{_sql_lit(sm_bkcc)}'"
+                if sm_bkcc is not None
+                and len(only_hub.source_mappings) > 1
+                and any(bk.is_bkcc for bk in only_hub.business_keys)
+                else ""
+            )
+            parts.append(
+                f"CREATE OR REPLACE VIEW staging.{alias_name} AS\n"
+                f"SELECT\n"
+                f"    {hk_expr} AS {hk_col},\n"
+                f"    {', '.join(bk_select_exprs)},\n"
+                f"    load_dts,\n"
+                f"    rec_src\n"
+                f"FROM bronze.src_{tbl}{where_clause};"
+            )
+        else:
+            body_sql = view_body_by_name.get(
+                target_view,
+                f"SELECT load_dts, rec_src FROM staging.{target_view};",
+            )
+            parts.append(f"CREATE OR REPLACE VIEW staging.{alias_name} AS\n{body_sql}")
 
     return "\n\n".join(parts)
 
@@ -2716,6 +3637,33 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
             if link.name in unstructured_links_by_name
             else ""
         )
+        is_sal_link = (link.name.startswith("sal_") or link.link_type == "SAME_AS") and len(
+            fk_cols
+        ) == 2
+        sal_where_clause = ""
+        if is_sal_link:
+            m_fk, d_fk = fk_cols[0], fk_cols[1]
+            sal_where_clause = (
+                f"  AND src.{m_fk} <> src.{d_fk}\n"
+                f"  AND NOT EXISTS (\n"
+                f"      SELECT 1 FROM {schema}.{tbl} l_inv\n"
+                f"      WHERE l_inv.{m_fk} = src.{d_fk}\n"
+                f"        AND l_inv.{d_fk} = src.{m_fk}\n"
+                f"  )\n"
+                f"  AND NOT EXISTS (\n"
+                f"      SELECT 1 FROM staging.stg_{tbl} src_inv\n"
+                f"      WHERE src_inv.{m_fk} = src.{d_fk}\n"
+                f"        AND src_inv.{d_fk} = src.{m_fk}\n"
+                f"        AND src_inv.{m_fk} <> src_inv.{d_fk}\n"
+                f"        AND (\n"
+                f"            src_inv.load_dts < src.load_dts\n"
+                f"            OR (\n"
+                f"                src_inv.load_dts = src.load_dts\n"
+                f"                AND src_inv.{m_fk} < src.{m_fk}\n"
+                f"            )\n"
+                f"        )\n"
+                f"  )\n"
+            )
         parts.append(
             f"INSERT INTO {schema}.{tbl} ({hk}, {fk_csv}, load_dts, rec_src)\n"
             f"SELECT\n"
@@ -2726,6 +3674,7 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
             f"FROM staging.stg_{tbl} src\n"
             f"WHERE src.{hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
             f"{steward_filter}"
+            f"{sal_where_clause}"
             f"  AND NOT EXISTS (\n"
             f"      SELECT 1 FROM {schema}.{tbl} l\n"
             f"      WHERE l.{hk} = src.{hk}\n"
@@ -2750,6 +3699,7 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
         col_tail = f", {payload_csv}" if payload_csv else ""
         sel_tail = f",\n    {src_payload_csv}" if src_payload_csv else ""
         parent_link_guard = ""
+        bitemp_parent_link_guard = ""
         if sat.parent_entity in unstructured_links_by_name:
             p_lnk = unstructured_links_by_name[sat.parent_entity]
             p_schema = _link_schema(p_lnk)
@@ -2763,29 +3713,113 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
                 f"      WHERE p.{p_hk} = src.{parent_hk}\n"
                 f"  )\n"
             )
-        parts.append(
-            f"INSERT INTO {schema}.{tbl} (\n"
-            f"    {parent_hk}, load_dts, {app_col}rec_src, hash_diff{col_tail}\n"
-            f")\n"
-            f"SELECT\n"
-            f"    src.{parent_hk},\n"
-            f"    src.load_dts,\n"
-            f"    {src_app_col}src.rec_src,\n"
-            f"    src.hash_diff{sel_tail}\n"
-            f"FROM staging.stg_{tbl} src\n"
-            f"LEFT JOIN (\n"
-            f"    SELECT {part_csv}, load_dts, hash_diff\n"
-            f"    FROM {schema}.{tbl}\n"
-            f"    WHERE rec_src <> '{GHOST_REC_SRC}'\n"
-            f"    QUALIFY ROW_NUMBER() OVER (PARTITION BY {part_csv} ORDER BY load_dts DESC) = 1\n"
-            f") cur ON {join_on}\n"
-            f"WHERE src.{parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
-            f"{parent_link_guard}"
-            f"  AND (\n"
-            f"      cur.{parent_hk} IS NULL\n"
-            f"      OR (src.load_dts > cur.load_dts AND cur.hash_diff <> src.hash_diff)\n"
-            f"  );"
-        )
+            bitemp_parent_link_guard = (
+                f"              AND {sat_steward_pred}\n"
+                f"              AND EXISTS (\n"
+                f"                  SELECT 1 FROM {p_schema}.{p_tbl} p\n"
+                f"                  WHERE p.{p_hk} = src.{parent_hk}\n"
+                f"              )\n"
+            )
+        if has_applied:
+            assert sat.applied_dts_column is not None
+            applied_ident = _validate_ident(sat.applied_dts_column.name)
+            v_payload_csv = ", ".join(f"v.{c}" for c in payload_cols)
+            s_payload_csv = ", ".join(f"s.{c}" for c in payload_cols)
+            comb_payload_csv = ", ".join(f"combined.{c}" for c in payload_cols)
+            cand_payload_csv = ", ".join(f"cand.{c}" for c in payload_cols)
+            v_sel_tail = f", {v_payload_csv}" if v_payload_csv else ""
+            s_sel_tail = f", {s_payload_csv}" if s_payload_csv else ""
+            comb_sel_tail = f",\n        {comb_payload_csv}" if comb_payload_csv else ""
+            cand_sel_tail = f",\n    {cand_payload_csv}" if cand_payload_csv else ""
+            comb_part_csv = ", ".join(f"combined.{c}" for c in part_cols)
+            src_part_csv = ", ".join(f"src.{c}" for c in part_cols)
+            src_col_tail = f", {src_payload_csv}" if src_payload_csv else ""
+            existing_on = " AND ".join(f"existing.{c} = s.{c}" for c in part_cols)
+            parts.append(
+                f"INSERT INTO {schema}.{tbl} (\n"
+                f"    {parent_hk}, load_dts, {applied_ident}, rec_src, hash_diff{col_tail}\n"
+                f")\n"
+                f"SELECT\n"
+                f"    cand.{parent_hk},\n"
+                f"    cand.load_dts,\n"
+                f"    cand.{applied_ident},\n"
+                f"    cand.rec_src,\n"
+                f"    cand.hash_diff{cand_sel_tail}\n"
+                f"FROM (\n"
+                f"    SELECT\n"
+                f"        combined.{parent_hk},\n"
+                f"        combined.load_dts,\n"
+                f"        combined.{applied_ident},\n"
+                f"        combined.rec_src,\n"
+                f"        combined.hash_diff{comb_sel_tail},\n"
+                f"        combined.is_new,\n"
+                f"        LAG(combined.hash_diff) OVER (\n"
+                f"            PARTITION BY {comb_part_csv}\n"
+                f"            ORDER BY combined.{applied_ident} ASC, combined.load_dts ASC\n"
+                f"        ) AS prev_hash_diff\n"
+                f"    FROM (\n"
+                f"        SELECT\n"
+                f"            v.{parent_hk}, v.load_dts, v.{applied_ident}, "
+                f"v.rec_src, v.hash_diff{v_sel_tail},\n"
+                f"            0 AS is_new\n"
+                f"        FROM {schema}.{tbl} v\n"
+                f"        WHERE v.rec_src <> '{GHOST_REC_SRC}'\n"
+                f"        UNION ALL\n"
+                f"        SELECT\n"
+                f"            s.{parent_hk}, s.load_dts, s.{applied_ident}, "
+                f"s.rec_src, s.hash_diff{s_sel_tail},\n"
+                f"            1 AS is_new\n"
+                f"        FROM (\n"
+                f"            SELECT src.{parent_hk}, src.load_dts, src.{applied_ident}, "
+                f"src.rec_src, src.hash_diff{src_col_tail}\n"
+                f"            FROM staging.stg_{tbl} src\n"
+                f"            WHERE src.{parent_hk} NOT IN ("
+                f"'{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+                f"{bitemp_parent_link_guard}"
+                f"            QUALIFY ROW_NUMBER() OVER (\n"
+                f"                PARTITION BY {src_part_csv}, src.load_dts\n"
+                f"                ORDER BY src.{applied_ident} DESC\n"
+                f"            ) = 1\n"
+                f"        ) s\n"
+                f"        WHERE NOT EXISTS (\n"
+                f"            SELECT 1 FROM {schema}.{tbl} existing\n"
+                f"            WHERE {existing_on}\n"
+                f"              AND existing.load_dts = s.load_dts\n"
+                f"        )\n"
+                f"    ) combined\n"
+                f") cand\n"
+                f"WHERE cand.is_new = 1\n"
+                f"  AND (\n"
+                f"      cand.prev_hash_diff IS NULL\n"
+                f"      OR cand.prev_hash_diff <> cand.hash_diff\n"
+                f"  );"
+            )
+        else:
+            parts.append(
+                f"INSERT INTO {schema}.{tbl} (\n"
+                f"    {parent_hk}, load_dts, {app_col}rec_src, hash_diff{col_tail}\n"
+                f")\n"
+                f"SELECT\n"
+                f"    src.{parent_hk},\n"
+                f"    src.load_dts,\n"
+                f"    {src_app_col}src.rec_src,\n"
+                f"    src.hash_diff{sel_tail}\n"
+                f"FROM staging.stg_{tbl} src\n"
+                f"LEFT JOIN (\n"
+                f"    SELECT {part_csv}, load_dts, hash_diff\n"
+                f"    FROM {schema}.{tbl}\n"
+                f"    WHERE rec_src <> '{GHOST_REC_SRC}'\n"
+                f"    QUALIFY ROW_NUMBER() OVER (\n"
+                f"        PARTITION BY {part_csv} ORDER BY load_dts DESC\n"
+                f"    ) = 1\n"
+                f") cur ON {join_on}\n"
+                f"WHERE src.{parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+                f"{parent_link_guard}"
+                f"  AND (\n"
+                f"      cur.{parent_hk} IS NULL\n"
+                f"      OR (src.load_dts > cur.load_dts AND cur.hash_diff <> src.hash_diff)\n"
+                f"  );"
+            )
 
     return "\n\n".join(parts)
 
@@ -2888,7 +3922,8 @@ def _compile_generic_zone_3_business_vault_sql(ir_obj: CanonicalIR) -> str:
         subquery_selects: list[str] = [
             f"        LOWER(SHA256(\n"
             f"            '64:' || h.{hub_hk} || '||'\n"
-            f"            || CAST(STRLEN(CAST(cal.as_of_dts AS VARCHAR)) AS VARCHAR)\n"
+            f"            || CAST(OCTET_LENGTH(ENCODE(CAST(cal.as_of_dts AS VARCHAR)))"
+            f" AS VARCHAR)\n"
             f"            || ':' || CAST(cal.as_of_dts AS VARCHAR)\n"
             f"        )) AS {pit_hk}",
             f"        h.{hub_hk}",
@@ -2991,11 +4026,64 @@ def _compile_generic_zone_4_information_mart_views(ir_obj: CanonicalIR) -> tuple
     return q_d10, q_d10b
 
 
+def compile_zone_0_migration_sql(
+    ir: CanonicalIR | dict[str, Any],
+    *,
+    baseline_ir: CanonicalIR | dict[str, Any] | None = None,
+) -> str:
+    """Compile idempotent `ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS` statements.
+
+    When `baseline_ir` is provided, emits `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+    statements only for columns added in-place to existing Satellites (`EVO-01` / `DV-EVO-006`).
+    When `baseline_ir` is omitted, emits idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+    statements for all Satellite payload columns so any pre-existing physical Satellite table
+    is safely migrated before Zone 1 and Zone 2 execute.
+    """
+    ir_obj = CanonicalIR.model_validate(ir) if isinstance(ir, dict) else ir
+    base_obj = (
+        CanonicalIR.model_validate(baseline_ir) if isinstance(baseline_ir, dict) else baseline_ir
+    )
+    prev_sats = {s.name: s for s in base_obj.satellites} if base_obj is not None else None
+
+    stmts: list[str] = []
+    for sat in ir_obj.satellites:
+        schema = _satellite_schema(sat)
+        tbl = _validate_ident(sat.name)
+        child_keys = set(_satellite_child_key_names(sat))
+        data_cols = [c for c in _satellite_all_data_columns(sat) if c.name not in child_keys]
+        if prev_sats is not None:
+            if sat.name not in prev_sats:
+                continue
+            prev_col_names = {
+                c.name.lower() for c in _satellite_all_data_columns(prev_sats[sat.name])
+            }
+            target_cols = [c for c in data_cols if c.name.lower() not in prev_col_names]
+        else:
+            target_cols = data_cols
+
+        for col in target_cols:
+            c_name = _validate_ident(col.name)
+            c_type = _normalize_duckdb_type(col.data_type)
+            stmts.append(f"ALTER TABLE {schema}.{tbl} ADD COLUMN IF NOT EXISTS {c_name} {c_type};")
+
+    if not stmts:
+        return ""
+    return "\n".join(
+        [
+            "-- =============================================================================",
+            "-- ZONE 0 MIGRATION: IDEMPOTENT ADDITIVE SATELLITE SCHEMA EVOLUTION (EVO-01)",
+            "-- =============================================================================",
+            *stmts,
+        ]
+    )
+
+
 def compile_canonical_ir_to_4zone_sql(
     ir: CanonicalIR | dict[str, Any],
     *,
     include_batch4_restatement_in_seed: bool = False,
-    bronze_tables: dict[str, list[dict[str, Any]] | Any] | None = None,
+    bronze_tables: Mapping[str, list[dict[str, Any]] | Any] | None = None,
+    baseline_ir: CanonicalIR | dict[str, Any] | None = None,
 ) -> Compiled4ZoneBundle:
     """Compile a `CanonicalIR` model into a `Compiled4ZoneBundle`.
 
@@ -3009,6 +4097,11 @@ def compile_canonical_ir_to_4zone_sql(
     load_order = topological_load_dag(ir_obj)
 
     if is_pe_domain(ir_obj):
+        pe_migration_sql = (
+            compile_zone_0_migration_sql(ir_obj, baseline_ir=baseline_ir)
+            if baseline_ir is not None
+            else ""
+        )
         return Compiled4ZoneBundle(
             model_name=ir_obj.model_name,
             ir_version=ir_obj.ir_version,
@@ -3016,6 +4109,7 @@ def compile_canonical_ir_to_4zone_sql(
             zone_0_sql=_build_pe_zone_0_sql(
                 include_batch4_restatement_in_seed=include_batch4_restatement_in_seed
             ),
+            zone_0_migration_sql=pe_migration_sql,
             zone_1_sql=_build_pe_zone_1_sql(),
             zone_2_sql=_build_pe_zone_2_sql(),
             zone_3_sql=_build_pe_zone_3_sql(),
@@ -3028,6 +4122,7 @@ def compile_canonical_ir_to_4zone_sql(
         include_batch4_restatement_in_seed=include_batch4_restatement_in_seed,
         bronze_tables=bronze_tables,
     )
+    zone_0_migration_sql = compile_zone_0_migration_sql(ir_obj, baseline_ir=baseline_ir)
     zone_1_sql = _compile_generic_zone_1_staging_views(ir_obj)
     zone_2_sql = _compile_generic_zone_2_raw_vault_dml(ir_obj)
     zone_3_sql = _compile_generic_zone_3_business_vault_sql(ir_obj)
@@ -3038,6 +4133,7 @@ def compile_canonical_ir_to_4zone_sql(
         ir_version=ir_obj.ir_version,
         topological_load_order=load_order,
         zone_0_sql=zone_0_sql,
+        zone_0_migration_sql=zone_0_migration_sql,
         zone_1_sql=zone_1_sql,
         zone_2_sql=zone_2_sql,
         zone_3_sql=zone_3_sql,
