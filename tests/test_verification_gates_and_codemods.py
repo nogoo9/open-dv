@@ -1453,3 +1453,64 @@ def test_doc05_reference_algorithms_a1_through_a8_direct_execution(
     drift_res = drift_fn(copy.deepcopy(pe_contract), cand_with_new_col, schema_epoch_tag="v2")
     assert any(s["name"].endswith("_ext_v2") for s in drift_res["satellites"])
 
+
+def test_issue_33_doc04_and_doc05_reference_alg_a9b_crlf_normalization(
+    doc05_algos: dict[str, Any],
+    pe_contract: dict[str, Any],
+    pdf_corpus: dict[str, str],
+) -> None:
+    """Issue #33 (BUG-04 / FR-DOM-05 / Rule U2 / Scenario S8 / UF-5):
+    Verifies that the executable reference `verify_gate5_unstructured_invariants` blocks in
+    `docs/04-unstructured-and-multimodal-dv2.md` and
+    `docs/05-elm-calculus-and-reference-algorithms.md` normalize CRLF (`\\r\\n`) and CR (`\\r`)
+    line endings before slicing `body[start:end]`.
+    """
+    from tests.conftest import DOC_04_PATH, extract_python_algorithms_from_doc
+
+    doc04_algos = extract_python_algorithms_from_doc(DOC_04_PATH)
+    doc_uri = "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf"
+    lf_body = pdf_corpus[doc_uri]
+    crlf_corpus = {doc_uri: lf_body.replace("\n", "\r\n")}
+    cr_corpus = {doc_uri: lf_body.replace("\n", "\r")}
+
+    multiline_lf_quote = lf_body[0:98]
+    multiline_crlf_quote = multiline_lf_quote.replace("\n", "\r\n")
+
+    contract_valid = copy.deepcopy(pe_contract)
+    contract_valid["sample_extractions"] = [
+        {
+            "doc_id": doc_uri,
+            "attribute": "fee_cap_bps",
+            "evidence_quote": "125 bps",
+            "char_start": 499,
+            "char_end": 506,
+        },
+        {
+            "doc_id": doc_uri,
+            "attribute": "header_preamble",
+            "evidence_quote": multiline_crlf_quote,
+            "char_start": 0,
+            "char_end": 98,
+        },
+    ]
+
+    for fn in (
+        doc04_algos["verify_gate5_unstructured_invariants"],
+        doc05_algos["verify_gate5_unstructured_invariants"],
+    ):
+        assert fn(contract_valid, crlf_corpus) == []
+        assert fn(contract_valid, cr_corpus) == []
+
+        contract_hallucinated = copy.deepcopy(pe_contract)
+        contract_hallucinated["sample_extractions"] = [
+            {
+                "doc_id": doc_uri,
+                "attribute": "fee_cap_bps",
+                "evidence_quote": "999 bps",
+                "char_start": 499,
+                "char_end": 506,
+            }
+        ]
+        errs = fn(contract_hallucinated, crlf_corpus)
+        assert len(errs) == 1
+        assert "SPAN_HALLUCINATION" in errs[0]
