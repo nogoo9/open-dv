@@ -521,4 +521,3 @@ def test_contract_v5_and_canonical_ir_accept_bkcc_column_expr() -> None:
     assert validated_ir.hubs[0].bkcc_column_expr == "tenant_id"
     assert validated_ir.hubs[0].hk_column.hash_expression.bkcc_column_expr == "tenant_id"
     assert validated_ir.hubs[0].source_mappings[0].bkcc_column_expr == "tenant_id"
-

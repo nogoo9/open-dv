@@ -121,8 +121,9 @@ When live source data contains fields that cannot be matched to the declared Gra
 - **Data Input Profile:** Same natural key (e.g. account `1001`) originating from different tenants or business units.
 - **Observed Codebase Behavior:**
   - BKCC namespaces prefix keys during Algorithm A.5 hashing (`<bkcc_len>:<bkcc>||<bk_len>:<bk>`), isolating hash keys in Hubs.
+  - Single-table multi-tenant feeds declare `bkcc_column_expr` (e.g., `"tenant_id"`) on `BusinessKeySource`, which lowers into `CanonicalIR` (`IRHub`, `IRHashExpression`, `IRHubSourceMapping`) and compiles Zone 1 staging views via `build_algorithm_a5_sha256_sql(..., bkcc_column_expr=...)` while preserving `KEY-02(b)` Zero-Key resolution on business key columns.
 - **DV 2.0 Consistency Critique & Gaps:**
-  - `compiler_4zone.py` only accepts static `bkcc_literal`. If a single multi-tenant feed contains rows with a dynamic `tenant_id` column, the compiler cannot prefix hashes with that column unless modeled manually as a composite business key.
+  - *Resolved (`GAP-11` / [#42](https://github.com/nogoo9/open-dv/issues/42)):* Added `bkcc_column_expr` support across `NoMistakeDataVault2ContractV5`, `CanonicalIR`, Gate 1 (`DV-COL-012`), Gate 4 (`DV-EVO-003` / `DV-EVO-007`), `ir_lowerer.py`, and `compiler_4zone.py` (see [`docs/17-testing-scenarios-and-datasets.md`](17-testing-scenarios-and-datasets.md)).
 
 ### Scenario S10: Ghost Record & Unknown Value Handling
 - **Data Input Profile:** Missing parent keys in links, outer joins in analytical queries.

@@ -24,6 +24,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import duckdb
 import pytest
@@ -609,7 +610,7 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
         encoding="utf-8",
     )
 
-    contract_dict = {
+    contract_dict: dict[str, Any] = {
         "contract_version": "5.0",
         "domain_namespace": "multi_tenant_saas",
         "lifecycle_stage": "COLD_START_N1",
@@ -842,7 +843,7 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
     assert validated_ir.hubs[0].source_mappings[0].bkcc_column_expr == "tenant_id"
 
     # 4. Compile 4-Zone SQL & execute in DuckDB with real CSV files
-    bronze_map = {
+    bronze_map: dict[str, Any] = {
         "bronze_saas.tenant_accounts": accounts_csv,
         "bronze_saas.tenant_subscriptions": subs_csv,
     }
@@ -901,4 +902,3 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
         assert report.passed
         assert report.batch_report.all_passed
         assert report.dynamic_check_report.all_passed
-

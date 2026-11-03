@@ -30,7 +30,12 @@ In shared single-table multi-tenant architectures, multiple tenants or business 
   - `('TENANT_US', 'ACCT-1002')` $\to$ `aa878e0129a5d13e21718834b48473337925ac1db45214194155e0c275b14e8d` (`SHA256('9:TENANT_US||9:ACCT-1002')`)
   - `('TENANT_US', NULL)` $\to$ `0000000000000000000000000000000000000000000000000000000000000000` (`ZERO_KEY_UNKNOWN`)
 
-### 3. Running the Unit and E2E Tests
+### 3. Test Scenarios Covered
+- **`test_contract_v5_and_canonical_ir_accept_bkcc_column_expr`** (`packages/opendv-core/tests/test_core_models_and_hashing.py`): Validates `bkcc_column_expr` and `bkcc_literal` across Pydantic v2 models (`BusinessKeySource`, `IRHashExpression`, `IRHubSourceMapping`, `IRHub`) and Draft 2020-12 JSON Schemas (`schemas/no-mistake-dv2-contract-v5.schema.json`, `schemas/dv2-canonical-ir.schema.json`).
+- **`test_build_algorithm_a5_sha256_sql_dynamic_bkcc_column_expr_and_zero_key`** (`packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py`): Verifies `build_algorithm_a5_sha256_sql` and `build_canonical_sha256_hash_ast` in `:memory:` DuckDB for dynamic `bkcc_column_expr` prefixing, input column deduplication, single-column fallback, `UPPER(TRIM(...))` normalization, and `KEY-02(b)` Zero-Key resolution (`REPEAT('0', 64)`) when business key columns are `NULL` or whitespace.
+- **`test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox`** (`packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py`): End-to-end verification of `tenant_accounts.csv` and `tenant_subscriptions.csv` through `validate_contract_v5`, Gate 1 `verify_gate1_contract_and_grain` (including whitespace-only `bkcc_column_expr` rejection under `DV-COL-012`), Gate 4 `verify_evolution_lock_alg_a7` (`BKCC_MUTATED`), SQLGlot AST verification of `codemod_enforce_staging_hashes_sql`, `lower_contract_to_canonical_ir`, `compile_canonical_ir_to_4zone_sql`, and `DuckDbShadowSandbox.run_full_verification` (4 Adversarial Batches + `DV-DYN-001..015`).
+
+### 4. Running the Unit and E2E Tests
 ```bash
 # Run the Issue #42 / Scenario S9 unit & E2E tests in opendv-duckdb-sandbox and opendv-core
 uv run --all-packages pytest \

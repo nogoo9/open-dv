@@ -2418,9 +2418,7 @@ def _compile_generic_zone_0_sql(
                 if p_bkcc_col_expr and p_bkcc_col_expr not in p_bk_names
                 else None
             )
-            p_bkcc_idx = next(
-                (idx for idx, bk in enumerate(p_hub.business_keys) if bk.is_bkcc), 0
-            )
+            p_bkcc_idx = next((idx for idx, bk in enumerate(p_hub.business_keys) if bk.is_bkcc), 0)
             for bk in p_hub.business_keys:
                 col_defs.append(f"    parent_bk__{_validate_ident(bk.name)} VARCHAR,")
             if p_extra_bkcc:
