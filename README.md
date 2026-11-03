@@ -31,6 +31,12 @@ Data Vault 2.0 delivers 100% historical auditability, decoupled parallel ingesti
 
 When autonomous LLM agents design or evolve Data Vault schemas without formal guardrails, five fatal traps—**Source-Driven Hub Proliferation**, **Surrogate Key Leakage**, **Silent Hash Collisions**, **Soft Rule Contamination**, and **Destructive Satellite `UPDATE`s**—can silently corrupt historical lineage.
 
+> [!IMPORTANT]
+> **Mission & Core Architectural Separation: Target-Agnostic DV 2.0 Models vs. Reference SQL**
+> - **Mission:** `open-dv` transforms evolving operational schemas ($N=1 \to N+1$), drifting tables ($S_k(t) \to S_k(t+1)$), and unstructured enterprise documents into mathematically verified **Data Vault 2.0** models—**without ever trusting an LLM to write raw SQL directly.** (See [`docs/00-mission-vision-and-functional-requirements.md`](docs/00-mission-vision-and-functional-requirements.md) and [`AGENTS.md`](AGENTS.md).)
+> - **Primary Downstream Deliverables (Target-Agnostic):** The core product of `open-dv` for your enterprise data platform is the verified declarative model contract (**`final_contract.yaml`**) and lowered Canonical Intermediate Representation (**`final_canonical_ir.json`**). These artifacts are 100% vendor-neutral and feed any downstream warehouse compiler or metadata framework (**dbt / AutomateDV / datavault4dbt, Snowflake, BigQuery, Databricks, SQLMesh**, etc.).
+> - **Role of the 4-Zone DuckDB SQL Bundle (`final_four_zone.sql`):** The included 4-Zone DuckDB compiler serves as **(1) `open-dv`'s internal Stage 06 dynamic verification harness** (proving grain uniqueness, zero hash collisions, bi-temporal PIT accuracy, and replay idempotency across 4 Adversarial Shadow Sandbox Batches before sealing a contract) and **(2) an executable golden reference implementation**. Running DuckDB in production is **never** required to adopt `open-dv`. (See [`docs/16-human-and-agent-usage-guide.md`](docs/16-human-and-agent-usage-guide.md) for full integration playbooks.)
+
 `open-dv` prevents these failure modes through **three core pillars**:
 
 1. **Multi-Agent Pipeline (`opendv pipeline` / `packages/opendv-agent-harness`)**
@@ -281,7 +287,8 @@ open-dv/
 │   └── pipeline_samples/
 │       └── global_commerce_vault/ # 4-wave progressive commerce dataset, per-wave specs & harness_config*.yaml
 ├── schemas/                    # Normative JSON Schemas (Draft 2020-12) & OpenAPI 3.1.0 specification
-├── docs/                       # Architecture & engineering specifications (01..13, DV2_AGENT_REFERENCE_GUIDE.md)
+├── docs/                       # Architecture & engineering specifications (00..16, DV2_AGENT_REFERENCE_GUIDE.md)
+├── AGENTS.md                   # Root Agent & Contributor Constitution (Mission, Guardrails & Conformance)
 └── tests/                      # Normative end-to-end pytest specification suite (+ per-package tests)
 ```
 
@@ -291,6 +298,9 @@ open-dv/
 
 | Document / Schema | Path | When to Read This |
 | :--- | :--- | :--- |
+| **Root Agent & Contributor Constitution (`AGENTS.md`)** | [`AGENTS.md`](AGENTS.md) | **Read first for AI agents and contributors:** Mission statement, Target-Agnostic vs. Verification SQL separation, "Clear on What, Non-Prescriptive on How" guardrails, package boundaries, and conformance CLI commands. |
+| **00 — Mission, Vision, Functional Requirements & Traceability** | [`docs/00-mission-vision-and-functional-requirements.md`](docs/00-mission-vision-and-functional-requirements.md) | **Read for product scope & governance:** Core problem statement, Functional Requirements (`FR-DOM-*`, `FR-VER-*`, `FR-INT-*`), non-prescriptive extensibility principles, 6-Point Conformance Rubric, and the **Requirements-to-Scenarios (`S1`–`S10`) & Open Issues (`#30`–`#44`) Traceability Matrix**. |
+| **16 — Human & Autonomous Agent Usage & Integration Guide** | [`docs/16-human-and-agent-usage-guide.md`](docs/16-human-and-agent-usage-guide.md) | **Read for day-to-day operations & downstream integration:** Operating modes (`Mode A/B/C`), why the SQL bundle is optional in production, wave-by-wave periodic source onboarding (`--initial-contract`), Steward Hold resolution, and consuming `final_contract.yaml` / `final_canonical_ir.json` in `dbt` / Snowflake / Databricks. |
 | **Master Agent Reference Guide (`v6.0`)** | [`docs/DV2_AGENT_REFERENCE_GUIDE.md`](docs/DV2_AGENT_REFERENCE_GUIDE.md) | **Start here for a single-file technical overview** of DV 2.0 layers, DDL/DML templates, 6-stage hashing, the 5 Fatal Traps, `dv-firstmate`, and the 6-Gate `axi-dv` pipeline. |
 | **Complete HTML Design & Implementation Guide** | [`docs/references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html`](docs/references/No-Mistake-Agentic-Data-Vault-2.0-Complete-Design-and-Implementation-Guide.html) | Read when you want the standalone visual HTML edition with full mathematical proofs, callouts, schemas, and reference algorithms. |
 | **01 — Core Modelling Specification** | [`docs/01-core-modelling-spec.md`](docs/01-core-modelling-spec.md) | Read when designing Hubs, Links (`lnk_`, `t_lnk_`, `sal_`, `hal_`, `x_lnk_`), Satellites (`sat_`, `mas_`, `esat_`, `sts_`, `rts_`, `ref_`), PIT/Bridge tables, Zero Keys, Ghost Records, or SQLGlot AST rules. |
