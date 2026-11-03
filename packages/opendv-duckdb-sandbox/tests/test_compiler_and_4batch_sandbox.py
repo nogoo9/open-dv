@@ -1000,3 +1000,261 @@ def test_issue37_scenario_s7_cross_engine_hash_parity_e2e() -> None:
         )
         assert resolve_fk_hash_key_with_zero_keys(["-2"], bkcc_prefix="GLOBAL") == ZERO_KEY_ERROR
         assert resolve_fk_hash_key_with_zero_keys(["LP-101"], bkcc_prefix="GLOBAL") == calpers_py_hk
+
+
+def test_scenario_s2_sal_canonical_ordering_and_dv_dyn_006_enforcement() -> None:
+    """Issue #41 (GAP-10 / Scenario S2): End-to-end verification of Multi-Source Entity
+    Convergence with Same-As Link canonical ordering across Gate 3, 4-Zone SQL compilation,
+    and Gate 5 DuckDB Shadow Sandbox (DV-DYN-006 & DV-DYN-007).
+    """
+    from opendv_axi_verifier.verifiers.gate3_networkx_dag import verify_structural_invariants
+    from opendv_core.models import NoMistakeDataVault2ContractV5
+    from opendv_duckdb_sandbox.dynamic_checks import check_dv_dyn_006_bkcc_collision_and_sal
+
+    s2_contract_dict = {
+        "contract_version": "5.0",
+        "domain_namespace": "s2_multi_source_customer_convergence",
+        "lifecycle_stage": "MULTI_SOURCE_EXPANSION",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "erp.src_sap_customers",
+                "column_name": "customer_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_customer",
+            },
+            {
+                "bronze_table": "erp.src_sap_customers",
+                "column_name": "legal_name",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_erp",
+            },
+            {
+                "bronze_table": "crm.src_sfdc_accounts",
+                "column_name": "sf_account_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_customer",
+            },
+            {
+                "bronze_table": "crm.src_sfdc_accounts",
+                "column_name": "account_tier",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_crm",
+            },
+            {
+                "bronze_table": "mdm.src_customer_steward_crosswalk",
+                "column_name": "master_customer_id",
+                "elm_classification": "FOREIGN_KEY_REF",
+                "target_dv_entity": "sal_customer",
+            },
+            {
+                "bronze_table": "mdm.src_customer_steward_crosswalk",
+                "column_name": "sf_account_id",
+                "elm_classification": "FOREIGN_KEY_REF",
+                "target_dv_entity": "sal_customer",
+            },
+        ],
+        "hubs": [
+            {
+                "name": "hub_customer",
+                "ontology_concept_uri": "urn:ontology:entity:customer",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "erp.src_sap_customers",
+                        "key_columns": ["customer_id"],
+                        "record_source_code": "ERP_SAP_CORE",
+                        "key_authority_tier": "TIER_2_ENTERPRISE_SOR",
+                        "require_src_qualifier": False,
+                        "bkcc_prefix": None,
+                    },
+                    {
+                        "bronze_table": "crm.src_sfdc_accounts",
+                        "key_columns": ["sf_account_id"],
+                        "record_source_code": "CRM_SALESFORCE",
+                        "key_authority_tier": "TIER_3_LOCAL_SCOPED",
+                        "require_src_qualifier": True,
+                        "bkcc_prefix": "CRM_SALESFORCE",
+                        "system_scoped_bk_justification": (
+                            "Salesforce local account IDs collide with SAP customer numbers "
+                            "and require BKCC scoping."
+                        ),
+                    },
+                ],
+            }
+        ],
+        "links": [
+            {
+                "name": "sal_customer",
+                "link_type": "SAME_AS_LINK",
+                "ontology_concept_uri": "urn:ontology:relationship:entity_equivalence",
+                "source_bronze_table": "mdm.src_customer_steward_crosswalk",
+                "hub_references": [
+                    {
+                        "target_hub": "hub_customer",
+                        "role_alias": "MASTER_CUSTOMER",
+                        "source_fk_columns": ["master_customer_id"],
+                    },
+                    {
+                        "target_hub": "hub_customer",
+                        "role_alias": "DUPLICATE_ALIAS_CUSTOMER",
+                        "source_fk_columns": ["sf_account_id"],
+                    },
+                ],
+            }
+        ],
+        "satellites": [
+            {
+                "name": "sat_customer_erp",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_customer",
+                "source_bronze_table": "erp.src_sap_customers",
+                "security_classification": "PUBLIC",
+                "volatility_tier": "STATIC",
+                "payload_columns": ["legal_name"],
+            },
+            {
+                "name": "sat_customer_crm",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_customer",
+                "source_bronze_table": "crm.src_sfdc_accounts",
+                "security_classification": "PUBLIC",
+                "volatility_tier": "STANDARD",
+                "payload_columns": ["account_tier"],
+            },
+        ],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+
+    # 1. Gate 3 static verification passes on canonical S2 contract
+    assert verify_structural_invariants(s2_contract_dict) == []
+
+    # 2. Full 4-Batch Shadow Sandbox passes all 15 dynamic invariants (DV-DYN-001..015)
+    contract = NoMistakeDataVault2ContractV5.model_validate(s2_contract_dict)
+    ir = lower_contract_to_canonical_ir(contract)
+    sandbox_report = DuckDbShadowSandbox().run_full_verification(ir)
+    assert sandbox_report.passed is True
+
+    # 3. Verify Zone 2 SAL DML filters out reflexive (A, A) and inverted (B, A) staging rows
+    bundle = compile_canonical_ir_to_4zone_sql(ir)
+    conn = duckdb.connect(":memory:")
+    conn.execute(bundle.zone_0_sql)
+    conn.execute(bundle.zone_1_sql)
+
+    # Inject adversarial (A, A) self-loop and (A, B) + (B, A) inverted pair into Bronze crosswalk
+    conn.execute(
+        """
+        INSERT INTO bronze.src_sal_customer VALUES
+            (
+                'GLOBAL',
+                'CUST-100',
+                'GLOBAL',
+                'CUST-100',
+                TIMESTAMP '2026-10-02 00:00:00',
+                'ADVERSARIAL_SELF_LOOP'
+            ),
+            (
+                'GLOBAL',
+                'CUST-100',
+                'CRM_SALESFORCE',
+                'CUST-200',
+                TIMESTAMP '2026-10-02 01:00:00',
+                'ADVERSARIAL_PAIR_AB'
+            ),
+            (
+                'CRM_SALESFORCE',
+                'CUST-200',
+                'GLOBAL',
+                'CUST-100',
+                TIMESTAMP '2026-10-02 02:00:00',
+                'ADVERSARIAL_PAIR_BA'
+            );
+        """
+    )
+    conn.execute(bundle.zone_2_sql)
+
+    # Verify that Zone 2 DML actually filtered out reflexive (A, A) and inverted (B, A) rows
+    self_loop_cnt = conn.execute(
+        """
+        SELECT COUNT(*) FROM business_vault.sal_customer
+        WHERE hk_sal_customer NOT IN (
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        )
+          AND hk_customer_master_customer = hk_customer_duplicate_alias_customer;
+        """
+    ).fetchone()
+    assert self_loop_cnt is not None and int(self_loop_cnt[0]) == 0
+
+    inv_pair_cnt = conn.execute(
+        """
+        SELECT COUNT(*) FROM business_vault.sal_customer s1
+        INNER JOIN business_vault.sal_customer s2
+            ON s1.hk_customer_master_customer = s2.hk_customer_duplicate_alias_customer
+           AND s1.hk_customer_duplicate_alias_customer = s2.hk_customer_master_customer
+        WHERE s1.hk_sal_customer NOT IN (
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        )
+          AND s2.hk_sal_customer NOT IN (
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        )
+          AND s1.hk_customer_master_customer <> s1.hk_customer_duplicate_alias_customer;
+        """
+    ).fetchone()
+    assert inv_pair_cnt is not None and int(inv_pair_cnt[0]) == 0
+
+    # Verify DV-DYN-006 passes because Zone 2 DML filtered out (A, A) and (B, A)
+    dyn_006_clean = check_dv_dyn_006_bkcc_collision_and_sal(conn, ir=ir)
+    assert dyn_006_clean.passed is True
+    assert dyn_006_clean.failing_rows == 0
+
+    # 4. Directly insert a reflexive (A, A) row and an inverted (B, A) row into
+    # business_vault.sal_customer to prove DV-DYN-006 catches bypassed SAL violations
+    existing_edge = conn.execute(
+        """
+        SELECT hk_customer_master_customer, hk_customer_duplicate_alias_customer
+        FROM business_vault.sal_customer
+        WHERE hk_sal_customer NOT IN (
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        )
+          AND hk_customer_duplicate_alias_customer NOT IN (
+            '0000000000000000000000000000000000000000000000000000000000000000',
+            'ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff'
+        )
+        LIMIT 1;
+        """
+    ).fetchone()
+    assert existing_edge is not None
+    hk_a, hk_b = existing_edge[0], existing_edge[1]
+
+    conn.execute(
+        f"""
+        INSERT INTO business_vault.sal_customer (
+            hk_sal_customer,
+            hk_customer_master_customer,
+            hk_customer_duplicate_alias_customer,
+            load_dts,
+            rec_src
+        ) VALUES
+            (
+                '1111111111111111111111111111111111111111111111111111111111111111',
+                '{hk_a}',
+                '{hk_a}',
+                TIMESTAMP '2026-10-03 00:00:00',
+                'BYPASS_SELF_LOOP'
+            ),
+            (
+                '2222222222222222222222222222222222222222222222222222222222222222',
+                '{hk_b}',
+                '{hk_a}',
+                TIMESTAMP '2026-10-03 00:00:00',
+                'BYPASS_INVERTED_DUP'
+            );
+        """
+    )
+    dyn_006_corrupted = check_dv_dyn_006_bkcc_collision_and_sal(conn, ir=ir)
+    assert dyn_006_corrupted.passed is False
+    assert dyn_006_corrupted.failing_rows >= 2
+    conn.close()

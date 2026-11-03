@@ -8,7 +8,7 @@ Covers:
   - Algorithm A.5: SQLGlot AST Canonical Length-Prefixed SHA-256 Hash Recipe Builder
   - Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`006`)
   - Gate 1 & Gate 2: Contract Schema, Grain Statement (`>= 8` words), 100% Column Triage Ledger
-  - Gate 3: NetworkX Bipartite DAG Structural Verifier (`DV-STR-001`-`014` & `DV-COL-001`-`012`)
+  - Gate 3: NetworkX Bipartite DAG Structural Verifier (`DV-STR-001`-`015` & `DV-COL-001`-`012`)
   - Algorithm A.7: `N -> N+1` Additive Evolution Lock Verifier (`DV-EVO-001`-`006`)
   - Algorithm A.9a: Intra-Source Schema Drift Detector & Codemod (5 categories, Levenshtein >= 0.85)
   - Algorithm A.9b: Unstructured Document Grounding, Span Substring & 3-Tier ER Routing
@@ -1351,6 +1351,97 @@ def test_alg_a8_orchestrator_end_to_end_pe_verification_and_telemetry(
     assert ask_res.toon_trace.status == "ASK-USER"
     assert ask_res.emitted_events[0]["status"] == "ASK-USER"
     assert ask_res.emitted_events[0]["layer1_story_banner"]["verdict_pill"] == "ASK-USER"
+
+
+@pytest.fixture()
+def pe_contract_dict(pe_golden_contract: dict[str, Any]) -> dict[str, Any]:
+    return copy.deepcopy(pe_golden_contract)
+
+
+def test_gate3_dv_str_015_canonical_sal_edge_ordering(
+    pe_contract_dict: dict[str, Any],
+) -> None:
+    """Issue #41 (GAP-10 / Scenario S2): Verify DV-STR-015 enforces canonical
+    (hk_master, hk_duplicate) ordering, 3-Tier BKCC authority hierarchy,
+    asymmetry (no (A, A) self-loops), and no duplicate inverted (B, A) SAL pairs.
+    """
+    # 0. Baseline valid PE contract passes with 0 violations
+    assert verify_structural_invariants(pe_contract_dict) == []
+
+    # 1. Inverted role ordering: [DUPLICATE_ALIAS_LP, MASTER_LP] -> DV-STR-015
+    inverted_roles_contract = copy.deepcopy(pe_contract_dict)
+    for lnk in inverted_roles_contract["links"]:
+        if lnk["name"] == "sal_limited_partner":
+            lnk["hub_references"][0]["role_alias"] = "DUPLICATE_ALIAS_LP"
+            lnk["hub_references"][1]["role_alias"] = "MASTER_LP"
+    v_roles = verify_structural_invariants(inverted_roles_contract)
+    assert any("DV-STR-015" in v and "sal_limited_partner" in v for v in v_roles)
+
+    # 2. Inverted 3-Tier BKCC authority hierarchy: Tier-3 lp_num as MASTER_LP -> DV-STR-015
+    inverted_tier_contract = copy.deepcopy(pe_contract_dict)
+    for lnk in inverted_tier_contract["links"]:
+        if lnk["name"] == "sal_limited_partner":
+            lnk["hub_references"] = [
+                {
+                    "target_hub": "hub_limited_partner",
+                    "role_alias": "MASTER_LP",
+                    "source_fk_columns": ["lp_num"],
+                },
+                {
+                    "target_hub": "hub_limited_partner",
+                    "role_alias": "DUPLICATE_ALIAS_LP",
+                    "source_fk_columns": ["lp_id"],
+                },
+            ]
+    v_tiers = verify_structural_invariants(inverted_tier_contract)
+    assert any("DV-STR-015" in v and "authority" in v for v in v_tiers)
+
+    # 3. Reflexive self-loop (A, A) on source_fk_columns -> DV-STR-015 (and DV-STR-004)
+    self_loop_contract = copy.deepcopy(pe_contract_dict)
+    for lnk in self_loop_contract["links"]:
+        if lnk["name"] == "sal_limited_partner":
+            lnk["hub_references"][0]["source_fk_columns"] = ["lp_id"]
+            lnk["hub_references"][1]["source_fk_columns"] = ["lp_id"]
+    v_loop = verify_structural_invariants(self_loop_contract)
+    assert any("DV-STR-015" in v and "self-loop" in v for v in v_loop)
+
+    # 4. Reflexive self-loop via edge_pairs [(A, A)] and inverted pair [(A, B), (B, A)]
+    pair_violation_contract = copy.deepcopy(pe_contract_dict)
+    for lnk in pair_violation_contract["links"]:
+        if lnk["name"] == "sal_limited_partner":
+            lnk["edge_pairs"] = [
+                ("LP-100", "LP-100"),
+                ("LP-100", "LP-900"),
+                ("LP-900", "LP-100"),
+            ]
+    v_pairs = verify_structural_invariants(pair_violation_contract)
+    assert any("DV-STR-015" in v and "self-loop" in v for v in v_pairs)
+    assert any("DV-STR-015" in v and "inverted (B, A)" in v for v in v_pairs)
+
+    # 5. Cross-link duplicate inverted SAL definition on the same Hub -> DV-STR-015
+    dup_sal_contract = copy.deepcopy(pe_contract_dict)
+    dup_sal_contract["links"].append(
+        {
+            "name": "sal_limited_partner_inverted",
+            "link_type": "SAME_AS_LINK",
+            "ontology_concept_uri": "urn:ontology:relationship:entity_equivalence",
+            "source_bronze_table": "mdm.src_lp_steward_crosswalk",
+            "hub_references": [
+                {
+                    "target_hub": "hub_limited_partner",
+                    "role_alias": "MASTER_LP",
+                    "source_fk_columns": ["lp_num"],
+                },
+                {
+                    "target_hub": "hub_limited_partner",
+                    "role_alias": "DUPLICATE_ALIAS_LP",
+                    "source_fk_columns": ["master_lp_id"],
+                },
+            ],
+        }
+    )
+    v_dup_sal = verify_structural_invariants(dup_sal_contract)
+    assert any("DV-STR-015" in v and "sal_limited_partner_inverted" in v for v in v_dup_sal)
 
 
 def test_issue_31_alg_a4_and_gate2_sparse_binary_link(tmp_path: Path) -> None:
