@@ -27,6 +27,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
+import sqlglot
 
 from opendv_core.constants import GHOST_DTS, GHOST_REC_SRC, ZERO_KEY_ERROR, ZERO_KEY_UNKNOWN
 from opendv_core.schema_registry import (
@@ -512,6 +513,7 @@ def test_build_algorithm_a5_sha256_sql_dynamic_bkcc_column_expr_and_zero_key() -
     for dynamic row-level tenant namespace prefixing while preserving `KEY-02(b)` Zero-Key
     (`REPEAT('0', 64)`) when business key columns are NULL.
     """
+    from opendv_axi_verifier.codemods.alg_a5_sqlglot_hash import build_canonical_sha256_hash_ast
     from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 
     sql_expr = build_algorithm_a5_sha256_sql(
@@ -527,6 +529,18 @@ def test_build_algorithm_a5_sha256_sql_dynamic_bkcc_column_expr_and_zero_key() -
     )
     assert sql_expr == sql_expr_dedup
 
+    sql_single_col = build_algorithm_a5_sha256_sql(
+        ["tenant_id"],
+        is_business_key=True,
+        bkcc_column_expr="tenant_id",
+    )
+    ast_single_col = build_canonical_sha256_hash_ast(
+        ["tenant_id"],
+        is_business_key=True,
+        bkcc_column_expr="tenant_id",
+    )
+    assert isinstance(ast_single_col, sqlglot.exp.Case)
+
     con = duckdb.connect(":memory:")
     try:
         rows = con.execute(
@@ -534,14 +548,16 @@ def test_build_algorithm_a5_sha256_sql_dynamic_bkcc_column_expr_and_zero_key() -
             SELECT
                 tenant_id,
                 account_id,
-                {sql_expr} AS computed_hk
+                {sql_expr} AS computed_hk,
+                {sql_single_col} AS single_col_hk
             FROM (
                 VALUES
                     ('TENANT_US', 'ACCT-1001'),
                     ('TENANT_EU', 'ACCT-1001'),
                     ('  tenant_us ', ' acct-1001 '),
                     ('TENANT_US', NULL),
-                    ('TENANT_US', '   ')
+                    ('TENANT_US', '   '),
+                    (NULL, 'ACCT-1001')
             ) AS t(tenant_id, account_id)
             """
         ).fetchall()
@@ -561,6 +577,7 @@ def test_build_algorithm_a5_sha256_sql_dynamic_bkcc_column_expr_and_zero_key() -
     assert rows[2][2] == expected_us
     assert rows[3][2] == ZERO_KEY_UNKNOWN
     assert rows[4][2] == ZERO_KEY_UNKNOWN
+    assert rows[5][3] == ZERO_KEY_UNKNOWN
 
 
 def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path: Path) -> None:
@@ -572,7 +589,7 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
         codemod_enforce_staging_hashes_sql,
     )
     from opendv_axi_verifier.verifiers.alg_a7_evolution_lock import verify_evolution_lock_alg_a7
-    from opendv_axi_verifier.verifiers.gate1_contract_grain import verify_gate1_contract_grain
+    from opendv_axi_verifier.verifiers.gate1_contract_grain import verify_gate1_contract_and_grain
     from opendv_core.hashing import compute_dv2_length_prefixed_sha256
     from opendv_core.schema_registry import validate_contract_v5
 
@@ -647,7 +664,7 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
                 "business_key_sources": [
                     {
                         "bronze_table": "bronze_saas.tenant_accounts",
-                        "key_columns": ["account_id"],
+                        "key_columns": ["tenant_id", "account_id"],
                         "record_source_code": "SAAS_CORE",
                         "key_authority_tier": "TIER_3_LOCAL_SCOPED",
                         "require_src_qualifier": True,
@@ -743,8 +760,27 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
 
     # 1. Validate Contract V5, Gate 1, and Gate 4 Evolution Lock
     contract = validate_contract_v5(contract_dict)
-    g1_diags = verify_gate1_contract_grain(contract_dict, graph_a, graph_b)
+    g1_diags = verify_gate1_contract_and_grain(contract_dict, graph_a, graph_b)
     assert g1_diags == []
+
+    whitespace_bkcc_contract = {
+        **contract_dict,
+        "hubs": [
+            {
+                **contract_dict["hubs"][0],
+                "business_key_sources": [
+                    {
+                        **contract_dict["hubs"][0]["business_key_sources"][0],
+                        "bkcc_column_expr": "   ",
+                        "bkcc_prefix": "   ",
+                    }
+                ],
+            },
+            contract_dict["hubs"][1],
+        ],
+    }
+    ws_diags = verify_gate1_contract_and_grain(whitespace_bkcc_contract, graph_a, graph_b)
+    assert any("DV-COL-012" in d for d in ws_diags)
 
     mutated_contract = {
         **contract_dict,
@@ -775,7 +811,23 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
             }
         },
     )
-    assert "tenant_id" in rewritten_sql and "account_id" in rewritten_sql
+    parsed_rewritten = sqlglot.parse_one(rewritten_sql, read="duckdb")
+    hk_proj = next(
+        expr
+        for expr in parsed_rewritten.expressions
+        if expr.alias_or_name.lower() == "hk_tenant_account"
+    )
+    hk_case = hk_proj.this
+    assert isinstance(hk_case, sqlglot.exp.Case)
+    zero_key_pred_cols = {
+        c.name.lower() for c in hk_case.args["ifs"][0].this.find_all(sqlglot.exp.Column)
+    }
+    assert zero_key_pred_cols == {"account_id"}
+    hashed_col_sequence = [
+        c.name.lower() for c in hk_case.args["default"].find_all(sqlglot.exp.Column, bfs=False)
+    ]
+    assert set(hashed_col_sequence) == {"tenant_id", "account_id"}
+    assert hashed_col_sequence.index("tenant_id") < hashed_col_sequence.index("account_id")
 
     # 3. Lower to Canonical IR & validate against JSON Schema
     ir = lower_contract_to_canonical_ir(
@@ -785,6 +837,7 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
     )
     validated_ir = validate_canonical_ir(ir.model_dump(mode="json", exclude_none=True))
     assert validated_ir.hubs[0].bkcc_column_expr == "tenant_id"
+    assert [bk.name for bk in validated_ir.hubs[0].business_keys] == ["bkcc", "account_id"]
     assert validated_ir.hubs[0].hk_column.hash_expression.bkcc_column_expr == "tenant_id"
     assert validated_ir.hubs[0].source_mappings[0].bkcc_column_expr == "tenant_id"
 
@@ -794,7 +847,6 @@ def test_scenario_s9_multitenant_bkcc_column_expr_e2e_4zone_and_sandbox(tmp_path
         "bronze_saas.tenant_subscriptions": subs_csv,
     }
     bundle = compile_canonical_ir_to_4zone_sql(ir, bronze_tables=bronze_map)
-    assert "tenant_id" in bundle.zone_1_sql
 
     con = duckdb.connect(":memory:")
     try:

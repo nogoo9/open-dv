@@ -90,7 +90,7 @@ def build_canonical_sha256_hash_ast(
 
     if is_business_key and bkcc_column_expr and bkcc_column_expr.strip():
         clean_bkcc_col = bkcc_column_expr.strip()
-        ordered_cols = [c for c in ordered_cols if c.strip() != clean_bkcc_col]
+        ordered_cols = [c for c in ordered_cols if c.strip() != clean_bkcc_col] or ordered_cols
         parts.append(build_length_prefixed_ast(clean_bkcc_col, is_business_key=True))
     elif bkcc_prefix and bkcc_prefix.strip():
         clean_prefix = bkcc_prefix.strip().upper()

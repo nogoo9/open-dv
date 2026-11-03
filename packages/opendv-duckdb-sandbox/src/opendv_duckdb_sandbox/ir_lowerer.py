@@ -166,6 +166,14 @@ def _lower_hub(
         else None
     )
     business_keys: list[IRBusinessKeyColumn] = []
+    excluded_hub_bkcc = (
+        {"bkcc", *([hub_bkcc_col_expr] if hub_bkcc_col_expr else [])}
+        if not verified_global
+        else set()
+    )
+    filtered_primary_key_cols = [
+        c for c in primary_key_cols if c.strip() not in excluded_hub_bkcc
+    ] or list(primary_key_cols)
     if not verified_global:
         business_keys.append(
             IRBusinessKeyColumn(
@@ -176,7 +184,7 @@ def _lower_hub(
                 is_tenant_id=True if hub_bkcc_col_expr else None,
             )
         )
-    for key_col in primary_key_cols:
+    for key_col in filtered_primary_key_cols:
         business_keys.append(
             IRBusinessKeyColumn(
                 name=key_col,
@@ -200,9 +208,10 @@ def _lower_hub(
             else None
         )
         bk_prefix_col = src_bkcc_col or "bkcc"
-        bk_src_cols = ([bk_prefix_col] if not verified_global else []) + [
-            c for c in src.key_columns if c != bk_prefix_col
-        ]
+        non_bkcc_key_cols = [
+            c for c in src.key_columns if c.strip() not in {bk_prefix_col, "bkcc"}
+        ] or list(src.key_columns)
+        bk_src_cols = ([bk_prefix_col] if not verified_global else []) + non_bkcc_key_cols
         source_mappings.append(
             IRHubSourceMapping(
                 staging_table=_staging_table_name(src.bronze_table),

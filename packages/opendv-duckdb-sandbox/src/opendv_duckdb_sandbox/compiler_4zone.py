@@ -128,7 +128,7 @@ def build_algorithm_a5_sha256_sql(
     tokens: list[str] = []
     if is_business_key and bkcc_column_expr and bkcc_column_expr.strip():
         clean_bkcc_col = bkcc_column_expr.strip()
-        ordered = [c for c in ordered if c.strip() != clean_bkcc_col]
+        ordered = [c for c in ordered if c.strip() != clean_bkcc_col] or ordered
         tokens.append(
             build_length_prefixed_token_sql(
                 clean_bkcc_col,
@@ -1730,9 +1730,6 @@ def _effective_hub_bkcc_column_expr(hub: IRHub) -> str | None:
     ):
         if candidate and candidate.strip():
             return candidate.strip()
-    for bk in hub.business_keys:
-        if bk.is_bkcc and bk.is_tenant_id and bk.name.lower() != "bkcc":
-            return bk.name
     return None
 
 
@@ -2169,9 +2166,10 @@ def _resolve_hub_bk_rows_from_bronze(
     excluded_bkcc_names = {"bkcc"}
     if bkcc_col_expr:
         excluded_bkcc_names.add(bkcc_col_expr.lower())
+    raw_src_bk_cols = list(sm0.bk_source_columns) if sm0 else []
     src_bk_cols = [
-        c for c in (sm0.bk_source_columns if sm0 else []) if c.lower() not in excluded_bkcc_names
-    ]
+        c for c in raw_src_bk_cols if c.lower() not in excluded_bkcc_names
+    ] or raw_src_bk_cols
 
     for row in candidate_rows:
         tokens: list[str] = []
