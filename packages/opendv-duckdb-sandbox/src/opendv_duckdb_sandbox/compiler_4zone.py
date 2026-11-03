@@ -6,7 +6,8 @@ an executable 4-Zone DuckDB SQL bundle (`docs/03` §7, `docs/05` §3.5, `docs/07
   mandatory Ghost Records (`SYSTEM_GHOST` at `1900-01-01 00:00:00`) & Dual Zero Keys
   (`'0'*64` Unknown and `'f'*64` Error with `rec_src = 'SYSTEM_ZERO_KEY'`).
 - **Zone 1**: Hashed Staging Views (`staging.stg_*`) using Algorithm A.5 length-prefixed
-  SHA-256 (`<len>:<val>` and `'-1:^^'` null token) and `BKCC` namespace injection.
+  SHA-256 (`<len>:<val>` and `'-1:^^'` null token), `BKCC` namespace injection, and
+  3-way Zero-Key sentinel branching (`'-2'` -> `'f'*64`, `NULL`/`'-1'` -> `'0'*64`).
 - **Zone 2**: Insert-Only Raw Vault DML for Hubs, Reference tables, Links, and Satellites
   using idempotent `WHERE NOT EXISTS` and `LEFT JOIN ... WHERE cur.hk IS NULL OR`
   `cur.hash_diff <> src.hash_diff` anti-joins.
@@ -127,7 +128,13 @@ def build_algorithm_a5_sha256_sql(
     unknown_predicate: str | None = None,
     key_columns: list[str] | None = None,
 ) -> str:
-    """Build a DuckDB Algorithm A.5 length-prefixed SHA-256 SQL expression."""
+    """Build a DuckDB Algorithm A.5 length-prefixed SHA-256 SQL expression.
+
+    When `is_business_key=True`, emits a 3-way `CASE` expression routing `'-2'` /
+    `error_predicate` to `REPEAT('f', 64)` (`ZERO_KEY_ERROR`) and `NULL` / `''` / `'-1'` /
+    `unknown_predicate` on `key_columns` (excluding constant `bkcc` / `*__bkcc` columns by
+    default) to `REPEAT('0', 64)` (`ZERO_KEY_UNKNOWN`).
+    """
     ordered = sorted(columns) if sort_alphabetically else list(columns)
     tokens: list[str] = []
     if is_business_key and bkcc_literal:
@@ -148,18 +155,14 @@ def build_algorithm_a5_sha256_sql(
             pred_cols = list(key_columns)
         else:
             non_bkcc = [
-                c
-                for c in ordered
-                if c.lower() != "bkcc" and not c.lower().endswith("__bkcc")
+                c for c in ordered if c.lower() != "bkcc" and not c.lower().endswith("__bkcc")
             ]
             pred_cols = non_bkcc or ordered
         default_err_pred = " OR ".join(
             f"TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_ERROR_TOKEN}'" for c in pred_cols
         )
         err_branch_pred = (
-            f"({error_predicate}) OR ({default_err_pred})"
-            if error_predicate
-            else default_err_pred
+            f"({error_predicate}) OR ({default_err_pred})" if error_predicate else default_err_pred
         )
         default_unk_pred = " OR ".join(
             f"(NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL "
@@ -2343,12 +2346,8 @@ def _compile_generic_zone_0_sql(
                     row4_tokens.append(f"'{esc2}'")
                 else:
                     row2_tokens.append(f"'{esc2}'" if bk.is_bkcc else "NULL")
-                    row3_tokens.append(
-                        f"'{esc1}'" if bk.is_bkcc else f"'{ZERO_KEY_UNKNOWN_TOKEN}'"
-                    )
-                    row4_tokens.append(
-                        f"'{esc2}'" if bk.is_bkcc else f"'{ZERO_KEY_ERROR_TOKEN}'"
-                    )
+                    row3_tokens.append(f"'{esc1}'" if bk.is_bkcc else f"'{ZERO_KEY_UNKNOWN_TOKEN}'")
+                    row4_tokens.append(f"'{esc2}'" if bk.is_bkcc else f"'{ZERO_KEY_ERROR_TOKEN}'")
 
         r1_sql = ", ".join(row1_tokens)
         r2_sql = ", ".join(row2_tokens)
