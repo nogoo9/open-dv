@@ -1100,7 +1100,21 @@ SELECT
             || ':' || CAST(page_count AS VARCHAR),
         CAST(OCTET_LENGTH(ENCODE(mime_type)) AS VARCHAR) || ':' || mime_type
     ))) AS hash_diff_doc_metadata
-FROM unstructured_vdr.src_document_manifest;"""
+FROM unstructured_vdr.src_document_manifest;
+
+CREATE OR REPLACE VIEW staging.stg_unstructured_vdr_llm_extractions AS
+SELECT
+    e.*,
+    CASE
+        WHEN UPPER(TRIM(COALESCE(e.human_review_status, ''))) IN (
+            'APPROVED',
+            'STEWARD_VERIFIED',
+            'AUTO_ACCEPTED_TIER_1',
+            'AUTO_ACCEPTED_TIER_2'
+        ) THEN 'APPROVED'
+        ELSE COALESCE(NULLIF(TRIM(e.human_review_status), ''), 'STEWARD_HOLD')
+    END AS steward_gate_status
+FROM unstructured_vdr.src_llm_extractions e;"""
 
 
 def _build_pe_zone_2_sql() -> str:
@@ -1227,14 +1241,15 @@ SELECT
     d.hk_doc,
     lp.hk_lp,
     f.hk_fund,
-    e.extracted_dts AS load_dts,
+    src.extracted_dts AS load_dts,
     'LLM_EXT_PIPELINE' AS rec_src
-FROM unstructured_vdr.src_llm_extractions e
-INNER JOIN raw_vault.hub_unstructured_document d ON d.doc_sha256 = e.doc_sha256
+FROM staging.stg_unstructured_vdr_llm_extractions src
+INNER JOIN raw_vault.hub_unstructured_document d ON d.doc_sha256 = src.doc_sha256
 INNER JOIN raw_vault.hub_limited_partner lp
-    ON lp.bkcc = e.resolved_lp_bkcc AND lp.lp_id = e.resolved_lp_id
-INNER JOIN raw_vault.hub_fund f                  ON f.fund_code = e.resolved_fund_code
-WHERE e.target_domain = 'SIDE_LETTER_TERMS'
+    ON lp.bkcc = src.resolved_lp_bkcc AND lp.lp_id = src.resolved_lp_id
+INNER JOIN raw_vault.hub_fund f                  ON f.fund_code = src.resolved_fund_code
+WHERE src.target_domain = 'SIDE_LETTER_TERMS'
+  AND src.steward_gate_status = 'APPROVED'
   AND NOT EXISTS (
       SELECT 1 FROM raw_vault.lnk_doc_lp_side_letter l
       WHERE l.hk_lnk_doc_lp_side_letter = LOWER(SHA256(
@@ -1249,12 +1264,13 @@ SELECT
     LOWER(SHA256('64:' || d.hk_doc || '||64:' || p.hk_portco)) AS hk_lnk_doc_portco_memo,
     d.hk_doc,
     p.hk_portco,
-    e.extracted_dts AS load_dts,
+    src.extracted_dts AS load_dts,
     'LLM_EXT_PIPELINE' AS rec_src
-FROM unstructured_vdr.src_llm_extractions e
-INNER JOIN raw_vault.hub_unstructured_document d ON d.doc_sha256 = e.doc_sha256
-INNER JOIN raw_vault.hub_portfolio_company p     ON p.lei_code = e.resolved_lei_code
-WHERE e.target_domain = 'PORTCO_VALUATION_RESTATEMENT'
+FROM staging.stg_unstructured_vdr_llm_extractions src
+INNER JOIN raw_vault.hub_unstructured_document d ON d.doc_sha256 = src.doc_sha256
+INNER JOIN raw_vault.hub_portfolio_company p     ON p.lei_code = src.resolved_lei_code
+WHERE src.target_domain = 'PORTCO_VALUATION_RESTATEMENT'
+  AND src.steward_gate_status = 'APPROVED'
   AND NOT EXISTS (
       SELECT 1 FROM raw_vault.lnk_doc_portco_memo l
       WHERE l.hk_lnk_doc_portco_memo = LOWER(SHA256('64:' || d.hk_doc || '||64:' || p.hk_portco))
@@ -1479,7 +1495,7 @@ SELECT
     e.source_char_start,
     e.source_char_end,
     e.source_text_quote
-FROM unstructured_vdr.src_llm_extractions e
+FROM staging.stg_unstructured_vdr_llm_extractions e
 INNER JOIN raw_vault.hub_unstructured_document d ON d.doc_sha256 = e.doc_sha256
 INNER JOIN raw_vault.hub_limited_partner lp
     ON lp.bkcc = e.resolved_lp_bkcc AND lp.lp_id = e.resolved_lp_id
@@ -1487,6 +1503,7 @@ INNER JOIN raw_vault.hub_fund f                  ON f.fund_code = e.resolved_fun
 INNER JOIN raw_vault.lnk_doc_lp_side_letter l
     ON l.hk_doc = d.hk_doc AND l.hk_lp = lp.hk_lp AND l.hk_fund = f.hk_fund
 WHERE e.target_domain = 'SIDE_LETTER_TERMS'
+  AND e.steward_gate_status = 'APPROVED'
   AND NOT EXISTS (
       SELECT 1 FROM business_vault.sat_lp_side_letter_llm_ext s
       WHERE s.hk_lnk_doc_lp_side_letter = l.hk_lnk_doc_lp_side_letter
@@ -1519,12 +1536,13 @@ SELECT
     e.source_char_start,
     e.source_char_end,
     e.source_text_quote
-FROM unstructured_vdr.src_llm_extractions e
+FROM staging.stg_unstructured_vdr_llm_extractions e
 INNER JOIN raw_vault.hub_unstructured_document d ON d.doc_sha256 = e.doc_sha256
 INNER JOIN raw_vault.hub_portfolio_company p     ON p.lei_code = e.resolved_lei_code
 INNER JOIN raw_vault.lnk_doc_portco_memo l
     ON l.hk_doc = d.hk_doc AND l.hk_portco = p.hk_portco
 WHERE e.target_domain = 'PORTCO_VALUATION_RESTATEMENT'
+  AND e.steward_gate_status = 'APPROVED'
   AND NOT EXISTS (
       SELECT 1 FROM business_vault.sat_lnk_doc_portco_ai_provenance s
       WHERE s.hk_lnk_doc_portco_memo = l.hk_lnk_doc_portco_memo
@@ -1917,7 +1935,9 @@ def _satellite_seed_sql_literal(col: IRColumnDef, row_idx: int) -> str:
         "tier3_cosine_sim",
     }:
         return "0.9500" if row_idx == 1 else ("0.9200" if row_idx == 2 else "0.9800")
-    if col_lower in {"human_review_status", "routing_action"}:
+    if col_lower in {"human_review_status", "routing_action", "steward_gate_status"}:
+        if col_lower == "steward_gate_status":
+            return "'STEWARD_HOLD'" if row_idx == 2 else "'APPROVED'"
         return "'AUTO_ACCEPTED_TIER_2'"
     if col_lower.endswith("_quote") or col_lower in {"source_text_quote", "verbatim_quote"}:
         return f"'Verified contractual clause quote #{row_idx} from source document.'"
@@ -1939,6 +1959,14 @@ def _satellite_seed_sql_literal(col: IRColumnDef, row_idx: int) -> str:
     if norm_type == "TIMESTAMP":
         return "TIMESTAMP '2026-10-01 06:00:00'"
     return f"'{col.name}_val_{row_idx}'"
+
+
+def _qualify_steward_predicate(predicate: str | None) -> str:
+    """Qualify a link's `steward_filter_predicate` for a Zone 2 `FROM ... src` query."""
+    raw = (predicate or "steward_gate_status = 'APPROVED'").strip()
+    if not raw:
+        return "src.steward_gate_status = 'APPROVED'"
+    return re.sub(r"(?<!\.)\bsteward_gate_status\b", "src.steward_gate_status", raw)
 
 
 def _link_schema(link: IRLink) -> str:
@@ -2775,6 +2803,10 @@ def _compile_generic_zone_0_sql(
                 )
             )
 
+    unstructured_links_by_name = {
+        lnk.name: lnk for lnk in ir_obj.links if lnk.requires_steward_approval_gate
+    }
+
     # 2. Bronze source tables & seed rows for each Link
     for link in ir_obj.links:
         tbl = _validate_ident(link.name)
@@ -2853,22 +2885,46 @@ def _compile_generic_zone_0_sql(
         r2_sql = ", ".join(row2_tokens)
         r3_sql = ", ".join(row3_tokens)
         r4_sql = ", ".join(row4_tokens)
-        parts.append(
-            "\n".join(
-                [
-                    f"CREATE OR REPLACE TABLE bronze.src_{tbl} (",
-                    *col_defs,
-                    "    load_dts TIMESTAMP,",
-                    "    rec_src VARCHAR",
-                    ");",
-                    f"INSERT INTO bronze.src_{tbl} VALUES",
-                    f"    ({r1_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
-                    f"    ({r2_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
-                    f"    ({r3_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
-                    f"    ({r4_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}');",
-                ]
+        is_unstructured_link = link.name in unstructured_links_by_name
+        if is_unstructured_link:
+            parts.append(
+                "\n".join(
+                    [
+                        f"CREATE OR REPLACE TABLE bronze.src_{tbl} (",
+                        *col_defs,
+                        "    load_dts TIMESTAMP,",
+                        "    rec_src VARCHAR,",
+                        "    steward_gate_status VARCHAR DEFAULT 'APPROVED'",
+                        ");",
+                        f"INSERT INTO bronze.src_{tbl} VALUES",
+                        (
+                            f"    ({r1_sql}, TIMESTAMP '2026-10-01 06:00:00', "
+                            f"'{rec_src}', 'APPROVED'),"
+                        ),
+                        (
+                            f"    ({r2_sql}, TIMESTAMP '2026-10-01 06:00:00', "
+                            f"'{rec_src}', 'STEWARD_HOLD');"
+                        ),
+                    ]
+                )
             )
-        )
+        else:
+            parts.append(
+                "\n".join(
+                    [
+                        f"CREATE OR REPLACE TABLE bronze.src_{tbl} (",
+                        *col_defs,
+                        "    load_dts TIMESTAMP,",
+                        "    rec_src VARCHAR",
+                        ");",
+                        f"INSERT INTO bronze.src_{tbl} VALUES",
+                        f"    ({r1_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                        f"    ({r2_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                        f"    ({r3_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                        f"    ({r4_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}');",
+                    ]
+                )
+            )
 
     # 3. Bronze source tables & seed rows for each Satellite
     for sat in ir_obj.satellites:
@@ -2876,6 +2932,9 @@ def _compile_generic_zone_0_sql(
         rec_src = sat.source_mapping.rec_src_value or "SYSTEM_SEED"
         has_applied = sat.applied_dts_column is not None
         data_cols = _satellite_all_data_columns(sat)
+        is_unstructured_link_sat = sat.parent_entity in unstructured_links_by_name
+        has_steward_col = any(c.name.lower() == "steward_gate_status" for c in data_cols)
+        add_steward_col = is_unstructured_link_sat and not has_steward_col
         col_defs = []
         parent_val_rows: list[list[str]] = []
         sat_source_rows: list[dict[str, Any]] = []
@@ -2988,13 +3047,16 @@ def _compile_generic_zone_0_sql(
         col_defs.append("    load_dts TIMESTAMP,")
         if has_applied:
             col_defs.append("    applied_dts TIMESTAMP,")
-        col_defs.append("    rec_src VARCHAR" + ("," if data_cols else ""))
+        col_defs.append("    rec_src VARCHAR" + ("," if (data_cols or add_steward_col) else ""))
 
         for idx_c, col in enumerate(data_cols):
             c_name = _validate_ident(col.name)
             c_type = _normalize_duckdb_type(col.data_type)
-            comma = "," if idx_c < len(data_cols) - 1 else ""
+            comma = "," if (idx_c < len(data_cols) - 1 or add_steward_col) else ""
             col_defs.append(f"    {c_name} {c_type}{comma}")
+
+        if add_steward_col:
+            col_defs.append("    steward_gate_status VARCHAR DEFAULT 'APPROVED'")
 
         app_lit = "TIMESTAMP '2026-09-30 00:00:00', " if has_applied else ""
         insert_rows: list[str] = []
@@ -3015,9 +3077,13 @@ def _compile_generic_zone_0_sql(
                 _format_bronze_payload_sql_literal(c, src_row, idx_r + 1) for c in data_cols
             ]
             r_pay_sql = f", {', '.join(r_payload)}" if r_payload else ""
+            steward_lit = ""
+            if add_steward_col:
+                steward_val = "STEWARD_HOLD" if idx_r == 1 else "APPROVED"
+                steward_lit = f", '{steward_val}'"
             insert_rows.append(
                 f"    ({', '.join(p_vals)}, TIMESTAMP '{row_load_dts}', "
-                f"{row_app_lit}'{rec_src}'{r_pay_sql})"
+                f"{row_app_lit}'{rec_src}'{r_pay_sql}{steward_lit})"
             )
 
         if include_batch4_restatement_in_seed and sat.name == bitemp_sat_name and parent_val_rows:
@@ -3025,9 +3091,10 @@ def _compile_generic_zone_0_sql(
                 _satellite_seed_sql_literal(c, len(parent_val_rows) + 1) for c in data_cols
             ]
             r3_pay_sql = f", {', '.join(r3_payload)}" if r3_payload else ""
+            steward_lit_r3 = ", 'APPROVED'" if add_steward_col else ""
             insert_rows.append(
                 f"    ({', '.join(parent_val_rows[0])}, TIMESTAMP '2026-11-15 09:15:00', "
-                f"{app_lit}'{rec_src}'{r3_pay_sql})"
+                f"{app_lit}'{rec_src}'{r3_pay_sql}{steward_lit_r3})"
             )
 
         parts.append(
@@ -3273,21 +3340,51 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
         )
         fk_csv = ", ".join(fk_cols)
         fk_cte_body = ",\n".join(fk_cte_exprs)
-        link_body = (
-            f"WITH fk_resolved AS (\n"
-            f"    SELECT\n"
-            f"{fk_cte_body},\n"
-            f"        load_dts,\n"
-            f"        rec_src\n"
-            f"    FROM bronze.src_{tbl}\n"
-            f")\n"
-            f"SELECT\n"
-            f"    {link_hk_expr} AS {hk_col},\n"
-            f"    {fk_csv},\n"
-            f"    load_dts,\n"
-            f"    rec_src\n"
-            f"FROM fk_resolved;"
-        )
+        is_unstructured_link = link.requires_steward_approval_gate
+        if is_unstructured_link:
+            link_body = (
+                f"WITH fk_resolved AS (\n"
+                f"    SELECT\n"
+                f"{fk_cte_body},\n"
+                f"        load_dts,\n"
+                f"        rec_src,\n"
+                f"        CASE\n"
+                f"            WHEN UPPER(TRIM(COALESCE(steward_gate_status, ''))) IN (\n"
+                f"                'APPROVED',\n"
+                f"                'STEWARD_VERIFIED',\n"
+                f"                'AUTO_ACCEPTED_TIER_1',\n"
+                f"                'AUTO_ACCEPTED_TIER_2'\n"
+                f"            ) THEN 'APPROVED'\n"
+                f"            ELSE COALESCE(\n"
+                f"                NULLIF(TRIM(steward_gate_status), ''), 'STEWARD_HOLD'\n"
+                f"            )\n"
+                f"        END AS steward_gate_status\n"
+                f"    FROM bronze.src_{tbl}\n"
+                f")\n"
+                f"SELECT\n"
+                f"    {link_hk_expr} AS {hk_col},\n"
+                f"    {fk_csv},\n"
+                f"    load_dts,\n"
+                f"    rec_src,\n"
+                f"    steward_gate_status\n"
+                f"FROM fk_resolved;"
+            )
+        else:
+            link_body = (
+                f"WITH fk_resolved AS (\n"
+                f"    SELECT\n"
+                f"{fk_cte_body},\n"
+                f"        load_dts,\n"
+                f"        rec_src\n"
+                f"    FROM bronze.src_{tbl}\n"
+                f")\n"
+                f"SELECT\n"
+                f"    {link_hk_expr} AS {hk_col},\n"
+                f"    {fk_csv},\n"
+                f"    load_dts,\n"
+                f"    rec_src\n"
+                f"FROM fk_resolved;"
+            )
         view_body_by_name[view_name] = link_body
         parts.append(f"CREATE OR REPLACE VIEW staging.{view_name} AS\n{link_body}")
         for sm_dict in link.source_mappings:
@@ -3361,6 +3458,26 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
         payload_csv = ", ".join(payload_names)
         applied_sel = "    applied_dts,\n" if has_applied else ""
         payload_sel = f",\n    {payload_csv}" if payload_csv else ""
+        is_unstructured_link_sat = (
+            sat.parent_entity in link_by_name
+            and link_by_name[sat.parent_entity].requires_steward_approval_gate
+        )
+        has_steward_col = any(c.name.lower() == "steward_gate_status" for c in data_cols)
+        steward_sel = (
+            ",\n    CASE\n"
+            "        WHEN UPPER(TRIM(COALESCE(steward_gate_status, ''))) IN (\n"
+            "            'APPROVED',\n"
+            "            'STEWARD_VERIFIED',\n"
+            "            'AUTO_ACCEPTED_TIER_1',\n"
+            "            'AUTO_ACCEPTED_TIER_2'\n"
+            "        ) THEN 'APPROVED'\n"
+            "        ELSE COALESCE(\n"
+            "            NULLIF(TRIM(steward_gate_status), ''), 'STEWARD_HOLD'\n"
+            "        )\n"
+            "    END AS steward_gate_status"
+            if (is_unstructured_link_sat and not has_steward_col)
+            else ""
+        )
         sat_body = (
             f"SELECT\n"
             f"    {parent_hk_expr} AS {parent_hk},\n"
@@ -3368,7 +3485,8 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
             f"{applied_sel}"
             f"    rec_src,\n"
             f"    {hash_diff_expr} AS hash_diff"
-            f"{payload_sel}\n"
+            f"{payload_sel}"
+            f"{steward_sel}\n"
             f"FROM bronze.src_{tbl};"
         )
         view_body_by_name[view_name] = sat_body
@@ -3504,6 +3622,9 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
             f"GROUP BY src.{hk}, {src_bk_csv};"
         )
 
+    unstructured_links_by_name = {
+        lnk.name: lnk for lnk in ir_obj.links if lnk.requires_steward_approval_gate
+    }
     for link in ir_obj.links:
         schema = _link_schema(link)
         tbl = _validate_ident(link.name)
@@ -3511,6 +3632,11 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
         fk_cols = [_validate_ident(ref.fk_column_name) for ref in link.hub_references]
         fk_csv = ", ".join(fk_cols)
         src_fk_csv = ", ".join(f"src.{c}" for c in fk_cols)
+        steward_filter = (
+            f"  AND {_qualify_steward_predicate(link.steward_filter_predicate)}\n"
+            if link.name in unstructured_links_by_name
+            else ""
+        )
         is_sal_link = (link.name.startswith("sal_") or link.link_type == "SAME_AS") and len(
             fk_cols
         ) == 2
@@ -3547,6 +3673,7 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
             f"    ANY_VALUE(src.rec_src) AS rec_src\n"
             f"FROM staging.stg_{tbl} src\n"
             f"WHERE src.{hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+            f"{steward_filter}"
             f"{sal_where_clause}"
             f"  AND NOT EXISTS (\n"
             f"      SELECT 1 FROM {schema}.{tbl} l\n"
@@ -3571,6 +3698,28 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
         join_on = " AND ".join(f"cur.{c} = src.{c}" for c in part_cols)
         col_tail = f", {payload_csv}" if payload_csv else ""
         sel_tail = f",\n    {src_payload_csv}" if src_payload_csv else ""
+        parent_link_guard = ""
+        bitemp_parent_link_guard = ""
+        if sat.parent_entity in unstructured_links_by_name:
+            p_lnk = unstructured_links_by_name[sat.parent_entity]
+            p_schema = _link_schema(p_lnk)
+            p_tbl = _validate_ident(p_lnk.name)
+            p_hk = _validate_ident(p_lnk.hk_column.name)
+            sat_steward_pred = _qualify_steward_predicate(p_lnk.steward_filter_predicate)
+            parent_link_guard = (
+                f"  AND {sat_steward_pred}\n"
+                f"  AND EXISTS (\n"
+                f"      SELECT 1 FROM {p_schema}.{p_tbl} p\n"
+                f"      WHERE p.{p_hk} = src.{parent_hk}\n"
+                f"  )\n"
+            )
+            bitemp_parent_link_guard = (
+                f"              AND {sat_steward_pred}\n"
+                f"              AND EXISTS (\n"
+                f"                  SELECT 1 FROM {p_schema}.{p_tbl} p\n"
+                f"                  WHERE p.{p_hk} = src.{parent_hk}\n"
+                f"              )\n"
+            )
         if has_applied:
             assert sat.applied_dts_column is not None
             applied_ident = _validate_ident(sat.applied_dts_column.name)
@@ -3583,6 +3732,8 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
             comb_sel_tail = f",\n        {comb_payload_csv}" if comb_payload_csv else ""
             cand_sel_tail = f",\n    {cand_payload_csv}" if cand_payload_csv else ""
             comb_part_csv = ", ".join(f"combined.{c}" for c in part_cols)
+            src_part_csv = ", ".join(f"src.{c}" for c in part_cols)
+            src_col_tail = f", {src_payload_csv}" if src_payload_csv else ""
             existing_on = " AND ".join(f"existing.{c} = s.{c}" for c in part_cols)
             parts.append(
                 f"INSERT INTO {schema}.{tbl} (\n"
@@ -3619,13 +3770,15 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
                 f"s.rec_src, s.hash_diff{s_sel_tail},\n"
                 f"            1 AS is_new\n"
                 f"        FROM (\n"
-                f"            SELECT {parent_hk}, load_dts, {applied_ident}, "
-                f"rec_src, hash_diff{col_tail}\n"
-                f"            FROM staging.stg_{tbl}\n"
-                f"            WHERE {parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+                f"            SELECT src.{parent_hk}, src.load_dts, src.{applied_ident}, "
+                f"src.rec_src, src.hash_diff{src_col_tail}\n"
+                f"            FROM staging.stg_{tbl} src\n"
+                f"            WHERE src.{parent_hk} NOT IN ("
+                f"'{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+                f"{bitemp_parent_link_guard}"
                 f"            QUALIFY ROW_NUMBER() OVER (\n"
-                f"                PARTITION BY {part_csv}, load_dts\n"
-                f"                ORDER BY {applied_ident} DESC\n"
+                f"                PARTITION BY {src_part_csv}, src.load_dts\n"
+                f"                ORDER BY src.{applied_ident} DESC\n"
                 f"            ) = 1\n"
                 f"        ) s\n"
                 f"        WHERE NOT EXISTS (\n"
@@ -3661,6 +3814,7 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
                 f"    ) = 1\n"
                 f") cur ON {join_on}\n"
                 f"WHERE src.{parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+                f"{parent_link_guard}"
                 f"  AND (\n"
                 f"      cur.{parent_hk} IS NULL\n"
                 f"      OR (src.load_dts > cur.load_dts AND cur.hash_diff <> src.hash_diff)\n"

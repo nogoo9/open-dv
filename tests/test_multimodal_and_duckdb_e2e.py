@@ -1535,6 +1535,177 @@ def test_dv_dyn_negative_fault_injection_detection(
     assert con.execute(detection_sql).fetchone()[0] > 0, f"{rule_id} failed to detect injected fault"
 
 
+def test_issue_32_scenario_s8_uf5_unstructured_link_steward_gate_e2e() -> None:
+    """Issue #32 (BUG-03 / Scenario S8 / Case UF-5 / FR-DOM-05 / FR-VER-04 / Rule U4 / DV-AST-007):
+    End-to-end verification that Zone 2 Raw Vault DML enforces
+    `AND src.steward_gate_status = 'APPROVED'` on unstructured extraction links in both
+    the PE reference compiler and the generic CanonicalIR compiler.
+    """
+    from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import verify_physical_dv2_sql_ast
+    from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_sql
+    from opendv_duckdb_sandbox.dynamic_checks import check_dv_dyn_013_tier2_confidence_governance
+    from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
+
+    repo_root = Path(__file__).resolve().parents[1]
+    pe_contract_path = repo_root / "examples" / "private_equity" / "dv_pe_model_contract.yaml"
+    pe_ir_path = repo_root / "examples" / "private_equity" / "pe_canonical_ir.json"
+    pe_ir_data = json.loads(pe_ir_path.read_text(encoding="utf-8"))
+
+    # --- Part A: Private Equity 4-Zone SQL Bundle E2E ---
+    pe_bundle = compile_canonical_ir_to_4zone_sql(pe_ir_data)
+    assert "AND src.steward_gate_status = 'APPROVED'" in pe_bundle.zone_2_sql
+
+    conn = duckdb.connect(":memory:")
+    conn.execute(pe_bundle.zone_0_sql)
+    conn.execute(pe_bundle.zone_1_sql)
+
+    # Inject a new document and two Tier-U3 unapproved extraction rows (STEWARD_HOLD) into Bronze
+    conn.execute(
+        """
+        INSERT INTO unstructured_vdr.src_document_manifest VALUES
+            ('a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
+             's3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_draft_unverified_memo.pdf',
+             'IC_VALUATION_MEMO_PDF',
+             'Draft Unverified Valuation Note - Nordic Cloud',
+             4, 'application/pdf', TIMESTAMP '2026-11-15 10:00:00');
+
+        INSERT INTO unstructured_vdr.src_llm_extractions VALUES
+            ('EXT-SL-HOLD-003',
+             'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9',
+             'SIDE_LETTER_TERMS',
+             'LP-102', 'GLOBAL', 'APEX-BUYOUT-IV', NULL,
+             50, FALSE, TRUE, 'Unapproved Tier-U3 candidate clause on Steward Hold',
+             NULL, DATE '2026-06-30',
+             'claude-3-7-sonnet-20260219',
+             '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+             0.7200, 0.5800, 0.7900, 'STEWARD_HOLD',
+             5, 310, 465,
+             'Ambiguous LP reference (Tier-U3 confidence 0.72 < 0.85) awaiting steward approval.',
+             TIMESTAMP '2026-10-02 10:00:00'),
+            ('EXT-IC-HOLD-004',
+             'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
+             'PORTCO_VALUATION_RESTATEMENT',
+             NULL, NULL, 'APEX-BUYOUT-IV', '529900T8BM49AURSDO55',
+             NULL, NULL, NULL, NULL,
+             19.00, DATE '2026-09-30',
+             'claude-3-7-sonnet-20260219',
+             '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
+             0.6900, 0.5400, 0.8100, 'STEWARD_HOLD',
+             3, 120, 290,
+             'Ambiguous PortCo valuation restatement (Tier-U3 < 0.85) on Steward Hold.',
+             TIMESTAMP '2026-11-15 10:05:00');
+        """
+    )
+
+    conn.execute(pe_bundle.zone_2_sql)
+    conn.execute(pe_bundle.zone_3_sql)
+
+    sl_row = conn.execute(
+        "SELECT COUNT(*) FROM raw_vault.lnk_doc_lp_side_letter WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
+    ).fetchone()
+    portco_row = conn.execute(
+        "SELECT COUNT(*) FROM raw_vault.lnk_doc_portco_memo WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
+    ).fetchone()
+    assert sl_row is not None and sl_row[0] == 1, (
+        f"Expected 1 approved row in lnk_doc_lp_side_letter, got {sl_row}"
+    )
+    assert portco_row is not None and portco_row[0] == 1, (
+        f"Expected 1 approved row in lnk_doc_portco_memo, got {portco_row}"
+    )
+
+    dyn_013 = check_dv_dyn_013_tier2_confidence_governance(conn)
+    assert dyn_013.passed is True
+
+    # Simulate Steward approval of EXT-IC-HOLD-004 and re-run Zone 2 + Zone 3 DML
+    conn.execute(
+        """
+        UPDATE unstructured_vdr.src_llm_extractions
+        SET human_review_status = 'STEWARD_VERIFIED'
+        WHERE extraction_id = 'EXT-IC-HOLD-004';
+        """
+    )
+    conn.execute(pe_bundle.zone_2_sql)
+    conn.execute(pe_bundle.zone_3_sql)
+
+    portco_after_row = conn.execute(
+        "SELECT COUNT(*) FROM raw_vault.lnk_doc_portco_memo WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
+    ).fetchone()
+    sl_after_row = conn.execute(
+        "SELECT COUNT(*) FROM raw_vault.lnk_doc_lp_side_letter WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
+    ).fetchone()
+    assert portco_after_row is not None and portco_after_row[0] == 2
+    assert sl_after_row is not None and sl_after_row[0] == 1
+
+    # DV-DYN-013 flags the promoted row while its extraction_confidence is still 0.6900 < 0.85
+    dyn_013_low_conf = check_dv_dyn_013_tier2_confidence_governance(conn)
+    assert dyn_013_low_conf.passed is False
+    assert dyn_013_low_conf.failing_rows >= 1
+
+    # --- Part B: Generic CanonicalIR Compiler Path E2E ---
+    from opendv_core.models.canonical_ir import CanonicalIR
+
+    gen_ir = lower_contract_to_canonical_ir(
+        pe_contract_path, model_name="custom_unstructured_vault"
+    )
+    gen_ir_dict = json.loads(
+        json.dumps(gen_ir.model_dump(mode="json")).replace("hub_limited_partner", "hub_investor")
+    )
+    gen_ir_obj = CanonicalIR.model_validate(gen_ir_dict)
+    gen_bundle = compile_canonical_ir_to_4zone_sql(gen_ir_obj)
+
+    for stmt in gen_bundle.zone_2_sql.split("\n\n"):
+        if "INSERT INTO raw_vault.lnk_document_" in stmt:
+            assert "AND src.steward_gate_status = 'APPROVED'" in stmt
+            ast_violations = verify_physical_dv2_sql_ast(
+                stmt,
+                entity_name="lnk_document_portfolio_company",
+                entity_type="UNSTRUCTURED_EXTRACTION_LINK",
+                requires_steward_gate=True,
+            )
+            assert not any("DV-AST-007" in v for v in ast_violations)
+
+    gconn = duckdb.connect(":memory:")
+    gconn.execute(gen_bundle.zone_0_sql)
+    gconn.execute(gen_bundle.zone_1_sql)
+    gconn.execute(
+        """
+        INSERT INTO bronze.src_lnk_document_portfolio_company VALUES
+            ('GLOBAL', 'DOC-HOLD-999', 'GLOBAL', 'LEI-HOLD-999',
+             TIMESTAMP '2026-10-02 12:00:00', 'VDR_HOLD', 'STEWARD_HOLD'),
+            ('GLOBAL', 'DOC-PEND-998', 'GLOBAL', 'LEI-PEND-998',
+             TIMESTAMP '2026-10-02 12:05:00', 'VDR_PENDING', 'PENDING'),
+            ('GLOBAL', 'DOC-REJ-997',  'GLOBAL', 'LEI-REJ-997',
+             TIMESTAMP '2026-10-02 12:10:00', 'VDR_REJECTED', 'REJECTED'),
+            ('GLOBAL', 'DOC-APP-996',  'GLOBAL', 'LEI-APP-996',
+             TIMESTAMP '2026-10-02 12:15:00', 'VDR_APPROVED', 'APPROVED');
+        """
+    )
+    gconn.execute(gen_bundle.zone_2_sql)
+
+    blocked_row = gconn.execute(
+        """
+        SELECT COUNT(*) FROM raw_vault.lnk_document_portfolio_company
+        WHERE rec_src IN ('VDR_HOLD', 'VDR_PENDING', 'VDR_REJECTED')
+        """
+    ).fetchone()
+    promoted_row = gconn.execute(
+        """
+        SELECT COUNT(*) FROM raw_vault.lnk_document_portfolio_company
+        WHERE rec_src = 'VDR_APPROVED'
+        """
+    ).fetchone()
+    sat_promoted_row = gconn.execute(
+        """
+        SELECT COUNT(*) FROM raw_vault.sat_lnk_doc_portco_ai_provenance
+        WHERE rec_src <> 'SYSTEM_GHOST'
+        """
+    ).fetchone()
+    assert blocked_row is not None and blocked_row[0] == 0
+    assert promoted_row is not None and promoted_row[0] == 1
+    assert sat_promoted_row is not None and sat_promoted_row[0] == 1
+    assert check_dv_dyn_013_tier2_confidence_governance(gconn, ir=gen_ir_obj).passed is True
+
+
 def test_issue_33_crlf_unstructured_document_ingestion_and_4zone_duckdb_e2e(
     pe_contract: dict[str, Any],
     graph_a: dict[str, Any],

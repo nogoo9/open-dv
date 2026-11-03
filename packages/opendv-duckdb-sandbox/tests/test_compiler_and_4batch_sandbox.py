@@ -571,6 +571,135 @@ def test_parametrized_query_d10b_cutoff_coordinates(
         con.close()
 
 
+@pytest.fixture()
+def pe_contract_path() -> Path:
+    return get_examples_dir() / "private_equity" / "dv_pe_model_contract.yaml"
+
+
+@pytest.fixture()
+def pe_ir_path() -> Path:
+    return get_examples_dir() / "private_equity" / "pe_canonical_ir.json"
+
+
+def test_compiler_4zone_enforces_steward_gate_status_on_unstructured_links(
+    pe_contract_path: Path,
+    pe_ir_path: Path,
+) -> None:
+    """Issue #32 (BUG-03): Verify both PE and generic 4-Zone compilers emit
+    `AND src.steward_gate_status = 'APPROVED'` on unstructured extraction links
+    and block unapproved Tier-U3 rows from entering Raw Vault.
+    """
+    import json
+
+    from opendv_duckdb_sandbox.dynamic_checks import check_dv_dyn_013_tier2_confidence_governance
+
+    pe_ir = json.loads(pe_ir_path.read_text(encoding="utf-8"))
+    pe_bundle = compile_canonical_ir_to_4zone_sql(pe_ir)
+
+    assert (
+        "CREATE OR REPLACE VIEW staging.stg_unstructured_vdr_llm_extractions"
+        in pe_bundle.zone_1_sql
+    )
+    assert pe_bundle.zone_2_sql.count("AND src.steward_gate_status = 'APPROVED'") >= 2
+
+    # Lower PE contract to generic IR and verify unstructured link metadata & Zone 2 predicate
+    lowered_ir = lower_contract_to_canonical_ir(
+        pe_contract_path, model_name="generic_unstructured_check"
+    )
+    unstructured_links = [lnk for lnk in lowered_ir.links if lnk.name.startswith("lnk_document_")]
+    assert len(unstructured_links) == 2
+    for lnk in unstructured_links:
+        assert lnk.link_type == "UNSTRUCTURED_EXTRACTION_LINK"
+        assert lnk.source_mappings[0].get("unstructured_extraction_link") is True
+        assert (
+            lnk.source_mappings[0].get("steward_gate_filter")
+            == "src.steward_gate_status = 'APPROVED'"
+        )
+        assert lnk.requires_steward_approval_gate is True
+        assert lnk.steward_filter_predicate == "steward_gate_status = 'APPROVED'"
+        dumped_lnk = lnk.model_dump(mode="json")
+        assert dumped_lnk["link_type"] == "UNSTRUCTURED_EXTRACTION_LINK"
+        assert dumped_lnk["requires_steward_approval_gate"] is True
+        assert dumped_lnk["steward_filter_predicate"] == "steward_gate_status = 'APPROVED'"
+
+    # Verify DV-DYN-013 catches STEWARD_HOLD or low-confidence rows in PE and generic IR modes
+    conn = duckdb.connect(":memory:")
+    conn.execute(pe_bundle.zone_0_sql)
+    conn.execute(pe_bundle.zone_1_sql)
+    conn.execute(pe_bundle.zone_2_sql)
+    conn.execute(pe_bundle.zone_3_sql)
+    assert check_dv_dyn_013_tier2_confidence_governance(conn).passed is True
+
+    conn.execute(
+        """
+        INSERT INTO business_vault.sat_lnk_doc_portco_ai_provenance VALUES (
+            REPEAT('c', 64),
+            TIMESTAMP '2026-11-16 00:00:00',
+            TIMESTAMP '2026-09-30 23:59:59',
+            'MANUAL_BYPASS_TEST',
+            REPEAT('d', 64),
+            15.00,
+            DATE '2026-09-30',
+            'claude-3-7-sonnet-20260219',
+            REPEAT('e', 64),
+            0.7100,
+            0.6100,
+            0.8800,
+            'APPROVED',
+            1, 10, 50,
+            'Low-confidence row with APPROVED status'
+        );
+        """
+    )
+    dyn_check_after = check_dv_dyn_013_tier2_confidence_governance(conn)
+    assert dyn_check_after.passed is False
+    assert dyn_check_after.failing_rows >= 1
+
+    # Generic CanonicalIR path: verify Zone 0 seeds APPROVED + STEWARD_HOLD on unstructured links
+    # and attached link-satellites, Zone 2 blocks STEWARD_HOLD on both, and DV-DYN-013 enforces
+    # confidence_score >= 0.85 even when only confidence_score is in payload_columns.
+    from opendv_core.models.canonical_ir import CanonicalIR
+
+    gen_ir_dict = json.loads(
+        json.dumps(lowered_ir.model_dump(mode="json")).replace(
+            "hub_limited_partner", "hub_investor"
+        )
+    )
+    gen_ir_obj = CanonicalIR.model_validate(gen_ir_dict)
+    gen_bundle = compile_canonical_ir_to_4zone_sql(gen_ir_obj)
+    assert "'STEWARD_HOLD'" in gen_bundle.zone_0_sql
+    assert gen_bundle.zone_2_sql.count("AND src.steward_gate_status = 'APPROVED'") >= 4
+
+    gconn = duckdb.connect(":memory:")
+    gconn.execute(gen_bundle.zones_0_to_3_sql)
+    lnk_cnt = gconn.execute(
+        """
+        SELECT COUNT(*) FROM raw_vault.lnk_document_portfolio_company
+        WHERE rec_src <> 'SYSTEM_ZERO_KEY'
+        """
+    ).fetchone()
+    sat_cnt = gconn.execute(
+        """
+        SELECT COUNT(*) FROM raw_vault.sat_lnk_doc_portco_ai_provenance
+        WHERE rec_src <> 'SYSTEM_GHOST'
+        """
+    ).fetchone()
+    assert lnk_cnt is not None and lnk_cnt[0] == 1
+    assert sat_cnt is not None and sat_cnt[0] == 1
+    assert check_dv_dyn_013_tier2_confidence_governance(gconn, ir=gen_ir_obj).passed is True
+
+    gconn.execute(
+        """
+        UPDATE raw_vault.sat_lnk_doc_portco_ai_provenance
+        SET confidence_score = 0.7200
+        WHERE rec_src <> 'SYSTEM_GHOST';
+        """
+    )
+    gen_dyn_after = check_dv_dyn_013_tier2_confidence_governance(gconn, ir=gen_ir_obj)
+    assert gen_dyn_after.passed is False
+    assert gen_dyn_after.failing_rows >= 1
+
+
 # ============================================================================
 # 6. Issue #39 — Scoped (bronze_table, column_name, target_hub) BKCC Tests
 # ============================================================================

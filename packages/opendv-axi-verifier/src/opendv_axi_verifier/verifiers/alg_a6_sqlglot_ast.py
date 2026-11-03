@@ -1,4 +1,4 @@
-"""Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`006` / `DV-G6-001`-`005`).
+"""Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`007` / `DV-G6-001`-`005`).
 
 Performs static SQLGlot AST inspection on staging and Raw Vault SQL models:
   - `DV-AST-001` (`DV-G6-002`): No `UPDATE`, `DELETE`, `TRUNCATE`, `DROP`, destructive `ALTER`
@@ -15,6 +15,8 @@ Performs static SQLGlot AST inspection on staging and Raw Vault SQL models:
   - `DV-AST-006` (`DV-G6-005`): Raw Vault structural column purity (`load_dts`, `rec_src`,
     `hk_*`, `hk_lnk_*`, `hash_diff`) and ban on `GROUP BY` / `HAVING` aggregations
     (except idempotent Hub/Link micro-batch key deduplication).
+  - `DV-AST-007` (`Rule U4`): Unstructured extraction Link `INSERT` statements must
+    enforce `steward_gate_status = 'APPROVED'` in their top-level `WHERE` clause.
 """
 
 from __future__ import annotations
@@ -61,6 +63,72 @@ def _infer_entity_type(entity_name: str, explicit_type: str | None = None) -> st
     return "RAW_VAULT"
 
 
+_LINK_TABLE_PREFIXES: tuple[str, ...] = (
+    "lnk_",
+    "t_lnk_",
+    "nh_lnk_",
+    "sal_",
+    "hal_",
+    "x_lnk_",
+)
+
+
+def _is_unstructured_link_target(
+    target_name: str | None,
+    entity_name: str,
+    resolved_type: str,
+    *,
+    requires_steward_gate: bool = False,
+    is_single_insert: bool = True,
+) -> bool:
+    """Return True when `target_name` or `entity_name` is an unstructured extraction Link."""
+    entity_short = entity_name.lower().split(".")[-1]
+    if target_name:
+        target_short = target_name.lower().split(".")[-1]
+        if not target_short.startswith(_LINK_TABLE_PREFIXES):
+            return False
+        if target_short.startswith(("lnk_doc_", "lnk_document_")):
+            return True
+        if requires_steward_gate or resolved_type == "UNSTRUCTURED_EXTRACTION_LINK":
+            return target_short == entity_short or is_single_insert
+        return False
+    if requires_steward_gate or resolved_type == "UNSTRUCTURED_EXTRACTION_LINK":
+        return True
+    return entity_short.startswith(("lnk_doc_", "lnk_document_"))
+
+
+def _has_steward_approval_predicate(where_node: exp.Where | None) -> bool:
+    """Return True if `where_node` has `steward_gate_status = 'APPROVED'` at top level."""
+    if where_node is None or not isinstance(where_node, exp.Where):
+        return False
+    for eq_node in where_node.find_all(exp.EQ):
+        parent = eq_node.parent
+        valid_conjunct = True
+        while parent is not None and parent is not where_node:
+            if not isinstance(parent, (exp.And, exp.Paren)):
+                valid_conjunct = False
+                break
+            parent = parent.parent
+        if not valid_conjunct:
+            continue
+        lhs, rhs = eq_node.this, eq_node.expression
+        if (
+            isinstance(lhs, exp.Column)
+            and lhs.name.lower() == "steward_gate_status"
+            and isinstance(rhs, exp.Literal)
+            and rhs.is_string
+            and rhs.this.upper() == "APPROVED"
+        ) or (
+            isinstance(rhs, exp.Column)
+            and rhs.name.lower() == "steward_gate_status"
+            and isinstance(lhs, exp.Literal)
+            and lhs.is_string
+            and lhs.this.upper() == "APPROVED"
+        ):
+            return True
+    return False
+
+
 def _is_idempotent_microbatch_dedup_group_by(
     stmt: exp.Expr,
     resolved_type: str,
@@ -70,7 +138,7 @@ def _is_idempotent_microbatch_dedup_group_by(
     `MIN(rec_src)` grouped by primary hash key and business/foreign keys, with no
     `HAVING` or business metric aggregations).
     """
-    if resolved_type not in {"HUB", "LINK"}:
+    if resolved_type not in {"HUB", "LINK", "UNSTRUCTURED_EXTRACTION_LINK"}:
         return False
     if stmt.find(exp.Having) is not None:
         return False
@@ -102,7 +170,7 @@ def _is_idempotent_microbatch_dedup_group_by(
 
     if resolved_type == "HUB" and not any(c.startswith("hk_") for c in group_col_names):
         return False
-    if resolved_type == "LINK" and not any(
+    if resolved_type in {"LINK", "UNSTRUCTURED_EXTRACTION_LINK"} and not any(
         c.startswith(LINK_KEY_PREFIXES) for c in group_col_names
     ):
         return False
@@ -158,9 +226,10 @@ def verify_physical_dv2_sql_ast(
     *,
     entity_name: str = "raw_vault_model",
     entity_type: str | None = None,
+    requires_steward_gate: bool = False,
     dialect: str = "duckdb",
 ) -> list[str]:
-    """Algorithm A.6: Static SQLGlot AST Verifier enforcing `DV-AST-001`-`006`
+    """Algorithm A.6: Static SQLGlot AST Verifier enforcing `DV-AST-001`-`007`
     and `DV-G6-001`-`005`.
     """
     violations: list[str] = []
@@ -179,6 +248,8 @@ def verify_physical_dv2_sql_ast(
         statements = sqlglot.parse(sql_text, read=dialect)
     except Exception as exc:
         return [f"[DV-AST-PARSE-ERR] SQLGlot failed to parse '{entity_name}': {exc}"]
+
+    insert_count = sum(1 for s in statements if isinstance(s, exp.Insert))
 
     for stmt in statements:
         if stmt is None:
@@ -333,7 +404,7 @@ def verify_physical_dv2_sql_ast(
                             f"[DV-AST-006 / DV-G6-005] Hub '{entity_name}' must not contain "
                             f"a 'hash_diff' column."
                         )
-                elif stmt_type == "LINK":
+                elif stmt_type in {"LINK", "UNSTRUCTURED_EXTRACTION_LINK"}:
                     if not any(c.startswith(LINK_KEY_PREFIXES) for c in projected_cols):
                         violations.append(
                             f"[DV-AST-006 / DV-G6-005] Link '{entity_name}' is missing a "
@@ -362,6 +433,38 @@ def verify_physical_dv2_sql_ast(
                         f"a 'hash_diff' delta comparison in its WHERE clause."
                     )
 
+            # 6. DV-AST-007 / Rule U4: Unstructured Extraction Link Steward Approval Filter
+            if isinstance(stmt, exp.Insert):
+                target_tbl_node = stmt.this.find(exp.Table) if stmt.this is not None else None
+                if isinstance(stmt.this, exp.Table):
+                    target_tbl_node = stmt.this
+                raw_target_name = target_tbl_node.name if target_tbl_node is not None else None
+                display_target = raw_target_name or entity_name
+                if _is_unstructured_link_target(
+                    raw_target_name,
+                    entity_name,
+                    resolved_type,
+                    requires_steward_gate=requires_steward_gate,
+                    is_single_insert=(insert_count == 1),
+                ):
+                    outer_select = (
+                        stmt.expression if isinstance(stmt.expression, exp.Select) else select_node
+                    )
+                    top_where = (
+                        outer_select.args.get("where")
+                        if isinstance(outer_select, exp.Select)
+                        else None
+                    )
+                    if not isinstance(top_where, exp.Where):
+                        top_where = None
+                    if not _has_steward_approval_predicate(top_where):
+                        violations.append(
+                            f"[DV-AST-007 / Rule U4] Unstructured extraction Link INSERT on "
+                            f"'{display_target}' in '{entity_name}' lacks mandatory steward "
+                            f"approval filter (\"AND src.steward_gate_status = 'APPROVED'\") "
+                            f"in its WHERE clause."
+                        )
+
             if stmt_type == "EFFECTIVITY_SATELLITE":
                 for win in stmt.find_all(exp.Window):
                     win_sql = win.sql(dialect=dialect).lower()
@@ -381,14 +484,21 @@ def verify_physical_dv2_sql_ast(
 def verify_sql_models_batch(
     compiled_sql_models: dict[str, str],
     dialect: str = "duckdb",
+    *,
+    unstructured_link_names: set[str] | None = None,
 ) -> list[str]:
     """Run Algorithm A.6 across a dictionary of `{entity_name: sql_text}`."""
     all_violations: list[str] = []
+    unstructured_set = {n.lower() for n in (unstructured_link_names or set())}
     for entity_name, sql_text in compiled_sql_models.items():
+        is_unstructured = entity_name.lower() in unstructured_set
+        explicit_type = "UNSTRUCTURED_EXTRACTION_LINK" if is_unstructured else None
         all_violations.extend(
             verify_physical_dv2_sql_ast(
                 sql_text,
                 entity_name=entity_name,
+                entity_type=explicit_type,
+                requires_steward_gate=is_unstructured,
                 dialect=dialect,
             )
         )

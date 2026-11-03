@@ -268,8 +268,10 @@
     },
     {
       "name": "lnk_document_lp_commitment",
-      "link_type": "STANDARD",
+      "link_type": "UNSTRUCTURED_EXTRACTION_LINK",
       "semantic_role": "LP Side Letter Provenance Binding Document, Fund, and Beneficiary LP",
+      "requires_steward_approval_gate": true,
+      "steward_filter_predicate": "steward_gate_status = 'APPROVED'",
       "hk_column": {
         "name": "hk_lnk_document_lp_commitment",
         "data_type": "CHAR(64)",
@@ -309,13 +311,22 @@
       "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
-        { "staging_table": "stg_dms_src_side_letter_extractions", "rec_src_value": "OBJECT_STORE_S3" }
+        {
+          "staging_table": "stg_dms_src_side_letter_extractions",
+          "rec_src_value": "OBJECT_STORE_S3",
+          "unstructured_extraction_link": true,
+          "requires_steward_approval_gate": true,
+          "steward_gate_filter": "src.steward_gate_status = 'APPROVED'",
+          "steward_filter_predicate": "steward_gate_status = 'APPROVED'"
+        }
       ]
     },
     {
       "name": "lnk_document_portfolio_company",
-      "link_type": "STANDARD",
+      "link_type": "UNSTRUCTURED_EXTRACTION_LINK",
       "semantic_role": "IC Valuation Memo Mention of Portfolio Company",
+      "requires_steward_approval_gate": true,
+      "steward_filter_predicate": "steward_gate_status = 'APPROVED'",
       "hk_column": {
         "name": "hk_lnk_document_portfolio_company",
         "data_type": "CHAR(64)",
@@ -347,7 +358,14 @@
       "load_dts_column": { "name": "load_dts", "data_type": "TIMESTAMP", "nullable": false },
       "rec_src_column": { "name": "rec_src", "data_type": "VARCHAR(255)", "nullable": false },
       "source_mappings": [
-        { "staging_table": "stg_dms_src_ic_memo_extractions", "rec_src_value": "OBJECT_STORE_S3" }
+        {
+          "staging_table": "stg_dms_src_ic_memo_extractions",
+          "rec_src_value": "OBJECT_STORE_S3",
+          "unstructured_extraction_link": true,
+          "requires_steward_approval_gate": true,
+          "steward_gate_filter": "src.steward_gate_status = 'APPROVED'",
+          "steward_filter_predicate": "steward_gate_status = 'APPROVED'"
+        }
       ]
     }
   ],
