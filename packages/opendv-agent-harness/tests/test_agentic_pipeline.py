@@ -1608,3 +1608,163 @@ def test_wp24_pipeline_stage_and_stream_callbacks_order_and_metadata(tmp_path: P
         if ev.kind == HarnessEventKind.TEXT_DELTA and ev.delta_text
     ]
     assert len(text_deltas) > 0
+
+
+def test_issue_33_wave3_crlf_unstructured_document_pipeline_e2e(tmp_path: Path) -> None:
+    """Issue #33 E2E Pipeline Test (FR-DOM-05 / Rule U2 / Scenario S8 / UF-5):
+    Verifies that an unstructured document saved with Windows CRLF (`\\r\\n`) line endings
+    and extracted candidates carrying multi-line CRLF quotes pass deterministic input
+    validation, catalog tool `extract_pdf_spans`, Stage 02 (`SCOUT_UNSTRUCTURED`),
+    Stage 05 (`AXI_DV_STATIC_GATES` Gate 5), and Stage 06 (`AXI_DV_DYNAMIC_SANDBOX`
+    4-Batch DuckDB Shadow Sandbox) end-to-end.
+    """
+    import asyncio
+    import shutil
+
+    from opendv_agent_harness.models import (
+        AgentPersona,
+        PipelineStageId,
+        ToolExecutionContext,
+        VizId,
+        WorkbenchViewId,
+    )
+    from opendv_agent_harness.pipeline import PipelineUnstructuredDocInput
+    from opendv_agent_harness.tools.base import ExtractPdfSpansInput
+    from opendv_agent_harness.tools.catalog import _handle_extract_pdf_spans
+
+    sample_dir = _sample_dir()
+    work_dir = tmp_path / "crlf_sample_workspace"
+    shutil.copytree(sample_dir, work_dir)
+
+    # Convert Wave 3 unstructured MSA document on disk to Windows CRLF (\r\n) bytes
+    msa_rel_path = "sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt"
+    msa_disk_path = work_dir / msa_rel_path
+    msa_lf_text = msa_disk_path.read_text(encoding="utf-8")
+    assert "\r\n" not in msa_lf_text
+    msa_crlf_text = msa_lf_text.replace("\n", "\r\n")
+    msa_disk_path.write_bytes(msa_crlf_text.encode("utf-8"))
+    assert b"\r\n" in msa_disk_path.read_bytes()
+
+    # Build Wave 0 + Wave 3 input spec with explicit LF-indexed spans and CRLF multi-line quote
+    input_spec = PipelineInputSpec.from_file(work_dir / "pipeline_input.yaml")
+    quote_u1_multiline_lf = (
+        "1. CONTRACTING COUNTERPARTY (TIER-U1 EXACT REGISTRATION)\n"
+        "This Commercial Volume Addendum is entered into by "
+        "Apex Industrial Holdings LLC (Tax ID: TAX-US-900101)"
+    )
+    start_u1 = msa_lf_text.index(quote_u1_multiline_lf)
+    end_u1 = start_u1 + len(quote_u1_multiline_lf)
+    quote_u1_multiline_crlf = quote_u1_multiline_lf.replace("\n", "\r\n")
+
+    quote_u3 = "Rheinland Precision Holding Group"
+    start_u3 = msa_lf_text.index(quote_u3)
+    end_u3 = start_u3 + len(quote_u3)
+
+    cand_u1 = PipelineUnstructuredCandidateInput(
+        extraction_id="ext_msa_counterparty_crlf_u1",
+        target_hub="hub_customer",
+        extracted_business_key="TAX-US-900101",
+        verbatim_quote=quote_u1_multiline_crlf,
+        char_start=start_u1,
+        char_end=end_u1,
+        page_number=1,
+        confidence_score=0.99,
+    )
+    cand_u3 = PipelineUnstructuredCandidateInput(
+        extraction_id="ext_msa_guarantor_crlf_u3",
+        target_hub="hub_customer",
+        extracted_business_key="RHEINLAND-HOLDING-DE",
+        verbatim_quote=quote_u3,
+        char_start=start_u3,
+        char_end=end_u3,
+        page_number=1,
+        confidence_score=0.71,
+    )
+
+    wave0 = input_spec.waves[0]
+    wave3 = input_spec.waves[3].model_copy(
+        update={
+            "wave_index": 1,
+            "unstructured_documents": [
+                PipelineUnstructuredDocInput(
+                    doc_id="DOC-MSA-2026-089",
+                    document_path=msa_rel_path,
+                    record_source="LEGAL_DOC_VAULT",
+                    extracted_candidates=[cand_u1, cand_u3],
+                )
+            ],
+        }
+    )
+    crlf_spec = input_spec.model_copy(update={"waves": [wave0, wave3]})
+    setup = HarnessSetupConfig(
+        provider="agy",
+        steward_hold_policy="auto_approve_top_candidate",
+        inject_adversarial_fault_on_attempt_1=False,
+    )
+
+    # 1. Pre-flight validation must pass with 0 errors
+    val_report = validate_pipeline_inputs(
+        crlf_spec,
+        setup,
+        base_dir=work_dir,
+    )
+    assert val_report.passed is True, val_report.diagnostics
+
+    # 2. Verify catalog tool `_handle_extract_pdf_spans` normalizes CRLF document_text and quotes
+    tool_ctx = ToolExecutionContext(
+        run_id="run-issue-33-crlf",
+        trace_id="trace-issue-33-crlf",
+        span_id="span-issue-33-crlf",
+        persona=AgentPersona.SCOUT_UNSTRUCTURED,
+        stage_id=PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
+        workbench_view_id=WorkbenchViewId.WB_03,
+        viz_id=VizId.VIZ_STEP_04,
+        config=setup.to_harness_config(workspace_dir=work_dir),
+    )
+    tool_out = asyncio.run(
+        _handle_extract_pdf_spans(
+            ExtractPdfSpansInput(
+                document_uri="DOC-MSA-2026-089",
+                document_text=msa_crlf_text,
+                candidate_spans=[
+                    {
+                        "field_name": "counterparty_clause",
+                        "extracted_value": "TAX-US-900101",
+                        "verbatim_quote": quote_u1_multiline_crlf,
+                        "char_start": start_u1,
+                        "char_end": end_u1,
+                        "confidence": 0.99,
+                    },
+                    {
+                        "field_name": "guarantor_name",
+                        "extracted_value": "RHEINLAND-HOLDING-DE",
+                        "verbatim_quote": quote_u3,
+                        "char_start": start_u3,
+                        "char_end": end_u3,
+                        "confidence": 0.71,
+                        "top2_margin": 0.08,
+                    },
+                ],
+            ),
+            tool_ctx,
+        )
+    )
+    assert tool_out.all_spans_verified is True
+    assert all(s.span_verified for s in tool_out.verified_spans)
+    assert tool_out.verified_spans[0].char_start == start_u1
+    assert tool_out.verified_spans[0].char_end == end_u1
+
+    # 3. Execute full pipeline through Wave 0 and Wave 3
+    out_dir = tmp_path / "crlf_pipeline_out"
+    rep = run_agentic_vault_pipeline(
+        crlf_spec,
+        setup,
+        output_dir=out_dir,
+        base_dir=work_dir,
+        sdk_module=build_deterministic_agy_sdk_shim(),
+    )
+    assert rep.status == "COMPLETED"
+    assert rep.overall_passed is True
+    assert rep.output_validation.passed is True
+    assert rep.wave_reports[-1].sandbox_summary["passed"] is True
+    assert rep.wave_reports[-1].sandbox_summary["dynamic_checks_passed"] == 15

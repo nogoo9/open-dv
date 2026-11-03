@@ -6,7 +6,8 @@ an executable 4-Zone DuckDB SQL bundle (`docs/03` §7, `docs/05` §3.5, `docs/07
   mandatory Ghost Records (`SYSTEM_GHOST` at `1900-01-01 00:00:00`) & Dual Zero Keys
   (`'0'*64` Unknown and `'f'*64` Error with `rec_src = 'SYSTEM_ZERO_KEY'`).
 - **Zone 1**: Hashed Staging Views (`staging.stg_*`) using Algorithm A.5 length-prefixed
-  SHA-256 (`<len>:<val>` and `'-1:^^'` null token) and `BKCC` namespace injection.
+  SHA-256 (`<len>:<val>` and `'-1:^^'` null token), `BKCC` namespace injection, and
+  3-way Zero-Key sentinel branching (`'-2'` -> `'f'*64`, `NULL`/`'-1'` -> `'0'*64`).
 - **Zone 2**: Insert-Only Raw Vault DML for Hubs, Reference tables, Links, and Satellites
   using idempotent `WHERE NOT EXISTS` and `LEFT JOIN ... WHERE cur.hk IS NULL OR`
   `cur.hash_diff <> src.hash_diff` anti-joins.
@@ -28,8 +29,10 @@ from opendv_core.constants import (
     GHOST_REC_SRC,
     NULL_TOKEN,
     ZERO_KEY_ERROR,
+    ZERO_KEY_ERROR_TOKEN,
     ZERO_KEY_REC_SRC,
     ZERO_KEY_UNKNOWN,
+    ZERO_KEY_UNKNOWN_TOKEN,
 )
 from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import (
@@ -121,8 +124,17 @@ def build_algorithm_a5_sha256_sql(
     sort_alphabetically: bool = False,
     delimiter: str = DEFAULT_DELIMITER,
     null_token: str = NULL_TOKEN,
+    error_predicate: str | None = None,
+    unknown_predicate: str | None = None,
+    key_columns: list[str] | None = None,
 ) -> str:
-    """Build a DuckDB Algorithm A.5 length-prefixed SHA-256 SQL expression."""
+    """Build a DuckDB Algorithm A.5 length-prefixed SHA-256 SQL expression.
+
+    When `is_business_key=True`, emits a 3-way `CASE` expression routing `'-2'` /
+    `error_predicate` to `REPEAT('f', 64)` (`ZERO_KEY_ERROR`) and `NULL` / `''` / `'-1'` /
+    `unknown_predicate` on `key_columns` (excluding constant `bkcc` / `*__bkcc` columns by
+    default) to `REPEAT('0', 64)` (`ZERO_KEY_UNKNOWN`).
+    """
     ordered = sorted(columns) if sort_alphabetically else list(columns)
     tokens: list[str] = []
     if is_business_key and bkcc_literal:
@@ -139,10 +151,34 @@ def build_algorithm_a5_sha256_sql(
     concat_sql = f" || '{delimiter}' || ".join(tokens)
     sha_expr = f"LOWER(SHA256({concat_sql}))"
     if is_business_key and ordered:
-        all_null_pred = " AND ".join(
-            f"NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL" for c in ordered
+        if key_columns is not None:
+            pred_cols = list(key_columns)
+        else:
+            non_bkcc = [
+                c for c in ordered if c.lower() != "bkcc" and not c.lower().endswith("__bkcc")
+            ]
+            pred_cols = non_bkcc or ordered
+        default_err_pred = " OR ".join(
+            f"TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_ERROR_TOKEN}'" for c in pred_cols
         )
-        return f"CASE WHEN {all_null_pred} THEN REPEAT('0', 64) ELSE {sha_expr} END"
+        err_branch_pred = (
+            f"({error_predicate}) OR ({default_err_pred})" if error_predicate else default_err_pred
+        )
+        default_unk_pred = " OR ".join(
+            f"(NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL "
+            f"OR TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_UNKNOWN_TOKEN}')"
+            for c in pred_cols
+        )
+        unk_branch_pred = (
+            f"({unknown_predicate}) OR ({default_unk_pred})"
+            if unknown_predicate
+            else default_unk_pred
+        )
+        return (
+            f"CASE WHEN {err_branch_pred} THEN REPEAT('f', 64) "
+            f"WHEN {unk_branch_pred} THEN REPEAT('0', 64) "
+            f"ELSE {sha_expr} END"
+        )
     return sha_expr
 
 
@@ -226,6 +262,9 @@ INSERT INTO dealcloud.src_portfolio_companies VALUES
     ('PC-DEAL-01', '529900T8BM49AURSDO55', 'Nordic Cloud Infrastructure AB', '45102010', 'SE', 2023,
      16896550.00, 12.80, 216280000.00, DATE '2026-09-30', TIMESTAMP '2026-10-01 07:30:00'),
     ('PC-NULL-FK', NULL, 'Unassigned Pipeline Target', '45103010', 'US', 2026,
+     5000000.00, 10.00, 50000000.00, DATE '2026-09-30',
+     TIMESTAMP '2026-10-01 07:30:00'),
+    ('PC-ERR-FK', '-2', 'Inapplicable Pipeline Target', '45103010', 'US', 2026,
      5000000.00, 10.00, 50000000.00, DATE '2026-09-30',
      TIMESTAMP '2026-10-01 07:30:00'){restatement_seed_portco};
 
@@ -745,13 +784,16 @@ keys AS (
     SELECT
         *,
         CASE
-            WHEN lp_id_norm IS NULL OR lp_id_norm = '' THEN REPEAT('0', 64)
+            WHEN lp_id_norm = '-2' THEN REPEAT('f', 64)
+            WHEN lp_id_norm IS NULL OR lp_id_norm = '' OR lp_id_norm = '-1' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 '6:GLOBAL||' || CAST(STRLEN(lp_id_norm) AS VARCHAR) || ':' || lp_id_norm
             ))
         END AS hk_lp,
         CASE
-            WHEN fund_code_norm IS NULL OR fund_code_norm = '' THEN REPEAT('0', 64)
+            WHEN fund_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN fund_code_norm IS NULL OR fund_code_norm = '' OR fund_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 CAST(STRLEN(fund_code_norm) AS VARCHAR) || ':' || fund_code_norm
             ))
@@ -848,7 +890,9 @@ keys AS (
     SELECT
         *,
         CASE
-            WHEN lei_code_norm IS NULL OR lei_code_norm = '' THEN REPEAT('0', 64)
+            WHEN lei_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN lei_code_norm IS NULL OR lei_code_norm = '' OR lei_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(CAST(STRLEN(lei_code_norm) AS VARCHAR) || ':' || lei_code_norm))
         END AS hk_portco,
         LOWER(SHA256('14:APEX-BUYOUT-IV')) AS hk_fund
@@ -928,13 +972,16 @@ keys AS (
     SELECT
         *,
         CASE
-            WHEN lp_id_norm IS NULL OR lp_id_norm = '' THEN REPEAT('0', 64)
+            WHEN lp_id_norm = '-2' THEN REPEAT('f', 64)
+            WHEN lp_id_norm IS NULL OR lp_id_norm = '' OR lp_id_norm = '-1' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 '15:LEGACY_GP_ADMIN||' || CAST(STRLEN(lp_id_norm) AS VARCHAR) || ':' || lp_id_norm
             ))
         END AS hk_lp,
         CASE
-            WHEN cap_acct_code_norm IS NULL OR cap_acct_code_norm = '' THEN REPEAT('0', 64)
+            WHEN cap_acct_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN cap_acct_code_norm IS NULL OR cap_acct_code_norm = '' OR cap_acct_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 '15:LEGACY_GP_ADMIN||'
                 || CAST(STRLEN(cap_acct_code_norm) AS VARCHAR)
@@ -942,7 +989,9 @@ keys AS (
             ))
         END AS hk_cap_acct,
         CASE
-            WHEN fund_code_norm IS NULL OR fund_code_norm = '' THEN REPEAT('0', 64)
+            WHEN fund_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN fund_code_norm IS NULL OR fund_code_norm = '' OR fund_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 CAST(STRLEN(fund_code_norm) AS VARCHAR) || ':' || fund_code_norm
             ))
@@ -1735,7 +1784,7 @@ def _hub_seed_hk(
 ) -> str:
     """Compute the deterministic lowercase 64-char SHA-256 hash key for `row_idx` of `hub`."""
     tokens = _hub_seed_bk_values(hub, row_idx, bkcc_override=bkcc_override)
-    return compute_dv2_length_prefixed_sha256(tokens, is_business_key=True).lower()
+    return compute_dv2_length_prefixed_sha256(tokens, is_business_key=True)
 
 
 def _normalize_duckdb_type(data_type: str) -> str:
@@ -2129,7 +2178,11 @@ def _resolve_hub_bk_rows_from_bronze(
                 src_col = src_bk_cols[non_bkcc_idx] if non_bkcc_idx < len(src_bk_cols) else bk.name
                 non_bkcc_idx += 1
                 raw_val = row.get(src_col, row.get(bk.name))
-                if raw_val is None or str(raw_val).strip() == "":
+                if raw_val is None or str(raw_val).strip() in {
+                    "",
+                    ZERO_KEY_UNKNOWN_TOKEN,
+                    ZERO_KEY_ERROR_TOKEN,
+                }:
                     valid_row = False
                     break
                 tokens.append(str(raw_val).strip())
@@ -2269,6 +2322,8 @@ def _compile_generic_zone_0_sql(
         col_defs: list[str] = []
         row1_tokens: list[str] = []
         row2_tokens: list[str] = []
+        row3_tokens: list[str] = []
+        row4_tokens: list[str] = []
         target_counts: dict[str, int] = {}
         for ref_idx, ref in enumerate(link.hub_references):
             fk_col = _validate_ident(ref.fk_column_name)
@@ -2287,11 +2342,17 @@ def _compile_generic_zone_0_sql(
                 row1_tokens.append(f"'{esc1}'")
                 if ref_idx == 0:
                     row2_tokens.append(f"'{esc2}'")
+                    row3_tokens.append(f"'{esc1}'")
+                    row4_tokens.append(f"'{esc2}'")
                 else:
                     row2_tokens.append(f"'{esc2}'" if bk.is_bkcc else "NULL")
+                    row3_tokens.append(f"'{esc1}'" if bk.is_bkcc else f"'{ZERO_KEY_UNKNOWN_TOKEN}'")
+                    row4_tokens.append(f"'{esc2}'" if bk.is_bkcc else f"'{ZERO_KEY_ERROR_TOKEN}'")
 
         r1_sql = ", ".join(row1_tokens)
         r2_sql = ", ".join(row2_tokens)
+        r3_sql = ", ".join(row3_tokens)
+        r4_sql = ", ".join(row4_tokens)
         parts.append(
             "\n".join(
                 [
@@ -2302,7 +2363,9 @@ def _compile_generic_zone_0_sql(
                     ");",
                     f"INSERT INTO bronze.src_{tbl} VALUES",
                     f"    ({r1_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
-                    f"    ({r2_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}');",
+                    f"    ({r2_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                    f"    ({r3_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                    f"    ({r4_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}');",
                 ]
             )
         )
@@ -2354,8 +2417,8 @@ def _compile_generic_zone_0_sql(
                 h_rows = hub_bk_rows[t_hub.name]
                 h_r1, h_r2 = h_rows[0], h_rows[1]
                 r1_tokens = h_r1 if occ == 0 else h_r2
-                r1_hk = compute_dv2_length_prefixed_sha256(r1_tokens, is_business_key=True).lower()
-                r2_hk = compute_dv2_length_prefixed_sha256(h_r2, is_business_key=True).lower()
+                r1_hk = compute_dv2_length_prefixed_sha256(r1_tokens, is_business_key=True)
+                r2_hk = compute_dv2_length_prefixed_sha256(h_r2, is_business_key=True)
                 r1_parent_vals.append(f"'{r1_hk}'")
                 if ref_idx == 0:
                     r2_parent_vals.append(f"'{r2_hk}'")
@@ -2440,7 +2503,14 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
         created_views.add(view_name)
         hk_col = _validate_ident(hub.hk_column.name)
         bk_cols = [_validate_ident(bk.name) for bk in hub.business_keys]
-        hk_expr = build_algorithm_a5_sha256_sql(bk_cols, is_business_key=True)
+        non_bkcc_cols = [
+            _validate_ident(bk.name) for bk in hub.business_keys if not bk.is_bkcc
+        ] or bk_cols
+        hk_expr = build_algorithm_a5_sha256_sql(
+            bk_cols,
+            is_business_key=True,
+            key_columns=non_bkcc_cols,
+        )
         bk_csv = ", ".join(bk_cols)
         parts.append(
             f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
@@ -2471,17 +2541,37 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                 for bk in t_hub.business_keys
                 if not bk.is_bkcc
             ] or raw_bk_cols
-            null_pred = " AND ".join(
-                f"NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL" for c in non_bkcc_cols
+            error_pred = " OR ".join(
+                f"TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_ERROR_TOKEN}'" for c in non_bkcc_cols
             )
-            raw_hash = build_algorithm_a5_sha256_sql(raw_bk_cols, is_business_key=True)
+            unknown_pred = " OR ".join(
+                f"(NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL "
+                f"OR TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_UNKNOWN_TOKEN}')"
+                for c in non_bkcc_cols
+            )
+            raw_hash = build_algorithm_a5_sha256_sql(
+                raw_bk_cols,
+                is_business_key=True,
+                key_columns=non_bkcc_cols,
+            )
             fk_cte_exprs.append(
                 f"        COALESCE(\n"
-                f"            CASE WHEN {null_pred} THEN NULL ELSE {raw_hash} END,\n"
+                f"            CASE\n"
+                f"                WHEN {error_pred} THEN REPEAT('f', 64)\n"
+                f"                WHEN {unknown_pred} THEN REPEAT('0', 64)\n"
+                f"                ELSE {raw_hash}\n"
+                f"            END,\n"
                 f"            REPEAT('0', 64)\n"
                 f"        ) AS {fk_col}"
             )
-        link_hk_expr = build_algorithm_a5_sha256_sql(fk_cols, is_business_key=True)
+        all_fk_err_pred = " AND ".join(f"{c} = REPEAT('f', 64)" for c in fk_cols)
+        all_fk_unk_pred = " AND ".join(f"{c} = REPEAT('0', 64)" for c in fk_cols)
+        link_hk_expr = build_algorithm_a5_sha256_sql(
+            fk_cols,
+            is_business_key=True,
+            error_predicate=all_fk_err_pred,
+            unknown_predicate=all_fk_unk_pred,
+        )
         fk_csv = ", ".join(fk_cols)
         fk_cte_body = ",\n".join(fk_cte_exprs)
         parts.append(
@@ -2515,13 +2605,29 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
         if sat.parent_entity in hub_by_name:
             p_hub = hub_by_name[sat.parent_entity]
             p_cols = [f"parent_bk__{_validate_ident(bk.name)}" for bk in p_hub.business_keys]
-            parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+            non_bkcc_p_cols = [
+                f"parent_bk__{_validate_ident(bk.name)}"
+                for bk in p_hub.business_keys
+                if not bk.is_bkcc
+            ] or p_cols
+            parent_hk_expr = build_algorithm_a5_sha256_sql(
+                p_cols,
+                is_business_key=True,
+                key_columns=non_bkcc_p_cols,
+            )
         else:
             p_lnk = link_by_name[sat.parent_entity]
             p_cols = [
                 f"parent_fk__{_validate_ident(ref.fk_column_name)}" for ref in p_lnk.hub_references
             ]
-            parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+            all_p_err_pred = " AND ".join(f"{c} = REPEAT('f', 64)" for c in p_cols)
+            all_p_unk_pred = " AND ".join(f"{c} = REPEAT('0', 64)" for c in p_cols)
+            parent_hk_expr = build_algorithm_a5_sha256_sql(
+                p_cols,
+                is_business_key=True,
+                error_predicate=all_p_err_pred,
+                unknown_predicate=all_p_unk_pred,
+            )
 
         payload_names = [_validate_ident(c.name) for c in data_cols]
         hash_diff_expr = build_algorithm_a5_sha256_sql(payload_names, is_business_key=False)
