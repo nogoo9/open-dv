@@ -606,7 +606,7 @@ def build_length_prefixed_ast(norm: exp.Expression) -> exp.Expression:
     """
     Length-Prefixed Canonical Encoding (KEY-02 / KEY-03):
     CASE WHEN norm IS NULL THEN '-1:^^' ELSE CAST(OCTET_LENGTH(norm) AS VARCHAR) || ':' || norm END
-    OCTET_LENGTH is the UTF-8 byte length (Snowflake / ANSI); DuckDB spells it STRLEN(varchar).
+    OCTET_LENGTH is the UTF-8 byte length (Snowflake / ANSI); DuckDB uses OCTET_LENGTH(ENCODE(varchar)).
     """
     byte_len = exp.Cast(
         this=exp.Anonymous(this="OCTET_LENGTH", expressions=[norm.copy()]),

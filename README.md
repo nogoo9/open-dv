@@ -284,6 +284,7 @@ open-dv/
 ├── examples/
 │   ├── dv_model_contract.yaml  # Annotated single-Hub multi-source Data Vault 2.0 contract example
 │   ├── private_equity/         # Complete Private Equity reference bundle (Contract, Canonical IR, Graph A, Graph B)
+│   ├── scenarios/              # Adversarial & regression scenario fixtures (e.g., s7_multibyte_utf8)
 │   └── pipeline_samples/
 │       └── global_commerce_vault/ # 4-wave progressive commerce dataset, per-wave specs & harness_config*.yaml
 ├── schemas/                    # Normative JSON Schemas (Draft 2020-12) & OpenAPI 3.1.0 specification
@@ -318,7 +319,7 @@ open-dv/
 | **13 — Real Agentic Pipeline Remediation Specification** | [`docs/13-real-agentic-pipeline-remediation-spec.md`](docs/13-real-agentic-pipeline-remediation-spec.md) | Read for the engineering specification of discovery-first agentic execution, real neuro-symbolic domain tool wiring, fail-closed harness adapters, and dynamic 4-Batch DuckDB sandbox verification. |
 | **14 — End-to-End Consistency Review, Scenarios Audit & Invariant Analysis** | [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](docs/14-end-to-end-consistency-and-scenarios-audit.md) | Read for comprehensive 10-scenario audit, unmatched field ontology routing matrix, actual vs expected codebase behaviors, and bug remediation tracking. |
 | **15 — End-to-End Pipeline Execution & Interactive Component Spec** | [`docs/15-end-to-end-pipeline-execution-and-interactive-spec.md`](docs/15-end-to-end-pipeline-execution-and-interactive-spec.md) | Read for the exhaustive 8-stage pipeline specification (input/output contracts, artifacts, state transitions, and interactive drill-down views). |
-| **17 — Testing Scenarios & Datasets Reference** | [`docs/17-testing-scenarios-and-datasets.md`](docs/17-testing-scenarios-and-datasets.md) | Read for normative end-to-end testing scenarios (`S1`–`S10`, `UF-1`–`UF-5`), multi-wave evolution datasets, and exact unit/E2E verification commands across the monorepo. |
+| **17 — Testing Scenarios & Datasets Reference** | [`docs/17-testing-scenarios-and-datasets.md`](docs/17-testing-scenarios-and-datasets.md) | Read for normative end-to-end testing scenarios (`S1`–`S10`, `UF-1`–`UF-5`), adversarial datasets (such as Scenario S7 multi-byte UTF-8 fixtures), multi-wave evolution datasets, and exact unit/E2E verification commands across the monorepo. |
 | **DV 2.0 Architectural & Mathematical Evaluation (Unabridged)** | [`docs/references/dv2-architectural-consistency-evaluation.md`](docs/references/dv2-architectural-consistency-evaluation.md) | Read for the deep-dive architectural critique and mathematical evaluation of Data Vault 2.0 hashing, Zero-Key sentinels, and boundary invariants. |
 | **No-Mistake DV 2.0 Contract V5 JSON Schema** | [`schemas/no-mistake-dv2-contract-v5.schema.json`](schemas/no-mistake-dv2-contract-v5.schema.json) | Draft 2020-12 JSON Schema for `NoMistakeDataVault2ContractV5` (`column_triage_ledger`, `hubs`, `links`, `satellites`, `reference_tables`, `unmapped_escalations`). |
 | **Canonical IR JSON Schema** | [`schemas/dv2-canonical-ir.schema.json`](schemas/dv2-canonical-ir.schema.json) | Draft 2020-12 JSON Schema for the low-level `CanonicalIR` contract between semantic modelling agents and the deterministic 4-Zone SQL compiler. |

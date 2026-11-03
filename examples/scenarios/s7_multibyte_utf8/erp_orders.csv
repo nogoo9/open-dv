@@ -1,0 +1,5 @@
+order_id,customer_tax_id,order_total_usd,order_notes
+ORD-2026-Å01,TAX-SE-ÅÄÖ-102,1500000.00,Tranche A||B — Nordisk Suverän Fond §4.2
+ORD-2026-DE02,TAX-DE-MÜN-204,980000.00,Tranche A — B||C München €25M
+ORD-2026-JP03,TAX-JP-500505,2100000.00,日本国年金積立金管理運用独立行政法人
+ORD-2026-NO04,TAX-NO-🏦-404,1750000.00,🏦 Sovereign Allocation

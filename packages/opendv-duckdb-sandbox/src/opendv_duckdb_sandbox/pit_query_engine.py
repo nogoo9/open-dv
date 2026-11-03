@@ -144,7 +144,7 @@ def ensure_pit_snapshot_for_cutoff(
         SELECT
             LOWER(SHA256(
                 '64:' || h.hk_portco || '||'
-                || CAST(STRLEN(CAST(cal.as_of_dts AS VARCHAR)) AS VARCHAR)
+                || CAST(OCTET_LENGTH(ENCODE(CAST(cal.as_of_dts AS VARCHAR))) AS VARCHAR)
                 || ':' || CAST(cal.as_of_dts AS VARCHAR)
             )) AS hk_pit_portco,
             h.hk_portco,
