@@ -392,7 +392,7 @@ def _lower_satellite(
                 normalization="EXACT_TRIM",
             ),
         ),
-        hash_diff_migration_policy="SPLIT_NEW_SATELLITE",
+        hash_diff_migration_policy=contract_sat.hash_diff_migration_policy or "SPLIT_NEW_SATELLITE",
         payload_columns=payload_cols,
         source_mapping=IRSourceMapping(
             staging_table=_staging_table_name(contract_sat.source_bronze_table),

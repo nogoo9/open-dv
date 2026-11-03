@@ -215,7 +215,7 @@ for lnk in ir.get("links", []):
   - **Adversarial Sandbox Testing:** `adversarial_batches.py` runs progressive adversarial batches (Batches 1–4) specifically injecting boundary shifts and duplicate batches to verify zero drift.
 - **Ambiguities and Gaps:**
   - **CRITICAL BUG: DuckDB `STRLEN()` vs. UTF-8 `OCTET_LENGTH()`:**
-    In `compiler_4zone.py` lines 102–115:
+    In `compiler_4zone.py` lines 100–113:
 ```python
 def build_length_prefixed_token_sql(
     col_expr: str,

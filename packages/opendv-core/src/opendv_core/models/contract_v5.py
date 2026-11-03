@@ -65,6 +65,12 @@ type VolatilityTierLiteral = Literal[
     "ADDITIVE_DRIFT_COMPANION",
 ]
 
+type HashDiffMigrationPolicyLiteral = Literal[
+    "SPLIT_NEW_SATELLITE",
+    "NULL_EQUIVALENT_PADDING",
+    "VERSIONED_CUTOVER",
+]
+
 type EscalationReasonLiteral = Literal[
     "MISSING_ONTOLOGY_CONCEPT",
     "COMPETING_NATURAL_KEYS",
@@ -141,6 +147,7 @@ class ContractSatelliteSpec(StrictContractModel):
     sub_sequence_column: str | None = None
     security_classification: SecurityClassificationLiteral | None = None
     volatility_tier: VolatilityTierLiteral | None = None
+    hash_diff_migration_policy: HashDiffMigrationPolicyLiteral | None = None
     soft_deprecated_columns: list[str] | None = None
     payload_columns: list[str]
 
@@ -200,6 +207,7 @@ __all__ = [
     "DV2ContractV5",
     "ELMClassificationLiteral",
     "EscalationReasonLiteral",
+    "HashDiffMigrationPolicyLiteral",
     "HubReference",
     "HubSpec",
     "KeyAuthorityTierLiteral",

@@ -235,8 +235,8 @@ def run_batch_3_delta_and_boundary_shift(
     before_hubs, before_links, before_sats = _snapshot_vault_counts(conn, ir)
 
     # 1. Verify Python & DuckDB length-prefixed SHA-256 boundary-shift collision immunity
-    py_hash_ab_c = compute_dv2_length_prefixed_sha256(["AB", "C"], is_business_key=False).lower()
-    py_hash_a_bc = compute_dv2_length_prefixed_sha256(["A", "BC"], is_business_key=False).lower()
+    py_hash_ab_c = compute_dv2_length_prefixed_sha256(["AB", "C"], is_business_key=False)
+    py_hash_a_bc = compute_dv2_length_prefixed_sha256(["A", "BC"], is_business_key=False)
 
     sql_hashes = conn.execute(
         """
@@ -565,7 +565,7 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
                 token = f"{ns_label}:{shared_bk}"
             row_tokens.append(token)
             bk_literals.append(f"'{token}'")
-        hk_val = compute_dv2_length_prefixed_sha256(row_tokens, is_business_key=True).lower()
+        hk_val = compute_dv2_length_prefixed_sha256(row_tokens, is_business_key=True)
         inserted_hks.append(hk_val)
         bk_vals_sql = ", ".join(bk_literals)
         conn.execute(

@@ -114,7 +114,7 @@ def compute_dv2_length_prefixed_sha256(
     null_token: str = NULL_TOKEN,
     sort_tokens: bool = False,
 ) -> str:
-    """Compute the Algorithm A.5 64-character uppercase hex SHA-256 digest.
+    """Compute the Algorithm A.5 64-character lowercase hex SHA-256 digest.
 
     If `is_business_key=True` and all business key values (excluding `bkcc_prefix`)
     are `None` or empty whitespace, returns `ZERO_KEY_UNKNOWN` (`'0' * 64`).
@@ -136,7 +136,7 @@ def compute_dv2_length_prefixed_sha256(
         null_token=null_token,
         sort_tokens=sort_tokens,
     )
-    return hashlib.sha256(prehash.encode("utf-8")).hexdigest().upper()
+    return hashlib.sha256(prehash.encode("utf-8")).hexdigest().lower()
 
 
 def dv2_canonical_hash(
