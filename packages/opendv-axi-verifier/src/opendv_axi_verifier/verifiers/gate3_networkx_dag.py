@@ -1,8 +1,8 @@
-"""Gate 3 Verifier: NetworkX Bipartite DAG Structural Verifier (`DV-STR-001`-`014`
+"""Gate 3 Verifier: NetworkX Bipartite DAG Structural Verifier (`DV-STR-001`-`015`
 and `DV-G3-001`-`005`) & Column-Level Invariant Verifier (`DV-COL-001`-`012`).
 
 Constructs a directed multigraph `G = (V_H u V_L u V_S, E)` using `networkx.MultiDiGraph`
-and verifies all 14 Data Vault 2.0 structural topology invariants:
+and verifies all 15 Data Vault 2.0 structural topology invariants:
   - `DV-STR-001` (`DV-G3-001`): Hub independence (`outdeg(h) == 0`, no Hub-to-Hub edges)
   - `DV-STR-002` (`DV-G3-002`): Link minimum Hub arity (`len(hub_references) >= 2`)
   - `DV-STR-003` (`DV-G3-004`): Link target Hub existence (`target_hub in V_H`, no Link-to-Link)
@@ -18,6 +18,9 @@ and verifies all 14 Data Vault 2.0 structural topology invariants:
   - `DV-STR-013`: Connected component / no isolated Hub islands (`indeg(h) >= 1`)
   - `DV-STR-014` (`DV-G3-005`): Bipartite DAG acyclicity (`nx.is_directed_acyclic_graph(G)`)
     and `HIERARCHICAL` Link recursion termination guarantee
+  - `DV-STR-015`: Canonical Same-As Link (`sal_*`) edge ordering (`hk_master != hk_duplicate`,
+    master-before-duplicate role/authority ordering, and rejection of `(A, A)` self-loops and
+    duplicate inverted `(B, A)` pairs)
 """
 
 from __future__ import annotations
@@ -25,6 +28,30 @@ from __future__ import annotations
 from typing import Any
 
 import networkx as nx  # type: ignore[import-untyped]
+
+_SAL_MASTER_TOKENS: tuple[str, ...] = (
+    "MASTER",
+    "PRIMARY",
+    "CANONICAL",
+    "GOLDEN",
+    "SURVIVING",
+    "AUTHORITATIVE",
+)
+_SAL_DUPLICATE_TOKENS: tuple[str, ...] = (
+    "DUPLICATE",
+    "DUP",
+    "ALIAS",
+    "SECONDARY",
+    "MERGED",
+    "LEGACY",
+    "SCOPED",
+    "SYNONYM",
+)
+_AUTHORITY_TIER_RANK: dict[str, int] = {
+    "TIER_1_GLOBAL_STANDARD": 1,
+    "TIER_2_ENTERPRISE_SOR": 2,
+    "TIER_3_LOCAL_SCOPED": 3,
+}
 
 
 def _entity_id(entity: dict[str, Any]) -> str:
@@ -44,6 +71,43 @@ def _ref_fk_cols(ref: dict[str, Any]) -> list[str]:
         return [str(c) for c in ref["source_fk_columns"] if str(c).strip()]
     fk = str(ref.get("fk_column_name") or "").strip()
     return [fk] if fk else []
+
+
+def _resolve_sal_ref_tier_rank(
+    ref: dict[str, Any],
+    hub_obj: dict[str, Any] | None,
+) -> int | None:
+    """Resolve the 3-Tier BKCC authority rank (1=Tier-1, 2=Tier-2, 3=Tier-3) for a SAL reference."""
+    direct_tier = str(ref.get("key_authority_tier") or ref.get("bk_authority_tier") or "").upper()
+    if direct_tier in _AUTHORITY_TIER_RANK:
+        return _AUTHORITY_TIER_RANK[direct_tier]
+    if not hub_obj or not isinstance(hub_obj, dict):
+        return None
+
+    ref_cols = [c.lower() for c in _ref_fk_cols(ref)]
+    if not ref_cols:
+        return None
+
+    bk_sources = [s for s in hub_obj.get("business_key_sources", []) if isinstance(s, dict)]
+    for src in bk_sources:
+        tier = str(src.get("key_authority_tier") or src.get("bk_authority_tier") or "").upper()
+        rank = _AUTHORITY_TIER_RANK.get(tier)
+        if rank is None:
+            continue
+        src_cols = [str(c).lower() for c in src.get("key_columns", []) if str(c).strip()]
+        if src_cols and ref_cols == src_cols:
+            return rank
+
+    for src in bk_sources:
+        tier = str(src.get("key_authority_tier") or src.get("bk_authority_tier") or "").upper()
+        rank = _AUTHORITY_TIER_RANK.get(tier)
+        if rank is None:
+            continue
+        src_cols = [str(c).lower() for c in src.get("key_columns", []) if str(c).strip()]
+        if len(ref_cols) == 1 and len(src_cols) == 1 and ref_cols[0].endswith(f"_{src_cols[0]}"):
+            return rank
+
+    return None
 
 
 def build_dv2_networkx_digraph(contract: dict[str, Any]) -> nx.MultiDiGraph:
@@ -107,7 +171,7 @@ def verify_structural_invariants(
     *,
     check_isolated_hubs: bool = True,
 ) -> list[str]:
-    """Gate 3 Verifier: Enforce `DV-STR-001` through `DV-STR-014` (`DV-G3-001`-`005`)
+    """Gate 3 Verifier: Enforce `DV-STR-001` through `DV-STR-015` (`DV-G3-001`-`005`)
     using a `networkx.MultiDiGraph` bipartite DAG model.
     """
     violations: list[str] = []
@@ -129,8 +193,9 @@ def verify_structural_invariants(
                 f"(outdeg={g.out_degree(h_name)}); direct Hub-to-Hub edges are forbidden."
             )
 
-    # 2. Link Invariants (DV-STR-002..004, DV-STR-010, DV-STR-011, DV-STR-014)
+    # 2. Link Invariants (DV-STR-002..004, DV-STR-010, DV-STR-011, DV-STR-014, DV-STR-015)
     seen_link_signatures: dict[tuple[Any, ...], str] = {}
+    seen_sal_endpoint_pairs: dict[tuple[str, frozenset[str]], tuple[str, tuple[str, str]]] = {}
     link_fk_cols_map: dict[str, set[str]] = {}
 
     for l_name, l_obj in links.items():
@@ -191,6 +256,150 @@ def verify_structural_invariants(
                 f"[DV-STR-004] Self-referencing / {l_type} Link '{l_name}' must "
                 f"declare distinct non-empty role names and distinct FK columns."
             )
+
+        # DV-STR-015: Canonical Same-As Link (sal_*) Edge Ordering & Self-Loop / Inverted-Pair Guard
+        is_sal = l_type in {"SAME_AS", "SAME_AS_LINK"} or l_name.lower().startswith("sal_")
+        if is_sal:
+            if len(refs) != 2 or len(set(target_hub_list)) != 1:
+                violations.append(
+                    f"[DV-STR-015] Same-As Link '{l_name}' must connect exactly 2 references "
+                    f"to the same target Hub (found {target_hub_list})."
+                )
+            else:
+                t_hub = target_hub_list[0]
+                ref0_cols = tuple(_ref_fk_cols(refs[0]))
+                ref1_cols = tuple(_ref_fk_cols(refs[1]))
+                fk0 = str(
+                    refs[0].get("fk_column_name") or (ref0_cols[0] if ref0_cols else "")
+                ).strip()
+                fk1 = str(
+                    refs[1].get("fk_column_name") or (ref1_cols[0] if ref1_cols else "")
+                ).strip()
+                ep0 = ref0_cols[0] if ref0_cols else fk0
+                ep1 = ref1_cols[0] if ref1_cols else fk1
+
+                where_cond_u = str(l_obj.get("where_filter_condition") or "").upper()
+                has_reflexive_where = (
+                    bool(where_cond_u)
+                    and "=" in where_cond_u
+                    and "!=" not in where_cond_u
+                    and "<>" not in where_cond_u
+                    and "NOT " not in where_cond_u
+                    and (
+                        (
+                            bool(ep0)
+                            and bool(ep1)
+                            and ep0.upper() in where_cond_u
+                            and ep1.upper() in where_cond_u
+                        )
+                        or (
+                            "HK_" in where_cond_u
+                            and "MASTER" in where_cond_u
+                            and "DUPLICATE" in where_cond_u
+                        )
+                    )
+                )
+
+                raw_pairs = (
+                    l_obj.get("edge_pairs")
+                    or l_obj.get("sample_pairs")
+                    or l_obj.get("candidate_pairs")
+                    or []
+                )
+                has_pair_self_loop = False
+                has_pair_inverted_dup = False
+                seen_directed_pairs: set[tuple[str, str]] = set()
+                if isinstance(raw_pairs, list):
+                    for pair in raw_pairs:
+                        if isinstance(pair, (list, tuple)) and len(pair) == 2:
+                            p_a, p_b = str(pair[0]).strip(), str(pair[1]).strip()
+                        elif isinstance(pair, dict):
+                            p_a = str(pair.get("hk_master") or pair.get("master") or "").strip()
+                            p_b = str(
+                                pair.get("hk_duplicate") or pair.get("duplicate") or ""
+                            ).strip()
+                        else:
+                            continue
+                        if p_a and p_b:
+                            if p_a == p_b:
+                                has_pair_self_loop = True
+                            elif (p_b, p_a) in seen_directed_pairs:
+                                has_pair_inverted_dup = True
+                            seen_directed_pairs.add((p_a, p_b))
+
+                is_self_loop = (
+                    (bool(roles[0]) and roles[0].upper() == roles[1].upper())
+                    or (bool(ref0_cols) and ref0_cols == ref1_cols)
+                    or (bool(fk0) and bool(fk1) and fk0 == fk1)
+                    or l_obj.get("asymmetry_predicate") is False
+                    or l_obj.get("allow_self_loops") is True
+                    or has_reflexive_where
+                    or has_pair_self_loop
+                )
+                if is_self_loop:
+                    violations.append(
+                        f"[DV-STR-015] Same-As Link '{l_name}' violates asymmetry "
+                        f"(hk_master != hk_duplicate): reflexive self-loop (A, A) detected "
+                        f"between endpoints ({ep0 or roles[0]} vs {ep1 or roles[1]})."
+                    )
+
+                r0_u = roles[0].upper()
+                r1_u = roles[1].upper()
+                fk0_u = f"{' '.join(ref0_cols)} {fk0}".upper()
+                fk1_u = f"{' '.join(ref1_cols)} {fk1}".upper()
+
+                r0_has_m = any(tok in r0_u for tok in _SAL_MASTER_TOKENS)
+                r0_has_d = any(tok in r0_u for tok in _SAL_DUPLICATE_TOKENS)
+                r1_has_m = any(tok in r1_u for tok in _SAL_MASTER_TOKENS)
+                r1_has_d = any(tok in r1_u for tok in _SAL_DUPLICATE_TOKENS)
+
+                if r0_has_m or r0_has_d or r1_has_m or r1_has_d:
+                    canonical_role_order = r0_has_m and not r0_has_d and r1_has_d and not r1_has_m
+                else:
+                    fk0_has_m = any(tok in fk0_u for tok in _SAL_MASTER_TOKENS)
+                    fk0_has_d = any(tok in fk0_u for tok in _SAL_DUPLICATE_TOKENS)
+                    fk1_has_m = any(tok in fk1_u for tok in _SAL_MASTER_TOKENS)
+                    fk1_has_d = any(tok in fk1_u for tok in _SAL_DUPLICATE_TOKENS)
+                    canonical_role_order = (
+                        fk0_has_m and not fk0_has_d and fk1_has_d and not fk1_has_m
+                    )
+
+                if not canonical_role_order:
+                    violations.append(
+                        f"[DV-STR-015] Same-As Link '{l_name}' violates canonical "
+                        f"(hk_master, hk_duplicate) edge ordering: endpoint 0 "
+                        f"('{roles[0] or ep0}') must be MASTER/PRIMARY and endpoint 1 "
+                        f"('{roles[1] or ep1}') must be DUPLICATE/ALIAS."
+                    )
+
+                hub_obj = hubs.get(t_hub)
+                rank0 = _resolve_sal_ref_tier_rank(refs[0], hub_obj)
+                rank1 = _resolve_sal_ref_tier_rank(refs[1], hub_obj)
+                if rank0 is not None and rank1 is not None and rank0 > rank1:
+                    violations.append(
+                        f"[DV-STR-015] Same-As Link '{l_name}' violates canonical authority "
+                        f"hierarchy on Hub '{t_hub}': master endpoint '{ep0 or roles[0]}' "
+                        f"(Tier-{rank0}) has lower authority than duplicate endpoint "
+                        f"'{ep1 or roles[1]}' (Tier-{rank1})."
+                    )
+
+                if has_pair_inverted_dup:
+                    violations.append(
+                        f"[DV-STR-015] Same-As Link '{l_name}' contains duplicate inverted "
+                        f"(B, A) edge pairs conflicting with canonical (A, B) ordering."
+                    )
+
+                if ep0 and ep1 and ep0 != ep1:
+                    sal_pair_key = (t_hub, frozenset({ep0, ep1}))
+                    if sal_pair_key in seen_sal_endpoint_pairs:
+                        prev_sal, prev_eps = seen_sal_endpoint_pairs[sal_pair_key]
+                        violations.append(
+                            f"[DV-STR-015] Same-As Link '{l_name}' defines duplicate or "
+                            f"inverted (B, A) endpoint pair ({ep0}, {ep1}) on Hub '{t_hub}', "
+                            f"conflicting with '{prev_sal}' {prev_eps}."
+                        )
+                    else:
+                        seen_sal_endpoint_pairs[sal_pair_key] = (l_name, (ep0, ep1))
 
         # DV-STR-014: Hierarchical Link Recursion Termination Guarantee
         if l_type in {"HIERARCHICAL", "HIERARCHICAL_LINK"} and (

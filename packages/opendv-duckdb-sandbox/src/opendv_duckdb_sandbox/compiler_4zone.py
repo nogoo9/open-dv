@@ -2,14 +2,19 @@
 
 Compiles verified `CanonicalIR` models (including the Private Equity reference vault) into
 an executable 4-Zone DuckDB SQL bundle (`docs/03` §7, `docs/05` §3.5, `docs/07` Scene 6):
-- **Zone 0**: Target schemas, Bronze staging seed tables, Raw/Business Vault DDL, and
-  mandatory Ghost Records (`SYSTEM_GHOST` at `1900-01-01 00:00:00`) & Dual Zero Keys
-  (`'0'*64` Unknown and `'f'*64` Error with `rec_src = 'SYSTEM_ZERO_KEY'`).
+- **Zone 0**: Target schemas, Bronze staging seed tables, Raw/Business Vault DDL
+  (`CREATE TABLE IF NOT EXISTS`), mandatory Ghost Records (`SYSTEM_GHOST` at
+  `1900-01-01 00:00:00`) & Dual Zero Keys (`'0'*64` Unknown and `'f'*64` Error with
+  `rec_src = 'SYSTEM_ZERO_KEY'`), plus idempotent `zone_0_migration_sql`
+  (`ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS`) for additive Satellite evolution.
 - **Zone 1**: Hashed Staging Views (`staging.stg_*`) using Algorithm A.5 length-prefixed
-  SHA-256 (`<len>:<val>` and `'-1:^^'` null token) and `BKCC` namespace injection.
+  SHA-256 (`<len>:<val>` and `'-1:^^'` null token), `BKCC` namespace injection, and
+  3-way Zero-Key sentinel branching (`'-2'` -> `'f'*64`, `NULL`/`'-1'` -> `'0'*64`).
 - **Zone 2**: Insert-Only Raw Vault DML for Hubs, Reference tables, Links, and Satellites
-  using idempotent `WHERE NOT EXISTS` and `LEFT JOIN ... WHERE cur.hk IS NULL OR`
-  `cur.hash_diff <> src.hash_diff` anti-joins.
+  using idempotent `WHERE NOT EXISTS`, lexicographic `(applied_dts ASC, load_dts ASC)`
+  `LAG(hash_diff)` delta detection for bi-temporal Satellites (`DV-DML-003`), and
+  `LEFT JOIN ... WHERE cur.hk IS NULL OR cur.hash_diff <> src.hash_diff` anti-joins for
+  uni-temporal Satellites.
 - **Zone 3**: Business Vault (`sal_limited_partner`, `sal_investor_golden`,
   `esat_sal_limited_partner`, AI provenance satellites, and `pit_portfolio_company`).
 - **Zone 4**: Bi-temporal Point-in-Time audit queries (`Query D.10` and `Query D.10b`).
@@ -28,8 +33,10 @@ from opendv_core.constants import (
     GHOST_REC_SRC,
     NULL_TOKEN,
     ZERO_KEY_ERROR,
+    ZERO_KEY_ERROR_TOKEN,
     ZERO_KEY_REC_SRC,
     ZERO_KEY_UNKNOWN,
+    ZERO_KEY_UNKNOWN_TOKEN,
 )
 from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import (
@@ -63,6 +70,7 @@ class Compiled4ZoneBundle(BaseModel):
     ir_version: str = "1.0.0"
     topological_load_order: list[str] = Field(default_factory=list)
     zone_0_sql: str
+    zone_0_migration_sql: str = ""
     zone_1_sql: str
     zone_2_sql: str
     zone_3_sql: str
@@ -77,14 +85,17 @@ class Compiled4ZoneBundle(BaseModel):
     @property
     def zones_0_to_3_sql(self) -> str:
         """Executable DDL + DML bundle for Zones 0 through 3."""
-        return "\n\n".join(
+        sections = [self.zone_0_sql]
+        if self.zone_0_migration_sql.strip():
+            sections.append(self.zone_0_migration_sql)
+        sections.extend(
             [
-                self.zone_0_sql,
                 self.zone_1_sql,
                 self.zone_2_sql,
                 self.zone_3_sql,
             ]
         )
+        return "\n\n".join(sections)
 
     @property
     def full_sql_bundle(self) -> str:
@@ -121,8 +132,17 @@ def build_algorithm_a5_sha256_sql(
     sort_alphabetically: bool = False,
     delimiter: str = DEFAULT_DELIMITER,
     null_token: str = NULL_TOKEN,
+    error_predicate: str | None = None,
+    unknown_predicate: str | None = None,
+    key_columns: list[str] | None = None,
 ) -> str:
-    """Build a DuckDB Algorithm A.5 length-prefixed SHA-256 SQL expression."""
+    """Build a DuckDB Algorithm A.5 length-prefixed SHA-256 SQL expression.
+
+    When `is_business_key=True`, emits a 3-way `CASE` expression routing `'-2'` /
+    `error_predicate` to `REPEAT('f', 64)` (`ZERO_KEY_ERROR`) and `NULL` / `''` / `'-1'` /
+    `unknown_predicate` on `key_columns` (excluding constant `bkcc` / `*__bkcc` columns by
+    default) to `REPEAT('0', 64)` (`ZERO_KEY_UNKNOWN`).
+    """
     ordered = sorted(columns) if sort_alphabetically else list(columns)
     tokens: list[str] = []
     if is_business_key and bkcc_literal:
@@ -139,10 +159,34 @@ def build_algorithm_a5_sha256_sql(
     concat_sql = f" || '{delimiter}' || ".join(tokens)
     sha_expr = f"LOWER(SHA256({concat_sql}))"
     if is_business_key and ordered:
-        all_null_pred = " AND ".join(
-            f"NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL" for c in ordered
+        if key_columns is not None:
+            pred_cols = list(key_columns)
+        else:
+            non_bkcc = [
+                c for c in ordered if c.lower() != "bkcc" and not c.lower().endswith("__bkcc")
+            ]
+            pred_cols = non_bkcc or ordered
+        default_err_pred = " OR ".join(
+            f"TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_ERROR_TOKEN}'" for c in pred_cols
         )
-        return f"CASE WHEN {all_null_pred} THEN REPEAT('0', 64) ELSE {sha_expr} END"
+        err_branch_pred = (
+            f"({error_predicate}) OR ({default_err_pred})" if error_predicate else default_err_pred
+        )
+        default_unk_pred = " OR ".join(
+            f"(NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL "
+            f"OR TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_UNKNOWN_TOKEN}')"
+            for c in pred_cols
+        )
+        unk_branch_pred = (
+            f"({unknown_predicate}) OR ({default_unk_pred})"
+            if unknown_predicate
+            else default_unk_pred
+        )
+        return (
+            f"CASE WHEN {err_branch_pred} THEN REPEAT('f', 64) "
+            f"WHEN {unk_branch_pred} THEN REPEAT('0', 64) "
+            f"ELSE {sha_expr} END"
+        )
     return sha_expr
 
 
@@ -226,6 +270,9 @@ INSERT INTO dealcloud.src_portfolio_companies VALUES
     ('PC-DEAL-01', '529900T8BM49AURSDO55', 'Nordic Cloud Infrastructure AB', '45102010', 'SE', 2023,
      16896550.00, 12.80, 216280000.00, DATE '2026-09-30', TIMESTAMP '2026-10-01 07:30:00'),
     ('PC-NULL-FK', NULL, 'Unassigned Pipeline Target', '45103010', 'US', 2026,
+     5000000.00, 10.00, 50000000.00, DATE '2026-09-30',
+     TIMESTAMP '2026-10-01 07:30:00'),
+    ('PC-ERR-FK', '-2', 'Inapplicable Pipeline Target', '45103010', 'US', 2026,
      5000000.00, 10.00, 50000000.00, DATE '2026-09-30',
      TIMESTAMP '2026-10-01 07:30:00'){restatement_seed_portco};
 
@@ -745,7 +792,8 @@ keys AS (
     SELECT
         *,
         CASE
-            WHEN lp_id_norm IS NULL OR lp_id_norm = '' THEN REPEAT('0', 64)
+            WHEN lp_id_norm = '-2' THEN REPEAT('f', 64)
+            WHEN lp_id_norm IS NULL OR lp_id_norm = '' OR lp_id_norm = '-1' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 '6:GLOBAL||'
                 || CAST(OCTET_LENGTH(ENCODE(lp_id_norm)) AS VARCHAR)
@@ -753,7 +801,9 @@ keys AS (
             ))
         END AS hk_lp,
         CASE
-            WHEN fund_code_norm IS NULL OR fund_code_norm = '' THEN REPEAT('0', 64)
+            WHEN fund_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN fund_code_norm IS NULL OR fund_code_norm = '' OR fund_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 CAST(OCTET_LENGTH(ENCODE(fund_code_norm)) AS VARCHAR) || ':' || fund_code_norm
             ))
@@ -854,7 +904,9 @@ keys AS (
     SELECT
         *,
         CASE
-            WHEN lei_code_norm IS NULL OR lei_code_norm = '' THEN REPEAT('0', 64)
+            WHEN lei_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN lei_code_norm IS NULL OR lei_code_norm = '' OR lei_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 CAST(OCTET_LENGTH(ENCODE(lei_code_norm)) AS VARCHAR) || ':' || lei_code_norm
             ))
@@ -938,7 +990,8 @@ keys AS (
     SELECT
         *,
         CASE
-            WHEN lp_id_norm IS NULL OR lp_id_norm = '' THEN REPEAT('0', 64)
+            WHEN lp_id_norm = '-2' THEN REPEAT('f', 64)
+            WHEN lp_id_norm IS NULL OR lp_id_norm = '' OR lp_id_norm = '-1' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 '15:LEGACY_GP_ADMIN||'
                 || CAST(OCTET_LENGTH(ENCODE(lp_id_norm)) AS VARCHAR)
@@ -946,7 +999,9 @@ keys AS (
             ))
         END AS hk_lp,
         CASE
-            WHEN cap_acct_code_norm IS NULL OR cap_acct_code_norm = '' THEN REPEAT('0', 64)
+            WHEN cap_acct_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN cap_acct_code_norm IS NULL OR cap_acct_code_norm = '' OR cap_acct_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 '15:LEGACY_GP_ADMIN||'
                 || CAST(OCTET_LENGTH(ENCODE(cap_acct_code_norm)) AS VARCHAR)
@@ -954,7 +1009,9 @@ keys AS (
             ))
         END AS hk_cap_acct,
         CASE
-            WHEN fund_code_norm IS NULL OR fund_code_norm = '' THEN REPEAT('0', 64)
+            WHEN fund_code_norm = '-2' THEN REPEAT('f', 64)
+            WHEN fund_code_norm IS NULL OR fund_code_norm = '' OR fund_code_norm = '-1'
+                THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 CAST(OCTET_LENGTH(ENCODE(fund_code_norm)) AS VARCHAR) || ':' || fund_code_norm
             ))
@@ -1750,7 +1807,7 @@ def _hub_seed_hk(
 ) -> str:
     """Compute the deterministic lowercase 64-char SHA-256 hash key for `row_idx` of `hub`."""
     tokens = _hub_seed_bk_values(hub, row_idx, bkcc_override=bkcc_override)
-    return compute_dv2_length_prefixed_sha256(tokens, is_business_key=True).lower()
+    return compute_dv2_length_prefixed_sha256(tokens, is_business_key=True)
 
 
 def _normalize_duckdb_type(data_type: str) -> str:
@@ -1851,14 +1908,15 @@ def _satellite_child_key_names(sat: IRSatellite) -> list[str]:
 
 
 def _satellite_all_data_columns(sat: IRSatellite) -> list[IRColumnDef]:
-    """Return sub-sequence columns followed by payload columns without duplicates."""
+    """Return sub-sequence and payload columns without duplicates or duplicate `applied_dts`."""
     child_defs = list(sat.child_dependent_keys or [])
     sub_seq_set = {c.name if hasattr(c, "name") else str(c) for c in child_defs}
+    applied_col_name = sat.applied_dts_column.name if sat.applied_dts_column is not None else None
     existing_names = {c.name for c in sat.payload_columns}
     cols: list[IRColumnDef] = []
     for c_def in child_defs:
         seq_name = c_def.name if hasattr(c_def, "name") else str(c_def)
-        if seq_name not in existing_names:
+        if seq_name not in existing_names and seq_name != applied_col_name:
             if isinstance(c_def, IRColumnDef):
                 cols.append(c_def.model_copy(update={"nullable": False}))
             else:
@@ -1870,6 +1928,8 @@ def _satellite_all_data_columns(sat: IRSatellite) -> list[IRColumnDef]:
                     )
                 )
     for col in sat.payload_columns:
+        if col.name == applied_col_name:
+            continue
         if col.name in sub_seq_set and col.nullable:
             cols.append(col.model_copy(update={"nullable": False}))
         else:
@@ -1956,7 +2016,7 @@ def _compile_generic_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     bk_defs = [f"    {_validate_ident(bk.name)} VARCHAR NOT NULL," for bk in hub.business_keys]
     ddl = "\n".join(
         [
-            f"CREATE OR REPLACE TABLE raw_vault.{tbl} (",
+            f"CREATE TABLE IF NOT EXISTS raw_vault.{tbl} (",
             f"    {hk} CHAR(64) NOT NULL PRIMARY KEY,",
             *bk_defs,
             "    load_dts TIMESTAMP NOT NULL,",
@@ -1967,7 +2027,7 @@ def _compile_generic_hub_ddl_and_zero_keys(hub: IRHub) -> str:
     unknown_bks = ", ".join("'SYSTEM'" if bk.is_bkcc else "'-1'" for bk in hub.business_keys)
     error_bks = ", ".join("'SYSTEM'" if bk.is_bkcc else "'-2'" for bk in hub.business_keys)
     zero_insert = (
-        f"INSERT INTO raw_vault.{tbl} VALUES\n"
+        f"INSERT OR IGNORE INTO raw_vault.{tbl} VALUES\n"
         f"    ('{ZERO_KEY_UNKNOWN}', {unknown_bks}, "
         f"TIMESTAMP '{GHOST_DTS}', '{ZERO_KEY_REC_SRC}'),\n"
         f"    ('{ZERO_KEY_ERROR}', {error_bks}, "
@@ -1981,12 +2041,12 @@ def _compile_generic_reference_ddl_and_seed(ref: IRReferenceTable) -> str:
     tbl = _validate_ident(ref.name)
     code_col = _validate_ident(ref.natural_code_column)
     return (
-        f"CREATE OR REPLACE TABLE raw_vault.{tbl} (\n"
+        f"CREATE TABLE IF NOT EXISTS raw_vault.{tbl} (\n"
         f"    {code_col} VARCHAR NOT NULL PRIMARY KEY,\n"
         f"    load_dts TIMESTAMP NOT NULL,\n"
         f"    rec_src VARCHAR NOT NULL\n"
         f");\n"
-        f"INSERT INTO raw_vault.{tbl} VALUES\n"
+        f"INSERT OR IGNORE INTO raw_vault.{tbl} VALUES\n"
         f"    ('REF-001', TIMESTAMP '2026-10-01 06:00:00', 'SYSTEM_SEED'),\n"
         f"    ('REF-002', TIMESTAMP '2026-10-01 06:00:00', 'SYSTEM_SEED');"
     )
@@ -2003,7 +2063,7 @@ def _compile_generic_link_ddl_and_zero_keys(link: IRLink) -> str:
     ]
     ddl = "\n".join(
         [
-            f"CREATE OR REPLACE TABLE {schema}.{tbl} (",
+            f"CREATE TABLE IF NOT EXISTS {schema}.{tbl} (",
             f"    {hk} CHAR(64) NOT NULL PRIMARY KEY,",
             *fk_defs,
             "    load_dts TIMESTAMP NOT NULL,",
@@ -2014,7 +2074,7 @@ def _compile_generic_link_ddl_and_zero_keys(link: IRLink) -> str:
     unknown_fks = ", ".join(f"'{ZERO_KEY_UNKNOWN}'" for _ in link.hub_references)
     error_fks = ", ".join(f"'{ZERO_KEY_ERROR}'" for _ in link.hub_references)
     zero_insert = (
-        f"INSERT INTO {schema}.{tbl} VALUES\n"
+        f"INSERT OR IGNORE INTO {schema}.{tbl} VALUES\n"
         f"    ('{ZERO_KEY_UNKNOWN}', {unknown_fks}, "
         f"TIMESTAMP '{GHOST_DTS}', '{ZERO_KEY_REC_SRC}'),\n"
         f"    ('{ZERO_KEY_ERROR}', {error_fks}, "
@@ -2053,14 +2113,21 @@ def _compile_generic_satellite_ddl_and_ghost(sat: IRSatellite) -> str:
     pk_cols = [parent_hk, "load_dts", *(_validate_ident(c) for c in child_keys)]
     col_lines.append(f"    PRIMARY KEY ({', '.join(pk_cols)})")
 
-    ddl = f"CREATE OR REPLACE TABLE {schema}.{tbl} (\n" + "\n".join(col_lines) + "\n);"
-    ghost_payloads = ", ".join(_ghost_literal_for_sat_column(col, sub_seq_set) for col in data_cols)
-    applied_val = f"TIMESTAMP '{GHOST_DTS}', " if has_applied else ""
-    payload_suffix = f", {ghost_payloads}" if ghost_payloads else ""
+    ddl = f"CREATE TABLE IF NOT EXISTS {schema}.{tbl} (\n" + "\n".join(col_lines) + "\n);"
+    ghost_cols = [parent_hk, "load_dts"]
+    ghost_vals = [f"'{ZERO_KEY_UNKNOWN}'", f"TIMESTAMP '{GHOST_DTS}'"]
+    if has_applied:
+        ghost_cols.append("applied_dts")
+        ghost_vals.append(f"TIMESTAMP '{GHOST_DTS}'")
+    ghost_cols.extend(["rec_src", "hash_diff"])
+    ghost_vals.extend([f"'{GHOST_REC_SRC}'", f"'{ZERO_KEY_UNKNOWN}'"])
+    for col in data_cols:
+        if col.name in sub_seq_set:
+            ghost_cols.append(_validate_ident(col.name))
+            ghost_vals.append(_ghost_literal_for_sat_column(col, sub_seq_set))
     ghost_insert = (
-        f"INSERT INTO {schema}.{tbl} VALUES\n"
-        f"    ('{ZERO_KEY_UNKNOWN}', TIMESTAMP '{GHOST_DTS}', {applied_val}"
-        f"'{GHOST_REC_SRC}', '{ZERO_KEY_UNKNOWN}'{payload_suffix});"
+        f"INSERT OR IGNORE INTO {schema}.{tbl} ({', '.join(ghost_cols)}) VALUES\n"
+        f"    ({', '.join(ghost_vals)});"
     )
     return f"{ddl}\n{ghost_insert}"
 
@@ -2144,7 +2211,11 @@ def _resolve_hub_bk_rows_from_bronze(
                 src_col = src_bk_cols[non_bkcc_idx] if non_bkcc_idx < len(src_bk_cols) else bk.name
                 non_bkcc_idx += 1
                 raw_val = row.get(src_col, row.get(bk.name))
-                if raw_val is None or str(raw_val).strip() == "":
+                if raw_val is None or str(raw_val).strip() in {
+                    "",
+                    ZERO_KEY_UNKNOWN_TOKEN,
+                    ZERO_KEY_ERROR_TOKEN,
+                }:
                     valid_row = False
                     break
                 tokens.append(str(raw_val).strip())
@@ -2284,6 +2355,8 @@ def _compile_generic_zone_0_sql(
         col_defs: list[str] = []
         row1_tokens: list[str] = []
         row2_tokens: list[str] = []
+        row3_tokens: list[str] = []
+        row4_tokens: list[str] = []
         target_counts: dict[str, int] = {}
         for ref_idx, ref in enumerate(link.hub_references):
             fk_col = _validate_ident(ref.fk_column_name)
@@ -2302,11 +2375,17 @@ def _compile_generic_zone_0_sql(
                 row1_tokens.append(f"'{esc1}'")
                 if ref_idx == 0:
                     row2_tokens.append(f"'{esc2}'")
+                    row3_tokens.append(f"'{esc1}'")
+                    row4_tokens.append(f"'{esc2}'")
                 else:
                     row2_tokens.append(f"'{esc2}'" if bk.is_bkcc else "NULL")
+                    row3_tokens.append(f"'{esc1}'" if bk.is_bkcc else f"'{ZERO_KEY_UNKNOWN_TOKEN}'")
+                    row4_tokens.append(f"'{esc2}'" if bk.is_bkcc else f"'{ZERO_KEY_ERROR_TOKEN}'")
 
         r1_sql = ", ".join(row1_tokens)
         r2_sql = ", ".join(row2_tokens)
+        r3_sql = ", ".join(row3_tokens)
+        r4_sql = ", ".join(row4_tokens)
         parts.append(
             "\n".join(
                 [
@@ -2317,7 +2396,9 @@ def _compile_generic_zone_0_sql(
                     ");",
                     f"INSERT INTO bronze.src_{tbl} VALUES",
                     f"    ({r1_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
-                    f"    ({r2_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}');",
+                    f"    ({r2_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                    f"    ({r3_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}'),",
+                    f"    ({r4_sql}, TIMESTAMP '2026-10-01 06:00:00', '{rec_src}');",
                 ]
             )
         )
@@ -2369,8 +2450,8 @@ def _compile_generic_zone_0_sql(
                 h_rows = hub_bk_rows[t_hub.name]
                 h_r1, h_r2 = h_rows[0], h_rows[1]
                 r1_tokens = h_r1 if occ == 0 else h_r2
-                r1_hk = compute_dv2_length_prefixed_sha256(r1_tokens, is_business_key=True).lower()
-                r2_hk = compute_dv2_length_prefixed_sha256(h_r2, is_business_key=True).lower()
+                r1_hk = compute_dv2_length_prefixed_sha256(r1_tokens, is_business_key=True)
+                r2_hk = compute_dv2_length_prefixed_sha256(h_r2, is_business_key=True)
                 r1_parent_vals.append(f"'{r1_hk}'")
                 if ref_idx == 0:
                     r2_parent_vals.append(f"'{r2_hk}'")
@@ -2393,13 +2474,24 @@ def _compile_generic_zone_0_sql(
         insert_rows: list[str] = []
         for idx_r, p_vals in enumerate(parent_val_rows):
             src_row = sat_source_rows[idx_r] if idx_r < len(sat_source_rows) else None
+            row_load_dts = (
+                str(src_row.get("load_dts") or "2026-10-01 06:00:00").replace("'", "''")
+                if src_row is not None
+                else "2026-10-01 06:00:00"
+            )
+            row_app_dts = (
+                str(src_row.get("applied_dts") or "2026-09-30 00:00:00").replace("'", "''")
+                if src_row is not None
+                else "2026-09-30 00:00:00"
+            )
+            row_app_lit = f"TIMESTAMP '{row_app_dts}', " if has_applied else ""
             r_payload = [
                 _format_bronze_payload_sql_literal(c, src_row, idx_r + 1) for c in data_cols
             ]
             r_pay_sql = f", {', '.join(r_payload)}" if r_payload else ""
             insert_rows.append(
-                f"    ({', '.join(p_vals)}, TIMESTAMP '2026-10-01 06:00:00', "
-                f"{app_lit}'{rec_src}'{r_pay_sql})"
+                f"    ({', '.join(p_vals)}, TIMESTAMP '{row_load_dts}', "
+                f"{row_app_lit}'{rec_src}'{r_pay_sql})"
             )
 
         if include_batch4_restatement_in_seed and sat.name == bitemp_sat_name and parent_val_rows:
@@ -2455,7 +2547,14 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
         created_views.add(view_name)
         hk_col = _validate_ident(hub.hk_column.name)
         bk_cols = [_validate_ident(bk.name) for bk in hub.business_keys]
-        hk_expr = build_algorithm_a5_sha256_sql(bk_cols, is_business_key=True)
+        non_bkcc_cols = [
+            _validate_ident(bk.name) for bk in hub.business_keys if not bk.is_bkcc
+        ] or bk_cols
+        hk_expr = build_algorithm_a5_sha256_sql(
+            bk_cols,
+            is_business_key=True,
+            key_columns=non_bkcc_cols,
+        )
         bk_csv = ", ".join(bk_cols)
         parts.append(
             f"CREATE OR REPLACE VIEW staging.{view_name} AS\n"
@@ -2486,17 +2585,37 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
                 for bk in t_hub.business_keys
                 if not bk.is_bkcc
             ] or raw_bk_cols
-            null_pred = " AND ".join(
-                f"NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL" for c in non_bkcc_cols
+            error_pred = " OR ".join(
+                f"TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_ERROR_TOKEN}'" for c in non_bkcc_cols
             )
-            raw_hash = build_algorithm_a5_sha256_sql(raw_bk_cols, is_business_key=True)
+            unknown_pred = " OR ".join(
+                f"(NULLIF(TRIM(CAST({c} AS VARCHAR)), '') IS NULL "
+                f"OR TRIM(CAST({c} AS VARCHAR)) = '{ZERO_KEY_UNKNOWN_TOKEN}')"
+                for c in non_bkcc_cols
+            )
+            raw_hash = build_algorithm_a5_sha256_sql(
+                raw_bk_cols,
+                is_business_key=True,
+                key_columns=non_bkcc_cols,
+            )
             fk_cte_exprs.append(
                 f"        COALESCE(\n"
-                f"            CASE WHEN {null_pred} THEN NULL ELSE {raw_hash} END,\n"
+                f"            CASE\n"
+                f"                WHEN {error_pred} THEN REPEAT('f', 64)\n"
+                f"                WHEN {unknown_pred} THEN REPEAT('0', 64)\n"
+                f"                ELSE {raw_hash}\n"
+                f"            END,\n"
                 f"            REPEAT('0', 64)\n"
                 f"        ) AS {fk_col}"
             )
-        link_hk_expr = build_algorithm_a5_sha256_sql(fk_cols, is_business_key=True)
+        all_fk_err_pred = " AND ".join(f"{c} = REPEAT('f', 64)" for c in fk_cols)
+        all_fk_unk_pred = " AND ".join(f"{c} = REPEAT('0', 64)" for c in fk_cols)
+        link_hk_expr = build_algorithm_a5_sha256_sql(
+            fk_cols,
+            is_business_key=True,
+            error_predicate=all_fk_err_pred,
+            unknown_predicate=all_fk_unk_pred,
+        )
         fk_csv = ", ".join(fk_cols)
         fk_cte_body = ",\n".join(fk_cte_exprs)
         parts.append(
@@ -2530,13 +2649,29 @@ def _compile_generic_zone_1_staging_views(ir_obj: CanonicalIR) -> str:
         if sat.parent_entity in hub_by_name:
             p_hub = hub_by_name[sat.parent_entity]
             p_cols = [f"parent_bk__{_validate_ident(bk.name)}" for bk in p_hub.business_keys]
-            parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+            non_bkcc_p_cols = [
+                f"parent_bk__{_validate_ident(bk.name)}"
+                for bk in p_hub.business_keys
+                if not bk.is_bkcc
+            ] or p_cols
+            parent_hk_expr = build_algorithm_a5_sha256_sql(
+                p_cols,
+                is_business_key=True,
+                key_columns=non_bkcc_p_cols,
+            )
         else:
             p_lnk = link_by_name[sat.parent_entity]
             p_cols = [
                 f"parent_fk__{_validate_ident(ref.fk_column_name)}" for ref in p_lnk.hub_references
             ]
-            parent_hk_expr = build_algorithm_a5_sha256_sql(p_cols, is_business_key=True)
+            all_p_err_pred = " AND ".join(f"{c} = REPEAT('f', 64)" for c in p_cols)
+            all_p_unk_pred = " AND ".join(f"{c} = REPEAT('0', 64)" for c in p_cols)
+            parent_hk_expr = build_algorithm_a5_sha256_sql(
+                p_cols,
+                is_business_key=True,
+                error_predicate=all_p_err_pred,
+                unknown_predicate=all_p_unk_pred,
+            )
 
         payload_names = [_validate_ident(c.name) for c in data_cols]
         hash_diff_expr = build_algorithm_a5_sha256_sql(payload_names, is_business_key=False)
@@ -2604,6 +2739,33 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
         fk_cols = [_validate_ident(ref.fk_column_name) for ref in link.hub_references]
         fk_csv = ", ".join(fk_cols)
         src_fk_csv = ", ".join(f"src.{c}" for c in fk_cols)
+        is_sal_link = (link.name.startswith("sal_") or link.link_type == "SAME_AS") and len(
+            fk_cols
+        ) == 2
+        sal_where_clause = ""
+        if is_sal_link:
+            m_fk, d_fk = fk_cols[0], fk_cols[1]
+            sal_where_clause = (
+                f"  AND src.{m_fk} <> src.{d_fk}\n"
+                f"  AND NOT EXISTS (\n"
+                f"      SELECT 1 FROM {schema}.{tbl} l_inv\n"
+                f"      WHERE l_inv.{m_fk} = src.{d_fk}\n"
+                f"        AND l_inv.{d_fk} = src.{m_fk}\n"
+                f"  )\n"
+                f"  AND NOT EXISTS (\n"
+                f"      SELECT 1 FROM staging.stg_{tbl} src_inv\n"
+                f"      WHERE src_inv.{m_fk} = src.{d_fk}\n"
+                f"        AND src_inv.{d_fk} = src.{m_fk}\n"
+                f"        AND src_inv.{m_fk} <> src_inv.{d_fk}\n"
+                f"        AND (\n"
+                f"            src_inv.load_dts < src.load_dts\n"
+                f"            OR (\n"
+                f"                src_inv.load_dts = src.load_dts\n"
+                f"                AND src_inv.{m_fk} < src.{m_fk}\n"
+                f"            )\n"
+                f"        )\n"
+                f"  )\n"
+            )
         parts.append(
             f"INSERT INTO {schema}.{tbl} ({hk}, {fk_csv}, load_dts, rec_src)\n"
             f"SELECT\n"
@@ -2613,6 +2775,7 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
             f"    ANY_VALUE(src.rec_src) AS rec_src\n"
             f"FROM staging.stg_{tbl} src\n"
             f"WHERE src.{hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+            f"{sal_where_clause}"
             f"  AND NOT EXISTS (\n"
             f"      SELECT 1 FROM {schema}.{tbl} l\n"
             f"      WHERE l.{hk} = src.{hk}\n"
@@ -2636,28 +2799,101 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
         join_on = " AND ".join(f"cur.{c} = src.{c}" for c in part_cols)
         col_tail = f", {payload_csv}" if payload_csv else ""
         sel_tail = f",\n    {src_payload_csv}" if src_payload_csv else ""
-        parts.append(
-            f"INSERT INTO {schema}.{tbl} (\n"
-            f"    {parent_hk}, load_dts, {app_col}rec_src, hash_diff{col_tail}\n"
-            f")\n"
-            f"SELECT\n"
-            f"    src.{parent_hk},\n"
-            f"    src.load_dts,\n"
-            f"    {src_app_col}src.rec_src,\n"
-            f"    src.hash_diff{sel_tail}\n"
-            f"FROM staging.stg_{tbl} src\n"
-            f"LEFT JOIN (\n"
-            f"    SELECT {part_csv}, load_dts, hash_diff\n"
-            f"    FROM {schema}.{tbl}\n"
-            f"    WHERE rec_src <> '{GHOST_REC_SRC}'\n"
-            f"    QUALIFY ROW_NUMBER() OVER (PARTITION BY {part_csv} ORDER BY load_dts DESC) = 1\n"
-            f") cur ON {join_on}\n"
-            f"WHERE src.{parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
-            f"  AND (\n"
-            f"      cur.{parent_hk} IS NULL\n"
-            f"      OR (src.load_dts > cur.load_dts AND cur.hash_diff <> src.hash_diff)\n"
-            f"  );"
-        )
+        if has_applied:
+            assert sat.applied_dts_column is not None
+            applied_ident = _validate_ident(sat.applied_dts_column.name)
+            v_payload_csv = ", ".join(f"v.{c}" for c in payload_cols)
+            s_payload_csv = ", ".join(f"s.{c}" for c in payload_cols)
+            comb_payload_csv = ", ".join(f"combined.{c}" for c in payload_cols)
+            cand_payload_csv = ", ".join(f"cand.{c}" for c in payload_cols)
+            v_sel_tail = f", {v_payload_csv}" if v_payload_csv else ""
+            s_sel_tail = f", {s_payload_csv}" if s_payload_csv else ""
+            comb_sel_tail = f",\n        {comb_payload_csv}" if comb_payload_csv else ""
+            cand_sel_tail = f",\n    {cand_payload_csv}" if cand_payload_csv else ""
+            comb_part_csv = ", ".join(f"combined.{c}" for c in part_cols)
+            existing_on = " AND ".join(f"existing.{c} = s.{c}" for c in part_cols)
+            parts.append(
+                f"INSERT INTO {schema}.{tbl} (\n"
+                f"    {parent_hk}, load_dts, {applied_ident}, rec_src, hash_diff{col_tail}\n"
+                f")\n"
+                f"SELECT\n"
+                f"    cand.{parent_hk},\n"
+                f"    cand.load_dts,\n"
+                f"    cand.{applied_ident},\n"
+                f"    cand.rec_src,\n"
+                f"    cand.hash_diff{cand_sel_tail}\n"
+                f"FROM (\n"
+                f"    SELECT\n"
+                f"        combined.{parent_hk},\n"
+                f"        combined.load_dts,\n"
+                f"        combined.{applied_ident},\n"
+                f"        combined.rec_src,\n"
+                f"        combined.hash_diff{comb_sel_tail},\n"
+                f"        combined.is_new,\n"
+                f"        LAG(combined.hash_diff) OVER (\n"
+                f"            PARTITION BY {comb_part_csv}\n"
+                f"            ORDER BY combined.{applied_ident} ASC, combined.load_dts ASC\n"
+                f"        ) AS prev_hash_diff\n"
+                f"    FROM (\n"
+                f"        SELECT\n"
+                f"            v.{parent_hk}, v.load_dts, v.{applied_ident}, "
+                f"v.rec_src, v.hash_diff{v_sel_tail},\n"
+                f"            0 AS is_new\n"
+                f"        FROM {schema}.{tbl} v\n"
+                f"        WHERE v.rec_src <> '{GHOST_REC_SRC}'\n"
+                f"        UNION ALL\n"
+                f"        SELECT\n"
+                f"            s.{parent_hk}, s.load_dts, s.{applied_ident}, "
+                f"s.rec_src, s.hash_diff{s_sel_tail},\n"
+                f"            1 AS is_new\n"
+                f"        FROM (\n"
+                f"            SELECT {parent_hk}, load_dts, {applied_ident}, "
+                f"rec_src, hash_diff{col_tail}\n"
+                f"            FROM staging.stg_{tbl}\n"
+                f"            WHERE {parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+                f"            QUALIFY ROW_NUMBER() OVER (\n"
+                f"                PARTITION BY {part_csv}, load_dts\n"
+                f"                ORDER BY {applied_ident} DESC\n"
+                f"            ) = 1\n"
+                f"        ) s\n"
+                f"        WHERE NOT EXISTS (\n"
+                f"            SELECT 1 FROM {schema}.{tbl} existing\n"
+                f"            WHERE {existing_on}\n"
+                f"              AND existing.load_dts = s.load_dts\n"
+                f"        )\n"
+                f"    ) combined\n"
+                f") cand\n"
+                f"WHERE cand.is_new = 1\n"
+                f"  AND (\n"
+                f"      cand.prev_hash_diff IS NULL\n"
+                f"      OR cand.prev_hash_diff <> cand.hash_diff\n"
+                f"  );"
+            )
+        else:
+            parts.append(
+                f"INSERT INTO {schema}.{tbl} (\n"
+                f"    {parent_hk}, load_dts, {app_col}rec_src, hash_diff{col_tail}\n"
+                f")\n"
+                f"SELECT\n"
+                f"    src.{parent_hk},\n"
+                f"    src.load_dts,\n"
+                f"    {src_app_col}src.rec_src,\n"
+                f"    src.hash_diff{sel_tail}\n"
+                f"FROM staging.stg_{tbl} src\n"
+                f"LEFT JOIN (\n"
+                f"    SELECT {part_csv}, load_dts, hash_diff\n"
+                f"    FROM {schema}.{tbl}\n"
+                f"    WHERE rec_src <> '{GHOST_REC_SRC}'\n"
+                f"    QUALIFY ROW_NUMBER() OVER (\n"
+                f"        PARTITION BY {part_csv} ORDER BY load_dts DESC\n"
+                f"    ) = 1\n"
+                f") cur ON {join_on}\n"
+                f"WHERE src.{parent_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+                f"  AND (\n"
+                f"      cur.{parent_hk} IS NULL\n"
+                f"      OR (src.load_dts > cur.load_dts AND cur.hash_diff <> src.hash_diff)\n"
+                f"  );"
+            )
 
     return "\n\n".join(parts)
 
@@ -2864,11 +3100,64 @@ def _compile_generic_zone_4_information_mart_views(ir_obj: CanonicalIR) -> tuple
     return q_d10, q_d10b
 
 
+def compile_zone_0_migration_sql(
+    ir: CanonicalIR | dict[str, Any],
+    *,
+    baseline_ir: CanonicalIR | dict[str, Any] | None = None,
+) -> str:
+    """Compile idempotent `ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS` statements.
+
+    When `baseline_ir` is provided, emits `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+    statements only for columns added in-place to existing Satellites (`EVO-01` / `DV-EVO-006`).
+    When `baseline_ir` is omitted, emits idempotent `ALTER TABLE ... ADD COLUMN IF NOT EXISTS`
+    statements for all Satellite payload columns so any pre-existing physical Satellite table
+    is safely migrated before Zone 1 and Zone 2 execute.
+    """
+    ir_obj = CanonicalIR.model_validate(ir) if isinstance(ir, dict) else ir
+    base_obj = (
+        CanonicalIR.model_validate(baseline_ir) if isinstance(baseline_ir, dict) else baseline_ir
+    )
+    prev_sats = {s.name: s for s in base_obj.satellites} if base_obj is not None else None
+
+    stmts: list[str] = []
+    for sat in ir_obj.satellites:
+        schema = _satellite_schema(sat)
+        tbl = _validate_ident(sat.name)
+        child_keys = set(_satellite_child_key_names(sat))
+        data_cols = [c for c in _satellite_all_data_columns(sat) if c.name not in child_keys]
+        if prev_sats is not None:
+            if sat.name not in prev_sats:
+                continue
+            prev_col_names = {
+                c.name.lower() for c in _satellite_all_data_columns(prev_sats[sat.name])
+            }
+            target_cols = [c for c in data_cols if c.name.lower() not in prev_col_names]
+        else:
+            target_cols = data_cols
+
+        for col in target_cols:
+            c_name = _validate_ident(col.name)
+            c_type = _normalize_duckdb_type(col.data_type)
+            stmts.append(f"ALTER TABLE {schema}.{tbl} ADD COLUMN IF NOT EXISTS {c_name} {c_type};")
+
+    if not stmts:
+        return ""
+    return "\n".join(
+        [
+            "-- =============================================================================",
+            "-- ZONE 0 MIGRATION: IDEMPOTENT ADDITIVE SATELLITE SCHEMA EVOLUTION (EVO-01)",
+            "-- =============================================================================",
+            *stmts,
+        ]
+    )
+
+
 def compile_canonical_ir_to_4zone_sql(
     ir: CanonicalIR | dict[str, Any],
     *,
     include_batch4_restatement_in_seed: bool = False,
     bronze_tables: dict[str, list[dict[str, Any]] | Any] | None = None,
+    baseline_ir: CanonicalIR | dict[str, Any] | None = None,
 ) -> Compiled4ZoneBundle:
     """Compile a `CanonicalIR` model into a `Compiled4ZoneBundle`.
 
@@ -2882,6 +3171,11 @@ def compile_canonical_ir_to_4zone_sql(
     load_order = topological_load_dag(ir_obj)
 
     if is_pe_domain(ir_obj):
+        pe_migration_sql = (
+            compile_zone_0_migration_sql(ir_obj, baseline_ir=baseline_ir)
+            if baseline_ir is not None
+            else ""
+        )
         return Compiled4ZoneBundle(
             model_name=ir_obj.model_name,
             ir_version=ir_obj.ir_version,
@@ -2889,6 +3183,7 @@ def compile_canonical_ir_to_4zone_sql(
             zone_0_sql=_build_pe_zone_0_sql(
                 include_batch4_restatement_in_seed=include_batch4_restatement_in_seed
             ),
+            zone_0_migration_sql=pe_migration_sql,
             zone_1_sql=_build_pe_zone_1_sql(),
             zone_2_sql=_build_pe_zone_2_sql(),
             zone_3_sql=_build_pe_zone_3_sql(),
@@ -2901,6 +3196,7 @@ def compile_canonical_ir_to_4zone_sql(
         include_batch4_restatement_in_seed=include_batch4_restatement_in_seed,
         bronze_tables=bronze_tables,
     )
+    zone_0_migration_sql = compile_zone_0_migration_sql(ir_obj, baseline_ir=baseline_ir)
     zone_1_sql = _compile_generic_zone_1_staging_views(ir_obj)
     zone_2_sql = _compile_generic_zone_2_raw_vault_dml(ir_obj)
     zone_3_sql = _compile_generic_zone_3_business_vault_sql(ir_obj)
@@ -2911,6 +3207,7 @@ def compile_canonical_ir_to_4zone_sql(
         ir_version=ir_obj.ir_version,
         topological_load_order=load_order,
         zone_0_sql=zone_0_sql,
+        zone_0_migration_sql=zone_0_migration_sql,
         zone_1_sql=zone_1_sql,
         zone_2_sql=zone_2_sql,
         zone_3_sql=zone_3_sql,

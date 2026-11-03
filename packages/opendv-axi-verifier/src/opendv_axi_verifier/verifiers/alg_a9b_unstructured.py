@@ -35,6 +35,25 @@ MANDATORY_PROVENANCE_COLS: frozenset[str] = frozenset(
 )
 
 
+def _normalize_line_endings(text: str) -> str:
+    """Normalize Windows CRLF (`\\r\\n`) and legacy CR (`\\r`) line endings to LF (`\\n`)."""
+    return text.replace("\r\n", "\n").replace("\r", "\n")
+
+
+def _span_matches_document(
+    raw_body: str,
+    start: int,
+    end: int,
+    raw_quote: str,
+) -> bool:
+    """Return True if `[start:end]` matches `raw_quote` after CRLF/CR -> LF normalization."""
+    norm_quote = _normalize_line_endings(raw_quote)
+    if not norm_quote or start < 0 or end <= start:
+        return False
+    norm_body = _normalize_line_endings(raw_body)
+    return end <= len(norm_body) and norm_body[start:end] == norm_quote
+
+
 def classify_er_resolution_tier(
     confidence_score: float,
     top2_margin: float = 1.0,
@@ -103,10 +122,11 @@ def evaluate_unstructured_er_routing(
                         f"row_chunk_span [{chunk_start}:{chunk_end}] in '{doc_id}'."
                     )
                 if doc_id in docs_lookup:
-                    body = docs_lookup[doc_id]
-                    if s_start < 0 or s_end > len(body) or body[s_start:s_end] != quote:
+                    raw_body = docs_lookup[doc_id]
+                    norm_quote = _normalize_line_endings(quote)
+                    if not _span_matches_document(raw_body, s_start, s_end, quote):
                         span_errors.append(
-                            f"Span '{attr_name}' quote '{quote}' != "
+                            f"Span '{attr_name}' quote '{norm_quote}' != "
                             f"doc['{doc_id}'][{s_start}:{s_end}]."
                         )
                 if declared_tier.startswith("TIER_U"):
@@ -116,7 +136,9 @@ def evaluate_unstructured_er_routing(
                 for sp in er_spans:
                     conf = float(sp.get("confidence", sp.get("confidence_score", 0.0)))
                     margin = float(sp.get("top2_margin", 1.0))
-                    cand_name = str(sp.get("verbatim_quote") or sp.get("field") or "")
+                    cand_name = _normalize_line_endings(
+                        str(sp.get("verbatim_quote") or sp.get("field") or "")
+                    )
                     field_name = str(sp.get("field") or sp.get("attribute_name") or "")
                     tier, action = classify_er_resolution_tier(conf, margin)
                     diag_msg = (
@@ -145,7 +167,7 @@ def evaluate_unstructured_er_routing(
             else:
                 conf = float(doc.get("er_confidence_score", 0.0))
                 margin = float(doc.get("er_top2_margin", 1.0))
-                cand_name = str(doc.get("er_candidate_lp_name", ""))
+                cand_name = _normalize_line_endings(str(doc.get("er_candidate_lp_name", "")))
                 tier, action = classify_er_resolution_tier(conf, margin)
                 diag_msg = (
                     f"ASK_USER [Gate 5 - TIER_U3_CAPTAIN_HOLD]: Document '{doc_id}' "
@@ -231,11 +253,12 @@ def verify_gate5_unstructured_invariants(
                 body = docs_lookup.get(doc_id, "")
                 start = int(row.get("char_start", -1))
                 end = int(row.get("char_end", -1))
-                quote = str(row.get("evidence_quote", ""))
-                if start < 0 or end > len(body) or body[start:end] != quote:
+                quote = str(row.get("evidence_quote") or row.get("verbatim_quote") or "")
+                norm_quote = _normalize_line_endings(quote)
+                if not _span_matches_document(body, start, end, quote):
                     violations.append(
                         f"UNSTRUCTURED_VIOLATION [Gate 5 - SPAN_HALLUCINATION]: "
-                        f"Extracted quote '{quote}' in '{s_name}' does not match "
+                        f"Extracted quote '{norm_quote}' in '{s_name}' does not match "
                         f"exact span [{start}:{end}] of document '{doc_id}'."
                     )
 
@@ -253,9 +276,14 @@ def verify_gate5_unstructured_invariants(
     # 4. Optional Graph B unstructured_documents span & ER hold checks
     if bronze_profile is not None:
         er_decisions = evaluate_unstructured_er_routing(bronze_profile, docs_lookup)
+        seen_span_errors: set[str] = set()
         for dec in er_decisions:
             for sp_err in dec["span_errors"]:
-                violations.append(f"UNSTRUCTURED_VIOLATION [Gate 5 - SPAN_HALLUCINATION]: {sp_err}")
+                if sp_err not in seen_span_errors:
+                    seen_span_errors.add(sp_err)
+                    violations.append(
+                        f"UNSTRUCTURED_VIOLATION [Gate 5 - SPAN_HALLUCINATION]: {sp_err}"
+                    )
             if enforce_er_holds_as_diagnostics and dec["action"] == "ASK-USER":
                 violations.append(str(dec["diagnostic"]))
 

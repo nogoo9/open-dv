@@ -143,16 +143,14 @@ Under pure Data Vault 2.0 and enterprise warehousing principles:
     2. Generates a dedicated companion Link (e.g., `lnk_lp_commitment_co_invest`) with `where_filter_condition = '<fk> IS NOT NULL'`.
   - Gate 2 (`gate1_contract_grain.py` lines 265–284, `DV-G2-001`) rejects any contract containing unsplit sparse foreign keys on $N$-ary Links.
 - **Ambiguities and Gaps:**
-  - *Binary Link Boundary Gap:* In `alg_a4_cold_start.py` line 294:
-
+  - *Binary Link Boundary Gap:* In `alg_a4_cold_start.py` lines 292–296:
 ```python
-for lnk in candidate_links:
-    refs = lnk.get("hub_references", [])
+for lnk in ir.get("links", []):
+    refs = list(lnk.get("hub_references", []))
     if len(refs) < 3 or lnk.get("where_filter_condition"):
         new_links.append(lnk)
         continue
 ```
-
     Algorithm A.4 **only inspects Links with arity $\ge 3$**. If a source table has a binary relationship where the foreign key is optional (e.g., an Order with an optional Promotion ID, where $U_{nn} = 0.20$), Algorithm A.4 does **not** split or filter the Link.
     In staging, if `promotion_id` is null, it receives the null token `'-1:^^'`, which hashes to `ZERO_KEY_UNKNOWN` (`'0'*64`). The binary Link `lnk_order_promotion` will insert rows linking `hk_order` to `hk_promotion = '0'*64`. While this maintains referential equi-joins, it violates the DV 2.0 principle that Links should not instantiate non-events.
 
@@ -216,26 +214,34 @@ for lnk in candidate_links:
   - **AST Linter & Identifier Validation:** `compiler_4zone.py` and `alg_a6_sqlglot_ast.py` enforce strict regex validation (`^[A-Za-z_][A-Za-z0-9_]*$`) on all SQL identifiers and ban non-deterministic functions (`NOW()`, `RANDOM()`) and wildcard queries (`SELECT *`).
   - **Adversarial Sandbox Testing:** `adversarial_batches.py` runs progressive adversarial batches (Batches 1–4) specifically injecting boundary shifts and duplicate batches to verify zero drift.
 - **Ambiguities and Gaps:**
-  - **RESOLVED (`BUG-01` / [#30](https://github.com/nogoo9/open-dv/issues/30)): DuckDB `STRLEN()` vs. UTF-8 `OCTET_LENGTH(ENCODE(...))`:**
-    In `compiler_4zone.py` `build_length_prefixed_token_sql`:
-
+  - **CRITICAL BUG: DuckDB `STRLEN()` vs. UTF-8 `OCTET_LENGTH()`:**
+    In `compiler_4zone.py` lines 100–113:
 ```python
-def build_length_prefixed_token_sql(col_expr: str, *, is_business_key: bool = True) -> str:
-    null_token = "-1:^^" if is_business_key else "^^"
-    nullif_expr = f"NULLIF(TRIM(CAST({col_expr} AS VARCHAR)), '')"
+def build_length_prefixed_token_sql(
+    col_expr: str,
+    *,
+    is_business_key: bool = False,
+    null_token: str = "-1:^^",
+) -> str:
+    base_cast = f"TRIM(CAST({col_expr} AS VARCHAR))"
+    norm_expr = f"UPPER({base_cast})" if is_business_key else base_cast
+    nullif_expr = f"NULLIF({norm_expr}, '')"
     return (
         f"CASE WHEN {nullif_expr} IS NULL THEN '{null_token}' "
-        f"ELSE CAST(OCTET_LENGTH(ENCODE({nullif_expr})) AS VARCHAR) || ':' || {nullif_expr} END"
+        f"ELSE CAST(STRLEN({nullif_expr}) AS VARCHAR) || ':' || {nullif_expr} END"
     )
 ```
-
-    DuckDB's `STRLEN()` function computes the **character count** (Unicode codepoints), whereas Python's `len(s.encode('utf-8'))` in `hashing.py` and DuckDB's `OCTET_LENGTH(ENCODE(...))` compute the **UTF-8 byte length** (`'Nordisk Suverän Fond'` $\to$ `'21:Nordisk Suverän Fond'`).
+    DuckDB's `STRLEN()` function computes the **character count** (Unicode codepoints), whereas Python's `len(s.encode('utf-8'))` in `hashing.py` computes the **UTF-8 byte length**!
+    For ASCII strings, character length equals byte length. However, for non-ASCII strings (e.g., Nordic name `'Nordisk Suverän Fond'` where `ä` is 2 UTF-8 bytes):
+    - Python `hashing.py` produces: `'21:Nordisk Suverän Fond'`
+    - DuckDB SQL `compiler_4zone.py` produces: `'20:Nordisk Suverän Fond'`
+    As a result, **the SHA-256 hash calculated in DuckDB will diverge from the hash calculated by Python tools or test vectors for multi-byte strings!**
   - **Case Inconsistency:** DuckDB `compiler_4zone.py` computes `LOWER(SHA256(...))` (lowercase hex `[0-9a-f]{64}`), while Python `hashing.py` produces uppercase hex (`.hexdigest().upper()`).
 
 #### 3. Concrete Recommendations & Invariants
-- **Resolved in `compiler_4zone.py` (`STRLEN` $\to$ `OCTET_LENGTH(ENCODE(...))`, [#30](https://github.com/nogoo9/open-dv/issues/30)):** Replaced all instances of `STRLEN(...)` with `OCTET_LENGTH(ENCODE(...))` across `compiler_4zone.py`, `pit_query_engine.py`, `adversarial_batches.py`, and `dynamic_checks.py`, and restricted `DV-AST-002` in `alg_a6_sqlglot_ast.py` to `OCTET_LENGTH`/`BYTE_LENGTH`.
+- **Fix `compiler_4zone.py` Immediately (`STRLEN` $\to$ `OCTET_LENGTH`):** Replace all instances of `STRLEN(...)` with `OCTET_LENGTH(...)` in `compiler_4zone.py` to ensure byte-accurate prefixing for multi-byte UTF-8 data.
 - **Normalize Hash Hex Case Across All Subsystems:** Standardize whether SHA-256 digests are stored in lowercase or uppercase across Python `hashing.py`, `constants.py`, and `compiler_4zone.py`. Lowercase is recommended for SQL engine alignment.
-- **Enforced Invariant `DV-HASH-004`:** Dynamically verifies that multi-byte test vectors (e.g., `'Nordisk Suverän Fond'`) produce the exact same pre-hash string (`'21:Nordisk Suverän Fond'`) and hash digest in DuckDB SQL as in Python `hashing.py`.
+- **Add Invariant `DV-HASH-004` to Gate 2:** Dynamically verify that a multi-byte test vector (e.g., `'Nordisk Suverän Fond'`) produces the exact same hash digest in DuckDB SQL as it does in Python `hashing.py`.
 
 ---
 
@@ -329,7 +335,7 @@ def build_length_prefixed_token_sql(col_expr: str, *, is_business_key: bool = Tr
 
 | Discrepancy / Gap | Subsystem | Severity | DV 2.0 Impact | Remediation Action | GitHub Issue |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`STRLEN` vs `OCTET_LENGTH`** | `opendv-duckdb-sandbox/compiler_4zone.py`, `pit_query_engine.py`, `alg_a6_sqlglot_ast.py` | **Critical** *(Resolved)* | Multi-byte UTF-8 data produces divergent hash digests between DuckDB SQL and Python / test vectors. | Replaced `STRLEN(...)` with `OCTET_LENGTH(ENCODE(...))` and restricted `DV-AST-002` to `OCTET_LENGTH`/`BYTE_LENGTH` ([`docs/17`](../17-testing-scenarios-and-datasets.md)). | [#30](https://github.com/nogoo9/open-dv/issues/30) |
+| **`STRLEN` vs `OCTET_LENGTH`** | `opendv-duckdb-sandbox/compiler_4zone.py` | **Critical** | Multi-byte UTF-8 data produces divergent hash digests between DuckDB SQL and Python / test vectors. | Replace `STRLEN(...)` with `OCTET_LENGTH(...)` across `compiler_4zone.py`. | [#30](https://github.com/nogoo9/open-dv/issues/30) |
 | **Binary Link Nullable FK Split** | `opendv-axi-verifier/codemods/alg_a4_cold_start.py` | **High** | Algorithm A.4 only splits Links with arity $\ge 3$. Binary Links with sparse FKs insert Zero-Key relationships. | Extend Algorithm A.4 to filter or demote sparse binary Links ($U_{nn} < 0.95$). | [#31](https://github.com/nogoo9/open-dv/issues/31) |
 | **Unstructured Gating in DML** | `opendv-duckdb-sandbox/compiler_4zone.py` | **High** | Unstructured extraction links in Zone 2 lack explicit `steward_gate_status = 'APPROVED'` filter. | Inject approval check into compiled Zone 2 DML for all unstructured links. | [#32](https://github.com/nogoo9/open-dv/issues/32) |
 | **Windows CRLF Span Hallucination** | `opendv-axi-verifier/verifiers/alg_a9b_unstructured.py` | **Medium** | CRLF line endings shift character indices by 1 byte per newline, falsely triggering `SPAN_HALLUCINATION`. | Normalize newlines (`replace('\r\n', '\n')`) prior to span verification. | [#33](https://github.com/nogoo9/open-dv/issues/33) |
