@@ -357,7 +357,8 @@ def verify_algorithm_a6_sqlglot_ast_linter(
       - `DV-G6-002`: Destructive physical mutations (`DELETE`, `UPDATE`, `TRUNCATE`, `DROP`, `ALTER`, `MERGE ... UPDATE/DELETE`).
       - `DV-G6-003`: Wildcard `SELECT *` projection.
       - `DV-G6-004`: Satellite `INSERT INTO ... sat_*` load missing `hash_diff` change comparison in `WHERE`.
-      - `DV-G6-005`: Raw Vault (`hub_*`, `lnk_*`, `sat_*`) load containing `GROUP BY` or `HAVING` aggregations.
+      - `DV-G6-005`: Raw Vault (`hub_*`, `lnk_*`, `sat_*`) load containing `GROUP BY` or
+        `HAVING` aggregations (except idempotent Hub/Link micro-batch key deduplication).
     """
     violations: list[str] = []
     statements = sqlglot.parse(sql_text, read=dialect)
@@ -453,10 +454,28 @@ def verify_algorithm_a6_sqlglot_ast_linter(
             )
             is_sat_target = target_name.startswith(("sat_", "bsat_", "mas_", "ma_sat_"))
             select_query = stmt.expression
-            if is_raw_vault_target and isinstance(select_query, exp.Select):
-                if select_query.args.get("group") is not None or select_query.args.get("having") is not None:
+            if (
+                is_raw_vault_target
+                and isinstance(select_query, exp.Select)
+                and (
+                    select_query.args.get("group") is not None
+                    or select_query.args.get("having") is not None
+                )
+            ):
+                link_prefixes = ("lnk_", "t_lnk_", "nh_lnk_", "sal_", "hal_", "x_lnk_")
+                resolved_target_type = (
+                    "HUB"
+                    if target_name.startswith(("hub_", "bhub_"))
+                    else ("LINK" if target_name.startswith(link_prefixes) else "RAW_VAULT")
+                )
+                from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import (
+                    _is_idempotent_microbatch_dedup_group_by,
+                )
+
+                if not _is_idempotent_microbatch_dedup_group_by(stmt, resolved_target_type):
                     violations.append(
-                        f"DV-G6-005:Raw Vault load into '{target_name}' contains forbidden GROUP BY / HAVING aggregation"
+                        f"DV-G6-005:Raw Vault load into '{target_name}' contains "
+                        "forbidden GROUP BY / HAVING aggregation"
                     )
             if is_sat_target and isinstance(select_query, exp.Select):
                 # Exempt static 1-row SYSTEM_GHOST seed inserts that have no FROM table
@@ -1012,6 +1031,35 @@ def test_algorithm_a6_positive_staging_hub_and_satellite_sql() -> None:
         SELECT 1 FROM raw_vault.hub_fund h WHERE h.hk_fund = stg.hk_fund
     );
 
+    INSERT INTO raw_vault.hub_fund (hk_fund, bkcc, fund_code, load_dts, rec_src)
+    SELECT
+        stg.hk_fund,
+        stg.bkcc,
+        stg.fund_code,
+        MIN(stg.load_dts) AS load_dts,
+        ANY_VALUE(stg.rec_src) AS rec_src
+    FROM staging.stg_investran_pe_funds stg
+    WHERE NOT EXISTS (
+        SELECT 1 FROM raw_vault.hub_fund h WHERE h.hk_fund = stg.hk_fund
+    )
+    GROUP BY stg.hk_fund, stg.bkcc, stg.fund_code;
+
+    INSERT INTO raw_vault.lnk_lp_commitment (
+        hk_lnk_lp_commitment, hk_lp, hk_fund, load_dts, rec_src
+    )
+    SELECT
+        stg.hk_lnk_lp_commitment,
+        stg.hk_lp,
+        stg.hk_fund,
+        MIN(stg.load_dts) AS load_dts,
+        ANY_VALUE(stg.rec_src) AS rec_src
+    FROM staging.stg_lp_commitments stg
+    WHERE NOT EXISTS (
+        SELECT 1 FROM raw_vault.lnk_lp_commitment l
+        WHERE l.hk_lnk_lp_commitment = stg.hk_lnk_lp_commitment
+    )
+    GROUP BY stg.hk_lnk_lp_commitment, stg.hk_lp, stg.hk_fund;
+
     INSERT INTO raw_vault.sat_fund_investran (hk_fund, load_dts, hash_diff, fund_name, rec_src)
     SELECT stg.hk_fund, stg.load_dts, stg.hash_diff_sat_fund_investran, stg.fund_name, stg.rec_src
     FROM staging.stg_investran_pe_funds stg
@@ -1407,6 +1455,15 @@ def test_doc05_reference_algorithms_a1_through_a8_direct_execution(
         dialect="snowflake",
     )
     assert ast_errors == []
+    ast_dedup_errors = ast_fn(
+        "hub_fund",
+        "INSERT INTO raw_vault.hub_fund (hk_fund, bkcc, fund_code, load_dts, rec_src) "
+        "SELECT stg.hk_fund, stg.bkcc, stg.fund_code, MIN(stg.load_dts) AS load_dts, "
+        "ANY_VALUE(stg.rec_src) AS rec_src FROM staging.stg_fund stg "
+        "GROUP BY stg.hk_fund, stg.bkcc, stg.fund_code",
+        dialect="snowflake",
+    )
+    assert ast_dedup_errors == []
 
     # 7. Algorithm A.7: verify_additive_evolution_invariants
     evo_fn = doc05_algos["verify_additive_evolution_invariants"]
@@ -1453,3 +1510,64 @@ def test_doc05_reference_algorithms_a1_through_a8_direct_execution(
     drift_res = drift_fn(copy.deepcopy(pe_contract), cand_with_new_col, schema_epoch_tag="v2")
     assert any(s["name"].endswith("_ext_v2") for s in drift_res["satellites"])
 
+
+def test_issue_33_doc04_and_doc05_reference_alg_a9b_crlf_normalization(
+    doc05_algos: dict[str, Any],
+    pe_contract: dict[str, Any],
+    pdf_corpus: dict[str, str],
+) -> None:
+    """Issue #33 (BUG-04 / FR-DOM-05 / Rule U2 / Scenario S8 / UF-5):
+    Verifies that the executable reference `verify_gate5_unstructured_invariants` blocks in
+    `docs/04-unstructured-and-multimodal-dv2.md` and
+    `docs/05-elm-calculus-and-reference-algorithms.md` normalize CRLF (`\\r\\n`) and CR (`\\r`)
+    line endings before slicing `body[start:end]`.
+    """
+    from tests.conftest import DOC_04_PATH, extract_python_algorithms_from_doc
+
+    doc04_algos = extract_python_algorithms_from_doc(DOC_04_PATH)
+    doc_uri = "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf"
+    lf_body = pdf_corpus[doc_uri]
+    crlf_corpus = {doc_uri: lf_body.replace("\n", "\r\n")}
+    cr_corpus = {doc_uri: lf_body.replace("\n", "\r")}
+
+    multiline_lf_quote = lf_body[0:98]
+    multiline_crlf_quote = multiline_lf_quote.replace("\n", "\r\n")
+
+    contract_valid = copy.deepcopy(pe_contract)
+    contract_valid["sample_extractions"] = [
+        {
+            "doc_id": doc_uri,
+            "attribute": "fee_cap_bps",
+            "evidence_quote": "125 bps",
+            "char_start": 499,
+            "char_end": 506,
+        },
+        {
+            "doc_id": doc_uri,
+            "attribute": "header_preamble",
+            "evidence_quote": multiline_crlf_quote,
+            "char_start": 0,
+            "char_end": 98,
+        },
+    ]
+
+    for fn in (
+        doc04_algos["verify_gate5_unstructured_invariants"],
+        doc05_algos["verify_gate5_unstructured_invariants"],
+    ):
+        assert fn(contract_valid, crlf_corpus) == []
+        assert fn(contract_valid, cr_corpus) == []
+
+        contract_hallucinated = copy.deepcopy(pe_contract)
+        contract_hallucinated["sample_extractions"] = [
+            {
+                "doc_id": doc_uri,
+                "attribute": "fee_cap_bps",
+                "evidence_quote": "999 bps",
+                "char_start": 499,
+                "char_end": 506,
+            }
+        ]
+        errs = fn(contract_hallucinated, crlf_corpus)
+        assert len(errs) == 1
+        assert "SPAN_HALLUCINATION" in errs[0]

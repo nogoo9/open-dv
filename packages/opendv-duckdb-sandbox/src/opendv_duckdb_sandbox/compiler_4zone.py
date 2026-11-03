@@ -1784,7 +1784,7 @@ def _hub_seed_hk(
 ) -> str:
     """Compute the deterministic lowercase 64-char SHA-256 hash key for `row_idx` of `hub`."""
     tokens = _hub_seed_bk_values(hub, row_idx, bkcc_override=bkcc_override)
-    return compute_dv2_length_prefixed_sha256(tokens, is_business_key=True).lower()
+    return compute_dv2_length_prefixed_sha256(tokens, is_business_key=True)
 
 
 def _normalize_duckdb_type(data_type: str) -> str:
@@ -2417,8 +2417,8 @@ def _compile_generic_zone_0_sql(
                 h_rows = hub_bk_rows[t_hub.name]
                 h_r1, h_r2 = h_rows[0], h_rows[1]
                 r1_tokens = h_r1 if occ == 0 else h_r2
-                r1_hk = compute_dv2_length_prefixed_sha256(r1_tokens, is_business_key=True).lower()
-                r2_hk = compute_dv2_length_prefixed_sha256(h_r2, is_business_key=True).lower()
+                r1_hk = compute_dv2_length_prefixed_sha256(r1_tokens, is_business_key=True)
+                r2_hk = compute_dv2_length_prefixed_sha256(h_r2, is_business_key=True)
                 r1_parent_vals.append(f"'{r1_hk}'")
                 if ref_idx == 0:
                     r2_parent_vals.append(f"'{r2_hk}'")

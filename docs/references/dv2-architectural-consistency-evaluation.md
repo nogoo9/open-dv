@@ -144,7 +144,6 @@ Under pure Data Vault 2.0 and enterprise warehousing principles:
   - Gate 2 (`gate1_contract_grain.py` lines 265–284, `DV-G2-001`) rejects any contract containing unsplit sparse foreign keys on $N$-ary Links.
 - **Ambiguities and Gaps:**
   - *Binary Link Boundary Gap:* In `alg_a4_cold_start.py` lines 292–296:
-
 ```python
 for lnk in ir.get("links", []):
     refs = list(lnk.get("hub_references", []))
@@ -216,10 +215,17 @@ for lnk in ir.get("links", []):
   - **Adversarial Sandbox Testing:** `adversarial_batches.py` runs progressive adversarial batches (Batches 1–4) specifically injecting boundary shifts and duplicate batches to verify zero drift.
 - **Ambiguities and Gaps:**
   - **CRITICAL BUG: DuckDB `STRLEN()` vs. UTF-8 `OCTET_LENGTH()`:**
-    In `compiler_4zone.py` lines 111–116:
-
+    In `compiler_4zone.py` lines 100–113:
 ```python
-def build_length_prefixed_token_sql(col_expr: str, nullif_expr: str, null_token: str) -> str:
+def build_length_prefixed_token_sql(
+    col_expr: str,
+    *,
+    is_business_key: bool = False,
+    null_token: str = "-1:^^",
+) -> str:
+    base_cast = f"TRIM(CAST({col_expr} AS VARCHAR))"
+    norm_expr = f"UPPER({base_cast})" if is_business_key else base_cast
+    nullif_expr = f"NULLIF({norm_expr}, '')"
     return (
         f"CASE WHEN {nullif_expr} IS NULL THEN '{null_token}' "
         f"ELSE CAST(STRLEN({nullif_expr}) AS VARCHAR) || ':' || {nullif_expr} END"
