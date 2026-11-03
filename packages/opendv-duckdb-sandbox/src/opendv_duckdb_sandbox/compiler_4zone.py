@@ -2589,6 +2589,33 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
         fk_cols = [_validate_ident(ref.fk_column_name) for ref in link.hub_references]
         fk_csv = ", ".join(fk_cols)
         src_fk_csv = ", ".join(f"src.{c}" for c in fk_cols)
+        is_sal_link = (link.name.startswith("sal_") or link.link_type == "SAME_AS") and len(
+            fk_cols
+        ) == 2
+        sal_where_clause = ""
+        if is_sal_link:
+            m_fk, d_fk = fk_cols[0], fk_cols[1]
+            sal_where_clause = (
+                f"  AND src.{m_fk} <> src.{d_fk}\n"
+                f"  AND NOT EXISTS (\n"
+                f"      SELECT 1 FROM {schema}.{tbl} l_inv\n"
+                f"      WHERE l_inv.{m_fk} = src.{d_fk}\n"
+                f"        AND l_inv.{d_fk} = src.{m_fk}\n"
+                f"  )\n"
+                f"  AND NOT EXISTS (\n"
+                f"      SELECT 1 FROM staging.stg_{tbl} src_inv\n"
+                f"      WHERE src_inv.{m_fk} = src.{d_fk}\n"
+                f"        AND src_inv.{d_fk} = src.{m_fk}\n"
+                f"        AND src_inv.{m_fk} <> src_inv.{d_fk}\n"
+                f"        AND (\n"
+                f"            src_inv.load_dts < src.load_dts\n"
+                f"            OR (\n"
+                f"                src_inv.load_dts = src.load_dts\n"
+                f"                AND src_inv.{m_fk} < src.{m_fk}\n"
+                f"            )\n"
+                f"        )\n"
+                f"  )\n"
+            )
         parts.append(
             f"INSERT INTO {schema}.{tbl} ({hk}, {fk_csv}, load_dts, rec_src)\n"
             f"SELECT\n"
@@ -2598,6 +2625,7 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
             f"    ANY_VALUE(src.rec_src) AS rec_src\n"
             f"FROM staging.stg_{tbl} src\n"
             f"WHERE src.{hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')\n"
+            f"{sal_where_clause}"
             f"  AND NOT EXISTS (\n"
             f"      SELECT 1 FROM {schema}.{tbl} l\n"
             f"      WHERE l.{hk} = src.{hk}\n"

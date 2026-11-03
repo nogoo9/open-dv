@@ -499,6 +499,7 @@ def check_dv_dyn_006_bkcc_collision_and_sal(
         lnk for lnk in ir.links if lnk.name.startswith("sal_") or lnk.link_type == "SAME_AS"
     ]
     sal_ok = True
+    sal_violations = 0
     for sal in sal_links:
         sal_tbl = f"{_link_schema(sal)}.{_validate_ident(sal.name)}"
         sal_hk = _validate_ident(sal.hk_column.name)
@@ -511,6 +512,32 @@ def check_dv_dyn_006_bkcc_collision_and_sal(
         )
         if cnt < 1:
             sal_ok = False
+        if len(sal.hub_references) >= 2:
+            m_col = _validate_ident(sal.hub_references[0].fk_column_name)
+            d_col = _validate_ident(sal.hub_references[1].fk_column_name)
+            self_loops = _scalar_int(
+                conn,
+                f"""
+                SELECT COUNT(*) FROM {sal_tbl}
+                WHERE {sal_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
+                  AND {m_col} = {d_col}
+                """,
+            )
+            inv_dups = _scalar_int(
+                conn,
+                f"""
+                SELECT COUNT(*) FROM {sal_tbl} s1
+                INNER JOIN {sal_tbl} s2
+                    ON s1.{m_col} = s2.{d_col}
+                   AND s1.{d_col} = s2.{m_col}
+                WHERE s1.{sal_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
+                  AND s2.{sal_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
+                  AND s1.{m_col} <> s1.{d_col}
+                """,
+            )
+            if self_loops > 0 or inv_dups > 0:
+                sal_ok = False
+                sal_violations += self_loops + inv_dups
 
     passed = non_zero_rows >= 2 and non_zero_rows == distinct_hks and bkcc_distinct == 1 and sal_ok
     return DynamicCheckResult(
@@ -518,10 +545,10 @@ def check_dv_dyn_006_bkcc_collision_and_sal(
         check_name="Multi-Source BK Convergence & BKCC Isolation",
         passed=passed,
         metric_value=distinct_hks,
-        failing_rows=0 if passed else 1,
+        failing_rows=sal_violations if sal_violations > 0 else (0 if passed else 1),
         detail=(
             f"{hub_tbl} holds {distinct_hks} distinct non-zero Hub keys with "
-            f"0 BKCC namespace collisions (sal_ok={sal_ok})."
+            f"0 BKCC namespace collisions (sal_ok={sal_ok}, sal_violations={sal_violations})."
         ),
     )
 
