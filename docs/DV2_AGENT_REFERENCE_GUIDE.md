@@ -15,6 +15,9 @@
 > - [09 — Harness-Agnostic Agent Runtime (`VaultAgentHarness`) & Dual-SDK Adapter Specification (`google.antigravity` & `claude_agent_sdk`)](09-agnostic-agent-harness-and-sdk-spec.md)
 > - [10 — Decoupled UI Workbench (`WB-00..WB-11`), Zero-Dependency Protocol SDK (`@opendv/protocol-ts`) & Semantic Theme Engine Specification](10-decoupled-ui-workbench-and-theme-spec.md)
 > - [11 — Master Agent Worker Implementation & Dispatch Plan (`WP-01` through `WP-12`)](11-agent-worker-implementation-plan.md)
+> - [12 — Agentic Pipeline Inputs, Setup, Authentication, and Execution Guide](12-agentic-pipeline-inputs-and-harness-guide.md)
+> - [13 — Real Agentic Pipeline Remediation Specification](13-real-agentic-pipeline-remediation-spec.md)
+> - [14 — End-to-End Consistency Review, Scenarios Audit, and Data Vault 2.0 Invariant Analysis](14-end-to-end-consistency-and-scenarios-audit.md)
 > - **Formal Schemas & Contracts:**
 >   - [No-Mistake DV 2.0 Contract V5 JSON Schema (`schemas/no-mistake-dv2-contract-v5.schema.json`)](../schemas/no-mistake-dv2-contract-v5.schema.json)
 >   - [Canonical Intermediate Representation (IR) JSON Schema (`schemas/dv2-canonical-ir.schema.json`)](../schemas/dv2-canonical-ir.schema.json)
