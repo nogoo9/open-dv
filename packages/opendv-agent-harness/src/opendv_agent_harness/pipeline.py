@@ -5480,7 +5480,12 @@ class _DeterministicStageSynthesizer:
                         existing_triples.add((b_tbl, k_str, h_name))
                 if bk_src.get("key_authority_tier") == "TIER_3_LOCAL_SCOPED":
                     bk_src["require_src_qualifier"] = True
-                    if not bk_src.get("bkcc_prefix"):
+                    cur_pfx = str(bk_src.get("bkcc_prefix") or "").strip()
+                    if not cur_pfx or cur_pfx.upper() in {
+                        "NONE",
+                        "GLOBAL",
+                        "SOURCE_SYSTEM_PREFIX_REQUIRED",
+                    }:
                         bk_src["bkcc_prefix"] = bk_src.get("record_source_code") or "LOCAL"
                     if not bk_src.get("system_scoped_bk_justification"):
                         bk_src["system_scoped_bk_justification"] = (
@@ -5686,17 +5691,22 @@ class _DeterministicStageSynthesizer:
             bk_cols = list(src.business_key_columns)
             if bk_cols:
                 is_tier3 = eff_tier == "TIER_3_LOCAL_SCOPED"
+                primary_t3_bkcc = (
+                    eff_bkcc
+                    if eff_bkcc.upper() not in {"NONE", "GLOBAL", "SOURCE_SYSTEM_PREFIX_REQUIRED"}
+                    else eff_rec_src
+                )
                 bk_src_entry: dict[str, Any] = {
                     "bronze_table": qualified_table,
                     "key_columns": bk_cols,
                     "record_source_code": eff_rec_src,
                     "key_authority_tier": eff_tier,
                     "require_src_qualifier": is_tier3,
-                    "bkcc_prefix": eff_bkcc if is_tier3 else None,
+                    "bkcc_prefix": primary_t3_bkcc if is_tier3 else None,
                 }
                 if is_tier3:
                     bk_src_entry["system_scoped_bk_justification"] = (
-                        f"Tier-3 local-scoped business key in namespace {eff_bkcc} "
+                        f"Tier-3 local-scoped business key in namespace {primary_t3_bkcc} "
                         f"from source {eff_rec_src}."
                     )
                 if primary_hub_name not in hubs_by_name:
@@ -5758,8 +5768,16 @@ class _DeterministicStageSynthesizer:
                                 elif t_spec.bkcc_policy and t_spec.bkcc_policy.upper() not in {
                                     "NONE",
                                     "GLOBAL",
+                                    "SOURCE_SYSTEM_PREFIX_REQUIRED",
                                 }:
                                     fk_bkcc = t_spec.bkcc_policy
+                                else:
+                                    fk_bkcc = (
+                                        eff_bkcc
+                                        if eff_bkcc.upper()
+                                        not in {"NONE", "GLOBAL", "SOURCE_SYSTEM_PREFIX_REQUIRED"}
+                                        else eff_rec_src
+                                    )
                                 break
                         break
                 if fk_col_low in {"lei", "isin", "cusip", "duns", "figi"} or fk_col_low.endswith(
@@ -5769,13 +5787,19 @@ class _DeterministicStageSynthesizer:
                     fk_bkcc = "GLOBAL"
                 if fk_hub_name not in hubs_by_name:
                     is_t3_fk = fk_tier == "TIER_3_LOCAL_SCOPED"
+                    resolved_fk_bkcc = (
+                        fk_bkcc
+                        if fk_bkcc.upper()
+                        not in {"NONE", "GLOBAL", "SOURCE_SYSTEM_PREFIX_REQUIRED"}
+                        else eff_rec_src
+                    )
                     fk_bk_src: dict[str, Any] = {
                         "bronze_table": qualified_table,
                         "key_columns": [fk_col],
                         "record_source_code": eff_rec_src,
                         "key_authority_tier": fk_tier,
                         "require_src_qualifier": is_t3_fk,
-                        "bkcc_prefix": fk_bkcc if is_t3_fk else None,
+                        "bkcc_prefix": resolved_fk_bkcc if is_t3_fk else None,
                     }
                     if is_t3_fk:
                         fk_bk_src["system_scoped_bk_justification"] = (

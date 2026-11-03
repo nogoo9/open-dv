@@ -2141,9 +2141,9 @@ def _table_lookup_keys(table_name: str) -> list[str]:
 def _effective_hub_sm_bkcc_literal(hub: IRHub, sm: Any) -> str | None:
     """Resolve the effective BKCC literal for a single `(hub, source_mapping)` pair."""
     has_bkcc_col = any(bk.is_bkcc for bk in hub.business_keys)
-    explicit_lit = getattr(sm, "bkcc_literal", None)
-    if explicit_lit is not None and str(explicit_lit).strip():
-        return str(explicit_lit).strip().upper()
+    explicit_lit = str(getattr(sm, "bkcc_literal", None) or "").strip().upper()
+    if explicit_lit and explicit_lit not in {"NONE", "SOURCE_SYSTEM_PREFIX_REQUIRED"}:
+        return explicit_lit
     tier = str(getattr(sm, "key_authority_tier", "") or "").strip().upper()
     if hub.verified_global_master_key and not has_bkcc_col:
         return None
@@ -2178,8 +2178,10 @@ def build_staging_bkcc_registry(
                         tbl_keys.append(k)
             for t_key in tbl_keys:
                 registry.setdefault((t_key, "*", hub.name), eff_lit)
-                for c_name in (*src_cols, *non_bkcc_hub_cols):
+                for c_name in src_cols:
                     registry[(t_key, c_name, hub.name)] = eff_lit
+                for c_name in non_bkcc_hub_cols:
+                    registry.setdefault((t_key, c_name, hub.name), eff_lit)
                 for c_name, c_lit in col_map.items():
                     norm_lit = str(c_lit).strip().upper() if c_lit else eff_lit
                     registry[(t_key, str(c_name).lower(), hub.name)] = norm_lit

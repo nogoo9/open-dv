@@ -140,8 +140,9 @@ def _resolve_source_bkcc_literal(
     verified_global: bool,
 ) -> str | None:
     """Resolve the effective BKCC literal for a Hub `BusinessKeySource`."""
-    if getattr(src, "bkcc_prefix", None) and str(src.bkcc_prefix).strip():
-        return str(src.bkcc_prefix).strip().upper()
+    raw_pfx = str(getattr(src, "bkcc_prefix", None) or "").strip().upper()
+    if raw_pfx and raw_pfx not in {"NONE", "SOURCE_SYSTEM_PREFIX_REQUIRED"}:
+        return raw_pfx
     if getattr(src, "key_authority_tier", "") == "TIER_3_LOCAL_SCOPED" or getattr(
         src, "require_src_qualifier", False
     ):
@@ -256,8 +257,6 @@ def _lower_hub(
         stg_name = _staging_table_name(src.bronze_table)
         bk_src_cols = (["bkcc"] if not verified_global else []) + list(src.key_columns)
         col_bkcc_map = {col: bkcc_lit for col in src.key_columns}
-        for pk_col in primary_key_cols:
-            col_bkcc_map.setdefault(pk_col, bkcc_lit)
 
         for tbl_alias in (
             src.bronze_table.lower(),
@@ -265,8 +264,10 @@ def _lower_hub(
             src.bronze_table.split(".")[-1].lower(),
         ):
             scoped_bkcc_map.setdefault((tbl_alias, "*", contract_hub.name), bkcc_lit)
-            for col in (*src.key_columns, *primary_key_cols):
+            for col in src.key_columns:
                 scoped_bkcc_map[(tbl_alias, col.lower(), contract_hub.name)] = bkcc_lit
+            for pk_col in primary_key_cols:
+                scoped_bkcc_map.setdefault((tbl_alias, pk_col.lower(), contract_hub.name), bkcc_lit)
 
         hub_specs.append((list(src.key_columns), src.key_authority_tier, bkcc_lit))
         source_mappings.append(
