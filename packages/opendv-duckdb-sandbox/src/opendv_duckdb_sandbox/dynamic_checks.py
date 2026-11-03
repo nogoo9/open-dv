@@ -237,6 +237,14 @@ def _scalar_int(conn: duckdb.DuckDBPyConnection, sql: str) -> int:
     return int(row[0]) if row is not None and row[0] is not None else 0
 
 
+def _table_column_map(conn: duckdb.DuckDBPyConnection, schema_and_table: str) -> dict[str, str]:
+    try:
+        rows = conn.execute(f"DESCRIBE {schema_and_table}").fetchall()
+    except duckdb.Error:
+        return {}
+    return {str(r[0]).lower(): _validate_ident(str(r[0])) for r in rows}
+
+
 def check_dv_dyn_001_pk_uniqueness(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -578,7 +586,10 @@ def check_dv_dyn_007_ghost_and_zero_key_completeness(
             """,
         )
     elif ir.links:
-        lnk = ir.links[0]
+        lnk = next(
+            (x for x in ir.links if not x.requires_steward_approval_gate),
+            ir.links[0],
+        )
         lnk_tbl = f"{_link_schema(lnk)}.{_validate_ident(lnk.name)}"
         lnk_hk = _validate_ident(lnk.hk_column.name)
         ref0 = lnk.hub_references[0]
@@ -1016,6 +1027,35 @@ def check_dv_dyn_012_unstructured_provenance(
     )
 
 
+def _governance_predicates_for_columns(col_map: dict[str, str]) -> list[str]:
+    preds: list[str] = []
+    conf_col = col_map.get("extraction_confidence") or col_map.get("confidence_score")
+    status_col = (
+        col_map.get("steward_gate_status")
+        or col_map.get("human_review_status")
+        or col_map.get("routing_action")
+    )
+    jaccard_col = col_map.get("tier2_token_jaccard")
+    if conf_col:
+        preds.append(f"(t.{conf_col} IS NULL OR t.{conf_col} < 0.85)")
+    if status_col:
+        status_expr = f"UPPER(TRIM(COALESCE(CAST(t.{status_col} AS VARCHAR), '')))"
+        if status_col.lower() == "steward_gate_status":
+            preds.append(f"{status_expr} IS DISTINCT FROM 'APPROVED'")
+        else:
+            preds.append(
+                f"{status_expr} NOT IN ("
+                f"'APPROVED', 'STEWARD_VERIFIED', 'AUTO_ACCEPTED_TIER_1', 'AUTO_ACCEPTED_TIER_2'"
+                f")"
+            )
+    if jaccard_col and status_col:
+        status_expr = f"UPPER(TRIM(COALESCE(CAST(t.{status_col} AS VARCHAR), '')))"
+        preds.append(
+            f"(t.{jaccard_col} < 0.85 AND {status_expr} NOT IN ('STEWARD_VERIFIED', 'APPROVED'))"
+        )
+    return preds
+
+
 def check_dv_dyn_013_tier2_confidence_governance(
     conn: duckdb.DuckDBPyConnection,
     *,
@@ -1027,34 +1067,90 @@ def check_dv_dyn_013_tier2_confidence_governance(
             conn,
             """
             SELECT (
-                SELECT COUNT(*) FROM business_vault.sat_lp_side_letter_llm_ext
-                WHERE rec_src <> 'SYSTEM_GHOST'
+                SELECT COUNT(*) FROM business_vault.sat_lp_side_letter_llm_ext t
+                WHERE t.rec_src <> 'SYSTEM_GHOST'
                   AND (
-                      (
-                          extraction_confidence < 0.85
-                          AND human_review_status = 'AUTO_ACCEPTED_TIER_2'
+                      t.extraction_confidence IS NULL
+                      OR t.extraction_confidence < 0.85
+                      OR UPPER(TRIM(COALESCE(t.human_review_status, ''))) NOT IN (
+                          'APPROVED',
+                          'STEWARD_VERIFIED',
+                          'AUTO_ACCEPTED_TIER_1',
+                          'AUTO_ACCEPTED_TIER_2'
                       )
-                      OR human_review_status IS NULL
-                      OR human_review_status IN ('STEWARD_HOLD', 'PENDING', 'REJECTED')
                   )
             ) + (
-                SELECT COUNT(*) FROM business_vault.sat_lnk_doc_portco_ai_provenance
-                WHERE rec_src <> 'SYSTEM_GHOST'
+                SELECT COUNT(*) FROM business_vault.sat_lnk_doc_portco_ai_provenance t
+                WHERE t.rec_src <> 'SYSTEM_GHOST'
                   AND (
-                      (
-                          extraction_confidence < 0.85
-                          AND human_review_status = 'AUTO_ACCEPTED_TIER_2'
-                      )
+                      t.extraction_confidence IS NULL
+                      OR t.extraction_confidence < 0.85
                       OR (
-                          tier2_token_jaccard < 0.85
-                          AND human_review_status NOT IN ('STEWARD_VERIFIED', 'APPROVED')
+                          t.tier2_token_jaccard < 0.85
+                          AND UPPER(TRIM(COALESCE(t.human_review_status, ''))) NOT IN (
+                              'STEWARD_VERIFIED',
+                              'APPROVED'
+                          )
                       )
-                      OR human_review_status IS NULL
-                      OR human_review_status IN ('STEWARD_HOLD', 'PENDING', 'REJECTED')
+                      OR UPPER(TRIM(COALESCE(t.human_review_status, ''))) NOT IN (
+                          'APPROVED',
+                          'STEWARD_VERIFIED',
+                          'AUTO_ACCEPTED_TIER_1',
+                          'AUTO_ACCEPTED_TIER_2'
+                      )
+                  )
+            ) + (
+                SELECT COUNT(*) FROM raw_vault.lnk_doc_lp_side_letter l
+                WHERE l.rec_src <> 'SYSTEM_ZERO_KEY'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM staging.stg_unstructured_vdr_llm_extractions src
+                      INNER JOIN raw_vault.hub_unstructured_document d
+                          ON d.doc_sha256 = src.doc_sha256
+                      INNER JOIN raw_vault.hub_limited_partner lp
+                          ON lp.bkcc = src.resolved_lp_bkcc AND lp.lp_id = src.resolved_lp_id
+                      INNER JOIN raw_vault.hub_fund f
+                          ON f.fund_code = src.resolved_fund_code
+                      WHERE d.hk_doc = l.hk_doc
+                        AND lp.hk_lp = l.hk_lp
+                        AND f.hk_fund = l.hk_fund
+                        AND src.steward_gate_status = 'APPROVED'
+                        AND src.extraction_confidence >= 0.85
+                  )
+            ) + (
+                SELECT COUNT(*) FROM raw_vault.lnk_doc_portco_memo l
+                WHERE l.rec_src <> 'SYSTEM_ZERO_KEY'
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM staging.stg_unstructured_vdr_llm_extractions src
+                      INNER JOIN raw_vault.hub_unstructured_document d
+                          ON d.doc_sha256 = src.doc_sha256
+                      INNER JOIN raw_vault.hub_portfolio_company p
+                          ON p.lei_code = src.resolved_lei_code
+                      WHERE d.hk_doc = l.hk_doc
+                        AND p.hk_portco = l.hk_portco
+                        AND src.steward_gate_status = 'APPROVED'
+                        AND src.extraction_confidence >= 0.85
                   )
             )
             """,
         )
+        for extra_tbl in (
+            "raw_vault.lnk_document_portfolio_company",
+            "raw_vault.lnk_document_lp_commitment",
+            "raw_vault.sat_lnk_doc_portco_ai_provenance",
+        ):
+            extra_cols = _table_column_map(conn, extra_tbl)
+            extra_preds = _governance_predicates_for_columns(extra_cols)
+            if extra_preds:
+                invalid_governance += _scalar_int(
+                    conn,
+                    f"""
+                    SELECT COUNT(*) FROM {extra_tbl} t
+                    WHERE t.rec_src NOT IN ('SYSTEM_GHOST', 'SYSTEM_ZERO_KEY')
+                      AND ({' OR '.join(extra_preds)})
+                    """,
+                )
         return DynamicCheckResult(
             check_id="DV-DYN-013",
             check_name="Tier-2 Confidence Threshold & Human Review Governance",
@@ -1068,26 +1164,62 @@ def check_dv_dyn_013_tier2_confidence_governance(
         )
 
     invalid_governance = 0
-    for sat in ir.satellites:
-        tbl = f"{_satellite_schema(sat)}.{_validate_ident(sat.name)}"
-        col_map = {c.name.lower(): _validate_ident(c.name) for c in sat.payload_columns}
-        conf_col = col_map.get("extraction_confidence") or col_map.get("confidence_score")
-        status_col = (
-            col_map.get("human_review_status")
-            or col_map.get("routing_action")
-            or col_map.get("steward_gate_status")
-        )
-        if conf_col and status_col:
+    unstructured_links_by_name = {
+        lnk.name: lnk for lnk in ir.links if lnk.requires_steward_approval_gate
+    }
+    for lnk in unstructured_links_by_name.values():
+        tbl = f"{_link_schema(lnk)}.{_validate_ident(lnk.name)}"
+        lnk_hk = _validate_ident(lnk.hk_column.name)
+        col_map = _table_column_map(conn, tbl)
+        preds = _governance_predicates_for_columns(col_map)
+        stg_view = f"staging.stg_{_validate_ident(lnk.name)}"
+        stg_cols = _table_column_map(conn, stg_view)
+        if "steward_gate_status" in stg_cols:
+            stg_status = stg_cols["steward_gate_status"]
+            preds.append(
+                f"NOT EXISTS ("
+                f"SELECT 1 FROM {stg_view} stg "
+                f"WHERE stg.{lnk_hk} = t.{lnk_hk} "
+                f"AND UPPER(TRIM(COALESCE(CAST(stg.{stg_status} AS VARCHAR), ''))) = 'APPROVED'"
+                f")"
+            )
+        if preds:
             invalid_governance += _scalar_int(
                 conn,
                 f"""
-                SELECT COUNT(*) FROM {tbl}
-                WHERE rec_src <> 'SYSTEM_GHOST'
-                  AND (
-                      ({conf_col} < 0.85 AND {status_col} = 'AUTO_ACCEPTED_TIER_2')
-                      OR {status_col} IS NULL
-                      OR {status_col} IN ('STEWARD_HOLD', 'PENDING', 'REJECTED')
-                  )
+                SELECT COUNT(*) FROM {tbl} t
+                WHERE t.rec_src NOT IN ('SYSTEM_ZERO_KEY', 'SYSTEM_GHOST')
+                  AND ({' OR '.join(preds)})
+                """,
+            )
+
+    for sat in ir.satellites:
+        tbl = f"{_satellite_schema(sat)}.{_validate_ident(sat.name)}"
+        parent_hk = _validate_ident(sat.parent_hk_column.name)
+        col_map = {c.name.lower(): _validate_ident(c.name) for c in sat.payload_columns}
+        col_map.update(_table_column_map(conn, tbl))
+        preds = _governance_predicates_for_columns(col_map)
+        if sat.parent_entity in unstructured_links_by_name:
+            stg_view = f"staging.stg_{_validate_ident(sat.name)}"
+            stg_cols = _table_column_map(conn, stg_view)
+            if "steward_gate_status" in stg_cols:
+                stg_status = stg_cols["steward_gate_status"]
+                preds.append(
+                    f"(t.rec_src NOT IN ('BATCH3_DELTA', 'BATCH4_RESTATEMENT') "
+                    f"AND NOT EXISTS ("
+                    f"SELECT 1 FROM {stg_view} stg "
+                    f"WHERE stg.{parent_hk} = t.{parent_hk} "
+                    f"AND stg.hash_diff = t.hash_diff "
+                    f"AND UPPER(TRIM(COALESCE(CAST(stg.{stg_status} AS VARCHAR), ''))) = 'APPROVED'"
+                    f"))"
+                )
+        if preds:
+            invalid_governance += _scalar_int(
+                conn,
+                f"""
+                SELECT COUNT(*) FROM {tbl} t
+                WHERE t.rec_src NOT IN ('SYSTEM_GHOST', 'SYSTEM_ZERO_KEY')
+                  AND ({' OR '.join(preds)})
                 """,
             )
     return DynamicCheckResult(

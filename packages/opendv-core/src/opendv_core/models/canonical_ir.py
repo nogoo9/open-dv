@@ -143,8 +143,11 @@ class IRLink(StrictIRModel):
         "SAME_AS",
         "NON_HISTORIZED",
         "EXPLORATION",
+        "UNSTRUCTURED_EXTRACTION_LINK",
     ]
     semantic_role: str | None = None
+    requires_steward_approval_gate: bool = False
+    steward_filter_predicate: str | None = None
     max_recursion_depth: int | None = Field(default=None, ge=1, le=100)
     cycle_prevention_predicate: bool | None = None
     hk_column: IRHashColumn
@@ -166,31 +169,33 @@ class IRLink(StrictIRModel):
         if len(self.hk_column.hash_expression.input_columns) < 2:
             msg = f"Link '{self.name}' hash_expression.input_columns must have at least 2 items"
             raise ValueError(msg)
-        return self
-
-    @property
-    def requires_steward_approval_gate(self) -> bool:
-        """Return True if this Link is an unstructured extraction link requiring Steward gate."""
-        for sm in self.source_mappings:
-            if isinstance(sm, dict) and (
+        has_sm_gate = any(
+            isinstance(sm, dict)
+            and (
                 sm.get("requires_steward_approval_gate") is True
                 or sm.get("unstructured_extraction_link") is True
                 or bool(sm.get("steward_gate_filter"))
-            ):
-                return True
-        return self.name.startswith(("lnk_doc_", "lnk_document_"))
-
-    @property
-    def steward_filter_predicate(self) -> str | None:
-        """Return the Steward approval SQL filter predicate when configured on this Link."""
-        for sm in self.source_mappings:
-            if isinstance(sm, dict):
-                pred = sm.get("steward_filter_predicate") or sm.get("steward_gate_filter")
-                if isinstance(pred, str) and pred.strip():
-                    return pred
-        if self.requires_steward_approval_gate:
-            return "steward_gate_status = 'APPROVED'"
-        return None
+                or bool(sm.get("steward_filter_predicate"))
+            )
+            for sm in self.source_mappings
+        )
+        if (
+            self.requires_steward_approval_gate
+            or self.link_type == "UNSTRUCTURED_EXTRACTION_LINK"
+            or has_sm_gate
+            or self.name.startswith(("lnk_doc_", "lnk_document_"))
+        ):
+            self.requires_steward_approval_gate = True
+            if not (self.steward_filter_predicate and self.steward_filter_predicate.strip()):
+                pred: str | None = None
+                for sm in self.source_mappings:
+                    if isinstance(sm, dict):
+                        cand = sm.get("steward_filter_predicate") or sm.get("steward_gate_filter")
+                        if isinstance(cand, str) and cand.strip():
+                            pred = cand.strip()
+                            break
+                self.steward_filter_predicate = pred or "steward_gate_status = 'APPROVED'"
+        return self
 
 
 class IRParentHkColumn(StrictIRModel):

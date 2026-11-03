@@ -268,8 +268,10 @@
     },
     {
       "name": "lnk_document_lp_commitment",
-      "link_type": "STANDARD",
+      "link_type": "UNSTRUCTURED_EXTRACTION_LINK",
       "semantic_role": "LP Side Letter Provenance Binding Document, Fund, and Beneficiary LP",
+      "requires_steward_approval_gate": true,
+      "steward_filter_predicate": "steward_gate_status = 'APPROVED'",
       "hk_column": {
         "name": "hk_lnk_document_lp_commitment",
         "data_type": "CHAR(64)",
@@ -321,8 +323,10 @@
     },
     {
       "name": "lnk_document_portfolio_company",
-      "link_type": "STANDARD",
+      "link_type": "UNSTRUCTURED_EXTRACTION_LINK",
       "semantic_role": "IC Valuation Memo Mention of Portfolio Company",
+      "requires_steward_approval_gate": true,
+      "steward_filter_predicate": "steward_gate_status = 'APPROVED'",
       "hk_column": {
         "name": "hk_lnk_document_portfolio_company",
         "data_type": "CHAR(64)",

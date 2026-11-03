@@ -30,7 +30,8 @@ export type IrLinkType =
 	| "HIERARCHICAL"
 	| "SAME_AS"
 	| "NON_HISTORIZED"
-	| "EXPLORATION";
+	| "EXPLORATION"
+	| "UNSTRUCTURED_EXTRACTION_LINK";
 
 export type IrSatelliteType =
 	| "STANDARD"
@@ -135,6 +136,8 @@ export interface IrLinkDTO {
 	name: string;
 	link_type: IrLinkType;
 	semantic_role?: string | undefined;
+	requires_steward_approval_gate?: boolean | undefined;
+	steward_filter_predicate?: string | undefined;
 	max_recursion_depth?: number | undefined;
 	cycle_prevention_predicate?: boolean | undefined;
 	hk_column: IrHkColumnDTO;

@@ -21,8 +21,8 @@
    - **Injected Adversarial `Tier-U3` (`UF-5`) Steward-Hold Records:**
      - `EXT-SL-HOLD-003` (`SIDE_LETTER_TERMS`, `LP-102`, `extraction_confidence = 0.7200 < 0.85`, `human_review_status = 'STEWARD_HOLD'`) $\to$ normalized to `steward_gate_status = 'STEWARD_HOLD'` and blocked from `raw_vault.lnk_doc_lp_side_letter` and `business_vault.sat_lp_side_letter_llm_ext`.
      - `EXT-IC-HOLD-004` (`PORTCO_VALUATION_RESTATEMENT`, `529900T8BM49AURSDO55`, `extraction_confidence = 0.6900 < 0.85`, `human_review_status = 'STEWARD_HOLD'`) $\to$ blocked from `raw_vault.lnk_doc_portco_memo` until updated to `'STEWARD_VERIFIED'`.
-2. **Generic `CanonicalIR` Unstructured Dataset (`bronze.src_lnk_document_portfolio_company` / `bronze.src_lnk_document_customer`):**
-   - Contains 2 baseline `'APPROVED'` seed rows plus 4 adversarial rows spanning `'STEWARD_HOLD'`, `'PENDING'`, `'REJECTED'`, and `'APPROVED'` governance states. Only `'APPROVED'` rows are promoted into `raw_vault.lnk_document_*`.
+2. **Generic `CanonicalIR` Unstructured Dataset (`bronze.src_lnk_document_portfolio_company` / `bronze.src_sat_lnk_doc_portco_ai_provenance`):**
+   - Contains 1 baseline `'APPROVED'` seed row and 1 baseline `'STEWARD_HOLD'` seed row across unstructured extraction links and attached link-satellites, plus 4 adversarial rows spanning `'STEWARD_HOLD'`, `'PENDING'`, `'REJECTED'`, and `'APPROVED'` governance states. Only `'APPROVED'` rows are promoted into `raw_vault.lnk_document_*` and `raw_vault.sat_*`.
 
 ### 3. Running the Unit and End-to-End Tests
 

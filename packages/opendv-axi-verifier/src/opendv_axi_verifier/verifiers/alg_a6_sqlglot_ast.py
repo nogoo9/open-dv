@@ -54,36 +54,53 @@ def _infer_entity_type(entity_name: str, explicit_type: str | None = None) -> st
     return "RAW_VAULT"
 
 
+_LINK_TABLE_PREFIXES: tuple[str, ...] = (
+    "lnk_",
+    "t_lnk_",
+    "nh_lnk_",
+    "sal_",
+    "hal_",
+    "x_lnk_",
+)
+
+
 def _is_unstructured_link_target(
-    target_name: str,
+    target_name: str | None,
     entity_name: str,
     resolved_type: str,
     *,
     requires_steward_gate: bool = False,
+    is_single_insert: bool = True,
 ) -> bool:
     """Return True when `target_name` or `entity_name` is an unstructured extraction Link."""
+    entity_short = entity_name.lower().split(".")[-1]
+    if target_name:
+        target_short = target_name.lower().split(".")[-1]
+        if not target_short.startswith(_LINK_TABLE_PREFIXES):
+            return False
+        if target_short.startswith(("lnk_doc_", "lnk_document_")):
+            return True
+        if requires_steward_gate or resolved_type == "UNSTRUCTURED_EXTRACTION_LINK":
+            return target_short == entity_short or is_single_insert
+        return False
     if requires_steward_gate or resolved_type == "UNSTRUCTURED_EXTRACTION_LINK":
         return True
-    for candidate in (target_name.lower(), entity_name.lower()):
-        short = candidate.split(".")[-1]
-        if short.startswith(("lnk_doc_", "lnk_document_")):
-            return True
-    return False
+    return entity_short.startswith(("lnk_doc_", "lnk_document_"))
 
 
 def _has_steward_approval_predicate(where_node: exp.Where | None) -> bool:
     """Return True if `where_node` has `steward_gate_status = 'APPROVED'` at top level."""
-    if where_node is None or isinstance(where_node.this, exp.Or):
+    if where_node is None or not isinstance(where_node, exp.Where):
         return False
     for eq_node in where_node.find_all(exp.EQ):
         parent = eq_node.parent
-        inside_or_or_subquery = False
+        valid_conjunct = True
         while parent is not None and parent is not where_node:
-            if isinstance(parent, (exp.Or, exp.Subquery, exp.Exists)):
-                inside_or_or_subquery = True
+            if not isinstance(parent, (exp.And, exp.Paren)):
+                valid_conjunct = False
                 break
             parent = parent.parent
-        if inside_or_or_subquery:
+        if not valid_conjunct:
             continue
         lhs, rhs = eq_node.this, eq_node.expression
         if (
@@ -130,6 +147,8 @@ def verify_physical_dv2_sql_ast(
         statements = sqlglot.parse(sql_text, read=dialect)
     except Exception as exc:
         return [f"[DV-AST-PARSE-ERR] SQLGlot failed to parse '{entity_name}': {exc}"]
+
+    insert_count = sum(1 for s in statements if isinstance(s, exp.Insert))
 
     for stmt in statements:
         if stmt is None:
@@ -286,21 +305,30 @@ def verify_physical_dv2_sql_ast(
                 target_tbl_node = stmt.this.find(exp.Table) if stmt.this is not None else None
                 if isinstance(stmt.this, exp.Table):
                     target_tbl_node = stmt.this
-                target_name = target_tbl_node.name if target_tbl_node is not None else entity_name
+                raw_target_name = target_tbl_node.name if target_tbl_node is not None else None
+                display_target = raw_target_name or entity_name
                 if _is_unstructured_link_target(
-                    target_name,
+                    raw_target_name,
                     entity_name,
                     resolved_type,
                     requires_steward_gate=requires_steward_gate,
+                    is_single_insert=(insert_count == 1),
                 ):
-                    top_where = select_node.args.get("where") if select_node is not None else None
+                    outer_select = (
+                        stmt.expression if isinstance(stmt.expression, exp.Select) else select_node
+                    )
+                    top_where = (
+                        outer_select.args.get("where")
+                        if isinstance(outer_select, exp.Select)
+                        else None
+                    )
                     if not isinstance(top_where, exp.Where):
-                        top_where = stmt.find(exp.Where)
+                        top_where = None
                     if not _has_steward_approval_predicate(top_where):
                         violations.append(
                             f"[DV-AST-007 / Rule U4] Unstructured extraction Link INSERT on "
-                            f"'{target_name}' in '{entity_name}' lacks mandatory steward approval "
-                            f"filter (\"AND src.steward_gate_status = 'APPROVED'\") "
+                            f"'{display_target}' in '{entity_name}' lacks mandatory steward "
+                            f"approval filter (\"AND src.steward_gate_status = 'APPROVED'\") "
                             f"in its WHERE clause."
                         )
 

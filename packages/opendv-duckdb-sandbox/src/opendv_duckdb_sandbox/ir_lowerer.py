@@ -46,6 +46,7 @@ _LINK_TYPE_MAP: dict[str, str] = {
     "SAME_AS_LINK": "SAME_AS",
     "NON_HISTORIZED_LINK": "NON_HISTORIZED",
     "EXPLORATION_LINK": "EXPLORATION",
+    "UNSTRUCTURED_EXTRACTION_LINK": "UNSTRUCTURED_EXTRACTION_LINK",
 }
 
 _SAT_TYPE_MAP: dict[str, str] = {
@@ -256,6 +257,7 @@ def _lower_link(
     )
     staging_tbl = _staging_table_name(contract_link.source_bronze_table)
     is_unstructured_extraction = contract_link.link_type == "UNSTRUCTURED_EXTRACTION_LINK"
+    steward_pred: str | None = None
     source_mapping_entry: dict[str, Any] = {
         "staging_table": staging_tbl,
         "fk_source_columns": {r.fk_column_name: r.fk_column_name for r in hub_references},
@@ -282,6 +284,8 @@ def _lower_link(
                 f"{contract_link.source_bronze_table}"
             )
         ),
+        requires_steward_approval_gate=is_unstructured_extraction,
+        steward_filter_predicate=steward_pred,
         max_recursion_depth=10 if ir_link_type == "HIERARCHICAL" else None,
         cycle_prevention_predicate=True if ir_link_type == "HIERARCHICAL" else None,
         hk_column=IRHashColumn(

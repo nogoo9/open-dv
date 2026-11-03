@@ -278,10 +278,17 @@
               "HIERARCHICAL",
               "SAME_AS",
               "NON_HISTORIZED",
-              "EXPLORATION"
+              "EXPLORATION",
+              "UNSTRUCTURED_EXTRACTION_LINK"
             ]
           },
           "semantic_role": {
+            "type": "string"
+          },
+          "requires_steward_approval_gate": {
+            "type": "boolean"
+          },
+          "steward_filter_predicate": {
             "type": "string"
           },
           "max_recursion_depth": {

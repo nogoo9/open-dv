@@ -1636,14 +1636,22 @@ def test_issue_32_scenario_s8_uf5_unstructured_link_steward_gate_e2e() -> None:
     assert portco_after_row is not None and portco_after_row[0] == 2
     assert sl_after_row is not None and sl_after_row[0] == 1
 
+    # DV-DYN-013 flags the promoted row while its extraction_confidence is still 0.6900 < 0.85
+    dyn_013_low_conf = check_dv_dyn_013_tier2_confidence_governance(conn)
+    assert dyn_013_low_conf.passed is False
+    assert dyn_013_low_conf.failing_rows >= 1
+
     # --- Part B: Generic CanonicalIR Compiler Path E2E ---
+    from opendv_core.models.canonical_ir import CanonicalIR
+
     gen_ir = lower_contract_to_canonical_ir(
         pe_contract_path, model_name="custom_unstructured_vault"
     )
     gen_ir_dict = json.loads(
         json.dumps(gen_ir.model_dump(mode="json")).replace("hub_limited_partner", "hub_investor")
     )
-    gen_bundle = compile_canonical_ir_to_4zone_sql(gen_ir_dict)
+    gen_ir_obj = CanonicalIR.model_validate(gen_ir_dict)
+    gen_bundle = compile_canonical_ir_to_4zone_sql(gen_ir_obj)
 
     for stmt in gen_bundle.zone_2_sql.split("\n\n"):
         if "INSERT INTO raw_vault.lnk_document_" in stmt:
@@ -1686,6 +1694,14 @@ def test_issue_32_scenario_s8_uf5_unstructured_link_steward_gate_e2e() -> None:
         WHERE rec_src = 'VDR_APPROVED'
         """
     ).fetchone()
+    sat_promoted_row = gconn.execute(
+        """
+        SELECT COUNT(*) FROM raw_vault.sat_lnk_doc_portco_ai_provenance
+        WHERE rec_src <> 'SYSTEM_GHOST'
+        """
+    ).fetchone()
     assert blocked_row is not None and blocked_row[0] == 0
     assert promoted_row is not None and promoted_row[0] == 1
+    assert sat_promoted_row is not None and sat_promoted_row[0] == 1
+    assert check_dv_dyn_013_tier2_confidence_governance(gconn, ir=gen_ir_obj).passed is True
 

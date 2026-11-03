@@ -1166,3 +1166,81 @@ def test_issue_32_alg_a6_dv_ast_007_requires_steward_gate() -> None:
         == []
     )
 
+    subquery_only_sql = """
+    INSERT INTO raw_vault.lnk_doc_portco_memo (
+        hk_lnk_doc_portco_memo, hk_doc, hk_portco, load_dts, rec_src
+    )
+    SELECT
+        src.hk_lnk_doc_portco_memo,
+        src.hk_doc,
+        src.hk_portco,
+        src.load_dts,
+        src.rec_src
+    FROM (
+        SELECT
+            hk_lnk_doc_portco_memo,
+            hk_doc,
+            hk_portco,
+            load_dts,
+            rec_src
+        FROM staging.stg_unstructured_vdr_llm_extractions
+        WHERE steward_gate_status = 'APPROVED'
+    ) src;
+    """
+    v_subquery = verify_physical_dv2_sql_ast(
+        subquery_only_sql,
+        entity_name="lnk_doc_portco_memo",
+        requires_steward_gate=True,
+    )
+    assert any("DV-AST-007" in v for v in v_subquery)
+
+    negated_sql = """
+    INSERT INTO raw_vault.lnk_doc_portco_memo (
+        hk_lnk_doc_portco_memo, hk_doc, hk_portco, load_dts, rec_src
+    )
+    SELECT
+        src.hk_lnk_doc_portco_memo,
+        src.hk_doc,
+        src.hk_portco,
+        src.load_dts,
+        src.rec_src
+    FROM staging.stg_unstructured_vdr_llm_extractions src
+    WHERE NOT (src.steward_gate_status = 'APPROVED');
+    """
+    v_negated = verify_physical_dv2_sql_ast(
+        negated_sql,
+        entity_name="lnk_doc_portco_memo",
+        requires_steward_gate=True,
+    )
+    assert any("DV-AST-007" in v for v in v_negated)
+
+    multi_stmt_sql = """
+    INSERT INTO raw_vault.hub_fund (hk_fund, fund_code, load_dts, rec_src)
+    SELECT src.hk_fund, src.fund_code, src.load_dts, src.rec_src
+    FROM staging.stg_hub_fund src
+    WHERE src.hk_fund IS NOT NULL;
+
+    INSERT INTO raw_vault.lnk_lp_commitment (hk_lnk_lp_commitment, hk_lp, hk_fund, load_dts, rec_src)
+    SELECT src.hk_lnk_lp_commitment, src.hk_lp, src.hk_fund, src.load_dts, src.rec_src
+    FROM staging.stg_lnk_lp_commitment src
+    WHERE src.hk_lnk_lp_commitment IS NOT NULL;
+
+    INSERT INTO raw_vault.lnk_doc_portco_memo (
+        hk_lnk_doc_portco_memo, hk_doc, hk_portco, load_dts, rec_src
+    )
+    SELECT
+        src.hk_lnk_doc_portco_memo,
+        src.hk_doc,
+        src.hk_portco,
+        src.load_dts,
+        src.rec_src
+    FROM staging.stg_unstructured_vdr_llm_extractions src
+    WHERE src.steward_gate_status = 'APPROVED';
+    """
+    v_multi = verify_physical_dv2_sql_ast(
+        multi_stmt_sql,
+        entity_name="lnk_doc_portco_memo",
+        requires_steward_gate=True,
+    )
+    assert not any("DV-AST-007" in v for v in v_multi)
+

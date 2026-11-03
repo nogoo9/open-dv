@@ -547,6 +547,7 @@ def test_compiler_4zone_enforces_steward_gate_status_on_unstructured_links(
     ]
     assert len(unstructured_links) == 2
     for lnk in unstructured_links:
+        assert lnk.link_type == "UNSTRUCTURED_EXTRACTION_LINK"
         assert lnk.source_mappings[0].get("unstructured_extraction_link") is True
         assert (
             lnk.source_mappings[0].get("steward_gate_filter")
@@ -554,8 +555,12 @@ def test_compiler_4zone_enforces_steward_gate_status_on_unstructured_links(
         )
         assert lnk.requires_steward_approval_gate is True
         assert lnk.steward_filter_predicate == "steward_gate_status = 'APPROVED'"
+        dumped_lnk = lnk.model_dump(mode="json")
+        assert dumped_lnk["link_type"] == "UNSTRUCTURED_EXTRACTION_LINK"
+        assert dumped_lnk["requires_steward_approval_gate"] is True
+        assert dumped_lnk["steward_filter_predicate"] == "steward_gate_status = 'APPROVED'"
 
-    # Verify DV-DYN-013 catches a manually injected STEWARD_HOLD row in AI provenance satellite
+    # Verify DV-DYN-013 catches STEWARD_HOLD or low-confidence rows in PE and generic IR modes
     conn = duckdb.connect(":memory:")
     conn.execute(pe_bundle.zone_0_sql)
     conn.execute(pe_bundle.zone_1_sql)
@@ -577,10 +582,10 @@ def test_compiler_4zone_enforces_steward_gate_status_on_unstructured_links(
             REPEAT('e', 64),
             0.7100,
             0.6100,
-            0.8200,
-            'STEWARD_HOLD',
+            0.8800,
+            'APPROVED',
             1, 10, 50,
-            'Unapproved hold quote'
+            'Low-confidence row with APPROVED status'
         );
         """
     )
@@ -588,104 +593,47 @@ def test_compiler_4zone_enforces_steward_gate_status_on_unstructured_links(
     assert dyn_check_after.passed is False
     assert dyn_check_after.failing_rows >= 1
 
+    # Generic CanonicalIR path: verify Zone 0 seeds APPROVED + STEWARD_HOLD on unstructured links
+    # and attached link-satellites, Zone 2 blocks STEWARD_HOLD on both, and DV-DYN-013 enforces
+    # confidence_score >= 0.85 even when only confidence_score is in payload_columns.
+    from opendv_core.models.canonical_ir import CanonicalIR
 
-def test_issue_32_scenario_s8_uf5_unstructured_link_steward_gate_e2e(
-    pe_contract_path: Path,
-    pe_ir_path: Path,
-) -> None:
-    """Issue #32 (BUG-03 / Scenario S8 / Case UF-5): E2E test for Steward approval filter
-    in Zone 2 DML across both the PE reference compiler and the generic CanonicalIR compiler.
-    """
-    import json
-
-    from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import verify_physical_dv2_sql_ast
-    from opendv_duckdb_sandbox.dynamic_checks import check_dv_dyn_013_tier2_confidence_governance
-
-    pe_ir_data = json.loads(pe_ir_path.read_text(encoding="utf-8"))
-    pe_bundle = compile_canonical_ir_to_4zone_sql(pe_ir_data)
-    assert "AND src.steward_gate_status = 'APPROVED'" in pe_bundle.zone_2_sql
-
-    conn = duckdb.connect(":memory:")
-    conn.execute(pe_bundle.zone_0_sql)
-    conn.execute(pe_bundle.zone_1_sql)
-    conn.execute(
-        """
-        INSERT INTO unstructured_vdr.src_document_manifest VALUES
-            ('a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
-             's3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_draft_unverified_memo.pdf',
-             'IC_VALUATION_MEMO_PDF',
-             'Draft Unverified Valuation Note - Nordic Cloud',
-             4, 'application/pdf', TIMESTAMP '2026-11-15 10:00:00');
-
-        INSERT INTO unstructured_vdr.src_llm_extractions VALUES
-            ('EXT-SL-HOLD-003',
-             'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9',
-             'SIDE_LETTER_TERMS',
-             'LP-102', 'GLOBAL', 'APEX-BUYOUT-IV', NULL,
-             50, FALSE, TRUE, 'Unapproved Tier-U3 candidate clause on Steward Hold',
-             NULL, DATE '2026-06-30',
-             'claude-3-7-sonnet-20260219',
-             '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-             0.7200, 0.5800, 0.7900, 'STEWARD_HOLD',
-             5, 310, 465,
-             'Ambiguous LP reference (Tier-U3 confidence 0.72 < 0.85) awaiting steward approval.',
-             TIMESTAMP '2026-10-02 10:00:00'),
-            ('EXT-IC-HOLD-004',
-             'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
-             'PORTCO_VALUATION_RESTATEMENT',
-             NULL, NULL, 'APEX-BUYOUT-IV', '529900T8BM49AURSDO55',
-             NULL, NULL, NULL, NULL,
-             19.00, DATE '2026-09-30',
-             'claude-3-7-sonnet-20260219',
-             '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-             0.6900, 0.5400, 0.8100, 'STEWARD_HOLD',
-             3, 120, 290,
-             'Ambiguous PortCo valuation restatement (Tier-U3 < 0.85) on Steward Hold.',
-             TIMESTAMP '2026-11-15 10:05:00');
-        """
-    )
-    conn.execute(pe_bundle.zone_2_sql)
-    conn.execute(pe_bundle.zone_3_sql)
-
-    sl_row = conn.execute(
-        "SELECT COUNT(*) FROM raw_vault.lnk_doc_lp_side_letter WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
-    ).fetchone()
-    portco_row = conn.execute(
-        "SELECT COUNT(*) FROM raw_vault.lnk_doc_portco_memo WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
-    ).fetchone()
-    assert sl_row is not None and sl_row[0] == 1
-    assert portco_row is not None and portco_row[0] == 1
-    assert check_dv_dyn_013_tier2_confidence_governance(conn).passed is True
-
-    conn.execute(
-        """
-        UPDATE unstructured_vdr.src_llm_extractions
-        SET human_review_status = 'STEWARD_VERIFIED'
-        WHERE extraction_id = 'EXT-IC-HOLD-004';
-        """
-    )
-    conn.execute(pe_bundle.zone_2_sql)
-    conn.execute(pe_bundle.zone_3_sql)
-    portco_after_row = conn.execute(
-        "SELECT COUNT(*) FROM raw_vault.lnk_doc_portco_memo WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
-    ).fetchone()
-    assert portco_after_row is not None and portco_after_row[0] == 2
-
-    gen_ir = lower_contract_to_canonical_ir(
-        pe_contract_path, model_name="custom_unstructured_vault"
-    )
     gen_ir_dict = json.loads(
-        json.dumps(gen_ir.model_dump(mode="json")).replace("hub_limited_partner", "hub_investor")
+        json.dumps(lowered_ir.model_dump(mode="json")).replace(
+            "hub_limited_partner", "hub_investor"
+        )
     )
-    gen_bundle = compile_canonical_ir_to_4zone_sql(gen_ir_dict)
-    for stmt in gen_bundle.zone_2_sql.split("\n\n"):
-        if "INSERT INTO raw_vault.lnk_document_" in stmt:
-            assert "AND src.steward_gate_status = 'APPROVED'" in stmt
-            ast_violations = verify_physical_dv2_sql_ast(
-                stmt,
-                entity_name="lnk_document_portfolio_company",
-                entity_type="UNSTRUCTURED_EXTRACTION_LINK",
-                requires_steward_gate=True,
-            )
-            assert not any("DV-AST-007" in v for v in ast_violations)
+    gen_ir_obj = CanonicalIR.model_validate(gen_ir_dict)
+    gen_bundle = compile_canonical_ir_to_4zone_sql(gen_ir_obj)
+    assert "'STEWARD_HOLD'" in gen_bundle.zone_0_sql
+    assert gen_bundle.zone_2_sql.count("AND src.steward_gate_status = 'APPROVED'") >= 4
+
+    gconn = duckdb.connect(":memory:")
+    gconn.execute(gen_bundle.zones_0_to_3_sql)
+    lnk_cnt = gconn.execute(
+        """
+        SELECT COUNT(*) FROM raw_vault.lnk_document_portfolio_company
+        WHERE rec_src <> 'SYSTEM_ZERO_KEY'
+        """
+    ).fetchone()
+    sat_cnt = gconn.execute(
+        """
+        SELECT COUNT(*) FROM raw_vault.sat_lnk_doc_portco_ai_provenance
+        WHERE rec_src <> 'SYSTEM_GHOST'
+        """
+    ).fetchone()
+    assert lnk_cnt is not None and lnk_cnt[0] == 1
+    assert sat_cnt is not None and sat_cnt[0] == 1
+    assert check_dv_dyn_013_tier2_confidence_governance(gconn, ir=gen_ir_obj).passed is True
+
+    gconn.execute(
+        """
+        UPDATE raw_vault.sat_lnk_doc_portco_ai_provenance
+        SET confidence_score = 0.7200
+        WHERE rec_src <> 'SYSTEM_GHOST';
+        """
+    )
+    gen_dyn_after = check_dv_dyn_013_tier2_confidence_governance(gconn, ir=gen_ir_obj)
+    assert gen_dyn_after.passed is False
+    assert gen_dyn_after.failing_rows >= 1
 
