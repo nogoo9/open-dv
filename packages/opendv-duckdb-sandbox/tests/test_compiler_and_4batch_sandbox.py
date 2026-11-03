@@ -674,4 +674,3 @@ def test_issue_30_scenario_s7_multibyte_utf8_e2e_sandbox() -> None:
             is_business_key=False,
         ).lower()
         assert sat_nordisk[0] == expected_hd_nordisk
-

@@ -452,10 +452,7 @@ def check_dv_dyn_005_boundary_shift_collision(
         or "STRLEN(" in token_sql.upper()
     )
     collisions = (
-        int(row[0] == row[1])
-        + int(row[2] == row[3])
-        + utf8_mismatch
-        + staging_strlen_views
+        int(row[0] == row[1]) + int(row[2] == row[3]) + utf8_mismatch + staging_strlen_views
     )
     return DynamicCheckResult(
         check_id="DV-DYN-005",

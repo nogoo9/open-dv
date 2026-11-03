@@ -96,16 +96,14 @@ When live source data contains fields that cannot be matched to the declared Gra
   - In generic `compiler_4zone.py` Zone 2 DML, satellite delta detection partitions by `hk` and orders strictly by `load_dts DESC`. A late-arriving restatement with an older `load_dts` is dropped by `src.load_dts > cur.load_dts`, even if `applied_dts` is novel.
 
 ### Scenario S7: Malformed / Adversarial Raw Data
-- **Data Input Profile:** Duplicate BKs in micro-batch, whitespace/null BKs, SQL injection payloads (`' OR 1=1; --`).
+- **Data Input Profile:** Duplicate BKs in micro-batch, whitespace/null BKs, multi-byte UTF-8 keys/payloads, SQL injection payloads (`' OR 1=1; --`).
 - **Observed Codebase Behavior:**
   - Zone 2 DML groups by BK columns (`GROUP BY src.{hk}, {src_bk_csv}`) and uses `WHERE NOT EXISTS`, deduplicating micro-batches.
-  - Length-prefixed SHA-256 (`<len>:<val>`) prevents delimiter injection collisions (`['AB', 'C']` vs `['A', 'BC']`).
-  - Identifier regex `^[A-Za-z_][A-Za-z0-9_]*$` and SQLGlot AST prevent dynamic SQL injection.
+  - Length-prefixed SHA-256 (`<len>:<val>`) via `OCTET_LENGTH(ENCODE(...))` prevents delimiter injection collisions (`['AB', 'C']` vs `['A', 'BC']`) and preserves multi-byte UTF-8 byte-length parity (`DV-HASH-004`; see [`docs/17-testing-scenarios-and-datasets.md`](17-testing-scenarios-and-datasets.md)).
+  - Identifier regex `^[A-Za-z_][A-Za-z0-9_]*$` and SQLGlot AST (`DV-AST-002`) prevent dynamic SQL injection and reject `STRLEN`/`LENGTH` in hash expressions.
 - **DV 2.0 Consistency Critique & Gaps:**
-  - **CRITICAL BUG: DuckDB `STRLEN()` vs. UTF-8 `OCTET_LENGTH()`:**
-    In `compiler_4zone.py` line 112:
-    `CAST(STRLEN({nullif_expr}) AS VARCHAR) || ':' || {nullif_expr}`
-    DuckDB's `STRLEN()` returns Unicode character count, whereas Python `len(s.encode('utf-8'))` in `hashing.py` returns UTF-8 byte length. For multi-byte characters (e.g. `'ä'`), DuckDB produces `'20:...'` while Python produces `'21:...'`, causing **cryptographic hash mismatch between Python and DuckDB**!
+  - **RESOLVED (`BUG-01` / [#30](https://github.com/nogoo9/open-dv/issues/30)): DuckDB `STRLEN()` vs. UTF-8 `OCTET_LENGTH(ENCODE(...))`:**
+    Replaced `STRLEN(...)` (Unicode codepoint count) with `OCTET_LENGTH(ENCODE(...))` (UTF-8 byte length) across `compiler_4zone.py`, `pit_query_engine.py`, `adversarial_batches.py`, and `dynamic_checks.py`, and tightened `DV-AST-002` in `alg_a6_sqlglot_ast.py` to accept only `OCTET_LENGTH`/`BYTE_LENGTH`.
   - **Case Divergence:** Python `hashing.py` produces uppercase hex (`.hexdigest().upper()`), whereas DuckDB SQL produces lowercase hex (`LOWER(SHA256(...))`).
 
 ### Scenario S8: Unstructured Document Ingestion
@@ -139,7 +137,7 @@ When live source data contains fields that cannot be matched to the declared Gra
 
 | Issue ID | Severity | Subsystem & File Location | Description & Root Cause | Proposed Fix | GitHub Issue |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **BUG-01** | **CRITICAL** | `opendv-duckdb-sandbox/compiler_4zone.py` (lines 112, 750, 787, 852, 1013) | `STRLEN()` in DuckDB counts characters, while Python `hashing.py` counts UTF-8 bytes. Diverges on multi-byte characters. | Replace `STRLEN(...)` with `OCTET_LENGTH(...)` across `compiler_4zone.py`. | [#30](https://github.com/nogoo9/open-dv/issues/30) |
+| **BUG-01** | **CRITICAL** *(Resolved)* | `opendv-duckdb-sandbox/compiler_4zone.py`, `pit_query_engine.py`, `alg_a6_sqlglot_ast.py` | `STRLEN()` in DuckDB counts characters, while Python `hashing.py` counts UTF-8 bytes. Diverges on multi-byte characters. | Replaced `STRLEN(...)` with `OCTET_LENGTH(ENCODE(...))` and restricted `DV-AST-002` to `OCTET_LENGTH`/`BYTE_LENGTH` ([`docs/17`](17-testing-scenarios-and-datasets.md)). | [#30](https://github.com/nogoo9/open-dv/issues/30) |
 | **BUG-02** | **HIGH** | `opendv-axi-verifier/codemods/alg_a4_cold_start.py` (line 294) | `if len(refs) < 3: continue` skips binary links with sparse foreign keys ($U_{nn} < 0.95$), generating synthetic zero-key relationships. | Extend Algorithm A.4 and Gate 2 to binary links: filter `WHERE fk IS NOT NULL` or demote FK to satellite attribute. | [#31](https://github.com/nogoo9/open-dv/issues/31) |
 | **BUG-03** | **HIGH** | `opendv-duckdb-sandbox/compiler_4zone.py` (Zone 2 templates) | Zone 2 DML lacks approval filter for unstructured extraction links. | Inject `WHERE steward_gate_status = 'APPROVED'` into Zone 2 DML for unstructured links. | [#32](https://github.com/nogoo9/open-dv/issues/32) |
 | **BUG-04** | **MEDIUM** | `opendv-axi-verifier/verifiers/alg_a9b_unstructured.py` (line 107) | Windows CRLF line endings cause 1-character-per-line shifts, spuriously triggering `SPAN_HALLUCINATION`. | Explicitly normalize newlines (`replace('\r\n', '\n')`) prior to span verification. | [#33](https://github.com/nogoo9/open-dv/issues/33) |

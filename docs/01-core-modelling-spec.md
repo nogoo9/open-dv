@@ -744,7 +744,7 @@ flowchart LR
    - **Hub/Link keys only:** if *every* business key column (excluding `bkcc`) is `NULL`, emit the Zero Key `REPEAT('0', 64)` instead of hashing (`KEY-02b`); never hash `bkcc` alone.
    - Concatenate all encoded columns with `'||'`, hash the UTF-8 bytes with `SHA-256`, and store the digest as uppercase hex (`CHAR(64)`) or its raw bytes (`BINARY(32)`).
 
-#### Canonical SQL Macro Template (Snowflake / ANSI SQL, Length-Prefixed Mode; on DuckDB use `STRLEN` for `OCTET_LENGTH` and `SHA256(x)` for `SHA2(x, 256)`)
+#### Canonical SQL Macro Template (Snowflake / ANSI SQL, Length-Prefixed Mode; on DuckDB use `OCTET_LENGTH(ENCODE(x))` for `OCTET_LENGTH(x)` and `SHA256(x)` for `SHA2(x, 256)`)
 
 This is the exact encoding emitted by the Gate 2 hash codemod (`Algorithm A.5` in [`05-elm-calculus-and-reference-algorithms.md`](05-elm-calculus-and-reference-algorithms.md)) and by the Python reference in Section 6.1, so all three produce the same digest for the same input.
 

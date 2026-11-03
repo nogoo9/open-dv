@@ -4,7 +4,7 @@ Performs static SQLGlot AST inspection on staging and Raw Vault SQL models:
   - `DV-AST-001` (`DV-G6-002`): No `UPDATE`, `DELETE`, `TRUNCATE`, `DROP`, `ALTER`, or
     destructive `MERGE` on Raw Vault tables (`hub_*`, `lnk_*`, `sat_*`, `esat_*`, `mas_*`).
   - `DV-AST-002` (`DV-G6-001`): Canonical length-prefixed `||` (`DPipe`) hash recipe
-    (`OCTET_LENGTH` / `LENGTH` + `||` delimiter).
+    (`OCTET_LENGTH` / `BYTE_LENGTH` + `||` delimiter).
   - `DV-AST-003` (`DV-G6-001`): Positional null token `'-1:^^'` in every `hk_*`,
     `hk_lnk_*`, and `hash_diff` hash expression.
   - `DV-AST-004` (`DV-G6-001` / `DV-G6-003`): Deterministic projection (forbids `NOW()`,

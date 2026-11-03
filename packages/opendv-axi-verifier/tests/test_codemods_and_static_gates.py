@@ -1069,4 +1069,3 @@ def test_issue_30_dv_ast_002_rejects_strlen_and_length_in_hashes() -> None:
         good_octet_sql, entity_name="stg_lp", entity_type="STAGE", dialect="duckdb"
     )
     assert octet_violations == []
-
