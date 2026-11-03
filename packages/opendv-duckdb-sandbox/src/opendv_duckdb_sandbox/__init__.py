@@ -6,8 +6,8 @@ Exports:
 - `ir_lowerer`: `lower_contract_to_canonical_ir`, `compute_topological_load_waves`,
   `topological_load_dag`
 - `compiler_4zone`: `Compiled4ZoneBundle`, `compile_canonical_ir_to_4zone_sql`,
-  `build_algorithm_a5_sha256_sql`, `build_length_prefixed_token_sql`,
-  `build_query_d10_sql`, `build_query_d10b_sql`
+  `compile_zone_0_migration_sql`, `build_algorithm_a5_sha256_sql`,
+  `build_length_prefixed_token_sql`, `build_query_d10_sql`, `build_query_d10b_sql`
 - `adversarial_batches`: `AdversarialBatchResult`, `FourBatchExecutionReport`,
   `run_batch_1_baseline_and_ghost_completeness`, `run_batch_2_replay_idempotency`,
   `run_batch_3_delta_and_boundary_shift`,

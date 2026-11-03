@@ -18,6 +18,9 @@ Covers:
    `12.80x` (`$216.28M` EV = `216280000.00`) at `assertion_cutoff_ts = '2026-10-15 12:00:00'`.
 5. Telemetry integration: Emitting schema-valid `VIZ-GATE-08` (`WB-10`) `VaultObservabilityEvent`
    records via `VaultLedgerEmitter`.
+6. Issue #38 (`Scenario S4` / `UF-1`): `compile_zone_0_migration_sql` idempotent
+   `ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS` statements and multi-wave in-place
+   Satellite schema evolution (`EVO-01`, `DV-EVO-006`, `DV-AST-001`, `DV-DYN-014`).
 """
 
 from __future__ import annotations
@@ -809,4 +812,3 @@ def test_issue_38_in_place_satellite_evolution_e2e_duckdb() -> None:
         assert dyn_014.passed is True
     finally:
         conn.close()
-

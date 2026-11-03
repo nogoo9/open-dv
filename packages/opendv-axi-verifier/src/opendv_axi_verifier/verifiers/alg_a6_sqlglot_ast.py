@@ -1,8 +1,9 @@
 """Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`006` / `DV-G6-001`-`005`).
 
 Performs static SQLGlot AST inspection on staging and Raw Vault SQL models:
-  - `DV-AST-001` (`DV-G6-002`): No `UPDATE`, `DELETE`, `TRUNCATE`, `DROP`, `ALTER`, or
-    destructive `MERGE` on Raw Vault tables (`hub_*`, `lnk_*`, `sat_*`, `esat_*`, `mas_*`).
+  - `DV-AST-001` (`DV-G6-002`): No `UPDATE`, `DELETE`, `TRUNCATE`, `DROP`, destructive `ALTER`
+    (only additive `ALTER TABLE ... ADD COLUMN` is permitted), or destructive `MERGE` on Raw Vault
+    tables (`hub_*`, `lnk_*`, `sat_*`, `esat_*`, `mas_*`).
   - `DV-AST-002` (`DV-G6-001`): Canonical length-prefixed `||` (`DPipe`) hash recipe
     (`OCTET_LENGTH` / `LENGTH` + `||` delimiter).
   - `DV-AST-003` (`DV-G6-001`): Positional null token `'-1:^^'` in every `hk_*`,

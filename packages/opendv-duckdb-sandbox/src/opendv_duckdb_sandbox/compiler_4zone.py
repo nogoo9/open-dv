@@ -2,9 +2,11 @@
 
 Compiles verified `CanonicalIR` models (including the Private Equity reference vault) into
 an executable 4-Zone DuckDB SQL bundle (`docs/03` §7, `docs/05` §3.5, `docs/07` Scene 6):
-- **Zone 0**: Target schemas, Bronze staging seed tables, Raw/Business Vault DDL, and
-  mandatory Ghost Records (`SYSTEM_GHOST` at `1900-01-01 00:00:00`) & Dual Zero Keys
-  (`'0'*64` Unknown and `'f'*64` Error with `rec_src = 'SYSTEM_ZERO_KEY'`).
+- **Zone 0**: Target schemas, Bronze staging seed tables, Raw/Business Vault DDL
+  (`CREATE TABLE IF NOT EXISTS`), mandatory Ghost Records (`SYSTEM_GHOST` at
+  `1900-01-01 00:00:00`) & Dual Zero Keys (`'0'*64` Unknown and `'f'*64` Error with
+  `rec_src = 'SYSTEM_ZERO_KEY'`), plus idempotent `zone_0_migration_sql`
+  (`ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS`) for additive Satellite evolution.
 - **Zone 1**: Hashed Staging Views (`staging.stg_*`) using Algorithm A.5 length-prefixed
   SHA-256 (`<len>:<val>` and `'-1:^^'` null token) and `BKCC` namespace injection.
 - **Zone 2**: Insert-Only Raw Vault DML for Hubs, Reference tables, Links, and Satellites
@@ -2885,9 +2887,7 @@ def compile_zone_0_migration_sql(
     """
     ir_obj = CanonicalIR.model_validate(ir) if isinstance(ir, dict) else ir
     base_obj = (
-        CanonicalIR.model_validate(baseline_ir)
-        if isinstance(baseline_ir, dict)
-        else baseline_ir
+        CanonicalIR.model_validate(baseline_ir) if isinstance(baseline_ir, dict) else baseline_ir
     )
     prev_sats = {s.name: s for s in base_obj.satellites} if base_obj is not None else None
 
@@ -2910,9 +2910,7 @@ def compile_zone_0_migration_sql(
         for col in target_cols:
             c_name = _validate_ident(col.name)
             c_type = _normalize_duckdb_type(col.data_type)
-            stmts.append(
-                f"ALTER TABLE {schema}.{tbl} ADD COLUMN IF NOT EXISTS {c_name} {c_type};"
-            )
+            stmts.append(f"ALTER TABLE {schema}.{tbl} ADD COLUMN IF NOT EXISTS {c_name} {c_type};")
 
     if not stmts:
         return ""
