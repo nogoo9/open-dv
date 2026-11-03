@@ -488,13 +488,17 @@ def codemod_enforce_cold_start_extensibility(
                 src["require_src_qualifier"] = True
                 src["bkcc_prefix"] = rec_src
 
-    # Part 2: Split sparse/nullable FKs out of N-ary Links (N >= 3)
+    # Part 2: Split sparse/nullable FKs out of N-ary Links (N >= 3) or filter binary Links (N == 2)
     rewired_links: List[Dict[str, Any]] = []
     ledger_fk_remap: Dict[tuple[str, str], str] = {}
 
     for lnk in mutated.get("links", []):
         refs = lnk.get("hub_references", [])
-        if len(refs) < 3 or lnk["link_type"] not in {"STANDARD_LINK", "NON_HISTORIZED_LINK"}:
+        if (
+            len(refs) < 2
+            or lnk.get("where_filter_condition")
+            or lnk["link_type"] not in {"STANDARD_LINK", "NON_HISTORIZED_LINK"}
+        ):
             rewired_links.append(lnk)
             continue
 
@@ -540,6 +544,18 @@ def codemod_enforce_cold_start_extensibility(
                 rewired_links.append(opt_lnk)
                 for fk_col in opt_ref["source_fk_columns"]:
                     ledger_fk_remap[(b_table, fk_col)] = opt_lnk_name
+        elif optional_refs:
+            filtered_lnk = deepcopy(lnk)
+            not_null_clauses = [
+                f"{col} IS NOT NULL"
+                for opt_ref in optional_refs
+                for col in opt_ref["source_fk_columns"]
+            ]
+            filtered_lnk["where_filter_condition"] = " AND ".join(not_null_clauses)
+            rewired_links.append(filtered_lnk)
+            for opt_ref in optional_refs:
+                for fk_col in opt_ref["source_fk_columns"]:
+                    ledger_fk_remap[(b_table, fk_col)] = lnk["name"]
         else:
             rewired_links.append(lnk)
 

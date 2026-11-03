@@ -121,13 +121,14 @@ def _extract_bronze_cold_start_metrics(
                     if not isinstance(col, dict) or "column_name" not in col:
                         continue
                     c_name = str(col["column_name"])
-                    non_null_ratio = col.get("non_null_ratio")
-                    if non_null_ratio is None:
-                        non_null_ratio = col.get("u_non_null")
-                    if non_null_ratio is None and "null_rate" in col:
-                        non_null_ratio = 1.0 - float(col["null_rate"])
-                    if non_null_ratio is None:
-                        non_null_ratio = 1.0
+                    nn_candidates: list[float] = []
+                    if col.get("non_null_ratio") is not None:
+                        nn_candidates.append(float(col["non_null_ratio"]))
+                    if col.get("u_non_null") is not None:
+                        nn_candidates.append(float(col["u_non_null"]))
+                    if col.get("null_rate") is not None:
+                        nn_candidates.append(1.0 - float(col["null_rate"]))
+                    non_null_ratio = min(nn_candidates) if nn_candidates else 1.0
                     cand_role = str(col.get("candidate_role", ""))
                     pat_class = str(col.get("pattern_class", ""))
                     if not pat_class:
@@ -154,11 +155,14 @@ def _extract_bronze_cold_start_metrics(
         for col_name, metrics in raw_tbl.items():
             if not isinstance(metrics, dict):
                 continue
-            non_null_ratio = metrics.get("non_null_ratio")
-            if non_null_ratio is None and "null_rate" in metrics:
-                non_null_ratio = 1.0 - float(metrics["null_rate"])
-            if non_null_ratio is None:
-                non_null_ratio = 1.0
+            nn_candidates = []
+            if metrics.get("non_null_ratio") is not None:
+                nn_candidates.append(float(metrics["non_null_ratio"]))
+            if metrics.get("u_non_null") is not None:
+                nn_candidates.append(float(metrics["u_non_null"]))
+            if metrics.get("null_rate") is not None:
+                nn_candidates.append(1.0 - float(metrics["null_rate"]))
+            non_null_ratio = min(nn_candidates) if nn_candidates else 1.0
             t_cols[col_name] = {
                 "pattern_class": str(metrics.get("pattern_class", "LOCAL_SEQUENCE")),
                 "candidate_role": str(metrics.get("candidate_role", "")),
@@ -285,13 +289,13 @@ def codemod_enforce_cold_start_extensibility(
                 "to prevent cross-system SHA-256 hash key collisions."
             )
 
-    # 2. Split Nullable Optional FKs (`U_nn < 0.95`) out of N-ary Links
+    # 2. Split Nullable Optional FKs (`U_nn < 0.95`) out of N-ary Links or filter Binary Links
     new_links: list[dict[str, Any]] = []
     existing_link_names = {str(lnk.get("name", "")) for lnk in ir.get("links", [])}
 
     for lnk in ir.get("links", []):
         refs = list(lnk.get("hub_references", []))
-        if len(refs) < 3 or lnk.get("where_filter_condition"):
+        if len(refs) < 2 or lnk.get("where_filter_condition"):
             new_links.append(lnk)
             continue
 
@@ -302,14 +306,14 @@ def codemod_enforce_cold_start_extensibility(
         optional_refs: list[dict[str, Any]] = []
 
         for ref in refs:
-            fk_cols = list(ref.get("source_fk_columns", []))
+            fk_cols = [str(c) for c in ref.get("source_fk_columns", [])]
             if not fk_cols:
                 mandatory_refs.append(ref)
                 continue
-            fk_col = str(fk_cols[0])
-            c_info = t_profile.get(fk_col, {})
-            non_null_ratio = float(c_info.get("non_null_ratio", 1.0))
-            if non_null_ratio < 0.95:
+            min_non_null_ratio = min(
+                float(t_profile.get(fk_col, {}).get("non_null_ratio", 1.0)) for fk_col in fk_cols
+            )
+            if min_non_null_ratio < 0.95:
                 optional_refs.append(ref)
             else:
                 mandatory_refs.append(ref)
@@ -343,7 +347,9 @@ def codemod_enforce_cold_start_extensibility(
                         opt_lnk["hub_references"] = [*mandatory_refs, opt_ref]
                     else:
                         opt_lnk["hub_references"] = [mandatory_refs[0], opt_ref]
-                    opt_lnk["where_filter_condition"] = f"{fk_col} IS NOT NULL"
+                    opt_lnk["where_filter_condition"] = " AND ".join(
+                        f"{c} IS NOT NULL" for c in opt_ref.get("source_fk_columns", [])
+                    )
                     new_links.append(opt_lnk)
                     existing_link_names.add(opt_lnk_name)
 
@@ -366,6 +372,32 @@ def codemod_enforce_cold_start_extensibility(
                             entry["elm_classification"] = "OPTIONAL_FOREIGN_KEY_REF"
                         if "dv_target_role" in entry:
                             entry["dv_target_role"] = "OPTIONAL_FOREIGN_KEY_REF"
+        elif optional_refs:
+            opt_fk_cols_ordered: list[str] = []
+            for opt_ref in optional_refs:
+                for c in opt_ref.get("source_fk_columns", []):
+                    c_str = str(c)
+                    if c_str not in opt_fk_cols_ordered:
+                        opt_fk_cols_ordered.append(c_str)
+            filtered_lnk = copy.deepcopy(lnk)
+            filtered_lnk["where_filter_condition"] = " AND ".join(
+                f"{c} IS NOT NULL" for c in opt_fk_cols_ordered
+            )
+            new_links.append(filtered_lnk)
+
+            opt_fk_col_set = set(opt_fk_cols_ordered)
+            for entry in ledger:
+                e_table = str(entry.get("bronze_table") or entry.get("source_table") or "")
+                e_target = str(entry.get("target_dv_entity") or entry.get("target_entity") or "")
+                if (
+                    e_table == b_table
+                    and str(entry.get("column_name", "")) in opt_fk_col_set
+                    and e_target == lnk.get("name")
+                ):
+                    if "elm_classification" in entry or "dv_target_role" not in entry:
+                        entry["elm_classification"] = "OPTIONAL_FOREIGN_KEY_REF"
+                    if "dv_target_role" in entry:
+                        entry["dv_target_role"] = "OPTIONAL_FOREIGN_KEY_REF"
         else:
             new_links.append(lnk)
 

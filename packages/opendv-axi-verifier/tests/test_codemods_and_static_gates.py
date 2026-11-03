@@ -1034,3 +1034,313 @@ def test_alg_a8_orchestrator_end_to_end_pe_verification_and_telemetry(
     assert ask_res.toon_trace.status == "ASK-USER"
     assert ask_res.emitted_events[0]["status"] == "ASK-USER"
     assert ask_res.emitted_events[0]["layer1_story_banner"]["verdict_pill"] == "ASK-USER"
+
+
+def test_issue_31_alg_a4_and_gate2_sparse_binary_link(tmp_path: Path) -> None:
+    """Issue #31 (BUG-02 / Scenario S5): Binary links (arity = 2) with sparse optional FK
+    (U_nn < 0.95 or null_rate > 0.05) must be rejected by Gate 2 (DV-G2-001 / DV-G2-001b)
+    when unfiltered, and auto-repaired in-place by Algorithm A.4 with
+    where_filter_condition = '<fk> IS NOT NULL' and OPTIONAL_FOREIGN_KEY_REF.
+    """
+    import duckdb
+
+    from opendv_core.constants import ZERO_KEY_UNKNOWN
+    from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
+    from opendv_duckdb_sandbox.compiler_4zone import build_algorithm_a5_sha256_sql
+    from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
+
+    customers_csv = tmp_path / "crm_customers.csv"
+    customers_csv.write_text(
+        "customer_tax_id,legal_name\n"
+        "TAX-US-900101,Acme Industrial Holdings LLC\n"
+        "TAX-DE-800202,Krauss Mittelstand GmbH\n",
+        encoding="utf-8",
+    )
+    orders_csv = tmp_path / "erp_orders.csv"
+    orders_csv.write_text(
+        "order_id,customer_tax_id,order_status\n"
+        "ORD-2026-1001,TAX-US-900101,FULFILLED\n"
+        "ORD-2026-1002,,DRAFT\n"
+        "ORD-2026-1003,TAX-DE-800202,SHIPPED\n"
+        "ORD-2026-1004,,QUOTE_PENDING\n",
+        encoding="utf-8",
+    )
+
+    # Profile real CSV files with GraphBProfiler in DuckDB (no mocks)
+    profiler = GraphBProfiler()
+    cust_metrics = profiler.profile_csv(customers_csv, view_name="v_customers")
+    order_metrics = profiler.profile_csv(orders_csv, view_name="v_orders")
+
+    bronze_profile = {
+        "profile_version": "1.0.0",
+        "domain_namespace": "global_commerce",
+        "profiled_at_utc": "2026-10-30T00:00:00Z",
+        "source_systems": [
+            {
+                "source_system_code": "CRM_SALESFORCE",
+                "description": "CRM Customers",
+                "tables": [
+                    {
+                        "bronze_table": "crm_salesforce.crm_customers",
+                        "row_count": 2,
+                        "daily_delta_rows": 2,
+                        "columns": [
+                            m.to_profiled_column().model_dump(mode="json", exclude_none=True)
+                            for m in cust_metrics
+                        ],
+                    }
+                ],
+            },
+            {
+                "source_system_code": "ERP_NETSUITE",
+                "description": "ERP Orders with 50% NULL customer_tax_id",
+                "tables": [
+                    {
+                        "bronze_table": "erp_netsuite.erp_orders",
+                        "row_count": 4,
+                        "daily_delta_rows": 4,
+                        "columns": [
+                            m.to_profiled_column().model_dump(mode="json", exclude_none=True)
+                            for m in order_metrics
+                        ],
+                    }
+                ],
+            },
+        ],
+    }
+
+    ontology = {
+        "ontology_version": "1.0.0",
+        "domain_namespace": "global_commerce",
+        "canonical_business_concepts": [
+            {
+                "concept_uri": "urn:ontology:entity:customer",
+                "concept_name": "Customer",
+                "expected_hub": "hub_customer",
+                "description": "Enterprise customer entity",
+                "key_authority_tiers": {
+                    "tier_1_global_standard": {
+                        "column_patterns": ["customer_tax_id"],
+                        "bkcc_policy": "GLOBAL",
+                    }
+                },
+            },
+            {
+                "concept_uri": "urn:ontology:entity:order",
+                "concept_name": "SalesOrder",
+                "expected_hub": "hub_order",
+                "description": "Sales order header entity",
+                "key_authority_tiers": {
+                    "tier_1_global_standard": {
+                        "column_patterns": ["order_id"],
+                        "bkcc_policy": "GLOBAL",
+                    }
+                },
+            },
+        ],
+        "canonical_relationships": [
+            {
+                "relationship_uri": "urn:ontology:relationship:order_customer",
+                "relationship_name": "OrderCustomer",
+                "expected_link": "lnk_order_customer",
+                "involved_hubs": ["hub_order", "hub_customer"],
+            }
+        ],
+    }
+
+    unfiltered_binary_contract = {
+        "contract_version": "5.0",
+        "domain_namespace": "global_commerce",
+        "lifecycle_stage": "COLD_START_N1",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "customer_tax_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_customer",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "legal_name",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+            {
+                "bronze_table": "erp_netsuite.erp_orders",
+                "column_name": "order_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_order",
+            },
+            {
+                "bronze_table": "erp_netsuite.erp_orders",
+                "column_name": "customer_tax_id",
+                "elm_classification": "FOREIGN_KEY_REF",
+                "target_dv_entity": "lnk_order_customer",
+            },
+            {
+                "bronze_table": "erp_netsuite.erp_orders",
+                "column_name": "order_status",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_order_core",
+            },
+        ],
+        "hubs": [
+            {
+                "name": "hub_customer",
+                "ontology_concept_uri": "urn:ontology:entity:customer",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "crm_salesforce.crm_customers",
+                        "key_columns": ["customer_tax_id"],
+                        "record_source_code": "CRM_SALESFORCE",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "require_src_qualifier": False,
+                        "bkcc_prefix": None,
+                    }
+                ],
+            },
+            {
+                "name": "hub_order",
+                "ontology_concept_uri": "urn:ontology:entity:order",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "erp_netsuite.erp_orders",
+                        "key_columns": ["order_id"],
+                        "record_source_code": "ERP_NETSUITE",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "require_src_qualifier": False,
+                        "bkcc_prefix": None,
+                    }
+                ],
+            },
+        ],
+        "links": [
+            {
+                "name": "lnk_order_customer",
+                "link_type": "STANDARD_LINK",
+                "ontology_concept_uri": "urn:ontology:relationship:order_customer",
+                "source_bronze_table": "erp_netsuite.erp_orders",
+                "hub_references": [
+                    {
+                        "target_hub": "hub_order",
+                        "role_alias": "order",
+                        "source_fk_columns": ["order_id"],
+                    },
+                    {
+                        "target_hub": "hub_customer",
+                        "role_alias": "customer",
+                        "source_fk_columns": ["customer_tax_id"],
+                    },
+                ],
+            }
+        ],
+        "satellites": [
+            {
+                "name": "sat_customer_core",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_customer",
+                "source_bronze_table": "crm_salesforce.crm_customers",
+                "security_classification": "INTERNAL",
+                "volatility_tier": "STANDARD",
+                "payload_columns": ["legal_name"],
+                "soft_deprecated_columns": [],
+            },
+            {
+                "name": "sat_order_core",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_order",
+                "source_bronze_table": "erp_netsuite.erp_orders",
+                "security_classification": "INTERNAL",
+                "volatility_tier": "STANDARD",
+                "payload_columns": ["order_status"],
+                "soft_deprecated_columns": [],
+            },
+        ],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+
+    # 1. Gate 2 must flag the unfiltered sparse binary Link when codemods are disabled
+    diags = verify_gate1_contract_and_grain(
+        unfiltered_binary_contract,
+        ontology,
+        bronze_profile,
+    )
+    assert any("DV-G2-001" in d and "lnk_order_customer" in d for d in diags)
+    assert any("DV-G2-001b" in d and "customer_tax_id IS NOT NULL" in d for d in diags)
+
+    no_codemod_res = run_axi_dv_verification_pipeline(
+        unfiltered_binary_contract,
+        ontology,
+        bronze_profile,
+        apply_codemods=False,
+    )
+    assert no_codemod_res.status == "REJECT_WITH_TRACE"
+    assert any(
+        v.gate == "G2" and v.rule == "DV-G2-001" and v.target == "lnk_order_customer"
+        for v in no_codemod_res.toon_trace.violations
+    )
+
+    # 2. Algorithm A.4 must inject where_filter_condition in-place and promote ledger role
+    repaired = codemod_enforce_cold_start_extensibility(
+        unfiltered_binary_contract,
+        ontology,
+        bronze_profile,
+    )
+    validate_contract_v5(repaired)
+    NoMistakeDataVault2ContractV5.model_validate(repaired)
+    assert len(repaired["links"]) == 1
+    lnk = repaired["links"][0]
+    assert lnk["name"] == "lnk_order_customer"
+    assert lnk["where_filter_condition"] == "customer_tax_id IS NOT NULL"
+
+    fk_ledger = [
+        e
+        for e in repaired["column_triage_ledger"]
+        if e["bronze_table"] == "erp_netsuite.erp_orders" and e["column_name"] == "customer_tax_id"
+    ]
+    assert len(fk_ledger) == 1
+    assert fk_ledger[0]["target_dv_entity"] == "lnk_order_customer"
+    assert fk_ledger[0]["elm_classification"] == "OPTIONAL_FOREIGN_KEY_REF"
+
+    # 3. Full 6-Gate orchestrator with apply_codemods=True must converge to PASS
+    with_codemod_res = run_axi_dv_verification_pipeline(
+        unfiltered_binary_contract,
+        ontology,
+        bronze_profile,
+        apply_codemods=True,
+    )
+    assert with_codemod_res.status == "PASS"
+    assert "ALG_A4_COLD_START_EXTENSIBILITY" in with_codemod_res.applied_codemods
+
+    # 4. Execute repaired where_filter_condition in real DuckDB to verify 0 Zero-Key rows
+    conn = duckdb.connect(":memory:")
+    try:
+        hk_order_sql = build_algorithm_a5_sha256_sql(["order_id"], is_business_key=True)
+        hk_cust_sql = build_algorithm_a5_sha256_sql(["customer_tax_id"], is_business_key=True)
+        where_clause = lnk["where_filter_condition"]
+        rows = conn.execute(
+            f"""
+            WITH raw_orders AS (
+                SELECT * FROM read_csv_auto('{orders_csv.as_posix()}')
+            ),
+            staged AS (
+                SELECT
+                    order_id,
+                    customer_tax_id,
+                    {hk_order_sql} AS hk_order,
+                    COALESCE(
+                        CASE WHEN customer_tax_id IS NULL THEN NULL ELSE {hk_cust_sql} END,
+                        '{ZERO_KEY_UNKNOWN}'
+                    ) AS hk_customer
+                FROM raw_orders
+                WHERE {where_clause}
+            )
+            SELECT order_id, hk_customer FROM staged ORDER BY order_id
+            """
+        ).fetchall()
+        assert len(rows) == 2
+        assert [r[0] for r in rows] == ["ORD-2026-1001", "ORD-2026-1003"]
+        assert all(r[1] != ZERO_KEY_UNKNOWN for r in rows)
+    finally:
+        conn.close()
