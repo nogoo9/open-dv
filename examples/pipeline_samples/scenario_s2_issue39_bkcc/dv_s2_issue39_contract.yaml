@@ -56,14 +56,14 @@ hubs:
     record_source_code: DEALCLOUD_FEED
     key_authority_tier: TIER_1_GLOBAL_STANDARD
     require_src_qualifier: false
-    bkcc_prefix: null
+    bkcc_prefix: GLOBAL
   - bronze_table: bloomberg.src_global_issuers
     key_columns:
     - lei_code
     record_source_code: BLOOMBERG_FEED
     key_authority_tier: TIER_1_GLOBAL_STANDARD
     require_src_qualifier: false
-    bkcc_prefix: null
+    bkcc_prefix: GLOBAL
   - bronze_table: legacy_crm.src_local_companies
     key_columns:
     - legacy_co_num

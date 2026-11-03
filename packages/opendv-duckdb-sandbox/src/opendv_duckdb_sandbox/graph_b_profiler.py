@@ -279,6 +279,12 @@ class GraphBProfiler:
         if self._owns_conn:
             self.conn.close()
 
+    def __enter__(self) -> GraphBProfiler:
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        self.close()
+
     def profile_table_columns(
         self,
         table_name: str,

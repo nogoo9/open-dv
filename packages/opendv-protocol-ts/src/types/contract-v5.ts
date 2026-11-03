@@ -70,6 +70,7 @@ export interface HubBusinessKeySourceDTO {
 	key_authority_tier: KeyAuthorityTier;
 	require_src_qualifier: boolean;
 	bkcc_prefix?: string | null | undefined;
+	bkcc_column_expr?: string | null | undefined;
 	system_scoped_bk_justification?: string | undefined;
 }
 

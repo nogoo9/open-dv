@@ -1,0 +1,5 @@
+customer_row_seq,customer_tax_id,legal_name,country_iso2,account_segment
+1,TAX-SE-ÅÄÖ-102,Nordisk Suverän Fond,SE,SOVEREIGN_€
+2,TAX-DE-MÜN-204,Rheinland Präzision München GmbH,DE,ENTERPRISE_€
+3,TAX-JP-500505,日本国年金積立金管理運用独立行政法人,JP,STRATEGIC_¥
+4,TAX-NO-🏦-404,🏦 Sovereign Wealth Fund,NO,SOVEREIGN_KR

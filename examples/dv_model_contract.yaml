@@ -27,13 +27,13 @@ hubs:
         record_source_code: "SFDC_CRM"
         key_authority_tier: "TIER_1_GLOBAL_STANDARD"
         require_src_qualifier: false
-        bkcc_prefix: null
+        bkcc_prefix: "GLOBAL"
       - bronze_table: "bronze_erp.debtors"
         key_columns: ["tax_reg_no"]
         record_source_code: "SAP_ERP"
         key_authority_tier: "TIER_1_GLOBAL_STANDARD"
         require_src_qualifier: false
-        bkcc_prefix: null
+        bkcc_prefix: "GLOBAL"
       - bronze_table: "bronze_legacy.tickets"
         key_columns: ["legacy_client_no"]
         record_source_code: "LEGACY_TICKET_DB"

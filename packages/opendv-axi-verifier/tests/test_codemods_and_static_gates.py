@@ -8,7 +8,7 @@ Covers:
   - Algorithm A.5: SQLGlot AST Canonical Length-Prefixed SHA-256 Hash Recipe Builder
   - Algorithm A.6: SQLGlot AST Static Verifier (`DV-AST-001`-`006`)
   - Gate 1 & Gate 2: Contract Schema, Grain Statement (`>= 8` words), 100% Column Triage Ledger
-  - Gate 3: NetworkX Bipartite DAG Structural Verifier (`DV-STR-001`-`014` & `DV-COL-001`-`012`)
+  - Gate 3: NetworkX Bipartite DAG Structural Verifier (`DV-STR-001`-`015` & `DV-COL-001`-`012`)
   - Algorithm A.7: `N -> N+1` Additive Evolution Lock Verifier (`DV-EVO-001`-`006`)
   - Algorithm A.9a: Intra-Source Schema Drift Detector & Codemod (5 categories, Levenshtein >= 0.85)
   - Algorithm A.9b: Unstructured Document Grounding, Span Substring & 3-Tier ER Routing
@@ -478,6 +478,19 @@ def test_alg_a5_and_a6_sqlglot_hash_recipe_and_linter() -> None:
             assert row is not None
             assert row[0] == ZERO_KEY
 
+        from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+
+        non_null_row = con.execute(
+            f"SELECT {sql_expr} FROM (SELECT 'LP-101' AS lp_number)"
+        ).fetchone()
+        assert non_null_row is not None
+        assert non_null_row[0] == compute_dv2_length_prefixed_sha256(
+            ["LP-101"],
+            is_business_key=True,
+            bkcc_prefix="LEGACY_GP_ADMIN",
+        )
+        assert non_null_row[0] == "6b7c7180b62164f31f14eebcd16cc5fd2b0ce58143de66a4b67521113ec5d8b9"
+
     raw_staging_sql = (
         "SELECT fund_code, fund_legal_name, CURRENT_TIMESTAMP AS load_dts, "
         "'INVESTRAN' AS rec_src FROM src_funds"
@@ -524,6 +537,177 @@ def test_alg_a5_and_a6_sqlglot_hash_recipe_and_linter() -> None:
     assert "DV-AST-004" in joined
     assert "DV-AST-005" in joined
     assert "DV-AST-006" in joined
+
+
+def test_alg_a6_dv_ast_006_whitelists_idempotent_hub_and_link_dedup_and_blocks_kpis() -> None:
+    """Issue #44 / Scenario S7: `DV-AST-006` (`DV-G6-005`) must whitelist idempotent
+    Hub and Link micro-batch key deduplication (`GROUP BY <hk>, <bk_or_fk>` with
+    `MIN(load_dts)` and `ANY_VALUE(rec_src)` / `MIN(rec_src)`) while rejecting
+    business KPI aggregations (`SUM`, `AVG`, `COUNT`, `MAX`), `HAVING`, non-key
+    grouping (`load_dts`, `rec_src`), and Satellite `GROUP BY`.
+    """
+    # 1. Positive: Generic compiler Zone 2 Hub micro-batch deduplication
+    hub_dedup_sql = """
+    INSERT INTO raw_vault.hub_customer (hk_customer, bkcc, customer_code, load_dts, rec_src)
+    SELECT
+        src.hk_customer,
+        src.bkcc,
+        src.customer_code,
+        MIN(src.load_dts) AS load_dts,
+        ANY_VALUE(src.rec_src) AS rec_src
+    FROM staging.stg_hub_customer src
+    WHERE NOT EXISTS (
+        SELECT 1 FROM raw_vault.hub_customer h WHERE h.hk_customer = src.hk_customer
+    )
+    GROUP BY src.hk_customer, src.bkcc, src.customer_code;
+    """
+    assert (
+        verify_physical_dv2_sql_ast(hub_dedup_sql, entity_name="hub_customer", entity_type="HUB")
+        == []
+    )
+    assert verify_physical_dv2_sql_ast(hub_dedup_sql, entity_name="raw_vault.hub_customer") == []
+
+    # 2. Positive: Generic compiler Zone 2 Link micro-batch deduplication
+    link_dedup_sql = """
+    INSERT INTO raw_vault.lnk_customer_order (
+        hk_lnk_customer_order, hk_customer, hk_sales_order, load_dts, rec_src
+    )
+    SELECT
+        src.hk_lnk_customer_order,
+        src.hk_customer,
+        src.hk_sales_order,
+        MIN(src.load_dts) AS load_dts,
+        ANY_VALUE(src.rec_src) AS rec_src
+    FROM staging.stg_lnk_customer_order src
+    WHERE NOT EXISTS (
+        SELECT 1 FROM raw_vault.lnk_customer_order l
+        WHERE l.hk_lnk_customer_order = src.hk_lnk_customer_order
+    )
+    GROUP BY src.hk_lnk_customer_order, src.hk_customer, src.hk_sales_order;
+    """
+    assert (
+        verify_physical_dv2_sql_ast(
+            link_dedup_sql, entity_name="lnk_customer_order", entity_type="LINK"
+        )
+        == []
+    )
+
+    # 3. Positive: PE compiler Zone 2 Hub with unaliased MIN(load_dts) and ANY_VALUE(rec_src)
+    # matched against INSERT target columns
+    pe_hub_dedup_sql = """
+    INSERT INTO raw_vault.hub_fund (hk_fund, fund_code, load_dts, rec_src)
+    SELECT hk_fund, fund_code, MIN(load_dts), ANY_VALUE(rec_src)
+    FROM staging.stg_pe_funds src
+    WHERE NOT EXISTS (SELECT 1 FROM raw_vault.hub_fund h WHERE h.hk_fund = src.hk_fund)
+    GROUP BY hk_fund, fund_code;
+    """
+    assert verify_physical_dv2_sql_ast(pe_hub_dedup_sql, entity_name="hub_fund") == []
+
+    # 4. Positive: ANSI fallback MIN(src.rec_src) AS rec_src alongside MIN(src.load_dts) AS load_dts
+    ansi_hub_dedup_sql = """
+    INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
+    SELECT
+        src.hk_customer,
+        src.customer_code,
+        MIN(src.load_dts) AS load_dts,
+        MIN(src.rec_src) AS rec_src
+    FROM staging.stg_hub_customer src
+    GROUP BY src.hk_customer, src.customer_code;
+    """
+    assert verify_physical_dv2_sql_ast(ansi_hub_dedup_sql, entity_name="hub_customer") == []
+
+    # 5. Negative: Hub GROUP BY with business KPI aggregations (SUM / AVG / COUNT)
+    kpi_exprs = (
+        "SUM(src.amount) AS total_amt",
+        "AVG(src.amount) AS avg_amt",
+        "COUNT(*) AS cnt",
+    )
+    for kpi_expr in kpi_exprs:
+        bad_kpi_sql = f"""
+        INSERT INTO raw_vault.hub_customer (
+            hk_customer, customer_code, load_dts, rec_src, metric_val
+        )
+        SELECT
+            src.hk_customer,
+            src.customer_code,
+            MIN(src.load_dts) AS load_dts,
+            ANY_VALUE(src.rec_src) AS rec_src,
+            {kpi_expr}
+        FROM staging.stg_hub_customer src
+        GROUP BY src.hk_customer, src.customer_code;
+        """
+        v_kpi = verify_physical_dv2_sql_ast(bad_kpi_sql, entity_name="hub_customer")
+        assert any("DV-AST-006" in v for v in v_kpi), (
+            f"Expected DV-AST-006 for {kpi_expr}, got {v_kpi}"
+        )
+
+    # 6. Negative: Hub GROUP BY with MAX(src.load_dts) instead of MIN(src.load_dts)
+    bad_max_sql = """
+    INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
+    SELECT
+        src.hk_customer,
+        src.customer_code,
+        MAX(src.load_dts) AS load_dts,
+        ANY_VALUE(src.rec_src) AS rec_src
+    FROM staging.stg_hub_customer src
+    GROUP BY src.hk_customer, src.customer_code;
+    """
+    assert any(
+        "DV-AST-006" in v
+        for v in verify_physical_dv2_sql_ast(bad_max_sql, entity_name="hub_customer")
+    )
+
+    # 7. Negative: Hub GROUP BY that includes rec_src or load_dts in GROUP BY
+    for non_key_col in ("src.rec_src", "src.load_dts"):
+        bad_group_col_sql = f"""
+        INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
+        SELECT
+            src.hk_customer,
+            src.customer_code,
+            MIN(src.load_dts) AS load_dts,
+            ANY_VALUE(src.rec_src) AS rec_src
+        FROM staging.stg_hub_customer src
+        GROUP BY src.hk_customer, src.customer_code, {non_key_col};
+        """
+        assert any(
+            "DV-AST-006" in v
+            for v in verify_physical_dv2_sql_ast(bad_group_col_sql, entity_name="hub_customer")
+        )
+
+    # 8. Negative: Hub GROUP BY with HAVING clause
+    bad_having_sql = """
+    INSERT INTO raw_vault.hub_customer (hk_customer, customer_code, load_dts, rec_src)
+    SELECT
+        src.hk_customer,
+        src.customer_code,
+        MIN(src.load_dts) AS load_dts,
+        ANY_VALUE(src.rec_src) AS rec_src
+    FROM staging.stg_hub_customer src
+    GROUP BY src.hk_customer, src.customer_code
+    HAVING COUNT(*) > 1;
+    """
+    assert any(
+        "DV-AST-006" in v
+        for v in verify_physical_dv2_sql_ast(bad_having_sql, entity_name="hub_customer")
+    )
+
+    # 9. Negative: Satellite (sat_*, mas_*, esat_*) INSERT containing GROUP BY
+    for sat_name in ("sat_customer_core", "mas_customer_tags", "esat_customer_link"):
+        bad_sat_sql = f"""
+        INSERT INTO raw_vault.{sat_name} (hk_customer, load_dts, rec_src, hash_diff)
+        SELECT
+            src.hk_customer,
+            MIN(src.load_dts) AS load_dts,
+            ANY_VALUE(src.rec_src) AS rec_src,
+            src.hash_diff
+        FROM staging.stg_customer src
+        WHERE src.hash_diff <> ''
+        GROUP BY src.hk_customer, src.hash_diff;
+        """
+        assert any(
+            "DV-AST-006" in v
+            for v in verify_physical_dv2_sql_ast(bad_sat_sql, entity_name=sat_name)
+        )
 
 
 # ==============================================================================
@@ -893,6 +1077,139 @@ def test_alg_a9b_unstructured_spans_and_3tier_er_routing(
     assert "Horizon Sovereign Co-Invest Vehicle" in v_with_holds[0]
 
 
+def _load_pe_pdf_corpus_lf() -> dict[str, str]:
+    """Load verbatim LF unstructured PDF texts from docs/07 §1.3."""
+    import re
+
+    doc07_path = REPO_ROOT / "docs" / "07-end-to-end-private-equity-demo.md"
+    doc07_text = doc07_path.read_text(encoding="utf-8")
+    text_blocks = re.findall(r"```text\n(.*?)\n```", doc07_text, flags=re.DOTALL)
+    assert len(text_blocks) >= 2
+    side_letter_text = text_blocks[0]
+    ic_memo_text = text_blocks[1]
+    side_letter_uri = (
+        "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf"
+    )
+    ic_memo_uri = "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf"
+    return {
+        side_letter_uri: side_letter_text,
+        "calpers_side_letter_fund_iv_2026.pdf": side_letter_text,
+        ic_memo_uri: ic_memo_text,
+        "ic_q3_valuation_nordic_cloud.pdf": ic_memo_text,
+    }
+
+
+def test_issue_33_alg_a9b_crlf_and_cr_line_ending_normalization(
+    pe_golden_contract: dict[str, Any],
+    pe_ontology: dict[str, Any],
+    pe_bronze_profile: dict[str, Any],
+) -> None:
+    """Issue #33 (BUG-04 / FR-DOM-05 / Rule U2 / Scenario S8 / UF-5):
+    Verifies that Windows CRLF (`\\r\\n`) and legacy CR (`\\r`) line endings in unstructured
+    document bodies and extracted verbatim quotes are normalized to LF (`\\n`) before
+    character-offset span validation in Algorithm A.9b (`evaluate_unstructured_er_routing`,
+    `verify_gate5_unstructured_invariants`, and `run_axi_dv_verification_pipeline`).
+    """
+    lf_corpus = _load_pe_pdf_corpus_lf()
+    doc_001_uri = (
+        "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf"
+    )
+    doc_001_lf = lf_corpus[doc_001_uri]
+
+    crlf_doc_samples = {k: v.replace("\n", "\r\n") for k, v in lf_corpus.items()}
+    cr_only_doc_samples = {k: v.replace("\n", "\r") for k, v in lf_corpus.items()}
+
+    # 1. evaluate_unstructured_er_routing must produce zero span_errors on CRLF & CR bodies
+    decisions_crlf = evaluate_unstructured_er_routing(
+        pe_bronze_profile,
+        parsed_doc_samples=crlf_doc_samples,
+    )
+    assert len(decisions_crlf) == 7
+    for dec in decisions_crlf:
+        assert dec["span_errors"] == []
+
+    decisions_cr = evaluate_unstructured_er_routing(
+        pe_bronze_profile,
+        parsed_doc_samples=cr_only_doc_samples,
+    )
+    assert len(decisions_cr) == 7
+    for dec in decisions_cr:
+        assert dec["span_errors"] == []
+
+    # 2. Multi-line sample_extractions with CRLF quotes and LF-indexed spans
+    contract_with_samples = copy.deepcopy(pe_golden_contract)
+    multiline_lf_quote = doc_001_lf[0:98]
+    assert "\n" in multiline_lf_quote
+    multiline_crlf_quote = multiline_lf_quote.replace("\n", "\r\n")
+
+    for sat in contract_with_samples["satellites"]:
+        if sat["name"] == "sat_lp_side_letter_llm_ext":
+            sat["sample_extractions"] = [
+                {
+                    "doc_id": doc_001_uri,
+                    "evidence_quote": multiline_crlf_quote,
+                    "char_start": 0,
+                    "char_end": 98,
+                    "confidence_score": 0.96,
+                    "top2_margin": 0.30,
+                },
+            ]
+
+    violations_crlf = verify_gate5_unstructured_invariants(
+        contract_with_samples,
+        parsed_doc_samples=crlf_doc_samples,
+        bronze_profile=pe_bronze_profile,
+    )
+    assert violations_crlf == []
+
+    # 3. Full 6-Gate run_axi_dv_verification_pipeline with CRLF parsed_doc_samples
+    pipeline_report = run_axi_dv_verification_pipeline(
+        pe_golden_contract,
+        pe_ontology,
+        pe_bronze_profile,
+        parsed_doc_samples=crlf_doc_samples,
+    )
+    assert pipeline_report.status == "PASS"
+    assert not any("SPAN_HALLUCINATION" in d for d in pipeline_report.diagnostics)
+
+
+def test_issue_33_gate5_deduplicates_span_errors_across_decisions(
+    pe_golden_contract: dict[str, Any],
+    pe_bronze_profile: dict[str, Any],
+) -> None:
+    """Issue #33 Negative Invariant Test (Rule U2 / Scenario S8 / UF-5):
+    Ensures that genuine fabricated quotes and off-by-one/shifted character offsets on
+    CRLF-encoded documents are still strictly rejected with `SPAN_HALLUCINATION` and that
+    document-level span errors are not duplicated across multiple ER spans (`decisions`).
+    """
+    lf_corpus = _load_pe_pdf_corpus_lf()
+    crlf_samples = {k: v.replace("\n", "\r\n") for k, v in lf_corpus.items()}
+
+    # Mutate one span in bronze_profile to have a genuine hallucinated quote
+    bad_profile = copy.deepcopy(pe_bronze_profile)
+    s3_sys = next(
+        s for s in bad_profile["source_systems"] if s["source_system_code"] == "OBJECT_STORE_S3"
+    )
+    s3_sys["unstructured_documents"][0]["extracted_spans"][0] = {
+        "field": "hallucinated_fee_cap",
+        "span_start": 499,
+        "span_end": 506,
+        "verbatim_quote": "999 bps",
+        "resolved_bk": None,
+        "er_tier": "EXTRACTED_ATTRIBUTE",
+        "confidence": 0.99,
+    }
+    violations = verify_gate5_unstructured_invariants(
+        pe_golden_contract,
+        parsed_doc_samples=crlf_samples,
+        bronze_profile=bad_profile,
+    )
+    # Exactly 1 violation (not duplicated 4x across the 4 er_spans of doc_001)
+    assert len(violations) == 1
+    assert "SPAN_HALLUCINATION" in violations[0]
+    assert "hallucinated_fee_cap" in violations[0]
+
+
 # ==============================================================================
 # 9. @toon_v1 Serializer & Parser Round-Trip
 # ==============================================================================
@@ -1034,3 +1351,482 @@ def test_alg_a8_orchestrator_end_to_end_pe_verification_and_telemetry(
     assert ask_res.toon_trace.status == "ASK-USER"
     assert ask_res.emitted_events[0]["status"] == "ASK-USER"
     assert ask_res.emitted_events[0]["layer1_story_banner"]["verdict_pill"] == "ASK-USER"
+
+
+def test_dv_col_013_tier1_global_bkcc_invariant_and_alg_a4_normalization(
+    pe_golden_contract: dict[str, Any],
+    pe_ontology: dict[str, Any],
+    pe_bronze_profile: dict[str, Any],
+) -> None:
+    """Verify Gate 1 and Gate 3 enforce DV-COL-013 on TIER_1_GLOBAL_STANDARD sources
+    and Algorithm A.4 normalizes Tier-1 bkcc_prefix to 'GLOBAL' without breaking A.7.
+    """
+    corrupted = copy.deepcopy(pe_golden_contract)
+    portco_hub = next(h for h in corrupted["hubs"] if h["name"] == "hub_portfolio_company")
+    portco_hub["business_key_sources"][0]["require_src_qualifier"] = True
+    portco_hub["business_key_sources"][0]["bkcc_prefix"] = "DEALCLOUD_LOCAL_SILO"
+
+    g1_diags = verify_gate1_contract_and_grain(
+        corrupted, pe_ontology, pe_bronze_profile, check_full_ledger_coverage=True
+    )
+    g3_diags = verify_column_invariants(corrupted)
+    assert any("DV-COL-013" in d and "hub_portfolio_company" in d for d in g1_diags)
+    assert any("DV-COL-013" in d and "hub_portfolio_company" in d for d in g3_diags)
+
+    # Also verify bkcc_prefix=None on TIER_1_GLOBAL_STANDARD triggers DV-COL-013 prior to A.4
+    null_bkcc_contract = copy.deepcopy(pe_golden_contract)
+    next(h for h in null_bkcc_contract["hubs"] if h["name"] == "hub_portfolio_company")[
+        "business_key_sources"
+    ][0]["bkcc_prefix"] = None
+    assert any(
+        "DV-COL-013" in d
+        for d in verify_gate1_contract_and_grain(null_bkcc_contract, pe_ontology, pe_bronze_profile)
+    )
+
+    # Algorithm A.4 repairs both corruptions to require_src_qualifier=False, bkcc_prefix='GLOBAL'
+    repaired = codemod_enforce_cold_start_extensibility(corrupted, pe_ontology, pe_bronze_profile)
+    repaired_src = next(h for h in repaired["hubs"] if h["name"] == "hub_portfolio_company")[
+        "business_key_sources"
+    ][0]
+    assert repaired_src["key_authority_tier"] == "TIER_1_GLOBAL_STANDARD"
+    assert repaired_src["require_src_qualifier"] is False
+    assert repaired_src["bkcc_prefix"] == "GLOBAL"
+    assert verify_gate1_contract_and_grain(repaired, pe_ontology, pe_bronze_profile) == []
+    assert verify_column_invariants(repaired) == []
+    assert verify_additive_evolution_invariants(null_bkcc_contract, repaired) == []
+
+
+def test_issue_30_dv_ast_002_rejects_strlen_and_length_in_hashes() -> None:
+    """Issue #30 (BUG-01 / DV-AST-002): Verify Algorithm A.6 rejects `STRLEN(...)` and
+    `LENGTH(...)` in hash projections while accepting `OCTET_LENGTH(ENCODE(...))`.
+    """
+    bad_strlen_sql = """
+    SELECT
+        LOWER(SHA256(
+            CASE WHEN lp_legal_name IS NULL THEN '-1:^^'
+                 ELSE CAST(STRLEN(lp_legal_name) AS VARCHAR) || ':' || lp_legal_name END
+        )) AS hash_diff,
+        lp_legal_name,
+        load_dts,
+        rec_src
+    FROM bronze.src_lp
+    """
+    strlen_violations = verify_physical_dv2_sql_ast(
+        bad_strlen_sql, entity_name="stg_lp", entity_type="STAGE", dialect="duckdb"
+    )
+    assert any("DV-AST-002" in v for v in strlen_violations)
+
+    bad_length_sql = bad_strlen_sql.replace("STRLEN(", "LENGTH(")
+    length_violations = verify_physical_dv2_sql_ast(
+        bad_length_sql, entity_name="stg_lp", entity_type="STAGE", dialect="duckdb"
+    )
+    assert any("DV-AST-002" in v for v in length_violations)
+
+    good_octet_sql = bad_strlen_sql.replace(
+        "STRLEN(lp_legal_name)", "OCTET_LENGTH(ENCODE(lp_legal_name))"
+    )
+    octet_violations = verify_physical_dv2_sql_ast(
+        good_octet_sql, entity_name="stg_lp", entity_type="STAGE", dialect="duckdb"
+    )
+    assert octet_violations == []
+
+
+@pytest.fixture()
+def pe_contract_dict(pe_golden_contract: dict[str, Any]) -> dict[str, Any]:
+    return copy.deepcopy(pe_golden_contract)
+
+
+def test_gate3_dv_str_015_canonical_sal_edge_ordering(
+    pe_contract_dict: dict[str, Any],
+) -> None:
+    """Issue #41 (GAP-10 / Scenario S2): Verify DV-STR-015 enforces canonical
+    (hk_master, hk_duplicate) ordering, 3-Tier BKCC authority hierarchy,
+    asymmetry (no (A, A) self-loops), and no duplicate inverted (B, A) SAL pairs.
+    """
+    # 0. Baseline valid PE contract passes with 0 violations
+    assert verify_structural_invariants(pe_contract_dict) == []
+
+    # 1. Inverted role ordering: [DUPLICATE_ALIAS_LP, MASTER_LP] -> DV-STR-015
+    inverted_roles_contract = copy.deepcopy(pe_contract_dict)
+    for lnk in inverted_roles_contract["links"]:
+        if lnk["name"] == "sal_limited_partner":
+            lnk["hub_references"][0]["role_alias"] = "DUPLICATE_ALIAS_LP"
+            lnk["hub_references"][1]["role_alias"] = "MASTER_LP"
+    v_roles = verify_structural_invariants(inverted_roles_contract)
+    assert any("DV-STR-015" in v and "sal_limited_partner" in v for v in v_roles)
+
+    # 2. Inverted 3-Tier BKCC authority hierarchy: Tier-3 lp_num as MASTER_LP -> DV-STR-015
+    inverted_tier_contract = copy.deepcopy(pe_contract_dict)
+    for lnk in inverted_tier_contract["links"]:
+        if lnk["name"] == "sal_limited_partner":
+            lnk["hub_references"] = [
+                {
+                    "target_hub": "hub_limited_partner",
+                    "role_alias": "MASTER_LP",
+                    "source_fk_columns": ["lp_num"],
+                },
+                {
+                    "target_hub": "hub_limited_partner",
+                    "role_alias": "DUPLICATE_ALIAS_LP",
+                    "source_fk_columns": ["lp_id"],
+                },
+            ]
+    v_tiers = verify_structural_invariants(inverted_tier_contract)
+    assert any("DV-STR-015" in v and "authority" in v for v in v_tiers)
+
+    # 3. Reflexive self-loop (A, A) on source_fk_columns -> DV-STR-015 (and DV-STR-004)
+    self_loop_contract = copy.deepcopy(pe_contract_dict)
+    for lnk in self_loop_contract["links"]:
+        if lnk["name"] == "sal_limited_partner":
+            lnk["hub_references"][0]["source_fk_columns"] = ["lp_id"]
+            lnk["hub_references"][1]["source_fk_columns"] = ["lp_id"]
+    v_loop = verify_structural_invariants(self_loop_contract)
+    assert any("DV-STR-015" in v and "self-loop" in v for v in v_loop)
+
+    # 4. Reflexive self-loop via edge_pairs [(A, A)] and inverted pair [(A, B), (B, A)]
+    pair_violation_contract = copy.deepcopy(pe_contract_dict)
+    for lnk in pair_violation_contract["links"]:
+        if lnk["name"] == "sal_limited_partner":
+            lnk["edge_pairs"] = [
+                ("LP-100", "LP-100"),
+                ("LP-100", "LP-900"),
+                ("LP-900", "LP-100"),
+            ]
+    v_pairs = verify_structural_invariants(pair_violation_contract)
+    assert any("DV-STR-015" in v and "self-loop" in v for v in v_pairs)
+    assert any("DV-STR-015" in v and "inverted (B, A)" in v for v in v_pairs)
+
+    # 5. Cross-link duplicate inverted SAL definition on the same Hub -> DV-STR-015
+    dup_sal_contract = copy.deepcopy(pe_contract_dict)
+    dup_sal_contract["links"].append(
+        {
+            "name": "sal_limited_partner_inverted",
+            "link_type": "SAME_AS_LINK",
+            "ontology_concept_uri": "urn:ontology:relationship:entity_equivalence",
+            "source_bronze_table": "mdm.src_lp_steward_crosswalk",
+            "hub_references": [
+                {
+                    "target_hub": "hub_limited_partner",
+                    "role_alias": "MASTER_LP",
+                    "source_fk_columns": ["lp_num"],
+                },
+                {
+                    "target_hub": "hub_limited_partner",
+                    "role_alias": "DUPLICATE_ALIAS_LP",
+                    "source_fk_columns": ["master_lp_id"],
+                },
+            ],
+        }
+    )
+    v_dup_sal = verify_structural_invariants(dup_sal_contract)
+    assert any("DV-STR-015" in v and "sal_limited_partner_inverted" in v for v in v_dup_sal)
+
+
+def test_issue_31_alg_a4_and_gate2_sparse_binary_link(tmp_path: Path) -> None:
+    """Issue #31 (BUG-02 / Scenario S5): Binary links (arity = 2) with sparse optional FK
+    (U_nn < 0.95 or null_rate > 0.05) must be rejected by Gate 2 (DV-G2-001 / DV-G2-001b)
+    when unfiltered, and auto-repaired in-place by Algorithm A.4 with
+    where_filter_condition = '<fk> IS NOT NULL' and OPTIONAL_FOREIGN_KEY_REF.
+    """
+    import duckdb
+
+    from opendv_core.constants import ZERO_KEY_UNKNOWN
+    from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
+    from opendv_duckdb_sandbox.compiler_4zone import build_algorithm_a5_sha256_sql
+    from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
+
+    customers_csv = tmp_path / "crm_customers.csv"
+    customers_csv.write_text(
+        "customer_tax_id,legal_name\n"
+        "TAX-US-900101,Acme Industrial Holdings LLC\n"
+        "TAX-DE-800202,Krauss Mittelstand GmbH\n",
+        encoding="utf-8",
+    )
+    orders_csv = tmp_path / "erp_orders.csv"
+    orders_csv.write_text(
+        "order_id,customer_tax_id,order_status\n"
+        "ORD-2026-1001,TAX-US-900101,FULFILLED\n"
+        "ORD-2026-1002,,DRAFT\n"
+        "ORD-2026-1003,TAX-DE-800202,SHIPPED\n"
+        "ORD-2026-1004,,QUOTE_PENDING\n",
+        encoding="utf-8",
+    )
+
+    # Profile real CSV files with GraphBProfiler in DuckDB (no mocks)
+    profiler = GraphBProfiler()
+    cust_metrics = profiler.profile_csv(customers_csv, view_name="v_customers")
+    order_metrics = profiler.profile_csv(orders_csv, view_name="v_orders")
+
+    bronze_profile = {
+        "profile_version": "1.0.0",
+        "domain_namespace": "global_commerce",
+        "profiled_at_utc": "2026-10-30T00:00:00Z",
+        "source_systems": [
+            {
+                "source_system_code": "CRM_SALESFORCE",
+                "description": "CRM Customers",
+                "tables": [
+                    {
+                        "bronze_table": "crm_salesforce.crm_customers",
+                        "row_count": 2,
+                        "daily_delta_rows": 2,
+                        "columns": [
+                            m.to_profiled_column().model_dump(mode="json", exclude_none=True)
+                            for m in cust_metrics
+                        ],
+                    }
+                ],
+            },
+            {
+                "source_system_code": "ERP_NETSUITE",
+                "description": "ERP Orders with 50% NULL customer_tax_id",
+                "tables": [
+                    {
+                        "bronze_table": "erp_netsuite.erp_orders",
+                        "row_count": 4,
+                        "daily_delta_rows": 4,
+                        "columns": [
+                            m.to_profiled_column().model_dump(mode="json", exclude_none=True)
+                            for m in order_metrics
+                        ],
+                    }
+                ],
+            },
+        ],
+    }
+
+    ontology = {
+        "ontology_version": "1.0.0",
+        "domain_namespace": "global_commerce",
+        "canonical_business_concepts": [
+            {
+                "concept_uri": "urn:ontology:entity:customer",
+                "concept_name": "Customer",
+                "expected_hub": "hub_customer",
+                "description": "Enterprise customer entity",
+                "key_authority_tiers": {
+                    "tier_1_global_standard": {
+                        "column_patterns": ["customer_tax_id"],
+                        "bkcc_policy": "GLOBAL",
+                    }
+                },
+            },
+            {
+                "concept_uri": "urn:ontology:entity:order",
+                "concept_name": "SalesOrder",
+                "expected_hub": "hub_order",
+                "description": "Sales order header entity",
+                "key_authority_tiers": {
+                    "tier_1_global_standard": {
+                        "column_patterns": ["order_id"],
+                        "bkcc_policy": "GLOBAL",
+                    }
+                },
+            },
+        ],
+        "canonical_relationships": [
+            {
+                "relationship_uri": "urn:ontology:relationship:order_customer",
+                "relationship_name": "OrderCustomer",
+                "expected_link": "lnk_order_customer",
+                "involved_hubs": ["hub_order", "hub_customer"],
+            }
+        ],
+    }
+
+    unfiltered_binary_contract = {
+        "contract_version": "5.0",
+        "domain_namespace": "global_commerce",
+        "lifecycle_stage": "COLD_START_N1",
+        "column_triage_ledger": [
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "customer_tax_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_customer",
+            },
+            {
+                "bronze_table": "crm_salesforce.crm_customers",
+                "column_name": "legal_name",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_customer_core",
+            },
+            {
+                "bronze_table": "erp_netsuite.erp_orders",
+                "column_name": "order_id",
+                "elm_classification": "BUSINESS_KEY",
+                "target_dv_entity": "hub_order",
+            },
+            {
+                "bronze_table": "erp_netsuite.erp_orders",
+                "column_name": "customer_tax_id",
+                "elm_classification": "FOREIGN_KEY_REF",
+                "target_dv_entity": "lnk_order_customer",
+            },
+            {
+                "bronze_table": "erp_netsuite.erp_orders",
+                "column_name": "order_status",
+                "elm_classification": "DESCRIPTIVE_PAYLOAD",
+                "target_dv_entity": "sat_order_core",
+            },
+        ],
+        "hubs": [
+            {
+                "name": "hub_customer",
+                "ontology_concept_uri": "urn:ontology:entity:customer",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "crm_salesforce.crm_customers",
+                        "key_columns": ["customer_tax_id"],
+                        "record_source_code": "CRM_SALESFORCE",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "require_src_qualifier": False,
+                        "bkcc_prefix": "GLOBAL",
+                    }
+                ],
+            },
+            {
+                "name": "hub_order",
+                "ontology_concept_uri": "urn:ontology:entity:order",
+                "business_key_sources": [
+                    {
+                        "bronze_table": "erp_netsuite.erp_orders",
+                        "key_columns": ["order_id"],
+                        "record_source_code": "ERP_NETSUITE",
+                        "key_authority_tier": "TIER_1_GLOBAL_STANDARD",
+                        "require_src_qualifier": False,
+                        "bkcc_prefix": "GLOBAL",
+                    }
+                ],
+            },
+        ],
+        "links": [
+            {
+                "name": "lnk_order_customer",
+                "link_type": "STANDARD_LINK",
+                "ontology_concept_uri": "urn:ontology:relationship:order_customer",
+                "source_bronze_table": "erp_netsuite.erp_orders",
+                "hub_references": [
+                    {
+                        "target_hub": "hub_order",
+                        "role_alias": "order",
+                        "source_fk_columns": ["order_id"],
+                    },
+                    {
+                        "target_hub": "hub_customer",
+                        "role_alias": "customer",
+                        "source_fk_columns": ["customer_tax_id"],
+                    },
+                ],
+            }
+        ],
+        "satellites": [
+            {
+                "name": "sat_customer_core",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_customer",
+                "source_bronze_table": "crm_salesforce.crm_customers",
+                "security_classification": "INTERNAL",
+                "volatility_tier": "STANDARD",
+                "payload_columns": ["legal_name"],
+                "soft_deprecated_columns": [],
+            },
+            {
+                "name": "sat_order_core",
+                "satellite_type": "STANDARD_SATELLITE",
+                "parent_entity": "hub_order",
+                "source_bronze_table": "erp_netsuite.erp_orders",
+                "security_classification": "INTERNAL",
+                "volatility_tier": "STANDARD",
+                "payload_columns": ["order_status"],
+                "soft_deprecated_columns": [],
+            },
+        ],
+        "reference_tables": [],
+        "unmapped_escalations": [],
+    }
+
+    # 1. Gate 2 must flag the unfiltered sparse binary Link when codemods are disabled
+    diags = verify_gate1_contract_and_grain(
+        unfiltered_binary_contract,
+        ontology,
+        bronze_profile,
+    )
+    assert any("DV-G2-001" in d and "lnk_order_customer" in d for d in diags)
+    assert any("DV-G2-001b" in d and "customer_tax_id IS NOT NULL" in d for d in diags)
+
+    no_codemod_res = run_axi_dv_verification_pipeline(
+        unfiltered_binary_contract,
+        ontology,
+        bronze_profile,
+        apply_codemods=False,
+    )
+    assert no_codemod_res.status == "REJECT_WITH_TRACE"
+    assert any(
+        v.gate == "G2" and v.rule == "DV-G2-001" and v.target == "lnk_order_customer"
+        for v in no_codemod_res.toon_trace.violations
+    )
+
+    # 2. Algorithm A.4 must inject where_filter_condition in-place and promote ledger role
+    repaired = codemod_enforce_cold_start_extensibility(
+        unfiltered_binary_contract,
+        ontology,
+        bronze_profile,
+    )
+    validate_contract_v5(repaired)
+    NoMistakeDataVault2ContractV5.model_validate(repaired)
+    assert len(repaired["links"]) == 1
+    lnk = repaired["links"][0]
+    assert lnk["name"] == "lnk_order_customer"
+    assert lnk["where_filter_condition"] == "customer_tax_id IS NOT NULL"
+
+    fk_ledger = [
+        e
+        for e in repaired["column_triage_ledger"]
+        if e["bronze_table"] == "erp_netsuite.erp_orders" and e["column_name"] == "customer_tax_id"
+    ]
+    assert len(fk_ledger) == 1
+    assert fk_ledger[0]["target_dv_entity"] == "lnk_order_customer"
+    assert fk_ledger[0]["elm_classification"] == "OPTIONAL_FOREIGN_KEY_REF"
+
+    # 3. Full 6-Gate orchestrator with apply_codemods=True must converge to PASS
+    with_codemod_res = run_axi_dv_verification_pipeline(
+        unfiltered_binary_contract,
+        ontology,
+        bronze_profile,
+        apply_codemods=True,
+    )
+    assert with_codemod_res.status == "PASS"
+    assert "ALG_A4_COLD_START_EXTENSIBILITY" in with_codemod_res.applied_codemods
+
+    # 4. Execute repaired where_filter_condition in real DuckDB to verify 0 Zero-Key rows
+    conn = duckdb.connect(":memory:")
+    try:
+        hk_order_sql = build_algorithm_a5_sha256_sql(["order_id"], is_business_key=True)
+        hk_cust_sql = build_algorithm_a5_sha256_sql(["customer_tax_id"], is_business_key=True)
+        where_clause = lnk["where_filter_condition"]
+        rows = conn.execute(
+            f"""
+            WITH raw_orders AS (
+                SELECT * FROM read_csv_auto('{orders_csv.as_posix()}')
+            ),
+            staged AS (
+                SELECT
+                    order_id,
+                    customer_tax_id,
+                    {hk_order_sql} AS hk_order,
+                    COALESCE(
+                        CASE WHEN customer_tax_id IS NULL THEN NULL ELSE {hk_cust_sql} END,
+                        '{ZERO_KEY_UNKNOWN}'
+                    ) AS hk_customer
+                FROM raw_orders
+                WHERE {where_clause}
+            )
+            SELECT order_id, hk_customer FROM staged ORDER BY order_id
+            """
+        ).fetchall()
+        assert len(rows) == 2
+        assert [r[0] for r in rows] == ["ORD-2026-1001", "ORD-2026-1003"]
+        assert all(r[1] != ZERO_KEY_UNKNOWN for r in rows)
+    finally:
+        conn.close()
