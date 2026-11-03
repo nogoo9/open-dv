@@ -143,12 +143,14 @@ Under pure Data Vault 2.0 and enterprise warehousing principles:
     2. Generates a dedicated companion Link (e.g., `lnk_lp_commitment_co_invest`) with `where_filter_condition = '<fk> IS NOT NULL'`.
   - Gate 2 (`gate1_contract_grain.py` lines 265–284, `DV-G2-001`) rejects any contract containing unsplit sparse foreign keys on $N$-ary Links.
 - **Ambiguities and Gaps:**
-  - *Binary Link Boundary Gap:* In `alg_a4_cold_start.py` line 294:
-    ```python
+  - *Binary Link Boundary Gap:* In `alg_a4_cold_start.py` lines 292–296:
+```python
+for lnk in ir.get("links", []):
+    refs = list(lnk.get("hub_references", []))
     if len(refs) < 3 or lnk.get("where_filter_condition"):
         new_links.append(lnk)
         continue
-    ```
+```
     Algorithm A.4 **only inspects Links with arity $\ge 3$**. If a source table has a binary relationship where the foreign key is optional (e.g., an Order with an optional Promotion ID, where $U_{nn} = 0.20$), Algorithm A.4 does **not** split or filter the Link.
     In staging, if `promotion_id` is null, it receives the null token `'-1:^^'`, which hashes to `ZERO_KEY_UNKNOWN` (`'0'*64`). The binary Link `lnk_order_promotion` will insert rows linking `hk_order` to `hk_promotion = '0'*64`. While this maintains referential equi-joins, it violates the DV 2.0 principle that Links should not instantiate non-events.
 
@@ -213,13 +215,22 @@ Under pure Data Vault 2.0 and enterprise warehousing principles:
   - **Adversarial Sandbox Testing:** `adversarial_batches.py` runs progressive adversarial batches (Batches 1–4) specifically injecting boundary shifts and duplicate batches to verify zero drift.
 - **Ambiguities and Gaps:**
   - **CRITICAL BUG: DuckDB `STRLEN()` vs. UTF-8 `OCTET_LENGTH()`:**
-    In `compiler_4zone.py` lines 111–113:
-    ```python
+    In `compiler_4zone.py` lines 100–113:
+```python
+def build_length_prefixed_token_sql(
+    col_expr: str,
+    *,
+    is_business_key: bool = False,
+    null_token: str = "-1:^^",
+) -> str:
+    base_cast = f"TRIM(CAST({col_expr} AS VARCHAR))"
+    norm_expr = f"UPPER({base_cast})" if is_business_key else base_cast
+    nullif_expr = f"NULLIF({norm_expr}, '')"
     return (
         f"CASE WHEN {nullif_expr} IS NULL THEN '{null_token}' "
         f"ELSE CAST(STRLEN({nullif_expr}) AS VARCHAR) || ':' || {nullif_expr} END"
     )
-    ```
+```
     DuckDB's `STRLEN()` function computes the **character count** (Unicode codepoints), whereas Python's `len(s.encode('utf-8'))` in `hashing.py` computes the **UTF-8 byte length**!
     For ASCII strings, character length equals byte length. However, for non-ASCII strings (e.g., Nordic name `'Nordisk Suverän Fond'` where `ä` is 2 UTF-8 bytes):
     - Python `hashing.py` produces: `'21:Nordisk Suverän Fond'`
