@@ -13,12 +13,15 @@ import duckdb
 from pydantic import BaseModel, ConfigDict, Field
 
 from opendv_core.constants import GHOST_DTS, GHOST_REC_SRC, ZERO_KEY_ERROR, ZERO_KEY_UNKNOWN
+from opendv_core.hashing import compute_dv2_length_prefixed_sha256, compute_dv2_prehash_string
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_duckdb_sandbox.compiler_4zone import (
     _effective_pit_tables,
     _link_schema,
     _satellite_schema,
     _validate_ident,
+    build_algorithm_a5_sha256_sql,
+    build_length_prefixed_token_sql,
     is_pe_domain,
 )
 from opendv_duckdb_sandbox.pit_query_engine import PitQueryEngine
@@ -414,26 +417,56 @@ def check_dv_dyn_005_boundary_shift_collision(
     *,
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
-    """DV-DYN-005: Boundary-Shift Collision Resistance ('AB'||'C' vs 'A'||'BC')."""
+    """DV-DYN-005 / DV-HASH-004: Boundary-Shift Collision Resistance & Multi-Byte UTF-8 Parity."""
     _ = ir
+    multibyte_val = "Nordisk Suverän Fond"
+    py_prehash = compute_dv2_prehash_string([multibyte_val], is_business_key=False)
+    py_sha256 = compute_dv2_length_prefixed_sha256([multibyte_val], is_business_key=False).lower()
+    token_sql = build_length_prefixed_token_sql("v.val", is_business_key=False)
+    sha_sql = build_algorithm_a5_sha256_sql(["v.val"], is_business_key=False)
     row = conn.execute(
-        """
+        f"""
         SELECT
             LOWER(SHA256('2:AB||1:C')) AS h_ab_c,
             LOWER(SHA256('1:A||2:BC')) AS h_a_bc,
             LOWER(SHA256('7:ANNE||O||5:BRIEN')) AS h_anne1,
-            LOWER(SHA256('4:ANNE||7:O||BRIEN')) AS h_anne2
-        """
+            LOWER(SHA256('4:ANNE||7:O||BRIEN')) AS h_anne2,
+            {token_sql} AS utf8_prehash,
+            {sha_sql} AS utf8_sha256
+        FROM (SELECT ? AS val) AS v
+        """,
+        [multibyte_val],
     ).fetchone()
     assert row is not None
-    collisions = int(row[0] == row[1]) + int(row[2] == row[3])
+    staging_strlen_views = _scalar_int(
+        conn,
+        """
+        SELECT COUNT(*) FROM duckdb_views()
+        WHERE schema_name = 'staging' AND UPPER(sql) LIKE '%STRLEN(%'
+        """,
+    )
+    utf8_mismatch = int(
+        row[4] != py_prehash
+        or row[5] != py_sha256
+        or "OCTET_LENGTH(" not in token_sql.upper()
+        or "STRLEN(" in token_sql.upper()
+    )
+    collisions = (
+        int(row[0] == row[1])
+        + int(row[2] == row[3])
+        + utf8_mismatch
+        + staging_strlen_views
+    )
     return DynamicCheckResult(
         check_id="DV-DYN-005",
         check_name="Boundary-Shift Collision Resistance",
         passed=collisions == 0,
         metric_value=collisions,
         failing_rows=collisions,
-        detail=(f"Length-prefixed SHA-256 ('2:AB||1:C' vs '1:A||2:BC') collisions={collisions}."),
+        detail=(
+            f"Length-prefixed SHA-256 ('2:AB||1:C' vs '1:A||2:BC', "
+            f"DV-HASH-004 '{py_prehash}') collisions={collisions}."
+        ),
     )
 
 

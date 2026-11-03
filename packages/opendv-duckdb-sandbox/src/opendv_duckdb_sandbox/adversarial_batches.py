@@ -36,6 +36,8 @@ from opendv_duckdb_sandbox.compiler_4zone import (
     _satellite_schema,
     _satellite_seed_sql_literal,
     _validate_ident,
+    build_algorithm_a5_sha256_sql,
+    build_length_prefixed_token_sql,
     is_pe_domain,
 )
 from opendv_duckdb_sandbox.dynamic_checks import (
@@ -233,31 +235,53 @@ def run_batch_3_delta_and_boundary_shift(
     before_hubs, before_links, before_sats = _snapshot_vault_counts(conn, ir)
 
     # 1. Verify Python & DuckDB length-prefixed SHA-256 boundary-shift collision immunity
+    #    and DV-HASH-004 multi-byte UTF-8 byte-length prefixing ('Nordisk Suverän Fond' -> 21 bytes)
     py_hash_ab_c = compute_dv2_length_prefixed_sha256(["AB", "C"], is_business_key=False).lower()
     py_hash_a_bc = compute_dv2_length_prefixed_sha256(["A", "BC"], is_business_key=False).lower()
+    py_hash_utf8 = compute_dv2_length_prefixed_sha256(
+        ["Nordisk Suverän Fond"], is_business_key=False
+    ).lower()
+    utf8_token_sql = build_length_prefixed_token_sql("v.val", is_business_key=False)
+    utf8_sha_sql = build_algorithm_a5_sha256_sql(["v.val"], is_business_key=False)
 
     sql_hashes = conn.execute(
-        """
+        f"""
         SELECT
             LOWER(SHA256(CONCAT_WS('||',
-                CAST(STRLEN('AB') AS VARCHAR) || ':' || 'AB',
-                CAST(STRLEN('C') AS VARCHAR) || ':' || 'C'
+                CAST(OCTET_LENGTH(ENCODE('AB')) AS VARCHAR) || ':' || 'AB',
+                CAST(OCTET_LENGTH(ENCODE('C')) AS VARCHAR) || ':' || 'C'
             ))) AS h_ab_c,
             LOWER(SHA256(CONCAT_WS('||',
-                CAST(STRLEN('A') AS VARCHAR) || ':' || 'A',
-                CAST(STRLEN('BC') AS VARCHAR) || ':' || 'BC'
-            ))) AS h_a_bc
-        """
+                CAST(OCTET_LENGTH(ENCODE('A')) AS VARCHAR) || ':' || 'A',
+                CAST(OCTET_LENGTH(ENCODE('BC')) AS VARCHAR) || ':' || 'BC'
+            ))) AS h_a_bc,
+            {utf8_token_sql} AS utf8_prehash,
+            {utf8_sha_sql} AS h_utf8,
+            (
+                SELECT COUNT(*) FROM duckdb_views()
+                WHERE schema_name = 'staging' AND UPPER(sql) LIKE '%STRLEN(%'
+            ) AS staging_strlen_views
+        FROM (SELECT ? AS val) AS v
+        """,
+        ["Nordisk Suverän Fond"],
     ).fetchone()
     assert sql_hashes is not None
     duck_hash_ab_c = str(sql_hashes[0])
     duck_hash_a_bc = str(sql_hashes[1])
+    duck_utf8_prehash = str(sql_hashes[2])
+    duck_hash_utf8 = str(sql_hashes[3])
+    staging_strlen_views = int(sql_hashes[4])
 
     boundary_shift_distinct = (
         py_hash_ab_c != py_hash_a_bc
         and duck_hash_ab_c != duck_hash_a_bc
         and py_hash_ab_c == duck_hash_ab_c
         and py_hash_a_bc == duck_hash_a_bc
+        and duck_utf8_prehash == "21:Nordisk Suverän Fond"
+        and duck_hash_utf8 == py_hash_utf8
+        and "OCTET_LENGTH(" in utf8_token_sql.upper()
+        and "STRLEN(" not in utf8_token_sql.upper()
+        and staging_strlen_views == 0
     )
 
     if is_pe_domain(ir) or ir is None:

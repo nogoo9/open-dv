@@ -505,3 +505,173 @@ def test_parametrized_query_d10b_cutoff_coordinates(
         assert rows[0].enterprise_value_usd == expected_ev
     finally:
         con.close()
+
+
+@pytest.mark.parametrize(
+    ("raw_text", "expected_byte_len", "expected_payload_prehash", "expected_payload_sha256"),
+    [
+        (
+            "Nordisk Suverän Fond",
+            21,
+            "21:Nordisk Suverän Fond",
+            "8f158a694b28984db2ddd2d99d3fa4e67a624791dc3e1d7e27df363a49cd1ff7",
+        ),
+        (
+            "München €25M",
+            15,
+            "15:München €25M",
+            "e8cdf47ea5d7fc86222aea1232609e57f960e5e5d03c6c8c041e9dac72e34f57",
+        ),
+        (
+            "日本国年金積立金管理運用独立行政法人",
+            54,
+            "54:日本国年金積立金管理運用独立行政法人",
+            "b537f8a15b4fd2f74743b6b2245607c346e89f22d321934a67872854e02807d1",
+        ),
+        (
+            "🏦 Sovereign Fund",
+            19,
+            "19:🏦 Sovereign Fund",
+            "49828efad954c7a21d6ce5723459a90d2727b6a08d7ec02db3604c84cdcf2ae0",
+        ),
+    ],
+)
+def test_issue_30_octet_length_encode_multibyte_utf8_parity(
+    raw_text: str,
+    expected_byte_len: int,
+    expected_payload_prehash: str,
+    expected_payload_sha256: str,
+) -> None:
+    """Issue #30 (BUG-01 / DV-HASH-004): Verify `build_length_prefixed_token_sql` and
+    `build_algorithm_a5_sha256_sql` emit `OCTET_LENGTH(ENCODE(...))` (never `STRLEN(...)`)
+    and produce bit-identical pre-hash strings and SHA-256 digests to `opendv_core.hashing`
+    across 2-byte Latin, 3-byte Euro/CJK, and 4-byte Emoji UTF-8 inputs.
+    """
+    from opendv_core.hashing import compute_dv2_length_prefixed_sha256, compute_dv2_prehash_string
+    from opendv_duckdb_sandbox.compiler_4zone import build_length_prefixed_token_sql
+
+    token_sql_pl = build_length_prefixed_token_sql("v.val", is_business_key=False)
+    sha_sql_pl = build_algorithm_a5_sha256_sql(["v.val"], is_business_key=False)
+    token_sql_bk = build_length_prefixed_token_sql("v.val", is_business_key=True)
+    sha_sql_bk = build_algorithm_a5_sha256_sql(
+        ["v.val"], is_business_key=True, bkcc_literal="LEGACY_GP_ADMIN"
+    )
+
+    assert "OCTET_LENGTH(ENCODE(" in token_sql_pl
+    assert "STRLEN(" not in token_sql_pl
+    assert "OCTET_LENGTH(ENCODE(" in sha_sql_pl
+    assert "STRLEN(" not in sha_sql_pl
+
+    assert len(raw_text.encode("utf-8")) == expected_byte_len
+    assert len(raw_text) < expected_byte_len
+
+    py_pre_pl = compute_dv2_prehash_string([raw_text], is_business_key=False)
+    py_sha_pl = compute_dv2_length_prefixed_sha256([raw_text], is_business_key=False).lower()
+    py_pre_bk = compute_dv2_prehash_string([raw_text], is_business_key=True)
+    py_sha_bk = compute_dv2_length_prefixed_sha256(
+        [raw_text], bkcc_prefix="LEGACY_GP_ADMIN", is_business_key=True
+    ).lower()
+
+    assert py_pre_pl == expected_payload_prehash
+    assert py_sha_pl == expected_payload_sha256
+
+    con = duckdb.connect(":memory:")
+    try:
+        row = con.execute(
+            f"SELECT {token_sql_pl}, {sha_sql_pl}, {token_sql_bk}, {sha_sql_bk} "
+            f"FROM (SELECT ? AS val) AS v",
+            [raw_text],
+        ).fetchone()
+        assert row is not None
+        assert row[0] == py_pre_pl
+        assert row[1] == py_sha_pl
+        assert row[2] == py_pre_bk
+        assert row[3] == py_sha_bk
+    finally:
+        con.close()
+
+
+def test_issue_30_scenario_s7_multibyte_utf8_e2e_sandbox() -> None:
+    """Issue #30 (Scenario S7 E2E): Profile, lower, compile, lint, and execute the
+    Scenario S7 multi-byte UTF-8 dataset in `DuckDbShadowSandbox` with zero mocks.
+    """
+    from opendv_axi_verifier.verifiers.alg_a6_sqlglot_ast import verify_physical_dv2_sql_ast
+    from opendv_core.hashing import compute_dv2_length_prefixed_sha256
+    from opendv_core.schema_registry import get_examples_dir, load_structured_file
+    from opendv_duckdb_sandbox import GraphBProfiler, lower_contract_to_canonical_ir
+
+    pe_ir = DuckDbShadowSandbox.load_default_pe_canonical_ir()
+    pe_bundle = compile_canonical_ir_to_4zone_sql(pe_ir)
+    assert "STRLEN(" not in pe_bundle.full_sql
+    assert pe_bundle.full_sql.count("OCTET_LENGTH(ENCODE(") == 50
+
+    s7_dir = get_examples_dir() / "scenarios" / "s7_multibyte_utf8"
+    s7_contract = load_structured_file(s7_dir / "s7_multibyte_utf8_contract.yaml")
+    crm_csv = s7_dir / "crm_customers.csv"
+    orders_csv = s7_dir / "erp_orders.csv"
+
+    with GraphBProfiler() as profiler:
+        crm_metrics = profiler.profile_csv(crm_csv)
+        assert len(crm_metrics) == 5
+        assert crm_metrics[0].row_count == 4
+
+    s7_ir = lower_contract_to_canonical_ir(s7_contract)
+    bronze_tables = {
+        "crm_salesforce.crm_customers": crm_csv,
+        "erp_netsuite.erp_orders": orders_csv,
+    }
+
+    with DuckDbShadowSandbox() as sandbox:
+        report = sandbox.run_full_verification(
+            s7_ir,
+            bronze_tables=bronze_tables,
+            emit_telemetry=False,
+            run_id="run-s7-multibyte-utf8",
+        )
+        assert report.passed is True
+        assert report.batch_report.all_passed is True
+        assert report.dynamic_check_report.all_passed is True
+        assert "STRLEN(" not in report.compiled_bundle.full_sql
+        assert "OCTET_LENGTH(ENCODE(" in report.compiled_bundle.zone_1_sql
+        assert "OCTET_LENGTH(ENCODE(" in report.compiled_bundle.zone_3_sql
+
+        for stmt in report.compiled_bundle.zone_1_sql.split(";"):
+            stmt_clean = stmt.strip()
+            if stmt_clean and (
+                "VIEW staging.stg_hub_" in stmt_clean or "VIEW staging.stg_sat_" in stmt_clean
+            ):
+                violations = verify_physical_dv2_sql_ast(
+                    stmt_clean,
+                    entity_name="stg_s7_check",
+                    entity_type="STAGE",
+                    dialect="duckdb",
+                )
+                assert violations == []
+
+        cust_row = sandbox.conn.execute(
+            """
+            SELECT hk_customer, customer_tax_id
+            FROM raw_vault.hub_customer
+            WHERE customer_tax_id = 'TAX-SE-ÅÄÖ-102'
+            """
+        ).fetchone()
+        assert cust_row is not None
+        expected_hk_cust = compute_dv2_length_prefixed_sha256(
+            ["TAX-SE-ÅÄÖ-102"], is_business_key=True
+        ).lower()
+        assert cust_row[0] == expected_hk_cust
+
+        sat_nordisk = sandbox.conn.execute(
+            """
+            SELECT hash_diff, account_segment, country_iso2, legal_name
+            FROM raw_vault.sat_customer_core
+            WHERE legal_name = 'Nordisk Suverän Fond'
+            """
+        ).fetchone()
+        assert sat_nordisk is not None
+        expected_hd_nordisk = compute_dv2_length_prefixed_sha256(
+            ["SOVEREIGN_€", "SE", "Nordisk Suverän Fond"],
+            is_business_key=False,
+        ).lower()
+        assert sat_nordisk[0] == expected_hd_nordisk
+

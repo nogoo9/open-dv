@@ -1034,3 +1034,39 @@ def test_alg_a8_orchestrator_end_to_end_pe_verification_and_telemetry(
     assert ask_res.toon_trace.status == "ASK-USER"
     assert ask_res.emitted_events[0]["status"] == "ASK-USER"
     assert ask_res.emitted_events[0]["layer1_story_banner"]["verdict_pill"] == "ASK-USER"
+
+
+def test_issue_30_dv_ast_002_rejects_strlen_and_length_in_hashes() -> None:
+    """Issue #30 (BUG-01 / DV-AST-002): Verify Algorithm A.6 rejects `STRLEN(...)` and
+    `LENGTH(...)` in hash projections while accepting `OCTET_LENGTH(ENCODE(...))`.
+    """
+    bad_strlen_sql = """
+    SELECT
+        LOWER(SHA256(
+            CASE WHEN lp_legal_name IS NULL THEN '-1:^^'
+                 ELSE CAST(STRLEN(lp_legal_name) AS VARCHAR) || ':' || lp_legal_name END
+        )) AS hash_diff,
+        lp_legal_name,
+        load_dts,
+        rec_src
+    FROM bronze.src_lp
+    """
+    strlen_violations = verify_physical_dv2_sql_ast(
+        bad_strlen_sql, entity_name="stg_lp", entity_type="STAGE", dialect="duckdb"
+    )
+    assert any("DV-AST-002" in v for v in strlen_violations)
+
+    bad_length_sql = bad_strlen_sql.replace("STRLEN(", "LENGTH(")
+    length_violations = verify_physical_dv2_sql_ast(
+        bad_length_sql, entity_name="stg_lp", entity_type="STAGE", dialect="duckdb"
+    )
+    assert any("DV-AST-002" in v for v in length_violations)
+
+    good_octet_sql = bad_strlen_sql.replace(
+        "STRLEN(lp_legal_name)", "OCTET_LENGTH(ENCODE(lp_legal_name))"
+    )
+    octet_violations = verify_physical_dv2_sql_ast(
+        good_octet_sql, entity_name="stg_lp", entity_type="STAGE", dialect="duckdb"
+    )
+    assert octet_violations == []
+

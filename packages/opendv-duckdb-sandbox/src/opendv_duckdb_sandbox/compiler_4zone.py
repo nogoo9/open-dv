@@ -109,7 +109,7 @@ def build_length_prefixed_token_sql(
     nullif_expr = f"NULLIF({norm_expr}, '')"
     return (
         f"CASE WHEN {nullif_expr} IS NULL THEN '{null_token}' "
-        f"ELSE CAST(STRLEN({nullif_expr}) AS VARCHAR) || ':' || {nullif_expr} END"
+        f"ELSE CAST(OCTET_LENGTH(ENCODE({nullif_expr})) AS VARCHAR) || ':' || {nullif_expr} END"
     )
 
 
@@ -747,13 +747,15 @@ keys AS (
         CASE
             WHEN lp_id_norm IS NULL OR lp_id_norm = '' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
-                '6:GLOBAL||' || CAST(STRLEN(lp_id_norm) AS VARCHAR) || ':' || lp_id_norm
+                '6:GLOBAL||'
+                || CAST(OCTET_LENGTH(ENCODE(lp_id_norm)) AS VARCHAR)
+                || ':' || lp_id_norm
             ))
         END AS hk_lp,
         CASE
             WHEN fund_code_norm IS NULL OR fund_code_norm = '' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
-                CAST(STRLEN(fund_code_norm) AS VARCHAR) || ':' || fund_code_norm
+                CAST(OCTET_LENGTH(ENCODE(fund_code_norm)) AS VARCHAR) || ':' || fund_code_norm
             ))
         END AS hk_fund
     FROM norm
@@ -784,42 +786,46 @@ SELECT
     rec_src,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN lp_legal_name IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(lp_legal_name) AS VARCHAR) || ':' || lp_legal_name END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(lp_legal_name)) AS VARCHAR) || ':' || lp_legal_name END,
         CASE WHEN lp_type IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(lp_type) AS VARCHAR) || ':' || lp_type END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(lp_type)) AS VARCHAR) || ':' || lp_type END,
         CASE WHEN country_code IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(country_code) AS VARCHAR) || ':' || country_code END
+             ELSE CAST(OCTET_LENGTH(ENCODE(country_code)) AS VARCHAR) || ':' || country_code END
     ))) AS hash_diff_lp_core,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN tax_id_ein IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(tax_id_ein) AS VARCHAR) || ':' || tax_id_ein END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(tax_id_ein)) AS VARCHAR) || ':' || tax_id_ein END,
         CASE WHEN kyc_aml_risk_tier IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(kyc_aml_risk_tier) AS VARCHAR) || ':' || kyc_aml_risk_tier END
+             ELSE CAST(OCTET_LENGTH(ENCODE(kyc_aml_risk_tier)) AS VARCHAR)
+                  || ':' || kyc_aml_risk_tier END
     ))) AS hash_diff_lp_kyc_pii,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN fund_legal_name IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(fund_legal_name) AS VARCHAR) || ':' || fund_legal_name END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(fund_legal_name)) AS VARCHAR)
+                  || ':' || fund_legal_name END,
         CASE WHEN vintage_year IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(vintage_year AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(vintage_year AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(vintage_year AS VARCHAR) END,
         CASE WHEN fund_strategy IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(fund_strategy) AS VARCHAR) || ':' || fund_strategy END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(fund_strategy)) AS VARCHAR) || ':' || fund_strategy END,
         CASE WHEN base_currency_iso IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(base_currency_iso) AS VARCHAR) || ':' || base_currency_iso END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(base_currency_iso)) AS VARCHAR)
+                  || ':' || base_currency_iso END,
         CASE WHEN target_size_usd IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(target_size_usd AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(target_size_usd AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(target_size_usd AS VARCHAR) END
     ))) AS hash_diff_fund_core,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN committed_amount IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(committed_amount AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(committed_amount AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(committed_amount AS VARCHAR) END,
         CASE WHEN commitment_currency IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(commitment_currency) AS VARCHAR) || ':' || commitment_currency END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(commitment_currency)) AS VARCHAR)
+                  || ':' || commitment_currency END,
         CASE WHEN closing_round IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(closing_round) AS VARCHAR) || ':' || closing_round END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(closing_round)) AS VARCHAR) || ':' || closing_round END,
         CASE WHEN commitment_date IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(commitment_date AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(commitment_date AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(commitment_date AS VARCHAR) END
     ))) AS hash_diff_commitment_terms
 FROM keys;
@@ -849,7 +855,9 @@ keys AS (
         *,
         CASE
             WHEN lei_code_norm IS NULL OR lei_code_norm = '' THEN REPEAT('0', 64)
-            ELSE LOWER(SHA256(CAST(STRLEN(lei_code_norm) AS VARCHAR) || ':' || lei_code_norm))
+            ELSE LOWER(SHA256(
+                CAST(OCTET_LENGTH(ENCODE(lei_code_norm)) AS VARCHAR) || ':' || lei_code_norm
+            ))
         END AS hk_portco,
         LOWER(SHA256('14:APEX-BUYOUT-IV')) AS hk_fund
     FROM norm
@@ -873,33 +881,35 @@ SELECT
     rec_src,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN company_legal_name IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(company_legal_name) AS VARCHAR) || ':' || company_legal_name END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(company_legal_name)) AS VARCHAR)
+                  || ':' || company_legal_name END,
         CASE WHEN gics_sub_industry_code IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(gics_sub_industry_code) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(gics_sub_industry_code)) AS VARCHAR)
                   || ':' || gics_sub_industry_code END,
         CASE WHEN hq_country_iso IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(hq_country_iso) AS VARCHAR) || ':' || hq_country_iso END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(hq_country_iso)) AS VARCHAR)
+                  || ':' || hq_country_iso END,
         CASE WHEN acquisition_year IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(acquisition_year AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(acquisition_year AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(acquisition_year AS VARCHAR) END
     ))) AS hash_diff_portco_core,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN entry_ebitda_usd IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(entry_ebitda_usd AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(entry_ebitda_usd AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(entry_ebitda_usd AS VARCHAR) END,
         CASE WHEN entry_ev_multiple IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(entry_ev_multiple AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(entry_ev_multiple AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(entry_ev_multiple AS VARCHAR) END,
         CASE WHEN current_nav_usd IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(current_nav_usd AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(current_nav_usd AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(current_nav_usd AS VARCHAR) END,
         CASE WHEN as_of_quarter_end IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(as_of_quarter_end AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(as_of_quarter_end AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(as_of_quarter_end AS VARCHAR) END
     ))) AS hash_diff_portco_valuation,
     LOWER(SHA256(
         CASE WHEN deal_id IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(deal_id) AS VARCHAR) || ':' || deal_id END
+             ELSE CAST(OCTET_LENGTH(ENCODE(deal_id)) AS VARCHAR) || ':' || deal_id END
     )) AS hash_diff_deal
 FROM keys;
 
@@ -930,21 +940,23 @@ keys AS (
         CASE
             WHEN lp_id_norm IS NULL OR lp_id_norm = '' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
-                '15:LEGACY_GP_ADMIN||' || CAST(STRLEN(lp_id_norm) AS VARCHAR) || ':' || lp_id_norm
+                '15:LEGACY_GP_ADMIN||'
+                || CAST(OCTET_LENGTH(ENCODE(lp_id_norm)) AS VARCHAR)
+                || ':' || lp_id_norm
             ))
         END AS hk_lp,
         CASE
             WHEN cap_acct_code_norm IS NULL OR cap_acct_code_norm = '' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
                 '15:LEGACY_GP_ADMIN||'
-                || CAST(STRLEN(cap_acct_code_norm) AS VARCHAR)
+                || CAST(OCTET_LENGTH(ENCODE(cap_acct_code_norm)) AS VARCHAR)
                 || ':' || cap_acct_code_norm
             ))
         END AS hk_cap_acct,
         CASE
             WHEN fund_code_norm IS NULL OR fund_code_norm = '' THEN REPEAT('0', 64)
             ELSE LOWER(SHA256(
-                CAST(STRLEN(fund_code_norm) AS VARCHAR) || ':' || fund_code_norm
+                CAST(OCTET_LENGTH(ENCODE(fund_code_norm)) AS VARCHAR) || ':' || fund_code_norm
             ))
         END AS hk_fund
     FROM norm
@@ -973,27 +985,28 @@ SELECT
     rec_src,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN lp_legal_name IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(lp_legal_name) AS VARCHAR) || ':' || lp_legal_name END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(lp_legal_name)) AS VARCHAR) || ':' || lp_legal_name END,
         CASE WHEN lp_type IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(lp_type) AS VARCHAR) || ':' || lp_type END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(lp_type)) AS VARCHAR) || ':' || lp_type END,
         CASE WHEN country_code IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(country_code) AS VARCHAR) || ':' || country_code END
+             ELSE CAST(OCTET_LENGTH(ENCODE(country_code)) AS VARCHAR) || ':' || country_code END
     ))) AS hash_diff_lp_core,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN tax_id_ein IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(tax_id_ein) AS VARCHAR) || ':' || tax_id_ein END,
+             ELSE CAST(OCTET_LENGTH(ENCODE(tax_id_ein)) AS VARCHAR) || ':' || tax_id_ein END,
         CASE WHEN kyc_aml_risk_tier IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(kyc_aml_risk_tier) AS VARCHAR) || ':' || kyc_aml_risk_tier END
+             ELSE CAST(OCTET_LENGTH(ENCODE(kyc_aml_risk_tier)) AS VARCHAR)
+                  || ':' || kyc_aml_risk_tier END
     ))) AS hash_diff_lp_kyc_pii,
     LOWER(SHA256(CONCAT_WS('||',
         CASE WHEN ending_nav_amt IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(ending_nav_amt AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(ending_nav_amt AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(ending_nav_amt AS VARCHAR) END,
         CASE WHEN unfunded_balance_amt IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(unfunded_balance_amt AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(unfunded_balance_amt AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(unfunded_balance_amt AS VARCHAR) END,
         CASE WHEN reporting_quarter IS NULL THEN '-1:^^'
-             ELSE CAST(STRLEN(CAST(reporting_quarter AS VARCHAR)) AS VARCHAR)
+             ELSE CAST(OCTET_LENGTH(ENCODE(CAST(reporting_quarter AS VARCHAR))) AS VARCHAR)
                   || ':' || CAST(reporting_quarter AS VARCHAR) END
     ))) AS hash_diff_cap_acct_nav
 FROM keys;
@@ -1010,11 +1023,12 @@ SELECT
     ingested_dts AS load_dts,
     'UNSTRUCTURED_VDR' AS rec_src,
     LOWER(SHA256(CONCAT_WS('||',
-        CAST(STRLEN(doc_uri) AS VARCHAR) || ':' || doc_uri,
-        CAST(STRLEN(doc_type) AS VARCHAR) || ':' || doc_type,
-        CAST(STRLEN(doc_title) AS VARCHAR) || ':' || doc_title,
-        CAST(STRLEN(CAST(page_count AS VARCHAR)) AS VARCHAR) || ':' || CAST(page_count AS VARCHAR),
-        CAST(STRLEN(mime_type) AS VARCHAR) || ':' || mime_type
+        CAST(OCTET_LENGTH(ENCODE(doc_uri)) AS VARCHAR) || ':' || doc_uri,
+        CAST(OCTET_LENGTH(ENCODE(doc_type)) AS VARCHAR) || ':' || doc_type,
+        CAST(OCTET_LENGTH(ENCODE(doc_title)) AS VARCHAR) || ':' || doc_title,
+        CAST(OCTET_LENGTH(ENCODE(CAST(page_count AS VARCHAR))) AS VARCHAR)
+            || ':' || CAST(page_count AS VARCHAR),
+        CAST(OCTET_LENGTH(ENCODE(mime_type)) AS VARCHAR) || ':' || mime_type
     ))) AS hash_diff_doc_metadata
 FROM unstructured_vdr.src_document_manifest;"""
 
@@ -1372,13 +1386,14 @@ SELECT
     CAST(e.effective_from_date AS TIMESTAMP) AS applied_dts,
     'LLM_EXT_PIPELINE' AS rec_src,
     LOWER(SHA256(CONCAT_WS('||',
-        CAST(STRLEN(CAST(e.mgmt_fee_discount_bps AS VARCHAR)) AS VARCHAR)
+        CAST(OCTET_LENGTH(ENCODE(CAST(e.mgmt_fee_discount_bps AS VARCHAR))) AS VARCHAR)
             || ':' || CAST(e.mgmt_fee_discount_bps AS VARCHAR),
-        CAST(STRLEN(CAST(e.mfn_election_flag AS VARCHAR)) AS VARCHAR)
+        CAST(OCTET_LENGTH(ENCODE(CAST(e.mfn_election_flag AS VARCHAR))) AS VARCHAR)
             || ':' || CAST(e.mfn_election_flag AS VARCHAR),
-        CAST(STRLEN(CAST(e.co_invest_rights_flag AS VARCHAR)) AS VARCHAR)
+        CAST(OCTET_LENGTH(ENCODE(CAST(e.co_invest_rights_flag AS VARCHAR))) AS VARCHAR)
             || ':' || CAST(e.co_invest_rights_flag AS VARCHAR),
-        CAST(STRLEN(e.esg_exclusion_clause) AS VARCHAR) || ':' || e.esg_exclusion_clause
+        CAST(OCTET_LENGTH(ENCODE(e.esg_exclusion_clause)) AS VARCHAR)
+            || ':' || e.esg_exclusion_clause
     ))) AS hash_diff,
     e.mgmt_fee_discount_bps,
     e.mfn_election_flag,
@@ -1416,11 +1431,11 @@ SELECT
         + INTERVAL '23 hours 59 minutes 59 seconds' AS applied_dts,
     'LLM_EXT_PIPELINE' AS rec_src,
     LOWER(SHA256(CONCAT_WS('||',
-        CAST(STRLEN(CAST(e.restated_ev_multiple AS VARCHAR)) AS VARCHAR)
+        CAST(OCTET_LENGTH(ENCODE(CAST(e.restated_ev_multiple AS VARCHAR))) AS VARCHAR)
             || ':' || CAST(e.restated_ev_multiple AS VARCHAR),
-        CAST(STRLEN(CAST(e.effective_from_date AS VARCHAR)) AS VARCHAR)
+        CAST(OCTET_LENGTH(ENCODE(CAST(e.effective_from_date AS VARCHAR))) AS VARCHAR)
             || ':' || CAST(e.effective_from_date AS VARCHAR),
-        CAST(STRLEN(e.source_text_quote) AS VARCHAR) || ':' || e.source_text_quote
+        CAST(OCTET_LENGTH(ENCODE(e.source_text_quote)) AS VARCHAR) || ':' || e.source_text_quote
     ))) AS hash_diff,
     e.restated_ev_multiple,
     e.effective_from_date,
@@ -1459,7 +1474,7 @@ CREATE OR REPLACE TABLE information_mart.pit_portfolio_company AS
 SELECT
     LOWER(SHA256(
         '64:' || h.hk_portco || '||'
-        || CAST(STRLEN(CAST(cal.as_of_dts AS VARCHAR)) AS VARCHAR)
+        || CAST(OCTET_LENGTH(ENCODE(CAST(cal.as_of_dts AS VARCHAR))) AS VARCHAR)
         || ':' || CAST(cal.as_of_dts AS VARCHAR)
     )) AS hk_pit_portco,
     h.hk_portco,
@@ -2745,7 +2760,8 @@ def _compile_generic_zone_3_business_vault_sql(ir_obj: CanonicalIR) -> str:
         subquery_selects: list[str] = [
             f"        LOWER(SHA256(\n"
             f"            '64:' || h.{hub_hk} || '||'\n"
-            f"            || CAST(STRLEN(CAST(cal.as_of_dts AS VARCHAR)) AS VARCHAR)\n"
+            f"            || CAST(OCTET_LENGTH(ENCODE(CAST(cal.as_of_dts AS VARCHAR)))"
+            f" AS VARCHAR)\n"
             f"            || ':' || CAST(cal.as_of_dts AS VARCHAR)\n"
             f"        )) AS {pit_hk}",
             f"        h.{hub_hk}",

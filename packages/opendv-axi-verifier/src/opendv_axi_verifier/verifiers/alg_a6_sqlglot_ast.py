@@ -164,7 +164,7 @@ def verify_physical_dv2_sql_ast(
                     # DV-AST-002: Length-prefixed `||` hashing check
                     if (is_inline_sha or has_dpipe or has_concat) and not is_macro_call:
                         has_len_prefix = any(
-                            token in proj_sql_u for token in ("OCTET_LENGTH(", "LENGTH(", "STRLEN(")
+                            token in proj_sql_u for token in ("OCTET_LENGTH(", "BYTE_LENGTH(")
                         )
                         if not has_len_prefix or not has_dpipe:
                             violations.append(
