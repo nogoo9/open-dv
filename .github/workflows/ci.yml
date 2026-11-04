@@ -206,6 +206,10 @@ jobs:
         run: |
           uv run pytest -v
 
+      - name: Verify Golden test baselines and Docs/17 invariant diff
+        run: |
+          git diff --exit-code tests/golden docs/17-testing-scenarios-and-datasets.md
+
       - name: Verify OpenAPI 3.1 specification drift
         run: |
           uv run python -m opendv_platform_api.export_openapi
@@ -229,7 +233,7 @@ jobs:
 
       - name: Run Bun unit & contract tests (restricted roots)
         run: |
-          bun test --path-ignore-patterns "**/dist/**"
+          bun test --path-ignore-patterns "**/dist/**" "**/worktrees/**"
 
       - name: Typecheck TypeScript project references (tsc -b)
         run: |

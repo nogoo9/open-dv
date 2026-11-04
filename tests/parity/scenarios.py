@@ -262,7 +262,7 @@ def _build_registry_entries() -> list[ScenarioSpec]:
         ),
         ScenarioSpec(
             id="PAR-PE-S5",
-            docs17_anchor="S5: Nullable Foreign Key / 0..1 Relationship",
+            docs17_anchor="Issue #31 — Scenario S5 (Nullable Foreign Key / 0..1 Relationship)",
             scenarios=["S5"],
             uf_cases=[],
             fixtures={

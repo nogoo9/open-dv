@@ -1,6 +1,6 @@
 contract_version: "5.0"
 domain_namespace: "enterprise_crm"
-lifecycle_stage: "COLD_START_N1"
+lifecycle_stage: "INTRA_SOURCE_EVOLUTION"
 column_triage_ledger:
   - bronze_table: "bronze_crm.customers"
     column_name: "customer_tax_id"
@@ -40,6 +40,6 @@ satellites:
     source_bronze_table: "bronze_crm.customers"
     security_classification: "INTERNAL"
     volatility_tier: "STANDARD"
-    payload_columns: ["customer_legal_names", "country_iso2", "account_segment", "credit_limit_usd"]
+    payload_columns: ["customer_legal_name", "country_iso2", "account_segment", "credit_limit_usd"]
 reference_tables: []
 unmapped_escalations: []
