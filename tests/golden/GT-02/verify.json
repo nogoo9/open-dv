@@ -1,0 +1,23 @@
+{
+  "applied_codemods": [
+    "ALG_A1_3AXIS_SATELLITE_SPLIT"
+  ],
+  "contract_path": "<WORKSPACE>/examples/private_equity/dv_pe_model_contract.yaml",
+  "diagnostics": [
+    "ALL_GATES_GREEN: Contract verified and cold-start codemods applied."
+  ],
+  "gate_scorecard": {
+    "gate_0_profile_drift": "PASS",
+    "gate_1_contract_grain": "AUTO_REPAIRED",
+    "gate_2_sqlglot_ast": "PASS",
+    "gate_3_networkx_dag": "PASS",
+    "gate_4_yagni_cost_guard": "AUTO-FIX",
+    "gate_5_duckdb_sandbox": "PASS"
+  },
+  "mode": "<MODE>",
+  "overall_passed": true,
+  "run_id": "<RUN_ID_1>",
+  "status": "PASS",
+  "toon_text": "@toon_v1\nrun_id: <RUN_ID_1>\nattempt: 1/3\nstatus: PASS\nviolations[1]{gate,rule,action,target,fix}:\n G4,ALG-A1,AUTO-FIX,satellites,\"Applied 3-axis Satellite split & Gate 4 YAGNI cost guard (W_amp >= 50.0 MB/d)\"",
+  "verdict": "PASS"
+}
