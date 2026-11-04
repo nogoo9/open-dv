@@ -1,0 +1,3 @@
+customer_tax_id,customer_legal_name,country_iso2,account_segment,credit_limit_usd
+TAX-US-900101,Apex Industrial Holdings LLC,US,ENTERPRISE,1250000.00
+TAX-DE-800202,Rheinland Precision GmbH,DE,ENTERPRISE,980000.00

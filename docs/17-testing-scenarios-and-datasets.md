@@ -8,15 +8,15 @@
 
 | Scenario / Suite | Dataset & Fixture Path | Governing Requirements & Invariants | Primary Test Suite & CLI Entrypoint |
 | :--- | :--- | :--- | :--- |
-| **S1: Day-1 Cold Start ($N=1$)** | [`examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml`](../examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml) (`sources/crm_customers_w0.csv`, `sources/erp_orders_w0.csv`) | `FR-DOM-01`, `INV-01..06`, `KEY-01..05`, `DV-G4-002` (100% Column Triage), `Algorithms A.1`, `A.4`, `A.5` | `uv run opendv pipeline validate --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml --json` |
-| **S2: Multi-Source Entity Convergence & Composite-Feed Scoped BKCC (Issue [#39](https://github.com/nogoo9/open-dv/issues/39))** | [`examples/pipeline_samples/scenario_s2_issue39_bkcc/`](../examples/pipeline_samples/scenario_s2_issue39_bkcc/) (`src_composite_deals.csv`, `src_global_issuers.csv`, `src_local_companies.csv`, `src_company_convergence.csv`, `dv_s2_issue39_contract.yaml`) & [`examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml`](../examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml) | `FR-DOM-02`, `FR-INT-01`, `KEY-04`, `ANTI_SILO_VIOLATION`, `EVO-08`, `Algorithm A.4` & `A.5` (`BUG-08`) | `uv run pytest packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py -k "test_issue_39" -v` |
-| **S3: Unmapped Feed / Absent Ontology Concept** | `packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py` & `packages/opendv-agent-harness/tests/test_hold_manager_and_pipeline.py` | `FR-DOM-04`, `DV-G4-001` (Ontology Firewall), `ASK-USER` / `STEWARD_HOLD` | `uv run pytest packages/opendv-axi-verifier/tests/ packages/opendv-agent-harness/tests/ -v` |
-| **S4: Upstream Schema Drift ($S_k(t) \to S_k(t+1)$)** | [`examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml`](../examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml) (`sources/crm_customers_w2_drifted.csv`) | `FR-DOM-03`, `EVO-01..08`, `DV-EVO-001..008`, `Algorithms A.7`, `A.9a` | `uv run pytest packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py -k "drift or evolution" -v` |
+| **S1: Day-1 Cold Start ($N=1$)** | [`examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml`](../examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml) & [`examples/scenarios/issue_40_tier1_global_bkcc/`](../examples/scenarios/issue_40_tier1_global_bkcc/) (`accounts.csv`, `invoices.csv`, `contract_w0.yaml`) | `FR-DOM-01`, `INV-01..06`, `KEY-01..05`, `DV-G4-002` (100% Column Triage), `Algorithms A.1`, `A.4`, `A.5` | `uv run opendv pipeline validate --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml --json` |
+| **S2: Multi-Source Entity Convergence & Composite-Feed Scoped BKCC (Issue [#39](https://github.com/nogoo9/open-dv/issues/39), [#40](https://github.com/nogoo9/open-dv/issues/40))** | [`examples/pipeline_samples/scenario_s2_issue39_bkcc/`](../examples/pipeline_samples/scenario_s2_issue39_bkcc/) & [`examples/scenarios/issue_40_tier1_global_bkcc/`](../examples/scenarios/issue_40_tier1_global_bkcc/) (`tickets.csv`, `contract_w1.yaml`) | `FR-DOM-02`, `FR-INT-01`, `KEY-04`, `ANTI_SILO_VIOLATION`, `EVO-08`, `Algorithm A.4` & `A.5` (`BUG-08`, `DV-COL-013`) | `uv run pytest tests/test_issue40_tier1_global_bkcc_e2e.py -v` |
+| **S3: Unmapped Feed / Absent Ontology Concept (Case UF-4)** | [`examples/scenarios/s3_unmapped_feed/`](../examples/scenarios/s3_unmapped_feed/) (`contract_s3.yaml`, `graph_a_ontology.yaml`, `feed_unmapped_supplier.csv`) | `FR-DOM-04`, `DV-G4-001` (Ontology Firewall), `ASK-USER` / `STEWARD_HOLD` (`PAUSED_HOLD`) | `uv run opendv verify --local --contract examples/scenarios/s3_unmapped_feed/contract_s3.yaml --graph-a examples/scenarios/s3_unmapped_feed/graph_a_ontology.yaml --json` |
+| **S4: Upstream Schema Drift ($S_k(t) \to S_k(t+1)$, Case UF-2)** | [`examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml`](../examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml) & [`examples/scenarios/uf2_renamed_column/`](../examples/scenarios/uf2_renamed_column/) (`contract_uf2.yaml`, `sources/wave0_baseline/crm_customers.csv`, `sources/wave1_renamed/crm_customers.csv`) | `FR-DOM-03`, `EVO-01..08`, `DV-EVO-001..008`, `Algorithms A.7`, `A.9a` | `uv run pytest packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py -k "drift or evolution" -v` |
 | **S5: Nullable Foreign Key / $0..1$ Relationship ($U_{\text{nn}} < 0.95$)** | [`examples/private_equity/`](../examples/private_equity/) (`lnk_capital_call_co_invest`) & `packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py` | `FR-DOM-01`, `DV-G2-001`, `Algorithm A.4` (Sparse FK Companion Link Split) | `uv run pytest packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py -k "a4 or gate2" -v` |
 | **S6: Retroactive / Out-of-Order Bi-Temporal Arrival** | [`examples/private_equity/dv_pe_model_contract.yaml`](../examples/private_equity/dv_pe_model_contract.yaml) & [`examples/private_equity/pe_canonical_ir.json`](../examples/private_equity/pe_canonical_ir.json) (Adversarial Batch 4 Q3 valuation restatement) | `FR-DOM-03`, `FR-VER-02`, `TMP-01..04`, `DV-DYN-009`, `Queries D.10` & `D.10b` | `uv run opendv sandbox --local --contract examples/private_equity/dv_pe_model_contract.yaml --canonical-ir examples/private_equity/pe_canonical_ir.json --query-type ADVERSARIAL_BATCHES_1_TO_4` |
 | **S7: Malformed / Adversarial Raw Data & Hash Parity** | `packages/opendv-core/tests/test_core_models_and_hashing.py` & `packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py` (Batches 1–3) | `FR-VER-01`, `Algorithm A.5` (6-Stage Length-Prefixed SHA-256), `Algorithm A.6` (`DV-AST-001..007`) | `uv run pytest packages/opendv-core/tests/ packages/opendv-duckdb-sandbox/tests/ -v` |
-| **S8: Unstructured Document Ingestion, Span Grounding & Steward Approval Gating (Issues [#32](https://github.com/nogoo9/open-dv/issues/32), [#33](https://github.com/nogoo9/open-dv/issues/33))** | [`examples/private_equity/pe_canonical_ir.json`](../examples/private_equity/pe_canonical_ir.json) & [`examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml`](../examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml) (`sources/enterprise_msa_addendum_2026.txt`) | `FR-DOM-05`, `FR-VER-04`, `Rules U1–U4`, `Tier-U1..U3`, `DV-AST-007`, `DV-DYN-013`, `Algorithm A.9b` (`SPAN_HALLUCINATION`) | `uv run pytest tests/test_multimodal_and_duckdb_e2e.py -k "test_issue_32 or test_issue_33" -v` |
-| **S9: Multi-Tenant / Multi-Unit Keyspace Collisions** | [`examples/dv_model_contract.yaml`](../examples/dv_model_contract.yaml), [`examples/private_equity/`](../examples/private_equity/) (`GLOBAL` vs `LEGACY_GP_ADMIN`), & [`examples/pipeline_samples/scenario_s2_issue39_bkcc/`](../examples/pipeline_samples/scenario_s2_issue39_bkcc/) | `FR-DOM-02`, `KEY-04` (3-Tier `BKCC` Namespace Isolation), `Algorithm A.4` & `A.5` | `uv run opendv verify --local --contract examples/private_equity/dv_pe_model_contract.yaml --graph-a examples/private_equity/pe_graph_a_ontology.yaml --graph-b examples/private_equity/pe_graph_b_profile.json` |
+| **S8: Unstructured Document Ingestion, Span Grounding & Steward Approval Gating (Issues [#32](https://github.com/nogoo9/open-dv/issues/32), [#33](https://github.com/nogoo9/open-dv/issues/33))** | [`examples/private_equity/pe_canonical_ir.json`](../examples/private_equity/pe_canonical_ir.json) & [`examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml`](../examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml) (`sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt`) | `FR-DOM-05`, `FR-VER-04`, `Rules U1–U4`, `Tier-U1..U3`, `DV-AST-007`, `DV-DYN-013`, `Algorithm A.9b` (`SPAN_HALLUCINATION`) | `uv run pytest tests/test_multimodal_and_duckdb_e2e.py -k "test_issue_32 or test_issue_33" -v` |
+| **S9: Multi-Tenant / Multi-Unit Keyspace Collisions (Issue [#42](https://github.com/nogoo9/open-dv/issues/42))** | [`examples/scenarios/s9_multitenant/`](../examples/scenarios/s9_multitenant/) (`contract_s9.yaml`, `tenant_accounts.csv`, `tenant_subscriptions.csv`) & [`examples/private_equity/`](../examples/private_equity/) | `FR-DOM-02`, `KEY-04` (3-Tier `BKCC` Namespace Isolation), `Algorithm A.4` & `A.5` | `uv run pytest packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py -k "s9_multitenant" -v` |
 | **S10: Ghost Record & Dual Zero-Key Completeness** | [`examples/private_equity/`](../examples/private_equity/) & [`examples/pipeline_samples/scenario_s2_issue39_bkcc/`](../examples/pipeline_samples/scenario_s2_issue39_bkcc/) (Adversarial Batch 1 & Batch 2) | `FR-DOM-01`, `FR-VER-02`, `KEY-02b`, `DV-DYN-003` (Replay Idempotency), `DV-DYN-007` (Zero/Ghost Seed) | `uv run pytest packages/opendv-duckdb-sandbox/tests/test_duckdb_sandbox_suite.py -v` |
 
 ---
@@ -705,3 +705,185 @@ uv run opendv sandbox --local \
   --query-type ADVERSARIAL_BATCHES_1_TO_4 \
   --cutoff "2026-11-15 23:59:59"
 ```
+
+---
+
+## Scenario S3 / Case UF-4 — Unmapped Feed & Absent Ontology Concept
+
+### 1. Scenario & Architectural Context
+- **GitHub Issue**: [#67 — `[P1.3] Promote inline datasets and author missing S3/UF-4 and UF-2 datasets`](https://github.com/nogoo9/open-dv/issues/67)
+- **Governing Requirements**: `FR-DOM-04` (Ontology Seam & Adaptive Graph Harmonization), `DV-G4-001` (Ontology Firewall), `ASK-USER` / `STEWARD_HOLD` (`PAUSED_HOLD`).
+- **Problem Statement**: An incoming feed (`feed_unmapped_supplier.csv`) contains business keys and foreign key references that do not exist in the governing Graph A domain ontology (`graph_a_ontology.yaml`). Specifically, `supplier_code` references an unknown concept `urn:ontology:entity:supplier_delivery` and `destination_warehouse_code` references an unknown concept `urn:ontology:entity:warehouse` with an orphan link reference.
+- **Enforced Invariant**: Gate 1 static verification halts execution with `DV-G4-001`, blocking un-governed entities from polluting the Data Vault schema.
+
+### 2. Dataset Specification (`examples/scenarios/s3_unmapped_feed/`)
+
+| File Path | Description | Role / Diagnostic |
+| :--- | :--- | :--- |
+| `contract_s3.yaml` | Candidate Contract V5 with unknown concept URIs | Triggers `SEMANTIC_ERROR [Gate 1 - DV-G4-001]` on `hub_supplier_delivery` & `hub_warehouse` |
+| `graph_a_ontology.yaml` | Restricted core ontology (`CBC-CUSTOMER` only) | Lacks supplier and warehouse entities, enforcing strict ontology boundary |
+| `feed_unmapped_supplier.csv` | Bronze logistics feed with unmapped supplier & warehouse | 3 rows of delivery tracking data |
+| `sources/crm_customers.csv` | Baseline known customer dataset | Reference baseline |
+
+### 3. Verification Commands
+
+```bash
+# 1. Standalone CLI execution (exits with code 1, reporting DV-G4-001)
+uv run opendv verify --local \
+  --contract examples/scenarios/s3_unmapped_feed/contract_s3.yaml \
+  --graph-a examples/scenarios/s3_unmapped_feed/graph_a_ontology.yaml \
+  --json
+
+# 2. REST API execution (returns HTTP 200 with REJECT_WITH_TRACE and DV-G4-001 diagnostics)
+curl -X POST http://localhost:8000/api/v1/verify \
+  -H "Content-Type: application/json" \
+  -d @examples/scenarios/s3_unmapped_feed/contract_s3.yaml
+```
+
+---
+
+## Scenario S4 / Case UF-2 — Upstream Column Rename with Invariant Vault DDL
+
+### 1. Scenario & Architectural Context
+- **GitHub Issue**: [#67 — `[P1.3] Promote inline datasets and author missing S3/UF-4 and UF-2 datasets`](https://github.com/nogoo9/open-dv/issues/67)
+- **Governing Requirements**: `FR-DOM-03` (Upstream Schema Drift), `EVO-03` (Renamed Column Alias), `Algorithm A.9a` (`detect_intra_source_schema_drift`).
+- **Levenshtein Constraint**: Normalized similarity $\ge 0.85$. Comparing `customer_legal_name` (19 chars) and `customer_legal_names` (20 chars):
+  $$\text{dist} = 1, \quad \text{sim} = 1 - \frac{1}{20} = 0.95 \ge 0.85$$
+- **Enforced Invariant**: The Zone 1 Staging SQL aliases `stg.customer_legal_names AS customer_legal_name`. The compiled Raw Vault Satellite DDL and `hash_diff` expression remain 100% byte-identical to Wave 0, preventing unnecessary table alterations or historical re-hashing storms.
+
+### 2. Dataset Specification (`examples/scenarios/uf2_renamed_column/`)
+
+| File Path | Description | Key Features |
+| :--- | :--- | :--- |
+| `sources/wave0_baseline/crm_customers.csv` | Baseline Wave 0 customer dataset | Contains `customer_legal_name` |
+| `sources/wave1_renamed/crm_customers.csv` | Evolved Wave 1 customer dataset | Renamed column `customer_legal_names` (Levenshtein similarity = 0.95) |
+| `contract_uf2.yaml` | Standardized Contract V5 for UF-2 | Compiles Zone 1 and Raw Vault artifacts |
+| `contract_w0.yaml` / `contract_w1.yaml` | Baseline and evolved contracts | Demonstrates staging alias evolution without satellite DDL change |
+
+### 3. Verification Commands
+
+```bash
+# 1. Standalone CLI compilation
+uv run opendv compile --local \
+  --contract examples/scenarios/uf2_renamed_column/contract_uf2.yaml \
+  --json
+
+# 2. REST API compilation
+curl -X POST http://localhost:8000/api/v1/compile \
+  -H "Content-Type: application/json" \
+  -d @examples/scenarios/uf2_renamed_column/contract_uf2.yaml
+```
+
+---
+
+## Scenario S9 — Single-Table Multi-Tenant Partitioning with Scoped BKCC
+
+### 1. Scenario & Architectural Context
+- **GitHub Issue**: [#42 — `fix(core,compiler_4zone): support single-table multi-tenant BKCC via bkcc_column_expr`](https://github.com/nogoo9/open-dv/issues/42)
+- **Governing Requirements**: `FR-DOM-02` (Multi-Source Entity Convergence), `KEY-04` (3-Tier BKCC Authority), `Algorithm A.4` & `Algorithm A.5`.
+- **Problem Statement**: In a shared SaaS environment, identical local identifiers (`ACCT-1001`) from `TENANT_US` and `TENANT_EU` reside within the same Bronze table (`bronze_saas.tenant_accounts`).
+- **Enforced Invariant**: Using dynamic `bkcc_column_expr: "tenant_id"` ensures each tenant's business key is isolated in its own namespace (`TENANT_US` vs `TENANT_EU`), producing distinct SHA-256 hash keys in `hub_tenant_account` and preventing cross-tenant data collisions.
+
+### 2. Dataset Specification (`examples/scenarios/s9_multitenant/`)
+
+| File Path | Description | Key Features |
+| :--- | :--- | :--- |
+| `tenant_accounts.csv` | Multi-tenant SaaS accounts | Contains colliding `ACCT-1001` under `TENANT_US` and `TENANT_EU` |
+| `tenant_subscriptions.csv` | Multi-tenant SaaS subscriptions | Subscriptions referencing partitioned accounts |
+| `contract_s9.yaml` | Contract V5 with `bkcc_column_expr: "tenant_id"` | Configures Tier-3 local-scoped BK with dynamic tenant qualification |
+| `graph_a_ontology.yaml` | SaaS Domain Ontology | `urn:ontology:entity:tenant_account`, `urn:ontology:entity:subscription` |
+| `graph_b_profile.json` | Source Table Profile | Profile metadata for `bronze_saas` tables |
+
+### 3. Verification Commands
+
+```bash
+# 1. Standalone CLI verification
+uv run opendv verify --local \
+  --contract examples/scenarios/s9_multitenant/contract_s9.yaml \
+  --graph-a examples/scenarios/s9_multitenant/graph_a_ontology.yaml \
+  --graph-b examples/scenarios/s9_multitenant/graph_b_profile.json \
+  --json
+
+# 2. Standalone CLI compilation
+uv run opendv compile --local \
+  --contract examples/scenarios/s9_multitenant/contract_s9.yaml \
+  --json
+
+# 3. Direct REST verification
+curl -X POST http://localhost:8000/api/v1/verify \
+  -H "Content-Type: application/json" \
+  -d @examples/scenarios/s9_multitenant/contract_s9.yaml
+```
+
+---
+
+## §G — Golden Test Suite (Normative Expected Outputs)
+
+The Open-DV Golden Test Suite guarantees that the shared application core and its transports (standalone CLI, client CLI, and REST API) agree not only with each other, but with committed, reviewed, and cryptographically pinned reference outputs.
+
+### G.1 Golden Cases Catalog
+
+| Golden ID | Dataset (from §7.4 registry) | Golden outputs committed under tests/golden/ | Transports |
+| :--- | :--- | :--- | :--- |
+| **GT-01 Global Commerce lifecycle** | `PAR-S1-W0` → `PAR-S2-W1` → `PAR-S4-W2` → `PAR-S8-W3` (4 chained calls with `--initial-contract`) | Per wave: `final_contract.yaml`, `final_canonical_ir.json`, `final_four_zone.sql`, normalized `pipeline_report.json`, normalized `explorer_bundle.json`, normalized SSE stage-event sequence (`events.jsonl`), and wave 3's `hold_record.json` | CLI `--local`, CLI `--api-url`, REST |
+| **GT-02 Private Equity reference** | `PAR-PE-S5`, `PAR-PE-S6`, `PAR-I37-HASH` | `verify.json` + `verify.toon`, `canonical_ir.json`, `four_zone.sql`, `sandbox_batches.json`, `d10_2026-10-15.json`, `d10b_2026-11-15.json`, and `explorer_bundle.<role>.json` across all 5 RBAC roles | CLI `--local`, CLI `--api-url`, REST |
+| **GT-03 Golden rejections** | Canonical bad inputs: dropped hub vs prior contract (`DV-EVO-*`), Tier-1 without GLOBAL (`DV-COL-013`), reflexive SAL (`DV-STR-015`), satellite `GROUP BY` (`DV-AST-006`), path traversal, schema-invalid contract | For each case: `verdict.json`, `trace.toon`, CLI exit code, and REST status + `problem+json` body | CLI `--local`, CLI `--api-url`, REST |
+| **GT-04 Golden hash vectors** | Consolidates #37, #40, #30, #42 and the #43 zero keys | Normative Markdown table in §G.2 below (input tokens, BKCC, canonical pre-hash string, lowercase SHA-256) | Python, TypeScript, DuckDB |
+| **GT-05 Golden Explorer render** | GT-01 wave-3 `explorer_bundle.json` | Text snapshot of the rendered Explorer (stage list, statuses, artifact index, hold banner) | Bun |
+| **GT-06 Ontology delta application** | `PAR-ONT-HOLD` base ontology plus testkit proposal | `base_ontology.yaml`, `proposal.json`, `validation.json`, `accepted_ontology.yaml`, `ontology_diff.json` | Standalone, Client, REST |
+
+### G.2 Consolidated GT-04 Normative Hash Vectors Table
+
+The table below is the single normative source of truth for Algorithm A.5 length-prefixed hashing across Python (`opendv-core`), TypeScript (`@opendv/protocol-ts`), and DuckDB SQL (`compiler_4zone`):
+
+| Vector ID | Source Issue | Category | Input Tokens | `is_business_key` | `bkcc_prefix` | Canonical Pre-Hash String (Stage 4) | Expected Lowercase SHA-256 Digest (`[0-9a-f]{64}`) |
+| :--- | :---: | :--- | :--- | :---: | :---: | :--- | :--- |
+| `VEC-01` | #37 | Tier-1 Hub BK (`CalPERS`) | `['LP-101']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|6:LP-101'` | `5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4` |
+| `VEC-02` | #37 | Tier-3 Hub BK (`Bavarian Pension`) | `['LP-101']` | `True` | `'LEGACY_GP_ADMIN'` | `'15:LEGACY_GP_ADMIN\|\|6:LP-101'` | `6b7c7180b62164f31f14eebcd16cc5fd2b0ce58143de66a4b67521113ec5d8b9` |
+| `VEC-03` | #37 | Tier-2 Hub BK (`Apex Buyout Fund IV`) | `['APEX_BO_IV']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|10:APEX_BO_IV'` | `94a60fcda278c5aec284c595413935793d5cec113c511f20690046061d388759` |
+| `VEC-04` | #40 | Tier-1 ACRA UEN (`Acme Global`) | `['202601234K']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|10:202601234K'` | `452e5f90e20e894cf6fb9ab6dd799752b60915669d7ddba0ed2ff283774992e8` |
+| `VEC-05` | #40 | Tier-1 Global Invoice | `['INV-SG-2026-0001']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|16:INV-SG-2026-0001'` | `0b26bb8471756644be558a60b03ca26bc7f3f84168dd04e3b7711ef73fef4895` |
+| `VEC-06` | #40 | Tier-3 Legacy Ticket Client | `['1001']` | `True` | `'LEGACY_TICKET_DB'` | `'16:LEGACY_TICKET_DB\|\|4:1001'` | `28f087bb678034b531ff6991fdd613f6793d0a66ef6b5ece88bd5945d5f8488f` |
+| `VEC-07` | #42 | Multi-Tenant EU Account | `['ACCT-1001']` | `True` | `'TENANT_EU'` | `'9:TENANT_EU\|\|9:ACCT-1001'` | `2530e2e2959ce91a2582cdcc0369df5367ba21659d14078ea37902e23af18c4b` |
+| `VEC-08` | #42 | Multi-Tenant US Account 1 | `['ACCT-1001']` | `True` | `'TENANT_US'` | `'9:TENANT_US\|\|9:ACCT-1001'` | `05732713befe836172388e84bd17a65b7fc1cd080a775cb9f9b2aafb48f407a5` |
+| `VEC-09` | #42 | Multi-Tenant US Account 2 | `['ACCT-1002']` | `True` | `'TENANT_US'` | `'9:TENANT_US\|\|9:ACCT-1002'` | `aa878e0129a5d13e21718834b48473337925ac1db45214194155e0c275b14e8d` |
+| `VEC-10` | #30 | 2-Byte Nordic UTF-8 (`Nordisk Suverän Fond`) | `['Nordisk Suverän Fond']` | `False` | `None` | `'21:Nordisk Suverän Fond'` | `8f158a694b28984db2ddd2d99d3fa4e67a624791dc3e1d7e27df363a49cd1ff7` |
+| `VEC-11` | #30 | 3-Byte Euro Sign UTF-8 (`München €25M`) | `['München €25M']` | `False` | `None` | `'15:München €25M'` | `e8cdf47ea5d7fc86222aea1232609e57f960e5e5d03c6c8c041e9dac72e34f57` |
+| `VEC-12` | #30 | 3-Byte CJK Kanji UTF-8 | `['日本国年金積立金管理運用独立行政法人']` | `False` | `None` | `'54:日本国年金積立金管理運用独立行政法人'` | `b537f8a15b4fd2f74743b6b2245607c346e89f22d321934a67872854e02807d1` |
+| `VEC-13` | #30 | 4-Byte Emoji UTF-8 (`🏦 Sovereign Fund`) | `['🏦 Sovereign Fund']` | `False` | `None` | `'19:🏦 Sovereign Fund'` | `49828efad954c7a21d6ce5723459a90d2727b6a08d7ec02db3604c84cdcf2ae0` |
+| `VEC-14` | #37 | Boundary-Shift Pair A | `['AB', 'C']` | `False` | `None` | `'2:AB\|\|1:C'` | `eae8ab373cc2e986a9e927aee681b79e51503ff73db0799ae0e2a0774624ec10` |
+| `VEC-15` | #37 | Boundary-Shift Pair B | `['A', 'BC']` | `False` | `None` | `'1:A\|\|2:BC'` | `99e84adb77816ffb5c3c3430360737cb9d96e5215bfc1cc8d1876548907226f0` |
+| `VEC-16` | #37 | Embedded Delimiter Pair A | `['ANNE\|\|O', 'BRIEN']` | `False` | `None` | `'7:ANNE\|\|O\|\|5:BRIEN'` | `4205b6693ec25ce23191bcd4c88b22f0f613c1ddcf4873db22c6db6f187248a0` |
+| `VEC-17` | #37 | Embedded Delimiter Pair B | `['ANNE', 'O\|\|BRIEN']` | `False` | `None` | `'4:ANNE\|\|8:O\|\|BRIEN'` | `e42ace65c05875c0e32265fdd3c2d696f2af0aa65c6151e003ecc53dacf4320d` |
+| `VEC-18` | #37 | Positional NULL Pair A | `['VAL_X', None, 'VAL_Y']` | `False` | `None` | `'5:VAL_X\|\|-1:^^\|\|5:VAL_Y'` | `a58e23e8b0f2ee8f43b76df48fc1c0a921682021ea391a99409b74c49c180c9e` |
+| `VEC-19` | #37 | Positional NULL Pair B | `['VAL_X', 'VAL_Y', None]` | `False` | `None` | `'5:VAL_X\|\|5:VAL_Y\|\|-1:^^'` | `a8b1220f06cccf9a0f16f01d083bdb0989d4878336e831940d3fd927735ce58f` |
+| `VEC-20` | #43 | Mandatory FK NULL / Missing (`-1`) | `[None]` | `True` | `'GLOBAL'` | `(Short-circuits to Zero Key Unknown)` | `0000000000000000000000000000000000000000000000000000000000000000` |
+| `VEC-21` | #43 | Optional Inapplicable / Error (`-2`) | `['-2']` | `True` | `'GLOBAL'` | `(Short-circuits to Zero Key Error)` | `ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff` |
+
+### G.3 Golden Manifest Table
+
+| Golden ID | File | SHA-256 | Generated From | Last Justified Change |
+| :--- | :--- | :--- | :--- | :--- |
+| `GT-01` | `GT-01/wave0/final_canonical_ir.json` | `830502bcebffdaf2a82b01c290a6f27a872fe14c7a59dbbc6ac5c3a3d7af1332` | `PAR-S1-W0: opendv pipeline run` | `[#68] P1 baseline golden capture` |
+| `GT-01` | `GT-01/wave0/final_contract.yaml` | `7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913` | `PAR-S1-W0: opendv pipeline run` | `[#68] P1 baseline golden capture` |
+| `GT-01` | `GT-01/wave0/final_four_zone.sql` | `3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e` | `PAR-S1-W0: opendv pipeline run` | `[#68] P1 baseline golden capture` |
+| `GT-02` | `GT-02/canonical_ir.json` | `a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a` | `PAR-PE-S5: opendv compile` | `[#68] P1 baseline golden capture` |
+| `GT-02` | `GT-02/four_zone.sql` | `39d976ecbc18d54847555caea589f9df94e130d2e4cd64e592c18e96408755c8` | `PAR-PE-S5: opendv compile` | `[#68] P1 baseline golden capture` |
+| `GT-02` | `GT-02/verify.json` | `00e1755aef039cf792045ab735649afab2031d48aca8449e06bd14dc9c826b2d` | `PAR-PE-S5: opendv verify` | `[#68] P1 baseline golden capture` |
+
+### G.4 Golden Update and Review Workflow
+
+1. **Strict Justification Enforcement**:
+   Baseline files under `tests/golden/` may never be updated by manual hand-editing. Any intentional schema or compiler modification requires regenerating the affected golden files using:
+   ```bash
+   uv run pytest -m golden --update-golden --golden-justification="[#ISSUE] reason for divergence"
+   ```
+   Omitting `--golden-justification` or providing a justification string under 10 characters immediately aborts with a validation error.
+
+2. **Automated Three-Way Agreement**:
+   Every CI run executes `test_golden_three_way_agreement`, validating that:
+   $$\text{Committed Files under tests/golden/} \equiv \text{MANIFEST.json entries} \equiv \text{docs/17 §G.3 table}$$
+   Any mismatch in file inventory, SHA-256 digest, or justification text fails the CI gate.
+
+3. **Determinism Verification**:
+   Before updating or asserting goldens, `GoldenManager` verifies compiler byte-stability across successive compiles, LF line-ending invariance, and floating-point precision formatting.

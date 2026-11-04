@@ -1,0 +1,4 @@
+delivery_id,supplier_code,destination_warehouse_code,delivery_status,carrier_tracking_ref
+DEL-9001,SUP-ACME-88,WH-EMEA-01,IN_TRANSIT,TRK-8839201
+DEL-9002,SUP-BETA-99,WH-APAC-02,DELIVERED,TRK-1192834
+DEL-9003,SUP-GAMMA-77,WH-US-03,CUSTOMS_HOLD,TRK-9920194

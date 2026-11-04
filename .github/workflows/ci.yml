@@ -1,37 +1,51 @@
-name: Validate Data Vault 2.0 Schemas, Contracts & Reference Algorithms
+name: Open-DV Monorepo CI
 
 on:
   push:
     branches:
       - main
+      - "dev/**"
+      - "phase/**"
       - "fm/**"
   pull_request:
+    branches:
+      - main
+      - "dev/**"
+      - "phase/**"
 
 permissions:
   contents: read
 
 jobs:
-  validate-specs:
-    name: Validate Schemas, Contract & Reference Algorithms
+  validate-python:
+    name: Python Workspace CI (uv, pytest, OpenAPI drift)
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.11.11"
+          enable-cache: true
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install validation dependencies
+      - name: Install Python dependencies (uv sync)
         run: |
-          python3 -m pip install --upgrade pip
-          python3 -m pip install pyyaml jsonschema duckdb pytest pytest-asyncio pydantic networkx sqlglot fastapi uvicorn httpx
-          python3 -m pip install --no-deps -e packages/opendv-core -e packages/opendv-telemetry -e packages/opendv-axi-verifier -e packages/opendv-duckdb-sandbox -e packages/opendv-agent-harness -e apps/opendv-platform-api -e apps/opendv-cli
+          uv sync --all-packages --locked
 
-      - name: Validate JSON Schemas (Draft 2020-12), YAML Contract, Python Reference Algorithms, DuckDB SQL Bundle & HTML Guide
+      - name: Run Ruff static analysis
         run: |
-          python3 - <<'PY'
+          uv run ruff check packages/ apps/
+
+      - name: Validate Schemas, Contracts, Docs Algorithms & DuckDB Bundle
+        run: |
+          uv run python - <<'PY'
           from decimal import Decimal
           import glob
           import json
@@ -188,6 +202,39 @@ jobs:
           print(f"[PASS] Verified HTML reference guide: {html_ref} ({html_ref.stat().st_size} bytes)")
           PY
 
-      - name: Run normative pytest specification test suite
+      - name: Run normative pytest test suite
         run: |
-          pytest -v
+          uv run pytest -v
+
+      - name: Verify Golden test baselines and Docs/17 invariant diff
+        run: |
+          git diff --exit-code tests/golden docs/17-testing-scenarios-and-datasets.md
+
+      - name: Verify OpenAPI 3.1 specification drift
+        run: |
+          uv run python -m opendv_platform_api.export_openapi
+          git diff --exit-code schemas/openapi-v1.json
+
+  validate-typescript:
+    name: TypeScript Workspace CI (Bun, test, tsc -b)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Install Bun dependencies
+        run: |
+          bun install --frozen-lockfile
+
+      - name: Run Bun unit & contract tests (restricted roots)
+        run: |
+          bun test --path-ignore-patterns "**/dist/**" "**/worktrees/**"
+
+      - name: Typecheck TypeScript project references (tsc -b)
+        run: |
+          bun x tsc -b --pretty

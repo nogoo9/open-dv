@@ -1,0 +1,4 @@
+tenant_id,account_id,account_name,plan_tier
+TENANT_US,ACCT-1001,Acme US Holdings,ENTERPRISE
+TENANT_EU,ACCT-1001,Acme EU GmbH,GROWTH
+TENANT_US,ACCT-1002,Beta US Corp,STARTER
