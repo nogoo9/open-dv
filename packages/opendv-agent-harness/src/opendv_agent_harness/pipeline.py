@@ -83,6 +83,10 @@ from opendv_core.models.graph_b import (
     ProfiledUnstructuredDocument,
     RowChunkSpan,
 )
+from opendv_core.paths import (
+    PathContainmentError,
+    resolve_workspace_path,
+)
 from opendv_core.schema_registry import (
     find_workspace_root,
     load_structured_file,
@@ -91,10 +95,6 @@ from opendv_core.schema_registry import (
     validate_graph_a,
     validate_graph_b,
     validate_observability_event,
-)
-from opendv_core.paths import (
-    PathContainmentError,
-    resolve_workspace_path,
 )
 from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_sql
 from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler

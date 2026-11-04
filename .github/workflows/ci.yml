@@ -233,7 +233,7 @@ jobs:
 
       - name: Run Bun unit & contract tests (restricted roots)
         run: |
-          bun test --path-ignore-patterns "**/dist/**" "**/worktrees/**"
+          bun test --path-ignore-patterns "**/dist/**" --path-ignore-patterns "**/worktrees/**"
 
       - name: Typecheck TypeScript project references (tsc -b)
         run: |

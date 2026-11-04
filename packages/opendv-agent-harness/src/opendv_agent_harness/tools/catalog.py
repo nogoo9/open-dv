@@ -59,7 +59,6 @@ from opendv_axi_verifier.codemods import (
 )
 from opendv_axi_verifier.toon_codec import ToonTrace, ToonViolation, serialize_toon_v1
 from opendv_axi_verifier.verifiers.alg_a9b_unstructured import classify_er_resolution_tier
-from opendv_core.paths import PathContainmentError, resolve_workspace_path
 from opendv_core.constants import (
     GHOST_DTS,
     GHOST_REC_SRC,
@@ -77,6 +76,7 @@ from opendv_core.elm_calculus import (
 from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
+from opendv_core.paths import PathContainmentError, resolve_workspace_path
 from opendv_duckdb_sandbox.compiler_4zone import (
     build_algorithm_a5_sha256_sql,
     compile_canonical_ir_to_4zone_sql,
