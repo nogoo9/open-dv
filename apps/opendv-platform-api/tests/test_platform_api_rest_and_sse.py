@@ -694,16 +694,20 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
     from opendv_agent_harness.adapters.deterministic_adapter import (
         build_deterministic_agy_sdk_shim,
     )
+    from opendv_agent_harness.pipeline import (
+        run_agentic_vault_pipeline as orig_run_pipeline,
+    )
+    from opendv_service import set_pipeline_runner_override
 
-    orig_run_pipeline = deps_mod.run_agentic_vault_pipeline
-    monkeypatch.setattr(
-        deps_mod,
-        "run_agentic_vault_pipeline",
-        lambda *args, **kwargs: orig_run_pipeline(
+    def shim_runner(*args, **kwargs):
+        return orig_run_pipeline(
             *args,
             **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
-        ),
-    )
+        )
+
+    set_pipeline_runner_override(shim_runner)
+    monkeypatch.setattr("opendv_service.seams._CURRENT_PIPELINE_RUNNER", shim_runner)
+    monkeypatch.setattr(deps_mod, "run_agentic_vault_pipeline", shim_runner)
     state = PlatformStateContainer(state_dir=tmp_path / "state")
     app = create_app(platform_state=state)
     sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
@@ -1003,16 +1007,20 @@ def test_wp06_sdk_resolution_and_dynamic_project_run(
     from opendv_agent_harness.adapters.deterministic_adapter import (
         build_deterministic_agy_sdk_shim,
     )
+    from opendv_agent_harness.pipeline import (
+        run_agentic_vault_pipeline as orig_run_pipeline,
+    )
+    from opendv_service import set_pipeline_runner_override
 
-    orig_run_pipeline = deps_mod.run_agentic_vault_pipeline
-    monkeypatch.setattr(
-        deps_mod,
-        "run_agentic_vault_pipeline",
-        lambda *args, **kwargs: orig_run_pipeline(
+    def shim_runner(*args, **kwargs):
+        return orig_run_pipeline(
             *args,
             **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
-        ),
-    )
+        )
+
+    set_pipeline_runner_override(shim_runner)
+    monkeypatch.setattr("opendv_service.seams._CURRENT_PIPELINE_RUNNER", shim_runner)
+    monkeypatch.setattr(deps_mod, "run_agentic_vault_pipeline", shim_runner)
     state = PlatformStateContainer(state_dir=tmp_path / "state")
     app = create_app(platform_state=state)
     ont_rel = (

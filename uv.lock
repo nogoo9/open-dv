@@ -15,6 +15,7 @@ members = [
     "opendv-core",
     "opendv-duckdb-sandbox",
     "opendv-platform-api",
+    "opendv-service",
     "opendv-telemetry",
     "opendv-workspace",
 ]
@@ -481,7 +482,7 @@ dependencies = [
     { name = "opendv-axi-verifier" },
     { name = "opendv-core" },
     { name = "opendv-duckdb-sandbox" },
-    { name = "opendv-platform-api" },
+    { name = "opendv-service" },
     { name = "opendv-telemetry" },
     { name = "pydantic" },
 ]
@@ -493,7 +494,7 @@ requires-dist = [
     { name = "opendv-axi-verifier", editable = "packages/opendv-axi-verifier" },
     { name = "opendv-core", editable = "packages/opendv-core" },
     { name = "opendv-duckdb-sandbox", editable = "packages/opendv-duckdb-sandbox" },
-    { name = "opendv-platform-api", editable = "apps/opendv-platform-api" },
+    { name = "opendv-service", editable = "packages/opendv-service" },
     { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
     { name = "pydantic", specifier = ">=2.9.0" },
 ]
@@ -559,8 +560,10 @@ dependencies = [
     { name = "fastapi" },
     { name = "opendv-agent-harness" },
     { name = "opendv-axi-verifier" },
+    { name = "opendv-contracts" },
     { name = "opendv-core" },
     { name = "opendv-duckdb-sandbox" },
+    { name = "opendv-service" },
     { name = "opendv-telemetry" },
     { name = "pydantic" },
     { name = "uvicorn" },
@@ -571,11 +574,42 @@ requires-dist = [
     { name = "fastapi", specifier = ">=0.115.0" },
     { name = "opendv-agent-harness", editable = "packages/opendv-agent-harness" },
     { name = "opendv-axi-verifier", editable = "packages/opendv-axi-verifier" },
+    { name = "opendv-contracts", editable = "packages/opendv-contracts" },
     { name = "opendv-core", editable = "packages/opendv-core" },
     { name = "opendv-duckdb-sandbox", editable = "packages/opendv-duckdb-sandbox" },
+    { name = "opendv-service", editable = "packages/opendv-service" },
     { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
     { name = "pydantic", specifier = ">=2.9.0" },
     { name = "uvicorn", specifier = ">=0.34.0" },
+]
+
+[[package]]
+name = "opendv-service"
+version = "0.1.0"
+source = { editable = "packages/opendv-service" }
+dependencies = [
+    { name = "duckdb" },
+    { name = "opendv-agent-harness" },
+    { name = "opendv-axi-verifier" },
+    { name = "opendv-contracts" },
+    { name = "opendv-core" },
+    { name = "opendv-duckdb-sandbox" },
+    { name = "opendv-telemetry" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "duckdb", specifier = ">=1.2.0" },
+    { name = "opendv-agent-harness", editable = "packages/opendv-agent-harness" },
+    { name = "opendv-axi-verifier", editable = "packages/opendv-axi-verifier" },
+    { name = "opendv-contracts", editable = "packages/opendv-contracts" },
+    { name = "opendv-core", editable = "packages/opendv-core" },
+    { name = "opendv-duckdb-sandbox", editable = "packages/opendv-duckdb-sandbox" },
+    { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
 ]
 
 [[package]]

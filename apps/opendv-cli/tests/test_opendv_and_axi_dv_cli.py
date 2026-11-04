@@ -633,20 +633,20 @@ def test_opendv_pipeline_cli_local_and_remote_modes(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify `opendv pipeline validate`, `run --local`, `run --api-url`, and `report`."""
-    import opendv_platform_api.deps as deps_mod
     from opendv_agent_harness.adapters.deterministic_adapter import (
         build_deterministic_agy_sdk_shim,
     )
+    from opendv_agent_harness.pipeline import run_agentic_vault_pipeline
+    from opendv_service import set_pipeline_runner_override
 
-    orig_run_pipeline = deps_mod.run_agentic_vault_pipeline
-    monkeypatch.setattr(
-        deps_mod,
-        "run_agentic_vault_pipeline",
-        lambda *args, **kwargs: orig_run_pipeline(
+    def shim_runner(*args: Any, **kwargs: Any) -> Any:
+        return run_agentic_vault_pipeline(
             *args,
             **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
-        ),
-    )
+        )
+
+    set_pipeline_runner_override(shim_runner)
+    monkeypatch.setattr("opendv_service.seams._CURRENT_PIPELINE_RUNNER", shim_runner)
     sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
     sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
 
@@ -902,20 +902,20 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify `--initial-contract` flag on `opendv pipeline validate` and `run`."""
-    import opendv_platform_api.deps as deps_mod
     from opendv_agent_harness.adapters.deterministic_adapter import (
         build_deterministic_agy_sdk_shim,
     )
+    from opendv_agent_harness.pipeline import run_agentic_vault_pipeline
+    from opendv_service import set_pipeline_runner_override
 
-    orig_run_pipeline = deps_mod.run_agentic_vault_pipeline
-    monkeypatch.setattr(
-        deps_mod,
-        "run_agentic_vault_pipeline",
-        lambda *args, **kwargs: orig_run_pipeline(
+    def shim_runner(*args, **kwargs):
+        return run_agentic_vault_pipeline(
             *args,
             **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
-        ),
-    )
+        )
+
+    set_pipeline_runner_override(shim_runner)
+    monkeypatch.setattr("opendv_service.seams._CURRENT_PIPELINE_RUNNER", shim_runner)
     wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
     wave1_spec = "examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml"
     sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
@@ -1057,20 +1057,20 @@ def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify WP-24 live stage progress & token streaming on `opendv pipeline run`."""
-    import opendv_platform_api.deps as deps_mod
     from opendv_agent_harness.adapters.deterministic_adapter import (
         build_deterministic_agy_sdk_shim,
     )
+    from opendv_agent_harness.pipeline import run_agentic_vault_pipeline
+    from opendv_service import set_pipeline_runner_override
 
-    orig_run_pipeline = deps_mod.run_agentic_vault_pipeline
-    monkeypatch.setattr(
-        deps_mod,
-        "run_agentic_vault_pipeline",
-        lambda *args, **kwargs: orig_run_pipeline(
+    def shim_runner(*args, **kwargs):
+        return run_agentic_vault_pipeline(
             *args,
             **{**kwargs, "sdk_module": build_deterministic_agy_sdk_shim()},
-        ),
-    )
+        )
+
+    set_pipeline_runner_override(shim_runner)
+    monkeypatch.setattr("opendv_service.seams._CURRENT_PIPELINE_RUNNER", shim_runner)
     wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
     sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
 

@@ -59,6 +59,7 @@ from opendv_axi_verifier.codemods import (
 )
 from opendv_axi_verifier.toon_codec import ToonTrace, ToonViolation, serialize_toon_v1
 from opendv_axi_verifier.verifiers.alg_a9b_unstructured import classify_er_resolution_tier
+from opendv_core.paths import PathContainmentError, resolve_workspace_path
 from opendv_core.constants import (
     GHOST_DTS,
     GHOST_REC_SRC,
@@ -117,41 +118,22 @@ def _resolve_existing_file(raw_path: str, ctx: ToolExecutionContext) -> Path | N
     """Resolve `raw_path` to an existing file strictly contained within workspace/state dirs."""
     if not raw_path or not raw_path.strip():
         return None
-    candidate = Path(raw_path.strip())
-    if ".." in candidate.parts:
-        raise PermissionError(f"Path traversal ('..') is not allowed: {raw_path}")
-
-    allowed_roots = tuple(
-        {
-            ctx.config.workspace_dir.resolve(),
-            ctx.config.state_dir.resolve(),
-            ctx.config.app_data_dir.resolve(),
-            ctx.config.save_dir.resolve(),
-            *(p.resolve() for p in ctx.config.sandbox.allowed_workspaces),
-        }
-    )
-
-    if candidate.is_absolute():
-        resolved = candidate.resolve()
-        if not any(resolved.is_relative_to(root) for root in allowed_roots):
-            raise PermissionError(f"Path '{raw_path}' is outside allowed workspace directories.")
-        return resolved if resolved.is_file() else None
-
-    for root in (
-        ctx.config.workspace_dir,
+    allowed_roots = [
         ctx.config.state_dir,
+        ctx.config.app_data_dir,
+        ctx.config.save_dir,
         *ctx.config.sandbox.allowed_workspaces,
-    ):
-        try:
-            resolved = (root / candidate).resolve()
-            if (
-                any(resolved.is_relative_to(allowed) for allowed in allowed_roots)
-                and resolved.is_file()
-            ):
-                return resolved
-        except OSError:
-            continue
-    return None
+    ]
+    try:
+        resolved = resolve_workspace_path(
+            raw_path,
+            workspace_root=ctx.config.workspace_dir,
+            allowed_roots=allowed_roots,
+            allow_temp=False,
+        )
+        return resolved if resolved.is_file() else None
+    except PathContainmentError as exc:
+        raise PermissionError(str(exc)) from exc
 
 
 def _infer_python_value_type(values: list[Any]) -> str:

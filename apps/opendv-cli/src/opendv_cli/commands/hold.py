@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from opendv_cli.api_client import OpenDVCliApiClient
-from opendv_platform_api.deps import (
+from opendv_service import (
     CaptainHoldDecisionRequest,
     PlatformStateContainer,
 )
