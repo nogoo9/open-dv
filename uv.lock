@@ -1,5 +1,5 @@
 version = 1
-revision = 2
+revision = 3
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15'",
@@ -11,6 +11,7 @@ members = [
     "opendv-agent-harness",
     "opendv-axi-verifier",
     "opendv-cli",
+    "opendv-contracts",
     "opendv-core",
     "opendv-duckdb-sandbox",
     "opendv-platform-api",
@@ -495,6 +496,21 @@ requires-dist = [
     { name = "opendv-platform-api", editable = "apps/opendv-platform-api" },
     { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
     { name = "pydantic", specifier = ">=2.9.0" },
+]
+
+[[package]]
+name = "opendv-contracts"
+version = "0.1.0"
+source = { editable = "packages/opendv-contracts" }
+dependencies = [
+    { name = "jsonschema" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "jsonschema", specifier = ">=4.23.0" },
+    { name = "pydantic", specifier = ">=2.10.0" },
 ]
 
 [[package]]

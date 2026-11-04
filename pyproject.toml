@@ -10,6 +10,7 @@ dependencies = []
 
 [tool.uv.workspace]
 members = [
+    "packages/opendv-contracts",
     "packages/opendv-core",
     "packages/opendv-telemetry",
     "packages/opendv-axi-verifier",
@@ -20,6 +21,7 @@ members = [
 ]
 
 [tool.uv.sources]
+opendv-contracts = { workspace = true }
 opendv-core = { workspace = true }
 opendv-telemetry = { workspace = true }
 opendv-axi-verifier = { workspace = true }
@@ -74,6 +76,7 @@ markers = [
     "live_provider: Integration tests requiring live LLM providers",
 ]
 pythonpath = [
+    "packages/opendv-contracts/src",
     "packages/opendv-core/src",
     "packages/opendv-telemetry/src",
     "packages/opendv-axi-verifier/src",
@@ -84,6 +87,7 @@ pythonpath = [
 ]
 testpaths = [
     "tests",
+    "packages/opendv-contracts/tests",
     "packages/opendv-core/tests",
     "packages/opendv-telemetry/tests",
     "packages/opendv-axi-verifier/tests",

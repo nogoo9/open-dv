@@ -1,0 +1,10 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-contracts'
+language: 'python'
+layer: 'library'
+tags:
+  - 'python'
+  - 'contracts'
+
+dependsOn: []

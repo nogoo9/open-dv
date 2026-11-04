@@ -1,0 +1,81 @@
+from __future__ import annotations
+
+from enum import StrEnum
+from typing import Any
+
+from pydantic import Field
+
+from opendv_contracts.dtos.common import BaseContractModel, RenderedOutput
+
+
+class SandboxQueryType(StrEnum):
+    """Supported query types in the DuckDB 4-Zone shadow sandbox."""
+
+    ADVERSARIAL_BATCHES_1_TO_4 = "ADVERSARIAL_BATCHES_1_TO_4"
+    QUERY_D10_PIT = "QUERY_D10_PIT"
+    QUERY_D10B_VALUATION = "QUERY_D10B_VALUATION"
+    VERIFY_DYN_001_015 = "VERIFY_DYN_001_015"
+
+
+class SandboxQueryRequest(BaseContractModel):
+    """Request DTO to execute queries against the 4-Zone DuckDB analytical sandbox (Decision D1)."""
+
+    run_id: str | None = Field(default=None, description="Associated run identifier")
+    contract_path: str | None = Field(default=None, description="Contract YAML path")
+    contract_content: str | None = Field(
+        default=None, description="Inline contract YAML (Decision D1)"
+    )
+    canonical_ir_path: str | None = Field(default=None, description="Canonical IR path")
+    canonical_ir_content: str | None = Field(default=None, description="Inline Canonical IR")
+    query_type: SandboxQueryType = Field(
+        default=SandboxQueryType.ADVERSARIAL_BATCHES_1_TO_4,
+        description="Target query/check sequence",
+    )
+    assertion_cutoff_ts: str = Field(
+        default="2026-11-15 23:59:59", description="Bi-temporal Point-in-Time assertion timestamp"
+    )
+    parameters: dict[str, Any] = Field(
+        default_factory=dict, description="Arbitrary query parameter bindings"
+    )
+
+
+class SandboxBatchResult(BaseContractModel):
+    """Execution result for an individual sandbox batch."""
+
+    batch_number: int = Field(ge=1, le=4, description="Batch sequence number")
+    batch_name: str = Field(..., description="Batch descriptor name")
+    passed: bool = Field(..., description="Batch passage status")
+    row_count: int = Field(default=0, ge=0, description="Total ingested rows")
+    delta_rows: int = Field(default=0, ge=0, description="Delta mutated rows")
+    error_message: str | None = Field(default=None, description="Batch execution error if failed")
+
+
+class SandboxQueryResponse(BaseContractModel):
+    """Response DTO containing sandbox query results, batch verdicts,
+    and dynamic check statuses (Decisions D6, D7).
+    """
+
+    run_id: str = Field(..., description="Run identifier")
+    query_type: str = Field(..., description="Executed query type")
+    assertion_cutoff_ts: str = Field(..., description="Cutoff timestamp applied")
+    all_batches_passed: bool = Field(..., description="True if all batches passed assertions")
+    batch_verdicts: dict[str, str] = Field(
+        default_factory=dict, description="Mapping of batch name to PASS/FAIL"
+    )
+    batches: list[SandboxBatchResult] = Field(
+        default_factory=list, description="Granular batch execution results"
+    )
+    dynamic_rules_passed: int = Field(default=0, ge=0, description="Dynamic checks passing count")
+    dynamic_rules_total: int = Field(default=15, ge=0, description="Total dynamic checks evaluated")
+    replay_delta_rows: int = Field(
+        default=0, ge=0, description="Idempotent replay delta rows count"
+    )
+    row_count: int = Field(default=0, ge=0, description="Returned result rows count")
+    rows: list[dict[str, Any]] = Field(default_factory=list, description="Primary result rows")
+    query_d10_rows: list[dict[str, Any]] = Field(
+        default_factory=list, description="Point-in-Time Query D.10 rows"
+    )
+    query_d10b_rows: list[dict[str, Any]] = Field(
+        default_factory=list, description="Valuation Query D.10b rows"
+    )
+    rendered: RenderedOutput | None = Field(default=None, description="Pre-rendered text output")

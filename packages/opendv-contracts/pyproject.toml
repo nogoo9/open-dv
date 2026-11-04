@@ -1,0 +1,13 @@
+[project]
+name = "opendv-contracts"
+version = "0.1.0"
+description = "Open-DV Language-Neutral Pydantic DTOs, Error Taxonomy, RFC 8785 JCS, and CLI Spec"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.10.0",
+    "jsonschema>=4.23.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
