@@ -3,25 +3,23 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 from typing import Any
 
 import httpx
-import yaml
 
-from opendv_axi_verifier import run_axi_dv_verification_pipeline
 from opendv_cli.api_client import OpenDVCliApiClient
-from opendv_core import find_workspace_root
-from opendv_platform_api.deps import build_gate_scorecard_from_axi_result
+from opendv_core import find_workspace_root, resolve_workspace_path
+from opendv_service import (
+    OpenDVService,
+    VerifyRequest,
+    build_gate_scorecard_from_axi_result,
+)
 
 
 def resolve_repo_path(repo_root: Path, rel_or_abs: str) -> Path:
-    """Resolve a path relative to the workspace root or return if absolute."""
-    candidate = Path(rel_or_abs)
-    if candidate.is_absolute():
-        return candidate.resolve()
-    return (repo_root / candidate).resolve()
+    """Resolve a repository-relative path using canonical resolve_workspace_path."""
+    return resolve_workspace_path(rel_or_abs, workspace_root=repo_root)
 
 
 def run_verify_command(
@@ -61,55 +59,40 @@ def run_verify_command(
         }
 
     repo_root = find_workspace_root()
-    contract_path = resolve_repo_path(repo_root, contract_arg)
-    if not contract_path.exists():
-        return 2, {
-            "status": "ERROR",
-            "error": f"Contract file not found: {contract_path}",
-        }
-
-    contract_doc = yaml.safe_load(contract_path.read_text(encoding="utf-8"))
     graph_a_arg: str | None = getattr(args, "graph_a", None)
     graph_b_arg: str | None = getattr(args, "graph_b", None)
 
-    graph_a_doc: dict[str, Any] = {}
-    if graph_a_arg:
-        graph_a_path = resolve_repo_path(repo_root, graph_a_arg)
-        if not graph_a_path.exists():
-            return 2, {
-                "status": "ERROR",
-                "error": f"Graph A file not found: {graph_a_path}",
-            }
-        graph_a_doc = yaml.safe_load(graph_a_path.read_text(encoding="utf-8")) or {}
+    service = OpenDVService(workspace_root=repo_root)
+    try:
+        resp = service.verify_pipeline(
+            VerifyRequest(
+                contract_path=contract_arg,
+                graph_a_path=graph_a_arg,
+                graph_b_path=graph_b_arg,
+                run_id=run_id,
+            )
+        )
+    except Exception as exc:
+        return 2, {
+            "status": "ERROR",
+            "error": str(exc),
+        }
 
-    graph_b_doc: dict[str, Any] = {}
-    if graph_b_arg:
-        graph_b_path = resolve_repo_path(repo_root, graph_b_arg)
-        if not graph_b_path.exists():
-            return 2, {
-                "status": "ERROR",
-                "error": f"Graph B file not found: {graph_b_path}",
-            }
-        graph_b_doc = json.loads(graph_b_path.read_text(encoding="utf-8")) or {}
-
-    effective_run_id = run_id or "run-local-verify"
-    axi_res = run_axi_dv_verification_pipeline(
-        contract_doc,
-        graph_a_doc,
-        graph_b_doc,
-        run_id=effective_run_id,
-    )
-    passed, verdict, scorecard = build_gate_scorecard_from_axi_result(axi_res)
+    passed = resp.overall_passed
+    verdict_str = resp.verdict.value if hasattr(resp.verdict, "value") else str(resp.verdict)
     result: dict[str, Any] = {
         "mode": "local",
-        "run_id": effective_run_id,
-        "status": axi_res.status,
-        "verdict": verdict,
+        "run_id": resp.run_id,
+        "status": resp.status,
+        "verdict": verdict_str,
         "overall_passed": passed,
-        "contract_path": str(contract_path),
-        "applied_codemods": list(axi_res.applied_codemods),
-        "diagnostics": list(axi_res.diagnostics),
-        "toon_text": axi_res.toon_text,
-        "gate_scorecard": scorecard.model_dump(mode="json"),
+        "contract_path": resp.contract_path,
+        "applied_codemods": list(resp.applied_codemods),
+        "diagnostics": list(resp.diagnostics),
+        "toon_text": resp.toon_text,
+        "gate_scorecard": resp.gate_scorecard.model_dump(mode="json"),
     }
     return (0 if passed else 1), result
+
+
+__all__ = ["build_gate_scorecard_from_axi_result", "resolve_repo_path", "run_verify_command"]

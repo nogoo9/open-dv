@@ -28,7 +28,6 @@ from opendv_agent_harness import (
     PipelineStepReport,
     StewardHoldManager,
     build_observability_event_dict,
-    run_agentic_vault_pipeline,
     validate_pipeline_inputs,
 )
 from opendv_axi_verifier import AxiDvPipelineResult
@@ -39,6 +38,9 @@ from opendv_core import (
     get_default_schema_registry,
     validate_observability_event,
 )
+from opendv_core.paths import PathContainmentError, resolve_workspace_path
+from opendv_service import OpenDVService
+from opendv_service.seams import get_default_pipeline_runner
 from opendv_telemetry import (
     ROLE_CLEARANCE_LEVELS,
     ContentAddressableStore,
@@ -54,6 +56,12 @@ from opendv_telemetry import (
     resolve_cleared_tiers,
     validate_no_pii_leaks,
 )
+
+
+def run_agentic_vault_pipeline(*args: Any, **kwargs: Any) -> Any:
+    """Execute pipeline via default runner protocol or current override seam."""
+    runner = get_default_pipeline_runner()
+    return runner(*args, **kwargs)
 
 REPO_ROOT = find_workspace_root()
 
@@ -1291,8 +1299,7 @@ def resolve_safe_repo_path(
 ) -> Path:
     """Resolve a repository-relative path and enforce repository-root containment.
 
-    Supports both `resolve_safe_repo_path(repo_root, rel_path)` and
-    `resolve_safe_repo_path(rel_path, repo_root=...)`.
+    Uses canonical resolve_workspace_path.
     """
     if second is not None:
         root = Path(first).resolve()
@@ -1301,24 +1308,10 @@ def resolve_safe_repo_path(
         root = (repo_root or REPO_ROOT).resolve()
         raw_rel = str(first)
 
-    rel_stripped = raw_rel.strip()
-    if not rel_stripped:
-        raise ValueError("Path must not be empty.")
-    p = Path(rel_stripped)
-    if ".." in p.parts:
-        raise ValueError(f"Path traversal ('..') is forbidden in path: {raw_rel}")
-
-    if p.is_absolute():
-        candidate = p.resolve()
-        tmp_root = Path(tempfile.gettempdir()).resolve()
-        if not (candidate.is_relative_to(root) or candidate.is_relative_to(tmp_root)):
-            raise ValueError(f"Project artifact path must stay inside repository root: {raw_rel}")
-        return candidate
-
-    candidate = (root / p).resolve()
-    if not candidate.is_relative_to(root):
-        raise ValueError(f"Project artifact path must stay inside repository root: {raw_rel}")
-    return candidate
+    try:
+        return resolve_workspace_path(raw_rel, workspace_root=root, allow_temp=True)
+    except PathContainmentError as exc:
+        raise ValueError(str(exc)) from exc
 
 
 def _load_structured_mapping(path: Path, label: str) -> dict[str, Any]:
@@ -2590,6 +2583,16 @@ def get_platform_state(request: Request) -> PlatformStateContainer:
     return state
 
 
+def get_platform_service(request: Request) -> OpenDVService:
+    """FastAPI dependency returning the application's OpenDVService application facade instance."""
+    service: OpenDVService | None = getattr(request.app.state, "service", None)
+    if service is None:
+        state = get_platform_state(request)
+        service = OpenDVService(state_store=state)
+        request.app.state.service = service
+    return service
+
+
 _ROLE_ALIAS_MAP: dict[str, RbacRole] = {
     "MNPI_CLEARED_STEWARD": RbacRole.AUDITOR_FINANCE,
     "LP_CONFIDENTIAL_STEWARD": RbacRole.DATA_STEWARD,
@@ -2655,6 +2658,7 @@ __all__ = [
     "build_pe_canonical_events",
     "execute_pe_sandbox_query",
     "format_sse_event_stream",
+    "get_platform_service",
     "get_platform_state",
     "get_rbac_role",
     "normalize_rbac_role",

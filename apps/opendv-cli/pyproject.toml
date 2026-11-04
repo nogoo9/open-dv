@@ -11,7 +11,7 @@ dependencies = [
     "opendv-axi-verifier",
     "opendv-duckdb-sandbox",
     "opendv-agent-harness",
-    "opendv-platform-api",
+    "opendv-service",
 ]
 
 [project.scripts]
@@ -24,7 +24,7 @@ opendv-telemetry = { workspace = true }
 opendv-axi-verifier = { workspace = true }
 opendv-duckdb-sandbox = { workspace = true }
 opendv-agent-harness = { workspace = true }
-opendv-platform-api = { workspace = true }
+opendv-service = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

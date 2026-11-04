@@ -16,7 +16,7 @@ from opendv_agent_harness import (
     PipelineStepReport,
 )
 from opendv_cli.api_client import OpenDVCliApiClient
-from opendv_platform_api.deps import (
+from opendv_service import (
     PipelineRunRequest,
     PipelineValidateRequest,
     PlatformStateContainer,

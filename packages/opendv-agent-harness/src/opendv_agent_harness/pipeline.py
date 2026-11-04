@@ -83,6 +83,10 @@ from opendv_core.models.graph_b import (
     ProfiledUnstructuredDocument,
     RowChunkSpan,
 )
+from opendv_core.paths import (
+    PathContainmentError,
+    resolve_workspace_path,
+)
 from opendv_core.schema_registry import (
     find_workspace_root,
     load_structured_file,
@@ -912,33 +916,17 @@ def _resolve_and_check_safe_path(
     base_dir: Path,
     workspace_root: Path,
 ) -> tuple[Path | None, str | None]:
-    """Resolve `raw_path` relative to `base_dir` (or `workspace_root`) and reject `..` traversal."""
-    p = Path(raw_path)
-    if ".." in p.parts:
-        return None, f"Path traversal ('..') is forbidden in path '{raw_path}'."
-
-    if p.is_absolute():
-        resolved = p.resolve()
-    else:
-        cand_base = (base_dir / p).resolve()
-        cand_ws = (workspace_root / p).resolve()
-        if cand_base.exists():
-            resolved = cand_base
-        elif cand_ws.exists():
-            resolved = cand_ws
-        else:
-            resolved = cand_base
-
-    allowed_roots = {base_dir.resolve(), workspace_root.resolve()}
-    if p.is_absolute():
-        allowed_roots.add(Path(tempfile.gettempdir()).resolve())
-    if not any(resolved == root or root in resolved.parents for root in allowed_roots):
-        return (
-            None,
-            f"Resolved path '{resolved}' escapes allowed workspace roots "
-            f"{[str(r) for r in sorted(allowed_roots)]}.",
+    """Resolve `raw_path` using canonical `resolve_workspace_path` and reject `..` traversal."""
+    try:
+        resolved = resolve_workspace_path(
+            raw_path,
+            workspace_root=workspace_root,
+            base_dir=base_dir,
+            allow_temp=True,
         )
-    return resolved, None
+        return resolved, None
+    except PathContainmentError as exc:
+        return None, str(exc)
 
 
 def _load_table_into_duckdb(

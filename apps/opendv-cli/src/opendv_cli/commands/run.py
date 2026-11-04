@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from opendv_cli.api_client import OpenDVCliApiClient
-from opendv_platform_api.deps import PlatformStateContainer, redact_event_for_role
+from opendv_service import CreateRunRequest, PlatformStateContainer, redact_event_for_role
 
 
 def run_run_command(
@@ -65,8 +65,6 @@ def run_run_command(
         items = [r.model_dump(mode="json") for r in runs]
         return 0, {"mode": "local", "items": items, "total": len(items)}
     if action == "create":
-        from opendv_platform_api.deps import CreateRunRequest
-
         assert project_id is not None
         if project_id not in state.projects:
             raise ValueError(f"Project '{project_id}' not found.")
