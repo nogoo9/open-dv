@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "manifest_version": "1.0.0",
+  "generated_at": "2026-11-04T15:00:00Z",
+  "generator_transport": "STANDALONE_CLI",
+  "entries": [
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave0/final_canonical_ir.json",
+      "sha256": "830502bcebffdaf2a82b01c290a6f27a872fe14c7a59dbbc6ac5c3a3d7af1332",
+      "byte_size": 15444,
+      "generated_from": "PAR-S1-W0: opendv pipeline run",
+      "last_justified_change": "[#68] P1 baseline golden capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave0/final_contract.yaml",
+      "sha256": "7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913",
+      "byte_size": 5506,
+      "generated_from": "PAR-S1-W0: opendv pipeline run",
+      "last_justified_change": "[#68] P1 baseline golden capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave0/final_four_zone.sql",
+      "sha256": "3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e",
+      "byte_size": 43624,
+      "generated_from": "PAR-S1-W0: opendv pipeline run",
+      "last_justified_change": "[#68] P1 baseline golden capture"
+    },
+    {
+      "golden_id": "GT-02",
+      "file": "GT-02/canonical_ir.json",
+      "sha256": "a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a",
+      "byte_size": 29399,
+      "generated_from": "PAR-PE-S5: opendv compile",
+      "last_justified_change": "[#68] P1 baseline golden capture"
+    },
+    {
+      "golden_id": "GT-02",
+      "file": "GT-02/four_zone.sql",
+      "sha256": "39d976ecbc18d54847555caea589f9df94e130d2e4cd64e592c18e96408755c8",
+      "byte_size": 65801,
+      "generated_from": "PAR-PE-S5: opendv compile",
+      "last_justified_change": "[#68] P1 baseline golden capture"
+    },
+    {
+      "golden_id": "GT-02",
+      "file": "GT-02/verify.json",
+      "sha256": "00e1755aef039cf792045ab735649afab2031d48aca8449e06bd14dc9c826b2d",
+      "byte_size": 853,
+      "generated_from": "PAR-PE-S5: opendv verify",
+      "last_justified_change": "[#68] P1 baseline golden capture"
+    }
+  ]
+}

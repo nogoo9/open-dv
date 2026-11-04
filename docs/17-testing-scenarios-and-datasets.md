@@ -815,3 +815,75 @@ curl -X POST http://localhost:8000/api/v1/verify \
   -d @examples/scenarios/s9_multitenant/contract_s9.yaml
 ```
 
+---
+
+## §G — Golden Test Suite (Normative Expected Outputs)
+
+The Open-DV Golden Test Suite guarantees that the shared application core and its transports (standalone CLI, client CLI, and REST API) agree not only with each other, but with committed, reviewed, and cryptographically pinned reference outputs.
+
+### G.1 Golden Cases Catalog
+
+| Golden ID | Dataset (from §7.4 registry) | Golden outputs committed under tests/golden/ | Transports |
+| :--- | :--- | :--- | :--- |
+| **GT-01 Global Commerce lifecycle** | `PAR-S1-W0` → `PAR-S2-W1` → `PAR-S4-W2` → `PAR-S8-W3` (4 chained calls with `--initial-contract`) | Per wave: `final_contract.yaml`, `final_canonical_ir.json`, `final_four_zone.sql`, normalized `pipeline_report.json`, normalized `explorer_bundle.json`, normalized SSE stage-event sequence (`events.jsonl`), and wave 3's `hold_record.json` | CLI `--local`, CLI `--api-url`, REST |
+| **GT-02 Private Equity reference** | `PAR-PE-S5`, `PAR-PE-S6`, `PAR-I37-HASH` | `verify.json` + `verify.toon`, `canonical_ir.json`, `four_zone.sql`, `sandbox_batches.json`, `d10_2026-10-15.json`, `d10b_2026-11-15.json`, and `explorer_bundle.<role>.json` across all 5 RBAC roles | CLI `--local`, CLI `--api-url`, REST |
+| **GT-03 Golden rejections** | Canonical bad inputs: dropped hub vs prior contract (`DV-EVO-*`), Tier-1 without GLOBAL (`DV-COL-013`), reflexive SAL (`DV-STR-015`), satellite `GROUP BY` (`DV-AST-006`), path traversal, schema-invalid contract | For each case: `verdict.json`, `trace.toon`, CLI exit code, and REST status + `problem+json` body | CLI `--local`, CLI `--api-url`, REST |
+| **GT-04 Golden hash vectors** | Consolidates #37, #40, #30, #42 and the #43 zero keys | Normative Markdown table in §G.2 below (input tokens, BKCC, canonical pre-hash string, lowercase SHA-256) | Python, TypeScript, DuckDB |
+| **GT-05 Golden Explorer render** | GT-01 wave-3 `explorer_bundle.json` | Text snapshot of the rendered Explorer (stage list, statuses, artifact index, hold banner) | Bun |
+| **GT-06 Ontology delta application** | `PAR-ONT-HOLD` base ontology plus testkit proposal | `base_ontology.yaml`, `proposal.json`, `validation.json`, `accepted_ontology.yaml`, `ontology_diff.json` | Standalone, Client, REST |
+
+### G.2 Consolidated GT-04 Normative Hash Vectors Table
+
+The table below is the single normative source of truth for Algorithm A.5 length-prefixed hashing across Python (`opendv-core`), TypeScript (`@opendv/protocol-ts`), and DuckDB SQL (`compiler_4zone`):
+
+| Vector ID | Source Issue | Category | Input Tokens | `is_business_key` | `bkcc_prefix` | Canonical Pre-Hash String (Stage 4) | Expected Lowercase SHA-256 Digest (`[0-9a-f]{64}`) |
+| :--- | :---: | :--- | :--- | :---: | :---: | :--- | :--- |
+| `VEC-01` | #37 | Tier-1 Hub BK (`CalPERS`) | `['LP-101']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|6:LP-101'` | `5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4` |
+| `VEC-02` | #37 | Tier-3 Hub BK (`Bavarian Pension`) | `['LP-101']` | `True` | `'LEGACY_GP_ADMIN'` | `'15:LEGACY_GP_ADMIN\|\|6:LP-101'` | `6b7c7180b62164f31f14eebcd16cc5fd2b0ce58143de66a4b67521113ec5d8b9` |
+| `VEC-03` | #37 | Tier-2 Hub BK (`Apex Buyout Fund IV`) | `['APEX_BO_IV']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|10:APEX_BO_IV'` | `94a60fcda278c5aec284c595413935793d5cec113c511f20690046061d388759` |
+| `VEC-04` | #40 | Tier-1 ACRA UEN (`Acme Global`) | `['202601234K']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|10:202601234K'` | `452e5f90e20e894cf6fb9ab6dd799752b60915669d7ddba0ed2ff283774992e8` |
+| `VEC-05` | #40 | Tier-1 Global Invoice | `['INV-SG-2026-0001']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|16:INV-SG-2026-0001'` | `0b26bb8471756644be558a60b03ca26bc7f3f84168dd04e3b7711ef73fef4895` |
+| `VEC-06` | #40 | Tier-3 Legacy Ticket Client | `['1001']` | `True` | `'LEGACY_TICKET_DB'` | `'16:LEGACY_TICKET_DB\|\|4:1001'` | `28f087bb678034b531ff6991fdd613f6793d0a66ef6b5ece88bd5945d5f8488f` |
+| `VEC-07` | #42 | Multi-Tenant EU Account | `['ACCT-1001']` | `True` | `'TENANT_EU'` | `'9:TENANT_EU\|\|9:ACCT-1001'` | `2530e2e2959ce91a2582cdcc0369df5367ba21659d14078ea37902e23af18c4b` |
+| `VEC-08` | #42 | Multi-Tenant US Account 1 | `['ACCT-1001']` | `True` | `'TENANT_US'` | `'9:TENANT_US\|\|9:ACCT-1001'` | `05732713befe836172388e84bd17a65b7fc1cd080a775cb9f9b2aafb48f407a5` |
+| `VEC-09` | #42 | Multi-Tenant US Account 2 | `['ACCT-1002']` | `True` | `'TENANT_US'` | `'9:TENANT_US\|\|9:ACCT-1002'` | `aa878e0129a5d13e21718834b48473337925ac1db45214194155e0c275b14e8d` |
+| `VEC-10` | #30 | 2-Byte Nordic UTF-8 (`Nordisk Suverän Fond`) | `['Nordisk Suverän Fond']` | `False` | `None` | `'21:Nordisk Suverän Fond'` | `8f158a694b28984db2ddd2d99d3fa4e67a624791dc3e1d7e27df363a49cd1ff7` |
+| `VEC-11` | #30 | 3-Byte Euro Sign UTF-8 (`München €25M`) | `['München €25M']` | `False` | `None` | `'15:München €25M'` | `e8cdf47ea5d7fc86222aea1232609e57f960e5e5d03c6c8c041e9dac72e34f57` |
+| `VEC-12` | #30 | 3-Byte CJK Kanji UTF-8 | `['日本国年金積立金管理運用独立行政法人']` | `False` | `None` | `'54:日本国年金積立金管理運用独立行政法人'` | `b537f8a15b4fd2f74743b6b2245607c346e89f22d321934a67872854e02807d1` |
+| `VEC-13` | #30 | 4-Byte Emoji UTF-8 (`🏦 Sovereign Fund`) | `['🏦 Sovereign Fund']` | `False` | `None` | `'19:🏦 Sovereign Fund'` | `49828efad954c7a21d6ce5723459a90d2727b6a08d7ec02db3604c84cdcf2ae0` |
+| `VEC-14` | #37 | Boundary-Shift Pair A | `['AB', 'C']` | `False` | `None` | `'2:AB\|\|1:C'` | `eae8ab373cc2e986a9e927aee681b79e51503ff73db0799ae0e2a0774624ec10` |
+| `VEC-15` | #37 | Boundary-Shift Pair B | `['A', 'BC']` | `False` | `None` | `'1:A\|\|2:BC'` | `99e84adb77816ffb5c3c3430360737cb9d96e5215bfc1cc8d1876548907226f0` |
+| `VEC-16` | #37 | Embedded Delimiter Pair A | `['ANNE\|\|O', 'BRIEN']` | `False` | `None` | `'7:ANNE\|\|O\|\|5:BRIEN'` | `4205b6693ec25ce23191bcd4c88b22f0f613c1ddcf4873db22c6db6f187248a0` |
+| `VEC-17` | #37 | Embedded Delimiter Pair B | `['ANNE', 'O\|\|BRIEN']` | `False` | `None` | `'4:ANNE\|\|8:O\|\|BRIEN'` | `e42ace65c05875c0e32265fdd3c2d696f2af0aa65c6151e003ecc53dacf4320d` |
+| `VEC-18` | #37 | Positional NULL Pair A | `['VAL_X', None, 'VAL_Y']` | `False` | `None` | `'5:VAL_X\|\|-1:^^\|\|5:VAL_Y'` | `a58e23e8b0f2ee8f43b76df48fc1c0a921682021ea391a99409b74c49c180c9e` |
+| `VEC-19` | #37 | Positional NULL Pair B | `['VAL_X', 'VAL_Y', None]` | `False` | `None` | `'5:VAL_X\|\|5:VAL_Y\|\|-1:^^'` | `a8b1220f06cccf9a0f16f01d083bdb0989d4878336e831940d3fd927735ce58f` |
+| `VEC-20` | #43 | Mandatory FK NULL / Missing (`-1`) | `[None]` | `True` | `'GLOBAL'` | `(Short-circuits to Zero Key Unknown)` | `0000000000000000000000000000000000000000000000000000000000000000` |
+| `VEC-21` | #43 | Optional Inapplicable / Error (`-2`) | `['-2']` | `True` | `'GLOBAL'` | `(Short-circuits to Zero Key Error)` | `ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff` |
+
+### G.3 Golden Manifest Table
+
+| Golden ID | File | SHA-256 | Generated From | Last Justified Change |
+| :--- | :--- | :--- | :--- | :--- |
+| `GT-01` | `GT-01/wave0/final_canonical_ir.json` | `830502bcebffdaf2a82b01c290a6f27a872fe14c7a59dbbc6ac5c3a3d7af1332` | `PAR-S1-W0: opendv pipeline run` | `[#68] P1 baseline golden capture` |
+| `GT-01` | `GT-01/wave0/final_contract.yaml` | `7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913` | `PAR-S1-W0: opendv pipeline run` | `[#68] P1 baseline golden capture` |
+| `GT-01` | `GT-01/wave0/final_four_zone.sql` | `3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e` | `PAR-S1-W0: opendv pipeline run` | `[#68] P1 baseline golden capture` |
+| `GT-02` | `GT-02/canonical_ir.json` | `a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a` | `PAR-PE-S5: opendv compile` | `[#68] P1 baseline golden capture` |
+| `GT-02` | `GT-02/four_zone.sql` | `39d976ecbc18d54847555caea589f9df94e130d2e4cd64e592c18e96408755c8` | `PAR-PE-S5: opendv compile` | `[#68] P1 baseline golden capture` |
+| `GT-02` | `GT-02/verify.json` | `00e1755aef039cf792045ab735649afab2031d48aca8449e06bd14dc9c826b2d` | `PAR-PE-S5: opendv verify` | `[#68] P1 baseline golden capture` |
+
+### G.4 Golden Update and Review Workflow
+
+1. **Strict Justification Enforcement**:
+   Baseline files under `tests/golden/` may never be updated by manual hand-editing. Any intentional schema or compiler modification requires regenerating the affected golden files using:
+   ```bash
+   uv run pytest -m golden --update-golden --golden-justification="[#ISSUE] reason for divergence"
+   ```
+   Omitting `--golden-justification` or providing a justification string under 10 characters immediately aborts with a validation error.
+
+2. **Automated Three-Way Agreement**:
+   Every CI run executes `test_golden_three_way_agreement`, validating that:
+   $$\text{Committed Files under tests/golden/} \equiv \text{MANIFEST.json entries} \equiv \text{docs/17 §G.3 table}$$
+   Any mismatch in file inventory, SHA-256 digest, or justification text fails the CI gate.
+
+3. **Determinism Verification**:
+   Before updating or asserting goldens, `GoldenManager` verifies compiler byte-stability across successive compiles, LF line-ending invariance, and floating-point precision formatting.
