@@ -1,0 +1,76 @@
+contract_version: "5.0"
+domain_namespace: "global_commercial_banking"
+lifecycle_stage: "COLD_START_N1"
+column_triage_ledger:
+  - bronze_table: "bronze_crm.accounts"
+    column_name: "company_uen"
+    elm_classification: "BUSINESS_KEY"
+    target_dv_entity: "hub_customer"
+  - bronze_table: "bronze_crm.accounts"
+    column_name: "legal_name"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_customer_crm"
+  - bronze_table: "bronze_crm.accounts"
+    column_name: "credit_Tier"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_customer_crm"
+  - bronze_table: "bronze_erp.invoices"
+    column_name: "invoice_global_id"
+    elm_classification: "BUSINESS_KEY"
+    target_dv_entity: "hub_invoice"
+  - bronze_table: "bronze_erp.invoices"
+    column_name: "tax_reg_no"
+    elm_classification: "FOREIGN_KEY_REF"
+    target_dv_entity: "lnk_customer_invoice"
+  - bronze_table: "bronze_erp.invoices"
+    column_name: "invoice_amount_sgd"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_invoice_erp"
+hubs:
+  - name: "hub_customer"
+    ontology_concept_uri: "urn:ontology:entity:customer"
+    business_key_sources:
+      - bronze_table: "bronze_crm.accounts"
+        key_columns: ["company_uen"]
+        record_source_code: "SFDC_CRM"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: "GLOBAL"
+  - name: "hub_invoice"
+    ontology_concept_uri: "urn:ontology:entity:invoice"
+    business_key_sources:
+      - bronze_table: "bronze_erp.invoices"
+        key_columns: ["invoice_global_id"]
+        record_source_code: "SAP_ERP"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: "GLOBAL"
+links:
+  - name: "lnk_customer_invoice"
+    link_type: "STANDARD_LINK"
+    ontology_concept_uri: "urn:ontology:relationship:customer_invoice"
+    source_bronze_table: "bronze_erp.invoices"
+    hub_references:
+      - target_hub: "hub_customer"
+        role_alias: "customer"
+        source_fk_columns: ["tax_reg_no"]
+      - target_hub: "hub_invoice"
+        role_alias: "invoice"
+        source_fk_columns: ["invoice_global_id"]
+satellites:
+  - name: "sat_customer_crm"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_customer"
+    source_bronze_table: "bronze_crm.accounts"
+    security_classification: "INTERNAL"
+    volatility_tier: "STANDARD"
+    payload_columns: ["credit_Tier", "legal_name"]
+  - name: "sat_invoice_erp"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_invoice"
+    source_bronze_table: "bronze_erp.invoices"
+    security_classification: "INTERNAL"
+    volatility_tier: "STANDARD"
+    payload_columns: ["invoice_amount_sgd"]
+reference_tables: []
+unmapped_escalations: []

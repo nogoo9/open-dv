@@ -1,0 +1,9 @@
+ontology_id: "enterprise_crm_ontology_v1"
+version: "1.0.0"
+canonical_business_concepts:
+  - concept_id: "CBC-CUSTOMER"
+    concept_uri: "urn:ontology:entity:customer"
+    label: "Customer"
+    taxonomy_class: "CORE_BUSINESS_ENTITY"
+    target_hub: "hub_customer"
+canonical_relationships: []

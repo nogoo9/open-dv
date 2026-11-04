@@ -66,6 +66,10 @@ def _build_registry_entries() -> list[ScenarioSpec]:
     s2_dir = REPO_ROOT / "examples" / "pipeline_samples" / "scenario_s2_issue39_bkcc"
     pe_dir = REPO_ROOT / "examples" / "private_equity"
     generic_contract = REPO_ROOT / "examples" / "dv_model_contract.yaml"
+    i40_dir = REPO_ROOT / "examples" / "scenarios" / "issue_40_tier1_global_bkcc"
+    s3_dir = REPO_ROOT / "examples" / "scenarios" / "s3_unmapped_feed"
+    s9_dir = REPO_ROOT / "examples" / "scenarios" / "s9_multitenant"
+    uf2_dir = REPO_ROOT / "examples" / "scenarios" / "uf2_renamed_column"
 
     return [
         ScenarioSpec(
@@ -87,9 +91,13 @@ def _build_registry_entries() -> list[ScenarioSpec]:
             uf_cases=[],
             fixtures={
                 "test_file": REPO_ROOT / "tests" / "test_issue40_tier1_global_bkcc_e2e.py",
-                "contract": pe_dir / "dv_pe_model_contract.yaml",
-                "graph_a": pe_dir / "pe_graph_a_ontology.yaml",
-                "graph_b": pe_dir / "pe_graph_b_profile.json",
+                "contract": i40_dir / "contract_w0.yaml",
+                "contract_w0": i40_dir / "contract_w0.yaml",
+                "contract_w1": i40_dir / "contract_w1.yaml",
+                "graph_a": i40_dir / "graph_a_ontology.yaml",
+                "accounts_csv": i40_dir / "accounts.csv",
+                "invoices_csv": i40_dir / "invoices.csv",
+                "tickets_csv": i40_dir / "tickets.csv",
             },
             operations=["verify", "compile", "sandbox"],
             expected=_expect_verify_pass,
@@ -139,8 +147,9 @@ def _build_registry_entries() -> list[ScenarioSpec]:
             scenarios=["S3"],
             uf_cases=["UF-4"],
             fixtures={
-                "test_file": REPO_ROOT / "tests" / "test_verification_gates_and_codemods.py",
-                "contract": generic_contract,
+                "contract": s3_dir / "contract_s3.yaml",
+                "graph_a": s3_dir / "graph_a_ontology.yaml",
+                "feed_csv": s3_dir / "feed_unmapped_supplier.csv",
             },
             operations=["verify"],
             expected=_expect_any_dict,
@@ -294,10 +303,11 @@ def _build_registry_entries() -> list[ScenarioSpec]:
             scenarios=["S9"],
             uf_cases=[],
             fixtures={
-                "contract": pe_dir / "dv_pe_model_contract.yaml",
-                "canonical_ir": pe_dir / "pe_canonical_ir.json",
-                "graph_a": pe_dir / "pe_graph_a_ontology.yaml",
-                "graph_b": pe_dir / "pe_graph_b_profile.json",
+                "contract": s9_dir / "contract_s9.yaml",
+                "graph_a": s9_dir / "graph_a_ontology.yaml",
+                "graph_b": s9_dir / "graph_b_profile.json",
+                "accounts_csv": s9_dir / "tenant_accounts.csv",
+                "subs_csv": s9_dir / "tenant_subscriptions.csv",
             },
             operations=["verify", "compile", "sandbox"],
             expected=_expect_verify_pass,
@@ -336,7 +346,14 @@ def _build_registry_entries() -> list[ScenarioSpec]:
             docs17_anchor="S4: Upstream Schema Drift",
             scenarios=["S4"],
             uf_cases=["UF-2"],
-            fixtures={"contract": generic_contract},
+            fixtures={
+                "contract": uf2_dir / "contract_uf2.yaml",
+                "contract_w0": uf2_dir / "contract_w0.yaml",
+                "contract_w1": uf2_dir / "contract_w1.yaml",
+                "graph_a": uf2_dir / "graph_a_ontology.yaml",
+                "wave0_csv": uf2_dir / "sources" / "wave0_baseline" / "crm_customers.csv",
+                "wave1_csv": uf2_dir / "sources" / "wave1_renamed" / "crm_customers.csv",
+            },
             operations=["compile"],
             expected=_expect_compile_pass,
             surface="cli+api",

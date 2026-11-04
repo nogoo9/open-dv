@@ -1,0 +1,18 @@
+ontology_id: "s9_multitenant_ontology_v1"
+version: "1.0.0"
+canonical_business_concepts:
+  - concept_id: "CBC-TENANT-ACCOUNT"
+    concept_uri: "urn:ontology:entity:tenant_account"
+    label: "Tenant Account"
+    taxonomy_class: "CORE_BUSINESS_ENTITY"
+    target_hub: "hub_tenant_account"
+  - concept_id: "CBC-SUBSCRIPTION"
+    concept_uri: "urn:ontology:entity:subscription"
+    label: "Subscription"
+    taxonomy_class: "CORE_BUSINESS_ENTITY"
+    target_hub: "hub_subscription"
+canonical_relationships:
+  - relationship_id: "REL-ACCOUNT-SUBSCRIPTION"
+    relationship_uri: "urn:ontology:relationship:account_subscription"
+    label: "Account Subscription"
+    endpoints: ["hub_tenant_account", "hub_subscription"]

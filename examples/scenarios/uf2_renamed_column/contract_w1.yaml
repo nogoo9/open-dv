@@ -1,0 +1,45 @@
+contract_version: "5.0"
+domain_namespace: "enterprise_crm"
+lifecycle_stage: "INTRA_SOURCE_EVOLUTION"
+column_triage_ledger:
+  - bronze_table: "bronze_crm.customers"
+    column_name: "customer_tax_id"
+    elm_classification: "BUSINESS_KEY"
+    target_dv_entity: "hub_customer"
+  - bronze_table: "bronze_crm.customers"
+    column_name: "customer_legal_names"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_customer_core"
+  - bronze_table: "bronze_crm.customers"
+    column_name: "country_iso2"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_customer_core"
+  - bronze_table: "bronze_crm.customers"
+    column_name: "account_segment"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_customer_core"
+  - bronze_table: "bronze_crm.customers"
+    column_name: "credit_limit_usd"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_customer_core"
+hubs:
+  - name: "hub_customer"
+    ontology_concept_uri: "urn:ontology:entity:customer"
+    business_key_sources:
+      - bronze_table: "bronze_crm.customers"
+        key_columns: ["customer_tax_id"]
+        record_source_code: "CRM_CORE"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: "GLOBAL"
+links: []
+satellites:
+  - name: "sat_customer_core"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_customer"
+    source_bronze_table: "bronze_crm.customers"
+    security_classification: "INTERNAL"
+    volatility_tier: "STANDARD"
+    payload_columns: ["customer_legal_names", "country_iso2", "account_segment", "credit_limit_usd"]
+reference_tables: []
+unmapped_escalations: []
