@@ -1,0 +1,132 @@
+"""Open-DV Contracts Package.
+
+Language-neutral Pydantic DTOs, Error Taxonomy, RFC 8785 JCS, and CLI Spec.
+"""
+
+from __future__ import annotations
+
+from opendv_contracts.dtos import (
+    ArtifactMetadataResponse,
+    ArtifactUploadRequest,
+    BaseContractModel,
+    CompileRequest,
+    CompileResponse,
+    ContractVersion,
+    CreateProjectRequest,
+    EventType,
+    GateRuleEvaluation,
+    GateScorecardSummary,
+    GateVerdict,
+    HoldAction,
+    HoldDecisionRequest,
+    HoldDecisionResponse,
+    HoldOptionCandidate,
+    HoldRequest,
+    HoldResponse,
+    HoldStatus,
+    PipelineEvent,
+    PipelineRunHandle,
+    PipelineRunRequest,
+    PipelineValidateRequest,
+    ProfileRequest,
+    ProfileResponse,
+    ProjectResponse,
+    RbacRole,
+    RenderedOutput,
+    RuleEvaluationDTO,
+    RunStatus,
+    SandboxBatchResult,
+    SandboxQueryRequest,
+    SandboxQueryResponse,
+    SandboxQueryType,
+    VerifyRequest,
+    VerifyResponse,
+)
+from opendv_contracts.errors import (
+    ERROR_MAPPINGS,
+    ErrorCode,
+    ErrorDetail,
+    ErrorMappingEntry,
+    ProblemDetail,
+    create_problem_detail,
+    get_error_entry,
+    get_error_mapping,
+)
+from opendv_contracts.jcs import (
+    CanonicalizationError,
+    FloatDomainError,
+    IntegerDomainError,
+    dumps_jcs,
+    dumps_jcs_bytes,
+    loads_jcs,
+)
+from opendv_contracts.spec import (
+    load_cli_spec,
+    load_cli_spec_schema,
+    validate_cli_spec,
+)
+from opendv_contracts.version import CONTRACT_VERSION, SPEC_VERSION
+
+__version__ = CONTRACT_VERSION
+
+__all__ = [
+    "CONTRACT_VERSION",
+    "ERROR_MAPPINGS",
+    "SPEC_VERSION",
+    "ArtifactMetadataResponse",
+    "ArtifactUploadRequest",
+    # DTOs
+    "BaseContractModel",
+    "CanonicalizationError",
+    "CompileRequest",
+    "CompileResponse",
+    "ContractVersion",
+    "CreateProjectRequest",
+    # Errors
+    "ErrorCode",
+    "ErrorDetail",
+    "ErrorMappingEntry",
+    "EventType",
+    "FloatDomainError",
+    "GateRuleEvaluation",
+    "GateScorecardSummary",
+    "GateVerdict",
+    "HoldAction",
+    "HoldDecisionRequest",
+    "HoldDecisionResponse",
+    "HoldOptionCandidate",
+    "HoldRequest",
+    "HoldResponse",
+    "HoldStatus",
+    "IntegerDomainError",
+    "PipelineEvent",
+    "PipelineRunHandle",
+    "PipelineRunRequest",
+    "PipelineValidateRequest",
+    "ProblemDetail",
+    "ProfileRequest",
+    "ProfileResponse",
+    "ProjectResponse",
+    "RbacRole",
+    "RenderedOutput",
+    "RuleEvaluationDTO",
+    "RunStatus",
+    "SandboxBatchResult",
+    "SandboxQueryRequest",
+    "SandboxQueryResponse",
+    "SandboxQueryType",
+    "VerifyRequest",
+    "VerifyResponse",
+    "__version__",
+    "create_problem_detail",
+    # JCS
+    "dumps_jcs",
+    "dumps_jcs_bytes",
+    "get_error_entry",
+    "get_error_mapping",
+    # Spec
+    "load_cli_spec",
+    "load_cli_spec_schema",
+    "loads_jcs",
+    "validate_cli_spec",
+]
