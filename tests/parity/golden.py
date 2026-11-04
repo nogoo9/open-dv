@@ -363,7 +363,11 @@ class GoldenManager:
         actual_sha256 = hashlib.sha256(normalized_actual).hexdigest().lower()
 
         if self.update_mode:
-            if not self.justification or len(self.justification) < 10:
+            if (
+                not self.justification
+                or len(self.justification) < 10
+                or not re.search(r"#\d+", self.justification)
+            ):
                 raise ValueError(
                     f"Refusing to update golden '{relative_file}': --update-golden requires a "
                     f"non-empty --golden-justification citing issue/PR number (at least 10 chars, "

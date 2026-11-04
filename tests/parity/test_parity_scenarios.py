@@ -27,6 +27,7 @@ def test_scenario_parity(
     cli_transport = StandaloneCliTransport(tmp_path / "cli_ws")
     rest_transport = DirectRestTransport(platform_api_client)
 
+    gaps: list[tuple[str, ParityGapError]] = []
     for op in spec.operations:
         # 1. Standalone CLI execution
         try:
@@ -34,18 +35,26 @@ def test_scenario_parity(
         except Exception as exc:
             pytest.fail(f"STANDALONE_CLI failed on operation '{op}' for {spec.id}: {exc}")
 
-        # 2. Direct REST execution with strict xfail for Phase P1 acknowledged gaps
+        norm_cli = normalize_for_parity(cli_res, path_root=str(tmp_path))
+
+        # 2. Validate scenario expectation on norm_cli immediately after CLI execution
+        try:
+            spec.expected(norm_cli, op=op)
+        except Exception as exc:
+            pytest.fail(
+                f"Scenario expectation failed on CLI operation '{op}' for {spec.id}: {exc}"
+            )
+
+        # 3. Direct REST execution with clean handling of acknowledged gaps
         try:
             rest_res = getattr(rest_transport, op)(spec.fixtures)
         except ParityGapError as gap:
-            pytest.xfail(
-                f"Acknowledged parity gap {gap.gap_id}: {gap} (resolved in Phase P5)"
-            )
+            gaps.append((op, gap))
+            continue
         except Exception as exc:
             pytest.fail(f"DIRECT_REST failed on operation '{op}' for {spec.id}: {exc}")
 
-        # 3. Parity assertion: normalized outputs MUST match bit-for-bit
-        norm_cli = normalize_for_parity(cli_res, path_root=str(tmp_path))
+        # 4. Parity assertion: normalized outputs MUST match bit-for-bit
         norm_rest = normalize_for_parity(rest_res, path_root=str(tmp_path))
         assert norm_cli == norm_rest, (
             f"Parity divergence detected on operation '{op}' for {spec.id}:\n"
@@ -53,5 +62,9 @@ def test_scenario_parity(
             f"REST: {norm_rest}"
         )
 
-        # 4. Apply scenario-specific expectations
-        spec.expected(norm_cli)
+    # 5. If acknowledged parity gaps were encountered on REST, mark xfail after all ops complete
+    if gaps:
+        gap_details = "; ".join(f"{op} ({gap.gap_id})" for op, gap in gaps)
+        pytest.xfail(
+            f"Acknowledged parity gap(s) for {spec.id}: {gap_details} (resolved in Phase P5)"
+        )

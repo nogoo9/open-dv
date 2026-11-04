@@ -6,8 +6,21 @@ import re
 from typing import Any
 
 _PATH_PATTERN = re.compile(
-    r"(?:[a-zA-Z]:[/\\](?:Users|tmp|temp|var|home|opt)[^\s\"',]+|[/\\](?:Users|tmp|temp|var|home|opt)[^\s\"',]+)"
+    r"(?:[a-zA-Z]:[/\\](?:Users|tmp|temp|var|home|opt)[/\\][^\s\"',]+|[/\\](?:Users|tmp|temp|var|home|opt)[/\\][^\s\"',]+)"
 )
+
+_DATETIME_REGEX = re.compile(
+    r"^\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?)?$"
+)
+
+
+def _is_timestamp_value(val: Any) -> bool:
+    """Return True if val is an ISO/date formatted string or numeric epoch timestamp."""
+    if isinstance(val, (int, float)):
+        return True
+    if isinstance(val, str):
+        return bool(_DATETIME_REGEX.match(val.strip()))
+    return False
 
 
 def normalize_for_parity(
@@ -58,9 +71,9 @@ def normalize_for_parity(
 
             # 4. Timestamps
             if (
-                key.endswith(("_at", "timestamp_utc", "created_at", "updated_at"))
+                key.endswith(("_at_utc", "_at", "timestamp_utc", "created_at", "updated_at"))
                 or key in ("dts", "timestamp", "load_dts")
-            ):
+            ) and _is_timestamp_value(val):
                 result[key] = "<TIMESTAMP>"
                 continue
 

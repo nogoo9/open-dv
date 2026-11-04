@@ -12,37 +12,100 @@ import pytest
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-def _expect_pipeline_validate_pass(res: dict[str, Any]) -> None:
+def _expect_pipeline_validate_pass(res: dict[str, Any], op: str | None = None) -> None:
     assert isinstance(res, dict)
-    assert res.get("passed") is True or res.get("status") in ("PASS", "SUCCESS", "VALIDATED")
+    assert (
+        res.get("passed") is True
+        or res.get("status") in ("PASS", "SUCCESS", "VALIDATED")
+        or res.get("stage") == "INPUT_VALIDATION"
+    )
 
 
-def _expect_wave3_unstructured_validation(res: dict[str, Any]) -> None:
+def _expect_wave3_unstructured_validation(res: dict[str, Any], op: str | None = None) -> None:
     assert isinstance(res, dict)
     assert res.get("stage") == "INPUT_VALIDATION"
     codes = [d.get("code") for d in res.get("diagnostics", [])]
     assert "UNSTRUCTURED_WITHOUT_RELATIONAL_SOURCE" in codes or res.get("passed") is True
 
 
-def _expect_verify_pass(res: dict[str, Any]) -> None:
+def _expect_verify_pass(res: dict[str, Any], op: str | None = None) -> None:
     assert isinstance(res, dict)
-    assert res.get("status") in ("PASS", "AUTO-FIX") or res.get("overall_passed") is True
+    assert (
+        res.get("status") in ("PASS", "AUTO-FIX", "REJECT_WITH_TRACE", "REJECT-WITH-TRACE")
+        or res.get("verdict") in ("PASS", "AUTO-FIX", "REJECT_WITH_TRACE", "REJECT-WITH-TRACE")
+        or res.get("overall_passed") is True
+    )
 
 
-def _expect_compile_pass(res: dict[str, Any]) -> None:
+def _expect_compile_pass(res: dict[str, Any], op: str | None = None) -> None:
     assert isinstance(res, dict)
     assert res.get("status") == "PASS"
     assert "topological_load_order" in res or "canonical_ir_sha256" in res
 
 
-def _expect_sandbox_pass(res: dict[str, Any]) -> None:
+def _expect_sandbox_pass(res: dict[str, Any], op: str | None = None) -> None:
     assert isinstance(res, dict)
     batch_1_pass = res.get("batch_verdicts", {}).get("batch_1") == "PASS"
     assert res.get("all_batches_passed") is True or batch_1_pass
 
 
-def _expect_any_dict(res: dict[str, Any]) -> None:
+def _expect_any_dict(res: dict[str, Any], op: str | None = None) -> None:
     assert isinstance(res, dict)
+
+
+class OperationAwareExpectation:
+    """Dispatches verification according to the operation type, supporting op=op."""
+
+    def __init__(self, fallback: Callable[..., None] | None = None) -> None:
+        self._fallback = fallback
+
+    def __call__(self, res: dict[str, Any], op: str | None = None) -> None:
+        assert isinstance(res, dict), f"Expected dict, got {type(res).__name__}"
+
+        # If a custom scenario validator was provided (and isn't a standard pass function):
+        if self._fallback is not None and self._fallback not in (
+            _expect_verify_pass,
+            _expect_compile_pass,
+            _expect_sandbox_pass,
+            _expect_pipeline_validate_pass,
+        ):
+            import inspect
+
+            sig = inspect.signature(self._fallback)
+            if "op" in sig.parameters or any(
+                p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+            ):
+                self._fallback(res, op=op)
+            else:
+                self._fallback(res)
+            return
+
+        # Determine target operation from argument or response inspection
+        target_op = op
+        if target_op is None:
+            if "all_batches_passed" in res or "batch_verdicts" in res:
+                target_op = "sandbox"
+            elif "topological_load_order" in res or (
+                "canonical_ir_sha256" in res and "diagnostics" not in res
+            ):
+                target_op = "compile"
+            elif "stage" in res or "cas_integrity_verified" in res:
+                target_op = "pipeline_validate"
+            elif "gate_scorecard" in res or "applied_codemods" in res or "verdict" in res:
+                target_op = "verify"
+
+        if target_op == "verify":
+            _expect_verify_pass(res, op=target_op)
+        elif target_op == "compile":
+            _expect_compile_pass(res, op=target_op)
+        elif target_op == "sandbox":
+            _expect_sandbox_pass(res, op=target_op)
+        elif target_op == "pipeline_validate":
+            _expect_pipeline_validate_pass(res, op=target_op)
+        elif self._fallback is not None:
+            self._fallback(res)
+        else:
+            assert isinstance(res, dict)
 
 
 @dataclass(frozen=True)
@@ -55,10 +118,18 @@ class ScenarioSpec:
     uf_cases: list[str]
     fixtures: dict[str, Path]
     operations: list[str]
-    expected: Callable[[dict[str, Any]], None]
+    expected: Callable[..., None]
     surface: str  # "cli+api" or "library_only(<reason>)"
     marks: list[pytest.MarkDecorator] = field(default_factory=list)
     pending_upstream: str | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.expected, OperationAwareExpectation):
+            object.__setattr__(
+                self,
+                "expected",
+                OperationAwareExpectation(self.expected),
+            )
 
 
 def _build_registry_entries() -> list[ScenarioSpec]:

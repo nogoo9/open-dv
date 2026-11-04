@@ -1,6 +1,6 @@
 contract_version: "5.0"
 domain_namespace: "enterprise_crm"
-lifecycle_stage: "INTRA_SOURCE_EVOLUTION"
+lifecycle_stage: "COLD_START_N1"
 column_triage_ledger:
   - bronze_table: "bronze_crm.customers"
     column_name: "customer_tax_id"

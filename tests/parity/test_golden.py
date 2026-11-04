@@ -78,6 +78,25 @@ def test_golden_update_without_justification_fails(tmp_path: Path) -> None:
         )
 
 
+def test_golden_update_without_issue_number_fails(tmp_path: Path) -> None:
+    """Verify --update-golden with justification missing issue/PR number raises ValueError."""
+    fake_golden_root = tmp_path / "golden"
+    fake_golden_root.mkdir(parents=True)
+    fake_docs17 = tmp_path / "docs17.md"
+    fake_docs17.write_text("### G.3 Golden Manifest Table\n", encoding="utf-8")
+
+    gm_no_issue = GoldenManager(
+        fake_golden_root,
+        fake_docs17,
+        update_mode=True,
+        justification="justification without issue number reference",
+    )
+    with pytest.raises(ValueError, match="requires a non-empty --golden-justification"):
+        gm_no_issue.assert_golden_byte_equality(
+            "GT-01", "test.txt", b"sample content", "test_origin"
+        )
+
+
 def test_golden_divergence_fails_without_update_mode(tmp_path: Path) -> None:
     """Verify modifying a golden file without --update-golden raises AssertionError."""
     fake_golden_root = tmp_path / "golden"
