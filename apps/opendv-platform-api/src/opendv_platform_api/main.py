@@ -17,6 +17,7 @@ from opendv_core.paths import PathContainmentError
 from opendv_platform_api.routers import (
     artifacts,
     decisions,
+    explorer,
     gates,
     health,
     profile,
@@ -263,6 +264,7 @@ def create_app(
     application.include_router(profile.router, prefix=api_prefix)
     application.include_router(projects.router, prefix=api_prefix)
     application.include_router(runs.router, prefix=api_prefix)
+    application.include_router(explorer.router, prefix=api_prefix)
     application.include_router(gates.router, prefix=api_prefix)
     application.include_router(sandbox.router, prefix=api_prefix)
     application.include_router(decisions.router, prefix=api_prefix)

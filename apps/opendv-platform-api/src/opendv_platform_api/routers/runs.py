@@ -7,7 +7,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, Header, Query, Response, status
 from fastapi.responses import StreamingResponse
 
-from opendv_contracts import PipelineRunHandle, RbacRole
+from opendv_contracts import PipelineRunHandle, RbacRole, RunArtifactDTO
 from opendv_platform_api.deps import get_opendv_service, get_rbac_role
 from opendv_service import (
     CreateRunRequest,
@@ -15,6 +15,7 @@ from opendv_service import (
     PipelineRunRequest,
     PipelineValidateRequest,
     ProjectRunDTO,
+    RunStatus,
 )
 
 router = APIRouter(tags=["runs"])
@@ -40,9 +41,11 @@ async def start_run(
 async def list_runs(
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
     project_id: Annotated[str | None, Query()] = None,
+    status: Annotated[RunStatus | None, Query()] = None,
+    stage_id: Annotated[str | None, Query()] = None,
 ) -> list[ProjectRunDTO]:
-    """List all runs, optionally filtered by project_id."""
-    return service.list_runs(project_id=project_id)
+    """List all runs, optionally filtered by project_id, status, and stage_id."""
+    return service.list_runs(project_id=project_id, status=status, stage_id=stage_id)
 
 
 @router.get("/runs/{run_id}", response_model=ProjectRunDTO)
@@ -52,6 +55,17 @@ async def get_run(
 ) -> ProjectRunDTO:
     """Return status and gate scorecard for a specific run."""
     return service.get_run(run_id)
+
+
+@router.get("/runs/{run_id}/artifacts/{artifact_id}", response_model=RunArtifactDTO)
+async def get_run_artifact(
+    run_id: str,
+    artifact_id: str,
+    service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    role: Annotated[RbacRole, Depends(get_rbac_role)],
+) -> RunArtifactDTO:
+    """Retrieve a run-isolated artifact with lowercase 64-hex CAS hash and RBAC redaction (T6)."""
+    return service.get_run_artifact(run_id, artifact_id, role=role)
 
 
 @router.get("/runs/{run_id}/report")
