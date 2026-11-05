@@ -19,6 +19,7 @@ members = [
     "packages/opendv-duckdb-sandbox",
     "packages/opendv-agent-harness",
     "packages/opendv-testkit",
+    "packages/opendv-sources",
     "apps/opendv-platform-api",
     "apps/opendv-cli",
 ]
@@ -33,6 +34,7 @@ opendv-axi-verifier = { workspace = true }
 opendv-duckdb-sandbox = { workspace = true }
 opendv-agent-harness = { workspace = true }
 opendv-testkit = { workspace = true }
+opendv-sources = { workspace = true }
 opendv-platform-api = { workspace = true }
 opendv-cli = { workspace = true }
 
@@ -48,6 +50,7 @@ dev = [
     "pyyaml>=6.0.2",
     "jsonschema>=4.23.0",
     "duckdb>=1.2.0",
+    "pyarrow>=18.0.0",
     "pydantic>=2.10.0",
     "networkx>=3.4.0",
     "sqlglot>=26.0.0",
@@ -100,6 +103,13 @@ module = [
 ]
 ignore_errors = true
 
+[[tool.mypy.overrides]]
+module = [
+    "pyarrow",
+    "pyarrow.*",
+]
+ignore_missing_imports = true
+
 [tool.pytest.ini_options]
 minversion = "9.0"
 addopts = "-ra -q --strict-markers --import-mode=importlib"
@@ -122,6 +132,7 @@ pythonpath = [
     "packages/opendv-duckdb-sandbox/src",
     "packages/opendv-agent-harness/src",
     "packages/opendv-testkit/src",
+    "packages/opendv-sources/src",
     "apps/opendv-platform-api/src",
     "apps/opendv-cli/src",
 ]
@@ -136,6 +147,7 @@ testpaths = [
     "packages/opendv-duckdb-sandbox/tests",
     "packages/opendv-agent-harness/tests",
     "packages/opendv-testkit/tests",
+    "packages/opendv-sources/tests",
     "apps/opendv-platform-api/tests",
     "apps/opendv-cli/tests",
 ]

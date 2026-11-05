@@ -1,0 +1,26 @@
+[project]
+name = "opendv-sources"
+version = "0.1.0"
+description = "Open-DV Pluggable Data Source & Format Adapter SPI, Registries, and Conformance Kit"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "opendv-contracts",
+    "opendv-core",
+    "duckdb>=1.2.0",
+    "pyarrow>=18.0.0",
+    "pydantic>=2.10.0",
+    "pyyaml>=6.0.2",
+]
+
+[project.optional-dependencies]
+# Standard plugin extras (will be enabled as plugins are introduced in Tasks P4.2-P4.4)
+# file = ["opendv-source-file"]
+# inline = ["opendv-source-inline"]
+# db = ["opendv-source-duckdb-attach"]
+# text = ["opendv-source-text"]
+# pdf = ["opendv-source-pdf"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
