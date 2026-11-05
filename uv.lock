@@ -554,7 +554,7 @@ dependencies = [
     { name = "opendv-contracts" },
     { name = "opendv-core" },
     { name = "opendv-service" },
-    { name = "opendv-sources" },
+    { name = "opendv-sources", extra = ["standard"] },
     { name = "pydantic" },
 ]
 
@@ -564,7 +564,7 @@ requires-dist = [
     { name = "opendv-contracts", editable = "packages/opendv-contracts" },
     { name = "opendv-core", editable = "packages/opendv-core" },
     { name = "opendv-service", editable = "packages/opendv-service" },
-    { name = "opendv-sources", editable = "packages/opendv-sources" },
+    { name = "opendv-sources", extras = ["standard"], editable = "packages/opendv-sources" },
     { name = "pydantic", specifier = ">=2.9.0" },
 ]
 
@@ -650,7 +650,7 @@ dependencies = [
     { name = "opendv-core" },
     { name = "opendv-duckdb-sandbox" },
     { name = "opendv-service" },
-    { name = "opendv-sources" },
+    { name = "opendv-sources", extra = ["standard"] },
     { name = "opendv-telemetry" },
     { name = "pydantic" },
     { name = "uvicorn" },
@@ -665,7 +665,7 @@ requires-dist = [
     { name = "opendv-core", editable = "packages/opendv-core" },
     { name = "opendv-duckdb-sandbox", editable = "packages/opendv-duckdb-sandbox" },
     { name = "opendv-service", editable = "packages/opendv-service" },
-    { name = "opendv-sources", editable = "packages/opendv-sources" },
+    { name = "opendv-sources", extras = ["standard"], editable = "packages/opendv-sources" },
     { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
     { name = "pydantic", specifier = ">=2.9.0" },
     { name = "uvicorn", specifier = ">=0.34.0" },
@@ -712,12 +712,14 @@ dependencies = [
     { name = "opendv-core" },
     { name = "pyarrow" },
     { name = "pydantic" },
-    { name = "pypdf" },
     { name = "pyyaml" },
 ]
 
 [package.optional-dependencies]
 pdf = [
+    { name = "pypdf" },
+]
+standard = [
     { name = "pypdf" },
 ]
 
@@ -726,13 +728,13 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.2.0" },
     { name = "opendv-contracts", editable = "packages/opendv-contracts" },
     { name = "opendv-core", editable = "packages/opendv-core" },
+    { name = "opendv-sources", extras = ["file", "inline", "db", "text", "pdf"], marker = "extra == 'standard'", editable = "packages/opendv-sources" },
     { name = "pyarrow", specifier = ">=18.0.0" },
     { name = "pydantic", specifier = ">=2.10.0" },
-    { name = "pypdf", specifier = ">=5.0.0" },
     { name = "pypdf", marker = "extra == 'pdf'", specifier = ">=5.0.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },
 ]
-provides-extras = ["text", "pdf"]
+provides-extras = ["file", "inline", "db", "text", "pdf", "standard"]
 
 [[package]]
 name = "opendv-telemetry"
@@ -754,6 +756,7 @@ dependencies = [
     { name = "opendv-contracts" },
     { name = "opendv-core" },
     { name = "opendv-service" },
+    { name = "opendv-sources" },
     { name = "opendv-telemetry" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -765,6 +768,7 @@ requires-dist = [
     { name = "opendv-contracts", editable = "packages/opendv-contracts" },
     { name = "opendv-core", editable = "packages/opendv-core" },
     { name = "opendv-service", editable = "packages/opendv-service" },
+    { name = "opendv-sources", editable = "packages/opendv-sources" },
     { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pyyaml", specifier = ">=6.0.2" },

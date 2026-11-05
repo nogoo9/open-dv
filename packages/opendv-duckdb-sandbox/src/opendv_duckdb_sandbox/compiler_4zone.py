@@ -2228,21 +2228,25 @@ def _load_bronze_table_rows(
         rows: list[dict[str, Any]] = []
         if isinstance(val, list):
             rows = [dict(r) for r in val if isinstance(r, dict)]
-        elif isinstance(val, (Path, str)):
-            p = Path(val)
-            if p.is_file():
-                from opendv_sources import SourceSpec, get_source_registry
+        elif hasattr(val, "adapter") or isinstance(val, (Path, str)):
+            from opendv_sources import SourceSpec, get_source_registry
 
+            if hasattr(val, "adapter"):
+                spec = val
+            else:
+                p = Path(val)
+                if not p.is_file():
+                    continue
                 spec = SourceSpec(adapter="file", uri=str(p.resolve()))
-                con = duckdb.connect(":memory:")
-                try:
-                    adapter = get_source_registry().get_tabular_adapter(spec.adapter)
-                    adapter.register(spec, con, "_compiler_bronze_table")
-                    cur = con.execute('SELECT * FROM "_compiler_bronze_table"')
-                    cols = [d[0] for d in cur.description]
-                    rows = [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
-                finally:
-                    con.close()
+            con = duckdb.connect(":memory:")
+            try:
+                adapter = get_source_registry().get_tabular_adapter(spec.adapter)
+                adapter.register(spec, con, "_compiler_bronze_table")
+                cur = con.execute('SELECT * FROM "_compiler_bronze_table"')
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
+            finally:
+                con.close()
         if rows:
             loaded[raw_key] = rows
             loaded[raw_key.lower()] = rows

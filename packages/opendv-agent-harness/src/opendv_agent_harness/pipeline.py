@@ -965,6 +965,23 @@ def _validate_path_containment(
         return None, str(exc)
 
 
+def _to_source_target(
+    src_source: SourceSpec | dict[str, Any] | None,
+    path: Path | None,
+) -> Path | str | SourceSpec:
+    """Normalize a source spec or path into an authoritative DuckDB load target."""
+    if src_source is not None:
+        if isinstance(src_source, SourceSpec):
+            return src_source.model_copy(update={"uri": str(path)}) if path else src_source
+        if isinstance(src_source, dict):
+            updated = dict(src_source)
+            if path:
+                updated["uri"] = str(path)
+            return SourceSpec.model_validate(updated)
+    assert path is not None
+    return path
+
+
 def _load_table_into_duckdb(
     conn: duckdb.DuckDBPyConnection,
     view_name: str,
@@ -1531,8 +1548,9 @@ def validate_pipeline_inputs(
                     )
                     continue
                 try:
+                    load_target = _to_source_target(src.source, d_path)
                     row_cnt, cols = _load_table_into_duckdb(
-                        conn, f"v_w{wave.wave_index}_s{s_idx}", d_path
+                        conn, f"v_w{wave.wave_index}_s{s_idx}", load_target
                     )
                     if row_cnt < 1 or len(cols) < 1:
                         diagnostics.append(
@@ -1603,8 +1621,9 @@ def validate_pipeline_inputs(
                         )
                     else:
                         try:
+                            b_target = _to_source_target(src.baseline_source, b_path)
                             b_rows, b_cols = _load_table_into_duckdb(
-                                conn, f"v_w{wave.wave_index}_s{s_idx}_base", b_path
+                                conn, f"v_w{wave.wave_index}_s{s_idx}_base", b_target
                             )
                             if b_rows < 1 or len(b_cols) < 1:
                                 diagnostics.append(
@@ -2392,7 +2411,8 @@ def _extract_known_entities_from_cumulative_sources(
             if not src.business_key_columns or not d_path.is_file():
                 continue
             v_name = f"v_er_{_slugify(q_tbl)}"
-            _, cols = _load_table_into_duckdb(conn, v_name, d_path)
+            src_target = _to_source_target(src.source, d_path)
+            _, cols = _load_table_into_duckdb(conn, v_name, src_target)
             bk_col = src.business_key_columns[0]
             if bk_col not in cols:
                 continue
@@ -3207,7 +3227,8 @@ class AgenticVaultPipeline:
                     qualified_table = f"{src.source_system.lower()}.{src.table_name.lower()}"
 
                     view_t1 = f"v_{_slugify(src.source_system)}_{_slugify(src.table_name)}"
-                    _load_table_into_duckdb(profiler.conn, view_t1, d_path)
+                    src_target = _to_source_target(src.source, d_path)
+                    _load_table_into_duckdb(profiler.conn, view_t1, src_target)
                     sample_cur = profiler.conn.execute(f'SELECT * FROM "{view_t1}" LIMIT 5')
                     sample_cols = (
                         [str(d[0]) for d in sample_cur.description]
@@ -3239,7 +3260,8 @@ class AgenticVaultPipeline:
                         )
                         assert b_path is not None
                         view_t0 = f"{view_t1}_baseline"
-                        _load_table_into_duckdb(profiler.conn, view_t0, b_path)
+                        b_target = _to_source_target(src.baseline_source, b_path)
+                        _load_table_into_duckdb(profiler.conn, view_t0, b_target)
                         drift_rep = profiler.detect_schema_drift(view_t0, view_t1)
                         for dev in drift_rep.events:
                             ev_dict = dev.model_dump(mode="json")
@@ -4796,7 +4818,8 @@ class AgenticVaultPipeline:
             validate_canonical_ir(ir_dict)
 
             wave_bronze_tables: dict[str, Any] = {
-                q_tbl: d_path for q_tbl, (_src_spec, d_path) in cumulative_sources.items()
+                q_tbl: _to_source_target(_src_spec.source, d_path)
+                for q_tbl, (_src_spec, d_path) in cumulative_sources.items()
             }
             compiled_bundle = compile_canonical_ir_to_4zone_sql(
                 canonical_ir,

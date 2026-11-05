@@ -429,12 +429,23 @@ def _build_registry_entries() -> list[ScenarioSpec]:
             expected=_expect_compile_pass,
             surface="cli+api",
         ),
+        ScenarioSpec(
+            id="PAR-SRC-MATRIX",
+            docs17_anchor="Source & Format Adapter Matrix",
+            scenarios=["S1", "S8"],
+            uf_cases=["UF-3", "UF-5"],
+            fixtures={
+                "manifest": gcv_dir / "wave0_cold_start.yaml",
+                "harness_config": gcv_dir / "harness_config.yaml",
+            },
+            operations=["pipeline_validate"],
+            expected=_expect_pipeline_validate_pass,
+            surface="cli+api",
+        ),
     ]
 
 
-SCENARIO_REGISTRY: dict[str, ScenarioSpec] = {
-    spec.id: spec for spec in _build_registry_entries()
-}
+SCENARIO_REGISTRY: dict[str, ScenarioSpec] = {spec.id: spec for spec in _build_registry_entries()}
 
 
 def get_scenario(scenario_id: str) -> ScenarioSpec:

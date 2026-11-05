@@ -145,12 +145,18 @@ class InlineSourceAdapter(SourceAdapter, TabularSourceAdapter):
             raise SourceEmptyError("Inline source data is empty (0 bytes)")
 
         fmt = self._detect_format(spec, data)
+        conv_opts = pyarrow.csv.ConvertOptions(
+            strings_can_be_null=True,
+            null_values=["", "NA", "null", "NULL", "none", "None"],
+        )
         try:
             if fmt == "csv":
-                table = pyarrow.csv.read_csv(io.BytesIO(data))
+                table = pyarrow.csv.read_csv(io.BytesIO(data), convert_options=conv_opts)
             elif fmt == "tsv":
                 parse_opts = pyarrow.csv.ParseOptions(delimiter="\t")
-                table = pyarrow.csv.read_csv(io.BytesIO(data), parse_options=parse_opts)
+                table = pyarrow.csv.read_csv(
+                    io.BytesIO(data), parse_options=parse_opts, convert_options=conv_opts
+                )
             elif fmt == "parquet":
                 table = pyarrow.parquet.read_table(pyarrow.BufferReader(data))
             else:

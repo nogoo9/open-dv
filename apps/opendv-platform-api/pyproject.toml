@@ -14,7 +14,7 @@ dependencies = [
     "opendv-duckdb-sandbox",
     "opendv-agent-harness",
     "opendv-service",
-    "opendv-sources",
+    "opendv-sources[standard]",
 ]
 
 [tool.uv.sources]

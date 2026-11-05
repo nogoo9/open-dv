@@ -11,16 +11,17 @@ dependencies = [
     "pyarrow>=18.0.0",
     "pydantic>=2.10.0",
     "pyyaml>=6.0.2",
-    "pypdf>=5.0.0",
 ]
 
 [project.optional-dependencies]
-# Standard plugin extras (will be enabled as plugins are introduced in Tasks P4.2-P4.4)
-# file = ["opendv-source-file"]
-# inline = ["opendv-source-inline"]
-# db = ["opendv-source-duckdb-attach"]
+file = []
+inline = []
+db = []
 text = []
 pdf = ["pypdf>=5.0.0"]
+standard = [
+    "opendv-sources[file,inline,db,text,pdf]",
+]
 
 [project.entry-points."opendv.source_adapters"]
 file = "opendv_sources.adapters.filesystem:LocalFilesystemSourceAdapter"

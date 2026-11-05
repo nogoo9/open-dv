@@ -9,7 +9,7 @@ dependencies = [
     "opendv-contracts",
     "opendv-cli-common",
     "opendv-service",
-    "opendv-sources",
+    "opendv-sources[standard]",
 ]
 
 [project.scripts]
