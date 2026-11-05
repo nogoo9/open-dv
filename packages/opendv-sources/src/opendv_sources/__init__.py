@@ -1,5 +1,6 @@
 """Open-DV Pluggable Data Source & Format Adapter SPI, Registries, and Conformance Kit."""
 
+from opendv_sources.adapters.duckdb_attach import DuckdbAttachSourceAdapter
 from opendv_sources.adapters.filesystem import LocalFilesystemSourceAdapter
 from opendv_sources.adapters.inline import InlineSourceAdapter
 from opendv_sources.config.loader import load_structured_document
@@ -14,6 +15,7 @@ from opendv_sources.exceptions import (
     SourceError,
     SourceLoadError,
     SourceNotFoundError,
+    SourceTableEmptyError,
     UnsupportedFormatError,
 )
 from opendv_sources.models.descriptors import (
@@ -60,6 +62,7 @@ __all__ = [
     "DocumentExtractionError",
     "DocumentRef",
     "DocumentSourceAdapter",
+    "DuckdbAttachSourceAdapter",
     "ExtractedDocument",
     "FormatError",
     "FormatParser",
@@ -79,6 +82,7 @@ __all__ = [
     "SourceMetadata",
     "SourceNotFoundError",
     "SourceSpec",
+    "SourceTableEmptyError",
     "StreamChunk",
     "TabularAdapterConformanceSuite",
     "TabularSourceAdapter",

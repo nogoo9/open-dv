@@ -10,7 +10,11 @@ import pyarrow
 import pytest
 
 from opendv_contracts.errors import ErrorCode
-from opendv_sources.adapters import InlineSourceAdapter, LocalFilesystemSourceAdapter
+from opendv_sources.adapters import (
+    DuckdbAttachSourceAdapter,
+    InlineSourceAdapter,
+    LocalFilesystemSourceAdapter,
+)
 from opendv_sources.exceptions import UnsupportedFormatError
 from opendv_sources.models.descriptors import (
     ColumnDescriptor,
@@ -199,3 +203,6 @@ def test_entry_points_discovery_default_adapters() -> None:
 
     inline_adapter = registry.get_tabular_adapter("inline")
     assert isinstance(inline_adapter, InlineSourceAdapter)
+
+    attach_adapter = registry.get_tabular_adapter("duckdb_attach")
+    assert isinstance(attach_adapter, DuckdbAttachSourceAdapter)

@@ -37,6 +37,10 @@ class SourceEmptyError(SourceLoadError):
     http_status: int = 422
 
 
+class SourceTableEmptyError(SourceEmptyError):
+    """Raised when an input source relation or table is unexpectedly empty or missing."""
+
+
 class FormatError(SourceError):
     """Raised when format decoding fails."""
 
@@ -107,5 +111,6 @@ __all__ = [
     "SourceError",
     "SourceLoadError",
     "SourceNotFoundError",
+    "SourceTableEmptyError",
     "UnsupportedFormatError",
 ]

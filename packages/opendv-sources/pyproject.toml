@@ -25,6 +25,9 @@ dependencies = [
 file = "opendv_sources.adapters.filesystem:LocalFilesystemSourceAdapter"
 filesystem = "opendv_sources.adapters.filesystem:LocalFilesystemSourceAdapter"
 inline = "opendv_sources.adapters.inline:InlineSourceAdapter"
+duckdb_attach = "opendv_sources.adapters.duckdb_attach:DuckdbAttachSourceAdapter"
+sqlite = "opendv_sources.adapters.duckdb_attach:DuckdbAttachSourceAdapter"
+duckdb = "opendv_sources.adapters.duckdb_attach:DuckdbAttachSourceAdapter"
 
 [build-system]
 requires = ["hatchling"]
