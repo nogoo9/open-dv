@@ -86,6 +86,7 @@ def create_app(
             workspace_root
             or repo_root
             or getattr(platform_state, "workspace_root", None)
+            or Path.cwd().resolve()
         )
         eff_storage = (
             storage_root
@@ -104,7 +105,7 @@ def create_app(
             settings=active_settings,
         )
     else:
-        eff_ws = workspace_root or repo_root
+        eff_ws = workspace_root or repo_root or Path.cwd().resolve()
         eff_storage = storage_root or state_dir
         active_settings = settings or OpenDVSettings.load(
             workspace_root=eff_ws,
