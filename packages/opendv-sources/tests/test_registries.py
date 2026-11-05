@@ -10,6 +10,7 @@ import pyarrow
 import pytest
 
 from opendv_contracts.errors import ErrorCode
+from opendv_sources.adapters import InlineSourceAdapter, LocalFilesystemSourceAdapter
 from opendv_sources.exceptions import UnsupportedFormatError
 from opendv_sources.models.descriptors import (
     ColumnDescriptor,
@@ -188,3 +189,13 @@ def test_registry_singletons() -> None:
     f1 = get_format_registry()
     f2 = get_format_registry()
     assert f1 is f2
+
+
+def test_entry_points_discovery_default_adapters() -> None:
+    """Verify built-in 'file' and 'inline' adapters are discovered from entry points."""
+    registry = get_source_registry()
+    file_adapter = registry.get_tabular_adapter("file")
+    assert isinstance(file_adapter, LocalFilesystemSourceAdapter)
+
+    inline_adapter = registry.get_tabular_adapter("inline")
+    assert isinstance(inline_adapter, InlineSourceAdapter)

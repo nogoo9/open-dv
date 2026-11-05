@@ -21,6 +21,11 @@ dependencies = [
 # text = ["opendv-source-text"]
 # pdf = ["opendv-source-pdf"]
 
+[project.entry-points."opendv.source_adapters"]
+file = "opendv_sources.adapters.filesystem:LocalFilesystemSourceAdapter"
+filesystem = "opendv_sources.adapters.filesystem:LocalFilesystemSourceAdapter"
+inline = "opendv_sources.adapters.inline:InlineSourceAdapter"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

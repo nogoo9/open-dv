@@ -1,5 +1,7 @@
 """Open-DV Pluggable Data Source & Format Adapter SPI, Registries, and Conformance Kit."""
 
+from opendv_sources.adapters.filesystem import LocalFilesystemSourceAdapter
+from opendv_sources.adapters.inline import InlineSourceAdapter
 from opendv_sources.config.loader import load_structured_document
 from opendv_sources.conformance.document_suite import DocumentAdapterConformanceSuite
 from opendv_sources.conformance.tabular_suite import TabularAdapterConformanceSuite
@@ -63,6 +65,8 @@ __all__ = [
     "FormatParser",
     "FormatParserRegistry",
     "FormatSpec",
+    "InlineSourceAdapter",
+    "LocalFilesystemSourceAdapter",
     "PageMapEntry",
     "PathContainmentError",
     "SourceAdapter",
