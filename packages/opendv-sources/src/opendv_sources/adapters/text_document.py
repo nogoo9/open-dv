@@ -4,12 +4,11 @@ from __future__ import annotations
 
 import base64
 import hashlib
-import re
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from opendv_core.paths import resolve_workspace_path
+from opendv_sources._resolution import redact_credentials, resolve_adapter_path
 from opendv_sources.exceptions import (
     DocumentExtractionError,
     SourceLoadError,
@@ -23,7 +22,6 @@ from opendv_sources.spi.adapter import SourceAdapter
 from opendv_sources.spi.document import DocumentSourceAdapter
 
 _MARKDOWN_EXTENSIONS = {".md", ".markdown"}
-_CREDENTIAL_PATTERN = re.compile(r"([^/:@\s]*):([^/:@\s]+)@")
 
 
 class TextDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
@@ -92,31 +90,19 @@ class TextDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
                 "TextDocumentSourceAdapter requires 'uri' or 'inline_content'"
             )
 
-        if self.workspace_root is not None:
-            ws_root = self.workspace_root
-        elif "workspace_root" in spec.options:
-            ws_root = Path(spec.options["workspace_root"])
-        else:
-            ws_root = Path.cwd()
-        resolved = resolve_workspace_path(
-            spec.uri.strip(),
-            workspace_root=ws_root,
-            base_dir=Path(spec.options["base_dir"]) if "base_dir" in spec.options else None,
-            allowed_roots=(
-                self.allowed_roots
-                if self.allowed_roots is not None
-                else spec.options.get("allowed_roots")
-            ),
-            allow_temp=spec.options.get("allow_temp", self.allow_temp),
-        )
+        resolved = resolve_adapter_path(spec.uri.strip(), self)
         if not resolved.exists():
-            clean_uri = _CREDENTIAL_PATTERN.sub(r"\1:***@", spec.uri.strip())
-            clean_res = _CREDENTIAL_PATTERN.sub(r"\1:***@", str(resolved))
+            clean_uri = redact_credentials(spec.uri.strip())
+            clean_res = redact_credentials(str(resolved))
             raise SourceNotFoundError(
                 f"Text document not found: '{clean_uri}' (resolved: '{clean_res}')"
             )
         if resolved.is_dir():
             raise SourceLoadError(f"Text document target cannot be a directory: '{resolved}'")
+
+        file_bytes = resolved.read_bytes()
+        if not file_bytes:
+            raise DocumentExtractionError("Text document source is empty (0 bytes)")
 
         doc_id = str(spec.options.get("doc_id") or resolved.stem)
         media_type = (
@@ -124,7 +110,7 @@ class TextDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
             if (is_markdown or resolved.suffix.lower() in _MARKDOWN_EXTENSIONS)
             else "text/plain"
         )
-        return resolved.read_bytes(), doc_id, resolved, media_type
+        return file_bytes, doc_id, resolved, media_type
 
     def list_documents(self, spec: SourceSpec) -> list[DocumentRef]:
         """Enumerate document references matching the spec."""
@@ -163,9 +149,14 @@ class TextDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
         media_type = ref.media_type if ref and ref.media_type else default_media_type
 
         encoding = spec.options.get("encoding", "utf-8")
+        if encoding.lower() in ("utf-8", "utf8"):
+            encoding = "utf-8-sig"
         try:
             decoded = raw_bytes.decode(encoding, errors="strict")
         except UnicodeDecodeError as exc:
+            raise DocumentExtractionError(
+                f"Failed to decode text document with encoding '{encoding}': {exc}"
+            ) from exc
             raise DocumentExtractionError(
                 f"Failed to decode text document with encoding '{encoding}': {exc}"
             ) from exc

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -11,7 +10,8 @@ from typing import Any
 
 import duckdb
 
-from opendv_core.paths import PathContainmentError, resolve_workspace_path
+from opendv_core.paths import PathContainmentError
+from opendv_sources._resolution import redact_credentials, resolve_adapter_path
 from opendv_sources.exceptions import (
     SourceEmptyError,
     SourceLoadError,
@@ -30,7 +30,6 @@ from opendv_sources.spi.tabular import TabularSourceAdapter
 
 _SUPPORTED_FORMATS = {"csv", "tsv", "parquet", "json", "jsonl", "ndjson"}
 _GLOB_CHARS = {"*", "?", "["}
-_CREDENTIAL_PATTERN = re.compile(r"([^/:@\s]*):([^/:@\s]+)@")
 
 
 class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
@@ -67,60 +66,27 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
             raise SourceNotFoundError("LocalFilesystemSourceAdapter requires a non-empty 'uri'")
 
         raw_str = raw_uri.strip()
-        allowed: Sequence[Path] | None = (
-            self.allowed_roots
-            if self.allowed_roots is not None
-            else spec.options.get("allowed_roots")
-        )
-        if self.workspace_root is not None:
-            ws_root = self.workspace_root
-        elif "workspace_root" in spec.options:
-            ws_root = Path(spec.options["workspace_root"])
-        else:
-            ws_root = Path.cwd()
-        base_dir: Path | None = (
-            Path(spec.options["base_dir"]) if "base_dir" in spec.options else None
-        )
-        allow_temp = spec.options.get("allow_temp", self.allow_temp)
-
         if any(ch in raw_str for ch in _GLOB_CHARS):
-            return self._resolve_glob_pattern(
-                raw_str,
-                ws_root=ws_root,
-                base_dir=base_dir,
-                allowed_roots=allowed,
-                allow_temp=allow_temp,
-            )
+            return self._resolve_glob_pattern(raw_str)
 
-        resolved = resolve_workspace_path(
-            raw_str,
-            workspace_root=ws_root,
-            base_dir=base_dir,
-            allowed_roots=allowed,
-            allow_temp=allow_temp,
-        )
+        resolved = resolve_adapter_path(raw_str, self)
         if not resolved.exists():
-            clean_raw = _CREDENTIAL_PATTERN.sub(r"\1:***@", raw_str)
-            clean_res = _CREDENTIAL_PATTERN.sub(r"\1:***@", str(resolved))
+            clean_raw = redact_credentials(raw_str)
+            clean_res = redact_credentials(str(resolved))
             msg = f"Source path not found: '{clean_raw}' (resolved: '{clean_res}')"
             raise SourceNotFoundError(msg)
 
         if resolved.is_dir():
-            files = sorted(p for p in resolved.rglob("*") if p.is_file())
+            files = sorted(
+                p for p in resolved.rglob("*") if p.is_file() and not p.name.startswith(".")
+            )
             if not files:
-                raise SourceEmptyError(f"Source directory contains zero files: '{resolved}'")
+                clean_dir = redact_credentials(str(resolved))
+                raise SourceEmptyError(f"Source directory contains zero files: '{clean_dir}'")
             return files
         return [resolved]
 
-    def _resolve_glob_pattern(
-        self,
-        pattern: str,
-        *,
-        ws_root: Path,
-        base_dir: Path | None,
-        allowed_roots: Sequence[Path] | None,
-        allow_temp: bool,
-    ) -> list[Path]:
+    def _resolve_glob_pattern(self, pattern: str) -> list[Path]:
         prefix_parts: list[str] = []
         pattern_parts: list[str] = []
         found_wildcard = False
@@ -130,36 +96,31 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
             (pattern_parts if found_wildcard else prefix_parts).append(part)
 
         prefix_str = str(Path(*prefix_parts)) if prefix_parts else "."
-        base_path = resolve_workspace_path(
-            prefix_str,
-            workspace_root=ws_root,
-            base_dir=base_dir,
-            allowed_roots=allowed_roots,
-            allow_temp=allow_temp,
-        )
+        base_path = resolve_adapter_path(prefix_str, self)
         if not base_path.is_dir():
-            raise SourceNotFoundError(f"Glob base dir missing: '{base_path}'")
+            clean_base = redact_credentials(str(base_path))
+            raise SourceNotFoundError(f"Glob base dir missing: '{clean_base}'")
 
         sub_pattern = "/".join(pattern_parts)
         matched = list(base_path.glob(sub_pattern))
 
+        ws_root = self.workspace_root if self.workspace_root is not None else Path.cwd()
         permitted = {ws_root.resolve(), base_path.resolve()}
-        if base_dir is not None:
-            permitted.add(base_dir.resolve())
-        if allowed_roots:
-            permitted.update(r.resolve() for r in allowed_roots)
+        if self.allowed_roots:
+            permitted.update(r.resolve() for r in self.allowed_roots)
 
         files: list[Path] = []
         for p in matched:
             resolved_p = p.resolve()
             if not any(resolved_p.is_relative_to(root) for root in permitted):
                 raise PathContainmentError(f"Matched file escapes permitted roots: '{resolved_p}'")
-            if resolved_p.is_file():
+            if resolved_p.is_file() and not resolved_p.name.startswith("."):
                 files.append(resolved_p)
 
         files = sorted(set(files))
         if not files:
-            raise SourceNotFoundError(f"No files matched glob pattern: '{pattern}'")
+            clean_pat = redact_credentials(pattern)
+            raise SourceNotFoundError(f"No files matched glob pattern: '{clean_pat}'")
         return files
 
     def read_bytes(self, spec: SourceSpec) -> bytes:
@@ -257,14 +218,16 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
         )
         try:
             conn.execute(sql)
-            res = conn.execute(f'SELECT count(*) FROM "{r_esc}"').fetchone()
-            count = res[0] if res else 0
+            res = conn.execute(f'SELECT count(*) FROM "{r_esc}"').fetchall()
+            count = int(res[0][0]) if res and res[0] else 0
         except duckdb.Error as exc:
-            msg = f"Failed to register relation '{relation_name}' from '{spec.uri}': {exc}"
+            clean_uri = redact_credentials(str(spec.uri or ""))
+            msg = f"Failed to register relation '{relation_name}' from '{clean_uri}': {exc}"
             raise SourceLoadError(msg) from exc
 
         if count == 0:
-            raise SourceEmptyError(f"Source '{spec.uri}' contains zero data rows.")
+            clean_uri = redact_credentials(str(spec.uri or ""))
+            raise SourceEmptyError(f"Source '{clean_uri}' contains zero data rows.")
 
     def describe(self, spec: SourceSpec) -> SourceDescriptor:
         paths = self._resolve_target_paths(spec)
@@ -283,13 +246,13 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
                 )
                 for r in cols_data
             ]
-            res = tmp_conn.execute('SELECT count(*) FROM "_tmp_describe"').fetchone()
-            count = res[0] if res else 0
+            res = tmp_conn.execute('SELECT count(*) FROM "_tmp_describe"').fetchall()
+            count = int(res[0][0]) if res and res[0] else 0
         finally:
             tmp_conn.close()
 
         raw_target = spec.uri or str(paths[0])
-        clean_uri = _CREDENTIAL_PATTERN.sub(r"\1:***@", raw_target)
+        clean_uri = redact_credentials(raw_target)
         return SourceDescriptor(
             adapter=self.adapter_name,
             format=fmt,

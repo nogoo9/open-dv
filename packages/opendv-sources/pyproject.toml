@@ -36,6 +36,14 @@ md = "opendv_sources.adapters.text_document:TextDocumentSourceAdapter"
 markdown = "opendv_sources.adapters.text_document:TextDocumentSourceAdapter"
 pdf = "opendv_sources.adapters.pdf_document:PdfDocumentSourceAdapter"
 
+[project.entry-points."opendv.format_parsers"]
+csv = "opendv_sources.parsers.csv:CsvFormatParser"
+tsv = "opendv_sources.parsers.csv:CsvFormatParser"
+parquet = "opendv_sources.parsers.parquet:ParquetFormatParser"
+json = "opendv_sources.parsers.json:JsonFormatParser"
+jsonl = "opendv_sources.parsers.json:JsonFormatParser"
+ndjson = "opendv_sources.parsers.json:JsonFormatParser"
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"

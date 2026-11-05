@@ -1268,11 +1268,10 @@ def test_issue_30_scenario_s7_multibyte_utf8_e2e_sandbox() -> None:
     orders_csv = s7_dir / "erp_orders.csv"
 
     with GraphBProfiler() as profiler:
-        get_source_registry().get_tabular_adapter("file").register(
+        get_source_registry().get_tabular_adapter("file", workspace_root=s7_dir).register(
             SourceSpec(
                 adapter="file",
                 uri=str(crm_csv),
-                options={"workspace_root": str(s7_dir)},
             ),
             profiler.conn,
             "v_crm",

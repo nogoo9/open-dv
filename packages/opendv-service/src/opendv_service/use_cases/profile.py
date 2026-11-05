@@ -31,6 +31,8 @@ def profile_pipeline(
     request: ProfileRequest,
     *,
     workspace_root: Path | None = None,
+    allow_temp: bool = True,
+    allowed_roots: list[Path] | None = None,
 ) -> ProfileResponse:
     """Profile tabular data via SourceSpec or validate an existing Graph B profile descriptor."""
     root = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
@@ -49,9 +51,8 @@ def profile_pipeline(
                 spec = request.source
             else:
                 spec = SourceSpec.model_validate(request.source)
-            spec.options.pop("allowed_roots", None)
-            spec.options["allow_temp"] = True
-            spec.options["workspace_root"] = str(root)
+            for banned in ("workspace_root", "allowed_roots", "base_dir", "allow_temp"):
+                spec.options.pop(banned, None)
             display_source_path = spec.uri or spec.client_path or f"source:{spec.adapter}"
             inferred_table = Path(spec.uri).stem if spec.uri else spec.adapter
         elif has_file_content:
@@ -67,7 +68,10 @@ def profile_pipeline(
         else:
             assert request.source_path is not None
             resolved_path = resolve_workspace_path(
-                request.source_path, workspace_root=root, allow_temp=True
+                request.source_path,
+                workspace_root=root,
+                allow_temp=allow_temp,
+                allowed_roots=allowed_roots,
             )
             if not resolved_path.exists():
                 raise InputValidationError(f"Source data file not found: {resolved_path}")
@@ -75,7 +79,6 @@ def profile_pipeline(
             spec = SourceSpec(
                 adapter="file",
                 uri=str(resolved_path),
-                options={"allow_temp": True, "workspace_root": str(root)},
             )
             inferred_table = resolved_path.stem
 
@@ -90,7 +93,12 @@ def profile_pipeline(
         profiler = GraphBProfiler()
         try:
             reg = get_source_registry()
-            adapter = reg.get_tabular_adapter(spec.adapter)
+            adapter = reg.get_tabular_adapter(
+                spec.adapter,
+                workspace_root=root,
+                allow_temp=allow_temp,
+                allowed_roots=allowed_roots,
+            )
             adapter.register(spec, profiler.conn, resolved_table_name)
             profiler.profile_relation(resolved_table_name)
             profile_obj = profiler.build_graph_b_profile(

@@ -92,8 +92,13 @@ def test_format_spec_valid() -> None:
     assert fmt.schema_hint == {"id": "int64", "name": "string"}
 
 
-def test_source_spec_rejects_allowed_roots_option() -> None:
-    """Verify allowed_roots in client options is strictly rejected."""
+@pytest.mark.parametrize(
+    "containment_key", ["allowed_roots", "workspace_root", "base_dir", "allow_temp"]
+)
+def test_source_spec_rejects_containment_options(containment_key: str) -> None:
+    """Verify containment options in client options are strictly rejected."""
     with pytest.raises(ValidationError) as exc_info:
-        SourceSpec(adapter="file", options={"allowed_roots": ["C:/evil"]})
-    assert "client override of allowed_roots is forbidden" in str(exc_info.value)
+        SourceSpec(adapter="file", options={containment_key: "C:/evil"})
+    assert f"client override of containment option '{containment_key}' is forbidden" in str(
+        exc_info.value
+    )

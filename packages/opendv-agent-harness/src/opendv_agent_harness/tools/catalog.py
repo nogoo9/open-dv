@@ -166,10 +166,26 @@ async def _handle_profile_source_feed(
     if file_path is not None:
         profiler = GraphBProfiler()
         try:
-            spec = SourceSpec(adapter="file", uri=str(file_path))
-            get_source_registry().get_tabular_adapter(spec.adapter).register(
-                spec, profiler.conn, "temp_profiled_feed"
+            cfg = getattr(ctx, "config", None)
+            ws = (
+                getattr(ctx, "workspace_root", None)
+                or getattr(cfg, "workspace_dir", None)
+                or getattr(ctx, "storage_root", None)
+                or Path.cwd()
             )
+            extra_roots = [
+                getattr(cfg, "state_dir", None),
+                getattr(cfg, "app_data_dir", None),
+                getattr(cfg, "save_dir", None),
+            ]
+            allowed_roots = [r for r in extra_roots if r is not None]
+            spec = SourceSpec(adapter="file", uri=str(file_path))
+            get_source_registry().get_tabular_adapter(
+                spec.adapter,
+                workspace_root=ws,
+                allowed_roots=allowed_roots,
+                allow_temp=True,
+            ).register(spec, profiler.conn, "temp_profiled_feed")
             col_profiles = profiler.profile_relation("temp_profiled_feed")
 
             row_count = col_profiles[0].row_count if col_profiles else 0
@@ -321,12 +337,29 @@ async def _handle_extract_pdf_spans(
         doc_file = _resolve_existing_file(args.document_uri, ctx)
         if doc_file is not None:
             adapter_name = get_source_registry().resolve_document_adapter_name(doc_file)
-            doc_adapter = get_source_registry().get_document_adapter(adapter_name)
+            cfg = getattr(ctx, "config", None)
+            ws = (
+                getattr(ctx, "workspace_root", None)
+                or getattr(cfg, "workspace_dir", None)
+                or getattr(ctx, "storage_root", None)
+                or Path.cwd()
+            )
+            extra_roots = [
+                getattr(cfg, "state_dir", None),
+                getattr(cfg, "app_data_dir", None),
+                getattr(cfg, "save_dir", None),
+            ]
+            allowed_roots = [r for r in extra_roots if r is not None]
+            doc_adapter = get_source_registry().get_document_adapter(
+                adapter_name,
+                workspace_root=ws,
+                allowed_roots=allowed_roots,
+                allow_temp=True,
+            )
             extracted = doc_adapter.extract_document(
                 SourceSpec(
                     adapter=adapter_name,
                     uri=str(doc_file),
-                    options={"workspace_root": str(doc_file.parent)},
                 )
             )
             doc_text = extracted.normalized_text

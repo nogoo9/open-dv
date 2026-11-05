@@ -145,12 +145,20 @@ def test_cross_format_dataset_derivation_and_profiling(tmp_path: Path) -> None:
 
     for fmt_name, specs in datasets.items():
         with GraphBProfiler() as profiler:
-            c_adapter = registry.get_tabular_adapter(specs["crm"].adapter)
+            c_adapter = registry.get_tabular_adapter(
+                specs["crm"].adapter,
+                allowed_roots=[tmp_path, REPO_ROOT],
+                allow_temp=True,
+            )
             c_adapter.register(specs["crm"], profiler.conn, "v_crm")
             c_cols = {c.column_name: c for c in profiler.profile_table_columns("v_crm")}
             crm_profiles[fmt_name] = c_cols
 
-            e_adapter = registry.get_tabular_adapter(specs["erp"].adapter)
+            e_adapter = registry.get_tabular_adapter(
+                specs["erp"].adapter,
+                allowed_roots=[tmp_path, REPO_ROOT],
+                allow_temp=True,
+            )
             e_adapter.register(specs["erp"], profiler.conn, "v_erp")
             e_cols = {c.column_name: c for c in profiler.profile_table_columns("v_erp")}
             erp_profiles[fmt_name] = e_cols
@@ -309,7 +317,7 @@ def test_document_extraction_equivalence_and_page_map() -> None:
 def test_negative_and_failure_invariants(tmp_path: Path) -> None:
     """Verify empty, corrupt, unsupported format, and secret redaction invariants."""
     registry = get_source_registry()
-    fs_adapter = registry.get_tabular_adapter("file")
+    fs_adapter = registry.get_tabular_adapter("file", workspace_root=tmp_path, allow_temp=True)
 
     # 1. Empty source yields typed error
     empty_csv = tmp_path / "empty.csv"
@@ -323,7 +331,6 @@ def test_negative_and_failure_invariants(tmp_path: Path) -> None:
                 adapter="file",
                 uri=str(empty_csv.resolve()),
                 format="csv",
-                options={"allow_temp": True},
             ),
             con,
             "empty_tbl",
@@ -338,7 +345,6 @@ def test_negative_and_failure_invariants(tmp_path: Path) -> None:
                 adapter="file",
                 uri=str(corrupt_pq.resolve()),
                 format="parquet",
-                options={"allow_temp": True},
             ),
             con,
             "corrupt_tbl",
@@ -351,7 +357,6 @@ def test_negative_and_failure_invariants(tmp_path: Path) -> None:
         adapter="file",
         uri=str(unknown_file.resolve()),
         format="xyz_format",
-        options={"allow_temp": True},
     )
     with pytest.raises(UnsupportedFormatError) as exc_info:
         fs_adapter.describe(unknown_spec)
@@ -366,7 +371,6 @@ def test_negative_and_failure_invariants(tmp_path: Path) -> None:
         uri=str(secure_file.resolve()),
         format="csv",
         credentials_ref="secret:supersecret_vault_token",
-        options={"allow_temp": True},
     )
     desc = fs_adapter.describe(secure_spec)
     for token in ["supersecret", "vault_token", "password"]:

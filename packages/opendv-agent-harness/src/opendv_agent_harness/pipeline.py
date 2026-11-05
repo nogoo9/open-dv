@@ -986,32 +986,39 @@ def _load_table_into_duckdb(
     conn: duckdb.DuckDBPyConnection,
     view_name: str,
     file_path: Path | str | SourceSpec,
+    *,
+    workspace_root: Path | None = None,
+    allowed_roots: list[Path] | None = None,
+    allow_temp: bool = True,
 ) -> tuple[int, list[str]]:
     """Load tabular data into DuckDB as `view_name` using adapters and return (rows, cols)."""
+    ws = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
     if isinstance(file_path, SourceSpec):
-        spec = file_path
-        if (
-            spec.adapter == "file"
-            and spec.uri
-            and "workspace_root" not in spec.options
-            and Path(spec.uri).is_file()
-        ):
-            spec.options["workspace_root"] = str(Path(spec.uri).parent)
+        spec = file_path.model_copy(deep=True)
     else:
         p = Path(file_path).resolve()
         spec = SourceSpec(
             adapter="file",
             uri=str(p),
-            options={"workspace_root": str(p.parent)},
         )
+    eff_allowed = list(allowed_roots) if allowed_roots else []
+    if workspace_root is None and spec.uri and Path(spec.uri).is_file():
+        p_file = Path(spec.uri).resolve()
+        if p_file.parent not in eff_allowed:
+            eff_allowed.append(p_file.parent)
     reg = get_source_registry()
-    adapter = reg.get_tabular_adapter(spec.adapter)
+    adapter = reg.get_tabular_adapter(
+        spec.adapter,
+        workspace_root=ws,
+        allowed_roots=eff_allowed if eff_allowed else None,
+        allow_temp=allow_temp,
+    )
     adapter.register(spec, conn, view_name)
     q_view = f'"{view_name}"'
     desc = conn.execute(f"DESCRIBE {q_view}").fetchall()
     cols = [str(r[0]) for r in desc]
-    cnt_row = conn.execute(f"SELECT COUNT(*) FROM {q_view}").fetchone()
-    row_count = int(cnt_row[0]) if cnt_row is not None else 0
+    cnt_row = conn.execute(f"SELECT COUNT(*) FROM {q_view}").fetchall()
+    row_count = int(cnt_row[0][0]) if cnt_row and cnt_row[0] else 0
     return row_count, cols
 
 
@@ -1561,7 +1568,11 @@ def validate_pipeline_inputs(
                 try:
                     load_target = _to_source_target(src.source, d_path)
                     row_cnt, cols = _load_table_into_duckdb(
-                        conn, f"v_w{wave.wave_index}_s{s_idx}", load_target
+                        conn,
+                        f"v_w{wave.wave_index}_s{s_idx}",
+                        load_target,
+                        workspace_root=eff_base,
+                        allowed_roots=[ws_root, eff_base],
                     )
                     if row_cnt < 1 or len(cols) < 1:
                         diagnostics.append(
@@ -1634,7 +1645,11 @@ def validate_pipeline_inputs(
                         try:
                             b_target = _to_source_target(src.baseline_source, b_path)
                             b_rows, b_cols = _load_table_into_duckdb(
-                                conn, f"v_w{wave.wave_index}_s{s_idx}_base", b_target
+                                conn,
+                                f"v_w{wave.wave_index}_s{s_idx}_base",
+                                b_target,
+                                workspace_root=eff_base,
+                                allowed_roots=[ws_root, eff_base],
                             )
                             if b_rows < 1 or len(b_cols) < 1:
                                 diagnostics.append(
@@ -1709,9 +1724,10 @@ def validate_pipeline_inputs(
                         adapter=get_source_registry().resolve_document_adapter_name(u_path),
                         uri=str(u_path),
                     )
-                if not doc_spec.inline_content and "workspace_root" not in doc_spec.options:
-                    doc_spec.options["workspace_root"] = str(base_dir or u_path.parent)
-                doc_adapter = get_source_registry().get_document_adapter(doc_spec.adapter)
+                ws = Path(base_dir).resolve() if base_dir else Path.cwd()
+                doc_adapter = get_source_registry().get_document_adapter(
+                    doc_spec.adapter, workspace_root=ws, allow_temp=True
+                )
                 extracted = doc_adapter.extract_document(doc_spec)
                 doc_text = extracted.normalized_text
                 if not doc_text.strip():
@@ -3241,7 +3257,14 @@ class AgenticVaultPipeline:
 
                     view_t1 = f"v_{_slugify(src.source_system)}_{_slugify(src.table_name)}"
                     src_target = _to_source_target(src.source, d_path)
-                    _load_table_into_duckdb(profiler.conn, view_t1, src_target)
+                    _load_table_into_duckdb(
+                        profiler.conn,
+                        view_t1,
+                        src_target,
+                        workspace_root=self.base_dir,
+                        allowed_roots=[self.workspace_root, self.base_dir],
+                        allow_temp=True,
+                    )
                     sample_cur = profiler.conn.execute(f'SELECT * FROM "{view_t1}" LIMIT 5')
                     sample_cols = (
                         [str(d[0]) for d in sample_cur.description]
@@ -3274,7 +3297,14 @@ class AgenticVaultPipeline:
                         assert b_path is not None
                         view_t0 = f"{view_t1}_baseline"
                         b_target = _to_source_target(src.baseline_source, b_path)
-                        _load_table_into_duckdb(profiler.conn, view_t0, b_target)
+                        _load_table_into_duckdb(
+                            profiler.conn,
+                            view_t0,
+                            b_target,
+                            workspace_root=self.base_dir,
+                            allowed_roots=[self.workspace_root, self.base_dir],
+                            allow_temp=True,
+                        )
                         drift_rep = profiler.detect_schema_drift(view_t0, view_t1)
                         for dev in drift_rep.events:
                             ev_dict = dev.model_dump(mode="json")
@@ -3647,11 +3677,15 @@ class AgenticVaultPipeline:
                         adapter=get_source_registry().resolve_document_adapter_name(u_path),
                         uri=str(u_path),
                     )
-                if not doc_spec.inline_content and "workspace_root" not in doc_spec.options:
-                    doc_spec.options["workspace_root"] = str(
-                        self.workspace_root or self.base_dir or u_path.parent
-                    )
-                doc_adapter = get_source_registry().get_document_adapter(doc_spec.adapter)
+                allowed_doc_roots = [
+                    r for r in [self.workspace_root, self.base_dir] if r is not None
+                ]
+                doc_adapter = get_source_registry().get_document_adapter(
+                    doc_spec.adapter,
+                    workspace_root=self.base_dir or self.workspace_root,
+                    allowed_roots=allowed_doc_roots,
+                    allow_temp=True,
+                )
                 extracted = doc_adapter.extract_document(doc_spec)
                 doc_text = extracted.normalized_text
                 doc_sha256 = extracted.raw_sha256

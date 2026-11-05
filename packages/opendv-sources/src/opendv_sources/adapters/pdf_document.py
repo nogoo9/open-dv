@@ -5,12 +5,11 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
-import re
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from opendv_core.paths import resolve_workspace_path
+from opendv_sources._resolution import redact_credentials, resolve_adapter_path
 from opendv_sources.exceptions import (
     DocumentExtractionError,
     SourceLoadError,
@@ -22,8 +21,6 @@ from opendv_sources.models.specs import SourceSpec
 from opendv_sources.models.streams import SourceMetadata, StreamChunk
 from opendv_sources.spi.adapter import SourceAdapter
 from opendv_sources.spi.document import DocumentSourceAdapter
-
-_CREDENTIAL_PATTERN = re.compile(r"([^/:@\s]*):([^/:@\s]+)@")
 
 
 class PdfDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
@@ -88,27 +85,10 @@ class PdfDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
         if not spec.uri or not spec.uri.strip():
             raise SourceNotFoundError("PdfDocumentSourceAdapter requires 'uri' or 'inline_content'")
 
-        if self.workspace_root is not None:
-            ws = self.workspace_root
-        elif "workspace_root" in spec.options:
-            ws = Path(spec.options["workspace_root"])
-        else:
-            ws = Path.cwd()
-        base = Path(spec.options["base_dir"]) if "base_dir" in spec.options else None
-        resolved = resolve_workspace_path(
-            spec.uri.strip(),
-            workspace_root=ws,
-            base_dir=base,
-            allowed_roots=(
-                self.allowed_roots
-                if self.allowed_roots is not None
-                else spec.options.get("allowed_roots")
-            ),
-            allow_temp=spec.options.get("allow_temp", self.allow_temp),
-        )
+        resolved = resolve_adapter_path(spec.uri.strip(), self)
         if not resolved.exists():
-            clean_uri = _CREDENTIAL_PATTERN.sub(r"\1:***@", spec.uri.strip())
-            clean_res = _CREDENTIAL_PATTERN.sub(r"\1:***@", str(resolved))
+            clean_uri = redact_credentials(spec.uri.strip())
+            clean_res = redact_credentials(str(resolved))
             raise SourceNotFoundError(
                 f"PDF document not found: '{clean_uri}' (resolved: '{clean_res}')"
             )

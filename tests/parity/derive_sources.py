@@ -97,13 +97,11 @@ def derive_format_sources(tmp_path: Path) -> dict[str, dict[str, SourceSpec]]:
                 adapter="file",
                 uri=str(crm_csv.resolve()),
                 format="csv",
-                options={"allow_temp": True},
             ),
             "erp": SourceSpec(
                 adapter="file",
                 uri=str(erp_csv.resolve()),
                 format="csv",
-                options={"allow_temp": True},
             ),
         },
         "tsv": {
@@ -111,13 +109,11 @@ def derive_format_sources(tmp_path: Path) -> dict[str, dict[str, SourceSpec]]:
                 adapter="file",
                 uri=str(crm_tsv.resolve()),
                 format="tsv",
-                options={"allow_temp": True},
             ),
             "erp": SourceSpec(
                 adapter="file",
                 uri=str(erp_tsv.resolve()),
                 format="tsv",
-                options={"allow_temp": True},
             ),
         },
         "parquet": {
@@ -125,13 +121,11 @@ def derive_format_sources(tmp_path: Path) -> dict[str, dict[str, SourceSpec]]:
                 adapter="file",
                 uri=str(crm_pq.resolve()),
                 format="parquet",
-                options={"allow_temp": True},
             ),
             "erp": SourceSpec(
                 adapter="file",
                 uri=str(erp_pq.resolve()),
                 format="parquet",
-                options={"allow_temp": True},
             ),
         },
         "jsonl": {
@@ -139,13 +133,11 @@ def derive_format_sources(tmp_path: Path) -> dict[str, dict[str, SourceSpec]]:
                 adapter="file",
                 uri=str(crm_jl.resolve()),
                 format="jsonl",
-                options={"allow_temp": True},
             ),
             "erp": SourceSpec(
                 adapter="file",
                 uri=str(erp_jl.resolve()),
                 format="jsonl",
-                options={"allow_temp": True},
             ),
         },
         "sqlite": {
@@ -156,7 +148,6 @@ def derive_format_sources(tmp_path: Path) -> dict[str, dict[str, SourceSpec]]:
                 options={
                     "database": str(sq_db.resolve()),
                     "table": "crm_customers",
-                    "allow_temp": True,
                 },
             ),
             "erp": SourceSpec(
@@ -166,7 +157,6 @@ def derive_format_sources(tmp_path: Path) -> dict[str, dict[str, SourceSpec]]:
                 options={
                     "database": str(sq_db.resolve()),
                     "table": "erp_orders",
-                    "allow_temp": True,
                 },
             ),
         },
@@ -178,7 +168,6 @@ def derive_format_sources(tmp_path: Path) -> dict[str, dict[str, SourceSpec]]:
                 options={
                     "database": str(ddb_file.resolve()),
                     "table": "crm_customers",
-                    "allow_temp": True,
                 },
             ),
             "erp": SourceSpec(
@@ -188,7 +177,6 @@ def derive_format_sources(tmp_path: Path) -> dict[str, dict[str, SourceSpec]]:
                 options={
                     "database": str(ddb_file.resolve()),
                     "table": "erp_orders",
-                    "allow_temp": True,
                 },
             ),
         },

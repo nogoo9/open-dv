@@ -1,5 +1,6 @@
 """Open-DV Pluggable Data Source & Format Adapter SPI, Registries, and Conformance Kit."""
 
+from opendv_sources._resolution import redact_credentials, resolve_adapter_path
 from opendv_sources.adapters.duckdb_attach import DuckdbAttachSourceAdapter
 from opendv_sources.adapters.filesystem import LocalFilesystemSourceAdapter
 from opendv_sources.adapters.inline import InlineSourceAdapter
@@ -40,6 +41,7 @@ from opendv_sources.models.streams import (
     SourceMetadata,
     StreamChunk,
 )
+from opendv_sources.parsers import CsvFormatParser, JsonFormatParser, ParquetFormatParser
 from opendv_sources.registry.format_registry import (
     FORMAT_PARSER_ENTRY_POINT_GROUP,
     FormatParserRegistry,
@@ -61,6 +63,7 @@ __all__ = [
     "AuthenticationError",
     "BatchRead",
     "ColumnDescriptor",
+    "CsvFormatParser",
     "DocumentAdapterConformanceSuite",
     "DocumentExtractionError",
     "DocumentPage",
@@ -73,8 +76,10 @@ __all__ = [
     "FormatParserRegistry",
     "FormatSpec",
     "InlineSourceAdapter",
+    "JsonFormatParser",
     "LocalFilesystemSourceAdapter",
     "PageMapEntry",
+    "ParquetFormatParser",
     "PathContainmentError",
     "PdfDocumentSourceAdapter",
     "SourceAdapter",
@@ -96,4 +101,6 @@ __all__ = [
     "get_format_registry",
     "get_source_registry",
     "load_structured_document",
+    "redact_credentials",
+    "resolve_adapter_path",
 ]

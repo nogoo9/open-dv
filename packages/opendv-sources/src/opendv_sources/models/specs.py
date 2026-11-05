@@ -21,6 +21,14 @@ _DISALLOWED_OPTION_KEYS = {
 }
 
 
+_FORBIDDEN_CONTAINMENT_OPTION_KEYS = {
+    "workspace_root",
+    "allowed_roots",
+    "base_dir",
+    "allow_temp",
+}
+
+
 class SourceSpec(BaseContractModel):
     """Declarative specification for an input data source."""
 
@@ -73,10 +81,10 @@ class SourceSpec(BaseContractModel):
                     f"Option '{k}' rejected: literal credentials in options are forbidden. "
                     "Use credentials_ref instead."
                 )
-            if lower_k == "allowed_roots":
+            if lower_k in _FORBIDDEN_CONTAINMENT_OPTION_KEYS:
                 raise ValueError(
-                    f"Option '{k}' rejected: client override of allowed_roots is forbidden. "
-                    "Configure allowed roots on the server adapter instead."
+                    f"Option '{k}' rejected: client override of containment option '{k}' "
+                    "is forbidden. Configure containment boundaries on the server adapter instead."
                 )
         return v
 

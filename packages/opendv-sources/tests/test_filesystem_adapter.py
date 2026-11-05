@@ -8,6 +8,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
+from pydantic import ValidationError
 
 from opendv_core.paths import PathContainmentError
 from opendv_sources.adapters.filesystem import LocalFilesystemSourceAdapter
@@ -192,7 +193,7 @@ def test_filesystem_default_adapter_rejects_external_absolute_path(tmp_path: Pat
 
 
 def test_filesystem_client_workspace_root_cannot_override_server_jail(tmp_path: Path) -> None:
-    """Verify server workspace root strictly overrides client options['workspace_root']."""
+    """Verify client options cannot supply containment overrides and server jail holds."""
     server_ws = tmp_path / "server_ws"
     server_ws.mkdir()
     outside_dir = tmp_path / "outside"
@@ -200,14 +201,53 @@ def test_filesystem_client_workspace_root_cannot_override_server_jail(tmp_path: 
     outside_file = outside_dir / "secret.csv"
     outside_file.write_text("secret", encoding="utf-8")
     adapter = LocalFilesystemSourceAdapter(workspace_root=server_ws)
+
+    # Client-supplied containment options are rejected at spec validation time
+    with pytest.raises(ValidationError, match="containment option"):
+        SourceSpec(
+            adapter="file",
+            uri=str(outside_file.resolve()),
+            options={"workspace_root": str(outside_dir.resolve())},
+            format="csv",
+        )
+
+    # Legitimate spec targeting outside path is blocked by containment
     evil_spec = SourceSpec(
         adapter="file",
         uri=str(outside_file.resolve()),
-        options={"workspace_root": str(outside_dir.resolve())},
         format="csv",
     )
     with pytest.raises(PathContainmentError):
         adapter.read_bytes(evil_spec)
+
+
+def test_connection_reuse_across_file_and_inline(tmp_path: Path) -> None:
+    """Verify B3: DuckDB connection is reusable across file and inline adapter registrations."""
+    from opendv_sources.adapters.inline import InlineSourceAdapter
+
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    csv_file = ws / "sample.csv"
+    csv_file.write_text("id,val\n1,foo\n2,bar\n", encoding="utf-8")
+
+    conn = duckdb.connect(":memory:")
+    file_adapter = LocalFilesystemSourceAdapter(workspace_root=ws)
+    inline_adapter = InlineSourceAdapter()
+
+    spec_file = SourceSpec(adapter="file", uri="sample.csv", format="csv")
+    file_adapter.register(spec_file, conn, "tbl_file")
+
+    spec_inline = SourceSpec(
+        adapter="inline", inline_content="col1,col2\n10,20\n30,40\n", format="csv"
+    )
+    inline_adapter.register(spec_inline, conn, "tbl_inline")
+
+    # Both tables should be queryable on the shared connection
+    res_file = conn.execute("SELECT COUNT(*) FROM tbl_file").fetchone()
+    assert res_file is not None and res_file[0] == 2
+
+    res_inline = conn.execute("SELECT COUNT(*) FROM tbl_inline").fetchone()
+    assert res_inline is not None and res_inline[0] == 2
 
 
 def test_filesystem_sql_injection_relation_name_escaped(tmp_path: Path) -> None:

@@ -6,6 +6,7 @@ import base64
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from opendv_core.paths import PathContainmentError
 from opendv_sources.adapters.pdf_document import PdfDocumentSourceAdapter
@@ -247,7 +248,7 @@ def test_empty_inline_documents_raise_extraction_error() -> None:
 
 
 def test_document_adapters_jailbreak_prevention(tmp_path: Path) -> None:
-    """Verify server workspace root strictly overrides client options['workspace_root']."""
+    """Verify client options cannot supply containment overrides and server jail holds."""
     server_ws = tmp_path / "server_ws"
     server_ws.mkdir()
     outside_dir = tmp_path / "outside"
@@ -259,21 +260,52 @@ def test_document_adapters_jailbreak_prevention(tmp_path: Path) -> None:
     text_ad = TextDocumentSourceAdapter(workspace_root=server_ws)
     pdf_ad = PdfDocumentSourceAdapter(workspace_root=server_ws)
 
-    evil_txt = SourceSpec(
-        adapter="text",
-        uri=str(outside_txt.resolve()),
-        options={"workspace_root": str(outside_dir.resolve())},
-    )
+    # Client-supplied containment options are rejected at spec validation time
+    with pytest.raises(ValidationError, match="containment option"):
+        SourceSpec(
+            adapter="text",
+            uri=str(outside_txt.resolve()),
+            options={"workspace_root": str(outside_dir.resolve())},
+        )
+    with pytest.raises(ValidationError, match="containment option"):
+        SourceSpec(
+            adapter="pdf",
+            uri=str(outside_pdf.resolve()),
+            options={"base_dir": str(outside_dir.resolve())},
+        )
+
+    # Legitimate specs targeting files outside server jail are blocked by containment
+    evil_txt = SourceSpec(adapter="text", uri=str(outside_txt.resolve()))
     with pytest.raises(PathContainmentError):
         text_ad.extract_document(evil_txt)
 
-    evil_pdf = SourceSpec(
-        adapter="pdf",
-        uri=str(outside_pdf.resolve()),
-        options={"workspace_root": str(outside_dir.resolve())},
-    )
+    evil_pdf = SourceSpec(adapter="pdf", uri=str(outside_pdf.resolve()))
     with pytest.raises(PathContainmentError):
         pdf_ad.extract_document(evil_pdf)
+
+
+def test_text_document_utf8_bom_stripped(tmp_path: Path) -> None:
+    """Verify UTF-8 BOM is stripped when decoding text documents (M3)."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    bom_file = ws / "bom.txt"
+    # Write UTF-8 with BOM (\xef\xbb\xbf)
+    bom_file.write_bytes(b"\xef\xbb\xbfHello with BOM")
+    adapter = TextDocumentSourceAdapter(workspace_root=ws)
+    doc = adapter.extract_document(SourceSpec(adapter="text", uri="bom.txt"))
+    assert doc.text == "Hello with BOM"
+    assert not doc.text.startswith("\ufeff")
+
+
+def test_text_document_empty_disk_file_raises_extraction_error(tmp_path: Path) -> None:
+    """Verify empty (0-byte) disk file raises DocumentExtractionError (M4)."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    empty_file = ws / "empty.txt"
+    empty_file.write_text("", encoding="utf-8")
+    adapter = TextDocumentSourceAdapter(workspace_root=ws)
+    with pytest.raises(DocumentExtractionError, match="empty \\(0 bytes\\)"):
+        adapter.extract_document(SourceSpec(adapter="text", uri="empty.txt"))
 
 
 def test_document_adapters_credential_redaction_in_not_found(tmp_path: Path) -> None:

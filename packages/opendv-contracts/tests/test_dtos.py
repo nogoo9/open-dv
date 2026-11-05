@@ -220,7 +220,7 @@ def test_project_and_artifact_dtos() -> None:
 
 
 def test_profile_request_rejects_client_jailbreak_options() -> None:
-    """Verify ProfileRequest forbids workspace_root and allowed_roots in source options."""
+    """Verify ProfileRequest forbids containment options in source options."""
     with pytest.raises(ValidationError) as exc_ws:
         ProfileRequest(
             source={"adapter": "file", "uri": "hosts", "options": {"workspace_root": "C:/"}}
@@ -232,3 +232,11 @@ def test_profile_request_rejects_client_jailbreak_options() -> None:
             source={"adapter": "file", "uri": "hosts", "options": {"allowed_roots": ["C:/"]}}
         )
     assert "Client option 'allowed_roots' is forbidden" in str(exc_roots.value)
+
+    with pytest.raises(ValidationError) as exc_base:
+        ProfileRequest(source={"adapter": "file", "uri": "hosts", "options": {"base_dir": "C:/"}})
+    assert "Client option 'base_dir' is forbidden" in str(exc_base.value)
+
+    with pytest.raises(ValidationError) as exc_temp:
+        ProfileRequest(source={"adapter": "file", "uri": "hosts", "options": {"allow_temp": True}})
+    assert "Client option 'allow_temp' is forbidden" in str(exc_temp.value)

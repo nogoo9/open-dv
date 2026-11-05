@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import importlib.metadata
 import threading
-from typing import Any
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any, cast
 
 from opendv_sources.exceptions import UnsupportedFormatError
+from opendv_sources.registry.format_registry import get_format_registry
 from opendv_sources.spi.document import DocumentSourceAdapter
 from opendv_sources.spi.tabular import TabularSourceAdapter
 
@@ -92,8 +95,15 @@ class SourceAdapterRegistry:
                 "TabularSourceAdapter or DocumentSourceAdapter."
             )
 
-    def get_tabular_adapter(self, name: str) -> TabularSourceAdapter:
-        """Retrieve a registered TabularSourceAdapter by name."""
+    def get_tabular_adapter(
+        self,
+        name: str,
+        *,
+        workspace_root: Path | None = None,
+        allowed_roots: Sequence[Path] | None = None,
+        allow_temp: bool = False,
+    ) -> TabularSourceAdapter:
+        """Retrieve a registered TabularSourceAdapter, optionally configured with server jail."""
         self._discover()
         key = name.lower().strip()
         with self._lock:
@@ -109,10 +119,31 @@ class SourceAdapterRegistry:
                     requested=name,
                     available=available,
                 )
-            return self._tabular_adapters[key]
+            base = self._tabular_adapters[key]
+            if workspace_root is not None or allowed_roots is not None or allow_temp:
+                try:
+                    adapter_cls: Any = type(base)
+                    return cast(
+                        TabularSourceAdapter,
+                        adapter_cls(
+                            workspace_root=workspace_root,
+                            allowed_roots=allowed_roots,
+                            allow_temp=allow_temp,
+                        ),
+                    )
+                except TypeError:
+                    return base
+            return base
 
-    def get_document_adapter(self, name: str) -> DocumentSourceAdapter:
-        """Retrieve a registered DocumentSourceAdapter by name."""
+    def get_document_adapter(
+        self,
+        name: str,
+        *,
+        workspace_root: Path | None = None,
+        allowed_roots: Sequence[Path] | None = None,
+        allow_temp: bool = False,
+    ) -> DocumentSourceAdapter:
+        """Retrieve a registered DocumentSourceAdapter, optionally configured with server jail."""
         self._discover()
         key = name.lower().strip()
         with self._lock:
@@ -128,7 +159,21 @@ class SourceAdapterRegistry:
                     requested=name,
                     available=available,
                 )
-            return self._document_adapters[key]
+            base = self._document_adapters[key]
+            if workspace_root is not None or allowed_roots is not None or allow_temp:
+                try:
+                    doc_adapter_cls: Any = type(base)
+                    return cast(
+                        DocumentSourceAdapter,
+                        doc_adapter_cls(
+                            workspace_root=workspace_root,
+                            allowed_roots=allowed_roots,
+                            allow_temp=allow_temp,
+                        ),
+                    )
+                except TypeError:
+                    return base
+            return base
 
     def list_tabular_adapters(self) -> list[str]:
         """List registered tabular adapter names."""
@@ -166,10 +211,13 @@ class SourceAdapterRegistry:
         """Return True if target path or URI corresponds to a supported tabular file."""
         self._discover()
         raw = str(target).lower().strip()
-        return any(
-            raw.endswith(f".{ext}")
-            for ext in ("csv", "tsv", "parquet", "pq", "json", "jsonl", "ndjson")
-        )
+        if any(raw.endswith(f".{ext}") for ext in ("sqlite", "sqlite3", "duckdb", "db")):
+            return True
+        if "." in raw:
+            suffix = f".{raw.rsplit('.', 1)[-1]}"
+            if get_format_registry().is_extension_supported(suffix):
+                return True
+        return False
 
     def reset(self) -> None:
         """Reset the registry to an empty, undiscovered state (for testing)."""

@@ -19,4 +19,4 @@ async def profile_source(
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
 ) -> ProfileResponse:
     """Profile Bronze tabular sources or existing Graph B profile via SourceSpec."""
-    return service.profile_pipeline(req)
+    return service.profile_pipeline(req, allow_temp=False)

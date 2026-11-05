@@ -9,6 +9,7 @@ from pathlib import Path
 
 import duckdb
 import pytest
+from pydantic import ValidationError
 
 from opendv_core.paths import PathContainmentError
 from opendv_sources.adapters.duckdb_attach import DuckdbAttachSourceAdapter
@@ -314,7 +315,7 @@ def test_duckdb_attach_credential_redaction_in_not_found_error() -> None:
 
 
 def test_duckdb_attach_client_workspace_root_cannot_override_server_jail(tmp_path: Path) -> None:
-    """Verify server workspace root strictly overrides client options['workspace_root']."""
+    """Verify client options cannot supply containment overrides and server jail holds."""
     server_ws = tmp_path / "server_ws"
     server_ws.mkdir()
     outside_dir = tmp_path / "outside"
@@ -322,10 +323,19 @@ def test_duckdb_attach_client_workspace_root_cannot_override_server_jail(tmp_pat
     outside_db = outside_dir / "secret.db"
     outside_db.write_bytes(b"data")
     adapter = DuckdbAttachSourceAdapter(workspace_root=server_ws)
+
+    # Client-supplied containment options are rejected at spec validation time
+    with pytest.raises(ValidationError, match="containment option"):
+        SourceSpec(
+            adapter="duckdb_attach",
+            uri=str(outside_db.resolve()),
+            options={"workspace_root": str(outside_dir.resolve())},
+        )
+
+    # Legitimate spec targeting outside path is blocked by containment
     evil_spec = SourceSpec(
         adapter="duckdb_attach",
         uri=str(outside_db.resolve()),
-        options={"workspace_root": str(outside_dir.resolve())},
     )
     with pytest.raises(PathContainmentError):
         adapter.read_bytes(evil_spec)

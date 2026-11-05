@@ -54,7 +54,7 @@ _SAFE_SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-
 def _quote_identifier(identifier: str) -> str:
     """Validate and double-quote a SQL table or column identifier (optionally schema-qualified)."""
     if not _SAFE_SQL_IDENTIFIER_RE.match(identifier):
-        msg = f"Unsafe SQL identifier rejected: {identifier!r}"
+        msg = "Unsafe SQL identifier rejected: identifier contains invalid characters"
         raise ValueError(msg)
     parts = identifier.split(".")
     return ".".join(f'"{part}"' for part in parts)

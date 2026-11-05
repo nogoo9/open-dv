@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 import hashlib
-import re
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
 import duckdb
 
-from opendv_core.paths import PathContainmentError, resolve_workspace_path
+from opendv_core.paths import PathContainmentError
+from opendv_sources._resolution import redact_credentials, resolve_adapter_path
 from opendv_sources.exceptions import (
     SourceLoadError,
     SourceNotFoundError,
@@ -24,7 +24,6 @@ from opendv_sources.spi.adapter import SourceAdapter
 from opendv_sources.spi.tabular import TabularSourceAdapter
 
 _KNOWN_SCHEMES = ("duckdb_attach", "sqlite", "duckdb")
-_CREDENTIAL_PATTERN = re.compile(r"([^/:@\s]*):([^/:@\s]+)@")
 
 
 class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
@@ -38,10 +37,12 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
         adapter_name: str = "duckdb_attach",
         workspace_root: Path | None = None,
         allowed_roots: Sequence[Path] | None = None,
+        allow_temp: bool = False,
     ) -> None:
         self._adapter_name = adapter_name
         self.workspace_root = workspace_root
         self.allowed_roots = allowed_roots
+        self.allow_temp = allow_temp
 
     @property
     def adapter_name(self) -> str:
@@ -66,32 +67,17 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
         if len(raw_p) >= 3 and raw_p[0] in "/\\" and raw_p[2] == ":":
             raw_p = raw_p[1:]
 
-        if self.workspace_root is not None:
-            ws_root = self.workspace_root
-        elif "workspace_root" in spec.options:
-            ws_root = Path(spec.options["workspace_root"])
-        else:
-            ws_root = Path.cwd()
-        resolved = resolve_workspace_path(
-            raw_p,
-            workspace_root=ws_root,
-            base_dir=Path(spec.options["base_dir"]) if "base_dir" in spec.options else None,
-            allowed_roots=(
-                self.allowed_roots
-                if self.allowed_roots is not None
-                else spec.options.get("allowed_roots")
-            ),
-            allow_temp=spec.options.get("allow_temp", False),
-        )
+        resolved = resolve_adapter_path(raw_p, self)
         if not resolved.exists():
-            clean_raw = _CREDENTIAL_PATTERN.sub(r"\1:***@", raw_p)
-            clean_res = _CREDENTIAL_PATTERN.sub(r"\1:***@", str(resolved))
+            clean_raw = redact_credentials(raw_p)
+            clean_res = redact_credentials(str(resolved))
             msg = f"Database file not found: '{clean_raw}' (resolved: '{clean_res}')"
             raise SourceNotFoundError(msg)
         if resolved.is_dir():
             raise SourceLoadError(f"Expected database file, found directory: '{resolved}'")
         if resolved.stat().st_size == 0:
-            raise SourceTableEmptyError(f"Database file '{raw_p}' is empty (0 bytes).")
+            clean_raw = redact_credentials(raw_p)
+            raise SourceTableEmptyError(f"Database file '{clean_raw}' is empty (0 bytes).")
 
         tbl = spec.options.get("table") or spec.options.get("table_name") or frag_tbl
         return resolved, tbl, scheme
@@ -173,8 +159,8 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
         t_esc, r_esc = tbl.replace('"', '""'), relation_name.replace('"', '""')
         try:
             conn.execute(f'CREATE OR REPLACE VIEW "{r_esc}" AS SELECT * FROM "{alias}"."{t_esc}"')
-            res = conn.execute(f'SELECT count(*) FROM "{r_esc}"').fetchone()
-            count = res[0] if res else 0
+            res = conn.execute(f'SELECT count(*) FROM "{r_esc}"').fetchall()
+            count = int(res[0][0]) if res and res[0] else 0
         except duckdb.Error as exc:
             raise SourceLoadError(f"Failed to register '{relation_name}': {exc}") from exc
 
@@ -194,12 +180,12 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
                 )
                 for r in tmp.execute('DESCRIBE SELECT * FROM "_tmp_describe"').fetchall()
             ]
-            res = tmp.execute('SELECT count(*) FROM "_tmp_describe"').fetchone()
-            count = res[0] if res else 0
+            res = tmp.execute('SELECT count(*) FROM "_tmp_describe"').fetchall()
+            count = int(res[0][0]) if res and res[0] else 0
         finally:
             tmp.close()
 
-        clean = _CREDENTIAL_PATTERN.sub(r"\1:***@", spec.uri or str(db_path))
+        clean = redact_credentials(spec.uri or str(db_path))
         return SourceDescriptor(
             adapter=self.adapter_name,
             format=db_type,

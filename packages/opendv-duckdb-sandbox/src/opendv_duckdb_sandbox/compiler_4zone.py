@@ -2232,14 +2232,12 @@ def _load_bronze_table_rows(
             from opendv_sources import SourceSpec, get_source_registry
 
             if hasattr(val, "adapter"):
-                spec = val
-                if (
-                    spec.adapter == "file"
-                    and spec.uri
-                    and "workspace_root" not in spec.options
-                    and Path(spec.uri).is_file()
-                ):
-                    spec.options["workspace_root"] = str(Path(spec.uri).parent)
+                spec = val.model_copy(deep=True)
+                ws = (
+                    Path(spec.uri).parent.resolve()
+                    if spec.uri and Path(spec.uri).is_file()
+                    else Path.cwd()
+                )
             else:
                 p = Path(val)
                 if not p.is_file():
@@ -2247,11 +2245,11 @@ def _load_bronze_table_rows(
                 spec = SourceSpec(
                     adapter="file",
                     uri=str(p.resolve()),
-                    options={"workspace_root": str(p.parent)},
                 )
+                ws = p.parent.resolve()
             con = duckdb.connect(":memory:")
             try:
-                adapter = get_source_registry().get_tabular_adapter(spec.adapter)
+                adapter = get_source_registry().get_tabular_adapter(spec.adapter, workspace_root=ws)
                 adapter.register(spec, con, "_compiler_bronze_table")
                 cur = con.execute('SELECT * FROM "_compiler_bronze_table"')
                 cols = [d[0] for d in cur.description]

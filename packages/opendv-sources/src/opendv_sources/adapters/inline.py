@@ -3,10 +3,8 @@
 from __future__ import annotations
 
 import base64
-import contextlib
 import hashlib
 import io
-import json
 from collections.abc import Iterator
 
 import duckdb
@@ -27,6 +25,7 @@ from opendv_sources.models.descriptors import (
 )
 from opendv_sources.models.specs import SourceSpec
 from opendv_sources.models.streams import SourceMetadata, StreamChunk
+from opendv_sources.registry.format_registry import get_format_registry
 from opendv_sources.spi.adapter import SourceAdapter
 from opendv_sources.spi.tabular import TabularSourceAdapter
 
@@ -54,7 +53,9 @@ class InlineSourceAdapter(SourceAdapter, TabularSourceAdapter):
     def _get_raw_bytes(self, spec: SourceSpec) -> bytes:
         raw = spec.inline_content
         if raw is None:
-            raw = spec.options.get("file_content") or spec.options.get("data")
+            raw = spec.options.get("file_content")
+        if raw is None:
+            raw = spec.options.get("data")
         if raw is None:
             msg = "InlineSourceAdapter requires 'inline_content' or options['file_content']"
             raise SourceLoadError(msg)
@@ -145,22 +146,9 @@ class InlineSourceAdapter(SourceAdapter, TabularSourceAdapter):
             raise SourceEmptyError("Inline source data is empty (0 bytes)")
 
         fmt = self._detect_format(spec, data)
-        conv_opts = pyarrow.csv.ConvertOptions(
-            strings_can_be_null=True,
-            null_values=["", "NA", "null", "NULL", "none", "None"],
-        )
+        parser = get_format_registry().get_parser(fmt)
         try:
-            if fmt == "csv":
-                table = pyarrow.csv.read_csv(io.BytesIO(data), convert_options=conv_opts)
-            elif fmt == "tsv":
-                parse_opts = pyarrow.csv.ParseOptions(delimiter="\t")
-                table = pyarrow.csv.read_csv(
-                    io.BytesIO(data), parse_options=parse_opts, convert_options=conv_opts
-                )
-            elif fmt == "parquet":
-                table = pyarrow.parquet.read_table(pyarrow.BufferReader(data))
-            else:
-                table = self._parse_json_to_arrow(data)
+            table = parser.parse_to_arrow(data, format=fmt)
         except (SourceEmptyError, UnsupportedFormatError):
             raise
         except Exception as exc:
@@ -169,26 +157,6 @@ class InlineSourceAdapter(SourceAdapter, TabularSourceAdapter):
         if table.num_rows == 0:
             raise SourceEmptyError(f"Inline source table '{fmt}' contains zero rows")
         return table
-
-    def _parse_json_to_arrow(self, data: bytes) -> pyarrow.Table:
-        with contextlib.suppress(json.JSONDecodeError, UnicodeDecodeError, ValueError):
-            parsed = json.loads(data.decode("utf-8"))
-            if isinstance(parsed, list):
-                if not parsed:
-                    raise SourceEmptyError("JSON array contains zero records")
-                return pyarrow.Table.from_pylist(parsed)
-            if isinstance(parsed, dict):
-                for candidate_key in ["records", "data", "rows", "items"]:
-                    val = parsed.get(candidate_key)
-                    if isinstance(val, list):
-                        if not val:
-                            msg = f"JSON key '{candidate_key}' contains zero records"
-                            raise SourceEmptyError(msg)
-                        return pyarrow.Table.from_pylist(val)
-                return pyarrow.Table.from_pylist([parsed])
-
-        # Fallback to streaming NDJSON / JSONL
-        return pyarrow.json.read_json(io.BytesIO(data))
 
     def register(
         self,

@@ -16,8 +16,16 @@ FORMAT_PARSER_ENTRY_POINT_GROUP = "opendv.format_parsers"
 class FormatParserRegistry:
     """Dynamic discovery and management of data format parsers."""
 
-    def __init__(self, entry_point_group: str = FORMAT_PARSER_ENTRY_POINT_GROUP) -> None:
+    def __init__(
+        self,
+        entry_point_group: str = FORMAT_PARSER_ENTRY_POINT_GROUP,
+        register_defaults: bool | None = None,
+    ) -> None:
         self._group = entry_point_group
+        if register_defaults is None:
+            self._register_defaults = entry_point_group == FORMAT_PARSER_ENTRY_POINT_GROUP
+        else:
+            self._register_defaults = register_defaults
         self._parsers: dict[str, FormatParser] = {}
         self._extension_map: dict[str, str] = {}
         self._mime_map: dict[str, str] = {}
@@ -29,6 +37,20 @@ class FormatParserRegistry:
             if self._discovered:
                 return
             self._discovered = True
+            if self._register_defaults:
+                from opendv_sources.parsers import (
+                    CsvFormatParser,
+                    JsonFormatParser,
+                    ParquetFormatParser,
+                )
+
+                self.register_parser("csv", CsvFormatParser())
+                self.register_parser("tsv", CsvFormatParser())
+                self.register_parser("parquet", ParquetFormatParser())
+                self.register_parser("json", JsonFormatParser())
+                self.register_parser("jsonl", JsonFormatParser())
+                self.register_parser("ndjson", JsonFormatParser())
+
             eps: Any = ()
             try:
                 eps = importlib.metadata.entry_points(group=self._group)
@@ -43,6 +65,15 @@ class FormatParserRegistry:
                 except (ImportError, AttributeError, TypeError, ValueError):
                     # Gracefully skip unloadable broken third-party entry points
                     pass
+
+    def is_extension_supported(self, ext: str) -> bool:
+        """Return True if the specified file extension has a registered parser."""
+        self._discover()
+        norm = ext.lower().strip()
+        if not norm.startswith("."):
+            norm = f".{norm}"
+        with self._lock:
+            return norm in self._extension_map
 
     def register_parser(
         self,

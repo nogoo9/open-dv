@@ -41,8 +41,8 @@ class ProfileRequest(BaseContractModel):
         if v is not None and isinstance(v, dict):
             opts = v.get("options")
             if isinstance(opts, dict):
-                for banned in ("workspace_root", "allowed_roots"):
-                    if banned in opts:
+                for banned in ("workspace_root", "allowed_roots", "base_dir", "allow_temp"):
+                    if any(k.lower() == banned for k in opts):
                         raise ValueError(
                             f"Client option '{banned}' is forbidden. "
                             "Server workspace directory containment cannot be overridden."
