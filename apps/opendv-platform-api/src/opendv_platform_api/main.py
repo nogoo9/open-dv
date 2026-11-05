@@ -12,7 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from opendv_platform_api.deps import PlatformStateContainer
+from opendv_contracts.errors import ERROR_MAP, ErrorCode
 from opendv_platform_api.routers import (
     artifacts,
     decisions,
@@ -23,6 +23,8 @@ from opendv_platform_api.routers import (
     sandbox,
     workbench,
 )
+from opendv_service import OpenDVService, PlatformStateContainer
+from opendv_service.errors import OpenDVError
 
 _HTTP_STATUS_TITLES: dict[int, str] = {
     400: "Bad Request",
@@ -66,6 +68,7 @@ def create_app(
     repo_root: Path | None = None,
     state_dir: Path | None = None,
     platform_state: PlatformStateContainer | None = None,
+    service: OpenDVService | None = None,
 ) -> FastAPI:
     """Construct and configure the Open-DV Headless Platform FastAPI application."""
     application = FastAPI(
@@ -79,10 +82,22 @@ def create_app(
     )
     application.openapi_version = "3.1.0"
 
-    application.state.platform_state = platform_state or PlatformStateContainer(
-        repo_root=repo_root,
-        state_dir=state_dir,
-    )
+    if service is not None:
+        application.state.service = service
+        application.state.platform_state = service.state
+    elif platform_state is not None:
+        application.state.platform_state = platform_state
+        application.state.service = OpenDVService(
+            state_store=platform_state,
+            workspace_root=getattr(platform_state, "repo_root", None),
+        )
+    else:
+        state = PlatformStateContainer(repo_root=repo_root, state_dir=state_dir)
+        application.state.platform_state = state
+        application.state.service = OpenDVService(
+            state_store=state,
+            workspace_root=repo_root or state.repo_root,
+        )
 
     application.add_middleware(
         CORSMiddleware,
@@ -107,6 +122,21 @@ def create_app(
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Cache-Control", "no-store")
         return response
+
+    @application.exception_handler(OpenDVError)
+    async def handle_opendv_error(
+        request: Request,
+        exc: OpenDVError,
+    ) -> JSONResponse:
+        mapping = ERROR_MAP.get(exc.error_code) or ERROR_MAP[ErrorCode.INTERNAL_ERROR]
+        status_code = getattr(exc, "http_status", None) or mapping.http_status
+        return build_problem_details_response(
+            status_code=status_code,
+            detail=str(getattr(exc, "message", None) or str(exc)),
+            instance=str(request.url.path),
+            problem_type=mapping.problem_type_uri,
+            title=mapping.problem_title,
+        )
 
     @application.exception_handler(StarletteHTTPException)
     @application.exception_handler(HTTPException)

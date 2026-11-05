@@ -43,6 +43,7 @@ from opendv_contracts.dtos import (
     VerifyResponse,
 )
 from opendv_contracts.errors import (
+    ERROR_MAP,
     ERROR_MAPPINGS,
     ErrorCode,
     ErrorDetail,
@@ -71,6 +72,7 @@ __version__ = CONTRACT_VERSION
 
 __all__ = [
     "CONTRACT_VERSION",
+    "ERROR_MAP",
     "ERROR_MAPPINGS",
     "SPEC_VERSION",
     "ArtifactMetadataResponse",

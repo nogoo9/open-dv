@@ -1,9 +1,15 @@
 """Open-DV Headless Platform API (`/api/v1` REST + SSE Server)."""
 
 from opendv_platform_api.deps import (
-    PE_DEMO_CONTEXT_REFS,
-    ROLE_CLEARANCE_LEVELS,
-    WORKBENCH_VIEW_TITLES,
+    REPO_ROOT,
+    get_opendv_service,
+    get_platform_state,
+    get_rbac_role,
+)
+from opendv_platform_api.export_openapi import export_openapi_to_file, generate_openapi_spec
+from opendv_platform_api.main import app, create_app
+from opendv_platform_api.routers.sandbox import SandboxQueryRequest
+from opendv_service import (
     ArtifactMetadataResponse,
     ArtifactUploadRequest,
     CaptainHoldDecisionRequest,
@@ -11,6 +17,7 @@ from opendv_platform_api.deps import (
     CreateProjectRequest,
     CreateRunRequest,
     GateScorecardSummary,
+    OpenDVService,
     PipelineRunRequest,
     PipelineValidateRequest,
     PlatformStateContainer,
@@ -19,26 +26,27 @@ from opendv_platform_api.deps import (
     RbacRole,
     RunStatus,
     SandboxExecutionResponse,
-    SandboxQueryRequest,
     build_gate_scorecard_from_axi_result,
-    build_pe_canonical_events,
-    execute_pe_sandbox_query,
-    format_sse_event_stream,
-    get_platform_state,
-    get_rbac_role,
     normalize_rbac_role,
     redact_event_for_role,
     resolve_cleared_tiers,
-    resolve_safe_repo_path,
     store_cas_artifact,
 )
-from opendv_platform_api.export_openapi import export_openapi_to_file, generate_openapi_spec
-from opendv_platform_api.main import app, create_app
+from opendv_service.legacy_demo import (
+    PE_DEMO_CONTEXT_REFS,
+    WORKBENCH_VIEW_TITLES,
+    build_pe_canonical_events,
+    execute_pe_sandbox_query,
+)
+from opendv_service.rbac import ROLE_CLEARANCE_LEVELS
+from opendv_service.state import resolve_safe_repo_path
+from opendv_telemetry import format_sse_event_stream
 
 __version__ = "0.1.0"
 
 __all__ = [
     "PE_DEMO_CONTEXT_REFS",
+    "REPO_ROOT",
     "ROLE_CLEARANCE_LEVELS",
     "WORKBENCH_VIEW_TITLES",
     "ArtifactMetadataResponse",
@@ -48,6 +56,7 @@ __all__ = [
     "CreateProjectRequest",
     "CreateRunRequest",
     "GateScorecardSummary",
+    "OpenDVService",
     "PipelineRunRequest",
     "PipelineValidateRequest",
     "PlatformStateContainer",
@@ -66,6 +75,7 @@ __all__ = [
     "export_openapi_to_file",
     "format_sse_event_stream",
     "generate_openapi_spec",
+    "get_opendv_service",
     "get_platform_state",
     "get_rbac_role",
     "normalize_rbac_role",

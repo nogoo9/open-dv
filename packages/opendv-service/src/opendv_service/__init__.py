@@ -15,6 +15,7 @@ from opendv_contracts import (
 )
 from opendv_service.errors import (
     CasIntegrityError,
+    ConflictError,
     ErrorCode,
     InputValidationError,
     NotFoundError,
@@ -78,6 +79,7 @@ __all__ = [
     "CasIntegrityError",
     "CompileRequest",
     "CompileResponse",
+    "ConflictError",
     "CreateProjectRequest",
     "CreateRunRequest",
     "ErrorCode",

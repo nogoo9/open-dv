@@ -1,0 +1,163 @@
+"""Unit and architectural invariant tests for thin API routers and OpenDVService delegation."""
+
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+from unittest.mock import MagicMock
+
+import httpx
+import pytest
+from fastapi.responses import JSONResponse
+
+from opendv_contracts.errors import ErrorCode
+from opendv_platform_api.deps import (
+    REPO_ROOT,
+    get_opendv_service,
+    get_platform_state,
+    get_rbac_role,
+)
+from opendv_platform_api.main import create_app
+from opendv_service import OpenDVService
+from opendv_service.errors import ConflictError, NotFoundError, OpenDVError
+
+ROUTERS_DIR = (
+    Path(__file__).parent.parent / "src" / "opendv_platform_api" / "routers"
+)
+DEPS_FILE = (
+    Path(__file__).parent.parent / "src" / "opendv_platform_api" / "deps.py"
+)
+
+PROHIBITED_ENGINE_MODULES = {
+    "opendv_axi_verifier",
+    "opendv_duckdb_sandbox",
+    "opendv_agent_harness",
+}
+
+
+def test_router_zero_direct_engine_imports() -> None:
+    """Invariant: Routers must NOT import any verification, sandbox, or harness engine directly."""
+    router_files = list(ROUTERS_DIR.glob("*.py"))
+    assert len(router_files) >= 8, f"Expected at least 8 router files, found {len(router_files)}"
+
+    violations: list[str] = []
+    for router_path in router_files:
+        tree = ast.parse(router_path.read_text(encoding="utf-8"), filename=str(router_path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    root_mod = alias.name.split(".")[0]
+                    if root_mod in PROHIBITED_ENGINE_MODULES:
+                        violations.append(
+                            f"{router_path.name}:{node.lineno} imports '{alias.name}'"
+                        )
+            elif isinstance(node, ast.ImportFrom) and node.module:
+                root_mod = node.module.split(".")[0]
+                if root_mod in PROHIBITED_ENGINE_MODULES:
+                    violations.append(
+                        f"{router_path.name}:{node.lineno} imports from '{node.module}'"
+                    )
+
+    assert not violations, (
+        "Detected prohibited engine imports in routers:\n" + "\n".join(violations)
+    )
+
+
+def test_deps_dissolved_and_thin() -> None:
+    """Invariant: deps.py must be thin (< 100 LOC) and contain zero engine imports."""
+    lines = DEPS_FILE.read_text(encoding="utf-8").splitlines()
+    assert len(lines) < 100, f"deps.py exceeds 100 lines (actual: {len(lines)})"
+
+    tree = ast.parse("\n".join(lines), filename=str(DEPS_FILE))
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                assert alias.name.split(".")[0] not in PROHIBITED_ENGINE_MODULES
+        elif isinstance(node, ast.ImportFrom) and node.module:
+            assert node.module.split(".")[0] not in PROHIBITED_ENGINE_MODULES
+
+    # Verify key exports
+    assert callable(get_opendv_service)
+    assert callable(get_platform_state)
+    assert callable(get_rbac_role)
+    assert REPO_ROOT.exists()
+
+
+def test_router_file_size_budget_and_modularity() -> None:
+    """User Directive R9: Every router file must stay well within ~5,000 tokens (~400 lines)."""
+    for router_path in ROUTERS_DIR.glob("*.py"):
+        content = router_path.read_text(encoding="utf-8")
+        line_count = len(content.splitlines())
+        byte_count = len(content.encode("utf-8"))
+        assert (
+            line_count < 200
+        ), f"Router '{router_path.name}' exceeds 200 lines (actual: {line_count})"
+        assert (
+            byte_count < 15_000
+        ), f"Router '{router_path.name}' exceeds 15 KB (actual: {byte_count} bytes)"
+
+
+@pytest.mark.asyncio
+async def test_centralized_rfc9457_error_handling() -> None:
+    """Verify OpenDVError translates to RFC 9457 application/problem+json via ERROR_MAP."""
+    app = create_app()
+
+    @app.get("/test-not-found")
+    async def route_not_found() -> JSONResponse:
+        raise NotFoundError("Entity 'item-99' was not found.")
+
+    @app.get("/test-conflict")
+    async def route_conflict() -> JSONResponse:
+        raise ConflictError("Hold 'hold-1' has already been resolved.")
+
+    @app.get("/test-invalid-request")
+    async def route_invalid() -> JSONResponse:
+        raise OpenDVError(
+            "Parameter 'contract_path' is missing",
+            error_code=ErrorCode.INVALID_REQUEST,
+        )
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # 1. 404 Not Found
+        res_404 = await client.get("/test-not-found")
+        assert res_404.status_code == 404
+        assert res_404.headers["content-type"] == "application/problem+json"
+        body_404 = res_404.json()
+        assert body_404["status"] == 404
+        assert body_404["detail"] == "Entity 'item-99' was not found."
+        assert body_404["instance"] == "/test-not-found"
+        assert body_404["type"] == "urn:opendv:not-found"
+
+        # 2. 409 Conflict
+        res_409 = await client.get("/test-conflict")
+        assert res_409.status_code == 409
+        assert res_409.headers["content-type"] == "application/problem+json"
+        body_409 = res_409.json()
+        assert body_409["status"] == 409
+        assert body_409["detail"] == "Hold 'hold-1' has already been resolved."
+
+        # 3. 400 Bad Request
+        res_400 = await client.get("/test-invalid-request")
+        assert res_400.status_code == 400
+        assert res_400.headers["content-type"] == "application/problem+json"
+        body_400 = res_400.json()
+        assert body_400["status"] == 400
+        assert "contract_path" in body_400["detail"]
+
+
+@pytest.mark.asyncio
+async def test_router_delegates_to_opendv_service_mock() -> None:
+    """Verify router cleanly delegates to OpenDVService dependency override."""
+    app = create_app()
+    mock_service = MagicMock(spec=OpenDVService)
+    mock_service.list_projects.return_value = []
+
+    app.dependency_overrides[get_opendv_service] = lambda: mock_service
+
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        res = await client.get("/api/v1/projects")
+        assert res.status_code == 200
+        assert res.json() == []
+        mock_service.list_projects.assert_called_once()
