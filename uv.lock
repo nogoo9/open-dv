@@ -11,6 +11,7 @@ members = [
     "opendv-agent-harness",
     "opendv-axi-verifier",
     "opendv-cli",
+    "opendv-cli-common",
     "opendv-contracts",
     "opendv-core",
     "opendv-duckdb-sandbox",
@@ -477,25 +478,34 @@ name = "opendv-cli"
 version = "0.1.0"
 source = { editable = "apps/opendv-cli" }
 dependencies = [
-    { name = "httpx" },
-    { name = "opendv-agent-harness" },
-    { name = "opendv-axi-verifier" },
+    { name = "opendv-cli-common" },
+    { name = "opendv-contracts" },
     { name = "opendv-core" },
-    { name = "opendv-duckdb-sandbox" },
     { name = "opendv-service" },
-    { name = "opendv-telemetry" },
     { name = "pydantic" },
 ]
 
 [package.metadata]
 requires-dist = [
-    { name = "httpx", specifier = ">=0.28.0" },
-    { name = "opendv-agent-harness", editable = "packages/opendv-agent-harness" },
-    { name = "opendv-axi-verifier", editable = "packages/opendv-axi-verifier" },
+    { name = "opendv-cli-common", editable = "packages/opendv-cli-common" },
+    { name = "opendv-contracts", editable = "packages/opendv-contracts" },
     { name = "opendv-core", editable = "packages/opendv-core" },
-    { name = "opendv-duckdb-sandbox", editable = "packages/opendv-duckdb-sandbox" },
     { name = "opendv-service", editable = "packages/opendv-service" },
-    { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
+    { name = "pydantic", specifier = ">=2.9.0" },
+]
+
+[[package]]
+name = "opendv-cli-common"
+version = "0.1.0"
+source = { editable = "packages/opendv-cli-common" }
+dependencies = [
+    { name = "opendv-contracts" },
+    { name = "pydantic" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "opendv-contracts", editable = "packages/opendv-contracts" },
     { name = "pydantic", specifier = ">=2.9.0" },
 ]
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from opendv_agent_harness import AgenticPipelineReport
 from opendv_contracts import (
     CompileRequest,
     CompileResponse,
@@ -72,6 +73,7 @@ __version__ = "0.1.0"
 
 __all__ = [
     "ROLE_CLEARANCE_LEVELS",
+    "AgenticPipelineReport",
     "ArtifactMetadataResponse",
     "ArtifactUploadRequest",
     "CaptainHoldDecisionRequest",
