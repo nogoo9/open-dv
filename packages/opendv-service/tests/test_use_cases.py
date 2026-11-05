@@ -44,6 +44,19 @@ def test_profile_use_case() -> None:
     assert resp.rendered is not None
 
 
+def test_profile_use_case_with_source_spec(tmp_path: Path) -> None:
+    """Verify profile_pipeline with SourceSpec enforces server workspace containment."""
+    data_file = tmp_path / "data.csv"
+    data_file.write_text("id,val\n1,100\n2,200\n", encoding="utf-8")
+    resp = profile_pipeline(
+        ProfileRequest(source={"adapter": "file", "uri": str(data_file), "format": "csv"}),
+        workspace_root=tmp_path,
+    )
+    assert resp.status == "PASS"
+    assert resp.table_count == 1
+    assert resp.column_count == 2
+
+
 def test_verify_use_case() -> None:
     """Verify verify_pipeline use case."""
     pe_contract = "examples/private_equity/dv_pe_model_contract.yaml"

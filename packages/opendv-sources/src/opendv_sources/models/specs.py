@@ -73,6 +73,11 @@ class SourceSpec(BaseContractModel):
                     f"Option '{k}' rejected: literal credentials in options are forbidden. "
                     "Use credentials_ref instead."
                 )
+            if lower_k == "allowed_roots":
+                raise ValueError(
+                    f"Option '{k}' rejected: client override of allowed_roots is forbidden. "
+                    "Configure allowed roots on the server adapter instead."
+                )
         return v
 
 

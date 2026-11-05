@@ -323,7 +323,11 @@ async def _handle_extract_pdf_spans(
             adapter_name = get_source_registry().resolve_document_adapter_name(doc_file)
             doc_adapter = get_source_registry().get_document_adapter(adapter_name)
             extracted = doc_adapter.extract_document(
-                SourceSpec(adapter=adapter_name, uri=str(doc_file))
+                SourceSpec(
+                    adapter=adapter_name,
+                    uri=str(doc_file),
+                    options={"workspace_root": str(doc_file.parent)},
+                )
             )
             doc_text = extracted.normalized_text
 

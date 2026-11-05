@@ -49,8 +49,9 @@ def profile_pipeline(
                 spec = request.source
             else:
                 spec = SourceSpec.model_validate(request.source)
-            spec.options.setdefault("allow_temp", True)
-            spec.options.setdefault("workspace_root", str(root))
+            spec.options.pop("allowed_roots", None)
+            spec.options["allow_temp"] = True
+            spec.options["workspace_root"] = str(root)
             display_source_path = spec.uri or spec.client_path or f"source:{spec.adapter}"
             inferred_table = Path(spec.uri).stem if spec.uri else spec.adapter
         elif has_file_content:

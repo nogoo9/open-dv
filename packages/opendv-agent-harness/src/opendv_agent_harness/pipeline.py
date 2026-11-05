@@ -988,11 +988,22 @@ def _load_table_into_duckdb(
     file_path: Path | str | SourceSpec,
 ) -> tuple[int, list[str]]:
     """Load tabular data into DuckDB as `view_name` using adapters and return (rows, cols)."""
-    spec = (
-        file_path
-        if isinstance(file_path, SourceSpec)
-        else SourceSpec(adapter="file", uri=str(Path(file_path).resolve()))
-    )
+    if isinstance(file_path, SourceSpec):
+        spec = file_path
+        if (
+            spec.adapter == "file"
+            and spec.uri
+            and "workspace_root" not in spec.options
+            and Path(spec.uri).is_file()
+        ):
+            spec.options["workspace_root"] = str(Path(spec.uri).parent)
+    else:
+        p = Path(file_path).resolve()
+        spec = SourceSpec(
+            adapter="file",
+            uri=str(p),
+            options={"workspace_root": str(p.parent)},
+        )
     reg = get_source_registry()
     adapter = reg.get_tabular_adapter(spec.adapter)
     adapter.register(spec, conn, view_name)
@@ -1698,6 +1709,8 @@ def validate_pipeline_inputs(
                         adapter=get_source_registry().resolve_document_adapter_name(u_path),
                         uri=str(u_path),
                     )
+                if not doc_spec.inline_content and "workspace_root" not in doc_spec.options:
+                    doc_spec.options["workspace_root"] = str(base_dir or u_path.parent)
                 doc_adapter = get_source_registry().get_document_adapter(doc_spec.adapter)
                 extracted = doc_adapter.extract_document(doc_spec)
                 doc_text = extracted.normalized_text
@@ -3633,6 +3646,10 @@ class AgenticVaultPipeline:
                     doc_spec = SourceSpec(
                         adapter=get_source_registry().resolve_document_adapter_name(u_path),
                         uri=str(u_path),
+                    )
+                if not doc_spec.inline_content and "workspace_root" not in doc_spec.options:
+                    doc_spec.options["workspace_root"] = str(
+                        self.workspace_root or self.base_dir or u_path.parent
                     )
                 doc_adapter = get_source_registry().get_document_adapter(doc_spec.adapter)
                 extracted = doc_adapter.extract_document(doc_spec)

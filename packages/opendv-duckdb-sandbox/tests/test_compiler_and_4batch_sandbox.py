@@ -1269,7 +1269,13 @@ def test_issue_30_scenario_s7_multibyte_utf8_e2e_sandbox() -> None:
 
     with GraphBProfiler() as profiler:
         get_source_registry().get_tabular_adapter("file").register(
-            SourceSpec(adapter="file", uri=str(crm_csv)), profiler.conn, "v_crm"
+            SourceSpec(
+                adapter="file",
+                uri=str(crm_csv),
+                options={"workspace_root": str(s7_dir)},
+            ),
+            profiler.conn,
+            "v_crm",
         )
         crm_metrics = profiler.profile_relation("v_crm")
         assert len(crm_metrics) == 5

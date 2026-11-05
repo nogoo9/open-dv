@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -29,6 +30,7 @@ from opendv_sources.spi.tabular import TabularSourceAdapter
 
 _SUPPORTED_FORMATS = {"csv", "tsv", "parquet", "json", "jsonl", "ndjson"}
 _GLOB_CHARS = {"*", "?", "["}
+_CREDENTIAL_PATTERN = re.compile(r"([^/:@\s]*):([^/:@\s]+)@")
 
 
 class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
@@ -65,14 +67,15 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
             raise SourceNotFoundError("LocalFilesystemSourceAdapter requires a non-empty 'uri'")
 
         raw_str = raw_uri.strip()
-        allowed: Sequence[Path] | None = spec.options.get("allowed_roots", self.allowed_roots)
-        cand = Path(raw_str)
-        if "workspace_root" in spec.options:
-            ws_root = Path(spec.options["workspace_root"])
-        elif self.workspace_root is not None:
+        allowed: Sequence[Path] | None = (
+            self.allowed_roots
+            if self.allowed_roots is not None
+            else spec.options.get("allowed_roots")
+        )
+        if self.workspace_root is not None:
             ws_root = self.workspace_root
-        elif cand.is_absolute() and "base_dir" not in spec.options and not allowed:
-            ws_root = cand if cand.is_dir() else cand.parent
+        elif "workspace_root" in spec.options:
+            ws_root = Path(spec.options["workspace_root"])
         else:
             ws_root = Path.cwd()
         base_dir: Path | None = (
@@ -97,7 +100,9 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
             allow_temp=allow_temp,
         )
         if not resolved.exists():
-            msg = f"Source path not found: '{raw_str}' (resolved: '{resolved}')"
+            clean_raw = _CREDENTIAL_PATTERN.sub(r"\1:***@", raw_str)
+            clean_res = _CREDENTIAL_PATTERN.sub(r"\1:***@", str(resolved))
+            msg = f"Source path not found: '{clean_raw}' (resolved: '{clean_res}')"
             raise SourceNotFoundError(msg)
 
         if resolved.is_dir():
@@ -245,13 +250,14 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
         else:
             reader = "read_json_auto"
 
+        r_esc = relation_name.replace('"', '""')
         sql = (
-            f'CREATE OR REPLACE VIEW "{relation_name}" AS '
+            f'CREATE OR REPLACE VIEW "{r_esc}" AS '
             f"SELECT * FROM {reader}([{escaped_paths}], union_by_name=true)"
         )
         try:
             conn.execute(sql)
-            res = conn.execute(f'SELECT count(*) FROM "{relation_name}"').fetchone()
+            res = conn.execute(f'SELECT count(*) FROM "{r_esc}"').fetchone()
             count = res[0] if res else 0
         except duckdb.Error as exc:
             msg = f"Failed to register relation '{relation_name}' from '{spec.uri}': {exc}"
@@ -282,7 +288,8 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
         finally:
             tmp_conn.close()
 
-        clean_uri = spec.uri or str(paths[0])
+        raw_target = spec.uri or str(paths[0])
+        clean_uri = _CREDENTIAL_PATTERN.sub(r"\1:***@", raw_target)
         return SourceDescriptor(
             adapter=self.adapter_name,
             format=fmt,

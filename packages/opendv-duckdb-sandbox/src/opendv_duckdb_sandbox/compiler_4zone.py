@@ -2233,11 +2233,22 @@ def _load_bronze_table_rows(
 
             if hasattr(val, "adapter"):
                 spec = val
+                if (
+                    spec.adapter == "file"
+                    and spec.uri
+                    and "workspace_root" not in spec.options
+                    and Path(spec.uri).is_file()
+                ):
+                    spec.options["workspace_root"] = str(Path(spec.uri).parent)
             else:
                 p = Path(val)
                 if not p.is_file():
                     continue
-                spec = SourceSpec(adapter="file", uri=str(p.resolve()))
+                spec = SourceSpec(
+                    adapter="file",
+                    uri=str(p.resolve()),
+                    options={"workspace_root": str(p.parent)},
+                )
             con = duckdb.connect(":memory:")
             try:
                 adapter = get_source_registry().get_tabular_adapter(spec.adapter)

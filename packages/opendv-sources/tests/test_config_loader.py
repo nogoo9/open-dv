@@ -90,3 +90,9 @@ def test_empty_content_raises_format_error() -> None:
     with pytest.raises(FormatError) as exc_info:
         load_structured_document("   ")
     assert "Expected non-empty structured document mapping" in str(exc_info.value)
+
+
+def test_load_structured_document_rejects_ambient_absolute_path_without_root() -> None:
+    """Verify loading an absolute path with no workspace_root raises PathContainmentError."""
+    with pytest.raises(PathContainmentError):
+        load_structured_document("C:/Windows/win.ini")

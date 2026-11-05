@@ -232,3 +232,63 @@ def test_registry_integration_and_entry_points() -> None:
     assert registry.get_document_adapter("txt") is not None
     assert registry.get_document_adapter("md") is not None
     assert registry.get_document_adapter("markdown") is not None
+
+
+def test_empty_inline_documents_raise_extraction_error() -> None:
+    """Verify empty inline documents raise DocumentExtractionError (not 404)."""
+    text_ad = TextDocumentSourceAdapter()
+    pdf_ad = PdfDocumentSourceAdapter()
+
+    with pytest.raises(DocumentExtractionError, match="empty \\(0 bytes\\)"):
+        text_ad.extract_document(SourceSpec(adapter="text", inline_content=""))
+
+    with pytest.raises(DocumentExtractionError, match="empty \\(0 bytes\\)"):
+        pdf_ad.extract_document(SourceSpec(adapter="pdf", inline_content=""))
+
+
+def test_document_adapters_jailbreak_prevention(tmp_path: Path) -> None:
+    """Verify server workspace root strictly overrides client options['workspace_root']."""
+    server_ws = tmp_path / "server_ws"
+    server_ws.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_txt = outside_dir / "secret.txt"
+    outside_txt.write_text("secret", encoding="utf-8")
+    outside_pdf = outside_dir / "secret.pdf"
+    outside_pdf.write_bytes(b"%PDF-1.4\n...")
+    text_ad = TextDocumentSourceAdapter(workspace_root=server_ws)
+    pdf_ad = PdfDocumentSourceAdapter(workspace_root=server_ws)
+
+    evil_txt = SourceSpec(
+        adapter="text",
+        uri=str(outside_txt.resolve()),
+        options={"workspace_root": str(outside_dir.resolve())},
+    )
+    with pytest.raises(PathContainmentError):
+        text_ad.extract_document(evil_txt)
+
+    evil_pdf = SourceSpec(
+        adapter="pdf",
+        uri=str(outside_pdf.resolve()),
+        options={"workspace_root": str(outside_dir.resolve())},
+    )
+    with pytest.raises(PathContainmentError):
+        pdf_ad.extract_document(evil_pdf)
+
+
+def test_document_adapters_credential_redaction_in_not_found(tmp_path: Path) -> None:
+    """Verify credentials in URI are masked in SourceNotFoundError."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    text_ad = TextDocumentSourceAdapter(workspace_root=ws)
+    pdf_ad = PdfDocumentSourceAdapter(workspace_root=ws)
+
+    with pytest.raises(SourceNotFoundError) as exc_txt:
+        text_ad.extract_document(SourceSpec(adapter="text", uri="user:Secret123@missing.txt"))
+    assert "Secret123" not in str(exc_txt.value)
+    assert "user:***@" in str(exc_txt.value)
+
+    with pytest.raises(SourceNotFoundError) as exc_pdf:
+        pdf_ad.extract_document(SourceSpec(adapter="pdf", uri="user:Secret123@missing.pdf"))
+    assert "Secret123" not in str(exc_pdf.value)
+    assert "user:***@" in str(exc_pdf.value)

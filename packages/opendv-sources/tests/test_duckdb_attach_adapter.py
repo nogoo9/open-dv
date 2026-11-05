@@ -298,3 +298,34 @@ def test_registry_integration() -> None:
     for name in ("duckdb_attach", "sqlite", "duckdb"):
         ad = reg.get_tabular_adapter(name)
         assert isinstance(ad, DuckdbAttachSourceAdapter)
+
+
+def test_duckdb_attach_credential_redaction_in_not_found_error() -> None:
+    """Verify credentials in URI are masked in SourceNotFoundError."""
+    adapter = DuckdbAttachSourceAdapter()
+    spec = SourceSpec(
+        adapter="duckdb_attach", uri="sqlite://admin:SuperSecretPassword123@nonexistent.db"
+    )
+    with pytest.raises(SourceNotFoundError) as exc_info:
+        adapter.read_bytes(spec)
+    err_str = str(exc_info.value)
+    assert "SuperSecretPassword123" not in err_str
+    assert "admin:***@" in err_str
+
+
+def test_duckdb_attach_client_workspace_root_cannot_override_server_jail(tmp_path: Path) -> None:
+    """Verify server workspace root strictly overrides client options['workspace_root']."""
+    server_ws = tmp_path / "server_ws"
+    server_ws.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_db = outside_dir / "secret.db"
+    outside_db.write_bytes(b"data")
+    adapter = DuckdbAttachSourceAdapter(workspace_root=server_ws)
+    evil_spec = SourceSpec(
+        adapter="duckdb_attach",
+        uri=str(outside_db.resolve()),
+        options={"workspace_root": str(outside_dir.resolve())},
+    )
+    with pytest.raises(PathContainmentError):
+        adapter.read_bytes(evil_spec)

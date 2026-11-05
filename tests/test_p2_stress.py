@@ -21,6 +21,7 @@ import io
 import json
 import math
 import random
+import shutil
 import subprocess
 import sys
 from collections.abc import Generator
@@ -102,6 +103,8 @@ def _clean_pipeline_runner_override() -> Generator[None, None, None]:
 
 def test_jcs_float_oracle_against_bun() -> None:
     """Stress test float serialization against Bun/JS JSON.stringify oracle across 500+ floats."""
+    if shutil.which("bun") is None:
+        pytest.skip("bun is required for float oracle comparison")
     random.seed(1337)
     test_floats: list[float] = [
         0.0,
@@ -271,6 +274,8 @@ def test_jcs_utf16_code_unit_key_sorting() -> None:
     py_jcs = dumps_jcs(test_dict)
 
     # Bun oracle for key sorting
+    if shutil.which("bun") is None:
+        pytest.skip("bun is required for utf16 key sorting comparison")
     proc = subprocess.run(
         [
             "bun",

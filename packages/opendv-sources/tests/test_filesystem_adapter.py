@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 from collections.abc import Iterator
 from pathlib import Path
 
@@ -11,7 +12,7 @@ import pytest
 from opendv_core.paths import PathContainmentError
 from opendv_sources.adapters.filesystem import LocalFilesystemSourceAdapter
 from opendv_sources.conformance.tabular_suite import TabularAdapterConformanceSuite
-from opendv_sources.exceptions import SourceEmptyError, SourceNotFoundError
+from opendv_sources.exceptions import SourceEmptyError, SourceLoadError, SourceNotFoundError
 from opendv_sources.models.specs import SourceSpec
 
 
@@ -179,3 +180,71 @@ def test_filesystem_missing_and_empty_errors(tmp_path: Path) -> None:
     empty_dir.mkdir()
     with pytest.raises(SourceEmptyError):
         adapter.register(SourceSpec(adapter="file", uri="empty_dir", format="csv"), conn, "t")
+
+
+def test_filesystem_default_adapter_rejects_external_absolute_path(tmp_path: Path) -> None:
+    """Verify default adapter rejects arbitrary host paths outside workspace."""
+    adapter = LocalFilesystemSourceAdapter()
+    outside = Path.cwd().parent / "nonexistent_outside_secret.csv"
+    spec = SourceSpec(adapter="file", uri=str(outside.resolve()), format="csv")
+    with pytest.raises(PathContainmentError):
+        adapter.read_bytes(spec)
+
+
+def test_filesystem_client_workspace_root_cannot_override_server_jail(tmp_path: Path) -> None:
+    """Verify server workspace root strictly overrides client options['workspace_root']."""
+    server_ws = tmp_path / "server_ws"
+    server_ws.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "secret.csv"
+    outside_file.write_text("secret", encoding="utf-8")
+    adapter = LocalFilesystemSourceAdapter(workspace_root=server_ws)
+    evil_spec = SourceSpec(
+        adapter="file",
+        uri=str(outside_file.resolve()),
+        options={"workspace_root": str(outside_dir.resolve())},
+        format="csv",
+    )
+    with pytest.raises(PathContainmentError):
+        adapter.read_bytes(evil_spec)
+
+
+def test_filesystem_sql_injection_relation_name_escaped(tmp_path: Path) -> None:
+    """Verify SQL identifier injection in relation_name is prevented via double quote escaping."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    f = ws / "test.csv"
+    f.write_text("a,b\n1,2\n", encoding="utf-8")
+    adapter = LocalFilesystemSourceAdapter(workspace_root=ws)
+    conn = duckdb.connect(":memory:")
+    spec = SourceSpec(adapter="file", uri="test.csv")
+    injected_name = 'evil_view" AS SELECT 1; CREATE TABLE pwned_table AS SELECT 999; --'
+    with contextlib.suppress(duckdb.Error, SourceLoadError):
+        adapter.register(spec, conn, injected_name)
+    tables = [r[0] for r in conn.execute("SHOW TABLES").fetchall()]
+    assert "pwned_table" not in tables
+
+
+def test_filesystem_credential_redaction_in_errors_and_descriptors(tmp_path: Path) -> None:
+    """Verify credentials in URIs are redacted in SourceNotFoundError and SourceDescriptor."""
+    ws = tmp_path / "ws"
+    ws.mkdir()
+    adapter = LocalFilesystemSourceAdapter(workspace_root=ws)
+    spec_missing = SourceSpec(
+        adapter="file",
+        uri="user:SecretPassword123@nonexistent.csv",
+    )
+    with pytest.raises(SourceNotFoundError) as exc_info:
+        adapter.read_bytes(spec_missing)
+    assert "SecretPassword123" not in str(exc_info.value)
+    assert "user:***@" in str(exc_info.value)
+
+    f = ws / "valid.csv"
+    f.write_text("col\nval\n", encoding="utf-8")
+    spec_valid = SourceSpec(
+        adapter="file",
+        uri="valid.csv",
+    )
+    desc = adapter.describe(spec_valid)
+    assert desc.redacted_uri == "valid.csv"
