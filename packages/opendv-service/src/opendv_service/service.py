@@ -79,6 +79,12 @@ class OpenDVService:
         settings: OpenDVSettings | None = None,
     ) -> None:
         active_state = state if state is not None else state_store
+        self._explicit_workspace = (workspace_root is not None) or (
+            bool(getattr(active_state, "_explicit_workspace", False)) if active_state else False
+        )
+        self._explicit_storage = (storage_root is not None) or (
+            bool(getattr(active_state, "_explicit_storage", False)) if active_state else False
+        )
         eff_ws = workspace_root or (
             getattr(active_state, "workspace_root", None) if active_state else None
         )

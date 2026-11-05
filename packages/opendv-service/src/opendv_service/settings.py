@@ -96,14 +96,16 @@ class OpenDVSettings(BaseModel):
         if workspace_root is not None:
             resolved_ws = Path(workspace_root).resolve()
             checked_sources.append(f"explicit workspace_root argument ('{resolved_ws}')")
-        elif "OPENDV_WORKSPACE_ROOT" in os.environ:
-            resolved_ws = Path(os.environ["OPENDV_WORKSPACE_ROOT"]).resolve()
+        elif "OPENDV_WORKSPACE_ROOT" in os.environ and os.environ["OPENDV_WORKSPACE_ROOT"].strip():
+            resolved_ws = Path(os.environ["OPENDV_WORKSPACE_ROOT"].strip()).resolve()
             checked_sources.append(f"env OPENDV_WORKSPACE_ROOT ('{resolved_ws}')")
-        elif cfg_data.get("workspace_root") is not None:
-            resolved_ws = Path(cfg_data["workspace_root"]).resolve()
+        elif "OPENDV_WORKSPACE_ROOT" in os.environ:
+            checked_sources.append("env OPENDV_WORKSPACE_ROOT (empty)")
+        elif cfg_data.get("workspace_root") is not None and str(cfg_data["workspace_root"]).strip():
+            resolved_ws = Path(str(cfg_data["workspace_root"]).strip()).resolve()
             checked_sources.append(f"config file key 'workspace_root' ('{resolved_ws}')")
-        elif "workspace_root" in cfg_data and cfg_data["workspace_root"] is None:
-            checked_sources.append("config file key 'workspace_root' (null)")
+        elif "workspace_root" in cfg_data:
+            checked_sources.append("config file key 'workspace_root' (null/empty)")
         elif not is_server:
             # Standalone CLI mode defaults to cwd
             resolved_ws = Path.cwd().resolve()

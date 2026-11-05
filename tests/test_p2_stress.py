@@ -689,7 +689,7 @@ def test_standalone_cli_in_process_local_executor(
     raw_out = capsys.readouterr().out.strip()
     parsed = json.loads(raw_out)
     assert raw_out == dumps_jcs(parsed)
-    assert parsed["total"] >= 0
+    assert parsed["total"] == 0
 
     # 7. hold list --json (run not found in clean unseeded state -> exit code 2)
     rc = app_main(["hold", "list", "--run-id", "run-pe-apex-horizon-20261030", "--json"])
@@ -895,22 +895,22 @@ def test_all_subcommands_subprocess_isolation() -> None:
     pe_graph_b = "examples/private_equity/pe_graph_b_profile.json"
     pe_ir = "examples/private_equity/pe_canonical_ir.json"
 
-    commands_to_probe: list[list[str]] = [
-        ["verify", "--contract", pe_contract, "--graph-a", pe_graph_a, "--graph-b", pe_graph_b, "--json"],
-        ["compile", "--contract", pe_contract, "--canonical-ir", pe_ir, "--json"],
-        ["profile", "--graph-b", pe_graph_b, "--json"],
-        ["sandbox", "--contract", pe_contract, "--canonical-ir", pe_ir, "--query-type", "ADVERSARIAL_BATCHES_1_TO_4", "--json"],
-        ["run", "list", "--project-id", "proj-apex-horizon-pe", "--json"],
-        ["hold", "list", "--run-id", "run-pe-apex-horizon-20261030", "--json"],
-        ["pipeline", "validate", "--input", "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml", "--json"],
+    commands_to_probe: list[tuple[list[str], int]] = [
+        (["verify", "--contract", pe_contract, "--graph-a", pe_graph_a, "--graph-b", pe_graph_b, "--json"], 0),
+        (["compile", "--contract", pe_contract, "--canonical-ir", pe_ir, "--json"], 0),
+        (["profile", "--graph-b", pe_graph_b, "--json"], 0),
+        (["sandbox", "--contract", pe_contract, "--canonical-ir", pe_ir, "--query-type", "ADVERSARIAL_BATCHES_1_TO_4", "--json"], 0),
+        (["run", "list", "--project-id", "proj-apex-horizon-pe", "--json"], 0),
+        (["hold", "list", "--run-id", "run-pe-apex-horizon-20261030", "--json"], 2),
+        (["pipeline", "validate", "--input", "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml", "--json"], 0),
     ]
 
-    for cmd_args in commands_to_probe:
+    for cmd_args, expected_rc in commands_to_probe:
         probe_code = (
             "import sys\n"
             "from opendv_cli.main import app_main\n"
             f"rc = app_main({cmd_args!r})\n"
-            "assert rc in {0, 2}, f'Command failed with unexpected crash rc={rc}'\n"
+            f"assert rc == {expected_rc}, f'Command failed with rc={{rc}}, expected {expected_rc}'\n"
             "banned = {'fastapi', 'starlette', 'opendv_platform_api', 'httpx'}\n"
             "loaded = banned.intersection(sys.modules.keys())\n"
             "assert not loaded, f'Forbidden modules loaded in sys.modules: {loaded}'\n"

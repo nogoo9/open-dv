@@ -15,11 +15,13 @@ Enforces:
 from __future__ import annotations
 
 import ast
+import json
 import os
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
+import jsonschema
 import pytest
 from starlette.testclient import TestClient
 
@@ -497,7 +499,92 @@ def test_t14_opt_in_fallback_visible(tmp_path: Path) -> None:
             == "FALLBACK_APPLIED"
         )
     ]
-    assert len(fallback_events) > 0
+    schema_path = REPO_ROOT / "schemas" / "vault-observability-event.schema.json"
+    event_schema = json.loads(schema_path.read_text(encoding="utf-8"))
+    for ev in fallback_events:
+        jsonschema.validate(instance=ev, schema=event_schema)
+
+
+class _Stage04FailingLlmHarness(VaultAgentHarness):
+    """Harness that succeeds through Stage 03, but returns None for Stage 04."""
+
+    def __init__(self, tmp_path: Path) -> None:
+        from opendv_agent_harness import HarnessConfig
+        from opendv_testkit import DeterministicHarnessAdapter
+
+        cfg = HarnessConfig(
+            provider="antigravity",
+            workspace_dir=tmp_path / "ws",
+            state_dir=tmp_path / "state",
+            app_data_dir=tmp_path / "app_data",
+            save_dir=tmp_path / "save",
+        )
+        self._inner = DeterministicHarnessAdapter(cfg)
+
+    def resolve_model(self, tier: Any, persona: Any) -> str:
+        return self._inner.resolve_model(tier, persona)
+
+    async def run_task(self, spec: Any) -> HarnessRunResult:
+        from opendv_agent_harness.pipeline import PipelineStageId
+
+        stage_id = getattr(spec, "stage_id", None)
+        if stage_id == PipelineStageId.STAGE_04_SHIP_VAULT_PASS2:
+            return HarnessRunResult(
+                task_id=spec.task_id,
+                run_id=getattr(spec, "run_id", "run-s4-fail"),
+                session_id=f"sess-{spec.task_id}",
+                trace_id=getattr(spec, "trace_id", "0" * 32),
+                span_id=getattr(spec, "span_id", "0" * 16),
+                provider="test-stage4-failing-provider",
+                model_used="stage4-failing-llm-stub",
+                stop_reason=HarnessStopReason.COMPLETED,
+                text_output="Raw unstructured text from LLM.",
+                structured_output=None,
+            )
+        return await self._inner.run_task(spec)
+
+    async def run_streaming_task(self, spec: Any) -> AsyncIterator[HarnessStreamEvent]:
+        res = await self.run_task(spec)
+        yield HarnessStreamEvent(
+            event_type="completed",
+            text=res.text_output or "",
+            result=res,
+        )
+
+
+@pytest.mark.architecture
+@pytest.mark.hardening
+def test_t14_stage04_fails_fast_under_llm_only(tmp_path: Path) -> None:
+    """T14 Invariant: Stage 04 invalid LLM output fails fast under default stage_output_policy='llm_only'."""
+    from opendv_agent_harness.pipeline import PipelineStageId
+
+    sample_dir = REPO_ROOT / "examples" / "pipeline_samples" / "global_commerce_vault"
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    single_wave_spec = input_spec.model_copy(update={"waves": [input_spec.waves[0]]})
+
+    out_dir = tmp_path / "out_s4_fail"
+    setup = HarnessSetupConfig(stage_output_policy="llm_only")
+    harness = _Stage04FailingLlmHarness(tmp_path)
+
+    report = run_agentic_vault_pipeline(
+        single_wave_spec,
+        setup,
+        output_dir=out_dir,
+        base_dir=sample_dir,
+        harness=harness,
+    )
+
+    assert report.status == "FAILED"
+    assert report.overall_passed is False
+    assert report.fallbacks_applied == []
+    s4_steps = [
+        step
+        for step in report.step_reports
+        if step.stage_id == PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value
+    ]
+    assert len(s4_steps) == 1
+    assert s4_steps[0].status == "ERROR"
+    assert "Stage 04" in s4_steps[0].summary
 
 
 @pytest.mark.architecture

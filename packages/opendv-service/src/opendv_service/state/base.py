@@ -52,16 +52,17 @@ class BaseStateContainer:
         state_dir: Path | None = None,
     ) -> None:
         eff_ws = workspace_root if workspace_root is not None else repo_root
+        self._explicit_workspace = eff_ws is not None
         if eff_ws is None:
-            self._workspace_root = Path(
-                os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()
-            ).resolve()
+            env_ws = os.environ.get("OPENDV_WORKSPACE_ROOT", "").strip()
+            self._workspace_root = Path(env_ws or Path.cwd()).resolve()
         else:
             self._workspace_root = Path(eff_ws).resolve()
         self.workspace_root = self._workspace_root
         self.repo_root = self._workspace_root
 
         eff_storage = storage_root if storage_root is not None else state_dir
+        self._explicit_storage = eff_storage is not None
         if eff_storage is None:
             self.storage_root = (self._workspace_root / ".opendv" / "state").resolve()
         else:

@@ -2961,6 +2961,23 @@ class AgenticVaultPipeline:
             if isinstance(vfm_res.structured_output, Stage00OrchestrationPlanOutput)
             else None
         )
+        is_symbolic = self.harness_setup.stage_output_policy == "symbolic_completion"
+        if s0_plan is None and is_symbolic:
+            fallbacks_applied.append(
+                {
+                    "key": "stage_output_policy.symbolic_completion",
+                    "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "stage_id": PipelineStageId.STAGE_00_ORCHESTRATION.value,
+                    "details": {"reason": "missing_orchestration_plan"},
+                }
+            )
+            fb_event = self._build_fallback_applied_event(
+                0,
+                PipelineStageId.STAGE_00_ORCHESTRATION,
+                run_id=run_id,
+                trace_id=trace_id,
+            )
+            observability_events.append(fb_event)
         effective_max_retries = (
             s0_plan.recommended_max_retries
             if s0_plan is not None
@@ -3269,6 +3286,25 @@ class AgenticVaultPipeline:
                     if isinstance(scout_src_res.structured_output, Stage01SourceDiscoveryOutput)
                     else None
                 )
+                if s1_llm_discovery is None and is_symbolic:
+                    fallbacks_applied.append(
+                        {
+                            "key": "stage_output_policy.symbolic_completion",
+                            "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "stage_id": PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
+                            "details": {
+                                "wave_index": w_idx,
+                                "tables_discovered": len(raw_prof_tables),
+                            },
+                        }
+                    )
+                    fb_event = self._build_fallback_applied_event(
+                        w_idx,
+                        PipelineStageId.STAGE_01_SCOUT_SOURCE,
+                        run_id=run_id,
+                        trace_id=trace_id,
+                    )
+                    observability_events.append(fb_event)
 
             for raw_src, d_path, qualified_table, prof_tbl in raw_prof_tables:
                 src = _discover_source_feed_semantics(
@@ -3579,6 +3615,25 @@ class AgenticVaultPipeline:
                     )
                     else None
                 )
+                if s2_llm_discovery is None and is_symbolic:
+                    fallbacks_applied.append(
+                        {
+                            "key": "stage_output_policy.symbolic_completion",
+                            "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "stage_id": PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED.value,
+                            "details": {
+                                "wave_index": w_idx,
+                                "docs_discovered": len(raw_loaded_docs),
+                            },
+                        }
+                    )
+                    fb_event = self._build_fallback_applied_event(
+                        w_idx,
+                        PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
+                        run_id=run_id,
+                        trace_id=trace_id,
+                    )
+                    observability_events.append(fb_event)
 
             for raw_doc, doc_text, doc_sha256 in raw_loaded_docs:
                 doc = _discover_unstructured_doc_candidates(
@@ -4081,15 +4136,6 @@ class AgenticVaultPipeline:
                 output_schema=Stage04ContractSynthesisOutput,
             )
             ship_res = await self._run_task_with_streaming(ship_spec)
-            fallback_s4 = synthesize_stage_output_from_prompt(
-                Stage04ContractSynthesisOutput,
-                ship_spec.prompt,
-            )
-            canon_contract = fallback_s4.contract.model_dump(
-                mode="json",
-                exclude_none=True,
-            )
-            canon_contract["column_triage_ledger"] = list(pass1_ledger)
             llm_candidate: dict[str, Any] | None = None
             if isinstance(ship_res.structured_output, Stage04ContractSynthesisOutput):
                 llm_candidate = ship_res.structured_output.contract.model_dump(
@@ -4109,6 +4155,15 @@ class AgenticVaultPipeline:
                 llm_candidate["column_triage_ledger"] = list(pass1_ledger)
                 candidate_contract = llm_candidate
             elif is_symbolic:
+                fallback_s4 = synthesize_stage_output_from_prompt(
+                    Stage04ContractSynthesisOutput,
+                    ship_spec.prompt,
+                )
+                canon_contract = fallback_s4.contract.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                )
+                canon_contract["column_triage_ledger"] = list(pass1_ledger)
                 candidate_contract = canon_contract
                 fallbacks_applied.append(
                     {
@@ -4344,14 +4399,6 @@ class AgenticVaultPipeline:
                     )
                     repair_res = await self._run_task_with_streaming(repair_spec)
                     s5_model_used = repair_res.model_used
-                    fallback_rep = synthesize_stage_output_from_prompt(
-                        Stage04ContractSynthesisOutput,
-                        repair_spec.prompt,
-                    )
-                    canon_repaired = fallback_rep.contract.model_dump(
-                        mode="json",
-                        exclude_none=True,
-                    )
                     llm_repaired: dict[str, Any] | None = None
                     if isinstance(repair_res.structured_output, Stage04ContractSynthesisOutput):
                         llm_repaired = repair_res.structured_output.contract.model_dump(
@@ -4370,6 +4417,14 @@ class AgenticVaultPipeline:
                     if valid_repair and llm_repaired is not None:
                         current_attempt_contract = llm_repaired
                     elif is_symbolic:
+                        fallback_rep = synthesize_stage_output_from_prompt(
+                            Stage04ContractSynthesisOutput,
+                            repair_spec.prompt,
+                        )
+                        canon_repaired = fallback_rep.contract.model_dump(
+                            mode="json",
+                            exclude_none=True,
+                        )
                         current_attempt_contract = canon_repaired
                         fallbacks_applied.append(
                             {

@@ -75,20 +75,31 @@ def create_app(
     service: OpenDVService | None = None,
 ) -> FastAPI:
     """Construct and configure the Open-DV Headless Platform FastAPI application."""
+    eff_ws = workspace_root or repo_root
+    has_state_ws = bool(platform_state and getattr(platform_state, "_explicit_workspace", False))
+    if eff_ws is None and has_state_ws:
+        eff_ws = platform_state.workspace_root
+    has_svc_ws = bool(service and getattr(service, "_explicit_workspace", False))
+    if eff_ws is None and has_svc_ws:
+        eff_ws = service.workspace_root
+
+    eff_storage = storage_root or state_dir
+    has_state_storage = bool(platform_state and getattr(platform_state, "_explicit_storage", False))
+    if eff_storage is None and has_state_storage:
+        eff_storage = getattr(platform_state, "storage_root", None)
+    has_svc_storage = bool(service and getattr(service, "_explicit_storage", False))
+    if eff_storage is None and has_svc_storage:
+        eff_storage = getattr(service, "storage_root", None)
+
+    active_settings = settings or OpenDVSettings.load(
+        workspace_root=eff_ws,
+        state_dir=eff_storage,
+        is_server=True,
+    )
+
     if service is not None:
         active_service = service
-        active_settings = getattr(service, "settings", None) or OpenDVSettings.load(
-            workspace_root=service.workspace_root,
-            is_server=True,
-        )
     elif platform_state is not None:
-        eff_ws = workspace_root or repo_root or getattr(platform_state, "workspace_root", None)
-        eff_storage = storage_root or state_dir or getattr(platform_state, "storage_root", None)
-        active_settings = settings or OpenDVSettings.load(
-            workspace_root=eff_ws,
-            state_dir=eff_storage,
-            is_server=True,
-        )
         active_service = OpenDVService(
             state_store=platform_state,
             workspace_root=active_settings.workspace_root,
@@ -96,13 +107,6 @@ def create_app(
             settings=active_settings,
         )
     else:
-        eff_ws = workspace_root or repo_root
-        eff_storage = storage_root or state_dir
-        active_settings = settings or OpenDVSettings.load(
-            workspace_root=eff_ws,
-            state_dir=eff_storage,
-            is_server=True,
-        )
         active_state = PlatformStateContainer(
             workspace_root=active_settings.workspace_root,
             storage_root=active_settings.state_dir,

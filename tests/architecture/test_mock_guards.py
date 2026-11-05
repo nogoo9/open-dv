@@ -21,18 +21,16 @@ from opendv_contracts.errors import NotFoundError
 from opendv_service import OpenDVService, PlatformStateContainer
 from tests.architecture.conftest import REPO_ROOT
 
-PRODUCTION_PY_DIRS = [
-    "packages/opendv-contracts/src",
-    "packages/opendv-cli-common/src",
-    "packages/opendv-service/src",
-    "packages/opendv-core/src",
-    "packages/opendv-telemetry/src",
-    "packages/opendv-axi-verifier/src",
-    "packages/opendv-duckdb-sandbox/src",
-    "packages/opendv-agent-harness/src",
-    "apps/opendv-platform-api/src",
-    "apps/opendv-cli/src",
-]
+def _discover_production_py_dirs() -> list[str]:
+    dirs: list[str] = []
+    for base in ["packages", "apps"]:
+        for p in (REPO_ROOT / base).glob("*/src"):
+            if "opendv-testkit" not in p.parts and list(p.rglob("*.py")):
+                dirs.append(str(p.relative_to(REPO_ROOT)).replace("\\", "/"))
+    return sorted(dirs)
+
+
+PRODUCTION_PY_DIRS = _discover_production_py_dirs()
 
 BANNED_PRODUCTION_MODULES = {
     "opendv_testkit",
@@ -178,7 +176,7 @@ def test_typescript_sdk_cleanliness() -> None:
     workbench_src = REPO_ROOT / "apps/opendv-web-workbench/src"
     if workbench_src.exists():
         mock_export_re = re.compile(
-            r"export\s+(?:class|const|function|interface|type|enum)\s+Mock[A-Za-z0-9_]*"
+            r"export\s+(?:(?:class|const|function|interface|type|enum)\s+Mock[A-Za-z0-9_]*|\{[^}]*\bMock[A-Za-z0-9_]*[^}]*\}|\*\s+from\s+['\"][^'\"]*mock)"
         )
         violations: list[str] = []
         for ts_file in workbench_src.rglob("*.ts*"):

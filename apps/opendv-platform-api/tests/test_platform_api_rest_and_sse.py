@@ -26,7 +26,7 @@ from opendv_platform_api import (
     redact_event_for_role,
     store_cas_artifact,
 )
-from opendv_service import ConfigurationError
+from opendv_service import ConfigurationError, OpenDVService
 from opendv_testkit import PE_DEMO_CONTEXT_REFS, seed_canonical_pe_demo
 
 
@@ -125,15 +125,33 @@ def test_platform_starts_empty(tmp_path: Path) -> None:
 
     # 3. Test unconfigured create_app() fails fast with ConfigurationError (REQ-CFG-01)
     saved_ws = os.environ.pop("OPENDV_WORKSPACE_ROOT", None)
+    saved_cfg = os.environ.pop("OPENDV_CONFIG", None)
     try:
+        # Bare create_app() fails fast
         with pytest.raises(ConfigurationError) as exc_info:
             create_app()
         assert "Missing required configuration 'workspace_root' for Platform API server" in str(
             exc_info.value
         )
+
+        # Unconfigured platform_state cannot bypass fail-fast
+        with pytest.raises(ConfigurationError):
+            create_app(platform_state=PlatformStateContainer())
+
+        # Unconfigured service cannot bypass fail-fast
+        with pytest.raises(ConfigurationError):
+            create_app(service=OpenDVService())
+
+        # Empty string OPENDV_WORKSPACE_ROOT cannot bypass fail-fast
+        os.environ["OPENDV_WORKSPACE_ROOT"] = ""
+        with pytest.raises(ConfigurationError):
+            create_app()
     finally:
+        os.environ.pop("OPENDV_WORKSPACE_ROOT", None)
         if saved_ws is not None:
             os.environ["OPENDV_WORKSPACE_ROOT"] = saved_ws
+        if saved_cfg is not None:
+            os.environ["OPENDV_CONFIG"] = saved_cfg
 
     # 4. Test explicit workspace_root starts strictly empty
     fresh_app = create_app(workspace_root=tmp_path / "fresh_ws")

@@ -205,4 +205,15 @@ def test_settings_load_null_workspace_root_fails_fast(
     with pytest.raises(ConfigurationError) as exc_info:
         OpenDVSettings.load(config_file=cfg_file, is_server=True)
     assert "Missing required configuration 'workspace_root'" in str(exc_info.value)
-    assert "config file key 'workspace_root' (null)" in str(exc_info.value)
+    assert "config file key 'workspace_root' (null/empty)" in str(exc_info.value)
+
+
+def test_settings_load_empty_env_workspace_root_fails_fast(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Verify empty string OPENDV_WORKSPACE_ROOT raises ConfigurationError in is_server mode."""
+    monkeypatch.setenv("OPENDV_WORKSPACE_ROOT", "")
+    with pytest.raises(ConfigurationError) as exc_info:
+        OpenDVSettings.load(is_server=True)
+    assert "Missing required configuration 'workspace_root'" in str(exc_info.value)
+    assert "env OPENDV_WORKSPACE_ROOT (empty)" in str(exc_info.value)
