@@ -50,10 +50,19 @@ def load_structured_document(
     )
 
     if is_path:
+        cand_path = Path(path_or_content)
+        eff_base = base_dir
+        if (
+            workspace_root is None
+            and base_dir is None
+            and not allowed_roots
+            and cand_path.is_absolute()
+        ):
+            eff_base = cand_path.parent
         file_path = resolve_workspace_path(
             path_or_content,
             workspace_root=workspace_root,
-            base_dir=base_dir,
+            base_dir=eff_base,
             allowed_roots=allowed_roots,
             allow_temp=allow_temp,
         )

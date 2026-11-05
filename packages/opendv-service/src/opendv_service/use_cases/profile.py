@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import re
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -16,6 +14,7 @@ from opendv_core.paths import resolve_workspace_path
 from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
 from opendv_service.errors import InputValidationError
 from opendv_service.rendering import render_profile_text
+from opendv_sources import SourceSpec, get_source_registry
 
 
 def _sanitize_sql_name(raw: str) -> str:
@@ -33,54 +32,74 @@ def profile_pipeline(
     *,
     workspace_root: Path | None = None,
 ) -> ProfileResponse:
-    """Profile tabular data (CSV/inline) or validate an existing Graph B profile descriptor."""
+    """Profile tabular data via SourceSpec or validate an existing Graph B profile descriptor."""
     root = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
 
-    # Case A: Source data profiling (CSV file or inline content)
-    if (request.source_path is not None and request.source_path.strip()) or (
-        request.file_content is not None and request.file_content.strip()
-    ):
-        tmp_csv_path: Path | None = None
-        if request.file_content is not None and request.file_content.strip():
-            with tempfile.NamedTemporaryFile(suffix=".csv", delete=False) as tmp_csv_file:
-                tmp_csv_file.write(request.file_content.encode("utf-8"))
-                tmp_csv_file.flush()
-                tmp_csv_path = Path(tmp_csv_file.name)
-            csv_path = tmp_csv_path
+    # Case A: Source data profiling (SourceSpec, CSV/data file, or inline content)
+    has_source = request.source is not None
+    has_source_path = request.source_path is not None and bool(request.source_path.strip())
+    has_file_content = request.file_content is not None and bool(request.file_content.strip())
+
+    if has_source or has_source_path or has_file_content:
+        if has_source:
+            assert request.source is not None
+            if isinstance(request.source, dict):
+                spec = SourceSpec.model_validate(request.source)
+            elif isinstance(request.source, SourceSpec):
+                spec = request.source
+            else:
+                spec = SourceSpec.model_validate(request.source)
+            spec.options.setdefault("allow_temp", True)
+            spec.options.setdefault("workspace_root", str(root))
+            display_source_path = spec.uri or spec.client_path or f"source:{spec.adapter}"
+            inferred_table = Path(spec.uri).stem if spec.uri else spec.adapter
+        elif has_file_content:
+            assert request.file_content is not None
             display_source_path = request.client_path or "inline:source.csv"
+            spec = SourceSpec(
+                adapter="inline",
+                inline_content=request.file_content,
+                client_path=request.client_path,
+                format="csv",
+            )
+            inferred_table = Path(request.client_path).stem if request.client_path else "source"
         else:
             assert request.source_path is not None
-            csv_path = resolve_workspace_path(
+            resolved_path = resolve_workspace_path(
                 request.source_path, workspace_root=root, allow_temp=True
             )
-            if not csv_path.exists():
-                raise InputValidationError(f"Source data file not found: {csv_path}")
-            display_source_path = str(csv_path)
+            if not resolved_path.exists():
+                raise InputValidationError(f"Source data file not found: {resolved_path}")
+            display_source_path = str(resolved_path)
+            spec = SourceSpec(
+                adapter="file",
+                uri=str(resolved_path),
+                options={"allow_temp": True, "workspace_root": str(root)},
+            )
+            inferred_table = resolved_path.stem
 
         source_system_raw = request.source_system or "bronze_source"
         source_sys_code = (
             re.sub(r"[^A-Z0-9_]+", "_", source_system_raw.upper()).strip("_") or "BRONZE_SOURCE"
         )
         table_name_raw = request.table_name
-        resolved_table_name = _sanitize_sql_name(table_name_raw or csv_path.stem)
+        resolved_table_name = _sanitize_sql_name(table_name_raw or inferred_table)
         domain_ns = _sanitize_domain_ns(request.project_id or source_system_raw)
 
+        profiler = GraphBProfiler()
         try:
-            profiler = GraphBProfiler()
-            try:
-                profiler.profile_csv(csv_path, view_name=resolved_table_name)
-                profile_obj = profiler.build_graph_b_profile(
-                    domain=domain_ns,
-                    source_system_id=source_sys_code,
-                    bkcc_namespace=source_sys_code,
-                    table_names=[resolved_table_name],
-                )
-            finally:
-                profiler.close()
+            reg = get_source_registry()
+            adapter = reg.get_tabular_adapter(spec.adapter)
+            adapter.register(spec, profiler.conn, resolved_table_name)
+            profiler.profile_relation(resolved_table_name)
+            profile_obj = profiler.build_graph_b_profile(
+                domain=domain_ns,
+                source_system_id=source_sys_code,
+                bkcc_namespace=source_sys_code,
+                table_names=[resolved_table_name],
+            )
         finally:
-            if tmp_csv_path is not None and tmp_csv_path.exists():
-                with contextlib.suppress(OSError):
-                    tmp_csv_path.unlink(missing_ok=True)
+            profiler.close()
 
         graph_b_doc = profile_obj.model_dump(mode="json", exclude_none=True)
         validate_graph_b(graph_b_doc)
@@ -150,7 +169,7 @@ def profile_pipeline(
         return ProfileResponse(**res_dict)
 
     raise InputValidationError(
-        "Either source_path, file_content, or graph_b_path must be provided."
+        "Either source, source_path, file_content, or graph_b_path must be provided."
     )
 
 

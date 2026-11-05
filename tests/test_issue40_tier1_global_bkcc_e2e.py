@@ -33,6 +33,7 @@ from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_s
 from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
 from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
 from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+from opendv_sources import SourceSpec, get_source_registry
 
 
 def _build_issue40_ontology() -> dict[str, Any]:
@@ -112,10 +113,26 @@ def test_issue40_e2e_scenario_s1_and_s2_tier1_global_bkcc_invariants() -> None:
     csv_paths = _resolve_issue40_csv_datasets()
 
     # Profile real CSV files with DuckDB GraphBProfiler
+    reg = get_source_registry()
     with GraphBProfiler() as profiler:
-        crm_metrics = profiler.profile_csv(csv_paths["bronze_crm.accounts"])
-        erp_metrics = profiler.profile_csv(csv_paths["bronze_erp.invoices"])
-        leg_metrics = profiler.profile_csv(csv_paths["bronze_legacy.tickets"])
+        reg.get_tabular_adapter("file").register(
+            SourceSpec(adapter="file", uri=str(csv_paths["bronze_crm.accounts"])),
+            profiler.conn,
+            "v_crm_accounts",
+        )
+        reg.get_tabular_adapter("file").register(
+            SourceSpec(adapter="file", uri=str(csv_paths["bronze_erp.invoices"])),
+            profiler.conn,
+            "v_erp_invoices",
+        )
+        reg.get_tabular_adapter("file").register(
+            SourceSpec(adapter="file", uri=str(csv_paths["bronze_legacy.tickets"])),
+            profiler.conn,
+            "v_leg_tickets",
+        )
+        crm_metrics = profiler.profile_relation("v_crm_accounts")
+        erp_metrics = profiler.profile_relation("v_erp_invoices")
+        leg_metrics = profiler.profile_relation("v_leg_tickets")
     assert len(crm_metrics) == 3
     assert len(erp_metrics) == 3
     assert len(leg_metrics) == 2

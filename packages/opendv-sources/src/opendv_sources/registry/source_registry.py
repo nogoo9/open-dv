@@ -148,6 +148,29 @@ class SourceAdapterRegistry:
         with self._lock:
             return sorted(set(self._tabular_adapters.keys()) | set(self._document_adapters.keys()))
 
+    def is_document_path(self, target: Any) -> bool:
+        """Return True if target path or URI corresponds to an unstructured document."""
+        self._discover()
+        raw = str(target).lower().strip()
+        return any(raw.endswith(f".{ext}") for ext in ("txt", "text", "md", "markdown", "pdf"))
+
+    def resolve_document_adapter_name(self, target: Any) -> str:
+        """Resolve document adapter name for a target path or URI."""
+        self._discover()
+        raw = str(target).lower().strip()
+        if raw.endswith(".pdf"):
+            return "pdf"
+        return "text"
+
+    def is_tabular_path(self, target: Any) -> bool:
+        """Return True if target path or URI corresponds to a supported tabular file."""
+        self._discover()
+        raw = str(target).lower().strip()
+        return any(
+            raw.endswith(f".{ext}")
+            for ext in ("csv", "tsv", "parquet", "pq", "json", "jsonl", "ndjson")
+        )
+
     def reset(self) -> None:
         """Reset the registry to an empty, undiscovered state (for testing)."""
         with self._lock:

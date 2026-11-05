@@ -40,10 +40,12 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
         adapter_name: str = "file",
         workspace_root: Path | None = None,
         allowed_roots: Sequence[Path] | None = None,
+        allow_temp: bool | None = None,
     ) -> None:
         self._adapter_name = adapter_name
         self.workspace_root = workspace_root
         self.allowed_roots = allowed_roots
+        self.allow_temp = (workspace_root is None) if allow_temp is None else allow_temp
 
     @property
     def adapter_name(self) -> str:
@@ -63,16 +65,20 @@ class LocalFilesystemSourceAdapter(SourceAdapter, TabularSourceAdapter):
             raise SourceNotFoundError("LocalFilesystemSourceAdapter requires a non-empty 'uri'")
 
         raw_str = raw_uri.strip()
-        ws_root = (
-            Path(spec.options["workspace_root"])
-            if "workspace_root" in spec.options
-            else (self.workspace_root or Path.cwd())
-        )
         allowed: Sequence[Path] | None = spec.options.get("allowed_roots", self.allowed_roots)
+        cand = Path(raw_str)
+        if "workspace_root" in spec.options:
+            ws_root = Path(spec.options["workspace_root"])
+        elif self.workspace_root is not None:
+            ws_root = self.workspace_root
+        elif cand.is_absolute() and "base_dir" not in spec.options and not allowed:
+            ws_root = cand if cand.is_dir() else cand.parent
+        else:
+            ws_root = Path.cwd()
         base_dir: Path | None = (
             Path(spec.options["base_dir"]) if "base_dir" in spec.options else None
         )
-        allow_temp = spec.options.get("allow_temp", False)
+        allow_temp = spec.options.get("allow_temp", self.allow_temp)
 
         if any(ch in raw_str for ch in _GLOB_CHARS):
             return self._resolve_glob_pattern(

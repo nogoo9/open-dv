@@ -10,10 +10,20 @@ dependencies = [
     "opendv-duckdb-sandbox",
     "opendv-agent-harness",
     "opendv-telemetry",
+    "opendv-sources",
     "pydantic>=2.10.0",
     "pyyaml>=6.0.2",
     "duckdb>=1.2.0",
 ]
+
+[tool.uv.sources]
+opendv-contracts = { workspace = true }
+opendv-core = { workspace = true }
+opendv-axi-verifier = { workspace = true }
+opendv-duckdb-sandbox = { workspace = true }
+opendv-agent-harness = { workspace = true }
+opendv-telemetry = { workspace = true }
+opendv-sources = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

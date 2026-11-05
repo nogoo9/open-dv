@@ -96,6 +96,30 @@
       "response_dto": "ProfileResponse",
       "options": [
         {
+          "name": "source",
+          "flag": "--source",
+          "short": null,
+          "type": "string",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Source URI or adapter spec string to profile"
+        },
+        {
+          "name": "file",
+          "flag": "--file",
+          "short": null,
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to data file to profile (backwards compatibility alias for --source)"
+        },
+        {
           "name": "source_csv",
           "flag": "--source-csv",
           "short": "-s",

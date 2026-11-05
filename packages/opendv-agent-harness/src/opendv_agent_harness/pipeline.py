@@ -100,6 +100,11 @@ from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_s
 from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
 from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
 from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+from opendv_sources import (
+    SourceSpec,
+    get_source_registry,
+    load_structured_document,
+)
 from opendv_telemetry import (
     ContentAddressableStore,
     VaultLedgerEmitter,
@@ -114,8 +119,8 @@ from opendv_telemetry import (
 
 def _load_yaml_or_json(path: str | Path) -> dict[str, Any]:
     file_path = Path(path)
-    text = file_path.read_text(encoding="utf-8")
-    loaded = json.loads(text) if file_path.suffix.lower() == ".json" else yaml.safe_load(text)
+    eff_base = file_path.parent.resolve() if file_path.is_absolute() else Path.cwd()
+    loaded = load_structured_document(file_path, base_dir=eff_base, allow_temp=True)
     if not isinstance(loaded, dict):
         msg = f"Expected mapping object in '{file_path}', got {type(loaded).__name__}."
         raise ValueError(msg)
@@ -538,6 +543,8 @@ class PipelineSourceFeedInput(BaseModel):
     feed_id: str | None = None
     source_system: str
     table_name: str
+    source: SourceSpec | dict[str, Any] | None = None
+    baseline_source: SourceSpec | dict[str, Any] | None = None
     data_path: str = ""
     file_path: str | None = None
     baseline_data_path: str | None = None
@@ -562,10 +569,29 @@ class PipelineSourceFeedInput(BaseModel):
 
     @model_validator(mode="after")
     def _normalize_source_feed_paths(self) -> PipelineSourceFeedInput:
+        if self.source is not None:
+            if isinstance(self.source, dict):
+                self.source = SourceSpec.model_validate(self.source)
+            if not self.data_path and self.source.uri:
+                self.data_path = self.source.uri
+        elif self.data_path or self.file_path:
+            p = self.data_path or self.file_path or ""
+            self.source = SourceSpec(adapter="file", uri=p)
+
         if not self.data_path and self.file_path:
             self.data_path = self.file_path
         elif self.data_path and self.file_path is None:
             self.file_path = self.data_path
+
+        if self.baseline_source is not None:
+            if isinstance(self.baseline_source, dict):
+                self.baseline_source = SourceSpec.model_validate(self.baseline_source)
+            if not self.baseline_data_path and self.baseline_source.uri:
+                self.baseline_data_path = self.baseline_source.uri
+        elif self.baseline_data_path or self.baseline_file_path:
+            bp = self.baseline_data_path or self.baseline_file_path or ""
+            self.baseline_source = SourceSpec(adapter="file", uri=bp)
+
         if self.baseline_data_path is None and self.baseline_file_path:
             self.baseline_data_path = self.baseline_file_path
         elif self.baseline_data_path and self.baseline_file_path is None:
@@ -616,6 +642,7 @@ class PipelineUnstructuredDocInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     doc_id: str
+    source: SourceSpec | dict[str, Any] | None = None
     document_path: str = ""
     file_path: str | None = None
     record_source: str = "UNSTRUCTURED_DOC"
@@ -627,6 +654,16 @@ class PipelineUnstructuredDocInput(BaseModel):
 
     @model_validator(mode="after")
     def _normalize_doc_fields(self) -> PipelineUnstructuredDocInput:
+        if self.source is not None:
+            if isinstance(self.source, dict):
+                self.source = SourceSpec.model_validate(self.source)
+            if not self.document_path and self.source.uri:
+                self.document_path = self.source.uri
+        elif self.document_path or self.file_path:
+            dp = self.document_path or self.file_path or ""
+            adapter_name = get_source_registry().resolve_document_adapter_name(dp)
+            self.source = SourceSpec(adapter=adapter_name, uri=dp)
+
         if not self.document_path and self.file_path:
             self.document_path = self.file_path
         elif self.document_path and self.file_path is None:
@@ -931,24 +968,18 @@ def _validate_path_containment(
 def _load_table_into_duckdb(
     conn: duckdb.DuckDBPyConnection,
     view_name: str,
-    file_path: Path,
+    file_path: Path | str | SourceSpec,
 ) -> tuple[int, list[str]]:
-    """Load a CSV, Parquet, or JSON file into DuckDB as `view_name` and return `(rows, cols)`."""
-    escaped = str(file_path.resolve()).replace("'", "''")
-    suffix = file_path.suffix.lower()
+    """Load tabular data into DuckDB as `view_name` using adapters and return (rows, cols)."""
+    spec = (
+        file_path
+        if isinstance(file_path, SourceSpec)
+        else SourceSpec(adapter="file", uri=str(Path(file_path).resolve()))
+    )
+    reg = get_source_registry()
+    adapter = reg.get_tabular_adapter(spec.adapter)
+    adapter.register(spec, conn, view_name)
     q_view = f'"{view_name}"'
-    if suffix == ".parquet":
-        conn.execute(
-            f"CREATE OR REPLACE TEMP VIEW {q_view} AS SELECT * FROM read_parquet('{escaped}')"
-        )
-    elif suffix in {".json", ".jsonl", ".ndjson"}:
-        conn.execute(
-            f"CREATE OR REPLACE TEMP VIEW {q_view} AS SELECT * FROM read_json_auto('{escaped}')"
-        )
-    else:
-        conn.execute(
-            f"CREATE OR REPLACE TEMP VIEW {q_view} AS SELECT * FROM read_csv_auto('{escaped}')"
-        )
     desc = conn.execute(f"DESCRIBE {q_view}").fetchall()
     cols = [str(r[0]) for r in desc]
     cnt_row = conn.execute(f"SELECT COUNT(*) FROM {q_view}").fetchone()
@@ -1635,9 +1666,22 @@ def validate_pipeline_inputs(
                         }
                     )
                     continue
-                doc_text = (
-                    u_path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
-                )
+                if doc.source is not None:
+                    raw_spec = doc.source
+                    if isinstance(raw_spec, dict):
+                        doc_spec = SourceSpec.model_validate(raw_spec)
+                    else:
+                        doc_spec = raw_spec.model_copy()
+                    if not doc_spec.inline_content and doc_spec.uri:
+                        doc_spec = doc_spec.model_copy(update={"uri": str(u_path)})
+                else:
+                    doc_spec = SourceSpec(
+                        adapter=get_source_registry().resolve_document_adapter_name(u_path),
+                        uri=str(u_path),
+                    )
+                doc_adapter = get_source_registry().get_document_adapter(doc_spec.adapter)
+                extracted = doc_adapter.extract_document(doc_spec)
+                doc_text = extracted.normalized_text
                 if not doc_text.strip():
                     diagnostics.append(
                         {
@@ -2407,12 +2451,13 @@ def _extract_known_entities_from_cumulative_sources(
                     bk_col = key_cols[0]
                     tbl_short = b_tbl.split(".")[-1].lower()
                     matched_file: Path | None = None
+                    source_reg = get_source_registry()
                     for s_root in search_roots:
                         candidates = sorted(
                             p
                             for p in s_root.rglob("*")
                             if p.is_file()
-                            and p.suffix.lower() in {".csv", ".parquet", ".json"}
+                            and source_reg.is_tabular_path(p)
                             and p.stem.lower().startswith(tbl_short)
                         )
                         if candidates:
@@ -3554,10 +3599,23 @@ class AgenticVaultPipeline:
                     workspace_root=self.workspace_root,
                 )
                 assert u_path is not None
-                doc_text = (
-                    u_path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
-                )
-                doc_sha256 = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
+                if raw_doc.source is not None:
+                    raw_spec = raw_doc.source
+                    if isinstance(raw_spec, dict):
+                        doc_spec = SourceSpec.model_validate(raw_spec)
+                    else:
+                        doc_spec = raw_spec.model_copy()
+                    if not doc_spec.inline_content and doc_spec.uri:
+                        doc_spec = doc_spec.model_copy(update={"uri": str(u_path)})
+                else:
+                    doc_spec = SourceSpec(
+                        adapter=get_source_registry().resolve_document_adapter_name(u_path),
+                        uri=str(u_path),
+                    )
+                doc_adapter = get_source_registry().get_document_adapter(doc_spec.adapter)
+                extracted = doc_adapter.extract_document(doc_spec)
+                doc_text = extracted.normalized_text
+                doc_sha256 = extracted.raw_sha256
                 raw_loaded_docs.append((raw_doc, doc_text, doc_sha256))
 
             known_entities = _extract_known_entities_from_cumulative_sources(

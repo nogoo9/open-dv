@@ -14,7 +14,13 @@ waves:
     sources:
       - source_system: "crm_salesforce"
         table_name: "crm_customers"
+        source:
+          adapter: "file"
+          uri: "sources/wave0_cold_start/crm_customers.csv"
         data_path: "sources/wave0_cold_start/crm_customers.csv"
       - source_system: "erp_netsuite"
         table_name: "erp_orders"
+        source:
+          adapter: "file"
+          uri: "sources/wave0_cold_start/erp_orders.csv"
         data_path: "sources/wave0_cold_start/erp_orders.csv"
