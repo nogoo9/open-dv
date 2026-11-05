@@ -77,7 +77,9 @@ class OpenDVService:
         workspace_root: Path | None = None,
         storage_root: Path | None = None,
         settings: OpenDVSettings | None = None,
+        is_server: bool = False,
     ) -> None:
+        self.is_server = is_server
         active_state = state if state is not None else state_store
         self._explicit_workspace = (workspace_root is not None) or (
             bool(getattr(active_state, "_explicit_workspace", False)) if active_state else False
@@ -94,7 +96,7 @@ class OpenDVService:
         self.settings = settings or OpenDVSettings.load(
             workspace_root=eff_ws,
             state_dir=eff_storage,
-            is_server=False,
+            is_server=is_server,
         )
         self.workspace_root = eff_ws or self.settings.workspace_root or Path.cwd().resolve()
         self.storage_root = eff_storage or self.settings.state_dir
@@ -126,13 +128,25 @@ class OpenDVService:
         ]
 
     # 1. Profiling
-    def profile_pipeline(self, request: ProfileRequest | dict[str, Any]) -> ProfileResponse:
+    def profile_pipeline(
+        self,
+        request: ProfileRequest | dict[str, Any],
+        *,
+        allow_temp: bool | None = None,
+        allowed_roots: list[Path] | None = None,
+    ) -> ProfileResponse:
         req_obj = (
             request
             if isinstance(request, ProfileRequest)
             else ProfileRequest.model_validate(request)
         )
-        return profile_pipeline(req_obj, workspace_root=self.workspace_root)
+        eff_allow_temp = (not self.is_server) if allow_temp is None else allow_temp
+        return profile_pipeline(
+            req_obj,
+            workspace_root=self.workspace_root,
+            allow_temp=eff_allow_temp,
+            allowed_roots=allowed_roots,
+        )
 
     # 2. Compilation
     def compile_pipeline(self, request: CompileRequest | dict[str, Any]) -> CompileResponse:

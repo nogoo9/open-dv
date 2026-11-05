@@ -13,5 +13,8 @@ waves:
     description: "Span-grounded extraction from Enterprise MSA Addendum 2026 with Tier-U1 exact match and Tier-U3 ambiguous entity Steward Hold."
     unstructured_documents:
       - doc_id: "DOC-MSA-2026-089"
+        source:
+          adapter: "text"
+          uri: "sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt"
         document_path: "sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt"
         record_source: "LEGAL_DOC_VAULT"

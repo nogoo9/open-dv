@@ -30,6 +30,7 @@ def get_opendv_service(request: Request) -> OpenDVService:
             state_store=platform_state,
             workspace_root=ws_root,
             settings=settings,
+            is_server=True,
         )
         request.app.state.service = service
     return service

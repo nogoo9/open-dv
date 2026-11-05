@@ -2219,7 +2219,6 @@ def _load_bronze_table_rows(
     """Load rows from `bronze_tables` (CSV/Parquet paths or in-memory row lists)."""
     if not bronze_tables:
         return {}
-    import csv
     from pathlib import Path
 
     import duckdb
@@ -2229,22 +2228,34 @@ def _load_bronze_table_rows(
         rows: list[dict[str, Any]] = []
         if isinstance(val, list):
             rows = [dict(r) for r in val if isinstance(r, dict)]
-        elif isinstance(val, (Path, str)):
-            p = Path(val)
-            if p.is_file():
-                suffix = p.suffix.lower()
-                if suffix == ".csv":
-                    with p.open("r", encoding="utf-8", errors="replace") as fh:
-                        rows = [dict(r) for r in csv.DictReader(fh)]
-                elif suffix == ".parquet":
-                    con = duckdb.connect(":memory:")
-                    try:
-                        esc = str(p).replace("'", "''")
-                        cur = con.execute(f"SELECT * FROM read_parquet('{esc}')")
-                        cols = [d[0] for d in cur.description]
-                        rows = [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
-                    finally:
-                        con.close()
+        elif hasattr(val, "adapter") or isinstance(val, (Path, str)):
+            from opendv_sources import SourceSpec, get_source_registry
+
+            if hasattr(val, "adapter"):
+                spec = val.model_copy(deep=True)
+                ws = (
+                    Path(spec.uri).parent.resolve()
+                    if spec.uri and Path(spec.uri).is_file()
+                    else Path.cwd()
+                )
+            else:
+                p = Path(val)
+                if not p.is_file():
+                    continue
+                spec = SourceSpec(
+                    adapter="file",
+                    uri=str(p.resolve()),
+                )
+                ws = p.parent.resolve()
+            con = duckdb.connect(":memory:")
+            try:
+                adapter = get_source_registry().get_tabular_adapter(spec.adapter, workspace_root=ws)
+                adapter.register(spec, con, "_compiler_bronze_table")
+                cur = con.execute('SELECT * FROM "_compiler_bronze_table"')
+                cols = [d[0] for d in cur.description]
+                rows = [dict(zip(cols, r, strict=False)) for r in cur.fetchall()]
+            finally:
+                con.close()
         if rows:
             loaded[raw_key] = rows
             loaded[raw_key.lower()] = rows

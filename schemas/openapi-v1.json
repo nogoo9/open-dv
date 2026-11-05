@@ -744,6 +744,208 @@
         "title": "PipelineValidateRequest",
         "type": "object"
       },
+      "ProfileRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO for Bronze data profiling and Graph B empirical discovery (Decision D1).",
+        "properties": {
+          "client_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Originating client path for inline uploads (Decision D1)",
+            "title": "Client Path"
+          },
+          "file_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline raw CSV/data payload (Decision D1)",
+            "title": "File Content"
+          },
+          "graph_b_content": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline Graph B dictionary",
+            "title": "Graph B Content"
+          },
+          "graph_b_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to existing Graph B profile to validate",
+            "title": "Graph B Path"
+          },
+          "options": {
+            "additionalProperties": true,
+            "description": "Profiler tuning parameters",
+            "title": "Options",
+            "type": "object"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Associated project identifier",
+            "title": "Project Id"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pluggable SourceSpec dictionary or specification block",
+            "title": "Source"
+          },
+          "source_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Local or workspace-relative path to source CSV/data",
+            "title": "Source Path"
+          },
+          "source_system": {
+            "default": "BRONZE_SOURCE",
+            "description": "Source system business code",
+            "title": "Source System",
+            "type": "string"
+          },
+          "table_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Explicit target table name",
+            "title": "Table Name"
+          }
+        },
+        "title": "ProfileRequest",
+        "type": "object"
+      },
+      "ProfileResponse": {
+        "additionalProperties": false,
+        "description": "Standardized response from Bronze data profiling (Decisions D6, D7).",
+        "properties": {
+          "column_count": {
+            "default": 0,
+            "description": "Total columns profiled",
+            "minimum": 0.0,
+            "title": "Column Count",
+            "type": "integer"
+          },
+          "graph_b_profile": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Normalized Graph B schema descriptor",
+            "title": "Graph B Profile"
+          },
+          "profile_id": {
+            "description": "Unique profile identifier",
+            "title": "Profile Id",
+            "type": "string"
+          },
+          "rendered": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RenderedOutput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pre-rendered text output"
+          },
+          "source_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source data location if file-based",
+            "title": "Source Path"
+          },
+          "source_system": {
+            "description": "Sanitized source system identifier",
+            "title": "Source System",
+            "type": "string"
+          },
+          "status": {
+            "description": "'PASS' or 'ERROR'",
+            "title": "Status",
+            "type": "string"
+          },
+          "table_count": {
+            "default": 0,
+            "description": "Total tables profiled",
+            "minimum": 0.0,
+            "title": "Table Count",
+            "type": "integer"
+          },
+          "table_name": {
+            "description": "Sanitized table identifier",
+            "title": "Table Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "profile_id",
+          "source_system",
+          "table_name"
+        ],
+        "title": "ProfileResponse",
+        "type": "object"
+      },
       "ProjectResponse": {
         "additionalProperties": false,
         "description": "Registered Data Vault 2.0 project descriptor (docs/08 \u00a75.2 & docs/10 \u00a72.3).",
@@ -945,6 +1147,50 @@
           "decisions_url"
         ],
         "title": "ProjectRunDTO",
+        "type": "object"
+      },
+      "RenderedOutput": {
+        "additionalProperties": false,
+        "description": "Pre-rendered presentation text produced by opendv-service\nfor consistent CLI output (Decisions D6, D7).",
+        "properties": {
+          "summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Single-line concise verdict summary",
+            "title": "Summary"
+          },
+          "text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Human-readable terminal summary table",
+            "title": "Text"
+          },
+          "toon": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Diagnostic TOON notation trace",
+            "title": "Toon"
+          }
+        },
+        "title": "RenderedOutput",
         "type": "object"
       },
       "RunStatus": {
@@ -1441,6 +1687,48 @@
         "summary": "Get Platform Capabilities",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/profile": {
+      "post": {
+        "description": "Profile Bronze tabular sources or existing Graph B profile via SourceSpec.",
+        "operationId": "profile_source_api_v1_profile_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProfileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProfileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Profile Source",
+        "tags": [
+          "profile"
         ]
       }
     },

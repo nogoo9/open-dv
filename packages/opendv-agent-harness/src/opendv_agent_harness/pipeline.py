@@ -100,6 +100,11 @@ from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_s
 from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
 from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
 from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+from opendv_sources import (
+    SourceSpec,
+    get_source_registry,
+    load_structured_document,
+)
 from opendv_telemetry import (
     ContentAddressableStore,
     VaultLedgerEmitter,
@@ -114,8 +119,8 @@ from opendv_telemetry import (
 
 def _load_yaml_or_json(path: str | Path) -> dict[str, Any]:
     file_path = Path(path)
-    text = file_path.read_text(encoding="utf-8")
-    loaded = json.loads(text) if file_path.suffix.lower() == ".json" else yaml.safe_load(text)
+    eff_base = file_path.parent.resolve() if file_path.is_absolute() else Path.cwd()
+    loaded = load_structured_document(file_path, base_dir=eff_base, allow_temp=True)
     if not isinstance(loaded, dict):
         msg = f"Expected mapping object in '{file_path}', got {type(loaded).__name__}."
         raise ValueError(msg)
@@ -538,6 +543,8 @@ class PipelineSourceFeedInput(BaseModel):
     feed_id: str | None = None
     source_system: str
     table_name: str
+    source: SourceSpec | dict[str, Any] | None = None
+    baseline_source: SourceSpec | dict[str, Any] | None = None
     data_path: str = ""
     file_path: str | None = None
     baseline_data_path: str | None = None
@@ -562,10 +569,29 @@ class PipelineSourceFeedInput(BaseModel):
 
     @model_validator(mode="after")
     def _normalize_source_feed_paths(self) -> PipelineSourceFeedInput:
+        if self.source is not None:
+            if isinstance(self.source, dict):
+                self.source = SourceSpec.model_validate(self.source)
+            if not self.data_path and self.source.uri:
+                self.data_path = self.source.uri
+        elif self.data_path or self.file_path:
+            p = self.data_path or self.file_path or ""
+            self.source = SourceSpec(adapter="file", uri=p)
+
         if not self.data_path and self.file_path:
             self.data_path = self.file_path
         elif self.data_path and self.file_path is None:
             self.file_path = self.data_path
+
+        if self.baseline_source is not None:
+            if isinstance(self.baseline_source, dict):
+                self.baseline_source = SourceSpec.model_validate(self.baseline_source)
+            if not self.baseline_data_path and self.baseline_source.uri:
+                self.baseline_data_path = self.baseline_source.uri
+        elif self.baseline_data_path or self.baseline_file_path:
+            bp = self.baseline_data_path or self.baseline_file_path or ""
+            self.baseline_source = SourceSpec(adapter="file", uri=bp)
+
         if self.baseline_data_path is None and self.baseline_file_path:
             self.baseline_data_path = self.baseline_file_path
         elif self.baseline_data_path and self.baseline_file_path is None:
@@ -616,6 +642,7 @@ class PipelineUnstructuredDocInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     doc_id: str
+    source: SourceSpec | dict[str, Any] | None = None
     document_path: str = ""
     file_path: str | None = None
     record_source: str = "UNSTRUCTURED_DOC"
@@ -627,6 +654,16 @@ class PipelineUnstructuredDocInput(BaseModel):
 
     @model_validator(mode="after")
     def _normalize_doc_fields(self) -> PipelineUnstructuredDocInput:
+        if self.source is not None:
+            if isinstance(self.source, dict):
+                self.source = SourceSpec.model_validate(self.source)
+            if not self.document_path and self.source.uri:
+                self.document_path = self.source.uri
+        elif self.document_path or self.file_path:
+            dp = self.document_path or self.file_path or ""
+            adapter_name = get_source_registry().resolve_document_adapter_name(dp)
+            self.source = SourceSpec(adapter=adapter_name, uri=dp)
+
         if not self.document_path and self.file_path:
             self.document_path = self.file_path
         elif self.document_path and self.file_path is None:
@@ -928,31 +965,60 @@ def _validate_path_containment(
         return None, str(exc)
 
 
+def _to_source_target(
+    src_source: SourceSpec | dict[str, Any] | None,
+    path: Path | None,
+) -> Path | str | SourceSpec:
+    """Normalize a source spec or path into an authoritative DuckDB load target."""
+    if src_source is not None:
+        if isinstance(src_source, SourceSpec):
+            return src_source.model_copy(update={"uri": str(path)}) if path else src_source
+        if isinstance(src_source, dict):
+            updated = dict(src_source)
+            if path:
+                updated["uri"] = str(path)
+            return SourceSpec.model_validate(updated)
+    assert path is not None
+    return path
+
+
 def _load_table_into_duckdb(
     conn: duckdb.DuckDBPyConnection,
     view_name: str,
-    file_path: Path,
+    file_path: Path | str | SourceSpec,
+    *,
+    workspace_root: Path | None = None,
+    allowed_roots: list[Path] | None = None,
+    allow_temp: bool = True,
 ) -> tuple[int, list[str]]:
-    """Load a CSV, Parquet, or JSON file into DuckDB as `view_name` and return `(rows, cols)`."""
-    escaped = str(file_path.resolve()).replace("'", "''")
-    suffix = file_path.suffix.lower()
-    q_view = f'"{view_name}"'
-    if suffix == ".parquet":
-        conn.execute(
-            f"CREATE OR REPLACE TEMP VIEW {q_view} AS SELECT * FROM read_parquet('{escaped}')"
-        )
-    elif suffix in {".json", ".jsonl", ".ndjson"}:
-        conn.execute(
-            f"CREATE OR REPLACE TEMP VIEW {q_view} AS SELECT * FROM read_json_auto('{escaped}')"
-        )
+    """Load tabular data into DuckDB as `view_name` using adapters and return (rows, cols)."""
+    ws = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
+    if isinstance(file_path, SourceSpec):
+        spec = file_path.model_copy(deep=True)
     else:
-        conn.execute(
-            f"CREATE OR REPLACE TEMP VIEW {q_view} AS SELECT * FROM read_csv_auto('{escaped}')"
+        p = Path(file_path).resolve()
+        spec = SourceSpec(
+            adapter="file",
+            uri=str(p),
         )
+    eff_allowed = list(allowed_roots) if allowed_roots else []
+    if workspace_root is None and spec.uri and Path(spec.uri).is_file():
+        p_file = Path(spec.uri).resolve()
+        if p_file.parent not in eff_allowed:
+            eff_allowed.append(p_file.parent)
+    reg = get_source_registry()
+    adapter = reg.get_tabular_adapter(
+        spec.adapter,
+        workspace_root=ws,
+        allowed_roots=eff_allowed if eff_allowed else None,
+        allow_temp=allow_temp,
+    )
+    adapter.register(spec, conn, view_name)
+    q_view = f'"{view_name}"'
     desc = conn.execute(f"DESCRIBE {q_view}").fetchall()
     cols = [str(r[0]) for r in desc]
-    cnt_row = conn.execute(f"SELECT COUNT(*) FROM {q_view}").fetchone()
-    row_count = int(cnt_row[0]) if cnt_row is not None else 0
+    cnt_row = conn.execute(f"SELECT COUNT(*) FROM {q_view}").fetchall()
+    row_count = int(cnt_row[0][0]) if cnt_row and cnt_row[0] else 0
     return row_count, cols
 
 
@@ -1500,8 +1566,13 @@ def validate_pipeline_inputs(
                     )
                     continue
                 try:
+                    load_target = _to_source_target(src.source, d_path)
                     row_cnt, cols = _load_table_into_duckdb(
-                        conn, f"v_w{wave.wave_index}_s{s_idx}", d_path
+                        conn,
+                        f"v_w{wave.wave_index}_s{s_idx}",
+                        load_target,
+                        workspace_root=eff_base,
+                        allowed_roots=[ws_root, eff_base],
                     )
                     if row_cnt < 1 or len(cols) < 1:
                         diagnostics.append(
@@ -1572,8 +1643,13 @@ def validate_pipeline_inputs(
                         )
                     else:
                         try:
+                            b_target = _to_source_target(src.baseline_source, b_path)
                             b_rows, b_cols = _load_table_into_duckdb(
-                                conn, f"v_w{wave.wave_index}_s{s_idx}_base", b_path
+                                conn,
+                                f"v_w{wave.wave_index}_s{s_idx}_base",
+                                b_target,
+                                workspace_root=eff_base,
+                                allowed_roots=[ws_root, eff_base],
                             )
                             if b_rows < 1 or len(b_cols) < 1:
                                 diagnostics.append(
@@ -1635,9 +1711,25 @@ def validate_pipeline_inputs(
                         }
                     )
                     continue
-                doc_text = (
-                    u_path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+                if doc.source is not None:
+                    raw_spec = doc.source
+                    if isinstance(raw_spec, dict):
+                        doc_spec = SourceSpec.model_validate(raw_spec)
+                    else:
+                        doc_spec = raw_spec.model_copy()
+                    if not doc_spec.inline_content and doc_spec.uri:
+                        doc_spec = doc_spec.model_copy(update={"uri": str(u_path)})
+                else:
+                    doc_spec = SourceSpec(
+                        adapter=get_source_registry().resolve_document_adapter_name(u_path),
+                        uri=str(u_path),
+                    )
+                ws = Path(base_dir).resolve() if base_dir else Path.cwd()
+                doc_adapter = get_source_registry().get_document_adapter(
+                    doc_spec.adapter, workspace_root=ws, allow_temp=True
                 )
+                extracted = doc_adapter.extract_document(doc_spec)
+                doc_text = extracted.normalized_text
                 if not doc_text.strip():
                     diagnostics.append(
                         {
@@ -2348,7 +2440,8 @@ def _extract_known_entities_from_cumulative_sources(
             if not src.business_key_columns or not d_path.is_file():
                 continue
             v_name = f"v_er_{_slugify(q_tbl)}"
-            _, cols = _load_table_into_duckdb(conn, v_name, d_path)
+            src_target = _to_source_target(src.source, d_path)
+            _, cols = _load_table_into_duckdb(conn, v_name, src_target)
             bk_col = src.business_key_columns[0]
             if bk_col not in cols:
                 continue
@@ -2407,12 +2500,13 @@ def _extract_known_entities_from_cumulative_sources(
                     bk_col = key_cols[0]
                     tbl_short = b_tbl.split(".")[-1].lower()
                     matched_file: Path | None = None
+                    source_reg = get_source_registry()
                     for s_root in search_roots:
                         candidates = sorted(
                             p
                             for p in s_root.rglob("*")
                             if p.is_file()
-                            and p.suffix.lower() in {".csv", ".parquet", ".json"}
+                            and source_reg.is_tabular_path(p)
                             and p.stem.lower().startswith(tbl_short)
                         )
                         if candidates:
@@ -3162,7 +3256,15 @@ class AgenticVaultPipeline:
                     qualified_table = f"{src.source_system.lower()}.{src.table_name.lower()}"
 
                     view_t1 = f"v_{_slugify(src.source_system)}_{_slugify(src.table_name)}"
-                    _load_table_into_duckdb(profiler.conn, view_t1, d_path)
+                    src_target = _to_source_target(src.source, d_path)
+                    _load_table_into_duckdb(
+                        profiler.conn,
+                        view_t1,
+                        src_target,
+                        workspace_root=self.base_dir,
+                        allowed_roots=[self.workspace_root, self.base_dir],
+                        allow_temp=True,
+                    )
                     sample_cur = profiler.conn.execute(f'SELECT * FROM "{view_t1}" LIMIT 5')
                     sample_cols = (
                         [str(d[0]) for d in sample_cur.description]
@@ -3194,7 +3296,15 @@ class AgenticVaultPipeline:
                         )
                         assert b_path is not None
                         view_t0 = f"{view_t1}_baseline"
-                        _load_table_into_duckdb(profiler.conn, view_t0, b_path)
+                        b_target = _to_source_target(src.baseline_source, b_path)
+                        _load_table_into_duckdb(
+                            profiler.conn,
+                            view_t0,
+                            b_target,
+                            workspace_root=self.base_dir,
+                            allowed_roots=[self.workspace_root, self.base_dir],
+                            allow_temp=True,
+                        )
                         drift_rep = profiler.detect_schema_drift(view_t0, view_t1)
                         for dev in drift_rep.events:
                             ev_dict = dev.model_dump(mode="json")
@@ -3554,10 +3664,31 @@ class AgenticVaultPipeline:
                     workspace_root=self.workspace_root,
                 )
                 assert u_path is not None
-                doc_text = (
-                    u_path.read_text(encoding="utf-8").replace("\r\n", "\n").replace("\r", "\n")
+                if raw_doc.source is not None:
+                    raw_spec = raw_doc.source
+                    if isinstance(raw_spec, dict):
+                        doc_spec = SourceSpec.model_validate(raw_spec)
+                    else:
+                        doc_spec = raw_spec.model_copy()
+                    if not doc_spec.inline_content and doc_spec.uri:
+                        doc_spec = doc_spec.model_copy(update={"uri": str(u_path)})
+                else:
+                    doc_spec = SourceSpec(
+                        adapter=get_source_registry().resolve_document_adapter_name(u_path),
+                        uri=str(u_path),
+                    )
+                allowed_doc_roots = [
+                    r for r in [self.workspace_root, self.base_dir] if r is not None
+                ]
+                doc_adapter = get_source_registry().get_document_adapter(
+                    doc_spec.adapter,
+                    workspace_root=self.base_dir or self.workspace_root,
+                    allowed_roots=allowed_doc_roots,
+                    allow_temp=True,
                 )
-                doc_sha256 = hashlib.sha256(doc_text.encode("utf-8")).hexdigest()
+                extracted = doc_adapter.extract_document(doc_spec)
+                doc_text = extracted.normalized_text
+                doc_sha256 = extracted.raw_sha256
                 raw_loaded_docs.append((raw_doc, doc_text, doc_sha256))
 
             known_entities = _extract_known_entities_from_cumulative_sources(
@@ -4738,7 +4869,8 @@ class AgenticVaultPipeline:
             validate_canonical_ir(ir_dict)
 
             wave_bronze_tables: dict[str, Any] = {
-                q_tbl: d_path for q_tbl, (_src_spec, d_path) in cumulative_sources.items()
+                q_tbl: _to_source_target(_src_spec.source, d_path)
+                for q_tbl, (_src_spec, d_path) in cumulative_sources.items()
             }
             compiled_bundle = compile_canonical_ir_to_4zone_sql(
                 canonical_ir,

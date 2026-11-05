@@ -1739,6 +1739,7 @@ def test_issue_31_alg_a4_and_gate2_sparse_binary_link(tmp_path: Path) -> None:
     from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
     from opendv_duckdb_sandbox.compiler_4zone import build_algorithm_a5_sha256_sql
     from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
+    from opendv_sources import SourceSpec, get_source_registry
 
     customers_csv = tmp_path / "crm_customers.csv"
     customers_csv.write_text(
@@ -1759,8 +1760,15 @@ def test_issue_31_alg_a4_and_gate2_sparse_binary_link(tmp_path: Path) -> None:
 
     # Profile real CSV files with GraphBProfiler in DuckDB (no mocks)
     profiler = GraphBProfiler()
-    cust_metrics = profiler.profile_csv(customers_csv, view_name="v_customers")
-    order_metrics = profiler.profile_csv(orders_csv, view_name="v_orders")
+    reg = get_source_registry()
+    reg.get_tabular_adapter("file").register(
+        SourceSpec(adapter="file", uri=str(customers_csv)), profiler.conn, "v_customers"
+    )
+    reg.get_tabular_adapter("file").register(
+        SourceSpec(adapter="file", uri=str(orders_csv)), profiler.conn, "v_orders"
+    )
+    cust_metrics = profiler.profile_relation("v_customers")
+    order_metrics = profiler.profile_relation("v_orders")
 
     bronze_profile = {
         "profile_version": "1.0.0",

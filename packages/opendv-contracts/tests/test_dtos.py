@@ -217,3 +217,26 @@ def test_project_and_artifact_dtos() -> None:
         created_at_utc="2026-11-04T12:00:00Z",
     )
     assert art.size_bytes == 1024
+
+
+def test_profile_request_rejects_client_jailbreak_options() -> None:
+    """Verify ProfileRequest forbids containment options in source options."""
+    with pytest.raises(ValidationError) as exc_ws:
+        ProfileRequest(
+            source={"adapter": "file", "uri": "hosts", "options": {"workspace_root": "C:/"}}
+        )
+    assert "Client option 'workspace_root' is forbidden" in str(exc_ws.value)
+
+    with pytest.raises(ValidationError) as exc_roots:
+        ProfileRequest(
+            source={"adapter": "file", "uri": "hosts", "options": {"allowed_roots": ["C:/"]}}
+        )
+    assert "Client option 'allowed_roots' is forbidden" in str(exc_roots.value)
+
+    with pytest.raises(ValidationError) as exc_base:
+        ProfileRequest(source={"adapter": "file", "uri": "hosts", "options": {"base_dir": "C:/"}})
+    assert "Client option 'base_dir' is forbidden" in str(exc_base.value)
+
+    with pytest.raises(ValidationError) as exc_temp:
+        ProfileRequest(source={"adapter": "file", "uri": "hosts", "options": {"allow_temp": True}})
+    assert "Client option 'allow_temp' is forbidden" in str(exc_temp.value)

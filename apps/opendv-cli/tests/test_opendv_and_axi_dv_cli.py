@@ -142,6 +142,42 @@ def test_opendv_cli_standalone_subcommands(
     assert out_prof_csv["column_count"] == 4
     assert "graph_b_profile" in out_prof_csv
 
+    # profile with --source
+    rc_prof_source = app_main(
+        [
+            "profile",
+            "--source",
+            str(sample_csv),
+            "--source-system",
+            "crm_bronze",
+            "--table-name",
+            "src_customers",
+            "--json",
+        ]
+    )
+    assert rc_prof_source == 0
+    out_prof_source = json.loads(capsys.readouterr().out)
+    assert out_prof_source["status"] == "PASS"
+    assert out_prof_source["table_count"] == 1
+
+    # profile with --file (backwards compatibility)
+    rc_prof_file = app_main(
+        [
+            "profile",
+            "--file",
+            str(sample_csv),
+            "--source-system",
+            "crm_bronze",
+            "--table-name",
+            "src_customers",
+            "--json",
+        ]
+    )
+    assert rc_prof_file == 0
+    out_prof_file = json.loads(capsys.readouterr().out)
+    assert out_prof_file["status"] == "PASS"
+    assert out_prof_file["table_count"] == 1
+
     # 4. compile --json (with --canonical-ir and dynamic lowering without --canonical-ir)
     rc_comp = app_main(
         [

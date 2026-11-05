@@ -10,9 +10,21 @@ dependencies = [
     "opendv-telemetry",
     "opendv-agent-harness",
     "opendv-service",
+    "opendv-sources",
     "pydantic>=2.10.0",
     "pyyaml>=6.0.2",
 ]
+
+[project.entry-points."opendv.source_adapters"]
+records = "opendv_testkit.sources:RecordsSourceAdapter"
+
+[tool.uv.sources]
+opendv-contracts = { workspace = true }
+opendv-core = { workspace = true }
+opendv-telemetry = { workspace = true }
+opendv-agent-harness = { workspace = true }
+opendv-service = { workspace = true }
+opendv-sources = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -9,7 +9,16 @@ dependencies = [
     "opendv-axi-verifier",
     "opendv-duckdb-sandbox",
     "opendv-telemetry",
+    "opendv-sources",
 ]
+
+[tool.uv.sources]
+opendv-contracts = { workspace = true }
+opendv-core = { workspace = true }
+opendv-axi-verifier = { workspace = true }
+opendv-duckdb-sandbox = { workspace = true }
+opendv-telemetry = { workspace = true }
+opendv-sources = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

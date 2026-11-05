@@ -13,11 +13,13 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from opendv_contracts.errors import ERROR_MAP, ErrorCode
+from opendv_core.paths import PathContainmentError
 from opendv_platform_api.routers import (
     artifacts,
     decisions,
     gates,
     health,
+    profile,
     projects,
     runs,
     sandbox,
@@ -213,6 +215,22 @@ def create_app(
             instance=str(request.url.path),
         )
 
+    @application.exception_handler(PathContainmentError)
+    async def handle_path_containment_error(
+        request: Request,
+        exc: PathContainmentError,
+    ) -> JSONResponse:
+        return build_problem_details_response(
+            status_code=400,
+            detail=(
+                "Path containment violation: requested path is "
+                "outside permitted workspace boundaries."
+            ),
+            instance=str(request.url.path),
+            problem_type="https://open-dv.dev/problems/path-containment-error",
+            title="Path Containment Violation",
+        )
+
     @application.exception_handler(ValueError)
     async def handle_value_error(
         request: Request,
@@ -242,6 +260,7 @@ def create_app(
 
     api_prefix = "/api/v1"
     application.include_router(health.router, prefix=api_prefix)
+    application.include_router(profile.router, prefix=api_prefix)
     application.include_router(projects.router, prefix=api_prefix)
     application.include_router(runs.router, prefix=api_prefix)
     application.include_router(gates.router, prefix=api_prefix)

@@ -192,3 +192,94 @@ async def test_gates_evaluation_rejects_path_traversal(repo_root: Path) -> None:
         body = res.json()
         assert body["status"] == 400
         assert "traversal" in body["detail"].lower() or "containment" in body["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_profile_endpoint_routes_source_spec(repo_root: Path) -> None:
+    """Verify POST /api/v1/profile accepts and routes SourceSpec."""
+    app = create_app(workspace_root=repo_root)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        res = await client.post(
+            "/api/v1/profile",
+            json={
+                "source": {
+                    "adapter": "inline",
+                    "inline_content": "id,name\n1,alpha\n2,beta\n",
+                    "format": "csv",
+                },
+                "source_system": "test_system",
+                "table_name": "src_test",
+            },
+        )
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data["table_count"] == 1
+        assert data["column_count"] == 2
+        assert data["table_name"] == "src_test"
+        assert "graph_b_profile" in data
+
+
+@pytest.mark.asyncio
+async def test_profile_endpoint_rejects_client_containment_overrides(repo_root: Path) -> None:
+    """Verify B1: POST /api/v1/profile rejects client containment options with 422."""
+    app = create_app(workspace_root=repo_root)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        # 1. Reject base_dir in options
+        res_basedir = await client.post(
+            "/api/v1/profile",
+            json={
+                "source": {
+                    "adapter": "file",
+                    "uri": "data.csv",
+                    "format": "csv",
+                    "options": {"base_dir": "C:/Windows"},
+                },
+                "source_system": "test_system",
+                "table_name": "src_test",
+            },
+        )
+        assert res_basedir.status_code == 422
+
+        # 2. Reject workspace_root in options
+        res_ws = await client.post(
+            "/api/v1/profile",
+            json={
+                "source": {
+                    "adapter": "file",
+                    "uri": "data.csv",
+                    "format": "csv",
+                    "options": {"workspace_root": "/etc"},
+                },
+                "source_system": "test_system",
+                "table_name": "src_test",
+            },
+        )
+        assert res_ws.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_profile_endpoint_rejects_out_of_bounds_path_without_leak(repo_root: Path) -> None:
+    """Verify B1: POST /api/v1/profile path containment error does not leak server paths."""
+    app = create_app(workspace_root=repo_root)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        res = await client.post(
+            "/api/v1/profile",
+            json={
+                "source": {
+                    "adapter": "file",
+                    "uri": "../../secret/passwords.csv",
+                    "format": "csv",
+                },
+                "source_system": "test_system",
+                "table_name": "src_test",
+            },
+        )
+        assert res.status_code == 400
+        body = res.json()
+        assert body["status"] == 400
+        assert "containment" in body["detail"].lower()
+        # Verify server directories are not leaked in detail
+        assert str(repo_root) not in body["detail"]
