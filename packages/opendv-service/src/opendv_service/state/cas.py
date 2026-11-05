@@ -76,7 +76,7 @@ class ArtifactStateMixin:
         raw_bytes = self.cas.get_bytes(clean.upper())
         try:
             parsed = json.loads(raw_bytes.decode("utf-8"))
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             parsed = raw_bytes.decode("utf-8", errors="replace")
         meta = ArtifactMetadataResponse(
             sha256=clean.upper(),

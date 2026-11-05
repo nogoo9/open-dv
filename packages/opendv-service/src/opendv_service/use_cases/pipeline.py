@@ -96,7 +96,12 @@ async def execute_run_async(
                 role=RbacRole.PUBLIC,
                 pipeline_runner=runner,
             )
-        except Exception:
+        except Exception as exc:
+            import logging
+
+            logging.getLogger(__name__).error(
+                "Background pipeline execution for run '%s' failed: %s", run_id, exc, exc_info=True
+            )
             if run_id in state.runs:
                 state.runs[run_id] = state.runs[run_id].model_copy(
                     update={

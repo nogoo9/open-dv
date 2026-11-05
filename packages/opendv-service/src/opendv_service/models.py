@@ -147,6 +147,7 @@ class ProjectRunDTO(BaseModel):
     event_count: int = Field(ge=0)
     gate_scorecard: GateScorecardSummary = Field(default_factory=GateScorecardSummary)
     active_hold_ids: list[str] = Field(default_factory=list)
+    fallbacks_applied: list[dict[str, Any]] = Field(default_factory=list)
     events_sse_url: str
     gates_url: str
     sandbox_url: str

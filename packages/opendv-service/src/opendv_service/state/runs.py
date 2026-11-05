@@ -137,14 +137,10 @@ class RunStateMixin:
                 "G4_YAGNI_COST_GUARD": {
                     "gate_id": "G4",
                     "status": run_dto.gate_scorecard.gate_4_yagni_cost_guard,
-                    "write_amplification_mb_per_day": 4.2,
-                    "threshold_mb_per_day": 50.0,
                 },
                 "G5_DUCKDB_SANDBOX": {
                     "gate_id": "G5",
                     "status": run_dto.gate_scorecard.gate_5_duckdb_sandbox,
-                    "dynamic_checks_passed": 15,
-                    "dynamic_checks_total": 15,
                 },
             },
         }

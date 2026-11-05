@@ -57,9 +57,26 @@ class LocalExecutor(CommandExecutor):
         try:
             return handler(args)
         except OpenDVError as exc:
-            return 2, {"status": "ERROR", "error_code": str(exc.error_code), "error": str(exc)}
-        except (ValueError, Exception) as exc:
-            return 2, {"status": "ERROR", "error": str(exc)}
+            return exc.exit_code, {
+                "status": "ERROR",
+                "error_code": str(exc.error_code),
+                "error": str(exc),
+                "detail": str(exc),
+            }
+        except (ValueError, KeyError, FileNotFoundError) as exc:
+            return 2, {
+                "status": "ERROR",
+                "error_code": "INPUT_VALIDATION_ERROR",
+                "error": str(exc),
+                "detail": str(exc),
+            }
+        except Exception as exc:
+            return 2, {
+                "status": "ERROR",
+                "error_code": "INTERNAL_ERROR",
+                "error": str(exc),
+                "detail": str(exc),
+            }
 
     # 1. verify
     def _execute_verify(self, args: argparse.Namespace) -> tuple[int, Any]:

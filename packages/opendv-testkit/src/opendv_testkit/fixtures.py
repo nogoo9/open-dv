@@ -185,6 +185,44 @@ def seed_canonical_pe_demo(
         container.run_gate_reports[run_id] = container._build_default_gate_report(run_id)
     container.run_sandbox_history[run_id] = []
     container.run_decisions[run_id] = []
+    pe_report = {
+        "run_id": run_id,
+        "pipeline_id": f"pipe-{project_id}",
+        "project_id": project_id,
+        "domain_namespace": "private_equity",
+        "status": "PAUSED_HOLD",
+        "overall_passed": False,
+        "started_at": "2026-10-30T10:00:00Z",
+        "completed_at": "2026-10-30T10:02:30Z",
+        "total_duration_ms": 150000.0,
+        "harness_setup": {"provider": "antigravity"},
+        "input_validation": {
+            "stage": "INPUT_VALIDATION",
+            "passed": True,
+            "checked_items_count": 5,
+        },
+        "output_validation": {
+            "stage": "OUTPUT_VALIDATION",
+            "passed": True,
+            "checked_items_count": len(canonical_9),
+            "verified_events_count": len(canonical_9),
+        },
+        "wave_reports": [],
+        "step_reports": [],
+        "intermediate_artifacts": [],
+        "final_artifacts": {},
+        "active_holds": [
+            {
+                "hold_id": "hold-tier-u3-horizon-sovereign-vehicle",
+                "status": "PENDING",
+            }
+        ],
+        "resolved_holds": [],
+        "observability_events": canonical_9,
+        "fallbacks_applied": [],
+        "markdown_summary": f"# Canonical PE Demo Report: {run_id}\n\nProject: {project_id}\n",
+    }
+    container.pipeline_reports[run_id] = pe_report
     if project_id in container.projects:
         container.projects[project_id] = container.projects[project_id].model_copy(
             update={"latest_run_id": run_id}

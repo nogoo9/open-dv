@@ -6,7 +6,7 @@ Language-neutral Pydantic DTOs, Error Taxonomy, RFC 8785 JCS, and CLI Spec.
 # ruff: noqa: F401
 from __future__ import annotations
 
-from opendv_contracts import dtos
+from opendv_contracts import dtos, errors
 from opendv_contracts.dtos import (
     ArtifactMetadataResponse,
     ArtifactUploadRequest,
@@ -50,6 +50,10 @@ from opendv_contracts.errors import (
     ErrorCode,
     ErrorDetail,
     ErrorMappingEntry,
+    HoldNotFoundError,
+    InputValidationError,
+    NotFoundError,
+    OpenDVError,
     ProblemDetail,
     create_problem_detail,
     get_error_entry,
@@ -74,18 +78,9 @@ __version__ = CONTRACT_VERSION
 
 __all__ = [
     "CONTRACT_VERSION",
-    "ERROR_MAP",
-    "ERROR_MAPPINGS",
     "SPEC_VERSION",
     "__version__",
-    # Errors
-    "ErrorCode",
-    "ErrorDetail",
-    "ErrorMappingEntry",
-    "ProblemDetail",
-    "create_problem_detail",
-    "get_error_entry",
-    "get_error_mapping",
+    *errors.__all__,
     # JCS
     "CanonicalizationError",
     "FloatDomainError",

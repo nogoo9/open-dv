@@ -292,14 +292,68 @@ def create_problem_detail(
     )
 
 
+class OpenDVError(Exception):
+    """Base exception for all domain errors within OpenDV."""
+
+    error_code: ErrorCode = ErrorCode.INTERNAL_ERROR
+    exit_code: int = 2
+    http_status: int = 500
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: ErrorCode | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        if error_code is not None:
+            self.error_code = error_code
+        self.exit_code, self.http_status = get_error_mapping(self.error_code)
+        self.details = details or {}
+
+    def to_problem_detail(self, *, instance: str | None = None) -> ProblemDetail:
+        """Convert exception to an RFC 9457 ProblemDetail DTO."""
+        return create_problem_detail(
+            code=self.error_code,
+            detail=self.message,
+            instance=instance,
+            extensions=self.details,
+        )
+
+
+class InputValidationError(OpenDVError):
+    """Raised when client input fails syntactic, structural, or ontology validation."""
+
+    error_code = ErrorCode.INPUT_VALIDATION_ERROR
+
+
+class NotFoundError(OpenDVError):
+    """Raised when a requested resource (project, run, hold, artifact) does not exist."""
+
+    error_code = ErrorCode.RESOURCE_NOT_FOUND
+
+
+class HoldNotFoundError(NotFoundError):
+    """Raised when a requested steward hold does not exist."""
+
+    error_code = ErrorCode.HOLD_NOT_FOUND
+
+
 __all__ = [
     "ERROR_MAP",
     "ERROR_MAPPINGS",
     "ErrorCode",
     "ErrorDetail",
     "ErrorMappingEntry",
+    "HoldNotFoundError",
+    "InputValidationError",
+    "NotFoundError",
+    "OpenDVError",
     "ProblemDetail",
     "create_problem_detail",
     "get_error_entry",
     "get_error_mapping",
 ]
+

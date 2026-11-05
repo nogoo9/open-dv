@@ -66,6 +66,7 @@ from opendv_agent_harness.telemetry.translator import build_observability_event_
 from opendv_axi_verifier.alg_a8_orchestrator import run_axi_dv_verification_pipeline
 from opendv_axi_verifier.toon_codec import ToonViolation
 from opendv_axi_verifier.verifiers.alg_a9b_unstructured import classify_er_resolution_tier
+from opendv_contracts.errors import ErrorCode, InputValidationError
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_core.models.contract_v5 import (
     ColumnTriageEntry,
@@ -898,6 +899,7 @@ class AgenticPipelineReport(BaseModel):
     active_holds: list[dict[str, Any]] = Field(default_factory=list)
     resolved_holds: list[dict[str, Any]] = Field(default_factory=list)
     observability_events: list[dict[str, Any]] = Field(default_factory=list)
+    fallbacks_applied: list[dict[str, Any]] = Field(default_factory=list)
     markdown_summary: str
 
 
@@ -1166,9 +1168,10 @@ def validate_pipeline_inputs(
                     "severity": "ERROR",
                     "target": "harness_setup.auth.auth_mode",
                     "message": (
-                        f"Auth mode '{eff_auth_mode}' for provider "
-                        f"'{setup_obj.provider}' requires the 'agy' CLI executable on PATH "
-                        "or in OPENDV_AGY_CLI_BIN."
+                        f"Auth mode '{eff_auth_mode}' for provider '{setup_obj.provider}' "
+                        "requires the 'agy' CLI executable. Checked sources: "
+                        "1) extra_provider_options.agy_binary, "
+                        "2) env var OPENDV_AGY_CLI_BIN, 3) PATH."
                     ),
                 }
             )
@@ -1190,8 +1193,9 @@ def validate_pipeline_inputs(
                     "severity": "ERROR",
                     "target": "harness_setup.provider",
                     "message": (
-                        f"Provider '{setup_obj.provider}' requires the 'claude' CLI executable "
-                        "on PATH or in OPENDV_CLAUDE_CLI_BIN when require_preflight=True."
+                        f"Provider '{setup_obj.provider}' requires the 'claude' CLI executable. "
+                        "Checked sources: 1) extra_provider_options.claude_binary, "
+                        "2) env var OPENDV_CLAUDE_CLI_BIN, 3) PATH."
                     ),
                 }
             )
@@ -1993,8 +1997,11 @@ def _resolve_hub_and_uri(
             hub_name = cbc.target_hub or f"hub_{_slugify(cbc.concept_uri.rsplit(':', 1)[-1])}"
             return hub_name, cbc.concept_uri
 
-    slug = _slugify(hint_lower.removeprefix("cbc_").removeprefix("hub_"))
-    return f"hub_{slug}", f"urn:ontology:provisional:entity:{slug}"
+    raise InputValidationError(
+        f"Unmapped ontology concept '{concept_or_hub_hint}': "
+        "concept or hub not found in GraphAOntology.",
+        error_code=ErrorCode.INPUT_VALIDATION_ERROR,
+    )
 
 
 def _resolve_relationship_uri(
@@ -2002,7 +2009,7 @@ def _resolve_relationship_uri(
     hub_names: list[str],
     ontology: GraphAOntology,
 ) -> str:
-    """Resolve a Link's `ontology_concept_uri` from `GraphAOntology` or fallback URI."""
+    """Resolve a Link's `ontology_concept_uri` from `GraphAOntology`."""
     for rel in ontology.canonical_relationships:
         if rel.target_link == link_name:
             return rel.relationship_uri
@@ -2011,10 +2018,11 @@ def _resolve_relationship_uri(
         endpoint_hubs = {_resolve_hub_and_uri(ep, ontology)[0] for ep in rel.endpoints}
         if endpoint_hubs and endpoint_hubs.issubset(hub_set):
             return rel.relationship_uri
-    if ontology.canonical_relationships:
-        return ontology.canonical_relationships[0].relationship_uri
-    slug = _slugify(link_name.removeprefix("lnk_"))
-    return f"urn:ontology:relationship:{slug}"
+    raise InputValidationError(
+        f"Unmapped ontology relationship for link '{link_name}' with hubs {hub_names}: "
+        "not found in GraphAOntology.",
+        error_code=ErrorCode.INPUT_VALIDATION_ERROR,
+    )
 
 
 def _build_markdown_report(
