@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -52,7 +53,9 @@ class BaseStateContainer:
     ) -> None:
         eff_ws = workspace_root if workspace_root is not None else repo_root
         if eff_ws is None:
-            self._workspace_root = Path.cwd().resolve()
+            self._workspace_root = Path(
+                os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()
+            ).resolve()
         else:
             self._workspace_root = Path(eff_ws).resolve()
         self.workspace_root = self._workspace_root

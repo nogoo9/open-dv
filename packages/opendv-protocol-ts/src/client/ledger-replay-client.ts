@@ -127,6 +127,3 @@ export class LedgerReplayClient {
 		return emitted;
 	}
 }
-
-/** @deprecated Use LedgerReplayClient instead */
-export { LedgerReplayClient as MockVaultEventStreamClient };

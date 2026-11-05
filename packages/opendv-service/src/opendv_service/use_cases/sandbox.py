@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import contextlib
+import os
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,7 @@ def execute_sandbox_query(
     workspace_root: Path | None = None,
 ) -> SandboxQueryResponse:
     """Execute parameterized queries or 4-batch sequences in the DuckDB sandbox."""
-    root = Path(workspace_root or Path.cwd()).resolve()
+    root = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
     effective_run_id = request.run_id or "run-local-sandbox"
     query_type_str = (
         request.query_type.value

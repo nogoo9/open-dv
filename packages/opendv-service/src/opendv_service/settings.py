@@ -99,9 +99,11 @@ class OpenDVSettings(BaseModel):
         elif "OPENDV_WORKSPACE_ROOT" in os.environ:
             resolved_ws = Path(os.environ["OPENDV_WORKSPACE_ROOT"]).resolve()
             checked_sources.append(f"env OPENDV_WORKSPACE_ROOT ('{resolved_ws}')")
-        elif "workspace_root" in cfg_data:
+        elif cfg_data.get("workspace_root") is not None:
             resolved_ws = Path(cfg_data["workspace_root"]).resolve()
             checked_sources.append(f"config file key 'workspace_root' ('{resolved_ws}')")
+        elif "workspace_root" in cfg_data and cfg_data["workspace_root"] is None:
+            checked_sources.append("config file key 'workspace_root' (null)")
         elif not is_server:
             # Standalone CLI mode defaults to cwd
             resolved_ws = Path.cwd().resolve()
@@ -124,9 +126,9 @@ class OpenDVSettings(BaseModel):
             resolved_state = Path(os.environ["OPENDV_STORAGE_ROOT"]).resolve()
         elif "OPENDV_STATE_DIR" in os.environ:
             resolved_state = Path(os.environ["OPENDV_STATE_DIR"]).resolve()
-        elif "storage_root" in cfg_data:
+        elif cfg_data.get("storage_root") is not None:
             resolved_state = Path(cfg_data["storage_root"]).resolve()
-        elif "state_dir" in cfg_data:
+        elif cfg_data.get("state_dir") is not None:
             resolved_state = Path(cfg_data["state_dir"]).resolve()
         elif resolved_ws is not None:
             resolved_state = (resolved_ws / ".opendv" / "state").resolve()

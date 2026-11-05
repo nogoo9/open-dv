@@ -732,4 +732,3 @@ def build_pe_canonical_events(
         validate_no_pii_leaks(ev)
 
     return canonical_9, all_workbench
-

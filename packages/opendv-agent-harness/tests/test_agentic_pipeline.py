@@ -572,7 +572,7 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
         opt_spec,
         harness_setup,
         output_dir=out_dir,
-        base_dir=tmp_path,
+        base_dir=sample_dir,
         sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert rep.status == "COMPLETED"
@@ -612,7 +612,7 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
         opt_spec,
         exhausted_setup,
         output_dir=exhausted_out,
-        base_dir=tmp_path,
+        base_dir=sample_dir,
         sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert exhausted_rep.status == "FAILED"
@@ -1042,6 +1042,7 @@ def test_real_llm_structured_output_consumption(tmp_path: Path) -> None:
     setup = HarnessSetupConfig(
         provider="agy",
         steward_hold_policy="auto_approve_top_candidate",
+        stage_output_policy="symbolic_completion",
         extra_provider_options={"structured_output_factory": _custom_structured_output_factory},
     )
     out_dir = tmp_path / "llm_structured_out"

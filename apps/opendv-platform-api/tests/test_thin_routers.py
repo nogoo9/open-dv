@@ -20,12 +20,8 @@ from opendv_platform_api.main import create_app
 from opendv_service import OpenDVService
 from opendv_service.errors import ConflictError, NotFoundError, OpenDVError
 
-ROUTERS_DIR = (
-    Path(__file__).parent.parent / "src" / "opendv_platform_api" / "routers"
-)
-DEPS_FILE = (
-    Path(__file__).parent.parent / "src" / "opendv_platform_api" / "deps.py"
-)
+ROUTERS_DIR = Path(__file__).parent.parent / "src" / "opendv_platform_api" / "routers"
+DEPS_FILE = Path(__file__).parent.parent / "src" / "opendv_platform_api" / "deps.py"
 
 PROHIBITED_ENGINE_MODULES = {
     "opendv_axi_verifier",
@@ -57,8 +53,8 @@ def test_router_zero_direct_engine_imports() -> None:
                         f"{router_path.name}:{node.lineno} imports from '{node.module}'"
                     )
 
-    assert not violations, (
-        "Detected prohibited engine imports in routers:\n" + "\n".join(violations)
+    assert not violations, "Detected prohibited engine imports in routers:\n" + "\n".join(
+        violations
     )
 
 
@@ -88,12 +84,12 @@ def test_router_file_size_budget_and_modularity() -> None:
         content = router_path.read_text(encoding="utf-8")
         line_count = len(content.splitlines())
         byte_count = len(content.encode("utf-8"))
-        assert (
-            line_count < 200
-        ), f"Router '{router_path.name}' exceeds 200 lines (actual: {line_count})"
-        assert (
-            byte_count < 15_000
-        ), f"Router '{router_path.name}' exceeds 15 KB (actual: {byte_count} bytes)"
+        assert line_count < 200, (
+            f"Router '{router_path.name}' exceeds 200 lines (actual: {line_count})"
+        )
+        assert byte_count < 15_000, (
+            f"Router '{router_path.name}' exceeds 15 KB (actual: {byte_count} bytes)"
+        )
 
 
 @pytest.mark.asyncio

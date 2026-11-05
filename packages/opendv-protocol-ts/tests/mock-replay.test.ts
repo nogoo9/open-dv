@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
 	ALL_WORKBENCH_VIEW_IDS,
 	LedgerReplayClient,
-	MockVaultEventStreamClient,
+	type VaultObservabilityEventDTO,
 	WORKBENCH_VIEW_STAGE_MAP,
 	filterEventsByAgentPersona,
 	filterEventsByRuleId,
@@ -13,7 +13,6 @@ import {
 	getLatestEventForView,
 	groupEventsByViewId,
 	redactEventForRole,
-	type VaultObservabilityEventDTO,
 } from "../src/index";
 import {
 	PE_DEMO_EVENTS,
@@ -21,7 +20,7 @@ import {
 	createPeDemoReplayClient,
 } from "./fixtures/pe-demo-bundle";
 
-describe("MockVaultEventStreamClient & Private Equity Demo Replay Bundle", () => {
+describe("LedgerReplayClient & Private Equity Demo Replay Bundle", () => {
 	it("covers all 12 Workbench Views (WB-00 through WB-11) in PE_DEMO_EVENTS", () => {
 		const grouped = groupEventsByViewId(PE_DEMO_EVENTS);
 		for (const viewId of ALL_WORKBENCH_VIEW_IDS) {
@@ -40,7 +39,7 @@ describe("MockVaultEventStreamClient & Private Equity Demo Replay Bundle", () =>
 	});
 
 	it("loads from JSONL and supports step, seek, setSpeed, reset, and AbortSignal replay", async () => {
-		const client = MockVaultEventStreamClient.loadFromJSONL(
+		const client = LedgerReplayClient.loadFromJSONL(
 			`\n${PE_DEMO_EVENTS_JSONL}\n`,
 		);
 		expect(client.getEvents()).toHaveLength(PE_DEMO_EVENTS.length);

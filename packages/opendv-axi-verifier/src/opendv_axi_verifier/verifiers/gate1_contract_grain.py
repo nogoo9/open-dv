@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-import jsonschema
+import jsonschema  # type: ignore[import-untyped]
 
 from opendv_core.schema_registry import validate_contract_v5
 
@@ -106,7 +106,11 @@ def verify_gate1_contract_and_grain(
         try:
             validate_contract_v5(contract)
         except (
-            jsonschema.ValidationError, jsonschema.SchemaError, ValueError, TypeError, KeyError
+            jsonschema.ValidationError,
+            jsonschema.SchemaError,
+            ValueError,
+            TypeError,
+            KeyError,
         ) as exc:
             diagnostics.append(f"SCHEMA_ERROR [Gate 1 - DV-G1-001]: {exc}")
 

@@ -225,8 +225,7 @@ class PipelineStateMixin:
             synced = self._sync_pipeline_report(run_id)
             redacted_rep = dict(synced)
             redacted_rep["observability_events"] = [
-                redact_event_for_role(ev, eff_role)
-                for ev in synced.get("observability_events", [])
+                redact_event_for_role(ev, eff_role) for ev in synced.get("observability_events", [])
             ]
             return redacted_rep
         if run_id not in self.runs:

@@ -5,11 +5,10 @@
  */
 
 import {
+	type ContextRefsDTO,
 	LedgerReplayClient,
-	MockVaultEventStreamClient,
 	type ProjectDTO,
 	type ProjectRunDTO,
-	type ContextRefsDTO,
 	type SemanticHashPillDTO,
 	type VaultObservabilityEventDTO,
 	ZERO_KEY_ERROR_HEX,

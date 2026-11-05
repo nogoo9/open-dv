@@ -161,6 +161,7 @@ export interface RemediationDTO {
 
 export interface VaultObservabilityEventDTO {
 	event_id: string;
+	event_type?: string | undefined;
 	run_id: string;
 	trace_id?: string | undefined;
 	span_id?: string | undefined;

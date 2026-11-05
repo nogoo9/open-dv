@@ -70,6 +70,7 @@ def execute_pe_sandbox_query(
     _, zone0_to_3, q_d10, q_d10b = _extract_doc07_sql_bundle(repo_root)
 
     con = duckdb.connect()
+
     def _exec_to_dicts(sql: str) -> list[dict[str, Any]]:
         rel = con.execute(sql)
         cols = [desc[0] for desc in (rel.description or [])]

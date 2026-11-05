@@ -4,10 +4,7 @@
  * (`docs/06` §2.4, `docs/07` Scenes 1–7, `docs/10` §2).
  */
 
-import {
-	LedgerReplayClient,
-	MockVaultEventStreamClient,
-} from "../../src/client/ledger-replay-client";
+import { LedgerReplayClient } from "../../src/client/ledger-replay-client";
 import type { ProjectDTO, ProjectRunDTO } from "../../src/types/api-dtos";
 import type {
 	ContextRefsDTO,

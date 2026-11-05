@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +25,7 @@ def compile_pipeline(
     workspace_root: Path | None = None,
 ) -> CompileResponse:
     """Compile a Data Vault 2.0 contract into Canonical IR and 4-Zone SQL."""
-    root = Path(workspace_root or Path.cwd()).resolve()
+    root = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
 
     # 1. Resolve contract document
     resolved_contract_path: Path | None = None

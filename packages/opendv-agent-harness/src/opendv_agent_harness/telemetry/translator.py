@@ -82,6 +82,7 @@ def _normalize_context_refs(raw_refs: dict[str, Any] | None) -> dict[str, str] |
 def build_observability_event_dict(
     *,
     event_id: str,
+    event_type: str | None = None,
     run_id: str,
     trace_id: str | None,
     span_id: str | None,
@@ -150,6 +151,9 @@ def build_observability_event_dict(
             "summary_metrics": clean_metrics,
         },
     }
+
+    if event_type is not None:
+        event_payload["event_type"] = event_type
 
     if confidence is not None:
         event_payload["confidence"] = float(confidence)
