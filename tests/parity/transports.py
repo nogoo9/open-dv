@@ -356,6 +356,23 @@ class DirectRestTransport:
             input_path = str(spec)
 
         res = self.client.post("/api/v1/pipelines/runs", json={"input_spec_path": input_path})
-        if res.status_code not in (200, 201):
+        if res.status_code not in (200, 201, 202):
             return {"status": "ERROR", "detail": res.text, "exit_code": 1}
-        return res.json()
+
+        body = res.json()
+        if res.status_code == 202:
+            import time
+
+            run_id = body.get("run_id")
+            if run_id:
+                for _ in range(100):
+                    time.sleep(0.05)
+                    st_res = self.client.get(f"/api/v1/runs/{run_id}")
+                    if st_res.status_code == 200:
+                        st = st_res.json().get("status")
+                        if st in ("COMPLETED", "FAILED", "ABORTED", "PAUSED_HOLD"):
+                            rep_res = self.client.get(f"/api/v1/runs/{run_id}/report")
+                            if rep_res.status_code == 200:
+                                return rep_res.json()
+                            return st_res.json()
+        return body

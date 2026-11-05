@@ -143,7 +143,9 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
                     "execute_duckdb_sandbox": True,
                 },
             )
-            assert flash_run_resp.status_code == 201
+            assert flash_run_resp.status_code == 202
+            flash_run_id = flash_run_resp.json()["run_id"]
+            assert flash_run_resp.headers["location"] == f"/api/v1/runs/{flash_run_id}"
 
             run_resp = await client.post(
                 "/api/v1/runs",
@@ -154,9 +156,10 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
                     "execute_duckdb_sandbox": True,
                 },
             )
-            assert run_resp.status_code == 201
+            assert run_resp.status_code == 202
             run_summary = run_resp.json()
             run_id = run_summary["run_id"]
+            assert run_resp.headers["location"] == f"/api/v1/runs/{run_id}"
             assert run_summary["project_id"] == project_id
 
             seed_canonical_pe_demo(state, project_id=project_id, run_id=run_id)

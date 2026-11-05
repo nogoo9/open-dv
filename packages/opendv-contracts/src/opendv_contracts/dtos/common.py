@@ -34,6 +34,7 @@ class RunStatus(StrEnum):
     """Lifecycle status of a pipeline run."""
 
     PENDING = "PENDING"
+    QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     PAUSED_HOLD = "PAUSED_HOLD"
     COMPLETED = "COMPLETED"

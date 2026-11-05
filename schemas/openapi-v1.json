@@ -229,7 +229,7 @@
             "type": "string"
           },
           "updated_run_status": {
-            "$ref": "#/components/schemas/RunStatus"
+            "$ref": "#/components/schemas/opendv_service__models__RunStatus"
           }
         },
         "required": [
@@ -508,6 +508,81 @@
         "title": "HTTPValidationError",
         "type": "object"
       },
+      "PipelineRunHandle": {
+        "additionalProperties": false,
+        "description": "Handle returned immediately upon submitting a pipeline run\n(HTTP 202 Accepted, Decision D2).",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alias for created_at_utc",
+            "title": "Created At"
+          },
+          "created_at_utc": {
+            "description": "ISO 8601 UTC creation timestamp",
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "event_stream_url": {
+            "description": "SSE endpoint URL for real-time events",
+            "title": "Event Stream Url",
+            "type": "string"
+          },
+          "harness_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Harness provider for the run",
+            "title": "Harness Provider"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional associated project identifier",
+            "title": "Project Id"
+          },
+          "run_id": {
+            "description": "Unique generated run identifier",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/opendv_contracts__dtos__common__RunStatus",
+            "default": "RUNNING",
+            "description": "Initial run status"
+          },
+          "status_url": {
+            "description": "REST endpoint URL to query current run status",
+            "title": "Status Url",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "created_at_utc",
+          "event_stream_url",
+          "status_url"
+        ],
+        "title": "PipelineRunHandle",
+        "type": "object"
+      },
       "PipelineRunRequest": {
         "additionalProperties": false,
         "description": "Request DTO to initiate an asynchronous end-to-end pipeline run (Decision D2).",
@@ -621,6 +696,18 @@
             ],
             "description": "Target harness provider override",
             "title": "Provider Override"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional predetermined run identifier",
+            "title": "Run Id"
           },
           "steward_hold_policy": {
             "anyOf": [
@@ -1129,7 +1216,7 @@
             "type": "string"
           },
           "status": {
-            "$ref": "#/components/schemas/RunStatus"
+            "$ref": "#/components/schemas/opendv_service__models__RunStatus"
           }
         },
         "required": [
@@ -1192,19 +1279,6 @@
         },
         "title": "RenderedOutput",
         "type": "object"
-      },
-      "RunStatus": {
-        "description": "Execution lifecycle status of a platform verification or sandbox run (docs/08 \u00a75.2).",
-        "enum": [
-          "PENDING",
-          "RUNNING",
-          "PAUSED_HOLD",
-          "COMPLETED",
-          "FAILED",
-          "ABORTED"
-        ],
-        "title": "RunStatus",
-        "type": "string"
       },
       "SandboxExecutionResponse": {
         "additionalProperties": false,
@@ -1440,6 +1514,33 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "opendv_contracts__dtos__common__RunStatus": {
+        "description": "Lifecycle status of a pipeline run.",
+        "enum": [
+          "PENDING",
+          "QUEUED",
+          "RUNNING",
+          "PAUSED_HOLD",
+          "COMPLETED",
+          "FAILED",
+          "ABORTED"
+        ],
+        "title": "RunStatus",
+        "type": "string"
+      },
+      "opendv_service__models__RunStatus": {
+        "description": "Execution lifecycle status of a platform verification or sandbox run (docs/08 \u00a75.2).",
+        "enum": [
+          "PENDING",
+          "RUNNING",
+          "PAUSED_HOLD",
+          "COMPLETED",
+          "FAILED",
+          "ABORTED"
+        ],
+        "title": "RunStatus",
+        "type": "string"
       }
     }
   },
@@ -1562,26 +1663,8 @@
     },
     "/api/v1/pipelines/runs": {
       "post": {
-        "description": "Execute the end-to-end 8-stage agentic pipeline and return the `AgenticPipelineReport`.",
+        "description": "Initiate an asynchronous end-to-end 8-stage agentic pipeline run (Decision D2).",
         "operationId": "run_pipeline_api_v1_pipelines_runs_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-OpenDV-Role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Opendv-Role"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1593,13 +1676,11 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Run Pipeline Api V1 Pipelines Runs Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PipelineRunHandle"
                 }
               }
             },
@@ -1895,7 +1976,7 @@
         ]
       },
       "post": {
-        "description": "Start a verification, compilation, and sandbox execution run.",
+        "description": "Start an asynchronous verification, compilation, and sandbox execution run (Decision D2).",
         "operationId": "start_run_api_v1_runs_post",
         "requestBody": {
           "content": {
@@ -1908,11 +1989,11 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectRunDTO"
+                  "$ref": "#/components/schemas/PipelineRunHandle"
                 }
               }
             },

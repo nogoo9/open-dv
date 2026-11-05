@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import uuid
 from collections.abc import AsyncIterator, Callable
 from datetime import UTC, datetime
 from typing import Any
@@ -15,12 +14,10 @@ from opendv_contracts import (
     RbacRole,
     RunStatus,
 )
-from opendv_service.errors import NotFoundError, OpenDVError
+from opendv_service.errors import NotFoundError
 from opendv_service.models import (
-    GateScorecardSummary,
     PipelineRunRequest,
     PipelineValidateRequest,
-    ProjectRunDTO,
 )
 from opendv_service.rbac import normalize_rbac_role, redact_event_for_role
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
@@ -65,61 +62,10 @@ async def execute_run_async(
     pipeline_runner: PipelineRunner | None = None,
 ) -> PipelineRunHandle:
     """Initiate an asynchronous pipeline run returning immediately with HTTP 202 handle."""
-    run_id = f"run-{uuid.uuid4().hex[:12]}"
-    now_utc = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+    from opendv_service.runs import RunExecutionEngine
 
-    run_dto = ProjectRunDTO(
-        run_id=run_id,
-        project_id="default-project",
-        harness_provider=getattr(request, "provider_override", None) or "antigravity",  # type: ignore[arg-type]
-        status=RunStatus.RUNNING,
-        started_at_utc=now_utc,
-        current_stage_id="STAGE_00_ORCHESTRATION",
-        current_view_id="WB-00",
-        event_count=0,
-        gate_scorecard=GateScorecardSummary(),
-        active_hold_ids=[],
-        events_sse_url=f"/api/v1/runs/{run_id}/events",
-        gates_url=f"/api/v1/runs/{run_id}/gates",
-        sandbox_url=f"/api/v1/runs/{run_id}/sandbox",
-        decisions_url=f"/api/v1/runs/{run_id}/decisions",
-    )
-    state.runs[run_id] = run_dto
-    state.run_events[run_id] = []
-
-    runner = pipeline_runner or get_default_pipeline_runner()
-
-    def _run_in_background() -> None:
-        try:
-            state.execute_agentic_pipeline_run(
-                request,
-                role=RbacRole.PUBLIC,
-                pipeline_runner=runner,
-            )
-        except (OpenDVError, ValueError, KeyError, OSError, RuntimeError, TypeError) as exc:
-            import logging
-
-            logging.getLogger(__name__).error(
-                "Background pipeline execution for run '%s' failed: %s", run_id, exc, exc_info=True
-            )
-            if run_id in state.runs:
-                state.runs[run_id] = state.runs[run_id].model_copy(
-                    update={
-                        "status": RunStatus.FAILED,
-                        "completed_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                    }
-                )
-
-    # Launch execution asynchronously
-    asyncio.get_event_loop().run_in_executor(None, _run_in_background)
-
-    return PipelineRunHandle(
-        run_id=run_id,
-        status=RunStatus.RUNNING,
-        created_at_utc=now_utc,
-        event_stream_url=f"/api/v1/runs/{run_id}/events",
-        status_url=f"/api/v1/runs/{run_id}",
-    )
+    engine = RunExecutionEngine()
+    return engine.submit_pipeline_run(state, request, pipeline_runner=pipeline_runner)
 
 
 async def stream_events(

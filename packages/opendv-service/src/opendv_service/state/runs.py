@@ -146,6 +146,56 @@ class RunStateMixin:
             },
         }
 
+    def build_dynamic_project_input_spec(
+        self: BaseStateContainer,
+        project_id: str,
+    ) -> dict[str, Any] | None:
+        """Construct dynamic cold-start input spec for project with bronze sources, if present."""
+        if project_id not in self.projects:
+            return None
+        proj = self.projects[project_id]
+        bronze_sources = self.project_bronze_sources.get(project_id, [])
+        if not (bronze_sources and proj.graph_a_ontology_path is not None):
+            return None
+
+        feeds: list[dict[str, Any]] = []
+        docs: list[dict[str, Any]] = []
+        for idx, src_rel in enumerate(bronze_sources):
+            resolved = self._resolve_repo_path(src_rel)
+            if get_source_registry().is_document_path(resolved):
+                docs.append(
+                    {
+                        "doc_id": f"doc_{idx + 1:02d}_{resolved.stem}",
+                        "document_path": str(resolved),
+                    }
+                )
+            else:
+                feeds.append(
+                    {
+                        "feed_id": f"feed_{idx + 1:02d}_{resolved.stem}",
+                        "source_system": resolved.parent.name or "BRONZE_SOURCE",
+                        "table_name": resolved.stem,
+                        "file_path": str(resolved),
+                    }
+                )
+
+        return {
+            "pipeline_id": f"pipe-{project_id}",
+            "project_id": project_id,
+            "display_name": proj.display_name,
+            "domain_namespace": proj.domain_namespace,
+            "graph_a_ontology_path": str(self._resolve_repo_path(proj.graph_a_ontology_path)),
+            "waves": [
+                {
+                    "wave_index": 0,
+                    "wave_name": "Dynamic Project Discovery Wave",
+                    "wave_type": "COLD_START",
+                    "sources": feeds,
+                    "unstructured_documents": docs,
+                }
+            ],
+        }
+
     def create_run(
         self: BaseStateContainer | PipelineExecutionMixin,
         req: CreateRunRequest,
@@ -175,45 +225,8 @@ class RunStateMixin:
                 update={"contract_path": req.contract_path}
             )
 
-        proj = self.projects[req.project_id]
-        bronze_sources = self.project_bronze_sources.get(req.project_id, [])
-        if bronze_sources and proj.graph_a_ontology_path is not None:
-            source_feeds: list[dict[str, Any]] = []
-            unstructured_documents: list[dict[str, Any]] = []
-            for idx, src_rel in enumerate(bronze_sources):
-                resolved_src = self._resolve_repo_path(src_rel)
-                if get_source_registry().is_document_path(resolved_src):
-                    unstructured_documents.append(
-                        {
-                            "doc_id": f"doc_{idx + 1:02d}_{resolved_src.stem}",
-                            "document_path": str(resolved_src),
-                        }
-                    )
-                else:
-                    source_feeds.append(
-                        {
-                            "feed_id": f"feed_{idx + 1:02d}_{resolved_src.stem}",
-                            "source_system": resolved_src.parent.name or "BRONZE_SOURCE",
-                            "table_name": resolved_src.stem,
-                            "file_path": str(resolved_src),
-                        }
-                    )
-            dynamic_input_spec: dict[str, Any] = {
-                "pipeline_id": f"pipe-{req.project_id}",
-                "project_id": req.project_id,
-                "display_name": proj.display_name,
-                "domain_namespace": proj.domain_namespace,
-                "graph_a_ontology_path": str(self._resolve_repo_path(proj.graph_a_ontology_path)),
-                "waves": [
-                    {
-                        "wave_index": 0,
-                        "wave_name": "Dynamic Project Discovery Wave",
-                        "wave_type": "COLD_START",
-                        "sources": source_feeds,
-                        "unstructured_documents": unstructured_documents,
-                    }
-                ],
-            }
+        dynamic_input_spec = self.build_dynamic_project_input_spec(req.project_id)
+        if dynamic_input_spec is not None:
             rep_dict = self.execute_agentic_pipeline_run(
                 PipelineRunRequest(
                     input_spec=dynamic_input_spec,
