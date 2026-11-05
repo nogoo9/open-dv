@@ -1,7 +1,6 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
   "manifest_version": "1.0.0",
-  "generated_at": "2026-11-04T15:00:00Z",
+  "generated_at": "2026-11-05T22:51:59.492460+00:00",
   "generator_transport": "STANDALONE_CLI",
   "entries": [
     {
@@ -34,15 +33,15 @@
       "sha256": "a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a",
       "byte_size": 29399,
       "generated_from": "PAR-PE-S5: opendv compile",
-      "last_justified_change": "[#68] P1 baseline golden capture"
+      "last_justified_change": "[#91] Generic compiled sandbox: remove is_pe_domain and static PE SQL"
     },
     {
       "golden_id": "GT-02",
       "file": "GT-02/four_zone.sql",
-      "sha256": "39d976ecbc18d54847555caea589f9df94e130d2e4cd64e592c18e96408755c8",
-      "byte_size": 65801,
+      "sha256": "65aa57f6c7efb1b649caaca23b7ecfb514a16f0b75499b4e5229b03c27632629",
+      "byte_size": 143240,
       "generated_from": "PAR-PE-S5: opendv compile",
-      "last_justified_change": "[#68] P1 baseline golden capture"
+      "last_justified_change": "[#91] Generic compiled sandbox: remove is_pe_domain and static PE SQL"
     },
     {
       "golden_id": "GT-02",
@@ -50,7 +49,7 @@
       "sha256": "00e1755aef039cf792045ab735649afab2031d48aca8449e06bd14dc9c826b2d",
       "byte_size": 853,
       "generated_from": "PAR-PE-S5: opendv verify",
-      "last_justified_change": "[#68] P1 baseline golden capture"
+      "last_justified_change": "[#91] Generic compiled sandbox: remove is_pe_domain and static PE SQL"
     }
   ]
 }

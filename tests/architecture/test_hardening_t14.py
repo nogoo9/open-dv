@@ -186,11 +186,7 @@ def test_no_unparameterized_endpoints_in_production(rel_dir: str) -> None:
 @pytest.mark.hardening
 @pytest.mark.parametrize("rel_dir", PRODUCTION_PY_DIRS)
 def test_no_pe_identifiers_in_production(rel_dir: str) -> None:
-    """Assert zero PE dataset identifiers in production code (CFG-07 exempted until P5.2)."""
-    # opendv-duckdb-sandbox is explicitly exempted until Phase P5.2 (CFG-07 / Issue #91)
-    if "opendv-duckdb-sandbox" in rel_dir:
-        pytest.skip("opendv-duckdb-sandbox PE removal scheduled for Phase P5.2 (CFG-07 / #91)")
-
+    """Assert zero PE dataset identifiers in production code (CFG-07 completed in P5.2)."""
     target_dir = REPO_ROOT / rel_dir
     assert target_dir.exists(), f"Target directory does not exist: {target_dir}"
 

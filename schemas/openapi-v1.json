@@ -1425,6 +1425,14 @@
             "description": "Contract YAML path",
             "title": "Contract Path"
           },
+          "max_rows": {
+            "default": 1000,
+            "description": "Max rows to return",
+            "maximum": 50000.0,
+            "minimum": 1.0,
+            "title": "Max Rows",
+            "type": "integer"
+          },
           "parameters": {
             "additionalProperties": true,
             "description": "Arbitrary query parameter bindings",
@@ -1459,6 +1467,26 @@
             ],
             "description": "Associated run identifier",
             "title": "Run Id"
+          },
+          "sql": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Custom read-only SQL query",
+            "title": "Sql"
+          },
+          "timeout_seconds": {
+            "default": 30.0,
+            "description": "Execution timeout",
+            "maximum": 300.0,
+            "minimum": 0.5,
+            "title": "Timeout Seconds",
+            "type": "number"
           }
         },
         "title": "SandboxQueryRequest",
@@ -1470,7 +1498,8 @@
           "ADVERSARIAL_BATCHES_1_TO_4",
           "QUERY_D10_PIT",
           "QUERY_D10B_VALUATION",
-          "VERIFY_DYN_001_015"
+          "VERIFY_DYN_001_015",
+          "CUSTOM_SQL"
         ],
         "title": "SandboxQueryType",
         "type": "string"
