@@ -27,6 +27,7 @@ from opendv_testkit.shims import (
     build_deterministic_agy_sdk_shim,
     build_deterministic_claude_sdk_shim,
 )
+from opendv_testkit.sources import RecordsSourceAdapter
 from opendv_testkit.synthesis import (
     default_for_annotation,
     resolve_schema_class,
@@ -39,6 +40,7 @@ __all__ = [
     "PE_DEMO_CONTEXT_REFS",
     "WORKBENCH_VIEW_TITLES",
     "DeterministicHarnessAdapter",
+    "RecordsSourceAdapter",
     "build_deterministic_agy_sdk_shim",
     "build_deterministic_claude_sdk_shim",
     "build_deterministic_pipeline_runner",

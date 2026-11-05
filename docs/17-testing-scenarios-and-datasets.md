@@ -817,6 +817,66 @@ curl -X POST http://localhost:8000/api/v1/verify \
 
 ---
 
+## Source & Format Adapter Matrix
+
+The Source & Format Adapter Matrix defines the normative conformance criteria, pre-installed plugin distribution extras, cross-format dataset derivations, document span grounding equivalences, and zero-core-change extensibility proofs (`REQ-SRC-01`, `REQ-SRC-02`, Decision D8, T16).
+
+### 1. Adapter & Format Capabilities Matrix
+
+| Adapter ID | Module / Provider | Formats & Schemes | Client Uploadable | Server Resolved | Governing Conformance Suite |
+| :--- | :--- | :--- | :---: | :---: | :--- |
+| `file` | `LocalFilesystemSourceAdapter` (`packages/opendv-sources`) | CSV, TSV, Parquet, JSON, JSONL | No | Yes | `TabularAdapterConformanceSuite` |
+| `inline` | `InlineSourceAdapter` (`packages/opendv-sources`) | CSV, TSV, Parquet, JSON, JSONL, NdJSON | Yes | No | `TabularAdapterConformanceSuite` |
+| `duckdb_attach` | `DuckdbAttachSourceAdapter` (`packages/opendv-sources`) | SQLite (`.db`, `.sqlite`), DuckDB (`.duckdb`) | Yes | Yes | `TabularAdapterConformanceSuite` |
+| `text` | `TextDocumentSourceAdapter` (`packages/opendv-sources`) | Plaintext (`.txt`, `.text`), Markdown (`.md`, `.markdown`) | Yes | Yes | `DocumentAdapterConformanceSuite` |
+| `pdf` | `PdfDocumentSourceAdapter` (`packages/opendv-sources`) | Portable Document Format (`.pdf`) | Yes | Yes | `DocumentAdapterConformanceSuite` |
+| `records` | `RecordsSourceAdapter` (`packages/opendv-testkit`) | In-memory list-of-dict records | Yes | No | `TabularAdapterConformanceSuite` |
+
+### 2. Pre-Installed Plugin Distribution Extras
+
+Official Open-DV packages (`opendv-cli`, `opendv-platform-api`, server container images) declare dependency on `opendv-sources[standard]`, which aggregates all standard plugin extras:
+
+- `opendv-sources[file]`: Local filesystem reader with path containment jail.
+- `opendv-sources[inline]`: Zero-disk in-memory byte/stream ingestion (Decision D1).
+- `opendv-sources[db]`: Direct SQLite and DuckDB database attach ingestion.
+- `opendv-sources[text]`: Normalized plaintext and markdown document reader.
+- `opendv-sources[pdf]`: Pure-Python PDF text extraction using `pypdf>=5.0.0`.
+- `opendv-sources[standard]`: Metapackage aggregating `[file,inline,db,text,pdf]`.
+
+When unextended (`opendv-sources` alone without installed plugins or against an empty registry), any adapter or format resolution fails fast with `UNSUPPORTED_FORMAT` (CLI exit code 2, HTTP status 415), enumerating all installed adapters.
+
+### 3. Cross-Format Dataset Derivation
+
+The Wave-0 Global Commerce datasets (`examples/pipeline_samples/global_commerce_vault/sources/wave0_cold_start/`):
+- `crm_customers.csv` (6 customer records, BK `customer_tax_id`, PII `contact_email`, `tax_ssn_tin`)
+- `erp_orders.csv` (6 order records, BK `order_id`, FK `customer_tax_id`)
+
+are dynamically derived in temporary test state into equivalent representations:
+1. **TSV**: Tab-delimited formatting via `pyarrow.csv.write_csv(..., delimiter='\t')`.
+2. **Parquet**: Binary columnar format with snappy compression via `pyarrow.parquet.write_table(...)`.
+3. **JSONL**: Newline-delimited JSON objects via `json.dumps(...)`.
+4. **SQLite Database**: Table attachments inside standalone `.sqlite` file via `DuckdbAttachSourceAdapter`.
+5. **DuckDB Database**: Native table attachments inside `.duckdb` catalog file via `DuckdbAttachSourceAdapter`.
+
+Running `PAR-S1-W0` against each derived format produces an identical Graph B profile (modulo declared physical type differences), an identical synthesized contract (`7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913`), and an identical compiled 4-zone SQL SHA-256 (`3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e`).
+
+### 4. Document Extraction Equivalence & Grounding Fixture
+
+The committed reference document pair:
+- Text source: `packages/opendv-sources/tests/fixtures/enterprise_msa_addendum_2026.txt`
+- PDF fixture: `packages/opendv-sources/tests/fixtures/enterprise_msa_addendum_2026.pdf`
+- CRLF text source: `packages/opendv-sources/tests/fixtures/enterprise_msa_addendum_2026_crlf.txt`
+
+validates Algorithm A.9b span grounding invariants:
+- **Normalized Character Count**: 733 characters across all variants with zero `\r` carriage returns.
+- **Page Map**: Page 1 covers spans $[0, 400)$, Page 2 covers spans $[400, 733]$.
+- **Span Grounding Parity**:
+  - Tier-U1 mention (`Apex Industrial Holdings LLC (Tax ID: TAX-US-900101)`) matches offset identically between TXT and PDF on Page 1.
+  - Tier-U3 mention (`Rheinland Precision Holding Group`) matches offset identically between TXT and PDF on Page 2.
+- **Corrupt File Guard**: `packages/opendv-sources/tests/fixtures/corrupt_document.pdf` fails loudly with `DOCUMENT_EXTRACTION_FAILED` / `SourceLoadError`, never emitting replacement characters (`\ufffd`).
+
+---
+
 ## §G — Golden Test Suite (Normative Expected Outputs)
 
 The Open-DV Golden Test Suite guarantees that the shared application core and its transports (standalone CLI, client CLI, and REST API) agree not only with each other, but with committed, reviewed, and cryptographically pinned reference outputs.
