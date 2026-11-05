@@ -48,6 +48,7 @@ dev = [
     "pydantic>=2.10.0",
     "networkx>=3.4.0",
     "sqlglot>=26.0.0",
+    "pylint>=3.0.0",
 ]
 
 [tool.ruff]
@@ -78,9 +79,11 @@ markers = [
     "hardening: Security, fail-fast, and isolation invariant tests",
     "slow: Long-running multi-wave or end-to-end integration tests",
     "live_provider: Integration tests requiring live LLM providers",
+    "architecture: Architecture, import contract, and no-duplication tests",
 ]
 pythonpath = [
     "packages/opendv-contracts/src",
+    "packages/opendv-cli-common/src",
     "packages/opendv-service/src",
     "packages/opendv-core/src",
     "packages/opendv-telemetry/src",
@@ -93,6 +96,7 @@ pythonpath = [
 testpaths = [
     "tests",
     "packages/opendv-contracts/tests",
+    "packages/opendv-cli-common/tests",
     "packages/opendv-service/tests",
     "packages/opendv-core/tests",
     "packages/opendv-telemetry/tests",

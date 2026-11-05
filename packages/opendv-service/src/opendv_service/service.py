@@ -90,6 +90,18 @@ class OpenDVService:
             or find_workspace_root()
         )
 
+    def list_capabilities(self) -> list[str]:
+        """Return authoritative list of headless application core capabilities (T13)."""
+        return [
+            "profile",
+            "compile",
+            "verify",
+            "sandbox",
+            "pipeline",
+            "run",
+            "hold",
+        ]
+
     # 1. Profiling
     def profile_pipeline(self, request: ProfileRequest | dict[str, Any]) -> ProfileResponse:
         req_obj = (

@@ -685,7 +685,6 @@ def test_cas_artifacts_and_openapi_v1_schema_freshness(tmp_path: Path) -> None:
 
 def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
     tmp_path: Path,
-    monkeypatch: Any,
 ) -> None:
     """Verify `/api/v1/pipelines/validate`, `/api/v1/pipelines/runs`,
     `/api/v1/runs/{run_id}/report`, and SSE + WB-00..WB-11 integration.
@@ -705,7 +704,6 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
         )
 
     set_pipeline_runner_override(shim_runner)
-    monkeypatch.setattr("opendv_service.seams._CURRENT_PIPELINE_RUNNER", shim_runner)
     state = PlatformStateContainer(state_dir=tmp_path / "state")
     app = create_app(platform_state=state)
     sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
@@ -989,7 +987,10 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert s0_run_dto.gate_scorecard.gate_0_profile_drift == "REJECT-WITH-TRACE"
             assert s0_run_dto.gate_scorecard.gate_5_duckdb_sandbox == "REJECT-WITH-TRACE"
 
-    _run_async(_scenario())
+    try:
+        _run_async(_scenario())
+    finally:
+        set_pipeline_runner_override(None)
 
 
 async def _collect_async_iter(aiter: Any) -> list[str]:
@@ -998,7 +999,6 @@ async def _collect_async_iter(aiter: Any) -> list[str]:
 
 def test_wp06_sdk_resolution_and_dynamic_project_run(
     tmp_path: Path,
-    monkeypatch: Any,
 ) -> None:
     """Verify WP-06 dynamic project runs from bronze_sources with test-injected SDK shim."""
     from opendv_agent_harness.adapters.deterministic_adapter import (
@@ -1016,7 +1016,6 @@ def test_wp06_sdk_resolution_and_dynamic_project_run(
         )
 
     set_pipeline_runner_override(shim_runner)
-    monkeypatch.setattr("opendv_service.seams._CURRENT_PIPELINE_RUNNER", shim_runner)
     state = PlatformStateContainer(state_dir=tmp_path / "state")
     app = create_app(platform_state=state)
     ont_rel = (
@@ -1061,4 +1060,7 @@ def test_wp06_sdk_resolution_and_dynamic_project_run(
             assert dyn_run_id in state.pipeline_reports
             assert state.pipeline_reports[dyn_run_id]["overall_passed"] is True
 
-    _run_async(_scenario())
+    try:
+        _run_async(_scenario())
+    finally:
+        set_pipeline_runner_override(None)

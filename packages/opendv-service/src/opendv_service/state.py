@@ -66,28 +66,8 @@ from opendv_telemetry import (
 
 REPO_ROOT = find_workspace_root()
 
-
-def resolve_safe_repo_path(
-    first: Path | str,
-    second: str | Path | None = None,
-    *,
-    repo_root: Path | None = None,
-) -> Path:
-    """Resolve a repository-relative path and enforce repository-root containment.
-
-    Uses canonical resolve_workspace_path.
-    """
-    if second is not None:
-        root = Path(first).resolve()
-        raw_rel = str(second)
-    else:
-        root = (repo_root or REPO_ROOT).resolve()
-        raw_rel = str(first)
-
-    try:
-        return resolve_workspace_path(raw_rel, workspace_root=root, allow_temp=True)
-    except PathContainmentError as exc:
-        raise ValueError(str(exc)) from exc
+# Canonical workspace path containment resolver (DUP-04 / T13)
+resolve_safe_repo_path = resolve_workspace_path
 
 
 def store_cas_artifact(
@@ -331,9 +311,16 @@ class PlatformStateContainer:
         self.run_decisions[run_id] = []
         return run_dto
 
-    def _resolve_repo_path(self, rel_path: str) -> Path:
+    def _resolve_repo_path(self, rel_path: str | Path) -> Path:
         """Resolve a repository-relative path and enforce repository-root containment."""
-        return resolve_safe_repo_path(self.repo_root, rel_path)
+        try:
+            return resolve_workspace_path(
+                str(rel_path),
+                workspace_root=self.repo_root,
+                allow_temp=True,
+            )
+        except PathContainmentError as exc:
+            raise ValueError(str(exc)) from exc
 
     def _build_default_gate_report(self, run_id: str) -> dict[str, Any]:
         """Construct the 6-Gate scorecard and theorem verification report for a run."""
@@ -478,7 +465,7 @@ class PlatformStateContainer:
             )
 
         if input_spec_path is not None:
-            resolved_spec_path = resolve_safe_repo_path(self.repo_root, input_spec_path)
+            resolved_spec_path = self._resolve_repo_path(input_spec_path)
             if not resolved_spec_path.is_file():
                 raise FileNotFoundError(f"Pipeline input spec file not found: '{input_spec_path}'.")
             base_dir = resolved_spec_path.parent
@@ -489,11 +476,11 @@ class PlatformStateContainer:
             raw_spec = dict(req.input_spec)
 
         if initial_contract_path is not None:
-            resolved_init_path = resolve_safe_repo_path(self.repo_root, initial_contract_path)
+            resolved_init_path = self._resolve_repo_path(initial_contract_path)
             raw_spec["initial_contract_path"] = str(resolved_init_path)
 
         if harness_config_path is not None:
-            resolved_cfg_path = resolve_safe_repo_path(self.repo_root, harness_config_path)
+            resolved_cfg_path = self._resolve_repo_path(harness_config_path)
             if not resolved_cfg_path.is_file():
                 raise FileNotFoundError(f"Harness config file not found: '{harness_config_path}'.")
             raw_setup = _load_structured_mapping(resolved_cfg_path, "harness config")
@@ -542,11 +529,11 @@ class PlatformStateContainer:
                 "(zero hardcoded sample paths)."
             )
         if input_spec_path is not None:
-            resolve_safe_repo_path(self.repo_root, input_spec_path)
+            self._resolve_repo_path(input_spec_path)
         if harness_config_path is not None:
-            resolve_safe_repo_path(self.repo_root, harness_config_path)
+            self._resolve_repo_path(harness_config_path)
         if req.initial_contract_path is not None and req.initial_contract_path.strip():
-            resolve_safe_repo_path(self.repo_root, req.initial_contract_path.strip())
+            self._resolve_repo_path(req.initial_contract_path.strip())
 
         try:
             raw_spec, raw_setup, base_dir = self._resolve_pipeline_raw_inputs(req)
@@ -599,7 +586,7 @@ class PlatformStateContainer:
             else None
         )
         if output_dir_str is not None:
-            out_dir: Path | None = resolve_safe_repo_path(self.repo_root, output_dir_str)
+            out_dir: Path | None = self._resolve_repo_path(output_dir_str)
         elif spec_obj.output_dir is not None:
             out_dir = None
         else:
