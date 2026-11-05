@@ -41,6 +41,48 @@
       "env_var": null,
       "inline_upload": false,
       "help": "Show OpenDV CLI version"
+    },
+    {
+      "name": "json",
+      "flag": "--json",
+      "short": null,
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "choices": null,
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Format command output as deterministic RFC 8785 canonical JSON"
+    },
+    {
+      "name": "toon",
+      "flag": "--toon",
+      "short": null,
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "choices": null,
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Print compact diagnostic @toon_v1 trace output"
+    },
+    {
+      "name": "role",
+      "flag": "--role",
+      "short": null,
+      "type": "string",
+      "required": false,
+      "default": "INTERNAL_MODELER",
+      "choices": [
+        "PUBLIC",
+        "INTERNAL_MODELER",
+        "DATA_STEWARD",
+        "AUDITOR_FINANCE",
+        "RESTRICTED_PII_CUSTODIAN"
+      ],
+      "env_var": "OPENDV_ROLE",
+      "inline_upload": false,
+      "help": "5-Tier RBAC role clearance context"
     }
   ],
   "commands": [
@@ -476,7 +518,7 @@
               "short": "-s",
               "type": "boolean",
               "required": false,
-              "default": false,
+              "default": true,
               "choices": null,
               "env_var": null,
               "inline_upload": false,
@@ -510,7 +552,7 @@
               "flag": "--run-id",
               "short": "-r",
               "type": "string",
-              "required": true,
+              "required": false,
               "default": null,
               "choices": null,
               "env_var": null,
@@ -739,7 +781,9 @@
           "name": "approve",
           "description": "Approve a Captain-Hold escalation to proceed",
           "help": "Approve hold",
-          "aliases": [],
+          "aliases": [
+            "resolve"
+          ],
           "availability": "both",
           "request_dto": "HoldDecisionRequest",
           "response_dto": "HoldDecisionResponse",

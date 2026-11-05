@@ -149,7 +149,7 @@ class StandaloneCliTransport:
             graph_b_target = graph_b
 
         contract_path = self._resolve_contract_arg(contract_target)
-        argv = ["verify", "--local", "--contract", contract_path, "--json"]
+        argv = ["verify", "--contract", contract_path, "--json"]
         if graph_a_target:
             argv.extend(["--graph-a", str(graph_a_target)])
         if graph_b_target:
@@ -171,7 +171,7 @@ class StandaloneCliTransport:
             ir_target = ir
 
         contract_path = self._resolve_contract_arg(contract_target)
-        argv = ["compile", "--local", "--contract", contract_path, "--json"]
+        argv = ["compile", "--contract", contract_path, "--json"]
         if ir_target:
             argv.extend(["--canonical-ir", str(ir_target)])
         return self._invoke(argv)
@@ -194,7 +194,6 @@ class StandaloneCliTransport:
         contract_path = self._resolve_contract_arg(contract_target)
         argv = [
             "sandbox",
-            "--local",
             "--contract",
             contract_path,
             "--query-type",
@@ -213,7 +212,7 @@ class StandaloneCliTransport:
         **kwargs: Any,
     ) -> dict[str, Any]:
         spec = spec or {}
-        argv = ["profile", "--local", "--json"]
+        argv = ["profile", "--json"]
         if "graph_b" in spec:
             argv.extend(["--graph-b", str(spec["graph_b"])])
         elif "source_csv" in spec:
@@ -242,7 +241,7 @@ class StandaloneCliTransport:
         else:
             manifest = str(spec)
 
-        argv = ["pipeline", "validate", "--local", "--input", manifest, "--json"]
+        argv = ["pipeline", "validate", "--input", manifest, "--json"]
         return self._invoke(argv)
 
     def pipeline_run(
@@ -267,7 +266,7 @@ class StandaloneCliTransport:
         else:
             manifest = str(spec)
 
-        argv = ["pipeline", "run", "--local", "--input", manifest, "--json"]
+        argv = ["pipeline", "run", "--input", manifest, "--json"]
         return self._invoke(argv)
 
 

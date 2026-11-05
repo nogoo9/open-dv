@@ -11,6 +11,7 @@ dependencies = []
 [tool.uv.workspace]
 members = [
     "packages/opendv-contracts",
+    "packages/opendv-cli-common",
     "packages/opendv-service",
     "packages/opendv-core",
     "packages/opendv-telemetry",
@@ -23,6 +24,7 @@ members = [
 
 [tool.uv.sources]
 opendv-contracts = { workspace = true }
+opendv-cli-common = { workspace = true }
 opendv-service = { workspace = true }
 opendv-core = { workspace = true }
 opendv-telemetry = { workspace = true }
