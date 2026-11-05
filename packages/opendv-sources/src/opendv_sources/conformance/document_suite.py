@@ -133,5 +133,16 @@ class DocumentAdapterConformanceSuite:
             f"raw_sha256 mismatch: expected {expected_sha}, got {extracted.raw_sha256}"
         )
 
+    def test_extract_document_helper(
+        self,
+        adapter: DocumentSourceAdapter,
+        sample_spec: SourceSpec,
+    ) -> None:
+        """Verify extract_document convenience helper extracts document."""
+        if hasattr(adapter, "extract_document"):
+            doc = adapter.extract_document(sample_spec)
+            assert doc is not None
+            assert len(doc.normalized_text) == doc.char_count
+
 
 __all__ = ["DocumentAdapterConformanceSuite"]

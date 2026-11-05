@@ -3,6 +3,8 @@
 from opendv_sources.adapters.duckdb_attach import DuckdbAttachSourceAdapter
 from opendv_sources.adapters.filesystem import LocalFilesystemSourceAdapter
 from opendv_sources.adapters.inline import InlineSourceAdapter
+from opendv_sources.adapters.pdf_document import PdfDocumentSourceAdapter
+from opendv_sources.adapters.text_document import TextDocumentSourceAdapter
 from opendv_sources.config.loader import load_structured_document
 from opendv_sources.conformance.document_suite import DocumentAdapterConformanceSuite
 from opendv_sources.conformance.tabular_suite import TabularAdapterConformanceSuite
@@ -24,6 +26,7 @@ from opendv_sources.models.descriptors import (
     SourceDescriptor,
 )
 from opendv_sources.models.documents import (
+    DocumentPage,
     DocumentRef,
     ExtractedDocument,
     PageMapEntry,
@@ -60,6 +63,7 @@ __all__ = [
     "ColumnDescriptor",
     "DocumentAdapterConformanceSuite",
     "DocumentExtractionError",
+    "DocumentPage",
     "DocumentRef",
     "DocumentSourceAdapter",
     "DuckdbAttachSourceAdapter",
@@ -72,6 +76,7 @@ __all__ = [
     "LocalFilesystemSourceAdapter",
     "PageMapEntry",
     "PathContainmentError",
+    "PdfDocumentSourceAdapter",
     "SourceAdapter",
     "SourceAdapterRegistry",
     "SourceCapabilities",
@@ -86,6 +91,7 @@ __all__ = [
     "StreamChunk",
     "TabularAdapterConformanceSuite",
     "TabularSourceAdapter",
+    "TextDocumentSourceAdapter",
     "UnsupportedFormatError",
     "get_format_registry",
     "get_source_registry",
