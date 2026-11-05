@@ -18,6 +18,7 @@ members = [
     "opendv-platform-api",
     "opendv-service",
     "opendv-telemetry",
+    "opendv-testkit",
     "opendv-workspace",
 ]
 
@@ -700,6 +701,31 @@ dependencies = [
 requires-dist = [{ name = "opendv-core", editable = "packages/opendv-core" }]
 
 [[package]]
+name = "opendv-testkit"
+version = "0.1.0"
+source = { editable = "packages/opendv-testkit" }
+dependencies = [
+    { name = "opendv-agent-harness" },
+    { name = "opendv-contracts" },
+    { name = "opendv-core" },
+    { name = "opendv-service" },
+    { name = "opendv-telemetry" },
+    { name = "pydantic" },
+    { name = "pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "opendv-agent-harness", editable = "packages/opendv-agent-harness" },
+    { name = "opendv-contracts", editable = "packages/opendv-contracts" },
+    { name = "opendv-core", editable = "packages/opendv-core" },
+    { name = "opendv-service", editable = "packages/opendv-service" },
+    { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
+    { name = "pydantic", specifier = ">=2.10.0" },
+    { name = "pyyaml", specifier = ">=6.0.2" },
+]
+
+[[package]]
 name = "opendv-workspace"
 version = "0.1.0"
 source = { virtual = "." }
@@ -711,6 +737,7 @@ dev = [
     { name = "jsonschema" },
     { name = "mypy" },
     { name = "networkx" },
+    { name = "opendv-testkit" },
     { name = "pydantic" },
     { name = "pylint" },
     { name = "pytest" },
@@ -730,6 +757,7 @@ dev = [
     { name = "jsonschema", specifier = ">=4.23.0" },
     { name = "mypy", specifier = ">=1.15.0" },
     { name = "networkx", specifier = ">=3.4.0" },
+    { name = "opendv-testkit", editable = "packages/opendv-testkit" },
     { name = "pydantic", specifier = ">=2.10.0" },
     { name = "pylint", specifier = ">=3.0.0" },
     { name = "pytest", specifier = ">=9.0.0" },

@@ -90,6 +90,9 @@ def test_service_facade_all_methods(tmp_path: Path) -> None:
     assert retrieved.content == {"message": "hello facade"}
 
     # 8. Holds & Scorecard
+    from opendv_testkit import seed_canonical_pe_demo
+
+    seed_canonical_pe_demo(service)
     pe_run_id = "run-pe-apex-horizon-20261030"
     scorecard = service.get_scorecard(pe_run_id)
     assert scorecard is not None

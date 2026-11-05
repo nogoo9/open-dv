@@ -18,10 +18,7 @@ from opendv_agent_harness import (
     build_observability_event_dict,
 )
 from opendv_core import resolve_workspace_path
-from opendv_service.legacy_demo import (
-    PE_DEMO_CONTEXT_REFS,
-    WORKBENCH_VIEW_TITLES,
-)
+from opendv_service.legacy_demo import WORKBENCH_VIEW_TITLES
 from opendv_service.models import (
     ArtifactMetadataResponse,
     GateScorecardSummary,
@@ -133,11 +130,7 @@ class PipelineExecutionMixin:
             ),
             None,
         )
-        ont_sha = (
-            ont_art_ref.sha256.upper()
-            if ont_art_ref is not None
-            else PE_DEMO_CONTEXT_REFS["graph_a_sha256"]
-        )
+        ont_sha = ont_art_ref.sha256.upper() if ont_art_ref is not None else None
         last_gb_ref = next(
             (
                 a

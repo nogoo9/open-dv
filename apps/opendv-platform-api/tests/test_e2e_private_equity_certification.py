@@ -35,6 +35,7 @@ from opendv_duckdb_sandbox import (
     compile_canonical_ir_to_4zone_sql,
 )
 from opendv_platform_api import PlatformStateContainer, RunStatus, create_app
+from opendv_testkit import seed_canonical_pe_demo
 
 EXPECTED_WORKBENCH_VIEW_IDS: tuple[str, ...] = (
     "WB-00",
@@ -157,6 +158,9 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             run_summary = run_resp.json()
             run_id = run_summary["run_id"]
             assert run_summary["project_id"] == project_id
+
+            seed_canonical_pe_demo(state, project_id=project_id, run_id=run_id)
+            run_summary = (await client.get(f"/api/v1/runs/{run_id}")).json()
             assert run_summary["status"] == RunStatus.PAUSED_HOLD.value
             assert "hold-tier-u3-horizon-sovereign-vehicle" in run_summary["active_hold_ids"]
 

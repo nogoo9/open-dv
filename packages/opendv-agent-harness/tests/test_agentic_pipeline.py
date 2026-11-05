@@ -31,7 +31,6 @@ from opendv_agent_harness import (
     AgenticPipelineReport,
     AntigravityHarnessAdapter,
     ClaudeAgentHarnessAdapter,
-    DeterministicHarnessAdapter,
     HarnessAuthConfig,
     HarnessBudget,
     HarnessSetupConfig,
@@ -43,11 +42,6 @@ from opendv_agent_harness import (
     validate_pipeline_inputs,
     validate_pipeline_outputs,
 )
-from opendv_agent_harness.adapters.deterministic_adapter import (
-    _synthesize_minimal_schema_instance,
-    build_deterministic_agy_sdk_shim,
-    build_deterministic_claude_sdk_shim,
-)
 from opendv_agent_harness.pipeline import (
     PipelineUnstructuredCandidateInput,
     Stage00OrchestrationPlanOutput,
@@ -58,6 +52,14 @@ from opendv_agent_harness.pipeline import (
     Stage04ContractSynthesisOutput,
 )
 from opendv_telemetry import ContentAddressableStore
+from opendv_testkit import (
+    DeterministicHarnessAdapter,
+    build_deterministic_agy_sdk_shim,
+    build_deterministic_claude_sdk_shim,
+)
+from opendv_testkit import (
+    synthesize_minimal_schema_instance as _synthesize_minimal_schema_instance,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 

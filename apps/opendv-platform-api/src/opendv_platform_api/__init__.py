@@ -36,9 +36,6 @@ from opendv_service import (
     store_cas_artifact,
 )
 from opendv_service.legacy_demo import (
-    PE_DEMO_CONTEXT_REFS,
-    WORKBENCH_VIEW_TITLES,
-    build_pe_canonical_events,
     execute_pe_sandbox_query,
 )
 from opendv_service.rbac import ROLE_CLEARANCE_LEVELS
@@ -48,9 +45,7 @@ from opendv_telemetry import format_sse_event_stream
 __version__ = "0.1.0"
 
 __all__ = [
-    "PE_DEMO_CONTEXT_REFS",
     "ROLE_CLEARANCE_LEVELS",
-    "WORKBENCH_VIEW_TITLES",
     "ArtifactMetadataResponse",
     "ArtifactUploadRequest",
     "CaptainHoldDecisionRequest",
@@ -71,7 +66,6 @@ __all__ = [
     "__version__",
     "app",
     "build_gate_scorecard_from_axi_result",
-    "build_pe_canonical_events",
     "create_app",
     "execute_pe_sandbox_query",
     "export_openapi_to_file",

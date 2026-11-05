@@ -794,8 +794,15 @@
             "title": "Graph A Ontology Path"
           },
           "graph_a_sha256": {
-            "title": "Graph A Sha256",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph A Sha256"
           },
           "graph_b_path": {
             "anyOf": [
@@ -828,7 +835,6 @@
           "project_id",
           "display_name",
           "domain_namespace",
-          "graph_a_sha256",
           "created_at_utc"
         ],
         "title": "ProjectResponse",

@@ -1,12 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import {
 	ALL_WORKBENCH_VIEW_IDS,
+	LedgerReplayClient,
 	MockVaultEventStreamClient,
-	PE_DEMO_EVENTS,
-	PE_DEMO_EVENTS_JSONL,
-	type VaultObservabilityEventDTO,
 	WORKBENCH_VIEW_STAGE_MAP,
-	createPeDemoReplayClient,
 	filterEventsByAgentPersona,
 	filterEventsByRuleId,
 	filterEventsByStageId,
@@ -16,7 +13,13 @@ import {
 	getLatestEventForView,
 	groupEventsByViewId,
 	redactEventForRole,
+	type VaultObservabilityEventDTO,
 } from "../src/index";
+import {
+	PE_DEMO_EVENTS,
+	PE_DEMO_EVENTS_JSONL,
+	createPeDemoReplayClient,
+} from "./fixtures/pe-demo-bundle";
 
 describe("MockVaultEventStreamClient & Private Equity Demo Replay Bundle", () => {
 	it("covers all 12 Workbench Views (WB-00 through WB-11) in PE_DEMO_EVENTS", () => {

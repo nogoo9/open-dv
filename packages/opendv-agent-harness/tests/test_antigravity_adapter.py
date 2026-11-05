@@ -620,7 +620,7 @@ async def test_wp04_antigravity_fail_closed_and_gemini_rest_api_fallback(
     import urllib.request
 
     from opendv_agent_harness.adapters.antigravity_adapter import GoogleAntigravityAdapter
-    from opendv_agent_harness.adapters.deterministic_adapter import DeterministicHarnessAdapter
+    from opendv_testkit import DeterministicHarnessAdapter
 
     monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     monkeypatch.delenv("GOOGLE_API_KEY", raising=False)

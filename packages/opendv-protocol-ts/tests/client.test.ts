@@ -3,13 +3,15 @@ import packageJson from "../package.json";
 import {
 	type EventSourceLike,
 	OpenDVPlatformClient,
+	VaultEventStreamClient,
+	type VaultObservabilityEventDTO,
+} from "../src/index";
+import {
 	PE_DEMO_EVENTS,
 	PE_DEMO_PROJECT,
 	PE_DEMO_RUN,
 	PE_DEMO_RUN_ID,
-	VaultEventStreamClient,
-	type VaultObservabilityEventDTO,
-} from "../src/index";
+} from "./fixtures/pe-demo-bundle";
 
 class FakeEventSource implements EventSourceLike {
 	readonly url: string;

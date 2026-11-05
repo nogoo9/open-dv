@@ -4,18 +4,21 @@
  * (`docs/06` §2.4, `docs/07` Scenes 1–7, `docs/10` §2).
  */
 
-import { MockVaultEventStreamClient } from "../client/mock-client";
-import type { ProjectDTO, ProjectRunDTO } from "../types/api-dtos";
+import {
+	LedgerReplayClient,
+	MockVaultEventStreamClient,
+} from "../../src/client/ledger-replay-client";
+import type { ProjectDTO, ProjectRunDTO } from "../../src/types/api-dtos";
 import type {
 	ContextRefsDTO,
 	SemanticHashPillDTO,
 	VaultObservabilityEventDTO,
-} from "../types/observability-event";
+} from "../../src/types/observability-event";
 import {
 	ZERO_KEY_ERROR_HEX,
 	ZERO_KEY_HEX,
 	formatSemanticHashPill,
-} from "../utils/hash-pill";
+} from "../../src/utils/hash-pill";
 
 export const PE_DEMO_PROJECT_ID = "proj-apex-horizon-pe";
 export const PE_DEMO_RUN_ID = "run-pe-apex-horizon-20261030";
@@ -968,8 +971,8 @@ export const PE_DEMO_EVENTS_JSONL: string = PE_DEMO_EVENTS.map((ev) =>
 ).join("\n");
 
 /**
- * Create a fresh `MockVaultEventStreamClient` preloaded with the complete Private Equity demo event stream.
+ * Create a fresh `LedgerReplayClient` preloaded with the complete Private Equity demo event stream.
  */
-export function createPeDemoReplayClient(): MockVaultEventStreamClient {
-	return new MockVaultEventStreamClient(PE_DEMO_EVENTS);
+export function createPeDemoReplayClient(): LedgerReplayClient {
+	return new LedgerReplayClient(PE_DEMO_EVENTS);
 }

@@ -18,7 +18,7 @@ import duckdb
 import pytest
 
 from opendv_agent_harness import run_agentic_vault_pipeline
-from opendv_agent_harness.adapters.deterministic_adapter import build_deterministic_agy_sdk_shim
+from opendv_testkit import build_deterministic_agy_sdk_shim
 from opendv_core import validate_canonical_ir
 from opendv_core.constants import ZERO_KEY_ERROR, ZERO_KEY_UNKNOWN
 from opendv_core.hashing import (

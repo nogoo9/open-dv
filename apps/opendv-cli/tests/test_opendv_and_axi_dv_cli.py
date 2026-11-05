@@ -31,6 +31,12 @@ def test_opendv_cli_standalone_subcommands(
     """Verify spec-driven standalone `opendv` subcommands
     (`verify`, `profile`, `compile`, `sandbox`, `run`, `hold`).
     """
+    from opendv_cli.executor import LocalExecutor
+    from opendv_testkit import seed_canonical_pe_demo
+
+    executor = LocalExecutor(workspace_root=REPO_ROOT)
+    seed_canonical_pe_demo(executor.service)
+
     pe_contract = "examples/private_equity/dv_pe_model_contract.yaml"
     pe_graph_a = "examples/private_equity/pe_graph_a_ontology.yaml"
     pe_graph_b = "examples/private_equity/pe_graph_b_profile.json"
@@ -200,26 +206,36 @@ def test_opendv_cli_standalone_subcommands(
     assert len(out_sbx_pit["query_d10_rows"]) >= 2
 
     # 6. run list, get, create, events
-    rc_run_list = app_main(["run", "list", "--project-id", "proj-apex-horizon-pe", "--json"])
+    rc_run_list = app_main(
+        ["run", "list", "--project-id", "proj-apex-horizon-pe", "--json"],
+        executor=executor,
+    )
     assert rc_run_list == 0
     out_run_list = json.loads(capsys.readouterr().out)
     assert out_run_list["mode"] == "local"
     assert out_run_list["total"] >= 1
 
-    rc_run_get = app_main(["run", "get", "--run-id", "run-pe-apex-horizon-20261030", "--json"])
+    rc_run_get = app_main(
+        ["run", "get", "--run-id", "run-pe-apex-horizon-20261030", "--json"],
+        executor=executor,
+    )
     assert rc_run_get == 0
     out_run_get = json.loads(capsys.readouterr().out)
     assert out_run_get["run_id"] == "run-pe-apex-horizon-20261030"
 
     rc_run_events = app_main(
-        ["run", "events", "--run-id", "run-pe-apex-horizon-20261030", "--json"]
+        ["run", "events", "--run-id", "run-pe-apex-horizon-20261030", "--json"],
+        executor=executor,
     )
     assert rc_run_events == 0
     out_run_events = json.loads(capsys.readouterr().out)
     assert out_run_events["event_count"] >= 9
 
     # 7. hold list
-    rc_hold_list = app_main(["hold", "list", "--run-id", "run-pe-apex-horizon-20261030", "--json"])
+    rc_hold_list = app_main(
+        ["hold", "list", "--run-id", "run-pe-apex-horizon-20261030", "--json"],
+        executor=executor,
+    )
     assert rc_hold_list == 0
     out_hold_list = json.loads(capsys.readouterr().out)
     assert out_hold_list["mode"] == "local"
@@ -339,11 +355,9 @@ def test_opendv_pipeline_cli_standalone(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Verify `opendv pipeline validate`, `run`, and `report` standalone commands."""
-    from opendv_agent_harness.adapters.deterministic_adapter import (
-        build_deterministic_agy_sdk_shim,
-    )
     from opendv_agent_harness.pipeline import run_agentic_vault_pipeline
     from opendv_service import set_pipeline_runner_override
+    from opendv_testkit import build_deterministic_agy_sdk_shim
 
     def shim_runner(*args: Any, **kwargs: Any) -> Any:
         return run_agentic_vault_pipeline(
@@ -437,11 +451,9 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Verify `--initial-contract` flag on `opendv pipeline validate` and `run`."""
-    from opendv_agent_harness.adapters.deterministic_adapter import (
-        build_deterministic_agy_sdk_shim,
-    )
     from opendv_agent_harness.pipeline import run_agentic_vault_pipeline
     from opendv_service import set_pipeline_runner_override
+    from opendv_testkit import build_deterministic_agy_sdk_shim
 
     def shim_runner(*args: Any, **kwargs: Any) -> Any:
         return run_agentic_vault_pipeline(
@@ -533,11 +545,9 @@ def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Verify live stage progress & token streaming on `opendv pipeline run`."""
-    from opendv_agent_harness.adapters.deterministic_adapter import (
-        build_deterministic_agy_sdk_shim,
-    )
     from opendv_agent_harness.pipeline import run_agentic_vault_pipeline
     from opendv_service import set_pipeline_runner_override
+    from opendv_testkit import build_deterministic_agy_sdk_shim
 
     def shim_runner(*args: Any, **kwargs: Any) -> Any:
         return run_agentic_vault_pipeline(

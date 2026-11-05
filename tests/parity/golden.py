@@ -25,7 +25,7 @@ from typing import Any
 import pytest
 import yaml
 
-from opendv_agent_harness.adapters.deterministic_adapter import build_deterministic_agy_sdk_shim
+from opendv_testkit import build_deterministic_agy_sdk_shim
 from opendv_core import validate_contract_v5
 from opendv_duckdb_sandbox import (
     compile_canonical_ir_to_4zone_sql,
