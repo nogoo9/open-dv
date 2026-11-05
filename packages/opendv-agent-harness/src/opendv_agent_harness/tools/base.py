@@ -44,10 +44,10 @@ class ProfileSourceFeedInput(DomainToolInput):
 
     source_system: str = Field(
         min_length=1,
-        description="Source system identifier (e.g., 'INVESTRAN_PE_ERP').",
+        description="Source system identifier (e.g., 'CORE_ERP_SYSTEM').",
     )
     table_or_path: str = Field(
-        default="raw_lp_commitments",
+        default="raw_staging_table",
         min_length=1,
         description="Relational table name or Parquet/JSON path to profile.",
     )

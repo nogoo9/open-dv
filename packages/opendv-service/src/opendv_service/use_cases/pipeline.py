@@ -15,7 +15,7 @@ from opendv_contracts import (
     RbacRole,
     RunStatus,
 )
-from opendv_service.errors import NotFoundError
+from opendv_service.errors import NotFoundError, OpenDVError
 from opendv_service.models import (
     GateScorecardSummary,
     PipelineRunRequest,
@@ -96,7 +96,7 @@ async def execute_run_async(
                 role=RbacRole.PUBLIC,
                 pipeline_runner=runner,
             )
-        except Exception as exc:
+        except (OpenDVError, ValueError, KeyError, OSError, RuntimeError, TypeError) as exc:
             import logging
 
             logging.getLogger(__name__).error(

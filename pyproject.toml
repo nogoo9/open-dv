@@ -60,7 +60,27 @@ line-length = 100
 src = ["packages/*/src", "apps/*/src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "N", "SIM", "RUF", "TID251"]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "N",
+    "SIM",
+    "RUF",
+    "TID251",
+    "BLE001",
+    "S110",
+    "S112",
+    "TRY",
+]
+ignore = [
+    "TRY003",
+    "TRY004",
+    "TRY300",
+    "TRY301",
+]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "antigravity".msg = "Import from 'google.antigravity', never Python stdlib 'antigravity' (xkcd/353)."

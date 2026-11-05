@@ -229,6 +229,22 @@ def create_app(
             instance=str(request.url.path),
         )
 
+    @application.exception_handler(Exception)
+    async def handle_unexpected_exception(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        try:
+            raise exc
+        except Exception as unhandled_exc:  # noqa: BLE001 - API global exception handler boundary
+            return build_problem_details_response(
+                status_code=500,
+                detail=f"An unexpected internal server error occurred: {unhandled_exc}",
+                instance=str(request.url.path),
+                problem_type="https://open-dv.dev/problems/internal-error",
+                title="Internal Server Error",
+            )
+
     api_prefix = "/api/v1"
     application.include_router(health.router, prefix=api_prefix)
     application.include_router(projects.router, prefix=api_prefix)

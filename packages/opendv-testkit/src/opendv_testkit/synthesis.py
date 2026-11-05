@@ -6,10 +6,11 @@ and docs/09-agnostic-agent-harness-and-sdk-spec.md.
 
 from __future__ import annotations
 
+import contextlib
 import enum
 from typing import Any, Literal, get_args, get_origin
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 _PIPELINE_STAGE_SCHEMA_NAMES = frozenset(
     {
@@ -84,19 +85,15 @@ def synthesize_minimal_schema_instance(
 ) -> Any:
     """Synthesize a valid instance of `schema_cls` from `prompt` context or field defaults."""
     if schema_cls.__name__ in _PIPELINE_STAGE_SCHEMA_NAMES:
-        try:
+        with contextlib.suppress(ImportError, AttributeError, ValueError, ValidationError):
             from opendv_agent_harness.pipeline import synthesize_stage_output_from_prompt
 
             stage_out = synthesize_stage_output_from_prompt(schema_cls, prompt)
             if stage_out is not None:
                 return stage_out
-        except Exception:
-            pass
 
-    try:
+    with contextlib.suppress(ValidationError, ValueError, TypeError):
         return schema_cls.model_validate({})
-    except Exception:
-        pass
 
     for non_empty in (False, True):
         payload: dict[str, Any] = {}
@@ -107,10 +104,8 @@ def synthesize_minimal_schema_instance(
                 field_info.annotation,
                 non_empty_collections=non_empty,
             )
-        try:
+        with contextlib.suppress(ValidationError, ValueError, TypeError):
             return schema_cls.model_validate(payload)
-        except Exception:
-            continue
 
     return None
 
@@ -121,11 +116,9 @@ _synthesize_minimal_schema_instance = synthesize_minimal_schema_instance
 def resolve_schema_class(name: str) -> type[BaseModel] | None:
     """Resolve a BaseModel subclass by class name from known Open-DV modules."""
     for mod_name in ("opendv_agent_harness.pipeline", "opendv_contracts", "opendv_core"):
-        try:
+        with contextlib.suppress(ImportError, AttributeError, TypeError):
             mod = __import__(mod_name, fromlist=[name])
             candidate = getattr(mod, name, None)
             if isinstance(candidate, type) and issubclass(candidate, BaseModel):
                 return candidate
-        except Exception:
-            continue
     return None

@@ -106,6 +106,12 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
 
             return claude_agent_sdk
         except ImportError:
+            transport = self._config.extra_provider_options.get("transport")
+            if transport == "sdk":
+                raise ProviderConfigurationError(
+                    "Configured transport 'sdk' is unavailable because "
+                    "'claude_agent_sdk' is not installed."
+                ) from None
             if self._resolve_api_key() is not None:
                 return None
             raise ProviderConfigurationError(
@@ -307,7 +313,9 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                                 "content": json.dumps(res_dict),
                             }
                         )
-                    except Exception as exc:
+                    except (
+                        ValueError, TypeError, KeyError, AttributeError, OSError, RuntimeError
+                    ) as exc:
                         err_msg = f"{type(exc).__name__}: {exc}"
                         yield make_event(
                             HarnessEventKind.TOOL_CALL_ERROR,

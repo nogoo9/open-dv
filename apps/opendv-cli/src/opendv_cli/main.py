@@ -57,11 +57,23 @@ def _dispatch(
     executor: LocalExecutor | None = None,
 ) -> int:
     """Dispatch parsed CLI arguments to LocalExecutor and format output."""
-    sub = getattr(args, "subcommand", None) or "verify"
-    exec_inst = executor or LocalExecutor()
-    code, payload = exec_inst.execute(sub, args)
-    present_result(payload, command=sub, args=args)
-    return code
+    try:
+        sub = getattr(args, "subcommand", None) or "verify"
+        exec_inst = executor or LocalExecutor()
+        code, payload = exec_inst.execute(sub, args)
+        present_result(payload, command=sub, args=args)
+        return code
+    except Exception as exc:  # noqa: BLE001 - CLI main top-level execution boundary
+        if getattr(args, "json", False) or getattr(args, "format", None) == "json":
+            print_jcs({
+                "status": "ERROR",
+                "error_code": "INTERNAL_ERROR",
+                "error": str(exc),
+                "detail": str(exc),
+            })
+        else:
+            print(f"Error: {exc}", file=sys.stderr)
+        return 2
 
 
 def app_main(
