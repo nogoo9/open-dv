@@ -13,7 +13,6 @@ from opendv_contracts import (
     SandboxQueryRequest,
     SandboxQueryResponse,
 )
-from opendv_core import find_workspace_root
 from opendv_core.paths import resolve_workspace_path
 from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
 from opendv_service.errors import InputValidationError
@@ -27,7 +26,7 @@ def execute_sandbox_query(
     workspace_root: Path | None = None,
 ) -> SandboxQueryResponse:
     """Execute parameterized queries or 4-batch sequences in the DuckDB sandbox."""
-    root = (workspace_root or find_workspace_root()).resolve()
+    root = Path(workspace_root or Path.cwd()).resolve()
     effective_run_id = request.run_id or "run-local-sandbox"
     query_type_str = (
         request.query_type.value

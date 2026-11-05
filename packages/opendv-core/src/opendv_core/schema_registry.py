@@ -13,6 +13,7 @@ and observability telemetry events.
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
@@ -51,36 +52,30 @@ SCHEMA_ALIASES: Final[dict[str, str]] = {
 }
 
 
-def find_workspace_root(start_path: Path | None = None) -> Path:
-    """Locate the monorepo workspace root containing `schemas/` and `examples/`."""
-    candidates: list[Path] = []
-    if start_path is not None:
-        candidates.append(start_path.resolve())
-    candidates.append(Path(__file__).resolve())
-    candidates.append(Path.cwd().resolve())
-
-    for base in candidates:
-        current = base if base.is_dir() else base.parent
-        for directory in (current, *current.parents):
-            if (directory / "schemas").is_dir() and (
-                directory / "schemas" / CONTRACT_V5_SCHEMA_FILENAME
-            ).is_file():
-                return directory
-
-    msg = "Unable to locate Open-DV workspace root containing 'schemas/' directory"
-    raise FileNotFoundError(msg)
-
-
 def get_schemas_dir(workspace_root: Path | None = None) -> Path:
     """Return the absolute path to the `/schemas` directory."""
-    root = workspace_root if workspace_root is not None else find_workspace_root()
-    return root / "schemas"
+    if workspace_root is not None:
+        return Path(workspace_root).resolve() / "schemas"
+    if "OPENDV_WORKSPACE_ROOT" in os.environ:
+        return Path(os.environ["OPENDV_WORKSPACE_ROOT"]).resolve() / "schemas"
+    pkg_dir = Path(__file__).resolve().parents[4]
+    candidate = pkg_dir / "schemas"
+    if candidate.is_dir():
+        return candidate
+    return (Path.cwd() / "schemas").resolve()
 
 
 def get_examples_dir(workspace_root: Path | None = None) -> Path:
     """Return the absolute path to the `/examples` directory."""
-    root = workspace_root if workspace_root is not None else find_workspace_root()
-    return root / "examples"
+    if workspace_root is not None:
+        return Path(workspace_root).resolve() / "examples"
+    if "OPENDV_WORKSPACE_ROOT" in os.environ:
+        return Path(os.environ["OPENDV_WORKSPACE_ROOT"]).resolve() / "examples"
+    pkg_dir = Path(__file__).resolve().parents[4]
+    candidate = pkg_dir / "examples"
+    if candidate.is_dir():
+        return candidate
+    return (Path.cwd() / "examples").resolve()
 
 
 def load_structured_file(path_or_payload: Mapping[str, Any] | str | Path) -> dict[str, Any]:
@@ -269,9 +264,9 @@ def validate_graph_b(
 
 def validate_all_examples(workspace_root: Path | None = None) -> dict[str, Any]:
     """Validate all normative artifacts in `examples/` and `examples/private_equity/`."""
-    root = workspace_root if workspace_root is not None else find_workspace_root()
-    registry = SchemaRegistry(schemas_dir=root / "schemas")
-    examples_dir = root / "examples"
+    schemas_dir = get_schemas_dir(workspace_root)
+    examples_dir = get_examples_dir(workspace_root)
+    registry = SchemaRegistry(schemas_dir=schemas_dir)
 
     validated: dict[str, Any] = {}
     validated["examples/dv_model_contract.yaml"] = registry.validate_contract_v5(
@@ -299,7 +294,6 @@ __all__ = [
     "OBSERVABILITY_EVENT_SCHEMA_FILENAME",
     "SCHEMA_ALIASES",
     "SchemaRegistry",
-    "find_workspace_root",
     "get_default_schema_registry",
     "get_examples_dir",
     "get_schemas_dir",

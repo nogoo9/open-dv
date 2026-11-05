@@ -88,7 +88,6 @@ from opendv_core.paths import (
     resolve_workspace_path,
 )
 from opendv_core.schema_registry import (
-    find_workspace_root,
     load_structured_file,
     validate_canonical_ir,
     validate_contract_v5,
@@ -338,10 +337,7 @@ class HarnessSetupConfig(BaseModel):
         save_dir: Path | None = None,
     ) -> HarnessConfig:
         """Convert this `HarnessSetupConfig` into a runtime `HarnessConfig`."""
-        try:
-            default_ws = find_workspace_root()
-        except Exception:
-            default_ws = Path.cwd().resolve()
+        default_ws = Path(os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
 
         eff_ws = (workspace_dir or default_ws).resolve()
         default_base = (
@@ -967,10 +963,7 @@ def validate_pipeline_inputs(
     diagnostics: list[dict[str, Any]] = []
     checked_items = 0
 
-    try:
-        ws_root = find_workspace_root()
-    except Exception:
-        ws_root = Path.cwd().resolve()
+    ws_root = Path(os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
     eff_base = (base_dir or ws_root).resolve()
 
     # 1. Validate PipelineInputSpec model
@@ -2596,10 +2589,7 @@ class AgenticVaultPipeline:
     ) -> None:
         self.input_spec = input_spec
         self.harness_setup = harness_setup or HarnessSetupConfig()
-        try:
-            self.workspace_root = find_workspace_root()
-        except Exception:
-            self.workspace_root = Path.cwd().resolve()
+        self.workspace_root = Path(os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
         self.base_dir = (base_dir or self.workspace_root).resolve()
         self._explicit_output_dir = Path(output_dir).resolve() if output_dir is not None else None
         self._explicit_cas_store = cas_store

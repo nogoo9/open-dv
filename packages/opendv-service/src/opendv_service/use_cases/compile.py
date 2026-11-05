@@ -10,7 +10,7 @@ from typing import Any
 import yaml
 
 from opendv_contracts import CompileRequest, CompileResponse, RenderedOutput
-from opendv_core import find_workspace_root, validate_canonical_ir, validate_contract_v5
+from opendv_core import validate_canonical_ir, validate_contract_v5
 from opendv_core.paths import resolve_workspace_path
 from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_sql
 from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
@@ -24,7 +24,7 @@ def compile_pipeline(
     workspace_root: Path | None = None,
 ) -> CompileResponse:
     """Compile a Data Vault 2.0 contract into Canonical IR and 4-Zone SQL."""
-    root = (workspace_root or find_workspace_root()).resolve()
+    root = Path(workspace_root or Path.cwd()).resolve()
 
     # 1. Resolve contract document
     resolved_contract_path: Path | None = None

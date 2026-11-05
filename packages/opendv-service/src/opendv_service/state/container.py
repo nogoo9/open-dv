@@ -29,13 +29,20 @@ class PlatformStateContainer(
 
     def __init__(
         self,
+        workspace_root: Path | None = None,
+        storage_root: Path | None = None,
+        *,
         repo_root: Path | None = None,
         state_dir: Path | None = None,
-        *,
         pipeline_runner: PipelineRunner | None = None,
         seed_demo_project: bool = True,
     ) -> None:
-        super().__init__(repo_root=repo_root, state_dir=state_dir)
+        super().__init__(
+            workspace_root=workspace_root,
+            storage_root=storage_root,
+            repo_root=repo_root,
+            state_dir=state_dir,
+        )
         self._custom_pipeline_runner = pipeline_runner
         if seed_demo_project:
             self._seed_canonical_pe_demo()

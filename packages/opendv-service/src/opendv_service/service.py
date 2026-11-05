@@ -20,7 +20,7 @@ from opendv_contracts import (
     VerifyRequest,
     VerifyResponse,
 )
-from opendv_core import find_workspace_root, resolve_workspace_path
+from opendv_core import resolve_workspace_path
 from opendv_service.errors import ConflictError, NotFoundError, OpenDVError
 from opendv_service.legacy_demo import WORKBENCH_VIEW_TITLES
 from opendv_service.models import (
@@ -40,6 +40,7 @@ from opendv_service.models import (
 )
 from opendv_service.rbac import RbacRole, normalize_rbac_role, redact_event_for_role
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
+from opendv_service.settings import OpenDVSettings
 from opendv_service.state import StateStore
 from opendv_service.use_cases.artifacts import get_artifact, store_artifact
 from opendv_service.use_cases.compile import compile_pipeline
@@ -69,23 +70,51 @@ class OpenDVService:
 
     def __init__(
         self,
-        state_store: StateStore | None = None,
+        state: StateStore | None = None,
         *,
+        state_store: StateStore | None = None,
         pipeline_runner: PipelineRunner | None = None,
         workspace_root: Path | None = None,
+        storage_root: Path | None = None,
+        settings: OpenDVSettings | None = None,
     ) -> None:
-        self.workspace_root = workspace_root
-        self.state = state_store or StateStore(repo_root=workspace_root)
+        active_state = state if state is not None else state_store
+        eff_ws = (
+            workspace_root
+            or (getattr(active_state, "workspace_root", None) if active_state else None)
+        )
+        eff_storage = (
+            storage_root
+            or (getattr(active_state, "storage_root", None) if active_state else None)
+        )
+        self.settings = settings or OpenDVSettings.load(
+            workspace_root=eff_ws,
+            state_dir=eff_storage,
+            is_server=False,
+        )
+        self.workspace_root = (
+            eff_ws
+            or self.settings.workspace_root
+            or Path.cwd().resolve()
+        )
+        self.storage_root = (
+            eff_storage
+            or self.settings.state_dir
+        )
+        self.state = active_state or StateStore(
+            workspace_root=self.workspace_root,
+            storage_root=self.storage_root,
+        )
         self.pipeline_runner = pipeline_runner or get_default_pipeline_runner()
 
     @property
     def repo_root(self) -> Path:
         """Root path for workspace and file resolution."""
-        return (
-            self.workspace_root
-            or getattr(self.state, "repo_root", None)
-            or find_workspace_root()
-        )
+        if self.workspace_root is not None:
+            return self.workspace_root
+        if hasattr(self.state, "workspace_root"):
+            return self.state.workspace_root
+        return Path.cwd().resolve()
 
     def list_capabilities(self) -> list[str]:
         """Return authoritative list of headless application core capabilities (T13)."""
@@ -514,7 +543,7 @@ class OpenDVService:
         import duckdb
 
         schema_files = sorted(self.state.schema_registry.schemas_dir.glob("*.json"))
-        return {
+        res: dict[str, Any] = {
             "status": "ok",
             "service": "opendv-platform-api",
             "version": "0.1.0",
@@ -525,6 +554,9 @@ class OpenDVService:
             "registered_projects": len(self.state.projects),
             "registered_runs": len(self.state.runs),
         }
+        if self.settings is not None:
+            res["settings"] = self.settings.to_redacted_dict()
+        return res
 
     def get_platform_capabilities(self) -> dict[str, Any]:
         """Return supported agent harnesses, 5-Tier RBAC roles, WB-00..WB-11 views, and gates."""

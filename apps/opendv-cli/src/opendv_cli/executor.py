@@ -15,7 +15,6 @@ from opendv_contracts import (
     SandboxQueryRequest,
     VerifyRequest,
 )
-from opendv_core import find_workspace_root
 from opendv_service import (
     AgenticPipelineReport,
     CaptainHoldDecisionRequest,
@@ -38,7 +37,7 @@ class LocalExecutor(CommandExecutor):
         *,
         workspace_root: Path | None = None,
     ) -> None:
-        self.workspace_root = workspace_root or find_workspace_root()
+        self.workspace_root = Path(workspace_root or Path.cwd()).resolve()
         self.service = service or OpenDVService(workspace_root=self.workspace_root)
 
     def execute(self, command: str, args: argparse.Namespace) -> tuple[int, Any]:

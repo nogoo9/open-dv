@@ -24,7 +24,6 @@ from opendv_platform_api import (
     redact_event_for_role,
     store_cas_artifact,
 )
-from opendv_platform_api.deps import REPO_ROOT
 
 
 def _run_async(coro: Any) -> Any:
@@ -346,10 +345,10 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
     _run_async(_scenario())
 
 
-def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path) -> None:
+def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path, repo_root: Path) -> None:
     """Verify `WB-00`..`WB-11` workbench endpoints and `/api/v1/runs/{run_id}/gates`."""
-    state = PlatformStateContainer(state_dir=tmp_path / "state")
-    app = create_app(platform_state=state)
+    state = PlatformStateContainer(state_dir=tmp_path / "state", workspace_root=repo_root)
+    app = create_app(platform_state=state, workspace_root=repo_root)
     run_id = "run-pe-apex-horizon-20261030"
 
     async def _scenario() -> None:
@@ -420,7 +419,7 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path) -> None:
                 "pe_graph_b_profile.json",
                 "pe_canonical_ir.json",
             ):
-                src = REPO_ROOT / "examples" / "private_equity" / fname
+                src = repo_root / "examples" / "private_equity" / fname
                 (bad_repo / "examples" / "private_equity" / fname).write_text(
                     src.read_text(encoding="utf-8"),
                     encoding="utf-8",
@@ -603,10 +602,10 @@ def test_duckdb_sandbox_4_batches_and_bitemporal_pit_queries(tmp_path: Path) -> 
     _run_async(_scenario())
 
 
-def test_cas_artifacts_and_openapi_v1_schema_freshness(tmp_path: Path) -> None:
+def test_cas_artifacts_and_openapi_v1_schema_freshness(tmp_path: Path, repo_root: Path) -> None:
     """Verify `/api/v1/artifacts/{sha256}` CAS storage and `schemas/openapi-v1.json` freshness."""
-    state = PlatformStateContainer(state_dir=tmp_path / "state")
-    app = create_app(platform_state=state)
+    state = PlatformStateContainer(state_dir=tmp_path / "state", workspace_root=repo_root)
+    app = create_app(platform_state=state, workspace_root=repo_root)
 
     async def _scenario() -> None:
         transport = httpx.ASGITransport(app=app)
@@ -646,7 +645,7 @@ def test_cas_artifacts_and_openapi_v1_schema_freshness(tmp_path: Path) -> None:
     assert mem_store[digest] == b"test-payload"
 
     # 5. Verify schemas/openapi-v1.json is valid OpenAPI 3.1.0 + Draft 2020-12 and matches generator
-    openapi_path = REPO_ROOT / "schemas" / "openapi-v1.json"
+    openapi_path = repo_root / "schemas" / "openapi-v1.json"
     assert openapi_path.exists()
     on_disk_spec = json.loads(openapi_path.read_text(encoding="utf-8"))
     generated_spec = generate_openapi_spec()
@@ -685,6 +684,7 @@ def test_cas_artifacts_and_openapi_v1_schema_freshness(tmp_path: Path) -> None:
 
 def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
     tmp_path: Path,
+    repo_root: Path,
 ) -> None:
     """Verify `/api/v1/pipelines/validate`, `/api/v1/pipelines/runs`,
     `/api/v1/runs/{run_id}/report`, and SSE + WB-00..WB-11 integration.
@@ -704,8 +704,8 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
         )
 
     set_pipeline_runner_override(shim_runner)
-    state = PlatformStateContainer(state_dir=tmp_path / "state")
-    app = create_app(platform_state=state)
+    state = PlatformStateContainer(state_dir=tmp_path / "state", workspace_root=repo_root)
+    app = create_app(platform_state=state, workspace_root=repo_root)
     sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
     sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
 
@@ -967,7 +967,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             ].startswith("[REDACTED")
 
             # 10. Stage 00 failure defaults to STAGE_00_ORCHESTRATION, WB-00, and REJECT-WITH-TRACE
-            bad_spec = yaml.safe_load((REPO_ROOT / sample_input).read_text(encoding="utf-8"))
+            bad_spec = yaml.safe_load((repo_root / sample_input).read_text(encoding="utf-8"))
             bad_spec["graph_a_ontology_path"] = "ontology/does_not_exist.yaml"
             res_s0_fail = await client.post(
                 "/api/v1/pipelines/runs",

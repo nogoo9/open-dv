@@ -69,6 +69,8 @@ class DemoStateMixin:
         ]
 
         for ref_key, media_type, file_path in seed_files:
+            if not file_path.is_file():
+                continue
             raw_text = file_path.read_text(encoding="utf-8")
             raw_bytes = raw_text.encode("utf-8")
             actual_sha = store_cas_artifact(self.cas_root, raw_bytes)

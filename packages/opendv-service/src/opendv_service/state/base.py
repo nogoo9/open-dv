@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import tempfile
 from pathlib import Path
 from typing import Any
 
@@ -12,7 +11,6 @@ import yaml
 from opendv_agent_harness import StewardHoldManager
 from opendv_core import (
     SchemaRegistry,
-    find_workspace_root,
     get_default_schema_registry,
 )
 from opendv_core.paths import PathContainmentError, resolve_workspace_path
@@ -27,8 +25,6 @@ from opendv_telemetry import (
     ContentAddressableStore,
     VaultLedgerEmitter,
 )
-
-REPO_ROOT = find_workspace_root()
 
 # Canonical workspace path containment resolver alias (DUP-04 / T13)
 resolve_safe_repo_path = resolve_workspace_path
@@ -48,18 +44,28 @@ class BaseStateContainer:
 
     def __init__(
         self,
+        workspace_root: Path | None = None,
+        storage_root: Path | None = None,
+        *,
         repo_root: Path | None = None,
         state_dir: Path | None = None,
     ) -> None:
-        self.repo_root = (repo_root or REPO_ROOT).resolve()
-        self._tmp_dir: tempfile.TemporaryDirectory[str] | None
-        if state_dir is None:
-            self._tmp_dir = tempfile.TemporaryDirectory(prefix="opendv_platform_state_")
-            self.state_dir = Path(self._tmp_dir.name)
+        eff_ws = workspace_root if workspace_root is not None else repo_root
+        if eff_ws is None:
+            self._workspace_root = Path.cwd().resolve()
         else:
-            self._tmp_dir = None
-            self.state_dir = state_dir.resolve()
-            self.state_dir.mkdir(parents=True, exist_ok=True)
+            self._workspace_root = Path(eff_ws).resolve()
+        self.workspace_root = self._workspace_root
+        self.repo_root = self._workspace_root
+
+        eff_storage = storage_root if storage_root is not None else state_dir
+        if eff_storage is None:
+            self.storage_root = (self._workspace_root / ".opendv" / "state").resolve()
+        else:
+            self.storage_root = Path(eff_storage).resolve()
+
+        self.storage_root.mkdir(parents=True, exist_ok=True)
+        self.state_dir = self.storage_root
 
         self.cas_root = self.state_dir / "cas"
         self.cas_root.mkdir(parents=True, exist_ok=True)

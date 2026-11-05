@@ -57,12 +57,13 @@ from opendv_agent_harness.pipeline import (
     Stage03ColumnTriageOutput,
     Stage04ContractSynthesisOutput,
 )
-from opendv_core.schema_registry import find_workspace_root
 from opendv_telemetry import ContentAddressableStore
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _sample_dir() -> Path:
-    return find_workspace_root() / "examples" / "pipeline_samples" / "global_commerce_vault"
+    return REPO_ROOT / "examples" / "pipeline_samples" / "global_commerce_vault"
 
 
 def test_deterministic_harness_adapter_registration(tmp_path: Path) -> None:

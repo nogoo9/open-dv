@@ -6,11 +6,13 @@ from typing import Annotated
 
 from fastapi import Header, Request
 
-from opendv_core import find_workspace_root
-from opendv_service import OpenDVService, PlatformStateContainer, normalize_rbac_role
+from opendv_service import (
+    OpenDVService,
+    OpenDVSettings,
+    PlatformStateContainer,
+    normalize_rbac_role,
+)
 from opendv_service.rbac import RbacRole
-
-REPO_ROOT = find_workspace_root()
 
 
 def get_opendv_service(request: Request) -> OpenDVService:
@@ -18,8 +20,17 @@ def get_opendv_service(request: Request) -> OpenDVService:
     service = getattr(request.app.state, "service", None)
     if service is None:
         platform_state = getattr(request.app.state, "platform_state", None)
-        repo_root = getattr(platform_state, "repo_root", None) if platform_state else None
-        service = OpenDVService(state_store=platform_state, workspace_root=repo_root)
+        settings: OpenDVSettings | None = getattr(request.app.state, "settings", None)
+        ws_root = (
+            getattr(platform_state, "workspace_root", None)
+            if platform_state
+            else (settings.workspace_root if settings else None)
+        )
+        service = OpenDVService(
+            state_store=platform_state,
+            workspace_root=ws_root,
+            settings=settings,
+        )
         request.app.state.service = service
     return service
 
@@ -43,7 +54,6 @@ def get_rbac_role(
 
 
 __all__ = [
-    "REPO_ROOT",
     "get_opendv_service",
     "get_platform_state",
     "get_rbac_role",

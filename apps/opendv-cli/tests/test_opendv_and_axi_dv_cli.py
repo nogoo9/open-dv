@@ -13,8 +13,9 @@ import pytest
 import yaml
 
 from opendv_cli import app_main, axi_dv_main, build_parser
-from opendv_core import find_workspace_root
 from opendv_service import set_pipeline_runner_override
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 @pytest.fixture(autouse=True)
@@ -289,7 +290,7 @@ def test_verify_cli_rejected_and_ask_user_contracts(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     """Verify `opendv verify` and `axi-dv` reflect REJECT_WITH_TRACE and ASK_USER verdicts."""
-    repo_root = find_workspace_root()
+    repo_root = REPO_ROOT
 
     bad_contract = tmp_path / "broken_contract.yaml"
     bad_contract.write_text(

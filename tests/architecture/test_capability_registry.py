@@ -15,6 +15,7 @@ from fastapi import FastAPI
 from opendv_contracts import load_cli_spec
 from opendv_platform_api.main import create_app
 from opendv_service import OpenDVService
+from tests.architecture.conftest import REPO_ROOT
 from tests.parity.scenarios import list_scenarios
 
 
@@ -86,7 +87,7 @@ def test_service_and_api_capability_routes_consistency() -> None:
     service = OpenDVService()
     service_capabilities = set(service.list_capabilities())
 
-    app = create_app()
+    app = create_app(workspace_root=REPO_ROOT)
     api_capabilities = extract_api_capability_set(app)
 
     # Reasoned transport-specific exemptions (Decision D2 & §3A.5)

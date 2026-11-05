@@ -28,6 +28,12 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+
+def find_workspace_root(start_path: Path | None = None) -> Path:
+    """Test helper for locating repository root."""
+    _ = start_path
+    return REPO_ROOT
+
 _WORKSPACE_SRC_DIRS: tuple[Path, ...] = (
     REPO_ROOT / "packages" / "opendv-core" / "src",
     REPO_ROOT / "packages" / "opendv-telemetry" / "src",
