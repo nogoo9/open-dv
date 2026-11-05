@@ -11,6 +11,7 @@ dependencies = [
     "pyarrow>=18.0.0",
     "pydantic>=2.10.0",
     "pyyaml>=6.0.2",
+    "pypdf>=5.0.0",
 ]
 
 [project.optional-dependencies]
@@ -18,8 +19,8 @@ dependencies = [
 # file = ["opendv-source-file"]
 # inline = ["opendv-source-inline"]
 # db = ["opendv-source-duckdb-attach"]
-# text = ["opendv-source-text"]
-# pdf = ["opendv-source-pdf"]
+text = []
+pdf = ["pypdf>=5.0.0"]
 
 [project.entry-points."opendv.source_adapters"]
 file = "opendv_sources.adapters.filesystem:LocalFilesystemSourceAdapter"
@@ -28,6 +29,11 @@ inline = "opendv_sources.adapters.inline:InlineSourceAdapter"
 duckdb_attach = "opendv_sources.adapters.duckdb_attach:DuckdbAttachSourceAdapter"
 sqlite = "opendv_sources.adapters.duckdb_attach:DuckdbAttachSourceAdapter"
 duckdb = "opendv_sources.adapters.duckdb_attach:DuckdbAttachSourceAdapter"
+text = "opendv_sources.adapters.text_document:TextDocumentSourceAdapter"
+txt = "opendv_sources.adapters.text_document:TextDocumentSourceAdapter"
+md = "opendv_sources.adapters.text_document:TextDocumentSourceAdapter"
+markdown = "opendv_sources.adapters.text_document:TextDocumentSourceAdapter"
+pdf = "opendv_sources.adapters.pdf_document:PdfDocumentSourceAdapter"
 
 [build-system]
 requires = ["hatchling"]

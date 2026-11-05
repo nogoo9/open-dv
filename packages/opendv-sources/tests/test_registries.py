@@ -14,6 +14,8 @@ from opendv_sources.adapters import (
     DuckdbAttachSourceAdapter,
     InlineSourceAdapter,
     LocalFilesystemSourceAdapter,
+    PdfDocumentSourceAdapter,
+    TextDocumentSourceAdapter,
 )
 from opendv_sources.exceptions import UnsupportedFormatError
 from opendv_sources.models.descriptors import (
@@ -206,3 +208,9 @@ def test_entry_points_discovery_default_adapters() -> None:
 
     attach_adapter = registry.get_tabular_adapter("duckdb_attach")
     assert isinstance(attach_adapter, DuckdbAttachSourceAdapter)
+
+    text_adapter = registry.get_document_adapter("text")
+    assert isinstance(text_adapter, TextDocumentSourceAdapter)
+
+    pdf_adapter = registry.get_document_adapter("pdf")
+    assert isinstance(pdf_adapter, PdfDocumentSourceAdapter)

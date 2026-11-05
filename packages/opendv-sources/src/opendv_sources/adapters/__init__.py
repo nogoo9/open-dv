@@ -5,6 +5,8 @@ from __future__ import annotations
 from opendv_sources.adapters.duckdb_attach import DuckdbAttachSourceAdapter
 from opendv_sources.adapters.filesystem import LocalFilesystemSourceAdapter
 from opendv_sources.adapters.inline import InlineSourceAdapter
+from opendv_sources.adapters.pdf_document import PdfDocumentSourceAdapter
+from opendv_sources.adapters.text_document import TextDocumentSourceAdapter
 from opendv_sources.registry.source_registry import SourceAdapterRegistry, get_source_registry
 
 
@@ -17,11 +19,18 @@ def register_default_source_adapters(registry: SourceAdapterRegistry | None = No
     reg.register_adapter("duckdb_attach", DuckdbAttachSourceAdapter)
     reg.register_adapter("sqlite", DuckdbAttachSourceAdapter)
     reg.register_adapter("duckdb", DuckdbAttachSourceAdapter)
+    reg.register_adapter("text", TextDocumentSourceAdapter)
+    reg.register_adapter("txt", TextDocumentSourceAdapter)
+    reg.register_adapter("md", TextDocumentSourceAdapter)
+    reg.register_adapter("markdown", TextDocumentSourceAdapter)
+    reg.register_adapter("pdf", PdfDocumentSourceAdapter)
 
 
 __all__ = [
     "DuckdbAttachSourceAdapter",
     "InlineSourceAdapter",
     "LocalFilesystemSourceAdapter",
+    "PdfDocumentSourceAdapter",
+    "TextDocumentSourceAdapter",
     "register_default_source_adapters",
 ]

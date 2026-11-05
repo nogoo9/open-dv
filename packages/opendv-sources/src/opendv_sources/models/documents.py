@@ -29,6 +29,19 @@ class PageMapEntry(BaseContractModel):
     start_char: int = Field(ge=0, description="Inclusive start character offset in normalized text")
     end_char: int = Field(ge=0, description="Exclusive end character offset in normalized text")
 
+    @property
+    def start_offset(self) -> int:
+        """Alias for start_char."""
+        return self.start_char
+
+    @property
+    def end_offset(self) -> int:
+        """Alias for end_char."""
+        return self.end_char
+
+
+DocumentPage = PageMapEntry
+
 
 class ExtractedDocument(BaseContractModel):
     """Normalized document extraction result with provenance and page map."""
@@ -41,9 +54,21 @@ class ExtractedDocument(BaseContractModel):
     raw_sha256: str = Field(..., description="SHA-256 hex digest of raw binary document bytes")
     media_type: str = Field(..., description="Extracted document media type")
     char_count: int = Field(ge=0, description="Total characters in normalized text")
+    byte_size: int | None = Field(default=None, description="Size in bytes of raw document")
+
+    @property
+    def text(self) -> str:
+        """Alias for normalized_text."""
+        return self.normalized_text
+
+    @property
+    def sha256(self) -> str:
+        """Alias for raw_sha256."""
+        return self.raw_sha256
 
 
 __all__ = [
+    "DocumentPage",
     "DocumentRef",
     "ExtractedDocument",
     "PageMapEntry",
