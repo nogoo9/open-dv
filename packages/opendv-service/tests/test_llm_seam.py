@@ -16,10 +16,8 @@ def test_pipeline_runner_default_and_override() -> None:
         default_runner = get_default_pipeline_runner()
         assert callable(default_runner)
 
-        from opendv_agent_harness.adapters.deterministic_adapter import (
-            build_deterministic_agy_sdk_shim,
-        )
         from opendv_agent_harness.pipeline import run_agentic_vault_pipeline
+        from opendv_testkit import build_deterministic_agy_sdk_shim
 
         called = False
 

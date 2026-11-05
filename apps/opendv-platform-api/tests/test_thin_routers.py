@@ -179,7 +179,12 @@ async def test_stream_run_events_returns_404_for_unknown_run(repo_root: Path) ->
 @pytest.mark.asyncio
 async def test_gates_evaluation_rejects_path_traversal(repo_root: Path) -> None:
     """Regression test for B1: POST /runs/{run_id}/gates rejects path traversal."""
-    app = create_app(workspace_root=repo_root)
+    from opendv_platform_api import PlatformStateContainer
+    from opendv_testkit import seed_canonical_pe_demo
+
+    state = PlatformStateContainer(workspace_root=repo_root)
+    seed_canonical_pe_demo(state)
+    app = create_app(platform_state=state, workspace_root=repo_root)
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
         res = await client.post(

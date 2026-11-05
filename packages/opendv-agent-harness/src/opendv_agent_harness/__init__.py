@@ -8,14 +8,12 @@ and docs/09-agnostic-agent-harness-and-sdk-spec.md.
 from __future__ import annotations
 
 from opendv_agent_harness.adapters import (
-    DEFAULT_DETERMINISTIC_MODEL_MAP,
     AgyCliHarnessAdapter,
     AntigravityCliAdapter,
     AntigravityHarnessAdapter,
     ClaudeAgentHarnessAdapter,
     ClaudeCliHarnessAdapter,
     ClaudeCodeCliAdapter,
-    DeterministicHarnessAdapter,
 )
 from opendv_agent_harness.adapters.antigravity_adapter import (
     ProviderConfigurationError,
@@ -152,7 +150,6 @@ __all__ = [
     "CANONICAL_TOOL_NAMES",
     "DEFAULT_AGY_MODEL_MAP",
     "DEFAULT_CLAUDE_MODEL_MAP",
-    "DEFAULT_DETERMINISTIC_MODEL_MAP",
     "PERSONA_CAPABILITY_MATRIX",
     "SCOUT_SOURCE_SYSTEM_INSTRUCTIONS",
     "SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS",
@@ -176,7 +173,6 @@ __all__ = [
     "CompileCanonicalIrInput",
     "CompileCanonicalIrOutput",
     "DataClassification",
-    "DeterministicHarnessAdapter",
     "DeterministicValidationReport",
     "DomainToolInput",
     "DomainToolOutput",

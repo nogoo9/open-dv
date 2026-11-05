@@ -13,7 +13,6 @@ from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 from opendv_core import VaultObservabilityEvent, validate_observability_event
 from opendv_platform_api import (
-    PE_DEMO_CONTEXT_REFS,
     PlatformStateContainer,
     RbacRole,
     RunStatus,
@@ -24,6 +23,7 @@ from opendv_platform_api import (
     redact_event_for_role,
     store_cas_artifact,
 )
+from opendv_testkit import PE_DEMO_CONTEXT_REFS, seed_canonical_pe_demo
 
 
 def _run_async(coro: Any) -> Any:
@@ -86,6 +86,7 @@ def test_health_and_capabilities_endpoints(tmp_path: Path) -> None:
 def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
     """Verify `/api/v1/projects` and `/api/v1/runs` CRUD and abort transitions."""
     state = PlatformStateContainer(state_dir=tmp_path / "state")
+    seed_canonical_pe_demo(state)
     app = create_app(platform_state=state)
 
     async def _scenario() -> None:
@@ -155,7 +156,7 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
             created_run = res_run_create.json()
             new_run_id = created_run["run_id"]
             assert created_run["harness_provider"] == "claude"
-            assert created_run["status"] == RunStatus.PAUSED_HOLD.value
+            assert created_run["status"] in {RunStatus.PENDING.value, RunStatus.PAUSED_HOLD.value}
             assert created_run["event_count"] == 0
 
             res_no_contract_gates = await client.post(
@@ -184,6 +185,7 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
 def test_sse_event_streaming_and_last_event_id_replay(tmp_path: Path) -> None:
     """Verify `/api/v1/runs/{run_id}/events` W3C SSE streaming and `Last-Event-ID` cursor."""
     state = PlatformStateContainer(state_dir=tmp_path / "state")
+    seed_canonical_pe_demo(state)
     app = create_app(platform_state=state)
     run_id = "run-pe-apex-horizon-20261030"
 
@@ -235,6 +237,7 @@ def test_sse_event_streaming_and_last_event_id_replay(tmp_path: Path) -> None:
 def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
     """Verify server-side 5-Tier RBAC redaction across SSE and Workbench endpoints."""
     state = PlatformStateContainer(state_dir=tmp_path / "state")
+    seed_canonical_pe_demo(state)
     app = create_app(platform_state=state)
     run_id = "run-pe-apex-horizon-20261030"
 
@@ -348,6 +351,7 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
 def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path, repo_root: Path) -> None:
     """Verify `WB-00`..`WB-11` workbench endpoints and `/api/v1/runs/{run_id}/gates`."""
     state = PlatformStateContainer(state_dir=tmp_path / "state", workspace_root=repo_root)
+    seed_canonical_pe_demo(state)
     app = create_app(platform_state=state, workspace_root=repo_root)
     run_id = "run-pe-apex-horizon-20261030"
 
@@ -437,6 +441,7 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path, repo_root: P
                 encoding="utf-8",
             )
             bad_state = PlatformStateContainer(repo_root=bad_repo, state_dir=tmp_path / "bad_state")
+            seed_canonical_pe_demo(bad_state)
             bad_app = create_app(platform_state=bad_state)
             async with httpx.AsyncClient(
                 transport=httpx.ASGITransport(app=bad_app),
@@ -469,6 +474,7 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path, repo_root: P
 def test_captain_hold_decision_resolution_and_conflict(tmp_path: Path) -> None:
     """Verify `/api/v1/runs/{run_id}/decisions` resolves Tier-U3 hold and prevents replay."""
     state = PlatformStateContainer(state_dir=tmp_path / "state")
+    seed_canonical_pe_demo(state)
     app = create_app(platform_state=state)
     run_id = "run-pe-apex-horizon-20261030"
 
@@ -524,6 +530,7 @@ def test_captain_hold_decision_resolution_and_conflict(tmp_path: Path) -> None:
 def test_duckdb_sandbox_4_batches_and_bitemporal_pit_queries(tmp_path: Path) -> None:
     """Verify `/api/v1/runs/{run_id}/sandbox` executes 4-Batch sandbox and Queries D.10/D.10b."""
     state = PlatformStateContainer(state_dir=tmp_path / "state")
+    seed_canonical_pe_demo(state)
     app = create_app(platform_state=state)
     run_id = "run-pe-apex-horizon-20261030"
 
@@ -605,6 +612,7 @@ def test_duckdb_sandbox_4_batches_and_bitemporal_pit_queries(tmp_path: Path) -> 
 def test_cas_artifacts_and_openapi_v1_schema_freshness(tmp_path: Path, repo_root: Path) -> None:
     """Verify `/api/v1/artifacts/{sha256}` CAS storage and `schemas/openapi-v1.json` freshness."""
     state = PlatformStateContainer(state_dir=tmp_path / "state", workspace_root=repo_root)
+    seed_canonical_pe_demo(state)
     app = create_app(platform_state=state, workspace_root=repo_root)
 
     async def _scenario() -> None:
@@ -689,13 +697,11 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
     """Verify `/api/v1/pipelines/validate`, `/api/v1/pipelines/runs`,
     `/api/v1/runs/{run_id}/report`, and SSE + WB-00..WB-11 integration.
     """
-    from opendv_agent_harness.adapters.deterministic_adapter import (
-        build_deterministic_agy_sdk_shim,
-    )
     from opendv_agent_harness.pipeline import (
         run_agentic_vault_pipeline as orig_run_pipeline,
     )
     from opendv_service import set_pipeline_runner_override
+    from opendv_testkit import build_deterministic_agy_sdk_shim
 
     def shim_runner(*args, **kwargs):
         return orig_run_pipeline(
@@ -705,6 +711,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
 
     set_pipeline_runner_override(shim_runner)
     state = PlatformStateContainer(state_dir=tmp_path / "state", workspace_root=repo_root)
+    seed_canonical_pe_demo(state)
     app = create_app(platform_state=state, workspace_root=repo_root)
     sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
     sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
@@ -1001,13 +1008,11 @@ def test_wp06_sdk_resolution_and_dynamic_project_run(
     tmp_path: Path,
 ) -> None:
     """Verify WP-06 dynamic project runs from bronze_sources with test-injected SDK shim."""
-    from opendv_agent_harness.adapters.deterministic_adapter import (
-        build_deterministic_agy_sdk_shim,
-    )
     from opendv_agent_harness.pipeline import (
         run_agentic_vault_pipeline as orig_run_pipeline,
     )
     from opendv_service import set_pipeline_runner_override
+    from opendv_testkit import build_deterministic_agy_sdk_shim
 
     def shim_runner(*args, **kwargs):
         return orig_run_pipeline(

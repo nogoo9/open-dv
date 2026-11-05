@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Any
 
 import yaml
 
-from opendv_service.legacy_demo import PE_DEMO_CONTEXT_REFS
 from opendv_service.models import (
     ArtifactMetadataResponse,
     CreateProjectRequest,
@@ -37,7 +36,7 @@ class ProjectStateMixin:
             if rel_path is not None:
                 self._resolve_repo_path(rel_path)
 
-        graph_a_sha = PE_DEMO_CONTEXT_REFS["graph_a_sha256"]
+        graph_a_sha: str | None = None
         if req.graph_a_ontology_path is not None:
             resolved_ont = self._resolve_repo_path(req.graph_a_ontology_path)
             if resolved_ont.is_file():

@@ -68,7 +68,7 @@ class ProjectResponse(BaseModel):
     project_id: str
     display_name: str
     domain_namespace: str
-    graph_a_sha256: str
+    graph_a_sha256: str | None = None
     latest_run_id: str | None = None
     created_at_utc: str
     contract_path: str | None = None

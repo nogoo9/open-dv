@@ -4,7 +4,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
-import { PE_DEMO_EVENTS } from "@opendv/protocol-ts";
+import type { VaultObservabilityEventDTO } from "@opendv/protocol-ts";
 import { type ReactElement, isValidElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -51,8 +51,25 @@ function findElementByTestId(
 }
 
 describe("WB-00 Agentic Pipeline Launcher & Report Inspector", () => {
-	const demoEvent =
-		PE_DEMO_EVENTS.find((e) => e.workbench_view_id === "WB-00") ?? null;
+	const demoEvent: VaultObservabilityEventDTO = {
+		event_id: "evt-pe-000",
+		run_id: "run-pe-apex-horizon-20261030",
+		timestamp_utc: "2026-10-30T08:30:00Z",
+		stage_id: "STAGE_00_ORCHESTRATION",
+		workbench_view_id: "WB-00",
+		viz_id: "VIZ-PIPE-00",
+		agent_persona: "vault-first-mate",
+		status: "PASS",
+		layer1_story_banner: {
+			headline: "Orchestration Pipeline Initialized",
+			business_impact: "Pipeline initialized.",
+			verdict_pill: "PASS",
+		},
+		layer2_visual_payload: {
+			semantic_hash_pills: [],
+			summary_metrics: {},
+		},
+	};
 
 	beforeEach(() => {
 		resetPipelineLauncherStore();
