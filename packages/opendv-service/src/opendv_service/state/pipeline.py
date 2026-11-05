@@ -14,6 +14,7 @@ from opendv_agent_harness import (
     PipelineInputSpec,
     validate_pipeline_inputs,
 )
+from opendv_service.errors import NotFoundError
 from opendv_service.models import (
     PipelineValidateRequest,
     RunStatus,
@@ -230,7 +231,7 @@ class PipelineStateMixin:
             ]
             return redacted_rep
         if run_id not in self.runs:
-            raise KeyError(f"Run '{run_id}' not found.")
+            raise NotFoundError(f"Run '{run_id}' not found.")
 
         run_dto = self.runs[run_id]
         proj = self.projects.get(run_dto.project_id)

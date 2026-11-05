@@ -35,9 +35,6 @@ from opendv_service import (
     resolve_cleared_tiers,
     store_cas_artifact,
 )
-from opendv_service.legacy_demo import (
-    execute_pe_sandbox_query,
-)
 from opendv_service.rbac import ROLE_CLEARANCE_LEVELS
 from opendv_service.state import resolve_safe_repo_path
 from opendv_telemetry import format_sse_event_stream
@@ -67,7 +64,6 @@ __all__ = [
     "app",
     "build_gate_scorecard_from_axi_result",
     "create_app",
-    "execute_pe_sandbox_query",
     "export_openapi_to_file",
     "format_sse_event_stream",
     "generate_openapi_spec",

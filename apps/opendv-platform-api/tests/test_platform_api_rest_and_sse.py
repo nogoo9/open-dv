@@ -8,8 +8,10 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+import pytest
 import yaml
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
+from starlette.testclient import TestClient
 
 from opendv_core import VaultObservabilityEvent, validate_observability_event
 from opendv_platform_api import (
@@ -45,6 +47,86 @@ def _parse_sse_frames(raw_sse: str) -> list[dict[str, str]]:
         if frame:
             frames.append(frame)
     return frames
+
+
+@pytest.fixture
+def seeded_pe_state(tmp_path: Path) -> PlatformStateContainer:
+    """Fixture providing a PlatformStateContainer explicitly seeded with canonical PE demo data."""
+    state = PlatformStateContainer(state_dir=tmp_path / "state")
+    seed_canonical_pe_demo(state)
+    return state
+
+
+def test_platform_starts_empty(tmp_path: Path) -> None:
+    """Verify clean empty container startup and 404s for unseeded demo entities (REQ-MOCK-02)."""
+    # 1. State container starts strictly empty
+    state = PlatformStateContainer(state_dir=tmp_path / "state")
+    assert state.projects == {}
+    assert state.runs == {}
+    assert state.run_events == {}
+    assert state.artifacts == {}
+    assert state.hold_managers == {}
+
+    # 2. Platform API via TestClient(create_app(platform_state=state)) starts strictly empty
+    app = create_app(platform_state=state)
+    with TestClient(app) as client:
+        # GET /api/v1/projects returns []
+        res_proj_list = client.get("/api/v1/projects")
+        assert res_proj_list.status_code == 200
+        assert res_proj_list.json() == []
+
+        # GET /api/v1/runs returns []
+        res_run_list = client.get("/api/v1/runs")
+        assert res_run_list.status_code == 200
+        assert res_run_list.json() == []
+
+        # GET /api/v1/projects/proj-apex-horizon-pe returns 404 ProblemDetail
+        res_pe_proj = client.get("/api/v1/projects/proj-apex-horizon-pe")
+        assert res_pe_proj.status_code == 404
+        assert "application/problem+json" in res_pe_proj.headers["content-type"]
+        problem_proj = res_pe_proj.json()
+        assert problem_proj["status"] == 404
+        assert problem_proj["type"] in {"urn:opendv:not-found", "urn:opendv:project-not-found"}
+
+        # GET /api/v1/runs/run-pe-apex-horizon-20261030 returns 404 ProblemDetail
+        res_pe_run = client.get("/api/v1/runs/run-pe-apex-horizon-20261030")
+        assert res_pe_run.status_code == 404
+        assert "application/problem+json" in res_pe_run.headers["content-type"]
+        problem_run = res_pe_run.json()
+        assert problem_run["status"] == 404
+        assert problem_run["type"] in {"urn:opendv:not-found", "urn:opendv:run-not-found"}
+
+        # GET /api/v1/runs/run-pe-apex-horizon-20261030/events returns 404 ProblemDetail
+        res_pe_events = client.get("/api/v1/runs/run-pe-apex-horizon-20261030/events")
+        assert res_pe_events.status_code == 404
+        assert "application/problem+json" in res_pe_events.headers["content-type"]
+
+        # GET /api/v1/runs/run-pe-apex-horizon-20261030/gates returns 404 ProblemDetail
+        res_pe_gates = client.get("/api/v1/runs/run-pe-apex-horizon-20261030/gates")
+        assert res_pe_gates.status_code == 404
+        assert "application/problem+json" in res_pe_gates.headers["content-type"]
+
+        # GET /api/v1/runs/run-pe-apex-horizon-20261030/sandbox returns 404 ProblemDetail
+        res_pe_sbx = client.get("/api/v1/runs/run-pe-apex-horizon-20261030/sandbox")
+        assert res_pe_sbx.status_code == 404
+        assert "application/problem+json" in res_pe_sbx.headers["content-type"]
+
+        # GET /api/v1/runs/run-pe-apex-horizon-20261030/decisions returns 404 ProblemDetail
+        res_pe_dec = client.get("/api/v1/runs/run-pe-apex-horizon-20261030/decisions")
+        assert res_pe_dec.status_code == 404
+        assert "application/problem+json" in res_pe_dec.headers["content-type"]
+
+        # GET /api/v1/runs/run-pe-apex-horizon-20261030/report returns 404 ProblemDetail
+        res_pe_rep = client.get("/api/v1/runs/run-pe-apex-horizon-20261030/report")
+        assert res_pe_rep.status_code == 404
+        assert "application/problem+json" in res_pe_rep.headers["content-type"]
+
+    # 3. Test zero-argument create_app() also starts empty
+    fresh_app = create_app()
+    with TestClient(fresh_app) as fresh_client:
+        assert fresh_client.get("/api/v1/projects").json() == []
+        assert fresh_client.get("/api/v1/projects/proj-apex-horizon-pe").status_code == 404
+        assert fresh_client.get("/api/v1/runs/run-pe-apex-horizon-20261030").status_code == 404
 
 
 def test_health_and_capabilities_endpoints(tmp_path: Path) -> None:
