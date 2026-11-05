@@ -92,5 +92,3 @@ __all__ = [
     "RolePermissionError",
     "UnsupportedFormatError",
 ]
-
-

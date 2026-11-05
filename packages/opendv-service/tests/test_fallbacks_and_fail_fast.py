@@ -11,11 +11,13 @@ from opendv_contracts import SandboxQueryRequest
 from opendv_contracts.errors import ErrorCode, InputValidationError, NotFoundError
 from opendv_service import (
     FALLBACK_REGISTRY,
+    ConfigurationError,
     FallbackDefinition,
     FallbackKey,
     FallbackRecord,
     HoldDecisionRequest,
     OpenDVService,
+    OpenDVSettings,
     PlatformStateContainer,
     get_fallback_definition,
     is_fallback_enabled,
@@ -31,9 +33,9 @@ def test_fallback_registry_defaults_disabled() -> None:
     for key, definition in FALLBACK_REGISTRY.items():
         assert isinstance(key, FallbackKey)
         assert isinstance(definition, FallbackDefinition)
-        assert (
-            definition.default_enabled is False
-        ), f"Fallback {key} must have default_enabled == False"
+        assert definition.default_enabled is False, (
+            f"Fallback {key} must have default_enabled == False"
+        )
         assert definition.description.strip()
         assert definition.valid_use_case.strip()
 
@@ -188,3 +190,19 @@ def test_default_gate_scorecard_has_no_hardcoded_metrics(tmp_path: Path) -> None
         or metrics["write_amplification_mb_per_day"] is None
     )
     assert "dynamic_checks_passed" not in metrics or metrics["dynamic_checks_passed"] is None
+
+
+def test_settings_load_null_workspace_root_fails_fast(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify Action Item 8: config with workspace_root: null raises ConfigurationError."""
+    monkeypatch.delenv("OPENDV_WORKSPACE_ROOT", raising=False)
+    cfg_file = tmp_path / "opendv.config.yaml"
+    cfg_file.write_text(
+        "workspace_root: null\nstorage_root: null\nstate_dir: null\n",
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigurationError) as exc_info:
+        OpenDVSettings.load(config_file=cfg_file, is_server=True)
+    assert "Missing required configuration 'workspace_root'" in str(exc_info.value)
+    assert "config file key 'workspace_root' (null)" in str(exc_info.value)

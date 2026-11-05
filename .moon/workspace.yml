@@ -46,13 +46,15 @@ hasher:
 constraints:
   enforceLayerRelationships: true
   tagRelationships:
-    domain-core: []
-    telemetry: ['domain-core']
-    verifier: ['domain-core', 'telemetry']
-    duckdb-sandbox: ['domain-core', 'verifier', 'telemetry']
-    agent-harness: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry']
-    api-server: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness']
-    cli: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness', 'api-server']
+    contracts: []
+    domain-core: ['contracts']
+    telemetry: ['domain-core', 'contracts']
+    verifier: ['domain-core', 'telemetry', 'contracts']
+    duckdb-sandbox: ['domain-core', 'verifier', 'telemetry', 'contracts']
+    agent-harness: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'contracts']
+    service: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness', 'contracts']
+    api-server: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness', 'service', 'contracts']
+    cli: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness', 'service', 'contracts']
     protocol-sdk: []
     web-ui: ['protocol-sdk']
 

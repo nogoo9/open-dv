@@ -65,12 +65,14 @@ def _dispatch(
         return code
     except Exception as exc:  # noqa: BLE001 - CLI main top-level execution boundary
         if getattr(args, "json", False) or getattr(args, "format", None) == "json":
-            print_jcs({
-                "status": "ERROR",
-                "error_code": "INTERNAL_ERROR",
-                "error": str(exc),
-                "detail": str(exc),
-            })
+            print_jcs(
+                {
+                    "status": "ERROR",
+                    "error_code": "INTERNAL_ERROR",
+                    "error": str(exc),
+                    "detail": str(exc),
+                }
+            )
         else:
             print(f"Error: {exc}", file=sys.stderr)
         return 2

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -109,7 +110,7 @@ def verify_pipeline(
     workspace_root: Path | None = None,
 ) -> VerifyResponse:
     """Execute 6-Gate symbolic verification across contract, Graph A, and Graph B inputs."""
-    root = Path(workspace_root or Path.cwd()).resolve()
+    root = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
 
     # 1. Resolve contract document
     resolved_contract_path: Path | None = None

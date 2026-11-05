@@ -82,17 +82,8 @@ def create_app(
             is_server=True,
         )
     elif platform_state is not None:
-        eff_ws = (
-            workspace_root
-            or repo_root
-            or getattr(platform_state, "workspace_root", None)
-            or Path.cwd().resolve()
-        )
-        eff_storage = (
-            storage_root
-            or state_dir
-            or getattr(platform_state, "storage_root", None)
-        )
+        eff_ws = workspace_root or repo_root or getattr(platform_state, "workspace_root", None)
+        eff_storage = storage_root or state_dir or getattr(platform_state, "storage_root", None)
         active_settings = settings or OpenDVSettings.load(
             workspace_root=eff_ws,
             state_dir=eff_storage,
@@ -105,7 +96,7 @@ def create_app(
             settings=active_settings,
         )
     else:
-        eff_ws = workspace_root or repo_root or Path.cwd().resolve()
+        eff_ws = workspace_root or repo_root
         eff_storage = storage_root or state_dir
         active_settings = settings or OpenDVSettings.load(
             workspace_root=eff_ws,
@@ -256,6 +247,7 @@ def create_app(
     application.include_router(artifacts.router, prefix=api_prefix)
 
     return application
+
 
 def __getattr__(name: str) -> Any:
     """Lazy module attribute access for `app` allowing startup validation upon invocation."""

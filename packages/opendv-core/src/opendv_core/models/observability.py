@@ -201,6 +201,7 @@ class VaultObservabilityEvent(StrictObservabilityModel):
     """Root telemetry event model (`schemas/vault-observability-event.schema.json`)."""
 
     event_id: str = Field(min_length=1)
+    event_type: str | None = None
     run_id: str = Field(min_length=1)
     trace_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{32}$")
     span_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")

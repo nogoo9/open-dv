@@ -314,7 +314,12 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                             }
                         )
                     except (
-                        ValueError, TypeError, KeyError, AttributeError, OSError, RuntimeError
+                        ValueError,
+                        TypeError,
+                        KeyError,
+                        AttributeError,
+                        OSError,
+                        RuntimeError,
                     ) as exc:
                         err_msg = f"{type(exc).__name__}: {exc}"
                         yield make_event(

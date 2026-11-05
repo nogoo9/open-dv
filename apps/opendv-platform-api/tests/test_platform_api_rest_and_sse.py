@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -25,6 +26,7 @@ from opendv_platform_api import (
     redact_event_for_role,
     store_cas_artifact,
 )
+from opendv_service import ConfigurationError
 from opendv_testkit import PE_DEMO_CONTEXT_REFS, seed_canonical_pe_demo
 
 
@@ -121,8 +123,20 @@ def test_platform_starts_empty(tmp_path: Path) -> None:
         assert res_pe_rep.status_code == 404
         assert "application/problem+json" in res_pe_rep.headers["content-type"]
 
-    # 3. Test zero-argument create_app() also starts empty
-    fresh_app = create_app()
+    # 3. Test unconfigured create_app() fails fast with ConfigurationError (REQ-CFG-01)
+    saved_ws = os.environ.pop("OPENDV_WORKSPACE_ROOT", None)
+    try:
+        with pytest.raises(ConfigurationError) as exc_info:
+            create_app()
+        assert "Missing required configuration 'workspace_root' for Platform API server" in str(
+            exc_info.value
+        )
+    finally:
+        if saved_ws is not None:
+            os.environ["OPENDV_WORKSPACE_ROOT"] = saved_ws
+
+    # 4. Test explicit workspace_root starts strictly empty
+    fresh_app = create_app(workspace_root=tmp_path / "fresh_ws")
     with TestClient(fresh_app) as fresh_client:
         assert fresh_client.get("/api/v1/projects").json() == []
         assert fresh_client.get("/api/v1/projects/proj-apex-horizon-pe").status_code == 404

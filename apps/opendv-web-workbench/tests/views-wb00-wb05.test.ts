@@ -12,7 +12,6 @@ import {
 	type VaultObservabilityEventDTO,
 	type WorkbenchViewId,
 } from "@opendv/protocol-ts";
-import { PE_DEMO_EVENTS } from "./fixtures/pe-demo-bundle";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkbenchShell } from "../src/components/shell/WorkbenchShell";
@@ -62,6 +61,7 @@ import { WB04ColumnTriageView } from "../src/views/wb04/WB04ColumnTriageView";
 import { BkccCollisionShieldDrawer } from "../src/views/wb05/BkccCollisionShieldDrawer";
 import { TopologyCanvas } from "../src/views/wb05/TopologyCanvas";
 import { WB05ELMTopologyView } from "../src/views/wb05/WB05ELMTopologyView";
+import { PE_DEMO_EVENTS } from "./fixtures/pe-demo-bundle";
 
 describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () => {
 	let registry: WorkbenchPluginRegistry;

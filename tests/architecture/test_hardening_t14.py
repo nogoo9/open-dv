@@ -15,12 +15,26 @@ Enforces:
 from __future__ import annotations
 
 import ast
+import os
+from collections.abc import AsyncIterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from starlette.testclient import TestClient
 
 from opendv_agent_harness import HarnessConfig, SandboxPolicy
+from opendv_agent_harness.models import (
+    HarnessRunResult,
+    HarnessStopReason,
+    HarnessStreamEvent,
+)
+from opendv_agent_harness.pipeline import (
+    HarnessSetupConfig,
+    PipelineInputSpec,
+    run_agentic_vault_pipeline,
+)
+from opendv_agent_harness.protocol import VaultAgentHarness
 from opendv_agent_harness.adapters.antigravity_adapter import (
     AntigravityHarnessAdapter,
 )
@@ -300,18 +314,20 @@ def test_out_of_repo_run(tmp_path: Path) -> None:
 
 @pytest.mark.architecture
 @pytest.mark.hardening
-def test_missing_config_fail_fast_server_startup(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_missing_config_fail_fast_server_startup() -> None:
     """T14 Invariant: Server startup fails fast when workspace_root is omitted, listing sources."""
-    for env_var in (
+    env_vars = (
         "OPENDV_WORKSPACE_ROOT",
         "OPENDV_STORAGE_ROOT",
         "OPENDV_STATE_DIR",
         "OPENDV_CONFIG",
-    ):
-        monkeypatch.delenv(env_var, raising=False)
-
-    with pytest.raises(ConfigurationError) as exc_info:
-        OpenDVSettings.load(is_server=True, workspace_root=None)
+    )
+    saved = {v: os.environ.pop(v) for v in env_vars if v in os.environ}
+    try:
+        with pytest.raises(ConfigurationError) as exc_info:
+            OpenDVSettings.load(is_server=True, workspace_root=None)
+    finally:
+        os.environ.update(saved)
 
     msg = str(exc_info.value)
     assert "workspace_root" in msg
@@ -387,3 +403,115 @@ def test_fault_injection_visible(tmp_path: Path) -> None:
 
     exc = exc_info.value
     assert exc.error_code == ErrorCode.CAS_INTEGRITY_FAILURE
+
+
+class _FailingLlmHarness(VaultAgentHarness):
+    """Harness adapter that simulates an LLM returning no structured output."""
+
+    def resolve_model(self, tier: Any, persona: Any) -> str:
+        return "failing-llm-stub"
+
+    async def run_task(self, spec: Any) -> HarnessRunResult:
+        return HarnessRunResult(
+            task_id=spec.task_id,
+            run_id=getattr(spec, "run_id", "run-t14-test"),
+            session_id=f"sess-{spec.task_id}",
+            trace_id=getattr(spec, "trace_id", "0" * 32),
+            span_id=getattr(spec, "span_id", "0" * 16),
+            provider="test-failing-provider",
+            model_used="failing-llm-stub",
+            stop_reason=HarnessStopReason.COMPLETED,
+            text_output="Raw unstructured text from LLM.",
+            structured_output=None,
+        )
+
+    async def run_streaming_task(self, spec: Any) -> AsyncIterator[HarnessStreamEvent]:
+        yield HarnessStreamEvent(
+            event_type="completed",
+            text="Raw unstructured text from LLM.",
+            result=await self.run_task(spec),
+        )
+
+
+@pytest.mark.architecture
+@pytest.mark.hardening
+def test_t14_no_synthesized_llm_output_by_default(tmp_path: Path) -> None:
+    """T14 Invariant: Missing LLM output fails fast under default stage_output_policy='llm_only'."""
+    sample_dir = REPO_ROOT / "examples" / "pipeline_samples" / "global_commerce_vault"
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    single_wave_spec = input_spec.model_copy(update={"waves": [input_spec.waves[0]]})
+
+    out_dir = tmp_path / "out_default"
+    setup = HarnessSetupConfig(stage_output_policy="llm_only")
+    failing_harness = _FailingLlmHarness()
+
+    report = run_agentic_vault_pipeline(
+        single_wave_spec,
+        setup,
+        output_dir=out_dir,
+        base_dir=sample_dir,
+        harness=failing_harness,
+    )
+
+    assert report.status == "FAILED"
+    assert report.overall_passed is False
+    assert report.fallbacks_applied == []
+    assert "contract" not in report.final_artifacts
+    assert "final_contract" not in report.final_artifacts
+
+
+@pytest.mark.architecture
+@pytest.mark.hardening
+def test_t14_opt_in_fallback_visible(tmp_path: Path) -> None:
+    """T14 Invariant: Explicit opt-in stage_output_policy='symbolic_completion' is fully auditable."""
+    sample_dir = REPO_ROOT / "examples" / "pipeline_samples" / "global_commerce_vault"
+    input_spec = PipelineInputSpec.from_file(sample_dir / "pipeline_input.yaml")
+    single_wave_spec = input_spec.model_copy(update={"waves": [input_spec.waves[0]]})
+
+    out_dir = tmp_path / "out_opt_in"
+    setup = HarnessSetupConfig(stage_output_policy="symbolic_completion")
+    failing_harness = _FailingLlmHarness()
+
+    report = run_agentic_vault_pipeline(
+        single_wave_spec,
+        setup,
+        output_dir=out_dir,
+        base_dir=sample_dir,
+        harness=failing_harness,
+    )
+
+    assert report.status in {"COMPLETED", "PAUSED_HOLD"}
+    assert len(report.fallbacks_applied) > 0
+    assert all(
+        fb.get("key") == "stage_output_policy.symbolic_completion"
+        for fb in report.fallbacks_applied
+    )
+    fallback_events = [
+        ev
+        for ev in report.observability_events
+        if ev.get("event_type") == "FALLBACK_APPLIED"
+        or (
+            isinstance(ev.get("layer2_visual_payload"), dict)
+            and isinstance(ev["layer2_visual_payload"].get("summary_metrics"), dict)
+            and ev["layer2_visual_payload"]["summary_metrics"].get("event_type")
+            == "FALLBACK_APPLIED"
+        )
+    ]
+    assert len(fallback_events) > 0
+
+
+@pytest.mark.architecture
+@pytest.mark.hardening
+def test_t14_fallback_registry_completeness() -> None:
+    """T14 Invariant: All fallbacks in FALLBACK_REGISTRY are opt-in (default_enabled is False)."""
+    from opendv_service import FALLBACK_REGISTRY, FallbackKey
+
+    assert len(FALLBACK_REGISTRY) >= 3
+    for fb_key, defn in FALLBACK_REGISTRY.items():
+        assert isinstance(fb_key, FallbackKey)
+        assert defn.default_enabled is False
+        assert isinstance(defn.description, str) and len(defn.description) > 0
+        assert isinstance(defn.valid_use_case, str) and len(defn.valid_use_case) > 0
+
+    assert FallbackKey.STAGE_OUTPUT_SYMBOLIC.value == "stage_output_policy.symbolic_completion"
+    assert FallbackKey.STAGE_OUTPUT_SYMBOLIC in FALLBACK_REGISTRY

@@ -23,6 +23,10 @@
       "minLength": 1,
       "description": "Unique identifier for this telemetry event (UUIDv7 or deterministic trace ID)."
     },
+    "event_type": {
+      "type": "string",
+      "description": "Optional normative telemetry event classification (e.g. FALLBACK_APPLIED)."
+    },
     "run_id": {
       "type": "string",
       "minLength": 1,

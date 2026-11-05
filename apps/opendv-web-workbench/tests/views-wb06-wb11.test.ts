@@ -15,10 +15,6 @@ import {
 	computeDv2LengthPrefixedSha256,
 	computeDv2PrehashString,
 } from "@opendv/protocol-ts";
-import {
-	PE_CANONICAL_HASH_PILLS,
-	PE_DEMO_EVENTS,
-} from "./fixtures/pe-demo-bundle";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { WorkbenchShell } from "../src/components/shell/WorkbenchShell";
@@ -58,6 +54,10 @@ import {
 	PreHashStepper,
 } from "../src/views/wb11/PreHashStepper";
 import { WB11RosettaStoneView } from "../src/views/wb11/WB11RosettaStoneView";
+import {
+	PE_CANONICAL_HASH_PILLS,
+	PE_DEMO_EVENTS,
+} from "./fixtures/pe-demo-bundle";
 
 describe("Work Package WP-12: Workbench Views Part 3 (WB-06 through WB-11 & Full 12-View Registry)", () => {
 	let registry: WorkbenchPluginRegistry;

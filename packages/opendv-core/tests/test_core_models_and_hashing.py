@@ -355,7 +355,7 @@ def test_schema_registry_and_all_examples() -> None:
         ).profile_version
         == "1.0.0"
     )
-    assert cli_validate_schemas_main([]) == 0
+    assert cli_validate_schemas_main(["--workspace-root", str(root)]) == 0
 
 
 def test_observability_event_validation_and_invariants() -> None:

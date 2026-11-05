@@ -79,28 +79,19 @@ class OpenDVService:
         settings: OpenDVSettings | None = None,
     ) -> None:
         active_state = state if state is not None else state_store
-        eff_ws = (
-            workspace_root
-            or (getattr(active_state, "workspace_root", None) if active_state else None)
+        eff_ws = workspace_root or (
+            getattr(active_state, "workspace_root", None) if active_state else None
         )
-        eff_storage = (
-            storage_root
-            or (getattr(active_state, "storage_root", None) if active_state else None)
+        eff_storage = storage_root or (
+            getattr(active_state, "storage_root", None) if active_state else None
         )
         self.settings = settings or OpenDVSettings.load(
             workspace_root=eff_ws,
             state_dir=eff_storage,
             is_server=False,
         )
-        self.workspace_root = (
-            eff_ws
-            or self.settings.workspace_root
-            or Path.cwd().resolve()
-        )
-        self.storage_root = (
-            eff_storage
-            or self.settings.state_dir
-        )
+        self.workspace_root = eff_ws or self.settings.workspace_root or Path.cwd().resolve()
+        self.storage_root = eff_storage or self.settings.state_dir
         self.state = active_state or StateStore(
             workspace_root=self.workspace_root,
             storage_root=self.storage_root,
@@ -442,7 +433,8 @@ class OpenDVService:
             query_type=req.query_type,
             assertion_cutoff_ts=req.assertion_cutoff_ts,
             all_batches_passed=resp_obj.all_batches_passed,
-            batch_verdicts=resp_obj.batch_verdicts or (
+            batch_verdicts=resp_obj.batch_verdicts
+            or (
                 {
                     f"batch_{i}": ("PASS" if resp_obj.all_batches_passed else "FAIL")
                     for i in range(1, 5)
@@ -476,9 +468,7 @@ class OpenDVService:
                     "run_id": rec.run_id,
                     "source_event_id": rec.event_id,
                     "stage_id": (
-                        rec.stage_id.value
-                        if hasattr(rec.stage_id, "value")
-                        else str(rec.stage_id)
+                        rec.stage_id.value if hasattr(rec.stage_id, "value") else str(rec.stage_id)
                     ),
                     "workbench_view_id": (
                         rec.workbench_view_id.value

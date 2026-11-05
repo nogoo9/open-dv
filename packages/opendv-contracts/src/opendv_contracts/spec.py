@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
-import jsonschema
+import jsonschema  # type: ignore[import-untyped]
 
 
 def _get_schemas_dir() -> Path:
@@ -30,14 +30,14 @@ def load_cli_spec() -> dict[str, Any]:
     """Load the parsed cli-spec.json dictionary."""
     path = _get_schemas_dir() / "cli-spec.json"
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        return cast(dict[str, Any], json.load(f))
 
 
 def load_cli_spec_schema() -> dict[str, Any]:
     """Load the Draft 2020-12 cli-spec.schema.json dictionary."""
     path = _get_schemas_dir() / "cli-spec.schema.json"
     with open(path, encoding="utf-8") as f:
-        return json.load(f)
+        return cast(dict[str, Any], json.load(f))
 
 
 def validate_cli_spec() -> None:

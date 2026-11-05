@@ -8,6 +8,7 @@ tags:
   - 'agent-harness'
 
 dependsOn:
+  - 'opendv-contracts'
   - 'opendv-core'
   - 'opendv-axi-verifier'
   - 'opendv-duckdb-sandbox'

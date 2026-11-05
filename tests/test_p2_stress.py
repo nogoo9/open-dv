@@ -691,12 +691,13 @@ def test_standalone_cli_in_process_local_executor(
     assert raw_out == dumps_jcs(parsed)
     assert parsed["total"] >= 0
 
-    # 7. hold list --json
+    # 7. hold list --json (run not found in clean unseeded state -> exit code 2)
     rc = app_main(["hold", "list", "--run-id", "run-pe-apex-horizon-20261030", "--json"])
-    assert rc in {0, 1, 2}
+    assert rc == 2
     raw_out = capsys.readouterr().out.strip()
     parsed = json.loads(raw_out)
     assert raw_out == dumps_jcs(parsed)
+    assert parsed.get("error_code") == "RESOURCE_NOT_FOUND"
 
 
 def test_presenter_formatting(capsys: pytest.CaptureFixture[str]) -> None:
@@ -901,7 +902,7 @@ def test_all_subcommands_subprocess_isolation() -> None:
         ["sandbox", "--contract", pe_contract, "--canonical-ir", pe_ir, "--query-type", "ADVERSARIAL_BATCHES_1_TO_4", "--json"],
         ["run", "list", "--project-id", "proj-apex-horizon-pe", "--json"],
         ["hold", "list", "--run-id", "run-pe-apex-horizon-20261030", "--json"],
-        ["pipeline", "validate", "--input", "examples/private_equity/pe_pipeline_spec.yaml", "--json"],
+        ["pipeline", "validate", "--input", "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml", "--json"],
     ]
 
     for cmd_args in commands_to_probe:
@@ -909,7 +910,7 @@ def test_all_subcommands_subprocess_isolation() -> None:
             "import sys\n"
             "from opendv_cli.main import app_main\n"
             f"rc = app_main({cmd_args!r})\n"
-            "assert rc in {0, 1, 2}, f'Command failed with rc={rc}'\n"
+            "assert rc in {0, 2}, f'Command failed with unexpected crash rc={rc}'\n"
             "banned = {'fastapi', 'starlette', 'opendv_platform_api', 'httpx'}\n"
             "loaded = banned.intersection(sys.modules.keys())\n"
             "assert not loaded, f'Forbidden modules loaded in sys.modules: {loaded}'\n"

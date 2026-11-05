@@ -56,8 +56,10 @@ def test_agy_cli_binary_ignores_os_and_home_paths(tmp_path: Path) -> None:
     cfg = _make_harness_config(tmp_path)
     adapter = AgyCliHarnessAdapter(cfg)
 
-    with patch("pathlib.Path.home", return_value=fake_home), \
-         patch("shutil.which", return_value=None):
+    with (
+        patch("pathlib.Path.home", return_value=fake_home),
+        patch("shutil.which", return_value=None),
+    ):
         resolved = adapter._resolve_agy_binary()
         assert resolved is None, "Agy binary in home/.local must NOT be resolved"
 
@@ -72,8 +74,10 @@ def test_claude_cli_binary_ignores_os_and_home_paths(tmp_path: Path) -> None:
     cfg = _make_harness_config(tmp_path, provider="claude")
     adapter = ClaudeCliHarnessAdapter(cfg)
 
-    with patch("pathlib.Path.home", return_value=fake_home), \
-         patch("shutil.which", return_value=None):
+    with (
+        patch("pathlib.Path.home", return_value=fake_home),
+        patch("shutil.which", return_value=None),
+    ):
         resolved = adapter._resolve_claude_binary()
         assert resolved is None, "Claude binary in home/.local must NOT be resolved"
 
@@ -85,9 +89,7 @@ def test_agy_cli_binary_resolution_precedence(tmp_path: Path) -> None:
     valid_bin.write_text("#!/bin/sh\necho agy\n")
 
     # 1. From extra_provider_options
-    cfg_opts = _make_harness_config(
-        tmp_path, extra_provider_options={"agy_binary": str(valid_bin)}
-    )
+    cfg_opts = _make_harness_config(tmp_path, extra_provider_options={"agy_binary": str(valid_bin)})
     adapter_opts = AgyCliHarnessAdapter(cfg_opts)
     assert adapter_opts._resolve_agy_binary() == str(valid_bin)
 
@@ -130,9 +132,9 @@ def test_claude_cli_binary_resolution_precedence(tmp_path: Path) -> None:
     adapter_inv = ClaudeCliHarnessAdapter(cfg_inv)
     with patch(
         "shutil.which",
-        side_effect=lambda cmd: "/bin/claude_on_path"
-        if cmd in ("claude", "claude.exe", "claude.cmd")
-        else None,
+        side_effect=lambda cmd: (
+            "/bin/claude_on_path" if cmd in ("claude", "claude.exe", "claude.cmd") else None
+        ),
     ):
         assert adapter_inv._resolve_claude_binary() is None
 

@@ -2,11 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import type { VaultObservabilityEventDTO } from "@opendv/protocol-ts";
-import {
-	PE_DEMO_EVENTS,
-	PE_DEMO_EVENTS_JSONL,
-	PE_DEMO_RUN_ID,
-} from "./fixtures/pe-demo-bundle";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -47,6 +42,11 @@ import {
 	useWorkbenchStore,
 } from "../src/index";
 import { viteConfig } from "../vite.config";
+import {
+	PE_DEMO_EVENTS,
+	PE_DEMO_EVENTS_JSONL,
+	PE_DEMO_RUN_ID,
+} from "./fixtures/pe-demo-bundle";
 
 const WORKBENCH_ROOT = resolve(import.meta.dir, "..");
 
@@ -511,7 +511,7 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 			expect(DEFAULT_REPLAY_STEP_DELAY_MS).toBeGreaterThan(0);
 			store.getState().setPlaybackSpeed(10);
 			expect(store.getState().playbackSpeed).toBe(10);
-			expect(store.getState().getMockReplayClient().getSpeed()).toBe(10);
+			expect(store.getState().getLedgerReplayClient().getSpeed()).toBe(10);
 
 			store.getState().togglePlayPause();
 			expect(store.getState().isPlaying).toBe(true);

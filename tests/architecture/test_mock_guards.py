@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import re
+import subprocess
 import tomllib
 from pathlib import Path
 
@@ -43,7 +44,12 @@ BANNED_PRODUCTION_MODULES = {
 
 BANNED_NAME_SUBSTRINGS = {
     "deterministic_adapter",
+    "deterministicharnessadapter",
+    "build_deterministic",
+    "deterministic_pipeline",
+    "deterministic_seam",
     "_deterministic_shim",
+    "sdk_shim",
 }
 
 
@@ -67,6 +73,9 @@ def test_no_mock_or_testkit_imports_in_production(rel_dir: str) -> None:
                 mod_names.extend(alias.name for alias in node.names)
             elif isinstance(node, ast.ImportFrom) and node.module:
                 mod_names.append(node.module)
+                for alias in node.names:
+                    mod_names.append(f"{node.module}.{alias.name}")
+                    mod_names.append(alias.name)
 
             for mod in mod_names:
                 top_mod = mod.split(".")[0]
@@ -74,7 +83,7 @@ def test_no_mock_or_testkit_imports_in_production(rel_dir: str) -> None:
                     rel_path = py_file.relative_to(REPO_ROOT)
                     violations.append(f"{rel_path}:{node.lineno}: banned import '{mod}'")
                 for banned_sub in BANNED_NAME_SUBSTRINGS:
-                    if banned_sub in mod:
+                    if banned_sub in mod.lower():
                         rel_path = py_file.relative_to(REPO_ROOT)
                         violations.append(
                             f"{rel_path}:{node.lineno}: banned test-double module import '{mod}'"
@@ -83,14 +92,14 @@ def test_no_mock_or_testkit_imports_in_production(rel_dir: str) -> None:
             # Check for direct references to test doubles in identifiers or attributes
             if isinstance(node, ast.Name):
                 for banned_sub in BANNED_NAME_SUBSTRINGS:
-                    if banned_sub in node.id:
+                    if banned_sub in node.id.lower():
                         rel_path = py_file.relative_to(REPO_ROOT)
                         violations.append(
                             f"{rel_path}:{node.lineno}: banned identifier reference '{node.id}'"
                         )
             elif isinstance(node, ast.Attribute):
                 for banned_sub in BANNED_NAME_SUBSTRINGS:
-                    if banned_sub in node.attr:
+                    if banned_sub in node.attr.lower():
                         rel_path = py_file.relative_to(REPO_ROOT)
                         violations.append(
                             f"{rel_path}:{node.lineno}: banned attribute reference '{node.attr}'"
@@ -150,6 +159,20 @@ def test_typescript_sdk_cleanliness() -> None:
         "index.ts must not export MockVaultEventStreamClient"
     )
     assert "mock-client" not in index_content, "index.ts must not export mock-client"
+
+    # Evaluate Bun runtime export object of protocol-ts asserting zero Mock* keys
+    bun_code = (
+        "import * as proto from './packages/opendv-protocol-ts/src/index.ts'; "
+        "const mocks = Object.keys(proto).filter(k => k.includes('Mock')); "
+        "if (mocks.length > 0) { console.error('Found Mock exports:', mocks); process.exit(1); }"
+    )
+    res = subprocess.run(
+        ["bun", "-e", bun_code],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        text=True,
+    )
+    assert res.returncode == 0, f"Evaluated protocol-ts exports contain Mock symbols: {res.stderr}"
 
     # Inspect workbench source tree for Mock* exports
     workbench_src = REPO_ROOT / "apps/opendv-web-workbench/src"
