@@ -18,7 +18,7 @@ from opendv_contracts import (
 )
 from opendv_core import find_workspace_root
 from opendv_core.paths import resolve_workspace_path
-from opendv_service.errors import InputValidationError
+from opendv_service.errors import InputValidationError, NotFoundError
 from opendv_service.rendering import render_verify_text
 
 GateVerdictStatus = str
@@ -121,7 +121,7 @@ def verify_pipeline(
             request.contract_path, workspace_root=root, allow_temp=True
         )
         if not resolved_contract_path.exists():
-            raise InputValidationError(f"Contract file not found: {resolved_contract_path}")
+            raise NotFoundError(f"Contract file not found: {resolved_contract_path}")
         contract_doc = yaml.safe_load(resolved_contract_path.read_text(encoding="utf-8"))
     else:
         raise InputValidationError("Either contract_path or contract_content must be provided.")
@@ -135,7 +135,7 @@ def verify_pipeline(
             request.graph_a_path, workspace_root=root, allow_temp=True
         )
         if not graph_a_p.exists():
-            raise InputValidationError(f"Graph A file not found: {graph_a_p}")
+            raise NotFoundError(f"Graph A file not found: {graph_a_p}")
         graph_a_doc = yaml.safe_load(graph_a_p.read_text(encoding="utf-8")) or {}
 
     # 3. Resolve Graph B profile document (optional)
@@ -150,7 +150,7 @@ def verify_pipeline(
             request.graph_b_path, workspace_root=root, allow_temp=True
         )
         if not graph_b_p.exists():
-            raise InputValidationError(f"Graph B file not found: {graph_b_p}")
+            raise NotFoundError(f"Graph B file not found: {graph_b_p}")
         graph_b_doc = json.loads(graph_b_p.read_text(encoding="utf-8")) or {}
 
     effective_run_id = request.run_id or "run-local-verify"

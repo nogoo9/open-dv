@@ -246,6 +246,8 @@ ERROR_MAPPINGS: dict[ErrorCode, ErrorMappingEntry] = {
     ),
 }
 
+ERROR_MAP = ERROR_MAPPINGS
+
 
 def get_error_mapping(code: ErrorCode) -> tuple[int, int]:
     """Returns (exit_code, http_status) for the given ErrorCode."""
@@ -288,3 +290,16 @@ def create_problem_detail(
         invalid_params=invalid_params or [],
         extensions=extensions or {},
     )
+
+
+__all__ = [
+    "ERROR_MAP",
+    "ERROR_MAPPINGS",
+    "ErrorCode",
+    "ErrorDetail",
+    "ErrorMappingEntry",
+    "ProblemDetail",
+    "create_problem_detail",
+    "get_error_entry",
+    "get_error_mapping",
+]

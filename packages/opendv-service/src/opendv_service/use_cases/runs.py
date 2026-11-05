@@ -41,6 +41,10 @@ def get_run(state: StateStore, run_id: str) -> ProjectRunDTO:
 
 def create_run(state: StateStore, request: CreateRunRequest) -> ProjectRunDTO:
     """Initiate a verification, compilation, or sandbox execution run."""
+    if request.pipeline_input_path is None and (
+        request.project_id is None or request.project_id not in state.projects
+    ):
+        raise NotFoundError(f"Project '{request.project_id}' not found.")
     return state.create_run(request)
 
 

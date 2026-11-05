@@ -99,3 +99,22 @@ class CasIntegrityError(OpenDVError):
     """Raised when content addressable storage hash verification fails."""
 
     error_code = ErrorCode.CAS_INTEGRITY_FAILURE
+
+
+class ConflictError(OpenDVError):
+    """Raised when an operation conflicts with current resource state (e.g. hold resolved)."""
+
+    error_code = ErrorCode.INVALID_REQUEST
+    exit_code = 2
+    http_status = 409
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: ErrorCode | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(message, error_code=error_code, details=details)
+        self.http_status = 409
+
