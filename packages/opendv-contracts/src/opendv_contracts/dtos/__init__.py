@@ -31,6 +31,7 @@ from opendv_contracts.dtos.profile import ProfileRequest, ProfileResponse
 from opendv_contracts.dtos.project import CreateProjectRequest, ProjectResponse
 from opendv_contracts.dtos.sandbox import (
     SandboxBatchResult,
+    SandboxColumnMetadata,
     SandboxQueryRequest,
     SandboxQueryResponse,
     SandboxQueryType,
@@ -81,4 +82,5 @@ __all__ = [  # noqa: RUF022
     "RenderedOutput",
     "RuleEvaluationDTO",
     "SandboxBatchResult",
+    "SandboxColumnMetadata",
 ]

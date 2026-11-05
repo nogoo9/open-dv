@@ -15,6 +15,7 @@ class SandboxQueryType(StrEnum):
     QUERY_D10_PIT = "QUERY_D10_PIT"
     QUERY_D10B_VALUATION = "QUERY_D10B_VALUATION"
     VERIFY_DYN_001_015 = "VERIFY_DYN_001_015"
+    CUSTOM_SQL = "CUSTOM_SQL"
 
 
 SANDBOX_QUERY_TYPE_ALIASES: dict[str, SandboxQueryType] = {
@@ -25,7 +26,16 @@ SANDBOX_QUERY_TYPE_ALIASES: dict[str, SandboxQueryType] = {
     "QUERY_D10_PIT": SandboxQueryType.QUERY_D10_PIT,
     "QUERY_D10B_VALUATION": SandboxQueryType.QUERY_D10B_VALUATION,
     "VERIFY_DYN_001_015": SandboxQueryType.VERIFY_DYN_001_015,
+    "CUSTOM_SQL": SandboxQueryType.CUSTOM_SQL,
 }
+
+
+class SandboxColumnMetadata(BaseContractModel):
+    """Metadata for a column in a sandbox query result."""
+
+    name: str = Field(..., description="Column name")
+    data_type: str = Field(..., description="DuckDB SQL data type")
+    nullable: bool = Field(default=True, description="Whether column can contain NULL")
 
 
 class SandboxQueryRequest(BaseContractModel):
@@ -49,6 +59,9 @@ class SandboxQueryRequest(BaseContractModel):
     parameters: dict[str, Any] = Field(
         default_factory=dict, description="Arbitrary query parameter bindings"
     )
+    sql: str | None = Field(default=None, description="Custom read-only SQL query")
+    max_rows: int = Field(default=1000, ge=1, le=50000, description="Max rows to return")
+    timeout_seconds: float = Field(default=30.0, ge=0.5, le=300.0, description="Execution timeout")
 
     @model_validator(mode="before")
     @classmethod
@@ -106,4 +119,21 @@ class SandboxQueryResponse(BaseContractModel):
     query_d10b_rows: list[dict[str, Any]] = Field(
         default_factory=list, description="Valuation Query D.10b rows"
     )
+    columns: list[SandboxColumnMetadata] = Field(
+        default_factory=list, description="Result column metadata"
+    )
+    execution_stats: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Execution statistics (duration_ms, truncated, row_count)",
+    )
     rendered: RenderedOutput | None = Field(default=None, description="Pre-rendered text output")
+
+
+__all__ = [
+    "SANDBOX_QUERY_TYPE_ALIASES",
+    "SandboxBatchResult",
+    "SandboxColumnMetadata",
+    "SandboxQueryRequest",
+    "SandboxQueryResponse",
+    "SandboxQueryType",
+]

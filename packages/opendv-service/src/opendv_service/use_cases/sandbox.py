@@ -16,7 +16,7 @@ from opendv_contracts import (
 )
 from opendv_contracts.errors import ErrorCode
 from opendv_core.paths import resolve_workspace_path
-from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox, SafeSqlResult
 from opendv_service.errors import InputValidationError
 from opendv_service.rendering import render_sandbox_text
 
@@ -47,6 +47,34 @@ def execute_sandbox_query(
     )
 
     if not (has_ir or has_contract):
+        if query_type_str == "CUSTOM_SQL" and request.sql and request.sql.strip():
+            with DuckDbShadowSandbox() as sandbox:
+                custom_res = sandbox.execute_safe_sql(
+                    request.sql,
+                    max_rows=request.max_rows,
+                    timeout_seconds=request.timeout_seconds,
+                )
+                res_dict: dict[str, Any] = {
+                    "run_id": effective_run_id,
+                    "query_type": query_type_str,
+                    "assertion_cutoff_ts": cutoff,
+                    "all_batches_passed": True,
+                    "batch_verdicts": {},
+                    "batches": [],
+                    "dynamic_rules_passed": 0,
+                    "dynamic_rules_total": 0,
+                    "replay_delta_rows": 0,
+                    "row_count": custom_res.row_count,
+                    "rows": custom_res.rows,
+                    "query_d10_rows": [],
+                    "query_d10b_rows": [],
+                    "columns": custom_res.columns,
+                    "execution_stats": custom_res.execution_stats,
+                }
+                rendered_text = render_sandbox_text(res_dict)
+                res_dict["rendered"] = RenderedOutput(text=rendered_text)
+                return SandboxQueryResponse(**res_dict)
+
         raise InputValidationError(
             "Neither contract nor canonical IR was provided for sandbox execution. "
             "Specify contract_path, contract_content, canonical_ir_path, or canonical_ir_content.",
@@ -54,6 +82,7 @@ def execute_sandbox_query(
         )
 
     tmp_path: Path | None = None
+    custom_result: SafeSqlResult | None = None
     try:
         if request.canonical_ir_content and request.canonical_ir_content.strip():
             with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp_file:
@@ -87,6 +116,12 @@ def execute_sandbox_query(
                 emit_telemetry=False,
                 run_id=effective_run_id,
             )
+            if query_type_str == "CUSTOM_SQL" and request.sql and request.sql.strip():
+                custom_result = sandbox.execute_safe_sql(
+                    request.sql,
+                    max_rows=request.max_rows,
+                    timeout_seconds=request.timeout_seconds,
+                )
     finally:
         if tmp_path is not None and tmp_path.exists():
             with contextlib.suppress(OSError):
@@ -118,6 +153,8 @@ def execute_sandbox_query(
         rows = d10_rows
     elif query_type_str in {"QUERY_D10B_VALUATION", "QUERY_D10B_PORTCO_VALUATION_PIT"}:
         rows = d10b_rows
+    elif query_type_str == "CUSTOM_SQL":
+        rows = custom_result.rows if custom_result else []
     elif query_type_str == "VERIFY_DYN_001_015":
         checks = report.dynamic_check_report.model_dump(mode="json")["checks"]
         rows = [
@@ -167,6 +204,8 @@ def execute_sandbox_query(
         "rows": rows,
         "query_d10_rows": d10_rows,
         "query_d10b_rows": d10b_rows,
+        "columns": custom_result.columns if custom_result else [],
+        "execution_stats": custom_result.execution_stats if custom_result else {},
     }
     rendered_text = render_sandbox_text(res_dict)
     res_dict["rendered"] = RenderedOutput(text=rendered_text)

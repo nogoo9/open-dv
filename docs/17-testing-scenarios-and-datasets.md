@@ -927,9 +927,9 @@ The table below is the single normative source of truth for Algorithm A.5 length
 | `GT-01` | `GT-01/wave0/final_canonical_ir.json` | `830502bcebffdaf2a82b01c290a6f27a872fe14c7a59dbbc6ac5c3a3d7af1332` | `PAR-S1-W0: opendv pipeline run` | `[#68] P1 baseline golden capture` |
 | `GT-01` | `GT-01/wave0/final_contract.yaml` | `7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913` | `PAR-S1-W0: opendv pipeline run` | `[#68] P1 baseline golden capture` |
 | `GT-01` | `GT-01/wave0/final_four_zone.sql` | `3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e` | `PAR-S1-W0: opendv pipeline run` | `[#68] P1 baseline golden capture` |
-| `GT-02` | `GT-02/canonical_ir.json` | `a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a` | `PAR-PE-S5: opendv compile` | `[#68] P1 baseline golden capture` |
-| `GT-02` | `GT-02/four_zone.sql` | `39d976ecbc18d54847555caea589f9df94e130d2e4cd64e592c18e96408755c8` | `PAR-PE-S5: opendv compile` | `[#68] P1 baseline golden capture` |
-| `GT-02` | `GT-02/verify.json` | `00e1755aef039cf792045ab735649afab2031d48aca8449e06bd14dc9c826b2d` | `PAR-PE-S5: opendv verify` | `[#68] P1 baseline golden capture` |
+| `GT-02` | `GT-02/canonical_ir.json` | `a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a` | `PAR-PE-S5: opendv compile` | `[#91] Generic compiled sandbox: remove is_pe_domain and static PE SQL` |
+| `GT-02` | `GT-02/four_zone.sql` | `65aa57f6c7efb1b649caaca23b7ecfb514a16f0b75499b4e5229b03c27632629` | `PAR-PE-S5: opendv compile` | `[#91] Generic compiled sandbox: remove is_pe_domain and static PE SQL` |
+| `GT-02` | `GT-02/verify.json` | `00e1755aef039cf792045ab735649afab2031d48aca8449e06bd14dc9c826b2d` | `PAR-PE-S5: opendv verify` | `[#91] Generic compiled sandbox: remove is_pe_domain and static PE SQL` |
 
 ### G.4 Golden Update and Review Workflow
 

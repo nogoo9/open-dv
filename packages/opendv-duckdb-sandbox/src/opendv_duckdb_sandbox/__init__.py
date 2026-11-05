@@ -87,7 +87,9 @@ from opendv_duckdb_sandbox.pit_query_engine import (
 )
 from opendv_duckdb_sandbox.sandbox_engine import (
     DuckDbShadowSandbox,
+    SafeSqlResult,
     SandboxVerificationReport,
+    validate_safe_sql,
 )
 
 __version__ = "0.1.0"
@@ -105,6 +107,7 @@ __all__ = [
     "PitQueryEngine",
     "QueryD10Row",
     "QueryD10bRow",
+    "SafeSqlResult",
     "SandboxVerificationReport",
     "SchemaDriftEvent",
     "SchemaDriftKind",
@@ -146,4 +149,5 @@ __all__ = [
     "run_batch_3_delta_and_boundary_shift",
     "run_batch_4_cross_source_and_bitemporal_restatement",
     "topological_load_dag",
+    "validate_safe_sql",
 ]

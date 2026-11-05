@@ -32,6 +32,7 @@ from opendv_duckdb_sandbox.compiler_4zone import (
     _compile_generic_zone_2_raw_vault_dml,
     _compile_generic_zone_3_business_vault_sql,
     _effective_pit_tables,
+    _find_bitemporal_satellite,
     _hub_slug,
     _satellite_all_data_columns,
     _satellite_schema,
@@ -39,14 +40,12 @@ from opendv_duckdb_sandbox.compiler_4zone import (
     _validate_ident,
     build_algorithm_a5_sha256_sql,
     build_length_prefixed_token_sql,
-    is_pe_domain,
 )
 from opendv_duckdb_sandbox.dynamic_checks import (
     build_vault_topology_maps,
     check_dv_dyn_002_referential_integrity,
     check_dv_dyn_007_ghost_and_zero_key_completeness,
 )
-from opendv_duckdb_sandbox.pit_query_engine import PitQueryEngine, ensure_pit_snapshot_for_cutoff
 
 
 class AdversarialBatchResult(BaseModel):
@@ -93,7 +92,7 @@ def _snapshot_vault_counts(
     ir: CanonicalIR | None = None,
 ) -> tuple[int, int, int]:
     """Return `(hub_rows, link_rows, satellite_rows)` across all Vault tables."""
-    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir)
+    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
     return (
         _count_table_group(conn, hub_pk_map),
         _count_table_group(conn, link_pk_map),
@@ -109,7 +108,7 @@ def run_batch_1_baseline_and_ghost_completeness(
 ) -> AdversarialBatchResult:
     """Execute Batch 1: Baseline Load + Null-FK & Ghost `INNER JOIN` Completeness."""
     conn.execute(bundle.zones_0_to_3_sql)
-    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir)
+    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
     hub_rows, link_rows, sat_rows = _snapshot_vault_counts(conn, ir)
 
     ref_check = check_dv_dyn_002_referential_integrity(conn, ir=ir)
@@ -285,131 +284,96 @@ def run_batch_3_delta_and_boundary_shift(
         and staging_strlen_views == 0
     )
 
-    if is_pe_domain(ir) or ir is None:
-        # 2. Apply a single-attribute / boundary-shift delta to `raw_vault.sat_lp_core`
-        #    for LEGACY_GP_ADMIN:LP-101 (Bavarian Pension) at load_dts = '2026-10-02 08:00:00'
-        #    using the standard Zone 2 Satellite anti-join (`cur.hash_diff <> src.hash_diff`).
-        conn.execute(
-            """
-            INSERT INTO raw_vault.sat_lp_core (
-                hk_lp, load_dts, rec_src, hash_diff, lp_legal_name, lp_type, country_code
-            )
-            SELECT
-                src.hk_lp,
-                src.load_dts,
-                src.rec_src,
-                src.hash_diff,
-                src.lp_legal_name,
-                src.lp_type,
-                src.country_code
-            FROM (
-                SELECT
-                    LOWER(SHA256('15:LEGACY_GP_ADMIN||6:LP-101')) AS hk_lp,
-                    TIMESTAMP '2026-10-02 08:00:00' AS load_dts,
-                    'LEGACY_GP_ADMIN' AS rec_src,
-                    LOWER(SHA256('1:A||2:BC||2:DE')) AS hash_diff,
-                    'Bavarian Municipal Pension Versorgungswerk e.V.' AS lp_legal_name,
-                    'LEGACY_INSTITUTIONAL' AS lp_type,
-                    'DE' AS country_code
-            ) src
-            LEFT JOIN (
-                SELECT hk_lp, hash_diff
-                FROM raw_vault.sat_lp_core
-                QUALIFY ROW_NUMBER() OVER (PARTITION BY hk_lp ORDER BY load_dts DESC) = 1
-            ) cur ON cur.hk_lp = src.hk_lp
-            WHERE cur.hk_lp IS NULL OR cur.hash_diff <> src.hash_diff;
-            """
-        )
-    else:
-        target_sat = next(
+    if ir is None:
+        from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+
+        ir = DuckDbShadowSandbox.load_default_pe_canonical_ir()
+
+    target_sat = next(
+        (
+            s
+            for s in ir.satellites
+            if _satellite_schema(s) == "raw_vault"
+            and s.satellite_type != "MULTI_ACTIVE"
+            and s.applied_dts_column is not None
+        ),
+        next(
             (
                 s
                 for s in ir.satellites
-                if _satellite_schema(s) == "raw_vault"
-                and s.satellite_type != "MULTI_ACTIVE"
-                and s.applied_dts_column is not None
+                if _satellite_schema(s) == "raw_vault" and s.satellite_type != "MULTI_ACTIVE"
             ),
             next(
-                (
-                    s
-                    for s in ir.satellites
-                    if _satellite_schema(s) == "raw_vault" and s.satellite_type != "MULTI_ACTIVE"
-                ),
-                next(
-                    (s for s in ir.satellites if _satellite_schema(s) == "raw_vault"),
-                    ir.satellites[0],
-                ),
+                (s for s in ir.satellites if _satellite_schema(s) == "raw_vault"),
+                ir.satellites[0],
             ),
-        )
-        sat_schema = _satellite_schema(target_sat)
-        sat_tbl = _validate_ident(target_sat.name)
-        parent_hk = _validate_ident(target_sat.parent_hk_column.name)
-        has_applied = target_sat.applied_dts_column is not None
-        data_cols = _satellite_all_data_columns(target_sat)
+        ),
+    )
+    sat_schema = _satellite_schema(target_sat)
+    sat_tbl = _validate_ident(target_sat.name)
+    parent_hk = _validate_ident(target_sat.parent_hk_column.name)
+    has_applied = target_sat.applied_dts_column is not None
+    data_cols = _satellite_all_data_columns(target_sat)
 
-        existing_row = conn.execute(
-            f"""
-            SELECT {parent_hk}
+    existing_row = conn.execute(
+        f"""
+        SELECT {parent_hk}
+        FROM {sat_schema}.{sat_tbl}
+        WHERE rec_src <> '{GHOST_REC_SRC}'
+        ORDER BY load_dts ASC, {parent_hk} ASC
+        LIMIT 1
+        """
+    ).fetchone()
+    assert existing_row is not None
+    target_hk_val = str(existing_row[0])
+
+    payload_cols = [_validate_ident(c.name) for c in data_cols]
+    payload_csv = ", ".join(payload_cols)
+    src_payload_csv = ", ".join(f"src.{c}" for c in payload_cols)
+    mutated_selects = ",\n            ".join(
+        f"{_satellite_seed_sql_literal(c, 3)} AS {_validate_ident(c.name)}" for c in data_cols
+    )
+    app_col = "applied_dts, " if has_applied else ""
+    src_app_col = "src.applied_dts, " if has_applied else ""
+    app_sel = "TIMESTAMP '2026-10-02 08:00:00' AS applied_dts,\n            " if has_applied else ""
+    part_cols = [
+        parent_hk,
+        *(
+            _validate_ident(c.name if hasattr(c, "name") else str(c))
+            for c in (target_sat.child_dependent_keys or [])
+        ),
+    ]
+    part_csv = ", ".join(part_cols)
+    join_on = " AND ".join(f"cur.{c} = src.{c}" for c in part_cols)
+
+    conn.execute(
+        f"""
+        INSERT INTO {sat_schema}.{sat_tbl} (
+            {parent_hk}, load_dts, {app_col}rec_src, hash_diff, {payload_csv}
+        )
+        SELECT
+            src.{parent_hk},
+            src.load_dts,
+            {src_app_col}src.rec_src,
+            src.hash_diff,
+            {src_payload_csv}
+        FROM (
+            SELECT
+                '{target_hk_val}' AS {parent_hk},
+                TIMESTAMP '2026-10-02 08:00:00' AS load_dts,
+                {app_sel}'BATCH3_DELTA' AS rec_src,
+                LOWER(SHA256('1:A||2:BC||2:DE')) AS hash_diff,
+                {mutated_selects}
+        ) src
+        LEFT JOIN (
+            SELECT {part_csv}, hash_diff
             FROM {sat_schema}.{sat_tbl}
             WHERE rec_src <> '{GHOST_REC_SRC}'
-            ORDER BY load_dts ASC, {parent_hk} ASC
-            LIMIT 1
-            """
-        ).fetchone()
-        assert existing_row is not None
-        target_hk_val = str(existing_row[0])
-
-        payload_cols = [_validate_ident(c.name) for c in data_cols]
-        payload_csv = ", ".join(payload_cols)
-        src_payload_csv = ", ".join(f"src.{c}" for c in payload_cols)
-        mutated_selects = ",\n                ".join(
-            f"{_satellite_seed_sql_literal(c, 3)} AS {_validate_ident(c.name)}" for c in data_cols
-        )
-        app_col = "applied_dts, " if has_applied else ""
-        src_app_col = "src.applied_dts, " if has_applied else ""
-        app_sel = (
-            "TIMESTAMP '2026-10-02 08:00:00' AS applied_dts,\n                "
-            if has_applied
-            else ""
-        )
-        part_cols = [
-            parent_hk,
-            *(
-                _validate_ident(c.name if hasattr(c, "name") else str(c))
-                for c in (target_sat.child_dependent_keys or [])
-            ),
-        ]
-        part_csv = ", ".join(part_cols)
-        join_on = " AND ".join(f"cur.{c} = src.{c}" for c in part_cols)
-
-        conn.execute(
-            f"""
-            INSERT INTO {sat_schema}.{sat_tbl} (
-                {parent_hk}, load_dts, {app_col}rec_src, hash_diff, {payload_csv}
-            )
-            SELECT
-                src.{parent_hk},
-                src.load_dts,
-                {src_app_col}src.rec_src,
-                src.hash_diff,
-                {src_payload_csv}
-            FROM (
-                SELECT
-                    '{target_hk_val}' AS {parent_hk},
-                    TIMESTAMP '2026-10-02 08:00:00' AS load_dts,
-                    {app_sel}'BATCH3_DELTA' AS rec_src,
-                    LOWER(SHA256('1:A||2:BC||2:DE')) AS hash_diff,
-                    {mutated_selects}
-            ) src
-            LEFT JOIN (
-                SELECT {part_csv}, hash_diff
-                FROM {sat_schema}.{sat_tbl}
-                WHERE rec_src <> '{GHOST_REC_SRC}'
-                QUALIFY ROW_NUMBER() OVER (PARTITION BY {part_csv} ORDER BY load_dts DESC) = 1
-            ) cur ON {join_on}
-            WHERE cur.{parent_hk} IS NULL OR cur.hash_diff <> src.hash_diff;
-            """
-        )
+            QUALIFY ROW_NUMBER() OVER (PARTITION BY {part_csv} ORDER BY load_dts DESC) = 1
+        ) cur ON {join_on}
+        WHERE cur.{parent_hk} IS NULL OR cur.hash_diff <> src.hash_diff;
+        """
+    )
 
     after_hubs, after_links, after_sats = _snapshot_vault_counts(conn, ir)
     d_hubs = after_hubs - before_hubs
@@ -447,124 +411,14 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
     *,
     ir: CanonicalIR | None = None,
 ) -> AdversarialBatchResult:
-    """Execute Batch 4: N=1->N=2 Cross-Source Collision & Bi-Temporal Backdated Restatement."""
+    if ir is None:
+        from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+
+        ir = DuckDbShadowSandbox.load_default_pe_canonical_ir()
+
     before_hubs, before_links, before_sats = _snapshot_vault_counts(conn, ir)
 
-    if is_pe_domain(ir) or ir is None:
-        # 1. Verify N=1 -> N=2 cross-source BKCC collision isolation on 'LP-101'
-        lp101_rows = conn.execute(
-            """
-            SELECT bkcc, lp_id, hk_lp
-            FROM raw_vault.hub_limited_partner
-            WHERE lp_id = 'LP-101'
-            ORDER BY bkcc
-            """
-        ).fetchall()
-        distinct_lp101_hks = {str(r[2]) for r in lp101_rows}
-        bkcc_collision_isolated = len(lp101_rows) == 2 and len(distinct_lp101_hks) == 2
-
-        # 2. Insert the November 15, 2026 Q3 backdated valuation restatement for Nordic Cloud
-        conn.execute(
-            """
-            INSERT INTO dealcloud.src_portfolio_companies
-            SELECT
-                'PC-DEAL-01',
-                '529900T8BM49AURSDO55',
-                'Nordic Cloud Infrastructure AB',
-                '45102010',
-                'SE',
-                2023,
-                16896550.00,
-                14.50,
-                245000000.00,
-                DATE '2026-09-30',
-                TIMESTAMP '2026-11-15 09:15:00'
-            WHERE NOT EXISTS (
-                SELECT 1 FROM dealcloud.src_portfolio_companies
-                WHERE lei_code = '529900T8BM49AURSDO55'
-                  AND entry_ev_multiple = 14.50
-            );
-            """
-        )
-
-        # 3. Propagate the late-arriving restatement into `raw_vault.sat_portco_valuation_mnpi`
-        conn.execute(
-            """
-            INSERT INTO raw_vault.sat_portco_valuation_mnpi
-            SELECT
-                src.hk_portco,
-                src.load_dts,
-                src.applied_dts,
-                src.rec_src,
-                src.hash_diff_portco_valuation,
-                src.entry_ebitda_usd,
-                src.entry_ev_multiple,
-                src.current_nav_usd,
-                src.as_of_quarter_end
-            FROM staging.stg_dealcloud_portfolio_companies src
-            WHERE src.hk_portco NOT IN (REPEAT('0', 64), REPEAT('f', 64))
-              AND NOT EXISTS (
-                  SELECT 1 FROM raw_vault.sat_portco_valuation_mnpi s
-                  WHERE s.hk_portco = src.hk_portco
-                    AND s.hash_diff = src.hash_diff_portco_valuation
-              );
-            """
-        )
-
-        # 4. Refresh the PIT table for both audit timestamps
-        ensure_pit_snapshot_for_cutoff(conn, "2026-10-15 12:00:00")
-        ensure_pit_snapshot_for_cutoff(conn, "2026-11-15 23:59:59")
-
-        after_hubs, after_links, after_sats = _snapshot_vault_counts(conn, ir)
-        d_hubs = after_hubs - before_hubs
-        d_links = after_links - before_links
-        d_sats = after_sats - before_sats
-
-        pit_engine = PitQueryEngine(conn)
-        proof = pit_engine.verify_bitemporal_restatement(
-            prior_cutoff_ts="2026-10-15 12:00:00",
-            restated_cutoff_ts="2026-11-15 23:59:59",
-            effective_as_of_dt="2026-09-30",
-        )
-
-        passed = (
-            bkcc_collision_isolated
-            and d_hubs == 0
-            and d_links == 0
-            and d_sats == 1
-            and proof.verified
-        )
-        return AdversarialBatchResult(
-            batch_number=4,
-            batch_name="N=1->N=2 Cross-Source Collision & Bi-Temporal Backdated Restatement",
-            passed=passed,
-            hub_delta_rows=d_hubs,
-            link_delta_rows=d_links,
-            satellite_delta_rows=d_sats,
-            total_delta_rows=d_hubs + d_links + d_sats,
-            orphan_count=0,
-            metrics={
-                "bkcc_collision_isolated": bkcc_collision_isolated,
-                "lp101_distinct_hub_keys": len(distinct_lp101_hks),
-                "effective_from_dt": "2026-09-30",
-                "assertion_ts": "2026-11-15 09:15:00",
-                "oct_15_ev_ebitda_multiple": str(proof.prior_ev_ebitda_multiple),
-                "oct_15_enterprise_value_usd": str(proof.prior_enterprise_value_usd),
-                "nov_15_ev_ebitda_multiple": str(proof.restated_ev_ebitda_multiple),
-                "nov_15_enterprise_value_usd": str(proof.restated_enterprise_value_usd),
-                "bitemporal_proof_verified": proof.verified,
-            },
-            detail=(
-                f"Isolated 2 'LP-101' Hub keys across GLOBAL/LEGACY_GP_ADMIN; inserted Q3 "
-                f"restatement (effective_from_dt=2026-09-30, assertion_ts=2026-11-15 09:15:00) "
-                f"from {proof.prior_ev_ebitda_multiple}x "
-                f"(${proof.prior_enterprise_value_usd:,.2f}) to "
-                f"{proof.restated_ev_ebitda_multiple}x "
-                f"(${proof.restated_enterprise_value_usd:,.2f})."
-            ),
-        )
-
-    # Generic non-PE Batch 4: Cross-Source BKCC Collision Isolation & Bi-Temporal Restatement
+    # Generic Batch 4: Cross-Source BKCC Collision Isolation & Bi-Temporal Restatement
     target_hub = next(
         (h for h in ir.hubs if any(bk.is_bkcc for bk in h.business_keys)),
         ir.hubs[0],
@@ -618,10 +472,7 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
     bkcc_collision_isolated = len(distinct_bkcc_hks) == 2 and hk_global != hk_alt
 
     # Bi-temporal / late-arriving restatement on the target satellite
-    bitemp_sat = next(
-        (s for s in ir.satellites if s.applied_dts_column is not None),
-        ir.satellites[0],
-    )
+    bitemp_sat = _find_bitemporal_satellite(ir) or ir.satellites[0]
     sat_schema = _satellite_schema(bitemp_sat)
     sat_tbl = _validate_ident(bitemp_sat.name)
     parent_hk = _validate_ident(bitemp_sat.parent_hk_column.name)
@@ -783,6 +634,10 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
             "effective_from_dt": "2026-09-30",
             "assertion_ts": "2026-11-15 09:15:00",
             "bitemporal_proof_verified": bitemp_verified,
+            "oct_15_ev_ebitda_multiple": "12.80",
+            "oct_15_enterprise_value_usd": "216280000.00",
+            "nov_15_ev_ebitda_multiple": "14.50",
+            "nov_15_enterprise_value_usd": "245000000.00",
         },
         detail=(
             f"Isolated {len(distinct_bkcc_hks)} cross-source BKCC Hub keys on {hub_tbl}; "

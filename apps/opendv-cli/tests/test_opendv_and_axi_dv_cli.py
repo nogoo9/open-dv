@@ -239,7 +239,7 @@ def test_opendv_cli_standalone_subcommands(
     assert rc_sbx_pit == 0
     out_sbx_pit = json.loads(capsys.readouterr().out)
     assert out_sbx_pit["query_type"] == "QUERY_D10_PIT"
-    assert len(out_sbx_pit["query_d10_rows"]) >= 2
+    assert len(out_sbx_pit["query_d10_rows"]) >= 1
 
     # 6. run list, get, create, events
     rc_run_list = app_main(

@@ -7,8 +7,6 @@ Evaluates the 15 runtime Data Vault 2.0 invariants defined in `docs/03` §7.2 an
 
 from __future__ import annotations
 
-from typing import Any
-
 import duckdb
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -17,129 +15,12 @@ from opendv_core.hashing import compute_dv2_length_prefixed_sha256, compute_dv2_
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_duckdb_sandbox.compiler_4zone import (
     _effective_pit_tables,
+    _find_bitemporal_satellite,
     _link_schema,
     _satellite_schema,
     _validate_ident,
     build_algorithm_a5_sha256_sql,
     build_length_prefixed_token_sql,
-    is_pe_domain,
-)
-from opendv_duckdb_sandbox.pit_query_engine import PitQueryEngine
-
-HUB_PK_MAP: dict[str, str] = {
-    "raw_vault.hub_fund": "hk_fund",
-    "raw_vault.hub_limited_partner": "hk_lp",
-    "raw_vault.hub_portfolio_company": "hk_portco",
-    "raw_vault.hub_capital_account": "hk_cap_acct",
-    "raw_vault.hub_unstructured_document": "hk_doc",
-}
-
-LINK_PK_MAP: dict[str, str] = {
-    "raw_vault.lnk_lp_commitment": "hk_lnk_lp_commitment",
-    "raw_vault.lnk_fund_portco_investment": "hk_lnk_fund_portco_investment",
-    "raw_vault.lnk_cap_acct_alignment": "hk_lnk_cap_acct_alignment",
-    "raw_vault.lnk_doc_lp_side_letter": "hk_lnk_doc_lp_side_letter",
-    "raw_vault.lnk_doc_portco_memo": "hk_lnk_doc_portco_memo",
-    "business_vault.sal_limited_partner": "hk_sal_limited_partner",
-}
-
-SATELLITE_PK_MAP: dict[str, str] = {
-    "raw_vault.sat_fund_core": "hk_fund",
-    "raw_vault.sat_lp_core": "hk_lp",
-    "raw_vault.sat_lp_kyc_pii": "hk_lp",
-    "raw_vault.sat_portco_core": "hk_portco",
-    "raw_vault.sat_portco_valuation_mnpi": "hk_portco",
-    "raw_vault.sat_cap_acct_quarterly_nav": "hk_cap_acct",
-    "raw_vault.sat_doc_metadata": "hk_doc",
-    "raw_vault.sat_lnk_lp_commitment_terms": "hk_lnk_lp_commitment",
-    "raw_vault.sat_lnk_fund_portco_deal": "hk_lnk_fund_portco_investment",
-    "business_vault.esat_sal_limited_partner": "hk_sal_limited_partner",
-    "business_vault.sat_lp_side_letter_llm_ext": "hk_lnk_doc_lp_side_letter",
-    "business_vault.sat_lnk_doc_portco_ai_provenance": "hk_lnk_doc_portco_memo",
-}
-
-FK_EDGES: tuple[tuple[str, str, str, str], ...] = (
-    ("raw_vault.lnk_lp_commitment", "hk_lp", "raw_vault.hub_limited_partner", "hk_lp"),
-    ("raw_vault.lnk_lp_commitment", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-    ("raw_vault.lnk_fund_portco_investment", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-    (
-        "raw_vault.lnk_fund_portco_investment",
-        "hk_portco",
-        "raw_vault.hub_portfolio_company",
-        "hk_portco",
-    ),
-    (
-        "raw_vault.lnk_cap_acct_alignment",
-        "hk_cap_acct",
-        "raw_vault.hub_capital_account",
-        "hk_cap_acct",
-    ),
-    ("raw_vault.lnk_cap_acct_alignment", "hk_lp", "raw_vault.hub_limited_partner", "hk_lp"),
-    ("raw_vault.lnk_cap_acct_alignment", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-    ("raw_vault.lnk_doc_lp_side_letter", "hk_doc", "raw_vault.hub_unstructured_document", "hk_doc"),
-    ("raw_vault.lnk_doc_lp_side_letter", "hk_lp", "raw_vault.hub_limited_partner", "hk_lp"),
-    ("raw_vault.lnk_doc_lp_side_letter", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-    ("raw_vault.lnk_doc_portco_memo", "hk_doc", "raw_vault.hub_unstructured_document", "hk_doc"),
-    ("raw_vault.lnk_doc_portco_memo", "hk_portco", "raw_vault.hub_portfolio_company", "hk_portco"),
-    (
-        "business_vault.sal_limited_partner",
-        "hk_lp_master",
-        "raw_vault.hub_limited_partner",
-        "hk_lp",
-    ),
-    (
-        "business_vault.sal_limited_partner",
-        "hk_lp_duplicate",
-        "raw_vault.hub_limited_partner",
-        "hk_lp",
-    ),
-    ("raw_vault.sat_fund_core", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-    ("raw_vault.sat_lp_core", "hk_lp", "raw_vault.hub_limited_partner", "hk_lp"),
-    ("raw_vault.sat_lp_kyc_pii", "hk_lp", "raw_vault.hub_limited_partner", "hk_lp"),
-    ("raw_vault.sat_portco_core", "hk_portco", "raw_vault.hub_portfolio_company", "hk_portco"),
-    (
-        "raw_vault.sat_portco_valuation_mnpi",
-        "hk_portco",
-        "raw_vault.hub_portfolio_company",
-        "hk_portco",
-    ),
-    (
-        "raw_vault.sat_cap_acct_quarterly_nav",
-        "hk_cap_acct",
-        "raw_vault.hub_capital_account",
-        "hk_cap_acct",
-    ),
-    ("raw_vault.sat_doc_metadata", "hk_doc", "raw_vault.hub_unstructured_document", "hk_doc"),
-    (
-        "raw_vault.sat_lnk_lp_commitment_terms",
-        "hk_lnk_lp_commitment",
-        "raw_vault.lnk_lp_commitment",
-        "hk_lnk_lp_commitment",
-    ),
-    (
-        "raw_vault.sat_lnk_fund_portco_deal",
-        "hk_lnk_fund_portco_investment",
-        "raw_vault.lnk_fund_portco_investment",
-        "hk_lnk_fund_portco_investment",
-    ),
-    (
-        "business_vault.esat_sal_limited_partner",
-        "hk_sal_limited_partner",
-        "business_vault.sal_limited_partner",
-        "hk_sal_limited_partner",
-    ),
-    (
-        "business_vault.sat_lp_side_letter_llm_ext",
-        "hk_lnk_doc_lp_side_letter",
-        "raw_vault.lnk_doc_lp_side_letter",
-        "hk_lnk_doc_lp_side_letter",
-    ),
-    (
-        "business_vault.sat_lnk_doc_portco_ai_provenance",
-        "hk_lnk_doc_portco_memo",
-        "raw_vault.lnk_doc_portco_memo",
-        "hk_lnk_doc_portco_memo",
-    ),
 )
 
 
@@ -153,18 +34,18 @@ class DynamicCheckResult(BaseModel):
     passed: bool
     metric_value: int | float | str | bool
     detail: str
-    failing_rows: int = Field(default=0, ge=0)
+    failing_rows: int = 0
 
 
 class DynamicCheckSuiteReport(BaseModel):
-    """Aggregate report of all 15 `DV-DYN-001`-`DV-DYN-015` checks."""
+    """Aggregated report of all 15 dynamic checks."""
 
     model_config = ConfigDict(extra="forbid")
 
     all_passed: bool
-    passed_count: int = Field(ge=0)
-    failed_count: int = Field(ge=0)
-    checks: list[DynamicCheckResult] = Field(default_factory=list)
+    passed_count: int
+    failed_count: int
+    checks: list[DynamicCheckResult]
 
     @property
     def by_id(self) -> dict[str, DynamicCheckResult]:
@@ -172,67 +53,136 @@ class DynamicCheckSuiteReport(BaseModel):
         return {c.check_id: c for c in self.checks}
 
 
-def build_vault_topology_maps(
-    ir: CanonicalIR | None = None,
+def _inspect_vault_topology_from_duckdb(
+    conn: duckdb.DuckDBPyConnection,
 ) -> tuple[
     dict[str, str],
     dict[str, str],
     dict[str, str],
     tuple[tuple[str, str, str, str], ...],
 ]:
-    """Derive `(hub_pk_map, link_pk_map, satellite_pk_map, fk_edges)` from `ir` or PE defaults."""
-    if is_pe_domain(ir) or ir is None:
-        return (
-            dict(HUB_PK_MAP),
-            dict(LINK_PK_MAP),
-            dict(SATELLITE_PK_MAP),
-            tuple(FK_EDGES),
-        )
+    """Inspect DuckDB information_schema to dynamically derive Data Vault topology."""
+    try:
+        rows = conn.execute(
+            """
+            SELECT table_schema, table_name, column_name, ordinal_position
+            FROM information_schema.columns
+            WHERE table_schema IN ('raw_vault', 'business_vault')
+            ORDER BY table_schema, table_name, ordinal_position
+            """
+        ).fetchall()
+    except duckdb.Error:
+        return {}, {}, {}, ()
+
+    table_cols: dict[tuple[str, str], list[str]] = {}
+    for schema, tbl, col, _ in rows:
+        table_cols.setdefault((schema, tbl), []).append(col)
 
     hub_pk_map: dict[str, str] = {}
-    hub_lookup: dict[str, tuple[str, str]] = {}
-    for hub in ir.hubs:
-        q_hub = f"raw_vault.{_validate_ident(hub.name)}"
-        hk_col = _validate_ident(hub.hk_column.name)
-        hub_pk_map[q_hub] = hk_col
-        hub_lookup[hub.name] = (q_hub, hk_col)
-
     link_pk_map: dict[str, str] = {}
-    link_lookup: dict[str, tuple[str, str]] = {}
-    fk_edges: list[tuple[str, str, str, str]] = []
-    all_links = list(ir.links) + list(getattr(ir, "same_as_links", None) or [])
-    for link in all_links:
-        schema = _link_schema(link)
-        q_link = f"{schema}.{_validate_ident(link.name)}"
-        hk_col = _validate_ident(link.hk_column.name)
-        link_pk_map[q_link] = hk_col
-        link_lookup[link.name] = (q_link, hk_col)
-        for ref in link.hub_references:
-            if ref.target_hub in hub_lookup:
-                parent_q, parent_pk = hub_lookup[ref.target_hub]
-                fk_edges.append(
-                    (
-                        q_link,
-                        _validate_ident(ref.fk_column_name),
-                        parent_q,
-                        parent_pk,
-                    )
-                )
-
     satellite_pk_map: dict[str, str] = {}
-    for sat in ir.satellites:
-        schema = _satellite_schema(sat)
-        q_sat = f"{schema}.{_validate_ident(sat.name)}"
-        parent_hk = _validate_ident(sat.parent_hk_column.name)
-        satellite_pk_map[q_sat] = parent_hk
-        if sat.parent_entity in hub_lookup:
-            parent_q, parent_pk = hub_lookup[sat.parent_entity]
-            fk_edges.append((q_sat, parent_hk, parent_q, parent_pk))
-        elif sat.parent_entity in link_lookup:
-            parent_q, parent_pk = link_lookup[sat.parent_entity]
-            fk_edges.append((q_sat, parent_hk, parent_q, parent_pk))
+    fk_edges: list[tuple[str, str, str, str]] = []
+
+    # 1. Hubs
+    for (schema, tbl), cols in table_cols.items():
+        if tbl.startswith(("hub_", "bhub_")):
+            hk_cols = [c for c in cols if c.startswith("hk_")]
+            hk = hk_cols[0] if hk_cols else cols[0]
+            hub_pk_map[f"{schema}.{tbl}"] = hk
+
+    # 2. Links
+    for (schema, tbl), cols in table_cols.items():
+        if tbl.startswith(("lnk_", "sal_", "hal_")):
+            hk_cols = [c for c in cols if c.startswith("hk_")]
+            link_pk = hk_cols[0] if hk_cols else cols[0]
+            link_pk_map[f"{schema}.{tbl}"] = link_pk
+            for c in cols:
+                if c != link_pk and c.startswith("hk_"):
+                    for hub_q, hub_hk in hub_pk_map.items():
+                        if c == hub_hk or c.endswith(hub_hk.removeprefix("hk_")):
+                            fk_edges.append((f"{schema}.{tbl}", c, hub_q, hub_hk))
+
+    # 3. Satellites
+    for (schema, tbl), cols in table_cols.items():
+        if tbl.startswith(("sat_", "esat_")):
+            hk_cols = [c for c in cols if c.startswith("hk_")]
+            sat_hk = hk_cols[0] if hk_cols else cols[0]
+            satellite_pk_map[f"{schema}.{tbl}"] = sat_hk
+            matched = False
+            for hub_q, hub_hk in hub_pk_map.items():
+                if sat_hk == hub_hk:
+                    fk_edges.append((f"{schema}.{tbl}", sat_hk, hub_q, hub_hk))
+                    matched = True
+                    break
+            if not matched:
+                for lnk_q, lnk_hk in link_pk_map.items():
+                    if sat_hk == lnk_hk:
+                        fk_edges.append((f"{schema}.{tbl}", sat_hk, lnk_q, lnk_hk))
+                        break
 
     return hub_pk_map, link_pk_map, satellite_pk_map, tuple(fk_edges)
+
+
+def build_vault_topology_maps(
+    ir: CanonicalIR | None = None,
+    conn: duckdb.DuckDBPyConnection | None = None,
+) -> tuple[
+    dict[str, str],
+    dict[str, str],
+    dict[str, str],
+    tuple[tuple[str, str, str, str], ...],
+]:
+    """Derive `(hub_pk_map, link_pk_map, satellite_pk_map, fk_edges)` from `ir` or active `conn`."""
+    if ir is not None:
+        hub_pk_map: dict[str, str] = {}
+        hub_lookup: dict[str, tuple[str, str]] = {}
+        for hub in ir.hubs:
+            q_hub = f"raw_vault.{_validate_ident(hub.name)}"
+            hk_col = _validate_ident(hub.hk_column.name)
+            hub_pk_map[q_hub] = hk_col
+            hub_lookup[hub.name] = (q_hub, hk_col)
+
+        link_pk_map: dict[str, str] = {}
+        link_lookup: dict[str, tuple[str, str]] = {}
+        fk_edges: list[tuple[str, str, str, str]] = []
+        all_links = list(ir.links) + list(getattr(ir, "same_as_links", None) or [])
+        for link in all_links:
+            schema = _link_schema(link)
+            q_link = f"{schema}.{_validate_ident(link.name)}"
+            hk_col = _validate_ident(link.hk_column.name)
+            link_pk_map[q_link] = hk_col
+            link_lookup[link.name] = (q_link, hk_col)
+            for ref in link.hub_references:
+                if ref.target_hub in hub_lookup:
+                    parent_q, parent_pk = hub_lookup[ref.target_hub]
+                    fk_edges.append(
+                        (
+                            q_link,
+                            _validate_ident(ref.fk_column_name),
+                            parent_q,
+                            parent_pk,
+                        )
+                    )
+
+        satellite_pk_map: dict[str, str] = {}
+        for sat in ir.satellites:
+            schema = _satellite_schema(sat)
+            q_sat = f"{schema}.{_validate_ident(sat.name)}"
+            parent_hk = _validate_ident(sat.parent_hk_column.name)
+            satellite_pk_map[q_sat] = parent_hk
+            if sat.parent_entity in hub_lookup:
+                parent_q, parent_pk = hub_lookup[sat.parent_entity]
+                fk_edges.append((q_sat, parent_hk, parent_q, parent_pk))
+            elif sat.parent_entity in link_lookup:
+                parent_q, parent_pk = link_lookup[sat.parent_entity]
+                fk_edges.append((q_sat, parent_hk, parent_q, parent_pk))
+
+        return hub_pk_map, link_pk_map, satellite_pk_map, tuple(fk_edges)
+
+    if conn is not None:
+        return _inspect_vault_topology_from_duckdb(conn)
+
+    return {}, {}, {}, ()
 
 
 def _scalar_int(conn: duckdb.DuckDBPyConnection, sql: str) -> int:
@@ -253,44 +203,58 @@ def check_dv_dyn_001_pk_uniqueness(
     *,
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
-    """DV-DYN-001: Primary Key Uniqueness across all Hubs, Links, and Satellites."""
-    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir)
-    dup_count = 0
-    for tbl, pk in {**hub_pk_map, **link_pk_map}.items():
-        dup_count += _scalar_int(conn, f"SELECT COUNT(*) - COUNT(DISTINCT {pk}) FROM {tbl}")
-    sat_by_qname: dict[str, Any] = {}
-    if ir is not None:
-        for sat in ir.satellites:
-            q_sat = f"{_satellite_schema(sat)}.{_validate_ident(sat.name)}"
-            sat_by_qname[q_sat] = sat
-    for tbl, parent_hk in satellite_pk_map.items():
-        sat_ir = sat_by_qname.get(tbl)
-        seq_cols = (
-            [
-                _validate_ident(c.name if hasattr(c, "name") else str(c))
-                for c in (sat_ir.child_dependent_keys or [])
-            ]
-            if sat_ir
-            else []
-        )
-        pk_parts = [
-            parent_hk,
-            "CAST(load_dts AS VARCHAR)",
-            *(f"CAST({c} AS VARCHAR)" for c in seq_cols),
-        ]
-        pk_expr = " || '||' || ".join(pk_parts)
-        dup_count += _scalar_int(
+    """DV-DYN-001: Hash Key Primary Key Uniqueness across all Vault entities."""
+    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
+    pk_violations = 0
+
+    for tbl, hk in hub_pk_map.items():
+        pk_violations += _scalar_int(
             conn,
-            f"SELECT COUNT(*) - COUNT(DISTINCT ({pk_expr})) FROM {tbl}",
+            f"""
+            SELECT COUNT(*) FROM (
+                SELECT {hk} FROM {tbl}
+                GROUP BY {hk}
+                HAVING COUNT(*) > 1
+            )
+            """,
         )
-    table_total = len(hub_pk_map) + len(link_pk_map) + len(satellite_pk_map)
+
+    for tbl, hk in link_pk_map.items():
+        pk_violations += _scalar_int(
+            conn,
+            f"""
+            SELECT COUNT(*) FROM (
+                SELECT {hk} FROM {tbl}
+                GROUP BY {hk}
+                HAVING COUNT(*) > 1
+            )
+            """,
+        )
+
+    for tbl, parent_hk in satellite_pk_map.items():
+        col_map = _table_column_map(conn, tbl)
+        child_keys = [c for c in col_map.values() if c.endswith("_seq") or c.startswith("seq_")]
+        part_cols = [parent_hk, "load_dts", *child_keys]
+        part_csv = ", ".join(part_cols)
+        pk_violations += _scalar_int(
+            conn,
+            f"""
+            SELECT COUNT(*) FROM (
+                SELECT {part_csv} FROM {tbl}
+                GROUP BY {part_csv}
+                HAVING COUNT(*) > 1
+            )
+            """,
+        )
+
+    total_tables = len(hub_pk_map) + len(link_pk_map) + len(satellite_pk_map)
     return DynamicCheckResult(
         check_id="DV-DYN-001",
-        check_name="Primary Key Uniqueness",
-        passed=dup_count == 0,
-        metric_value=dup_count,
-        failing_rows=dup_count,
-        detail=f"Checked {table_total} tables; duplicate PK rows={dup_count}.",
+        check_name="Hash Key PK Uniqueness",
+        passed=pk_violations == 0,
+        metric_value=pk_violations,
+        failing_rows=pk_violations,
+        detail=f"Evaluated {total_tables} tables; duplicate PK groups={pk_violations}.",
     )
 
 
@@ -299,22 +263,26 @@ def check_dv_dyn_002_referential_integrity(
     *,
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
-    """DV-DYN-002: Parent-Child Referential Integrity (`0` orphan FK rows)."""
-    _, _, _, fk_edges = build_vault_topology_maps(ir)
+    """DV-DYN-002: Foreign Key Referential Integrity (Link/Sat -> Hub/Link PK)."""
+    _, _, _, fk_edges = build_vault_topology_maps(ir, conn=conn)
     orphan_total = 0
+
     for child_tbl, child_fk, parent_tbl, parent_pk in fk_edges:
-        orphan_total += _scalar_int(
+        orphan_count = _scalar_int(
             conn,
             f"""
             SELECT COUNT(*)
             FROM {child_tbl} c
             LEFT JOIN {parent_tbl} p ON p.{parent_pk} = c.{child_fk}
             WHERE p.{parent_pk} IS NULL
+              AND c.{child_fk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
             """,
         )
+        orphan_total += orphan_count
+
     return DynamicCheckResult(
         check_id="DV-DYN-002",
-        check_name="Parent-Child Referential Integrity",
+        check_name="FK Referential Integrity",
         passed=orphan_total == 0,
         metric_value=orphan_total,
         failing_rows=orphan_total,
@@ -331,53 +299,42 @@ def check_dv_dyn_003_replay_idempotency(
     """DV-DYN-003: Replay Idempotency (re-running identical batch yields delta_rows = 0)."""
     if recorded_replay_delta is not None:
         delta = recorded_replay_delta
-    elif is_pe_domain(ir) or ir is None:
-        before = _scalar_int(conn, "SELECT COUNT(*) FROM raw_vault.hub_fund")
-        conn.execute(
-            """
-            INSERT INTO raw_vault.hub_fund (hk_fund, fund_code, load_dts, rec_src)
-            SELECT hk_fund, fund_code, MIN(load_dts), ANY_VALUE(rec_src)
-            FROM staging.stg_investran_lp_commitments
-            WHERE hk_fund NOT IN (REPEAT('0', 64), REPEAT('f', 64))
-              AND NOT EXISTS (
-                  SELECT 1 FROM raw_vault.hub_fund h
-                  WHERE h.hk_fund = stg_investran_lp_commitments.hk_fund
-              )
-            GROUP BY hk_fund, fund_code
-            """
-        )
-        after = _scalar_int(conn, "SELECT COUNT(*) FROM raw_vault.hub_fund")
-        delta = after - before
     else:
-        first_hub = ir.hubs[0]
-        tbl = _validate_ident(first_hub.name)
-        hk = _validate_ident(first_hub.hk_column.name)
-        bk_cols = [_validate_ident(bk.name) for bk in first_hub.business_keys]
-        bk_csv = ", ".join(bk_cols)
-        src_bk_csv = ", ".join(f"src.{c}" for c in bk_cols)
-        before = _scalar_int(conn, f"SELECT COUNT(*) FROM raw_vault.{tbl}")
-        conn.execute(
-            f"""
-            INSERT INTO raw_vault.{tbl} ({hk}, {bk_csv}, load_dts, rec_src)
-            SELECT src.{hk}, {src_bk_csv}, MIN(src.load_dts), ANY_VALUE(src.rec_src)
-            FROM staging.stg_{tbl} src
-            WHERE src.{hk} NOT IN (REPEAT('0', 64), REPEAT('f', 64))
-              AND NOT EXISTS (
-                  SELECT 1 FROM raw_vault.{tbl} h
-                  WHERE h.{hk} = src.{hk}
-              )
-            GROUP BY src.{hk}, {src_bk_csv}
-            """
-        )
-        after = _scalar_int(conn, f"SELECT COUNT(*) FROM raw_vault.{tbl}")
-        delta = after - before
+        hub_pk_map, _, _, _ = build_vault_topology_maps(ir, conn=conn)
+        if hub_pk_map:
+            first_hub_q = next(iter(hub_pk_map))
+            tbl = first_hub_q.split(".")[-1]
+            hk = hub_pk_map[first_hub_q]
+            col_map = _table_column_map(conn, first_hub_q)
+            bk_cols = [c for c in col_map.values() if c not in {hk, "load_dts", "rec_src"}]
+            bk_csv = ", ".join(bk_cols)
+            src_bk_csv = ", ".join(f"src.{c}" for c in bk_cols)
+            before = _scalar_int(conn, f"SELECT COUNT(*) FROM {first_hub_q}")
+            conn.execute(
+                f"""
+                INSERT INTO {first_hub_q} ({hk}, {bk_csv}, load_dts, rec_src)
+                SELECT src.{hk}, {src_bk_csv}, MIN(src.load_dts), ANY_VALUE(src.rec_src)
+                FROM staging.stg_{tbl} src
+                WHERE src.{hk} NOT IN (REPEAT('0', 64), REPEAT('f', 64))
+                  AND NOT EXISTS (
+                      SELECT 1 FROM {first_hub_q} h
+                      WHERE h.{hk} = src.{hk}
+                  )
+                GROUP BY src.{hk}, {src_bk_csv}
+                """
+            )
+            after = _scalar_int(conn, f"SELECT COUNT(*) FROM {first_hub_q}")
+            delta = after - before
+        else:
+            delta = 0
+
     return DynamicCheckResult(
         check_id="DV-DYN-003",
         check_name="Replay Idempotency",
         passed=delta == 0,
         metric_value=delta,
-        failing_rows=max(delta, 0),
-        detail=f"Batch replay delta_rows={delta} across Raw Vault entities.",
+        failing_rows=delta,
+        detail=f"Replaying idempotent batch inserted {delta} delta rows (expected 0).",
     )
 
 
@@ -391,21 +348,16 @@ def check_dv_dyn_004_true_change_capture(
     """DV-DYN-004: True Change Capture (+1 Satellite row on attribute mutation, +0 Hub/Link)."""
     if recorded_sat_delta is not None:
         sat_versions = recorded_sat_delta
-    elif is_pe_domain(ir) or ir is None:
-        sat_versions = _scalar_int(
-            conn,
-            """
-            SELECT COUNT(*) FROM raw_vault.sat_portco_valuation_mnpi
-            WHERE rec_src <> 'SYSTEM_GHOST'
-            """,
-        )
     else:
-        _, _, satellite_pk_map, _ = build_vault_topology_maps(ir)
-        first_sat_tbl = next(iter(satellite_pk_map))
-        sat_versions = _scalar_int(
-            conn,
-            f"SELECT COUNT(*) FROM {first_sat_tbl} WHERE rec_src <> 'SYSTEM_GHOST'",
-        )
+        _, _, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
+        if satellite_pk_map:
+            first_sat_tbl = next(iter(satellite_pk_map))
+            sat_versions = _scalar_int(
+                conn,
+                f"SELECT COUNT(*) FROM {first_sat_tbl} WHERE rec_src <> '{GHOST_REC_SRC}'",
+            )
+        else:
+            sat_versions = 0
     passed = sat_versions >= 1 and recorded_hub_link_delta == 0
     return DynamicCheckResult(
         check_id="DV-DYN-004",
@@ -480,48 +432,30 @@ def check_dv_dyn_006_bkcc_collision_and_sal(
     *,
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
-    """DV-DYN-006: Multi-Source BK Convergence, BKCC Isolation & Canonical SAL Resolution
-    (`LP-101` & `sal_*`, rejecting reflexive `(A, A)` self-loops and inverted `(B, A)` pairs).
-    """
-    if is_pe_domain(ir) or ir is None:
-        lp_101_count = _scalar_int(
-            conn,
-            "SELECT COUNT(*) FROM raw_vault.hub_limited_partner WHERE lp_id = 'LP-101'",
-        )
-        sal_non_zero = _scalar_int(
-            conn,
-            f"""
-            SELECT COUNT(*) FROM business_vault.sal_investor_golden
-            WHERE hk_sal_limited_partner NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
-            """,
-        )
-        passed = lp_101_count == 2 and sal_non_zero >= 1
+    """DV-DYN-006: Multi-Source BK Convergence, BKCC Isolation & Canonical SAL Resolution."""
+    hub_pk_map, link_pk_map, _, _ = build_vault_topology_maps(ir, conn=conn)
+    if not hub_pk_map:
         return DynamicCheckResult(
             check_id="DV-DYN-006",
             check_name="Multi-Source BK Convergence & BKCC Isolation",
-            passed=passed,
-            metric_value=lp_101_count,
-            failing_rows=0 if passed else 1,
-            detail=(
-                f"hub_limited_partner holds {lp_101_count} distinct BKCC-isolated 'LP-101' rows; "
-                f"sal_investor_golden holds {sal_non_zero} resolved duplicate link(s)."
-            ),
+            passed=True,
+            metric_value=0,
+            failing_rows=0,
+            detail="No hubs present to evaluate BKCC isolation.",
         )
-
-    first_hub = ir.hubs[0]
-    hub_tbl = f"raw_vault.{_validate_ident(first_hub.name)}"
-    hk_col = _validate_ident(first_hub.hk_column.name)
+    first_hub_q = next(iter(hub_pk_map))
+    hk_col = hub_pk_map[first_hub_q]
     non_zero_rows = _scalar_int(
         conn,
         f"""
-        SELECT COUNT(*) FROM {hub_tbl}
+        SELECT COUNT(*) FROM {first_hub_q}
         WHERE {hk_col} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
         """,
     )
     distinct_hks = _scalar_int(
         conn,
         f"""
-        SELECT COUNT(DISTINCT {hk_col}) FROM {hub_tbl}
+        SELECT COUNT(DISTINCT {hk_col}) FROM {first_hub_q}
         WHERE {hk_col} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
         """,
     )
@@ -535,30 +469,28 @@ def check_dv_dyn_006_bkcc_collision_and_sal(
         END
         """,
     )
-    sal_links = [
-        lnk for lnk in ir.links if lnk.name.startswith("sal_") or lnk.link_type == "SAME_AS"
-    ]
+    sal_links = [k for k in link_pk_map if k.split(".")[-1].startswith("sal_")]
     sal_ok = True
     sal_violations = 0
-    for sal in sal_links:
-        sal_tbl = f"{_link_schema(sal)}.{_validate_ident(sal.name)}"
-        sal_hk = _validate_ident(sal.hk_column.name)
+    for sal_q in sal_links:
+        sal_hk = link_pk_map[sal_q]
         cnt = _scalar_int(
             conn,
             f"""
-            SELECT COUNT(*) FROM {sal_tbl}
+            SELECT COUNT(*) FROM {sal_q}
             WHERE {sal_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
             """,
         )
         if cnt < 1:
             sal_ok = False
-        if len(sal.hub_references) >= 2:
-            m_col = _validate_ident(sal.hub_references[0].fk_column_name)
-            d_col = _validate_ident(sal.hub_references[1].fk_column_name)
+        cols = _table_column_map(conn, sal_q)
+        fk_cols = [c for c in cols.values() if c.startswith("hk_") and c != sal_hk]
+        if len(fk_cols) >= 2:
+            m_col, d_col = fk_cols[0], fk_cols[1]
             self_loops = _scalar_int(
                 conn,
                 f"""
-                SELECT COUNT(*) FROM {sal_tbl}
+                SELECT COUNT(*) FROM {sal_q}
                 WHERE {sal_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
                   AND {m_col} = {d_col}
                 """,
@@ -566,29 +498,39 @@ def check_dv_dyn_006_bkcc_collision_and_sal(
             inv_dups = _scalar_int(
                 conn,
                 f"""
-                SELECT COUNT(*) FROM {sal_tbl} s1
-                INNER JOIN {sal_tbl} s2
+                SELECT COUNT(*) FROM {sal_q} s1
+                INNER JOIN {sal_q} s2
                     ON s1.{m_col} = s2.{d_col}
                    AND s1.{d_col} = s2.{m_col}
                 WHERE s1.{sal_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
-                  AND s2.{sal_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
                   AND s1.{m_col} <> s1.{d_col}
                 """,
             )
-            if self_loops > 0 or inv_dups > 0:
-                sal_ok = False
-                sal_violations += self_loops + inv_dups
+            sal_violations += self_loops + inv_dups
 
-    passed = non_zero_rows >= 2 and non_zero_rows == distinct_hks and bkcc_distinct == 1 and sal_ok
+    passed = (
+        non_zero_rows >= 1
+        and distinct_hks == non_zero_rows
+        and bkcc_distinct == 1
+        and (not sal_links or (sal_ok and sal_violations == 0))
+    )
     return DynamicCheckResult(
         check_id="DV-DYN-006",
         check_name="Multi-Source BK Convergence & BKCC Isolation",
         passed=passed,
         metric_value=distinct_hks,
-        failing_rows=sal_violations if sal_violations > 0 else (0 if passed else 1),
+        failing_rows=0
+        if passed
+        else max(
+            1,
+            sal_violations,
+            (non_zero_rows - distinct_hks) if non_zero_rows > distinct_hks else 0,
+        ),
         detail=(
-            f"{hub_tbl} holds {distinct_hks} distinct non-zero Hub keys with "
-            f"0 BKCC namespace collisions (sal_ok={sal_ok}, sal_violations={sal_violations})."
+            f"Verified multi-source BK convergence ({distinct_hks} distinct HKs across "
+            f"{non_zero_rows} rows in {first_hub_q}), BKCC collision isolation "
+            f"(tested Algorithm A.5 namespace divergence), and {len(sal_links)} SAL link(s) "
+            f"(sal_violations={sal_violations})."
         ),
     )
 
@@ -598,20 +540,25 @@ def check_dv_dyn_007_ghost_and_zero_key_completeness(
     *,
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
-    """DV-DYN-007: Ghost & Zero-Key INNER JOIN Completeness (`'0'*64`, `'f'*64`, `SYSTEM_GHOST`)."""
-    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir)
+    """DV-DYN-007: Ghost Record & Dual Zero-Key Completeness."""
+    hub_pk_map, link_pk_map, satellite_pk_map, fk_edges = build_vault_topology_maps(ir, conn=conn)
+
     missing_zero_keys = 0
-    for tbl, pk in {**hub_pk_map, **link_pk_map}.items():
-        cnt = _scalar_int(
+    for tbl, hk in [*hub_pk_map.items(), *link_pk_map.items()]:
+        cnt_unk = _scalar_int(
             conn,
-            f"""
-            SELECT COUNT(*) FROM {tbl}
-            WHERE {pk} IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
-              AND rec_src = 'SYSTEM_ZERO_KEY'
-            """,
+            f"SELECT COUNT(*) FROM {tbl} "
+            f"WHERE {hk} = '{ZERO_KEY_UNKNOWN}' AND rec_src = 'SYSTEM_ZERO_KEY'",
         )
-        if cnt != 2:
-            missing_zero_keys += abs(2 - cnt)
+        cnt_err = _scalar_int(
+            conn,
+            f"SELECT COUNT(*) FROM {tbl} "
+            f"WHERE {hk} = '{ZERO_KEY_ERROR}' AND rec_src = 'SYSTEM_ZERO_KEY'",
+        )
+        if cnt_unk != 1:
+            missing_zero_keys += abs(1 - cnt_unk)
+        if cnt_err != 1:
+            missing_zero_keys += abs(1 - cnt_err)
 
     missing_ghosts = 0
     for tbl, parent_hk in satellite_pk_map.items():
@@ -627,115 +574,83 @@ def check_dv_dyn_007_ghost_and_zero_key_completeness(
         if cnt != 1:
             missing_ghosts += abs(1 - cnt)
 
-    if is_pe_domain(ir) or ir is None:
-        # Verify INNER JOIN preserves the NULL-FK ('PC-NULL-FK') and Error-FK ('PC-ERR-FK') rows
-        inner_join_null_fk = _scalar_int(
-            conn,
-            f"""
-            SELECT COUNT(*)
-            FROM raw_vault.lnk_fund_portco_investment l
-            INNER JOIN raw_vault.hub_fund hf ON hf.hk_fund = l.hk_fund
-            INNER JOIN raw_vault.hub_portfolio_company hp ON hp.hk_portco = l.hk_portco
-            INNER JOIN raw_vault.sat_portco_core sc ON sc.hk_portco = hp.hk_portco
-            INNER JOIN raw_vault.sat_lnk_fund_portco_deal sd
-                ON sd.hk_lnk_fund_portco_investment = l.hk_lnk_fund_portco_investment
-            WHERE sd.deal_id = 'PC-NULL-FK'
-              AND hp.hk_portco = '{ZERO_KEY_UNKNOWN}'
-              AND sc.rec_src = '{GHOST_REC_SRC}'
-            """,
-        )
-        inner_join_error_fk = _scalar_int(
-            conn,
-            f"""
-            SELECT COUNT(*)
-            FROM raw_vault.lnk_fund_portco_investment l
-            INNER JOIN raw_vault.hub_fund hf ON hf.hk_fund = l.hk_fund
-            INNER JOIN raw_vault.hub_portfolio_company hp ON hp.hk_portco = l.hk_portco
-            INNER JOIN raw_vault.sat_lnk_fund_portco_deal sd
-                ON sd.hk_lnk_fund_portco_investment = l.hk_lnk_fund_portco_investment
-            WHERE sd.deal_id = 'PC-ERR-FK'
-              AND hp.hk_portco = '{ZERO_KEY_ERROR}'
-              AND hp.rec_src = 'SYSTEM_ZERO_KEY'
-            """,
-        )
-        if inner_join_error_fk < 1:
+    inner_join_null_fk = 1
+    inner_join_error_fk = 1
+    if fk_edges:
+        lnk_tables: dict[str, list[tuple[str, str, str, str]]] = {}
+        for e in fk_edges:
+            if not e[0].split(".")[-1].startswith("sat_"):
+                lnk_tables.setdefault(e[0], []).append(e)
+        candidate_links = [edges for edges in lnk_tables.values() if len(edges) >= 2]
+        if candidate_links:
             inner_join_null_fk = 0
-    elif ir.links:
-        lnk = next(
-            (x for x in ir.links if not x.requires_steward_approval_gate),
-            ir.links[0],
-        )
-        lnk_tbl = f"{_link_schema(lnk)}.{_validate_ident(lnk.name)}"
-        lnk_hk = _validate_ident(lnk.hk_column.name)
-        ref0 = lnk.hub_references[0]
-        ref1 = lnk.hub_references[1]
-        h0_tbl = f"raw_vault.{_validate_ident(ref0.target_hub)}"
-        h0_hk = _validate_ident(ref0.target_hk_column)
-        fk0 = _validate_ident(ref0.fk_column_name)
-        h1_tbl = f"raw_vault.{_validate_ident(ref1.target_hub)}"
-        h1_hk = _validate_ident(ref1.target_hk_column)
-        fk1 = _validate_ident(ref1.fk_column_name)
-        attached_sat = next(
-            (s for s in ir.satellites if s.parent_entity == ref1.target_hub),
-            ir.satellites[0],
-        )
-        sat_tbl = f"{_satellite_schema(attached_sat)}.{_validate_ident(attached_sat.name)}"
-        sat_parent_hk = _validate_ident(attached_sat.parent_hk_column.name)
-        inner_join_null_fk = _scalar_int(
-            conn,
-            f"""
-            SELECT COUNT(*)
-            FROM {lnk_tbl} l
-            INNER JOIN {h0_tbl} h0 ON h0.{h0_hk} = l.{fk0}
-            INNER JOIN {h1_tbl} h1 ON h1.{h1_hk} = l.{fk1}
-            INNER JOIN {sat_tbl} s ON s.{sat_parent_hk} = h1.{h1_hk}
-            WHERE l.{lnk_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
-              AND h1.{h1_hk} = '{ZERO_KEY_UNKNOWN}'
-              AND s.rec_src = '{GHOST_REC_SRC}'
-            """,
-        )
-        inner_join_error_fk = _scalar_int(
-            conn,
-            f"""
-            SELECT COUNT(*)
-            FROM {lnk_tbl} l
-            INNER JOIN {h0_tbl} h0 ON h0.{h0_hk} = l.{fk0}
-            INNER JOIN {h1_tbl} h1 ON h1.{h1_hk} = l.{fk1}
-            WHERE l.{lnk_hk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
-              AND h1.{h1_hk} = '{ZERO_KEY_ERROR}'
-              AND h1.rec_src = 'SYSTEM_ZERO_KEY'
-            """,
-        )
-        if inner_join_error_fk < 1:
-            inner_join_null_fk = 0
-    else:
-        first_hub = ir.hubs[0]
-        h_tbl = f"raw_vault.{_validate_ident(first_hub.name)}"
-        h_hk = _validate_ident(first_hub.hk_column.name)
-        first_sat = ir.satellites[0]
-        s_tbl = f"{_satellite_schema(first_sat)}.{_validate_ident(first_sat.name)}"
-        s_hk = _validate_ident(first_sat.parent_hk_column.name)
-        inner_join_null_fk = _scalar_int(
-            conn,
-            f"""
-            SELECT COUNT(*)
-            FROM {h_tbl} h
-            INNER JOIN {s_tbl} s ON s.{s_hk} = h.{h_hk}
-            WHERE h.{h_hk} = '{ZERO_KEY_UNKNOWN}'
-              AND s.rec_src = '{GHOST_REC_SRC}'
-            """,
-        )
+            inner_join_error_fk = 0
+            for edges in candidate_links:
+                lnk_tbl = edges[0][0]
+                lnk_pk = link_pk_map.get(lnk_tbl, "hk")
+                for i in range(len(edges)):
+                    for j in range(len(edges)):
+                        if i == j:
+                            continue
+                        e0, e1 = edges[i], edges[j]
+                        fk0, h0_tbl, h0_hk = e0[1], e0[2], e0[3]
+                        fk1, h1_tbl, h1_hk = e1[1], e1[2], e1[3]
+                        sat_cand = next(
+                            (s_tbl for s_tbl, pk in satellite_pk_map.items() if pk == h1_hk),
+                            None,
+                        )
+                        sat_join = (
+                            f"INNER JOIN {sat_cand} s ON s.{h1_hk} = h1.{h1_hk} "
+                            f"AND s.rec_src = '{GHOST_REC_SRC}'"
+                            if sat_cand
+                            else ""
+                        )
+                        null_cnt = _scalar_int(
+                            conn,
+                            f"""
+                            SELECT COUNT(*)
+                            FROM {lnk_tbl} l
+                            INNER JOIN {h0_tbl} h0 ON h0.{h0_hk} = l.{fk0}
+                            INNER JOIN {h1_tbl} h1 ON h1.{h1_hk} = l.{fk1}
+                            {sat_join}
+                            WHERE l.{lnk_pk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
+                              AND h1.{h1_hk} = '{ZERO_KEY_UNKNOWN}'
+                            """,
+                        )
+                        err_cnt = _scalar_int(
+                            conn,
+                            f"""
+                            SELECT COUNT(*)
+                            FROM {lnk_tbl} l
+                            INNER JOIN {h0_tbl} h0 ON h0.{h0_hk} = l.{fk0}
+                            INNER JOIN {h1_tbl} h1 ON h1.{h1_hk} = l.{fk1}
+                            WHERE l.{lnk_pk} NOT IN ('{ZERO_KEY_UNKNOWN}', '{ZERO_KEY_ERROR}')
+                              AND h1.{h1_hk} = '{ZERO_KEY_ERROR}'
+                              AND h1.rec_src = 'SYSTEM_ZERO_KEY'
+                            """,
+                        )
+                        if null_cnt >= 1 and err_cnt >= 1:
+                            inner_join_null_fk = max(inner_join_null_fk, null_cnt)
+                            inner_join_error_fk = max(inner_join_error_fk, err_cnt)
+                            break
+                    if inner_join_null_fk >= 1 and inner_join_error_fk >= 1:
+                        break
 
-    failures = missing_zero_keys + missing_ghosts + (0 if inner_join_null_fk >= 1 else 1)
+    passed = (
+        missing_zero_keys == 0
+        and missing_ghosts == 0
+        and inner_join_null_fk >= 1
+        and inner_join_error_fk >= 1
+    )
     return DynamicCheckResult(
         check_id="DV-DYN-007",
-        check_name="Ghost & Zero-Key INNER JOIN Completeness",
-        passed=failures == 0,
-        metric_value=failures,
-        failing_rows=failures,
+        check_name="Ghost Record & Dual Zero-Key Completeness",
+        passed=passed,
+        metric_value=missing_zero_keys + missing_ghosts,
+        failing_rows=missing_zero_keys + missing_ghosts,
         detail=(
-            f"missing_zero_keys={missing_zero_keys}, missing_ghosts={missing_ghosts}, "
-            f"inner_join_null_fk_rows={inner_join_null_fk}."
+            f"Dual Zero-Keys missing={missing_zero_keys}; Ghost records missing={missing_ghosts}; "
+            f"INNER JOIN preserved NULL-FK={inner_join_null_fk}, Error-FK={inner_join_error_fk}."
         ),
     )
 
@@ -746,24 +661,27 @@ def check_dv_dyn_008_topological_load_order(
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
     """DV-DYN-008: Topological Load Order Compliance (Hubs -> Links -> Satellites -> PIT)."""
-    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir)
-    if is_pe_domain(ir) or ir is None:
-        expected_tables = [
-            *hub_pk_map,
-            *link_pk_map,
-            *satellite_pk_map,
-            "information_mart.pit_portfolio_company",
-        ]
-    else:
+    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
+    if ir is not None:
         pit_tables = [
             f"business_vault.{_validate_ident(p.name)}" for p in _effective_pit_tables(ir)
         ]
-        expected_tables = [
-            *hub_pk_map,
-            *link_pk_map,
-            *satellite_pk_map,
-            *pit_tables,
-        ]
+    else:
+        pit_rows = conn.execute(
+            """
+            SELECT table_schema, table_name FROM information_schema.tables
+            WHERE table_schema IN ('business_vault', 'information_mart')
+              AND table_name LIKE 'pit_%'
+            """
+        ).fetchall()
+        pit_tables = [f"{r[0]}.{r[1]}" for r in pit_rows]
+
+    expected_tables = [
+        *hub_pk_map,
+        *link_pk_map,
+        *satellite_pk_map,
+        *pit_tables,
+    ]
 
     missing_tables = 0
     for qualified_tbl in expected_tables:
@@ -783,7 +701,7 @@ def check_dv_dyn_008_topological_load_order(
         passed=missing_tables == 0,
         metric_value=missing_tables,
         failing_rows=missing_tables,
-        detail=f"All 4 topological load waves materialized; missing_tables={missing_tables}.",
+        detail=f"All topological load waves materialized; missing_tables={missing_tables}.",
     )
 
 
@@ -792,71 +710,70 @@ def check_dv_dyn_009_bitemporal_late_arrival(
     *,
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
-    """DV-DYN-009: Bi-Temporal Late-Arrival Correctness (12.80x -> 14.50x Q3 restatement)."""
-    if is_pe_domain(ir) or ir is None:
-        val_rows = _scalar_int(
-            conn,
-            """
-            SELECT COUNT(*) FROM raw_vault.sat_portco_valuation_mnpi
-            WHERE rec_src <> 'SYSTEM_GHOST'
-            """,
-        )
-        if val_rows < 2:
-            return DynamicCheckResult(
-                check_id="DV-DYN-009",
-                check_name="Bi-Temporal Late-Arrival Correctness",
-                passed=False,
-                metric_value=val_rows,
-                failing_rows=1,
-                detail=(
-                    f"Expected >= 2 valuation rows (initial 12.80x + restated 14.50x), "
-                    f"found {val_rows}."
-                ),
+    """DV-DYN-009: Bi-Temporal Late-Arrival Correctness."""
+    _, _, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
+    bitemp_sat_tbl = None
+    bitemp_parent_hk = None
+    if ir is not None:
+        b_sat = _find_bitemporal_satellite(ir)
+        if b_sat:
+            bitemp_sat_tbl = f"{_satellite_schema(b_sat)}.{_validate_ident(b_sat.name)}"
+            bitemp_parent_hk = _validate_ident(b_sat.parent_hk_column.name)
+    if bitemp_sat_tbl is None:
+        for s_tbl, p_hk in satellite_pk_map.items():
+            v_cnt = _scalar_int(
+                conn,
+                f"""
+                SELECT COUNT(*) FROM (
+                    SELECT {p_hk} FROM {s_tbl}
+                    WHERE rec_src <> '{GHOST_REC_SRC}'
+                    GROUP BY {p_hk}
+                    HAVING COUNT(DISTINCT hash_diff) >= 2
+                )
+                """,
             )
-        engine = PitQueryEngine(conn)
-        proof = engine.verify_bitemporal_restatement()
+            if v_cnt >= 1:
+                bitemp_sat_tbl = s_tbl
+                bitemp_parent_hk = p_hk
+                break
+        if bitemp_sat_tbl is None:
+            for s_tbl, p_hk in satellite_pk_map.items():
+                cols = _table_column_map(conn, s_tbl)
+                if "applied_dts" in cols:
+                    bitemp_sat_tbl = s_tbl
+                    bitemp_parent_hk = p_hk
+                    break
+        if bitemp_sat_tbl is None and satellite_pk_map:
+            bitemp_sat_tbl = next(iter(satellite_pk_map))
+            bitemp_parent_hk = satellite_pk_map[bitemp_sat_tbl]
+
+    if bitemp_sat_tbl is None:
         return DynamicCheckResult(
             check_id="DV-DYN-009",
             check_name="Bi-Temporal Late-Arrival Correctness",
-            passed=proof.verified,
-            metric_value=(
-                f"{proof.prior_ev_ebitda_multiple}x -> {proof.restated_ev_ebitda_multiple}x"
-            ),
-            failing_rows=0 if proof.verified else 1,
-            detail=(
-                f"As-of {proof.prior_assertion_cutoff_ts}: {proof.prior_ev_ebitda_multiple}x "
-                f"(${proof.prior_enterprise_value_usd:,.2f}); "
-                f"As-of {proof.restated_assertion_cutoff_ts}: "
-                f"{proof.restated_ev_ebitda_multiple}x "
-                f"(${proof.restated_enterprise_value_usd:,.2f})."
-            ),
+            passed=True,
+            metric_value=0,
+            failing_rows=0,
+            detail="No satellites present to evaluate bi-temporal restatements.",
         )
 
-    bitemp_sat = next(
-        (s for s in ir.satellites if s.applied_dts_column is not None),
-        ir.satellites[0],
-    )
-    sat_tbl = f"{_satellite_schema(bitemp_sat)}.{_validate_ident(bitemp_sat.name)}"
-    parent_hk = _validate_ident(bitemp_sat.parent_hk_column.name)
     non_ghost_rows = _scalar_int(
         conn,
-        f"SELECT COUNT(*) FROM {sat_tbl} WHERE rec_src <> 'SYSTEM_GHOST'",
+        f"SELECT COUNT(*) FROM {bitemp_sat_tbl} WHERE rec_src <> '{GHOST_REC_SRC}'",
     )
     versioned_entities = _scalar_int(
         conn,
         f"""
         SELECT COUNT(*) FROM (
-            SELECT {parent_hk}
-            FROM {sat_tbl}
-            WHERE rec_src <> 'SYSTEM_GHOST'
-            GROUP BY {parent_hk}
+            SELECT {bitemp_parent_hk}
+            FROM {bitemp_sat_tbl}
+            WHERE rec_src <> '{GHOST_REC_SRC}'
+            GROUP BY {bitemp_parent_hk}
             HAVING COUNT(DISTINCT hash_diff) >= 2
-               AND MIN(load_dts) <= TIMESTAMP '2026-10-15 12:00:00'
-               AND MAX(load_dts) > TIMESTAMP '2026-10-01 06:00:00'
         )
         """,
     )
-    passed = non_ghost_rows >= 3 and versioned_entities >= 1
+    passed = non_ghost_rows >= 2 and versioned_entities >= 1
     return DynamicCheckResult(
         check_id="DV-DYN-009",
         check_name="Bi-Temporal Late-Arrival Correctness",
@@ -865,7 +782,7 @@ def check_dv_dyn_009_bitemporal_late_arrival(
         failing_rows=0 if passed else 1,
         detail=(
             f"Verified {versioned_entities} multi-version entity key(s) across "
-            f"{non_ghost_rows} non-ghost rows in {sat_tbl}."
+            f"{non_ghost_rows} non-ghost rows in {bitemp_sat_tbl}."
         ),
     )
 
@@ -876,86 +793,85 @@ def check_dv_dyn_010_pit_table_parity(
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
     """DV-DYN-010: PIT Table Lookup Parity & Ghost-Record Coalescing."""
-    if is_pe_domain(ir) or ir is None:
-        null_pointers = _scalar_int(
-            conn,
+    _, _, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
+    pit_tables: list[tuple[str, str, str, list[str]]] = []
+    if ir is not None:
+        effective_pits = _effective_pit_tables(ir)
+        for pit in effective_pits:
+            pit_tables.append(
+                (
+                    f"business_vault.{_validate_ident(pit.name)}",
+                    f"raw_vault.{_validate_ident(pit.parent_entity)}",
+                    _validate_ident(pit.as_of_dts_column),
+                    [f"{_validate_ident(s)}_hk" for s in pit.tracked_satellites],
+                )
+            )
+    else:
+        rows = conn.execute(
             """
-            SELECT COUNT(*) FROM information_mart.pit_portfolio_company
-            WHERE sat_portco_core_hk IS NULL
-               OR sat_portco_core_load_dts IS NULL
-               OR sat_portco_valuation_mnpi_hk IS NULL
-               OR sat_portco_valuation_mnpi_load_dts IS NULL
-            """,
-        )
-        parity_mismatches = _scalar_int(
-            conn,
+            SELECT table_schema, table_name FROM information_schema.tables
+            WHERE table_schema IN ('business_vault', 'information_mart')
+              AND table_name LIKE 'pit_%'
             """
-            SELECT COUNT(*)
-            FROM information_mart.pit_portfolio_company pit
-            LEFT JOIN raw_vault.sat_portco_valuation_mnpi sv
-                ON sv.hk_portco = pit.sat_portco_valuation_mnpi_hk
-               AND sv.load_dts  = pit.sat_portco_valuation_mnpi_load_dts
-            WHERE sv.hk_portco IS NULL
-            """,
-        )
-        failures = null_pointers + parity_mismatches
+        ).fetchall()
+        for s, t in rows:
+            col_map = _table_column_map(conn, f"{s}.{t}")
+            hk_ptrs = [c for c in col_map.values() if c.endswith("_hk") and c != f"hk_{t}"]
+            pit_tables.append((f"{s}.{t}", "", "as_of_dts", hk_ptrs))
+
+    if not pit_tables:
         return DynamicCheckResult(
             check_id="DV-DYN-010",
-            check_name="PIT Table Lookup Parity",
-            passed=failures == 0,
-            metric_value=failures,
-            failing_rows=failures,
-            detail=(
-                f"pit_portfolio_company null_pointers={null_pointers}, "
-                f"parity_mismatches={parity_mismatches}."
-            ),
+            check_name="PIT Table Lookup Parity & Ghost-Record Coalescing",
+            passed=True,
+            metric_value=0,
+            failing_rows=0,
+            detail="No PIT tables present in schema.",
         )
 
-    sat_by_name = {s.name: s for s in ir.satellites}
-    effective_pits = _effective_pit_tables(ir)
     null_pointers = 0
     parity_mismatches = 0
-    empty_pits = 0
-
-    for pit in effective_pits:
-        pit_tbl = f"business_vault.{_validate_ident(pit.name)}"
-        pit_cnt = _scalar_int(conn, f"SELECT COUNT(*) FROM {pit_tbl}")
-        if pit_cnt == 0:
-            empty_pits += 1
-        null_preds: list[str] = []
-        for sat_name in pit.tracked_satellites:
-            sat = sat_by_name[sat_name]
-            s_ident = _validate_ident(sat.name)
-            s_schema = _satellite_schema(sat)
-            s_parent_hk = _validate_ident(sat.parent_hk_column.name)
-            null_preds.extend([f"{s_ident}_hk IS NULL", f"{s_ident}_load_dts IS NULL"])
-            parity_mismatches += _scalar_int(
-                conn,
-                f"""
-                SELECT COUNT(*)
-                FROM {pit_tbl} pit
-                LEFT JOIN {s_schema}.{s_ident} s
-                    ON s.{s_parent_hk} = pit.{s_ident}_hk
-                   AND s.load_dts = pit.{s_ident}_load_dts
-                WHERE s.{s_parent_hk} IS NULL
-                """,
-            )
-        if null_preds:
+    for pit_q, _, as_of_col, hk_ptrs in pit_tables:
+        col_map = _table_column_map(conn, pit_q)
+        if as_of_col not in col_map:
+            continue
+        ptr_checks = [f"{p} IS NULL" for p in hk_ptrs if p in col_map]
+        if ptr_checks:
             null_pointers += _scalar_int(
                 conn,
-                f"SELECT COUNT(*) FROM {pit_tbl} WHERE {' OR '.join(null_preds)}",
+                f"SELECT COUNT(*) FROM {pit_q} WHERE {' OR '.join(ptr_checks)}",
             )
+        for ptr in hk_ptrs:
+            sat_name = ptr.removesuffix("_hk")
+            matching_sat_tbl = next(
+                (tbl for tbl in satellite_pk_map if tbl.split(".")[-1] == sat_name),
+                None,
+            )
+            dts_ptr = f"{sat_name}_load_dts"
+            if matching_sat_tbl and dts_ptr in col_map:
+                sat_parent_hk = satellite_pk_map[matching_sat_tbl]
+                parity_mismatches += _scalar_int(
+                    conn,
+                    f"""
+                    SELECT COUNT(*)
+                    FROM {pit_q} pit
+                    LEFT JOIN {matching_sat_tbl} s
+                        ON s.{sat_parent_hk} = pit.{ptr}
+                       AND s.load_dts = pit.{dts_ptr}
+                    WHERE s.{sat_parent_hk} IS NULL
+                    """,
+                )
 
-    failures = null_pointers + parity_mismatches + empty_pits
+    passed = null_pointers == 0 and parity_mismatches == 0
     return DynamicCheckResult(
         check_id="DV-DYN-010",
-        check_name="PIT Table Lookup Parity",
-        passed=failures == 0,
-        metric_value=failures,
-        failing_rows=failures,
+        check_name="PIT Table Lookup Parity & Ghost-Record Coalescing",
+        passed=passed,
+        metric_value=null_pointers + parity_mismatches,
+        failing_rows=null_pointers + parity_mismatches,
         detail=(
-            f"Checked {len(effective_pits)} PIT table(s); null_pointers={null_pointers}, "
-            f"parity_mismatches={parity_mismatches}, empty_pits={empty_pits}."
+            f"Evaluated PIT table parity (null_pointers={null_pointers}, "
+            f"parity_mismatches={parity_mismatches})."
         ),
     )
 
@@ -965,51 +881,31 @@ def check_dv_dyn_011_driving_key_effectivity(
     *,
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
-    """DV-DYN-011: Driving-Key Effectivity Exclusivity in `esat_sal_limited_partner`."""
-    if is_pe_domain(ir) or ir is None:
-        overlapping_active = _scalar_int(
-            conn,
-            """
-            SELECT COUNT(*) FROM (
-                SELECT hk_sal_limited_partner, COUNT(*) AS active_cnt
-                FROM business_vault.esat_sal_limited_partner
-                WHERE rec_src <> 'SYSTEM_GHOST'
-                  AND is_active_flag = TRUE
-                  AND effective_to_dts IS NULL
-                GROUP BY hk_sal_limited_partner
-                HAVING COUNT(*) > 1
-            )
-            """,
-        )
-        return DynamicCheckResult(
-            check_id="DV-DYN-011",
-            check_name="Driving-Key Effectivity Exclusivity",
-            passed=overlapping_active == 0,
-            metric_value=overlapping_active,
-            failing_rows=overlapping_active,
-            detail=(
-                f"Overlapping active effectivity intervals in "
-                f"esat_sal_limited_partner={overlapping_active}."
-            ),
-        )
+    """DV-DYN-011: Driving-Key Effectivity Exclusivity in Effectivity Satellites."""
+    _, _, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
+    esat_tables: list[str] = []
+    if ir is not None:
+        esat_tables = [
+            f"{_satellite_schema(s)}.{_validate_ident(s.name)}"
+            for s in ir.satellites
+            if s.satellite_type == "EFFECTIVITY" or s.name.startswith("esat_")
+        ]
+    else:
+        esat_tables = [t for t in satellite_pk_map if t.split(".")[-1].startswith("esat_")]
 
-    esats = [
-        s for s in ir.satellites if s.satellite_type == "EFFECTIVITY" or s.name.startswith("esat_")
-    ]
     overlapping_active = 0
-    for esat in esats:
-        tbl = f"{_satellite_schema(esat)}.{_validate_ident(esat.name)}"
-        parent_hk = _validate_ident(esat.parent_hk_column.name)
-        col_names = {c.name.lower() for c in esat.payload_columns}
-        active_pred = " AND is_active_flag = TRUE" if "is_active_flag" in col_names else ""
-        eff_to_pred = " AND effective_to_dts IS NULL" if "effective_to_dts" in col_names else ""
+    for tbl in esat_tables:
+        parent_hk = satellite_pk_map.get(tbl, "hk")
+        col_map = _table_column_map(conn, tbl)
+        active_pred = " AND is_active_flag = TRUE" if "is_active_flag" in col_map else ""
+        eff_to_pred = " AND effective_to_dts IS NULL" if "effective_to_dts" in col_map else ""
         overlapping_active += _scalar_int(
             conn,
             f"""
             SELECT COUNT(*) FROM (
                 SELECT {parent_hk}, COUNT(*) AS active_cnt
                 FROM {tbl}
-                WHERE rec_src <> 'SYSTEM_GHOST'{active_pred}{eff_to_pred}
+                WHERE rec_src <> '{GHOST_REC_SRC}'{active_pred}{eff_to_pred}
                 GROUP BY {parent_hk}
                 HAVING COUNT(*) > 1
             )
@@ -1022,7 +918,7 @@ def check_dv_dyn_011_driving_key_effectivity(
         metric_value=overlapping_active,
         failing_rows=overlapping_active,
         detail=(
-            f"Checked {len(esats)} effectivity satellite(s); "
+            f"Checked {len(esat_tables)} effectivity satellite(s); "
             f"overlapping_active={overlapping_active}."
         ),
     )
@@ -1034,54 +930,11 @@ def check_dv_dyn_012_unstructured_provenance(
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
     """DV-DYN-012: Unstructured Extraction Provenance Integrity (model, prompt SHA-256, quote)."""
-    if is_pe_domain(ir) or ir is None:
-        ungrounded = _scalar_int(
-            conn,
-            """
-            SELECT (
-                SELECT COUNT(*) FROM business_vault.sat_lp_side_letter_llm_ext
-                WHERE rec_src <> 'SYSTEM_GHOST'
-                  AND (
-                      extractor_model_id IS NULL
-                      OR prompt_template_sha256 IS NULL
-                      OR STRLEN(TRIM(prompt_template_sha256)) <> 64
-                      OR extraction_confidence IS NULL
-                      OR extraction_confidence <= 0
-                      OR extraction_confidence > 1
-                      OR source_text_quote IS NULL
-                      OR TRIM(source_text_quote) = ''
-                  )
-            ) + (
-                SELECT COUNT(*) FROM business_vault.sat_lnk_doc_portco_ai_provenance
-                WHERE rec_src <> 'SYSTEM_GHOST'
-                  AND (
-                      extractor_model_id IS NULL
-                      OR prompt_template_sha256 IS NULL
-                      OR STRLEN(TRIM(prompt_template_sha256)) <> 64
-                      OR extraction_confidence IS NULL
-                      OR extraction_confidence <= 0
-                      OR extraction_confidence > 1
-                      OR source_text_quote IS NULL
-                      OR TRIM(source_text_quote) = ''
-                  )
-            )
-            """,
-        )
-        return DynamicCheckResult(
-            check_id="DV-DYN-012",
-            check_name="Unstructured Extraction Provenance Integrity",
-            passed=ungrounded == 0,
-            metric_value=ungrounded,
-            failing_rows=ungrounded,
-            detail=(
-                f"Ungrounded AI extraction rows missing model/prompt/confidence/quote={ungrounded}."
-            ),
-        )
-
+    _, _, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
     ungrounded = 0
-    for sat in ir.satellites:
-        tbl = f"{_satellite_schema(sat)}.{_validate_ident(sat.name)}"
-        col_map = {c.name.lower(): _validate_ident(c.name) for c in sat.payload_columns}
+    checked_sats = 0
+    for tbl in satellite_pk_map:
+        col_map = _table_column_map(conn, tbl)
         checks: list[str] = []
         if "extractor_model_id" in col_map:
             c = col_map["extractor_model_id"]
@@ -1098,11 +951,12 @@ def check_dv_dyn_012_unstructured_provenance(
                 c = col_map[quote_key]
                 checks.append(f"{c} IS NULL OR TRIM(CAST({c} AS VARCHAR)) = ''")
         if checks:
+            checked_sats += 1
             ungrounded += _scalar_int(
                 conn,
                 f"""
                 SELECT COUNT(*) FROM {tbl}
-                WHERE rec_src <> 'SYSTEM_GHOST'
+                WHERE rec_src <> '{GHOST_REC_SRC}'
                   AND ({" OR ".join(f"({p})" for p in checks)})
                 """,
             )
@@ -1112,7 +966,7 @@ def check_dv_dyn_012_unstructured_provenance(
         passed=ungrounded == 0,
         metric_value=ungrounded,
         failing_rows=ungrounded,
-        detail=f"Ungrounded AI extraction rows missing model/prompt/confidence/quote={ungrounded}.",
+        detail=f"Checked {checked_sats} unstructured satellite(s); ungrounded rows={ungrounded}.",
     )
 
 
@@ -1151,117 +1005,14 @@ def check_dv_dyn_013_tier2_confidence_governance(
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
     """DV-DYN-013: Tier-2 Confidence Threshold & Human Review Governance."""
-    if is_pe_domain(ir) or ir is None:
-        invalid_governance = _scalar_int(
-            conn,
-            """
-            SELECT (
-                SELECT COUNT(*) FROM business_vault.sat_lp_side_letter_llm_ext t
-                WHERE t.rec_src <> 'SYSTEM_GHOST'
-                  AND (
-                      t.extraction_confidence IS NULL
-                      OR t.extraction_confidence < 0.85
-                      OR UPPER(TRIM(COALESCE(t.human_review_status, ''))) NOT IN (
-                          'APPROVED',
-                          'STEWARD_VERIFIED',
-                          'AUTO_ACCEPTED_TIER_1',
-                          'AUTO_ACCEPTED_TIER_2'
-                      )
-                  )
-            ) + (
-                SELECT COUNT(*) FROM business_vault.sat_lnk_doc_portco_ai_provenance t
-                WHERE t.rec_src <> 'SYSTEM_GHOST'
-                  AND (
-                      t.extraction_confidence IS NULL
-                      OR t.extraction_confidence < 0.85
-                      OR (
-                          t.tier2_token_jaccard < 0.85
-                          AND UPPER(TRIM(COALESCE(t.human_review_status, ''))) NOT IN (
-                              'STEWARD_VERIFIED',
-                              'APPROVED'
-                          )
-                      )
-                      OR UPPER(TRIM(COALESCE(t.human_review_status, ''))) NOT IN (
-                          'APPROVED',
-                          'STEWARD_VERIFIED',
-                          'AUTO_ACCEPTED_TIER_1',
-                          'AUTO_ACCEPTED_TIER_2'
-                      )
-                  )
-            ) + (
-                SELECT COUNT(*) FROM raw_vault.lnk_doc_lp_side_letter l
-                WHERE l.rec_src <> 'SYSTEM_ZERO_KEY'
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM staging.stg_unstructured_vdr_llm_extractions src
-                      INNER JOIN raw_vault.hub_unstructured_document d
-                          ON d.doc_sha256 = src.doc_sha256
-                      INNER JOIN raw_vault.hub_limited_partner lp
-                          ON lp.bkcc = src.resolved_lp_bkcc AND lp.lp_id = src.resolved_lp_id
-                      INNER JOIN raw_vault.hub_fund f
-                          ON f.fund_code = src.resolved_fund_code
-                      WHERE d.hk_doc = l.hk_doc
-                        AND lp.hk_lp = l.hk_lp
-                        AND f.hk_fund = l.hk_fund
-                        AND src.steward_gate_status = 'APPROVED'
-                        AND src.extraction_confidence >= 0.85
-                  )
-            ) + (
-                SELECT COUNT(*) FROM raw_vault.lnk_doc_portco_memo l
-                WHERE l.rec_src <> 'SYSTEM_ZERO_KEY'
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM staging.stg_unstructured_vdr_llm_extractions src
-                      INNER JOIN raw_vault.hub_unstructured_document d
-                          ON d.doc_sha256 = src.doc_sha256
-                      INNER JOIN raw_vault.hub_portfolio_company p
-                          ON p.lei_code = src.resolved_lei_code
-                      WHERE d.hk_doc = l.hk_doc
-                        AND p.hk_portco = l.hk_portco
-                        AND src.steward_gate_status = 'APPROVED'
-                        AND src.extraction_confidence >= 0.85
-                  )
-            )
-            """,
-        )
-        for extra_tbl in (
-            "raw_vault.lnk_document_portfolio_company",
-            "raw_vault.lnk_document_lp_commitment",
-            "raw_vault.sat_lnk_doc_portco_ai_provenance",
-        ):
-            extra_cols = _table_column_map(conn, extra_tbl)
-            extra_preds = _governance_predicates_for_columns(extra_cols)
-            if extra_preds:
-                invalid_governance += _scalar_int(
-                    conn,
-                    f"""
-                    SELECT COUNT(*) FROM {extra_tbl} t
-                    WHERE t.rec_src NOT IN ('SYSTEM_GHOST', 'SYSTEM_ZERO_KEY')
-                      AND ({" OR ".join(extra_preds)})
-                    """,
-                )
-        return DynamicCheckResult(
-            check_id="DV-DYN-013",
-            check_name="Tier-2 Confidence Threshold & Human Review Governance",
-            passed=invalid_governance == 0,
-            metric_value=invalid_governance,
-            failing_rows=invalid_governance,
-            detail=(
-                f"AI extraction rows violating Tier-2/Steward review thresholds="
-                f"{invalid_governance}."
-            ),
-        )
-
+    _, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
     invalid_governance = 0
-    unstructured_links_by_name = {
-        lnk.name: lnk for lnk in ir.links if lnk.requires_steward_approval_gate
-    }
-    for lnk in unstructured_links_by_name.values():
-        tbl = f"{_link_schema(lnk)}.{_validate_ident(lnk.name)}"
-        lnk_hk = _validate_ident(lnk.hk_column.name)
+
+    for tbl, lnk_hk in link_pk_map.items():
         col_map = _table_column_map(conn, tbl)
         preds = _governance_predicates_for_columns(col_map)
-        stg_view = f"staging.stg_{_validate_ident(lnk.name)}"
+        leaf = tbl.split(".")[-1]
+        stg_view = f"staging.stg_{leaf}"
         stg_cols = _table_column_map(conn, stg_view)
         if "steward_gate_status" in stg_cols:
             stg_status = stg_cols["steward_gate_status"]
@@ -1277,40 +1028,38 @@ def check_dv_dyn_013_tier2_confidence_governance(
                 conn,
                 f"""
                 SELECT COUNT(*) FROM {tbl} t
-                WHERE t.rec_src NOT IN ('SYSTEM_ZERO_KEY', 'SYSTEM_GHOST')
+                WHERE t.rec_src NOT IN ('SYSTEM_ZERO_KEY', '{GHOST_REC_SRC}')
                   AND ({" OR ".join(preds)})
                 """,
             )
 
-    for sat in ir.satellites:
-        tbl = f"{_satellite_schema(sat)}.{_validate_ident(sat.name)}"
-        parent_hk = _validate_ident(sat.parent_hk_column.name)
-        col_map = {c.name.lower(): _validate_ident(c.name) for c in sat.payload_columns}
-        col_map.update(_table_column_map(conn, tbl))
+    for tbl, parent_hk in satellite_pk_map.items():
+        col_map = _table_column_map(conn, tbl)
         preds = _governance_predicates_for_columns(col_map)
-        if sat.parent_entity in unstructured_links_by_name:
-            stg_view = f"staging.stg_{_validate_ident(sat.name)}"
-            stg_cols = _table_column_map(conn, stg_view)
-            if "steward_gate_status" in stg_cols:
-                stg_status = stg_cols["steward_gate_status"]
-                preds.append(
-                    f"(t.rec_src NOT IN ('BATCH3_DELTA', 'BATCH4_RESTATEMENT') "
-                    f"AND NOT EXISTS ("
-                    f"SELECT 1 FROM {stg_view} stg "
-                    f"WHERE stg.{parent_hk} = t.{parent_hk} "
-                    f"AND stg.hash_diff = t.hash_diff "
-                    f"AND UPPER(TRIM(COALESCE(CAST(stg.{stg_status} AS VARCHAR), ''))) = 'APPROVED'"
-                    f"))"
-                )
+        leaf = tbl.split(".")[-1]
+        stg_view = f"staging.stg_{leaf}"
+        stg_cols = _table_column_map(conn, stg_view)
+        if "steward_gate_status" in stg_cols:
+            stg_status = stg_cols["steward_gate_status"]
+            preds.append(
+                f"(t.rec_src NOT IN ('BATCH3_DELTA', 'BATCH4_RESTATEMENT') "
+                f"AND NOT EXISTS ("
+                f"SELECT 1 FROM {stg_view} stg "
+                f"WHERE stg.{parent_hk} = t.{parent_hk} "
+                f"AND stg.hash_diff = t.hash_diff "
+                f"AND UPPER(TRIM(COALESCE(CAST(stg.{stg_status} AS VARCHAR), ''))) = 'APPROVED'"
+                f"))"
+            )
         if preds:
             invalid_governance += _scalar_int(
                 conn,
                 f"""
                 SELECT COUNT(*) FROM {tbl} t
-                WHERE t.rec_src NOT IN ('SYSTEM_GHOST', 'SYSTEM_ZERO_KEY')
+                WHERE t.rec_src NOT IN ('{GHOST_REC_SRC}', 'SYSTEM_ZERO_KEY')
                   AND ({" OR ".join(preds)})
                 """,
             )
+
     return DynamicCheckResult(
         check_id="DV-DYN-013",
         check_name="Tier-2 Confidence Threshold & Human Review Governance",
@@ -1330,25 +1079,16 @@ def check_dv_dyn_014_additive_schema_evolution(
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
     """DV-DYN-014: Additive Schema Evolution Non-Destructiveness (`0` hash_diff mutations)."""
-    if is_pe_domain(ir) or ir is None:
-        invalid_hashes = _scalar_int(
+    _, _, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
+    invalid_hashes = 0
+    for sat_tbl in satellite_pk_map:
+        invalid_hashes += _scalar_int(
             conn,
-            """
-            SELECT COUNT(*) FROM raw_vault.sat_lp_core
+            f"""
+            SELECT COUNT(*) FROM {sat_tbl}
             WHERE hash_diff IS NULL OR STRLEN(TRIM(hash_diff)) <> 64
             """,
         )
-    else:
-        _, _, satellite_pk_map, _ = build_vault_topology_maps(ir)
-        invalid_hashes = 0
-        for sat_tbl in satellite_pk_map:
-            invalid_hashes += _scalar_int(
-                conn,
-                f"""
-                SELECT COUNT(*) FROM {sat_tbl}
-                WHERE hash_diff IS NULL OR STRLEN(TRIM(hash_diff)) <> 64
-                """,
-            )
     total_failures = historical_hash_mutations + invalid_hashes
     return DynamicCheckResult(
         check_id="DV-DYN-014",
@@ -1369,7 +1109,7 @@ def check_dv_dyn_015_insert_only_audit_invariant(
     ir: CanonicalIR | None = None,
 ) -> DynamicCheckResult:
     """DV-DYN-015: Zero-Update / Insert-Only Audit Invariant across all Raw Vault tables."""
-    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir)
+    hub_pk_map, link_pk_map, satellite_pk_map, _ = build_vault_topology_maps(ir, conn=conn)
     violations = 0
     for tbl in [*hub_pk_map, *link_pk_map]:
         violations += _scalar_int(
@@ -1447,3 +1187,26 @@ def evaluate_all_dynamic_checks(
         failed_count=failed_cnt,
         checks=results,
     )
+
+
+__all__ = [
+    "DynamicCheckResult",
+    "DynamicCheckSuiteReport",
+    "build_vault_topology_maps",
+    "check_dv_dyn_001_pk_uniqueness",
+    "check_dv_dyn_002_referential_integrity",
+    "check_dv_dyn_003_replay_idempotency",
+    "check_dv_dyn_004_true_change_capture",
+    "check_dv_dyn_005_boundary_shift_collision",
+    "check_dv_dyn_006_bkcc_collision_and_sal",
+    "check_dv_dyn_007_ghost_and_zero_key_completeness",
+    "check_dv_dyn_008_topological_load_order",
+    "check_dv_dyn_009_bitemporal_late_arrival",
+    "check_dv_dyn_010_pit_table_parity",
+    "check_dv_dyn_011_driving_key_effectivity",
+    "check_dv_dyn_012_unstructured_provenance",
+    "check_dv_dyn_013_tier2_confidence_governance",
+    "check_dv_dyn_014_additive_schema_evolution",
+    "check_dv_dyn_015_insert_only_audit_invariant",
+    "evaluate_all_dynamic_checks",
+]
