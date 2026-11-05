@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from opendv_core import PathContainmentError, find_workspace_root, resolve_workspace_path
+from opendv_core import PathContainmentError, resolve_workspace_path
 
 
 def test_resolve_workspace_path_success_relative(tmp_path: Path) -> None:
@@ -42,7 +42,6 @@ def test_resolve_workspace_path_rejects_null_bytes(tmp_path: Path) -> None:
 
     with pytest.raises(PathContainmentError, match="must not contain null bytes"):
         resolve_workspace_path("sub/\0secrets.txt", workspace_root=tmp_path)
-
 
 
 def test_resolve_workspace_path_rejects_parent_traversal(tmp_path: Path) -> None:
@@ -128,7 +127,6 @@ def test_resolve_workspace_path_base_dir_resolution(tmp_path: Path) -> None:
     assert resolved_ws == ws_file.resolve()
 
 
-def test_resolve_workspace_path_default_to_repo_root() -> None:
-    ws = find_workspace_root()
-    resolved = resolve_workspace_path("examples")
-    assert resolved == (ws / "examples").resolve()
+def test_resolve_workspace_path_requires_workspace_root_or_base_dir() -> None:
+    with pytest.raises(PathContainmentError, match="REQ-CFG-01"):
+        resolve_workspace_path("examples")

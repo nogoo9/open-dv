@@ -109,6 +109,9 @@ def test_holds_and_artifacts_use_cases(tmp_path: Path) -> None:
     assert retrieved.content == {"alpha": 123}
 
     # Holds on seeded PE run
+    from opendv_testkit import seed_canonical_pe_demo
+
+    seed_canonical_pe_demo(store)
     pe_run_id = "run-pe-apex-horizon-20261030"
     holds = list_holds(store, pe_run_id)
     assert isinstance(holds, list)

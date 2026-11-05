@@ -246,7 +246,7 @@ def verify_physical_dv2_sql_ast(
 
     try:
         statements = sqlglot.parse(sql_text, read=dialect)
-    except Exception as exc:
+    except (sqlglot.errors.SqlglotError, ValueError, TypeError) as exc:
         return [f"[DV-AST-PARSE-ERR] SQLGlot failed to parse '{entity_name}': {exc}"]
 
     insert_count = sum(1 for s in statements if isinstance(s, exp.Insert))

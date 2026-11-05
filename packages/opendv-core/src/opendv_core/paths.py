@@ -6,8 +6,6 @@ import tempfile
 from collections.abc import Sequence
 from pathlib import Path
 
-from opendv_core.schema_registry import find_workspace_root
-
 
 class PathContainmentError(ValueError):
     """Raised when a path violates workspace directory containment or attempts path traversal."""
@@ -46,8 +44,15 @@ def resolve_workspace_path(
     if ".." in candidate.parts:
         raise PathContainmentError(f"Path traversal ('..') is strictly forbidden: '{raw_str}'")
 
-    root = (workspace_root or find_workspace_root()).resolve()
-    permitted: set[Path] = {root}
+    if workspace_root is None and base_dir is None and not allowed_roots:
+        raise PathContainmentError(
+            "workspace_root or base_dir must be provided for path resolution (REQ-CFG-01). "
+            "Ambient repository root fallback is disabled."
+        )
+
+    permitted: set[Path] = set()
+    if workspace_root is not None:
+        permitted.add(workspace_root.resolve())
     if base_dir is not None:
         permitted.add(base_dir.resolve())
     if allowed_roots:
@@ -61,7 +66,8 @@ def resolve_workspace_path(
         cand_list: list[Path] = []
         if base_dir is not None:
             cand_list.append((base_dir / candidate).resolve())
-        cand_list.append((root / candidate).resolve())
+        if workspace_root is not None:
+            cand_list.append((workspace_root / candidate).resolve())
         if allowed_roots:
             for extra_root in allowed_roots:
                 cand_list.append((extra_root / candidate).resolve())

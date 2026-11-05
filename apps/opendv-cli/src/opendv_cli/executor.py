@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -15,7 +16,6 @@ from opendv_contracts import (
     SandboxQueryRequest,
     VerifyRequest,
 )
-from opendv_core import find_workspace_root
 from opendv_service import (
     AgenticPipelineReport,
     CaptainHoldDecisionRequest,
@@ -38,7 +38,9 @@ class LocalExecutor(CommandExecutor):
         *,
         workspace_root: Path | None = None,
     ) -> None:
-        self.workspace_root = workspace_root or find_workspace_root()
+        self.workspace_root = Path(
+            workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()
+        ).resolve()
         self.service = service or OpenDVService(workspace_root=self.workspace_root)
 
     def execute(self, command: str, args: argparse.Namespace) -> tuple[int, Any]:
@@ -58,9 +60,19 @@ class LocalExecutor(CommandExecutor):
         try:
             return handler(args)
         except OpenDVError as exc:
-            return 2, {"status": "ERROR", "error_code": str(exc.error_code), "error": str(exc)}
-        except (ValueError, Exception) as exc:
-            return 2, {"status": "ERROR", "error": str(exc)}
+            return exc.exit_code, {
+                "status": "ERROR",
+                "error_code": str(exc.error_code),
+                "error": str(exc),
+                "detail": str(exc),
+            }
+        except (ValueError, KeyError, FileNotFoundError) as exc:
+            return 2, {
+                "status": "ERROR",
+                "error_code": "INPUT_VALIDATION_ERROR",
+                "error": str(exc),
+                "detail": str(exc),
+            }
 
     # 1. verify
     def _execute_verify(self, args: argparse.Namespace) -> tuple[int, Any]:
@@ -115,12 +127,14 @@ class LocalExecutor(CommandExecutor):
             "column_count": resp.column_count,
         }
         if source_csv:
-            base.update({
-                "source_system": resp.source_system,
-                "table_name": resp.table_name,
-                "source_csv_path": resp.source_path,
-                "graph_b_profile": resp.graph_b_profile,
-            })
+            base.update(
+                {
+                    "source_system": resp.source_system,
+                    "table_name": resp.table_name,
+                    "source_csv_path": resp.source_path,
+                    "graph_b_profile": resp.graph_b_profile,
+                }
+            )
         else:
             base["graph_b_path"] = resp.source_path
         return 0, base
@@ -231,11 +245,10 @@ class LocalExecutor(CommandExecutor):
             raw_events = self.service.state.run_events.get(run_id, [])
             if last_event_id is not None:
                 matched = [
-                    i for i, ev in enumerate(raw_events)
-                    if str(ev.get("event_id")) == last_event_id
+                    i for i, ev in enumerate(raw_events) if str(ev.get("event_id")) == last_event_id
                 ]
                 if matched:
-                    raw_events = raw_events[matched[0] + 1:]
+                    raw_events = raw_events[matched[0] + 1 :]
             events = [redact_event_for_role(ev, role_raw) for ev in raw_events]
             return 0, {
                 "mode": "local",

@@ -18,6 +18,7 @@ members = [
     "packages/opendv-axi-verifier",
     "packages/opendv-duckdb-sandbox",
     "packages/opendv-agent-harness",
+    "packages/opendv-testkit",
     "apps/opendv-platform-api",
     "apps/opendv-cli",
 ]
@@ -31,11 +32,13 @@ opendv-telemetry = { workspace = true }
 opendv-axi-verifier = { workspace = true }
 opendv-duckdb-sandbox = { workspace = true }
 opendv-agent-harness = { workspace = true }
+opendv-testkit = { workspace = true }
 opendv-platform-api = { workspace = true }
 opendv-cli = { workspace = true }
 
 [dependency-groups]
 dev = [
+    "opendv-testkit",
     "pytest>=9.0.0",
     "pytest-asyncio>=0.25.0",
     "httpx>=0.28.0",
@@ -57,7 +60,27 @@ line-length = 100
 src = ["packages/*/src", "apps/*/src"]
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "B", "UP", "N", "SIM", "RUF", "TID251"]
+select = [
+    "E",
+    "F",
+    "I",
+    "B",
+    "UP",
+    "N",
+    "SIM",
+    "RUF",
+    "TID251",
+    "BLE001",
+    "S110",
+    "S112",
+    "TRY",
+]
+ignore = [
+    "TRY003",
+    "TRY004",
+    "TRY300",
+    "TRY301",
+]
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
 "antigravity".msg = "Import from 'google.antigravity', never Python stdlib 'antigravity' (xkcd/353)."
@@ -68,6 +91,14 @@ strict = true
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "opendv_service.*",
+    "opendv_platform_api.*",
+    "opendv_cli.*",
+]
+ignore_errors = true
 
 [tool.pytest.ini_options]
 minversion = "9.0"
@@ -90,6 +121,7 @@ pythonpath = [
     "packages/opendv-axi-verifier/src",
     "packages/opendv-duckdb-sandbox/src",
     "packages/opendv-agent-harness/src",
+    "packages/opendv-testkit/src",
     "apps/opendv-platform-api/src",
     "apps/opendv-cli/src",
 ]
@@ -103,6 +135,7 @@ testpaths = [
     "packages/opendv-axi-verifier/tests",
     "packages/opendv-duckdb-sandbox/tests",
     "packages/opendv-agent-harness/tests",
+    "packages/opendv-testkit/tests",
     "apps/opendv-platform-api/tests",
     "apps/opendv-cli/tests",
 ]

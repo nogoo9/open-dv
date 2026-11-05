@@ -31,7 +31,6 @@ from opendv_agent_harness import (
     AgenticPipelineReport,
     AntigravityHarnessAdapter,
     ClaudeAgentHarnessAdapter,
-    DeterministicHarnessAdapter,
     HarnessAuthConfig,
     HarnessBudget,
     HarnessSetupConfig,
@@ -43,11 +42,6 @@ from opendv_agent_harness import (
     validate_pipeline_inputs,
     validate_pipeline_outputs,
 )
-from opendv_agent_harness.adapters.deterministic_adapter import (
-    _synthesize_minimal_schema_instance,
-    build_deterministic_agy_sdk_shim,
-    build_deterministic_claude_sdk_shim,
-)
 from opendv_agent_harness.pipeline import (
     PipelineUnstructuredCandidateInput,
     Stage00OrchestrationPlanOutput,
@@ -57,12 +51,21 @@ from opendv_agent_harness.pipeline import (
     Stage03ColumnTriageOutput,
     Stage04ContractSynthesisOutput,
 )
-from opendv_core.schema_registry import find_workspace_root
 from opendv_telemetry import ContentAddressableStore
+from opendv_testkit import (
+    DeterministicHarnessAdapter,
+    build_deterministic_agy_sdk_shim,
+    build_deterministic_claude_sdk_shim,
+)
+from opendv_testkit import (
+    synthesize_minimal_schema_instance as _synthesize_minimal_schema_instance,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _sample_dir() -> Path:
-    return find_workspace_root() / "examples" / "pipeline_samples" / "global_commerce_vault"
+    return REPO_ROOT / "examples" / "pipeline_samples" / "global_commerce_vault"
 
 
 def test_deterministic_harness_adapter_registration(tmp_path: Path) -> None:
@@ -569,7 +572,7 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
         opt_spec,
         harness_setup,
         output_dir=out_dir,
-        base_dir=tmp_path,
+        base_dir=sample_dir,
         sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert rep.status == "COMPLETED"
@@ -609,7 +612,7 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
         opt_spec,
         exhausted_setup,
         output_dir=exhausted_out,
-        base_dir=tmp_path,
+        base_dir=sample_dir,
         sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert exhausted_rep.status == "FAILED"
@@ -1039,6 +1042,7 @@ def test_real_llm_structured_output_consumption(tmp_path: Path) -> None:
     setup = HarnessSetupConfig(
         provider="agy",
         steward_hold_policy="auto_approve_top_candidate",
+        stage_output_policy="symbolic_completion",
         extra_provider_options={"structured_output_factory": _custom_structured_output_factory},
     )
     out_dir = tmp_path / "llm_structured_out"

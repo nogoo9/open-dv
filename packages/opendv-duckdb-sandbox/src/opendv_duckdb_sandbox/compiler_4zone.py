@@ -2763,7 +2763,7 @@ def _compile_generic_zone_0_sql(
             )
             comp_insert_rows: list[str] = []
             for r_idx in range(min(max(row_count, 2), 4)):
-                row_vals: list[str] = []
+                comp_row_vals: list[str] = []
                 for c_ident in comp_cols:
                     val_found = f"'VAL-{r_idx + 1:03d}'"
                     for h, sm in pairs:
@@ -2784,9 +2784,9 @@ def _compile_generic_zone_0_sql(
                                 esc_v = non_bkcc_vals[pos].replace("'", "''")
                                 val_found = f"'{esc_v}'"
                             break
-                    row_vals.append(val_found)
+                    comp_row_vals.append(val_found)
                 comp_insert_rows.append(
-                    f"    ({', '.join(row_vals)}, TIMESTAMP '2026-10-01 06:00:00', "
+                    f"    ({', '.join(comp_row_vals)}, TIMESTAMP '2026-10-01 06:00:00', "
                     f"'{_sql_lit(comp_rec_src)}')"
                 )
             parts.append(

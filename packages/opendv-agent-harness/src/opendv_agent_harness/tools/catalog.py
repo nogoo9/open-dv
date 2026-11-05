@@ -18,6 +18,7 @@ from typing import Any, Literal
 import duckdb
 import sqlglot
 import yaml
+from pydantic import ValidationError
 from sqlglot import exp
 
 from opendv_agent_harness.models import (
@@ -542,13 +543,13 @@ async def _handle_compile_canonical_ir(
     if "ir_version" in payload and "model_name" in payload:
         try:
             canonical_ir_obj = CanonicalIR.model_validate(payload)
-        except Exception:
+        except (ValidationError, ValueError, TypeError, KeyError):
             canonical_ir_obj = None
     elif payload:
         try:
             contract_v5 = NoMistakeDataVault2ContractV5.model_validate(payload)
             canonical_ir_obj = lower_contract_to_canonical_ir(contract_v5, validate_schema=False)
-        except Exception:
+        except (ValidationError, ValueError, TypeError, KeyError):
             canonical_ir_obj = None
 
     if canonical_ir_obj is not None:
@@ -704,7 +705,7 @@ async def _handle_run_axi_dv_gates(
                     gate="G3",
                     rule="DV-STR-001",
                     action="REJECT",
-                    target="hub_fund",
+                    target="hub_account",
                     fix="Remove direct Hub-to-Hub foreign key and route via Link",
                 )
             ],
@@ -957,7 +958,7 @@ async def _handle_apply_ast_codemod(
     else:
         try:
             loaded = yaml.safe_load(pre_content)
-        except Exception:
+        except (yaml.YAMLError, ValueError, TypeError):
             loaded = None
 
         if isinstance(loaded, dict):
@@ -1124,7 +1125,7 @@ async def _handle_execute_duckdb_sandbox(
         if sql_stripped.startswith("{"):
             try:
                 source_obj = json.loads(sql_stripped)
-            except Exception:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 source_obj = None
         if source_obj is None:
             source_obj = ctx.get_state("last_canonical_ir")
@@ -1176,7 +1177,7 @@ async def _handle_execute_duckdb_sandbox(
         if not checks_ok:
             all_passed = False
         orphan_count = computed_orphans
-    except Exception:
+    except (duckdb.Error, ValueError, TypeError, KeyError):
         all_passed = False
         orphan_count = 1
     finally:

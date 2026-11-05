@@ -24,13 +24,17 @@ def render_verify_text(result: dict[str, Any]) -> str:
             lines.append(f"  • {gate:<35} : {outcome}")
     applied = result.get("applied_codemods", [])
     if applied:
-        lines.append("--------------------------------------------------------------------------------")
+        lines.append(
+            "--------------------------------------------------------------------------------"
+        )
         lines.append(f"Applied Codemods ({len(applied)}):")
         for cm in applied:
             lines.append(f"  • {cm}")
     diagnostics = result.get("diagnostics", [])
     if diagnostics:
-        lines.append("--------------------------------------------------------------------------------")
+        lines.append(
+            "--------------------------------------------------------------------------------"
+        )
         lines.append(f"Diagnostics ({len(diagnostics)}):")
         for diag in diagnostics:
             lines.append(f"  • {diag}")

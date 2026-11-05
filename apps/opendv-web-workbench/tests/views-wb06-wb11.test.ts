@@ -9,8 +9,6 @@
 import { beforeEach, describe, expect, it } from "bun:test";
 import {
 	ALL_WORKBENCH_VIEW_IDS,
-	PE_CANONICAL_HASH_PILLS,
-	PE_DEMO_EVENTS,
 	type StageId,
 	type VaultObservabilityEventDTO,
 	type WorkbenchViewId,
@@ -56,6 +54,10 @@ import {
 	PreHashStepper,
 } from "../src/views/wb11/PreHashStepper";
 import { WB11RosettaStoneView } from "../src/views/wb11/WB11RosettaStoneView";
+import {
+	PE_CANONICAL_HASH_PILLS,
+	PE_DEMO_EVENTS,
+} from "./fixtures/pe-demo-bundle";
 
 describe("Work Package WP-12: Workbench Views Part 3 (WB-06 through WB-11 & Full 12-View Registry)", () => {
 	let registry: WorkbenchPluginRegistry;
@@ -75,6 +77,10 @@ describe("Work Package WP-12: Workbench Views Part 3 (WB-06 through WB-11 & Full
 	beforeEach(() => {
 		registry = new WorkbenchPluginRegistry();
 		registerAllWorkbenchViews(registry);
+		useWorkbenchStore.getState().loadOfflineReplay(PE_DEMO_EVENTS, {
+			startAtZero: false,
+			runId: "run-pe-apex-horizon-20261030",
+		});
 	});
 
 	describe("1. 12-View Plugin Registration (WB-00 through WB-11) & Co-Located Gate Cards", () => {

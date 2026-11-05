@@ -4,7 +4,7 @@
  * Binds exclusively to `@opendv/protocol-ts`:
  * - `OpenDVPlatformClient` (REST API & Captain-Hold decision submission)
  * - `VaultEventStreamClient` (Live SSE telemetry stream with `Last-Event-ID` & deduplication)
- * - `MockVaultEventStreamClient` (Offline `.jsonl` & Private Equity demo bundle replay)
+ * - `LedgerReplayClient` (Offline `.jsonl` & Private Equity demo bundle replay)
  */
 
 import {
@@ -12,11 +12,9 @@ import {
 	type CaptainHoldDecisionRequest,
 	type CaptainHoldDecisionResponse,
 	type EventSourceFactory,
-	MockVaultEventStreamClient,
+	LedgerReplayClient,
 	type OfflineReplayOptions,
 	OpenDVPlatformClient,
-	PE_DEMO_EVENTS,
-	PE_DEMO_RUN_ID,
 	type RbacRole,
 	VaultEventStreamClient,
 	type VaultObservabilityEventDTO,
@@ -62,6 +60,7 @@ export interface LoadOfflineReplayConfig {
 
 export interface WorkbenchStoreInitOptions {
 	initialMode?: WorkbenchExecutionMode | undefined;
+	initialRunId?: string | undefined;
 	initialViewId?: WorkbenchViewId | undefined;
 	initialEvents?: readonly VaultObservabilityEventDTO[] | undefined;
 	startAtZero?: boolean | undefined;
@@ -114,7 +113,7 @@ export interface WorkbenchStoreState {
 	setActiveProofTab: (tab: ProofDrawerTabId) => void;
 	setRbacRole: (role: RbacRole) => void;
 
-	// Actions — Offline Replay (`MockVaultEventStreamClient`)
+	// Actions — Offline Replay (`LedgerReplayClient`)
 	loadOfflineReplay: (
 		eventsOrJsonl?: readonly VaultObservabilityEventDTO[] | string,
 		config?: LoadOfflineReplayConfig,
@@ -155,7 +154,7 @@ export interface WorkbenchStoreState {
 	// Client Accessors
 	getPlatformClient: () => OpenDVPlatformClient | null;
 	getSseClient: () => VaultEventStreamClient | null;
-	getMockReplayClient: () => MockVaultEventStreamClient;
+	getLedgerReplayClient: () => LedgerReplayClient;
 	getEventsForActiveView: () => VaultObservabilityEventDTO[];
 }
 
@@ -201,10 +200,10 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 		options.rbacRole ?? "RESTRICTED_PII_CUSTODIAN";
 	const initialViewId: WorkbenchViewId = options.initialViewId ?? "WB-00";
 	const sourceEvents: readonly VaultObservabilityEventDTO[] =
-		options.initialEvents ?? PE_DEMO_EVENTS;
+		options.initialEvents ?? [];
 	const startAtZero = options.startAtZero ?? false;
 
-	let mockClient = new MockVaultEventStreamClient(sourceEvents);
+	let replayClient = new LedgerReplayClient(sourceEvents);
 	let sseClient: VaultEventStreamClient | null = null;
 	let platformClient: OpenDVPlatformClient | null =
 		options.platformClient ?? null;
@@ -214,7 +213,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 		? []
 		: [...sourceEvents];
 	if (!startAtZero) {
-		mockClient.seek(sourceEvents.length);
+		replayClient.seek(sourceEvents.length);
 	}
 	const initialVisibleEvents = applyRoleRedaction(
 		initialRawEvents,
@@ -255,7 +254,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 
 		const stepInternal = (): VaultObservabilityEventDTO | null => {
 			let steppedEvent: VaultObservabilityEventDTO | null = null;
-			mockClient.step((ev) => {
+			replayClient.step((ev) => {
 				steppedEvent = ev;
 			});
 			if (!steppedEvent) {
@@ -263,20 +262,20 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 				return null;
 			}
 			const nextRaw = [...get().rawEvents, steppedEvent];
-			syncEventsState(nextRaw, mockClient.getCursor());
+			syncEventsState(nextRaw, replayClient.getCursor());
 			return get().events[get().events.length - 1] ?? steppedEvent;
 		};
 
 		const seekInternal = (index: number): VaultObservabilityEventDTO | null => {
-			const target = mockClient.seek(index);
+			const target = replayClient.seek(index);
 			const allEvents = get().allReplayEvents;
 			const nextRaw = allEvents.slice(0, index);
-			syncEventsState(nextRaw, mockClient.getCursor());
+			syncEventsState(nextRaw, replayClient.getCursor());
 			return target ? redactEventForRole(target, get().rbacRole) : null;
 		};
 
 		const setSpeedInternal = (speed: number) => {
-			mockClient.setSpeed(speed);
+			replayClient.setSpeed(speed);
 			set({ playbackSpeed: speed });
 		};
 
@@ -299,8 +298,8 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 			replayOptions: OfflineReplayOptions = {},
 		): Promise<number> => {
 			pauseInternal();
-			if (mockClient.getCursor() >= get().allReplayEvents.length) {
-				mockClient.reset();
+			if (replayClient.getCursor() >= get().allReplayEvents.length) {
+				replayClient.reset();
 				syncEventsState([], 0);
 			}
 			const abortController = new AbortController();
@@ -319,7 +318,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 			set({ isPlaying: true, runStatus: "RUNNING" });
 
 			try {
-				const emittedCount = await mockClient.replay(
+				const emittedCount = await replayClient.replay(
 					(ev) => {
 						if (
 							replayAbortController !== abortController ||
@@ -328,7 +327,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 							return;
 						}
 						const nextRaw = [...get().rawEvents, ev];
-						syncEventsState(nextRaw, mockClient.getCursor());
+						syncEventsState(nextRaw, replayClient.getCursor());
 					},
 					{
 						stepDelayMs:
@@ -340,7 +339,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 				);
 				if (replayAbortController === abortController) {
 					const reachedEnd =
-						mockClient.getCursor() >= get().allReplayEvents.length;
+						replayClient.getCursor() >= get().allReplayEvents.length;
 					set({
 						isPlaying: false,
 						runStatus: reachedEnd ? "COMPLETED" : "PAUSED",
@@ -356,7 +355,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 
 		const resetInternal = () => {
 			pauseInternal();
-			mockClient.reset();
+			replayClient.reset();
 			syncEventsState([], 0);
 			set({
 				activeHoldIds: [],
@@ -428,7 +427,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 
 		return {
 			mode: options.initialMode ?? "offline-replay",
-			runId: PE_DEMO_RUN_ID,
+			runId: options.initialRunId ?? sourceEvents[0]?.run_id ?? "",
 			rbacRole: initialRbacRole,
 			isConnected: false,
 			runStatus: startAtZero ? "IDLE" : "COMPLETED",
@@ -451,7 +450,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 			activeProofTab: "3A",
 
 			isPlaying: false,
-			replayCursor: mockClient.getCursor(),
+			replayCursor: replayClient.getCursor(),
 			totalReplayEvents: sourceEvents.length,
 			playbackSpeed: 1,
 
@@ -501,25 +500,25 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 					sseClient = null;
 				}
 				if (typeof eventsOrJsonl === "string") {
-					mockClient = MockVaultEventStreamClient.loadFromJSONL(eventsOrJsonl);
+					replayClient = LedgerReplayClient.loadFromJSONL(eventsOrJsonl);
 				} else if (Array.isArray(eventsOrJsonl)) {
-					mockClient = new MockVaultEventStreamClient(eventsOrJsonl);
+					replayClient = new LedgerReplayClient(eventsOrJsonl);
 				} else {
-					mockClient = new MockVaultEventStreamClient(PE_DEMO_EVENTS);
+					replayClient = new LedgerReplayClient([]);
 				}
 
-				const loadedEvents = mockClient.getEvents();
+				const loadedEvents = replayClient.getEvents();
 				const shouldStartAtZero = config?.startAtZero ?? true;
 				const initialSlice = shouldStartAtZero ? [] : [...loadedEvents];
 				if (!shouldStartAtZero) {
-					mockClient.seek(loadedEvents.length);
+					replayClient.seek(loadedEvents.length);
 				}
-				mockClient.setSpeed(get().playbackSpeed);
+				replayClient.setSpeed(get().playbackSpeed);
 
 				set({
 					mode: "offline-replay",
 					isConnected: false,
-					runId: config?.runId ?? loadedEvents[0]?.run_id ?? PE_DEMO_RUN_ID,
+					runId: config?.runId ?? loadedEvents[0]?.run_id ?? "",
 					allReplayEvents: loadedEvents,
 					totalReplayEvents: loadedEvents.length,
 					activeHoldIds: shouldStartAtZero
@@ -528,7 +527,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 					runStatus: shouldStartAtZero ? "IDLE" : "COMPLETED",
 					lastError: null,
 				});
-				syncEventsState(initialSlice, mockClient.getCursor());
+				syncEventsState(initialSlice, replayClient?.getCursor() ?? 0);
 			},
 
 			stepForward: stepInternal,
@@ -560,7 +559,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 			replayAllInstant: () => {
 				pauseInternal();
 				const allEvents = get().allReplayEvents;
-				mockClient.seek(allEvents.length);
+				replayClient?.seek(allEvents.length);
 				syncEventsState([...allEvents], allEvents.length);
 				set({
 					isPlaying: false,
@@ -666,7 +665,7 @@ export function createWorkbenchStore(options: WorkbenchStoreInitOptions = {}) {
 
 			getPlatformClient: () => platformClient,
 			getSseClient: () => sseClient,
-			getMockReplayClient: () => mockClient,
+			getLedgerReplayClient: () => replayClient,
 			getEventsForActiveView: () =>
 				get().eventsByView[get().activeViewId] ?? [],
 		};

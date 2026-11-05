@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING, Any, Literal
 from pydantic import ValidationError
 
 from opendv_agent_harness import (
-    AgenticPipelineReport,
     DeterministicValidationReport,
     HarnessSetupConfig,
     PipelineInputSpec,
     validate_pipeline_inputs,
 )
+from opendv_service.errors import NotFoundError
 from opendv_service.models import (
     PipelineValidateRequest,
     RunStatus,
@@ -225,75 +225,10 @@ class PipelineStateMixin:
             synced = self._sync_pipeline_report(run_id)
             redacted_rep = dict(synced)
             redacted_rep["observability_events"] = [
-                redact_event_for_role(ev, eff_role)
-                for ev in synced.get("observability_events", [])
+                redact_event_for_role(ev, eff_role) for ev in synced.get("observability_events", [])
             ]
             return redacted_rep
         if run_id not in self.runs:
-            raise KeyError(f"Run '{run_id}' not found.")
+            raise NotFoundError(f"Run '{run_id}' not found.")
 
-        run_dto = self.runs[run_id]
-        proj = self.projects.get(run_dto.project_id)
-        events = [
-            redact_event_for_role(ev, eff_role)
-            for ev in self.run_events.get(run_id, [])
-        ]
-        status_lit: Literal["COMPLETED", "PAUSED_HOLD", "FAILED"] = (
-            "COMPLETED"
-            if run_dto.status == RunStatus.COMPLETED
-            else ("PAUSED_HOLD" if run_dto.status == RunStatus.PAUSED_HOLD else "FAILED")
-        )
-        hold_mgr = self.hold_managers.get(run_id)
-        if hold_mgr is not None:
-            active_holds = [
-                h.model_dump(mode="json")
-                for h in hold_mgr.list_holds(run_id=run_id, status="PENDING")
-            ]
-            resolved_holds = [
-                h.model_dump(mode="json")
-                for h in hold_mgr.list_holds(run_id=run_id)
-                if h.status != "PENDING"
-            ]
-        else:
-            active_holds = [
-                {"hold_id": hid, "status": "PENDING"} for hid in run_dto.active_hold_ids
-            ]
-            resolved_holds = [
-                d.model_dump(mode="json") for d in self.run_decisions.get(run_id, [])
-            ]
-        synthesized = AgenticPipelineReport(
-            run_id=run_dto.run_id,
-            pipeline_id=f"pipe-{run_dto.project_id}",
-            project_id=run_dto.project_id,
-            domain_namespace=proj.domain_namespace if proj else "general",
-            status=status_lit,
-            overall_passed=run_dto.status == RunStatus.COMPLETED,
-            started_at=run_dto.started_at_utc,
-            completed_at=run_dto.completed_at_utc or run_dto.started_at_utc,
-            total_duration_ms=0.0,
-            harness_setup={"provider": run_dto.harness_provider},
-            input_validation=DeterministicValidationReport(
-                stage="INPUT_VALIDATION",
-                passed=True,
-                checked_items_count=1,
-            ),
-            output_validation=DeterministicValidationReport(
-                stage="OUTPUT_VALIDATION",
-                passed=run_dto.status != RunStatus.FAILED,
-                checked_items_count=len(events),
-                verified_events_count=len(events),
-            ),
-            wave_reports=[],
-            step_reports=[],
-            intermediate_artifacts=[],
-            final_artifacts={},
-            active_holds=active_holds,
-            resolved_holds=resolved_holds,
-            observability_events=events,
-            markdown_summary=(
-                f"# Run Report: {run_dto.run_id}\n\n"
-                f"- **Project ID**: `{run_dto.project_id}`\n"
-                f"- **Status**: `{run_dto.status.value}`\n"
-            ),
-        )
-        return synthesized.model_dump(mode="json")
+        raise NotFoundError(f"Pipeline report for run '{run_id}' not found.")

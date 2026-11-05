@@ -8,11 +8,13 @@ import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from opendv_contracts.errors import ErrorCode
+from opendv_service.errors import OpenDVError
 from opendv_service.models import (
     ArtifactMetadataResponse,
     ArtifactUploadRequest,
 )
-from opendv_telemetry import ContentAddressableStore
+from opendv_telemetry import ArtifactCorruptedError, ContentAddressableStore
 
 if TYPE_CHECKING:
     from opendv_service.state.base import BaseStateContainer
@@ -73,10 +75,13 @@ class ArtifactStateMixin:
             return self.artifacts[clean.lower()]
         if not self.cas.has(clean.upper()):
             raise KeyError(f"CAS artifact not found for sha256={sha256}")
-        raw_bytes = self.cas.get_bytes(clean.upper())
+        try:
+            raw_bytes = self.cas.get_bytes(clean.upper())
+        except ArtifactCorruptedError as exc:
+            raise OpenDVError(str(exc), error_code=ErrorCode.CAS_INTEGRITY_FAILURE) from exc
         try:
             parsed = json.loads(raw_bytes.decode("utf-8"))
-        except Exception:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             parsed = raw_bytes.decode("utf-8", errors="replace")
         meta = ArtifactMetadataResponse(
             sha256=clean.upper(),

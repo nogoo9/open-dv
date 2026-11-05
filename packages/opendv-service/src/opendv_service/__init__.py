@@ -18,6 +18,7 @@ from opendv_service.errors import (
     CasIntegrityError,
     ConflictError,
     ErrorCode,
+    HoldNotFoundError,
     InputValidationError,
     NotFoundError,
     OpenDVError,
@@ -27,6 +28,14 @@ from opendv_service.errors import (
     ProviderUnavailableError,
     RolePermissionError,
     UnsupportedFormatError,
+)
+from opendv_service.fallbacks import (
+    FALLBACK_REGISTRY,
+    FallbackDefinition,
+    FallbackKey,
+    FallbackRecord,
+    get_fallback_definition,
+    is_fallback_enabled,
 )
 from opendv_service.models import (
     ArtifactMetadataResponse,
@@ -60,6 +69,7 @@ from opendv_service.seams import (
     set_pipeline_runner_override,
 )
 from opendv_service.service import OpenDVService
+from opendv_service.settings import ConfigurationError, OpenDVSettings
 from opendv_service.state import PlatformStateContainer, StateStore, store_cas_artifact
 from opendv_service.use_cases.compile import compile_pipeline
 from opendv_service.use_cases.profile import profile_pipeline
@@ -72,6 +82,7 @@ from opendv_service.use_cases.verify import (
 __version__ = "0.1.0"
 
 __all__ = [
+    "FALLBACK_REGISTRY",
     "ROLE_CLEARANCE_LEVELS",
     "AgenticPipelineReport",
     "ArtifactMetadataResponse",
@@ -81,18 +92,24 @@ __all__ = [
     "CasIntegrityError",
     "CompileRequest",
     "CompileResponse",
+    "ConfigurationError",
     "ConflictError",
     "CreateProjectRequest",
     "CreateRunRequest",
     "ErrorCode",
+    "FallbackDefinition",
+    "FallbackKey",
+    "FallbackRecord",
     "GateScorecardSummary",
     "GateVerdictStatus",
     "HoldDecisionRequest",
     "HoldDecisionResponse",
+    "HoldNotFoundError",
     "InputValidationError",
     "NotFoundError",
     "OpenDVError",
     "OpenDVService",
+    "OpenDVSettings",
     "PathContainmentError",
     "PayloadTooLargeError",
     "PipelineEvent",
@@ -122,6 +139,8 @@ __all__ = [
     "compile_pipeline",
     "execute_sandbox_query",
     "get_default_pipeline_runner",
+    "get_fallback_definition",
+    "is_fallback_enabled",
     "normalize_rbac_role",
     "profile_pipeline",
     "redact_event_for_role",

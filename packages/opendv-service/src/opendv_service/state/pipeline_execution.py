@@ -18,10 +18,7 @@ from opendv_agent_harness import (
     build_observability_event_dict,
 )
 from opendv_core import resolve_workspace_path
-from opendv_service.legacy_demo import (
-    PE_DEMO_CONTEXT_REFS,
-    WORKBENCH_VIEW_TITLES,
-)
+from opendv_service.legacy_demo import WORKBENCH_VIEW_TITLES
 from opendv_service.models import (
     ArtifactMetadataResponse,
     GateScorecardSummary,
@@ -112,7 +109,7 @@ class PipelineExecutionMixin:
                         parsed_content = yaml.safe_load(text_val)
                     else:
                         parsed_content = text_val
-                except Exception:
+                except (json.JSONDecodeError, yaml.YAMLError, UnicodeDecodeError):
                     parsed_content = raw_bytes.decode("utf-8", errors="replace")
 
                 meta = ArtifactMetadataResponse(
@@ -133,11 +130,7 @@ class PipelineExecutionMixin:
             ),
             None,
         )
-        ont_sha = (
-            ont_art_ref.sha256.upper()
-            if ont_art_ref is not None
-            else PE_DEMO_CONTEXT_REFS["graph_a_sha256"]
-        )
+        ont_sha = ont_art_ref.sha256.upper() if ont_art_ref is not None else None
         last_gb_ref = next(
             (
                 a
@@ -391,6 +384,7 @@ class PipelineExecutionMixin:
             event_count=len(events_list),
             gate_scorecard=scorecard,
             active_hold_ids=active_hold_ids,
+            fallbacks_applied=report.fallbacks_applied,
             events_sse_url=f"/api/v1/runs/{report.run_id}/events",
             gates_url=f"/api/v1/runs/{report.run_id}/gates",
             sandbox_url=f"/api/v1/runs/{report.run_id}/sandbox",

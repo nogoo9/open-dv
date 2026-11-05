@@ -626,9 +626,9 @@ from opendv_agent_harness import (
     PipelineInputSpec,
     validate_pipeline_inputs,
 )
-from opendv_core.schema_registry import find_workspace_root
+from pathlib import Path
 
-ws_root = find_workspace_root()
+ws_root = Path.cwd()
 sample_dir = ws_root / "examples" / "pipeline_samples" / "global_commerce_vault"
 
 # 1. Load sample pipeline input spec and Antigravity / Claude harness configs

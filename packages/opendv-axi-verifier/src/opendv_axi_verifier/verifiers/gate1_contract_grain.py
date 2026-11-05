@@ -6,6 +6,8 @@ from __future__ import annotations
 
 from typing import Any
 
+import jsonschema  # type: ignore[import-untyped]
+
 from opendv_core.schema_registry import validate_contract_v5
 
 MIN_GRAIN_WORDS: int = 8
@@ -103,7 +105,13 @@ def verify_gate1_contract_and_grain(
     if strict_schema or str(contract.get("contract_version", "")) in {"5.0", "5.0.0"}:
         try:
             validate_contract_v5(contract)
-        except Exception as exc:
+        except (
+            jsonschema.ValidationError,
+            jsonschema.SchemaError,
+            ValueError,
+            TypeError,
+            KeyError,
+        ) as exc:
             diagnostics.append(f"SCHEMA_ERROR [Gate 1 - DV-G1-001]: {exc}")
 
     # 2. Grain Statement Word Count (>= 8 words)

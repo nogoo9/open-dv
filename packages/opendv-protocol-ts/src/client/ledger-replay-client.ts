@@ -1,5 +1,5 @@
 /**
- * Offline `.jsonl` Replay Engine (`MockVaultEventStreamClient`) supporting
+ * Offline `.jsonl` Replay Engine (`LedgerReplayClient`) supporting
  * `loadFromJSONL`, `getEvents`, `getCursor`, `setSpeed`, `seek`, `step`, and `replay`.
  */
 
@@ -17,7 +17,7 @@ function validateSpeedMultiplier(speedMultiplier: number): void {
 	}
 }
 
-export class MockVaultEventStreamClient {
+export class LedgerReplayClient {
 	private readonly events: readonly VaultObservabilityEventDTO[];
 	private cursor = 0;
 	private speedMultiplier = 1;
@@ -26,7 +26,7 @@ export class MockVaultEventStreamClient {
 		this.events = events;
 	}
 
-	static loadFromJSONL(jsonlText: string): MockVaultEventStreamClient {
+	static loadFromJSONL(jsonlText: string): LedgerReplayClient {
 		const events: VaultObservabilityEventDTO[] = [];
 		for (const rawLine of jsonlText.split(/\r\n|\r|\n/)) {
 			const trimmed = rawLine.trim();
@@ -35,7 +35,7 @@ export class MockVaultEventStreamClient {
 			}
 			events.push(JSON.parse(trimmed) as VaultObservabilityEventDTO);
 		}
-		return new MockVaultEventStreamClient(events);
+		return new LedgerReplayClient(events);
 	}
 
 	toJSONL(): string {

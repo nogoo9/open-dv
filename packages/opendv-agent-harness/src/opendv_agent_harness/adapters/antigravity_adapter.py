@@ -109,6 +109,12 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
 
             return agy_sdk
         except ImportError:
+            transport = self._config.extra_provider_options.get("transport")
+            if transport == "sdk":
+                raise ProviderConfigurationError(
+                    "Configured transport 'sdk' is unavailable because "
+                    "'google.antigravity' is not installed."
+                ) from None
             if self._resolve_api_key() is not None:
                 return None
             raise ProviderConfigurationError(
@@ -357,7 +363,14 @@ class AntigravityHarnessAdapter(BaseVaultAgentHarness):
                                 }
                             }
                         )
-                    except Exception as exc:
+                    except (
+                        ValueError,
+                        TypeError,
+                        KeyError,
+                        AttributeError,
+                        OSError,
+                        RuntimeError,
+                    ) as exc:
                         err_msg = f"{type(exc).__name__}: {exc}"
                         yield make_event(
                             HarnessEventKind.TOOL_CALL_ERROR,

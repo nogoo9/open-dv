@@ -1,12 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import {
-	PE_DEMO_EVENTS,
-	PE_DEMO_EVENTS_JSONL,
-	PE_DEMO_RUN_ID,
-	type VaultObservabilityEventDTO,
-} from "@opendv/protocol-ts";
+import type { VaultObservabilityEventDTO } from "@opendv/protocol-ts";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -47,6 +42,11 @@ import {
 	useWorkbenchStore,
 } from "../src/index";
 import { viteConfig } from "../vite.config";
+import {
+	PE_DEMO_EVENTS,
+	PE_DEMO_EVENTS_JSONL,
+	PE_DEMO_RUN_ID,
+} from "./fixtures/pe-demo-bundle";
 
 const WORKBENCH_ROOT = resolve(import.meta.dir, "..");
 
@@ -475,7 +475,11 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 
 	describe("4. Zustand Workbench Store: Offline Replay, Live SSE, RBAC & Captain-Hold", () => {
 		it("supports offline replay step, seek, speed, play/pause, instant replay, and RBAC redaction", async () => {
-			const store = createWorkbenchStore({ startAtZero: true });
+			const store = createWorkbenchStore({
+				startAtZero: true,
+				initialEvents: PE_DEMO_EVENTS,
+				initialRunId: PE_DEMO_RUN_ID,
+			});
 			expect(store.getState().mode).toBe("offline-replay");
 			expect(store.getState().replayCursor).toBe(0);
 			expect(store.getState().events.length).toBe(0);
@@ -507,7 +511,7 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 			expect(DEFAULT_REPLAY_STEP_DELAY_MS).toBeGreaterThan(0);
 			store.getState().setPlaybackSpeed(10);
 			expect(store.getState().playbackSpeed).toBe(10);
-			expect(store.getState().getMockReplayClient().getSpeed()).toBe(10);
+			expect(store.getState().getLedgerReplayClient().getSpeed()).toBe(10);
 
 			store.getState().togglePlayPause();
 			expect(store.getState().isPlaying).toBe(true);
@@ -773,7 +777,10 @@ describe("WP-10: Decoupled Web Workbench Shell, Semantic Theme Engine & Plugin R
 
 			// Render full WorkbenchShell with Proof Drawer open and Custom ESG Gate Card registered
 			registerCustomEsgGatePlugin();
-			useWorkbenchStore.getState().replayAllInstant();
+			useWorkbenchStore.getState().loadOfflineReplay(PE_DEMO_EVENTS, {
+				startAtZero: false,
+				runId: PE_DEMO_RUN_ID,
+			});
 			useWorkbenchStore.getState().setActiveView("WB-09");
 			useWorkbenchStore.getState().openProofDrawer("3A");
 

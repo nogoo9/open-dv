@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
 from opendv_agent_harness import StewardHoldManager
-from opendv_service.legacy_demo import build_pe_canonical_events
 from opendv_service.models import (
     CreateRunRequest,
     GateScorecardSummary,
@@ -40,73 +39,41 @@ class RunStateMixin:
         ],
         started_at_utc: str,
     ) -> ProjectRunDTO:
-        proj = self.projects.get(project_id)
-        if project_id == "proj-apex-horizon-pe" or (
-            proj is not None and proj.contract_path is not None
-        ):
-            canonical_9, all_workbench = build_pe_canonical_events(run_id=run_id)
-        else:
-            canonical_9, all_workbench = [], []
         ledger_path = self.ledger_dir / f"{run_id}.jsonl"
         ledger_path.unlink(missing_ok=True)
         ledger = VaultLedgerEmitter(
             ledger_path=ledger_path,
             cas_store=self.cas,
         )
-        for evt in canonical_9:
-            ledger.emit(evt)
 
         shutil.rmtree(self.state_dir / run_id / "holds", ignore_errors=True)
         hold_mgr = StewardHoldManager(state_dir=self.state_dir / run_id)
-        hold_mgr.record_hold(
-            run_id=run_id,
-            task_id=f"task-{run_id}-u3",
-            session_id=f"sess-{run_id}",
-            decision_id="hold-tier-u3-horizon-sovereign-vehicle",
-            hold_id="hold-tier-u3-horizon-sovereign-vehicle",
-            event_id="evt-pe-004",
-            headline=(
-                "Ambiguous entity mention 'Horizon Sovereign Co-Invest Vehicle' "
-                "requires Steward confirmation."
-            ),
-            escalation_reason="TIER_U3_AMBIGUOUS_ENTITY",
-            rule_id="ALG-A9B",
-            options=[
-                {"candidate_id": "APEX_CO_I", "score": 0.81},
-                {"candidate_id": "APEX_BO_IV", "score": 0.79},
-            ],
-        )
 
         self.run_ledgers[run_id] = ledger
         self.hold_managers[run_id] = hold_mgr
-        self.run_events[run_id] = canonical_9
-        self.run_workbench_events[run_id] = all_workbench
-        by_view: dict[str, list[dict[str, Any]]] = {f"WB-{i:02d}": [] for i in range(12)}
-        for evt in [*canonical_9, *all_workbench]:
-            vw = str(evt.get("workbench_view_id") or "").strip().upper()[:5]
-            if vw in by_view:
-                by_view[vw].append(evt)
-        self.run_events_by_view[run_id] = by_view
+        self.run_events[run_id] = []
+        self.run_workbench_events[run_id] = []
+        self.run_events_by_view[run_id] = {f"WB-{i:02d}": [] for i in range(12)}
 
         run_dto = ProjectRunDTO(
             run_id=run_id,
             project_id=project_id,
             harness_provider=harness_provider,
-            status=RunStatus.PAUSED_HOLD,
+            status=RunStatus.PENDING,
             started_at_utc=started_at_utc,
             completed_at_utc=None,
-            current_stage_id="STAGE_07_DETERMINISTIC_COMPILER",
-            current_view_id="WB-11",
-            event_count=len(canonical_9),
+            current_stage_id="STAGE_00_ORCHESTRATION",
+            current_view_id="WB-00",
+            event_count=0,
             gate_scorecard=GateScorecardSummary(
-                gate_0_profile_drift="PASS",
-                gate_1_contract_grain="AUTO_REPAIRED",
-                gate_2_sqlglot_ast="PASS",
-                gate_3_networkx_dag="PASS",
-                gate_4_yagni_cost_guard="AUTO-FIX",
-                gate_5_duckdb_sandbox="PASS",
+                gate_0_profile_drift="PENDING",
+                gate_1_contract_grain="PENDING",
+                gate_2_sqlglot_ast="PENDING",
+                gate_3_networkx_dag="PENDING",
+                gate_4_yagni_cost_guard="PENDING",
+                gate_5_duckdb_sandbox="PENDING",
             ),
-            active_hold_ids=["hold-tier-u3-horizon-sovereign-vehicle"],
+            active_hold_ids=[],
             events_sse_url=f"/api/v1/runs/{run_id}/events",
             gates_url=f"/api/v1/runs/{run_id}/gates",
             sandbox_url=f"/api/v1/runs/{run_id}/sandbox",
@@ -170,14 +137,10 @@ class RunStateMixin:
                 "G4_YAGNI_COST_GUARD": {
                     "gate_id": "G4",
                     "status": run_dto.gate_scorecard.gate_4_yagni_cost_guard,
-                    "write_amplification_mb_per_day": 4.2,
-                    "threshold_mb_per_day": 50.0,
                 },
                 "G5_DUCKDB_SANDBOX": {
                     "gate_id": "G5",
                     "status": run_dto.gate_scorecard.gate_5_duckdb_sandbox,
-                    "dynamic_checks_passed": 15,
-                    "dynamic_checks_total": 15,
                 },
             },
         }

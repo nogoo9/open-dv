@@ -35,7 +35,7 @@ from typing import Any, Literal
 
 import duckdb
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from opendv_agent_harness.hold_manager import StewardHoldManager, StewardHoldRecord
 from opendv_agent_harness.models import (
@@ -66,6 +66,7 @@ from opendv_agent_harness.telemetry.translator import build_observability_event_
 from opendv_axi_verifier.alg_a8_orchestrator import run_axi_dv_verification_pipeline
 from opendv_axi_verifier.toon_codec import ToonViolation
 from opendv_axi_verifier.verifiers.alg_a9b_unstructured import classify_er_resolution_tier
+from opendv_contracts.errors import ErrorCode, InputValidationError, OpenDVError
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_core.models.contract_v5 import (
     ColumnTriageEntry,
@@ -88,7 +89,6 @@ from opendv_core.paths import (
     resolve_workspace_path,
 )
 from opendv_core.schema_registry import (
-    find_workspace_root,
     load_structured_file,
     validate_canonical_ir,
     validate_contract_v5,
@@ -217,6 +217,7 @@ class HarnessSetupConfig(BaseModel):
     steward_hold_policy: Literal["pause", "auto_approve_top_candidate", "reject_on_hold"] = (
         "auto_approve_top_candidate"
     )
+    stage_output_policy: Literal["llm_only", "symbolic_completion"] = "llm_only"
     inject_adversarial_fault_on_attempt_1: bool = False
     env: dict[str, str] = Field(default_factory=dict)
     extra_provider_options: dict[str, Any] = Field(default_factory=dict)
@@ -338,10 +339,7 @@ class HarnessSetupConfig(BaseModel):
         save_dir: Path | None = None,
     ) -> HarnessConfig:
         """Convert this `HarnessSetupConfig` into a runtime `HarnessConfig`."""
-        try:
-            default_ws = find_workspace_root()
-        except Exception:
-            default_ws = Path.cwd().resolve()
+        default_ws = Path(os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
 
         eff_ws = (workspace_dir or default_ws).resolve()
         default_base = (
@@ -902,6 +900,7 @@ class AgenticPipelineReport(BaseModel):
     active_holds: list[dict[str, Any]] = Field(default_factory=list)
     resolved_holds: list[dict[str, Any]] = Field(default_factory=list)
     observability_events: list[dict[str, Any]] = Field(default_factory=list)
+    fallbacks_applied: list[dict[str, Any]] = Field(default_factory=list)
     markdown_summary: str
 
 
@@ -967,10 +966,7 @@ def validate_pipeline_inputs(
     diagnostics: list[dict[str, Any]] = []
     checked_items = 0
 
-    try:
-        ws_root = find_workspace_root()
-    except Exception:
-        ws_root = Path.cwd().resolve()
+    ws_root = Path(os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
     eff_base = (base_dir or ws_root).resolve()
 
     # 1. Validate PipelineInputSpec model
@@ -978,7 +974,7 @@ def validate_pipeline_inputs(
     if isinstance(input_spec, dict):
         try:
             spec = PipelineInputSpec.model_validate(input_spec)
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError) as exc:
             diagnostics.append(
                 {
                     "code": "INPUT_SPEC_SCHEMA_INVALID",
@@ -996,7 +992,7 @@ def validate_pipeline_inputs(
     elif isinstance(input_spec, (str, Path)):
         try:
             spec = PipelineInputSpec.from_file(input_spec)
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError, OSError) as exc:
             diagnostics.append(
                 {
                     "code": "INPUT_SPEC_SCHEMA_INVALID",
@@ -1022,7 +1018,7 @@ def validate_pipeline_inputs(
     elif isinstance(harness_setup, dict):
         try:
             setup_obj = HarnessSetupConfig.model_validate(harness_setup)
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError) as exc:
             diagnostics.append(
                 {
                     "code": "HARNESS_SETUP_INVALID",
@@ -1040,7 +1036,7 @@ def validate_pipeline_inputs(
     elif isinstance(harness_setup, (str, Path)):
         try:
             setup_obj = HarnessSetupConfig.from_file(harness_setup)
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError, OSError) as exc:
             diagnostics.append(
                 {
                     "code": "HARNESS_SETUP_INVALID",
@@ -1073,7 +1069,7 @@ def validate_pipeline_inputs(
             runtime_cfg = setup_obj.to_harness_config(workspace_dir=ws_root)
             resolved_harness_env = runtime_cfg.env
             _ = get_harness_adapter(runtime_cfg)
-        except Exception as exc:
+        except (OpenDVError, ValueError, TypeError, KeyError, OSError, RuntimeError) as exc:
             diagnostics.append(
                 {
                     "code": "HARNESS_INIT_FAILED",
@@ -1173,9 +1169,10 @@ def validate_pipeline_inputs(
                     "severity": "ERROR",
                     "target": "harness_setup.auth.auth_mode",
                     "message": (
-                        f"Auth mode '{eff_auth_mode}' for provider "
-                        f"'{setup_obj.provider}' requires the 'agy' CLI executable on PATH "
-                        "or in OPENDV_AGY_CLI_BIN."
+                        f"Auth mode '{eff_auth_mode}' for provider '{setup_obj.provider}' "
+                        "requires the 'agy' CLI executable. Checked sources: "
+                        "1) extra_provider_options.agy_binary, "
+                        "2) env var OPENDV_AGY_CLI_BIN, 3) PATH."
                     ),
                 }
             )
@@ -1197,8 +1194,9 @@ def validate_pipeline_inputs(
                     "severity": "ERROR",
                     "target": "harness_setup.provider",
                     "message": (
-                        f"Provider '{setup_obj.provider}' requires the 'claude' CLI executable "
-                        "on PATH or in OPENDV_CLAUDE_CLI_BIN when require_preflight=True."
+                        f"Provider '{setup_obj.provider}' requires the 'claude' CLI executable. "
+                        "Checked sources: 1) extra_provider_options.claude_binary, "
+                        "2) env var OPENDV_CLAUDE_CLI_BIN, 3) PATH."
                     ),
                 }
             )
@@ -1349,7 +1347,15 @@ def validate_pipeline_inputs(
             raw_ont = load_structured_file(ont_path)
             validate_graph_a(raw_ont)
             GraphAOntology.model_validate(raw_ont)
-        except Exception as exc:
+        except (
+            ValidationError,
+            ValueError,
+            TypeError,
+            KeyError,
+            OSError,
+            yaml.YAMLError,
+            json.JSONDecodeError,
+        ) as exc:
             diagnostics.append(
                 {
                     "code": "ONTOLOGY_SCHEMA_INVALID",
@@ -1390,7 +1396,15 @@ def validate_pipeline_inputs(
                 validate_contract_v5(raw_init)
                 NoMistakeDataVault2ContractV5.model_validate(raw_init)
                 initial_hub_count = len(raw_init.get("hubs", []))
-            except Exception as exc:
+            except (
+                ValidationError,
+                ValueError,
+                TypeError,
+                KeyError,
+                OSError,
+                yaml.YAMLError,
+                json.JSONDecodeError,
+            ) as exc:
                 diagnostics.append(
                     {
                         "code": "INITIAL_CONTRACT_INVALID",
@@ -1521,7 +1535,7 @@ def validate_pipeline_inputs(
                                 ),
                             }
                         )
-                except Exception as exc:
+                except (duckdb.Error, OSError, ValueError, TypeError) as exc:
                     diagnostics.append(
                         {
                             "code": "SOURCE_LOAD_ERROR",
@@ -1570,7 +1584,7 @@ def validate_pipeline_inputs(
                                         "message": "Baseline table must have >= 1 row and column.",
                                     }
                                 )
-                        except Exception as exc:
+                        except (duckdb.Error, OSError, ValueError, TypeError) as exc:
                             diagnostics.append(
                                 {
                                     "code": "BASELINE_LOAD_ERROR",
@@ -1730,7 +1744,7 @@ def validate_pipeline_outputs(
                             "message": f"CAS blob verification failed for sha256={ref.sha256}.",
                         }
                     )
-            except Exception as exc:
+            except (OpenDVError, ValueError, TypeError, KeyError, OSError) as exc:
                 cas_ok = False
                 diagnostics.append(
                     {
@@ -1776,7 +1790,14 @@ def validate_pipeline_outputs(
                         gb_data = json.loads(raw_bytes.decode("utf-8"))
                         validate_graph_b(gb_data)
                         GraphBProfile.model_validate(gb_data)
-                    except Exception as exc:
+                    except (
+                        ValidationError,
+                        ValueError,
+                        TypeError,
+                        KeyError,
+                        OSError,
+                        json.JSONDecodeError,
+                    ) as exc:
                         diagnostics.append(
                             {
                                 "code": "GRAPH_B_PROFILE_INVALID",
@@ -1801,7 +1822,15 @@ def validate_pipeline_outputs(
                 fc_dict = {}
             validate_contract_v5(fc_dict)
             NoMistakeDataVault2ContractV5.model_validate(fc_dict)
-        except Exception as exc:
+        except (
+            ValidationError,
+            ValueError,
+            TypeError,
+            KeyError,
+            OSError,
+            yaml.YAMLError,
+            json.JSONDecodeError,
+        ) as exc:
             diagnostics.append(
                 {
                     "code": "FINAL_CONTRACT_SCHEMA_INVALID",
@@ -1823,7 +1852,14 @@ def validate_pipeline_outputs(
                 ir_dict = {}
             validate_canonical_ir(ir_dict)
             CanonicalIR.model_validate(ir_dict)
-        except Exception as exc:
+        except (
+            ValidationError,
+            ValueError,
+            TypeError,
+            KeyError,
+            OSError,
+            json.JSONDecodeError,
+        ) as exc:
             diagnostics.append(
                 {
                     "code": "FINAL_CANONICAL_IR_INVALID",
@@ -1841,7 +1877,7 @@ def validate_pipeline_outputs(
             redacted = redact_event_for_role(ev, role="VIEWER")
             validate_no_pii_leaks(redacted)
             verified_events += 1
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError, KeyError, OSError) as exc:
             pii_passed = False
             diagnostics.append(
                 {
@@ -2000,8 +2036,11 @@ def _resolve_hub_and_uri(
             hub_name = cbc.target_hub or f"hub_{_slugify(cbc.concept_uri.rsplit(':', 1)[-1])}"
             return hub_name, cbc.concept_uri
 
-    slug = _slugify(hint_lower.removeprefix("cbc_").removeprefix("hub_"))
-    return f"hub_{slug}", f"urn:ontology:provisional:entity:{slug}"
+    raise InputValidationError(
+        f"Unmapped ontology concept '{concept_or_hub_hint}': "
+        "concept or hub not found in GraphAOntology.",
+        error_code=ErrorCode.INPUT_VALIDATION_ERROR,
+    )
 
 
 def _resolve_relationship_uri(
@@ -2009,7 +2048,7 @@ def _resolve_relationship_uri(
     hub_names: list[str],
     ontology: GraphAOntology,
 ) -> str:
-    """Resolve a Link's `ontology_concept_uri` from `GraphAOntology` or fallback URI."""
+    """Resolve a Link's `ontology_concept_uri` from `GraphAOntology`."""
     for rel in ontology.canonical_relationships:
         if rel.target_link == link_name:
             return rel.relationship_uri
@@ -2018,10 +2057,11 @@ def _resolve_relationship_uri(
         endpoint_hubs = {_resolve_hub_and_uri(ep, ontology)[0] for ep in rel.endpoints}
         if endpoint_hubs and endpoint_hubs.issubset(hub_set):
             return rel.relationship_uri
-    if ontology.canonical_relationships:
-        return ontology.canonical_relationships[0].relationship_uri
-    slug = _slugify(link_name.removeprefix("lnk_"))
-    return f"urn:ontology:relationship:{slug}"
+    raise InputValidationError(
+        f"Unmapped ontology relationship for link '{link_name}' with hubs {hub_names}: "
+        "not found in GraphAOntology.",
+        error_code=ErrorCode.INPUT_VALIDATION_ERROR,
+    )
 
 
 def _build_markdown_report(
@@ -2150,7 +2190,7 @@ def _decode_stage_context(prompt: str) -> dict[str, Any] | None:
     try:
         parsed = json.loads(raw_json.strip())
         return parsed if isinstance(parsed, dict) else None
-    except Exception:
+    except (json.JSONDecodeError, ValueError, TypeError):
         return None
 
 
@@ -2175,7 +2215,7 @@ def _seed_graph_b_systems_from_deployed_contract(
                     prev_gb = GraphBProfile.model_validate(load_structured_file(gb_files[-1]))
                     for sys_obj in prev_gb.source_systems:
                         systems_by_code[sys_obj.source_system_code] = sys_obj
-                except Exception:
+                except (ValidationError, ValueError, TypeError, OSError):
                     pass
 
     existing_tables = {
@@ -2383,7 +2423,7 @@ def _extract_known_entities_from_cumulative_sources(
                     v_name = f"v_er_dep_{_slugify(b_tbl)}"
                     try:
                         _, cols = _load_table_into_duckdb(conn, v_name, matched_file)
-                    except Exception:
+                    except (duckdb.Error, OSError, ValueError, TypeError):
                         continue
                     if bk_col not in cols:
                         continue
@@ -2596,10 +2636,7 @@ class AgenticVaultPipeline:
     ) -> None:
         self.input_spec = input_spec
         self.harness_setup = harness_setup or HarnessSetupConfig()
-        try:
-            self.workspace_root = find_workspace_root()
-        except Exception:
-            self.workspace_root = Path.cwd().resolve()
+        self.workspace_root = Path(os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
         self.base_dir = (base_dir or self.workspace_root).resolve()
         self._explicit_output_dir = Path(output_dir).resolve() if output_dir is not None else None
         self._explicit_cas_store = cas_store
@@ -2734,11 +2771,13 @@ class AgenticVaultPipeline:
         context_refs: dict[str, str | None] | None = None,
         remediation: dict[str, Any] | None = None,
         layer3_formal_proof: dict[str, Any] | None = None,
+        event_type: str | None = None,
     ) -> dict[str, Any]:
         """Build, redact-check, and persist a schema-valid `VaultObservabilityEvent`."""
         event_id = f"evt-{run_id}-{workbench_view_id.value.lower()}-{uuid.uuid4().hex[:8]}"
         raw_event = build_observability_event_dict(
             event_id=event_id,
+            event_type=event_type,
             run_id=run_id,
             trace_id=trace_id,
             span_id=uuid.uuid4().hex[:16],
@@ -2761,6 +2800,40 @@ class AgenticVaultPipeline:
         validate_no_pii_leaks(redacted)
         return self.ledger_emitter.emit(redacted)
 
+    def _build_fallback_applied_event(
+        self,
+        wave_index: int,
+        stage_id: PipelineStageId,
+        *,
+        run_id: str,
+        trace_id: str,
+        fallback_key: str = "stage_output_policy.symbolic_completion",
+    ) -> dict[str, Any]:
+        """Build and emit a schema-valid FALLBACK_APPLIED observability event."""
+        return self._emit_wb_event(
+            run_id=run_id,
+            trace_id=trace_id,
+            stage_id=stage_id,
+            workbench_view_id=WorkbenchViewId.WB_00,
+            viz_id=VizId.VIZ_PIPE_00,
+            persona=AgentPersona.VAULT_FIRST_MATE,
+            status=ObservabilityVerdict.AUTO_REPAIRED,
+            headline=(
+                f"Applied explicit opt-in fallback '{fallback_key}' on Stage {stage_id.value}."
+            ),
+            business_impact=(
+                "Explicit opt-in fallback applied to complete missing or invalid structured LLM "
+                "stage output."
+            ),
+            rule_ids=["DV-OPT-IN-001"],
+            summary_metrics={
+                "wave_index": wave_index,
+                "fallback_key": fallback_key,
+                "event_type": "FALLBACK_APPLIED",
+            },
+            event_type="FALLBACK_APPLIED",
+        )
+
     async def run_async(self) -> AgenticPipelineReport:
         """Execute the full multi-wave 8-stage pipeline asynchronously."""
         t0_pipeline = time.perf_counter()
@@ -2773,6 +2846,7 @@ class AgenticVaultPipeline:
         intermediate_artifacts: list[PipelineArtifactRef] = []
         final_artifacts: dict[str, PipelineArtifactRef] = {}
         observability_events: list[dict[str, Any]] = []
+        fallbacks_applied: list[dict[str, Any]] = []
 
         # -------------------------------------------------------------------
         # STAGE 00: Orchestration & Deterministic Input Validation
@@ -2831,6 +2905,7 @@ class AgenticVaultPipeline:
                 intermediate_artifacts=intermediate_artifacts,
                 final_artifacts=final_artifacts,
                 observability_events=observability_events,
+                fallbacks_applied=fallbacks_applied,
                 markdown_summary=md,
             )
 
@@ -2886,6 +2961,23 @@ class AgenticVaultPipeline:
             if isinstance(vfm_res.structured_output, Stage00OrchestrationPlanOutput)
             else None
         )
+        is_symbolic = self.harness_setup.stage_output_policy == "symbolic_completion"
+        if s0_plan is None and is_symbolic:
+            fallbacks_applied.append(
+                {
+                    "key": "stage_output_policy.symbolic_completion",
+                    "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "stage_id": PipelineStageId.STAGE_00_ORCHESTRATION.value,
+                    "details": {"reason": "missing_orchestration_plan"},
+                }
+            )
+            fb_event = self._build_fallback_applied_event(
+                0,
+                PipelineStageId.STAGE_00_ORCHESTRATION,
+                run_id=run_id,
+                trace_id=trace_id,
+            )
+            observability_events.append(fb_event)
         effective_max_retries = (
             s0_plan.recommended_max_retries
             if s0_plan is not None
@@ -3194,6 +3286,25 @@ class AgenticVaultPipeline:
                     if isinstance(scout_src_res.structured_output, Stage01SourceDiscoveryOutput)
                     else None
                 )
+                if s1_llm_discovery is None and is_symbolic:
+                    fallbacks_applied.append(
+                        {
+                            "key": "stage_output_policy.symbolic_completion",
+                            "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "stage_id": PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
+                            "details": {
+                                "wave_index": w_idx,
+                                "tables_discovered": len(raw_prof_tables),
+                            },
+                        }
+                    )
+                    fb_event = self._build_fallback_applied_event(
+                        w_idx,
+                        PipelineStageId.STAGE_01_SCOUT_SOURCE,
+                        run_id=run_id,
+                        trace_id=trace_id,
+                    )
+                    observability_events.append(fb_event)
 
             for raw_src, d_path, qualified_table, prof_tbl in raw_prof_tables:
                 src = _discover_source_feed_semantics(
@@ -3504,6 +3615,25 @@ class AgenticVaultPipeline:
                     )
                     else None
                 )
+                if s2_llm_discovery is None and is_symbolic:
+                    fallbacks_applied.append(
+                        {
+                            "key": "stage_output_policy.symbolic_completion",
+                            "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                            "stage_id": PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED.value,
+                            "details": {
+                                "wave_index": w_idx,
+                                "docs_discovered": len(raw_loaded_docs),
+                            },
+                        }
+                    )
+                    fb_event = self._build_fallback_applied_event(
+                        w_idx,
+                        PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
+                        run_id=run_id,
+                        trace_id=trace_id,
+                    )
+                    observability_events.append(fb_event)
 
             for raw_doc, doc_text, doc_sha256 in raw_loaded_docs:
                 doc = _discover_unstructured_doc_candidates(
@@ -3806,14 +3936,9 @@ class AgenticVaultPipeline:
                 for tbl_obj in sys_obj.tables
                 for col_obj in tbl_obj.columns
             }
-            fallback_triage = synthesize_stage_output_from_prompt(
-                Stage03ColumnTriageOutput,
-                pass1_spec.prompt,
-            )
-            canonical_ledger = [
-                e.model_dump(mode="json", exclude_none=True)
-                for e in fallback_triage.column_triage_ledger
-            ]
+            is_symbolic = self.harness_setup.stage_output_policy == "symbolic_completion"
+            valid_llm = False
+            llm_ledger_entries: list[dict[str, Any]] = []
             if (
                 isinstance(pass1_res.structured_output, Stage03ColumnTriageOutput)
                 and pass1_res.structured_output.column_triage_ledger
@@ -3823,45 +3948,87 @@ class AgenticVaultPipeline:
                     for entry in pass1_res.structured_output.column_triage_ledger
                 ]
                 covered_keys = {(e["bronze_table"], e["column_name"]) for e in llm_ledger_entries}
-                canon_full_keys = {
-                    (
-                        e["bronze_table"],
-                        e["column_name"],
-                        e.get("elm_classification"),
-                        e.get("target_dv_entity"),
-                    )
-                    for e in canonical_ledger
-                }
-                llm_full_keys = {
-                    (
-                        e["bronze_table"],
-                        e["column_name"],
-                        e.get("elm_classification"),
-                        e.get("target_dv_entity"),
-                    )
+                if expected_col_keys.issubset(covered_keys) and not any(
+                    e.get("bronze_table") == "source_system.bronze_table"
                     for e in llm_ledger_entries
-                }
-                if expected_col_keys.issubset(covered_keys) and (
-                    canon_full_keys.issubset(llm_full_keys)
-                    or (
-                        not any(
-                            e["bronze_table"] == "source_system.bronze_table"
-                            for e in llm_ledger_entries
-                        )
-                        and len(llm_ledger_entries) >= len(canonical_ledger)
-                        and {e["bronze_table"] for e in canonical_ledger}.issubset(
-                            {e["bronze_table"] for e in llm_ledger_entries}
-                        )
-                        and {e.get("target_dv_entity") for e in llm_ledger_entries}.issubset(
-                            {e.get("target_dv_entity") for e in canonical_ledger}
-                        )
-                    )
                 ):
-                    pass1_ledger: list[dict[str, Any]] = llm_ledger_entries
-                else:
-                    pass1_ledger = list(canonical_ledger)
+                    valid_llm = True
+
+            if valid_llm:
+                pass1_ledger = llm_ledger_entries
+            elif is_symbolic:
+                fallback_triage = synthesize_stage_output_from_prompt(
+                    Stage03ColumnTriageOutput,
+                    pass1_spec.prompt,
+                )
+                pass1_ledger = [
+                    e.model_dump(mode="json", exclude_none=True)
+                    for e in fallback_triage.column_triage_ledger
+                ]
+                fallbacks_applied.append(
+                    {
+                        "key": "stage_output_policy.symbolic_completion",
+                        "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "stage_id": PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
+                        "details": {
+                            "wave_index": w_idx,
+                            "completed_fields": ["column_triage_ledger"],
+                        },
+                    }
+                )
+                fb_event = self._build_fallback_applied_event(
+                    w_idx,
+                    PipelineStageId.STAGE_03_SHIP_VAULT_PASS1,
+                    run_id=run_id,
+                    trace_id=trace_id,
+                )
+                observability_events.append(fb_event)
             else:
-                pass1_ledger = canonical_ledger
+                s3_ms = round((time.perf_counter() - t0_s3) * 1000.0, 3)
+                s3_step_id = f"step-w{w_idx}-stage03-ship-vault-pass1"
+                wave_step_ids.append(s3_step_id)
+                s3_step_report = PipelineStepReport(
+                    step_id=s3_step_id,
+                    wave_index=w_idx,
+                    wave_name=w_name,
+                    stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
+                    persona=AgentPersona.SHIP_VAULT.value,
+                    model_tier=ModelTier.HIGH_REASONING.value,
+                    model_used=pass1_res.model_used,
+                    status="ERROR",
+                    attempt_count=1,
+                    duration_ms=s3_ms,
+                    summary=(
+                        "LLM structured output for Stage 03 Pass 1 Column Triage is invalid "
+                        "or missing, and symbolic_completion fallback is disabled."
+                    ),
+                    tool_invocations=[],
+                    input_artifact_sha256s=[gb_ref.sha256, ug_ref.sha256],
+                    output_artifact_sha256s=[],
+                    metrics={"llm_structured_triage_used": False},
+                )
+                step_reports.append(s3_step_report)
+                wave_reports.append(
+                    PipelineWaveReport(
+                        wave_index=w_idx,
+                        wave_name=w_name,
+                        wave_type=wave.wave_type,
+                        status="ERROR",
+                        sources_profiled=wave_sources_profiled,
+                        columns_profiled=wave_columns_profiled,
+                        schema_drift_events=wave_drift_events,
+                        unstructured_tier_counts=tier_counts,
+                        self_healing_attempts=1,
+                        applied_codemods=[],
+                        gate_scorecard={"G0": "PASS", "G1": "FAIL"},
+                        sandbox_summary={},
+                        contract_sha256="",
+                        canonical_ir_sha256="",
+                        sql_bundle_sha256="",
+                        step_ids=wave_step_ids,
+                    )
+                )
+                break
 
             triage_ref = self._record_artifact(
                 artifact_id=f"art-w{w_idx}-stage03-pass1-triage",
@@ -3969,15 +4136,6 @@ class AgenticVaultPipeline:
                 output_schema=Stage04ContractSynthesisOutput,
             )
             ship_res = await self._run_task_with_streaming(ship_spec)
-            fallback_s4 = synthesize_stage_output_from_prompt(
-                Stage04ContractSynthesisOutput,
-                ship_spec.prompt,
-            )
-            canon_contract = fallback_s4.contract.model_dump(
-                mode="json",
-                exclude_none=True,
-            )
-            canon_contract["column_triage_ledger"] = list(pass1_ledger)
             llm_candidate: dict[str, Any] | None = None
             if isinstance(ship_res.structured_output, Stage04ContractSynthesisOutput):
                 llm_candidate = ship_res.structured_output.contract.model_dump(
@@ -3989,44 +4147,85 @@ class AgenticVaultPipeline:
                     mode="json",
                     exclude_none=True,
                 )
-            if llm_candidate is not None:
+            valid_llm_contract = isinstance(
+                ship_res.structured_output,
+                (Stage04ContractSynthesisOutput, NoMistakeDataVault2ContractV5),
+            )
+            if valid_llm_contract and llm_candidate is not None:
                 llm_candidate["column_triage_ledger"] = list(pass1_ledger)
-                llm_hub_names = {h.get("name") for h in llm_candidate.get("hubs", [])}
-                canon_hub_names = {h.get("name") for h in canon_contract.get("hubs", [])}
-                llm_link_names = {lnk.get("name") for lnk in llm_candidate.get("links", [])}
-                canon_link_names = {lnk.get("name") for lnk in canon_contract.get("links", [])}
-                llm_sat_names = {s.get("name") for s in llm_candidate.get("satellites", [])}
-                canon_sat_names = {s.get("name") for s in canon_contract.get("satellites", [])}
-                if (
-                    llm_hub_names == canon_hub_names
-                    and llm_link_names == canon_link_names
-                    and llm_sat_names == canon_sat_names
-                ):
-                    precheck = run_axi_dv_verification_pipeline(
-                        candidate_contract=copy.deepcopy(llm_candidate),
-                        ontology_graph=raw_ontology,
-                        bronze_profile=wave_gb_dict,
-                        deployed_contract=deployed_contract_dict,
-                        parsed_doc_samples=cumulative_doc_texts if cumulative_doc_texts else None,
-                        apply_codemods=True,
-                        auto_fix_schema_drift=bool(wave_drift_events),
-                        strict_schema=True,
-                        require_grain_statements=False,
-                        check_full_ledger_coverage=True,
-                        check_isolated_hubs=True,
-                        enforce_er_holds_as_diagnostics=False,
-                        run_id=run_id,
-                        attempt=1,
-                        max_attempts=1,
-                    )
-                    if precheck.status in {"PASS", "ASK_USER"}:
-                        candidate_contract = llm_candidate
-                    else:
-                        candidate_contract = canon_contract
-                else:
-                    candidate_contract = canon_contract
-            else:
+                candidate_contract = llm_candidate
+            elif is_symbolic:
+                fallback_s4 = synthesize_stage_output_from_prompt(
+                    Stage04ContractSynthesisOutput,
+                    ship_spec.prompt,
+                )
+                canon_contract = fallback_s4.contract.model_dump(
+                    mode="json",
+                    exclude_none=True,
+                )
+                canon_contract["column_triage_ledger"] = list(pass1_ledger)
                 candidate_contract = canon_contract
+                fallbacks_applied.append(
+                    {
+                        "key": "stage_output_policy.symbolic_completion",
+                        "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                        "stage_id": PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
+                        "details": {"wave_index": w_idx, "completed_fields": ["contract"]},
+                    }
+                )
+                fb_event = self._build_fallback_applied_event(
+                    w_idx,
+                    PipelineStageId.STAGE_04_SHIP_VAULT_PASS2,
+                    run_id=run_id,
+                    trace_id=trace_id,
+                )
+                observability_events.append(fb_event)
+            else:
+                s4_ms = round((time.perf_counter() - t0_s4) * 1000.0, 3)
+                s4_step_id = f"step-w{w_idx}-stage04-ship-vault-pass2"
+                wave_step_ids.append(s4_step_id)
+                s4_step_report = PipelineStepReport(
+                    step_id=s4_step_id,
+                    wave_index=w_idx,
+                    wave_name=w_name,
+                    stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
+                    persona=AgentPersona.SHIP_VAULT.value,
+                    model_tier=ModelTier.HIGH_REASONING.value,
+                    model_used=ship_res.model_used,
+                    status="ERROR",
+                    attempt_count=1,
+                    duration_ms=s4_ms,
+                    summary=(
+                        "LLM structured output for Stage 04 Contract Synthesis is invalid "
+                        "or missing, and symbolic_completion fallback is disabled."
+                    ),
+                    tool_invocations=[],
+                    input_artifact_sha256s=[gb_ref.sha256, triage_ref.sha256],
+                    output_artifact_sha256s=[],
+                    metrics={"llm_structured_contract_used": False},
+                )
+                step_reports.append(s4_step_report)
+                wave_reports.append(
+                    PipelineWaveReport(
+                        wave_index=w_idx,
+                        wave_name=w_name,
+                        wave_type=wave.wave_type,
+                        status="ERROR",
+                        sources_profiled=wave_sources_profiled,
+                        columns_profiled=wave_columns_profiled,
+                        schema_drift_events=wave_drift_events,
+                        unstructured_tier_counts=tier_counts,
+                        self_healing_attempts=1,
+                        applied_codemods=[],
+                        gate_scorecard={"G0": "PASS", "G1": "PASS", "G2": "FAIL"},
+                        sandbox_summary={},
+                        contract_sha256="",
+                        canonical_ir_sha256="",
+                        sql_bundle_sha256="",
+                        step_ids=wave_step_ids,
+                    )
+                )
+                break
 
             attempt1_contract = copy.deepcopy(candidate_contract)
             injected_fault = (
@@ -4122,6 +4321,7 @@ class AgenticVaultPipeline:
             # ---------------------------------------------------------------
             t0_s5 = time.perf_counter()
             s5_out_shas: list[str] = []
+            s5_repair_failed = False
             current_attempt_contract = attempt1_contract
             max_attempts = max(1, effective_max_retries)
             attempt_num = 1
@@ -4199,14 +4399,6 @@ class AgenticVaultPipeline:
                     )
                     repair_res = await self._run_task_with_streaming(repair_spec)
                     s5_model_used = repair_res.model_used
-                    fallback_rep = synthesize_stage_output_from_prompt(
-                        Stage04ContractSynthesisOutput,
-                        repair_spec.prompt,
-                    )
-                    canon_repaired = fallback_rep.contract.model_dump(
-                        mode="json",
-                        exclude_none=True,
-                    )
                     llm_repaired: dict[str, Any] | None = None
                     if isinstance(repair_res.structured_output, Stage04ContractSynthesisOutput):
                         llm_repaired = repair_res.structured_output.contract.model_dump(
@@ -4218,32 +4410,87 @@ class AgenticVaultPipeline:
                             mode="json",
                             exclude_none=True,
                         )
-                    if llm_repaired is not None:
-                        rep_check = run_axi_dv_verification_pipeline(
-                            candidate_contract=copy.deepcopy(llm_repaired),
-                            ontology_graph=raw_ontology,
-                            bronze_profile=wave_gb_dict,
-                            deployed_contract=deployed_contract_dict,
-                            parsed_doc_samples=(
-                                cumulative_doc_texts if cumulative_doc_texts else None
-                            ),
-                            apply_codemods=True,
-                            auto_fix_schema_drift=bool(wave_drift_events),
-                            strict_schema=True,
-                            require_grain_statements=False,
-                            check_full_ledger_coverage=True,
-                            check_isolated_hubs=True,
-                            enforce_er_holds_as_diagnostics=False,
-                            run_id=run_id,
-                            attempt=attempt_num + 1,
-                            max_attempts=max_attempts,
+                    valid_repair = isinstance(
+                        repair_res.structured_output,
+                        (Stage04ContractSynthesisOutput, NoMistakeDataVault2ContractV5),
+                    )
+                    if valid_repair and llm_repaired is not None:
+                        current_attempt_contract = llm_repaired
+                    elif is_symbolic:
+                        fallback_rep = synthesize_stage_output_from_prompt(
+                            Stage04ContractSynthesisOutput,
+                            repair_spec.prompt,
                         )
-                        if rep_check.status in {"PASS", "ASK_USER"}:
-                            current_attempt_contract = llm_repaired
-                        else:
-                            current_attempt_contract = canon_repaired
-                    else:
+                        canon_repaired = fallback_rep.contract.model_dump(
+                            mode="json",
+                            exclude_none=True,
+                        )
                         current_attempt_contract = canon_repaired
+                        fallbacks_applied.append(
+                            {
+                                "key": "stage_output_policy.symbolic_completion",
+                                "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                "stage_id": PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
+                                "details": {
+                                    "wave_index": w_idx,
+                                    "attempt": attempt_num + 1,
+                                    "completed_fields": ["contract_repair"],
+                                },
+                            }
+                        )
+                        fb_event = self._build_fallback_applied_event(
+                            w_idx,
+                            PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
+                            run_id=run_id,
+                            trace_id=trace_id,
+                        )
+                        observability_events.append(fb_event)
+                    else:
+                        s5_repair_failed = True
+                        break
+
+            if s5_repair_failed:
+                s5_ms = round((time.perf_counter() - t0_s5) * 1000.0, 3)
+                s5_step_id = f"step-w{w_idx}-stage05-repair-failed"
+                wave_step_ids.append(s5_step_id)
+                s5_step_report = PipelineStepReport(
+                    step_id=s5_step_id,
+                    wave_index=w_idx,
+                    wave_name=w_name,
+                    stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
+                    persona=AgentPersona.SHIP_VAULT.value,
+                    model_tier=ModelTier.HIGH_REASONING.value,
+                    model_used=s5_model_used,
+                    status="ERROR",
+                    attempt_count=attempt_num,
+                    duration_ms=s5_ms,
+                    summary=(
+                        "Repair structured output from LLM was missing or incomplete "
+                        "and symbolic_completion fallback is disabled."
+                    ),
+                )
+                step_reports.append(s5_step_report)
+                wave_reports.append(
+                    PipelineWaveReport(
+                        wave_index=w_idx,
+                        wave_name=w_name,
+                        wave_type=wave.wave_type,
+                        status="ERROR",
+                        sources_profiled=wave_sources_profiled,
+                        columns_profiled=wave_columns_profiled,
+                        schema_drift_events=wave_drift_events,
+                        unstructured_tier_counts=tier_counts,
+                        self_healing_attempts=attempt_num,
+                        applied_codemods=list(axi_res.applied_codemods) if axi_res else [],
+                        gate_scorecard={"G0": "PASS", "G1": "PASS", "G2": "PASS", "G3": "FAIL"},
+                        sandbox_summary={},
+                        contract_sha256="",
+                        canonical_ir_sha256="",
+                        sql_bundle_sha256="",
+                        step_ids=wave_step_ids,
+                    )
+                )
+                break
 
             assert axi_res is not None
             verified_contract_dict = axi_res.transformed_contract
@@ -4682,140 +4929,143 @@ class AgenticVaultPipeline:
         # -------------------------------------------------------------------
         # STAGE 07: Deterministic Compiler & Final Output Certification
         # -------------------------------------------------------------------
-        t0_s7 = time.perf_counter()
-        self._notify_stage_start(
-            wave_reports[-1].wave_index,
-            PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
-            AgentPersona.DETERMINISTIC_COMPILER.value,
-            self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER),
-        )
-        assert last_canonical_ir is not None
-        assert last_contract_ref is not None
-        assert last_ir_ref is not None
-        assert last_sql_ref is not None
+        if last_contract_ref is not None:
+            t0_s7 = time.perf_counter()
+            self._notify_stage_start(
+                wave_reports[-1].wave_index,
+                PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+                AgentPersona.DETERMINISTIC_COMPILER.value,
+                self.harness.resolve_model(
+                    ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER
+                ),
+            )
+            assert last_canonical_ir is not None
+            assert last_contract_ref is not None
+            assert last_ir_ref is not None
+            assert last_sql_ref is not None
 
-        final_contract_ref = self._record_artifact(
-            artifact_id="art-stage07-final-contract",
-            name="final_contract.yaml",
-            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
-            content=yaml.safe_dump(last_verified_contract, sort_keys=False),
-            media_type="application/x-yaml",
-            rel_path="final_contract.yaml",
-            wave_index=wave_reports[-1].wave_index,
-            description="Final Verified No-Mistake Data Vault 2.0 Model Contract (v5.0).",
-        )
-        final_ir_ref = self._record_artifact(
-            artifact_id="art-stage07-final-canonical-ir",
-            name="final_canonical_ir.json",
-            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
-            content=json.dumps(
-                last_canonical_ir.model_dump(mode="json", exclude_none=True),
-                indent=2,
-                sort_keys=True,
-            ),
-            media_type="application/json",
-            rel_path="final_canonical_ir.json",
-            wave_index=wave_reports[-1].wave_index,
-            description="Final Lowered Canonical IR (v1.0.0).",
-        )
-        final_sql_ref = self._record_artifact(
-            artifact_id="art-stage07-final-four-zone-sql",
-            name="final_four_zone.sql",
-            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
-            content=last_sql_bundle_text,
-            media_type="application/sql",
-            rel_path="final_four_zone.sql",
-            wave_index=wave_reports[-1].wave_index,
-            description="Final Compiled 4-Zone DuckDB SQL Bundle.",
-        )
+            final_contract_ref = self._record_artifact(
+                artifact_id="art-stage07-final-contract",
+                name="final_contract.yaml",
+                stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+                content=yaml.safe_dump(last_verified_contract, sort_keys=False),
+                media_type="application/x-yaml",
+                rel_path="final_contract.yaml",
+                wave_index=wave_reports[-1].wave_index,
+                description="Final Verified No-Mistake Data Vault 2.0 Model Contract (v5.0).",
+            )
+            final_ir_ref = self._record_artifact(
+                artifact_id="art-stage07-final-canonical-ir",
+                name="final_canonical_ir.json",
+                stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+                content=json.dumps(
+                    last_canonical_ir.model_dump(mode="json", exclude_none=True),
+                    indent=2,
+                    sort_keys=True,
+                ),
+                media_type="application/json",
+                rel_path="final_canonical_ir.json",
+                wave_index=wave_reports[-1].wave_index,
+                description="Final Lowered Canonical IR (v1.0.0).",
+            )
+            final_sql_ref = self._record_artifact(
+                artifact_id="art-stage07-final-four-zone-sql",
+                name="final_four_zone.sql",
+                stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+                content=last_sql_bundle_text,
+                media_type="application/sql",
+                rel_path="final_four_zone.sql",
+                wave_index=wave_reports[-1].wave_index,
+                description="Final Compiled 4-Zone DuckDB SQL Bundle.",
+            )
 
-        ev_wb11 = self._emit_wb_event(
-            run_id=run_id,
-            trace_id=trace_id,
-            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER,
-            workbench_view_id=WorkbenchViewId.WB_11,
-            viz_id=VizId.VIZ_STEP_08,
-            persona=AgentPersona.DETERMINISTIC_COMPILER,
-            status=ObservabilityVerdict.PASS,
-            headline=(
-                f"Materialized final contract, Canonical IR, and 4-Zone SQL across "
-                f"{len(wave_reports)} wave(s)."
-            ),
-            business_impact=(
-                "Delivers cryptographically hashed, CAS-verified Data Vault 2.0 artifacts "
-                "with full W3C trace and audit ledger."
-            ),
-            rule_ids=["ALG-A5", "ALG-A6", "DV-EVO-001"],
-            summary_metrics={
-                "waves_completed": len(wave_reports),
-                "total_hubs": len(last_verified_contract.get("hubs", [])),
-                "total_links": len(last_verified_contract.get("links", [])),
-                "total_satellites": len(last_verified_contract.get("satellites", [])),
-            },
-            context_refs={
-                "contract_yaml_post_sha256": final_contract_ref.sha256,
-                "canonical_ir_sha256": final_ir_ref.sha256,
-                "compiled_sql_sha256": final_sql_ref.sha256,
-            },
-        )
-        observability_events.append(ev_wb11)
+            ev_wb11 = self._emit_wb_event(
+                run_id=run_id,
+                trace_id=trace_id,
+                stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER,
+                workbench_view_id=WorkbenchViewId.WB_11,
+                viz_id=VizId.VIZ_STEP_08,
+                persona=AgentPersona.DETERMINISTIC_COMPILER,
+                status=ObservabilityVerdict.PASS,
+                headline=(
+                    f"Materialized final contract, Canonical IR, and 4-Zone SQL across "
+                    f"{len(wave_reports)} wave(s)."
+                ),
+                business_impact=(
+                    "Delivers cryptographically hashed, CAS-verified Data Vault 2.0 artifacts "
+                    "with full W3C trace and audit ledger."
+                ),
+                rule_ids=["ALG-A5", "ALG-A6", "DV-EVO-001"],
+                summary_metrics={
+                    "waves_completed": len(wave_reports),
+                    "total_hubs": len(last_verified_contract.get("hubs", [])),
+                    "total_links": len(last_verified_contract.get("links", [])),
+                    "total_satellites": len(last_verified_contract.get("satellites", [])),
+                },
+                context_refs={
+                    "contract_yaml_post_sha256": final_contract_ref.sha256,
+                    "canonical_ir_sha256": final_ir_ref.sha256,
+                    "compiled_sql_sha256": final_sql_ref.sha256,
+                },
+            )
+            observability_events.append(ev_wb11)
 
-        # Register vault-ledger.jsonl in CAS and final_artifacts
-        ledger_bytes = self.ledger_path.read_bytes()
-        ledger_sha = self.cas_store.put(ledger_bytes)
-        final_ledger_ref = PipelineArtifactRef(
-            artifact_id="art-stage07-vault-ledger",
-            name="vault-ledger.jsonl",
-            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
-            wave_index=wave_reports[-1].wave_index,
-            media_type="application/x-ndjson",
-            sha256=ledger_sha,
-            byte_length=len(ledger_bytes),
-            file_path=str(self.ledger_path),
-            description="Immutable JSONL Observability Event Ledger (WB-00..WB-11).",
-        )
+            # Register vault-ledger.jsonl in CAS and final_artifacts
+            ledger_bytes = self.ledger_path.read_bytes()
+            ledger_sha = self.cas_store.put(ledger_bytes)
+            final_ledger_ref = PipelineArtifactRef(
+                artifact_id="art-stage07-vault-ledger",
+                name="vault-ledger.jsonl",
+                stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+                wave_index=wave_reports[-1].wave_index,
+                media_type="application/x-ndjson",
+                sha256=ledger_sha,
+                byte_length=len(ledger_bytes),
+                file_path=str(self.ledger_path),
+                description="Immutable JSONL Observability Event Ledger (WB-00..WB-11).",
+            )
 
-        final_artifacts["final_contract"] = final_contract_ref
-        final_artifacts["final_canonical_ir"] = final_ir_ref
-        final_artifacts["final_four_zone_sql"] = final_sql_ref
-        final_artifacts["vault_ledger_jsonl"] = final_ledger_ref
+            final_artifacts["final_contract"] = final_contract_ref
+            final_artifacts["final_canonical_ir"] = final_ir_ref
+            final_artifacts["final_four_zone_sql"] = final_sql_ref
+            final_artifacts["vault_ledger_jsonl"] = final_ledger_ref
 
-        s7_ms = round((time.perf_counter() - t0_s7) * 1000.0, 3)
-        s7_step_id = f"step-w{wave_reports[-1].wave_index}-stage07-deterministic-compiler"
-        wave_reports[-1].step_ids.append(s7_step_id)
-        s7_step_report = PipelineStepReport(
-            step_id=s7_step_id,
-            wave_index=wave_reports[-1].wave_index,
-            wave_name=wave_reports[-1].wave_name,
-            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
-            persona=AgentPersona.DETERMINISTIC_COMPILER.value,
-            model_tier=ModelTier.FAST_TIER.value,
-            model_used=self.harness.resolve_model(
-                ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER
-            ),
-            status="PASS",
-            attempt_count=1,
-            duration_ms=s7_ms,
-            summary=(
-                "Materialized final contract, Canonical IR, 4-Zone SQL, and "
-                "certified CAS + PII output invariants."
-            ),
-            tool_invocations=["compile_canonical_ir", "emit_observability_event"],
-            input_artifact_sha256s=[
-                last_contract_ref.sha256,
-                last_ir_ref.sha256,
-                last_sql_ref.sha256,
-            ],
-            output_artifact_sha256s=[
-                final_contract_ref.sha256,
-                final_ir_ref.sha256,
-                final_sql_ref.sha256,
-                final_ledger_ref.sha256,
-            ],
-            metrics={"observability_events_emitted": len(observability_events)},
-        )
-        step_reports.append(s7_step_report)
-        self._notify_stage_complete(wave_reports[-1].wave_index, s7_step_report)
+            s7_ms = round((time.perf_counter() - t0_s7) * 1000.0, 3)
+            s7_step_id = f"step-w{wave_reports[-1].wave_index}-stage07-deterministic-compiler"
+            wave_reports[-1].step_ids.append(s7_step_id)
+            s7_step_report = PipelineStepReport(
+                step_id=s7_step_id,
+                wave_index=wave_reports[-1].wave_index,
+                wave_name=wave_reports[-1].wave_name,
+                stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+                persona=AgentPersona.DETERMINISTIC_COMPILER.value,
+                model_tier=ModelTier.FAST_TIER.value,
+                model_used=self.harness.resolve_model(
+                    ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER
+                ),
+                status="PASS",
+                attempt_count=1,
+                duration_ms=s7_ms,
+                summary=(
+                    "Materialized final contract, Canonical IR, 4-Zone SQL, and "
+                    "certified CAS + PII output invariants."
+                ),
+                tool_invocations=["compile_canonical_ir", "emit_observability_event"],
+                input_artifact_sha256s=[
+                    last_contract_ref.sha256,
+                    last_ir_ref.sha256,
+                    last_sql_ref.sha256,
+                ],
+                output_artifact_sha256s=[
+                    final_contract_ref.sha256,
+                    final_ir_ref.sha256,
+                    final_sql_ref.sha256,
+                    final_ledger_ref.sha256,
+                ],
+                metrics={"observability_events_emitted": len(observability_events)},
+            )
+            step_reports.append(s7_step_report)
+            self._notify_stage_complete(wave_reports[-1].wave_index, s7_step_report)
 
         active_holds = [
             h.model_dump(mode="json")
@@ -4863,6 +5113,7 @@ class AgenticVaultPipeline:
             active_holds=active_holds,
             resolved_holds=resolved_holds,
             observability_events=observability_events,
+            fallbacks_applied=fallbacks_applied,
             markdown_summary="",
         )
 
@@ -4944,7 +5195,7 @@ class AgenticVaultPipeline:
         return asyncio.run(self.run_async())
 
 
-class _DeterministicStageSynthesizer:
+class _SymbolicStageSynthesizer:
     @staticmethod
     def discover_source_feed_semantics(
         *,
@@ -6263,14 +6514,13 @@ class _DeterministicStageSynthesizer:
         }
 
 
-_discover_source_feed_semantics = _DeterministicStageSynthesizer.discover_source_feed_semantics
+_DeterministicStageSynthesizer = _SymbolicStageSynthesizer
+_discover_source_feed_semantics = _SymbolicStageSynthesizer.discover_source_feed_semantics
 _discover_unstructured_doc_candidates = (
-    _DeterministicStageSynthesizer.discover_unstructured_doc_candidates
+    _SymbolicStageSynthesizer.discover_unstructured_doc_candidates
 )
-_repair_contract_from_axi_violations = (
-    _DeterministicStageSynthesizer.repair_contract_from_axi_violations
-)
-_synthesize_cumulative_contract = _DeterministicStageSynthesizer.synthesize_cumulative_contract
+_repair_contract_from_axi_violations = _SymbolicStageSynthesizer.repair_contract_from_axi_violations
+_synthesize_cumulative_contract = _SymbolicStageSynthesizer.synthesize_cumulative_contract
 
 
 def synthesize_stage_output_from_prompt(
@@ -6584,6 +6834,9 @@ def synthesize_stage_output_from_prompt(
         return Stage04ContractSynthesisOutput(contract=contract_obj)
 
     return None
+
+
+synthesize_symbolic_stage_output = synthesize_stage_output_from_prompt
 
 
 def run_agentic_vault_pipeline(

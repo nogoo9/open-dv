@@ -6,53 +6,11 @@ from typing import Any
 
 from opendv_contracts.errors import (
     ErrorCode,
-    ProblemDetail,
-    create_problem_detail,
-    get_error_mapping,
+    HoldNotFoundError,
+    InputValidationError,
+    NotFoundError,
+    OpenDVError,
 )
-
-
-class OpenDVError(Exception):
-    """Base exception for all domain errors within opendv-service."""
-
-    error_code: ErrorCode = ErrorCode.INTERNAL_ERROR
-    exit_code: int = 2
-    http_status: int = 500
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        error_code: ErrorCode | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(message)
-        self.message = message
-        if error_code is not None:
-            self.error_code = error_code
-        self.exit_code, self.http_status = get_error_mapping(self.error_code)
-        self.details = details or {}
-
-    def to_problem_detail(self, *, instance: str | None = None) -> ProblemDetail:
-        """Convert exception to an RFC 9457 ProblemDetail DTO."""
-        return create_problem_detail(
-            code=self.error_code,
-            detail=self.message,
-            instance=instance,
-            extensions=self.details,
-        )
-
-
-class InputValidationError(OpenDVError):
-    """Raised when client input fails syntactic or structural schema validation."""
-
-    error_code = ErrorCode.INPUT_VALIDATION_ERROR
-
-
-class NotFoundError(OpenDVError):
-    """Raised when a requested resource (project, run, hold, artifact) does not exist."""
-
-    error_code = ErrorCode.RESOURCE_NOT_FOUND
 
 
 class PathContainmentError(OpenDVError, ValueError):
@@ -118,3 +76,19 @@ class ConflictError(OpenDVError):
         super().__init__(message, error_code=error_code, details=details)
         self.http_status = 409
 
+
+__all__ = [
+    "CasIntegrityError",
+    "ConflictError",
+    "ErrorCode",
+    "HoldNotFoundError",
+    "InputValidationError",
+    "NotFoundError",
+    "OpenDVError",
+    "PathContainmentError",
+    "PayloadTooLargeError",
+    "PipelineExecutionError",
+    "ProviderUnavailableError",
+    "RolePermissionError",
+    "UnsupportedFormatError",
+]

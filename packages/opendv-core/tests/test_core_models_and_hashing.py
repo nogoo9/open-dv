@@ -13,6 +13,7 @@ Covers:
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -52,7 +53,6 @@ from opendv_core import (
     dv2_canonical_hash,
     encode_dv2_token,
     evaluate_yagni_satellite_split,
-    find_workspace_root,
     resolve_fk_hash_key_with_zero_keys,
     validate_all_examples,
     validate_canonical_ir,
@@ -62,6 +62,8 @@ from opendv_core import (
     validate_observability_event,
 )
 from opendv_core.cli_validate_schemas import main as cli_validate_schemas_main
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def test_normative_constants() -> None:
@@ -296,7 +298,7 @@ def test_elm_calculus_metrics() -> None:
 
 def test_schema_registry_and_all_examples() -> None:
     """Verify Draft 2020-12 JSON schemas and all `examples/**` artifacts."""
-    root = find_workspace_root()
+    root = REPO_ROOT
     registry = SchemaRegistry(schemas_dir=root / "schemas")
 
     schemas = registry.check_all_schemas()
@@ -353,7 +355,7 @@ def test_schema_registry_and_all_examples() -> None:
         ).profile_version
         == "1.0.0"
     )
-    assert cli_validate_schemas_main([]) == 0
+    assert cli_validate_schemas_main(["--workspace-root", str(root)]) == 0
 
 
 def test_observability_event_validation_and_invariants() -> None:

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import contextlib
 import json
+import os
 import re
 import tempfile
 from pathlib import Path
 from typing import Any
 
 from opendv_contracts import ProfileRequest, ProfileResponse, RenderedOutput
-from opendv_core import find_workspace_root, validate_graph_b
+from opendv_core import validate_graph_b
 from opendv_core.paths import resolve_workspace_path
 from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
 from opendv_service.errors import InputValidationError
@@ -33,7 +34,7 @@ def profile_pipeline(
     workspace_root: Path | None = None,
 ) -> ProfileResponse:
     """Profile tabular data (CSV/inline) or validate an existing Graph B profile descriptor."""
-    root = (workspace_root or find_workspace_root()).resolve()
+    root = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
 
     # Case A: Source data profiling (CSV file or inline content)
     if (request.source_path is not None and request.source_path.strip()) or (

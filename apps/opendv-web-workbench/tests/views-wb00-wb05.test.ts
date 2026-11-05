@@ -8,7 +8,6 @@ import { beforeEach, describe, expect, it } from "bun:test";
 import {
 	ALL_WORKBENCH_VIEW_IDS,
 	type CaptainHoldDecisionRequest,
-	PE_DEMO_EVENTS,
 	type StageId,
 	type VaultObservabilityEventDTO,
 	type WorkbenchViewId,
@@ -62,6 +61,7 @@ import { WB04ColumnTriageView } from "../src/views/wb04/WB04ColumnTriageView";
 import { BkccCollisionShieldDrawer } from "../src/views/wb05/BkccCollisionShieldDrawer";
 import { TopologyCanvas } from "../src/views/wb05/TopologyCanvas";
 import { WB05ELMTopologyView } from "../src/views/wb05/WB05ELMTopologyView";
+import { PE_DEMO_EVENTS } from "./fixtures/pe-demo-bundle";
 
 describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () => {
 	let registry: WorkbenchPluginRegistry;
@@ -79,6 +79,10 @@ describe("Work Package WP-11: Workbench Views Part 1 (WB-00 through WB-05)", () 
 	beforeEach(() => {
 		registry = new WorkbenchPluginRegistry();
 		registerWB00toWB05(registry);
+		useWorkbenchStore.getState().loadOfflineReplay(PE_DEMO_EVENTS, {
+			startAtZero: false,
+			runId: "run-pe-apex-horizon-20261030",
+		});
 	});
 
 	describe("1. Plugin Registration & Co-Located Gate Cards", () => {

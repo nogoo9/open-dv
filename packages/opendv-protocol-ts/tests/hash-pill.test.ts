@@ -1,13 +1,13 @@
 import { describe, expect, it } from "bun:test";
 import {
 	NULL_TOKEN,
-	PE_CANONICAL_HASH_PILLS,
 	ZERO_KEY_ERROR_HEX,
 	ZERO_KEY_HEX,
 	computeDv2LengthPrefixedSha256,
 	computeDv2PrehashString,
 	formatSemanticHashPill,
 } from "../src/index";
+import { PE_CANONICAL_HASH_PILLS } from "./fixtures/pe-demo-bundle";
 
 describe("hash-pill utilities (Algorithm A.5)", () => {
 	it("defines canonical 64-hex Zero Keys and -1:^^ null token", () => {

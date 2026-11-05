@@ -23,7 +23,7 @@ from opendv_platform_api.routers import (
     sandbox,
     workbench,
 )
-from opendv_service import OpenDVService, PlatformStateContainer
+from opendv_service import OpenDVService, OpenDVSettings, PlatformStateContainer
 from opendv_service.errors import OpenDVError
 
 _HTTP_STATUS_TITLES: dict[int, str] = {
@@ -65,12 +65,59 @@ def build_problem_details_response(
 
 
 def create_app(
+    settings: OpenDVSettings | None = None,
+    *,
+    workspace_root: Path | None = None,
+    storage_root: Path | None = None,
     repo_root: Path | None = None,
     state_dir: Path | None = None,
     platform_state: PlatformStateContainer | None = None,
     service: OpenDVService | None = None,
 ) -> FastAPI:
     """Construct and configure the Open-DV Headless Platform FastAPI application."""
+    eff_ws = workspace_root or repo_root
+    has_state_ws = bool(platform_state and getattr(platform_state, "_explicit_workspace", False))
+    if eff_ws is None and has_state_ws:
+        eff_ws = platform_state.workspace_root
+    has_svc_ws = bool(service and getattr(service, "_explicit_workspace", False))
+    if eff_ws is None and has_svc_ws:
+        eff_ws = service.workspace_root
+
+    eff_storage = storage_root or state_dir
+    has_state_storage = bool(platform_state and getattr(platform_state, "_explicit_storage", False))
+    if eff_storage is None and has_state_storage:
+        eff_storage = getattr(platform_state, "storage_root", None)
+    has_svc_storage = bool(service and getattr(service, "_explicit_storage", False))
+    if eff_storage is None and has_svc_storage:
+        eff_storage = getattr(service, "storage_root", None)
+
+    active_settings = settings or OpenDVSettings.load(
+        workspace_root=eff_ws,
+        state_dir=eff_storage,
+        is_server=True,
+    )
+
+    if service is not None:
+        active_service = service
+    elif platform_state is not None:
+        active_service = OpenDVService(
+            state_store=platform_state,
+            workspace_root=active_settings.workspace_root,
+            storage_root=active_settings.state_dir,
+            settings=active_settings,
+        )
+    else:
+        active_state = PlatformStateContainer(
+            workspace_root=active_settings.workspace_root,
+            storage_root=active_settings.state_dir,
+        )
+        active_service = OpenDVService(
+            state_store=active_state,
+            workspace_root=active_settings.workspace_root,
+            storage_root=active_settings.state_dir,
+            settings=active_settings,
+        )
+
     application = FastAPI(
         title="Open-DV Platform API",
         version="0.1.0",
@@ -81,32 +128,13 @@ def create_app(
         ),
     )
     application.openapi_version = "3.1.0"
-
-    if service is not None:
-        application.state.service = service
-        application.state.platform_state = service.state
-    elif platform_state is not None:
-        application.state.platform_state = platform_state
-        application.state.service = OpenDVService(
-            state_store=platform_state,
-            workspace_root=getattr(platform_state, "repo_root", None),
-        )
-    else:
-        state = PlatformStateContainer(repo_root=repo_root, state_dir=state_dir)
-        application.state.platform_state = state
-        application.state.service = OpenDVService(
-            state_store=state,
-            workspace_root=repo_root or state.repo_root,
-        )
+    application.state.settings = active_settings
+    application.state.service = active_service
+    application.state.platform_state = active_service.state
 
     application.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-            "http://localhost:8420",
-            "http://127.0.0.1:8420",
-        ],
+        allow_origins=active_settings.cors_origins,
         allow_credentials=False,
         allow_methods=["GET", "POST", "OPTIONS"],
         allow_headers=["Content-Type", "X-OpenDV-Role", "Last-Event-ID"],
@@ -196,6 +224,22 @@ def create_app(
             instance=str(request.url.path),
         )
 
+    @application.exception_handler(Exception)
+    async def handle_unexpected_exception(
+        request: Request,
+        exc: Exception,
+    ) -> JSONResponse:
+        try:
+            raise exc
+        except Exception as unhandled_exc:  # noqa: BLE001 - API global exception handler boundary
+            return build_problem_details_response(
+                status_code=500,
+                detail=f"An unexpected internal server error occurred: {unhandled_exc}",
+                instance=str(request.url.path),
+                problem_type="https://open-dv.dev/problems/internal-error",
+                title="Internal Server Error",
+            )
+
     api_prefix = "/api/v1"
     application.include_router(health.router, prefix=api_prefix)
     application.include_router(projects.router, prefix=api_prefix)
@@ -209,4 +253,8 @@ def create_app(
     return application
 
 
-app = create_app()
+def __getattr__(name: str) -> Any:
+    """Lazy module attribute access for `app` allowing startup validation upon invocation."""
+    if name == "app":
+        return create_app()
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

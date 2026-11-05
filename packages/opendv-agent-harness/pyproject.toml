@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Open-DV Agnostic Agent Harness with Google Antigravity and Claude Agent SDK Adapters"
 requires-python = ">=3.12"
 dependencies = [
+    "opendv-contracts",
     "opendv-core",
     "opendv-axi-verifier",
     "opendv-duckdb-sandbox",

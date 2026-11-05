@@ -321,30 +321,28 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
         )
 
     def _resolve_agy_binary(self) -> str | None:
-        """Locate the `agy` CLI executable from config, environment, PATH, or user install dirs."""
-        for candidate in (
+        """Locate the `agy` CLI executable from config, environment, or PATH (CFG-06)."""
+        explicit_candidates = (
             self._config.env.get("OPENDV_AGY_CLI_BIN"),
             self._config.extra_provider_options.get("agy_binary"),
             os.environ.get("OPENDV_AGY_CLI_BIN"),
-        ):
+        )
+        has_explicit = False
+        for candidate in explicit_candidates:
             if isinstance(candidate, str) and candidate.strip():
+                has_explicit = True
                 cand_str = candidate.strip()
                 if Path(cand_str).is_file() or shutil.which(cand_str):
                     return cand_str
+
+        if has_explicit:
+            return None
 
         for bin_name in ("agy", "agy.exe", "agy.cmd"):
             found = shutil.which(bin_name)
             if found:
                 return found
 
-        fallback_paths = (
-            Path.home() / "AppData" / "Local" / "agy" / "bin" / "agy.exe",
-            Path.home() / ".local" / "bin" / "agy",
-            Path("/usr/local/bin/agy"),
-        )
-        for fb_path in fallback_paths:
-            if fb_path.is_file():
-                return str(fb_path)
         return None
 
     def _resolve_subagent_models(self, spec: AgentTaskSpec[Any]) -> dict[str, str]:
@@ -508,8 +506,8 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
         agy_bin = self._resolve_agy_binary()
         if agy_bin is None:
             raise ProviderConfigurationError(
-                "Antigravity CLI ('agy') executable was not found on PATH or in "
-                "OPENDV_AGY_CLI_BIN. Install and log in to 'agy' or set OPENDV_AGY_CLI_BIN."
+                "Antigravity CLI ('agy') executable was not found. Checked sources: "
+                "1) extra_provider_options.agy_binary, 2) env var OPENDV_AGY_CLI_BIN, 3) PATH."
             )
 
         def make_event(kind: HarnessEventKind, **kwargs: Any) -> HarnessStreamEvent:
