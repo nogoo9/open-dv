@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from collections.abc import Generator
 from pathlib import Path
 from typing import Any
 
@@ -13,6 +14,13 @@ import yaml
 
 from opendv_cli import app_main, axi_dv_main, build_parser
 from opendv_core import find_workspace_root
+from opendv_service import set_pipeline_runner_override
+
+
+@pytest.fixture(autouse=True)
+def _clean_pipeline_runner_override() -> Generator[None, None, None]:
+    yield
+    set_pipeline_runner_override(None)
 
 
 def test_opendv_cli_standalone_subcommands(
@@ -327,7 +335,6 @@ def test_verify_cli_rejected_and_ask_user_contracts(
 def test_opendv_pipeline_cli_standalone(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify `opendv pipeline validate`, `run`, and `report` standalone commands."""
     from opendv_agent_harness.adapters.deterministic_adapter import (
@@ -343,7 +350,6 @@ def test_opendv_pipeline_cli_standalone(
         )
 
     set_pipeline_runner_override(shim_runner)
-    monkeypatch.setattr("opendv_service.seams._CURRENT_PIPELINE_RUNNER", shim_runner)
     sample_input = "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml"
     sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
 
@@ -427,7 +433,6 @@ def test_opendv_pipeline_cli_standalone(
 def test_opendv_pipeline_cli_incremental_initial_contract_flag(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify `--initial-contract` flag on `opendv pipeline validate` and `run`."""
     from opendv_agent_harness.adapters.deterministic_adapter import (
@@ -443,7 +448,6 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
         )
 
     set_pipeline_runner_override(shim_runner)
-    monkeypatch.setattr("opendv_service.seams._CURRENT_PIPELINE_RUNNER", shim_runner)
     wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
     wave1_spec = "examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml"
     sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
@@ -525,7 +529,6 @@ def test_opendv_pipeline_cli_incremental_initial_contract_flag(
 def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Verify live stage progress & token streaming on `opendv pipeline run`."""
     from opendv_agent_harness.adapters.deterministic_adapter import (
@@ -541,7 +544,6 @@ def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
         )
 
     set_pipeline_runner_override(shim_runner)
-    monkeypatch.setattr("opendv_service.seams._CURRENT_PIPELINE_RUNNER", shim_runner)
     wave0_spec = "examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml"
     sample_harness = "examples/pipeline_samples/global_commerce_vault/harness_config.yaml"
 

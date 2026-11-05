@@ -910,7 +910,7 @@ class AgenticPipelineReport(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _resolve_and_check_safe_path(
+def _validate_path_containment(
     raw_path: str,
     *,
     base_dir: Path,
@@ -1323,7 +1323,7 @@ def validate_pipeline_inputs(
 
     # 3. Validate Graph A Ontology path & schema
     checked_items += 1
-    ont_path, ont_err = _resolve_and_check_safe_path(
+    ont_path, ont_err = _validate_path_containment(
         spec.graph_a_ontology_path, base_dir=eff_base, workspace_root=ws_root
     )
     if ont_err is not None or ont_path is None:
@@ -1363,7 +1363,7 @@ def validate_pipeline_inputs(
     initial_hub_count = 0
     if spec.initial_contract_path is not None:
         checked_items += 1
-        init_path, init_err = _resolve_and_check_safe_path(
+        init_path, init_err = _validate_path_containment(
             spec.initial_contract_path, base_dir=eff_base, workspace_root=ws_root
         )
         if init_err is not None or init_path is None:
@@ -1403,7 +1403,7 @@ def validate_pipeline_inputs(
     # 5. Validate optional output_dir path
     if spec.output_dir is not None:
         checked_items += 1
-        out_path, out_err = _resolve_and_check_safe_path(
+        out_path, out_err = _validate_path_containment(
             spec.output_dir, base_dir=eff_base, workspace_root=ws_root
         )
         if out_err is not None or out_path is None:
@@ -1462,7 +1462,7 @@ def validate_pipeline_inputs(
                         }
                     )
                 seen_relational_sources += 1
-                d_path, d_err = _resolve_and_check_safe_path(
+                d_path, d_err = _validate_path_containment(
                     src.data_path, base_dir=eff_base, workspace_root=ws_root
                 )
                 if d_err is not None or d_path is None:
@@ -1533,7 +1533,7 @@ def validate_pipeline_inputs(
 
                 if src.baseline_data_path is not None:
                     checked_items += 1
-                    b_path, b_err = _resolve_and_check_safe_path(
+                    b_path, b_err = _validate_path_containment(
                         src.baseline_data_path, base_dir=eff_base, workspace_root=ws_root
                     )
                     if b_err is not None or b_path is None:
@@ -1595,7 +1595,7 @@ def validate_pipeline_inputs(
 
             for doc_idx, doc in enumerate(wave.unstructured_documents):
                 checked_items += 1
-                u_path, u_err = _resolve_and_check_safe_path(
+                u_path, u_err = _validate_path_containment(
                     doc.document_path, base_dir=eff_base, workspace_root=ws_root
                 )
                 if u_err is not None or u_path is None:
@@ -2648,7 +2648,7 @@ class AgenticVaultPipeline:
         if self._explicit_output_dir is not None:
             self.output_dir = self._explicit_output_dir
         elif self.input_spec.output_dir is not None:
-            resolved_out, out_err = _resolve_and_check_safe_path(
+            resolved_out, out_err = _validate_path_containment(
                 self.input_spec.output_dir,
                 base_dir=self.base_dir,
                 workspace_root=self.workspace_root,
@@ -2842,7 +2842,7 @@ class AgenticVaultPipeline:
             self.harness.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.VAULT_FIRST_MATE),
         )
 
-        ont_path, _ = _resolve_and_check_safe_path(
+        ont_path, _ = _validate_path_containment(
             self.input_spec.graph_a_ontology_path,
             base_dir=self.base_dir,
             workspace_root=self.workspace_root,
@@ -2995,7 +2995,7 @@ class AgenticVaultPipeline:
         added_drift_cols_by_table: dict[str, list[str]] = {}
         deployed_contract_dict: dict[str, Any] | None = None
         if self.input_spec.initial_contract_path is not None:
-            init_c_path, _ = _resolve_and_check_safe_path(
+            init_c_path, _ = _validate_path_containment(
                 self.input_spec.initial_contract_path,
                 base_dir=self.base_dir,
                 workspace_root=self.workspace_root,
@@ -3061,7 +3061,7 @@ class AgenticVaultPipeline:
 
             try:
                 for src in wave.sources:
-                    d_path, _ = _resolve_and_check_safe_path(
+                    d_path, _ = _validate_path_containment(
                         src.data_path,
                         base_dir=self.base_dir,
                         workspace_root=self.workspace_root,
@@ -3095,7 +3095,7 @@ class AgenticVaultPipeline:
 
                     # Detect schema drift if baseline_data_path is provided
                     if src.baseline_data_path is not None:
-                        b_path, _ = _resolve_and_check_safe_path(
+                        b_path, _ = _validate_path_containment(
                             src.baseline_data_path,
                             base_dir=self.base_dir,
                             workspace_root=self.workspace_root,
@@ -3437,7 +3437,7 @@ class AgenticVaultPipeline:
 
             raw_loaded_docs: list[tuple[PipelineUnstructuredDocInput, str, str]] = []
             for raw_doc in wave.unstructured_documents:
-                u_path, _ = _resolve_and_check_safe_path(
+                u_path, _ = _validate_path_containment(
                     raw_doc.document_path,
                     base_dir=self.base_dir,
                     workspace_root=self.workspace_root,
