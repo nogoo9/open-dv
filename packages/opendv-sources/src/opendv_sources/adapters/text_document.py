@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import re
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +23,7 @@ from opendv_sources.spi.adapter import SourceAdapter
 from opendv_sources.spi.document import DocumentSourceAdapter
 
 _MARKDOWN_EXTENSIONS = {".md", ".markdown"}
+_CREDENTIAL_PATTERN = re.compile(r"([^/:@\s]*):([^/:@\s]+)@")
 
 
 class TextDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
@@ -56,9 +58,11 @@ class TextDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
 
     def _resolve_raw_bytes(self, spec: SourceSpec) -> tuple[bytes, str, Path | None, str]:
         """Resolve raw document bytes, document ID, file path (if any), and media type."""
-        raw_inline = (
-            spec.inline_content or spec.options.get("file_content") or spec.options.get("text")
-        )
+        raw_inline = spec.inline_content
+        if raw_inline is None:
+            raw_inline = spec.options.get("file_content")
+        if raw_inline is None:
+            raw_inline = spec.options.get("text")
         format_hint = (spec.format or "").lower().strip()
         is_markdown = format_hint in ("md", "markdown")
 
@@ -79,6 +83,8 @@ class TextDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
             else:
                 msg = f"Unsupported inline content type for text: {type(raw_inline).__name__}"
                 raise SourceLoadError(msg)
+            if not raw_bytes:
+                raise DocumentExtractionError("Text document source is empty (0 bytes)")
             return raw_bytes, doc_id, None, ("text/markdown" if is_markdown else "text/plain")
 
         if not spec.uri or not spec.uri.strip():
@@ -86,29 +92,28 @@ class TextDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
                 "TextDocumentSourceAdapter requires 'uri' or 'inline_content'"
             )
 
-        cand = Path(spec.uri.strip())
-        if "workspace_root" in spec.options:
-            ws_root = Path(spec.options["workspace_root"])
-        elif self.workspace_root is not None:
+        if self.workspace_root is not None:
             ws_root = self.workspace_root
-        elif (
-            cand.is_absolute()
-            and "base_dir" not in spec.options
-            and not spec.options.get("allowed_roots", self.allowed_roots)
-        ):
-            ws_root = cand.parent
+        elif "workspace_root" in spec.options:
+            ws_root = Path(spec.options["workspace_root"])
         else:
             ws_root = Path.cwd()
         resolved = resolve_workspace_path(
             spec.uri.strip(),
             workspace_root=ws_root,
             base_dir=Path(spec.options["base_dir"]) if "base_dir" in spec.options else None,
-            allowed_roots=spec.options.get("allowed_roots", self.allowed_roots),
+            allowed_roots=(
+                self.allowed_roots
+                if self.allowed_roots is not None
+                else spec.options.get("allowed_roots")
+            ),
             allow_temp=spec.options.get("allow_temp", self.allow_temp),
         )
         if not resolved.exists():
+            clean_uri = _CREDENTIAL_PATTERN.sub(r"\1:***@", spec.uri.strip())
+            clean_res = _CREDENTIAL_PATTERN.sub(r"\1:***@", str(resolved))
             raise SourceNotFoundError(
-                f"Text document not found: '{spec.uri}' (resolved: '{resolved}')"
+                f"Text document not found: '{clean_uri}' (resolved: '{clean_res}')"
             )
         if resolved.is_dir():
             raise SourceLoadError(f"Text document target cannot be a directory: '{resolved}'")
@@ -123,9 +128,11 @@ class TextDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
 
     def list_documents(self, spec: SourceSpec) -> list[DocumentRef]:
         """Enumerate document references matching the spec."""
-        raw_inline = (
-            spec.inline_content or spec.options.get("file_content") or spec.options.get("text")
-        )
+        raw_inline = spec.inline_content
+        if raw_inline is None:
+            raw_inline = spec.options.get("file_content")
+        if raw_inline is None:
+            raw_inline = spec.options.get("text")
         if raw_inline is not None or not spec.uri or spec.uri == "inline":
             media_type = (
                 "text/markdown"

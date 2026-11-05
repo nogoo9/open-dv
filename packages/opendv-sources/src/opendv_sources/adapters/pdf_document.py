@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import io
+import re
 from collections.abc import Iterator, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -21,6 +22,8 @@ from opendv_sources.models.specs import SourceSpec
 from opendv_sources.models.streams import SourceMetadata, StreamChunk
 from opendv_sources.spi.adapter import SourceAdapter
 from opendv_sources.spi.document import DocumentSourceAdapter
+
+_CREDENTIAL_PATTERN = re.compile(r"([^/:@\s]*):([^/:@\s]+)@")
 
 
 class PdfDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
@@ -55,9 +58,11 @@ class PdfDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
 
     def _resolve_raw_bytes(self, spec: SourceSpec) -> tuple[bytes, str, Path | None]:
         """Resolve raw PDF bytes, document ID, and file path (if any)."""
-        raw_inline = (
-            spec.inline_content or spec.options.get("file_content") or spec.options.get("data")
-        )
+        raw_inline = spec.inline_content
+        if raw_inline is None:
+            raw_inline = spec.options.get("file_content")
+        if raw_inline is None:
+            raw_inline = spec.options.get("data")
         if raw_inline is not None:
             doc_id = str(spec.options.get("doc_id") or "inline-pdf-doc")
             if isinstance(raw_inline, bytes):
@@ -83,17 +88,10 @@ class PdfDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
         if not spec.uri or not spec.uri.strip():
             raise SourceNotFoundError("PdfDocumentSourceAdapter requires 'uri' or 'inline_content'")
 
-        cand = Path(spec.uri.strip())
-        if "workspace_root" in spec.options:
-            ws = Path(spec.options["workspace_root"])
-        elif self.workspace_root is not None:
+        if self.workspace_root is not None:
             ws = self.workspace_root
-        elif (
-            cand.is_absolute()
-            and "base_dir" not in spec.options
-            and not spec.options.get("allowed_roots", self.allowed_roots)
-        ):
-            ws = cand.parent
+        elif "workspace_root" in spec.options:
+            ws = Path(spec.options["workspace_root"])
         else:
             ws = Path.cwd()
         base = Path(spec.options["base_dir"]) if "base_dir" in spec.options else None
@@ -101,12 +99,18 @@ class PdfDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
             spec.uri.strip(),
             workspace_root=ws,
             base_dir=base,
-            allowed_roots=spec.options.get("allowed_roots", self.allowed_roots),
+            allowed_roots=(
+                self.allowed_roots
+                if self.allowed_roots is not None
+                else spec.options.get("allowed_roots")
+            ),
             allow_temp=spec.options.get("allow_temp", self.allow_temp),
         )
         if not resolved.exists():
+            clean_uri = _CREDENTIAL_PATTERN.sub(r"\1:***@", spec.uri.strip())
+            clean_res = _CREDENTIAL_PATTERN.sub(r"\1:***@", str(resolved))
             raise SourceNotFoundError(
-                f"PDF document not found: '{spec.uri}' (resolved: '{resolved}')"
+                f"PDF document not found: '{clean_uri}' (resolved: '{clean_res}')"
             )
         if resolved.is_dir():
             raise SourceLoadError(f"PDF document target cannot be a directory: '{resolved}'")
@@ -119,9 +123,11 @@ class PdfDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
 
     def list_documents(self, spec: SourceSpec) -> list[DocumentRef]:
         """Enumerate document references matching the spec."""
-        raw_inline = (
-            spec.inline_content or spec.options.get("file_content") or spec.options.get("data")
-        )
+        raw_inline = spec.inline_content
+        if raw_inline is None:
+            raw_inline = spec.options.get("file_content")
+        if raw_inline is None:
+            raw_inline = spec.options.get("data")
         if raw_inline is not None or not spec.uri or spec.uri == "inline":
             doc_id = str(spec.options.get("doc_id") or "inline-pdf-doc")
             return [

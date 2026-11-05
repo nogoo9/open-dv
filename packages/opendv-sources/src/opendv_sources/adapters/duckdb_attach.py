@@ -24,7 +24,7 @@ from opendv_sources.spi.adapter import SourceAdapter
 from opendv_sources.spi.tabular import TabularSourceAdapter
 
 _KNOWN_SCHEMES = ("duckdb_attach", "sqlite", "duckdb")
-_CREDENTIAL_PATTERN = re.compile(r"//([^:]+):([^@]+)@")
+_CREDENTIAL_PATTERN = re.compile(r"([^/:@\s]*):([^/:@\s]+)@")
 
 
 class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
@@ -66,20 +66,27 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
         if len(raw_p) >= 3 and raw_p[0] in "/\\" and raw_p[2] == ":":
             raw_p = raw_p[1:]
 
-        ws_root = (
-            Path(spec.options["workspace_root"])
-            if "workspace_root" in spec.options
-            else (self.workspace_root or Path.cwd())
-        )
+        if self.workspace_root is not None:
+            ws_root = self.workspace_root
+        elif "workspace_root" in spec.options:
+            ws_root = Path(spec.options["workspace_root"])
+        else:
+            ws_root = Path.cwd()
         resolved = resolve_workspace_path(
             raw_p,
             workspace_root=ws_root,
             base_dir=Path(spec.options["base_dir"]) if "base_dir" in spec.options else None,
-            allowed_roots=spec.options.get("allowed_roots", self.allowed_roots),
+            allowed_roots=(
+                self.allowed_roots
+                if self.allowed_roots is not None
+                else spec.options.get("allowed_roots")
+            ),
             allow_temp=spec.options.get("allow_temp", False),
         )
         if not resolved.exists():
-            msg = f"Database file not found: '{raw_p}' (resolved: '{resolved}')"
+            clean_raw = _CREDENTIAL_PATTERN.sub(r"\1:***@", raw_p)
+            clean_res = _CREDENTIAL_PATTERN.sub(r"\1:***@", str(resolved))
+            msg = f"Database file not found: '{clean_raw}' (resolved: '{clean_res}')"
             raise SourceNotFoundError(msg)
         if resolved.is_dir():
             raise SourceLoadError(f"Expected database file, found directory: '{resolved}'")
@@ -192,7 +199,7 @@ class DuckdbAttachSourceAdapter(SourceAdapter, TabularSourceAdapter):
         finally:
             tmp.close()
 
-        clean = _CREDENTIAL_PATTERN.sub(r"//\1:***@", spec.uri or str(db_path))
+        clean = _CREDENTIAL_PATTERN.sub(r"\1:***@", spec.uri or str(db_path))
         return SourceDescriptor(
             adapter=self.adapter_name,
             format=db_type,

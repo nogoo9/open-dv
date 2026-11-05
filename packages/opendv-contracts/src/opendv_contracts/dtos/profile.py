@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from opendv_contracts.dtos.common import BaseContractModel, RenderedOutput
 
@@ -32,6 +32,22 @@ class ProfileRequest(BaseContractModel):
     source_system: str = Field(default="BRONZE_SOURCE", description="Source system business code")
     table_name: str | None = Field(default=None, description="Explicit target table name")
     options: dict[str, Any] = Field(default_factory=dict, description="Profiler tuning parameters")
+
+    @field_validator("source")
+    @classmethod
+    def _validate_source_options_no_jailbreak(
+        cls, v: dict[str, Any] | None
+    ) -> dict[str, Any] | None:
+        if v is not None and isinstance(v, dict):
+            opts = v.get("options")
+            if isinstance(opts, dict):
+                for banned in ("workspace_root", "allowed_roots"):
+                    if banned in opts:
+                        raise ValueError(
+                            f"Client option '{banned}' is forbidden. "
+                            "Server workspace directory containment cannot be overridden."
+                        )
+        return v
 
 
 class ProfileResponse(BaseContractModel):
