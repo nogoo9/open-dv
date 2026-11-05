@@ -192,3 +192,29 @@ async def test_gates_evaluation_rejects_path_traversal(repo_root: Path) -> None:
         body = res.json()
         assert body["status"] == 400
         assert "traversal" in body["detail"].lower() or "containment" in body["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_profile_endpoint_routes_source_spec(repo_root: Path) -> None:
+    """Verify POST /api/v1/profile accepts and routes SourceSpec."""
+    app = create_app(workspace_root=repo_root)
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        res = await client.post(
+            "/api/v1/profile",
+            json={
+                "source": {
+                    "adapter": "inline",
+                    "inline_content": "id,name\n1,alpha\n2,beta\n",
+                    "format": "csv",
+                },
+                "source_system": "test_system",
+                "table_name": "src_test",
+            },
+        )
+        assert res.status_code == 200, res.text
+        data = res.json()
+        assert data["table_count"] == 1
+        assert data["column_count"] == 2
+        assert data["table_name"] == "src_test"
+        assert "graph_b_profile" in data

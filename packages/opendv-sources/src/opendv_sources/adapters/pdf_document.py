@@ -34,10 +34,12 @@ class PdfDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
         adapter_name: str = "pdf",
         workspace_root: Path | None = None,
         allowed_roots: Sequence[Path] | None = None,
+        allow_temp: bool | None = None,
     ) -> None:
         self._adapter_name = adapter_name
         self.workspace_root = workspace_root
         self.allowed_roots = allowed_roots
+        self.allow_temp = (workspace_root is None) if allow_temp is None else allow_temp
 
     @property
     def adapter_name(self) -> str:
@@ -81,18 +83,26 @@ class PdfDocumentSourceAdapter(SourceAdapter, DocumentSourceAdapter):
         if not spec.uri or not spec.uri.strip():
             raise SourceNotFoundError("PdfDocumentSourceAdapter requires 'uri' or 'inline_content'")
 
-        ws = (
-            Path(spec.options["workspace_root"])
-            if "workspace_root" in spec.options
-            else (self.workspace_root or Path.cwd())
-        )
+        cand = Path(spec.uri.strip())
+        if "workspace_root" in spec.options:
+            ws = Path(spec.options["workspace_root"])
+        elif self.workspace_root is not None:
+            ws = self.workspace_root
+        elif (
+            cand.is_absolute()
+            and "base_dir" not in spec.options
+            and not spec.options.get("allowed_roots", self.allowed_roots)
+        ):
+            ws = cand.parent
+        else:
+            ws = Path.cwd()
         base = Path(spec.options["base_dir"]) if "base_dir" in spec.options else None
         resolved = resolve_workspace_path(
             spec.uri.strip(),
             workspace_root=ws,
             base_dir=base,
             allowed_roots=spec.options.get("allowed_roots", self.allowed_roots),
-            allow_temp=spec.options.get("allow_temp", False),
+            allow_temp=spec.options.get("allow_temp", self.allow_temp),
         )
         if not resolved.exists():
             raise SourceNotFoundError(

@@ -9,6 +9,7 @@ dependencies = [
     "opendv-contracts",
     "opendv-cli-common",
     "opendv-service",
+    "opendv-sources",
 ]
 
 [project.scripts]
@@ -20,6 +21,7 @@ opendv-core = { workspace = true }
 opendv-contracts = { workspace = true }
 opendv-cli-common = { workspace = true }
 opendv-service = { workspace = true }
+opendv-sources = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -94,8 +94,8 @@ def test_service_and_api_capability_routes_consistency() -> None:
     api_transport_exemptions = {"health", "events"}
     # Auxiliary entity storage / metadata routes
     api_storage_exemptions = {"platform", "projects", "artifacts", "workbench"}
-    # Documented Phase P5 REST route parity additions (GAP-01 and GAP-02)
-    p5_pending_api_gaps = {"profile", "compile"}
+    # Documented Phase P5 REST route parity additions (GAP-01 and GAP-02; profile added in P4.5)
+    p5_pending_api_gaps = {"compile"}
 
     effective_api_capabilities = (
         api_capabilities - api_transport_exemptions - api_storage_exemptions

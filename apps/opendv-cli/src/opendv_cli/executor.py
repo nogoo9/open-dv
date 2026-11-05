@@ -104,13 +104,26 @@ class LocalExecutor(CommandExecutor):
 
     # 2. profile
     def _execute_profile(self, args: argparse.Namespace) -> tuple[int, Any]:
+        source_arg: str | None = getattr(args, "source", None)
+        file_arg: str | None = getattr(args, "file", None)
         source_csv: str | None = getattr(args, "source_csv", None)
         graph_b: str | None = getattr(args, "graph_b", None)
-        if not source_csv and not graph_b:
-            return 2, {"status": "ERROR", "error": "Either --graph-b or --source-csv is required"}
+
+        target_source: dict[str, Any] | None = None
+        if source_arg:
+            target_source = {"adapter": "file", "uri": source_arg}
+        elif file_arg:
+            target_source = {"adapter": "file", "uri": file_arg}
+
+        if not target_source and not source_csv and not graph_b:
+            return 2, {
+                "status": "ERROR",
+                "error": "Either --source, --file, --source-csv, or --graph-b is required",
+            }
 
         project_id: str | None = getattr(args, "project_id", None)
         req = ProfileRequest(
+            source=target_source,
             source_path=source_csv,
             graph_b_path=graph_b,
             project_id=project_id,
@@ -126,11 +139,12 @@ class LocalExecutor(CommandExecutor):
             "table_count": resp.table_count,
             "column_count": resp.column_count,
         }
-        if source_csv:
+        if target_source or source_csv:
             base.update(
                 {
                     "source_system": resp.source_system,
                     "table_name": resp.table_name,
+                    "source_path": resp.source_path,
                     "source_csv_path": resp.source_path,
                     "graph_b_profile": resp.graph_b_profile,
                 }

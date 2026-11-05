@@ -14,6 +14,7 @@ dependencies = [
     "opendv-duckdb-sandbox",
     "opendv-agent-harness",
     "opendv-service",
+    "opendv-sources",
 ]
 
 [tool.uv.sources]
@@ -24,6 +25,7 @@ opendv-axi-verifier = { workspace = true }
 opendv-duckdb-sandbox = { workspace = true }
 opendv-agent-harness = { workspace = true }
 opendv-service = { workspace = true }
+opendv-sources = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

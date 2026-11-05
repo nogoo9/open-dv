@@ -14,6 +14,7 @@ from opendv_service.models import (
     ProjectRunDTO,
     RunStatus,
 )
+from opendv_sources import get_source_registry
 from opendv_telemetry import VaultLedgerEmitter
 
 if TYPE_CHECKING:
@@ -181,8 +182,7 @@ class RunStateMixin:
             unstructured_documents: list[dict[str, Any]] = []
             for idx, src_rel in enumerate(bronze_sources):
                 resolved_src = self._resolve_repo_path(src_rel)
-                ext = resolved_src.suffix.lower()
-                if ext in {".txt", ".md", ".pdf"}:
+                if get_source_registry().is_document_path(resolved_src):
                     unstructured_documents.append(
                         {
                             "doc_id": f"doc_{idx + 1:02d}_{resolved_src.stem}",

@@ -72,6 +72,7 @@ from opendv_duckdb_sandbox import (
     run_batch_4_cross_source_and_bitemporal_restatement,
     topological_load_dag,
 )
+from opendv_sources import SourceSpec, get_source_registry
 from opendv_telemetry.ledger_emitter import VaultLedgerEmitter
 
 # =====================================================================
@@ -226,8 +227,14 @@ def test_graph_b_profiler_metrics_parquet_csv_and_schema_drift(tmp_path: Path) -
         profiler.conn.execute(f"COPY src_funds TO '{parquet_file}' (FORMAT PARQUET)")
         profiler.conn.execute(f"COPY src_funds TO '{csv_file}' (FORMAT CSV, HEADER)")
 
-        pq_metrics = profiler.profile_parquet(parquet_file)
-        csv_metrics = profiler.profile_csv(csv_file)
+        get_source_registry().get_tabular_adapter("file").register(
+            SourceSpec(adapter="file", uri=str(parquet_file)), profiler.conn, "v_funds_pq"
+        )
+        get_source_registry().get_tabular_adapter("file").register(
+            SourceSpec(adapter="file", uri=str(csv_file)), profiler.conn, "v_funds_csv"
+        )
+        pq_metrics = profiler.profile_relation("v_funds_pq")
+        csv_metrics = profiler.profile_relation("v_funds_csv")
         assert len(pq_metrics) == 3
         assert len(csv_metrics) == 3
 
@@ -1261,7 +1268,10 @@ def test_issue_30_scenario_s7_multibyte_utf8_e2e_sandbox() -> None:
     orders_csv = s7_dir / "erp_orders.csv"
 
     with GraphBProfiler() as profiler:
-        crm_metrics = profiler.profile_csv(crm_csv)
+        get_source_registry().get_tabular_adapter("file").register(
+            SourceSpec(adapter="file", uri=str(crm_csv)), profiler.conn, "v_crm"
+        )
+        crm_metrics = profiler.profile_relation("v_crm")
         assert len(crm_metrics) == 5
         assert crm_metrics[0].row_count == 4
 

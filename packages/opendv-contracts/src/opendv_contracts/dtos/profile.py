@@ -10,6 +10,9 @@ from opendv_contracts.dtos.common import BaseContractModel, RenderedOutput
 class ProfileRequest(BaseContractModel):
     """Request DTO for Bronze data profiling and Graph B empirical discovery (Decision D1)."""
 
+    source: dict[str, Any] | None = Field(
+        default=None, description="Pluggable SourceSpec dictionary or specification block"
+    )
     source_path: str | None = Field(
         default=None, description="Local or workspace-relative path to source CSV/data"
     )
