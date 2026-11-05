@@ -510,8 +510,20 @@
       },
       "PipelineRunRequest": {
         "additionalProperties": false,
-        "description": "Request payload for executing an end-to-end 8-stage agentic pipeline run.",
+        "description": "Request DTO to initiate an asynchronous end-to-end pipeline run (Decision D2).",
         "properties": {
+          "config": {
+            "additionalProperties": true,
+            "description": "Extended execution config",
+            "title": "Config",
+            "type": "object"
+          },
+          "dry_run": {
+            "default": false,
+            "description": "Simulate execution without persisting artifacts",
+            "title": "Dry Run",
+            "type": "boolean"
+          },
           "harness_config": {
             "anyOf": [
               {
@@ -522,6 +534,7 @@
                 "type": "null"
               }
             ],
+            "description": "Inline harness configuration",
             "title": "Harness Config"
           },
           "harness_config_path": {
@@ -533,7 +546,20 @@
                 "type": "null"
               }
             ],
+            "description": "Path to harness configuration file",
             "title": "Harness Config Path"
+          },
+          "initial_contract_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline starting contract YAML",
+            "title": "Initial Contract Content"
           },
           "initial_contract_path": {
             "anyOf": [
@@ -544,6 +570,7 @@
                 "type": "null"
               }
             ],
+            "description": "Path to starting contract YAML",
             "title": "Initial Contract Path"
           },
           "input_spec": {
@@ -556,6 +583,7 @@
                 "type": "null"
               }
             ],
+            "description": "Inline input specification (Decision D1)",
             "title": "Input Spec"
           },
           "input_spec_path": {
@@ -567,6 +595,7 @@
                 "type": "null"
               }
             ],
+            "description": "Path to input spec file",
             "title": "Input Spec Path"
           },
           "output_dir": {
@@ -578,21 +607,11 @@
                 "type": "null"
               }
             ],
+            "description": "Destination directory for run artifacts",
             "title": "Output Dir"
           },
           "provider_override": {
             "anyOf": [
-              {
-                "enum": [
-                  "agy",
-                  "agy-cli",
-                  "antigravity",
-                  "claude",
-                  "claude-cli",
-                  "claude-code"
-                ],
-                "type": "string"
-              },
               {
                 "type": "string"
               },
@@ -600,6 +619,7 @@
                 "type": "null"
               }
             ],
+            "description": "Target harness provider override",
             "title": "Provider Override"
           },
           "steward_hold_policy": {
@@ -611,6 +631,7 @@
                 "type": "null"
               }
             ],
+            "description": "Steward hold policy",
             "title": "Steward Hold Policy"
           }
         },
@@ -619,7 +640,7 @@
       },
       "PipelineValidateRequest": {
         "additionalProperties": false,
-        "description": "Request payload for deterministic pre-flight validation of an agentic pipeline.",
+        "description": "Request DTO for static pipeline configuration validation (Decision D1).",
         "properties": {
           "harness_config": {
             "anyOf": [
@@ -631,6 +652,7 @@
                 "type": "null"
               }
             ],
+            "description": "Inline harness configuration",
             "title": "Harness Config"
           },
           "harness_config_path": {
@@ -642,7 +664,20 @@
                 "type": "null"
               }
             ],
+            "description": "Path to harness configuration file",
             "title": "Harness Config Path"
+          },
+          "initial_contract_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline starting contract YAML",
+            "title": "Initial Contract Content"
           },
           "initial_contract_path": {
             "anyOf": [
@@ -653,6 +688,7 @@
                 "type": "null"
               }
             ],
+            "description": "Path to starting contract YAML",
             "title": "Initial Contract Path"
           },
           "input_spec": {
@@ -665,6 +701,7 @@
                 "type": "null"
               }
             ],
+            "description": "Inline input specification (Decision D1)",
             "title": "Input Spec"
           },
           "input_spec_path": {
@@ -676,21 +713,11 @@
                 "type": "null"
               }
             ],
+            "description": "Path to input spec file",
             "title": "Input Spec Path"
           },
           "provider_override": {
             "anyOf": [
-              {
-                "enum": [
-                  "agy",
-                  "agy-cli",
-                  "antigravity",
-                  "claude",
-                  "claude-cli",
-                  "claude-code"
-                ],
-                "type": "string"
-              },
               {
                 "type": "string"
               },
@@ -698,6 +725,7 @@
                 "type": "null"
               }
             ],
+            "description": "Target harness provider override",
             "title": "Provider Override"
           },
           "steward_hold_policy": {
@@ -709,6 +737,7 @@
                 "type": "null"
               }
             ],
+            "description": "Steward hold policy",
             "title": "Steward Hold Policy"
           }
         },
@@ -1006,12 +1035,67 @@
       },
       "SandboxQueryRequest": {
         "additionalProperties": false,
-        "description": "Request to run a parameterized audit query or 4-Batch sequence in the DuckDB sandbox.",
+        "description": "Request DTO to execute queries against the 4-Zone DuckDB analytical sandbox (Decision D1).",
         "properties": {
           "assertion_cutoff_ts": {
             "default": "2026-11-15 23:59:59",
+            "description": "Bi-temporal Point-in-Time assertion timestamp",
             "title": "Assertion Cutoff Ts",
             "type": "string"
+          },
+          "canonical_ir_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline Canonical IR",
+            "title": "Canonical Ir Content"
+          },
+          "canonical_ir_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Canonical IR path",
+            "title": "Canonical Ir Path"
+          },
+          "contract_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline contract YAML (Decision D1)",
+            "title": "Contract Content"
+          },
+          "contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Contract YAML path",
+            "title": "Contract Path"
+          },
+          "parameters": {
+            "additionalProperties": true,
+            "description": "Arbitrary query parameter bindings",
+            "title": "Parameters",
+            "type": "object"
           },
           "query_id": {
             "anyOf": [
@@ -1022,25 +1106,40 @@
                 "type": "null"
               }
             ],
+            "description": "Legacy query identifier alias",
             "title": "Query Id"
           },
           "query_type": {
+            "$ref": "#/components/schemas/SandboxQueryType",
             "default": "ADVERSARIAL_BATCHES_1_TO_4",
-            "enum": [
-              "ADVERSARIAL_BATCHES_1_TO_4",
-              "QUERY_D10_PIT",
-              "QUERY_D10B_VALUATION",
-              "QUERY_D10_LP_COMMITMENT_PIT",
-              "QUERY_D10B_PORTCO_VALUATION_PIT",
-              "RUN_4_BATCHES",
-              "VERIFY_DYN_001_015"
+            "description": "Target query/check sequence"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
             ],
-            "title": "Query Type",
-            "type": "string"
+            "description": "Associated run identifier",
+            "title": "Run Id"
           }
         },
         "title": "SandboxQueryRequest",
         "type": "object"
+      },
+      "SandboxQueryType": {
+        "description": "Supported query types in the DuckDB 4-Zone shadow sandbox.",
+        "enum": [
+          "ADVERSARIAL_BATCHES_1_TO_4",
+          "QUERY_D10_PIT",
+          "QUERY_D10B_VALUATION",
+          "VERIFY_DYN_001_015"
+        ],
+        "title": "SandboxQueryType",
+        "type": "string"
       },
       "ValidationError": {
         "properties": {

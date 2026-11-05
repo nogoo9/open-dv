@@ -128,6 +128,10 @@ from opendv_core.models import (
     YagniCostGuardPolicy,
     YagniTelemetry,
 )
+from opendv_core.paths import (
+    PathContainmentError,
+    resolve_workspace_path,
+)
 from opendv_core.schema_registry import (
     CANONICAL_IR_SCHEMA_FILENAME,
     CONTRACT_V5_SCHEMA_FILENAME,
@@ -229,6 +233,7 @@ __all__ = [
     "LinkSpec",
     "ModelContractV5",
     "NoMistakeDataVault2ContractV5",
+    "PathContainmentError",
     "PhaseIdLiteral",
     "ProfiledBronzeTable",
     "ProfiledColumn",
@@ -281,6 +286,7 @@ __all__ = [
     "load_structured_file",
     "resolve_canonical_bkcc_prefix",
     "resolve_fk_hash_key_with_zero_keys",
+    "resolve_workspace_path",
     "validate_all_examples",
     "validate_canonical_ir",
     "validate_contract_v5",

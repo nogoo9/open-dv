@@ -1,0 +1,17 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-service'
+language: 'python'
+layer: 'library'
+tags:
+  - 'python'
+  - 'service'
+  - 'core'
+
+dependsOn:
+  - 'opendv-contracts'
+  - 'opendv-core'
+  - 'opendv-axi-verifier'
+  - 'opendv-duckdb-sandbox'
+  - 'opendv-agent-harness'
+  - 'opendv-telemetry'

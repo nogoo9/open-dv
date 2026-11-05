@@ -10,6 +10,9 @@ dependencies = []
 
 [tool.uv.workspace]
 members = [
+    "packages/opendv-contracts",
+    "packages/opendv-cli-common",
+    "packages/opendv-service",
     "packages/opendv-core",
     "packages/opendv-telemetry",
     "packages/opendv-axi-verifier",
@@ -20,6 +23,9 @@ members = [
 ]
 
 [tool.uv.sources]
+opendv-contracts = { workspace = true }
+opendv-cli-common = { workspace = true }
+opendv-service = { workspace = true }
 opendv-core = { workspace = true }
 opendv-telemetry = { workspace = true }
 opendv-axi-verifier = { workspace = true }
@@ -42,6 +48,7 @@ dev = [
     "pydantic>=2.10.0",
     "networkx>=3.4.0",
     "sqlglot>=26.0.0",
+    "pylint>=3.0.0",
 ]
 
 [tool.ruff]
@@ -72,8 +79,12 @@ markers = [
     "hardening: Security, fail-fast, and isolation invariant tests",
     "slow: Long-running multi-wave or end-to-end integration tests",
     "live_provider: Integration tests requiring live LLM providers",
+    "architecture: Architecture, import contract, and no-duplication tests",
 ]
 pythonpath = [
+    "packages/opendv-contracts/src",
+    "packages/opendv-cli-common/src",
+    "packages/opendv-service/src",
     "packages/opendv-core/src",
     "packages/opendv-telemetry/src",
     "packages/opendv-axi-verifier/src",
@@ -84,6 +95,9 @@ pythonpath = [
 ]
 testpaths = [
     "tests",
+    "packages/opendv-contracts/tests",
+    "packages/opendv-cli-common/tests",
+    "packages/opendv-service/tests",
     "packages/opendv-core/tests",
     "packages/opendv-telemetry/tests",
     "packages/opendv-axi-verifier/tests",

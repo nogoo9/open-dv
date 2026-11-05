@@ -1,0 +1,193 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-dv.dev/schemas/cli-spec.schema.json",
+  "title": "OpenDV CLI Command Specification Schema",
+  "type": "object",
+  "required": [
+    "spec_version",
+    "contract_version",
+    "commands",
+    "error_map"
+  ],
+  "properties": {
+    "spec_version": {
+      "type": "string"
+    },
+    "contract_version": {
+      "type": "string"
+    },
+    "global_options": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Option"
+      }
+    },
+    "commands": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Command"
+      }
+    },
+    "error_map": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ErrorMapEntry"
+      }
+    }
+  },
+  "$defs": {
+    "Option": {
+      "type": "object",
+      "required": [
+        "name",
+        "flag",
+        "type",
+        "help"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "flag": {
+          "type": "string",
+          "pattern": "^--[a-z0-9-]+$"
+        },
+        "short": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "pattern": "^-[a-zA-Z]$"
+        },
+        "type": {
+          "enum": [
+            "string",
+            "integer",
+            "boolean",
+            "path",
+            "array"
+          ]
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "default": {},
+        "choices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "env_var": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "inline_upload": {
+          "type": "boolean",
+          "default": false
+        },
+        "help": {
+          "type": "string"
+        }
+      }
+    },
+    "Command": {
+      "type": "object",
+      "required": [
+        "name",
+        "description",
+        "help",
+        "availability"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "help": {
+          "type": "string"
+        },
+        "aliases": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": []
+        },
+        "availability": {
+          "enum": [
+            "both",
+            "standalone_only",
+            "client_only"
+          ]
+        },
+        "request_dto": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "response_dto": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Option"
+          }
+        },
+        "subcommands": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Command"
+          }
+        }
+      }
+    },
+    "ErrorMapEntry": {
+      "type": "object",
+      "required": [
+        "error_code",
+        "exit_code",
+        "http_status",
+        "problem_title",
+        "problem_type_uri"
+      ],
+      "properties": {
+        "error_code": {
+          "type": "string"
+        },
+        "exit_code": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2
+          ]
+        },
+        "http_status": {
+          "type": "integer",
+          "minimum": 200,
+          "maximum": 599
+        },
+        "problem_title": {
+          "type": "string"
+        },
+        "problem_type_uri": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,10 @@
+[test]
+# Ignore worktrees and build dist artifacts so root `bun test` runs cleanly out of the box
+pathIgnorePatterns = [
+  "**/worktrees/**",
+  "**/dist/**",
+]
+ignore = [
+  "**/worktrees/**",
+  "**/dist/**",
+]

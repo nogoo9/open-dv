@@ -76,6 +76,7 @@ from opendv_core.elm_calculus import (
 from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
+from opendv_core.paths import PathContainmentError, resolve_workspace_path
 from opendv_duckdb_sandbox.compiler_4zone import (
     build_algorithm_a5_sha256_sql,
     compile_canonical_ir_to_4zone_sql,
@@ -117,41 +118,22 @@ def _resolve_existing_file(raw_path: str, ctx: ToolExecutionContext) -> Path | N
     """Resolve `raw_path` to an existing file strictly contained within workspace/state dirs."""
     if not raw_path or not raw_path.strip():
         return None
-    candidate = Path(raw_path.strip())
-    if ".." in candidate.parts:
-        raise PermissionError(f"Path traversal ('..') is not allowed: {raw_path}")
-
-    allowed_roots = tuple(
-        {
-            ctx.config.workspace_dir.resolve(),
-            ctx.config.state_dir.resolve(),
-            ctx.config.app_data_dir.resolve(),
-            ctx.config.save_dir.resolve(),
-            *(p.resolve() for p in ctx.config.sandbox.allowed_workspaces),
-        }
-    )
-
-    if candidate.is_absolute():
-        resolved = candidate.resolve()
-        if not any(resolved.is_relative_to(root) for root in allowed_roots):
-            raise PermissionError(f"Path '{raw_path}' is outside allowed workspace directories.")
-        return resolved if resolved.is_file() else None
-
-    for root in (
-        ctx.config.workspace_dir,
+    allowed_roots = [
         ctx.config.state_dir,
+        ctx.config.app_data_dir,
+        ctx.config.save_dir,
         *ctx.config.sandbox.allowed_workspaces,
-    ):
-        try:
-            resolved = (root / candidate).resolve()
-            if (
-                any(resolved.is_relative_to(allowed) for allowed in allowed_roots)
-                and resolved.is_file()
-            ):
-                return resolved
-        except OSError:
-            continue
-    return None
+    ]
+    try:
+        resolved = resolve_workspace_path(
+            raw_path,
+            workspace_root=ctx.config.workspace_dir,
+            allowed_roots=allowed_roots,
+            allow_temp=False,
+        )
+        return resolved if resolved.is_file() else None
+    except PathContainmentError as exc:
+        raise PermissionError(str(exc)) from exc
 
 
 def _infer_python_value_type(values: list[Any]) -> str:
