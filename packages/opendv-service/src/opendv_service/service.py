@@ -39,6 +39,7 @@ from opendv_service.models import (
     SandboxExecutionResponse,
 )
 from opendv_service.rbac import RbacRole, normalize_rbac_role, redact_event_for_role
+from opendv_service.runs import RunExecutionEngine, subscribe_run_sse
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
 from opendv_service.settings import OpenDVSettings
 from opendv_service.state import StateStore
@@ -47,13 +48,11 @@ from opendv_service.use_cases.compile import compile_pipeline
 from opendv_service.use_cases.holds import list_holds, resolve_hold
 from opendv_service.use_cases.pipeline import (
     execute_pipeline_run_sync,
-    execute_run_async,
     stream_events,
     validate_pipeline,
 )
 from opendv_service.use_cases.profile import profile_pipeline
 from opendv_service.use_cases.runs import (
-    abort_run,
     create_project,
     create_run,
     get_project,
@@ -62,7 +61,6 @@ from opendv_service.use_cases.runs import (
 )
 from opendv_service.use_cases.sandbox import execute_sandbox_query
 from opendv_service.use_cases.verify import verify_pipeline
-from opendv_telemetry import format_sse_event_stream
 
 
 class OpenDVService:
@@ -105,6 +103,7 @@ class OpenDVService:
             storage_root=self.storage_root,
         )
         self.pipeline_runner = pipeline_runner or get_default_pipeline_runner()
+        self.run_engine = RunExecutionEngine()
 
     @property
     def repo_root(self) -> Path:
@@ -195,7 +194,19 @@ class OpenDVService:
             if isinstance(request, PipelineRunRequest)
             else PipelineRunRequest.model_validate(request)
         )
-        return await execute_run_async(self.state, req_obj, pipeline_runner=self.pipeline_runner)
+        return self.run_engine.submit_pipeline_run(
+            self.state, req_obj, role=RbacRole.PUBLIC, pipeline_runner=self.pipeline_runner
+        )
+
+    async def create_run_async(
+        self, request: CreateRunRequest | dict[str, Any]
+    ) -> PipelineRunHandle:
+        req_obj = (
+            request
+            if isinstance(request, CreateRunRequest)
+            else CreateRunRequest.model_validate(request)
+        )
+        return self.run_engine.submit_run(self.state, req_obj, pipeline_runner=self.pipeline_runner)
 
     async def stream_events(
         self,
@@ -291,7 +302,7 @@ class OpenDVService:
         return create_run(self.state, req_obj)
 
     def abort_run(self, run_id: str) -> ProjectRunDTO:
-        return abort_run(self.state, run_id)
+        return self.run_engine.abort_run(self.state, run_id)
 
     def store_artifact(
         self, request: ArtifactUploadRequest | dict[str, Any]
@@ -549,15 +560,19 @@ class OpenDVService:
         *,
         role: RbacRole = RbacRole.PUBLIC,
         last_event_id: str | None = None,
+        ping_interval: float = 15.0,
     ) -> AsyncIterator[str]:
         """Stream formatted Server-Sent Events (SSE) text frames for a run."""
-        if run_id not in self.state.runs:
+        if run_id not in self.state.runs and not self.run_engine.has_run(run_id):
             raise NotFoundError(f"Run '{run_id}' not found.")
-        events = self.state.run_events.get(run_id, [])
-        async for frame in format_sse_event_stream(
-            events,
+        context = self.run_engine.get_context(run_id)
+        async for frame in subscribe_run_sse(
+            context,
+            self.state,
+            run_id,
             role=role,
             last_event_id=last_event_id,
+            ping_interval=ping_interval,
         ):
             yield frame
 

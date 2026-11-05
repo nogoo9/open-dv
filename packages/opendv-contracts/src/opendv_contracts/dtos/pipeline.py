@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from opendv_contracts.dtos.common import BaseContractModel, EventType, RunStatus
 
@@ -35,6 +35,7 @@ class PipelineValidateRequest(BaseContractModel):
 class PipelineRunRequest(PipelineValidateRequest):
     """Request DTO to initiate an asynchronous end-to-end pipeline run (Decision D2)."""
 
+    run_id: str | None = Field(default=None, description="Optional predetermined run identifier")
     output_dir: str | None = Field(
         default=None, description="Destination directory for run artifacts"
     )
@@ -50,10 +51,21 @@ class PipelineRunHandle(BaseContractModel):
     """
 
     run_id: str = Field(..., description="Unique generated run identifier")
-    status: RunStatus = Field(default=RunStatus.PENDING, description="Initial run status")
+    status: RunStatus = Field(default=RunStatus.RUNNING, description="Initial run status")
     created_at_utc: str = Field(..., description="ISO 8601 UTC creation timestamp")
+    created_at: str | None = Field(default=None, description="Alias for created_at_utc")
     event_stream_url: str = Field(..., description="SSE endpoint URL for real-time events")
     status_url: str = Field(..., description="REST endpoint URL to query current run status")
+    project_id: str | None = Field(
+        default=None, description="Optional associated project identifier"
+    )
+    harness_provider: str | None = Field(default=None, description="Harness provider for the run")
+
+    @model_validator(mode="after")
+    def _sync_created_at(self) -> PipelineRunHandle:
+        if self.created_at is None:
+            object.__setattr__(self, "created_at", self.created_at_utc)
+        return self
 
 
 class PipelineEvent(BaseContractModel):

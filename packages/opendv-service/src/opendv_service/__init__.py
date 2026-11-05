@@ -24,6 +24,7 @@ from opendv_service.errors import (
     OpenDVError,
     PathContainmentError,
     PayloadTooLargeError,
+    PipelineAbortedError,
     PipelineExecutionError,
     ProviderUnavailableError,
     RolePermissionError,
@@ -62,6 +63,12 @@ from opendv_service.rbac import (
     normalize_rbac_role,
     redact_event_for_role,
     resolve_cleared_tiers,
+)
+from opendv_service.runs import (
+    RunContext,
+    RunExecutionEngine,
+    format_sse_frame,
+    subscribe_run_sse,
 )
 from opendv_service.seams import (
     PipelineRunner,
@@ -112,6 +119,7 @@ __all__ = [
     "OpenDVSettings",
     "PathContainmentError",
     "PayloadTooLargeError",
+    "PipelineAbortedError",
     "PipelineEvent",
     "PipelineExecutionError",
     "PipelineRunHandle",
@@ -126,6 +134,8 @@ __all__ = [
     "ProviderUnavailableError",
     "RbacRole",
     "RolePermissionError",
+    "RunContext",
+    "RunExecutionEngine",
     "RunStatus",
     "SandboxExecutionResponse",
     "SandboxQueryRequest",
@@ -138,6 +148,7 @@ __all__ = [
     "build_gate_scorecard_from_axi_result",
     "compile_pipeline",
     "execute_sandbox_query",
+    "format_sse_frame",
     "get_default_pipeline_runner",
     "get_fallback_definition",
     "is_fallback_enabled",
@@ -147,5 +158,6 @@ __all__ = [
     "resolve_cleared_tiers",
     "set_pipeline_runner_override",
     "store_cas_artifact",
+    "subscribe_run_sse",
     "verify_pipeline",
 ]

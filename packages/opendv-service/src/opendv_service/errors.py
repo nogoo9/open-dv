@@ -77,6 +77,14 @@ class ConflictError(OpenDVError):
         self.http_status = 409
 
 
+class PipelineAbortedError(OpenDVError):
+    """Raised when an active asynchronous pipeline run is aborted by user."""
+
+    error_code = ErrorCode.INTERNAL_ERROR
+    exit_code = 130
+    http_status = 409
+
+
 __all__ = [
     "CasIntegrityError",
     "ConflictError",
@@ -87,6 +95,7 @@ __all__ = [
     "OpenDVError",
     "PathContainmentError",
     "PayloadTooLargeError",
+    "PipelineAbortedError",
     "PipelineExecutionError",
     "ProviderUnavailableError",
     "RolePermissionError",

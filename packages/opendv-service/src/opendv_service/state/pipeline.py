@@ -84,6 +84,9 @@ class PipelineStateMixin:
             resolved_init_path = self._resolve_repo_path(initial_contract_path)
             raw_spec["initial_contract_path"] = str(resolved_init_path)
 
+        if getattr(req, "run_id", None):
+            raw_spec["run_id"] = req.run_id
+
         if harness_config_path is not None:
             resolved_cfg_path = self._resolve_repo_path(harness_config_path)
             if not resolved_cfg_path.is_file():
