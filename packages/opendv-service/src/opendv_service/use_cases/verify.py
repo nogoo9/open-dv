@@ -16,7 +16,6 @@ from opendv_contracts import (
     VerifyRequest,
     VerifyResponse,
 )
-from opendv_core import find_workspace_root
 from opendv_core.paths import resolve_workspace_path
 from opendv_service.errors import InputValidationError, NotFoundError
 from opendv_service.rendering import render_verify_text
@@ -110,7 +109,7 @@ def verify_pipeline(
     workspace_root: Path | None = None,
 ) -> VerifyResponse:
     """Execute 6-Gate symbolic verification across contract, Graph A, and Graph B inputs."""
-    root = (workspace_root or find_workspace_root()).resolve()
+    root = Path(workspace_root or Path.cwd()).resolve()
 
     # 1. Resolve contract document
     resolved_contract_path: Path | None = None

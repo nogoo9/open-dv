@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 from opendv_service.state.base import (
-    REPO_ROOT,
     BaseStateContainer,
     resolve_safe_repo_path,
 )
@@ -30,7 +29,6 @@ def get_platform_state(service_or_container: Any) -> PlatformStateContainer:
 
 
 __all__ = [
-    "REPO_ROOT",
     "BaseStateContainer",
     "PlatformStateContainer",
     "StateStore",

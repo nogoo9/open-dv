@@ -60,6 +60,7 @@ from opendv_service.seams import (
     set_pipeline_runner_override,
 )
 from opendv_service.service import OpenDVService
+from opendv_service.settings import ConfigurationError, OpenDVSettings
 from opendv_service.state import PlatformStateContainer, StateStore, store_cas_artifact
 from opendv_service.use_cases.compile import compile_pipeline
 from opendv_service.use_cases.profile import profile_pipeline
@@ -81,6 +82,7 @@ __all__ = [
     "CasIntegrityError",
     "CompileRequest",
     "CompileResponse",
+    "ConfigurationError",
     "ConflictError",
     "CreateProjectRequest",
     "CreateRunRequest",
@@ -93,6 +95,7 @@ __all__ = [
     "NotFoundError",
     "OpenDVError",
     "OpenDVService",
+    "OpenDVSettings",
     "PathContainmentError",
     "PayloadTooLargeError",
     "PipelineEvent",

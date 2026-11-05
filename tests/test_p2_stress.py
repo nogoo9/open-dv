@@ -86,7 +86,6 @@ from opendv_contracts import (
     validate_cli_spec,
 )
 from opendv_contracts.jcs import FloatDomainError, IntegerDomainError
-from opendv_core import find_workspace_root
 from opendv_service import set_pipeline_runner_override
 
 

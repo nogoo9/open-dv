@@ -12,12 +12,15 @@ from opendv_platform_api import PlatformStateContainer, create_app
 from tests.parity.transports import DirectRestTransport, StandaloneCliTransport
 
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
 @pytest.fixture
 def platform_api_state(tmp_path: Path) -> PlatformStateContainer:
-    """Create an isolated platform state container with a dedicated temp directory."""
+    """Create an isolated platform state container with repository workspace and isolated state directories."""
     state_dir = tmp_path / "platform_state"
     state_dir.mkdir(parents=True, exist_ok=True)
-    return PlatformStateContainer(state_dir=state_dir)
+    return PlatformStateContainer(workspace_root=REPO_ROOT, storage_root=state_dir)
 
 
 @pytest.fixture
