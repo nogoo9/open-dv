@@ -79,6 +79,7 @@ from opendv_service.service import OpenDVService
 from opendv_service.settings import ConfigurationError, OpenDVSettings
 from opendv_service.state import PlatformStateContainer, StateStore, store_cas_artifact
 from opendv_service.use_cases.compile import compile_pipeline
+from opendv_service.use_cases.explorer import get_explorer_bundle, get_run_artifact
 from opendv_service.use_cases.profile import profile_pipeline
 from opendv_service.use_cases.sandbox import execute_sandbox_query
 from opendv_service.use_cases.verify import (
@@ -150,7 +151,9 @@ __all__ = [
     "execute_sandbox_query",
     "format_sse_frame",
     "get_default_pipeline_runner",
+    "get_explorer_bundle",
     "get_fallback_definition",
+    "get_run_artifact",
     "is_fallback_enabled",
     "normalize_rbac_role",
     "profile_pipeline",

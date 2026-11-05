@@ -3,6 +3,7 @@
 from opendv_platform_api.routers import (
     artifacts,
     decisions,
+    explorer,
     gates,
     health,
     profile,
@@ -15,6 +16,7 @@ from opendv_platform_api.routers import (
 __all__ = [
     "artifacts",
     "decisions",
+    "explorer",
     "gates",
     "health",
     "profile",

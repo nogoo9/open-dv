@@ -8,6 +8,7 @@ from opendv_service.models import (
     CreateRunRequest,
     ProjectResponse,
     ProjectRunDTO,
+    RunStatus,
 )
 from opendv_service.state import StateStore
 
@@ -24,11 +25,21 @@ def get_project(state: StateStore, project_id: str) -> ProjectResponse:
     return state.projects[project_id]
 
 
-def list_runs(state: StateStore, project_id: str | None = None) -> list[ProjectRunDTO]:
-    """List execution runs, optionally filtered by project_id."""
+def list_runs(
+    state: StateStore,
+    project_id: str | None = None,
+    status: RunStatus | str | None = None,
+    stage_id: str | None = None,
+) -> list[ProjectRunDTO]:
+    """List execution runs, optionally filtered by project_id, status, and stage_id."""
     runs = list(state.runs.values())
     if project_id is not None:
         runs = [r for r in runs if r.project_id == project_id]
+    if status is not None:
+        status_val = status.value if hasattr(status, "value") else str(status)
+        runs = [r for r in runs if r.status == status_val or r.status.value == status_val]
+    if stage_id is not None:
+        runs = [r for r in runs if r.current_stage_id == stage_id]
     return runs
 
 
