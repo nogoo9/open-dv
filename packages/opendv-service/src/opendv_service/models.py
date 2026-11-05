@@ -7,7 +7,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from opendv_contracts import SandboxQueryRequest
+from opendv_contracts import (
+    PipelineRunRequest,
+    PipelineValidateRequest,
+    SandboxQueryRequest,
+)
 
 
 class RunStatus(StrEnum):
@@ -71,39 +75,6 @@ class ProjectResponse(BaseModel):
     canonical_ir_path: str | None = None
     graph_a_ontology_path: str | None = None
     graph_b_path: str | None = None
-
-
-class PipelineValidateRequest(BaseModel):
-    """Request payload for deterministic pre-flight validation of an agentic pipeline."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    input_spec: dict[str, Any] | None = None
-    input_spec_path: str | None = None
-    harness_config: dict[str, Any] | None = None
-    harness_config_path: str | None = None
-    initial_contract_path: str | None = None
-    provider_override: (
-        Literal[
-            "agy",
-            "agy-cli",
-            "antigravity",
-            "claude",
-            "claude-cli",
-            "claude-code",
-        ]
-        | str
-        | None
-    ) = None
-    steward_hold_policy: str | None = None
-
-
-class PipelineRunRequest(PipelineValidateRequest):
-    """Request payload for executing an end-to-end 8-stage agentic pipeline run."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    output_dir: str | None = None
 
 
 class CreateRunRequest(BaseModel):

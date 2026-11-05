@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import StrEnum
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from opendv_contracts.dtos.common import BaseContractModel, RenderedOutput
 
@@ -15,6 +15,17 @@ class SandboxQueryType(StrEnum):
     QUERY_D10_PIT = "QUERY_D10_PIT"
     QUERY_D10B_VALUATION = "QUERY_D10B_VALUATION"
     VERIFY_DYN_001_015 = "VERIFY_DYN_001_015"
+
+
+SANDBOX_QUERY_TYPE_ALIASES: dict[str, SandboxQueryType] = {
+    "QUERY_D10_LP_COMMITMENT_PIT": SandboxQueryType.QUERY_D10_PIT,
+    "QUERY_D10B_PORTCO_VALUATION_PIT": SandboxQueryType.QUERY_D10B_VALUATION,
+    "RUN_4_BATCHES": SandboxQueryType.ADVERSARIAL_BATCHES_1_TO_4,
+    "ADVERSARIAL_BATCHES_1_TO_4": SandboxQueryType.ADVERSARIAL_BATCHES_1_TO_4,
+    "QUERY_D10_PIT": SandboxQueryType.QUERY_D10_PIT,
+    "QUERY_D10B_VALUATION": SandboxQueryType.QUERY_D10B_VALUATION,
+    "VERIFY_DYN_001_015": SandboxQueryType.VERIFY_DYN_001_015,
+}
 
 
 class SandboxQueryRequest(BaseContractModel):
@@ -31,12 +42,29 @@ class SandboxQueryRequest(BaseContractModel):
         default=SandboxQueryType.ADVERSARIAL_BATCHES_1_TO_4,
         description="Target query/check sequence",
     )
+    query_id: str | None = Field(default=None, description="Legacy query identifier alias")
     assertion_cutoff_ts: str = Field(
         default="2026-11-15 23:59:59", description="Bi-temporal Point-in-Time assertion timestamp"
     )
     parameters: dict[str, Any] = Field(
         default_factory=dict, description="Arbitrary query parameter bindings"
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_query_type(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            qid = data.get("query_id")
+            if qid:
+                if qid in SANDBOX_QUERY_TYPE_ALIASES:
+                    data["query_type"] = SANDBOX_QUERY_TYPE_ALIASES[qid]
+                else:
+                    raise ValueError(f"Unsupported sandbox query_id: {qid!r}")
+            elif "query_type" in data and isinstance(data["query_type"], str):
+                qt = data["query_type"]
+                if qt in SANDBOX_QUERY_TYPE_ALIASES:
+                    data["query_type"] = SANDBOX_QUERY_TYPE_ALIASES[qt]
+        return data
 
 
 class SandboxBatchResult(BaseContractModel):

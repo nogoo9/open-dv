@@ -54,7 +54,7 @@ def test_opendv_cli_standalone_subcommands(
     assert out_verify["overall_passed"] is True
     assert "@toon_v1" in out_verify["toon_text"]
 
-    # Also test backward compatibility: --local is silently ignored and succeeds
+    # Decision D6: verify --local is rejected with exit code 2
     rc_local = app_main(
         [
             "verify",
@@ -68,8 +68,9 @@ def test_opendv_cli_standalone_subcommands(
             "--json",
         ]
     )
-    assert rc_local == 0
-    capsys.readouterr()
+    assert rc_local == 2
+    out_local = json.loads(capsys.readouterr().out)
+    assert out_local["status"] == "ERROR"
 
     # 2. axi-dv default verify with --toon
     rc_toon = axi_dv_main(
@@ -149,11 +150,11 @@ def test_opendv_cli_standalone_subcommands(
     out_comp = json.loads(capsys.readouterr().out)
     assert out_comp["mode"] == "local"
     assert out_comp["status"] == "PASS"
-    assert out_comp["hubs_compiled"] >= 4
-    assert out_comp["links_compiled"] >= 5
-    assert out_comp["satellites_compiled"] >= 5
-    assert len(out_comp["topological_load_order"]) >= 15
-    assert len(out_comp["sql_zones"]) >= 4
+    assert out_comp["hubs_compiled"] == 4
+    assert out_comp["links_compiled"] == 5
+    assert out_comp["satellites_compiled"] == 11
+    assert len(out_comp["topological_load_order"]) == 23
+    assert len(out_comp["sql_zones"]) == 5
 
     rc_comp_dynamic = app_main(["compile", "--contract", pe_contract, "--json"])
     assert rc_comp_dynamic == 0
@@ -565,10 +566,11 @@ def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
     )
     assert rc_human == 0
     captured_human = capsys.readouterr()
-    assert "[Wave 0]" in captured_human.out
+    assert "[Wave 0][STAGE 00]" in captured_human.out
+    assert "[Wave 0][STAGE 07]" in captured_human.out
     assert "[opendv pipeline] status=COMPLETED" in captured_human.out
 
-    # 2. JSON mode (--json): stdout is pure JSON
+    # 2. JSON mode (--json): stdout is pure JSON while stage progress streams to stderr
     out_json_dir = tmp_path / "wp24_json_out"
     rc_json = app_main(
         [
@@ -591,3 +593,5 @@ def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
     parsed_json = json.loads(captured_json.out)
     assert parsed_json["status"] == "COMPLETED"
     assert parsed_json["overall_passed"] is True
+    assert "[Wave 0][STAGE 00]" in captured_json.err
+    assert "[Wave 0][STAGE 07]" in captured_json.err

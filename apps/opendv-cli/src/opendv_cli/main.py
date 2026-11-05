@@ -18,7 +18,6 @@ _BOOLEAN_FLAGS = frozenset(
     {
         "-h",
         "--help",
-        "--local",
         "--json",
         "--toon",
         "--verbose",
@@ -73,9 +72,6 @@ def app_main(
 ) -> int:
     """Primary entrypoint for the `opendv` standalone in-process CLI binary."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    # Excise --local silently for backward compatibility
-    raw_args = [a for a in raw_args if a != "--local"]
-
     parser = build_parser(prog="opendv")
     if not raw_args:
         parser.print_help()
@@ -105,7 +101,6 @@ def axi_dv_main(
 ) -> int:
     """Entrypoint for the `axi-dv` verification CLI binary (alias for `opendv verify`)."""
     raw_args = list(sys.argv[1:] if argv is None else argv)
-    raw_args = [a for a in raw_args if a != "--local"]
 
     if any(flag in raw_args for flag in ("-h", "--help")):
         parser = build_parser(prog="axi-dv")

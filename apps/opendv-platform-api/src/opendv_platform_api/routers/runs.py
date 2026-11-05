@@ -76,6 +76,8 @@ async def stream_run_events(
 ) -> StreamingResponse:
     """Server-Sent Events (`text/event-stream`) stream of RBAC-redacted VaultObservabilityEvents."""
     effective_last_event_id = last_event_id_header or last_event_id_query
+    # Eagerly verify run exists so unknown run returns 404 before 200 stream starts (B2)
+    service.get_run(run_id)
     event_gen = service.stream_run_events(
         run_id,
         role=role,

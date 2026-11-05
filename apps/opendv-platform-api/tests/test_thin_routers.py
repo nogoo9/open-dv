@@ -161,3 +161,34 @@ async def test_router_delegates_to_opendv_service_mock() -> None:
         assert res.status_code == 200
         assert res.json() == []
         mock_service.list_projects.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_stream_run_events_returns_404_for_unknown_run() -> None:
+    """Regression test for B2: GET /runs/{run_id}/events returns 404 for unknown run."""
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        res = await client.get("/api/v1/runs/non-existent-run-id-9999/events")
+        assert res.status_code == 404
+        assert res.headers["content-type"] == "application/problem+json"
+        body = res.json()
+        assert body["status"] == 404
+        assert "not found" in body["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_gates_evaluation_rejects_path_traversal() -> None:
+    """Regression test for B1: POST /runs/{run_id}/gates rejects path traversal."""
+    app = create_app()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+        res = await client.post(
+            "/api/v1/runs/run-pe-apex-horizon-20261030/gates",
+            json={"contract_path": "../../etc/shadow.yaml"},
+        )
+        assert res.status_code == 400
+        assert res.headers["content-type"] == "application/problem+json"
+        body = res.json()
+        assert body["status"] == 400
+        assert "traversal" in body["detail"].lower() or "containment" in body["detail"].lower()

@@ -15,14 +15,12 @@ from opendv_contracts import (
     PipelineRunHandle,
     ProfileRequest,
     ProfileResponse,
+    SandboxQueryRequest,
     SandboxQueryResponse,
     VerifyRequest,
     VerifyResponse,
 )
-from opendv_contracts import (
-    SandboxQueryRequest as ContractSandboxQueryRequest,
-)
-from opendv_core import find_workspace_root
+from opendv_core import find_workspace_root, resolve_workspace_path
 from opendv_service.errors import ConflictError, NotFoundError, OpenDVError
 from opendv_service.legacy_demo import WORKBENCH_VIEW_TITLES
 from opendv_service.models import (
@@ -39,7 +37,6 @@ from opendv_service.models import (
     ProjectRunDTO,
     RunStatus,
     SandboxExecutionResponse,
-    SandboxQueryRequest,
 )
 from opendv_service.rbac import RbacRole, normalize_rbac_role, redact_event_for_role
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
@@ -129,33 +126,13 @@ class OpenDVService:
 
     # 4. DuckDB Sandbox
     def execute_sandbox_query(
-        self, request: ContractSandboxQueryRequest | SandboxQueryRequest | dict[str, Any]
+        self, request: SandboxQueryRequest | dict[str, Any]
     ) -> SandboxQueryResponse:
-        mapping = {
-            "QUERY_D10_LP_COMMITMENT_PIT": "QUERY_D10_PIT",
-            "QUERY_D10B_PORTCO_VALUATION_PIT": "QUERY_D10B_VALUATION",
-            "RUN_4_BATCHES": "ADVERSARIAL_BATCHES_1_TO_4",
-        }
-        if isinstance(request, ContractSandboxQueryRequest):
-            req_obj = request
-        elif isinstance(request, dict):
-            d = dict(request)
-            qid = d.pop("query_id", None)
-            if qid and "query_type" not in d:
-                d["query_type"] = qid
-            if d.get("query_type") in mapping:
-                d["query_type"] = mapping[d["query_type"]]
-            req_obj = ContractSandboxQueryRequest.model_validate(d)
-        elif hasattr(request, "model_dump"):
-            d = request.model_dump()
-            qid = d.pop("query_id", None)
-            if qid and "query_type" not in d:
-                d["query_type"] = qid
-            if d.get("query_type") in mapping:
-                d["query_type"] = mapping[d["query_type"]]
-            req_obj = ContractSandboxQueryRequest.model_validate(d)
-        else:
-            req_obj = ContractSandboxQueryRequest.model_validate(request)
+        req_obj = (
+            request
+            if isinstance(request, SandboxQueryRequest)
+            else SandboxQueryRequest.model_validate(request)
+        )
         return execute_sandbox_query(req_obj, workspace_root=self.workspace_root)
 
     # 5. Agentic Pipeline Pre-flight Validation
@@ -331,15 +308,15 @@ class OpenDVService:
             project.graph_b_path if project is not None else None
         )
 
-        contract_path = (self.repo_root / contract_rel).resolve()
+        contract_path = resolve_workspace_path(contract_rel, workspace_root=self.repo_root)
         if not contract_path.exists():
             raise NotFoundError(f"Contract file not found: {contract_rel}")
         if graph_a_rel:
-            graph_a_path = (self.repo_root / graph_a_rel).resolve()
+            graph_a_path = resolve_workspace_path(graph_a_rel, workspace_root=self.repo_root)
             if not graph_a_path.exists():
                 raise NotFoundError(f"Graph A file not found: {graph_a_rel}")
         if graph_b_rel:
-            graph_b_path = (self.repo_root / graph_b_rel).resolve()
+            graph_b_path = resolve_workspace_path(graph_b_rel, workspace_root=self.repo_root)
             if not graph_b_path.exists():
                 raise NotFoundError(f"Graph B file not found: {graph_b_rel}")
 
@@ -415,30 +392,21 @@ class OpenDVService:
         if run_id not in self.state.runs:
             raise NotFoundError(f"Run '{run_id}' not found.")
 
-        query_type_mapped = {
-            "QUERY_D10_LP_COMMITMENT_PIT": "QUERY_D10_PIT",
-            "QUERY_D10B_PORTCO_VALUATION_PIT": "QUERY_D10B_VALUATION",
-            "RUN_4_BATCHES": "ADVERSARIAL_BATCHES_1_TO_4",
-        }.get(req.query_type, req.query_type)
-
-        resp_obj = self.execute_sandbox_query(
-            ContractSandboxQueryRequest(
-                query_type=query_type_mapped,
-                assertion_cutoff_ts=req.assertion_cutoff_ts,
-                run_id=run_id,
-            )
-        )
+        req_copy = req.model_copy(update={"run_id": run_id})
+        resp_obj = self.execute_sandbox_query(req_copy)
         resp = SandboxExecutionResponse(
             run_id=run_id,
             query_type=req.query_type,
             assertion_cutoff_ts=req.assertion_cutoff_ts,
             all_batches_passed=resp_obj.all_batches_passed,
-            batch_verdicts={
-                "batch_1": "PASS",
-                "batch_2": "PASS",
-                "batch_3": "PASS",
-                "batch_4": "PASS",
-            },
+            batch_verdicts=resp_obj.batch_verdicts or (
+                {
+                    f"batch_{i}": ("PASS" if resp_obj.all_batches_passed else "FAIL")
+                    for i in range(1, 5)
+                }
+                if resp_obj.batches
+                else {}
+            ),
             dynamic_rules_passed=resp_obj.dynamic_rules_passed,
             dynamic_rules_total=resp_obj.dynamic_rules_total,
             replay_delta_rows=resp_obj.replay_delta_rows,
@@ -560,16 +528,10 @@ class OpenDVService:
 
     def get_platform_capabilities(self) -> dict[str, Any]:
         """Return supported agent harnesses, 5-Tier RBAC roles, WB-00..WB-11 views, and gates."""
-        harnesses = [
-            "agy",
-            "agy-cli",
-            "antigravity",
-            "claude",
-            "claude-cli",
-            "claude-code",
-        ]
+        harnesses = ["agy", "agy-cli", "antigravity", "claude", "claude-cli", "claude-code"]
         roles = [r.value for r in RbacRole]
         gates = ["G0", "G1", "G2", "G3", "G4", "G5"]
+        classifications = ["PUBLIC", "INTERNAL", "CONFIDENTIAL", "MNPI", "RESTRICTED_PII"]
         return {
             "api_version": "v1",
             "contract_version": "6.0",
@@ -578,13 +540,7 @@ class OpenDVService:
             "harness_providers": harnesses,
             "supported_rbac_roles": roles,
             "rbac_roles": roles,
-            "security_classifications": [
-                "PUBLIC",
-                "INTERNAL",
-                "CONFIDENTIAL",
-                "MNPI",
-                "RESTRICTED_PII",
-            ],
+            "security_classifications": classifications,
             "workbench_views": [f"WB-{i:02d}" for i in range(12)],
             "workbench_view_titles": list(WORKBENCH_VIEW_TITLES.values()),
             "verification_gates": gates,

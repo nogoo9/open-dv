@@ -17,6 +17,7 @@ from opendv_agent_harness import (
     StewardHoldManager,
     build_observability_event_dict,
 )
+from opendv_core import resolve_workspace_path
 from opendv_service.legacy_demo import (
     PE_DEMO_CONTEXT_REFS,
     WORKBENCH_VIEW_TITLES,
@@ -76,13 +77,9 @@ class PipelineExecutionMixin:
 
         if out_dir is not None:
             shutil.rmtree(out_dir / "state" / "holds", ignore_errors=True)
-            (out_dir / "vault-ledger.jsonl").unlink(missing_ok=True)
         elif spec_obj.output_dir is not None:
-            spec_out_cand = Path(spec_obj.output_dir)
-            if not spec_out_cand.is_absolute():
-                spec_out_cand = (base_dir / spec_out_cand).resolve()
+            spec_out_cand = resolve_workspace_path(spec_obj.output_dir, workspace_root=base_dir)
             shutil.rmtree(spec_out_cand / "state" / "holds", ignore_errors=True)
-            (spec_out_cand / "vault-ledger.jsonl").unlink(missing_ok=True)
 
         runner: PipelineRunner = pipeline_runner or get_default_pipeline_runner()
         report: AgenticPipelineReport = runner(
