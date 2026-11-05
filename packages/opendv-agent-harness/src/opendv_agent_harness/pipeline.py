@@ -35,7 +35,7 @@ from typing import Any, Literal
 
 import duckdb
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from opendv_agent_harness.hold_manager import StewardHoldManager, StewardHoldRecord
 from opendv_agent_harness.models import (
@@ -66,7 +66,7 @@ from opendv_agent_harness.telemetry.translator import build_observability_event_
 from opendv_axi_verifier.alg_a8_orchestrator import run_axi_dv_verification_pipeline
 from opendv_axi_verifier.toon_codec import ToonViolation
 from opendv_axi_verifier.verifiers.alg_a9b_unstructured import classify_er_resolution_tier
-from opendv_contracts.errors import ErrorCode, InputValidationError
+from opendv_contracts.errors import ErrorCode, InputValidationError, OpenDVError
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_core.models.contract_v5 import (
     ColumnTriageEntry,
@@ -973,7 +973,7 @@ def validate_pipeline_inputs(
     if isinstance(input_spec, dict):
         try:
             spec = PipelineInputSpec.model_validate(input_spec)
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError) as exc:
             diagnostics.append(
                 {
                     "code": "INPUT_SPEC_SCHEMA_INVALID",
@@ -991,7 +991,7 @@ def validate_pipeline_inputs(
     elif isinstance(input_spec, (str, Path)):
         try:
             spec = PipelineInputSpec.from_file(input_spec)
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError, OSError) as exc:
             diagnostics.append(
                 {
                     "code": "INPUT_SPEC_SCHEMA_INVALID",
@@ -1017,7 +1017,7 @@ def validate_pipeline_inputs(
     elif isinstance(harness_setup, dict):
         try:
             setup_obj = HarnessSetupConfig.model_validate(harness_setup)
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError) as exc:
             diagnostics.append(
                 {
                     "code": "HARNESS_SETUP_INVALID",
@@ -1035,7 +1035,7 @@ def validate_pipeline_inputs(
     elif isinstance(harness_setup, (str, Path)):
         try:
             setup_obj = HarnessSetupConfig.from_file(harness_setup)
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError, OSError) as exc:
             diagnostics.append(
                 {
                     "code": "HARNESS_SETUP_INVALID",
@@ -1068,7 +1068,7 @@ def validate_pipeline_inputs(
             runtime_cfg = setup_obj.to_harness_config(workspace_dir=ws_root)
             resolved_harness_env = runtime_cfg.env
             _ = get_harness_adapter(runtime_cfg)
-        except Exception as exc:
+        except (OpenDVError, ValueError, TypeError, KeyError, OSError, RuntimeError) as exc:
             diagnostics.append(
                 {
                     "code": "HARNESS_INIT_FAILED",
@@ -1346,7 +1346,15 @@ def validate_pipeline_inputs(
             raw_ont = load_structured_file(ont_path)
             validate_graph_a(raw_ont)
             GraphAOntology.model_validate(raw_ont)
-        except Exception as exc:
+        except (
+            ValidationError,
+            ValueError,
+            TypeError,
+            KeyError,
+            OSError,
+            yaml.YAMLError,
+            json.JSONDecodeError,
+        ) as exc:
             diagnostics.append(
                 {
                     "code": "ONTOLOGY_SCHEMA_INVALID",
@@ -1387,7 +1395,15 @@ def validate_pipeline_inputs(
                 validate_contract_v5(raw_init)
                 NoMistakeDataVault2ContractV5.model_validate(raw_init)
                 initial_hub_count = len(raw_init.get("hubs", []))
-            except Exception as exc:
+            except (
+                ValidationError,
+                ValueError,
+                TypeError,
+                KeyError,
+                OSError,
+                yaml.YAMLError,
+                json.JSONDecodeError,
+            ) as exc:
                 diagnostics.append(
                     {
                         "code": "INITIAL_CONTRACT_INVALID",
@@ -1518,7 +1534,7 @@ def validate_pipeline_inputs(
                                 ),
                             }
                         )
-                except Exception as exc:
+                except (duckdb.Error, OSError, ValueError, TypeError) as exc:
                     diagnostics.append(
                         {
                             "code": "SOURCE_LOAD_ERROR",
@@ -1567,7 +1583,7 @@ def validate_pipeline_inputs(
                                         "message": "Baseline table must have >= 1 row and column.",
                                     }
                                 )
-                        except Exception as exc:
+                        except (duckdb.Error, OSError, ValueError, TypeError) as exc:
                             diagnostics.append(
                                 {
                                     "code": "BASELINE_LOAD_ERROR",
@@ -1727,7 +1743,7 @@ def validate_pipeline_outputs(
                             "message": f"CAS blob verification failed for sha256={ref.sha256}.",
                         }
                     )
-            except Exception as exc:
+            except (OpenDVError, ValueError, TypeError, KeyError, OSError) as exc:
                 cas_ok = False
                 diagnostics.append(
                     {
@@ -1773,7 +1789,14 @@ def validate_pipeline_outputs(
                         gb_data = json.loads(raw_bytes.decode("utf-8"))
                         validate_graph_b(gb_data)
                         GraphBProfile.model_validate(gb_data)
-                    except Exception as exc:
+                    except (
+                        ValidationError,
+                        ValueError,
+                        TypeError,
+                        KeyError,
+                        OSError,
+                        json.JSONDecodeError,
+                    ) as exc:
                         diagnostics.append(
                             {
                                 "code": "GRAPH_B_PROFILE_INVALID",
@@ -1798,7 +1821,15 @@ def validate_pipeline_outputs(
                 fc_dict = {}
             validate_contract_v5(fc_dict)
             NoMistakeDataVault2ContractV5.model_validate(fc_dict)
-        except Exception as exc:
+        except (
+            ValidationError,
+            ValueError,
+            TypeError,
+            KeyError,
+            OSError,
+            yaml.YAMLError,
+            json.JSONDecodeError,
+        ) as exc:
             diagnostics.append(
                 {
                     "code": "FINAL_CONTRACT_SCHEMA_INVALID",
@@ -1820,7 +1851,9 @@ def validate_pipeline_outputs(
                 ir_dict = {}
             validate_canonical_ir(ir_dict)
             CanonicalIR.model_validate(ir_dict)
-        except Exception as exc:
+        except (
+            ValidationError, ValueError, TypeError, KeyError, OSError, json.JSONDecodeError
+        ) as exc:
             diagnostics.append(
                 {
                     "code": "FINAL_CANONICAL_IR_INVALID",
@@ -1838,7 +1871,7 @@ def validate_pipeline_outputs(
             redacted = redact_event_for_role(ev, role="VIEWER")
             validate_no_pii_leaks(redacted)
             verified_events += 1
-        except Exception as exc:
+        except (ValidationError, ValueError, TypeError, KeyError, OSError) as exc:
             pii_passed = False
             diagnostics.append(
                 {
@@ -2151,7 +2184,7 @@ def _decode_stage_context(prompt: str) -> dict[str, Any] | None:
     try:
         parsed = json.loads(raw_json.strip())
         return parsed if isinstance(parsed, dict) else None
-    except Exception:
+    except (json.JSONDecodeError, ValueError, TypeError):
         return None
 
 
@@ -2176,7 +2209,7 @@ def _seed_graph_b_systems_from_deployed_contract(
                     prev_gb = GraphBProfile.model_validate(load_structured_file(gb_files[-1]))
                     for sys_obj in prev_gb.source_systems:
                         systems_by_code[sys_obj.source_system_code] = sys_obj
-                except Exception:
+                except (ValidationError, ValueError, TypeError, OSError):
                     pass
 
     existing_tables = {
@@ -2384,7 +2417,7 @@ def _extract_known_entities_from_cumulative_sources(
                     v_name = f"v_er_dep_{_slugify(b_tbl)}"
                     try:
                         _, cols = _load_table_into_duckdb(conn, v_name, matched_file)
-                    except Exception:
+                    except (duckdb.Error, OSError, ValueError, TypeError):
                         continue
                     if bk_col not in cols:
                         continue

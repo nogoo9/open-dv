@@ -70,13 +70,6 @@ class LocalExecutor(CommandExecutor):
                 "error": str(exc),
                 "detail": str(exc),
             }
-        except Exception as exc:
-            return 2, {
-                "status": "ERROR",
-                "error_code": "INTERNAL_ERROR",
-                "error": str(exc),
-                "detail": str(exc),
-            }
 
     # 1. verify
     def _execute_verify(self, args: argparse.Namespace) -> tuple[int, Any]:

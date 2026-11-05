@@ -27,7 +27,7 @@ def test_single_path_resolver_definition() -> None:
         for py_file in scan_dir.rglob("*.py"):
             try:
                 tree = ast.parse(py_file.read_text(encoding="utf-8"), filename=str(py_file))
-            except Exception as exc:
+            except (SyntaxError, UnicodeDecodeError, OSError) as exc:
                 pytest.fail(f"AST parsing failed for {py_file}: {exc}")
 
             for node in ast.walk(tree):
