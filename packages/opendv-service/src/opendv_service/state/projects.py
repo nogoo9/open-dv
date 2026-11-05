@@ -44,7 +44,7 @@ class ProjectStateMixin:
                 graph_a_sha = store_cas_artifact(self.cas_root, raw_bytes).upper()
                 try:
                     parsed_ont: Any = yaml.safe_load(raw_bytes.decode("utf-8"))
-                except Exception:
+                except (yaml.YAMLError, UnicodeDecodeError):
                     parsed_ont = raw_bytes.decode("utf-8", errors="replace")
                 art_meta = ArtifactMetadataResponse(
                     sha256=graph_a_sha,

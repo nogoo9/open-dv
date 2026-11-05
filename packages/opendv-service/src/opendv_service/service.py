@@ -421,7 +421,21 @@ class OpenDVService:
         if run_id not in self.state.runs:
             raise NotFoundError(f"Run '{run_id}' not found.")
 
-        req_copy = req.model_copy(update={"run_id": run_id})
+        run_dto = self.state.runs[run_id]
+        updates: dict[str, Any] = {"run_id": run_id}
+        if not (
+            req.contract_path
+            or req.contract_content
+            or req.canonical_ir_path
+            or req.canonical_ir_content
+        ):
+            proj = self.state.projects.get(run_dto.project_id)
+            if proj and proj.contract_path:
+                updates["contract_path"] = proj.contract_path
+            elif proj and proj.canonical_ir_path:
+                updates["canonical_ir_path"] = proj.canonical_ir_path
+
+        req_copy = req.model_copy(update=updates)
         resp_obj = self.execute_sandbox_query(req_copy)
         resp = SandboxExecutionResponse(
             run_id=run_id,

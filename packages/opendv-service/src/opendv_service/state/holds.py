@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from opendv_agent_harness import build_observability_event_dict
+from opendv_contracts.errors import ErrorCode
+from opendv_service.errors import NotFoundError
 from opendv_service.models import (
     CaptainHoldDecisionRequest,
     CaptainHoldDecisionResponse,
@@ -28,7 +31,13 @@ class HoldStateMixin:
     ) -> CaptainHoldDecisionResponse:
         """Apply a Steward decision to a hold, appending a resolution event."""
         if run_id not in self.runs:
-            raise KeyError(f"Unknown run_id '{run_id}'")
+            raise NotFoundError(f"Run '{run_id}' not found.", error_code=ErrorCode.RUN_NOT_FOUND)
+
+        if run_id not in self.hold_managers:
+            raise NotFoundError(
+                f"Hold not found on run '{run_id}'.",
+                error_code=ErrorCode.HOLD_NOT_FOUND,
+            )
 
         hold_mgr = self.hold_managers[run_id]
         resolved_hold_id = req.hold_id
@@ -39,7 +48,10 @@ class HoldStateMixin:
                 resolved_hold_id = resolved_hold_id or pending_holds[0].hold_id
                 resolved_event_id = resolved_event_id or pending_holds[0].event_id
             elif not resolved_hold_id and not resolved_event_id:
-                raise KeyError("Hold ID is required when no single active hold is pending.")
+                raise NotFoundError(
+                    "Hold ID is required when no single active hold is pending.",
+                    error_code=ErrorCode.HOLD_NOT_FOUND,
+                )
             else:
                 candidate_lookup = resolved_hold_id or resolved_event_id or ""
                 try:
@@ -47,13 +59,17 @@ class HoldStateMixin:
                     resolved_hold_id = resolved_hold_id or existing.hold_id
                     resolved_event_id = resolved_event_id or existing.event_id
                 except KeyError as exc:
-                    raise KeyError(
-                        "Hold ID is required when no single active hold is pending."
+                    raise NotFoundError(
+                        f"Hold '{candidate_lookup}' not found on run '{run_id}'.",
+                        error_code=ErrorCode.HOLD_NOT_FOUND,
                     ) from exc
 
         target_hold_id = resolved_hold_id or resolved_event_id
         if not target_hold_id:
-            raise KeyError("Hold ID is required when no single active hold is pending.")
+            raise NotFoundError(
+                "Hold ID is required when no single active hold is pending.",
+                error_code=ErrorCode.HOLD_NOT_FOUND,
+            )
 
         try:
             existing_record = hold_mgr.get_hold(target_hold_id)
@@ -62,15 +78,11 @@ class HoldStateMixin:
                     f"Captain-Hold '{target_hold_id}' is already resolved "
                     f"({existing_record.status})."
                 )
-        except KeyError:
-            hold_mgr.record_hold(
-                run_id=run_id,
-                task_id=f"task-{run_id}-adhoc",
-                session_id=f"sess-{run_id}",
-                decision_id=target_hold_id,
-                hold_id=target_hold_id,
-                event_id=resolved_event_id or target_hold_id,
-            )
+        except KeyError as exc:
+            raise NotFoundError(
+                f"Hold '{target_hold_id}' not found on run '{run_id}'.",
+                error_code=ErrorCode.HOLD_NOT_FOUND,
+            ) from exc
 
         notes = req.resolution_notes or f"Resolved by {req.steward_id} via {req.action}"
         resolved_record = hold_mgr.resolve_hold(
@@ -96,9 +108,9 @@ class HoldStateMixin:
         resolution_event = build_observability_event_dict(
             event_id=emitted_event_id,
             run_id=run_id,
-            trace_id="4bf92f3577b34da6a3ce929d0e0e4736",
-            span_id=f"{len(self.run_events[run_id]) + 10:016x}",
-            parent_span_id="00f067aa0ba902b4",
+            trace_id=uuid.uuid4().hex,
+            span_id=uuid.uuid4().hex[:16],
+            parent_span_id=uuid.uuid4().hex[:16],
             timestamp_utc=resolved_at,
             stage_id="STAGE_02_SCOUT_UNSTRUCTURED",
             workbench_view_id="WB-03",

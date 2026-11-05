@@ -883,6 +883,14 @@
             "title": "Events Sse Url",
             "type": "string"
           },
+          "fallbacks_applied": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Fallbacks Applied",
+            "type": "array"
+          },
           "gate_scorecard": {
             "$ref": "#/components/schemas/GateScorecardSummary"
           },
