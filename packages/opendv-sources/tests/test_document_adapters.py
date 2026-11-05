@@ -250,21 +250,27 @@ def test_document_adapters_jailbreak_prevention(tmp_path: Path) -> None:
     """Verify server workspace root strictly overrides client options['workspace_root']."""
     server_ws = tmp_path / "server_ws"
     server_ws.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_txt = outside_dir / "secret.txt"
+    outside_txt.write_text("secret", encoding="utf-8")
+    outside_pdf = outside_dir / "secret.pdf"
+    outside_pdf.write_bytes(b"%PDF-1.4\n...")
     text_ad = TextDocumentSourceAdapter(workspace_root=server_ws)
     pdf_ad = PdfDocumentSourceAdapter(workspace_root=server_ws)
 
     evil_txt = SourceSpec(
         adapter="text",
-        uri="C:/Windows/System32/drivers/etc/hosts",
-        options={"workspace_root": "C:/Windows/System32/drivers/etc"},
+        uri=str(outside_txt.resolve()),
+        options={"workspace_root": str(outside_dir.resolve())},
     )
     with pytest.raises(PathContainmentError):
         text_ad.extract_document(evil_txt)
 
     evil_pdf = SourceSpec(
         adapter="pdf",
-        uri="C:/Windows/System32/drivers/etc/hosts",
-        options={"workspace_root": "C:/Windows/System32/drivers/etc"},
+        uri=str(outside_pdf.resolve()),
+        options={"workspace_root": str(outside_dir.resolve())},
     )
     with pytest.raises(PathContainmentError):
         pdf_ad.extract_document(evil_pdf)

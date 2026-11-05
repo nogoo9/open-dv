@@ -317,11 +317,15 @@ def test_duckdb_attach_client_workspace_root_cannot_override_server_jail(tmp_pat
     """Verify server workspace root strictly overrides client options['workspace_root']."""
     server_ws = tmp_path / "server_ws"
     server_ws.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_db = outside_dir / "secret.db"
+    outside_db.write_bytes(b"data")
     adapter = DuckdbAttachSourceAdapter(workspace_root=server_ws)
     evil_spec = SourceSpec(
         adapter="duckdb_attach",
-        uri="C:/Windows/System32/drivers/etc/hosts",
-        options={"workspace_root": "C:/Windows/System32/drivers/etc"},
+        uri=str(outside_db.resolve()),
+        options={"workspace_root": str(outside_dir.resolve())},
     )
     with pytest.raises(PathContainmentError):
         adapter.read_bytes(evil_spec)

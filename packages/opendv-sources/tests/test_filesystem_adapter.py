@@ -182,10 +182,11 @@ def test_filesystem_missing_and_empty_errors(tmp_path: Path) -> None:
         adapter.register(SourceSpec(adapter="file", uri="empty_dir", format="csv"), conn, "t")
 
 
-def test_filesystem_default_adapter_rejects_external_absolute_path() -> None:
+def test_filesystem_default_adapter_rejects_external_absolute_path(tmp_path: Path) -> None:
     """Verify default adapter rejects arbitrary host paths outside workspace."""
     adapter = LocalFilesystemSourceAdapter()
-    spec = SourceSpec(adapter="file", uri="C:/Windows/System32/drivers/etc/hosts", format="csv")
+    outside = Path.cwd().parent / "nonexistent_outside_secret.csv"
+    spec = SourceSpec(adapter="file", uri=str(outside.resolve()), format="csv")
     with pytest.raises(PathContainmentError):
         adapter.read_bytes(spec)
 
@@ -194,11 +195,15 @@ def test_filesystem_client_workspace_root_cannot_override_server_jail(tmp_path: 
     """Verify server workspace root strictly overrides client options['workspace_root']."""
     server_ws = tmp_path / "server_ws"
     server_ws.mkdir()
+    outside_dir = tmp_path / "outside"
+    outside_dir.mkdir()
+    outside_file = outside_dir / "secret.csv"
+    outside_file.write_text("secret", encoding="utf-8")
     adapter = LocalFilesystemSourceAdapter(workspace_root=server_ws)
     evil_spec = SourceSpec(
         adapter="file",
-        uri="C:/Windows/System32/drivers/etc/hosts",
-        options={"workspace_root": "C:/Windows/System32/drivers/etc"},
+        uri=str(outside_file.resolve()),
+        options={"workspace_root": str(outside_dir.resolve())},
         format="csv",
     )
     with pytest.raises(PathContainmentError):

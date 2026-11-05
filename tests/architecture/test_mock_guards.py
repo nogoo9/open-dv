@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import ast
 import re
+import shutil
 import subprocess
 import tomllib
 from pathlib import Path
@@ -157,6 +158,9 @@ def test_typescript_sdk_cleanliness() -> None:
         "index.ts must not export MockVaultEventStreamClient"
     )
     assert "mock-client" not in index_content, "index.ts must not export mock-client"
+
+    if shutil.which("bun") is None:
+        pytest.skip("bun is required for typescript cleanliness verification")
 
     # Evaluate Bun runtime export object of protocol-ts asserting zero Mock* keys
     bun_code = (
