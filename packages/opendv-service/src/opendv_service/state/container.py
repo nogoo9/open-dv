@@ -1,0 +1,52 @@
+"""PlatformStateContainer unifying domain state mixins."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from opendv_service.seams import PipelineRunner
+from opendv_service.state.base import BaseStateContainer
+from opendv_service.state.cas import ArtifactStateMixin, store_cas_artifact
+from opendv_service.state.demo import DemoStateMixin
+from opendv_service.state.holds import HoldStateMixin
+from opendv_service.state.pipeline import PipelineStateMixin
+from opendv_service.state.pipeline_execution import PipelineExecutionMixin
+from opendv_service.state.projects import ProjectStateMixin
+from opendv_service.state.runs import RunStateMixin
+
+
+class PlatformStateContainer(
+    ProjectStateMixin,
+    RunStateMixin,
+    HoldStateMixin,
+    PipelineStateMixin,
+    PipelineExecutionMixin,
+    ArtifactStateMixin,
+    DemoStateMixin,
+    BaseStateContainer,
+):
+    """In-memory and CAS/JSONL-backed platform state container for `/api/v1` routers."""
+
+    def __init__(
+        self,
+        repo_root: Path | None = None,
+        state_dir: Path | None = None,
+        *,
+        pipeline_runner: PipelineRunner | None = None,
+        seed_demo_project: bool = True,
+    ) -> None:
+        super().__init__(repo_root=repo_root, state_dir=state_dir)
+        self._custom_pipeline_runner = pipeline_runner
+        if seed_demo_project:
+            self._seed_canonical_pe_demo()
+
+
+# Domain aliases
+StateStore = PlatformStateContainer
+
+__all__ = [
+    "BaseStateContainer",
+    "PlatformStateContainer",
+    "StateStore",
+    "store_cas_artifact",
+]

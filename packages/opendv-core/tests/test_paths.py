@@ -36,6 +36,15 @@ def test_resolve_workspace_path_rejects_empty_and_whitespace() -> None:
         resolve_workspace_path("   \t  \n  ")
 
 
+def test_resolve_workspace_path_rejects_null_bytes(tmp_path: Path) -> None:
+    with pytest.raises(PathContainmentError, match="must not contain null bytes"):
+        resolve_workspace_path("valid_data.json\x00extra", workspace_root=tmp_path)
+
+    with pytest.raises(PathContainmentError, match="must not contain null bytes"):
+        resolve_workspace_path("sub/\0secrets.txt", workspace_root=tmp_path)
+
+
+
 def test_resolve_workspace_path_rejects_parent_traversal(tmp_path: Path) -> None:
     with pytest.raises(PathContainmentError, match=r"Path traversal .* is strictly forbidden"):
         resolve_workspace_path("../outside.txt", workspace_root=tmp_path)

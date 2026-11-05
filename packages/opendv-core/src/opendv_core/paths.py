@@ -39,6 +39,9 @@ def resolve_workspace_path(
     if not raw_str:
         raise PathContainmentError("Path must not be empty.")
 
+    if "\0" in raw_str or "\x00" in raw_str:
+        raise PathContainmentError(f"Path must not contain null bytes: '{raw_str}'")
+
     candidate = Path(raw_str)
     if ".." in candidate.parts:
         raise PathContainmentError(f"Path traversal ('..') is strictly forbidden: '{raw_str}'")
