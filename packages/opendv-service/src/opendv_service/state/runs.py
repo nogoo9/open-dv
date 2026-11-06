@@ -6,10 +6,14 @@ import shutil
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
+import yaml
+
 from opendv_agent_harness import StewardHoldManager
+from opendv_core.paths import resolve_workspace_path
 from opendv_service.models import (
     CreateRunRequest,
     GateScorecardSummary,
+    LifecycleStage,
     PipelineRunRequest,
     ProjectRunDTO,
     RunStatus,
@@ -37,8 +41,13 @@ class RunStateMixin:
             "claude",
             "claude-cli",
             "claude-code",
-        ],
+        ]
+        | str,
         started_at_utc: str,
+        has_initial_contract: bool = False,
+        initial_contract_path: str | None = None,
+        wave_id: str | None = None,
+        lifecycle_stage: str = "COLD_START_N1",
     ) -> ProjectRunDTO:
         ledger_path = self.ledger_dir / f"{run_id}.jsonl"
         ledger_path.unlink(missing_ok=True)
@@ -79,6 +88,10 @@ class RunStateMixin:
             gates_url=f"/api/v1/runs/{run_id}/gates",
             sandbox_url=f"/api/v1/runs/{run_id}/sandbox",
             decisions_url=f"/api/v1/runs/{run_id}/decisions",
+            has_initial_contract=has_initial_contract,
+            initial_contract_path=initial_contract_path,
+            wave_id=wave_id,
+            lifecycle_stage=lifecycle_stage,
         )
         self.runs[run_id] = run_dto
         if project_id in self.projects:
@@ -206,26 +219,59 @@ class RunStateMixin:
             if (req.harness_config_path is None or req.harness_provider != "antigravity")
             else None
         )
+
+        has_initial_contract = False
+        initial_contract_path = req.initial_contract_path
+        lifecycle_stage = LifecycleStage.COLD_START_N1.value
+
+        if req.initial_contract_path is not None:
+            resolved_path = resolve_workspace_path(
+                str(req.initial_contract_path),
+                workspace_root=self.repo_root,
+                allow_temp=True,
+            )
+            content = resolved_path.read_text(encoding="utf-8")
+            yaml.safe_load(content)
+            has_initial_contract = True
+            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
+        elif req.initial_contract is not None:
+            yaml.safe_load(str(req.initial_contract))
+            has_initial_contract = True
+            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
+
+        target_wave_id = req.wave_id
+
         if req.pipeline_input_path is not None:
             rep_dict = self.execute_agentic_pipeline_run(
                 PipelineRunRequest(
                     input_spec_path=req.pipeline_input_path,
                     harness_config_path=req.harness_config_path,
                     provider_override=provider_override,
+                    initial_contract_path=req.initial_contract_path,
+                    initial_contract=req.initial_contract,
+                    wave_id=target_wave_id,
                 )
             )
             return self.runs[str(rep_dict["run_id"])]
 
-        if req.project_id is None or req.project_id not in self.projects:
-            raise KeyError(f"Unknown project_id '{req.project_id}'")
+        target_project_id = req.project_id or "default-project"
+        if target_project_id not in self.projects:
+            if target_project_id == "default-project":
+                from opendv_contracts import CreateProjectRequest
+
+                self.create_project(
+                    CreateProjectRequest(project_id="default-project", name="Default Project")
+                )
+            else:
+                raise KeyError(f"Unknown project_id '{req.project_id}'")
 
         if req.contract_path is not None:
             self._resolve_repo_path(req.contract_path)
-            self.projects[req.project_id] = self.projects[req.project_id].model_copy(
+            self.projects[target_project_id] = self.projects[target_project_id].model_copy(
                 update={"contract_path": req.contract_path}
             )
 
-        dynamic_input_spec = self.build_dynamic_project_input_spec(req.project_id)
+        dynamic_input_spec = self.build_dynamic_project_input_spec(target_project_id)
         if dynamic_input_spec is not None:
             rep_dict = self.execute_agentic_pipeline_run(
                 PipelineRunRequest(
@@ -233,18 +279,25 @@ class RunStateMixin:
                     harness_config_path=req.harness_config_path,
                     provider_override=provider_override,
                     steward_hold_policy="auto_approve_top_candidate",
+                    initial_contract_path=req.initial_contract_path,
+                    initial_contract=req.initial_contract,
+                    wave_id=target_wave_id,
                 )
             )
             return self.runs[str(rep_dict["run_id"])]
 
         run_index = len(self.runs) + 1
-        run_id = f"run-{req.project_id}-{run_index:04d}"
+        run_id = f"run-{target_project_id}-{run_index:04d}"
         now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         return self._init_run_artifacts(
             run_id=run_id,
-            project_id=req.project_id,
+            project_id=target_project_id,
             harness_provider=req.harness_provider,
             started_at_utc=now_iso,
+            has_initial_contract=has_initial_contract,
+            initial_contract_path=initial_contract_path,
+            wave_id=target_wave_id,
+            lifecycle_stage=lifecycle_stage,
         )
 
     def abort_run(

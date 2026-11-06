@@ -7,6 +7,7 @@ from opendv_contracts.dtos.common import (
     EventType,
     GateScorecardSummary,
     GateVerdict,
+    LifecycleStage,
     RbacRole,
     RenderedOutput,
     RunStatus,
@@ -49,6 +50,7 @@ from opendv_contracts.dtos.pipeline import (
 )
 from opendv_contracts.dtos.profile import ProfileRequest, ProfileResponse
 from opendv_contracts.dtos.project import CreateProjectRequest, ProjectResponse
+from opendv_contracts.dtos.runs import CreateRunRequest, ProjectRunDTO
 from opendv_contracts.dtos.sandbox import (
     SandboxBatchResult,
     SandboxColumnMetadata,
@@ -76,6 +78,8 @@ __all__ = [  # noqa: RUF022
     "PipelineRunRequest",
     "PipelineValidateRequest",
     "CreateProjectRequest",
+    "CreateRunRequest",
+    "ProjectRunDTO",
     "ProjectResponse",
     "ArtifactUploadRequest",
     "HoldRequest",
@@ -88,6 +92,7 @@ __all__ = [  # noqa: RUF022
     "GateVerdict",
     "HoldAction",
     "HoldStatus",
+    "LifecycleStage",
     "RbacRole",
     "RunStatus",
     "SandboxQueryType",

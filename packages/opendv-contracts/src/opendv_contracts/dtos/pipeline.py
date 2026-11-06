@@ -26,15 +26,32 @@ class PipelineValidateRequest(BaseContractModel):
     initial_contract_content: str | None = Field(
         default=None, description="Inline starting contract YAML"
     )
+    initial_contract: str | None = Field(
+        default=None, description="Inline starting contract YAML (Decision D1 / GAP-07)"
+    )
+    wave_id: str | None = Field(
+        default=None, description="Target wave identifier (e.g. W0, W1, W2) (GAP-07)"
+    )
     provider_override: str | None = Field(
         default=None, description="Target harness provider override"
     )
     steward_hold_policy: str | None = Field(default=None, description="Steward hold policy")
 
+    @model_validator(mode="after")
+    def _sync_contract_fields(self) -> PipelineValidateRequest:
+        if self.initial_contract is None and self.initial_contract_content is not None:
+            object.__setattr__(self, "initial_contract", self.initial_contract_content)
+        elif self.initial_contract_content is None and self.initial_contract is not None:
+            object.__setattr__(self, "initial_contract_content", self.initial_contract)
+        return self
+
 
 class PipelineRunRequest(PipelineValidateRequest):
     """Request DTO to initiate an asynchronous end-to-end pipeline run (Decision D2)."""
 
+    project_id: str | None = Field(
+        default=None, description="Optional associated project identifier"
+    )
     run_id: str | None = Field(default=None, description="Optional predetermined run identifier")
     output_dir: str | None = Field(
         default=None, description="Destination directory for run artifacts"
@@ -63,6 +80,19 @@ class PipelineRunHandle(BaseContractModel):
         default=None, description="Optional associated project identifier"
     )
     harness_provider: str | None = Field(default=None, description="Harness provider for the run")
+    has_initial_contract: bool = Field(
+        default=False, description="Whether an initial contract was provided (GAP-07)"
+    )
+    initial_contract_path: str | None = Field(
+        default=None, description="Path to initial contract if file-backed (GAP-07)"
+    )
+    wave_id: str | None = Field(
+        default=None, description="Target wave identifier if restricted (GAP-07)"
+    )
+    lifecycle_stage: str = Field(
+        default="COLD_START_N1",
+        description="Lifecycle stage of the run (COLD_START_N1 or MULTI_SOURCE_EXPANSION)",
+    )
 
     @model_validator(mode="after")
     def _sync_created_at(self) -> PipelineRunHandle:

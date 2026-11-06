@@ -870,10 +870,11 @@
       },
       "CreateRunRequest": {
         "additionalProperties": false,
-        "description": "Request payload to start a verification, compilation, and sandbox run (docs/08 \u00a75.2).",
+        "description": "Request payload to start a verification, compilation,\nand sandbox execution run (docs/08 \u00a75.2).",
         "properties": {
           "assertion_cutoff_ts": {
             "default": "2026-11-01T23:59:59Z",
+            "description": "Temporal cutoff timestamp for deterministic assertions",
             "title": "Assertion Cutoff Ts",
             "type": "string"
           },
@@ -886,10 +887,12 @@
                 "type": "null"
               }
             ],
+            "description": "Legacy contract path",
             "title": "Contract Path"
           },
           "execute_duckdb_sandbox": {
             "default": true,
+            "description": "Whether to execute DuckDB shadow sandbox queries",
             "title": "Execute Duckdb Sandbox",
             "type": "boolean"
           },
@@ -902,10 +905,12 @@
                 "type": "null"
               }
             ],
+            "description": "Path to harness configuration file",
             "title": "Harness Config Path"
           },
           "harness_provider": {
             "default": "antigravity",
+            "description": "Execution harness provider",
             "enum": [
               "agy",
               "agy-cli",
@@ -917,8 +922,33 @@
             "title": "Harness Provider",
             "type": "string"
           },
+          "initial_contract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline starting contract YAML or JSON string (Decision D1 / GAP-07)",
+            "title": "Initial Contract"
+          },
+          "initial_contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to initial deployed contract YAML/JSON (Decision D1 / GAP-07)",
+            "title": "Initial Contract Path"
+          },
           "max_repair_retries": {
             "default": 3,
+            "description": "Maximum autonomous repair retry iterations",
             "maximum": 5.0,
             "minimum": 0.0,
             "title": "Max Repair Retries",
@@ -934,9 +964,13 @@
                 "type": "string"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
+            "description": "Optional model tier override",
             "title": "Model Tier Override"
           },
           "pipeline_input_path": {
@@ -948,6 +982,7 @@
                 "type": "null"
               }
             ],
+            "description": "Path to pipeline input specification",
             "title": "Pipeline Input Path"
           },
           "project_id": {
@@ -960,12 +995,26 @@
                 "type": "null"
               }
             ],
+            "description": "Target project identifier",
             "title": "Project Id"
           },
           "run_sandbox_batches": {
             "default": true,
+            "description": "Whether to run 4-batch adversarial sandbox tests",
             "title": "Run Sandbox Batches",
             "type": "boolean"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target wave identifier (e.g. W0, W1, W2) (GAP-07)",
+            "title": "Wave Id"
           }
         },
         "title": "CreateRunRequest",
@@ -1411,6 +1460,44 @@
         "title": "ExplorerBundleDTO",
         "type": "object"
       },
+      "GateScorecardSummary": {
+        "additionalProperties": false,
+        "description": "6-Gate verification scorecard summary.",
+        "properties": {
+          "gate_0_profile_drift": {
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "PASS",
+            "description": "Gate 0 profile drift verdict"
+          },
+          "gate_1_contract_grain": {
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "AUTO_REPAIRED",
+            "description": "Gate 1 contract grain verdict"
+          },
+          "gate_2_sqlglot_ast": {
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "PASS",
+            "description": "Gate 2 SQLGlot AST verdict"
+          },
+          "gate_3_networkx_dag": {
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "PASS",
+            "description": "Gate 3 NetworkX DAG verdict"
+          },
+          "gate_4_yagni_cost_guard": {
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "AUTO-FIX",
+            "description": "Gate 4 YAGNI cost guard verdict"
+          },
+          "gate_5_duckdb_sandbox": {
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "PASS",
+            "description": "Gate 5 DuckDB sandbox verdict"
+          }
+        },
+        "title": "GateScorecardSummary",
+        "type": "object"
+      },
       "GateVerdict": {
         "description": "Normative 5-state gate evaluation verdicts.",
         "enum": [
@@ -1422,17 +1509,6 @@
           "ASK-USER"
         ],
         "title": "GateVerdict",
-        "type": "string"
-      },
-      "GateVerdictStatus": {
-        "enum": [
-          "PENDING",
-          "PASS",
-          "AUTO-FIX",
-          "AUTO_REPAIRED",
-          "REJECT-WITH-TRACE",
-          "ASK-USER"
-        ],
         "type": "string"
       },
       "HTTPValidationError": {
@@ -1711,6 +1787,30 @@
             "description": "Harness provider for the run",
             "title": "Harness Provider"
           },
+          "has_initial_contract": {
+            "default": false,
+            "description": "Whether an initial contract was provided (GAP-07)",
+            "title": "Has Initial Contract",
+            "type": "boolean"
+          },
+          "initial_contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to initial contract if file-backed (GAP-07)",
+            "title": "Initial Contract Path"
+          },
+          "lifecycle_stage": {
+            "default": "COLD_START_N1",
+            "description": "Lifecycle stage of the run (COLD_START_N1 or MULTI_SOURCE_EXPANSION)",
+            "title": "Lifecycle Stage",
+            "type": "string"
+          },
           "project_id": {
             "anyOf": [
               {
@@ -1737,6 +1837,18 @@
             "description": "REST endpoint URL to query current run status",
             "title": "Status Url",
             "type": "string"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target wave identifier if restricted (GAP-07)",
+            "title": "Wave Id"
           }
         },
         "required": [
@@ -1788,6 +1900,18 @@
             ],
             "description": "Path to harness configuration file",
             "title": "Harness Config Path"
+          },
+          "initial_contract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline starting contract YAML (Decision D1 / GAP-07)",
+            "title": "Initial Contract"
           },
           "initial_contract_content": {
             "anyOf": [
@@ -1850,6 +1974,18 @@
             "description": "Destination directory for run artifacts",
             "title": "Output Dir"
           },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional associated project identifier",
+            "title": "Project Id"
+          },
           "provider_override": {
             "anyOf": [
               {
@@ -1885,6 +2021,18 @@
             ],
             "description": "Steward hold policy",
             "title": "Steward Hold Policy"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target wave identifier (e.g. W0, W1, W2) (GAP-07)",
+            "title": "Wave Id"
           }
         },
         "title": "PipelineRunRequest",
@@ -1918,6 +2066,18 @@
             ],
             "description": "Path to harness configuration file",
             "title": "Harness Config Path"
+          },
+          "initial_contract": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline starting contract YAML (Decision D1 / GAP-07)",
+            "title": "Initial Contract"
           },
           "initial_contract_content": {
             "anyOf": [
@@ -1991,6 +2151,18 @@
             ],
             "description": "Steward hold policy",
             "title": "Steward Hold Policy"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target wave identifier (e.g. W0, W1, W2) (GAP-07)",
+            "title": "Wave Id"
           }
         },
         "title": "PipelineValidateRequest",
@@ -2308,9 +2480,10 @@
       },
       "ProjectRunDTO": {
         "additionalProperties": false,
-        "description": "Status and scorecard descriptor for a platform verification run.",
+        "description": "Status, scorecard, and metadata descriptor for a platform execution run.",
         "properties": {
           "active_hold_ids": {
+            "description": "IDs of currently pending human Steward holds",
             "items": {
               "type": "string"
             },
@@ -2326,30 +2499,40 @@
                 "type": "null"
               }
             ],
+            "description": "ISO 8601 UTC completion timestamp",
             "title": "Completed At Utc"
           },
           "current_stage_id": {
+            "default": "STAGE_00_ORCHESTRATION",
+            "description": "Current or terminal pipeline stage identifier",
             "title": "Current Stage Id",
             "type": "string"
           },
           "current_view_id": {
+            "default": "WB-00",
+            "description": "Current or terminal workbench view identifier",
             "title": "Current View Id",
             "type": "string"
           },
           "decisions_url": {
+            "description": "REST endpoint URL for Steward hold resolutions",
             "title": "Decisions Url",
             "type": "string"
           },
           "event_count": {
+            "default": 0,
+            "description": "Total observability events emitted during the run",
             "minimum": 0.0,
             "title": "Event Count",
             "type": "integer"
           },
           "events_sse_url": {
+            "description": "Server-Sent Events endpoint URL for live streaming",
             "title": "Events Sse Url",
             "type": "string"
           },
           "fallbacks_applied": {
+            "description": "Log of fallback strategies applied during execution",
             "items": {
               "additionalProperties": true,
               "type": "object"
@@ -2358,53 +2541,86 @@
             "type": "array"
           },
           "gate_scorecard": {
-            "$ref": "#/components/schemas/opendv_service__models__GateScorecardSummary"
+            "$ref": "#/components/schemas/GateScorecardSummary",
+            "description": "6-Gate verification scorecard summary"
           },
           "gates_url": {
+            "description": "REST endpoint URL for gate scorecards",
             "title": "Gates Url",
             "type": "string"
           },
           "harness_provider": {
-            "enum": [
-              "agy",
-              "agy-cli",
-              "antigravity",
-              "claude",
-              "claude-cli",
-              "claude-code"
-            ],
+            "default": "antigravity",
+            "description": "Harness provider used for execution",
             "title": "Harness Provider",
             "type": "string"
           },
+          "has_initial_contract": {
+            "default": false,
+            "description": "Whether an initial contract was provided for expansion (GAP-07)",
+            "title": "Has Initial Contract",
+            "type": "boolean"
+          },
+          "initial_contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to initial contract if file-backed (GAP-07)",
+            "title": "Initial Contract Path"
+          },
+          "lifecycle_stage": {
+            "default": "COLD_START_N1",
+            "description": "Contract lifecycle stage (COLD_START_N1 or MULTI_SOURCE_EXPANSION)",
+            "title": "Lifecycle Stage",
+            "type": "string"
+          },
           "project_id": {
+            "description": "Associated project identifier",
             "title": "Project Id",
             "type": "string"
           },
           "run_id": {
+            "description": "Unique run identifier",
             "title": "Run Id",
             "type": "string"
           },
           "sandbox_url": {
+            "description": "REST endpoint URL for sandbox query execution",
             "title": "Sandbox Url",
             "type": "string"
           },
           "started_at_utc": {
+            "description": "ISO 8601 UTC start timestamp",
             "title": "Started At Utc",
             "type": "string"
           },
           "status": {
-            "$ref": "#/components/schemas/opendv_service__models__RunStatus"
+            "$ref": "#/components/schemas/opendv_contracts__dtos__common__RunStatus",
+            "default": "PENDING",
+            "description": "Current lifecycle status of the run"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target wave identifier if restricted (GAP-07)",
+            "title": "Wave Id"
           }
         },
         "required": [
           "run_id",
           "project_id",
-          "harness_provider",
-          "status",
           "started_at_utc",
-          "current_stage_id",
-          "current_view_id",
-          "event_count",
           "events_sse_url",
           "gates_url",
           "sandbox_url",
@@ -3478,7 +3694,7 @@
             "type": "array"
           },
           "gate_scorecard": {
-            "$ref": "#/components/schemas/opendv_contracts__dtos__common__GateScorecardSummary",
+            "$ref": "#/components/schemas/GateScorecardSummary",
             "description": "6-Gate status scorecard"
           },
           "overall_passed": {
@@ -3561,44 +3777,6 @@
         "title": "WaveMetadataSpecDTO",
         "type": "object"
       },
-      "opendv_contracts__dtos__common__GateScorecardSummary": {
-        "additionalProperties": false,
-        "description": "6-Gate verification scorecard summary.",
-        "properties": {
-          "gate_0_profile_drift": {
-            "$ref": "#/components/schemas/GateVerdict",
-            "default": "PASS",
-            "description": "Gate 0 profile drift verdict"
-          },
-          "gate_1_contract_grain": {
-            "$ref": "#/components/schemas/GateVerdict",
-            "default": "AUTO_REPAIRED",
-            "description": "Gate 1 contract grain verdict"
-          },
-          "gate_2_sqlglot_ast": {
-            "$ref": "#/components/schemas/GateVerdict",
-            "default": "PASS",
-            "description": "Gate 2 SQLGlot AST verdict"
-          },
-          "gate_3_networkx_dag": {
-            "$ref": "#/components/schemas/GateVerdict",
-            "default": "PASS",
-            "description": "Gate 3 NetworkX DAG verdict"
-          },
-          "gate_4_yagni_cost_guard": {
-            "$ref": "#/components/schemas/GateVerdict",
-            "default": "AUTO-FIX",
-            "description": "Gate 4 YAGNI cost guard verdict"
-          },
-          "gate_5_duckdb_sandbox": {
-            "$ref": "#/components/schemas/GateVerdict",
-            "default": "PASS",
-            "description": "Gate 5 DuckDB sandbox verdict"
-          }
-        },
-        "title": "GateScorecardSummary",
-        "type": "object"
-      },
       "opendv_contracts__dtos__common__RunStatus": {
         "description": "Lifecycle status of a pipeline run.",
         "enum": [
@@ -3612,38 +3790,6 @@
         ],
         "title": "RunStatus",
         "type": "string"
-      },
-      "opendv_service__models__GateScorecardSummary": {
-        "additionalProperties": false,
-        "description": "6-Gate verification scorecard summary (docs/08 \u00a75.2 & docs/10 \u00a72.3).",
-        "properties": {
-          "gate_0_profile_drift": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "PASS"
-          },
-          "gate_1_contract_grain": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "AUTO_REPAIRED"
-          },
-          "gate_2_sqlglot_ast": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "PASS"
-          },
-          "gate_3_networkx_dag": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "PASS"
-          },
-          "gate_4_yagni_cost_guard": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "AUTO-FIX"
-          },
-          "gate_5_duckdb_sandbox": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "PASS"
-          }
-        },
-        "title": "GateScorecardSummary",
-        "type": "object"
       },
       "opendv_service__models__RunStatus": {
         "description": "Execution lifecycle status of a platform verification or sandbox run (docs/08 \u00a75.2).",
