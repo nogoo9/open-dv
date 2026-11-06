@@ -85,6 +85,7 @@ from opendv_contracts.errors import (
     HoldNotFoundError,
     InputValidationError,
     NotFoundError,
+    OntologyRecommenderUnavailableError,
     OpenDVError,
     ProblemDetail,
     create_problem_detail,
@@ -98,6 +99,11 @@ from opendv_contracts.jcs import (
     dumps_jcs,
     dumps_jcs_bytes,
     loads_jcs,
+)
+from opendv_contracts.ports import (
+    OntologyRecommendationRequest,
+    OntologyRecommender,
+    RecommenderCapabilities,
 )
 from opendv_contracts.spec import (
     CliSpec,
@@ -166,6 +172,9 @@ __all__ = [
     "OntologyDeltaItem",
     "OntologyDiff",
     "OntologyProposal",
+    "OntologyRecommendationRequest",
+    "OntologyRecommender",
+    "OntologyRecommenderUnavailableError",
     "OntologyValidationResult",
     "OpenDVError",
     "OptionSpec",
@@ -180,6 +189,7 @@ __all__ = [
     "ProjectResponse",
     "ProjectRunDTO",
     "RbacRole",
+    "RecommenderCapabilities",
     "RefineDefinitionOp",
     "RenderedOutput",
     "RuleEvaluationDTO",
