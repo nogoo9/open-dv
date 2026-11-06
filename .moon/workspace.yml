@@ -58,5 +58,6 @@ constraints:
     cli: ['domain-core', 'verifier', 'duckdb-sandbox', 'telemetry', 'agent-harness', 'service', 'contracts', 'sources']
     protocol-sdk: []
     web-ui: ['protocol-sdk']
+    client-cli: ['protocol-sdk']
 
 telemetry: false
