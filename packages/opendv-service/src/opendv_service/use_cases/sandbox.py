@@ -70,6 +70,15 @@ def execute_sandbox_query(
                     "query_d10b_rows": [],
                     "columns": custom_res.columns,
                     "execution_stats": custom_res.execution_stats,
+                    "batch_report": {
+                        "all_passed": True,
+                        "batches": [],
+                    },
+                    "dynamic_check_report": {
+                        "passed_count": 0,
+                        "failed_count": 0,
+                        "checks": [],
+                    },
                 }
                 rendered_text = render_sandbox_text(res_dict)
                 res_dict["rendered"] = RenderedOutput(text=rendered_text)
@@ -206,6 +215,15 @@ def execute_sandbox_query(
         "query_d10b_rows": d10b_rows,
         "columns": custom_result.columns if custom_result else [],
         "execution_stats": custom_result.execution_stats if custom_result else {},
+        "batch_report": {
+            "all_passed": report.passed,
+            "batches": [b.model_dump(mode="json") for b in batches],
+        },
+        "dynamic_check_report": {
+            "passed_count": report.dynamic_check_report.passed_count,
+            "failed_count": report.dynamic_check_report.failed_count,
+            "checks": rows if query_type_str == "VERIFY_DYN_001_015" else [],
+        },
     }
     rendered_text = render_sandbox_text(res_dict)
     res_dict["rendered"] = RenderedOutput(text=rendered_text)

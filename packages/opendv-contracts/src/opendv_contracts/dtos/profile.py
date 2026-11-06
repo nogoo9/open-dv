@@ -60,6 +60,7 @@ class ProfileResponse(BaseContractModel):
     table_count: int = Field(default=0, ge=0, description="Total tables profiled")
     column_count: int = Field(default=0, ge=0, description="Total columns profiled")
     source_path: str | None = Field(default=None, description="Source data location if file-based")
+    source_csv_path: str | None = Field(default=None, description="Source CSV location alias")
     graph_b_profile: dict[str, Any] | None = Field(
         default=None, description="Normalized Graph B schema descriptor"
     )

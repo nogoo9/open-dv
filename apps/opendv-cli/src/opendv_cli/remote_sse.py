@@ -5,8 +5,6 @@ from __future__ import annotations
 import json
 from typing import Any
 
-import httpx
-
 
 def format_short_stage(stage_id: str) -> str:
     """Format full stage ID like STAGE_00_ORCHESTRATION into short STAGE 00."""
@@ -17,7 +15,7 @@ def format_short_stage(stage_id: str) -> str:
 
 
 def consume_sse_stream(
-    client: httpx.Client,
+    client: Any,
     events_url: str,
     headers: dict[str, str],
     *,
@@ -126,9 +124,19 @@ def consume_sse_stream(
                             cur_id = val
                         elif fld == "data":
                             cur_data_lines.append(val)
-        except (httpx.TransportError, httpx.ReadTimeout, httpx.RemoteProtocolError):
-            reconnect_attempts += 1
-            continue
+        except Exception as exc:
+            import importlib
+
+            try:
+                mod = importlib.import_module("httpx")
+                err_types = (mod.TransportError, mod.ReadTimeout, mod.RemoteProtocolError)
+                is_net = isinstance(exc, err_types)
+            except (ImportError, AttributeError):
+                is_net = False
+            if is_net or isinstance(exc, (ConnectionError, TimeoutError, OSError)):
+                reconnect_attempts += 1
+                continue
+            raise
         else:
             break
 

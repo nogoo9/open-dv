@@ -126,6 +126,12 @@ class SandboxQueryResponse(BaseContractModel):
         default_factory=dict,
         description="Execution statistics (duration_ms, truncated, row_count)",
     )
+    batch_report: dict[str, Any] | None = Field(
+        default=None, description="Detailed batch verification report"
+    )
+    dynamic_check_report: dict[str, Any] | None = Field(
+        default=None, description="Detailed dynamic check report"
+    )
     rendered: RenderedOutput | None = Field(default=None, description="Pre-rendered text output")
 
 

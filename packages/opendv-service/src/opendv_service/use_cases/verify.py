@@ -153,11 +153,24 @@ def verify_pipeline(
             raise NotFoundError(f"Graph B file not found: {graph_b_p}")
         graph_b_doc = json.loads(graph_b_p.read_text(encoding="utf-8")) or {}
 
+    # 4. Resolve prior contract document (optional)
+    prior_contract_doc: dict[str, Any] | None = None
+    if request.prior_contract_content is not None and request.prior_contract_content.strip():
+        prior_contract_doc = yaml.safe_load(request.prior_contract_content)
+    elif request.prior_contract_path is not None and request.prior_contract_path.strip():
+        prior_contract_p = resolve_workspace_path(
+            request.prior_contract_path, workspace_root=root, allow_temp=True
+        )
+        if not prior_contract_p.exists():
+            raise NotFoundError(f"Prior contract file not found: {prior_contract_p}")
+        prior_contract_doc = yaml.safe_load(prior_contract_p.read_text(encoding="utf-8"))
+
     effective_run_id = request.run_id or "run-local-verify"
     axi_res = run_axi_dv_verification_pipeline(
         contract_doc,
         graph_a_doc,
         graph_b_doc,
+        deployed_contract=prior_contract_doc,
         run_id=effective_run_id,
     )
     passed, verdict_str, scorecard = build_gate_scorecard_from_axi_result(axi_res)
