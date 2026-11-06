@@ -194,7 +194,7 @@ def generate_cli_reference_markdown(spec: dict[str, Any] | None = None) -> str:
                         f"opendv {cmd_name} {sub_name} --help",
                         "",
                         "# Client execution",
-                        f"opendvctl {cmd_name} {sub_name} --api-url http://127.0.0.1:8000 --json",
+                        f"opendvctl {cmd_name} {sub_name} --api-url $OPENDV_API_URL --json",
                         "```",
                         "",
                     ]
@@ -236,7 +236,7 @@ def generate_cli_reference_markdown(spec: dict[str, Any] | None = None) -> str:
                     f"opendv {cmd_name} --help",
                     "",
                     "# Client execution",
-                    f"opendvctl {cmd_name} --api-url http://127.0.0.1:8000 --json",
+                    f"opendvctl {cmd_name} --api-url $OPENDV_API_URL --json",
                     "```",
                     "",
                 ]

@@ -168,7 +168,7 @@ def validate_dv2_contract_and_ir_policy(
 
 @pytest.mark.parametrize(
     "schema_path",
-    sorted(SCHEMAS_DIR.glob("*.json")),
+    sorted(p for p in SCHEMAS_DIR.glob("*.json") if p.name != "cli-spec.json"),
     ids=lambda p: p.name,
 )
 def test_all_schemas_valid_draft_2020_12(schema_path: pathlib.Path) -> None:
@@ -176,6 +176,13 @@ def test_all_schemas_valid_draft_2020_12(schema_path: pathlib.Path) -> None:
     schema_doc = json.loads(schema_path.read_text(encoding="utf-8"))
     assert schema_doc.get("$schema") == "https://json-schema.org/draft/2020-12/schema"
     Draft202012Validator.check_schema(schema_doc)
+
+
+def test_cli_spec_conforms_to_schema() -> None:
+    """Assert schemas/cli-spec.json validates against Draft 2020-12 cli-spec.schema.json."""
+    from opendv_contracts.spec import validate_cli_spec
+
+    validate_cli_spec()
 
 
 def test_expected_schema_inventory_present() -> None:

@@ -66,7 +66,7 @@ The following global options apply across all top-level commands in both CLIs:
 opendv profile --help
 
 # Client execution
-opendvctl profile --api-url http://127.0.0.1:8000 --json
+opendvctl profile --api-url $OPENDV_API_URL --json
 ```
 
 ### `opendv compile` / `opendvctl compile`
@@ -90,7 +90,7 @@ opendvctl profile --api-url http://127.0.0.1:8000 --json
 opendv compile --help
 
 # Client execution
-opendvctl compile --api-url http://127.0.0.1:8000 --json
+opendvctl compile --api-url $OPENDV_API_URL --json
 ```
 
 ### `opendv verify` / `opendvctl verify` (aliases: `axi-dv`)
@@ -118,7 +118,7 @@ opendvctl compile --api-url http://127.0.0.1:8000 --json
 opendv verify --help
 
 # Client execution
-opendvctl verify --api-url http://127.0.0.1:8000 --json
+opendvctl verify --api-url $OPENDV_API_URL --json
 ```
 
 ### `opendv sandbox` / `opendvctl sandbox`
@@ -145,7 +145,7 @@ opendvctl verify --api-url http://127.0.0.1:8000 --json
 opendv sandbox --help
 
 # Client execution
-opendvctl sandbox --api-url http://127.0.0.1:8000 --json
+opendvctl sandbox --api-url $OPENDV_API_URL --json
 ```
 
 ### `opendv pipeline` / `opendvctl pipeline`
@@ -181,7 +181,7 @@ Execute end-to-end 8-stage synthesis pipeline run
 opendv pipeline run --help
 
 # Client execution
-opendvctl pipeline run --api-url http://127.0.0.1:8000 --json
+opendvctl pipeline run --api-url $OPENDV_API_URL --json
 ```
 
 ##### `pipeline validate` *(Both CLIs)*
@@ -204,7 +204,7 @@ Deterministically validate pipeline input specifications, sources, and harness c
 opendv pipeline validate --help
 
 # Client execution
-opendvctl pipeline validate --api-url http://127.0.0.1:8000 --json
+opendvctl pipeline validate --api-url $OPENDV_API_URL --json
 ```
 
 ##### `pipeline report` *(Standalone `opendv` only)*
@@ -223,7 +223,7 @@ Inspect or dump a completed pipeline run report
 opendv pipeline report --help
 
 # Client execution
-opendvctl pipeline report --api-url http://127.0.0.1:8000 --json
+opendvctl pipeline report --api-url $OPENDV_API_URL --json
 ```
 
 ### `opendv run` / `opendvctl run`
@@ -249,7 +249,7 @@ List runs for a project
 opendv run list --help
 
 # Client execution
-opendvctl run list --api-url http://127.0.0.1:8000 --json
+opendvctl run list --api-url $OPENDV_API_URL --json
 ```
 
 ##### `run get` *(Both CLIs)*
@@ -268,7 +268,7 @@ Get run details and current lifecycle status
 opendv run get --help
 
 # Client execution
-opendvctl run get --api-url http://127.0.0.1:8000 --json
+opendvctl run get --api-url $OPENDV_API_URL --json
 ```
 
 ##### `run create` *(Both CLIs)*
@@ -293,7 +293,7 @@ Create and initialize a run
 opendv run create --help
 
 # Client execution
-opendvctl run create --api-url http://127.0.0.1:8000 --json
+opendvctl run create --api-url $OPENDV_API_URL --json
 ```
 
 ##### `run abort` *(Both CLIs)*
@@ -311,7 +311,7 @@ Abort an in-flight pipeline run
 opendv run abort --help
 
 # Client execution
-opendvctl run abort --api-url http://127.0.0.1:8000 --json
+opendvctl run abort --api-url $OPENDV_API_URL --json
 ```
 
 ##### `run events` *(Both CLIs)*
@@ -331,7 +331,7 @@ Stream or query events for a run
 opendv run events --help
 
 # Client execution
-opendvctl run events --api-url http://127.0.0.1:8000 --json
+opendvctl run events --api-url $OPENDV_API_URL --json
 ```
 
 ##### `run explorer` *(Both CLIs)*
@@ -351,7 +351,7 @@ Fetch 3-Level Explorer bundle for a completed or active run
 opendv run explorer --help
 
 # Client execution
-opendvctl run explorer --api-url http://127.0.0.1:8000 --json
+opendvctl run explorer --api-url $OPENDV_API_URL --json
 ```
 
 ##### `run artifact` *(Both CLIs)*
@@ -371,7 +371,7 @@ Fetch specific run artifact content and metadata
 opendv run artifact --help
 
 # Client execution
-opendvctl run artifact --api-url http://127.0.0.1:8000 --json
+opendvctl run artifact --api-url $OPENDV_API_URL --json
 ```
 
 ### `opendv hold` / `opendvctl hold`
@@ -397,7 +397,7 @@ List holds for a run
 opendv hold list --help
 
 # Client execution
-opendvctl hold list --api-url http://127.0.0.1:8000 --json
+opendvctl hold list --api-url $OPENDV_API_URL --json
 ```
 
 ##### `hold decide` *(Both CLIs)*
@@ -423,7 +423,7 @@ Resolve a Captain-Hold escalation with APPROVE, REJECT, or ANSWER
 opendv hold decide --help
 
 # Client execution
-opendvctl hold decide --api-url http://127.0.0.1:8000 --json
+opendvctl hold decide --api-url $OPENDV_API_URL --json
 ```
 
 ##### `hold approve` *(Both CLIs)*
@@ -448,7 +448,7 @@ Approve a Captain-Hold escalation to proceed
 opendv hold approve --help
 
 # Client execution
-opendvctl hold approve --api-url http://127.0.0.1:8000 --json
+opendvctl hold approve --api-url $OPENDV_API_URL --json
 ```
 
 ##### `hold reject` *(Both CLIs)*
@@ -472,7 +472,7 @@ Reject a Captain-Hold escalation
 opendv hold reject --help
 
 # Client execution
-opendvctl hold reject --api-url http://127.0.0.1:8000 --json
+opendvctl hold reject --api-url $OPENDV_API_URL --json
 ```
 
 ##### `hold answer` *(Both CLIs)*
@@ -497,7 +497,7 @@ Answer a Captain-Hold prompt by choosing a candidate option
 opendv hold answer --help
 
 # Client execution
-opendvctl hold answer --api-url http://127.0.0.1:8000 --json
+opendvctl hold answer --api-url $OPENDV_API_URL --json
 ```
 
 ---
