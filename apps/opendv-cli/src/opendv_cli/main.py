@@ -15,7 +15,9 @@ from opendv_cli_common import (
     print_jcs,
 )
 
-SUBCOMMANDS = frozenset({"verify", "profile", "compile", "sandbox", "run", "hold", "pipeline"})
+SUBCOMMANDS = frozenset(
+    {"verify", "profile", "compile", "sandbox", "run", "hold", "pipeline", "ontology"}
+)
 _BOOLEAN_FLAGS = frozenset(
     {
         "-h",

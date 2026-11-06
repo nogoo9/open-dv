@@ -209,3 +209,19 @@ def get_run_artifact(
         byte_length=len(raw_bytes),
         metadata={"viz": art.viz, "group": art.group, "fmt": art.fmt},
     )
+
+
+def list_run_artifacts(
+    state: StateStore,
+    run_id: str,
+    role: RbacRole | str = RbacRole.PUBLIC,
+) -> list[RunArtifactDTO]:
+    """Return all run-isolated artifacts for a run with RBAC redaction and CAS digest."""
+    if run_id not in state.runs:
+        raise NotFoundError(f"Run '{run_id}' not found.")
+
+    bundle = get_explorer_bundle(state, run_id=run_id, wave_id=None, role=role)
+    artifacts: list[RunArtifactDTO] = []
+    for art_id in bundle.artifacts:
+        artifacts.append(get_run_artifact(state, run_id=run_id, artifact_id=art_id, role=role))
+    return artifacts

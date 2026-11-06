@@ -2438,6 +2438,414 @@
         "title": "OntologyConceptSpec",
         "type": "object"
       },
+      "OntologyDecision": {
+        "additionalProperties": false,
+        "description": "Steward or policy decision record governing delta application.",
+        "properties": {
+          "accepted_op_ids": {
+            "description": "Operation IDs accepted for application",
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Op Ids",
+            "type": "array"
+          },
+          "action": {
+            "default": "ACCEPT",
+            "description": "Decision action (ACCEPT, REJECT, PARTIAL)",
+            "title": "Action",
+            "type": "string"
+          },
+          "applied_delta_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 of accepted delta",
+            "title": "Applied Delta Sha256"
+          },
+          "base_ontology_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 of base ontology",
+            "title": "Base Ontology Sha256"
+          },
+          "created_at_utc": {
+            "default": "",
+            "description": "UTC ISO timestamp of decision",
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "decided_by": {
+            "default": "steward",
+            "description": "Steward identifier or policy name",
+            "title": "Decided By",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "Unique decision record ID",
+            "minLength": 1,
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "hold_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Steward hold ID",
+            "title": "Hold Id"
+          },
+          "notes": {
+            "default": "",
+            "description": "Alternative notes field",
+            "title": "Notes",
+            "type": "string"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Referenced proposal ID",
+            "title": "Proposal Id"
+          },
+          "rejected_op_ids": {
+            "description": "Operation IDs explicitly rejected",
+            "items": {
+              "type": "string"
+            },
+            "title": "Rejected Op Ids",
+            "type": "array"
+          },
+          "resulting_ontology_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 of resulting Graph A vN+1",
+            "title": "Resulting Ontology Sha256"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pipeline run ID",
+            "title": "Run Id"
+          },
+          "steward_notes": {
+            "default": "",
+            "description": "Human steward rationale notes",
+            "title": "Steward Notes",
+            "type": "string"
+          },
+          "timestamp": {
+            "default": "",
+            "description": "Timestamp of decision",
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id"
+        ],
+        "title": "OntologyDecision",
+        "type": "object"
+      },
+      "OntologyDecisionRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to record a steward decision and apply/reject an ontology delta.",
+        "properties": {
+          "accepted_op_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "List of accepted operation IDs (None = accept all)",
+            "title": "Accepted Op Ids"
+          },
+          "action": {
+            "default": "ACCEPT",
+            "description": "Decision action: ACCEPT or REJECT",
+            "enum": [
+              "ACCEPT",
+              "REJECT"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "base_ontology": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base Graph A ontology object or dict",
+            "title": "Base Ontology"
+          },
+          "base_ontology_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline base Graph A ontology YAML/JSON text",
+            "title": "Base Ontology Content"
+          },
+          "base_ontology_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to base Graph A ontology file",
+            "title": "Base Ontology Path"
+          },
+          "contract_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline deployed Data Vault contract YAML text",
+            "title": "Contract Content"
+          },
+          "contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to deployed Data Vault contract file",
+            "title": "Contract Path"
+          },
+          "decided_by": {
+            "default": "steward",
+            "description": "Decision maker identifier",
+            "title": "Decided By",
+            "type": "string"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OntologyDelta"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "OntologyDelta object"
+          },
+          "delta_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline delta JSON/YAML text (Decision D1)",
+            "title": "Delta Content"
+          },
+          "delta_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to delta file",
+            "title": "Delta Path"
+          },
+          "deployed_contract": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deployed contract object or dict",
+            "title": "Deployed Contract"
+          },
+          "hold_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Steward hold identifier if resolving hold",
+            "title": "Hold Id"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Proposal identifier",
+            "title": "Proposal Id"
+          },
+          "rejected_op_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "List of explicitly rejected operation IDs",
+            "title": "Rejected Op Ids"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pipeline run identifier if attached to run",
+            "title": "Run Id"
+          },
+          "steward_notes": {
+            "default": "",
+            "description": "Steward rationale notes",
+            "title": "Steward Notes",
+            "type": "string"
+          }
+        },
+        "title": "OntologyDecisionRequest",
+        "type": "object"
+      },
+      "OntologyDecisionResponse": {
+        "additionalProperties": false,
+        "description": "Response DTO for an ontology decision action.",
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/OntologyDecision",
+            "description": "Recorded ontology decision record"
+          },
+          "resulting_ontology_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CAS SHA-256 digest of resulting Graph A vN+1",
+            "title": "Resulting Ontology Sha256"
+          },
+          "resulting_ontology_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target version string of Graph A vN+1",
+            "title": "Resulting Ontology Version"
+          },
+          "resulting_ontology_yaml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Serialized Graph A vN+1 YAML content if ACCEPT",
+            "title": "Resulting Ontology Yaml"
+          },
+          "status": {
+            "default": "COMPLETED",
+            "description": "Status label",
+            "title": "Status",
+            "type": "string"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OntologyValidationResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Validation result if delta validation was performed"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "OntologyDecisionResponse",
+        "type": "object"
+      },
       "OntologyDelta": {
         "additionalProperties": false,
         "description": "Ordered collection of additive operations evolving Graph A to vN+1.",
@@ -2539,6 +2947,475 @@
           "delta_id"
         ],
         "title": "OntologyDelta",
+        "type": "object"
+      },
+      "OntologyDiff": {
+        "additionalProperties": false,
+        "description": "Structural delta between two Graph A ontology instances.",
+        "properties": {
+          "added_concepts": {
+            "description": "Added concept URNs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Concepts",
+            "type": "array"
+          },
+          "added_enumerations": {
+            "description": "Added reference enumeration URNs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Enumerations",
+            "type": "array"
+          },
+          "added_relationships": {
+            "description": "Added relationship URNs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Relationships",
+            "type": "array"
+          },
+          "base_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base ontology SHA-256",
+            "title": "Base Sha256"
+          },
+          "base_version": {
+            "default": "1.0.0",
+            "description": "Base ontology version",
+            "title": "Base Version",
+            "type": "string"
+          },
+          "breaking_changes": {
+            "description": "Detected breaking changes",
+            "items": {
+              "type": "string"
+            },
+            "title": "Breaking Changes",
+            "type": "array"
+          },
+          "diagnostics": {
+            "description": "Informational diff diagnostics",
+            "items": {
+              "type": "string"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "refined_concepts": {
+            "description": "Concepts refined by definition or constraints",
+            "items": {
+              "type": "string"
+            },
+            "title": "Refined Concepts",
+            "type": "array"
+          },
+          "target_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target ontology SHA-256",
+            "title": "Target Sha256"
+          },
+          "target_version": {
+            "default": "1.1.0",
+            "description": "Target ontology version",
+            "title": "Target Version",
+            "type": "string"
+          }
+        },
+        "title": "OntologyDiff",
+        "type": "object"
+      },
+      "OntologyDiffRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to compute structural diff between two Graph A ontologies.",
+        "properties": {
+          "base_ontology": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base Graph A ontology object or dict",
+            "title": "Base Ontology"
+          },
+          "base_ontology_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline base Graph A ontology YAML/JSON text",
+            "title": "Base Ontology Content"
+          },
+          "base_ontology_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to base Graph A ontology file",
+            "title": "Base Ontology Path"
+          },
+          "target_ontology": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target Graph A ontology object or dict",
+            "title": "Target Ontology"
+          },
+          "target_ontology_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline target Graph A ontology YAML/JSON text",
+            "title": "Target Ontology Content"
+          },
+          "target_ontology_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to target Graph A ontology file",
+            "title": "Target Ontology Path"
+          }
+        },
+        "title": "OntologyDiffRequest",
+        "type": "object"
+      },
+      "OntologyProposal": {
+        "additionalProperties": false,
+        "description": "Advisory or blocking proposal emitted by an Ontology Recommender.",
+        "properties": {
+          "base_ontology_sha256": {
+            "default": "",
+            "description": "SHA-256 of base ontology",
+            "pattern": "^([a-f0-9]{64})?$",
+            "title": "Base Ontology Sha256",
+            "type": "string"
+          },
+          "confidence_score": {
+            "default": 1.0,
+            "description": "Aggregate proposal confidence score",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence Score",
+            "type": "number"
+          },
+          "coverage_after": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Projected coverage ratio after",
+            "title": "Coverage After"
+          },
+          "coverage_before": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Projected coverage ratio before",
+            "title": "Coverage Before"
+          },
+          "created_at_utc": {
+            "default": "",
+            "description": "UTC ISO-8601 creation timestamp",
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "delta": {
+            "$ref": "#/components/schemas/OntologyDelta",
+            "description": "Proposed ontology delta"
+          },
+          "diagnostics": {
+            "description": "Advisory diagnostic messages",
+            "items": {
+              "type": "string"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "proposal_id": {
+            "description": "Unique proposal identifier",
+            "minLength": 1,
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "description": "Overall business rationale for proposal",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "recommender_id": {
+            "default": "recommender-default",
+            "description": "Recommender module ID",
+            "title": "Recommender Id",
+            "type": "string"
+          },
+          "recommender_version": {
+            "default": "1.0.0",
+            "description": "Recommender version",
+            "title": "Recommender Version",
+            "type": "string"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional pipeline wave identifier",
+            "title": "Wave Id"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "delta"
+        ],
+        "title": "OntologyProposal",
+        "type": "object"
+      },
+      "OntologySuggestionRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to generate ontology proposal from source profiles or context docs (IP-1).",
+        "properties": {
+          "base_ontology_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline base Graph A ontology YAML/JSON text (Decision D1)",
+            "title": "Base Ontology Content"
+          },
+          "base_ontology_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to base Graph A ontology file",
+            "title": "Base Ontology Path"
+          },
+          "base_ontology_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CAS SHA-256 digest of base ontology",
+            "title": "Base Ontology Sha256"
+          },
+          "bronze_source_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline bronze source dataset content",
+            "title": "Bronze Source Content"
+          },
+          "bronze_source_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to bronze source dataset file",
+            "title": "Bronze Source Path"
+          },
+          "business_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-text business description or brief",
+            "title": "Business Context"
+          },
+          "context_doc_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline context document text",
+            "title": "Context Doc Content"
+          },
+          "context_doc_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to context document file",
+            "title": "Context Doc Path"
+          },
+          "context_document_paths": {
+            "description": "Context document paths (glossary, policy)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Context Document Paths",
+            "type": "array"
+          },
+          "domain_namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target domain namespace",
+            "title": "Domain Namespace"
+          },
+          "empirical_profile_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline empirical data profile JSON text",
+            "title": "Empirical Profile Content"
+          },
+          "empirical_profile_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to empirical data profile (Graph B) JSON file",
+            "title": "Empirical Profile Path"
+          },
+          "focus": {
+            "description": "Focus areas: unmapped tables, columns, mentions",
+            "items": {
+              "type": "string"
+            },
+            "title": "Focus",
+            "type": "array"
+          },
+          "mode": {
+            "default": "DELTA",
+            "description": "Recommender operation mode",
+            "enum": [
+              "BOOTSTRAP",
+              "DELTA",
+              "HOLD_RESOLUTION"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "recommender_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Specific recommender plugin ID",
+            "title": "Recommender Id"
+          },
+          "source_paths": {
+            "description": "Source dataset file paths",
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Paths",
+            "type": "array"
+          },
+          "source_profiles": {
+            "description": "Source empirical profiles (Graph B)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Source Profiles",
+            "type": "array"
+          }
+        },
+        "title": "OntologySuggestionRequest",
         "type": "object"
       },
       "OntologySvgEdgeSpec": {
@@ -2649,6 +3526,159 @@
           "w"
         ],
         "title": "OntologySvgNodeSpec",
+        "type": "object"
+      },
+      "OntologyValidateDeltaRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to deterministically validate an ontology delta (ONT-EVO-001..003).",
+        "properties": {
+          "base_ontology": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base Graph A ontology object or dict",
+            "title": "Base Ontology"
+          },
+          "base_ontology_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline base Graph A ontology YAML/JSON text",
+            "title": "Base Ontology Content"
+          },
+          "base_ontology_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to base Graph A ontology file",
+            "title": "Base Ontology Path"
+          },
+          "contract_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline deployed Data Vault contract YAML text",
+            "title": "Contract Content"
+          },
+          "contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to deployed Data Vault contract file",
+            "title": "Contract Path"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OntologyDelta"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "OntologyDelta object"
+          },
+          "delta_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline delta JSON/YAML text (Decision D1)",
+            "title": "Delta Content"
+          },
+          "delta_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to delta file",
+            "title": "Delta Path"
+          },
+          "deployed_contract": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deployed contract object or dict",
+            "title": "Deployed Contract"
+          }
+        },
+        "title": "OntologyValidateDeltaRequest",
+        "type": "object"
+      },
+      "OntologyValidationResult": {
+        "additionalProperties": false,
+        "description": "Validation report returned by validate_ontology_delta.",
+        "properties": {
+          "diagnostics": {
+            "description": "Informational diagnostics",
+            "items": {
+              "type": "string"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Primary error code if invalid",
+            "title": "Error Code"
+          },
+          "valid": {
+            "default": true,
+            "description": "Whether the delta is valid",
+            "title": "Valid",
+            "type": "boolean"
+          },
+          "violations": {
+            "description": "Validation violation messages",
+            "items": {
+              "type": "string"
+            },
+            "title": "Violations",
+            "type": "array"
+          }
+        },
+        "title": "OntologyValidationResult",
         "type": "object"
       },
       "OntologyVizDTO": {
@@ -5174,6 +6204,174 @@
         ]
       }
     },
+    "/api/v1/ontology/decisions": {
+      "post": {
+        "description": "Record steward decision on an ontology proposal and apply delta if accepted.",
+        "operationId": "record_ontology_decision_api_v1_ontology_decisions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Ontology Decision",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
+    "/api/v1/ontology/diff": {
+      "post": {
+        "description": "Compute structural difference between two Graph A ontologies.",
+        "operationId": "diff_ontology_api_v1_ontology_diff_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyDiffRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyDiff"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Diff Ontology",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
+    "/api/v1/ontology/suggestions": {
+      "post": {
+        "description": "Suggest ontology extensions and mappings from candidate sources.",
+        "operationId": "suggest_ontology_api_v1_ontology_suggestions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologySuggestionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyProposal"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Suggest Ontology",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
+    "/api/v1/ontology/validate-delta": {
+      "post": {
+        "description": "Validate an ontology delta against Graph A evolution locks.",
+        "operationId": "validate_ontology_delta_api_v1_ontology_validate_delta_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyValidateDeltaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyValidationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Ontology Delta",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
     "/api/v1/pipelines/runs": {
       "post": {
         "description": "Initiate an asynchronous end-to-end 8-stage agentic pipeline run (Decision D2).",
@@ -5642,6 +6840,69 @@
           }
         },
         "summary": "Abort Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/artifacts": {
+      "get": {
+        "description": "Retrieve all run-isolated artifacts with lowercase 64-hex CAS hash and redaction.",
+        "operationId": "list_run_artifacts_api_v1_runs__run_id__artifacts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunArtifactDTO"
+                  },
+                  "title": "Response List Run Artifacts Api V1 Runs  Run Id  Artifacts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Run Artifacts",
         "tags": [
           "runs"
         ]
