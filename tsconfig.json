@@ -7,6 +7,9 @@
     },
     {
       "path": "./packages/opendv-protocol-ts"
+    },
+    {
+      "path": "./apps/opendvctl"
     }
   ]
 }
