@@ -3697,8 +3697,15 @@ class AgenticVaultPipeline:
                             description=f"Wave {w_idx} Advisory Ontology Proposal (IP-2).",
                             intermediate_list=intermediate_artifacts,
                         )
-                        s1_out_shas.append(prop_ref.sha256)
-                except Exception as exc:  # noqa: BLE001 - non-blocking recommender error
+                except (
+                    OpenDVError,
+                    ValueError,
+                    TypeError,
+                    RuntimeError,
+                    OSError,
+                    KeyError,
+                    AttributeError,
+                ) as exc:
                     err_msg = f"Stage 01 IP-2 hook failed: {exc}"
                     self.extension_hooks.recommender_errors.append(err_msg)
 
@@ -4937,7 +4944,15 @@ class AgenticVaultPipeline:
                                         "proposal_id": ip3_proposal.proposal_id,
                                     }
                                 )
-                    except Exception as exc:  # noqa: BLE001 - non-blocking recommender error
+                    except (
+                        OpenDVError,
+                        ValueError,
+                        TypeError,
+                        RuntimeError,
+                        OSError,
+                        KeyError,
+                        AttributeError,
+                    ) as exc:
                         err_msg = f"Stage 05 IP-3 hook failed: {exc}"
                         self.extension_hooks.recommender_errors.append(err_msg)
 
