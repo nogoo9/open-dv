@@ -234,8 +234,12 @@ class HoldStateMixin:
                 update={
                     "gate_1_contract_grain": (
                         "AUTO_REPAIRED"
-                        if run_dto.gate_scorecard.gate_1_contract_grain in {"ASK-USER", "PENDING"}
-                        else "PASS"
+                        if (
+                            req.hold_option is not None
+                            or run_dto.gate_scorecard.gate_1_contract_grain
+                            in {"ASK-USER", "PENDING"}
+                        )
+                        else run_dto.gate_scorecard.gate_1_contract_grain
                     )
                 }
             )
