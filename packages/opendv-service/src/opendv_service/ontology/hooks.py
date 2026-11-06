@@ -219,13 +219,16 @@ class PipelineExtensionHooks:
         except OntologyRecommenderUnavailableError:
             raise
         except (
-            OpenDVError,
-            ValueError,
-            TypeError,
             RuntimeError,
-            OSError,
+            TypeError,
+            ValueError,
             KeyError,
             AttributeError,
+            IndexError,
+            OSError,
+            TimeoutError,
+            ImportError,
+            OpenDVError,
         ) as exc:
             self.recommender_errors.append(f"IP-2 recommender initialization failed: {exc}")
             return None
@@ -259,13 +262,16 @@ class PipelineExtensionHooks:
         try:
             proposal = await recommender.recommend(req)
         except (
-            OpenDVError,
-            ValueError,
-            TypeError,
             RuntimeError,
-            OSError,
+            TypeError,
+            ValueError,
             KeyError,
             AttributeError,
+            IndexError,
+            OSError,
+            TimeoutError,
+            ImportError,
+            OpenDVError,
         ) as exc:
             self.recommender_errors.append(f"IP-2 recommendation error: {exc}")
             return None
@@ -297,13 +303,16 @@ class PipelineExtensionHooks:
         try:
             recommender = self.get_recommender()
         except (
-            OpenDVError,
-            ValueError,
-            TypeError,
             RuntimeError,
-            OSError,
+            TypeError,
+            ValueError,
             KeyError,
             AttributeError,
+            IndexError,
+            OSError,
+            TimeoutError,
+            ImportError,
+            OpenDVError,
         ) as exc:
             self.recommender_errors.append(f"IP-3 recommender lookup failed: {exc}")
             return None
@@ -336,13 +345,16 @@ class PipelineExtensionHooks:
         try:
             proposal = await recommender.recommend(req)
         except (
-            OpenDVError,
-            ValueError,
-            TypeError,
             RuntimeError,
-            OSError,
+            TypeError,
+            ValueError,
             KeyError,
             AttributeError,
+            IndexError,
+            OSError,
+            TimeoutError,
+            ImportError,
+            OpenDVError,
         ) as exc:
             self.recommender_errors.append(f"IP-3 recommendation execution failed: {exc}")
             return None
@@ -376,13 +388,16 @@ class PipelineExtensionHooks:
         except OntologyRecommenderUnavailableError:
             raise
         except (
-            OpenDVError,
-            ValueError,
-            TypeError,
             RuntimeError,
-            OSError,
+            TypeError,
+            ValueError,
             KeyError,
             AttributeError,
+            IndexError,
+            OSError,
+            TimeoutError,
+            ImportError,
+            OpenDVError,
         ) as exc:
             self.recommender_errors.append(f"IP-4 recommender lookup failed: {exc}")
             return None
@@ -407,13 +422,16 @@ class PipelineExtensionHooks:
         try:
             proposal = await recommender.recommend(req)
         except (
-            OpenDVError,
-            ValueError,
-            TypeError,
             RuntimeError,
-            OSError,
+            TypeError,
+            ValueError,
             KeyError,
             AttributeError,
+            IndexError,
+            OSError,
+            TimeoutError,
+            ImportError,
+            OpenDVError,
         ) as exc:
             self.recommender_errors.append(f"IP-4 recommendation execution failed: {exc}")
             return None

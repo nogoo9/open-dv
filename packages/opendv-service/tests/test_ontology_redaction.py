@@ -23,25 +23,39 @@ def test_is_pii_and_mnpi_key() -> None:
 
 def test_pii_masking_at_internal_clearance() -> None:
     # SSN
-    val = redact_sample_value("Customer SSN is 123-45-6789", key_name="note", clearance_level="INTERNAL")
+    val = redact_sample_value(
+        "Customer SSN is 123-45-6789", key_name="note", clearance_level="INTERNAL"
+    )
     assert "[REDACTED:RESTRICTED_PII]" in val
     assert "123-45-6789" not in val
 
     # EIN
-    val2 = redact_sample_value("Company EIN: 12-3456789", key_name="note", clearance_level="INTERNAL")
+    val2 = redact_sample_value(
+        "Company EIN: 12-3456789", key_name="note", clearance_level="INTERNAL"
+    )
     assert "[REDACTED:RESTRICTED_PII]" in val2
 
     # Credit card
-    val3 = redact_sample_value("Paid via 4111 2222 3333 4444", key_name="note", clearance_level="INTERNAL")
+    val3 = redact_sample_value(
+        "Paid via 4111 2222 3333 4444", key_name="note", clearance_level="INTERNAL"
+    )
     assert "[REDACTED:RESTRICTED_PII]" in val3
 
     # Email and phone
-    val4 = redact_sample_value("Contact john.doe@example.com or 555-123-4567", key_name="contact", clearance_level="INTERNAL")
+    val4 = redact_sample_value(
+        "Contact john.doe@example.com or 555-123-4567",
+        key_name="contact",
+        clearance_level="INTERNAL",
+    )
     assert "[REDACTED:PII]" in val4
 
 
 def test_mnpi_masking_at_internal_clearance() -> None:
-    val = redact_sample_value("Target valuation was $500M at 12.5x multiple", key_name="brief", clearance_level="INTERNAL")
+    val = redact_sample_value(
+        "Target valuation was $500M at 12.5x multiple",
+        key_name="brief",
+        clearance_level="INTERNAL",
+    )
     assert "[REDACTED:MNPI]" in val
     assert "$500M" not in val
     assert "12.5x" not in val
@@ -49,13 +63,21 @@ def test_mnpi_masking_at_internal_clearance() -> None:
 
 def test_mnpi_clearance_for_auditor_finance() -> None:
     # At AUDITOR_FINANCE, MNPI figures are preserved, but PII is still masked
-    val = redact_sample_value("Target valuation was $500M, SSN 123-45-6789", key_name="audit", clearance_level="AUDITOR_FINANCE")
+    val = redact_sample_value(
+        "Target valuation was $500M, SSN 123-45-6789",
+        key_name="audit",
+        clearance_level="AUDITOR_FINANCE",
+    )
     assert "$500M" in val
     assert "[REDACTED:RESTRICTED_PII]" in val
 
 
 def test_full_clearance_for_privileged_custodian() -> None:
-    val = redact_sample_value("Target valuation was $500M, SSN 123-45-6789", key_name="custodian", clearance_level="PRIVILEGED_CUSTODIAN")
+    val = redact_sample_value(
+        "Target valuation was $500M, SSN 123-45-6789",
+        key_name="custodian",
+        clearance_level="PRIVILEGED_CUSTODIAN",
+    )
     assert "$500M" in val
     assert "123-45-6789" in val
 

@@ -16,14 +16,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 import yaml
 
 from opendv_agent_harness import (
-    AgenticVaultPipeline,
-    HarnessSetupConfig,
     PipelineInputSpec,
     run_agentic_vault_pipeline,
 )
@@ -34,7 +31,6 @@ from opendv_contracts import (
     OntologyRecommendationRequest,
     RecommenderCapabilities,
 )
-from opendv_service.ontology.hooks import get_pipeline_extension_hooks
 from opendv_service.ontology.registry import (
     OntologyRecommenderRegistry,
     set_default_ontology_recommender_registry,
@@ -128,7 +124,7 @@ def test_pipeline_extension_hooks_off_never_invoked(tmp_path: Path) -> None:
 
 
 def test_pipeline_active_policy_without_recommender_fails_fast(tmp_path: Path) -> None:
-    """When policy != 'off' and no recommender is available, pipeline halts with ONTOLOGY_RECOMMENDER_UNAVAILABLE."""
+    """When policy != 'off' and no recommender is available, pipeline halts with UNAVAILABLE."""
     sample_dir = REPO_ROOT / "examples" / "pipeline_samples" / "global_commerce_vault"
     out_dir = tmp_path / "out_unavail"
     cas = ContentAddressableStore(out_dir / "cas")
@@ -206,7 +202,7 @@ def test_pipeline_scenario_s3_gate1_hold_populates_delta_options(
     clean_registry: OntologyRecommenderRegistry,
     tmp_path: Path,
 ) -> None:
-    """When policy is 'steward_review' on unmapped entity Gate 1 hold, IP-3 populates typed delta options."""
+    """When policy is 'steward_review' on Gate 1 hold, IP-3 populates typed delta options."""
     mock_rec = MockPipelineRecommender("test-recommender-s3")
     clean_registry.register(mock_rec)
 
@@ -270,7 +266,9 @@ def test_pipeline_scenario_s3_gate1_hold_populates_delta_options(
     assert "ACCEPT_ONTOLOGY_DELTA" in option_ids
     assert "REJECT_ONTOLOGY_DELTA" in option_ids
 
-    accept_opt = next(opt for opt in g1_hold["options"] if opt.get("option_id") == "ACCEPT_ONTOLOGY_DELTA")
+    accept_opt = next(
+        opt for opt in g1_hold["options"] if opt.get("option_id") == "ACCEPT_ONTOLOGY_DELTA"
+    )
     assert accept_opt["confidence_score"] == 0.92
     assert accept_opt["operations_count"] == 1
 
@@ -279,7 +277,7 @@ def test_pipeline_recommender_error_in_suggest_only_recorded_nonfatal(
     clean_registry: OntologyRecommenderRegistry,
     tmp_path: Path,
 ) -> None:
-    """An unhandled error in an advisory recommender is recorded in recommender_errors without halting."""
+    """An error in an advisory recommender is recorded in recommender_errors without halting."""
     failing_rec = MockPipelineRecommender("failing-recommender")
     failing_rec.fail_mode = True
     clean_registry.register(failing_rec)

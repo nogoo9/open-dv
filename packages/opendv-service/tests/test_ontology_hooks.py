@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import pytest
 
 from opendv_contracts import (
@@ -15,12 +17,10 @@ from opendv_contracts import (
 from opendv_service.ontology.hooks import (
     BootstrapContext,
     GateViolationContext,
-    PipelineExtensionHooks,
     UnresolvedMentionsContext,
     WaveProfilingContext,
     get_pipeline_extension_hooks,
 )
-from opendv_service.ontology.policy import OntologyPolicy
 from opendv_service.ontology.registry import OntologyRecommenderRegistry
 
 

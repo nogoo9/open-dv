@@ -3,6 +3,47 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "components": {
     "schemas": {
+      "AcceptOntologyDeltaOption": {
+        "additionalProperties": false,
+        "description": "Steward option to accept a proposed ontology delta.",
+        "properties": {
+          "accepted_op_ids": {
+            "description": "Explicit list of accepted operation IDs (empty means all)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Op Ids",
+            "type": "array"
+          },
+          "delta": {
+            "$ref": "#/components/schemas/OntologyDelta",
+            "description": "Ontology delta to accept and apply"
+          },
+          "delta_sha256": {
+            "description": "Cryptographic SHA-256 of the delta",
+            "title": "Delta Sha256",
+            "type": "string"
+          },
+          "kind": {
+            "const": "accept_ontology_delta",
+            "default": "accept_ontology_delta",
+            "title": "Kind",
+            "type": "string"
+          },
+          "steward_note": {
+            "default": "",
+            "description": "Human steward rationale notes",
+            "title": "Steward Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delta",
+          "delta_sha256"
+        ],
+        "title": "AcceptOntologyDeltaOption",
+        "type": "object"
+      },
       "AddConceptOp": {
         "additionalProperties": false,
         "description": "Additive operation to introduce a Canonical Business Concept (CBC) / Hub.",
@@ -1048,6 +1089,40 @@
             ],
             "title": "Hold Id"
           },
+          "hold_option": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "accept_ontology_delta": "#/components/schemas/AcceptOntologyDeltaOption",
+                    "custom_ontology_delta": "#/components/schemas/CustomOntologyDeltaOption",
+                    "general_hold": "#/components/schemas/GeneralHoldOption",
+                    "reject_ontology_delta": "#/components/schemas/RejectOntologyDeltaOption"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptOntologyDeltaOption"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RejectOntologyDeltaOption"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CustomOntologyDeltaOption"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GeneralHoldOption"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Typed steward hold option (ONT-04)",
+            "title": "Hold Option"
+          },
           "resolution_notes": {
             "anyOf": [
               {
@@ -1642,6 +1717,45 @@
           }
         },
         "title": "CreateRunRequest",
+        "type": "object"
+      },
+      "CustomOntologyDeltaOption": {
+        "additionalProperties": false,
+        "description": "Steward option providing a custom authoring delta.",
+        "properties": {
+          "custom_delta": {
+            "$ref": "#/components/schemas/OntologyDelta",
+            "description": "Custom ontology delta to apply"
+          },
+          "delta_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional SHA-256 of custom delta",
+            "title": "Delta Sha256"
+          },
+          "kind": {
+            "const": "custom_ontology_delta",
+            "default": "custom_ontology_delta",
+            "title": "Kind",
+            "type": "string"
+          },
+          "steward_note": {
+            "default": "",
+            "description": "Human steward rationale notes",
+            "title": "Steward Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "custom_delta"
+        ],
+        "title": "CustomOntologyDeltaOption",
         "type": "object"
       },
       "DocCandidateOption": {
@@ -2242,6 +2356,40 @@
         ],
         "title": "GateVerdict",
         "type": "string"
+      },
+      "GeneralHoldOption": {
+        "additionalProperties": false,
+        "description": "General action option for steward holds.",
+        "properties": {
+          "action": {
+            "description": "Steward action name",
+            "title": "Action",
+            "type": "string"
+          },
+          "kind": {
+            "const": "general_hold",
+            "default": "general_hold",
+            "title": "Kind",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Arbitrary parameters for action",
+            "title": "Params",
+            "type": "object"
+          },
+          "steward_note": {
+            "default": "",
+            "description": "Steward notes or rationale",
+            "title": "Steward Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "GeneralHoldOption",
+        "type": "object"
       },
       "HTTPValidationError": {
         "properties": {
@@ -4592,6 +4740,42 @@
           "op_id"
         ],
         "title": "RefineDefinitionOp",
+        "type": "object"
+      },
+      "RejectOntologyDeltaOption": {
+        "additionalProperties": false,
+        "description": "Steward option to explicitly reject a proposed ontology delta.",
+        "properties": {
+          "kind": {
+            "const": "reject_ontology_delta",
+            "default": "reject_ontology_delta",
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Rejection rationale or explanation",
+            "title": "Reason",
+            "type": "string"
+          },
+          "rejected_op_ids": {
+            "description": "Explicit list of rejected operation IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Rejected Op Ids",
+            "type": "array"
+          },
+          "steward_note": {
+            "default": "",
+            "description": "Human steward notes",
+            "title": "Steward Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RejectOntologyDeltaOption",
         "type": "object"
       },
       "RenderedOutput": {

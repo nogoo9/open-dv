@@ -479,3 +479,64 @@ class OntologyDecisionResponse(BaseContractModel):
     validation: OntologyValidationResult | None = Field(
         default=None, description="Validation result if delta validation was performed"
     )
+
+
+class GeneralHoldOption(BaseContractModel):
+    """General action option for steward holds."""
+
+    kind: Literal["general_hold"] = "general_hold"
+    action: str = Field(..., description="Steward action name")
+    params: dict[str, Any] = Field(
+        default_factory=dict, description="Arbitrary parameters for action"
+    )
+    steward_note: str = Field(default="", description="Steward notes or rationale")
+
+
+class AcceptOntologyDeltaOption(BaseContractModel):
+    """Steward option to accept a proposed ontology delta."""
+
+    kind: Literal["accept_ontology_delta"] = "accept_ontology_delta"
+    delta: OntologyDelta = Field(..., description="Ontology delta to accept and apply")
+    delta_sha256: str = Field(..., description="Cryptographic SHA-256 of the delta")
+    accepted_op_ids: list[str] = Field(
+        default_factory=list,
+        description="Explicit list of accepted operation IDs (empty means all)",
+    )
+    steward_note: str = Field(default="", description="Human steward rationale notes")
+
+
+class RejectOntologyDeltaOption(BaseContractModel):
+    """Steward option to explicitly reject a proposed ontology delta."""
+
+    kind: Literal["reject_ontology_delta"] = "reject_ontology_delta"
+    reason: str = Field(..., description="Rejection rationale or explanation")
+    rejected_op_ids: list[str] = Field(
+        default_factory=list,
+        description="Explicit list of rejected operation IDs",
+    )
+    steward_note: str = Field(default="", description="Human steward notes")
+
+
+class CustomOntologyDeltaOption(BaseContractModel):
+    """Steward option providing a custom authoring delta."""
+
+    kind: Literal["custom_ontology_delta"] = "custom_ontology_delta"
+    custom_delta: OntologyDelta = Field(..., description="Custom ontology delta to apply")
+    delta_sha256: str | None = Field(default=None, description="Optional SHA-256 of custom delta")
+    steward_note: str = Field(default="", description="Human steward rationale notes")
+
+
+StewardHoldOption = Annotated[
+    AcceptOntologyDeltaOption
+    | RejectOntologyDeltaOption
+    | CustomOntologyDeltaOption
+    | GeneralHoldOption,
+    Field(discriminator="kind"),
+]
+
+OntologyDeltaOption = Annotated[
+    AcceptOntologyDeltaOption
+    | RejectOntologyDeltaOption
+    | CustomOntologyDeltaOption,
+    Field(discriminator="kind"),
+]

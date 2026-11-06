@@ -6,7 +6,6 @@ import pytest
 from pydantic import ValidationError
 
 from opendv_contracts import (
-    AddConceptOp,
     OntologyDelta,
     OntologyProposal,
     OntologyRecommendationRequest,

@@ -62,6 +62,7 @@ from opendv_service.models import (
 from opendv_service.ontology import (
     OntologyPolicy,
     OntologyRecommenderRegistry,
+    OntologyResolutionResult,
     PipelineExtensionHooks,
     apply_ontology_delta,
     canonicalize_graph_a_dict,
@@ -71,6 +72,7 @@ from opendv_service.ontology import (
     get_pipeline_extension_hooks,
     ontology_diff,
     redact_sample_data,
+    resolve_ontology_hold,
     validate_ontology_delta,
 )
 from opendv_service.rbac import (
@@ -139,6 +141,7 @@ __all__ = [
     "OntologyPolicy",
     "OntologyRecommenderRegistry",
     "OntologyRecommenderUnavailableError",
+    "OntologyResolutionResult",
     "OpenDVError",
     "OpenDVService",
     "OpenDVSettings",
@@ -193,6 +196,7 @@ __all__ = [
     "redact_event_for_role",
     "redact_sample_data",
     "resolve_cleared_tiers",
+    "resolve_ontology_hold",
     "set_pipeline_runner_override",
     "store_cas_artifact",
     "subscribe_run_sse",
