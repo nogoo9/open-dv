@@ -197,3 +197,146 @@ def test_local_executor_run_create_options(tmp_path: Path) -> None:
     assert payload["has_initial_contract"] is True
     assert payload["wave_id"] == "W3"
     assert payload["lifecycle_stage"] == LifecycleStage.MULTI_SOURCE_EXPANSION
+
+
+def test_create_run_with_missing_contract_file_rejected_400(
+    test_env: tuple[TestClient, Path],
+) -> None:
+    """Verify missing initial_contract_path returns HTTP 400 Problem Details."""
+    client, _ = test_env
+    res = client.post(
+        "/api/v1/runs",
+        json={
+            "project_id": "default-project",
+            "initial_contract_path": "nonexistent/contract.yaml",
+        },
+    )
+    assert res.status_code == 400
+    body = res.json()
+    assert body["status"] == 400
+    assert "contract file does not exist" in body["detail"].lower()
+
+
+def test_create_run_with_directory_contract_path_rejected_400(
+    test_env: tuple[TestClient, Path],
+) -> None:
+    """Verify initial_contract_path pointing to a directory returns HTTP 400 Problem Details."""
+    client, workspace_root = test_env
+    (workspace_root / "subdir").mkdir(exist_ok=True)
+    res = client.post(
+        "/api/v1/runs",
+        json={
+            "project_id": "default-project",
+            "initial_contract_path": "subdir",
+        },
+    )
+    assert res.status_code == 400
+    body = res.json()
+    assert body["status"] == 400
+    assert "not a regular file" in body["detail"].lower()
+
+
+def test_create_run_with_malformed_yaml_rejected_400(test_env: tuple[TestClient, Path]) -> None:
+    """Verify malformed initial_contract YAML returns HTTP 400 Problem Details."""
+    client, _ = test_env
+    res = client.post(
+        "/api/v1/runs",
+        json={
+            "project_id": "default-project",
+            "initial_contract": "key: [unclosed_bracket",
+        },
+    )
+    assert res.status_code == 400
+    body = res.json()
+    assert body["status"] == 400
+    assert "malformed initial_contract yaml" in body["detail"].lower()
+
+
+def test_create_run_with_hostile_yaml_constructor_rejected_400(
+    test_env: tuple[TestClient, Path],
+) -> None:
+    """Verify hostile PyYAML constructor tags in initial_contract return HTTP 400."""
+    client, _ = test_env
+    res = client.post(
+        "/api/v1/runs",
+        json={
+            "project_id": "default-project",
+            "initial_contract": '!!python/object/apply:os.system ["calc"]',
+        },
+    )
+    assert res.status_code == 400
+    body = res.json()
+    assert body["status"] == 400
+    assert "malformed initial_contract yaml" in body["detail"].lower()
+
+
+def test_create_run_with_oversized_payload_rejected_422(test_env: tuple[TestClient, Path]) -> None:
+    """Verify initial_contract exceeding 1 MB returns HTTP 422 Problem Details."""
+    client, _ = test_env
+    res = client.post(
+        "/api/v1/runs",
+        json={
+            "project_id": "default-project",
+            "initial_contract": "x" * 1_000_001,
+        },
+    )
+    assert res.status_code == 422
+    body = res.json()
+    assert body["status"] == 422
+
+
+def test_pipeline_run_with_missing_contract_file_rejected_400(
+    test_env: tuple[TestClient, Path],
+) -> None:
+    """Verify pipeline run with missing initial_contract_path returns HTTP 400 Problem Details."""
+    client, workspace_root = test_env
+    input_spec = workspace_root / "pipeline_input.yaml"
+    input_spec.write_text("pipeline_id: pipe-test\n", encoding="utf-8")
+    res = client.post(
+        "/api/v1/pipelines/runs",
+        json={
+            "input_spec_path": "pipeline_input.yaml",
+            "initial_contract_path": "nonexistent/file.yaml",
+        },
+    )
+    assert res.status_code == 400
+    body = res.json()
+    assert body["status"] == 400
+    assert "contract file does not exist" in body["detail"].lower()
+
+
+def test_pipeline_run_with_malformed_yaml_rejected_400(test_env: tuple[TestClient, Path]) -> None:
+    """Verify pipeline run with malformed initial_contract returns HTTP 400 Problem Details."""
+    client, workspace_root = test_env
+    input_spec = workspace_root / "pipeline_input.yaml"
+    input_spec.write_text("pipeline_id: pipe-test\n", encoding="utf-8")
+    res = client.post(
+        "/api/v1/pipelines/runs",
+        json={
+            "input_spec_path": "pipeline_input.yaml",
+            "initial_contract": "invalid: [unclosed",
+        },
+    )
+    assert res.status_code == 400
+    body = res.json()
+    assert body["status"] == 400
+    assert "malformed initial_contract yaml" in body["detail"].lower()
+
+
+def test_pipeline_run_with_oversized_payload_rejected_422(
+    test_env: tuple[TestClient, Path],
+) -> None:
+    """Verify pipeline run with initial_contract exceeding 1 MB returns HTTP 422 Problem Details."""
+    client, workspace_root = test_env
+    input_spec = workspace_root / "pipeline_input.yaml"
+    input_spec.write_text("pipeline_id: pipe-test\n", encoding="utf-8")
+    res = client.post(
+        "/api/v1/pipelines/runs",
+        json={
+            "input_spec_path": "pipeline_input.yaml",
+            "initial_contract": "y" * 1_000_001,
+        },
+    )
+    assert res.status_code == 422
+    body = res.json()
+    assert body["status"] == 422

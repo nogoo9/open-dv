@@ -24,10 +24,14 @@ class PipelineValidateRequest(BaseContractModel):
         default=None, description="Path to starting contract YAML"
     )
     initial_contract_content: str | None = Field(
-        default=None, description="Inline starting contract YAML"
+        default=None,
+        max_length=1_000_000,
+        description="Inline starting contract YAML",
     )
     initial_contract: str | None = Field(
-        default=None, description="Inline starting contract YAML (Decision D1 / GAP-07)"
+        default=None,
+        max_length=1_000_000,
+        description="Inline starting contract YAML (Decision D1 / GAP-07)",
     )
     wave_id: str | None = Field(
         default=None, description="Target wave identifier (e.g. W0, W1, W2) (GAP-07)"

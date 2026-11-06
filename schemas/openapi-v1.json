@@ -925,6 +925,7 @@
           "initial_contract": {
             "anyOf": [
               {
+                "maxLength": 1000000,
                 "type": "string"
               },
               {
@@ -933,6 +934,19 @@
             ],
             "description": "Inline starting contract YAML or JSON string (Decision D1 / GAP-07)",
             "title": "Initial Contract"
+          },
+          "initial_contract_content": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline starting contract YAML or JSON string (alias for initial_contract)",
+            "title": "Initial Contract Content"
           },
           "initial_contract_path": {
             "anyOf": [
@@ -1904,6 +1918,7 @@
           "initial_contract": {
             "anyOf": [
               {
+                "maxLength": 1000000,
                 "type": "string"
               },
               {
@@ -1916,6 +1931,7 @@
           "initial_contract_content": {
             "anyOf": [
               {
+                "maxLength": 1000000,
                 "type": "string"
               },
               {
@@ -2070,6 +2086,7 @@
           "initial_contract": {
             "anyOf": [
               {
+                "maxLength": 1000000,
                 "type": "string"
               },
               {
@@ -2082,6 +2099,7 @@
           "initial_contract_content": {
             "anyOf": [
               {
+                "maxLength": 1000000,
                 "type": "string"
               },
               {
