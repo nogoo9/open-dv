@@ -17,8 +17,6 @@ from pathlib import Path
 import duckdb
 import pytest
 
-from opendv_agent_harness import run_agentic_vault_pipeline
-from opendv_testkit import build_deterministic_agy_sdk_shim
 from opendv_core import validate_canonical_ir
 from opendv_core.constants import ZERO_KEY_ERROR, ZERO_KEY_UNKNOWN
 from opendv_core.hashing import (
@@ -28,8 +26,13 @@ from opendv_core.hashing import (
 )
 from opendv_duckdb_sandbox import compile_canonical_ir_to_4zone_sql
 from tests.parity.golden import GoldenManager
+from tests.parity.golden_fixtures import (
+    capture_gt03_rejections,
+    render_explorer_text_snapshot,
+    run_gt01_lifecycle_waves,
+)
 from tests.parity.normalize import normalize_for_parity
-from tests.parity.transports import StandaloneCliTransport
+from tests.parity.transports import DirectRestTransport, StandaloneCliTransport
 
 pytestmark = [pytest.mark.golden, pytest.mark.parity]
 
@@ -114,52 +117,38 @@ def test_golden_divergence_fails_without_update_mode(tmp_path: Path) -> None:
         gm.assert_golden_byte_equality("GT-01", "sample.txt", b"divergent content\n", "test_origin")
 
 
-def test_gt01_wave0_baseline(golden_manager: GoldenManager) -> None:
-    """Verify GT-01 Wave 0 artifacts (final_contract, final_canonical_ir, final_four_zone)."""
-    sample_dir = REPO_ROOT / "examples" / "pipeline_samples" / "global_commerce_vault"
-
-    with tempfile.TemporaryDirectory() as tmp:
-        out_dir = Path(tmp) / "out"
-        report = run_agentic_vault_pipeline(
-            sample_dir / "wave0_cold_start.yaml",
-            sample_dir / "harness_config.yaml",
-            output_dir=out_dir,
-            base_dir=sample_dir,
-            sdk_module=build_deterministic_agy_sdk_shim(),
-        )
-        assert report.status == "COMPLETED"
-
-        for fname in ["final_contract.yaml", "final_canonical_ir.json", "final_four_zone.sql"]:
-            content = (out_dir / fname).read_bytes()
-            golden_manager.assert_golden_byte_equality(
-                golden_id="GT-01",
-                relative_file=f"GT-01/wave0/{fname}",
-                actual_bytes=content,
-                generated_from="PAR-S1-W0: opendv pipeline run",
-            )
+def test_gt01_lifecycle_waves(golden_manager: GoldenManager, tmp_path: Path) -> None:
+    """Verify GT-01 Global Commerce 4-wave lifecycle across all 25 golden files."""
+    bundle = run_gt01_lifecycle_waves(golden_manager, REPO_ROOT, tmp_path)
+    assert bundle, "Expected non-empty explorer bundle from GT-01"
 
 
-def test_gt02_private_equity_baseline(golden_manager: GoldenManager) -> None:
-    """Verify GT-02 Private Equity reference outputs."""
-    # 1. verify.json via StandaloneCliTransport
-    with tempfile.TemporaryDirectory() as tmp:
-        transport = StandaloneCliTransport(workspace_dir=Path(tmp))
-        verify_raw = transport.verify(
-            contract=REPO_ROOT / "examples" / "private_equity" / "dv_pe_model_contract.yaml",
-            graph_a=REPO_ROOT / "examples" / "private_equity" / "pe_graph_a_ontology.yaml",
-            graph_b=REPO_ROOT / "examples" / "private_equity" / "pe_graph_b_profile.json",
-        )
-        verify_norm = normalize_for_parity(verify_raw, path_root=str(REPO_ROOT))
-        verify_bytes = (json.dumps(verify_norm, indent=2, sort_keys=True) + "\n").encode("utf-8")
-        golden_manager.assert_golden_byte_equality(
-            golden_id="GT-02",
-            relative_file="GT-02/verify.json",
-            actual_bytes=verify_bytes,
-            generated_from="PAR-PE-S5: opendv verify",
-        )
+def test_gt02_private_equity_baseline(
+    golden_manager: GoldenManager,
+    cli_transport: StandaloneCliTransport,
+    rest_transport: DirectRestTransport,
+) -> None:
+    """Verify GT-02 Private Equity reference outputs across CLI and REST transports."""
+    pe_contract = REPO_ROOT / "examples" / "private_equity" / "dv_pe_model_contract.yaml"
+    graph_a = REPO_ROOT / "examples" / "private_equity" / "pe_graph_a_ontology.yaml"
+    graph_b = REPO_ROOT / "examples" / "private_equity" / "pe_graph_b_profile.json"
+    pe_ir_path = REPO_ROOT / "examples" / "private_equity" / "pe_canonical_ir.json"
+
+    # 1. verify.json (with parity check)
+    verify_cli = cli_transport.verify(contract=pe_contract, graph_a=graph_a, graph_b=graph_b)
+    verify_rest = rest_transport.verify(contract=pe_contract, graph_a=graph_a, graph_b=graph_b)
+    norm_cli = normalize_for_parity(verify_cli, path_root=str(REPO_ROOT))
+    norm_rest = normalize_for_parity(verify_rest, path_root=str(REPO_ROOT))
+    assert norm_cli == norm_rest, "Cross-surface parity mismatch on GT-02 verify"
+    verify_bytes = (json.dumps(norm_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    golden_manager.assert_golden_byte_equality(
+        golden_id="GT-02",
+        relative_file="GT-02/verify.json",
+        actual_bytes=verify_bytes,
+        generated_from="PAR-PE-S5: opendv verify",
+    )
 
     # 2. canonical_ir.json
-    pe_ir_path = REPO_ROOT / "examples" / "private_equity" / "pe_canonical_ir.json"
     golden_manager.assert_golden_byte_equality(
         golden_id="GT-02",
         relative_file="GT-02/canonical_ir.json",
@@ -179,6 +168,83 @@ def test_gt02_private_equity_baseline(golden_manager: GoldenManager) -> None:
         relative_file="GT-02/four_zone.sql",
         actual_bytes=pe_sql_bytes,
         generated_from="PAR-PE-S5: opendv compile",
+    )
+
+    # 4. sandbox_batches.json (4 adversarial batches across CLI and REST)
+    batches_cli = cli_transport.sandbox(
+        contract=pe_contract, canonical_ir=pe_ir_path, query_type="ADVERSARIAL_BATCHES_1_TO_4"
+    )
+    batches_rest = rest_transport.sandbox(
+        contract=pe_contract, canonical_ir=pe_ir_path, query_type="ADVERSARIAL_BATCHES_1_TO_4"
+    )
+    norm_b_cli = normalize_for_parity(batches_cli, path_root=str(REPO_ROOT))
+    norm_b_rest = normalize_for_parity(batches_rest, path_root=str(REPO_ROOT))
+    assert norm_b_cli == norm_b_rest, "Cross-surface parity mismatch on GT-02 sandbox batches"
+    batches_bytes = (json.dumps(norm_b_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    golden_manager.assert_golden_byte_equality(
+        golden_id="GT-02",
+        relative_file="GT-02/sandbox_batches.json",
+        actual_bytes=batches_bytes,
+        generated_from="PAR-PE-S6: opendv sandbox --query-type ADVERSARIAL_BATCHES_1_TO_4",
+    )
+
+    # 5. d10_2026-10-15.json (D.10 PIT query rows across CLI and REST)
+    d10_cli = cli_transport.sandbox(
+        contract=pe_contract,
+        canonical_ir=pe_ir_path,
+        query_type="QUERY_D10_PIT",
+        cutoff="2026-10-15 00:00:00",
+    )
+    d10_rest = rest_transport.sandbox(
+        contract=pe_contract,
+        canonical_ir=pe_ir_path,
+        query_type="QUERY_D10_PIT",
+        cutoff="2026-10-15 00:00:00",
+    )
+    norm_d10_cli = normalize_for_parity(d10_cli, path_root=str(REPO_ROOT))
+    norm_d10_rest = normalize_for_parity(d10_rest, path_root=str(REPO_ROOT))
+    assert norm_d10_cli == norm_d10_rest, "Cross-surface parity mismatch on GT-02 D.10 PIT"
+    d10_bytes = (json.dumps(norm_d10_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    golden_manager.assert_golden_byte_equality(
+        golden_id="GT-02",
+        relative_file="GT-02/d10_2026-10-15.json",
+        actual_bytes=d10_bytes,
+        generated_from="PAR-PE-S6: opendv sandbox --query-type QUERY_D10_PIT",
+    )
+
+    # 6. d10b_2026-11-15.json (D.10b valuation query rows across CLI and REST)
+    d10b_cli = cli_transport.sandbox(
+        contract=pe_contract,
+        canonical_ir=pe_ir_path,
+        query_type="QUERY_D10B_VALUATION",
+        cutoff="2026-11-15 23:59:59",
+    )
+    d10b_rest = rest_transport.sandbox(
+        contract=pe_contract,
+        canonical_ir=pe_ir_path,
+        query_type="QUERY_D10B_VALUATION",
+        cutoff="2026-11-15 23:59:59",
+    )
+    norm_d10b_cli = normalize_for_parity(d10b_cli, path_root=str(REPO_ROOT))
+    norm_d10b_rest = normalize_for_parity(d10b_rest, path_root=str(REPO_ROOT))
+    assert norm_d10b_cli == norm_d10b_rest, "Cross-surface parity mismatch on GT-02 D.10b valuation"
+    d10b_bytes = (json.dumps(norm_d10b_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
+    golden_manager.assert_golden_byte_equality(
+        golden_id="GT-02",
+        relative_file="GT-02/d10b_2026-11-15.json",
+        actual_bytes=d10b_bytes,
+        generated_from="PAR-PE-S6: opendv sandbox --query-type QUERY_D10B_VALUATION",
+    )
+
+
+def test_gt03_golden_rejections(
+    golden_manager: GoldenManager,
+    rest_transport: DirectRestTransport,
+    tmp_path: Path,
+) -> None:
+    """Verify GT-03 6 canonical bad inputs across exit codes, ProblemDetails, and trace.toon."""
+    capture_gt03_rejections(
+        golden_manager, REPO_ROOT, tmp_path, rest_transport=rest_transport
     )
 
 
@@ -271,3 +337,18 @@ def test_gt04_collision_resistance_invariants(golden_manager: GoldenManager) -> 
     # 4. Multi-Tenant isolation: 'ACCT-1001' under TENANT_EU vs TENANT_US
     assert vecs["VEC-07"]["canonical_prehash"] != vecs["VEC-08"]["canonical_prehash"]
     assert vecs["VEC-07"]["expected_sha256"] != vecs["VEC-08"]["expected_sha256"]
+
+
+def test_gt05_explorer_render_snapshot(
+    golden_manager: GoldenManager,
+    tmp_path: Path,
+) -> None:
+    """Verify GT-05 deterministic Explorer text snapshot generated from GT-01 Wave 3 bundle."""
+    bundle = run_gt01_lifecycle_waves(golden_manager, REPO_ROOT, tmp_path)
+    snapshot_text = render_explorer_text_snapshot(bundle)
+    golden_manager.assert_golden_byte_equality(
+        golden_id="GT-05",
+        relative_file="GT-05/render_snapshot.txt",
+        actual_bytes=(snapshot_text.strip() + "\n").encode("utf-8"),
+        generated_from="PAR-S8-W3: opendv explorer render snapshot",
+    )

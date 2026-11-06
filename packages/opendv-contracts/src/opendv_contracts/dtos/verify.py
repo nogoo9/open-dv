@@ -36,6 +36,18 @@ class VerifyRequest(BaseContractModel):
     rule_filter: list[str] = Field(
         default_factory=list, description="Optional rule subsets to evaluate"
     )
+    compiled_sql_models: dict[str, str] | None = Field(
+        default=None,
+        description="Optional compiled physical SQL models for Gate 6 AST verification",
+    )
+    compiled_sql: str | None = Field(
+        default=None,
+        description="Optional raw SQL containing physical models for Gate 6 AST verification",
+    )
+    apply_codemods: bool = Field(
+        default=True,
+        description="Whether to apply automated codemods before verification",
+    )
 
 
 class RuleEvaluationDTO(BaseContractModel):
