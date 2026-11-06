@@ -266,4 +266,11 @@ def normalize_pipeline_report(
         if "event_id" in ev and ev["event_id"]:
             ev["event_id"] = _EVENT_ID_REGEX.sub("<EVENT_ID>", ev["event_id"])
 
+    # 6. Exclude recommender_errors when None and default ontology_policy for bit-for-bit golden parity
+    if res.get("recommender_errors") is None and "recommender_errors" in res:
+        del res["recommender_errors"]
+    hs = res.get("harness_setup")
+    if isinstance(hs, dict) and hs.get("ontology_policy") == "off":
+        del hs["ontology_policy"]
+
     return normalize_for_parity(res, path_root=path_root)

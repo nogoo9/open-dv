@@ -9,9 +9,17 @@ from opendv_contracts.jcs import dumps_jcs_bytes
 from opendv_core.models.graph_a import GraphAOntology
 
 
-def canonicalize_graph_a_dict(ontology: GraphAOntology) -> dict[str, Any]:
-    """Convert a GraphAOntology to a deterministically sorted dictionary representation."""
-    doc = ontology.model_dump(mode="json", exclude_none=True)
+def canonicalize_graph_a_dict(ontology: GraphAOntology | dict[str, Any]) -> dict[str, Any]:
+    """Convert a GraphAOntology or dict to a deterministically sorted dictionary representation."""
+    if isinstance(ontology, GraphAOntology):
+        doc = ontology.model_dump(mode="json", exclude_none=True)
+    elif isinstance(ontology, dict):
+        try:
+            doc = GraphAOntology.model_validate(ontology).model_dump(mode="json", exclude_none=True)
+        except Exception:
+            doc = dict(ontology)
+    else:
+        doc = dict(ontology)
 
     # Deterministically sort list properties by canonical URNs
     if "canonical_business_concepts" in doc and isinstance(

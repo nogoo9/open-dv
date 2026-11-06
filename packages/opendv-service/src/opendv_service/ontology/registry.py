@@ -1,100 +1,198 @@
-"""Entry-point plugin registry and discovery for external OntologyRecommender modules.
+"""Plugin registry for external OntologyRecommender modules (Decision D9, ONT-05).
 
-References docs/18 §3E.4.
+Discovers, registers, and dispatches implementations of the OntologyRecommender SPI
+via the entry-point group 'opendv.ontology_recommenders' (docs/18 §3E.4).
 """
 
 from __future__ import annotations
 
 import importlib.metadata
 import inspect
+import threading
 from typing import Any
 
-from opendv_contracts.dtos.ontology import (
+from opendv_contracts import (
     OntologyProposal,
-    OntologySuggestionRequest,
+    OntologyRecommender,
+    OntologyRecommenderUnavailableError,
 )
+from opendv_contracts.dtos.ontology import OntologySuggestionRequest
 from opendv_contracts.errors import ErrorCode
 from opendv_service.errors import OpenDVError
 
-ENTRYPOINT_GROUP = "opendv.ontology_recommenders"
+ONTOLOGY_RECOMMENDER_ENTRY_POINT_GROUP = "opendv.ontology_recommenders"
+ENTRYPOINT_GROUP = ONTOLOGY_RECOMMENDER_ENTRY_POINT_GROUP
 
-# In-memory registry for programmatic / testkit registration
-_MANUAL_REGISTRY: dict[str, Any] = {}
+
+class OntologyRecommenderRegistry:
+    """Thread-safe discovery and management of OntologyRecommender plugins."""
+
+    def __init__(
+        self,
+        entry_point_group: str = ONTOLOGY_RECOMMENDER_ENTRY_POINT_GROUP,
+    ) -> None:
+        self._group = entry_point_group
+        self._recommenders: dict[str, Any] = {}
+        self._discovered = False
+        self._lock = threading.RLock()
+
+    def _discover(self) -> None:
+        with self._lock:
+            if self._discovered:
+                return
+            self._discovered = True
+            eps: Any = ()
+            try:
+                eps = importlib.metadata.entry_points(group=self._group)
+            except (KeyError, TypeError, AttributeError, ValueError, OSError):
+                eps = ()
+
+            for ep in eps:
+                try:
+                    loaded = ep.load()
+                    inst = loaded() if isinstance(loaded, type) else loaded
+                    self.register_recommender(inst, name=ep.name)
+                except (ImportError, AttributeError, TypeError, ValueError, OSError):
+                    # Gracefully skip broken third-party entry points
+                    pass
+
+    def register_recommender(
+        self,
+        recommender: OntologyRecommender | type[OntologyRecommender] | Any,
+        *,
+        name: str | None = None,
+    ) -> None:
+        """Register an OntologyRecommender instance or class."""
+        with self._lock:
+            inst = recommender() if isinstance(recommender, type) else recommender
+
+            # Protocol structural check
+            if not (hasattr(inst, "recommender_id") or hasattr(inst, "recommend") or callable(inst)):
+                raise TypeError(
+                    "Expected object conforming to OntologyRecommender protocol, "
+                    f"got {type(inst).__name__}"
+                )
+
+            rec_id = str(getattr(inst, "recommender_id", name or "default")).lower().strip()
+            self._recommenders[rec_id] = inst
+            if name:
+                self._recommenders[name.lower().strip()] = inst
+
+    register = register_recommender
+
+    def unregister_recommender(self, recommender_id: str) -> None:
+        """Unregister an in-memory recommender."""
+        with self._lock:
+            self._recommenders.pop(recommender_id.lower().strip(), None)
+
+    def has_recommender(self, recommender_id: str | None = None) -> bool:
+        """Check whether any recommender or a specific recommender ID is registered."""
+        self._discover()
+        with self._lock:
+            if recommender_id is None:
+                return len(self._recommenders) > 0
+            return recommender_id.lower().strip() in self._recommenders
+
+    def get_recommender(
+        self,
+        recommender_id: str | None = None,
+    ) -> Any:
+        """Retrieve a registered OntologyRecommender.
+
+        If recommender_id is None, returns the single registered recommender (or the 'default').
+        Raises OntologyRecommenderUnavailableError if unavailable.
+        """
+        self._discover()
+        with self._lock:
+            if not self._recommenders:
+                raise OntologyRecommenderUnavailableError(
+                    "No OntologyRecommender module is registered under "
+                    f"'{self._group}'. Please install an ontology recommender plugin "
+                    "(e.g. opendv-testkit or an enterprise recommender package) "
+                    "or set ontology policy to 'off'."
+                )
+
+            if recommender_id is None:
+                if "default" in self._recommenders:
+                    return self._recommenders["default"]
+                return next(iter(self._recommenders.values()))
+
+            key = recommender_id.lower().strip()
+            if key not in self._recommenders:
+                available = sorted(self._recommenders.keys())
+                raise OntologyRecommenderUnavailableError(
+                    f"OntologyRecommender '{recommender_id}' is not installed. "
+                    f"Available recommenders: {available}."
+                )
+            return self._recommenders[key]
+
+    def list_recommenders(self) -> list[str]:
+        """List all registered recommender identifiers."""
+        self._discover()
+        with self._lock:
+            return sorted(self._recommenders.keys())
+
+    def reset(self) -> None:
+        """Reset the registry to an empty, undiscovered state (for testing)."""
+        with self._lock:
+            self._recommenders.clear()
+            self._discovered = False
+
+
+_DEFAULT_REGISTRY: OntologyRecommenderRegistry | None = None
+_INIT_LOCK = threading.Lock()
+
+
+def get_ontology_recommender_registry() -> OntologyRecommenderRegistry:
+    """Obtain the global default OntologyRecommenderRegistry singleton."""
+    global _DEFAULT_REGISTRY
+    if _DEFAULT_REGISTRY is None:
+        with _INIT_LOCK:
+            if _DEFAULT_REGISTRY is None:
+                _DEFAULT_REGISTRY = OntologyRecommenderRegistry()
+    return _DEFAULT_REGISTRY
+
+
+def set_default_ontology_recommender_registry(
+    registry: OntologyRecommenderRegistry | None,
+) -> None:
+    """Override or clear the default global registry (for testing)."""
+    global _DEFAULT_REGISTRY
+    with _INIT_LOCK:
+        _DEFAULT_REGISTRY = registry
 
 
 def register_recommender(recommender: Any, recommender_id: str | None = None) -> None:
-    """Register an in-memory recommender instance (used by opendv-testkit and plugins)."""
+    """Register an in-memory recommender instance (used by testkit and plugins)."""
+    reg = get_ontology_recommender_registry()
     if (
         isinstance(recommender, str)
         and recommender_id is not None
         and not isinstance(recommender_id, str)
     ):
-        rec_id = recommender
-        rec_obj = recommender_id
+        reg.register_recommender(recommender_id, name=recommender)
     else:
-        rec_id = recommender_id or getattr(recommender, "recommender_id", "default")
-        rec_obj = recommender
-    _MANUAL_REGISTRY[rec_id] = rec_obj
+        reg.register_recommender(recommender, name=recommender_id)
 
 
 def unregister_recommender(recommender_id: str) -> None:
     """Unregister an in-memory recommender."""
-    _MANUAL_REGISTRY.pop(recommender_id, None)
+    get_ontology_recommender_registry().unregister_recommender(recommender_id)
 
 
 def clear_recommenders() -> None:
     """Clear in-memory registered recommenders."""
-    _MANUAL_REGISTRY.clear()
+    get_ontology_recommender_registry().reset()
 
 
 def list_registered_recommenders() -> list[str]:
     """Return list of all registered recommender identifiers."""
-    ids = list(_MANUAL_REGISTRY.keys())
-    try:
-        eps = importlib.metadata.entry_points(group=ENTRYPOINT_GROUP)
-        for ep in eps:
-            if ep.name not in ids:
-                ids.append(ep.name)
-    except (TypeError, KeyError, AttributeError, OSError):
-        pass
-    return ids
+    return get_ontology_recommender_registry().list_recommenders()
 
 
 def get_ontology_recommender(recommender_id: str | None = None) -> Any:
-    """Discover and return an ontology recommender by ID or the default installed one.
-
-    Checks:
-    1. In-memory manual registry (_MANUAL_REGISTRY).
-    2. Python entry points under group 'opendv.ontology_recommenders'.
-
-    Raises:
-        OpenDVError(error_code=ErrorCode.ONTOLOGY_RECOMMENDER_UNAVAILABLE) if no
-        recommender is available.
-    """
-    if recommender_id and recommender_id in _MANUAL_REGISTRY:
-        return _MANUAL_REGISTRY[recommender_id]
-    if not recommender_id and _MANUAL_REGISTRY:
-        return next(iter(_MANUAL_REGISTRY.values()))
-
-    # Discover via entry points
-    try:
-        eps = importlib.metadata.entry_points(group=ENTRYPOINT_GROUP)
-        for ep in eps:
-            if recommender_id is None or ep.name == recommender_id:
-                plugin_cls = ep.load()
-                inst = plugin_cls() if callable(plugin_cls) else plugin_cls
-                return inst
-    except (TypeError, KeyError, AttributeError, ImportError, OSError):
-        pass
-
-    target_name = recommender_id or "default"
-    raise OpenDVError(
-        f"No ontology recommender module is installed or registered "
-        f"(requested='{target_name}'). "
-        f"Install an external recommender package extending '{ENTRYPOINT_GROUP}' "
-        f"or register a testkit recommender.",
-        error_code=ErrorCode.ONTOLOGY_RECOMMENDER_UNAVAILABLE,
-    )
+    """Discover and return an ontology recommender by ID or the default installed one."""
+    return get_ontology_recommender_registry().get_recommender(recommender_id)
 
 
 async def invoke_recommender(
@@ -130,10 +228,14 @@ async def invoke_recommender(
 
 __all__ = [
     "ENTRYPOINT_GROUP",
+    "ONTOLOGY_RECOMMENDER_ENTRY_POINT_GROUP",
+    "OntologyRecommenderRegistry",
     "clear_recommenders",
     "get_ontology_recommender",
+    "get_ontology_recommender_registry",
     "invoke_recommender",
     "list_registered_recommenders",
     "register_recommender",
+    "set_default_ontology_recommender_registry",
     "unregister_recommender",
 ]

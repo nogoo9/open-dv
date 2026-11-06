@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 import yaml
 
+from opendv_contracts import ErrorCode
 from opendv_contracts.jcs import dumps_jcs
 from tests.parity.golden_fixtures import build_gt03_01_dropped_hub
 from tests.parity.normalize import normalize_for_parity
@@ -53,38 +54,14 @@ class TestP6AdversarialTreeParity:
         assert py_tree["contract_version"] == "1.0.0"
         assert ts_tree["contract_version"] == "1.0.0"
 
-        # Error map: all 23 domain error codes must match bit-for-bit in JCS
-        assert len(py_tree["error_map"]) == 23
-        assert len(ts_tree["error_map"]) == 23
+        # Error map: all domain error codes must match bit-for-bit in JCS
+        assert len(py_tree["error_map"]) == len(ErrorCode)
+        assert len(ts_tree["error_map"]) == len(ErrorCode)
         assert dumps_jcs(py_tree["error_map"]) == dumps_jcs(ts_tree["error_map"])
 
         # Error codes must contain all expected domain codes
         error_codes = {e["error_code"] for e in py_tree["error_map"]}
-        expected_codes = {
-            "OK",
-            "VERIFICATION_FAILED",
-            "PATH_CONTAINMENT_ERROR",
-            "INVALID_REQUEST",
-            "RESOURCE_NOT_FOUND",
-            "RUN_NOT_FOUND",
-            "PROJECT_NOT_FOUND",
-            "HOLD_NOT_FOUND",
-            "ARTIFACT_NOT_FOUND",
-            "PAYLOAD_TOO_LARGE",
-            "UNSUPPORTED_FORMAT",
-            "INPUT_VALIDATION_ERROR",
-            "SCHEMA_VALIDATION_ERROR",
-            "SOURCE_LOAD_ERROR",
-            "SANDBOX_EXECUTION_ERROR",
-            "PROVIDER_CONFIG_ERROR",
-            "DETERMINISTIC_PROVIDER_REJECTED",
-            "CONTRACT_VERSION_MISMATCH",
-            "ONTOLOGY_RECOMMENDER_UNAVAILABLE",
-            "CAS_INTEGRITY_FAILURE",
-            "INTERNAL_ERROR",
-            "API_UNREACHABLE",
-            "PROVIDER_UNAVAILABLE",
-        }
+        expected_codes = {e.value for e in ErrorCode}
         assert error_codes == expected_codes
 
     def test_single_sided_command_isolation(

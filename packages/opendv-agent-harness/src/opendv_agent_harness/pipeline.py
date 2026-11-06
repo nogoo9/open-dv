@@ -66,7 +66,12 @@ from opendv_agent_harness.telemetry.translator import build_observability_event_
 from opendv_axi_verifier.alg_a8_orchestrator import run_axi_dv_verification_pipeline
 from opendv_axi_verifier.toon_codec import ToonViolation
 from opendv_axi_verifier.verifiers.alg_a9b_unstructured import classify_er_resolution_tier
-from opendv_contracts.errors import ErrorCode, InputValidationError, OpenDVError
+from opendv_contracts.errors import (
+    ErrorCode,
+    InputValidationError,
+    OntologyRecommenderUnavailableError,
+    OpenDVError,
+)
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_core.models.contract_v5 import (
     ColumnTriageEntry,
@@ -223,6 +228,7 @@ class HarnessSetupConfig(BaseModel):
     steward_hold_policy: Literal["pause", "auto_approve_top_candidate", "reject_on_hold"] = (
         "auto_approve_top_candidate"
     )
+    ontology_policy: str = "off"
     stage_output_policy: Literal["llm_only", "symbolic_completion"] = "llm_only"
     inject_adversarial_fault_on_attempt_1: bool = False
     env: dict[str, str] = Field(default_factory=dict)
@@ -827,6 +833,7 @@ class PipelineInputSpec(BaseModel):
     wave_id: str | None = None
     assertion_cutoff_ts: str = "2026-12-31 23:59:59"
     output_dir: str | None = None
+    ontology_policy: str = "off"
     waves: list[PipelineWaveInput] = Field(min_length=1)
 
     @model_validator(mode="after")
@@ -959,6 +966,7 @@ class AgenticPipelineReport(BaseModel):
     initial_contract_path: str | None = None
     wave_id: str | None = None
     lifecycle_stage: str = "COLD_START_N1"
+    recommender_errors: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1551,6 +1559,34 @@ def validate_pipeline_inputs(
                     "severity": "ERROR",
                     "target": str(out_path),
                     "message": f"Output path '{out_path}' exists and is not a directory.",
+                }
+            )
+
+    # 5b. Validate ontology policy & recommender availability (REQ-FAIL-01)
+    raw_ontology_policy = getattr(spec, "ontology_policy", "off") or "off"
+    if str(raw_ontology_policy).strip().lower() not in {"off", "", "disabled", "false", "none"}:
+        checked_items += 1
+        try:
+            from opendv_service.ontology.policy import OntologyPolicy
+
+            pol = OntologyPolicy.from_value(raw_ontology_policy)
+            pol.validate_availability()
+        except OntologyRecommenderUnavailableError as exc:
+            diagnostics.append(
+                {
+                    "code": "ONTOLOGY_RECOMMENDER_UNAVAILABLE",
+                    "severity": "ERROR",
+                    "target": "ontology_policy",
+                    "message": str(exc),
+                }
+            )
+        except Exception as exc:
+            diagnostics.append(
+                {
+                    "code": "ONTOLOGY_POLICY_INVALID",
+                    "severity": "ERROR",
+                    "target": "ontology_policy",
+                    "message": str(exc),
                 }
             )
 
@@ -2776,6 +2812,7 @@ class AgenticVaultPipeline:
         cas_store: ContentAddressableStore | None = None,
         sdk_module: Any | None = None,
         harness: VaultAgentHarness | None = None,
+        extension_hooks: Any | None = None,
         on_stage_start: Callable[[int, str, str, str], None] | None = None,
         on_stage_complete: Callable[[int, PipelineStepReport], None] | None = None,
         on_stream_event: Callable[[HarnessStreamEvent], None] | None = None,
@@ -2792,6 +2829,22 @@ class AgenticVaultPipeline:
         self._on_stage_complete = on_stage_complete
         self._on_stream_event = on_stream_event
         self._runtime_initialized = False
+
+        if extension_hooks is not None:
+            self.extension_hooks = extension_hooks
+        else:
+            raw_policy = (
+                self.input_spec.ontology_policy
+                if self.input_spec.ontology_policy and self.input_spec.ontology_policy != "off"
+                else self.harness_setup.ontology_policy
+                or os.environ.get("OPENDV_ONTOLOGY_POLICY", "off")
+            )
+            try:
+                from opendv_service.ontology import get_pipeline_extension_hooks
+
+                self.extension_hooks = get_pipeline_extension_hooks(policy=raw_policy)
+            except ImportError:
+                self.extension_hooks = None
 
     def _notify_stage_start(
         self,
@@ -3053,7 +3106,15 @@ class AgenticVaultPipeline:
                 observability_events=observability_events,
                 fallbacks_applied=fallbacks_applied,
                 markdown_summary=md,
+                recommender_errors=(
+                    self.extension_hooks.recommender_errors
+                    if self.extension_hooks is not None and self.extension_hooks.recommender_errors
+                    else None
+                ),
             )
+
+        if self.extension_hooks is not None and self.extension_hooks.policy.is_active:
+            self.extension_hooks.policy.validate_availability()
 
         self._ensure_runtime_initialized()
         self._notify_stage_start(
@@ -3600,6 +3661,46 @@ class AgenticVaultPipeline:
                 intermediate_list=intermediate_artifacts,
             )
             s1_out_shas.append(cov_ref.sha256)
+
+            if (
+                self.extension_hooks is not None
+                and self.extension_hooks.policy.is_active
+                and self.extension_hooks.policy.should_invoke_ip2()
+            ):
+                try:
+                    from opendv_service.ontology.hooks import WaveProfilingContext
+
+                    prof_ctx = WaveProfilingContext(
+                        run_id=run_id,
+                        wave_index=w_idx,
+                        wave_id=f"w{w_idx}",
+                        ontology=raw_ontology,
+                        ontology_sha256=graph_a_sha256,
+                        domain_namespace=self.input_spec.domain_namespace,
+                        bronze_manifest=wave.model_dump(mode="json"),
+                        profiles=[wave_gb_dict],
+                        coverage_artifact=cov_dict,
+                    )
+                    ip2_proposal = await self.extension_hooks.on_after_profiling(prof_ctx)
+                    if ip2_proposal is not None:
+                        prop_artifact = self.extension_hooks.format_review_artifacts(
+                            ip2_proposal, raw_ontology
+                        )
+                        prop_ref = self._record_artifact(
+                            artifact_id=f"art-w{w_idx}-stage01-ontology-proposal",
+                            name=f"wave_{w_idx}_ontology_proposal.json",
+                            stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
+                            content=json.dumps(prop_artifact, indent=2, sort_keys=True),
+                            media_type="application/json",
+                            rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_ontology_proposal.json",
+                            wave_index=w_idx,
+                            description=f"Wave {w_idx} Advisory Ontology Proposal (IP-2).",
+                            intermediate_list=intermediate_artifacts,
+                        )
+                        s1_out_shas.append(prop_ref.sha256)
+                except Exception as exc:  # noqa: BLE001 - non-blocking recommender error
+                    err_msg = f"Stage 01 IP-2 hook failed: {exc}"
+                    self.extension_hooks.recommender_errors.append(err_msg)
 
             if wave_drift_events:
                 drift_ref = self._record_artifact(
@@ -4763,6 +4864,83 @@ class AgenticVaultPipeline:
                         else "Unmapped entity detected in Gate 1 (DV-G4-001)"
                     )
                 )
+                hold_options: list[dict[str, Any]] = [
+                    {
+                        "option_id": "REJECT_WITH_GAP_REPORT",
+                        "coverage_artifact_id": cov_art_id,
+                        "diagnostic": diag_msg,
+                    }
+                ]
+
+                # IP-3: Gate 1 ontology violation hold hook
+                if (
+                    self.extension_hooks is not None
+                    and self.extension_hooks.policy.is_active
+                    and self.extension_hooks.policy.should_invoke_ip3()
+                ):
+                    try:
+                        from opendv_service.ontology.hooks import GateViolationContext
+
+                        g1_ctx = GateViolationContext(
+                            run_id=run_id,
+                            wave_index=w_idx,
+                            wave_id=f"w{w_idx}",
+                            ontology=raw_ontology,
+                            ontology_sha256=graph_a_sha256,
+                            domain_namespace=self.input_spec.domain_namespace,
+                            coverage_artifact=cov_dict if "cov_dict" in locals() else None,
+                            g1_violations=[
+                                v.to_dict()
+                                if hasattr(v, "to_dict")
+                                else (
+                                    v.model_dump(mode="json")
+                                    if hasattr(v, "model_dump")
+                                    else dict(v)
+                                )
+                                for v in g1_violations
+                            ],
+                            deployed_contract_summary=deployed_contract_dict,
+                        )
+                        ip3_proposal = await self.extension_hooks.on_ontology_violation(g1_ctx)
+                        if ip3_proposal is not None:
+                            prop_artifact = self.extension_hooks.format_review_artifacts(
+                                ip3_proposal, raw_ontology
+                            )
+                            prop_ref = self._record_artifact(
+                                artifact_id=f"art-w{w_idx}-stage05-ontology-proposal",
+                                name=f"wave_{w_idx}_ontology_proposal.json",
+                                stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
+                                content=json.dumps(prop_artifact, indent=2, sort_keys=True),
+                                media_type="application/json",
+                                rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_ontology_proposal.json",
+                                wave_index=w_idx,
+                                description=(
+                                    f"Wave {w_idx} Gate 1 Ontology Resolution Proposal (IP-3)."
+                                ),
+                                intermediate_list=intermediate_artifacts,
+                            )
+                            s5_out_shas.append(prop_ref.sha256)
+
+                            if self.extension_hooks.policy.should_populate_hold_options():
+                                hold_options.append(
+                                    {
+                                        "option_id": "ACCEPT_ONTOLOGY_DELTA",
+                                        "proposal_id": ip3_proposal.proposal_id,
+                                        "delta_id": ip3_proposal.delta.delta_id,
+                                        "confidence_score": ip3_proposal.confidence_score,
+                                        "operations_count": len(ip3_proposal.delta.operations),
+                                    }
+                                )
+                                hold_options.append(
+                                    {
+                                        "option_id": "REJECT_ONTOLOGY_DELTA",
+                                        "proposal_id": ip3_proposal.proposal_id,
+                                    }
+                                )
+                    except Exception as exc:  # noqa: BLE001 - non-blocking recommender error
+                        err_msg = f"Stage 05 IP-3 hook failed: {exc}"
+                        self.extension_hooks.recommender_errors.append(err_msg)
+
                 self.hold_manager.record_hold(
                     run_id=run_id,
                     task_id=f"task-w{w_idx}-g1-ontology-hold",
@@ -4774,13 +4952,7 @@ class AgenticVaultPipeline:
                     headline=f"Wave {w_idx} Gate 1 ontology gap hold: {diag_msg}",
                     escalation_reason="UNMAPPED_ONTOLOGY_CONCEPT",
                     rule_id="DV-G4-001",
-                    options=[
-                        {
-                            "option_id": "REJECT_WITH_GAP_REPORT",
-                            "coverage_artifact_id": cov_art_id,
-                            "diagnostic": diag_msg,
-                        }
-                    ],
+                    options=hold_options,
                 )
             else:
                 s5_status = "REJECT-WITH-TRACE"
@@ -5389,6 +5561,11 @@ class AgenticVaultPipeline:
             initial_contract_path=rep_contract_path,
             wave_id=wave_id_val,
             lifecycle_stage=lifecycle_stage,
+            recommender_errors=(
+                self.extension_hooks.recommender_errors
+                if self.extension_hooks is not None and self.extension_hooks.recommender_errors
+                else None
+            ),
         )
 
         output_val = validate_pipeline_outputs(provisional_report, cas_store=self.cas_store)

@@ -349,6 +349,14 @@ class HoldNotFoundError(NotFoundError):
     error_code = ErrorCode.HOLD_NOT_FOUND
 
 
+class OntologyRecommenderUnavailableError(OpenDVError):
+    """Raised when an ontology recommendation policy is active but no
+    recommender module is installed.
+    """
+
+    error_code = ErrorCode.ONTOLOGY_RECOMMENDER_UNAVAILABLE
+
+
 __all__ = [
     "ERROR_MAP",
     "ERROR_MAPPINGS",
@@ -358,6 +366,7 @@ __all__ = [
     "HoldNotFoundError",
     "InputValidationError",
     "NotFoundError",
+    "OntologyRecommenderUnavailableError",
     "OpenDVError",
     "ProblemDetail",
     "create_problem_detail",
