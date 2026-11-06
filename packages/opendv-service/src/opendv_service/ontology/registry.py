@@ -30,11 +30,20 @@ class OntologyRecommenderRegistry:
     def __init__(
         self,
         entry_point_group: str = ONTOLOGY_RECOMMENDER_ENTRY_POINT_GROUP,
+        *,
+        auto_discover: bool = False,
     ) -> None:
         self._group = entry_point_group
         self._recommenders: dict[str, Any] = {}
-        self._discovered = False
+        self._discovered = not auto_discover
         self._lock = threading.RLock()
+
+    def discover(self, force: bool = False) -> None:
+        """Explicitly discover entry points."""
+        with self._lock:
+            if force:
+                self._discovered = False
+            self._discover()
 
     def _discover(self) -> None:
         with self._lock:
@@ -133,11 +142,11 @@ class OntologyRecommenderRegistry:
         with self._lock:
             return sorted(self._recommenders.keys())
 
-    def reset(self) -> None:
-        """Reset the registry to an empty, undiscovered state (for testing)."""
+    def reset(self, *, re_discover: bool = False) -> None:
+        """Reset the registry to an empty state."""
         with self._lock:
             self._recommenders.clear()
-            self._discovered = False
+            self._discovered = not re_discover
 
 
 _DEFAULT_REGISTRY: OntologyRecommenderRegistry | None = None
@@ -150,7 +159,7 @@ def get_ontology_recommender_registry() -> OntologyRecommenderRegistry:
     if _DEFAULT_REGISTRY is None:
         with _INIT_LOCK:
             if _DEFAULT_REGISTRY is None:
-                _DEFAULT_REGISTRY = OntologyRecommenderRegistry()
+                _DEFAULT_REGISTRY = OntologyRecommenderRegistry(auto_discover=True)
     return _DEFAULT_REGISTRY
 
 

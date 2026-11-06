@@ -27,8 +27,11 @@ def load_ontology_delta(
         return delta_or_path_or_content
 
     if isinstance(delta_or_path_or_content, dict):
+        d = delta_or_path_or_content
+        if "delta" in d and ("proposal_id" in d or "recommender_id" in d):
+            d = d["delta"]
         try:
-            return OntologyDelta.model_validate(delta_or_path_or_content)
+            return OntologyDelta.model_validate(d)
         except (ValueError, TypeError) as exc:
             raise InputValidationError(f"Invalid OntologyDelta dictionary: {exc}") from exc
 
@@ -62,6 +65,9 @@ def load_ontology_delta(
             raise InputValidationError(
                 f"Expected dictionary root for OntologyDelta, got {type(parsed).__name__}"
             )
+
+        if "delta" in parsed and ("proposal_id" in parsed or "recommender_id" in parsed):
+            parsed = parsed["delta"]
 
         try:
             return OntologyDelta.model_validate(parsed)
