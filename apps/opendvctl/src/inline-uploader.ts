@@ -65,6 +65,8 @@ export async function processInlineUploads(
 				} else if (key === "file" || key === "source_csv") {
 					enriched.source_csv_content = content;
 					enriched.file_content = content;
+					enriched.source_csv_path = filePath;
+					enriched.client_path = filePath;
 				} else if (key === "canonical_ir") {
 					enriched.canonical_ir_content = content;
 					enriched.canonical_ir_path = filePath;

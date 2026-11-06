@@ -18,6 +18,8 @@
   },
   "scripts": {
     "build": "bun build --compile --minify src/main.ts --outfile dist/opendvctl",
+    "build:all": "bun run build.ts",
+    "package": "bun run build.ts",
     "lint": "bun x biome check src tests",
     "test": "bun test"
   }
