@@ -125,6 +125,22 @@ def build_argument_parser(
         _add_option_to_parser(root_parent, opt, suppress_default=False)
         _add_option_to_parser(sub_parent, opt, suppress_default=True)
 
+    # Hidden flag for RFC 8785 canonical command tree inspection (Decision D6, T15)
+    root_parent.add_argument(
+        "--dump-cli-tree",
+        dest="dump_cli_tree",
+        action="store_true",
+        default=False,
+        help=argparse.SUPPRESS,
+    )
+    sub_parent.add_argument(
+        "--dump-cli-tree",
+        dest="dump_cli_tree",
+        action="store_true",
+        default=argparse.SUPPRESS,
+        help=argparse.SUPPRESS,
+    )
+
     # 2. Root parser
     parser = argparse.ArgumentParser(
         prog=prog,

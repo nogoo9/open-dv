@@ -103,3 +103,24 @@ def test_parser_builder_generates_all_commands() -> None:
     assert args4.subcommand == "hold"
     assert args4.hold_action == "resolve"
     assert args4.run_id == "r-1"
+
+
+def test_build_and_dump_cli_tree() -> None:
+    from opendv_cli_common import build_cli_tree, dump_cli_tree
+
+    tree = build_cli_tree(prog="opendv", mode="standalone")
+    assert tree["prog"] == "opendv"
+    assert "commands" in tree
+    assert "verify" in tree["commands"]
+    assert "pipeline" in tree["commands"]
+
+    # Standalone mode must include standalone_only command 'report'
+    assert "report" in tree["commands"]["pipeline"]["subcommands"]
+
+    # Client mode must exclude standalone_only command 'report'
+    client_tree = build_cli_tree(prog="opendvctl", mode="client")
+    assert "report" not in client_tree["commands"]["pipeline"]["subcommands"]
+
+    jcs = dump_cli_tree(prog="opendv", mode="standalone")
+    assert isinstance(jcs, str)
+    assert jcs.startswith('{"commands":{')
