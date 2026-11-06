@@ -84,6 +84,86 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/decisions": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Record Ontology Decision
+		 * @description Record steward decision on an ontology proposal and apply delta if accepted.
+		 */
+		post: operations["record_ontology_decision_api_v1_ontology_decisions_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/diff": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Diff Ontology
+		 * @description Compute structural difference between two Graph A ontologies.
+		 */
+		post: operations["diff_ontology_api_v1_ontology_diff_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/suggestions": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Suggest Ontology
+		 * @description Suggest ontology extensions and mappings from candidate sources.
+		 */
+		post: operations["suggest_ontology_api_v1_ontology_suggestions_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/validate-delta": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Validate Ontology Delta
+		 * @description Validate an ontology delta against Graph A evolution locks.
+		 */
+		post: operations["validate_ontology_delta_api_v1_ontology_validate_delta_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/pipelines/runs": {
 		parameters: {
 			query?: never;
@@ -266,6 +346,26 @@ export interface paths {
 		 * @description Abort an active run.
 		 */
 		post: operations["abort_run_api_v1_runs__run_id__abort_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/runs/{run_id}/artifacts": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List Run Artifacts
+		 * @description Retrieve all run-isolated artifacts with lowercase 64-hex CAS hash and redaction.
+		 */
+		get: operations["list_run_artifacts_api_v1_runs__run_id__artifacts_get"];
+		put?: never;
+		post?: never;
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -1910,6 +2010,216 @@ export interface components {
 			name: string;
 		};
 		/**
+		 * OntologyDecision
+		 * @description Steward or policy decision record governing delta application.
+		 */
+		OntologyDecision: {
+			/**
+			 * Accepted Op Ids
+			 * @description Operation IDs accepted for application
+			 */
+			accepted_op_ids?: string[];
+			/**
+			 * Action
+			 * @description Decision action (ACCEPT, REJECT, PARTIAL)
+			 * @default ACCEPT
+			 */
+			action: string;
+			/**
+			 * Applied Delta Sha256
+			 * @description SHA-256 of accepted delta
+			 */
+			applied_delta_sha256?: string | null;
+			/**
+			 * Base Ontology Sha256
+			 * @description SHA-256 of base ontology
+			 */
+			base_ontology_sha256?: string | null;
+			/**
+			 * Created At Utc
+			 * @description UTC ISO timestamp of decision
+			 * @default
+			 */
+			created_at_utc: string;
+			/**
+			 * Decided By
+			 * @description Steward identifier or policy name
+			 * @default steward
+			 */
+			decided_by: string;
+			/**
+			 * Decision Id
+			 * @description Unique decision record ID
+			 */
+			decision_id: string;
+			/**
+			 * Hold Id
+			 * @description Steward hold ID
+			 */
+			hold_id?: string | null;
+			/**
+			 * Notes
+			 * @description Alternative notes field
+			 * @default
+			 */
+			notes: string;
+			/**
+			 * Proposal Id
+			 * @description Referenced proposal ID
+			 */
+			proposal_id?: string | null;
+			/**
+			 * Rejected Op Ids
+			 * @description Operation IDs explicitly rejected
+			 */
+			rejected_op_ids?: string[];
+			/**
+			 * Resulting Ontology Sha256
+			 * @description SHA-256 of resulting Graph A vN+1
+			 */
+			resulting_ontology_sha256?: string | null;
+			/**
+			 * Run Id
+			 * @description Pipeline run ID
+			 */
+			run_id?: string | null;
+			/**
+			 * Steward Notes
+			 * @description Human steward rationale notes
+			 * @default
+			 */
+			steward_notes: string;
+			/**
+			 * Timestamp
+			 * @description Timestamp of decision
+			 * @default
+			 */
+			timestamp: string;
+		};
+		/**
+		 * OntologyDecisionRequest
+		 * @description Request DTO to record a steward decision and apply/reject an ontology delta.
+		 */
+		OntologyDecisionRequest: {
+			/**
+			 * Accepted Op Ids
+			 * @description List of accepted operation IDs (None = accept all)
+			 */
+			accepted_op_ids?: string[] | null;
+			/**
+			 * Action
+			 * @description Decision action: ACCEPT or REJECT
+			 * @default ACCEPT
+			 * @enum {string}
+			 */
+			action: "ACCEPT" | "REJECT";
+			/**
+			 * Base Ontology
+			 * @description Base Graph A ontology object or dict
+			 */
+			base_ontology?: unknown | null;
+			/**
+			 * Base Ontology Content
+			 * @description Inline base Graph A ontology YAML/JSON text
+			 */
+			base_ontology_content?: string | null;
+			/**
+			 * Base Ontology Path
+			 * @description Path to base Graph A ontology file
+			 */
+			base_ontology_path?: string | null;
+			/**
+			 * Contract Content
+			 * @description Inline deployed Data Vault contract YAML text
+			 */
+			contract_content?: string | null;
+			/**
+			 * Contract Path
+			 * @description Path to deployed Data Vault contract file
+			 */
+			contract_path?: string | null;
+			/**
+			 * Decided By
+			 * @description Decision maker identifier
+			 * @default steward
+			 */
+			decided_by: string;
+			/** @description OntologyDelta object */
+			delta?: components["schemas"]["OntologyDelta"] | null;
+			/**
+			 * Delta Content
+			 * @description Inline delta JSON/YAML text (Decision D1)
+			 */
+			delta_content?: string | null;
+			/**
+			 * Delta Path
+			 * @description Path to delta file
+			 */
+			delta_path?: string | null;
+			/**
+			 * Deployed Contract
+			 * @description Deployed contract object or dict
+			 */
+			deployed_contract?: unknown | null;
+			/**
+			 * Hold Id
+			 * @description Steward hold identifier if resolving hold
+			 */
+			hold_id?: string | null;
+			/**
+			 * Proposal Id
+			 * @description Proposal identifier
+			 */
+			proposal_id?: string | null;
+			/**
+			 * Rejected Op Ids
+			 * @description List of explicitly rejected operation IDs
+			 */
+			rejected_op_ids?: string[] | null;
+			/**
+			 * Run Id
+			 * @description Pipeline run identifier if attached to run
+			 */
+			run_id?: string | null;
+			/**
+			 * Steward Notes
+			 * @description Steward rationale notes
+			 * @default
+			 */
+			steward_notes: string;
+		};
+		/**
+		 * OntologyDecisionResponse
+		 * @description Response DTO for an ontology decision action.
+		 */
+		OntologyDecisionResponse: {
+			/** @description Recorded ontology decision record */
+			decision: components["schemas"]["OntologyDecision"];
+			/**
+			 * Resulting Ontology Sha256
+			 * @description CAS SHA-256 digest of resulting Graph A vN+1
+			 */
+			resulting_ontology_sha256?: string | null;
+			/**
+			 * Resulting Ontology Version
+			 * @description Target version string of Graph A vN+1
+			 */
+			resulting_ontology_version?: string | null;
+			/**
+			 * Resulting Ontology Yaml
+			 * @description Serialized Graph A vN+1 YAML content if ACCEPT
+			 */
+			resulting_ontology_yaml?: string | null;
+			/**
+			 * Status
+			 * @description Status label
+			 * @default COMPLETED
+			 */
+			status: string;
+			/** @description Validation result if delta validation was performed */
+			validation?: components["schemas"]["OntologyValidationResult"] | null;
+		};
+		/**
 		 * OntologyDelta
 		 * @description Ordered collection of additive operations evolving Graph A to vN+1.
 		 */
@@ -1961,6 +2271,264 @@ export interface components {
 			 * @default 1.1.0
 			 */
 			target_ontology_version: string;
+		};
+		/**
+		 * OntologyDiff
+		 * @description Structural delta between two Graph A ontology instances.
+		 */
+		OntologyDiff: {
+			/**
+			 * Added Concepts
+			 * @description Added concept URNs
+			 */
+			added_concepts?: string[];
+			/**
+			 * Added Enumerations
+			 * @description Added reference enumeration URNs
+			 */
+			added_enumerations?: string[];
+			/**
+			 * Added Relationships
+			 * @description Added relationship URNs
+			 */
+			added_relationships?: string[];
+			/**
+			 * Base Sha256
+			 * @description Base ontology SHA-256
+			 */
+			base_sha256?: string | null;
+			/**
+			 * Base Version
+			 * @description Base ontology version
+			 * @default 1.0.0
+			 */
+			base_version: string;
+			/**
+			 * Breaking Changes
+			 * @description Detected breaking changes
+			 */
+			breaking_changes?: string[];
+			/**
+			 * Diagnostics
+			 * @description Informational diff diagnostics
+			 */
+			diagnostics?: string[];
+			/**
+			 * Refined Concepts
+			 * @description Concepts refined by definition or constraints
+			 */
+			refined_concepts?: string[];
+			/**
+			 * Target Sha256
+			 * @description Target ontology SHA-256
+			 */
+			target_sha256?: string | null;
+			/**
+			 * Target Version
+			 * @description Target ontology version
+			 * @default 1.1.0
+			 */
+			target_version: string;
+		};
+		/**
+		 * OntologyDiffRequest
+		 * @description Request DTO to compute structural diff between two Graph A ontologies.
+		 */
+		OntologyDiffRequest: {
+			/**
+			 * Base Ontology
+			 * @description Base Graph A ontology object or dict
+			 */
+			base_ontology?: unknown | null;
+			/**
+			 * Base Ontology Content
+			 * @description Inline base Graph A ontology YAML/JSON text
+			 */
+			base_ontology_content?: string | null;
+			/**
+			 * Base Ontology Path
+			 * @description Path to base Graph A ontology file
+			 */
+			base_ontology_path?: string | null;
+			/**
+			 * Target Ontology
+			 * @description Target Graph A ontology object or dict
+			 */
+			target_ontology?: unknown | null;
+			/**
+			 * Target Ontology Content
+			 * @description Inline target Graph A ontology YAML/JSON text
+			 */
+			target_ontology_content?: string | null;
+			/**
+			 * Target Ontology Path
+			 * @description Path to target Graph A ontology file
+			 */
+			target_ontology_path?: string | null;
+		};
+		/**
+		 * OntologyProposal
+		 * @description Advisory or blocking proposal emitted by an Ontology Recommender.
+		 */
+		OntologyProposal: {
+			/**
+			 * Base Ontology Sha256
+			 * @description SHA-256 of base ontology
+			 * @default
+			 */
+			base_ontology_sha256: string;
+			/**
+			 * Confidence Score
+			 * @description Aggregate proposal confidence score
+			 * @default 1
+			 */
+			confidence_score: number;
+			/**
+			 * Coverage After
+			 * @description Projected coverage ratio after
+			 */
+			coverage_after?: number | null;
+			/**
+			 * Coverage Before
+			 * @description Projected coverage ratio before
+			 */
+			coverage_before?: number | null;
+			/**
+			 * Created At Utc
+			 * @description UTC ISO-8601 creation timestamp
+			 * @default
+			 */
+			created_at_utc: string;
+			/** @description Proposed ontology delta */
+			delta: components["schemas"]["OntologyDelta"];
+			/**
+			 * Diagnostics
+			 * @description Advisory diagnostic messages
+			 */
+			diagnostics?: string[];
+			/**
+			 * Proposal Id
+			 * @description Unique proposal identifier
+			 */
+			proposal_id: string;
+			/**
+			 * Rationale
+			 * @description Overall business rationale for proposal
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Recommender Id
+			 * @description Recommender module ID
+			 * @default recommender-default
+			 */
+			recommender_id: string;
+			/**
+			 * Recommender Version
+			 * @description Recommender version
+			 * @default 1.0.0
+			 */
+			recommender_version: string;
+			/**
+			 * Wave Id
+			 * @description Optional pipeline wave identifier
+			 */
+			wave_id?: string | null;
+		};
+		/**
+		 * OntologySuggestionRequest
+		 * @description Request DTO to generate ontology proposal from source profiles or context docs (IP-1).
+		 */
+		OntologySuggestionRequest: {
+			/**
+			 * Base Ontology Content
+			 * @description Inline base Graph A ontology YAML/JSON text (Decision D1)
+			 */
+			base_ontology_content?: string | null;
+			/**
+			 * Base Ontology Path
+			 * @description Path to base Graph A ontology file
+			 */
+			base_ontology_path?: string | null;
+			/**
+			 * Base Ontology Sha256
+			 * @description CAS SHA-256 digest of base ontology
+			 */
+			base_ontology_sha256?: string | null;
+			/**
+			 * Bronze Source Content
+			 * @description Inline bronze source dataset content
+			 */
+			bronze_source_content?: string | null;
+			/**
+			 * Bronze Source Path
+			 * @description Path to bronze source dataset file
+			 */
+			bronze_source_path?: string | null;
+			/**
+			 * Business Context
+			 * @description Free-text business description or brief
+			 */
+			business_context?: string | null;
+			/**
+			 * Context Doc Content
+			 * @description Inline context document text
+			 */
+			context_doc_content?: string | null;
+			/**
+			 * Context Doc Path
+			 * @description Path to context document file
+			 */
+			context_doc_path?: string | null;
+			/**
+			 * Context Document Paths
+			 * @description Context document paths (glossary, policy)
+			 */
+			context_document_paths?: string[];
+			/**
+			 * Domain Namespace
+			 * @description Target domain namespace
+			 */
+			domain_namespace?: string | null;
+			/**
+			 * Empirical Profile Content
+			 * @description Inline empirical data profile JSON text
+			 */
+			empirical_profile_content?: string | null;
+			/**
+			 * Empirical Profile Path
+			 * @description Path to empirical data profile (Graph B) JSON file
+			 */
+			empirical_profile_path?: string | null;
+			/**
+			 * Focus
+			 * @description Focus areas: unmapped tables, columns, mentions
+			 */
+			focus?: string[];
+			/**
+			 * Mode
+			 * @description Recommender operation mode
+			 * @default DELTA
+			 * @enum {string}
+			 */
+			mode: "BOOTSTRAP" | "DELTA" | "HOLD_RESOLUTION";
+			/**
+			 * Recommender Id
+			 * @description Specific recommender plugin ID
+			 */
+			recommender_id?: string | null;
+			/**
+			 * Source Paths
+			 * @description Source dataset file paths
+			 */
+			source_paths?: string[];
+			/**
+			 * Source Profiles
+			 * @description Source empirical profiles (Graph B)
+			 */
+			source_profiles?: {
+				[key: string]: unknown;
+			}[];
 		};
 		/**
 		 * OntologySvgEdgeSpec
@@ -2028,6 +2596,81 @@ export interface components {
 			 * @description Y coordinate
 			 */
 			y: number;
+		};
+		/**
+		 * OntologyValidateDeltaRequest
+		 * @description Request DTO to deterministically validate an ontology delta (ONT-EVO-001..003).
+		 */
+		OntologyValidateDeltaRequest: {
+			/**
+			 * Base Ontology
+			 * @description Base Graph A ontology object or dict
+			 */
+			base_ontology?: unknown | null;
+			/**
+			 * Base Ontology Content
+			 * @description Inline base Graph A ontology YAML/JSON text
+			 */
+			base_ontology_content?: string | null;
+			/**
+			 * Base Ontology Path
+			 * @description Path to base Graph A ontology file
+			 */
+			base_ontology_path?: string | null;
+			/**
+			 * Contract Content
+			 * @description Inline deployed Data Vault contract YAML text
+			 */
+			contract_content?: string | null;
+			/**
+			 * Contract Path
+			 * @description Path to deployed Data Vault contract file
+			 */
+			contract_path?: string | null;
+			/** @description OntologyDelta object */
+			delta?: components["schemas"]["OntologyDelta"] | null;
+			/**
+			 * Delta Content
+			 * @description Inline delta JSON/YAML text (Decision D1)
+			 */
+			delta_content?: string | null;
+			/**
+			 * Delta Path
+			 * @description Path to delta file
+			 */
+			delta_path?: string | null;
+			/**
+			 * Deployed Contract
+			 * @description Deployed contract object or dict
+			 */
+			deployed_contract?: unknown | null;
+		};
+		/**
+		 * OntologyValidationResult
+		 * @description Validation report returned by validate_ontology_delta.
+		 */
+		OntologyValidationResult: {
+			/**
+			 * Diagnostics
+			 * @description Informational diagnostics
+			 */
+			diagnostics?: string[];
+			/**
+			 * Error Code
+			 * @description Primary error code if invalid
+			 */
+			error_code?: string | null;
+			/**
+			 * Valid
+			 * @description Whether the delta is valid
+			 * @default true
+			 */
+			valid: boolean;
+			/**
+			 * Violations
+			 * @description Validation violation messages
+			 */
+			violations?: string[];
 		};
 		/**
 		 * OntologyVizDTO
@@ -3515,6 +4158,138 @@ export interface operations {
 			};
 		};
 	};
+	record_ontology_decision_api_v1_ontology_decisions_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologyDecisionRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OntologyDecisionResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	diff_ontology_api_v1_ontology_diff_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologyDiffRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OntologyDiff"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	suggest_ontology_api_v1_ontology_suggestions_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologySuggestionRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OntologyProposal"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	validate_ontology_delta_api_v1_ontology_validate_delta_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologyValidateDeltaRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OntologyValidationResult"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
 	run_pipeline_api_v1_pipelines_runs_post: {
 		parameters: {
 			query?: never;
@@ -3837,6 +4612,39 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["ProjectRunDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	list_run_artifacts_api_v1_runs__run_id__artifacts_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				"X-OpenDV-Role"?: string | null;
+			};
+			path: {
+				run_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["RunArtifactDTO"][];
 				};
 			};
 			/** @description Validation Error */
