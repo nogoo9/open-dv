@@ -17,6 +17,13 @@ BANNED_IMPORTS: dict[str, set[str]] = {
         "opendv_platform_api",
         "httpx",
     },
+    # apps/opendv-cli/tests must never import platform API or web frameworks
+    "apps/opendv-cli/tests": {
+        "fastapi",
+        "starlette",
+        "opendv_platform_api",
+        "httpx",
+    },
     # apps/opendv-platform-api must never import direct engine packages or CLI
     "apps/opendv-platform-api/src": {
         "opendv_axi_verifier",
@@ -68,7 +75,9 @@ BANNED_IMPORTS: dict[str, set[str]] = {
 
 
 def get_imports(file_path: Path) -> list[tuple[int, str]]:
-    """Extract all import module names with line numbers from a Python file via AST."""
+    """Extract all import module names with line numbers from a Python file via AST,
+    including static imports and dynamic importlib / dunder calls.
+    """
     tree = ast.parse(file_path.read_text(encoding="utf-8"), filename=str(file_path))
     imports: list[tuple[int, str]] = []
     for node in ast.walk(tree):
@@ -77,6 +86,23 @@ def get_imports(file_path: Path) -> list[tuple[int, str]]:
                 imports.append((node.lineno, alias.name))
         elif isinstance(node, ast.ImportFrom) and node.module:
             imports.append((node.lineno, node.module))
+        elif isinstance(node, ast.Call) and (
+            (
+                isinstance(node.func, ast.Attribute)
+                and node.func.attr == "import_module"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            )
+            or (
+                isinstance(node.func, ast.Name)
+                and node.func.id in ("import_module", "__import__")
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            )
+        ):
+            imports.append((node.lineno, node.args[0].value))
     return imports
 
 
@@ -99,6 +125,5 @@ def test_import_contracts(target_rel_dir: str, banned: set[str]) -> None:
                 violations.append(f"{rel_path}:{lineno}: banned import '{mod}'")
 
     assert not violations, (
-        f"Layering contract violations detected in '{target_rel_dir}':\n"
-        + "\n".join(violations)
+        f"Layering contract violations detected in '{target_rel_dir}':\n" + "\n".join(violations)
     )

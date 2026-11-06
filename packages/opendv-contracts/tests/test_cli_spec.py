@@ -2,16 +2,58 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 from opendv_contracts.errors import ERROR_MAPPINGS
 from opendv_contracts.spec import (
+    CliSpec,
     load_cli_spec,
+    load_cli_spec_model,
     validate_cli_spec,
 )
+from opendv_service.cli_spec.generator import generate_cli_spec
 
 
 def test_cli_spec_schema_conformance() -> None:
     """Validate cli-spec.json against Draft 2020-12 cli-spec.schema.json."""
     validate_cli_spec()
+
+
+def test_cli_spec_freshness_against_generator() -> None:
+    """Assert committed cli-spec.json matches generator output bit-for-bit."""
+    spec_from_generator = generate_cli_spec()
+    expected_content = json.dumps(spec_from_generator, indent=2, ensure_ascii=False) + "\n"
+
+    # 1. Internal contracts package schema
+    pkg_schema_path = Path(__file__).resolve().parent.parent / "schemas" / "cli-spec.json"
+    assert pkg_schema_path.is_file(), f"Missing {pkg_schema_path}"
+    committed_content = pkg_schema_path.read_text(encoding="utf-8")
+    assert committed_content == expected_content, (
+        "Committed packages/opendv-contracts/schemas/cli-spec.json is stale! "
+        "Run `python -m opendv_service.export_cli_spec` to synchronize."
+    )
+
+    # 2. Canonical repo root schemas/v1/cli-spec.json
+    repo_root = pkg_schema_path.parent.parent.parent.parent
+    v1_schema_path = repo_root / "schemas" / "v1" / "cli-spec.json"
+    if v1_schema_path.is_file():
+        v1_content = v1_schema_path.read_text(encoding="utf-8")
+        assert v1_content == expected_content, (
+            "Committed schemas/v1/cli-spec.json is stale! "
+            "Run `python -m opendv_service.export_cli_spec` to synchronize."
+        )
+
+
+def test_cli_spec_typed_model_validation() -> None:
+    """Assert that cli-spec.json parses cleanly into typed Pydantic CliSpec model."""
+    spec_model = load_cli_spec_model()
+    assert isinstance(spec_model, CliSpec)
+    assert spec_model.spec_version == "1.0.0"
+    assert spec_model.contract_version == "1.0.0"
+    assert len(spec_model.commands) >= 7
+    assert len(spec_model.global_options) >= 5
+    assert len(spec_model.error_map) == len(ERROR_MAPPINGS)
 
 
 def test_cli_spec_commands_inventory() -> None:
@@ -30,13 +72,14 @@ def test_cli_spec_commands_inventory() -> None:
     pipeline_subcmds = {sub["name"] for sub in commands["pipeline"].get("subcommands", [])}
     assert {"validate", "run", "report"}.issubset(pipeline_subcmds)
 
-    # Verify run has subcommands list, get, create, abort, events
+    # Verify run has subcommands list, get, create, abort, events, explorer, artifact
     run_subcmds = {sub["name"] for sub in commands["run"].get("subcommands", [])}
-    assert {"list", "get", "create", "abort", "events"}.issubset(run_subcmds)
+    expected_run = {"list", "get", "create", "abort", "events", "explorer", "artifact"}
+    assert expected_run.issubset(run_subcmds)
 
-    # Verify hold has subcommands list, approve, reject, answer
+    # Verify hold has subcommands decide, list, approve, reject, answer
     hold_subcmds = {sub["name"] for sub in commands["hold"].get("subcommands", [])}
-    assert {"list", "approve", "reject", "answer"}.issubset(hold_subcmds)
+    assert {"decide", "list", "approve", "reject", "answer"}.issubset(hold_subcmds)
 
 
 def test_cli_spec_error_map_completeness() -> None:

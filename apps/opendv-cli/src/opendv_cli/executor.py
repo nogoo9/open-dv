@@ -255,6 +255,23 @@ class LocalExecutor(CommandExecutor):
                 "event_count": len(events),
                 "events": events,
             }
+        if action == "explorer":
+            wave_id = getattr(args, "wave_id", None)
+            bundle = self.service.get_explorer_bundle(run_id, wave_id=wave_id, role=role_raw)
+            payload = bundle.model_dump(mode="json")
+            payload["mode"] = "local"
+            return 0, payload
+        if action == "artifact":
+            artifact_id = getattr(args, "artifact_id", None)
+            if not artifact_id:
+                return 2, {
+                    "status": "ERROR",
+                    "error": "--artifact-id is required for 'run artifact'",
+                }
+            artifact = self.service.get_run_artifact(run_id, artifact_id, role=role_raw)
+            payload = artifact.model_dump(mode="json")
+            payload["mode"] = "local"
+            return 0, payload
         payload = self.service.get_run(run_id).model_dump(mode="json")
         payload["mode"] = "local"
         return 0, payload
@@ -272,8 +289,10 @@ class LocalExecutor(CommandExecutor):
 
         hold_id: str | None = getattr(args, "hold_id", None)
         event_id: str | None = getattr(args, "event_id", None)
+        action_arg = getattr(args, "action", None)
         decision_val = (
-            getattr(args, "decision", None)
+            action_arg
+            or getattr(args, "decision", None)
             or (action if action in {"APPROVE", "REJECT", "ANSWER"} else "APPROVE")
         ).upper()
         if decision_val == "RESOLVE":
