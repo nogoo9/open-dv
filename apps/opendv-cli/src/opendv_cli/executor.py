@@ -88,19 +88,9 @@ class LocalExecutor(CommandExecutor):
             run_id=getattr(args, "run_id", None),
         )
         resp = self.service.verify_pipeline(req)
-        verdict_str = resp.verdict.value if hasattr(resp.verdict, "value") else str(resp.verdict)
-        return (0 if resp.overall_passed else 1), {
-            "mode": "local",
-            "run_id": resp.run_id,
-            "status": resp.status,
-            "verdict": verdict_str,
-            "overall_passed": resp.overall_passed,
-            "contract_path": resp.contract_path,
-            "applied_codemods": list(resp.applied_codemods),
-            "diagnostics": list(resp.diagnostics),
-            "toon_text": resp.toon_text,
-            "gate_scorecard": resp.gate_scorecard.model_dump(mode="json"),
-        }
+        payload = resp.model_dump(mode="json")
+        payload["mode"] = "local"
+        return (0 if resp.overall_passed else 1), payload
 
     # 2. profile
     def _execute_profile(self, args: argparse.Namespace) -> tuple[int, Any]:
@@ -131,27 +121,15 @@ class LocalExecutor(CommandExecutor):
             table_name=getattr(args, "table_name", None),
         )
         resp = self.service.profile_pipeline(req)
-        base: dict[str, Any] = {
-            "mode": "local",
-            "project_id": project_id,
-            "status": "PASS",
-            "profile_id": resp.profile_id,
-            "table_count": resp.table_count,
-            "column_count": resp.column_count,
-        }
-        if target_source or source_csv:
-            base.update(
-                {
-                    "source_system": resp.source_system,
-                    "table_name": resp.table_name,
-                    "source_path": resp.source_path,
-                    "source_csv_path": resp.source_path,
-                    "graph_b_profile": resp.graph_b_profile,
-                }
-            )
-        else:
-            base["graph_b_path"] = resp.source_path
-        return 0, base
+        payload = resp.model_dump(mode="json")
+        payload["mode"] = "local"
+        if project_id is not None:
+            payload["project_id"] = project_id
+        if getattr(resp, "source_path", None):
+            payload["source_csv_path"] = resp.source_path
+            if not (target_source or source_csv):
+                payload["graph_b_path"] = resp.source_path
+        return 0, payload
 
     # 3. compile
     def _execute_compile(self, args: argparse.Namespace) -> tuple[int, Any]:
@@ -165,19 +143,9 @@ class LocalExecutor(CommandExecutor):
             run_id=getattr(args, "run_id", None),
         )
         resp = self.service.compile_pipeline(req)
-        return 0, {
-            "mode": "local",
-            "run_id": resp.run_id,
-            "status": resp.status,
-            "contract_path": resp.contract_path,
-            "canonical_ir_path": resp.canonical_ir_path,
-            "canonical_ir_sha256": resp.canonical_ir_sha256,
-            "hubs_compiled": resp.hubs_compiled,
-            "links_compiled": resp.links_compiled,
-            "satellites_compiled": resp.satellites_compiled,
-            "topological_load_order": resp.topological_load_order,
-            "sql_zones": resp.sql_zones,
-        }
+        payload = resp.model_dump(mode="json")
+        payload["mode"] = "local"
+        return 0, payload
 
     # 4. sandbox
     def _execute_sandbox(self, args: argparse.Namespace) -> tuple[int, Any]:
@@ -203,31 +171,18 @@ class LocalExecutor(CommandExecutor):
                 assertion_cutoff_ts=cutoff,
             )
         )
-        result: dict[str, Any] = {
-            "mode": "local",
-            "run_id": resp.run_id,
-            "query_type": resp.query_type,
-            "assertion_cutoff_ts": resp.assertion_cutoff_ts,
-            "all_batches_passed": resp.all_batches_passed,
-            "batch_verdicts": resp.batch_verdicts,
-            "batch_report": {
-                "all_passed": resp.all_batches_passed,
-                "batches": [b.model_dump(mode="json") for b in resp.batches],
-            },
-            "dynamic_check_report": {
-                "passed_count": resp.dynamic_rules_passed,
-                "failed_count": resp.dynamic_rules_total - resp.dynamic_rules_passed,
-                "checks": resp.rows if resp.query_type == "VERIFY_DYN_001_015" else [],
-            },
-            "dynamic_rules_passed": resp.dynamic_rules_passed,
-            "dynamic_rules_total": resp.dynamic_rules_total,
-            "replay_delta_rows": resp.replay_delta_rows,
-            "row_count": resp.row_count,
-            "rows": resp.rows,
-            "query_d10_rows": resp.query_d10_rows,
-            "query_d10b_rows": resp.query_d10b_rows,
+        payload = resp.model_dump(mode="json")
+        payload["mode"] = "local"
+        payload["batch_report"] = {
+            "all_passed": resp.all_batches_passed,
+            "batches": [b.model_dump(mode="json") for b in resp.batches],
         }
-        return (0 if resp.all_batches_passed else 1), result
+        payload["dynamic_check_report"] = {
+            "passed_count": resp.dynamic_rules_passed,
+            "failed_count": resp.dynamic_rules_total - resp.dynamic_rules_passed,
+            "checks": resp.rows if resp.query_type == "VERIFY_DYN_001_015" else [],
+        }
+        return (0 if resp.all_batches_passed else 1), payload
 
     # 5. run
     def _execute_run(self, args: argparse.Namespace) -> tuple[int, Any]:
@@ -248,12 +203,16 @@ class LocalExecutor(CommandExecutor):
             created = self.service.create_run(
                 CreateRunRequest(project_id=project_id, harness_provider=harness)
             )
-            return 0, created.model_dump(mode="json")
+            payload = created.model_dump(mode="json")
+            payload["mode"] = "local"
+            return 0, payload
 
         if not run_id:
             return 2, {"status": "ERROR", "error": f"--run-id is required for 'run {action}'"}
         if action == "abort":
-            return 0, self.service.abort_run(run_id).model_dump(mode="json")
+            payload = self.service.abort_run(run_id).model_dump(mode="json")
+            payload["mode"] = "local"
+            return 0, payload
         if action == "events":
             last_event_id: str | None = getattr(args, "last_event_id", None)
             raw_events = self.service.state.run_events.get(run_id, [])
@@ -272,7 +231,9 @@ class LocalExecutor(CommandExecutor):
                 "event_count": len(events),
                 "events": events,
             }
-        return 0, self.service.get_run(run_id).model_dump(mode="json")
+        payload = self.service.get_run(run_id).model_dump(mode="json")
+        payload["mode"] = "local"
+        return 0, payload
 
     # 6. hold
     def _execute_hold(self, args: argparse.Namespace) -> tuple[int, Any]:
@@ -316,7 +277,9 @@ class LocalExecutor(CommandExecutor):
             steward_id=getattr(args, "steward_id", None) or "steward-cli",
         )
         resp = self.service.resolve_captain_hold(run_id, req)
-        return 0, resp.model_dump(mode="json")
+        payload = resp.model_dump(mode="json")
+        payload["mode"] = "local"
+        return 0, payload
 
     # 7. pipeline
     def _execute_pipeline(self, args: argparse.Namespace) -> tuple[int, Any]:
@@ -335,7 +298,9 @@ class LocalExecutor(CommandExecutor):
                 steward_hold_policy=getattr(args, "hold_policy", None),
             )
             res = self.service.validate_pipeline(val_req)
-            return (0 if res.get("passed", False) else 1), res
+            payload = res.model_dump(mode="json") if hasattr(res, "model_dump") else dict(res)
+            payload["mode"] = "local"
+            return (0 if payload.get("passed", False) else 1), payload
 
         if action == "run":
             role_raw = getattr(args, "role", None) or "INTERNAL_MODELER"
@@ -395,7 +360,9 @@ class LocalExecutor(CommandExecutor):
                 on_stream_event=_on_tok if (stream_enabled and tokens_enabled) else None,
             )
             passed = bool(res.get("overall_passed", False)) or (res.get("status") == "PAUSED_HOLD")
-            return (0 if passed else 1), res
+            payload = dict(res)
+            payload["mode"] = "local"
+            return (0 if passed else 1), payload
 
         # action == "report"
         run_id: str | None = getattr(args, "run_id", None)
@@ -414,11 +381,14 @@ class LocalExecutor(CommandExecutor):
             d["observability_events"] = [
                 redact_event_for_role(ev, eff_role) for ev in d.get("observability_events", [])
             ]
+            d["mode"] = "local"
             return 0, d
 
         assert run_id is not None
         rep = self.service.get_pipeline_report(run_id, role=eff_role)
-        return 0, rep
+        payload = dict(rep)
+        payload["mode"] = "local"
+        return 0, payload
 
 
 __all__ = ["LocalExecutor"]

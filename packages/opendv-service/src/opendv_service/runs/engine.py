@@ -162,12 +162,15 @@ class RunExecutionEngine:
                     term_stat = (
                         final_status.value if hasattr(final_status, "value") else str(final_status)
                     )
+                    is_hold = term_stat == "PAUSED_HOLD" or final_status == RunStatus.PAUSED_HOLD
                     terminal_event = {
-                        "event_id": f"evt-{run_id}-complete",
+                        "event_id": f"evt-{run_id}-hold" if is_hold else f"evt-{run_id}-complete",
                         "run_id": run_id,
                         "timestamp_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                        "stage_id": "STAGE_07_CERTIFICATION",
-                        "event_type": "run_complete",
+                        "stage_id": (
+                            "STAGE_02_SCOUT_UNSTRUCTURED" if is_hold else "STAGE_07_CERTIFICATION"
+                        ),
+                        "event_type": "hold" if is_hold else "run_complete",
                         "payload": {"status": term_stat},
                     }
                     context.event_buffer.append(terminal_event)

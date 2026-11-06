@@ -8,6 +8,7 @@ from typing import Any
 
 from opendv_cli.executor import LocalExecutor
 from opendv_cli_common import (
+    CommandExecutor,
     build_argument_parser,
     present_result,
     print_jcs,
@@ -54,9 +55,9 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
 def _dispatch(
     args: argparse.Namespace,
     *,
-    executor: LocalExecutor | None = None,
+    executor: CommandExecutor | None = None,
 ) -> int:
-    """Dispatch parsed CLI arguments to LocalExecutor and format output."""
+    """Dispatch parsed CLI arguments to LocalExecutor (or provided executor) and format output."""
     try:
         sub = getattr(args, "subcommand", None) or "verify"
         exec_inst = executor or LocalExecutor()
@@ -81,7 +82,7 @@ def _dispatch(
 def app_main(
     argv: list[str] | None = None,
     *,
-    executor: LocalExecutor | None = None,
+    executor: CommandExecutor | None = None,
     **kwargs: Any,
 ) -> int:
     """Primary entrypoint for the `opendv` standalone in-process CLI binary."""
@@ -110,7 +111,7 @@ def app_main(
 def axi_dv_main(
     argv: list[str] | None = None,
     *,
-    executor: LocalExecutor | None = None,
+    executor: CommandExecutor | None = None,
     **kwargs: Any,
 ) -> int:
     """Entrypoint for the `axi-dv` verification CLI binary (alias for `opendv verify`)."""
