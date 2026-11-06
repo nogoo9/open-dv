@@ -500,6 +500,134 @@ opendv hold answer --help
 opendvctl hold answer --api-url $OPENDV_API_URL --json
 ```
 
+### `opendv ontology` / `opendvctl ontology`
+
+**Availability:** *(Both CLIs)*  
+**Description:** Manage and evolve enterprise Business Concept ontologies (Graph A), proposals, and deltas  
+**Summary:** Manage Graph A ontology suggestions, deltas, diffs, and decisions
+
+#### Subcommands of `ontology`
+
+##### `ontology suggest` *(Both CLIs)*
+
+Generate an additive ontology evolution proposal for Graph A from source data profiles (IP-1)
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--base` | `-b` | `path` | No | — | Yes | Path to base Graph A ontology YAML/JSON file |
+| `--profile` | `-p` | `path` | No | — | Yes | Path to empirical Graph B data profile JSON file |
+| `--source` | `-s` | `path` | No | — | Yes | Path to bronze source dataset file |
+| `--context-doc` | `-c` | `path` | No | — | Yes | Path to business context document (e.g. glossary, dictionary, policy) |
+| `--mode` | `-m` | `string` | No | `DELTA` | No | Recommender operation mode (BOOTSTRAP without base ontology, or DELTA) |
+| `--domain-namespace` | — | `string` | No | — | No | Target domain namespace |
+| `--recommender-id` | — | `string` | No | — | No | Identifier of specific ontology recommender plugin to use |
+| `--output` | `-o` | `path` | No | — | No | Path to write output proposal JSON |
+
+- **Request DTO:** `OntologySuggestionRequest`
+- **Response DTO:** `OntologyProposal`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology suggest --help
+
+# Client execution
+opendvctl ontology suggest --api-url $OPENDV_API_URL --json
+```
+
+##### `ontology validate-delta` *(Both CLIs)*
+
+Deterministically validate an additive ontology delta against deployed contract and base Graph A (ONT-EVO-001..003)
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--delta` | `-d` | `path` | Yes | — | Yes | Path to OntologyDelta JSON/YAML file to validate |
+| `--base` | `-b` | `path` | Yes | — | Yes | Path to base Graph A ontology YAML/JSON file |
+| `--contract` | `-c` | `path` | No | — | Yes | Path to deployed Data Vault contract YAML file |
+
+- **Request DTO:** `OntologyValidateDeltaRequest`
+- **Response DTO:** `OntologyValidationResult`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology validate-delta --help
+
+# Client execution
+opendvctl ontology validate-delta --api-url $OPENDV_API_URL --json
+```
+
+##### `ontology diff` *(Both CLIs)*
+
+Compute structural diff between two Graph A ontologies (additions, refinements, breaking changes)
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--base` | `-b` | `path` | Yes | — | Yes | Path to base Graph A ontology YAML/JSON file |
+| `--target` | `-t` | `path` | Yes | — | Yes | Path to target Graph A ontology YAML/JSON file |
+
+- **Request DTO:** `OntologyDiffRequest`
+- **Response DTO:** `OntologyDiff`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology diff --help
+
+# Client execution
+opendvctl ontology diff --api-url $OPENDV_API_URL --json
+```
+
+##### `ontology accept` *(Both CLIs)*
+
+Apply accepted delta operations to a base ontology, generate Graph A vN+1 with CAS lineage, and record decision
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--delta` | `-d` | `path` | Yes | — | Yes | Path to OntologyDelta JSON/YAML file |
+| `--base` | `-b` | `path` | Yes | — | Yes | Path to base Graph A ontology YAML/JSON file |
+| `--contract` | `-c` | `path` | No | — | Yes | Path to deployed Data Vault contract YAML file |
+| `--op-id` | — | `string` | No | — | No | Specific operation ID to accept (can be repeated or comma-separated) |
+| `--decided-by` | — | `string` | No | `steward` | No | Identifier of the decision maker (e.g. 'steward' or policy name) |
+| `--notes` | `-n` | `string` | No | `` | No | Steward decision rationale notes |
+| `--output` | `-o` | `path` | No | — | No | Path to write resulting Graph A vN+1 YAML file |
+
+- **Request DTO:** `OntologyDecisionRequest`
+- **Response DTO:** `OntologyDecisionResponse`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology accept --help
+
+# Client execution
+opendvctl ontology accept --api-url $OPENDV_API_URL --json
+```
+
+##### `ontology reject` *(Both CLIs)*
+
+Record steward rejection of an ontology delta
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--delta` | `-d` | `path` | No | — | Yes | Path to OntologyDelta JSON/YAML file |
+| `--proposal-id` | `-p` | `string` | No | — | No | Proposal identifier being rejected |
+| `--base` | `-b` | `path` | No | — | Yes | Path to base Graph A ontology YAML/JSON file |
+| `--decided-by` | — | `string` | No | `steward` | No | Identifier of the decision maker |
+| `--notes` | `-n` | `string` | No | `` | No | Steward rejection rationale notes |
+
+- **Request DTO:** `OntologyDecisionRequest`
+- **Response DTO:** `OntologyDecisionResponse`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology reject --help
+
+# Client execution
+opendvctl ontology reject --api-url $OPENDV_API_URL --json
+```
+
 ---
 
 ## 4. Exit Codes & Error Mapping
@@ -532,6 +660,7 @@ Both CLIs adhere to normative exit code standards across all failure scenarios:
 | `PROVIDER_CONFIG_ERROR` | `2` | `422` | Provider Configuration Error | `urn:opendv:provider-config-error` |
 | `DETERMINISTIC_PROVIDER_REJECTED` | `2` | `422` | Deterministic Provider Prohibited | `urn:opendv:deterministic-rejected` |
 | `CONTRACT_VERSION_MISMATCH` | `2` | `422` | Contract Version Mismatch | `urn:opendv:version-mismatch` |
+| `ONTOLOGY_RECOMMENDER_UNAVAILABLE` | `2` | `422` | Ontology Recommender Unavailable | `urn:opendv:ontology-recommender-unavailable` |
 | `CAS_INTEGRITY_FAILURE` | `2` | `500` | CAS Digest Integrity Failure | `urn:opendv:cas-integrity-failure` |
 | `INTERNAL_ERROR` | `2` | `500` | Internal Server Error | `urn:opendv:internal-error` |
 | `API_UNREACHABLE` | `2` | `503` | API Service Unreachable | `urn:opendv:api-unreachable` |

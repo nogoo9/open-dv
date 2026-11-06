@@ -42,6 +42,7 @@ class ErrorCode(StrEnum):
     PROVIDER_CONFIG_ERROR = "PROVIDER_CONFIG_ERROR"
     DETERMINISTIC_PROVIDER_REJECTED = "DETERMINISTIC_PROVIDER_REJECTED"
     CONTRACT_VERSION_MISMATCH = "CONTRACT_VERSION_MISMATCH"
+    ONTOLOGY_RECOMMENDER_UNAVAILABLE = "ONTOLOGY_RECOMMENDER_UNAVAILABLE"
 
     # 2 Exit / 500 Internal Error
     CAS_INTEGRITY_FAILURE = "CAS_INTEGRITY_FAILURE"
@@ -215,6 +216,13 @@ ERROR_MAPPINGS: dict[ErrorCode, ErrorMappingEntry] = {
         http_status=422,
         problem_title="Contract Version Mismatch",
         problem_type_uri="urn:opendv:version-mismatch",
+    ),
+    ErrorCode.ONTOLOGY_RECOMMENDER_UNAVAILABLE: ErrorMappingEntry(
+        error_code=ErrorCode.ONTOLOGY_RECOMMENDER_UNAVAILABLE,
+        exit_code=2,
+        http_status=422,
+        problem_title="Ontology Recommender Unavailable",
+        problem_type_uri="urn:opendv:ontology-recommender-unavailable",
     ),
     ErrorCode.CAS_INTEGRITY_FAILURE: ErrorMappingEntry(
         error_code=ErrorCode.CAS_INTEGRITY_FAILURE,

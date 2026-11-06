@@ -305,3 +305,177 @@ class OntologyValidationResult(BaseContractModel):
 
 
 ValidationResult = OntologyValidationResult
+
+
+class OntologySuggestionRequest(BaseContractModel):
+    """Request DTO to generate ontology proposal from source profiles or context docs (IP-1)."""
+
+    mode: Literal["BOOTSTRAP", "DELTA", "HOLD_RESOLUTION"] = Field(
+        default="DELTA", description="Recommender operation mode"
+    )
+    domain_namespace: str | None = Field(
+        default=None, description="Target domain namespace"
+    )
+    base_ontology_path: str | None = Field(
+        default=None, description="Path to base Graph A ontology file"
+    )
+    base_ontology_content: str | None = Field(
+        default=None, description="Inline base Graph A ontology YAML/JSON text (Decision D1)"
+    )
+    base_ontology_sha256: str | None = Field(
+        default=None, description="CAS SHA-256 digest of base ontology"
+    )
+    source_paths: list[str] = Field(
+        default_factory=list, description="Source dataset file paths"
+    )
+    bronze_source_path: str | None = Field(
+        default=None, description="Path to bronze source dataset file"
+    )
+    bronze_source_content: str | None = Field(
+        default=None, description="Inline bronze source dataset content"
+    )
+    source_profiles: list[dict[str, Any]] = Field(
+        default_factory=list, description="Source empirical profiles (Graph B)"
+    )
+    empirical_profile_path: str | None = Field(
+        default=None, description="Path to empirical data profile (Graph B) JSON file"
+    )
+    empirical_profile_content: str | None = Field(
+        default=None, description="Inline empirical data profile JSON text"
+    )
+    context_document_paths: list[str] = Field(
+        default_factory=list, description="Context document paths (glossary, policy)"
+    )
+    context_doc_path: str | None = Field(
+        default=None, description="Path to context document file"
+    )
+    context_doc_content: str | None = Field(
+        default=None, description="Inline context document text"
+    )
+    business_context: str | None = Field(
+        default=None, description="Free-text business description or brief"
+    )
+    focus: list[str] = Field(
+        default_factory=list, description="Focus areas: unmapped tables, columns, mentions"
+    )
+    recommender_id: str | None = Field(
+        default=None, description="Specific recommender plugin ID"
+    )
+
+
+class OntologyValidateDeltaRequest(BaseContractModel):
+    """Request DTO to deterministically validate an ontology delta (ONT-EVO-001..003)."""
+
+    delta: OntologyDelta | None = Field(default=None, description="OntologyDelta object")
+    delta_path: str | None = Field(default=None, description="Path to delta file")
+    delta_content: str | None = Field(
+        default=None, description="Inline delta JSON/YAML text (Decision D1)"
+    )
+    base_ontology: Any | None = Field(
+        default=None, description="Base Graph A ontology object or dict"
+    )
+    base_ontology_path: str | None = Field(
+        default=None, description="Path to base Graph A ontology file"
+    )
+    base_ontology_content: str | None = Field(
+        default=None, description="Inline base Graph A ontology YAML/JSON text"
+    )
+    contract_path: str | None = Field(
+        default=None, description="Path to deployed Data Vault contract file"
+    )
+    contract_content: str | None = Field(
+        default=None, description="Inline deployed Data Vault contract YAML text"
+    )
+    deployed_contract: Any | None = Field(
+        default=None, description="Deployed contract object or dict"
+    )
+
+
+class OntologyDiffRequest(BaseContractModel):
+    """Request DTO to compute structural diff between two Graph A ontologies."""
+
+    base_ontology: Any | None = Field(
+        default=None, description="Base Graph A ontology object or dict"
+    )
+    base_ontology_path: str | None = Field(
+        default=None, description="Path to base Graph A ontology file"
+    )
+    base_ontology_content: str | None = Field(
+        default=None, description="Inline base Graph A ontology YAML/JSON text"
+    )
+    target_ontology: Any | None = Field(
+        default=None, description="Target Graph A ontology object or dict"
+    )
+    target_ontology_path: str | None = Field(
+        default=None, description="Path to target Graph A ontology file"
+    )
+    target_ontology_content: str | None = Field(
+        default=None, description="Inline target Graph A ontology YAML/JSON text"
+    )
+
+
+class OntologyDecisionRequest(BaseContractModel):
+    """Request DTO to record a steward decision and apply/reject an ontology delta."""
+
+    action: Literal["ACCEPT", "REJECT"] = Field(
+        default="ACCEPT", description="Decision action: ACCEPT or REJECT"
+    )
+    delta: OntologyDelta | None = Field(default=None, description="OntologyDelta object")
+    delta_path: str | None = Field(default=None, description="Path to delta file")
+    delta_content: str | None = Field(
+        default=None, description="Inline delta JSON/YAML text (Decision D1)"
+    )
+    proposal_id: str | None = Field(default=None, description="Proposal identifier")
+    base_ontology: Any | None = Field(
+        default=None, description="Base Graph A ontology object or dict"
+    )
+    base_ontology_path: str | None = Field(
+        default=None, description="Path to base Graph A ontology file"
+    )
+    base_ontology_content: str | None = Field(
+        default=None, description="Inline base Graph A ontology YAML/JSON text"
+    )
+    contract_path: str | None = Field(
+        default=None, description="Path to deployed Data Vault contract file"
+    )
+    contract_content: str | None = Field(
+        default=None, description="Inline deployed Data Vault contract YAML text"
+    )
+    deployed_contract: Any | None = Field(
+        default=None, description="Deployed contract object or dict"
+    )
+    accepted_op_ids: list[str] | None = Field(
+        default=None, description="List of accepted operation IDs (None = accept all)"
+    )
+    rejected_op_ids: list[str] | None = Field(
+        default=None, description="List of explicitly rejected operation IDs"
+    )
+    decided_by: str = Field(default="steward", description="Decision maker identifier")
+    steward_notes: str = Field(default="", description="Steward rationale notes")
+    run_id: str | None = Field(
+        default=None, description="Pipeline run identifier if attached to run"
+    )
+    hold_id: str | None = Field(
+        default=None, description="Steward hold identifier if resolving hold"
+    )
+
+
+class OntologyDecisionResponse(BaseContractModel):
+    """Response DTO for an ontology decision action."""
+
+    status: str = Field(default="COMPLETED", description="Status label")
+    decision: OntologyDecision = Field(
+        ..., description="Recorded ontology decision record"
+    )
+    resulting_ontology_yaml: str | None = Field(
+        default=None, description="Serialized Graph A vN+1 YAML content if ACCEPT"
+    )
+    resulting_ontology_sha256: str | None = Field(
+        default=None, description="CAS SHA-256 digest of resulting Graph A vN+1"
+    )
+    resulting_ontology_version: str | None = Field(
+        default=None, description="Target version string of Graph A vN+1"
+    )
+    validation: OntologyValidationResult | None = Field(
+        default=None, description="Validation result if delta validation was performed"
+    )

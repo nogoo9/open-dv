@@ -12,6 +12,14 @@ from opendv_contracts import (
     CompileResponse,
     ErrorCode,
     ExplorerBundleDTO,
+    OntologyDecisionRequest,
+    OntologyDecisionResponse,
+    OntologyDiff,
+    OntologyDiffRequest,
+    OntologyProposal,
+    OntologySuggestionRequest,
+    OntologyValidateDeltaRequest,
+    OntologyValidationResult,
     PipelineEvent,
     PipelineRunHandle,
     ProfileRequest,
@@ -47,8 +55,19 @@ from opendv_service.settings import OpenDVSettings
 from opendv_service.state import StateStore
 from opendv_service.use_cases.artifacts import get_artifact, store_artifact
 from opendv_service.use_cases.compile import compile_pipeline
-from opendv_service.use_cases.explorer import get_explorer_bundle, get_run_artifact
+from opendv_service.use_cases.explorer import (
+    get_explorer_bundle,
+    get_run_artifact,
+    list_run_artifacts,
+)
 from opendv_service.use_cases.holds import list_holds, resolve_hold
+from opendv_service.use_cases.ontology import (
+    execute_ontology_decision,
+    execute_ontology_diff,
+    execute_validate_delta,
+    suggest_ontology_async,
+    suggest_ontology_sync,
+)
 from opendv_service.use_cases.pipeline import (
     execute_pipeline_run_sync,
     stream_events,
@@ -127,6 +146,7 @@ class OpenDVService:
             "pipeline",
             "run",
             "hold",
+            "ontology",
         ]
 
     # 1. Profiling
@@ -701,5 +721,96 @@ class OpenDVService:
         """Retrieve a run-isolated artifact with lowercase 64-hex CAS hash and RBAC redaction."""
         return get_run_artifact(self.state, run_id, artifact_id, role=role)
 
+    def list_run_artifacts(
+        self,
+        run_id: str,
+        *,
+        role: RbacRole | str = RbacRole.PUBLIC,
+    ) -> list[RunArtifactDTO]:
+        """List all run-isolated artifacts for a run with RBAC redaction and CAS digest."""
+        return list_run_artifacts(self.state, run_id, role=role)
+
+    # 17. Ontology Seams & Recommenders (IP-1, IP-6, Phase P7)
+    def suggest_ontology(
+        self,
+        request: OntologySuggestionRequest | dict[str, Any],
+    ) -> OntologyProposal:
+        """Synchronously suggest ontology proposals from candidate sources."""
+        req_obj = (
+            request
+            if isinstance(request, OntologySuggestionRequest)
+            else OntologySuggestionRequest.model_validate(request)
+        )
+        return suggest_ontology_sync(
+            self.state,
+            req_obj,
+            workspace_root=self.workspace_root,
+        )
+
+    async def suggest_ontology_async(
+        self,
+        request: OntologySuggestionRequest | dict[str, Any],
+    ) -> OntologyProposal:
+        """Asynchronously suggest ontology proposals from candidate sources."""
+        req_obj = (
+            request
+            if isinstance(request, OntologySuggestionRequest)
+            else OntologySuggestionRequest.model_validate(request)
+        )
+        return await suggest_ontology_async(
+            self.state,
+            req_obj,
+            workspace_root=self.workspace_root,
+        )
+
+    def validate_ontology_delta(
+        self,
+        request: OntologyValidateDeltaRequest | dict[str, Any],
+    ) -> OntologyValidationResult:
+        """Validate an ontology delta against Graph A evolution locks."""
+        req_obj = (
+            request
+            if isinstance(request, OntologyValidateDeltaRequest)
+            else OntologyValidateDeltaRequest.model_validate(request)
+        )
+        return execute_validate_delta(
+            self.state,
+            req_obj,
+            workspace_root=self.workspace_root,
+        )
+
+    def diff_ontology(
+        self,
+        request: OntologyDiffRequest | dict[str, Any],
+    ) -> OntologyDiff:
+        """Compute structural diff between two Graph A ontologies."""
+        req_obj = (
+            request
+            if isinstance(request, OntologyDiffRequest)
+            else OntologyDiffRequest.model_validate(request)
+        )
+        return execute_ontology_diff(
+            self.state,
+            req_obj,
+            workspace_root=self.workspace_root,
+        )
+
+    def decide_ontology(
+        self,
+        request: OntologyDecisionRequest | dict[str, Any],
+    ) -> OntologyDecisionResponse:
+        """Record steward decision on an ontology proposal and apply delta if accepted."""
+        req_obj = (
+            request
+            if isinstance(request, OntologyDecisionRequest)
+            else OntologyDecisionRequest.model_validate(request)
+        )
+        return execute_ontology_decision(
+            self.state,
+            req_obj,
+            workspace_root=self.workspace_root,
+        )
+
 
 __all__ = ["OpenDVService"]
+

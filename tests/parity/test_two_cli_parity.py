@@ -49,8 +49,8 @@ def test_dump_cli_tree_canonical_equality(
     assert py_tree["spec_version"] == ts_tree["spec_version"]
     assert py_tree["contract_version"] == ts_tree["contract_version"]
 
-    # 4. Error maps: all 22 domain error codes must match bit-for-bit
-    assert len(py_tree["error_map"]) == 22
+    # 4. Error maps: all 23 domain error codes must match bit-for-bit
+    assert len(py_tree["error_map"]) == 23
     assert dumps_jcs(py_tree["error_map"]) == dumps_jcs(ts_tree["error_map"])
 
     # 5. Global options: client CLI injects --api-url; shared options match

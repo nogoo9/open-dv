@@ -326,8 +326,8 @@ def test_jcs_deep_nesting_and_roundtrip() -> None:
 
 
 def test_error_code_taxonomy_exhaustive_coverage() -> None:
-    """Verify all 22 ErrorCode enum members have complete and valid mappings."""
-    assert len(ErrorCode) == 22
+    """Verify all ErrorCode enum members have complete and valid mappings."""
+    assert len(ErrorCode) == 23
 
     valid_exit_codes = {0, 1, 2}
     valid_http_statuses = {200, 400, 404, 413, 415, 422, 500, 503}
@@ -616,9 +616,9 @@ def test_cli_spec_draft202012_schema_validation() -> None:
         for opt in cmd.get("options", []):
             assert opt["flag"] != "--api-url", f"--api-url found in command {cmd['name']}!"
 
-    # Verify all 22 error codes are mapped in spec error_map array
+    # Verify all 23 error codes are mapped in spec error_map array
     error_map_entries = spec.get("error_map", [])
-    assert len(error_map_entries) == 22
+    assert len(error_map_entries) == 23
     mapped_codes = {entry["error_code"] for entry in error_map_entries}
     for code in ErrorCode:
         assert code.value in mapped_codes, f"ErrorCode.{code.value} not found in cli-spec.json error_map"

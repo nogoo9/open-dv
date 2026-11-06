@@ -57,6 +57,16 @@ async def get_run(
     return service.get_run(run_id)
 
 
+@router.get("/runs/{run_id}/artifacts", response_model=list[RunArtifactDTO])
+async def list_run_artifacts(
+    run_id: str,
+    service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    role: Annotated[RbacRole, Depends(get_rbac_role)],
+) -> list[RunArtifactDTO]:
+    """Retrieve all run-isolated artifacts with lowercase 64-hex CAS hash and redaction."""
+    return service.list_run_artifacts(run_id, role=role)
+
+
 @router.get("/runs/{run_id}/artifacts/{artifact_id}", response_model=RunArtifactDTO)
 async def get_run_artifact(
     run_id: str,

@@ -53,9 +53,9 @@ class TestP6AdversarialTreeParity:
         assert py_tree["contract_version"] == "1.0.0"
         assert ts_tree["contract_version"] == "1.0.0"
 
-        # Error map: all 22 domain error codes must match bit-for-bit in JCS
-        assert len(py_tree["error_map"]) == 22
-        assert len(ts_tree["error_map"]) == 22
+        # Error map: all 23 domain error codes must match bit-for-bit in JCS
+        assert len(py_tree["error_map"]) == 23
+        assert len(ts_tree["error_map"]) == 23
         assert dumps_jcs(py_tree["error_map"]) == dumps_jcs(ts_tree["error_map"])
 
         # Error codes must contain all expected domain codes
@@ -79,6 +79,7 @@ class TestP6AdversarialTreeParity:
             "PROVIDER_CONFIG_ERROR",
             "DETERMINISTIC_PROVIDER_REJECTED",
             "CONTRACT_VERSION_MISMATCH",
+            "ONTOLOGY_RECOMMENDER_UNAVAILABLE",
             "CAS_INTEGRITY_FAILURE",
             "INTERNAL_ERROR",
             "API_UNREACHABLE",
