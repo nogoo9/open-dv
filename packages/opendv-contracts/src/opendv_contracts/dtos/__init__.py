@@ -7,11 +7,32 @@ from opendv_contracts.dtos.common import (
     EventType,
     GateScorecardSummary,
     GateVerdict,
+    LifecycleStage,
     RbacRole,
     RenderedOutput,
     RunStatus,
 )
 from opendv_contracts.dtos.compile import CompileRequest, CompileResponse
+from opendv_contracts.dtos.explorer import (
+    ArtifactDTO,
+    DocCandidateOption,
+    DocExtractionSpec,
+    DocVizDTO,
+    DvSvgEdgeSpec,
+    DvSvgNodeSpec,
+    DvVizDTO,
+    ExplorerBundleDTO,
+    OntologyConceptSpec,
+    OntologySvgEdgeSpec,
+    OntologySvgNodeSpec,
+    OntologyVizDTO,
+    PhaseSpecDTO,
+    RunArtifactDTO,
+    StageComponentDTO,
+    StageDTO,
+    StepDTO,
+    WaveMetadataSpecDTO,
+)
 from opendv_contracts.dtos.hold import (
     HoldAction,
     HoldDecisionRequest,
@@ -29,8 +50,10 @@ from opendv_contracts.dtos.pipeline import (
 )
 from opendv_contracts.dtos.profile import ProfileRequest, ProfileResponse
 from opendv_contracts.dtos.project import CreateProjectRequest, ProjectResponse
+from opendv_contracts.dtos.runs import CreateRunRequest, ProjectRunDTO
 from opendv_contracts.dtos.sandbox import (
     SandboxBatchResult,
+    SandboxColumnMetadata,
     SandboxQueryRequest,
     SandboxQueryResponse,
     SandboxQueryType,
@@ -55,6 +78,8 @@ __all__ = [  # noqa: RUF022
     "PipelineRunRequest",
     "PipelineValidateRequest",
     "CreateProjectRequest",
+    "CreateRunRequest",
+    "ProjectRunDTO",
     "ProjectResponse",
     "ArtifactUploadRequest",
     "HoldRequest",
@@ -67,6 +92,7 @@ __all__ = [  # noqa: RUF022
     "GateVerdict",
     "HoldAction",
     "HoldStatus",
+    "LifecycleStage",
     "RbacRole",
     "RunStatus",
     "SandboxQueryType",
@@ -81,4 +107,24 @@ __all__ = [  # noqa: RUF022
     "RenderedOutput",
     "RuleEvaluationDTO",
     "SandboxBatchResult",
+    "SandboxColumnMetadata",
+    # Explorer DTOs
+    "ArtifactDTO",
+    "DocCandidateOption",
+    "DocExtractionSpec",
+    "DocVizDTO",
+    "DvSvgEdgeSpec",
+    "DvSvgNodeSpec",
+    "DvVizDTO",
+    "ExplorerBundleDTO",
+    "OntologyConceptSpec",
+    "OntologySvgEdgeSpec",
+    "OntologySvgNodeSpec",
+    "OntologyVizDTO",
+    "PhaseSpecDTO",
+    "RunArtifactDTO",
+    "StageComponentDTO",
+    "StageDTO",
+    "StepDTO",
+    "WaveMetadataSpecDTO",
 ]

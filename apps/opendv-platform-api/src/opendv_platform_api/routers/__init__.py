@@ -2,24 +2,30 @@
 
 from opendv_platform_api.routers import (
     artifacts,
+    compile,
     decisions,
+    explorer,
     gates,
     health,
     profile,
     projects,
     runs,
     sandbox,
+    verify,
     workbench,
 )
 
 __all__ = [
     "artifacts",
+    "compile",
     "decisions",
+    "explorer",
     "gates",
     "health",
     "profile",
     "projects",
     "runs",
     "sandbox",
+    "verify",
     "workbench",
 ]

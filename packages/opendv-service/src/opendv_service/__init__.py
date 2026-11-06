@@ -24,6 +24,7 @@ from opendv_service.errors import (
     OpenDVError,
     PathContainmentError,
     PayloadTooLargeError,
+    PipelineAbortedError,
     PipelineExecutionError,
     ProviderUnavailableError,
     RolePermissionError,
@@ -48,6 +49,7 @@ from opendv_service.models import (
     GateVerdictStatus,
     HoldDecisionRequest,
     HoldDecisionResponse,
+    LifecycleStage,
     PipelineRunRequest,
     PipelineValidateRequest,
     ProjectResponse,
@@ -63,6 +65,12 @@ from opendv_service.rbac import (
     redact_event_for_role,
     resolve_cleared_tiers,
 )
+from opendv_service.runs import (
+    RunContext,
+    RunExecutionEngine,
+    format_sse_frame,
+    subscribe_run_sse,
+)
 from opendv_service.seams import (
     PipelineRunner,
     get_default_pipeline_runner,
@@ -72,6 +80,7 @@ from opendv_service.service import OpenDVService
 from opendv_service.settings import ConfigurationError, OpenDVSettings
 from opendv_service.state import PlatformStateContainer, StateStore, store_cas_artifact
 from opendv_service.use_cases.compile import compile_pipeline
+from opendv_service.use_cases.explorer import get_explorer_bundle, get_run_artifact
 from opendv_service.use_cases.profile import profile_pipeline
 from opendv_service.use_cases.sandbox import execute_sandbox_query
 from opendv_service.use_cases.verify import (
@@ -106,12 +115,14 @@ __all__ = [
     "HoldDecisionResponse",
     "HoldNotFoundError",
     "InputValidationError",
+    "LifecycleStage",
     "NotFoundError",
     "OpenDVError",
     "OpenDVService",
     "OpenDVSettings",
     "PathContainmentError",
     "PayloadTooLargeError",
+    "PipelineAbortedError",
     "PipelineEvent",
     "PipelineExecutionError",
     "PipelineRunHandle",
@@ -126,6 +137,8 @@ __all__ = [
     "ProviderUnavailableError",
     "RbacRole",
     "RolePermissionError",
+    "RunContext",
+    "RunExecutionEngine",
     "RunStatus",
     "SandboxExecutionResponse",
     "SandboxQueryRequest",
@@ -138,8 +151,11 @@ __all__ = [
     "build_gate_scorecard_from_axi_result",
     "compile_pipeline",
     "execute_sandbox_query",
+    "format_sse_frame",
     "get_default_pipeline_runner",
+    "get_explorer_bundle",
     "get_fallback_definition",
+    "get_run_artifact",
     "is_fallback_enabled",
     "normalize_rbac_role",
     "profile_pipeline",
@@ -147,5 +163,6 @@ __all__ = [
     "resolve_cleared_tiers",
     "set_pipeline_runner_override",
     "store_cas_artifact",
+    "subscribe_run_sse",
     "verify_pipeline",
 ]

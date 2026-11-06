@@ -821,6 +821,8 @@ class PipelineInputSpec(BaseModel):
     domain_namespace: str = "general"
     graph_a_ontology_path: str
     initial_contract_path: str | None = None
+    initial_contract: str | None = None
+    wave_id: str | None = None
     assertion_cutoff_ts: str = "2026-12-31 23:59:59"
     output_dir: str | None = None
     waves: list[PipelineWaveInput] = Field(min_length=1)
@@ -939,6 +941,10 @@ class AgenticPipelineReport(BaseModel):
     observability_events: list[dict[str, Any]] = Field(default_factory=list)
     fallbacks_applied: list[dict[str, Any]] = Field(default_factory=list)
     markdown_summary: str
+    has_initial_contract: bool = False
+    initial_contract_path: str | None = None
+    wave_id: str | None = None
+    lifecycle_stage: str = "COLD_START_N1"
 
 
 # ---------------------------------------------------------------------------
@@ -3192,20 +3198,34 @@ class AgenticVaultPipeline:
                     deployed_contract_dict,
                     init_c_path,
                 )
-                for sat_entry in deployed_contract_dict.get("satellites", []):
-                    if not isinstance(sat_entry, dict):
-                        continue
-                    sat_name = str(sat_entry.get("name", ""))
-                    vol_tier = str(sat_entry.get("volatility_tier", ""))
-                    b_tbl = str(sat_entry.get("source_bronze_table", "")).lower()
-                    if b_tbl and (
-                        vol_tier == "ADDITIVE_DRIFT_COMPANION" or sat_name.endswith("_ext_v2")
-                    ):
-                        drift_cols = added_drift_cols_by_table.setdefault(b_tbl, [])
-                        for p_c in sat_entry.get("payload_columns", []):
-                            p_str = str(p_c)
-                            if p_str and p_str not in drift_cols:
-                                drift_cols.append(p_str)
+        elif getattr(self.input_spec, "initial_contract", None) is not None:
+            try:
+                raw_init = str(self.input_spec.initial_contract)
+                parsed_init = yaml.safe_load(raw_init)
+                if isinstance(parsed_init, dict):
+                    deployed_contract_dict = parsed_init
+                    cumulative_source_systems = _seed_graph_b_systems_from_deployed_contract(
+                        deployed_contract_dict,
+                        Path("inline_initial_contract.yaml"),
+                    )
+            except (OSError, yaml.YAMLError, ValueError):
+                deployed_contract_dict = None
+
+        if deployed_contract_dict is not None:
+            for sat_entry in deployed_contract_dict.get("satellites", []):
+                if not isinstance(sat_entry, dict):
+                    continue
+                sat_name = str(sat_entry.get("name", ""))
+                vol_tier = str(sat_entry.get("volatility_tier", ""))
+                b_tbl = str(sat_entry.get("source_bronze_table", "")).lower()
+                if b_tbl and (
+                    vol_tier == "ADDITIVE_DRIFT_COMPANION" or sat_name.endswith("_ext_v2")
+                ):
+                    drift_cols = added_drift_cols_by_table.setdefault(b_tbl, [])
+                    for p_c in sat_entry.get("payload_columns", []):
+                        p_str = str(p_c)
+                        if p_str and p_str not in drift_cols:
+                            drift_cols.append(p_str)
 
         last_verified_contract: dict[str, Any] = {}
         last_canonical_ir: CanonicalIR | None = None
@@ -5221,6 +5241,11 @@ class AgenticVaultPipeline:
         completed_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         total_ms = round((time.perf_counter() - t0_pipeline) * 1000.0, 3)
 
+        has_initial_contract = deployed_contract_dict is not None
+        rep_contract_path: str | None = self.input_spec.initial_contract_path
+        wave_id_val = getattr(self.input_spec, "wave_id", None)
+        lifecycle_stage = "MULTI_SOURCE_EXPANSION" if has_initial_contract else "COLD_START_N1"
+
         provisional_report = AgenticPipelineReport(
             run_id=run_id,
             pipeline_id=self.input_spec.pipeline_id,
@@ -5247,6 +5272,10 @@ class AgenticVaultPipeline:
             observability_events=observability_events,
             fallbacks_applied=fallbacks_applied,
             markdown_summary="",
+            has_initial_contract=has_initial_contract,
+            initial_contract_path=rep_contract_path,
+            wave_id=wave_id_val,
+            lifecycle_stage=lifecycle_stage,
         )
 
         output_val = validate_pipeline_outputs(provisional_report, cas_store=self.cas_store)

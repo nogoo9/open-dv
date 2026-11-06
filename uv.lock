@@ -622,20 +622,24 @@ source = { editable = "packages/opendv-duckdb-sandbox" }
 dependencies = [
     { name = "duckdb" },
     { name = "opendv-axi-verifier" },
+    { name = "opendv-contracts" },
     { name = "opendv-core" },
     { name = "opendv-sources" },
     { name = "opendv-telemetry" },
     { name = "pydantic" },
+    { name = "sqlglot" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "duckdb", specifier = ">=1.1.0" },
     { name = "opendv-axi-verifier", editable = "packages/opendv-axi-verifier" },
+    { name = "opendv-contracts", editable = "packages/opendv-contracts" },
     { name = "opendv-core", editable = "packages/opendv-core" },
     { name = "opendv-sources", editable = "packages/opendv-sources" },
     { name = "opendv-telemetry", editable = "packages/opendv-telemetry" },
     { name = "pydantic", specifier = ">=2.9.0" },
+    { name = "sqlglot", specifier = ">=26.0.0" },
 ]
 
 [[package]]

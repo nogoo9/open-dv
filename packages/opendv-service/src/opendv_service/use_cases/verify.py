@@ -17,9 +17,12 @@ from opendv_contracts import (
     VerifyRequest,
     VerifyResponse,
 )
+from opendv_contracts.errors import ErrorCode
+from opendv_core import validate_contract_v5
 from opendv_core.paths import resolve_workspace_path
 from opendv_service.errors import InputValidationError, NotFoundError
 from opendv_service.rendering import render_verify_text
+from opendv_service.use_cases.contract_resolver import resolve_and_load_contract_doc
 
 GateVerdictStatus = str
 
@@ -113,18 +116,21 @@ def verify_pipeline(
     root = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
 
     # 1. Resolve contract document
-    resolved_contract_path: Path | None = None
-    if request.contract_content is not None and request.contract_content.strip():
-        contract_doc = yaml.safe_load(request.contract_content)
-    elif request.contract_path is not None and request.contract_path.strip():
-        resolved_contract_path = resolve_workspace_path(
-            request.contract_path, workspace_root=root, allow_temp=True
-        )
-        if not resolved_contract_path.exists():
-            raise NotFoundError(f"Contract file not found: {resolved_contract_path}")
-        contract_doc = yaml.safe_load(resolved_contract_path.read_text(encoding="utf-8"))
-    else:
-        raise InputValidationError("Either contract_path or contract_content must be provided.")
+    contract_doc, resolved_contract_path = resolve_and_load_contract_doc(
+        contract_path=request.contract_path,
+        contract_content=request.contract_content,
+        workspace_root=root,
+        not_found_as_not_found_error=True,
+    )
+
+    if "contract_version" not in contract_doc:
+        try:
+            validate_contract_v5(contract_doc)
+        except Exception as exc:
+            raise InputValidationError(
+                f"Invalid contract schema: {exc}",
+                error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+            ) from exc
 
     # 2. Resolve Graph A ontology document (optional)
     graph_a_doc: dict[str, Any] = {}
@@ -153,11 +159,39 @@ def verify_pipeline(
             raise NotFoundError(f"Graph B file not found: {graph_b_p}")
         graph_b_doc = json.loads(graph_b_p.read_text(encoding="utf-8")) or {}
 
+    # 4. Resolve prior contract document (optional)
+    prior_contract_doc: dict[str, Any] | None = None
+    if request.prior_contract_content is not None and request.prior_contract_content.strip():
+        prior_contract_doc = yaml.safe_load(request.prior_contract_content)
+    elif request.prior_contract_path is not None and request.prior_contract_path.strip():
+        prior_contract_p = resolve_workspace_path(
+            request.prior_contract_path, workspace_root=root, allow_temp=True
+        )
+        if not prior_contract_p.exists():
+            raise NotFoundError(f"Prior contract file not found: {prior_contract_p}")
+        prior_contract_doc = yaml.safe_load(prior_contract_p.read_text(encoding="utf-8"))
+
     effective_run_id = request.run_id or "run-local-verify"
+    sql_models: dict[str, str] | None = None
+    if request.compiled_sql_models:
+        sql_models = dict(request.compiled_sql_models)
+    elif request.compiled_sql:
+        import sqlglot
+        from sqlglot import exp
+
+        sql_models = {
+            tbl.name: stmt.sql(dialect="duckdb")
+            for stmt in sqlglot.parse(request.compiled_sql, read="duckdb")
+            if stmt is not None and (tbl := stmt.find(exp.Table)) is not None
+        }
+
     axi_res = run_axi_dv_verification_pipeline(
         contract_doc,
         graph_a_doc,
         graph_b_doc,
+        deployed_contract=prior_contract_doc,
+        compiled_sql_models=sql_models,
+        apply_codemods=request.apply_codemods,
         run_id=effective_run_id,
     )
     passed, verdict_str, scorecard = build_gate_scorecard_from_axi_result(axi_res)

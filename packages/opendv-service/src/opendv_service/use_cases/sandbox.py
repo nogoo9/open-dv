@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import contextlib
+import json
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from opendv_contracts import (
     RenderedOutput,
@@ -16,7 +17,7 @@ from opendv_contracts import (
 )
 from opendv_contracts.errors import ErrorCode
 from opendv_core.paths import resolve_workspace_path
-from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox, SafeSqlResult
 from opendv_service.errors import InputValidationError
 from opendv_service.rendering import render_sandbox_text
 
@@ -47,50 +48,84 @@ def execute_sandbox_query(
     )
 
     if not (has_ir or has_contract):
+        if query_type_str == "CUSTOM_SQL" and request.sql and request.sql.strip():
+            with DuckDbShadowSandbox() as sandbox:
+                custom_res = sandbox.execute_safe_sql(
+                    request.sql,
+                    max_rows=request.max_rows,
+                    timeout_seconds=request.timeout_seconds,
+                )
+                res_dict: dict[str, Any] = {
+                    "run_id": effective_run_id,
+                    "query_type": query_type_str,
+                    "assertion_cutoff_ts": cutoff,
+                    "all_batches_passed": True,
+                    "batch_verdicts": {},
+                    "batches": [],
+                    "dynamic_rules_passed": 0,
+                    "dynamic_rules_total": 0,
+                    "replay_delta_rows": 0,
+                    "row_count": custom_res.row_count,
+                    "rows": custom_res.rows,
+                    "query_d10_rows": [],
+                    "query_d10b_rows": [],
+                    "columns": custom_res.columns,
+                    "execution_stats": custom_res.execution_stats,
+                    "batch_report": {
+                        "all_passed": True,
+                        "batches": [],
+                    },
+                    "dynamic_check_report": {
+                        "passed_count": 0,
+                        "failed_count": 0,
+                        "checks": [],
+                    },
+                }
+                rendered_text = render_sandbox_text(res_dict)
+                res_dict["rendered"] = RenderedOutput(text=rendered_text)
+                return SandboxQueryResponse(**res_dict)
+
         raise InputValidationError(
             "Neither contract nor canonical IR was provided for sandbox execution. "
             "Specify contract_path, contract_content, canonical_ir_path, or canonical_ir_content.",
             error_code=ErrorCode.INPUT_VALIDATION_ERROR,
         )
 
-    tmp_path: Path | None = None
-    try:
-        if request.canonical_ir_content and request.canonical_ir_content.strip():
-            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp_file:
-                tmp_file.write(request.canonical_ir_content.encode("utf-8"))
-                tmp_file.flush()
-                tmp_path = Path(tmp_file.name)
-            source_path = tmp_path
-        elif request.canonical_ir_path and request.canonical_ir_path.strip():
-            source_path = resolve_workspace_path(
-                request.canonical_ir_path, workspace_root=root, allow_temp=True
-            )
-        elif request.contract_content and request.contract_content.strip():
-            with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as tmp_file:
-                tmp_file.write(request.contract_content.encode("utf-8"))
-                tmp_file.flush()
-                tmp_path = Path(tmp_file.name)
-            source_path = tmp_path
-        else:
-            assert request.contract_path is not None
-            source_path = resolve_workspace_path(
-                request.contract_path, workspace_root=root, allow_temp=True
-            )
-
+    custom_result: SafeSqlResult | None = None
+    raw_source: Any
+    if request.canonical_ir_content and request.canonical_ir_content.strip():
+        raw_source = json.loads(request.canonical_ir_content)
+    elif request.canonical_ir_path and request.canonical_ir_path.strip():
+        source_path = resolve_workspace_path(
+            request.canonical_ir_path, workspace_root=root, allow_temp=True
+        )
         if not source_path.exists():
             raise InputValidationError(f"Sandbox input file not found: {source_path}")
+        raw_source = source_path
+    elif request.contract_content and request.contract_content.strip():
+        raw_source = yaml.safe_load(request.contract_content)
+    else:
+        assert request.contract_path is not None
+        source_path = resolve_workspace_path(
+            request.contract_path, workspace_root=root, allow_temp=True
+        )
+        if not source_path.exists():
+            raise InputValidationError(f"Sandbox input file not found: {source_path}")
+        raw_source = source_path
 
-        with DuckDbShadowSandbox() as sandbox:
-            ir_model = sandbox.resolve_canonical_ir(source_path)
-            report = sandbox.run_full_verification(
-                ir_model,
-                emit_telemetry=False,
-                run_id=effective_run_id,
+    with DuckDbShadowSandbox() as sandbox:
+        ir_model = sandbox.resolve_canonical_ir(raw_source)
+        report = sandbox.run_full_verification(
+            ir_model,
+            emit_telemetry=False,
+            run_id=effective_run_id,
+        )
+        if query_type_str == "CUSTOM_SQL" and request.sql and request.sql.strip():
+            custom_result = sandbox.execute_safe_sql(
+                request.sql,
+                max_rows=request.max_rows,
+                timeout_seconds=request.timeout_seconds,
             )
-    finally:
-        if tmp_path is not None and tmp_path.exists():
-            with contextlib.suppress(OSError):
-                tmp_path.unlink(missing_ok=True)
 
     d10_rows = [
         {
@@ -118,6 +153,8 @@ def execute_sandbox_query(
         rows = d10_rows
     elif query_type_str in {"QUERY_D10B_VALUATION", "QUERY_D10B_PORTCO_VALUATION_PIT"}:
         rows = d10b_rows
+    elif query_type_str == "CUSTOM_SQL":
+        rows = custom_result.rows if custom_result else []
     elif query_type_str == "VERIFY_DYN_001_015":
         checks = report.dynamic_check_report.model_dump(mode="json")["checks"]
         rows = [
@@ -167,6 +204,17 @@ def execute_sandbox_query(
         "rows": rows,
         "query_d10_rows": d10_rows,
         "query_d10b_rows": d10b_rows,
+        "columns": custom_result.columns if custom_result else [],
+        "execution_stats": custom_result.execution_stats if custom_result else {},
+        "batch_report": {
+            "all_passed": report.passed,
+            "batches": [b.model_dump(mode="json") for b in batches],
+        },
+        "dynamic_check_report": {
+            "passed_count": report.dynamic_check_report.passed_count,
+            "failed_count": report.dynamic_check_report.failed_count,
+            "checks": rows if query_type_str == "VERIFY_DYN_001_015" else [],
+        },
     }
     rendered_text = render_sandbox_text(res_dict)
     res_dict["rendered"] = RenderedOutput(text=rendered_text)

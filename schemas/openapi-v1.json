@@ -3,6 +3,310 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "components": {
     "schemas": {
+      "ArtifactDTO": {
+        "additionalProperties": false,
+        "description": "Comprehensive artifact descriptor for Explorer workbench.",
+        "properties": {
+          "checks": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Checks scorecard",
+            "title": "Checks"
+          },
+          "cols": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Table column headers",
+            "title": "Cols"
+          },
+          "desc": {
+            "description": "Detailed description",
+            "title": "Desc",
+            "type": "string"
+          },
+          "doc": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DocVizDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Document visualizer model"
+          },
+          "dv": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DvVizDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "DV model visualizer model"
+          },
+          "events": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Event summary timeline",
+            "title": "Events"
+          },
+          "fmt": {
+            "description": "Format (YAML, JSON, SQL, CSV, etc.)",
+            "title": "Fmt",
+            "type": "string"
+          },
+          "foot": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Table footer text",
+            "title": "Foot"
+          },
+          "group": {
+            "description": "Artifact category",
+            "enum": [
+              "Setting",
+              "Input",
+              "Stage output",
+              "Final output"
+            ],
+            "title": "Group",
+            "type": "string"
+          },
+          "id": {
+            "description": "Unique artifact identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "kv": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Key-value pairs",
+            "title": "Kv"
+          },
+          "name": {
+            "description": "Artifact display name or filename",
+            "title": "Name",
+            "type": "string"
+          },
+          "ontology": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OntologyVizDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ontology visualizer model"
+          },
+          "outline": {
+            "anyOf": [
+              {
+                "items": {
+                  "maxItems": 2,
+                  "minItems": 2,
+                  "prefixItems": [
+                    {
+                      "type": "string"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ],
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Code sections outline",
+            "title": "Outline"
+          },
+          "raw": {
+            "description": "RBAC-redacted raw artifact text",
+            "title": "Raw",
+            "type": "string"
+          },
+          "rows": {
+            "anyOf": [
+              {
+                "items": {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Table rows",
+            "title": "Rows"
+          },
+          "sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9a-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lowercase 64-hex SHA-256 CAS digest",
+            "title": "Sha256"
+          },
+          "short": {
+            "description": "Concise one-line summary",
+            "title": "Short",
+            "type": "string"
+          },
+          "type": {
+            "description": "Semantic entity type",
+            "title": "Type",
+            "type": "string"
+          },
+          "viz": {
+            "description": "Visualizer renderer kind",
+            "enum": [
+              "ontology",
+              "dv",
+              "table",
+              "kv",
+              "checks",
+              "events",
+              "doc",
+              "code"
+            ],
+            "title": "Viz",
+            "type": "string"
+          },
+          "wave_index": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Primary wave integer index",
+            "title": "Wave Index"
+          },
+          "waves": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Associated wave filter identifiers",
+            "title": "Waves"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "short",
+          "group",
+          "type",
+          "fmt",
+          "viz",
+          "desc",
+          "raw"
+        ],
+        "title": "ArtifactDTO",
+        "type": "object"
+      },
       "ArtifactMetadataResponse": {
         "additionalProperties": false,
         "description": "Response descriptor for a Content-Addressable Store artifact.",
@@ -229,7 +533,7 @@
             "type": "string"
           },
           "updated_run_status": {
-            "$ref": "#/components/schemas/RunStatus"
+            "$ref": "#/components/schemas/opendv_service__models__RunStatus"
           }
         },
         "required": [
@@ -244,6 +548,221 @@
           "resolved_at_utc"
         ],
         "title": "CaptainHoldDecisionResponse",
+        "type": "object"
+      },
+      "CompileRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to compile DV 2.0 contract into Canonical IR & 4-Zone SQL (Decision D1).",
+        "properties": {
+          "canonical_ir_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline Canonical IR content",
+            "title": "Canonical Ir Content"
+          },
+          "canonical_ir_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional pre-existing Canonical IR JSON path",
+            "title": "Canonical Ir Path"
+          },
+          "contract_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline contract YAML content (Decision D1)",
+            "title": "Contract Content"
+          },
+          "contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to contract YAML",
+            "title": "Contract Path"
+          },
+          "include_batch4_restatement": {
+            "default": false,
+            "description": "Include batch 4 late arriving restatement seed",
+            "title": "Include Batch4 Restatement",
+            "type": "boolean"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Associated project identifier",
+            "title": "Project Id"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Associated run identifier",
+            "title": "Run Id"
+          }
+        },
+        "title": "CompileRequest",
+        "type": "object"
+      },
+      "CompileResponse": {
+        "additionalProperties": false,
+        "description": "Response DTO containing compiled 4-Zone SQL, zones,\nand topological ordering (Decisions D6, D7).",
+        "properties": {
+          "canonical_ir_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Canonical IR path if file-based",
+            "title": "Canonical Ir Path"
+          },
+          "canonical_ir_sha256": {
+            "description": "SHA-256 of Canonical IR",
+            "pattern": "^[0-9A-Fa-f]{64}$",
+            "title": "Canonical Ir Sha256",
+            "type": "string"
+          },
+          "compiled_sql_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^[0-9A-Fa-f]{64}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 of 4-Zone SQL",
+            "title": "Compiled Sql Sha256"
+          },
+          "contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Contract path if file-based",
+            "title": "Contract Path"
+          },
+          "hubs_compiled": {
+            "default": 0,
+            "description": "Count of compiled hubs",
+            "minimum": 0.0,
+            "title": "Hubs Compiled",
+            "type": "integer"
+          },
+          "links_compiled": {
+            "default": 0,
+            "description": "Count of compiled links",
+            "minimum": 0.0,
+            "title": "Links Compiled",
+            "type": "integer"
+          },
+          "rendered": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RenderedOutput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pre-rendered text summary"
+          },
+          "rendered_sql": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Zone-partitioned DDL/DML statements",
+            "title": "Rendered Sql"
+          },
+          "run_id": {
+            "description": "Execution run identifier",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "satellites_compiled": {
+            "default": 0,
+            "description": "Count of compiled satellites",
+            "minimum": 0.0,
+            "title": "Satellites Compiled",
+            "type": "integer"
+          },
+          "sql_zones": {
+            "description": "Descriptive list of SQL compilation zones",
+            "items": {
+              "type": "string"
+            },
+            "title": "Sql Zones",
+            "type": "array"
+          },
+          "status": {
+            "default": "PASS",
+            "description": "'PASS' or 'ERROR'",
+            "title": "Status",
+            "type": "string"
+          },
+          "topological_load_order": {
+            "description": "Topological dependency load order",
+            "items": {
+              "type": "string"
+            },
+            "title": "Topological Load Order",
+            "type": "array"
+          }
+        },
+        "required": [
+          "run_id",
+          "canonical_ir_sha256"
+        ],
+        "title": "CompileResponse",
         "type": "object"
       },
       "CreateProjectRequest": {
@@ -351,10 +870,11 @@
       },
       "CreateRunRequest": {
         "additionalProperties": false,
-        "description": "Request payload to start a verification, compilation, and sandbox run (docs/08 \u00a75.2).",
+        "description": "Request payload to start a verification, compilation,\nand sandbox execution run (docs/08 \u00a75.2).",
         "properties": {
           "assertion_cutoff_ts": {
             "default": "2026-11-01T23:59:59Z",
+            "description": "Temporal cutoff timestamp for deterministic assertions",
             "title": "Assertion Cutoff Ts",
             "type": "string"
           },
@@ -367,10 +887,12 @@
                 "type": "null"
               }
             ],
+            "description": "Legacy contract path",
             "title": "Contract Path"
           },
           "execute_duckdb_sandbox": {
             "default": true,
+            "description": "Whether to execute DuckDB shadow sandbox queries",
             "title": "Execute Duckdb Sandbox",
             "type": "boolean"
           },
@@ -383,10 +905,12 @@
                 "type": "null"
               }
             ],
+            "description": "Path to harness configuration file",
             "title": "Harness Config Path"
           },
           "harness_provider": {
             "default": "antigravity",
+            "description": "Execution harness provider",
             "enum": [
               "agy",
               "agy-cli",
@@ -398,8 +922,47 @@
             "title": "Harness Provider",
             "type": "string"
           },
+          "initial_contract": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline starting contract YAML or JSON string (Decision D1 / GAP-07)",
+            "title": "Initial Contract"
+          },
+          "initial_contract_content": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline starting contract YAML or JSON string (alias for initial_contract)",
+            "title": "Initial Contract Content"
+          },
+          "initial_contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to initial deployed contract YAML/JSON (Decision D1 / GAP-07)",
+            "title": "Initial Contract Path"
+          },
           "max_repair_retries": {
             "default": 3,
+            "description": "Maximum autonomous repair retry iterations",
             "maximum": 5.0,
             "minimum": 0.0,
             "title": "Max Repair Retries",
@@ -415,9 +978,13 @@
                 "type": "string"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
+            "description": "Optional model tier override",
             "title": "Model Tier Override"
           },
           "pipeline_input_path": {
@@ -429,6 +996,7 @@
                 "type": "null"
               }
             ],
+            "description": "Path to pipeline input specification",
             "title": "Pipeline Input Path"
           },
           "project_id": {
@@ -441,50 +1009,511 @@
                 "type": "null"
               }
             ],
+            "description": "Target project identifier",
             "title": "Project Id"
           },
           "run_sandbox_batches": {
             "default": true,
+            "description": "Whether to run 4-batch adversarial sandbox tests",
             "title": "Run Sandbox Batches",
             "type": "boolean"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target wave identifier (e.g. W0, W1, W2) (GAP-07)",
+            "title": "Wave Id"
           }
         },
         "title": "CreateRunRequest",
         "type": "object"
       },
+      "DocCandidateOption": {
+        "additionalProperties": false,
+        "description": "Entity resolution candidate option for steward hold.",
+        "properties": {
+          "id": {
+            "description": "Candidate entity ID",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "Candidate display label",
+            "title": "Label",
+            "type": "string"
+          },
+          "score": {
+            "description": "Confidence score",
+            "title": "Score",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "score"
+        ],
+        "title": "DocCandidateOption",
+        "type": "object"
+      },
+      "DocExtractionSpec": {
+        "additionalProperties": false,
+        "description": "Unstructured text entity extraction span and hold metadata.",
+        "properties": {
+          "candidates": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DocCandidateOption"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Available candidate options",
+            "title": "Candidates"
+          },
+          "conf": {
+            "description": "Confidence string",
+            "title": "Conf",
+            "type": "string"
+          },
+          "decision": {
+            "description": "Resolution decision summary",
+            "title": "Decision",
+            "type": "string"
+          },
+          "end": {
+            "description": "Character end offset",
+            "title": "End",
+            "type": "integer"
+          },
+          "eventId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Observability event ID",
+            "title": "Eventid"
+          },
+          "holdId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Active hold ID if pending",
+            "title": "Holdid"
+          },
+          "id": {
+            "description": "Extraction span identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "quote": {
+            "description": "Verbatim quote substring",
+            "title": "Quote",
+            "type": "string"
+          },
+          "resolutionAction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "APPROVE",
+                  "REJECT"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Steward decision action",
+            "title": "Resolutionaction"
+          },
+          "resolved": {
+            "default": false,
+            "description": "Whether hold is resolved",
+            "title": "Resolved",
+            "type": "boolean"
+          },
+          "selectedCandidateId": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Chosen candidate identifier",
+            "title": "Selectedcandidateid"
+          },
+          "start": {
+            "description": "Character start offset",
+            "title": "Start",
+            "type": "integer"
+          },
+          "tier": {
+            "description": "Authority tier",
+            "enum": [
+              "Tier-U1",
+              "Tier-U2",
+              "Tier-U3"
+            ],
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "quote",
+          "start",
+          "end",
+          "tier",
+          "conf",
+          "decision"
+        ],
+        "title": "DocExtractionSpec",
+        "type": "object"
+      },
+      "DocVizDTO": {
+        "additionalProperties": false,
+        "description": "Unstructured document visualizer payload.",
+        "properties": {
+          "documentName": {
+            "title": "Documentname",
+            "type": "string"
+          },
+          "extractions": {
+            "items": {
+              "$ref": "#/components/schemas/DocExtractionSpec"
+            },
+            "title": "Extractions",
+            "type": "array"
+          },
+          "sourceText": {
+            "title": "Sourcetext",
+            "type": "string"
+          }
+        },
+        "required": [
+          "documentName",
+          "sourceText"
+        ],
+        "title": "DocVizDTO",
+        "type": "object"
+      },
+      "DvSvgEdgeSpec": {
+        "additionalProperties": false,
+        "description": "SVG edge for Data Vault 2.0 model visualizer.",
+        "properties": {
+          "dashed": {
+            "default": false,
+            "description": "Whether line is dashed",
+            "title": "Dashed",
+            "type": "boolean"
+          },
+          "x1": {
+            "description": "Start X",
+            "title": "X1",
+            "type": "number"
+          },
+          "x2": {
+            "description": "End X",
+            "title": "X2",
+            "type": "number"
+          },
+          "y1": {
+            "description": "Start Y",
+            "title": "Y1",
+            "type": "number"
+          },
+          "y2": {
+            "description": "End Y",
+            "title": "Y2",
+            "type": "number"
+          }
+        },
+        "required": [
+          "x1",
+          "y1",
+          "x2",
+          "y2"
+        ],
+        "title": "DvSvgEdgeSpec",
+        "type": "object"
+      },
+      "DvSvgNodeSpec": {
+        "additionalProperties": false,
+        "description": "SVG node for Data Vault 2.0 model visualizer.",
+        "properties": {
+          "h": {
+            "description": "Height",
+            "title": "H",
+            "type": "number"
+          },
+          "id": {
+            "description": "Node identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "description": "Entity classification",
+            "enum": [
+              "hub",
+              "link",
+              "sat",
+              "sat_pii"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "description": "Display name",
+            "title": "Label",
+            "type": "string"
+          },
+          "sub": {
+            "description": "Subtitle or attribute summary",
+            "title": "Sub",
+            "type": "string"
+          },
+          "w": {
+            "description": "Width",
+            "title": "W",
+            "type": "number"
+          },
+          "x": {
+            "description": "X coordinate",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Y coordinate",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label",
+          "sub",
+          "x",
+          "y",
+          "w",
+          "h"
+        ],
+        "title": "DvSvgNodeSpec",
+        "type": "object"
+      },
+      "DvVizDTO": {
+        "additionalProperties": false,
+        "description": "Data Vault model visualizer payload.",
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/DvSvgEdgeSpec"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/DvSvgNodeSpec"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "title": "DvVizDTO",
+        "type": "object"
+      },
+      "ExplorerBundleDTO": {
+        "additionalProperties": false,
+        "description": "Top-level 3-Level Pipeline Explorer bundle response DTO.",
+        "properties": {
+          "artifacts": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ArtifactDTO"
+            },
+            "description": "Artifact map",
+            "title": "Artifacts",
+            "type": "object"
+          },
+          "displayName": {
+            "description": "Human-readable project name",
+            "title": "Displayname",
+            "type": "string"
+          },
+          "gatesPassed": {
+            "default": 0,
+            "description": "Number of gates passed",
+            "minimum": 0.0,
+            "title": "Gatespassed",
+            "type": "integer"
+          },
+          "gatesTotal": {
+            "default": 6,
+            "description": "Total number of gates",
+            "minimum": 0.0,
+            "title": "Gatestotal",
+            "type": "integer"
+          },
+          "hasInitialContract": {
+            "default": false,
+            "description": "Whether cold-start contract was used",
+            "title": "Hasinitialcontract",
+            "type": "boolean"
+          },
+          "inputIds": {
+            "description": "Input artifact IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Inputids",
+            "type": "array"
+          },
+          "outputIds": {
+            "description": "Output artifact IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Outputids",
+            "type": "array"
+          },
+          "phases": {
+            "description": "4 canonical phases",
+            "items": {
+              "$ref": "#/components/schemas/PhaseSpecDTO"
+            },
+            "title": "Phases",
+            "type": "array"
+          },
+          "projectId": {
+            "description": "Project identifier",
+            "title": "Projectid",
+            "type": "string"
+          },
+          "rbacRole": {
+            "default": "DATA_STEWARD",
+            "description": "Active RBAC role",
+            "title": "Rbacrole",
+            "type": "string"
+          },
+          "runId": {
+            "description": "Run identifier",
+            "title": "Runid",
+            "type": "string"
+          },
+          "settingIds": {
+            "description": "Setting artifact IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Settingids",
+            "type": "array"
+          },
+          "specFile": {
+            "description": "Pipeline spec filename",
+            "title": "Specfile",
+            "type": "string"
+          },
+          "stages": {
+            "description": "8 canonical stages",
+            "items": {
+              "$ref": "#/components/schemas/StageDTO"
+            },
+            "title": "Stages",
+            "type": "array"
+          },
+          "statusLabel": {
+            "description": "Summary status label",
+            "title": "Statuslabel",
+            "type": "string"
+          },
+          "waves": {
+            "description": "Wave metadata list",
+            "items": {
+              "$ref": "#/components/schemas/WaveMetadataSpecDTO"
+            },
+            "title": "Waves",
+            "type": "array"
+          },
+          "wavesCount": {
+            "description": "Number of waves",
+            "minimum": 0.0,
+            "title": "Wavescount",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "projectId",
+          "displayName",
+          "runId",
+          "specFile",
+          "wavesCount",
+          "statusLabel"
+        ],
+        "title": "ExplorerBundleDTO",
+        "type": "object"
+      },
       "GateScorecardSummary": {
         "additionalProperties": false,
-        "description": "6-Gate verification scorecard summary (docs/08 \u00a75.2 & docs/10 \u00a72.3).",
+        "description": "6-Gate verification scorecard summary.",
         "properties": {
           "gate_0_profile_drift": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "PASS"
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "PASS",
+            "description": "Gate 0 profile drift verdict"
           },
           "gate_1_contract_grain": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "AUTO_REPAIRED"
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "AUTO_REPAIRED",
+            "description": "Gate 1 contract grain verdict"
           },
           "gate_2_sqlglot_ast": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "PASS"
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "PASS",
+            "description": "Gate 2 SQLGlot AST verdict"
           },
           "gate_3_networkx_dag": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "PASS"
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "PASS",
+            "description": "Gate 3 NetworkX DAG verdict"
           },
           "gate_4_yagni_cost_guard": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "AUTO-FIX"
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "AUTO-FIX",
+            "description": "Gate 4 YAGNI cost guard verdict"
           },
           "gate_5_duckdb_sandbox": {
-            "$ref": "#/components/schemas/GateVerdictStatus",
-            "default": "PASS"
+            "$ref": "#/components/schemas/GateVerdict",
+            "default": "PASS",
+            "description": "Gate 5 DuckDB sandbox verdict"
           }
         },
         "title": "GateScorecardSummary",
         "type": "object"
       },
-      "GateVerdictStatus": {
+      "GateVerdict": {
+        "description": "Normative 5-state gate evaluation verdicts.",
         "enum": [
           "PENDING",
           "PASS",
@@ -493,6 +1522,7 @@
           "REJECT-WITH-TRACE",
           "ASK-USER"
         ],
+        "title": "GateVerdict",
         "type": "string"
       },
       "HTTPValidationError": {
@@ -506,6 +1536,342 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "OntologyConceptSpec": {
+        "additionalProperties": false,
+        "description": "Specification of a Graph A business ontology concept.",
+        "properties": {
+          "arch": {
+            "description": "ELM archetype",
+            "title": "Arch",
+            "type": "string"
+          },
+          "def": {
+            "description": "Business definition",
+            "title": "Def",
+            "type": "string"
+          },
+          "keys": {
+            "description": "Key authority and tiers",
+            "title": "Keys",
+            "type": "string"
+          },
+          "name": {
+            "description": "Concept identifier",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "arch",
+          "def",
+          "keys"
+        ],
+        "title": "OntologyConceptSpec",
+        "type": "object"
+      },
+      "OntologySvgEdgeSpec": {
+        "additionalProperties": false,
+        "description": "SVG layout edge for Graph A ontology visualizer.",
+        "properties": {
+          "label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Relationship label",
+            "title": "Label"
+          },
+          "lx": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Label X coordinate",
+            "title": "Lx"
+          },
+          "ly": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Label Y coordinate",
+            "title": "Ly"
+          },
+          "path": {
+            "description": "SVG path string",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "title": "OntologySvgEdgeSpec",
+        "type": "object"
+      },
+      "OntologySvgNodeSpec": {
+        "additionalProperties": false,
+        "description": "SVG layout node for Graph A ontology visualizer.",
+        "properties": {
+          "h": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Height",
+            "title": "H"
+          },
+          "id": {
+            "description": "Node identifier",
+            "title": "Id",
+            "type": "string"
+          },
+          "label": {
+            "description": "Display label",
+            "title": "Label",
+            "type": "string"
+          },
+          "sub": {
+            "description": "Subtitle or archetype",
+            "title": "Sub",
+            "type": "string"
+          },
+          "w": {
+            "description": "Width",
+            "title": "W",
+            "type": "number"
+          },
+          "x": {
+            "description": "X coordinate",
+            "title": "X",
+            "type": "number"
+          },
+          "y": {
+            "description": "Y coordinate",
+            "title": "Y",
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "sub",
+          "x",
+          "y",
+          "w"
+        ],
+        "title": "OntologySvgNodeSpec",
+        "type": "object"
+      },
+      "OntologyVizDTO": {
+        "additionalProperties": false,
+        "description": "Ontology visualizer payload.",
+        "properties": {
+          "concepts": {
+            "items": {
+              "$ref": "#/components/schemas/OntologyConceptSpec"
+            },
+            "title": "Concepts",
+            "type": "array"
+          },
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/OntologySvgEdgeSpec"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "nodes": {
+            "items": {
+              "$ref": "#/components/schemas/OntologySvgNodeSpec"
+            },
+            "title": "Nodes",
+            "type": "array"
+          }
+        },
+        "title": "OntologyVizDTO",
+        "type": "object"
+      },
+      "PhaseSpecDTO": {
+        "additionalProperties": false,
+        "description": "Pipeline phase classification.",
+        "properties": {
+          "index": {
+            "description": "Phase index",
+            "enum": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "title": "Index",
+            "type": "integer"
+          },
+          "label": {
+            "description": "Phase display title",
+            "enum": [
+              "Discovery",
+              "Modelling",
+              "Verification",
+              "Compilation"
+            ],
+            "title": "Label",
+            "type": "string"
+          },
+          "sub": {
+            "description": "Phase subtitle",
+            "title": "Sub",
+            "type": "string"
+          }
+        },
+        "required": [
+          "index",
+          "label",
+          "sub"
+        ],
+        "title": "PhaseSpecDTO",
+        "type": "object"
+      },
+      "PipelineRunHandle": {
+        "additionalProperties": false,
+        "description": "Handle returned immediately upon submitting a pipeline run\n(HTTP 202 Accepted, Decision D2).",
+        "properties": {
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alias for created_at_utc",
+            "title": "Created At"
+          },
+          "created_at_utc": {
+            "description": "ISO 8601 UTC creation timestamp",
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "event_stream_url": {
+            "description": "SSE endpoint URL for real-time events",
+            "title": "Event Stream Url",
+            "type": "string"
+          },
+          "events_sse_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alias for event_stream_url (Decision D2)",
+            "title": "Events Sse Url"
+          },
+          "harness_provider": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Harness provider for the run",
+            "title": "Harness Provider"
+          },
+          "has_initial_contract": {
+            "default": false,
+            "description": "Whether an initial contract was provided (GAP-07)",
+            "title": "Has Initial Contract",
+            "type": "boolean"
+          },
+          "initial_contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to initial contract if file-backed (GAP-07)",
+            "title": "Initial Contract Path"
+          },
+          "lifecycle_stage": {
+            "default": "COLD_START_N1",
+            "description": "Lifecycle stage of the run (COLD_START_N1 or MULTI_SOURCE_EXPANSION)",
+            "title": "Lifecycle Stage",
+            "type": "string"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional associated project identifier",
+            "title": "Project Id"
+          },
+          "run_id": {
+            "description": "Unique generated run identifier",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "$ref": "#/components/schemas/opendv_contracts__dtos__common__RunStatus",
+            "default": "RUNNING",
+            "description": "Initial run status"
+          },
+          "status_url": {
+            "description": "REST endpoint URL to query current run status",
+            "title": "Status Url",
+            "type": "string"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target wave identifier if restricted (GAP-07)",
+            "title": "Wave Id"
+          }
+        },
+        "required": [
+          "run_id",
+          "created_at_utc",
+          "event_stream_url",
+          "status_url"
+        ],
+        "title": "PipelineRunHandle",
         "type": "object"
       },
       "PipelineRunRequest": {
@@ -549,9 +1915,23 @@
             "description": "Path to harness configuration file",
             "title": "Harness Config Path"
           },
+          "initial_contract": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline starting contract YAML (Decision D1 / GAP-07)",
+            "title": "Initial Contract"
+          },
           "initial_contract_content": {
             "anyOf": [
               {
+                "maxLength": 1000000,
                 "type": "string"
               },
               {
@@ -610,6 +1990,18 @@
             "description": "Destination directory for run artifacts",
             "title": "Output Dir"
           },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional associated project identifier",
+            "title": "Project Id"
+          },
           "provider_override": {
             "anyOf": [
               {
@@ -622,6 +2014,18 @@
             "description": "Target harness provider override",
             "title": "Provider Override"
           },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional predetermined run identifier",
+            "title": "Run Id"
+          },
           "steward_hold_policy": {
             "anyOf": [
               {
@@ -633,6 +2037,18 @@
             ],
             "description": "Steward hold policy",
             "title": "Steward Hold Policy"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target wave identifier (e.g. W0, W1, W2) (GAP-07)",
+            "title": "Wave Id"
           }
         },
         "title": "PipelineRunRequest",
@@ -667,9 +2083,23 @@
             "description": "Path to harness configuration file",
             "title": "Harness Config Path"
           },
+          "initial_contract": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline starting contract YAML (Decision D1 / GAP-07)",
+            "title": "Initial Contract"
+          },
           "initial_contract_content": {
             "anyOf": [
               {
+                "maxLength": 1000000,
                 "type": "string"
               },
               {
@@ -739,6 +2169,18 @@
             ],
             "description": "Steward hold policy",
             "title": "Steward Hold Policy"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target wave identifier (e.g. W0, W1, W2) (GAP-07)",
+            "title": "Wave Id"
           }
         },
         "title": "PipelineValidateRequest",
@@ -902,6 +2344,18 @@
             ],
             "description": "Pre-rendered text output"
           },
+          "source_csv_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source CSV location alias",
+            "title": "Source Csv Path"
+          },
           "source_path": {
             "anyOf": [
               {
@@ -1044,9 +2498,10 @@
       },
       "ProjectRunDTO": {
         "additionalProperties": false,
-        "description": "Status and scorecard descriptor for a platform verification run.",
+        "description": "Status, scorecard, and metadata descriptor for a platform execution run.",
         "properties": {
           "active_hold_ids": {
+            "description": "IDs of currently pending human Steward holds",
             "items": {
               "type": "string"
             },
@@ -1062,30 +2517,40 @@
                 "type": "null"
               }
             ],
+            "description": "ISO 8601 UTC completion timestamp",
             "title": "Completed At Utc"
           },
           "current_stage_id": {
+            "default": "STAGE_00_ORCHESTRATION",
+            "description": "Current or terminal pipeline stage identifier",
             "title": "Current Stage Id",
             "type": "string"
           },
           "current_view_id": {
+            "default": "WB-00",
+            "description": "Current or terminal workbench view identifier",
             "title": "Current View Id",
             "type": "string"
           },
           "decisions_url": {
+            "description": "REST endpoint URL for Steward hold resolutions",
             "title": "Decisions Url",
             "type": "string"
           },
           "event_count": {
+            "default": 0,
+            "description": "Total observability events emitted during the run",
             "minimum": 0.0,
             "title": "Event Count",
             "type": "integer"
           },
           "events_sse_url": {
+            "description": "Server-Sent Events endpoint URL for live streaming",
             "title": "Events Sse Url",
             "type": "string"
           },
           "fallbacks_applied": {
+            "description": "Log of fallback strategies applied during execution",
             "items": {
               "additionalProperties": true,
               "type": "object"
@@ -1094,53 +2559,86 @@
             "type": "array"
           },
           "gate_scorecard": {
-            "$ref": "#/components/schemas/GateScorecardSummary"
+            "$ref": "#/components/schemas/GateScorecardSummary",
+            "description": "6-Gate verification scorecard summary"
           },
           "gates_url": {
+            "description": "REST endpoint URL for gate scorecards",
             "title": "Gates Url",
             "type": "string"
           },
           "harness_provider": {
-            "enum": [
-              "agy",
-              "agy-cli",
-              "antigravity",
-              "claude",
-              "claude-cli",
-              "claude-code"
-            ],
+            "default": "antigravity",
+            "description": "Harness provider used for execution",
             "title": "Harness Provider",
             "type": "string"
           },
+          "has_initial_contract": {
+            "default": false,
+            "description": "Whether an initial contract was provided for expansion (GAP-07)",
+            "title": "Has Initial Contract",
+            "type": "boolean"
+          },
+          "initial_contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to initial contract if file-backed (GAP-07)",
+            "title": "Initial Contract Path"
+          },
+          "lifecycle_stage": {
+            "default": "COLD_START_N1",
+            "description": "Contract lifecycle stage (COLD_START_N1 or MULTI_SOURCE_EXPANSION)",
+            "title": "Lifecycle Stage",
+            "type": "string"
+          },
           "project_id": {
+            "description": "Associated project identifier",
             "title": "Project Id",
             "type": "string"
           },
           "run_id": {
+            "description": "Unique run identifier",
             "title": "Run Id",
             "type": "string"
           },
           "sandbox_url": {
+            "description": "REST endpoint URL for sandbox query execution",
             "title": "Sandbox Url",
             "type": "string"
           },
           "started_at_utc": {
+            "description": "ISO 8601 UTC start timestamp",
             "title": "Started At Utc",
             "type": "string"
           },
           "status": {
-            "$ref": "#/components/schemas/RunStatus"
+            "$ref": "#/components/schemas/opendv_contracts__dtos__common__RunStatus",
+            "default": "PENDING",
+            "description": "Current lifecycle status of the run"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target wave identifier if restricted (GAP-07)",
+            "title": "Wave Id"
           }
         },
         "required": [
           "run_id",
           "project_id",
-          "harness_provider",
-          "status",
           "started_at_utc",
-          "current_stage_id",
-          "current_view_id",
-          "event_count",
           "events_sse_url",
           "gates_url",
           "sandbox_url",
@@ -1193,7 +2691,130 @@
         "title": "RenderedOutput",
         "type": "object"
       },
-      "RunStatus": {
+      "RuleEvaluationDTO": {
+        "additionalProperties": false,
+        "description": "Individual rule evaluation result within a gate.",
+        "properties": {
+          "entity_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target entity/attribute identifier",
+            "title": "Entity Ref"
+          },
+          "gate_id": {
+            "description": "Gate ID (G0..G5)",
+            "title": "Gate Id",
+            "type": "string"
+          },
+          "message": {
+            "description": "Descriptive violation or compliance message",
+            "title": "Message",
+            "type": "string"
+          },
+          "rule_id": {
+            "description": "Rule ID (e.g., DV-COL-001, ALG-A1)",
+            "title": "Rule Id",
+            "type": "string"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/GateVerdict",
+            "description": "Rule outcome"
+          }
+        },
+        "required": [
+          "rule_id",
+          "gate_id",
+          "verdict",
+          "message"
+        ],
+        "title": "RuleEvaluationDTO",
+        "type": "object"
+      },
+      "RunArtifactDTO": {
+        "additionalProperties": false,
+        "description": "Run-isolated artifact inspection response DTO (Decision D1, T6 invariants).",
+        "properties": {
+          "artifact_id": {
+            "description": "Unique artifact identifier within run",
+            "title": "Artifact Id",
+            "type": "string"
+          },
+          "artifact_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Artifact category",
+            "title": "Artifact Type"
+          },
+          "byte_length": {
+            "anyOf": [
+              {
+                "minimum": 0.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Artifact size in bytes",
+            "title": "Byte Length"
+          },
+          "content": {
+            "description": "RBAC-redacted text or serialized content",
+            "title": "Content",
+            "type": "string"
+          },
+          "filename": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Artifact filename",
+            "title": "Filename"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Supplementary artifact metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "run_id": {
+            "description": "Associated run identifier",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "sha256": {
+            "description": "Lowercase 64-hex SHA-256 CAS digest",
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "artifact_id",
+          "run_id",
+          "sha256",
+          "content"
+        ],
+        "title": "RunArtifactDTO",
+        "type": "object"
+      },
+      "RunStatus-Input": {
         "description": "Execution lifecycle status of a platform verification or sandbox run (docs/08 \u00a75.2).",
         "enum": [
           "PENDING",
@@ -1205,6 +2826,90 @@
         ],
         "title": "RunStatus",
         "type": "string"
+      },
+      "SandboxBatchResult": {
+        "additionalProperties": false,
+        "description": "Execution result for an individual sandbox batch.",
+        "properties": {
+          "batch_name": {
+            "description": "Batch descriptor name",
+            "title": "Batch Name",
+            "type": "string"
+          },
+          "batch_number": {
+            "description": "Batch sequence number",
+            "maximum": 4.0,
+            "minimum": 1.0,
+            "title": "Batch Number",
+            "type": "integer"
+          },
+          "delta_rows": {
+            "default": 0,
+            "description": "Delta mutated rows",
+            "minimum": 0.0,
+            "title": "Delta Rows",
+            "type": "integer"
+          },
+          "error_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Batch execution error if failed",
+            "title": "Error Message"
+          },
+          "passed": {
+            "description": "Batch passage status",
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "row_count": {
+            "default": 0,
+            "description": "Total ingested rows",
+            "minimum": 0.0,
+            "title": "Row Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "batch_number",
+          "batch_name",
+          "passed"
+        ],
+        "title": "SandboxBatchResult",
+        "type": "object"
+      },
+      "SandboxColumnMetadata": {
+        "additionalProperties": false,
+        "description": "Metadata for a column in a sandbox query result.",
+        "properties": {
+          "data_type": {
+            "description": "DuckDB SQL data type",
+            "title": "Data Type",
+            "type": "string"
+          },
+          "name": {
+            "description": "Column name",
+            "title": "Name",
+            "type": "string"
+          },
+          "nullable": {
+            "default": true,
+            "description": "Whether column can contain NULL",
+            "title": "Nullable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "data_type"
+        ],
+        "title": "SandboxColumnMetadata",
+        "type": "object"
       },
       "SandboxExecutionResponse": {
         "additionalProperties": false,
@@ -1351,6 +3056,14 @@
             "description": "Contract YAML path",
             "title": "Contract Path"
           },
+          "max_rows": {
+            "default": 1000,
+            "description": "Max rows to return",
+            "maximum": 50000.0,
+            "minimum": 1.0,
+            "title": "Max Rows",
+            "type": "integer"
+          },
           "parameters": {
             "additionalProperties": true,
             "description": "Arbitrary query parameter bindings",
@@ -1385,9 +3098,185 @@
             ],
             "description": "Associated run identifier",
             "title": "Run Id"
+          },
+          "sql": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Custom read-only SQL query",
+            "title": "Sql"
+          },
+          "timeout_seconds": {
+            "default": 30.0,
+            "description": "Execution timeout",
+            "maximum": 300.0,
+            "minimum": 0.5,
+            "title": "Timeout Seconds",
+            "type": "number"
           }
         },
         "title": "SandboxQueryRequest",
+        "type": "object"
+      },
+      "SandboxQueryResponse": {
+        "additionalProperties": false,
+        "description": "Response DTO containing sandbox query results, batch verdicts,\nand dynamic check statuses (Decisions D6, D7).",
+        "properties": {
+          "all_batches_passed": {
+            "description": "True if all batches passed assertions",
+            "title": "All Batches Passed",
+            "type": "boolean"
+          },
+          "assertion_cutoff_ts": {
+            "description": "Cutoff timestamp applied",
+            "title": "Assertion Cutoff Ts",
+            "type": "string"
+          },
+          "batch_report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Detailed batch verification report",
+            "title": "Batch Report"
+          },
+          "batch_verdicts": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Mapping of batch name to PASS/FAIL",
+            "title": "Batch Verdicts",
+            "type": "object"
+          },
+          "batches": {
+            "description": "Granular batch execution results",
+            "items": {
+              "$ref": "#/components/schemas/SandboxBatchResult"
+            },
+            "title": "Batches",
+            "type": "array"
+          },
+          "columns": {
+            "description": "Result column metadata",
+            "items": {
+              "$ref": "#/components/schemas/SandboxColumnMetadata"
+            },
+            "title": "Columns",
+            "type": "array"
+          },
+          "dynamic_check_report": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Detailed dynamic check report",
+            "title": "Dynamic Check Report"
+          },
+          "dynamic_rules_passed": {
+            "default": 0,
+            "description": "Dynamic checks passing count",
+            "minimum": 0.0,
+            "title": "Dynamic Rules Passed",
+            "type": "integer"
+          },
+          "dynamic_rules_total": {
+            "default": 15,
+            "description": "Total dynamic checks evaluated",
+            "minimum": 0.0,
+            "title": "Dynamic Rules Total",
+            "type": "integer"
+          },
+          "execution_stats": {
+            "additionalProperties": true,
+            "description": "Execution statistics (duration_ms, truncated, row_count)",
+            "title": "Execution Stats",
+            "type": "object"
+          },
+          "query_d10_rows": {
+            "description": "Point-in-Time Query D.10 rows",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Query D10 Rows",
+            "type": "array"
+          },
+          "query_d10b_rows": {
+            "description": "Valuation Query D.10b rows",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Query D10B Rows",
+            "type": "array"
+          },
+          "query_type": {
+            "description": "Executed query type",
+            "title": "Query Type",
+            "type": "string"
+          },
+          "rendered": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RenderedOutput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pre-rendered text output"
+          },
+          "replay_delta_rows": {
+            "default": 0,
+            "description": "Idempotent replay delta rows count",
+            "minimum": 0.0,
+            "title": "Replay Delta Rows",
+            "type": "integer"
+          },
+          "row_count": {
+            "default": 0,
+            "description": "Returned result rows count",
+            "minimum": 0.0,
+            "title": "Row Count",
+            "type": "integer"
+          },
+          "rows": {
+            "description": "Primary result rows",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "run_id": {
+            "description": "Run identifier",
+            "title": "Run Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "run_id",
+          "query_type",
+          "assertion_cutoff_ts",
+          "all_batches_passed"
+        ],
+        "title": "SandboxQueryResponse",
         "type": "object"
       },
       "SandboxQueryType": {
@@ -1396,10 +3285,211 @@
           "ADVERSARIAL_BATCHES_1_TO_4",
           "QUERY_D10_PIT",
           "QUERY_D10B_VALUATION",
-          "VERIFY_DYN_001_015"
+          "VERIFY_DYN_001_015",
+          "CUSTOM_SQL"
         ],
         "title": "SandboxQueryType",
         "type": "string"
+      },
+      "StageDTO": {
+        "additionalProperties": false,
+        "description": "Ordered pipeline stage definition (strictly STAGE_00..STAGE_07).",
+        "properties": {
+          "blurb": {
+            "description": "One-line summary",
+            "title": "Blurb",
+            "type": "string"
+          },
+          "comps": {
+            "description": "Assigned components [name, type, desc, source_path]",
+            "items": {
+              "maxItems": 4,
+              "minItems": 4,
+              "prefixItems": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "string"
+                }
+              ],
+              "type": "array"
+            },
+            "title": "Comps",
+            "type": "array"
+          },
+          "desc": {
+            "description": "Detailed description",
+            "title": "Desc",
+            "type": "string"
+          },
+          "ins": {
+            "description": "Consumed artifact IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Ins",
+            "type": "array"
+          },
+          "key": {
+            "description": "Stage key (e.g. STAGE_00_ORCHESTRATION)",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "description": "Stage display name",
+            "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional amber note",
+            "title": "Note"
+          },
+          "outs": {
+            "description": "Produced artifact IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Outs",
+            "type": "array"
+          },
+          "persona": {
+            "description": "Assigned agent persona",
+            "title": "Persona",
+            "type": "string"
+          },
+          "phase": {
+            "description": "Phase index (0..3)",
+            "enum": [
+              0,
+              1,
+              2,
+              3
+            ],
+            "title": "Phase",
+            "type": "integer"
+          },
+          "steps": {
+            "description": "Ordered steps",
+            "items": {
+              "$ref": "#/components/schemas/StepDTO"
+            },
+            "title": "Steps",
+            "type": "array"
+          },
+          "tag": {
+            "description": "Stage verdict / status pill",
+            "enum": [
+              "PASS",
+              "AUTO_REPAIRED",
+              "ASK-USER",
+              "ASK-USER \u2192 resolved",
+              "REJECT-WITH-TRACE",
+              "AUTO-FIX",
+              "HOLD"
+            ],
+            "title": "Tag",
+            "type": "string"
+          },
+          "tier": {
+            "description": "Model tier or execution kind",
+            "title": "Tier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "key",
+          "phase",
+          "name",
+          "persona",
+          "tier",
+          "tag",
+          "blurb",
+          "desc"
+        ],
+        "title": "StageDTO",
+        "type": "object"
+      },
+      "StepDTO": {
+        "additionalProperties": false,
+        "description": "Pipeline execution step definition inside a stage.",
+        "properties": {
+          "branch": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Decision branch logic description",
+            "title": "Branch"
+          },
+          "desc": {
+            "description": "Step description",
+            "title": "Desc",
+            "type": "string"
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "action",
+                  "decision",
+                  "loop"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Step kind",
+            "title": "Kind"
+          },
+          "name": {
+            "description": "Step name",
+            "title": "Name",
+            "type": "string"
+          },
+          "reads": {
+            "description": "Artifact IDs read by step",
+            "items": {
+              "type": "string"
+            },
+            "title": "Reads",
+            "type": "array"
+          },
+          "writes": {
+            "description": "Artifact IDs written by step",
+            "items": {
+              "type": "string"
+            },
+            "title": "Writes",
+            "type": "array"
+          }
+        },
+        "required": [
+          "name",
+          "desc"
+        ],
+        "title": "StepDTO",
+        "type": "object"
       },
       "ValidationError": {
         "properties": {
@@ -1440,6 +3530,330 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "VerifyRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO for 6-Gate symbolic verification (Decision D1).",
+        "properties": {
+          "apply_codemods": {
+            "default": true,
+            "description": "Whether to apply automated codemods before verification",
+            "title": "Apply Codemods",
+            "type": "boolean"
+          },
+          "compiled_sql": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional raw SQL containing physical models for Gate 6 AST verification",
+            "title": "Compiled Sql"
+          },
+          "compiled_sql_models": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional compiled physical SQL models for Gate 6 AST verification",
+            "title": "Compiled Sql Models"
+          },
+          "contract_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline contract YAML content (Decision D1)",
+            "title": "Contract Content"
+          },
+          "contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to contract YAML",
+            "title": "Contract Path"
+          },
+          "graph_a_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline Graph A YAML content",
+            "title": "Graph A Content"
+          },
+          "graph_a_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to Graph A ontology YAML",
+            "title": "Graph A Path"
+          },
+          "graph_b_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline Graph B JSON content",
+            "title": "Graph B Content"
+          },
+          "graph_b_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to Graph B profile JSON",
+            "title": "Graph B Path"
+          },
+          "prior_contract_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline prior contract content",
+            "title": "Prior Contract Content"
+          },
+          "prior_contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to prior baseline contract for evolution checks",
+            "title": "Prior Contract Path"
+          },
+          "project_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Project identifier",
+            "title": "Project Id"
+          },
+          "rule_filter": {
+            "description": "Optional rule subsets to evaluate",
+            "items": {
+              "type": "string"
+            },
+            "title": "Rule Filter",
+            "type": "array"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Run identifier",
+            "title": "Run Id"
+          }
+        },
+        "title": "VerifyRequest",
+        "type": "object"
+      },
+      "VerifyResponse": {
+        "additionalProperties": false,
+        "description": "Response DTO containing 6-Gate scorecard, applied codemods,\nand diagnostics (Decisions D6, D7).",
+        "properties": {
+          "applied_codemods": {
+            "description": "List of applied algorithmic codemod IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Applied Codemods",
+            "type": "array"
+          },
+          "contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Contract path if file-based",
+            "title": "Contract Path"
+          },
+          "diagnostics": {
+            "description": "Human/log diagnostic statements",
+            "items": {
+              "type": "string"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "evaluations": {
+            "description": "Detailed rule evaluation breakdown",
+            "items": {
+              "$ref": "#/components/schemas/RuleEvaluationDTO"
+            },
+            "title": "Evaluations",
+            "type": "array"
+          },
+          "gate_scorecard": {
+            "$ref": "#/components/schemas/GateScorecardSummary",
+            "description": "6-Gate status scorecard"
+          },
+          "overall_passed": {
+            "description": "True if verification succeeded or was auto-repaired",
+            "title": "Overall Passed",
+            "type": "boolean"
+          },
+          "rendered": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RenderedOutput"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pre-rendered text output"
+          },
+          "run_id": {
+            "description": "Run identifier",
+            "title": "Run Id",
+            "type": "string"
+          },
+          "status": {
+            "description": "Pipeline execution status ('PASS', 'AUTO-FIX', 'REJECT-WITH-TRACE', etc.)",
+            "title": "Status",
+            "type": "string"
+          },
+          "toon_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rendered TOON trace notation",
+            "title": "Toon Text"
+          },
+          "verdict": {
+            "$ref": "#/components/schemas/GateVerdict",
+            "description": "Overall synthesized gate verdict"
+          }
+        },
+        "required": [
+          "run_id",
+          "status",
+          "verdict",
+          "overall_passed"
+        ],
+        "title": "VerifyResponse",
+        "type": "object"
+      },
+      "WaveMetadataSpecDTO": {
+        "additionalProperties": false,
+        "description": "Wave metadata specification.",
+        "properties": {
+          "description": {
+            "description": "Wave description",
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "description": "Wave identifier (e.g. W0, W1)",
+            "title": "Id",
+            "type": "string"
+          },
+          "name": {
+            "description": "Wave name",
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "description"
+        ],
+        "title": "WaveMetadataSpecDTO",
+        "type": "object"
+      },
+      "opendv_contracts__dtos__common__RunStatus": {
+        "description": "Lifecycle status of a pipeline run.",
+        "enum": [
+          "PENDING",
+          "QUEUED",
+          "RUNNING",
+          "PAUSED_HOLD",
+          "COMPLETED",
+          "FAILED",
+          "ABORTED"
+        ],
+        "title": "RunStatus",
+        "type": "string"
+      },
+      "opendv_service__models__RunStatus": {
+        "description": "Execution lifecycle status of a platform verification or sandbox run (docs/08 \u00a75.2).",
+        "enum": [
+          "PENDING",
+          "RUNNING",
+          "PAUSED_HOLD",
+          "COMPLETED",
+          "FAILED",
+          "ABORTED"
+        ],
+        "title": "RunStatus",
+        "type": "string"
       }
     }
   },
@@ -1536,6 +3950,48 @@
         ]
       }
     },
+    "/api/v1/compile": {
+      "post": {
+        "description": "Compile Data Vault 2.0 contract into Canonical IR and 4-Zone SQL.",
+        "operationId": "compile_pipeline_api_v1_compile_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompileRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CompileResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Compile Pipeline",
+        "tags": [
+          "compile"
+        ]
+      }
+    },
     "/api/v1/health": {
       "get": {
         "description": "Liveness and readiness probe for the Open-DV Platform API.",
@@ -1562,26 +4018,8 @@
     },
     "/api/v1/pipelines/runs": {
       "post": {
-        "description": "Execute the end-to-end 8-stage agentic pipeline and return the `AgenticPipelineReport`.",
+        "description": "Initiate an asynchronous end-to-end 8-stage agentic pipeline run (Decision D2).",
         "operationId": "run_pipeline_api_v1_pipelines_runs_post",
-        "parameters": [
-          {
-            "in": "header",
-            "name": "X-OpenDV-Role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Opendv-Role"
-            }
-          }
-        ],
         "requestBody": {
           "content": {
             "application/json": {
@@ -1593,13 +4031,11 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Run Pipeline Api V1 Pipelines Runs Post",
-                  "type": "object"
+                  "$ref": "#/components/schemas/PipelineRunHandle"
                 }
               }
             },
@@ -1843,7 +4279,7 @@
     },
     "/api/v1/runs": {
       "get": {
-        "description": "List all runs, optionally filtered by project_id.",
+        "description": "List all runs, optionally filtered by project_id, status, and stage_id.",
         "operationId": "list_runs_api_v1_runs_get",
         "parameters": [
           {
@@ -1860,6 +4296,38 @@
                 }
               ],
               "title": "Project Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/RunStatus-Input"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "in": "query",
+            "name": "stage_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage Id"
             }
           }
         ],
@@ -1895,7 +4363,7 @@
         ]
       },
       "post": {
-        "description": "Start a verification, compilation, and sandbox execution run.",
+        "description": "Start an asynchronous verification, compilation, and sandbox execution run (Decision D2).",
         "operationId": "start_run_api_v1_runs_post",
         "requestBody": {
           "content": {
@@ -1908,11 +4376,11 @@
           "required": true
         },
         "responses": {
-          "201": {
+          "202": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/ProjectRunDTO"
+                  "$ref": "#/components/schemas/PipelineRunHandle"
                 }
               }
             },
@@ -2016,6 +4484,74 @@
           }
         },
         "summary": "Abort Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/artifacts/{artifact_id}": {
+      "get": {
+        "description": "Retrieve a run-isolated artifact with lowercase 64-hex CAS hash and RBAC redaction (T6).",
+        "operationId": "get_run_artifact_api_v1_runs__run_id__artifacts__artifact_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "artifact_id",
+            "required": true,
+            "schema": {
+              "title": "Artifact Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RunArtifactDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Run Artifact",
         "tags": [
           "runs"
         ]
@@ -2203,6 +4739,83 @@
         "summary": "Stream Run Events",
         "tags": [
           "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/explorer": {
+      "get": {
+        "description": "Retrieve 3-level explorer bundle (Phases, Stages, Artifacts) for an execution run.\n\nSupports optional wave subset filtering (`?wave_id=W1` or `?wave_id=1`).",
+        "operationId": "get_explorer_bundle_api_v1_runs__run_id__explorer_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "description": "Optional wave identifier filter (e.g. 'W1' or '1'). When provided, filters artifacts to those matching the specified wave.",
+            "in": "query",
+            "name": "wave_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Optional wave identifier filter (e.g. 'W1' or '1'). When provided, filters artifacts to those matching the specified wave.",
+              "title": "Wave Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExplorerBundleDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get 3-Level Explorer bundle for a run",
+        "tags": [
+          "explorer"
         ]
       }
     },
@@ -2418,7 +5031,7 @@
         ]
       },
       "post": {
-        "description": "Execute a parameterized audit query or 4-Batch sequence in the DuckDB sandbox.",
+        "description": "Execute a parameterized audit query or 4-Batch sequence in the DuckDB sandbox for a run.",
         "operationId": "execute_run_sandbox_query_api_v1_runs__run_id__sandbox_post",
         "parameters": [
           {
@@ -2536,6 +5149,90 @@
         "summary": "Get Workbench View Projection",
         "tags": [
           "workbench"
+        ]
+      }
+    },
+    "/api/v1/sandbox": {
+      "post": {
+        "description": "Execute standalone query in the DuckDB sandbox (GAP-04).",
+        "operationId": "execute_standalone_sandbox_api_v1_sandbox_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SandboxQueryResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Execute Standalone Sandbox",
+        "tags": [
+          "sandbox"
+        ]
+      }
+    },
+    "/api/v1/verify": {
+      "post": {
+        "description": "Execute stateless 6-Gate symbolic verification across contract, Graph A,\nand Graph B inputs.",
+        "operationId": "verify_pipeline_api_v1_verify_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerifyResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Verify Pipeline",
+        "tags": [
+          "verify"
         ]
       }
     }

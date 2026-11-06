@@ -14,6 +14,7 @@ from opendv_service.models import (
     ProjectRunDTO,
     RunStatus,
 )
+from opendv_service.runs.options import resolve_run_creation_options
 from opendv_sources import get_source_registry
 from opendv_telemetry import VaultLedgerEmitter
 
@@ -37,8 +38,13 @@ class RunStateMixin:
             "claude",
             "claude-cli",
             "claude-code",
-        ],
+        ]
+        | str,
         started_at_utc: str,
+        has_initial_contract: bool = False,
+        initial_contract_path: str | None = None,
+        wave_id: str | None = None,
+        lifecycle_stage: str = "COLD_START_N1",
     ) -> ProjectRunDTO:
         ledger_path = self.ledger_dir / f"{run_id}.jsonl"
         ledger_path.unlink(missing_ok=True)
@@ -79,6 +85,10 @@ class RunStateMixin:
             gates_url=f"/api/v1/runs/{run_id}/gates",
             sandbox_url=f"/api/v1/runs/{run_id}/sandbox",
             decisions_url=f"/api/v1/runs/{run_id}/decisions",
+            has_initial_contract=has_initial_contract,
+            initial_contract_path=initial_contract_path,
+            wave_id=wave_id,
+            lifecycle_stage=lifecycle_stage,
         )
         self.runs[run_id] = run_dto
         if project_id in self.projects:
@@ -146,92 +156,125 @@ class RunStateMixin:
             },
         }
 
+    def build_dynamic_project_input_spec(
+        self: BaseStateContainer,
+        project_id: str,
+    ) -> dict[str, Any] | None:
+        """Construct dynamic cold-start input spec for project with bronze sources, if present."""
+        if project_id not in self.projects:
+            return None
+        proj = self.projects[project_id]
+        bronze_sources = self.project_bronze_sources.get(project_id, [])
+        if not (bronze_sources and proj.graph_a_ontology_path is not None):
+            return None
+
+        feeds: list[dict[str, Any]] = []
+        docs: list[dict[str, Any]] = []
+        for idx, src_rel in enumerate(bronze_sources):
+            resolved = self._resolve_repo_path(src_rel)
+            if get_source_registry().is_document_path(resolved):
+                docs.append(
+                    {
+                        "doc_id": f"doc_{idx + 1:02d}_{resolved.stem}",
+                        "document_path": str(resolved),
+                    }
+                )
+            else:
+                feeds.append(
+                    {
+                        "feed_id": f"feed_{idx + 1:02d}_{resolved.stem}",
+                        "source_system": resolved.parent.name or "BRONZE_SOURCE",
+                        "table_name": resolved.stem,
+                        "file_path": str(resolved),
+                    }
+                )
+
+        return {
+            "pipeline_id": f"pipe-{project_id}",
+            "project_id": project_id,
+            "display_name": proj.display_name,
+            "domain_namespace": proj.domain_namespace,
+            "graph_a_ontology_path": str(self._resolve_repo_path(proj.graph_a_ontology_path)),
+            "waves": [
+                {
+                    "wave_index": 0,
+                    "wave_name": "Dynamic Project Discovery Wave",
+                    "wave_type": "COLD_START",
+                    "sources": feeds,
+                    "unstructured_documents": docs,
+                }
+            ],
+        }
+
     def create_run(
         self: BaseStateContainer | PipelineExecutionMixin,
         req: CreateRunRequest,
     ) -> ProjectRunDTO:
         """Start a new verification/sandbox run and populate its observability ledger."""
-        provider_override = (
-            req.harness_provider
-            if (req.harness_config_path is None or req.harness_provider != "antigravity")
-            else None
-        )
+        run_opts = resolve_run_creation_options(req, workspace_root=self.repo_root)
+        provider_override = run_opts.provider_override
+        has_initial_contract = run_opts.has_initial_contract
+        initial_contract_path = run_opts.initial_contract_path
+        lifecycle_stage = run_opts.lifecycle_stage
+        target_wave_id = run_opts.target_wave_id
+
         if req.pipeline_input_path is not None:
             rep_dict = self.execute_agentic_pipeline_run(
                 PipelineRunRequest(
                     input_spec_path=req.pipeline_input_path,
                     harness_config_path=req.harness_config_path,
                     provider_override=provider_override,
+                    initial_contract_path=req.initial_contract_path,
+                    initial_contract=req.initial_contract,
+                    wave_id=target_wave_id,
                 )
             )
             return self.runs[str(rep_dict["run_id"])]
 
-        if req.project_id is None or req.project_id not in self.projects:
-            raise KeyError(f"Unknown project_id '{req.project_id}'")
+        target_project_id = req.project_id or "default-project"
+        if target_project_id not in self.projects:
+            if target_project_id == "default-project":
+                from opendv_contracts import CreateProjectRequest
+
+                self.create_project(
+                    CreateProjectRequest(project_id="default-project", name="Default Project")
+                )
+            else:
+                raise KeyError(f"Unknown project_id '{req.project_id}'")
 
         if req.contract_path is not None:
             self._resolve_repo_path(req.contract_path)
-            self.projects[req.project_id] = self.projects[req.project_id].model_copy(
+            self.projects[target_project_id] = self.projects[target_project_id].model_copy(
                 update={"contract_path": req.contract_path}
             )
 
-        proj = self.projects[req.project_id]
-        bronze_sources = self.project_bronze_sources.get(req.project_id, [])
-        if bronze_sources and proj.graph_a_ontology_path is not None:
-            source_feeds: list[dict[str, Any]] = []
-            unstructured_documents: list[dict[str, Any]] = []
-            for idx, src_rel in enumerate(bronze_sources):
-                resolved_src = self._resolve_repo_path(src_rel)
-                if get_source_registry().is_document_path(resolved_src):
-                    unstructured_documents.append(
-                        {
-                            "doc_id": f"doc_{idx + 1:02d}_{resolved_src.stem}",
-                            "document_path": str(resolved_src),
-                        }
-                    )
-                else:
-                    source_feeds.append(
-                        {
-                            "feed_id": f"feed_{idx + 1:02d}_{resolved_src.stem}",
-                            "source_system": resolved_src.parent.name or "BRONZE_SOURCE",
-                            "table_name": resolved_src.stem,
-                            "file_path": str(resolved_src),
-                        }
-                    )
-            dynamic_input_spec: dict[str, Any] = {
-                "pipeline_id": f"pipe-{req.project_id}",
-                "project_id": req.project_id,
-                "display_name": proj.display_name,
-                "domain_namespace": proj.domain_namespace,
-                "graph_a_ontology_path": str(self._resolve_repo_path(proj.graph_a_ontology_path)),
-                "waves": [
-                    {
-                        "wave_index": 0,
-                        "wave_name": "Dynamic Project Discovery Wave",
-                        "wave_type": "COLD_START",
-                        "sources": source_feeds,
-                        "unstructured_documents": unstructured_documents,
-                    }
-                ],
-            }
+        dynamic_input_spec = self.build_dynamic_project_input_spec(target_project_id)
+        if dynamic_input_spec is not None:
             rep_dict = self.execute_agentic_pipeline_run(
                 PipelineRunRequest(
                     input_spec=dynamic_input_spec,
                     harness_config_path=req.harness_config_path,
                     provider_override=provider_override,
                     steward_hold_policy="auto_approve_top_candidate",
+                    initial_contract_path=req.initial_contract_path,
+                    initial_contract=req.initial_contract,
+                    wave_id=target_wave_id,
                 )
             )
             return self.runs[str(rep_dict["run_id"])]
 
         run_index = len(self.runs) + 1
-        run_id = f"run-{req.project_id}-{run_index:04d}"
+        run_id = f"run-{target_project_id}-{run_index:04d}"
         now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         return self._init_run_artifacts(
             run_id=run_id,
-            project_id=req.project_id,
+            project_id=target_project_id,
             harness_provider=req.harness_provider,
             started_at_utc=now_iso,
+            has_initial_contract=has_initial_contract,
+            initial_contract_path=initial_contract_path,
+            wave_id=target_wave_id,
+            lifecycle_stage=lifecycle_stage,
         )
 
     def abort_run(

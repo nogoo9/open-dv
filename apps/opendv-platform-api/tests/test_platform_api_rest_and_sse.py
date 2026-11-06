@@ -258,7 +258,7 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
             assert res_sibling_prefix.status_code == 400
             assert "application/problem+json" in res_sibling_prefix.headers["content-type"]
 
-            # 5. Start a new run on the new project
+            # 5. Start a new run on the new project (Decision D2: 202 Accepted)
             res_run_create = await client.post(
                 "/api/v1/runs",
                 json={
@@ -266,12 +266,22 @@ def test_projects_and_runs_lifecycle(tmp_path: Path) -> None:
                     "harness_provider": "claude",
                 },
             )
-            assert res_run_create.status_code == 201
+            assert res_run_create.status_code == 202
             created_run = res_run_create.json()
             new_run_id = created_run["run_id"]
+            assert res_run_create.headers["location"] == f"/api/v1/runs/{new_run_id}"
             assert created_run["harness_provider"] == "claude"
-            assert created_run["status"] in {RunStatus.PENDING.value, RunStatus.PAUSED_HOLD.value}
-            assert created_run["event_count"] == 0
+            assert created_run["status"] in {
+                RunStatus.PENDING.value,
+                RunStatus.RUNNING.value,
+                RunStatus.PAUSED_HOLD.value,
+            }
+
+            res_get_run = await client.get(f"/api/v1/runs/{new_run_id}")
+            assert res_get_run.status_code == 200
+            run_dto = res_get_run.json()
+            assert run_dto["harness_provider"] == "claude"
+            assert run_dto["event_count"] == 0
 
             res_no_contract_gates = await client.post(
                 f"/api/v1/runs/{new_run_id}/gates",
@@ -913,6 +923,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert res_val_claude_cli.json()["passed"] is True
 
             # 3. Execute 4-wave agentic pipeline via POST /api/v1/pipelines/runs
+            # (Decision D2: 202 Accepted)
             out_dir = tmp_path / "pipeline_out"
             res_run = await client.post(
                 "/api/v1/pipelines/runs",
@@ -925,9 +936,29 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                     "output_dir": str(out_dir),
                 },
             )
-            assert res_run.status_code == 201
-            rep_body = res_run.json()
-            run_id = rep_body["run_id"]
+            assert res_run.status_code == 202
+            handle_body = res_run.json()
+            run_id = handle_body["run_id"]
+            assert res_run.headers["location"] == f"/api/v1/runs/{run_id}"
+
+            # Wait for background pipeline execution to complete
+            for _ in range(200):
+                poll = await client.get(f"/api/v1/runs/{run_id}")
+                if poll.status_code == 200 and poll.json().get("status") in {
+                    RunStatus.COMPLETED.value,
+                    RunStatus.FAILED.value,
+                }:
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                pytest.fail(f"Pipeline run {run_id} did not reach terminal status in time")
+
+            res_final_rep = await client.get(
+                f"/api/v1/runs/{run_id}/report",
+                headers={"X-OpenDV-Role": "INTERNAL_MODELER"},
+            )
+            assert res_final_rep.status_code == 200
+            rep_body = res_final_rep.json()
             assert rep_body["status"] == "COMPLETED"
             assert rep_body["overall_passed"] is True
             assert rep_body["input_validation"]["passed"] is True
@@ -1026,7 +1057,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert res_art.status_code == 200
             assert res_art.json()["sha256"] == final_contract_sha.upper()
 
-            # 8. POST /api/v1/runs with pipeline_input_path triggers execute_agentic_pipeline_run
+            # 8. POST /api/v1/runs with pipeline_input_path triggers execute_run_async (Decision D2)
             res_via_runs = await client.post(
                 "/api/v1/runs",
                 json={
@@ -1035,12 +1066,28 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                     "harness_provider": "agy",
                 },
             )
-            assert res_via_runs.status_code == 201
-            via_runs_dto = res_via_runs.json()
+            assert res_via_runs.status_code == 202
+            via_runs_handle = res_via_runs.json()
+            run_id = via_runs_handle["run_id"]
+            assert res_via_runs.headers["location"] == f"/api/v1/runs/{run_id}"
+
+            for _ in range(200):
+                poll = await client.get(f"/api/v1/runs/{run_id}")
+                if poll.status_code == 200 and poll.json().get("status") in {
+                    RunStatus.COMPLETED.value,
+                    RunStatus.FAILED.value,
+                }:
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                pytest.fail(f"Run {run_id} did not finish in time")
+
+            via_runs_dto = (await client.get(f"/api/v1/runs/{run_id}")).json()
             assert via_runs_dto["status"] == RunStatus.COMPLETED.value
-            assert via_runs_dto["run_id"] in state.pipeline_reports
+            assert run_id in state.pipeline_reports
 
             # 9. PAUSED_HOLD pipeline run synchronizes report on hold resolution and abort
+            # (Decision D2: 202 Accepted)
             res_paused = await client.post(
                 "/api/v1/pipelines/runs",
                 headers={"X-OpenDV-Role": "DATA_STEWARD"},
@@ -1052,9 +1099,28 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                     "output_dir": str(tmp_path / "paused_out"),
                 },
             )
-            assert res_paused.status_code == 201
-            paused_body = res_paused.json()
-            paused_run_id = paused_body["run_id"]
+            assert res_paused.status_code == 202
+            handle_paused = res_paused.json()
+            paused_run_id = handle_paused["run_id"]
+            assert res_paused.headers["location"] == f"/api/v1/runs/{paused_run_id}"
+
+            for _ in range(200):
+                poll = await client.get(f"/api/v1/runs/{paused_run_id}")
+                if poll.status_code == 200 and poll.json().get("status") in {
+                    RunStatus.PAUSED_HOLD.value,
+                    RunStatus.COMPLETED.value,
+                }:
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                pytest.fail(f"Run {paused_run_id} did not pause in time")
+
+            res_paused_rep = await client.get(
+                f"/api/v1/runs/{paused_run_id}/report",
+                headers={"X-OpenDV-Role": "DATA_STEWARD"},
+            )
+            assert res_paused_rep.status_code == 200
+            paused_body = res_paused_rep.json()
             assert paused_body["status"] == "PAUSED_HOLD"
             assert paused_body["overall_passed"] is False
             assert len(paused_body["active_holds"]) >= 1
@@ -1099,11 +1165,24 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                     "output_dir": str(tmp_path / "s0_fail_out"),
                 },
             )
-            assert res_s0_fail.status_code == 201
+            assert res_s0_fail.status_code == 202
             s0_fail_body = res_s0_fail.json()
             s0_fail_id = s0_fail_body["run_id"]
-            assert s0_fail_body["status"] == "FAILED"
+            assert res_s0_fail.headers["location"] == f"/api/v1/runs/{s0_fail_id}"
+
+            for _ in range(200):
+                poll = await client.get(f"/api/v1/runs/{s0_fail_id}")
+                if poll.status_code == 200 and poll.json().get("status") in {
+                    RunStatus.FAILED.value,
+                    RunStatus.COMPLETED.value,
+                }:
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                pytest.fail(f"Run {s0_fail_id} did not fail in time")
+
             s0_run_dto = state.runs[s0_fail_id]
+            assert s0_run_dto.status == RunStatus.FAILED
             assert s0_run_dto.current_stage_id == "STAGE_00_ORCHESTRATION"
             assert s0_run_dto.current_view_id == "WB-00"
             assert s0_run_dto.gate_scorecard.gate_0_profile_drift == "REJECT-WITH-TRACE"
@@ -1173,10 +1252,26 @@ def test_wp06_sdk_resolution_and_dynamic_project_run(
                     "harness_provider": "agy",
                 },
             )
-            assert res_run.status_code == 201
+            assert res_run.status_code == 202
             run_body = res_run.json()
             dyn_run_id = run_body["run_id"]
-            assert run_body["status"] == RunStatus.COMPLETED.value
+            assert res_run.headers["location"] == f"/api/v1/runs/{dyn_run_id}"
+            assert run_body["status"] in {
+                RunStatus.PENDING.value,
+                RunStatus.RUNNING.value,
+                RunStatus.COMPLETED.value,
+            }
+
+            # Poll until run completes
+            for _ in range(100):
+                await asyncio.sleep(0.05)
+                poll_res = await client.get(f"/api/v1/runs/{dyn_run_id}")
+                assert poll_res.status_code == 200
+                if poll_res.json()["status"] == RunStatus.COMPLETED.value:
+                    break
+            else:
+                pytest.fail(f"Run {dyn_run_id} did not reach COMPLETED in time")
+
             assert dyn_run_id in state.pipeline_reports
             assert state.pipeline_reports[dyn_run_id]["overall_passed"] is True
 

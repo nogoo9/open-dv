@@ -34,11 +34,19 @@ class RunStatus(StrEnum):
     """Lifecycle status of a pipeline run."""
 
     PENDING = "PENDING"
+    QUEUED = "QUEUED"
     RUNNING = "RUNNING"
     PAUSED_HOLD = "PAUSED_HOLD"
     COMPLETED = "COMPLETED"
     FAILED = "FAILED"
     ABORTED = "ABORTED"
+
+
+class LifecycleStage(StrEnum):
+    """Data Vault 2.0 contract lifecycle stage."""
+
+    COLD_START_N1 = "COLD_START_N1"
+    MULTI_SOURCE_EXPANSION = "MULTI_SOURCE_EXPANSION"
 
 
 class EventType(StrEnum):

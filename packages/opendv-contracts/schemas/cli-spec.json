@@ -298,6 +298,30 @@
           "env_var": null,
           "inline_upload": false,
           "help": "Associated run ID"
+        },
+        {
+          "name": "compiled_sql",
+          "flag": "--compiled-sql",
+          "short": null,
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to compiled physical SQL models for Gate 6 AST verification"
+        },
+        {
+          "name": "apply_codemods",
+          "flag": "--apply-codemods",
+          "short": null,
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Whether to apply automated self-healing codemods"
         }
       ]
     },
@@ -559,6 +583,18 @@
               "env_var": null,
               "inline_upload": false,
               "help": "Stream token and thought delta deltas"
+            },
+            {
+              "name": "wave_id",
+              "flag": "--wave-id",
+              "short": "-w",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target wave identifier (e.g. W0, W1, W2)"
             }
           ]
         },
@@ -696,6 +732,42 @@
               "env_var": null,
               "inline_upload": false,
               "help": "Contract YAML path"
+            },
+            {
+              "name": "initial_contract_path",
+              "flag": "--initial-contract-path",
+              "short": null,
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Path to initial contract YAML file"
+            },
+            {
+              "name": "initial_contract",
+              "flag": "--initial-contract",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Inline starting contract YAML or JSON string"
+            },
+            {
+              "name": "wave_id",
+              "flag": "--wave-id",
+              "short": "-w",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target wave identifier"
             }
           ]
         },

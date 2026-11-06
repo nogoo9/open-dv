@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import Field
 
 from opendv_contracts.dtos.common import (
@@ -20,7 +22,9 @@ class VerifyRequest(BaseContractModel):
     graph_a_path: str | None = Field(default=None, description="Path to Graph A ontology YAML")
     graph_a_content: str | None = Field(default=None, description="Inline Graph A YAML content")
     graph_b_path: str | None = Field(default=None, description="Path to Graph B profile JSON")
-    graph_b_content: str | None = Field(default=None, description="Inline Graph B JSON content")
+    graph_b_content: str | dict[str, Any] | None = Field(
+        default=None, description="Inline Graph B JSON content"
+    )
     prior_contract_path: str | None = Field(
         default=None, description="Path to prior baseline contract for evolution checks"
     )
@@ -31,6 +35,18 @@ class VerifyRequest(BaseContractModel):
     project_id: str | None = Field(default=None, description="Project identifier")
     rule_filter: list[str] = Field(
         default_factory=list, description="Optional rule subsets to evaluate"
+    )
+    compiled_sql_models: dict[str, str] | None = Field(
+        default=None,
+        description="Optional compiled physical SQL models for Gate 6 AST verification",
+    )
+    compiled_sql: str | None = Field(
+        default=None,
+        description="Optional raw SQL containing physical models for Gate 6 AST verification",
+    )
+    apply_codemods: bool = Field(
+        default=True,
+        description="Whether to apply automated codemods before verification",
     )
 
 
