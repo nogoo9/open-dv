@@ -19,6 +19,13 @@ class VerifyRequest(BaseContractModel):
     contract_content: str | None = Field(
         default=None, description="Inline contract YAML content (Decision D1)"
     )
+    graph_a_source: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Pluggable SourceSpec dictionary or inline mapping for Graph A ontology "
+            "(Decision D1 / ONT-01)"
+        ),
+    )
     graph_a_path: str | None = Field(default=None, description="Path to Graph A ontology YAML")
     graph_a_content: str | None = Field(default=None, description="Inline Graph A YAML content")
     graph_b_path: str | None = Field(default=None, description="Path to Graph B profile JSON")
@@ -78,6 +85,18 @@ class VerifyResponse(BaseContractModel):
         ..., description="True if verification succeeded or was auto-repaired"
     )
     contract_path: str | None = Field(default=None, description="Contract path if file-based")
+    graph_a_sha256: str | None = Field(
+        default=None, description="SHA-256 hash of loaded Graph A ontology bytes (ONT-01)"
+    )
+    ontology_version: str | None = Field(
+        default=None, description="Semantic version of Graph A ontology (ONT-01)"
+    )
+    parent_sha256: str | None = Field(
+        default=None, description="SHA-256 hash of parent Graph A ontology if evolved (ONT-01)"
+    )
+    decision_refs: list[str] = Field(
+        default_factory=list, description="Steward decision IDs that produced this version (ONT-01)"
+    )
     applied_codemods: list[str] = Field(
         default_factory=list, description="List of applied algorithmic codemod IDs"
     )
