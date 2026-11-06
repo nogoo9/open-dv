@@ -966,6 +966,11 @@ The table below is the single normative source of truth for Algorithm A.5 length
 | `GT-03` | `GT-03/05_path_traversal/problem.json` | `f9e1d4327ee9075c092b5c361a5c5f4242544278242713e606b3a52454b088cf` | `GT-03: opendv verify 05_path_traversal` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
 | `GT-03` | `GT-03/06_schema_invalid/problem.json` | `21dbb9f257de98fa3b515e33d20b8575e9ddd5a52fd963d3c7cbda4e3df507f6` | `GT-03: opendv verify 06_schema_invalid` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
 | `GT-05` | `GT-05/render_snapshot.txt` | `5fb79db6161b8d8d7e1e09923b68f76f529091eb2a6f25c760ff025a1255da57` | `PAR-S8-W3: opendv explorer render snapshot` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
+| `GT-06` | `GT-06/accepted_ontology.yaml` | `63e0a8d9cf32c2c2cc92059f6882e79f5a87071321f01e8845dff865ec69b580` | `PAR-ONT-HOLD: apply_ontology_delta` | `[#103] P7.2 Golden GT-06 ontology delta capture` |
+| `GT-06` | `GT-06/base_ontology.yaml` | `5f9b79c6e24556e52a8559f23583a459b252093023fbeb54075135cb166d7adf` | `PAR-ONT-HOLD: base ontology` | `[#103] P7.2 Golden GT-06 ontology delta capture` |
+| `GT-06` | `GT-06/ontology_diff.json` | `3e880982cf2d492c56f42cd1807f605c0cfe6afff88bbd305050e016ba868863` | `PAR-ONT-HOLD: ontology_diff` | `[#103] P7.2 Golden GT-06 ontology delta capture` |
+| `GT-06` | `GT-06/proposal.json` | `d6f91c74700add0eda2278d45eb533c27e0cc48ae07bad35230c6f24c00809f2` | `PAR-ONT-HOLD: testkit proposal` | `[#103] P7.2 Golden GT-06 ontology delta capture` |
+| `GT-06` | `GT-06/validation.json` | `b3643e067fd6d8c306fe4ec56951bdb6a11ebb9ac557afd1099cfe30d5a65d3a` | `PAR-ONT-HOLD: validate_ontology_delta` | `[#103] P7.2 Golden GT-06 ontology delta capture` |
 
 ### G.4 Golden Update and Review Workflow
 

@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-11-06T03:36:54.106896+00:00",
+  "generated_at": "2026-11-06T10:01:22.661629+00:00",
   "generator_transport": "STANDALONE_CLI",
   "entries": [
     {
@@ -338,6 +338,46 @@
       "byte_size": 2848,
       "generated_from": "PAR-S8-W3: opendv explorer render snapshot",
       "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-06",
+      "file": "GT-06/accepted_ontology.yaml",
+      "sha256": "63e0a8d9cf32c2c2cc92059f6882e79f5a87071321f01e8845dff865ec69b580",
+      "byte_size": 2075,
+      "generated_from": "PAR-ONT-HOLD: apply_ontology_delta",
+      "last_justified_change": "[#103] P7.2 Golden GT-06 ontology delta capture"
+    },
+    {
+      "golden_id": "GT-06",
+      "file": "GT-06/base_ontology.yaml",
+      "sha256": "5f9b79c6e24556e52a8559f23583a459b252093023fbeb54075135cb166d7adf",
+      "byte_size": 1320,
+      "generated_from": "PAR-ONT-HOLD: base ontology",
+      "last_justified_change": "[#103] P7.2 Golden GT-06 ontology delta capture"
+    },
+    {
+      "golden_id": "GT-06",
+      "file": "GT-06/ontology_diff.json",
+      "sha256": "3e880982cf2d492c56f42cd1807f605c0cfe6afff88bbd305050e016ba868863",
+      "byte_size": 702,
+      "generated_from": "PAR-ONT-HOLD: ontology_diff",
+      "last_justified_change": "[#103] P7.2 Golden GT-06 ontology delta capture"
+    },
+    {
+      "golden_id": "GT-06",
+      "file": "GT-06/proposal.json",
+      "sha256": "d6f91c74700add0eda2278d45eb533c27e0cc48ae07bad35230c6f24c00809f2",
+      "byte_size": 3534,
+      "generated_from": "PAR-ONT-HOLD: testkit proposal",
+      "last_justified_change": "[#103] P7.2 Golden GT-06 ontology delta capture"
+    },
+    {
+      "golden_id": "GT-06",
+      "file": "GT-06/validation.json",
+      "sha256": "b3643e067fd6d8c306fe4ec56951bdb6a11ebb9ac557afd1099cfe30d5a65d3a",
+      "byte_size": 138,
+      "generated_from": "PAR-ONT-HOLD: validate_ontology_delta",
+      "last_justified_change": "[#103] P7.2 Golden GT-06 ontology delta capture"
     }
   ]
 }
