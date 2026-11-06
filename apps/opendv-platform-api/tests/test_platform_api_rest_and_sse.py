@@ -174,7 +174,7 @@ def test_health_and_capabilities_endpoints(tmp_path: Path) -> None:
             body_health = res_health.json()
             assert body_health["status"] == "ok"
             assert body_health["api_version"] == "v1"
-            assert body_health["contract_version"] == "6.0"
+            assert body_health["contract_version"] == "1.0.0"
 
             res_cap = await client.get("/api/v1/platform/capabilities")
             assert res_cap.status_code == 200

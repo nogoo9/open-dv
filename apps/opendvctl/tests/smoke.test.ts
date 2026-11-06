@@ -177,4 +177,108 @@ describe("opendvctl smoke & CLI execution", () => {
 		expect(parsed.status).toBe("COMPLETED");
 		expect(parsed.overall_passed).toBe(true);
 	});
+
+	it("rejects incompatible contract version with CONTRACT_VERSION_MISMATCH and exit code 2", async () => {
+		const badServer = Bun.serve({
+			port: 0,
+			fetch(req) {
+				const url = new URL(req.url);
+				if (url.pathname === "/api/v1/health") {
+					return Response.json({
+						status: "HEALTHY",
+						version: "0.1.0",
+						contract_version: "9.9",
+					});
+				}
+				return new Response("Not found", { status: 404 });
+			},
+		});
+
+		const errLines: string[] = [];
+		try {
+			const code = await runCli(
+				[
+					"compile",
+					"-c",
+					"contract.yaml",
+					"--api-url",
+					`http://127.0.0.1:${badServer.port}`,
+					"--json",
+				],
+				undefined,
+				(msg) => errLines.push(msg),
+			);
+			expect(code).toBe(2);
+			const errOut = errLines.join("\n");
+			const parsed = loadsJcs<{
+				status: string;
+				error_code: string;
+				detail: string;
+			}>(errOut);
+			expect(parsed.status).toBe("ERROR");
+			expect(parsed.error_code).toBe("CONTRACT_VERSION_MISMATCH");
+			expect(parsed.detail).toContain("Contract version mismatch");
+		} finally {
+			badServer.stop();
+		}
+	});
+
+	it("maps RFC 9457 Problem Details type URI to domain error code", async () => {
+		const problemServer = Bun.serve({
+			port: 0,
+			fetch(req) {
+				const url = new URL(req.url);
+				if (url.pathname === "/api/v1/health") {
+					return Response.json({
+						status: "HEALTHY",
+						version: "0.1.0",
+						contract_version: spec.contract_version,
+					});
+				}
+				if (url.pathname === "/api/v1/compile") {
+					return new Response(
+						JSON.stringify({
+							type: "urn:opendv:not-found",
+							title: "Resource Not Found",
+							status: 404,
+							detail: "Target resource was not found on disk",
+						}),
+						{
+							status: 404,
+							headers: { "Content-Type": "application/problem+json" },
+						},
+					);
+				}
+				return new Response("Not found", { status: 404 });
+			},
+		});
+
+		const errLines: string[] = [];
+		try {
+			const code = await runCli(
+				[
+					"compile",
+					"-c",
+					"contract.yaml",
+					"--api-url",
+					`http://127.0.0.1:${problemServer.port}`,
+					"--json",
+				],
+				undefined,
+				(msg) => errLines.push(msg),
+			);
+			expect(code).toBe(2);
+			const errOut = errLines.join("\n");
+			const parsed = loadsJcs<{
+				status: string;
+				error_code: string;
+				detail: string;
+			}>(errOut);
+			expect(parsed.status).toBe("ERROR");
+			expect(parsed.error_code).toBe("RESOURCE_NOT_FOUND");
+			expect(parsed.detail).toBe("Target resource was not found on disk");
+		} finally {
+			problemServer.stop();
+		}
+	});
 });

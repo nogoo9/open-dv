@@ -30,6 +30,7 @@ _BOOLEAN_FLAGS = frozenset(
         "--dump-cli-tree",
     }
 )
+_NO_SUBCOMMAND_EXEMPT_FLAGS: tuple[str, ...] = ("-h", "--help", "--version")
 
 
 def _has_explicit_subcommand(raw_args: list[str]) -> bool:
@@ -81,9 +82,9 @@ def _dispatch(
             from opendv_contracts.spec import load_cli_spec
 
             spec = load_cli_spec()
-            sys.stdout.write(
-                f"{prog} {spec.get('spec_version', '1.0.0')} (contract {spec.get('contract_version', '1.0.0')})\n"
-            )
+            spec_ver = spec.get("spec_version", "1.0.0")
+            contract_ver = spec.get("contract_version", "1.0.0")
+            sys.stdout.write(f"{prog} {spec_ver} (contract {contract_ver})\n")
             return 0
         sub = getattr(args, "subcommand", None) or "verify"
         exec_inst = executor or LocalExecutor()
@@ -123,9 +124,9 @@ def app_main(
         parser.print_help()
         return 0
 
-    if not any(flag in raw_args for flag in ("-h", "--help", "-v", "--version")) and not _has_explicit_subcommand(
-        raw_args
-    ):
+    if not any(
+        flag in raw_args for flag in _NO_SUBCOMMAND_EXEMPT_FLAGS
+    ) and not _has_explicit_subcommand(raw_args):
         raw_args = ["verify", *raw_args]
 
     try:
@@ -157,9 +158,9 @@ def axi_dv_main(
         parser.parse_args(raw_args)
         return 0
 
-    if not any(flag in raw_args for flag in ("-h", "--help", "-v", "--version")) and not _has_explicit_subcommand(
-        raw_args
-    ):
+    if not any(
+        flag in raw_args for flag in _NO_SUBCOMMAND_EXEMPT_FLAGS
+    ) and not _has_explicit_subcommand(raw_args):
         raw_args = ["verify", *raw_args]
 
     parser = build_parser(prog="axi-dv")

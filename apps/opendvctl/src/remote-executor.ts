@@ -89,13 +89,49 @@ export class RemoteExecutor {
 		}
 
 		const serverVersion = String(health.contract_version ?? "unknown");
-		if (serverVersion !== spec.contract_version && serverVersion !== "6.0") {
+		if (serverVersion !== spec.contract_version) {
 			throw new CliDomainError(
 				"CONTRACT_VERSION_MISMATCH",
 				`Contract version mismatch (client: ${spec.contract_version}, server: ${serverVersion})`,
 				422,
 			);
 		}
+	}
+
+	private async parseErrorResponse(res: Response): Promise<CliDomainError> {
+		let code = "INVALID_REQUEST";
+		let msg = `HTTP ${res.status}`;
+		try {
+			const text = await res.text();
+			if (text) {
+				try {
+					const errBody = JSON.parse(text) as Record<string, unknown>;
+					if (typeof errBody.error_code === "string") {
+						code = errBody.error_code;
+					} else if (typeof errBody.type === "string") {
+						const spec = loadCliSpec();
+						const match = spec.error_map.find(
+							(e) => e.problem_type_uri === errBody.type,
+						);
+						if (match) {
+							code = match.error_code;
+						}
+					}
+					if (typeof errBody.detail === "string") {
+						msg = errBody.detail;
+					} else if (typeof errBody.message === "string") {
+						msg = errBody.message;
+					} else if (typeof errBody.title === "string") {
+						msg = errBody.title;
+					}
+				} catch {
+					msg = text;
+				}
+			}
+		} catch {
+			// Body reading failed
+		}
+		return new CliDomainError(code, msg, res.status);
 	}
 
 	private async postJson(endpoint: string, payload: unknown): Promise<unknown> {
@@ -106,22 +142,7 @@ export class RemoteExecutor {
 		});
 
 		if (!res.ok) {
-			let code = "INVALID_REQUEST";
-			let msg = `HTTP ${res.status}`;
-			try {
-				const errBody = (await res.json()) as Record<string, unknown>;
-				if (typeof errBody.error_code === "string") {
-					code = errBody.error_code;
-				}
-				if (typeof errBody.detail === "string") {
-					msg = errBody.detail;
-				} else if (typeof errBody.message === "string") {
-					msg = errBody.message;
-				}
-			} catch {
-				msg = await res.text();
-			}
-			throw new CliDomainError(code, msg, res.status);
+			throw await this.parseErrorResponse(res);
 		}
 
 		return res.json();
@@ -133,22 +154,7 @@ export class RemoteExecutor {
 		});
 
 		if (!res.ok) {
-			let code = "INVALID_REQUEST";
-			let msg = `HTTP ${res.status}`;
-			try {
-				const errBody = (await res.json()) as Record<string, unknown>;
-				if (typeof errBody.error_code === "string") {
-					code = errBody.error_code;
-				}
-				if (typeof errBody.detail === "string") {
-					msg = errBody.detail;
-				} else if (typeof errBody.message === "string") {
-					msg = errBody.message;
-				}
-			} catch {
-				msg = await res.text();
-			}
-			throw new CliDomainError(code, msg, res.status);
+			throw await this.parseErrorResponse(res);
 		}
 
 		return res.json();
@@ -436,12 +442,21 @@ export class RemoteExecutor {
 					if (!runId) throw new Error("Missing --run-id");
 					const rawAction =
 						subcommand === "decide"
-							? ((enrichedOptions.action as string)?.toUpperCase() ?? "APPROVE")
+							? (enrichedOptions.action as string | undefined)?.toUpperCase()
 							: subcommand.toUpperCase();
-					const action: "APPROVE" | "REJECT" | "ANSWER" =
-						rawAction === "REJECT" || rawAction === "ANSWER"
-							? rawAction
-							: "APPROVE";
+					if (
+						!rawAction ||
+						(rawAction !== "APPROVE" &&
+							rawAction !== "REJECT" &&
+							rawAction !== "ANSWER")
+					) {
+						throw new CliDomainError(
+							"INVALID_REQUEST",
+							"Hold decision action must be APPROVE, REJECT, or ANSWER",
+							400,
+						);
+					}
+					const action: "APPROVE" | "REJECT" | "ANSWER" = rawAction;
 
 					payload = await this.client.submitDecision(runId, {
 						action,

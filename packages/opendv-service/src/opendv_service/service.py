@@ -589,13 +589,16 @@ class OpenDVService:
         """Liveness and readiness probe for the Open-DV Platform."""
         import duckdb
 
+        from opendv_contracts.spec import load_cli_spec
+
         schema_files = sorted(self.state.schema_registry.schemas_dir.glob("*.json"))
+        cli_spec = load_cli_spec()
         res: dict[str, Any] = {
             "status": "ok",
             "service": "opendv-platform-api",
             "version": "0.1.0",
             "api_version": "v1",
-            "contract_version": "6.0",
+            "contract_version": cli_spec.get("contract_version", "1.0.0"),
             "duckdb_version": duckdb.__version__,
             "schemas_loaded": len(schema_files),
             "registered_projects": len(self.state.projects),

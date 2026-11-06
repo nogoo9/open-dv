@@ -746,3 +746,18 @@ def test_version_flag_clean_exit(capsys: pytest.CaptureFixture[str]) -> None:
     assert "axi-dv 1.0.0" in out_axidv
     assert "(contract 1.0.0)" in out_axidv
 
+
+def test_verbose_flag_with_default_verify(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify -v behaves as --verbose without breaking implicit verify subcommand routing."""
+    pe_contract = str(REPO_ROOT / "examples" / "private_equity" / "dv_pe_model_contract.yaml")
+    rc_short = app_main(["-v", "-c", pe_contract, "--json"])
+    assert rc_short == 0
+    out_short = json.loads(capsys.readouterr().out)
+    assert out_short["mode"] == "local"
+    assert out_short["overall_passed"] is True
+
+    rc_long = app_main(["--verbose", "-c", pe_contract, "--json"])
+    assert rc_long == 0
+    out_long = json.loads(capsys.readouterr().out)
+    assert out_long["mode"] == "local"
+    assert out_long["overall_passed"] is True
