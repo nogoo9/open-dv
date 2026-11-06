@@ -2,6 +2,7 @@
 
 from opendv_platform_api.routers import (
     artifacts,
+    compile,
     decisions,
     explorer,
     gates,
@@ -10,11 +11,13 @@ from opendv_platform_api.routers import (
     projects,
     runs,
     sandbox,
+    verify,
     workbench,
 )
 
 __all__ = [
     "artifacts",
+    "compile",
     "decisions",
     "explorer",
     "gates",
@@ -23,5 +26,6 @@ __all__ = [
     "projects",
     "runs",
     "sandbox",
+    "verify",
     "workbench",
 ]

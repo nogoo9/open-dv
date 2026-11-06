@@ -16,6 +16,7 @@ from opendv_contracts.errors import ERROR_MAP, ErrorCode
 from opendv_core.paths import PathContainmentError
 from opendv_platform_api.routers import (
     artifacts,
+    compile,
     decisions,
     explorer,
     gates,
@@ -24,6 +25,7 @@ from opendv_platform_api.routers import (
     projects,
     runs,
     sandbox,
+    verify,
     workbench,
 )
 from opendv_service import OpenDVService, OpenDVSettings, PlatformStateContainer
@@ -262,6 +264,8 @@ def create_app(
     api_prefix = "/api/v1"
     application.include_router(health.router, prefix=api_prefix)
     application.include_router(profile.router, prefix=api_prefix)
+    application.include_router(compile.router, prefix=api_prefix)
+    application.include_router(verify.router, prefix=api_prefix)
     application.include_router(projects.router, prefix=api_prefix)
     application.include_router(runs.router, prefix=api_prefix)
     application.include_router(explorer.router, prefix=api_prefix)

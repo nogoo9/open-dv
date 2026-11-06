@@ -126,6 +126,7 @@ def profile_pipeline(
             "table_count": total_tables,
             "column_count": total_cols,
             "source_path": display_source_path,
+            "source_csv_path": display_source_path,
             "graph_b_profile": graph_b_doc,
         }
         rendered_text = render_profile_text(res_dict)

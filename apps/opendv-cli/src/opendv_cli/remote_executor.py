@@ -9,7 +9,6 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-import httpx
 import yaml
 
 from opendv_cli.remote_sse import consume_sse_stream
@@ -17,7 +16,7 @@ from opendv_cli_common import CommandExecutor
 
 
 def _handle_api_res(
-    res: httpx.Response,
+    res: Any,
     *,
     ok_pred: Callable[[dict[str, Any]], bool] | None = None,
 ) -> tuple[int, Any]:
@@ -36,23 +35,32 @@ class RemoteExecutor(CommandExecutor):
 
     def __init__(
         self,
-        base_url: str = "http://localhost:8000",
+        base_url: str | None = None,
         *,
-        client: httpx.Client | None = None,
+        client: Any = None,
         role: str = "INTERNAL_MODELER",
         timeout: float = 60.0,
     ) -> None:
+        if base_url is None:
+            import os
+
+            api_host = os.environ.get("OPENDV_API_HOST", "0.0.0.0")
+            api_port = os.environ.get("OPENDV_API_PORT", "8000")
+            base_url = os.environ.get("OPENDV_API_URL", f"http://{api_host}:{api_port}")
         self.base_url = base_url.rstrip("/")
         self._external_client = client
-        self._owned_client: httpx.Client | None = None
+        self._owned_client: Any = None
         self.role = role
         self.timeout = timeout
 
-    def _get_client(self) -> httpx.Client:
+    def _get_client(self) -> Any:
         if self._external_client is not None:
             return self._external_client
         if self._owned_client is None:
-            self._owned_client = httpx.Client(base_url=self.base_url, timeout=self.timeout)
+            import importlib
+
+            httpx_mod = importlib.import_module("httpx")
+            self._owned_client = httpx_mod.Client(base_url=self.base_url, timeout=self.timeout)
         return self._owned_client
 
     def close(self) -> None:
@@ -68,34 +76,36 @@ class RemoteExecutor(CommandExecutor):
 
     def execute(self, command: str, args: argparse.Namespace) -> tuple[int, Any]:
         """Dispatch a parsed command to its remote REST/SSE implementation."""
-        handler_map = {
-            "verify": self._execute_verify,
-            "profile": self._execute_profile,
-            "compile": self._execute_compile,
-            "sandbox": self._execute_sandbox,
-            "run": self._execute_run,
-            "hold": self._execute_hold,
-            "pipeline": self._execute_pipeline,
-        }
-        handler = handler_map.get(command)
-        if handler is None:
+        target_fn = getattr(self, f"_execute_{command}", None)
+        if target_fn is None or command.startswith("_"):
             return 2, {"status": "ERROR", "error": f"Unknown command: '{command}'"}
         try:
-            return handler(args)
-        except httpx.HTTPError as exc:
-            return 2, {
-                "status": "ERROR",
-                "error_code": "NETWORK_ERROR",
-                "error": str(exc),
-                "detail": str(exc),
-            }
-        except (ValueError, KeyError, FileNotFoundError) as exc:
-            return 2, {
-                "status": "ERROR",
-                "error_code": "INPUT_VALIDATION_ERROR",
-                "error": str(exc),
-                "detail": str(exc),
-            }
+            return target_fn(args)
+        except Exception as exc:
+            import importlib
+
+            try:
+                mod_httpx = importlib.import_module("httpx")
+                is_net_err = isinstance(exc, mod_httpx.HTTPError)
+            except (ImportError, AttributeError):
+                is_net_err = False
+            if is_net_err:
+                msg = str(exc)
+                return 2, {
+                    "status": "ERROR",
+                    "error_code": "NETWORK_ERROR",
+                    "error": msg,
+                    "detail": msg,
+                }
+            if isinstance(exc, (ValueError, KeyError, FileNotFoundError)):
+                msg = str(exc)
+                return 2, {
+                    "status": "ERROR",
+                    "error_code": "INPUT_VALIDATION_ERROR",
+                    "error": msg,
+                    "detail": msg,
+                }
+            raise
 
     # 1. verify
     def _execute_verify(self, args: argparse.Namespace) -> tuple[int, Any]:
@@ -130,18 +140,12 @@ class RemoteExecutor(CommandExecutor):
 
     # 2. profile
     def _execute_profile(self, args: argparse.Namespace) -> tuple[int, Any]:
-        source_arg: str | None = getattr(args, "source", None)
-        file_arg: str | None = getattr(args, "file", None)
-        source_csv: str | None = getattr(args, "source_csv", None)
-        graph_b: str | None = getattr(args, "graph_b", None)
+        src_uri = getattr(args, "source", None) or getattr(args, "file", None)
+        target_source = {"adapter": "file", "uri": src_uri} if src_uri else None
+        source_csv = getattr(args, "source_csv", None)
+        graph_b = getattr(args, "graph_b", None)
 
-        target_source: dict[str, Any] | None = None
-        if source_arg:
-            target_source = {"adapter": "file", "uri": source_arg}
-        elif file_arg:
-            target_source = {"adapter": "file", "uri": file_arg}
-
-        if not target_source and not source_csv and not graph_b:
+        if not any((target_source, source_csv, graph_b)):
             return 2, {
                 "status": "ERROR",
                 "error": "Either --source, --file, --source-csv, or --graph-b is required",
@@ -305,7 +309,7 @@ class RemoteExecutor(CommandExecutor):
 
     def _follow_pipeline_run(
         self,
-        client: httpx.Client,
+        client: Any,
         args: argparse.Namespace,
         headers: dict[str, str],
     ) -> tuple[int, Any]:
