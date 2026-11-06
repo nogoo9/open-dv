@@ -475,7 +475,15 @@ def run_batch_4_cross_source_and_bitemporal_restatement(
     bitemp_sat = _find_bitemporal_satellite(ir) or ir.satellites[0]
     sat_schema = _satellite_schema(bitemp_sat)
     sat_tbl = _validate_ident(bitemp_sat.name)
-    parent_hk = _validate_ident(bitemp_sat.parent_hk_column.name)
+    raw_parent_hk = _validate_ident(bitemp_sat.parent_hk_column.name)
+    sat_cols = [
+        str(r[1]) for r in conn.execute(f"PRAGMA table_info('{sat_schema}.{sat_tbl}')").fetchall()
+    ]
+    parent_hk = (
+        raw_parent_hk
+        if raw_parent_hk in sat_cols
+        else next((c for c in sat_cols if c.startswith("hk_")), raw_parent_hk)
+    )
     has_applied = bitemp_sat.applied_dts_column is not None
     bitemp_data_cols = _satellite_all_data_columns(bitemp_sat)
 
@@ -653,10 +661,11 @@ def execute_4batch_adversarial_suite(
     ir: CanonicalIR | None = None,
 ) -> FourBatchExecutionReport:
     """Execute all 4 Adversarial Shadow Sandbox Batches in sequence on `conn`."""
-    b1 = run_batch_1_baseline_and_ghost_completeness(conn, bundle, ir=ir)
-    b2 = run_batch_2_replay_idempotency(conn, bundle, ir=ir)
-    b3 = run_batch_3_delta_and_boundary_shift(conn, ir=ir)
-    b4 = run_batch_4_cross_source_and_bitemporal_restatement(conn, ir=ir)
+    effective_ir = ir or getattr(bundle, "canonical_ir", None)
+    b1 = run_batch_1_baseline_and_ghost_completeness(conn, bundle, ir=effective_ir)
+    b2 = run_batch_2_replay_idempotency(conn, bundle, ir=effective_ir)
+    b3 = run_batch_3_delta_and_boundary_shift(conn, ir=effective_ir)
+    b4 = run_batch_4_cross_source_and_bitemporal_restatement(conn, ir=effective_ir)
 
     batches = [b1, b2, b3, b4]
     return FourBatchExecutionReport(

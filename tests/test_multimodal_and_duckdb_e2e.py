@@ -1562,38 +1562,12 @@ def test_issue_32_scenario_s8_uf5_unstructured_link_steward_gate_e2e() -> None:
     # Inject a new document and two Tier-U3 unapproved extraction rows (STEWARD_HOLD) into Bronze
     conn.execute(
         """
-        INSERT INTO unstructured_vdr.src_document_manifest VALUES
-            ('a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
-             's3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_draft_unverified_memo.pdf',
-             'IC_VALUATION_MEMO_PDF',
-             'Draft Unverified Valuation Note - Nordic Cloud',
-             4, 'application/pdf', TIMESTAMP '2026-11-15 10:00:00');
-
-        INSERT INTO unstructured_vdr.src_llm_extractions VALUES
-            ('EXT-SL-HOLD-003',
-             'b94d27b9934d3e08a52e52d7da7dabfac484efe37a5380ee9088f7ace2efcde9',
-             'SIDE_LETTER_TERMS',
-             'LP-102', 'GLOBAL', 'APEX-BUYOUT-IV', NULL,
-             50, FALSE, TRUE, 'Unapproved Tier-U3 candidate clause on Steward Hold',
-             NULL, DATE '2026-06-30',
-             'claude-3-7-sonnet-20260219',
-             '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-             0.7200, 0.5800, 0.7900, 'STEWARD_HOLD',
-             5, 310, 465,
-             'Ambiguous LP reference (Tier-U3 confidence 0.72 < 0.85) awaiting steward approval.',
-             TIMESTAMP '2026-10-02 10:00:00'),
-            ('EXT-IC-HOLD-004',
-             'a1b2c3d4e5f60718293a4b5c6d7e8f90123456789abcdef0123456789abcdef0',
-             'PORTCO_VALUATION_RESTATEMENT',
-             NULL, NULL, 'APEX-BUYOUT-IV', '529900T8BM49AURSDO55',
-             NULL, NULL, NULL, NULL,
-             19.00, DATE '2026-09-30',
-             'claude-3-7-sonnet-20260219',
-             '9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08',
-             0.6900, 0.5400, 0.8100, 'STEWARD_HOLD',
-             3, 120, 290,
-             'Ambiguous PortCo valuation restatement (Tier-U3 < 0.85) on Steward Hold.',
-             TIMESTAMP '2026-11-15 10:05:00');
+        INSERT INTO bronze.src_lnk_document_lp_commitment VALUES
+            ('GLOBAL', 'DOCUMENT-003', 'GLOBAL', 'APEX-BUYOUT-IV', 'GLOBAL', 'LP-102',
+             TIMESTAMP '2026-10-02 10:00:00', 'OBJECT_STORE_S3', 'STEWARD_HOLD');
+        INSERT INTO bronze.src_lnk_document_portfolio_company VALUES
+            ('GLOBAL', 'DOCUMENT-003', 'GLOBAL', '529900T8BM49AURSDO55',
+             TIMESTAMP '2026-11-15 10:05:00', 'OBJECT_STORE_S3', 'STEWARD_HOLD');
         """
     )
 
@@ -1601,37 +1575,49 @@ def test_issue_32_scenario_s8_uf5_unstructured_link_steward_gate_e2e() -> None:
     conn.execute(pe_bundle.zone_3_sql)
 
     sl_row = conn.execute(
-        "SELECT COUNT(*) FROM raw_vault.lnk_doc_lp_side_letter WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
+        "SELECT COUNT(*) FROM raw_vault.lnk_document_lp_commitment WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
     ).fetchone()
     portco_row = conn.execute(
-        "SELECT COUNT(*) FROM raw_vault.lnk_doc_portco_memo WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
+        "SELECT COUNT(*) FROM raw_vault.lnk_document_portfolio_company WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
     ).fetchone()
     assert sl_row is not None and sl_row[0] == 1, (
-        f"Expected 1 approved row in lnk_doc_lp_side_letter, got {sl_row}"
+        f"Expected 1 approved row in lnk_document_lp_commitment, got {sl_row}"
     )
     assert portco_row is not None and portco_row[0] == 1, (
-        f"Expected 1 approved row in lnk_doc_portco_memo, got {portco_row}"
+        f"Expected 1 approved row in lnk_document_portfolio_company, got {portco_row}"
     )
 
     dyn_013 = check_dv_dyn_013_tier2_confidence_governance(conn)
     assert dyn_013.passed is True
 
-    # Simulate Steward approval of EXT-IC-HOLD-004 and re-run Zone 2 + Zone 3 DML
+    # Simulate Steward approval of DOCUMENT-003, add low-confidence extraction (0.6900 < 0.85), re-run Zone 2 + 3 DML
+    seed_row = conn.execute(
+        "SELECT hk_document, hk_portfolio_company FROM staging.stg_lnk_document_portfolio_company LIMIT 1"
+    ).fetchone()
+    assert seed_row is not None
+    hk_doc, hk_portco = seed_row
+
     conn.execute(
-        """
-        UPDATE unstructured_vdr.src_llm_extractions
-        SET human_review_status = 'STEWARD_VERIFIED'
-        WHERE extraction_id = 'EXT-IC-HOLD-004';
+        f"""
+        UPDATE bronze.src_lnk_document_portfolio_company
+        SET steward_gate_status = 'STEWARD_VERIFIED'
+        WHERE hk_document__doc_uri = 'DOCUMENT-003';
+
+        INSERT INTO bronze.src_sat_lnk_doc_portco_ai_provenance VALUES
+            ('{hk_doc}', '{hk_portco}', TIMESTAMP '2026-11-15 10:05:00',
+             'OBJECT_STORE_S3', 'asc_820_level_val_3', 19.00, 3000.0, 3000.0,
+             DATE '2026-09-30', 'claude-3-7-sonnet-20260219', 0.6900,
+             'chunk_id_val_3', 'Ambiguous quote', 'APPROVED');
         """
     )
     conn.execute(pe_bundle.zone_2_sql)
     conn.execute(pe_bundle.zone_3_sql)
 
     portco_after_row = conn.execute(
-        "SELECT COUNT(*) FROM raw_vault.lnk_doc_portco_memo WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
+        "SELECT COUNT(*) FROM raw_vault.lnk_document_portfolio_company WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
     ).fetchone()
     sl_after_row = conn.execute(
-        "SELECT COUNT(*) FROM raw_vault.lnk_doc_lp_side_letter WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
+        "SELECT COUNT(*) FROM raw_vault.lnk_document_lp_commitment WHERE rec_src <> 'SYSTEM_ZERO_KEY'"
     ).fetchone()
     assert portco_after_row is not None and portco_after_row[0] == 2
     assert sl_after_row is not None and sl_after_row[0] == 1

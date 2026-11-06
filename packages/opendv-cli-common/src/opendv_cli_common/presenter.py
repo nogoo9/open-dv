@@ -72,6 +72,19 @@ def format_presenter_output(
     # 3. Pre-rendered text
     rendered_text = _extract_rendered_text(payload)
     if eff_format == "text" and rendered_text:
+        if args is not None and getattr(args, "format", None):
+            dict_payload = (
+                payload
+                if isinstance(payload, dict)
+                else (payload.model_dump(mode="json") if hasattr(payload, "model_dump") else {})
+            )
+            status_label = (
+                dict_payload.get("status")
+                or dict_payload.get("verdict")
+                or ("PASS" if dict_payload.get("overall_passed") else None)
+                or "OK"
+            )
+            return f"[opendv {command}] status={status_label}\n{rendered_text.rstrip()}"
         return rendered_text.rstrip()
 
     # 4. Standard text summary with status label

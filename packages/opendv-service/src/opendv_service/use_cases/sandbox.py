@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
-import contextlib
+import json
 import os
-import tempfile
 from pathlib import Path
 from typing import Any
+
+import yaml
 
 from opendv_contracts import (
     RenderedOutput,
@@ -90,51 +91,41 @@ def execute_sandbox_query(
             error_code=ErrorCode.INPUT_VALIDATION_ERROR,
         )
 
-    tmp_path: Path | None = None
     custom_result: SafeSqlResult | None = None
-    try:
-        if request.canonical_ir_content and request.canonical_ir_content.strip():
-            with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tmp_file:
-                tmp_file.write(request.canonical_ir_content.encode("utf-8"))
-                tmp_file.flush()
-                tmp_path = Path(tmp_file.name)
-            source_path = tmp_path
-        elif request.canonical_ir_path and request.canonical_ir_path.strip():
-            source_path = resolve_workspace_path(
-                request.canonical_ir_path, workspace_root=root, allow_temp=True
-            )
-        elif request.contract_content and request.contract_content.strip():
-            with tempfile.NamedTemporaryFile(suffix=".yaml", delete=False) as tmp_file:
-                tmp_file.write(request.contract_content.encode("utf-8"))
-                tmp_file.flush()
-                tmp_path = Path(tmp_file.name)
-            source_path = tmp_path
-        else:
-            assert request.contract_path is not None
-            source_path = resolve_workspace_path(
-                request.contract_path, workspace_root=root, allow_temp=True
-            )
-
+    raw_source: Any
+    if request.canonical_ir_content and request.canonical_ir_content.strip():
+        raw_source = json.loads(request.canonical_ir_content)
+    elif request.canonical_ir_path and request.canonical_ir_path.strip():
+        source_path = resolve_workspace_path(
+            request.canonical_ir_path, workspace_root=root, allow_temp=True
+        )
         if not source_path.exists():
             raise InputValidationError(f"Sandbox input file not found: {source_path}")
+        raw_source = source_path
+    elif request.contract_content and request.contract_content.strip():
+        raw_source = yaml.safe_load(request.contract_content)
+    else:
+        assert request.contract_path is not None
+        source_path = resolve_workspace_path(
+            request.contract_path, workspace_root=root, allow_temp=True
+        )
+        if not source_path.exists():
+            raise InputValidationError(f"Sandbox input file not found: {source_path}")
+        raw_source = source_path
 
-        with DuckDbShadowSandbox() as sandbox:
-            ir_model = sandbox.resolve_canonical_ir(source_path)
-            report = sandbox.run_full_verification(
-                ir_model,
-                emit_telemetry=False,
-                run_id=effective_run_id,
+    with DuckDbShadowSandbox() as sandbox:
+        ir_model = sandbox.resolve_canonical_ir(raw_source)
+        report = sandbox.run_full_verification(
+            ir_model,
+            emit_telemetry=False,
+            run_id=effective_run_id,
+        )
+        if query_type_str == "CUSTOM_SQL" and request.sql and request.sql.strip():
+            custom_result = sandbox.execute_safe_sql(
+                request.sql,
+                max_rows=request.max_rows,
+                timeout_seconds=request.timeout_seconds,
             )
-            if query_type_str == "CUSTOM_SQL" and request.sql and request.sql.strip():
-                custom_result = sandbox.execute_safe_sql(
-                    request.sql,
-                    max_rows=request.max_rows,
-                    timeout_seconds=request.timeout_seconds,
-                )
-    finally:
-        if tmp_path is not None and tmp_path.exists():
-            with contextlib.suppress(OSError):
-                tmp_path.unlink(missing_ok=True)
 
     d10_rows = [
         {

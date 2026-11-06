@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from opendv_core.models.canonical_ir import CanonicalIR
+
 
 class Compiled4ZoneBundle(BaseModel):
     """Structured output of the 4-Zone DuckDB SQL compiler."""
@@ -20,6 +22,7 @@ class Compiled4ZoneBundle(BaseModel):
     zone_3_sql: str
     zone_4_query_d10_sql: str
     zone_4_query_d10b_sql: str
+    canonical_ir: CanonicalIR | None = None
 
     @property
     def zone_4_sql(self) -> str:

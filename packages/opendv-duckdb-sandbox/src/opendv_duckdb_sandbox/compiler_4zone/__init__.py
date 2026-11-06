@@ -107,6 +107,7 @@ def compile_canonical_ir_to_4zone_sql(
         zone_3_sql=zone_3_sql,
         zone_4_query_d10_sql=zone_4_d10,
         zone_4_query_d10b_sql=zone_4_d10b,
+        canonical_ir=ir_obj,
     )
 
 
