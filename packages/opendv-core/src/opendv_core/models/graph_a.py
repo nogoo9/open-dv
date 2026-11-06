@@ -87,7 +87,9 @@ class ReferenceEnumeration(StrictGraphAModel):
 class GraphAOntology(StrictGraphAModel):
     """Root Semantic Ontology Graph A model (`examples/private_equity/pe_graph_a_ontology.yaml`)."""
 
-    ontology_version: str = "1.0.0"
+    ontology_version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
+    parent_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    decision_refs: list[str] = Field(default_factory=list)
     domain_namespace: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     enterprise_owner: str = Field(min_length=2)
     standards_references: list[str] = Field(default_factory=list)

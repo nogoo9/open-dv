@@ -58,6 +58,13 @@ from opendv_service.models import (
     SandboxExecutionResponse,
     SandboxQueryRequest,
 )
+from opendv_service.ontology import (
+    apply_ontology_delta,
+    canonicalize_graph_a_dict,
+    compute_ontology_sha256,
+    ontology_diff,
+    validate_ontology_delta,
+)
 from opendv_service.rbac import (
     ROLE_CLEARANCE_LEVELS,
     RbacRole,
@@ -148,8 +155,11 @@ __all__ = [
     "VerifyRequest",
     "VerifyResponse",
     "__version__",
+    "apply_ontology_delta",
     "build_gate_scorecard_from_axi_result",
+    "canonicalize_graph_a_dict",
     "compile_pipeline",
+    "compute_ontology_sha256",
     "execute_sandbox_query",
     "format_sse_frame",
     "get_default_pipeline_runner",
@@ -158,11 +168,13 @@ __all__ = [
     "get_run_artifact",
     "is_fallback_enabled",
     "normalize_rbac_role",
+    "ontology_diff",
     "profile_pipeline",
     "redact_event_for_role",
     "resolve_cleared_tiers",
     "set_pipeline_runner_override",
     "store_cas_artifact",
     "subscribe_run_sse",
+    "validate_ontology_delta",
     "verify_pipeline",
 ]
