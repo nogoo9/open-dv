@@ -69,12 +69,21 @@ def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
 def _dispatch(
     args: argparse.Namespace,
     *,
+    prog: str = "opendv",
     executor: CommandExecutor | None = None,
 ) -> int:
     """Dispatch parsed CLI arguments to LocalExecutor (or provided executor) and format output."""
     try:
         if getattr(args, "dump_cli_tree", False):
-            sys.stdout.write(dump_cli_tree(prog="opendv", mode="standalone") + "\n")
+            sys.stdout.write(dump_cli_tree(prog=prog, mode="standalone") + "\n")
+            return 0
+        if getattr(args, "version", False):
+            from opendv_contracts.spec import load_cli_spec
+
+            spec = load_cli_spec()
+            sys.stdout.write(
+                f"{prog} {spec.get('spec_version', '1.0.0')} (contract {spec.get('contract_version', '1.0.0')})\n"
+            )
             return 0
         sub = getattr(args, "subcommand", None) or "verify"
         exec_inst = executor or LocalExecutor()
@@ -114,7 +123,7 @@ def app_main(
         parser.print_help()
         return 0
 
-    if not any(flag in raw_args for flag in ("-h", "--help")) and not _has_explicit_subcommand(
+    if not any(flag in raw_args for flag in ("-h", "--help", "-v", "--version")) and not _has_explicit_subcommand(
         raw_args
     ):
         raw_args = ["verify", *raw_args]
@@ -127,7 +136,7 @@ def app_main(
             print_jcs({"detail": "Invalid CLI arguments.", "status": "ERROR"})
         return code
 
-    return _dispatch(args, executor=executor)
+    return _dispatch(args, prog="opendv", executor=executor)
 
 
 def axi_dv_main(
@@ -148,7 +157,9 @@ def axi_dv_main(
         parser.parse_args(raw_args)
         return 0
 
-    if not _has_explicit_subcommand(raw_args):
+    if not any(flag in raw_args for flag in ("-h", "--help", "-v", "--version")) and not _has_explicit_subcommand(
+        raw_args
+    ):
         raw_args = ["verify", *raw_args]
 
     parser = build_parser(prog="axi-dv")
@@ -160,7 +171,7 @@ def axi_dv_main(
             print_jcs({"detail": "Invalid CLI arguments.", "status": "ERROR"})
         return code
 
-    return _dispatch(args, executor=executor)
+    return _dispatch(args, prog="axi-dv", executor=executor)
 
 
 main = app_main

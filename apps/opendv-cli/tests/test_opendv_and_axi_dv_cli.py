@@ -730,3 +730,19 @@ def test_opendv_cli_run_explorer_artifact_and_hold_decide(
     out_decide = json.loads(capsys.readouterr().out)
     assert out_decide["mode"] == "local"
     assert out_decide["status"] in ["ACCEPTED", "RESOLVED", "APPROVED"]
+
+
+def test_version_flag_clean_exit(capsys: pytest.CaptureFixture[str]) -> None:
+    """Verify opendv --version and axi-dv --version cleanly print version and exit 0."""
+    rc_opendv = app_main(["--version"])
+    assert rc_opendv == 0
+    out_opendv = capsys.readouterr().out
+    assert "opendv 1.0.0" in out_opendv
+    assert "(contract 1.0.0)" in out_opendv
+
+    rc_axidv = axi_dv_main(["--version"])
+    assert rc_axidv == 0
+    out_axidv = capsys.readouterr().out
+    assert "axi-dv 1.0.0" in out_axidv
+    assert "(contract 1.0.0)" in out_axidv
+
