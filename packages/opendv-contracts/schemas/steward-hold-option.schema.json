@@ -1,0 +1,104 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-dv.io/schemas/v1/steward-hold-option.schema.json",
+  "title": "Open-DV Steward Hold Option",
+  "description": "Formal JSON Schema (Draft 2020-12) for discriminated union StewardHoldOption (ONT-04) supporting ontology delta acceptance, rejection, custom authoring, and general hold actions.",
+  "oneOf": [
+    { "$ref": "#/$defs/AcceptOntologyDeltaOption" },
+    { "$ref": "#/$defs/RejectOntologyDeltaOption" },
+    { "$ref": "#/$defs/CustomOntologyDeltaOption" },
+    { "$ref": "#/$defs/GeneralHoldOption" }
+  ],
+  "$defs": {
+    "GeneralHoldOption": {
+      "type": "object",
+      "required": ["kind", "action"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "general_hold" },
+        "action": {
+          "type": "string",
+          "description": "Steward action name"
+        },
+        "params": {
+          "type": "object",
+          "description": "Arbitrary action parameters"
+        },
+        "steward_note": {
+          "type": "string",
+          "description": "Steward notes or rationale"
+        }
+      }
+    },
+    "AcceptOntologyDeltaOption": {
+      "type": "object",
+      "required": ["kind", "delta", "delta_sha256"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "accept_ontology_delta" },
+        "delta": {
+          "type": "object",
+          "required": ["delta_id", "operations"],
+          "description": "Ontology delta to accept and apply"
+        },
+        "delta_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "Cryptographic SHA-256 hash of the delta"
+        },
+        "accepted_op_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Explicit subset of operation IDs to accept"
+        },
+        "steward_note": {
+          "type": "string",
+          "description": "Human steward rationale notes"
+        }
+      }
+    },
+    "RejectOntologyDeltaOption": {
+      "type": "object",
+      "required": ["kind", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "reject_ontology_delta" },
+        "reason": {
+          "type": "string",
+          "description": "Rejection rationale or explanation"
+        },
+        "rejected_op_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Explicit list of rejected operation IDs"
+        },
+        "steward_note": {
+          "type": "string",
+          "description": "Human steward notes"
+        }
+      }
+    },
+    "CustomOntologyDeltaOption": {
+      "type": "object",
+      "required": ["kind", "custom_delta"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "const": "custom_ontology_delta" },
+        "custom_delta": {
+          "type": "object",
+          "required": ["delta_id", "operations"],
+          "description": "Custom ontology delta to apply"
+        },
+        "delta_sha256": {
+          "type": ["string", "null"],
+          "pattern": "^([a-f0-9]{64})?$",
+          "description": "Optional SHA-256 of custom delta"
+        },
+        "steward_note": {
+          "type": "string",
+          "description": "Human steward rationale notes"
+        }
+      }
+    }
+  }
+}

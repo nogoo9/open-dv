@@ -59,10 +59,12 @@ from opendv_service.models import (
     SandboxQueryRequest,
 )
 from opendv_service.ontology import (
+    OntologyResolutionResult,
     apply_ontology_delta,
     canonicalize_graph_a_dict,
     compute_ontology_sha256,
     ontology_diff,
+    resolve_ontology_hold,
     validate_ontology_delta,
 )
 from opendv_service.rbac import (
@@ -124,6 +126,7 @@ __all__ = [
     "InputValidationError",
     "LifecycleStage",
     "NotFoundError",
+    "OntologyResolutionResult",
     "OpenDVError",
     "OpenDVService",
     "OpenDVSettings",
@@ -172,6 +175,7 @@ __all__ = [
     "profile_pipeline",
     "redact_event_for_role",
     "resolve_cleared_tiers",
+    "resolve_ontology_hold",
     "set_pipeline_runner_override",
     "store_cas_artifact",
     "subscribe_run_sse",

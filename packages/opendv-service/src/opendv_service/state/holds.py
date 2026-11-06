@@ -2,18 +2,29 @@
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from opendv_agent_harness import build_observability_event_dict
+from opendv_contracts.dtos.ontology import (
+    AcceptOntologyDeltaOption,
+    CustomOntologyDeltaOption,
+    RejectOntologyDeltaOption,
+)
 from opendv_contracts.errors import ErrorCode
+from opendv_core.models.graph_a import GraphAOntology
+from opendv_core.schema_registry import load_structured_file
 from opendv_service.errors import NotFoundError
 from opendv_service.models import (
+    ArtifactMetadataResponse,
     CaptainHoldDecisionRequest,
     CaptainHoldDecisionResponse,
     RunStatus,
 )
+from opendv_service.ontology.resolution import resolve_ontology_hold
+from opendv_sources.config.graph_a_loader import load_graph_a_source
 
 if TYPE_CHECKING:
     from opendv_service.state.base import BaseStateContainer
@@ -27,9 +38,26 @@ class HoldStateMixin:
     def resolve_captain_hold(
         self: BaseStateContainer | RunStateMixin | PipelineStateMixin,
         run_id: str,
-        req: CaptainHoldDecisionRequest,
+        req: CaptainHoldDecisionRequest | None = None,
+        *,
+        hold_id: str | None = None,
+        decision: str | None = None,
+        notes: str | None = None,
+        hold_option: Any | None = None,
     ) -> CaptainHoldDecisionResponse:
         """Apply a Steward decision to a hold, appending a resolution event."""
+        if req is None:
+            action_val = (decision or "APPROVE").strip().upper()
+            action_lit = action_val if action_val in {"APPROVE", "REJECT", "ANSWER"} else "APPROVE"
+            req = CaptainHoldDecisionRequest(
+                hold_id=hold_id,
+                action=action_lit,
+                resolution_notes=notes,
+                hold_option=hold_option,
+            )
+        elif hold_option is not None and req.hold_option is None:
+            req = req.model_copy(update={"hold_option": hold_option})
+
         if run_id not in self.runs:
             raise NotFoundError(f"Run '{run_id}' not found.", error_code=ErrorCode.RUN_NOT_FOUND)
 
@@ -144,13 +172,70 @@ class HoldStateMixin:
         new_status = (
             RunStatus.COMPLETED if req.action in {"APPROVE", "ANSWER"} else RunStatus.FAILED
         )
+
+        # ONT-04: If typed hold option is provided, evolve Graph A and resume wave
+        if req.hold_option is not None:
+            if isinstance(req.hold_option, (AcceptOntologyDeltaOption, CustomOntologyDeltaOption)):
+                proj = self.projects.get(run_dto.project_id)
+                base_ont: GraphAOntology | None = None
+                if proj and proj.graph_a_ontology_path:
+                    with contextlib.suppress(Exception):
+                        loaded = load_graph_a_source(
+                            proj.graph_a_ontology_path,
+                            base_dir=self.repo_root,
+                            workspace_root=self.repo_root,
+                        )
+                        base_ont = loaded.ontology
+                if base_ont is None:
+                    ont_sha = (proj.graph_a_sha256 if proj else None) or getattr(
+                        run_dto, "graph_a_sha256", None
+                    )
+                    if ont_sha and ont_sha in self.artifacts:
+                        art = self.artifacts[ont_sha]
+                        if isinstance(art.content, dict):
+                            base_ont = GraphAOntology.model_validate(art.content)
+                if base_ont is not None:
+                    deployed_c = None
+                    if proj and proj.contract_path:
+                        with contextlib.suppress(Exception):
+                            deployed_c = load_structured_file(
+                                proj.contract_path, workspace_root=self.repo_root
+                            )
+                    ont_res = resolve_ontology_hold(
+                        base_ontology=base_ont,
+                        option=req.hold_option,
+                        run_id=run_id,
+                        hold_id=target_hold_id,
+                        steward_id=req.steward_id,
+                        cas_store=self.cas_store,
+                        deployed_contract=deployed_c,
+                        ledger=self.run_ledgers.get(run_id),
+                    )
+                    if ont_res.new_ontology and ont_res.new_graph_a_sha256:
+                        meta = ArtifactMetadataResponse(
+                            sha256=ont_res.new_graph_a_sha256.upper(),
+                            byte_length=len(ont_res.new_ontology.model_dump_json()),
+                            media_type="application/x-yaml",
+                            artifact_name="graph_a_ontology.yaml",
+                            content=ont_res.new_ontology.model_dump(mode="json", exclude_none=True),
+                        )
+                        self.artifacts[ont_res.new_graph_a_sha256.upper()] = meta
+                        self.artifacts[ont_res.new_graph_a_sha256.lower()] = meta
+                        if proj:
+                            self.projects[run_dto.project_id] = proj.model_copy(
+                                update={"graph_a_sha256": ont_res.new_graph_a_sha256}
+                            )
+                        new_status = RunStatus.RUNNING
+            elif isinstance(req.hold_option, RejectOntologyDeltaOption):
+                new_status = RunStatus.FAILED
+
         updated_scorecard = (
             run_dto.gate_scorecard.model_copy(
                 update={
                     "gate_1_contract_grain": (
                         "AUTO_REPAIRED"
-                        if run_dto.gate_scorecard.gate_1_contract_grain == "ASK-USER"
-                        else run_dto.gate_scorecard.gate_1_contract_grain
+                        if run_dto.gate_scorecard.gate_1_contract_grain in {"ASK-USER", "PENDING"}
+                        else "PASS"
                     )
                 }
             )
@@ -159,10 +244,14 @@ class HoldStateMixin:
                 update={"gate_1_contract_grain": "REJECT-WITH-TRACE"}
             )
         )
+        is_resumed_running = new_status == RunStatus.RUNNING
         updated_run = run_dto.model_copy(
             update={
                 "status": new_status,
-                "completed_at_utc": resolved_at,
+                "completed_at_utc": None if is_resumed_running else resolved_at,
+                "current_stage_id": (
+                    "STAGE_03_SHIP_VAULT_PASS1" if is_resumed_running else run_dto.current_stage_id
+                ),
                 "active_hold_ids": remaining_ids,
                 "event_count": len(self.run_events[run_id]),
                 "gate_scorecard": updated_scorecard,
