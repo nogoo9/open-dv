@@ -298,6 +298,30 @@
           "env_var": null,
           "inline_upload": false,
           "help": "Associated run ID"
+        },
+        {
+          "name": "compiled_sql",
+          "flag": "--compiled-sql",
+          "short": null,
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to compiled physical SQL models for Gate 6 AST verification"
+        },
+        {
+          "name": "apply_codemods",
+          "flag": "--apply-codemods",
+          "short": null,
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Whether to apply automated self-healing codemods"
         }
       ]
     },

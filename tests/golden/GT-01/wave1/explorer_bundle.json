@@ -1,0 +1,2270 @@
+{
+  "artifacts": {
+    "crm": {
+      "checks": null,
+      "cols": [
+        "customer_id",
+        "company_name",
+        "tax_identifier",
+        "created_date"
+      ],
+      "desc": "Customer CRM master data for Wave 0 cold start onboarding.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "CSV",
+      "foot": null,
+      "group": "Input",
+      "id": "crm",
+      "kv": null,
+      "name": "crm_customers.csv",
+      "ontology": null,
+      "outline": null,
+      "raw": "customer_id,company_name,tax_identifier,created_date\nCUST-001,Acme Logistics,TAX-US-10001,2026-01-01\nCUST-002,Global Freight,TAX-US-10002,2026-01-02",
+      "rows": [
+        [
+          "CUST-001",
+          "Acme Logistics",
+          "TAX-US-10001",
+          "2026-01-01"
+        ],
+        [
+          "CUST-002",
+          "Global Freight",
+          "TAX-US-10002",
+          "2026-01-02"
+        ]
+      ],
+      "sha256": "fdf0de4a1c8916ad3ecca9ee0657f1ac3886fb35e571addf3e3abf962a68ca0a",
+      "short": "Wave 0 \u00b7 1,000 customers",
+      "type": "RelationalSourceTable",
+      "viz": "table",
+      "wave_index": 0,
+      "waves": [
+        "W0"
+      ]
+    },
+    "crm2": {
+      "checks": null,
+      "cols": [
+        "customer_id",
+        "company_name",
+        "tax_identifier",
+        "loyalty_tier_2026"
+      ],
+      "desc": "CRM schema evolution source carrying additive loyalty tier column.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "CSV",
+      "foot": null,
+      "group": "Input",
+      "id": "crm2",
+      "kv": null,
+      "name": "crm_customers_v2_drift.csv",
+      "ontology": null,
+      "outline": null,
+      "raw": "customer_id,company_name,tax_identifier,loyalty_tier_2026\nCUST-001,Acme Logistics,TAX-US-10001,GOLD\nCUST-002,Global Freight,TAX-US-10002,SILVER",
+      "rows": [
+        [
+          "CUST-001",
+          "Acme Logistics",
+          "TAX-US-10001",
+          "GOLD"
+        ],
+        [
+          "CUST-002",
+          "Global Freight",
+          "TAX-US-10002",
+          "SILVER"
+        ]
+      ],
+      "sha256": "4eebd9fd7951b64189469096cabea2bdc344ff35165a2c0a852e40d4b14206dd",
+      "short": "Wave 2 \u00b7 Schema drift",
+      "type": "RelationalSourceTable",
+      "viz": "table",
+      "wave_index": 2,
+      "waves": [
+        "W2"
+      ]
+    },
+    "draft_contract": {
+      "checks": null,
+      "cols": null,
+      "desc": "Initial declarative Data Vault 2.0 contract draft before symbolic gates.",
+      "doc": null,
+      "dv": {
+        "edges": [
+          {
+            "dashed": false,
+            "x1": 130.0,
+            "x2": 130.0,
+            "y1": 130.0,
+            "y2": 180.0
+          },
+          {
+            "dashed": true,
+            "x1": 130.0,
+            "x2": 130.0,
+            "y1": 225.0,
+            "y2": 250.0
+          },
+          {
+            "dashed": false,
+            "x1": 200.0,
+            "x2": 280.0,
+            "y1": 100.0,
+            "y2": 100.0
+          }
+        ],
+        "nodes": [
+          {
+            "h": 50.0,
+            "id": "h_cust",
+            "kind": "hub",
+            "label": "hub_customer",
+            "sub": "HK_CUSTOMER",
+            "w": 140.0,
+            "x": 60.0,
+            "y": 80.0
+          },
+          {
+            "h": 50.0,
+            "id": "h_ord",
+            "kind": "hub",
+            "label": "hub_order",
+            "sub": "HK_ORDER",
+            "w": 140.0,
+            "x": 280.0,
+            "y": 80.0
+          },
+          {
+            "h": 40.0,
+            "id": "l_ord_cust",
+            "kind": "link",
+            "label": "lnk_order_customer",
+            "sub": "HK_LNK_ORDER_CUST",
+            "w": 170.0,
+            "x": 170.0,
+            "y": 80.0
+          },
+          {
+            "h": 45.0,
+            "id": "s_cust_core",
+            "kind": "sat",
+            "label": "sat_customer_core",
+            "sub": "HD_CUST_CORE",
+            "w": 140.0,
+            "x": 60.0,
+            "y": 180.0
+          },
+          {
+            "h": 45.0,
+            "id": "s_cust_pii",
+            "kind": "sat_pii",
+            "label": "sat_customer_pii",
+            "sub": "HD_CUST_PII",
+            "w": 140.0,
+            "x": 60.0,
+            "y": 250.0
+          }
+        ]
+      },
+      "events": null,
+      "fmt": "YAML",
+      "foot": null,
+      "group": "Stage output",
+      "id": "draft_contract",
+      "kv": null,
+      "name": "draft_contract.yaml",
+      "ontology": null,
+      "outline": null,
+      "raw": "version: '5.0'\nmodel_name: draft_commerce_vault\nhubs:\n  - hub_customer: { business_key: customer_tax_id }\n  - hub_order:    { business_key: order_id }",
+      "rows": null,
+      "sha256": "45154dc6d542f3520a71c2f1bc5a7b41a77bd95bb0cf50246122deed3366f968",
+      "short": "5 Hubs, 4 Links, 7 Sats",
+      "type": "DataVaultModelContract",
+      "viz": "dv",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "drift": {
+      "checks": null,
+      "cols": [
+        "source",
+        "change_kind",
+        "column",
+        "algorithm",
+        "verdict"
+      ],
+      "desc": "Algorithm A.9a intra-source schema evolution classification report.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "JSON",
+      "foot": null,
+      "group": "Stage output",
+      "id": "drift",
+      "kv": null,
+      "name": "schema_drift_report.json",
+      "ontology": null,
+      "outline": null,
+      "raw": "[\n  {\n    \"change\": \"ADDITIVE\",\n    \"column\": \"loyalty_tier_2026\"\n  }\n]",
+      "rows": [
+        [
+          "crm_customers",
+          "ADDITIVE",
+          "loyalty_tier_2026",
+          "ALG-A9A",
+          "PASS"
+        ],
+        [
+          "crm_customers",
+          "DEPRECATED",
+          "fax_number",
+          "ALG-A9A",
+          "PASS"
+        ]
+      ],
+      "sha256": "2c4f98b9af5906311c5df00348433c54c9d196d63b454541cc926087b0bb2b56",
+      "short": "3 drift changes classified",
+      "type": "SchemaDriftReport",
+      "viz": "table",
+      "wave_index": 2,
+      "waves": [
+        "W2"
+      ]
+    },
+    "erp": {
+      "checks": null,
+      "cols": [
+        "order_id",
+        "customer_id",
+        "order_date",
+        "total_amount"
+      ],
+      "desc": "ERP sales order transaction ledger.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "CSV",
+      "foot": null,
+      "group": "Input",
+      "id": "erp",
+      "kv": null,
+      "name": "erp_orders.csv",
+      "ontology": null,
+      "outline": null,
+      "raw": "order_id,customer_id,order_date,total_amount\nORD-1001,CUST-001,2026-01-02,1450.00\nORD-1002,CUST-002,2026-01-03,890.50",
+      "rows": [
+        [
+          "ORD-1001",
+          "CUST-001",
+          "2026-01-02",
+          "1450.00"
+        ],
+        [
+          "ORD-1002",
+          "CUST-002",
+          "2026-01-03",
+          "890.50"
+        ]
+      ],
+      "sha256": "11973b35dcdebace314b263f118d2aa5daafcb8b3c8a6151b8a5652001e570bf",
+      "short": "Wave 0 \u00b7 5,000 orders",
+      "type": "RelationalSourceTable",
+      "viz": "table",
+      "wave_index": 0,
+      "waves": [
+        "W0"
+      ]
+    },
+    "extract": {
+      "checks": null,
+      "cols": null,
+      "desc": "Algorithm A.9b verbatim span extractions and steward hold resolution.",
+      "doc": {
+        "document_name": "enterprise_msa_addendum_2026.txt",
+        "extractions": [
+          {
+            "candidates": null,
+            "conf": "0.98",
+            "decision": "Exact canonical match to CBC_CUSTOMER (TAX-US-900101)",
+            "end": 186,
+            "event_id": null,
+            "hold_id": null,
+            "id": "ext-u1-northwind",
+            "quote": "Northwind Industrial Supply Corp. (US Federal Tax ID: TAX-US-900101)",
+            "resolution_action": "APPROVE",
+            "resolved": true,
+            "selected_candidate_id": "TAX-US-900101",
+            "start": 117,
+            "tier": "Tier-U1"
+          },
+          {
+            "candidates": [
+              {
+                "id": "TAX-DE-800202",
+                "label": "Rheinland Precision AG (EORI: DE800202)",
+                "score": 0.91
+              },
+              {
+                "id": "TAX-NL-104928",
+                "label": "Rheinland Logistics BV (BTW: NL104928)",
+                "score": 0.74
+              }
+            ],
+            "conf": "0.68",
+            "decision": "Resolved by auto_approve_top_candidate",
+            "end": 416,
+            "event_id": "evt-hold-u3-001",
+            "hold_id": "<HOLD_ID_1>",
+            "id": "ext-u3-rheinland",
+            "quote": "Rheinland Precision Holdings Europe",
+            "resolution_action": "APPROVE",
+            "resolved": true,
+            "selected_candidate_id": "TAX-DE-800202",
+            "start": 381,
+            "tier": "Tier-U3"
+          }
+        ],
+        "source_text": "MASTER SERVICES AGREEMENT - ENTERPRISE ADDENDUM (2026-W3)\n\n1. COUNTERPARTY IDENTIFICATION\nThis Master Services Agreement Addendum is entered into by and between Northwind Industrial Supply Corp. (US Federal Tax ID: TAX-US-900101) (\"Customer\") and Global Commerce Vault Operations LLC, effective 2026-01-12.\n\n2. SETTLEMENT & INVOICING GUARANTOR\nCross-border European settlement obligations under Invoice INV-EU-8801 shall be guaranteed by Rheinland Precision Holdings Europe, subject to parent-entity verification by the Data Governance Steward.\n\n3. DATA PROTECTION & RESTRICTED PII\nCustomer contact electronic mail addresses and phone numbers constitute RESTRICTED_PII and must be isolated in a dedicated GDPR satellite."
+      },
+      "dv": null,
+      "events": null,
+      "fmt": "JSON",
+      "foot": null,
+      "group": "Stage output",
+      "id": "extract",
+      "kv": null,
+      "name": "unstructured_extractions.json",
+      "ontology": null,
+      "outline": null,
+      "raw": "{\n  \"document_name\": \"enterprise_msa_addendum_2026.txt\",\n  \"source_text\": \"MASTER SERVICES AGREEMENT - ENTERPRISE ADDENDUM (2026-W3)/n/n1. COUNTERPARTY IDENTIFICATION/nThis Master Services Agreement Addendum is entered into by and between Northwind Industrial Supply Corp. (US Federal Tax ID: TAX-US-900101) (/\"Customer/\") and Global Commerce Vault Operations LLC, effective 2026-01-12./n/n2. SETTLEMENT & INVOICING GUARANTOR/nCross-border European settlement obligations under Invoice INV-EU-8801 shall be guaranteed by Rheinland Precision Holdings Europe, subject to parent-entity verification by the Data Governance Steward./n/n3. DATA PROTECTION & RESTRICTED PII/nCustomer contact electronic mail addresses and phone numbers constitute RESTRICTED_PII and must be isolated in a dedicated GDPR satellite.\",\n  \"extractions\": [\n    {\n      \"id\": \"ext-u1-northwind\",\n      \"quote\": \"Northwind Industrial Supply Corp. (US Federal Tax ID: TAX-US-900101)\",\n      \"start\": 117,\n      \"end\": 186,\n      \"tier\": \"Tier-U1\",\n      \"conf\": \"0.98\",\n      \"decision\": \"Exact canonical match to CBC_CUSTOMER (TAX-US-900101)\",\n      \"hold_id\": null,\n      \"event_id\": null,\n      \"resolved\": true,\n      \"resolution_action\": \"APPROVE\",\n      \"selected_candidate_id\": \"TAX-US-900101\",\n      \"candidates\": null\n    },\n    {\n      \"id\": \"ext-u3-rheinland\",\n      \"quote\": \"Rheinland Precision Holdings Europe\",\n      \"start\": 381,\n      \"end\": 416,\n      \"tier\": \"Tier-U3\",\n      \"conf\": \"0.68\",\n      \"decision\": \"Resolved by auto_approve_top_candidate\",\n      \"hold_id\": \"<HOLD_ID_1>\",\n      \"event_id\": \"evt-hold-u3-001\",\n      \"resolved\": true,\n      \"resolution_action\": \"APPROVE\",\n      \"selected_candidate_id\": \"TAX-DE-800202\",\n      \"candidates\": [\n        {\n          \"id\": \"TAX-DE-800202\",\n          \"label\": \"Rheinland Precision AG (EORI: DE800202)\",\n          \"score\": 0.91\n        },\n        {\n          \"id\": \"TAX-NL-104928\",\n          \"label\": \"Rheinland Logistics BV (BTW: NL104928)\",\n          \"score\": 0.74\n        }\n      ]\n    }\n  ]\n}",
+      "rows": null,
+      "sha256": "2d39f39f34da2061df27d5f37b433da9b3c6bfb7ad62bbf7343a280c081abecc",
+      "short": "2 spans \u00b7 1 U1 match, 1 hold",
+      "type": "UnstructuredExtractionLedger",
+      "viz": "doc",
+      "wave_index": 3,
+      "waves": [
+        "W3"
+      ]
+    },
+    "final_contract": {
+      "checks": null,
+      "cols": null,
+      "desc": "Verified, production-ready declarative Data Vault 2.0 contract.",
+      "doc": null,
+      "dv": {
+        "edges": [
+          {
+            "dashed": false,
+            "x1": 130.0,
+            "x2": 130.0,
+            "y1": 130.0,
+            "y2": 180.0
+          },
+          {
+            "dashed": true,
+            "x1": 130.0,
+            "x2": 130.0,
+            "y1": 225.0,
+            "y2": 250.0
+          },
+          {
+            "dashed": false,
+            "x1": 200.0,
+            "x2": 280.0,
+            "y1": 100.0,
+            "y2": 100.0
+          }
+        ],
+        "nodes": [
+          {
+            "h": 50.0,
+            "id": "h_cust",
+            "kind": "hub",
+            "label": "hub_customer",
+            "sub": "HK_CUSTOMER",
+            "w": 140.0,
+            "x": 60.0,
+            "y": 80.0
+          },
+          {
+            "h": 50.0,
+            "id": "h_ord",
+            "kind": "hub",
+            "label": "hub_order",
+            "sub": "HK_ORDER",
+            "w": 140.0,
+            "x": 280.0,
+            "y": 80.0
+          },
+          {
+            "h": 40.0,
+            "id": "l_ord_cust",
+            "kind": "link",
+            "label": "lnk_order_customer",
+            "sub": "HK_LNK_ORDER_CUST",
+            "w": 170.0,
+            "x": 170.0,
+            "y": 80.0
+          },
+          {
+            "h": 45.0,
+            "id": "s_cust_core",
+            "kind": "sat",
+            "label": "sat_customer_core",
+            "sub": "HD_CUST_CORE",
+            "w": 140.0,
+            "x": 60.0,
+            "y": 180.0
+          },
+          {
+            "h": 45.0,
+            "id": "s_cust_pii",
+            "kind": "sat_pii",
+            "label": "sat_customer_pii",
+            "sub": "HD_CUST_PII",
+            "w": 140.0,
+            "x": 60.0,
+            "y": 250.0
+          }
+        ]
+      },
+      "events": null,
+      "fmt": "YAML",
+      "foot": null,
+      "group": "Final output",
+      "id": "final_contract",
+      "kv": null,
+      "name": "final_contract.yaml",
+      "ontology": null,
+      "outline": null,
+      "raw": "version: '5.0'\nmodel_name: global_commerce_vault\nhubs:\n  - hub_customer: { business_key: customer_tax_id }\n  - hub_order:    { business_key: order_id }\nlinks:\n  - lnk_order_customer: { source: erp_orders }\nsatellites:\n  - sat_customer_core: { split: CORE }\n  - sat_customer_pii:  { split: RESTRICTED_PII }",
+      "rows": null,
+      "sha256": "69bf41e4f9ef2d4ba61f97b0d901d236f531019b483c51ead5d96c3044e26729",
+      "short": "Verified DV 2.0 contract",
+      "type": "DataVaultModelContract",
+      "viz": "dv",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "final_ir": {
+      "checks": null,
+      "cols": null,
+      "desc": "Deterministic Canonical Intermediate Representation.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "JSON",
+      "foot": null,
+      "group": "Final output",
+      "id": "final_ir",
+      "kv": null,
+      "name": "final_canonical_ir.json",
+      "ontology": null,
+      "outline": [
+        [
+          "Hubs",
+          "hub_customer, hub_order"
+        ],
+        [
+          "Links",
+          "lnk_order_customer"
+        ],
+        [
+          "Satellites",
+          "sat_customer_core, sat_customer_pii"
+        ]
+      ],
+      "raw": "{\n  \"hubs\": [\n    \"hub_customer\",\n    \"hub_order\"\n  ]\n}",
+      "rows": null,
+      "sha256": "17a2fd966b049758608986d234768b5eac7c8899d54509f4ac858dc2c5aeb334",
+      "short": "Draft 2020-12 IR",
+      "type": "CanonicalDataVaultIR",
+      "viz": "code",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "final_sql": {
+      "checks": null,
+      "cols": null,
+      "desc": "Complete 4-zone DuckDB Data Vault 2.0 executable SQL pipeline.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "SQL",
+      "foot": null,
+      "group": "Final output",
+      "id": "final_sql",
+      "kv": null,
+      "name": "final_four_zone.sql",
+      "ontology": null,
+      "outline": [
+        [
+          "Zone 0",
+          "Raw Bronze view staging"
+        ],
+        [
+          "Zone 1",
+          "Staging Views with hash keys"
+        ],
+        [
+          "Zone 2",
+          "Raw Data Vault tables"
+        ],
+        [
+          "Zone 3",
+          "Business Vault PIT tables"
+        ]
+      ],
+      "raw": "-- 4-Zone DuckDB Data Vault 2.0 DDL\nCREATE SCHEMA IF NOT EXISTS bronze;\nCREATE SCHEMA IF NOT EXISTS staging;\nCREATE SCHEMA IF NOT EXISTS raw_vault;\nCREATE SCHEMA IF NOT EXISTS business_vault;\n\nCREATE TABLE raw_vault.hub_customer (\n    hk_customer VARCHAR(64) PRIMARY KEY,\n    customer_tax_id VARCHAR(64) NOT NULL,\n    load_dts TIMESTAMP WITH TIME ZONE NOT NULL,\n    rec_src VARCHAR(64) NOT NULL\n);",
+      "rows": null,
+      "sha256": "8c2d24959eec67cdd87fe8143bfd9fb07d3565d5bc34322490edfc538291c524",
+      "short": "Zones 0-3 DDL + DML",
+      "type": "FourZoneDuckDBSQL",
+      "viz": "code",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "gate_sandbox": {
+      "checks": [
+        [
+          "G5",
+          "DuckDB Analytical Sandbox",
+          "PASS"
+        ]
+      ],
+      "cols": null,
+      "desc": "Gate 5 DuckDB analytical sandbox execution verification scorecard.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "JSON",
+      "foot": null,
+      "group": "Stage output",
+      "id": "gate_sandbox",
+      "kv": null,
+      "name": "sandbox_execution_scorecard.json",
+      "ontology": null,
+      "outline": null,
+      "raw": "{\n  \"G5\": \"PASS\",\n  \"batches_ingested\": 4\n}",
+      "rows": null,
+      "sha256": "906dcff34b2e111d4376be969649497c9c3d0c87a75fe1835279c8620ad27c39",
+      "short": "4 zones compiled \u00b7 PASS",
+      "type": "SandboxExecutionScorecard",
+      "viz": "checks",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "gate_static": {
+      "checks": [
+        [
+          "G0",
+          "Profile & Drift",
+          "PASS"
+        ],
+        [
+          "G1",
+          "Grain & BKCC",
+          "PASS"
+        ],
+        [
+          "G2",
+          "SQLGlot AST",
+          "PASS"
+        ],
+        [
+          "G3",
+          "NetworkX DAG",
+          "PASS"
+        ],
+        [
+          "G4",
+          "YAGNI Guard",
+          "PASS"
+        ]
+      ],
+      "cols": null,
+      "desc": "Formal static verification scorecard across Gates 0 through 4.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "JSON",
+      "foot": null,
+      "group": "Stage output",
+      "id": "gate_static",
+      "kv": null,
+      "name": "static_gates_scorecard.json",
+      "ontology": null,
+      "outline": null,
+      "raw": "{\"G0\": \"PASS\", \"G1\": \"PASS\", \"G2\": \"PASS\", \"G3\": \"PASS\", \"G4\": \"PASS\"}",
+      "rows": null,
+      "sha256": "014ec88a3169d3ccb0e206f467a0b6601f42dd08d6411eec3fbec5c56c5fb997",
+      "short": "99/99 checks PASS",
+      "type": "StaticGatesScorecard",
+      "viz": "checks",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "grounding": {
+      "checks": null,
+      "cols": [
+        "source_table",
+        "canonical_concept",
+        "archetype",
+        "mapped_keys"
+      ],
+      "desc": "Bijection between physical source feeds and Graph A concepts.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "JSON",
+      "foot": null,
+      "group": "Stage output",
+      "id": "grounding",
+      "kv": null,
+      "name": "concept_grounding_ledger.json",
+      "ontology": null,
+      "outline": null,
+      "raw": "[\n  {\n    \"source\": \"crm_customers\",\n    \"concept\": \"CBC_CUSTOMER\"\n  }\n]",
+      "rows": [
+        [
+          "crm_customers",
+          "CBC_CUSTOMER",
+          "WHO_PARTY",
+          "customer_id"
+        ],
+        [
+          "erp_orders",
+          "CBC_ORDER",
+          "WHAT_EVENT_ANCHOR",
+          "order_id"
+        ],
+        [
+          "stripe_eu_invoices",
+          "CBC_INVOICE",
+          "WHAT_FINANCIAL",
+          "invoice_id"
+        ]
+      ],
+      "sha256": "42dcf398c2d39655ba77fe3517c4cc9d938f8654d0e704a6ca8961ff93034c6a",
+      "short": "100% tables grounded",
+      "type": "ConceptGroundingLedger",
+      "viz": "table",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "harness": {
+      "checks": null,
+      "cols": null,
+      "desc": "LLM provider configuration, persona tiers, and self-healing retry caps.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "YAML",
+      "foot": null,
+      "group": "Setting",
+      "id": "harness",
+      "kv": [
+        [
+          "default_provider",
+          "antigravity (agy)"
+        ],
+        [
+          "@vault-first-mate",
+          "pro \u00b7 T=0.1 \u00b7 STAGE_00"
+        ],
+        [
+          "@scout-source",
+          "flash \u00b7 T=0.0 \u00b7 STAGE_01"
+        ],
+        [
+          "@scout-unstructured",
+          "flash \u00b7 T=0.0 \u00b7 STAGE_02"
+        ],
+        [
+          "@ship-vault",
+          "pro \u00b7 T=0.1 \u00b7 STAGE_03, STAGE_04"
+        ],
+        [
+          "@axi-dv",
+          "deterministic (no LLM) \u00b7 STAGE_05"
+        ],
+        [
+          "@duckdb-sandbox",
+          "deterministic (no LLM) \u00b7 STAGE_06"
+        ],
+        [
+          "@deterministic-compiler",
+          "deterministic (no LLM) \u00b7 STAGE_07"
+        ],
+        [
+          "max_self_healing_retries",
+          "3 (Algorithm A.8)"
+        ]
+      ],
+      "name": "harness_config.yaml",
+      "ontology": null,
+      "outline": null,
+      "raw": "version: '1.0'\ndefault_provider: antigravity\nmax_self_healing_retries: 3\npersonas:\n  vault-first-mate:       { model_tier: pro,   temperature: 0.1 }\n  scout-source:           { model_tier: flash, temperature: 0.0 }\n  scout-unstructured:     { model_tier: flash, temperature: 0.0 }\n  ship-vault:             { model_tier: pro,   temperature: 0.1 }\n  axi-dv:                 { mode: deterministic }\n  duckdb-sandbox:         { mode: deterministic }\n  deterministic-compiler: { mode: deterministic }",
+      "rows": null,
+      "sha256": "559e96792818bda19465ab56638d3d35b84c475671ee04fb5f596e66be77389c",
+      "short": "agy \u00b7 pro + flash \u00b7 3 retries",
+      "type": "AgentHarnessConfig",
+      "viz": "kv",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "ledger": {
+      "checks": null,
+      "cols": null,
+      "desc": "Canonical JSONL stream of all observability events emitted during run.",
+      "doc": null,
+      "dv": null,
+      "events": [
+        [
+          "STAGE_00",
+          "[REDACTED INTERNAL] Stage STAGE_00_ORCHESTRATION masked for role 'VIEWER'.",
+          "PASS"
+        ],
+        [
+          "STAGE_00",
+          "[REDACTED INTERNAL] Stage STAGE_00_ORCHESTRATION masked for role 'VIEWER'.",
+          "PASS"
+        ],
+        [
+          "STAGE_01",
+          "[REDACTED INTERNAL] Stage STAGE_01_SCOUT_SOURCE masked for role 'VIEWER'.",
+          "PASS"
+        ],
+        [
+          "STAGE_02",
+          "[REDACTED INTERNAL] Stage STAGE_02_SCOUT_UNSTRUCTURED masked for role 'VIEWER'.",
+          "PASS"
+        ],
+        [
+          "STAGE_03",
+          "[REDACTED INTERNAL] Stage STAGE_03_SHIP_VAULT_PASS1 masked for role 'VIEWER'.",
+          "PASS"
+        ],
+        [
+          "STAGE_04",
+          "[REDACTED INTERNAL] Stage STAGE_04_SHIP_VAULT_PASS2 masked for role 'VIEWER'.",
+          "PASS"
+        ],
+        [
+          "STAGE_05",
+          "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
+          "PASS"
+        ],
+        [
+          "STAGE_05",
+          "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
+          "PASS"
+        ],
+        [
+          "STAGE_05",
+          "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
+          "PASS"
+        ],
+        [
+          "STAGE_06",
+          "[REDACTED INTERNAL] Stage STAGE_06_AXI_DV_DYNAMIC_SANDBOX masked for role 'VIEWER'.",
+          "PASS"
+        ],
+        [
+          "STAGE_07",
+          "[REDACTED INTERNAL] Stage STAGE_07_DETERMINISTIC_COMPILER masked for role 'VIEWER'.",
+          "PASS"
+        ]
+      ],
+      "fmt": "JSONL",
+      "foot": null,
+      "group": "Final output",
+      "id": "ledger",
+      "kv": null,
+      "name": "vault-ledger.jsonl",
+      "ontology": null,
+      "outline": null,
+      "raw": "{\"event_id\": \"evt-001\", \"stage\": \"STAGE_00\", \"status\": \"PASS\"}\n{\"event_id\": \"evt-002\", \"stage\": \"STAGE_05\", \"status\": \"PASS\"}",
+      "rows": null,
+      "sha256": "c3a0b56c48322d93ce37e2cc491e923a8429b1166b75a1604d08c0793228671a",
+      "short": "Observability event log",
+      "type": "VaultObservabilityLedger",
+      "viz": "events",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "msa": {
+      "checks": null,
+      "cols": null,
+      "desc": "Unstructured legal enterprise master services agreement addendum.",
+      "doc": {
+        "document_name": "enterprise_msa_addendum_2026.txt",
+        "extractions": [
+          {
+            "candidates": null,
+            "conf": "0.98",
+            "decision": "Exact canonical match to CBC_CUSTOMER (TAX-US-900101)",
+            "end": 186,
+            "event_id": null,
+            "hold_id": null,
+            "id": "ext-u1-northwind",
+            "quote": "Northwind Industrial Supply Corp. (US Federal Tax ID: TAX-US-900101)",
+            "resolution_action": "APPROVE",
+            "resolved": true,
+            "selected_candidate_id": "TAX-US-900101",
+            "start": 117,
+            "tier": "Tier-U1"
+          },
+          {
+            "candidates": [
+              {
+                "id": "TAX-DE-800202",
+                "label": "Rheinland Precision AG (EORI: DE800202)",
+                "score": 0.91
+              },
+              {
+                "id": "TAX-NL-104928",
+                "label": "Rheinland Logistics BV (BTW: NL104928)",
+                "score": 0.74
+              }
+            ],
+            "conf": "0.68",
+            "decision": "Resolved by auto_approve_top_candidate",
+            "end": 416,
+            "event_id": "evt-hold-u3-001",
+            "hold_id": "<HOLD_ID_1>",
+            "id": "ext-u3-rheinland",
+            "quote": "Rheinland Precision Holdings Europe",
+            "resolution_action": "APPROVE",
+            "resolved": true,
+            "selected_candidate_id": "TAX-DE-800202",
+            "start": 381,
+            "tier": "Tier-U3"
+          }
+        ],
+        "source_text": "MASTER SERVICES AGREEMENT - ENTERPRISE ADDENDUM (2026-W3)\n\n1. COUNTERPARTY IDENTIFICATION\nThis Master Services Agreement Addendum is entered into by and between Northwind Industrial Supply Corp. (US Federal Tax ID: TAX-US-900101) (\"Customer\") and Global Commerce Vault Operations LLC, effective 2026-01-12.\n\n2. SETTLEMENT & INVOICING GUARANTOR\nCross-border European settlement obligations under Invoice INV-EU-8801 shall be guaranteed by Rheinland Precision Holdings Europe, subject to parent-entity verification by the Data Governance Steward.\n\n3. DATA PROTECTION & RESTRICTED PII\nCustomer contact electronic mail addresses and phone numbers constitute RESTRICTED_PII and must be isolated in a dedicated GDPR satellite."
+      },
+      "dv": null,
+      "events": null,
+      "fmt": "TXT",
+      "foot": null,
+      "group": "Input",
+      "id": "msa",
+      "kv": null,
+      "name": "enterprise_msa_addendum_2026.txt",
+      "ontology": null,
+      "outline": null,
+      "raw": "MASTER SERVICES AGREEMENT - ENTERPRISE ADDENDUM (2026-W3)\n\n1. COUNTERPARTY IDENTIFICATION\nThis Master Services Agreement Addendum is entered into by and between Northwind Industrial Supply Corp. (US Federal Tax ID: TAX-US-900101) (\"Customer\") and Global Commerce Vault Operations LLC, effective 2026-01-12.\n\n2. SETTLEMENT & INVOICING GUARANTOR\nCross-border European settlement obligations under Invoice INV-EU-8801 shall be guaranteed by Rheinland Precision Holdings Europe, subject to parent-entity verification by the Data Governance Steward.\n\n3. DATA PROTECTION & RESTRICTED PII\nCustomer contact electronic mail addresses and phone numbers constitute RESTRICTED_PII and must be isolated in a dedicated GDPR satellite.",
+      "rows": null,
+      "sha256": "4f11218c349f81508a67c68b1fdccf8cd1ab963409adda0d657c529da1f45640",
+      "short": "Wave 3 \u00b7 Unstructured MSA",
+      "type": "UnstructuredContractDocument",
+      "viz": "doc",
+      "wave_index": 3,
+      "waves": [
+        "W3"
+      ]
+    },
+    "ontology": {
+      "checks": null,
+      "cols": null,
+      "desc": "Canonical enterprise business ontology defining concepts and relationships.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "YAML",
+      "foot": null,
+      "group": "Input",
+      "id": "ontology",
+      "kv": null,
+      "name": "graph_a_ontology.yaml",
+      "ontology": {
+        "concepts": [
+          {
+            "arch": "WHO_PARTY",
+            "def_": "B2B or B2C counterparty.",
+            "keys": "T1 customer_tax_id \u00b7 T3 stripe_code",
+            "name": "CBC_CUSTOMER"
+          },
+          {
+            "arch": "WHAT_EVENT_ANCHOR",
+            "def_": "Sales order committing pricing.",
+            "keys": "T1 order_id",
+            "name": "CBC_ORDER"
+          },
+          {
+            "arch": "WHAT_FINANCIAL_INSTRUMENT",
+            "def_": "Settlement invoice against order.",
+            "keys": "T3 invoice_number",
+            "name": "CBC_INVOICE"
+          },
+          {
+            "arch": "HOW_CONTRACTUAL_RULE",
+            "def_": "Promotional campaign on orders.",
+            "keys": "T1 promo_code",
+            "name": "CBC_PROMOTION"
+          },
+          {
+            "arch": "WHAT_UNSTRUCTURED_ARTIFACT",
+            "def_": "Signed MSA governing terms.",
+            "keys": "T1 doc_id",
+            "name": "CBC_CONTRACT_DOCUMENT"
+          }
+        ],
+        "edges": [
+          {
+            "label": "REL_PLACED_BY",
+            "lx": 280.0,
+            "ly": 120.0,
+            "path": "M 240 130 L 320 130"
+          },
+          {
+            "label": "REL_BILLED_UNDER",
+            "lx": 410.0,
+            "ly": 200.0,
+            "path": "M 400 160 L 400 240"
+          },
+          {
+            "label": "REL_APPLIED",
+            "lx": 510.0,
+            "ly": 120.0,
+            "path": "M 480 130 L 540 130"
+          },
+          {
+            "label": "REL_GOVERNS",
+            "lx": 170.0,
+            "ly": 200.0,
+            "path": "M 160 160 L 160 240"
+          }
+        ],
+        "nodes": [
+          {
+            "h": 60.0,
+            "id": "c_cust",
+            "label": "CBC_CUSTOMER",
+            "sub": "WHO_PARTY",
+            "w": 160.0,
+            "x": 80.0,
+            "y": 100.0
+          },
+          {
+            "h": 60.0,
+            "id": "c_ord",
+            "label": "CBC_ORDER",
+            "sub": "WHAT_EVENT",
+            "w": 160.0,
+            "x": 320.0,
+            "y": 100.0
+          },
+          {
+            "h": 60.0,
+            "id": "c_inv",
+            "label": "CBC_INVOICE",
+            "sub": "WHAT_FINANCIAL",
+            "w": 160.0,
+            "x": 320.0,
+            "y": 240.0
+          },
+          {
+            "h": 60.0,
+            "id": "c_prm",
+            "label": "CBC_PROMOTION",
+            "sub": "HOW_RULE",
+            "w": 160.0,
+            "x": 540.0,
+            "y": 100.0
+          },
+          {
+            "h": 60.0,
+            "id": "c_doc",
+            "label": "CBC_CONTRACT_DOC",
+            "sub": "WHAT_DOC",
+            "w": 160.0,
+            "x": 80.0,
+            "y": 240.0
+          }
+        ]
+      },
+      "outline": null,
+      "raw": "domain: global_commerce\nversion: '1.0.0'\nconcepts:\n  - name: CBC_CUSTOMER\n    archetype: WHO_PARTY\n    keys: [customer_tax_id]\n  - name: CBC_ORDER\n    archetype: WHAT_EVENT_ANCHOR\n    keys: [order_id]\n  - name: CBC_INVOICE\n    archetype: WHAT_FINANCIAL_INSTRUMENT\n    keys: [invoice_number]\n  - name: CBC_PROMOTION\n    archetype: HOW_CONTRACTUAL_RULE\n    keys: [promo_campaign_code]\n  - name: CBC_CONTRACT_DOCUMENT\n    archetype: WHAT_UNSTRUCTURED_ARTIFACT\n    keys: [doc_id]",
+      "rows": null,
+      "sha256": "aa70da7e7a2fb5670caf647ad9fa274bba6dfc6beffed7d51451cb92b2ae8ba7",
+      "short": "5 concepts \u00b7 Customer, Order, Invoice\u2026",
+      "type": "GraphAOntologySpec",
+      "viz": "ontology",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "profile": {
+      "checks": null,
+      "cols": [
+        "table",
+        "column",
+        "data_type",
+        "uniqueness",
+        "null_ratio"
+      ],
+      "desc": "Information-theoretic column profiles and surrogate key quarantine.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "JSON",
+      "foot": null,
+      "group": "Stage output",
+      "id": "profile",
+      "kv": null,
+      "name": "graph_b_profile.json",
+      "ontology": null,
+      "outline": null,
+      "raw": "{\n  \"tables\": 4,\n  \"columns\": 24,\n  \"surrogates\": [\n    \"row_seq_id\"\n  ]\n}",
+      "rows": [
+        [
+          "crm_customers",
+          "customer_id",
+          "VARCHAR",
+          "1.00",
+          "0.00"
+        ],
+        [
+          "crm_customers",
+          "tax_identifier",
+          "VARCHAR",
+          "1.00",
+          "0.00"
+        ],
+        [
+          "erp_orders",
+          "order_id",
+          "VARCHAR",
+          "1.00",
+          "0.00"
+        ]
+      ],
+      "sha256": "d9136ad94e1c875def18136634614fb93711c1d0289907a663b903e9e48febff",
+      "short": "24 columns profiled",
+      "type": "RelationalProfileReport",
+      "viz": "table",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "report": {
+      "checks": [
+        [
+          "Stage 00",
+          "Orchestration & Grounding",
+          "PASS"
+        ],
+        [
+          "Stage 05",
+          "Static Verification",
+          "PASS"
+        ],
+        [
+          "Stage 06",
+          "DuckDB Sandbox",
+          "PASS"
+        ],
+        [
+          "Stage 07",
+          "Deterministic Compiler",
+          "PASS"
+        ]
+      ],
+      "cols": null,
+      "desc": "Complete end-to-end execution audit report.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "JSON",
+      "foot": null,
+      "group": "Final output",
+      "id": "report",
+      "kv": null,
+      "name": "pipeline_report.json",
+      "ontology": null,
+      "outline": null,
+      "raw": "{\"run_id\": \"run-global-commerce-wave1\", \"project_id\": \"proj-global-commerce-001\", \"status\": \"COMPLETED\"}",
+      "rows": null,
+      "sha256": "e50700d2b78472be9286ba2aa38ce9989054157aa0614279cf8a2ff6e7163741",
+      "short": "8 stages \u00b7 sealed execution",
+      "type": "AgenticPipelineReport",
+      "viz": "checks",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "runopts": {
+      "checks": null,
+      "cols": null,
+      "desc": "Runtime governance options, RBAC classification, and target dialect.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "Flags",
+      "foot": null,
+      "group": "Setting",
+      "id": "runopts",
+      "kv": [
+        [
+          "steward_hold_policy",
+          "auto_approve_top_candidate"
+        ],
+        [
+          "rbac_role",
+          "INTERNAL_MODELER"
+        ],
+        [
+          "hash_algorithm",
+          "SHA-256 length-prefixed (Algorithm A.5)"
+        ],
+        [
+          "target_dialect",
+          "DuckDB 4-zone (Bronze / Staging / Raw / Business)"
+        ],
+        [
+          "cas_sealing",
+          "enabled (SHA-256 content-addressable)"
+        ]
+      ],
+      "name": "run options",
+      "ontology": null,
+      "outline": null,
+      "raw": "--steward-hold-policy auto_approve_top_candidate\n--rbac-role INTERNAL_MODELER\n--target-dialect duckdb\n--pit-as-of 2026-01-16T00:00:00Z\n--seal-cas",
+      "rows": null,
+      "sha256": "b405bdfb6b810b06f3f3dc7c4efc02c3fad93df3ed30ff737a9bddeeb11a43fe",
+      "short": "auto_approve_top \u00b7 INTERNAL_MODELER",
+      "type": "PipelineExecutionOptions",
+      "viz": "kv",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "sandbox_report": {
+      "checks": [
+        [
+          "DV-DYN-001",
+          "Hub primary key uniqueness",
+          "PASS"
+        ],
+        [
+          "DV-DYN-002",
+          "Link foreign key referential integrity",
+          "PASS"
+        ],
+        [
+          "DV-DYN-003",
+          "Satellite hash_diff delta tracking",
+          "PASS"
+        ]
+      ],
+      "cols": null,
+      "desc": "DV-DYN-001..015 dynamic point-in-time and referential integrity report.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "JSON",
+      "foot": null,
+      "group": "Stage output",
+      "id": "sandbox_report",
+      "kv": null,
+      "name": "sandbox_report.json",
+      "ontology": null,
+      "outline": null,
+      "raw": "{\n  \"assertions_tested\": 15,\n  \"all_passed\": true\n}",
+      "rows": null,
+      "sha256": "ba17fdceeb54dffdae3c0bd333a7e4097fcb2bcf46562bd1253d09815d3e070d",
+      "short": "15 dynamic assertions PASS",
+      "type": "SandboxVerificationReport",
+      "viz": "checks",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "spec": {
+      "checks": null,
+      "cols": null,
+      "desc": "Master pipeline manifest declaring waves, sources, and ontology.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "YAML",
+      "foot": null,
+      "group": "Input",
+      "id": "spec",
+      "kv": [
+        [
+          "project_id",
+          "proj-global-commerce-001"
+        ],
+        [
+          "ontology_path",
+          "ontology/graph_a_ontology.yaml"
+        ],
+        [
+          "initial_contract",
+          "none (Wave 0 cold start)"
+        ],
+        [
+          "Wave 0 \u00b7 cold_start",
+          "crm_customers.csv, erp_orders.csv"
+        ],
+        [
+          "Wave 1 \u00b7 incremental",
+          "stripe_eu_invoices.csv (N=2 \u2192 N=3)"
+        ],
+        [
+          "Wave 2 \u00b7 schema_drift",
+          "crm_customers_v2_drift.csv (S1(t) \u2192 S1(t+1))"
+        ],
+        [
+          "Wave 3 \u00b7 unstructured_msa",
+          "enterprise_msa_addendum_2026.txt"
+        ]
+      ],
+      "name": "pipeline_input.yaml",
+      "ontology": null,
+      "outline": null,
+      "raw": "project_id: proj-global-commerce-001\nontology_path: ontology/graph_a_ontology.yaml\nwaves:\n  - wave_id: wave_0_cold_start\n    relational_sources: [sources/wave0_crm_customers.csv, sources/wave0_erp_orders.csv]\n  - wave_id: wave_1_incremental_stripe\n    relational_sources: [sources/wave1_stripe_eu_invoices.csv]\n  - wave_id: wave_2_crm_schema_drift\n    relational_sources: [sources/wave2_crm_customers_v2_drift.csv]\n  - wave_id: wave_3_unstructured_msa\n    unstructured_sources: [sources/wave3_enterprise_msa_addendum_2026.txt]",
+      "rows": null,
+      "sha256": "ccbbd59eae502a4f08fce227ebeb11026d0745fef5c08f976959170a8c87503a",
+      "short": "4 waves \u00b7 W0 cold \u2192 W3 MSA",
+      "type": "AgenticPipelineInputSpec",
+      "viz": "kv",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "stripe": {
+      "checks": null,
+      "cols": [
+        "invoice_id",
+        "order_id",
+        "stripe_customer_code",
+        "amount_paid"
+      ],
+      "desc": "Incremental Stripe European billing settlement records.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "CSV",
+      "foot": null,
+      "group": "Input",
+      "id": "stripe",
+      "kv": null,
+      "name": "stripe_eu_invoices.csv",
+      "ontology": null,
+      "outline": null,
+      "raw": "invoice_id,order_id,stripe_customer_code,amount_paid\nINV-8801,ORD-1001,cus_8892_eu,1450.00\nINV-8802,ORD-1002,cus_9912_eu,890.50",
+      "rows": [
+        [
+          "INV-8801",
+          "ORD-1001",
+          "cus_8892_eu",
+          "1450.00"
+        ],
+        [
+          "INV-8802",
+          "ORD-1002",
+          "cus_9912_eu",
+          "890.50"
+        ]
+      ],
+      "sha256": "c8f5eb8ca4244d9974aa5054268eb2ce0d51a6259b0b0f489a333020c1febcbc",
+      "short": "Wave 1 \u00b7 3,200 invoices",
+      "type": "RelationalSourceTable",
+      "viz": "table",
+      "wave_index": 1,
+      "waves": [
+        "W1"
+      ]
+    },
+    "toon": {
+      "checks": null,
+      "cols": null,
+      "desc": "Machine-readable symbolic verifier diagnostic trace for closed-loop repair.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "TOON",
+      "foot": null,
+      "group": "Stage output",
+      "id": "toon",
+      "kv": null,
+      "name": "axi_diagnostic_trace.toon",
+      "ontology": null,
+      "outline": [
+        [
+          "Gate 1",
+          "Schema grain check"
+        ],
+        [
+          "Diagnostic",
+          "@toon_v1 repair trace"
+        ]
+      ],
+      "raw": "@toon_v1 trace:\n  stage: STAGE_05_AXI_DV_STATIC_GATES\n  attempt: 1\n  rule: DV-COL-012\n  target: stripe_customer_code\n  diagnosis: BKCC unscoped collision\n  repair_action: patch bkcc_prefix to STRIPE_EU",
+      "rows": null,
+      "sha256": "1bed55f4897ca7b324ad7c30be1561d5df5df88a6a78c72865a5cbda046e2335",
+      "short": "44 tokens \u00b7 closed repair",
+      "type": "AxiVerifierDiagnosticTrace",
+      "viz": "code",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    },
+    "triage": {
+      "checks": null,
+      "cols": [
+        "table",
+        "column",
+        "assigned_role",
+        "gate1_status"
+      ],
+      "desc": "Exhaustive column accounting ledger matching Gate 1 bijection.",
+      "doc": null,
+      "dv": null,
+      "events": null,
+      "fmt": "JSON",
+      "foot": null,
+      "group": "Stage output",
+      "id": "triage",
+      "kv": null,
+      "name": "column_triage_ledger.json",
+      "ontology": null,
+      "outline": null,
+      "raw": "[\n  {\n    \"column\": \"customer_id\",\n    \"assigned_role\": \"BUSINESS_KEY\"\n  }\n]",
+      "rows": [
+        [
+          "crm_customers",
+          "customer_id",
+          "BUSINESS_KEY",
+          "PASS"
+        ],
+        [
+          "crm_customers",
+          "tax_identifier",
+          "BUSINESS_KEY",
+          "PASS"
+        ],
+        [
+          "erp_orders",
+          "order_id",
+          "BUSINESS_KEY",
+          "PASS"
+        ]
+      ],
+      "sha256": "ce1baf9701efa464a875d0e664e7bf9491db173fa8c8b8992d8d67e69d306a6e",
+      "short": "24/24 columns assigned",
+      "type": "ColumnTriageLedger",
+      "viz": "table",
+      "wave_index": 0,
+      "waves": [
+        "W0",
+        "W1",
+        "W2",
+        "W3"
+      ]
+    }
+  },
+  "displayName": "Global Commerce Vault \u2014 Wave 0 Cold Start (CRM & ERP)",
+  "gatesPassed": 6,
+  "gatesTotal": 6,
+  "hasInitialContract": false,
+  "inputIds": [
+    "spec",
+    "ontology",
+    "crm",
+    "erp",
+    "stripe",
+    "crm2",
+    "msa"
+  ],
+  "outputIds": [
+    "final_contract",
+    "final_ir",
+    "final_sql",
+    "report",
+    "ledger"
+  ],
+  "phases": [
+    {
+      "index": 0,
+      "label": "Discovery",
+      "sub": "LLM agents \u00b7 read-only scouts"
+    },
+    {
+      "index": 1,
+      "label": "Modelling",
+      "sub": "LLM agent \u00b7 declarative contract only"
+    },
+    {
+      "index": 2,
+      "label": "Verification",
+      "sub": "deterministic \u00b7 symbolic gates"
+    },
+    {
+      "index": 3,
+      "label": "Compilation",
+      "sub": "deterministic \u00b7 no LLM"
+    }
+  ],
+  "projectId": "proj-global-commerce-001",
+  "rbacRole": "DATA_STEWARD",
+  "runId": "run-global-commerce-wave1",
+  "settingIds": [
+    "harness",
+    "runopts"
+  ],
+  "specFile": "pipeline_input.yaml",
+  "stages": [
+    {
+      "blurb": "Validates inputs, grounds source tables onto Graph A concepts, and schedules waves.",
+      "comps": [
+        [
+          "vault-first-mate",
+          "Agent",
+          "Orchestrator. Owns wave scheduling and holds.",
+          "packages/opendv-agent-harness/src/opendv_agent_harness/personas.py"
+        ],
+        [
+          "validate_pipeline_inputs",
+          "Verifier",
+          "Deterministic pre-flight validator.",
+          "packages/opendv-agent-harness/src/opendv_agent_harness/pipeline.py"
+        ],
+        [
+          "ContractLoader",
+          "Parser",
+          "Strict YAML/JSON schema loader.",
+          "packages/opendv-core/src/opendv_core/contract_loader.py"
+        ]
+      ],
+      "desc": "Checks input files and paths, maps source tables to canonical business concepts.",
+      "ins": [
+        "harness",
+        "runopts",
+        "spec",
+        "ontology"
+      ],
+      "key": "STAGE_00_ORCHESTRATION",
+      "name": "Orchestration & Grounding",
+      "note": null,
+      "outs": [
+        "grounding"
+      ],
+      "persona": "@vault-first-mate",
+      "phase": 0,
+      "steps": [
+        {
+          "branch": "invalid path or schema \u2192 abort run",
+          "desc": "Checks YAML syntax and sources.",
+          "kind": "decision",
+          "name": "Pre-flight input validation",
+          "reads": [
+            "spec",
+            "harness",
+            "runopts"
+          ],
+          "writes": []
+        },
+        {
+          "branch": null,
+          "desc": "Parses canonical concepts, key tiers and relationships.",
+          "kind": null,
+          "name": "Load Graph A ontology",
+          "reads": [
+            "ontology"
+          ],
+          "writes": []
+        },
+        {
+          "branch": null,
+          "desc": "Maps source tables across waves to Graph A.",
+          "kind": null,
+          "name": "Ground source tables to concepts",
+          "reads": [
+            "spec",
+            "ontology"
+          ],
+          "writes": [
+            "grounding"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Orders wave execution schedule.",
+          "kind": null,
+          "name": "Plan wave execution schedule",
+          "reads": [
+            "spec",
+            "grounding"
+          ],
+          "writes": [
+            "grounding"
+          ]
+        }
+      ],
+      "tag": "PASS",
+      "tier": "pro \u00b7 T=0.1"
+    },
+    {
+      "blurb": "Profiles columns across sources, quarantines row_seq_id, and classifies drift.",
+      "comps": [
+        [
+          "scout-source",
+          "Agent",
+          "Read-only relational profiler.",
+          "packages/opendv-agent-harness/src/opendv_agent_harness/personas.py"
+        ],
+        [
+          "GraphBProfiler",
+          "Algorithm",
+          "Computes U(C) and inclusion dependencies.",
+          "packages/opendv-core/src/opendv_core/profiler.py"
+        ],
+        [
+          "SchemaDriftClassifier",
+          "Algorithm",
+          "Algorithm A.9a drift classifier.",
+          "packages/opendv-core/src/opendv_core/schema_drift.py"
+        ]
+      ],
+      "desc": "Computes uniqueness and null ratios, flags surrogate sequences, and runs Algorithm A.9a.",
+      "ins": [
+        "crm",
+        "erp",
+        "stripe",
+        "crm2"
+      ],
+      "key": "STAGE_01_SCOUT_SOURCE",
+      "name": "Relational Profiling & Drift",
+      "note": "Wave 2 drift: intra-source schema evolution",
+      "outs": [
+        "profile",
+        "drift"
+      ],
+      "persona": "@scout-source",
+      "phase": 0,
+      "steps": [
+        {
+          "branch": null,
+          "desc": "Reads CSV headers and sample rows.",
+          "kind": null,
+          "name": "Scan headers & infer SQL types",
+          "reads": [
+            "crm",
+            "erp",
+            "stripe",
+            "crm2"
+          ],
+          "writes": []
+        },
+        {
+          "branch": null,
+          "desc": "Information-theoretic column metrics.",
+          "kind": null,
+          "name": "Compute uniqueness U(C), null ratio & entropy",
+          "reads": [
+            "crm",
+            "erp",
+            "stripe"
+          ],
+          "writes": [
+            "profile"
+          ]
+        },
+        {
+          "branch": "\u0394=1 sequence \u2192 DROPPED_SURROGATE",
+          "desc": "Flags row_seq_id to block Hub key use.",
+          "kind": "decision",
+          "name": "Quarantine monotonic surrogate keys",
+          "reads": [
+            "profile"
+          ],
+          "writes": [
+            "profile"
+          ]
+        },
+        {
+          "branch": "U_nn < 0.95 \u2192 OPTIONAL_FK_REF",
+          "desc": "Flags optional FKs for isolating Link.",
+          "kind": "decision",
+          "name": "Flag sparse foreign keys (Algorithm A.4)",
+          "reads": [
+            "erp",
+            "profile"
+          ],
+          "writes": [
+            "profile"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Compares source versions for drift.",
+          "kind": null,
+          "name": "Classify intra-source drift (Algorithm A.9a)",
+          "reads": [
+            "crm",
+            "crm2"
+          ],
+          "writes": [
+            "drift"
+          ]
+        }
+      ],
+      "tag": "AUTO-FIX",
+      "tier": "flash \u00b7 T=0.0"
+    },
+    {
+      "blurb": "Extracts verbatim spans from unstructured text with 3-tier entity resolution.",
+      "comps": [
+        [
+          "scout-unstructured",
+          "Agent",
+          "Unstructured span extractor.",
+          "packages/opendv-agent-harness/src/opendv_agent_harness/personas.py"
+        ],
+        [
+          "SubstringSpanVerifier",
+          "Algorithm",
+          "Algorithm A.9b verifier & ER scorer.",
+          "packages/opendv-core/src/opendv_core/unstructured_er.py"
+        ]
+      ],
+      "desc": "Runs Algorithm A.9b over unstructured docs and routes ambiguity to steward hold.",
+      "ins": [
+        "msa",
+        "ontology",
+        "grounding"
+      ],
+      "key": "STAGE_02_SCOUT_UNSTRUCTURED",
+      "name": "Unstructured Document Extraction",
+      "note": null,
+      "outs": [
+        "extract"
+      ],
+      "persona": "@scout-unstructured",
+      "phase": 0,
+      "steps": [
+        {
+          "branch": null,
+          "desc": "Loads document as immutable UTF-8 buffer.",
+          "kind": null,
+          "name": "Read unstructured document text",
+          "reads": [
+            "msa"
+          ],
+          "writes": []
+        },
+        {
+          "branch": null,
+          "desc": "Proposes verbatim quotes for counterparties.",
+          "kind": null,
+          "name": "Extract candidate entity spans",
+          "reads": [
+            "msa",
+            "ontology"
+          ],
+          "writes": [
+            "extract"
+          ]
+        },
+        {
+          "branch": "doc[start:end] != quote \u2192 reject span",
+          "desc": "Checks offsets against source buffer.",
+          "kind": "decision",
+          "name": "Verify exact substring offsets (Algorithm A.9b)",
+          "reads": [
+            "msa",
+            "extract"
+          ],
+          "writes": [
+            "extract"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Scores confidence across ER tiers.",
+          "kind": null,
+          "name": "Score 3-tier entity resolution (U1 / U2 / U3)",
+          "reads": [
+            "extract",
+            "grounding"
+          ],
+          "writes": [
+            "extract"
+          ]
+        },
+        {
+          "branch": "policy: auto_approve_top_candidate",
+          "desc": "Raises STEWARD_HOLD per configured policy.",
+          "kind": "decision",
+          "name": "Route Tier-U3 ambiguity to steward hold",
+          "reads": [
+            "runopts",
+            "extract"
+          ],
+          "writes": [
+            "extract"
+          ]
+        }
+      ],
+      "tag": "ASK-USER \u2192 resolved",
+      "tier": "flash \u00b7 T=0.0"
+    },
+    {
+      "blurb": "Assigns source columns to explicit Data Vault roles (100% column coverage).",
+      "comps": [
+        [
+          "ship-vault",
+          "Agent",
+          "Declarative DV 2.0 synthesiser.",
+          "packages/opendv-agent-harness/src/opendv_agent_harness/personas.py"
+        ],
+        [
+          "ColumnTriageBijection",
+          "Verifier",
+          "Checks 1-to-1 column accounting.",
+          "packages/opendv-axi-verifier/src/opendv_axi_verifier/rules/gate1_schema_grain.py"
+        ]
+      ],
+      "desc": "Produces exhaustive column triage ledger so no source column is silently dropped.",
+      "ins": [
+        "ontology",
+        "grounding",
+        "profile",
+        "drift",
+        "extract"
+      ],
+      "key": "STAGE_03_SHIP_VAULT_PASS1",
+      "name": "Pass 1 \u00b7 Column Triage",
+      "note": null,
+      "outs": [
+        "triage"
+      ],
+      "persona": "@ship-vault",
+      "phase": 1,
+      "steps": [
+        {
+          "branch": null,
+          "desc": "Builds column universe for Gate 1.",
+          "kind": null,
+          "name": "Enumerate all columns across sources",
+          "reads": [
+            "profile",
+            "drift",
+            "extract"
+          ],
+          "writes": []
+        },
+        {
+          "branch": null,
+          "desc": "Assigns BUSINESS_KEY, FK_REF, PAYLOAD, etc.",
+          "kind": null,
+          "name": "Classify each column into roles",
+          "reads": [
+            "ontology",
+            "profile"
+          ],
+          "writes": [
+            "triage"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Records explicit tombstone for surrogates.",
+          "kind": null,
+          "name": "Tombstone surrogate keys",
+          "reads": [
+            "profile"
+          ],
+          "writes": [
+            "triage"
+          ]
+        }
+      ],
+      "tag": "PASS",
+      "tier": "pro \u00b7 T=0.1"
+    },
+    {
+      "blurb": "Synthesises Hubs, Links and Satellites with PII isolation and companion sats.",
+      "comps": [
+        [
+          "ship-vault",
+          "Agent",
+          "Declarative DV 2.0 synthesiser.",
+          "packages/opendv-agent-harness/src/opendv_agent_harness/personas.py"
+        ],
+        [
+          "BKCCAuthority",
+          "Algorithm",
+          "Algorithm A.4 BKCC collision shield.",
+          "packages/opendv-core/src/opendv_core/bkcc.py"
+        ]
+      ],
+      "desc": "Drafts Data Vault 2.0 contract: Hubs, Links, and Satellites.",
+      "ins": [
+        "ontology",
+        "triage",
+        "drift",
+        "extract"
+      ],
+      "key": "STAGE_04_SHIP_VAULT_PASS2",
+      "name": "Pass 2/3 \u00b7 Vault Topology & Keys",
+      "note": null,
+      "outs": [
+        "draft_contract"
+      ],
+      "persona": "@ship-vault",
+      "phase": 1,
+      "steps": [
+        {
+          "branch": null,
+          "desc": "Creates Hub definitions anchored to concepts.",
+          "kind": null,
+          "name": "Synthesise Hubs from Graph A concepts",
+          "reads": [
+            "ontology",
+            "triage"
+          ],
+          "writes": [
+            "draft_contract"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Routes relationships into unit-of-work Links.",
+          "kind": null,
+          "name": "Synthesise Links",
+          "reads": [
+            "triage"
+          ],
+          "writes": [
+            "draft_contract"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Isolates PII attributes into GDPR satellites.",
+          "kind": null,
+          "name": "Split RESTRICTED_PII satellites",
+          "reads": [
+            "triage"
+          ],
+          "writes": [
+            "draft_contract"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Absorbs additive drift into companion sat.",
+          "kind": null,
+          "name": "Attach companion schema drift satellites",
+          "reads": [
+            "drift"
+          ],
+          "writes": [
+            "draft_contract"
+          ]
+        }
+      ],
+      "tag": "PASS",
+      "tier": "pro \u00b7 T=0.1"
+    },
+    {
+      "blurb": "Runs formal checks across Gates 0-4; closed-loop repair on Attempt 2.",
+      "comps": [
+        [
+          "axi-dv",
+          "Verifier",
+          "Deterministic 6-gate symbolic verifier.",
+          "packages/opendv-axi-verifier/src/opendv_axi_verifier/verifier.py"
+        ],
+        [
+          "gate1_schema_grain",
+          "Verifier",
+          "Pydantic + BKCC collision verifier.",
+          "packages/opendv-axi-verifier/src/opendv_axi_verifier/rules/gate1_schema_grain.py"
+        ],
+        [
+          "gate2_sqlglot_ast",
+          "Verifier",
+          "SQLGlot AST verifier.",
+          "packages/opendv-axi-verifier/src/opendv_axi_verifier/rules/gate2_sqlglot_ast.py"
+        ],
+        [
+          "gate3_networkx_dag",
+          "Verifier",
+          "NetworkX bipartite DAG verifier.",
+          "packages/opendv-axi-verifier/src/opendv_axi_verifier/rules/gate3_networkx_dag.py"
+        ]
+      ],
+      "desc": "Deterministic symbolic verifier (Pydantic, SQLGlot, NetworkX, YAGNI cost guard).",
+      "ins": [
+        "draft_contract",
+        "profile",
+        "drift",
+        "triage"
+      ],
+      "key": "STAGE_05_AXI_DV_STATIC_GATES",
+      "name": "Gates 0-4 \u00b7 Static Verification",
+      "note": null,
+      "outs": [
+        "toon",
+        "gate_static",
+        "final_contract"
+      ],
+      "persona": "@axi-dv",
+      "phase": 2,
+      "steps": [
+        {
+          "branch": null,
+          "desc": "Verifies profiled columns match contract.",
+          "kind": null,
+          "name": "Gate 0 \u00b7 Profile & drift alignment",
+          "reads": [
+            "draft_contract",
+            "profile",
+            "drift"
+          ],
+          "writes": [
+            "gate_static"
+          ]
+        },
+        {
+          "branch": "Attempt 1: DV-COL-012 violation \u2192 @toon_v1 trace",
+          "desc": "Detects unscoped business keys.",
+          "kind": "decision",
+          "name": "Gate 1 \u00b7 Schema, grain & BKCC check",
+          "reads": [
+            "draft_contract",
+            "triage"
+          ],
+          "writes": [
+            "toon",
+            "gate_static"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Parses staging and hash formulas.",
+          "kind": null,
+          "name": "Gate 2 \u00b7 SQLGlot AST & Algorithm A.5 recipe",
+          "reads": [
+            "draft_contract"
+          ],
+          "writes": [
+            "gate_static"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Proves outdeg, arity, and zero cycles.",
+          "kind": null,
+          "name": "Gate 3 \u00b7 NetworkX bipartite DAG verification",
+          "reads": [
+            "draft_contract"
+          ],
+          "writes": [
+            "gate_static"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Checks write amplification against budget.",
+          "kind": null,
+          "name": "Gate 4 \u00b7 YAGNI write-amplification guard",
+          "reads": [
+            "draft_contract",
+            "profile"
+          ],
+          "writes": [
+            "gate_static"
+          ]
+        },
+        {
+          "branch": "Attempt 2: PASS",
+          "desc": "Patches contract using diagnostic trace.",
+          "kind": "loop",
+          "name": "Closed-loop self-healing retry",
+          "reads": [
+            "draft_contract",
+            "toon"
+          ],
+          "writes": [
+            "final_contract",
+            "gate_static"
+          ]
+        }
+      ],
+      "tag": "AUTO_REPAIRED",
+      "tier": "deterministic"
+    },
+    {
+      "blurb": "Compiles 4-zone SQL, ingests batches, and verifies dynamic assertions.",
+      "comps": [
+        [
+          "duckdb-sandbox",
+          "Engine",
+          "In-memory 4-zone shadow sandbox.",
+          "packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/sandbox_engine.py"
+        ],
+        [
+          "compiler_4zone",
+          "Compiler",
+          "Deterministic 4-zone SQL generator.",
+          "packages/opendv-duckdb-sandbox/src/opendv_duckdb_sandbox/compiler_4zone/__init__.py"
+        ]
+      ],
+      "desc": "4-Zone DuckDB shadow sandbox (Bronze / Staging / Raw Vault / Business Vault).",
+      "ins": [
+        "final_contract",
+        "crm",
+        "erp"
+      ],
+      "key": "STAGE_06_DUCKDB_SANDBOX",
+      "name": "Gate 5 \u00b7 Analytical Sandbox",
+      "note": null,
+      "outs": [
+        "gate_sandbox",
+        "sandbox_report"
+      ],
+      "persona": "@duckdb-sandbox",
+      "phase": 2,
+      "steps": [
+        {
+          "branch": null,
+          "desc": "Builds Bronze, Staging, and Vault schemas.",
+          "kind": null,
+          "name": "Compile 4-zone DDL in in-memory DuckDB",
+          "reads": [
+            "final_contract"
+          ],
+          "writes": [
+            "gate_sandbox"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Executes Zone 0/1 loading pipelines.",
+          "kind": null,
+          "name": "Attach Parquet/CSV sources via view staging",
+          "reads": [
+            "crm",
+            "erp"
+          ],
+          "writes": [
+            "gate_sandbox"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Ingests chronological batches.",
+          "kind": null,
+          "name": "Execute multi-wave adversarial inserts",
+          "reads": [
+            "crm",
+            "erp"
+          ],
+          "writes": [
+            "gate_sandbox"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Asserts uniqueness and PIT correctness.",
+          "kind": null,
+          "name": "Verify dynamic DV-DYN-001..015 assertions",
+          "reads": [
+            "gate_sandbox"
+          ],
+          "writes": [
+            "sandbox_report"
+          ]
+        }
+      ],
+      "tag": "PASS",
+      "tier": "deterministic"
+    },
+    {
+      "blurb": "Seals Canonical IR, compiles production 4-zone SQL, and writes CAS manifest.",
+      "comps": [
+        [
+          "deterministic-compiler",
+          "Compiler",
+          "Canonical IR and SQL code generator.",
+          "packages/opendv-core/src/opendv_core/compiler.py"
+        ],
+        [
+          "cas_sealer",
+          "Storage",
+          "SHA-256 CAS storage engine.",
+          "packages/opendv-telemetry/src/opendv_telemetry/cas.py"
+        ]
+      ],
+      "desc": "Emits final contract, canonical IR, 4-zone SQL, pipeline report, and ledger.",
+      "ins": [
+        "final_contract",
+        "grounding"
+      ],
+      "key": "STAGE_07_DETERMINISTIC_COMPILER",
+      "name": "Deterministic Artifact Seal & CAS",
+      "note": null,
+      "outs": [
+        "final_ir",
+        "final_sql",
+        "report",
+        "ledger"
+      ],
+      "persona": "@deterministic-compiler",
+      "phase": 3,
+      "steps": [
+        {
+          "branch": null,
+          "desc": "Serializes normalized schema-stable IR.",
+          "kind": null,
+          "name": "Emit canonical IR (Draft 2020-12)",
+          "reads": [
+            "final_contract"
+          ],
+          "writes": [
+            "final_ir"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Renders executable SQL DDL and DML.",
+          "kind": null,
+          "name": "Generate production 4-zone SQL",
+          "reads": [
+            "final_ir"
+          ],
+          "writes": [
+            "final_sql"
+          ]
+        },
+        {
+          "branch": null,
+          "desc": "Computes SHA-256 digests and seals content.",
+          "kind": null,
+          "name": "Seal pipeline report & ledger in CAS",
+          "reads": [
+            "final_contract",
+            "final_ir",
+            "final_sql"
+          ],
+          "writes": [
+            "report",
+            "ledger"
+          ]
+        }
+      ],
+      "tag": "PASS",
+      "tier": "deterministic"
+    }
+  ],
+  "statusLabel": "Sealed \u00b7 6/6 gates PASS",
+  "waves": [
+    {
+      "description": "Cold Start (CRM + ERP)",
+      "id": "W0",
+      "name": "wave_0_cold_start_crm_erp"
+    },
+    {
+      "description": "Incremental Stripe Invoices",
+      "id": "W1",
+      "name": "wave_1_incremental_stripe"
+    },
+    {
+      "description": "Intra-Source Schema Drift",
+      "id": "W2",
+      "name": "wave_2_crm_schema_drift"
+    },
+    {
+      "description": "Unstructured MSA Extraction",
+      "id": "W3",
+      "name": "wave_3_unstructured_msa"
+    }
+  ],
+  "wavesCount": 4
+}

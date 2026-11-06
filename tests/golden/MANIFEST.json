@@ -1,15 +1,31 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-11-05T22:51:59.492460+00:00",
+  "generated_at": "2026-11-06T03:36:54.106896+00:00",
   "generator_transport": "STANDALONE_CLI",
   "entries": [
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave0/events.jsonl",
+      "sha256": "a3712ae0a0f92eb8c82c97a97cd730c20f3b6e6ec3d4058735b4ad023ee01921",
+      "byte_size": 635,
+      "generated_from": "PAR-S1-W0: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave0/explorer_bundle.json",
+      "sha256": "68d9a19d1828bb901ecf782affc61bac646a121c8573b5504f930f029be48c16",
+      "byte_size": 66067,
+      "generated_from": "PAR-S1-W0: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/final_canonical_ir.json",
       "sha256": "830502bcebffdaf2a82b01c290a6f27a872fe14c7a59dbbc6ac5c3a3d7af1332",
       "byte_size": 15444,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#68] P1 baseline golden capture"
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
     },
     {
       "golden_id": "GT-01",
@@ -17,7 +33,7 @@
       "sha256": "7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913",
       "byte_size": 5506,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#68] P1 baseline golden capture"
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
     },
     {
       "golden_id": "GT-01",
@@ -25,7 +41,167 @@
       "sha256": "3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e",
       "byte_size": 43624,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#68] P1 baseline golden capture"
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave0/pipeline_report.json",
+      "sha256": "9aa77eddf85cfc71893f132ddb9264b86bdb49029a5013a464b77edaf11d7664",
+      "byte_size": 40084,
+      "generated_from": "PAR-S1-W0: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave1/events.jsonl",
+      "sha256": "18df992afb1b94c907b1e07c71780ad17a5229957b8b05da92ea59dcb92ab5b1",
+      "byte_size": 626,
+      "generated_from": "PAR-S1-W1: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave1/explorer_bundle.json",
+      "sha256": "bcb170715866dc017f86045f7182c178dff4cd76b9ef3388975bd5fd009c1e89",
+      "byte_size": 66049,
+      "generated_from": "PAR-S1-W1: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave1/final_canonical_ir.json",
+      "sha256": "4e587b201c404654e989be6f3497349d8f37d5f8551892e6272e4975453d24dd",
+      "byte_size": 20690,
+      "generated_from": "PAR-S1-W1: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave1/final_contract.yaml",
+      "sha256": "81e70f3dc172844b26403266ee7e1abdc751179cde6786c01707e11ff68f2c72",
+      "byte_size": 7585,
+      "generated_from": "PAR-S1-W1: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave1/final_four_zone.sql",
+      "sha256": "c4c61c7f30a318801acf1c7d6fe8e6c80718bbd657cd97df6d738de5f235c621",
+      "byte_size": 55576,
+      "generated_from": "PAR-S1-W1: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave1/pipeline_report.json",
+      "sha256": "8af8af46d218d138752f9b42e2e07c0bc88ddec90814f130dde4d470205e408b",
+      "byte_size": 38437,
+      "generated_from": "PAR-S1-W1: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave2/events.jsonl",
+      "sha256": "5007407b851033d69c644ffb1718999de6299eef57dfeab39f366245d76bfc38",
+      "byte_size": 644,
+      "generated_from": "PAR-S1-W2: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave2/explorer_bundle.json",
+      "sha256": "de5906fcabea67a9a555a166d7233ef5435092a7e2e8f75fd98d34f848e3a119",
+      "byte_size": 66232,
+      "generated_from": "PAR-S1-W2: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave2/final_canonical_ir.json",
+      "sha256": "8cea66c733003301520220e7fb1d62c1865f80b88f5c47b240b943ad31872d79",
+      "byte_size": 22139,
+      "generated_from": "PAR-S1-W2: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave2/final_contract.yaml",
+      "sha256": "d19c00f565f27c55d1a166b32ae4fbb947a01aed53588145a1727d672e776afb",
+      "byte_size": 8242,
+      "generated_from": "PAR-S1-W2: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave2/final_four_zone.sql",
+      "sha256": "10e338804ca75d6ad821f3f9127587f146f726f6e85213aec708a791456cefb6",
+      "byte_size": 61439,
+      "generated_from": "PAR-S1-W2: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave2/pipeline_report.json",
+      "sha256": "283deb4f30593b249557cdda57b39a1833f66bfc44cf504918fcc87cb2654e01",
+      "byte_size": 43270,
+      "generated_from": "PAR-S1-W2: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave3/events.jsonl",
+      "sha256": "eef46cf0f458950c0a6c7cac56e6c44ac8816d8c5b1a4499850c19ebd988e97c",
+      "byte_size": 635,
+      "generated_from": "PAR-S1-W3: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave3/explorer_bundle.json",
+      "sha256": "fc41a41d75c5e77ab0d42d9d4e74d0ce158a7fd52f382264ecbb87f1a4c73cbc",
+      "byte_size": 66058,
+      "generated_from": "PAR-S1-W3: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave3/final_canonical_ir.json",
+      "sha256": "5bbcb9ecedb09d9da6daf024402dfe1d877eaa8791250f3dd15a7710a9f2c736",
+      "byte_size": 29214,
+      "generated_from": "PAR-S1-W3: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave3/final_contract.yaml",
+      "sha256": "c051b71db0021aa70b3cb9b31b494fd67c51486685bd5e77e2f2b70dc9a9f134",
+      "byte_size": 9837,
+      "generated_from": "PAR-S1-W3: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave3/final_four_zone.sql",
+      "sha256": "bf4901fa9310edfe6f16c01da73fe7491ba0cbe578d953800287a35a2ffd81a6",
+      "byte_size": 82574,
+      "generated_from": "PAR-S1-W3: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave3/hold_record.json",
+      "sha256": "cee4f59cd159a125c096e5b427d4424247a03e562b7f0eb6037fb04bc5223d27",
+      "byte_size": 1017,
+      "generated_from": "PAR-S8-W3: opendv hold list",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-01",
+      "file": "GT-01/wave3/pipeline_report.json",
+      "sha256": "cf86fc6349dc36241e0969d58fb99b048ec85994ee16d33809584bd0a48582f5",
+      "byte_size": 39819,
+      "generated_from": "PAR-S1-W3: opendv pipeline run",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
     },
     {
       "golden_id": "GT-02",
@@ -33,7 +209,23 @@
       "sha256": "a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a",
       "byte_size": 29399,
       "generated_from": "PAR-PE-S5: opendv compile",
-      "last_justified_change": "[#91] Generic compiled sandbox: remove is_pe_domain and static PE SQL"
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-02",
+      "file": "GT-02/d10_2026-10-15.json",
+      "sha256": "44b6fd8a5ea7310a374680a3737f22bdf2a25651bfb086a991ff1e939f5624d7",
+      "byte_size": 5410,
+      "generated_from": "PAR-PE-S6: opendv sandbox --query-type QUERY_D10_PIT",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-02",
+      "file": "GT-02/d10b_2026-11-15.json",
+      "sha256": "d5cd79ebd2192892c031804553677f36a4c341be1cc55840f549ae42c26d7d2b",
+      "byte_size": 5631,
+      "generated_from": "PAR-PE-S6: opendv sandbox --query-type QUERY_D10B_VALUATION",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
     },
     {
       "golden_id": "GT-02",
@@ -41,15 +233,111 @@
       "sha256": "65aa57f6c7efb1b649caaca23b7ecfb514a16f0b75499b4e5229b03c27632629",
       "byte_size": 143240,
       "generated_from": "PAR-PE-S5: opendv compile",
-      "last_justified_change": "[#91] Generic compiled sandbox: remove is_pe_domain and static PE SQL"
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-02",
+      "file": "GT-02/sandbox_batches.json",
+      "sha256": "c80768defb7fa83ea0d09d79381566d896f5f59685b58508e123180f5de3db48",
+      "byte_size": 7905,
+      "generated_from": "PAR-PE-S6: opendv sandbox --query-type ADVERSARIAL_BATCHES_1_TO_4",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
     },
     {
       "golden_id": "GT-02",
       "file": "GT-02/verify.json",
-      "sha256": "00e1755aef039cf792045ab735649afab2031d48aca8449e06bd14dc9c826b2d",
-      "byte_size": 853,
+      "sha256": "b582e8f43e5b0aaf904159102a85f1d2c93b9b557f1bcd3bb2c22b61191e7f94",
+      "byte_size": 1819,
       "generated_from": "PAR-PE-S5: opendv verify",
-      "last_justified_change": "[#91] Generic compiled sandbox: remove is_pe_domain and static PE SQL"
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-03",
+      "file": "GT-03/01_dropped_hub/trace.toon",
+      "sha256": "13c4da92d86d1ccffd94c29261d2cf36d9508366c8e5ab63e0949e21dbe289cd",
+      "byte_size": 1047,
+      "generated_from": "GT-03: opendv verify 01_dropped_hub",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-03",
+      "file": "GT-03/01_dropped_hub/verdict.json",
+      "sha256": "8faa7a86891ad5691c0bd91f2d8ca602bdf895949f09a34d8889a2656af22d51",
+      "byte_size": 4734,
+      "generated_from": "GT-03: opendv verify 01_dropped_hub",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-03",
+      "file": "GT-03/02_tier1_without_global/trace.toon",
+      "sha256": "6deacbe36baf13ea366cf734aff2f2e5a218b59eb5038afc5949f5a285bbcee0",
+      "byte_size": 659,
+      "generated_from": "GT-03: opendv verify 02_tier1_without_global",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-03",
+      "file": "GT-03/02_tier1_without_global/verdict.json",
+      "sha256": "16512705753b992837680b498bc864e71c0f1c5ab1eff8cd6ec041ca455f29b0",
+      "byte_size": 3441,
+      "generated_from": "GT-03: opendv verify 02_tier1_without_global",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-03",
+      "file": "GT-03/03_reflexive_sal/trace.toon",
+      "sha256": "e7ee1cf99db9528ad92315bb388f6c5ac83bffe19132b54d78d5ef698fd5f62a",
+      "byte_size": 528,
+      "generated_from": "GT-03: opendv verify 03_reflexive_sal",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-03",
+      "file": "GT-03/03_reflexive_sal/verdict.json",
+      "sha256": "b7ad363827efa675c910983de539c60fb361ff40ea5414d653314ef101a6f278",
+      "byte_size": 3011,
+      "generated_from": "GT-03: opendv verify 03_reflexive_sal",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-03",
+      "file": "GT-03/04_satellite_group_by/trace.toon",
+      "sha256": "beb31dcd52c380f1fe9b04350e7695d5aaede29e892a1741a9d5637d54707760",
+      "byte_size": 982,
+      "generated_from": "GT-03: opendv verify 04_satellite_group_by",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-03",
+      "file": "GT-03/04_satellite_group_by/verdict.json",
+      "sha256": "210e904dd648ba33311789b953b869d0f9eea6548be32e9cd6b419813ca6b6fd",
+      "byte_size": 4450,
+      "generated_from": "GT-03: opendv verify 04_satellite_group_by",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-03",
+      "file": "GT-03/05_path_traversal/problem.json",
+      "sha256": "f9e1d4327ee9075c092b5c361a5c5f4242544278242713e606b3a52454b088cf",
+      "byte_size": 259,
+      "generated_from": "GT-03: opendv verify 05_path_traversal",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-03",
+      "file": "GT-03/06_schema_invalid/problem.json",
+      "sha256": "21dbb9f257de98fa3b515e33d20b8575e9ddd5a52fd963d3c7cbda4e3df507f6",
+      "byte_size": 22381,
+      "generated_from": "GT-03: opendv verify 06_schema_invalid",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
+    },
+    {
+      "golden_id": "GT-05",
+      "file": "GT-05/render_snapshot.txt",
+      "sha256": "5fb79db6161b8d8d7e1e09923b68f76f529091eb2a6f25c760ff025a1255da57",
+      "byte_size": 2848,
+      "generated_from": "PAR-S8-W3: opendv explorer render snapshot",
+      "last_justified_change": "[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture"
     }
   ]
 }

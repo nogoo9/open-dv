@@ -1,0 +1,32 @@
+{
+  "created_at_utc": "<TIMESTAMP>",
+  "decision_id": "<HOLD_ID_1>",
+  "escalation_reason": "TIER_U3_AMBIGUOUS_ENTITY",
+  "event_id": "<EVENT_ID>",
+  "headline": "Tier-U3 ambiguous entity extraction 'ext_doc_msa_2026_089_tax_de_800202_u3' in document 'DOC-MSA-2026-089' (confidence=0.68).",
+  "hold_id": "<HOLD_ID_1>",
+  "options": [
+    {
+      "candidate_key": "TAX-DE-800202",
+      "legal_name": "Rheinland Precision GmbH",
+      "score": 0.68
+    },
+    {
+      "candidate_key": "TAX-SG-700303",
+      "legal_name": "Merlion Maritime Logistics Pte Ltd",
+      "score": 0.61
+    }
+  ],
+  "persona": "scout-unstructured",
+  "resolution_notes": "Auto-approved top candidate per steward_hold_policy",
+  "resolved_at_utc": "<TIMESTAMP>",
+  "rule_id": "ALG-A9B",
+  "run_id": "<RUN_ID_2>",
+  "selected_option_id": "TAX-DE-800202",
+  "session_id": "<TASK_ID_3>",
+  "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
+  "status": "APPROVED",
+  "task_id": "<TASK_ID_4>",
+  "viz_id": "VIZ-GATE-07",
+  "workbench_view_id": "WB-03"
+}

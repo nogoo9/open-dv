@@ -58,9 +58,39 @@ def normalize_for_parity(
                 result[key] = "<MODE>"
                 continue
 
+            # 1b. Contract path canonicalization across CLI / REST
+            if key in ("contract_path", "contract_uri") and (isinstance(val, str) or val is None):
+                result[key] = "<CONTRACT_PATH>"
+                continue
+
             # 2. Telemetry IDs
             if key in ("trace_id", "span_id", "parent_span_id"):
                 result[key] = "<TELEMETRY_ID>"
+                continue
+
+            # 2b. Decision / Hold IDs
+            if (
+                key in ("decision_id", "hold_id")
+                or key.endswith(("_decision_id", "_hold_id"))
+            ) and isinstance(val, str) and val:
+                placeholder = run_id_map.setdefault(val, f"<HOLD_ID_{len(run_id_map) + 1}>")
+                result[key] = placeholder
+                continue
+
+            # 2c. Task / Session IDs
+            if (
+                key in ("task_id", "session_id")
+                or key.endswith(("_task_id", "_session_id"))
+            ) and isinstance(val, str) and val:
+                placeholder = run_id_map.setdefault(val, f"<TASK_ID_{len(run_id_map) + 1}>")
+                result[key] = placeholder
+                continue
+
+            # 2d. Event IDs
+            if (
+                key == "event_id" or key.endswith("_event_id")
+            ) and isinstance(val, str) and val:
+                result[key] = re.sub(r"evt-[a-zA-Z0-9_\-]+-[0-9a-f]{6,12}", "<EVENT_ID>", val)
                 continue
 
             # 3. Run ID rewriting with consistent cross-referencing
@@ -121,3 +151,110 @@ def normalize_for_parity(
         return normalized_str
 
     return payload
+
+
+_EVENT_ID_REGEX = re.compile(r"evt-[a-zA-Z0-9_\-]+-[0-9a-f]{6,12}")
+
+
+def normalize_pipeline_report(
+    report_dict: dict[str, Any],
+    *,
+    path_root: str | None = None,
+) -> dict[str, Any]:
+    """Normalize an AgenticPipelineReport dictionary for bit-for-bit golden comparison.
+
+    Masks volatile self-referential artifacts (pipeline_report.json,
+    pipeline_report.md, vault-ledger.jsonl, and *graph_b_profile.json)
+    and formats durations and IDs in the human-readable markdown summary.
+    """
+    import copy
+
+    res = copy.deepcopy(report_dict)
+    volatile_names = {
+        "pipeline_report.json",
+        "pipeline_report.md",
+        "vault-ledger.jsonl",
+    }
+    volatile_shas: set[str] = set()
+
+    # 1. Mask volatile final artifacts
+    for _k, art in list(res.get("final_artifacts", {}).items()):
+        name = art.get("name", "")
+        if name in volatile_names or name.endswith("graph_b_profile.json"):
+            if art.get("sha256"):
+                volatile_shas.add(art["sha256"])
+            art["sha256"] = "<VOLATILE_SHA256>"
+            art["byte_length"] = 0
+
+    # 2. Mask volatile intermediate artifacts
+    for art in res.get("intermediate_artifacts", []):
+        name = art.get("name", "")
+        if name in volatile_names or name.endswith(("graph_b_profile.json", "unstructured_grounding.json")):
+            if art.get("sha256"):
+                volatile_shas.add(art["sha256"])
+            art["sha256"] = "<VOLATILE_SHA256>"
+            art["byte_length"] = 0
+
+    # 3. Mask volatile artifact references in step_reports
+    for step in res.get("step_reports", []):
+        if step.get("stage_id") == "STAGE_01_SCOUT_SOURCE":
+            step["output_artifact_sha256s"] = ["<VOLATILE_SHA256>"]
+        else:
+            step["output_artifact_sha256s"] = [
+                "<VOLATILE_SHA256>" if s in volatile_shas else s
+                for s in step.get("output_artifact_sha256s", [])
+            ]
+        step["input_artifact_sha256s"] = [
+            "<VOLATILE_SHA256>" if s in volatile_shas else s
+            for s in step.get("input_artifact_sha256s", [])
+        ]
+
+    # 4. Normalize markdown summary
+    md = res.get("markdown_summary", "")
+    md = re.sub(
+        r"-\s*\*\*Total Duration\*\*:\s*`[^`]+`",
+        "- **Total Duration**: `<DURATION>`",
+        md,
+    )
+
+    # Normalize duration column in step execution ledger table
+    lines: list[str] = []
+    for line in md.splitlines():
+        if line.strip().startswith("| `step-"):
+            parts = line.split("|")
+            if len(parts) >= 10:
+                parts[8] = " <DURATION> "
+                lines.append("|".join(parts))
+                continue
+        lines.append(line)
+    md = "\n".join(lines)
+
+    # Normalize volatile sha prefixes in tables
+    for vsha in volatile_shas:
+        if len(vsha) >= 16:
+            prefix = vsha[:16].upper()
+            md = md.replace(prefix, "<VOLATILE_SHA256_PREFIX>")
+    for vname in volatile_names:
+        md = re.sub(
+            rf"(`{re.escape(vname)}`[^\n]*?\|\s*)\d+(\s*\|)",
+            r"\g<1>0\g<2>",
+            md,
+        )
+    md = re.sub(
+        r"(`wave_\d+_graph_b_profile\.json`[^\n]*?\|\s*)\d+(\s*\|)",
+        r"\g<1>0\g<2>",
+        md,
+    )
+    md = re.sub(
+        r"(`wave_\d+_unstructured_grounding\.json`[^\n]*?\|\s*)\d+(\s*\|)",
+        r"\g<1>0\g<2>",
+        md,
+    )
+    res["markdown_summary"] = md
+
+    # 5. Normalize event_ids in observability_events
+    for ev in res.get("observability_events", []):
+        if "event_id" in ev and ev["event_id"]:
+            ev["event_id"] = _EVENT_ID_REGEX.sub("<EVENT_ID>", ev["event_id"])
+
+    return normalize_for_parity(res, path_root=path_root)

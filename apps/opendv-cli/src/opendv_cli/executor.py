@@ -80,12 +80,24 @@ class LocalExecutor(CommandExecutor):
         if not contract_arg:
             return 2, {"status": "ERROR", "error": "--contract is required"}
 
+        compiled_sql_arg = getattr(args, "compiled_sql", None)
+        compiled_sql_content = None
+        if compiled_sql_arg:
+            sql_p = Path(compiled_sql_arg)
+            if sql_p.is_file():
+                compiled_sql_content = sql_p.read_text(encoding="utf-8")
+            else:
+                compiled_sql_content = str(compiled_sql_arg)
+
         req = VerifyRequest(
             contract_path=contract_arg,
             graph_a_path=getattr(args, "graph_a", None),
             graph_b_path=getattr(args, "graph_b", None),
             prior_contract_path=getattr(args, "prior_contract", None),
             run_id=getattr(args, "run_id", None),
+            compiled_sql_models=getattr(args, "compiled_sql_models", None),
+            compiled_sql=compiled_sql_content,
+            apply_codemods=getattr(args, "apply_codemods", True),
         )
         resp = self.service.verify_pipeline(req)
         payload = resp.model_dump(mode="json")

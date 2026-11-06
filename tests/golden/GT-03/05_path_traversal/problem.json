@@ -1,0 +1,7 @@
+{
+  "detail": "Path containment violation: requested path is outside permitted workspace boundaries.",
+  "instance": "/api/v1/verify",
+  "status": 400,
+  "title": "Path Containment Violation",
+  "type": "https://open-dv.dev/problems/path-containment-error"
+}

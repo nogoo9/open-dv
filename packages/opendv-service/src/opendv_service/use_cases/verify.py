@@ -17,6 +17,8 @@ from opendv_contracts import (
     VerifyRequest,
     VerifyResponse,
 )
+from opendv_contracts.errors import ErrorCode
+from opendv_core import validate_contract_v5
 from opendv_core.paths import resolve_workspace_path
 from opendv_service.errors import InputValidationError, NotFoundError
 from opendv_service.rendering import render_verify_text
@@ -115,16 +117,43 @@ def verify_pipeline(
     # 1. Resolve contract document
     resolved_contract_path: Path | None = None
     if request.contract_content is not None and request.contract_content.strip():
-        contract_doc = yaml.safe_load(request.contract_content)
+        try:
+            contract_doc = yaml.safe_load(request.contract_content)
+        except Exception as exc:
+            raise InputValidationError(
+                f"Failed to parse contract YAML: {exc}",
+                error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+            ) from exc
     elif request.contract_path is not None and request.contract_path.strip():
         resolved_contract_path = resolve_workspace_path(
             request.contract_path, workspace_root=root, allow_temp=True
         )
         if not resolved_contract_path.exists():
             raise NotFoundError(f"Contract file not found: {resolved_contract_path}")
-        contract_doc = yaml.safe_load(resolved_contract_path.read_text(encoding="utf-8"))
+        try:
+            contract_doc = yaml.safe_load(resolved_contract_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise InputValidationError(
+                f"Failed to parse contract YAML: {exc}",
+                error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+            ) from exc
     else:
         raise InputValidationError("Either contract_path or contract_content must be provided.")
+
+    if not isinstance(contract_doc, dict):
+        raise InputValidationError(
+            "Contract document must be a YAML mapping object.",
+            error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+        )
+
+    if "contract_version" not in contract_doc:
+        try:
+            validate_contract_v5(contract_doc)
+        except Exception as exc:
+            raise InputValidationError(
+                f"Invalid contract schema: {exc}",
+                error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+            ) from exc
 
     # 2. Resolve Graph A ontology document (optional)
     graph_a_doc: dict[str, Any] = {}
@@ -166,11 +195,26 @@ def verify_pipeline(
         prior_contract_doc = yaml.safe_load(prior_contract_p.read_text(encoding="utf-8"))
 
     effective_run_id = request.run_id or "run-local-verify"
+    sql_models: dict[str, str] | None = None
+    if request.compiled_sql_models:
+        sql_models = dict(request.compiled_sql_models)
+    elif request.compiled_sql:
+        import sqlglot
+        from sqlglot import exp
+
+        sql_models = {
+            tbl.name: stmt.sql(dialect="duckdb")
+            for stmt in sqlglot.parse(request.compiled_sql, read="duckdb")
+            if stmt is not None and (tbl := stmt.find(exp.Table)) is not None
+        }
+
     axi_res = run_axi_dv_verification_pipeline(
         contract_doc,
         graph_a_doc,
         graph_b_doc,
         deployed_contract=prior_contract_doc,
+        compiled_sql_models=sql_models,
+        apply_codemods=request.apply_codemods,
         run_id=effective_run_id,
     )
     passed, verdict_str, scorecard = build_gate_scorecard_from_axi_result(axi_res)

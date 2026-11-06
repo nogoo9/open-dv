@@ -122,11 +122,11 @@ class StandaloneCliTransport:
                 "stderr": stderr_buf.getvalue(),
             }
 
-    def _resolve_contract_arg(self, contract: Any) -> str:
+    def _resolve_contract_arg(self, contract: Any, filename: str = "contract.yaml") -> str:
         if isinstance(contract, (str, Path)):
             return str(contract)
         if isinstance(contract, dict):
-            contract_file = self.workspace_dir / "contract.yaml"
+            contract_file = self.workspace_dir / filename
             contract_file.write_text(yaml.safe_dump(contract), encoding="utf-8")
             return str(contract_file)
         raise ValueError(f"Invalid contract argument: {contract!r}")
@@ -144,17 +144,45 @@ class StandaloneCliTransport:
             contract_target = fixtures["contract"]
             graph_a_target = fixtures.get("graph_a", graph_a)
             graph_b_target = fixtures.get("graph_b", graph_b)
+            prior_target = fixtures.get("prior_contract", prior)
+            compiled_sql_models = fixtures.get("compiled_sql_models") or kwargs.get("compiled_sql_models")
+            compiled_sql = fixtures.get("compiled_sql") or kwargs.get("compiled_sql")
         else:
             contract_target = contract
             graph_a_target = graph_a
             graph_b_target = graph_b
+            prior_target = prior or kwargs.get("prior_contract")
+            compiled_sql_models = kwargs.get("compiled_sql_models")
+            compiled_sql = kwargs.get("compiled_sql")
 
-        contract_path = self._resolve_contract_arg(contract_target)
+        contract_path = self._resolve_contract_arg(contract_target, filename="candidate_contract.yaml")
         argv = ["verify", "--contract", contract_path, "--json"]
         if graph_a_target:
             argv.extend(["--graph-a", str(graph_a_target)])
         if graph_b_target:
             argv.extend(["--graph-b", str(graph_b_target)])
+        if prior_target:
+            prior_path = self._resolve_contract_arg(prior_target, filename="prior_contract.yaml")
+            argv.extend(["--prior-contract", str(prior_path)])
+        apply_codemods = kwargs.get("apply_codemods")
+        if _is_fixture_dict(contract) and "apply_codemods" in contract:
+            apply_codemods = contract["apply_codemods"]
+        if apply_codemods is False:
+            argv.append("--no-apply-codemods")
+        if compiled_sql_models:
+            sql_lines = [f"{sql_text}\n" for sql_text in compiled_sql_models.values()]
+            sql_file = self.workspace_dir / "compiled_models.sql"
+            sql_file.write_text("\n".join(sql_lines), encoding="utf-8")
+            argv.extend(["--compiled-sql", str(sql_file)])
+        elif compiled_sql:
+            if isinstance(compiled_sql, Path) or (
+                isinstance(compiled_sql, str) and Path(compiled_sql).is_file()
+            ):
+                argv.extend(["--compiled-sql", str(compiled_sql)])
+            else:
+                sql_file = self.workspace_dir / "compiled.sql"
+                sql_file.write_text(str(compiled_sql), encoding="utf-8")
+                argv.extend(["--compiled-sql", str(sql_file)])
         return self._invoke(argv)
 
     def compile(
@@ -268,6 +296,16 @@ class StandaloneCliTransport:
             manifest = str(spec)
 
         argv = ["pipeline", "run", "--input", manifest, "--json"]
+        if "initial_contract" in kwargs and kwargs["initial_contract"]:
+            argv.extend(["--initial-contract", str(kwargs["initial_contract"])])
+        elif "initial_contract_path" in kwargs and kwargs["initial_contract_path"]:
+            argv.extend(["--initial-contract", str(kwargs["initial_contract_path"])])
+        if "harness_config" in kwargs and kwargs["harness_config"]:
+            argv.extend(["--harness-config", str(kwargs["harness_config"])])
+        if "output_dir" in kwargs and kwargs["output_dir"]:
+            argv.extend(["--output-dir", str(kwargs["output_dir"])])
+        if "wave_id" in kwargs and kwargs["wave_id"]:
+            argv.extend(["--wave-id", str(kwargs["wave_id"])])
         return self._invoke(argv)
 
 
@@ -421,6 +459,28 @@ class DirectRestTransport:
             elif isinstance(prior_target, dict):
                 body["prior_contract_content"] = yaml.safe_dump(prior_target)
 
+        compiled_sql_models = kwargs.get("compiled_sql_models")
+        compiled_sql = kwargs.get("compiled_sql")
+        if _is_fixture_dict(contract):
+            fixtures = contract  # type: ignore[assignment]
+            compiled_sql_models = fixtures.get("compiled_sql_models") or compiled_sql_models
+            compiled_sql = fixtures.get("compiled_sql") or compiled_sql
+        if compiled_sql_models:
+            body["compiled_sql_models"] = compiled_sql_models
+        elif compiled_sql:
+            if isinstance(compiled_sql, Path) or (
+                isinstance(compiled_sql, str) and Path(compiled_sql).is_file()
+            ):
+                body["compiled_sql"] = Path(compiled_sql).read_text(encoding="utf-8")
+            else:
+                body["compiled_sql"] = str(compiled_sql)
+
+        apply_codemods = kwargs.get("apply_codemods")
+        if _is_fixture_dict(contract) and "apply_codemods" in contract:
+            apply_codemods = contract["apply_codemods"]
+        if apply_codemods is not None:
+            body["apply_codemods"] = apply_codemods
+
         res = self.client.post("/api/v1/verify", json=body)
         return self._wrap_res(res)
 
@@ -504,7 +564,15 @@ class DirectRestTransport:
         else:
             input_path = str(spec)
 
-        res = self.client.post("/api/v1/pipelines/runs", json={"input_spec_path": input_path})
+        body: dict[str, Any] = {"input_spec_path": input_path}
+        if "initial_contract_path" in kwargs and kwargs["initial_contract_path"]:
+            body["initial_contract_path"] = str(kwargs["initial_contract_path"])
+        elif "initial_contract" in kwargs and kwargs["initial_contract"]:
+            body["initial_contract"] = kwargs["initial_contract"]
+        if "wave_id" in kwargs and kwargs["wave_id"]:
+            body["wave_id"] = str(kwargs["wave_id"])
+
+        res = self.client.post("/api/v1/pipelines/runs", json=body)
         if res.status_code not in (200, 201, 202):
             return {"status": "ERROR", "detail": res.text, "exit_code": 1}
 

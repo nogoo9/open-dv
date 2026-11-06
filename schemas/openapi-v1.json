@@ -3517,6 +3517,39 @@
         "additionalProperties": false,
         "description": "Request DTO for 6-Gate symbolic verification (Decision D1).",
         "properties": {
+          "apply_codemods": {
+            "default": true,
+            "description": "Whether to apply automated codemods before verification",
+            "title": "Apply Codemods",
+            "type": "boolean"
+          },
+          "compiled_sql": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional raw SQL containing physical models for Gate 6 AST verification",
+            "title": "Compiled Sql"
+          },
+          "compiled_sql_models": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional compiled physical SQL models for Gate 6 AST verification",
+            "title": "Compiled Sql Models"
+          },
           "contract_content": {
             "anyOf": [
               {
