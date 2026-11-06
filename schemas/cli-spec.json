@@ -1423,6 +1423,13 @@
       "problem_type_uri": "urn:opendv:version-mismatch"
     },
     {
+      "error_code": "ONTOLOGY_RECOMMENDER_UNAVAILABLE",
+      "exit_code": 2,
+      "http_status": 422,
+      "problem_title": "Ontology Recommender Unavailable",
+      "problem_type_uri": "urn:opendv:ontology-recommender-unavailable"
+    },
+    {
       "error_code": "CAS_INTEGRITY_FAILURE",
       "exit_code": 2,
       "http_status": 500,
