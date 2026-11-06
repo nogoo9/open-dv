@@ -370,6 +370,17 @@ class PipelineExecutionMixin:
         run_status = RunStatus(report.status)
         last_step = report.step_reports[-1] if report.step_reports else None
         last_evt = events_list[-1] if events_list else None
+        has_initial_contract = getattr(report, "has_initial_contract", False) or bool(
+            getattr(spec_obj, "initial_contract_path", None)
+            or getattr(spec_obj, "initial_contract", None)
+        )
+        init_c_path = getattr(report, "initial_contract_path", None) or getattr(
+            spec_obj, "initial_contract_path", None
+        )
+        wave_id_val = getattr(report, "wave_id", None) or getattr(spec_obj, "wave_id", None)
+        lifecycle_stage = getattr(report, "lifecycle_stage", None) or (
+            "MULTI_SOURCE_EXPANSION" if has_initial_contract else "COLD_START_N1"
+        )
         run_dto = ProjectRunDTO(
             run_id=report.run_id,
             project_id=spec_obj.project_id,
@@ -389,10 +400,18 @@ class PipelineExecutionMixin:
             gates_url=f"/api/v1/runs/{report.run_id}/gates",
             sandbox_url=f"/api/v1/runs/{report.run_id}/sandbox",
             decisions_url=f"/api/v1/runs/{report.run_id}/decisions",
+            has_initial_contract=has_initial_contract,
+            initial_contract_path=init_c_path,
+            wave_id=wave_id_val,
+            lifecycle_stage=lifecycle_stage,
         )
         self.runs[report.run_id] = run_dto
 
         gate_rep = self._build_default_gate_report(report.run_id)
+        gate_rep["has_initial_contract"] = has_initial_contract
+        gate_rep["initial_contract_path"] = init_c_path
+        gate_rep["wave_id"] = wave_id_val
+        gate_rep["lifecycle_stage"] = lifecycle_stage
         if report.wave_reports:
             gate_rep["wave_gate_scorecard"] = dict(report.wave_reports[-1].gate_scorecard)
         self.run_gate_reports[report.run_id] = gate_rep

@@ -13,6 +13,7 @@ from opendv_agent_harness import (
     PipelineInputSpec,
     validate_pipeline_inputs,
 )
+from opendv_core.paths import resolve_workspace_path
 from opendv_service.errors import NotFoundError
 from opendv_service.models import (
     PipelineValidateRequest,
@@ -81,8 +82,22 @@ class PipelineStateMixin:
             raw_spec = dict(req.input_spec)
 
         if initial_contract_path is not None:
-            resolved_init_path = self._resolve_repo_path(initial_contract_path)
+            resolved_init_path = resolve_workspace_path(
+                str(initial_contract_path),
+                workspace_root=self.repo_root,
+                allow_temp=True,
+            )
             raw_spec["initial_contract_path"] = str(resolved_init_path)
+
+        init_contract_val = getattr(req, "initial_contract", None) or getattr(
+            req, "initial_contract_content", None
+        )
+        if init_contract_val is not None:
+            raw_spec["initial_contract"] = str(init_contract_val)
+
+        target_wave = getattr(req, "wave_id", None)
+        if target_wave is not None:
+            raw_spec["wave_id"] = str(target_wave)
 
         if getattr(req, "run_id", None):
             raw_spec["run_id"] = req.run_id

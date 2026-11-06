@@ -200,8 +200,21 @@ class LocalExecutor(CommandExecutor):
         if action == "create":
             if not project_id:
                 return 2, {"status": "ERROR", "error": "--project-id is required for 'run create'"}
+            initial_contract_path = getattr(args, "initial_contract_path", None) or getattr(
+                args, "contract", None
+            )
+            initial_contract = getattr(args, "initial_contract", None) or getattr(
+                args, "initial_contract_inline", None
+            )
+            wave_id = getattr(args, "wave_id", None)
             created = self.service.create_run(
-                CreateRunRequest(project_id=project_id, harness_provider=harness)
+                CreateRunRequest(
+                    project_id=project_id,
+                    harness_provider=harness,
+                    initial_contract_path=initial_contract_path,
+                    initial_contract=initial_contract,
+                    wave_id=wave_id,
+                )
             )
             payload = created.model_dump(mode="json")
             payload["mode"] = "local"
@@ -285,6 +298,7 @@ class LocalExecutor(CommandExecutor):
     def _execute_pipeline(self, args: argparse.Namespace) -> tuple[int, Any]:
         action = getattr(args, "pipeline_action", None) or "run"
         input_path: str | None = getattr(args, "input", None)
+        project_id: str | None = getattr(args, "project_id", None)
 
         if action in {"run", "validate"} and not input_path:
             return 2, {"status": "ERROR", "error": f"--input is required for 'pipeline {action}'"}
@@ -306,9 +320,14 @@ class LocalExecutor(CommandExecutor):
             role_raw = getattr(args, "role", None) or "INTERNAL_MODELER"
             eff_role = normalize_rbac_role(role_raw, default=RbacRole.INTERNAL_MODELER)
             run_req = PipelineRunRequest(
+                project_id=project_id,
                 input_spec_path=input_path,
                 harness_config_path=getattr(args, "harness_config", None),
-                initial_contract_path=getattr(args, "initial_contract", None),
+                initial_contract_path=getattr(args, "initial_contract_path", None)
+                or getattr(args, "initial_contract", None),
+                initial_contract=getattr(args, "initial_contract_inline", None)
+                or getattr(args, "initial_contract_content", None),
+                wave_id=getattr(args, "wave_id", None),
                 output_dir=getattr(args, "output_dir", None),
                 provider_override=getattr(args, "provider", None),
                 steward_hold_policy=getattr(args, "hold_policy", None),

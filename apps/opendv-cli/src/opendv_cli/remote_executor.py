@@ -220,9 +220,18 @@ class RemoteExecutor(CommandExecutor):
             if not project_id:
                 return 2, {"status": "ERROR", "error": "--project-id is required for 'run create'"}
             harness = getattr(args, "harness", None) or "antigravity"
+            body: dict[str, Any] = {
+                "project_id": project_id,
+                "harness_provider": harness,
+                "initial_contract_path": getattr(args, "initial_contract_path", None)
+                or getattr(args, "contract", None),
+                "initial_contract": getattr(args, "initial_contract", None)
+                or getattr(args, "initial_contract_inline", None),
+                "wave_id": getattr(args, "wave_id", None),
+            }
             res = client.post(
                 "/api/v1/runs",
-                json={"project_id": project_id, "harness_provider": harness},
+                json=body,
             )
             return _handle_api_res(res)
 
@@ -328,6 +337,12 @@ class RemoteExecutor(CommandExecutor):
 
         if getattr(args, "initial_contract", None):
             req_body["initial_contract_path"] = args.initial_contract
+        if getattr(args, "initial_contract_path", None):
+            req_body["initial_contract_path"] = args.initial_contract_path
+        if getattr(args, "initial_contract_inline", None):
+            req_body["initial_contract"] = args.initial_contract_inline
+        if getattr(args, "wave_id", None):
+            req_body["wave_id"] = args.wave_id
         if getattr(args, "output_dir", None):
             req_body["output_dir"] = args.output_dir
         if getattr(args, "provider", None):

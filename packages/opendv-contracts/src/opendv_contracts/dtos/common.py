@@ -42,6 +42,13 @@ class RunStatus(StrEnum):
     ABORTED = "ABORTED"
 
 
+class LifecycleStage(StrEnum):
+    """Data Vault 2.0 contract lifecycle stage."""
+
+    COLD_START_N1 = "COLD_START_N1"
+    MULTI_SOURCE_EXPANSION = "MULTI_SOURCE_EXPANSION"
+
+
 class EventType(StrEnum):
     """Event classification emitted during pipeline execution."""
 

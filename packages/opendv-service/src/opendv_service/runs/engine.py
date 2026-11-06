@@ -11,12 +11,16 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
+import yaml
+
 from opendv_contracts import (
+    LifecycleStage,
     PipelineRunHandle,
     PipelineRunRequest,
     RbacRole,
     RunStatus,
 )
+from opendv_core.paths import resolve_workspace_path
 from opendv_service.errors import NotFoundError, PipelineAbortedError
 from opendv_service.models import (
     CreateRunRequest,
@@ -96,6 +100,31 @@ class RunExecutionEngine:
             else request
         )
 
+        has_initial_contract = False
+        initial_contract_path = request.initial_contract_path
+        lifecycle_stage = LifecycleStage.COLD_START_N1.value
+
+        if request.initial_contract_path is not None:
+            resolved_c_path = resolve_workspace_path(
+                str(request.initial_contract_path),
+                workspace_root=state.repo_root,
+                allow_temp=True,
+            )
+            content = resolved_c_path.read_text(encoding="utf-8")
+            yaml.safe_load(content)
+            has_initial_contract = True
+            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
+        elif getattr(request, "initial_contract", None) is not None:
+            yaml.safe_load(str(request.initial_contract))
+            has_initial_contract = True
+            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
+        elif getattr(request, "initial_contract_content", None) is not None:
+            yaml.safe_load(str(request.initial_contract_content))
+            has_initial_contract = True
+            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
+
+        target_wave_id = getattr(request, "wave_id", None)
+
         run_dto = ProjectRunDTO(
             run_id=run_id,
             project_id="default-project",
@@ -111,6 +140,10 @@ class RunExecutionEngine:
             gates_url=f"/api/v1/runs/{run_id}/gates",
             sandbox_url=f"/api/v1/runs/{run_id}/sandbox",
             decisions_url=f"/api/v1/runs/{run_id}/decisions",
+            has_initial_contract=has_initial_contract,
+            initial_contract_path=initial_contract_path,
+            wave_id=target_wave_id,
+            lifecycle_stage=lifecycle_stage,
         )
         state.runs[run_id] = run_dto
         state.run_events[run_id] = []
@@ -191,6 +224,10 @@ class RunExecutionEngine:
             status_url=f"/api/v1/runs/{run_id}",
             project_id=run_dto.project_id,
             harness_provider=provider,
+            has_initial_contract=has_initial_contract,
+            initial_contract_path=initial_contract_path,
+            wave_id=target_wave_id,
+            lifecycle_stage=lifecycle_stage,
         )
 
     def submit_run(
@@ -207,6 +244,27 @@ class RunExecutionEngine:
             else None
         )
 
+        has_initial_contract = False
+        initial_contract_path = req.initial_contract_path
+        lifecycle_stage = LifecycleStage.COLD_START_N1.value
+
+        if req.initial_contract_path is not None:
+            resolved_path = resolve_workspace_path(
+                str(req.initial_contract_path),
+                workspace_root=state.repo_root,
+                allow_temp=True,
+            )
+            content = resolved_path.read_text(encoding="utf-8")
+            yaml.safe_load(content)
+            has_initial_contract = True
+            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
+        elif req.initial_contract is not None:
+            yaml.safe_load(str(req.initial_contract))
+            has_initial_contract = True
+            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
+
+        target_wave_id = req.wave_id
+
         if req.pipeline_input_path is not None:
             return self.submit_pipeline_run(
                 state,
@@ -214,20 +272,31 @@ class RunExecutionEngine:
                     input_spec_path=req.pipeline_input_path,
                     harness_config_path=req.harness_config_path,
                     provider_override=provider_override,
+                    initial_contract_path=req.initial_contract_path,
+                    initial_contract=req.initial_contract,
+                    wave_id=target_wave_id,
                 ),
                 pipeline_runner=pipeline_runner,
             )
 
-        if req.project_id is None or req.project_id not in state.projects:
-            raise NotFoundError(f"Unknown project_id '{req.project_id}'")
+        target_project_id = req.project_id or "default-project"
+        if target_project_id not in state.projects:
+            if target_project_id == "default-project":
+                from opendv_contracts import CreateProjectRequest
+
+                state.create_project(
+                    CreateProjectRequest(project_id="default-project", name="Default Project")
+                )
+            else:
+                raise NotFoundError(f"Unknown project_id '{req.project_id}'")
 
         if req.contract_path is not None:
             state._resolve_repo_path(req.contract_path)
-            state.projects[req.project_id] = state.projects[req.project_id].model_copy(
+            state.projects[target_project_id] = state.projects[target_project_id].model_copy(
                 update={"contract_path": req.contract_path}
             )
 
-        dynamic_input_spec = state.build_dynamic_project_input_spec(req.project_id)
+        dynamic_input_spec = state.build_dynamic_project_input_spec(target_project_id)
         if dynamic_input_spec is not None:
             return self.submit_pipeline_run(
                 state,
@@ -236,19 +305,26 @@ class RunExecutionEngine:
                     harness_config_path=req.harness_config_path,
                     provider_override=provider_override,
                     steward_hold_policy="auto_approve_top_candidate",
+                    initial_contract_path=req.initial_contract_path,
+                    initial_contract=req.initial_contract,
+                    wave_id=target_wave_id,
                 ),
                 pipeline_runner=pipeline_runner,
             )
 
         # Baseline project-scoped verification / sandbox execution
         run_index = len(state.runs) + 1
-        run_id = f"run-{req.project_id}-{run_index:04d}"
+        run_id = f"run-{target_project_id}-{run_index:04d}"
         now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
         run_dto = state._init_run_artifacts(
             run_id=run_id,
-            project_id=req.project_id,
+            project_id=target_project_id,
             harness_provider=req.harness_provider,
             started_at_utc=now_iso,
+            has_initial_contract=has_initial_contract,
+            initial_contract_path=initial_contract_path,
+            wave_id=target_wave_id,
+            lifecycle_stage=lifecycle_stage,
         )
         context = RunContext(run_id=run_id, created_at_utc=now_iso)
         with self._engine_lock:
@@ -257,14 +333,17 @@ class RunExecutionEngine:
         # Mark completed for zero-pipeline static run
         with context.lock:
             context.is_done = True
-            context.final_status = run_dto.status
+            stat_str = getattr(run_dto.status, "value", str(run_dto.status))
+            context.final_status = (
+                RunStatus(stat_str) if stat_str in RunStatus._value2member_map_ else stat_str
+            )
             term_evt = {
                 "event_id": f"evt-{run_id}-complete",
                 "run_id": run_id,
                 "timestamp_utc": now_iso,
                 "stage_id": "STAGE_07_CERTIFICATION",
                 "event_type": "run_complete",
-                "payload": {"status": run_dto.status.value},
+                "payload": {"status": stat_str},
             }
             context.event_buffer.append(term_evt)
 
@@ -274,8 +353,12 @@ class RunExecutionEngine:
             created_at_utc=now_iso,
             event_stream_url=f"/api/v1/runs/{run_id}/events",
             status_url=f"/api/v1/runs/{run_id}",
-            project_id=req.project_id,
+            project_id=target_project_id,
             harness_provider=req.harness_provider,
+            has_initial_contract=has_initial_contract,
+            initial_contract_path=initial_contract_path,
+            wave_id=target_wave_id,
+            lifecycle_stage=lifecycle_stage,
         )
 
     def abort_run(self, state: StateStore, run_id: str) -> ProjectRunDTO:

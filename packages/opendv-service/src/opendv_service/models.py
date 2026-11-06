@@ -8,8 +8,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from opendv_contracts import (
+    CreateRunRequest,
+    GateScorecardSummary,
+    LifecycleStage,
     PipelineRunRequest,
     PipelineValidateRequest,
+    ProjectRunDTO,
     SandboxQueryRequest,
 )
 
@@ -75,83 +79,6 @@ class ProjectResponse(BaseModel):
     canonical_ir_path: str | None = None
     graph_a_ontology_path: str | None = None
     graph_b_path: str | None = None
-
-
-class CreateRunRequest(BaseModel):
-    """Request payload to start a verification, compilation, and sandbox run (docs/08 §5.2)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    project_id: str | None = Field(default=None, pattern=r"^[a-z0-9][a-z0-9_-]{2,63}$")
-    harness_provider: Literal[
-        "agy",
-        "agy-cli",
-        "antigravity",
-        "claude",
-        "claude-cli",
-        "claude-code",
-    ] = "antigravity"
-    model_tier_override: Literal["reasoning", "fast"] | None = None
-    contract_path: str | None = None
-    pipeline_input_path: str | None = None
-    harness_config_path: str | None = None
-    max_repair_retries: int = Field(default=3, ge=0, le=5)
-    run_sandbox_batches: bool = True
-    execute_duckdb_sandbox: bool = True
-    assertion_cutoff_ts: str = "2026-11-01T23:59:59Z"
-
-    @model_validator(mode="after")
-    def _validate_target(self) -> CreateRunRequest:
-        if self.pipeline_input_path is not None and self.pipeline_input_path.strip() == "":
-            self.pipeline_input_path = None
-        if self.harness_config_path is not None and self.harness_config_path.strip() == "":
-            self.harness_config_path = None
-        if not self.project_id and not self.pipeline_input_path:
-            raise ValueError("Either 'project_id' or 'pipeline_input_path' must be provided.")
-        return self
-
-
-class GateScorecardSummary(BaseModel):
-    """6-Gate verification scorecard summary (docs/08 §5.2 & docs/10 §2.3)."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    gate_0_profile_drift: GateVerdictStatus = "PASS"
-    gate_1_contract_grain: GateVerdictStatus = "AUTO_REPAIRED"
-    gate_2_sqlglot_ast: GateVerdictStatus = "PASS"
-    gate_3_networkx_dag: GateVerdictStatus = "PASS"
-    gate_4_yagni_cost_guard: GateVerdictStatus = "AUTO-FIX"
-    gate_5_duckdb_sandbox: GateVerdictStatus = "PASS"
-
-
-class ProjectRunDTO(BaseModel):
-    """Status and scorecard descriptor for a platform verification run."""
-
-    model_config = ConfigDict(extra="forbid")
-
-    run_id: str
-    project_id: str
-    harness_provider: Literal[
-        "agy",
-        "agy-cli",
-        "antigravity",
-        "claude",
-        "claude-cli",
-        "claude-code",
-    ]
-    status: RunStatus
-    started_at_utc: str
-    completed_at_utc: str | None = None
-    current_stage_id: str
-    current_view_id: str
-    event_count: int = Field(ge=0)
-    gate_scorecard: GateScorecardSummary = Field(default_factory=GateScorecardSummary)
-    active_hold_ids: list[str] = Field(default_factory=list)
-    fallbacks_applied: list[dict[str, Any]] = Field(default_factory=list)
-    events_sse_url: str
-    gates_url: str
-    sandbox_url: str
-    decisions_url: str
 
 
 class CaptainHoldDecisionRequest(BaseModel):
@@ -251,6 +178,7 @@ __all__ = [
     "GateVerdictStatus",
     "HoldDecisionRequest",
     "HoldDecisionResponse",
+    "LifecycleStage",
     "PipelineRunRequest",
     "PipelineValidateRequest",
     "ProjectResponse",
