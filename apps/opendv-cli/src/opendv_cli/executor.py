@@ -142,10 +142,18 @@ class LocalExecutor(CommandExecutor):
             canonical_ir_path=getattr(args, "canonical_ir", None),
             run_id=getattr(args, "run_id", None),
         )
-        resp = self.service.compile_pipeline(req)
-        payload = resp.model_dump(mode="json")
-        payload["mode"] = "local"
-        return 0, payload
+        try:
+            resp = self.service.compile_pipeline(req)
+            payload = resp.model_dump(mode="json")
+            payload["mode"] = "local"
+            return 0, payload
+        except OpenDVError as exc:
+            return 1, {
+                "status": "ERROR",
+                "error_code": str(exc.error_code),
+                "error": str(exc),
+                "detail": str(exc),
+            }
 
     # 4. sandbox
     def _execute_sandbox(self, args: argparse.Namespace) -> tuple[int, Any]:
@@ -173,15 +181,6 @@ class LocalExecutor(CommandExecutor):
         )
         payload = resp.model_dump(mode="json")
         payload["mode"] = "local"
-        payload["batch_report"] = {
-            "all_passed": resp.all_batches_passed,
-            "batches": [b.model_dump(mode="json") for b in resp.batches],
-        }
-        payload["dynamic_check_report"] = {
-            "passed_count": resp.dynamic_rules_passed,
-            "failed_count": resp.dynamic_rules_total - resp.dynamic_rules_passed,
-            "checks": resp.rows if resp.query_type == "VERIFY_DYN_001_015" else [],
-        }
         return (0 if resp.all_batches_passed else 1), payload
 
     # 5. run

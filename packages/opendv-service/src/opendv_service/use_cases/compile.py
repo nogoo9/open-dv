@@ -11,6 +11,7 @@ from typing import Any
 import yaml
 
 from opendv_contracts import CompileRequest, CompileResponse, RenderedOutput
+from opendv_contracts.errors import ErrorCode
 from opendv_core import validate_canonical_ir, validate_contract_v5
 from opendv_core.paths import resolve_workspace_path
 from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_sql
@@ -30,18 +31,42 @@ def compile_pipeline(
     # 1. Resolve contract document
     resolved_contract_path: Path | None = None
     if request.contract_content is not None and request.contract_content.strip():
-        contract_doc: dict[str, Any] = yaml.safe_load(request.contract_content)
+        try:
+            contract_doc = yaml.safe_load(request.contract_content)
+        except Exception as exc:
+            raise InputValidationError(
+                f"Failed to parse contract YAML: {exc}",
+                error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+            ) from exc
     elif request.contract_path is not None and request.contract_path.strip():
         resolved_contract_path = resolve_workspace_path(
             request.contract_path, workspace_root=root, allow_temp=True
         )
         if not resolved_contract_path.exists():
             raise InputValidationError(f"Contract file not found: {resolved_contract_path}")
-        contract_doc = yaml.safe_load(resolved_contract_path.read_text(encoding="utf-8"))
+        try:
+            contract_doc = yaml.safe_load(resolved_contract_path.read_text(encoding="utf-8"))
+        except Exception as exc:
+            raise InputValidationError(
+                f"Failed to parse contract YAML: {exc}",
+                error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+            ) from exc
     else:
         raise InputValidationError("Either contract_path or contract_content must be provided.")
 
-    validate_contract_v5(contract_doc)
+    if not isinstance(contract_doc, dict):
+        raise InputValidationError(
+            "Contract document must be a YAML mapping object.",
+            error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+        )
+
+    try:
+        validate_contract_v5(contract_doc)
+    except Exception as exc:
+        raise InputValidationError(
+            f"Invalid contract schema: {exc}",
+            error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+        ) from exc
 
     # 2. Resolve or lower to Canonical IR
     resolved_ir_path: Path | None = None

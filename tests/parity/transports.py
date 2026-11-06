@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import sys
@@ -278,10 +279,45 @@ class DirectRestTransport:
     def __init__(self, client: httpx.Client) -> None:
         self.client = client
 
+    def _wrap_res(self, res: httpx.Response) -> dict[str, Any]:
+        if res.status_code >= 400:
+            return {"status": "ERROR", "detail": res.text, "exit_code": 1}
+        data = res.json()
+        if isinstance(data, dict):
+            data["mode"] = "remote"
+        return data
+
     def profile(self, spec: dict[str, Any] | None = None, **kwargs: Any) -> dict[str, Any]:
-        raise ParityGapError(
-            "GAP-01", "POST /api/v1/profile is not implemented until Phase P5 (#89)"
-        )
+        spec = spec or {}
+        body: dict[str, Any] = {}
+        if "graph_b" in spec:
+            body["graph_b_path"] = str(spec["graph_b"])
+            gp = Path(spec["graph_b"])
+            if gp.is_file():
+                with contextlib.suppress(Exception):
+                    body["graph_b_content"] = json.loads(gp.read_text(encoding="utf-8"))
+        elif "source_csv" in spec:
+            body["source_path"] = str(spec["source_csv"])
+            sp = Path(spec["source_csv"])
+            if sp.is_file():
+                with contextlib.suppress(Exception):
+                    body["file_content"] = sp.read_text(encoding="utf-8")
+                    body["client_path"] = str(spec["source_csv"])
+        elif "source" in spec:
+            body["source"] = spec["source"]
+        elif "file_content" in spec:
+            body["file_content"] = spec["file_content"]
+            body["client_path"] = spec.get("client_path")
+
+        if "source_system" in spec:
+            body["source_system"] = spec["source_system"]
+        if "table_name" in spec:
+            body["table_name"] = spec["table_name"]
+        if "project_id" in spec:
+            body["project_id"] = spec["project_id"]
+
+        res = self.client.post("/api/v1/profile", json=body)
+        return self._wrap_res(res)
 
     def compile(
         self,
@@ -289,9 +325,41 @@ class DirectRestTransport:
         ir: dict[str, Any] | Path | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        raise ParityGapError(
-            "GAP-02", "POST /api/v1/compile is not implemented until Phase P5 (#89)"
-        )
+        if _is_fixture_dict(contract):
+            fixtures = contract  # type: ignore[assignment]
+            contract_target = fixtures["contract"]
+            ir_target = fixtures.get("canonical_ir") or fixtures.get("ir") or ir
+        else:
+            contract_target = contract
+            ir_target = ir
+
+        body: dict[str, Any] = {}
+        if isinstance(contract_target, (str, Path)):
+            body["contract_path"] = str(contract_target)
+            cp = Path(contract_target)
+            if cp.is_file():
+                with contextlib.suppress(Exception):
+                    body["contract_content"] = cp.read_text(encoding="utf-8")
+        elif isinstance(contract_target, dict):
+            body["contract_content"] = yaml.safe_dump(contract_target)
+
+        if ir_target is not None:
+            if isinstance(ir_target, (str, Path)):
+                body["canonical_ir_path"] = str(ir_target)
+                ip = Path(ir_target)
+                if ip.is_file():
+                    with contextlib.suppress(Exception):
+                        body["canonical_ir_content"] = ip.read_text(encoding="utf-8")
+            elif isinstance(ir_target, dict):
+                body["canonical_ir_content"] = json.dumps(ir_target)
+
+        if "run_id" in kwargs and kwargs["run_id"]:
+            body["run_id"] = kwargs["run_id"]
+        if "project_id" in kwargs and kwargs["project_id"]:
+            body["project_id"] = kwargs["project_id"]
+
+        res = self.client.post("/api/v1/compile", json=body)
+        return self._wrap_res(res)
 
     def verify(
         self,
@@ -301,9 +369,60 @@ class DirectRestTransport:
         graph_b: dict[str, Any] | Path | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        raise ParityGapError(
-            "GAP-03", "POST /api/v1/verify is not implemented until Phase P5 (#89)"
-        )
+        if _is_fixture_dict(contract):
+            fixtures = contract  # type: ignore[assignment]
+            contract_target = fixtures["contract"]
+            graph_a_target = fixtures.get("graph_a", graph_a)
+            graph_b_target = fixtures.get("graph_b", graph_b)
+            prior_target = fixtures.get("prior_contract", prior)
+        else:
+            contract_target = contract
+            graph_a_target = graph_a
+            graph_b_target = graph_b
+            prior_target = prior or kwargs.get("prior_contract")
+
+        body: dict[str, Any] = {}
+        if isinstance(contract_target, (str, Path)):
+            body["contract_path"] = str(contract_target)
+            cp = Path(contract_target)
+            if cp.is_file():
+                with contextlib.suppress(Exception):
+                    body["contract_content"] = cp.read_text(encoding="utf-8")
+        elif isinstance(contract_target, dict):
+            body["contract_content"] = yaml.safe_dump(contract_target)
+
+        if graph_a_target:
+            if isinstance(graph_a_target, (str, Path)):
+                body["graph_a_path"] = str(graph_a_target)
+                gap = Path(graph_a_target)
+                if gap.is_file():
+                    with contextlib.suppress(Exception):
+                        body["graph_a_content"] = gap.read_text(encoding="utf-8")
+            elif isinstance(graph_a_target, dict):
+                body["graph_a_content"] = yaml.safe_dump(graph_a_target)
+
+        if graph_b_target:
+            if isinstance(graph_b_target, (str, Path)):
+                body["graph_b_path"] = str(graph_b_target)
+                gbp = Path(graph_b_target)
+                if gbp.is_file():
+                    with contextlib.suppress(Exception):
+                        body["graph_b_content"] = json.loads(gbp.read_text(encoding="utf-8"))
+            elif isinstance(graph_b_target, dict):
+                body["graph_b_content"] = graph_b_target
+
+        if prior_target:
+            if isinstance(prior_target, (str, Path)):
+                body["prior_contract_path"] = str(prior_target)
+                pcp = Path(prior_target)
+                if pcp.is_file():
+                    with contextlib.suppress(Exception):
+                        body["prior_contract_content"] = pcp.read_text(encoding="utf-8")
+            elif isinstance(prior_target, dict):
+                body["prior_contract_content"] = yaml.safe_dump(prior_target)
+
+        res = self.client.post("/api/v1/verify", json=body)
+        return self._wrap_res(res)
 
     def sandbox(
         self,
@@ -312,9 +431,41 @@ class DirectRestTransport:
         cutoff: str | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        raise ParityGapError(
-            "GAP-04", "POST /api/v1/sandbox is not implemented until Phase P5 (#89)"
-        )
+        if _is_fixture_dict(contract):
+            fixtures = contract  # type: ignore[assignment]
+            contract_target = fixtures["contract"]
+            ir_target = fixtures.get("canonical_ir") or fixtures.get("ir")
+        else:
+            contract_target = contract
+            ir_target = kwargs.get("canonical_ir") or kwargs.get("ir")
+
+        body: dict[str, Any] = {
+            "query_type": query_type,
+        }
+        if cutoff:
+            body["assertion_cutoff_ts"] = cutoff
+
+        if isinstance(contract_target, (str, Path)):
+            body["contract_path"] = str(contract_target)
+            cp = Path(contract_target)
+            if cp.is_file():
+                with contextlib.suppress(Exception):
+                    body["contract_content"] = cp.read_text(encoding="utf-8")
+        elif isinstance(contract_target, dict):
+            body["contract_content"] = yaml.safe_dump(contract_target)
+
+        if ir_target is not None:
+            if isinstance(ir_target, (str, Path)):
+                body["canonical_ir_path"] = str(ir_target)
+                ip = Path(ir_target)
+                if ip.is_file():
+                    with contextlib.suppress(Exception):
+                        body["canonical_ir_content"] = ip.read_text(encoding="utf-8")
+            elif isinstance(ir_target, dict):
+                body["canonical_ir_content"] = json.dumps(ir_target)
+
+        res = self.client.post("/api/v1/sandbox", json=body)
+        return self._wrap_res(res)
 
     def pipeline_validate(
         self,
@@ -334,9 +485,7 @@ class DirectRestTransport:
             input_path = str(spec)
 
         res = self.client.post("/api/v1/pipelines/validate", json={"input_spec_path": input_path})
-        if res.status_code != 200:
-            return {"status": "ERROR", "detail": res.text, "exit_code": 1}
-        return res.json()
+        return self._wrap_res(res)
 
     def pipeline_run(
         self,
@@ -373,6 +522,6 @@ class DirectRestTransport:
                         if st in ("COMPLETED", "FAILED", "ABORTED", "PAUSED_HOLD"):
                             rep_res = self.client.get(f"/api/v1/runs/{run_id}/report")
                             if rep_res.status_code == 200:
-                                return rep_res.json()
-                            return st_res.json()
-        return body
+                                return self._wrap_res(rep_res)
+                            return self._wrap_res(st_res)
+        return self._wrap_res(res)
