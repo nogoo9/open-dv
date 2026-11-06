@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 
 import jsonschema
-import pytest
+
 from opendv_contracts.dtos.coverage import (
     MappedConceptCoverage,
     OntologyCoverageArtifact,
@@ -50,7 +50,9 @@ def test_ontology_coverage_artifact_creation_and_defaults() -> None:
 
 
 def test_ontology_coverage_schema_validation() -> None:
-    schema_path = REPO_ROOT / "packages" / "opendv-contracts" / "schemas" / "ontology-coverage.schema.json"
+    schema_path = (
+        REPO_ROOT / "packages" / "opendv-contracts" / "schemas" / "ontology-coverage.schema.json"
+    )
     assert schema_path.is_file(), f"Schema file not found at {schema_path}"
     schema = json.loads(schema_path.read_text(encoding="utf-8"))
 

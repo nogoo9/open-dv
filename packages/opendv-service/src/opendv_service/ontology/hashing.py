@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from typing import Any
 
+from pydantic import ValidationError
+
 from opendv_contracts.jcs import dumps_jcs_bytes
 from opendv_core.models.graph_a import GraphAOntology
 
@@ -16,7 +18,7 @@ def canonicalize_graph_a_dict(ontology: GraphAOntology | dict[str, Any]) -> dict
     elif isinstance(ontology, dict):
         try:
             doc = GraphAOntology.model_validate(ontology).model_dump(mode="json", exclude_none=True)
-        except Exception:
+        except (ValidationError, TypeError, ValueError):
             doc = dict(ontology)
     else:
         doc = dict(ontology)

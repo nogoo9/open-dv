@@ -4,15 +4,14 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any
 
 import pytest
 import yaml
+from pydantic import ValidationError
+
 from opendv_core.models.graph_a import (
     CanonicalBusinessConcept,
     GraphAOntology,
-    KeyAuthorityTierSpec,
-    KeyAuthorityTiers,
 )
 from opendv_service.ontology.coverage import compute_ontology_coverage
 
@@ -82,7 +81,7 @@ def test_compute_ontology_coverage_scenario_s3_unmapped_feed() -> None:
 def test_compute_ontology_coverage_detects_provisional_uris() -> None:
     """Verify forbidden provisional URIs are rejected by core model and detected by coverage."""
     # 1. Core model strict validation rejects provisional URIs
-    with pytest.raises(Exception):
+    with pytest.raises((ValueError, ValidationError)):
         CanonicalBusinessConcept(
             concept_uri="urn:ontology:provisional:entity:legacy_order",
             concept_name="LEGACY_ORDER",

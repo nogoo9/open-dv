@@ -31,6 +31,10 @@ from opendv_service.ontology.registry import (
     get_ontology_recommender_registry,
     set_default_ontology_recommender_registry,
 )
+from opendv_service.ontology.resolution import (
+    OntologyResolutionResult,
+    resolve_ontology_hold,
+)
 from opendv_service.ontology.validator import validate_ontology_delta
 
 __all__ = [
@@ -40,6 +44,7 @@ __all__ = [
     "OntologyPolicy",
     "OntologyPolicyMode",
     "OntologyRecommenderRegistry",
+    "OntologyResolutionResult",
     "PipelineExtensionHooks",
     "UnresolvedMentionsContext",
     "WaveProfilingContext",
@@ -54,6 +59,7 @@ __all__ = [
     "ontology_diff",
     "redact_sample_data",
     "redact_sample_value",
+    "resolve_ontology_hold",
     "set_default_ontology_recommender_registry",
     "validate_ontology_delta",
 ]

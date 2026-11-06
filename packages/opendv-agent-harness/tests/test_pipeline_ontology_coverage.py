@@ -1,14 +1,16 @@
-"""Tests for Pipeline STAGE_01 ontology coverage emission and Gate 1 PAUSED_HOLD alignment (Decision D9, ONT-03)."""
+"""Tests for Pipeline STAGE_01 ontology coverage emission and Gate 1 PAUSED_HOLD.
+
+Decision D9, ONT-03.
+"""
 
 from __future__ import annotations
 
 import json
 from pathlib import Path
 
-import pytest
 import yaml
+
 from opendv_agent_harness import (
-    HarnessSetupConfig,
     PipelineInputSpec,
     run_agentic_vault_pipeline,
 )
@@ -38,7 +40,9 @@ def test_pipeline_stage01_emits_ontology_coverage_artifact(tmp_path: Path) -> No
     # Verify art-w0-stage01-ontology-coverage exists in report intermediate_artifacts
     art_map = {a.artifact_id: a for a in report.intermediate_artifacts}
     cov_id = "art-w0-stage01-ontology-coverage"
-    assert cov_id in art_map, f"Coverage artifact {cov_id} not found in artifacts: {list(art_map.keys())}"
+    assert cov_id in art_map, (
+        f"Coverage artifact {cov_id} not found in artifacts: {list(art_map.keys())}"
+    )
 
     cov_art_ref = art_map[cov_id]
     assert cov_art_ref.media_type == "application/json"
@@ -57,7 +61,7 @@ def test_pipeline_stage01_emits_ontology_coverage_artifact(tmp_path: Path) -> No
 
 
 def test_pipeline_scenario_s3_unmapped_feed_halts_at_gate1_hold(tmp_path: Path) -> None:
-    """Verify Scenario S3 unmapped feed halts at Gate 1 with PAUSED_HOLD carrying coverage artifact ID."""
+    """Verify Scenario S3 unmapped feed halts at Gate 1 with PAUSED_HOLD."""
     s3_dir = REPO_ROOT / "examples" / "scenarios" / "s3_unmapped_feed"
     sample_dir = REPO_ROOT / "examples" / "pipeline_samples" / "global_commerce_vault"
     out_dir = tmp_path / "out_s3"

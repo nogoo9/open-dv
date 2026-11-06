@@ -15,6 +15,7 @@ from opendv_contracts import (
     PipelineValidateRequest,
     ProjectRunDTO,
     SandboxQueryRequest,
+    StewardHoldOption,
 )
 
 
@@ -96,11 +97,24 @@ class CaptainHoldDecisionRequest(BaseModel):
     resolution_notes: str | None = None
     steward_id: str = "steward-captain"
     steward_rationale: str | None = None
+    hold_option: StewardHoldOption | None = Field(
+        default=None,
+        description="Typed steward hold option (ONT-04)",
+    )
 
     @model_validator(mode="after")
     def _normalize_fields(self) -> CaptainHoldDecisionRequest:
         if self.decision is not None:
             self.action = self.decision
+        if self.hold_option is not None:
+            opt_kind = getattr(self.hold_option, "kind", None)
+            if opt_kind in {"accept_ontology_delta", "custom_ontology_delta"}:
+                self.action = "APPROVE"
+            elif opt_kind == "reject_ontology_delta":
+                self.action = "REJECT"
+            note = getattr(self.hold_option, "steward_note", "")
+            if note and not self.resolution_notes:
+                self.resolution_notes = note
         if self.steward_rationale and not self.resolution_notes:
             self.resolution_notes = self.steward_rationale
         return self
