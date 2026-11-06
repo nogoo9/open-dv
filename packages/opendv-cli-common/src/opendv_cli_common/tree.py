@@ -63,17 +63,17 @@ def build_cli_tree(
                     "availability": sub_avail,
                     "options": [dict(opt) for opt in sub.get("options", [])],
                 }
-                if sub.get("request_dto"):
+                if "request_dto" in sub:
                     sub_node["request_dto"] = sub["request_dto"]
-                if sub.get("response_dto"):
+                if "response_dto" in sub:
                     sub_node["response_dto"] = sub["response_dto"]
                 sub_dict[sub_name] = sub_node
             cmd_node["subcommands"] = sub_dict
         else:
             cmd_node["options"] = [dict(opt) for opt in cmd.get("options", [])]
-            if cmd.get("request_dto"):
+            if "request_dto" in cmd:
                 cmd_node["request_dto"] = cmd["request_dto"]
-            if cmd.get("response_dto"):
+            if "response_dto" in cmd:
                 cmd_node["response_dto"] = cmd["response_dto"]
 
         commands_tree[cmd_name] = cmd_node
@@ -81,6 +81,7 @@ def build_cli_tree(
     return {
         "commands": commands_tree,
         "contract_version": cli_spec.get("contract_version", "1.0.0"),
+        "error_map": cli_spec.get("error_map", []),
         "global_options": global_options,
         "prog": prog,
         "spec_version": cli_spec.get("spec_version", "1.0.0"),

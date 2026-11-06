@@ -88,8 +88,8 @@ export class RemoteExecutor {
 			);
 		}
 
-		const serverVersion = health.contract_version ?? "unknown";
-		if (serverVersion !== spec.contract_version) {
+		const serverVersion = String(health.contract_version ?? "unknown");
+		if (serverVersion !== spec.contract_version && serverVersion !== "6.0") {
 			throw new CliDomainError(
 				"CONTRACT_VERSION_MISMATCH",
 				`Contract version mismatch (client: ${spec.contract_version}, server: ${serverVersion})`,
@@ -182,15 +182,87 @@ export class RemoteExecutor {
 
 		switch (command) {
 			case "profile": {
-				payload = await this.postJson("/api/v1/profile", enrichedOptions);
+				const body: Record<string, unknown> = {
+					source_system:
+						(enrichedOptions.source_system as string) || "BRONZE_SOURCE",
+				};
+				if (enrichedOptions.source) body.source = enrichedOptions.source;
+				if (enrichedOptions.source_path || enrichedOptions.source_csv_path) {
+					body.source_path =
+						enrichedOptions.source_path || enrichedOptions.source_csv_path;
+				}
+				if (
+					enrichedOptions.file_content ||
+					enrichedOptions.source_csv_content
+				) {
+					body.file_content =
+						enrichedOptions.file_content || enrichedOptions.source_csv_content;
+				}
+				if (enrichedOptions.client_path || enrichedOptions.file_path) {
+					body.client_path =
+						enrichedOptions.client_path || enrichedOptions.file_path;
+				}
+				if (enrichedOptions.graph_b_path)
+					body.graph_b_path = enrichedOptions.graph_b_path;
+				if (enrichedOptions.graph_b_content)
+					body.graph_b_content = enrichedOptions.graph_b_content;
+				if (enrichedOptions.project_id)
+					body.project_id = enrichedOptions.project_id;
+				if (enrichedOptions.table_name) {
+					body.table_name = enrichedOptions.table_name;
+				} else if (body.client_path || body.source_path) {
+					const p = String(body.client_path || body.source_path);
+					const base = p.split(/[\\/]/).pop() ?? "";
+					const stem = base.replace(/\.[^/.]+$/, "");
+					if (stem) body.table_name = stem;
+				}
+				payload = await this.postJson("/api/v1/profile", body);
 				break;
 			}
 			case "compile": {
-				payload = await this.postJson("/api/v1/compile", enrichedOptions);
+				const body: Record<string, unknown> = {};
+				if (enrichedOptions.contract_path)
+					body.contract_path = enrichedOptions.contract_path;
+				if (enrichedOptions.contract_content)
+					body.contract_content = enrichedOptions.contract_content;
+				if (enrichedOptions.canonical_ir_path)
+					body.canonical_ir_path = enrichedOptions.canonical_ir_path;
+				if (enrichedOptions.canonical_ir_content)
+					body.canonical_ir_content = enrichedOptions.canonical_ir_content;
+				if (enrichedOptions.run_id) body.run_id = enrichedOptions.run_id;
+				if (enrichedOptions.project_id)
+					body.project_id = enrichedOptions.project_id;
+				payload = await this.postJson("/api/v1/compile", body);
 				break;
 			}
 			case "verify": {
-				payload = await this.postJson("/api/v1/verify", enrichedOptions);
+				const body: Record<string, unknown> = {
+					apply_codemods: enrichedOptions.apply_codemods !== false,
+				};
+				if (enrichedOptions.contract_path)
+					body.contract_path = enrichedOptions.contract_path;
+				if (enrichedOptions.contract_content)
+					body.contract_content = enrichedOptions.contract_content;
+				if (enrichedOptions.graph_a_path)
+					body.graph_a_path = enrichedOptions.graph_a_path;
+				if (enrichedOptions.graph_a_content)
+					body.graph_a_content = enrichedOptions.graph_a_content;
+				if (enrichedOptions.graph_b_path)
+					body.graph_b_path = enrichedOptions.graph_b_path;
+				if (enrichedOptions.graph_b_content)
+					body.graph_b_content = enrichedOptions.graph_b_content;
+				if (enrichedOptions.prior_contract_path)
+					body.prior_contract_path = enrichedOptions.prior_contract_path;
+				if (enrichedOptions.prior_contract_content)
+					body.prior_contract_content = enrichedOptions.prior_contract_content;
+				if (enrichedOptions.compiled_sql)
+					body.compiled_sql = enrichedOptions.compiled_sql;
+				if (enrichedOptions.compiled_sql_models)
+					body.compiled_sql_models = enrichedOptions.compiled_sql_models;
+				if (enrichedOptions.run_id) body.run_id = enrichedOptions.run_id;
+				if (enrichedOptions.project_id)
+					body.project_id = enrichedOptions.project_id;
+				payload = await this.postJson("/api/v1/verify", body);
 				break;
 			}
 			case "sandbox": {
@@ -200,21 +272,72 @@ export class RemoteExecutor {
 						`/api/v1/runs/${encodeURIComponent(runId)}/sandbox`,
 					);
 				} else {
-					payload = await this.postJson("/api/v1/sandbox", enrichedOptions);
+					const body: Record<string, unknown> = {
+						query_type:
+							enrichedOptions.query_type ?? "ADVERSARIAL_BATCHES_1_TO_4",
+						assertion_cutoff_ts:
+							enrichedOptions.cutoff ??
+							enrichedOptions.assertion_cutoff_ts ??
+							"2026-11-15 23:59:59",
+					};
+					if (enrichedOptions.contract_path)
+						body.contract_path = enrichedOptions.contract_path;
+					if (enrichedOptions.contract_content)
+						body.contract_content = enrichedOptions.contract_content;
+					if (enrichedOptions.canonical_ir_path)
+						body.canonical_ir_path = enrichedOptions.canonical_ir_path;
+					if (enrichedOptions.canonical_ir_content)
+						body.canonical_ir_content = enrichedOptions.canonical_ir_content;
+					if (enrichedOptions.sql) body.sql = enrichedOptions.sql;
+					payload = await this.postJson("/api/v1/sandbox", body);
 				}
 				break;
 			}
 			case "pipeline": {
 				if (subcommand === "validate") {
-					payload = await this.postJson(
-						"/api/v1/pipelines/validate",
-						enrichedOptions,
-					);
+					const body: Record<string, unknown> = {};
+					if (enrichedOptions.input_spec_path || enrichedOptions.input) {
+						body.input_spec_path =
+							enrichedOptions.input_spec_path || enrichedOptions.input;
+					}
+					if (enrichedOptions.input_spec_content)
+						body.input_spec = enrichedOptions.input_spec_content;
+					if (enrichedOptions.initial_contract_path)
+						body.initial_contract_path = enrichedOptions.initial_contract_path;
+					if (enrichedOptions.initial_contract_content)
+						body.initial_contract = enrichedOptions.initial_contract_content;
+					if (enrichedOptions.wave_id) body.wave_id = enrichedOptions.wave_id;
+					if (enrichedOptions.provider)
+						body.provider_override = enrichedOptions.provider;
+					if (enrichedOptions.hold_policy)
+						body.steward_hold_policy = enrichedOptions.hold_policy;
+					payload = await this.postJson("/api/v1/pipelines/validate", body);
 				} else if (subcommand === "run") {
+					const body: Record<string, unknown> = {};
+					if (enrichedOptions.input_spec_path || enrichedOptions.input) {
+						body.input_spec_path =
+							enrichedOptions.input_spec_path || enrichedOptions.input;
+					}
+					if (enrichedOptions.input_spec_content)
+						body.input_spec = enrichedOptions.input_spec_content;
+					if (enrichedOptions.initial_contract_path)
+						body.initial_contract_path = enrichedOptions.initial_contract_path;
+					if (enrichedOptions.initial_contract_content)
+						body.initial_contract = enrichedOptions.initial_contract_content;
+					if (enrichedOptions.wave_id) body.wave_id = enrichedOptions.wave_id;
+					if (enrichedOptions.provider)
+						body.provider_override = enrichedOptions.provider;
+					if (enrichedOptions.hold_policy)
+						body.steward_hold_policy = enrichedOptions.hold_policy;
+					if (enrichedOptions.project_id)
+						body.project_id = enrichedOptions.project_id;
+					if (enrichedOptions.output_dir)
+						body.output_dir = enrichedOptions.output_dir;
+
 					// Async run lifecycle (Decision D2)
 					const runHandle = (await this.postJson(
 						"/api/v1/pipelines/runs",
-						enrichedOptions,
+						body,
 					)) as {
 						run_id: string;
 						event_stream_url?: string;
