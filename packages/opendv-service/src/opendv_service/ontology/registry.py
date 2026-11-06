@@ -67,7 +67,8 @@ class OntologyRecommenderRegistry:
             inst = recommender() if isinstance(recommender, type) else recommender
 
             # Protocol structural check
-            if not (hasattr(inst, "recommender_id") or hasattr(inst, "recommend") or callable(inst)):
+            has_rec = hasattr(inst, "recommender_id") or hasattr(inst, "recommend")
+            if not (has_rec or callable(inst)):
                 raise TypeError(
                     "Expected object conforming to OntologyRecommender protocol, "
                     f"got {type(inst).__name__}"
