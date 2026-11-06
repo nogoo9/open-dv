@@ -13,6 +13,13 @@ from opendv_contracts.dtos.common import (
     RunStatus,
 )
 from opendv_contracts.dtos.compile import CompileRequest, CompileResponse
+from opendv_contracts.dtos.coverage import (
+    MappedConceptCoverage,
+    OntologyCoverageArtifact,
+    UnmappedColumnGap,
+    UnmappedMentionGap,
+    UnmappedTableGap,
+)
 from opendv_contracts.dtos.explorer import (
     ArtifactDTO,
     DocCandidateOption,
@@ -137,12 +144,17 @@ __all__ = [  # noqa: RUF022
     "GateRuleEvaluation",
     "GateScorecardSummary",
     "HoldOptionCandidate",
+    "MappedConceptCoverage",
+    "OntologyCoverageArtifact",
     "PipelineEvent",
     "PipelineRunHandle",
     "RenderedOutput",
     "RuleEvaluationDTO",
     "SandboxBatchResult",
     "SandboxColumnMetadata",
+    "UnmappedColumnGap",
+    "UnmappedMentionGap",
+    "UnmappedTableGap",
     # Explorer DTOs
     "ArtifactDTO",
     "DocCandidateOption",

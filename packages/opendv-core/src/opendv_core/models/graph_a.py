@@ -66,7 +66,7 @@ class GovernanceConstraints(StrictGraphAModel):
 class CanonicalBusinessConcept(StrictGraphAModel):
     """Core Business Concept (CBC) node in Graph A mapping to a Data Vault 2.0 Hub."""
 
-    concept_uri: str = Field(pattern=r"^urn:ontology:(provisional:)?entity:[a-z0-9_]+$")
+    concept_uri: str = Field(pattern=r"^urn:ontology:entity:[a-z0-9_]+$")
     concept_name: str = Field(default="")
     elm_archetype: str = Field(default="CORE_CONCEPT")
     definition: str = Field(default="Canonical business concept.")
@@ -113,7 +113,7 @@ class CanonicalRelationship(StrictGraphAModel):
     """Unit-of-Work Relationship / Event edge in Graph A mapping to a Data Vault 2.0 Link."""
 
     relationship_uri: str = Field(
-        pattern=r"^urn:ontology:(provisional:)?(event|relationship):[a-z0-9_]+$"
+        pattern=r"^urn:ontology:(event|relationship):[a-z0-9_]+$"
     )
     relationship_name: str = Field(default="")
     target_link: str = Field(default="")
