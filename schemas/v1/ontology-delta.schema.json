@@ -1,0 +1,321 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://open-dv.io/schemas/v1/ontology-delta.schema.json",
+  "title": "Open-DV Ontology Delta",
+  "description": "Formal JSON Schema (Draft 2020-12) for additive-only ontology deltas and evolution lock operations in open-dv.",
+  "type": "object",
+  "required": [
+    "delta_id",
+    "operations"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "delta_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier of the ontology delta"
+    },
+    "parent_sha256": {
+      "type": ["string", "null"],
+      "pattern": "^([a-f0-9]{64})?$",
+      "description": "Cryptographic SHA-256 hash of the base Graph A ontology"
+    },
+    "domain_namespace": {
+      "type": ["string", "null"],
+      "pattern": "^([a-z][a-z0-9_]*)?$",
+      "description": "Domain namespace matching base Graph A"
+    },
+    "base_ontology_version": {
+      "type": ["string", "null"],
+      "description": "Version string of base ontology"
+    },
+    "target_ontology_version": {
+      "type": ["string", "null"],
+      "description": "Version string of target ontology after delta application"
+    },
+    "operations": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/OntologyDeltaItem"
+      },
+      "description": "Ordered sequence of additive operations"
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Arbitrary provenance and authoring metadata"
+    }
+  },
+  "$defs": {
+    "EvidenceRef": {
+      "type": "object",
+      "required": [
+        "evidence_type"
+      ],
+      "additionalProperties": true,
+      "properties": {
+        "evidence_type": {
+          "type": "string",
+          "description": "Evidence classification (column_profile, sample_values, document_span, standard_reference, existing_concept)"
+        },
+        "reference_uri": {
+          "type": ["string", "null"],
+          "description": "Target reference pointer or URI"
+        },
+        "snippet": {
+          "type": ["string", "null"],
+          "description": "Text snippet or excerpt grounding the proposal"
+        },
+        "confidence": {
+          "type": "number",
+          "minimum": 0.0,
+          "maximum": 1.0,
+          "description": "Confidence score between 0.0 and 1.0"
+        },
+        "doc_sha256": {
+          "type": ["string", "null"]
+        },
+        "char_start": {
+          "type": ["integer", "null"]
+        },
+        "char_end": {
+          "type": ["integer", "null"]
+        },
+        "bronze_table": {
+          "type": ["string", "null"]
+        },
+        "column_name": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "OntologyDeltaItem": {
+      "oneOf": [
+        { "$ref": "#/$defs/AddConceptOp" },
+        { "$ref": "#/$defs/AddRelationshipOp" },
+        { "$ref": "#/$defs/AddReferenceEnumerationOp" },
+        { "$ref": "#/$defs/AddKeyAuthorityPatternOp" },
+        { "$ref": "#/$defs/AddGovernanceConstraintOp" },
+        { "$ref": "#/$defs/RefineDefinitionOp" },
+        { "$ref": "#/$defs/AddSourceHintOp" }
+      ]
+    },
+    "AddConceptOp": {
+      "type": "object",
+      "required": [
+        "op_id",
+        "op_type",
+        "concept_uri"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op_id": { "type": "string" },
+        "op_type": { "const": "add_concept" },
+        "rationale": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EvidenceRef" }
+        },
+        "concept_uri": {
+          "type": "string",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$"
+        },
+        "concept_name": { "type": "string" },
+        "elm_archetype": { "type": "string" },
+        "definition": { "type": "string" },
+        "description": { "type": "string" },
+        "target_hub": {
+          "type": ["string", "null"],
+          "pattern": "^(hub_[a-z0-9_]+)?$"
+        },
+        "attributes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "governance_constraints": {
+          "type": ["object", "null"]
+        },
+        "key_authority_tiers": {
+          "type": ["object", "null"]
+        }
+      }
+    },
+    "AddRelationshipOp": {
+      "type": "object",
+      "required": [
+        "op_id",
+        "op_type",
+        "relationship_uri",
+        "target_link"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op_id": { "type": "string" },
+        "op_type": { "const": "add_relationship" },
+        "rationale": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EvidenceRef" }
+        },
+        "relationship_uri": {
+          "type": "string",
+          "pattern": "^urn:ontology:(provisional:)?(event|relationship):[a-z0-9_]+$"
+        },
+        "relationship_name": { "type": "string" },
+        "target_link": {
+          "type": "string",
+          "pattern": "^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$"
+        },
+        "source_concept_uri": { "type": ["string", "null"] },
+        "target_concept_uri": { "type": ["string", "null"] },
+        "endpoints": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "grain_semantics": { "type": "string" },
+        "description": { "type": "string" },
+        "yagni_cost_guard_policy": {
+          "type": ["object", "null"]
+        }
+      }
+    },
+    "AddReferenceEnumerationOp": {
+      "type": "object",
+      "required": [
+        "op_id",
+        "op_type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op_id": { "type": "string" },
+        "op_type": { "const": "add_reference_enumeration" },
+        "rationale": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EvidenceRef" }
+        },
+        "enum_uri": { "type": "string" },
+        "name": { "type": "string" },
+        "target_reference_table": { "type": "string" },
+        "values": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "allowed_codes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "description": { "type": "string" }
+      }
+    },
+    "AddKeyAuthorityPatternOp": {
+      "type": "object",
+      "required": [
+        "op_id",
+        "op_type",
+        "authority_name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op_id": { "type": "string" },
+        "op_type": { "const": "add_key_authority_pattern" },
+        "rationale": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EvidenceRef" }
+        },
+        "concept_uri": { "type": "string" },
+        "authority_name": { "type": "string" },
+        "pattern_regex": { "type": ["string", "null"] },
+        "tier": { "type": "string" },
+        "tier_spec": { "type": ["object", "null"] },
+        "description": { "type": "string" }
+      }
+    },
+    "AddGovernanceConstraintOp": {
+      "type": "object",
+      "required": [
+        "op_id",
+        "op_type",
+        "concept_uri"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op_id": { "type": "string" },
+        "op_type": { "const": "add_governance_constraint" },
+        "rationale": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EvidenceRef" }
+        },
+        "concept_uri": { "type": "string" },
+        "constraint_id": { "type": "string" },
+        "constraint_type": { "type": "string" },
+        "pii_confidential_attributes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "mnpi_confidential_attributes": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "required_satellite_split": { "type": ["string", "null"] },
+        "description": { "type": "string" }
+      }
+    },
+    "RefineDefinitionOp": {
+      "type": "object",
+      "required": [
+        "op_id",
+        "op_type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op_id": { "type": "string" },
+        "op_type": { "const": "refine_definition" },
+        "rationale": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EvidenceRef" }
+        },
+        "target_uri": { "type": "string" },
+        "concept_uri": { "type": "string" },
+        "refined_description": { "type": "string" },
+        "additional_attributes": {
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "AddSourceHintOp": {
+      "type": "object",
+      "required": [
+        "op_id",
+        "op_type",
+        "concept_uri"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "op_id": { "type": "string" },
+        "op_type": { "const": "add_source_hint" },
+        "rationale": { "type": "string" },
+        "confidence": { "type": "number", "minimum": 0.0, "maximum": 1.0 },
+        "evidence_refs": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/EvidenceRef" }
+        },
+        "concept_uri": { "type": "string" },
+        "source_name": { "type": "string" },
+        "source_system": { "type": "string" },
+        "table_name": { "type": "string" },
+        "column_hint": { "type": "string" },
+        "column_name": { "type": "string" }
+      }
+    }
+  }
+}

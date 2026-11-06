@@ -1,0 +1,33 @@
+ontology_version: "1.0.0"
+domain_namespace: pe_asset_management
+enterprise_owner: Apex Horizon Capital
+standards_references:
+  - "ILPA Capital Call & Distribution Template v2.0"
+  - "ISO 17442 Global Legal Entity Identifier (LEI)"
+canonical_business_concepts:
+  - concept_uri: "urn:ontology:entity:fund"
+    concept_name: Fund
+    elm_archetype: WHO_WHAT_INVESTMENT_VEHICLE
+    definition: A pooled private equity investment vehicle managed by the General Partner.
+    target_hub: hub_fund
+  - concept_uri: "urn:ontology:entity:portfolio_company"
+    concept_name: PortfolioCompany
+    elm_archetype: WHO_OPERATING_COMPANY
+    definition: An operating enterprise in which one or more Funds hold equity or debt securities.
+    target_hub: hub_portfolio_company
+canonical_relationships:
+  - relationship_uri: "urn:ontology:relationship:fund_investment"
+    relationship_name: FundInvestment
+    target_link: lnk_fund_investment
+    endpoints:
+      - "urn:ontology:entity:fund"
+      - "urn:ontology:entity:portfolio_company"
+    grain_semantics: A Fund makes equity or debt investment rounds into a Portfolio Company.
+reference_enumerations:
+  - enum_uri: "urn:ontology:enum:investment_stage"
+    target_reference_table: ref_investment_stage
+    allowed_codes:
+      - SEED
+      - SERIES_A
+      - GROWTH
+      - BUYOUT

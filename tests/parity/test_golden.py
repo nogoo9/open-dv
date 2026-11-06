@@ -352,3 +352,81 @@ def test_gt05_explorer_render_snapshot(
         actual_bytes=(snapshot_text.strip() + "\n").encode("utf-8"),
         generated_from="PAR-S8-W3: opendv explorer render snapshot",
     )
+
+
+def test_gt06_ontology_delta_application(
+    golden_manager: GoldenManager,
+) -> None:
+    """Verify GT-06 ontology delta application, validation, and diff golden baseline."""
+    import yaml
+    from opendv_contracts.dtos.ontology import OntologyProposal
+    from opendv_core.models.graph_a import GraphAOntology
+    from opendv_service.ontology import (
+        apply_ontology_delta,
+        ontology_diff,
+        validate_ontology_delta,
+    )
+
+    base_path = REPO_ROOT / "tests" / "golden" / "GT-06" / "base_ontology.yaml"
+    proposal_path = REPO_ROOT / "tests" / "golden" / "GT-06" / "proposal.json"
+
+    base_raw = yaml.safe_load(base_path.read_text(encoding="utf-8"))
+    base = GraphAOntology.model_validate(base_raw)
+
+    proposal_raw = json.loads(proposal_path.read_text(encoding="utf-8"))
+    proposal = OntologyProposal.model_validate(proposal_raw)
+
+    golden_manager.assert_golden_byte_equality(
+        golden_id="GT-06",
+        relative_file="GT-06/base_ontology.yaml",
+        actual_bytes=base_path.read_bytes(),
+        generated_from="PAR-ONT-HOLD: base ontology",
+    )
+
+    golden_manager.assert_golden_byte_equality(
+        golden_id="GT-06",
+        relative_file="GT-06/proposal.json",
+        actual_bytes=proposal_path.read_bytes(),
+        generated_from="PAR-ONT-HOLD: testkit proposal",
+    )
+
+    # 1. Validation
+    val = validate_ontology_delta(base, proposal.delta)
+    assert val.valid is True
+    val_bytes = (
+        json.dumps(val.model_dump(mode="json", exclude_none=True), indent=2) + "\n"
+    ).encode("utf-8")
+    golden_manager.assert_golden_byte_equality(
+        golden_id="GT-06",
+        relative_file="GT-06/validation.json",
+        actual_bytes=val_bytes,
+        generated_from="PAR-ONT-HOLD: validate_ontology_delta",
+    )
+
+    # 2. Application
+    accepted = apply_ontology_delta(
+        base, proposal.delta, decision_id="dec-gt06-001", target_version="1.1.0"
+    )
+    accepted_dict = accepted.model_dump(mode="json", exclude_none=True)
+    accepted_yaml_bytes = (
+        yaml.safe_dump(accepted_dict, sort_keys=False).replace("\r\n", "\n")
+    ).encode("utf-8")
+    golden_manager.assert_golden_byte_equality(
+        golden_id="GT-06",
+        relative_file="GT-06/accepted_ontology.yaml",
+        actual_bytes=accepted_yaml_bytes,
+        generated_from="PAR-ONT-HOLD: apply_ontology_delta",
+    )
+
+    # 3. Diff
+    diff = ontology_diff(base, accepted)
+    diff_bytes = (
+        json.dumps(diff.model_dump(mode="json", exclude_none=True), indent=2) + "\n"
+    ).encode("utf-8")
+    golden_manager.assert_golden_byte_equality(
+        golden_id="GT-06",
+        relative_file="GT-06/ontology_diff.json",
+        actual_bytes=diff_bytes,
+        generated_from="PAR-ONT-HOLD: ontology_diff",
+    )
+
