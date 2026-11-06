@@ -55,6 +55,9 @@ class PipelineRunHandle(BaseContractModel):
     created_at_utc: str = Field(..., description="ISO 8601 UTC creation timestamp")
     created_at: str | None = Field(default=None, description="Alias for created_at_utc")
     event_stream_url: str = Field(..., description="SSE endpoint URL for real-time events")
+    events_sse_url: str | None = Field(
+        default=None, description="Alias for event_stream_url (Decision D2)"
+    )
     status_url: str = Field(..., description="REST endpoint URL to query current run status")
     project_id: str | None = Field(
         default=None, description="Optional associated project identifier"
@@ -65,6 +68,8 @@ class PipelineRunHandle(BaseContractModel):
     def _sync_created_at(self) -> PipelineRunHandle:
         if self.created_at is None:
             object.__setattr__(self, "created_at", self.created_at_utc)
+        if self.events_sse_url is None:
+            object.__setattr__(self, "events_sse_url", self.event_stream_url)
         return self
 
 

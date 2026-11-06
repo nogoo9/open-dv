@@ -1491,6 +1491,18 @@
             "title": "Event Stream Url",
             "type": "string"
           },
+          "events_sse_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Alias for event_stream_url (Decision D2)",
+            "title": "Events Sse Url"
+          },
           "harness_provider": {
             "anyOf": [
               {

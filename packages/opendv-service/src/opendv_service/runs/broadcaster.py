@@ -58,11 +58,13 @@ async def subscribe_run_sse(
     loop: asyncio.AbstractEventLoop | None = None
 
     persisted_events = list(state.run_events.get(run_id, []))
+    run_dto = state.runs.get(run_id)
+
     if context is not None:
         with context.lock:
             buffer = persisted_events if persisted_events else list(context.event_buffer)
             is_done = context.is_done
-            final_status = context.final_status
+            final_status = run_dto.status if run_dto else context.final_status
             if not is_done:
                 queue = asyncio.Queue()
                 loop = asyncio.get_running_loop()
@@ -70,16 +72,22 @@ async def subscribe_run_sse(
     else:
         buffer = persisted_events
         is_done = True
-        run_dto = state.runs.get(run_id)
         final_status = run_dto.status if run_dto else RunStatus.COMPLETED
 
     # 1. Determine events to replay based on Last-Event-ID
     if last_event_id:
         match_idx = -1
-        for idx, ev in enumerate(buffer):
-            if ev.get("event_id") == last_event_id:
-                match_idx = idx
-                break
+        if last_event_id == f"evt-{run_id}-hold" or last_event_id.endswith("-hold"):
+            match_idx = len(buffer) - 1
+            for idx, ev in enumerate(buffer):
+                if str(ev.get("event_id", "")).startswith("evt-hold-resolved"):
+                    match_idx = idx - 1
+                    break
+        else:
+            for idx, ev in enumerate(buffer):
+                if ev.get("event_id") == last_event_id:
+                    match_idx = idx
+                    break
         replayed = buffer[match_idx + 1 :] if match_idx >= 0 else buffer
     else:
         replayed = buffer
@@ -92,14 +100,21 @@ async def subscribe_run_sse(
         )
         ev_id = str(raw_evt.get("event_id", "")) if isinstance(raw_evt, dict) else ""
         if ev_type == "run_complete":
-            had_terminal_in_replay = True
             stat = "COMPLETED"
             if isinstance(raw_evt, dict):
                 if "payload" in raw_evt and isinstance(raw_evt["payload"], dict):
                     stat = raw_evt["payload"].get("status", "COMPLETED")
                 elif "status" in raw_evt:
                     stat = raw_evt.get("status", "COMPLETED")
+            had_terminal_in_replay = True
             yield format_sse_frame("run_complete", None, {"status": stat})
+        elif ev_type == "hold":
+            had_terminal_in_replay = True
+            yield format_sse_frame(
+                "hold",
+                ev_id or f"evt-{run_id}-hold",
+                {"status": "PAUSED_HOLD", "run_id": run_id},
+            )
         else:
             redacted = redact_event_for_role(raw_evt, eff_role)
             yield format_sse_frame(ev_type, ev_id, redacted)
@@ -142,6 +157,13 @@ async def subscribe_run_sse(
                     elif "status" in item:
                         stat = item.get("status", "COMPLETED")
                     yield format_sse_frame("run_complete", None, {"status": stat})
+                    break
+                elif ev_type == "hold":
+                    yield format_sse_frame(
+                        "hold",
+                        ev_id or f"evt-{run_id}-hold",
+                        {"status": "PAUSED_HOLD", "run_id": run_id},
+                    )
                     break
                 redacted = redact_event_for_role(item, eff_role)
                 yield format_sse_frame(ev_type, ev_id, redacted)
