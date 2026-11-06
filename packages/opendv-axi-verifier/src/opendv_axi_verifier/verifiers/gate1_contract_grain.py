@@ -175,11 +175,26 @@ def verify_gate1_contract_and_grain(
 
         if known_uris and uri and uri not in known_uris:
             diagnostics.append(
-                f"SEMANTIC_ERROR [Gate 1 - DV-G4-001]: Hub '{h_name}' references unknown "
+                f"ASK_USER [Gate 1 - DV-G4-001]: Hub '{h_name}' references unknown "
                 f"ontology_concept_uri '{uri}'."
             )
 
-        if ledger and h_name not in active_entities:
+        hub_cols = {
+            (str(bks.get("bronze_table") or ""), str(kc))
+            for bks in hub.get("business_key_sources", [])
+            if isinstance(bks, dict)
+            for kc in bks.get("key_columns", [])
+        }
+        active_cols = {
+            (
+                str(entry.get("bronze_table") or entry.get("source_table") or ""),
+                str(entry.get("column_name", "")),
+            )
+            for entry in ledger
+            if isinstance(entry, dict)
+        }
+        hub_has_ledger_cols = bool(hub_cols and any(c in active_cols for c in hub_cols))
+        if ledger and h_name not in active_entities and not hub_has_ledger_cols:
             diagnostics.append(
                 f"SEMANTIC_ERROR [Gate 1 - PHANTOM_HUB_REJECTED]: Hub '{h_name}' has no "
                 f"mapped physical columns in column_triage_ledger."

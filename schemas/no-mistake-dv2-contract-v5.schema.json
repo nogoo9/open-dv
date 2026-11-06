@@ -83,7 +83,7 @@
           },
           "ontology_concept_uri": {
             "type": "string",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$"
+            "pattern": "^urn:ontology:entity:[a-z0-9_]+$"
           },
           "business_key_sources": {
             "type": "array",
@@ -167,7 +167,7 @@
           },
           "ontology_concept_uri": {
             "type": "string",
-            "pattern": "^urn:ontology:(provisional:)?(event|relationship):[a-z0-9_]+$"
+            "pattern": "^urn:ontology:(event|relationship):[a-z0-9_]+$"
           },
           "source_bronze_table": {
             "type": "string"

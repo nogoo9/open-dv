@@ -180,7 +180,7 @@ def normalize_pipeline_report(
     # 1. Mask volatile final artifacts
     for _k, art in list(res.get("final_artifacts", {}).items()):
         name = art.get("name", "")
-        if name in volatile_names or name.endswith("graph_b_profile.json"):
+        if name in volatile_names or name.endswith(("graph_b_profile.json", "ontology_coverage.json")):
             if art.get("sha256"):
                 volatile_shas.add(art["sha256"])
             art["sha256"] = "<VOLATILE_SHA256>"
@@ -189,7 +189,11 @@ def normalize_pipeline_report(
     # 2. Mask volatile intermediate artifacts
     for art in res.get("intermediate_artifacts", []):
         name = art.get("name", "")
-        if name in volatile_names or name.endswith(("graph_b_profile.json", "unstructured_grounding.json")):
+        if name in volatile_names or name.endswith((
+            "graph_b_profile.json",
+            "unstructured_grounding.json",
+            "ontology_coverage.json",
+        )):
             if art.get("sha256"):
                 volatile_shas.add(art["sha256"])
             art["sha256"] = "<VOLATILE_SHA256>"
@@ -247,6 +251,11 @@ def normalize_pipeline_report(
     )
     md = re.sub(
         r"(`wave_\d+_unstructured_grounding\.json`[^\n]*?\|\s*)\d+(\s*\|)",
+        r"\g<1>0\g<2>",
+        md,
+    )
+    md = re.sub(
+        r"(`wave_\d+_ontology_coverage\.json`[^\n]*?\|\s*)\d+(\s*\|)",
         r"\g<1>0\g<2>",
         md,
     )

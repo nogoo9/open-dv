@@ -47,7 +47,7 @@ class GovernanceConstraints(StrictGraphAModel):
 class CanonicalBusinessConcept(StrictGraphAModel):
     """Core Business Concept (CBC) node in Graph A mapping to a Data Vault 2.0 Hub."""
 
-    concept_uri: str = Field(pattern=r"^urn:ontology:(provisional:)?entity:[a-z0-9_]+$")
+    concept_uri: str = Field(pattern=r"^urn:ontology:entity:[a-z0-9_]+$")
     concept_name: str = Field(min_length=2)
     elm_archetype: str = Field(min_length=2)
     definition: str = Field(min_length=5)
@@ -67,7 +67,7 @@ class CanonicalRelationship(StrictGraphAModel):
     """Unit-of-Work Relationship / Event edge in Graph A mapping to a Data Vault 2.0 Link."""
 
     relationship_uri: str = Field(
-        pattern=r"^urn:ontology:(provisional:)?(event|relationship):[a-z0-9_]+$"
+        pattern=r"^urn:ontology:(event|relationship):[a-z0-9_]+$"
     )
     relationship_name: str = Field(min_length=2)
     target_link: str = Field(pattern=r"^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$")
@@ -87,7 +87,9 @@ class ReferenceEnumeration(StrictGraphAModel):
 class GraphAOntology(StrictGraphAModel):
     """Root Semantic Ontology Graph A model (`examples/private_equity/pe_graph_a_ontology.yaml`)."""
 
-    ontology_version: str = "1.0.0"
+    ontology_version: str = Field(default="1.0.0", pattern=r"^\d+\.\d+\.\d+$")
+    parent_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
+    decision_refs: list[str] = Field(default_factory=list)
     domain_namespace: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     enterprise_owner: str = Field(min_length=2)
     standards_references: list[str] = Field(default_factory=list)

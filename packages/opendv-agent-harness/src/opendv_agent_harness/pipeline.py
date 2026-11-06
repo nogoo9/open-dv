@@ -2465,7 +2465,10 @@ def _extract_known_entities_from_cumulative_sources(
             hub_hint = (
                 src.target_hub_name or src.cbc_mapping_hints.get(src.table_name) or src.table_name
             )
-            resolved_hub, _ = _resolve_hub_and_uri(hub_hint, ontology)
+            try:
+                resolved_hub, _ = _resolve_hub_and_uri(hub_hint, ontology)
+            except InputValidationError:
+                resolved_hub = hub_hint if hub_hint.startswith("hub_") else f"hub_{_slugify(hub_hint)}"
             if name_col:
                 rows = conn.execute(f'SELECT "{bk_col}", "{name_col}" FROM "{v_name}"').fetchall()
                 for r in rows:
@@ -3525,6 +3528,29 @@ class AgenticVaultPipeline:
                 intermediate_list=intermediate_artifacts,
             )
             s1_out_shas = [gb_ref.sha256]
+
+            from opendv_service.ontology.coverage import compute_ontology_coverage
+
+            coverage_artifact = compute_ontology_coverage(
+                graph_a=ontology,
+                bronze_manifest=wave,
+                profiles=wave_gb_profile,
+                wave_id=f"w{w_idx}",
+                run_id=run_id,
+            )
+            cov_dict = coverage_artifact.model_dump(mode="json")
+            cov_ref = self._record_artifact(
+                artifact_id=f"art-w{w_idx}-stage01-ontology-coverage",
+                name=f"wave_{w_idx}_ontology_coverage.json",
+                stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
+                content=json.dumps(cov_dict, indent=2, sort_keys=True),
+                media_type="application/json",
+                rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_ontology_coverage.json",
+                wave_index=w_idx,
+                description=f"Wave {w_idx} Business Ontology Coverage & Gap Analysis.",
+                intermediate_list=intermediate_artifacts,
+            )
+            s1_out_shas.append(cov_ref.sha256)
 
             if wave_drift_events:
                 drift_ref = self._record_artifact(
@@ -4673,6 +4699,40 @@ class AgenticVaultPipeline:
             elif axi_res.status == "ASK_USER":
                 s5_status = "ASK-USER"
                 pipeline_paused = True
+                cov_art_id = f"art-w{w_idx}-stage01-ontology-coverage"
+                g1_violations = [
+                    v
+                    for v in axi_res.toon_trace.violations
+                    if v.gate == "G1" or "DV-G4-001" in v.rule
+                ]
+                diag_msg = (
+                    f"{g1_violations[0].rule}: {g1_violations[0].target} ({g1_violations[0].fix})"
+                    if g1_violations
+                    else (
+                        axi_res.diagnostics[0]
+                        if axi_res.diagnostics
+                        else "Unmapped entity detected in Gate 1 (DV-G4-001)"
+                    )
+                )
+                self.hold_manager.record_hold(
+                    run_id=run_id,
+                    task_id=f"task-w{w_idx}-g1-ontology-hold",
+                    session_id=f"sess-w{w_idx}-g1",
+                    stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
+                    workbench_view_id=WorkbenchViewId.WB_06,
+                    viz_id=VizId.VIZ_GATE_02,
+                    persona=AgentPersona.AXI_DV,
+                    headline=f"Wave {w_idx} Gate 1 ontology gap hold: {diag_msg}",
+                    escalation_reason="UNMAPPED_ONTOLOGY_CONCEPT",
+                    rule_id="DV-G4-001",
+                    options=[
+                        {
+                            "option_id": "REJECT_WITH_GAP_REPORT",
+                            "coverage_artifact_id": cov_art_id,
+                            "diagnostic": diag_msg,
+                        }
+                    ],
+                )
             else:
                 s5_status = "REJECT-WITH-TRACE"
 
@@ -5461,12 +5521,15 @@ class _SymbolicStageSynthesizer:
             or (llm_item.cbc_mapping_hints.get(src.table_name) if llm_item is not None else None)
         )
         if explicit_hint:
-            resolved_h, _ = _resolve_hub_and_uri(explicit_hint, ontology)
-            for cbc in ontology.canonical_business_concepts:
-                c_hub, _ = _resolve_hub_and_uri(cbc.concept_name, ontology)
-                if cbc.concept_name.upper() == explicit_hint.upper() or c_hub == resolved_h:
-                    primary_cbc = cbc
-                    break
+            try:
+                resolved_h, _ = _resolve_hub_and_uri(explicit_hint, ontology)
+                for cbc in ontology.canonical_business_concepts:
+                    c_hub, _ = _resolve_hub_and_uri(cbc.concept_name, ontology)
+                    if cbc.concept_name.upper() == explicit_hint.upper() or c_hub == resolved_h:
+                        primary_cbc = cbc
+                        break
+            except InputValidationError:
+                pass
         if primary_cbc is None:
             best_score = 0
             for cbc in ontology.canonical_business_concepts:
@@ -5481,9 +5544,15 @@ class _SymbolicStageSynthesizer:
         if primary_cbc is not None:
             primary_hub_name, _ = _resolve_hub_and_uri(primary_cbc.concept_name, ontology)
         elif explicit_hint:
-            primary_hub_name, _ = _resolve_hub_and_uri(explicit_hint, ontology)
+            try:
+                primary_hub_name, _ = _resolve_hub_and_uri(explicit_hint, ontology)
+            except InputValidationError:
+                primary_hub_name = f"hub_{_slugify(explicit_hint)}"
         else:
-            primary_hub_name, _ = _resolve_hub_and_uri(src.table_name, ontology)
+            try:
+                primary_hub_name, _ = _resolve_hub_and_uri(src.table_name, ontology)
+            except InputValidationError:
+                primary_hub_name = f"hub_{_slugify(src.table_name)}"
 
         actual_col_names = {p_col.column_name for p_col in prof_tbl.columns}
 
@@ -6105,7 +6174,11 @@ class _SymbolicStageSynthesizer:
                 )
                 or src.table_name
             )
-            primary_hub_name, primary_uri = _resolve_hub_and_uri(primary_hint, ontology)
+            try:
+                primary_hub_name, primary_uri = _resolve_hub_and_uri(primary_hint, ontology)
+            except InputValidationError:
+                primary_hub_name = f"hub_{_slugify(primary_hint)}"
+                primary_uri = f"urn:ontology:entity:{_slugify(primary_hint)}"
             eff_tier = src.key_authority_tier or "TIER_1_GLOBAL_STANDARD"
             eff_bkcc = src.bkcc_namespace or "GLOBAL"
             eff_rec_src = (
@@ -6159,7 +6232,11 @@ class _SymbolicStageSynthesizer:
             mandatory_fk_refs: list[dict[str, Any]] = []
             optional_fk_refs: list[tuple[str, dict[str, Any]]] = []
             for fk_col, target_hint in src.foreign_key_mappings.items():
-                fk_hub_name, fk_uri = _resolve_hub_and_uri(target_hint, ontology)
+                try:
+                    fk_hub_name, fk_uri = _resolve_hub_and_uri(target_hint, ontology)
+                except InputValidationError:
+                    fk_hub_name = f"hub_{_slugify(target_hint)}"
+                    fk_uri = f"urn:ontology:entity:{_slugify(target_hint)}"
                 fk_tier: str = eff_tier
                 fk_bkcc = eff_bkcc
                 fk_col_low = fk_col.lower()
