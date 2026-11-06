@@ -50,6 +50,7 @@ class CreateProjectRequest(BaseModel):
     domain_namespace: str = Field(default="general", min_length=1, max_length=128)
     domain: str | None = Field(default=None)
     graph_a_ontology_path: str | None = Field(default=None)
+    graph_a_source: dict[str, Any] | None = Field(default=None)
     bronze_sources: list[str] = Field(default_factory=list)
     contract_path: str | None = Field(default=None)
     canonical_ir_path: str | None = Field(default=None)

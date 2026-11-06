@@ -14,6 +14,13 @@ class PipelineValidateRequest(BaseContractModel):
         default=None, description="Inline input specification (Decision D1)"
     )
     input_spec_path: str | None = Field(default=None, description="Path to input spec file")
+    graph_a_source: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Pluggable SourceSpec dictionary or inline mapping for Graph A ontology "
+            "(Decision D1 / ONT-01)"
+        ),
+    )
     harness_config: dict[str, Any] | None = Field(
         default=None, description="Inline harness configuration"
     )

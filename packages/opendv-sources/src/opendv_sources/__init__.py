@@ -6,6 +6,7 @@ from opendv_sources.adapters.filesystem import LocalFilesystemSourceAdapter
 from opendv_sources.adapters.inline import InlineSourceAdapter
 from opendv_sources.adapters.pdf_document import PdfDocumentSourceAdapter
 from opendv_sources.adapters.text_document import TextDocumentSourceAdapter
+from opendv_sources.config.graph_a_loader import LoadedGraphA, load_graph_a_source
 from opendv_sources.config.loader import load_structured_document
 from opendv_sources.conformance.document_suite import DocumentAdapterConformanceSuite
 from opendv_sources.conformance.tabular_suite import TabularAdapterConformanceSuite
@@ -77,6 +78,7 @@ __all__ = [
     "FormatSpec",
     "InlineSourceAdapter",
     "JsonFormatParser",
+    "LoadedGraphA",
     "LocalFilesystemSourceAdapter",
     "PageMapEntry",
     "ParquetFormatParser",
@@ -100,6 +102,7 @@ __all__ = [
     "UnsupportedFormatError",
     "get_format_registry",
     "get_source_registry",
+    "load_graph_a_source",
     "load_structured_document",
     "redact_credentials",
     "resolve_adapter_path",

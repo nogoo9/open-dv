@@ -72,6 +72,28 @@ def test_verify_use_case() -> None:
     assert resp.overall_passed is True
     assert resp.status == "PASS"
     assert resp.rendered is not None
+    assert resp.graph_a_sha256 is not None
+    assert len(resp.graph_a_sha256) == 64
+    assert resp.ontology_version == "1.0.0"
+
+
+def test_verify_use_case_with_graph_a_source() -> None:
+    """Verify verify_pipeline with graph_a_source SourceSpec dictionary."""
+    pe_contract = "examples/private_equity/dv_pe_model_contract.yaml"
+    pe_graph_a = "examples/private_equity/pe_graph_a_ontology.yaml"
+    pe_graph_b = "examples/private_equity/pe_graph_b_profile.json"
+    resp = verify_pipeline(
+        VerifyRequest(
+            contract_path=pe_contract,
+            graph_a_source={"adapter": "file", "uri": pe_graph_a},
+            graph_b_path=pe_graph_b,
+        )
+    )
+    assert resp.overall_passed is True
+    assert resp.status == "PASS"
+    assert resp.graph_a_sha256 is not None
+    assert len(resp.graph_a_sha256) == 64
+    assert resp.ontology_version == "1.0.0"
 
 
 def test_sandbox_use_case() -> None:
