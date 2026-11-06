@@ -873,7 +873,28 @@ validates Algorithm A.9b span grounding invariants:
 - **Span Grounding Parity**:
   - Tier-U1 mention (`Apex Industrial Holdings LLC (Tax ID: TAX-US-900101)`) matches offset identically between TXT and PDF on Page 1.
   - Tier-U3 mention (`Rheinland Precision Holding Group`) matches offset identically between TXT and PDF on Page 2.
-- **Corrupt File Guard**: `packages/opendv-sources/tests/fixtures/corrupt_document.pdf` fails loudly with `DOCUMENT_EXTRACTION_FAILED` / `SourceLoadError`, never emitting replacement characters (`\ufffd`).
+---
+
+## Ontology Recommendation Extension Points
+
+The Ontology Recommendation Extension Points section defines the normative scenarios, datasets, and acceptance criteria for testing the pluggable Ontology Recommender seams (`REQ-ONT-01`, `REQ-ONT-02`, Decision D9, T17).
+
+### 1. Scenarios and Invariants
+
+| Scenario ID | Mode & Invariants | Dataset & Fixtures | Primary Entrypoint |
+| :--- | :--- | :--- | :--- |
+| **PAR-ONT-BOOTSTRAP** | Ontology Recommendation Extension Points — PAR-ONT-BOOTSTRAP: IP-1 cold-start ontology bootstrap; generates Graph A v1 with CAS lineage | [`tests/golden/GT-06/base_ontology.yaml`](../tests/golden/GT-06/base_ontology.yaml) | `uv run opendv ontology suggest --mode BOOTSTRAP --domain-namespace pe_asset_management --json` |
+| **PAR-ONT-ADVISORY** | Ontology Recommendation Extension Points — PAR-ONT-ADVISORY: IP-2 / IP-4 advisory delta proposals; contract and Graph A unchanged; loud fail-fast on unavailable recommender; error isolation | [`examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml`](../examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml) | `uv run opendv pipeline run --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml --json` |
+| **PAR-ONT-HOLD** | Ontology Recommendation Extension Points — PAR-ONT-HOLD: IP-3 Gate 1 violation hold resolution; typed `ACCEPT_ONTOLOGY_DELTA` option; wave resumption on Graph A vN+1 | [`tests/golden/GT-06/`](../tests/golden/GT-06/) (`base_ontology.yaml`, `proposal.json`, `accepted_ontology.yaml`, `ontology_diff.json`, `validation.json`) | `uv run opendv ontology accept --base tests/golden/GT-06/base_ontology.yaml --delta tests/golden/GT-06/proposal.json --json` |
+
+### 2. Normative Invariants
+- **Port Conformance**: The testkit recommender's proposals validate without warnings. Destructive or invalid operations, provisional URIs (`urn:ontology:provisional:*`), and evolution-lock breaks are rejected with `ONT-EVO-*` diagnostics.
+- **Delta Application**: `apply_ontology_delta` is deterministic, idempotent, and records cryptographic lineage (`parent_sha256`, `decision_refs`). Golden GT-06 covers base ontology + delta -> resulting ontology YAML and structural diff.
+- **IP-1 Parity**: `ontology suggest`, `validate-delta`, `diff`, and `accept` give identical results through `STANDALONE_CLI`, `CLIENT_CLI`, and `DIRECT_REST`. Without an installed module, `suggest` raises `ONTOLOGY_RECOMMENDER_UNAVAILABLE` on all three surfaces.
+- **IP-2 / IP-4 Advisory Seams**: With policy `suggest_only`, unmapped-column datasets receive proposal artifacts while the contract and Graph A remain unchanged. With policy `off`, the recommender is never invoked. Recommender exceptions produce visible diagnostics while allowing wave execution to complete.
+- **IP-3 Blocking Seams**: On Gate 1 unmapped-concept violations with policy `steward_review`, holds carry typed ontology options (`ACCEPT_ONTOLOGY_DELTA`, `REJECT_ONTOLOGY_DELTA`). Acceptance resumes the wave from Stage 03 on Graph A vN+1.
+- **Data Protection**: At default `INTERNAL` clearance, data samples are scrubbed of raw PII/MNPI via `redact_sample_data()` before recommender invocation.
+- **No Silent Mutation**: Graph A is immutable outside decision-gated delta application. Recommender modules receive frozen, read-only contexts.
 
 ---
 

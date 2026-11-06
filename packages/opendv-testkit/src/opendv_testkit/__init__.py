@@ -18,6 +18,7 @@ from opendv_testkit.harness_adapter import (
     DEFAULT_DETERMINISTIC_MODEL_MAP,
     DeterministicHarnessAdapter,
 )
+from opendv_testkit.ontology import DeterministicTestkitRecommender
 from opendv_testkit.runner import (
     build_deterministic_pipeline_runner,
     deterministic_pipeline_seam,
@@ -40,6 +41,7 @@ __all__ = [
     "PE_DEMO_CONTEXT_REFS",
     "WORKBENCH_VIEW_TITLES",
     "DeterministicHarnessAdapter",
+    "DeterministicTestkitRecommender",
     "RecordsSourceAdapter",
     "build_deterministic_agy_sdk_shim",
     "build_deterministic_claude_sdk_shim",

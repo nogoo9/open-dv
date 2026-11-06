@@ -18,6 +18,10 @@ dependencies = [
 [project.entry-points."opendv.source_adapters"]
 records = "opendv_testkit.sources:RecordsSourceAdapter"
 
+[project.entry-points."opendv.ontology_recommenders"]
+deterministic_testkit = "opendv_testkit.ontology:DeterministicTestkitRecommender"
+testkit_recommender = "opendv_testkit.ontology:DeterministicTestkitRecommender"
+
 [tool.uv.sources]
 opendv-contracts = { workspace = true }
 opendv-core = { workspace = true }

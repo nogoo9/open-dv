@@ -143,6 +143,11 @@ def execute_ontology_decision(
         base = None
 
     if action == "REJECT":
+        decision_id = (
+            req.proposal_id.replace("prop-", "dec-")
+            if req.proposal_id
+            else f"dec-ont-{uuid.uuid4().hex[:12]}"
+        )
         decision = OntologyDecision(
             decision_id=decision_id,
             proposal_id=req.proposal_id,
@@ -174,6 +179,13 @@ def execute_ontology_decision(
     contract = load_deployed_contract(contract_source, workspace_root=workspace_root)
 
     delta = load_ontology_delta(delta_source, workspace_root=workspace_root)
+
+    if req.proposal_id:
+        decision_id = req.proposal_id.replace("prop-", "dec-")
+    elif delta and getattr(delta, "delta_id", None):
+        decision_id = delta.delta_id.replace("delta-", "dec-")
+    else:
+        decision_id = f"dec-ont-{hashlib.sha256((base_sha or '').encode()).hexdigest()[:12]}"
 
     # 1. Validate delta against base and contract
     val_result = validate_ontology_delta(base, delta, deployed_contract=contract)
