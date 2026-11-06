@@ -873,7 +873,28 @@ validates Algorithm A.9b span grounding invariants:
 - **Span Grounding Parity**:
   - Tier-U1 mention (`Apex Industrial Holdings LLC (Tax ID: TAX-US-900101)`) matches offset identically between TXT and PDF on Page 1.
   - Tier-U3 mention (`Rheinland Precision Holding Group`) matches offset identically between TXT and PDF on Page 2.
-- **Corrupt File Guard**: `packages/opendv-sources/tests/fixtures/corrupt_document.pdf` fails loudly with `DOCUMENT_EXTRACTION_FAILED` / `SourceLoadError`, never emitting replacement characters (`\ufffd`).
+---
+
+## Ontology Recommendation Extension Points
+
+The Ontology Recommendation Extension Points section defines the normative scenarios, datasets, and acceptance criteria for testing the pluggable Ontology Recommender seams (`REQ-ONT-01`, `REQ-ONT-02`, Decision D9, T17).
+
+### 1. Scenarios and Invariants
+
+| Scenario ID | Mode & Invariants | Dataset & Fixtures | Primary Entrypoint |
+| :--- | :--- | :--- | :--- |
+| **PAR-ONT-BOOTSTRAP** | Ontology Recommendation Extension Points — PAR-ONT-BOOTSTRAP: IP-1 cold-start ontology bootstrap; generates Graph A v1 with CAS lineage | [`tests/golden/GT-06/base_ontology.yaml`](../tests/golden/GT-06/base_ontology.yaml) | `uv run opendv ontology suggest --mode BOOTSTRAP --domain-namespace pe_asset_management --json` |
+| **PAR-ONT-ADVISORY** | Ontology Recommendation Extension Points — PAR-ONT-ADVISORY: IP-2 / IP-4 advisory delta proposals; contract and Graph A unchanged; loud fail-fast on unavailable recommender; error isolation | [`examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml`](../examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml) | `uv run opendv pipeline run --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml --json` |
+| **PAR-ONT-HOLD** | Ontology Recommendation Extension Points — PAR-ONT-HOLD: IP-3 Gate 1 violation hold resolution; typed `ACCEPT_ONTOLOGY_DELTA` option; wave resumption on Graph A vN+1 | [`tests/golden/GT-06/`](../tests/golden/GT-06/) (`base_ontology.yaml`, `proposal.json`, `accepted_ontology.yaml`, `ontology_diff.json`, `validation.json`) | `uv run opendv ontology accept --base tests/golden/GT-06/base_ontology.yaml --delta tests/golden/GT-06/proposal.json --json` |
+
+### 2. Normative Invariants
+- **Port Conformance**: The testkit recommender's proposals validate without warnings. Destructive or invalid operations, provisional URIs (`urn:ontology:provisional:*`), and evolution-lock breaks are rejected with `ONT-EVO-*` diagnostics.
+- **Delta Application**: `apply_ontology_delta` is deterministic, idempotent, and records cryptographic lineage (`parent_sha256`, `decision_refs`). Golden GT-06 covers base ontology + delta -> resulting ontology YAML and structural diff.
+- **IP-1 Parity**: `ontology suggest`, `validate-delta`, `diff`, and `accept` give identical results through `STANDALONE_CLI`, `CLIENT_CLI`, and `DIRECT_REST`. Without an installed module, `suggest` raises `ONTOLOGY_RECOMMENDER_UNAVAILABLE` on all three surfaces.
+- **IP-2 / IP-4 Advisory Seams**: With policy `suggest_only`, unmapped-column datasets receive proposal artifacts while the contract and Graph A remain unchanged. With policy `off`, the recommender is never invoked. Recommender exceptions produce visible diagnostics while allowing wave execution to complete.
+- **IP-3 Blocking Seams**: On Gate 1 unmapped-concept violations with policy `steward_review`, holds carry typed ontology options (`ACCEPT_ONTOLOGY_DELTA`, `REJECT_ONTOLOGY_DELTA`). Acceptance resumes the wave from Stage 03 on Graph A vN+1.
+- **Data Protection**: At default `INTERNAL` clearance, data samples are scrubbed of raw PII/MNPI via `redact_sample_data()` before recommender invocation.
+- **No Silent Mutation**: Graph A is immutable outside decision-gated delta application. Recommender modules receive frozen, read-only contexts.
 
 ---
 
@@ -924,48 +945,53 @@ The table below is the single normative source of truth for Algorithm A.5 length
 
 | Golden ID | File | SHA-256 | Generated From | Last Justified Change |
 | :--- | :--- | :--- | :--- | :--- |
-| `GT-01` | `GT-01/wave0/events.jsonl` | `a3712ae0a0f92eb8c82c97a97cd730c20f3b6e6ec3d4058735b4ad023ee01921` | `PAR-S1-W0: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave0/explorer_bundle.json` | `68d9a19d1828bb901ecf782affc61bac646a121c8573b5504f930f029be48c16` | `PAR-S1-W0: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave0/final_canonical_ir.json` | `830502bcebffdaf2a82b01c290a6f27a872fe14c7a59dbbc6ac5c3a3d7af1332` | `PAR-S1-W0: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave0/final_contract.yaml` | `7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913` | `PAR-S1-W0: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave0/final_four_zone.sql` | `3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e` | `PAR-S1-W0: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave0/pipeline_report.json` | `9aa77eddf85cfc71893f132ddb9264b86bdb49029a5013a464b77edaf11d7664` | `PAR-S1-W0: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave1/events.jsonl` | `18df992afb1b94c907b1e07c71780ad17a5229957b8b05da92ea59dcb92ab5b1` | `PAR-S1-W1: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave1/explorer_bundle.json` | `bcb170715866dc017f86045f7182c178dff4cd76b9ef3388975bd5fd009c1e89` | `PAR-S1-W1: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave1/final_canonical_ir.json` | `4e587b201c404654e989be6f3497349d8f37d5f8551892e6272e4975453d24dd` | `PAR-S1-W1: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave1/final_contract.yaml` | `81e70f3dc172844b26403266ee7e1abdc751179cde6786c01707e11ff68f2c72` | `PAR-S1-W1: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave1/final_four_zone.sql` | `c4c61c7f30a318801acf1c7d6fe8e6c80718bbd657cd97df6d738de5f235c621` | `PAR-S1-W1: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave1/pipeline_report.json` | `8af8af46d218d138752f9b42e2e07c0bc88ddec90814f130dde4d470205e408b` | `PAR-S1-W1: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave2/events.jsonl` | `5007407b851033d69c644ffb1718999de6299eef57dfeab39f366245d76bfc38` | `PAR-S1-W2: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave2/explorer_bundle.json` | `de5906fcabea67a9a555a166d7233ef5435092a7e2e8f75fd98d34f848e3a119` | `PAR-S1-W2: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave2/final_canonical_ir.json` | `8cea66c733003301520220e7fb1d62c1865f80b88f5c47b240b943ad31872d79` | `PAR-S1-W2: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave2/final_contract.yaml` | `d19c00f565f27c55d1a166b32ae4fbb947a01aed53588145a1727d672e776afb` | `PAR-S1-W2: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave2/final_four_zone.sql` | `10e338804ca75d6ad821f3f9127587f146f726f6e85213aec708a791456cefb6` | `PAR-S1-W2: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave2/pipeline_report.json` | `283deb4f30593b249557cdda57b39a1833f66bfc44cf504918fcc87cb2654e01` | `PAR-S1-W2: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave3/events.jsonl` | `eef46cf0f458950c0a6c7cac56e6c44ac8816d8c5b1a4499850c19ebd988e97c` | `PAR-S1-W3: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave3/explorer_bundle.json` | `fc41a41d75c5e77ab0d42d9d4e74d0ce158a7fd52f382264ecbb87f1a4c73cbc` | `PAR-S1-W3: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave3/final_canonical_ir.json` | `5bbcb9ecedb09d9da6daf024402dfe1d877eaa8791250f3dd15a7710a9f2c736` | `PAR-S1-W3: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave3/final_contract.yaml` | `c051b71db0021aa70b3cb9b31b494fd67c51486685bd5e77e2f2b70dc9a9f134` | `PAR-S1-W3: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave3/final_four_zone.sql` | `bf4901fa9310edfe6f16c01da73fe7491ba0cbe578d953800287a35a2ffd81a6` | `PAR-S1-W3: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave3/hold_record.json` | `cee4f59cd159a125c096e5b427d4424247a03e562b7f0eb6037fb04bc5223d27` | `PAR-S8-W3: opendv hold list` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-01` | `GT-01/wave3/pipeline_report.json` | `cf86fc6349dc36241e0969d58fb99b048ec85994ee16d33809584bd0a48582f5` | `PAR-S1-W3: opendv pipeline run` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-02` | `GT-02/canonical_ir.json` | `a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a` | `PAR-PE-S5: opendv compile` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-02` | `GT-02/d10_2026-10-15.json` | `44b6fd8a5ea7310a374680a3737f22bdf2a25651bfb086a991ff1e939f5624d7` | `PAR-PE-S6: opendv sandbox --query-type QUERY_D10_PIT` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-02` | `GT-02/d10b_2026-11-15.json` | `d5cd79ebd2192892c031804553677f36a4c341be1cc55840f549ae42c26d7d2b` | `PAR-PE-S6: opendv sandbox --query-type QUERY_D10B_VALUATION` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-02` | `GT-02/four_zone.sql` | `65aa57f6c7efb1b649caaca23b7ecfb514a16f0b75499b4e5229b03c27632629` | `PAR-PE-S5: opendv compile` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-02` | `GT-02/sandbox_batches.json` | `c80768defb7fa83ea0d09d79381566d896f5f59685b58508e123180f5de3db48` | `PAR-PE-S6: opendv sandbox --query-type ADVERSARIAL_BATCHES_1_TO_4` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-02` | `GT-02/verify.json` | `b582e8f43e5b0aaf904159102a85f1d2c93b9b557f1bcd3bb2c22b61191e7f94` | `PAR-PE-S5: opendv verify` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-03` | `GT-03/01_dropped_hub/trace.toon` | `13c4da92d86d1ccffd94c29261d2cf36d9508366c8e5ab63e0949e21dbe289cd` | `GT-03: opendv verify 01_dropped_hub` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-03` | `GT-03/01_dropped_hub/verdict.json` | `8faa7a86891ad5691c0bd91f2d8ca602bdf895949f09a34d8889a2656af22d51` | `GT-03: opendv verify 01_dropped_hub` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-03` | `GT-03/02_tier1_without_global/trace.toon` | `6deacbe36baf13ea366cf734aff2f2e5a218b59eb5038afc5949f5a285bbcee0` | `GT-03: opendv verify 02_tier1_without_global` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-03` | `GT-03/02_tier1_without_global/verdict.json` | `16512705753b992837680b498bc864e71c0f1c5ab1eff8cd6ec041ca455f29b0` | `GT-03: opendv verify 02_tier1_without_global` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-03` | `GT-03/03_reflexive_sal/trace.toon` | `e7ee1cf99db9528ad92315bb388f6c5ac83bffe19132b54d78d5ef698fd5f62a` | `GT-03: opendv verify 03_reflexive_sal` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-03` | `GT-03/03_reflexive_sal/verdict.json` | `b7ad363827efa675c910983de539c60fb361ff40ea5414d653314ef101a6f278` | `GT-03: opendv verify 03_reflexive_sal` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-03` | `GT-03/04_satellite_group_by/trace.toon` | `beb31dcd52c380f1fe9b04350e7695d5aaede29e892a1741a9d5637d54707760` | `GT-03: opendv verify 04_satellite_group_by` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-03` | `GT-03/04_satellite_group_by/verdict.json` | `210e904dd648ba33311789b953b869d0f9eea6548be32e9cd6b419813ca6b6fd` | `GT-03: opendv verify 04_satellite_group_by` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-03` | `GT-03/05_path_traversal/problem.json` | `f9e1d4327ee9075c092b5c361a5c5f4242544278242713e606b3a52454b088cf` | `GT-03: opendv verify 05_path_traversal` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-03` | `GT-03/06_schema_invalid/problem.json` | `21dbb9f257de98fa3b515e33d20b8575e9ddd5a52fd963d3c7cbda4e3df507f6` | `GT-03: opendv verify 06_schema_invalid` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
-| `GT-05` | `GT-05/render_snapshot.txt` | `5fb79db6161b8d8d7e1e09923b68f76f529091eb2a6f25c760ff025a1255da57` | `PAR-S8-W3: opendv explorer render snapshot` | `[#95] P5.6 Full goldens GT-01..GT-05 cross-transport capture` |
+| `GT-01` | `GT-01/wave0/events.jsonl` | `a3712ae0a0f92eb8c82c97a97cd730c20f3b6e6ec3d4058735b4ad023ee01921` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave0/explorer_bundle.json` | `68d9a19d1828bb901ecf782affc61bac646a121c8573b5504f930f029be48c16` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave0/final_canonical_ir.json` | `830502bcebffdaf2a82b01c290a6f27a872fe14c7a59dbbc6ac5c3a3d7af1332` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave0/final_contract.yaml` | `7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave0/final_four_zone.sql` | `3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave0/pipeline_report.json` | `d3c9b02bc6ee020a6147bf3396e9c58a2168aba71ff408dc60b992aa887cd453` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/events.jsonl` | `18df992afb1b94c907b1e07c71780ad17a5229957b8b05da92ea59dcb92ab5b1` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/explorer_bundle.json` | `bcb170715866dc017f86045f7182c178dff4cd76b9ef3388975bd5fd009c1e89` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/final_canonical_ir.json` | `4e587b201c404654e989be6f3497349d8f37d5f8551892e6272e4975453d24dd` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/final_contract.yaml` | `81e70f3dc172844b26403266ee7e1abdc751179cde6786c01707e11ff68f2c72` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/final_four_zone.sql` | `c4c61c7f30a318801acf1c7d6fe8e6c80718bbd657cd97df6d738de5f235c621` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/pipeline_report.json` | `baad9f7727a01e3adb75cefe40ef29608ff7b7f6a003e4d7a044da708813df6a` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/events.jsonl` | `5007407b851033d69c644ffb1718999de6299eef57dfeab39f366245d76bfc38` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/explorer_bundle.json` | `de5906fcabea67a9a555a166d7233ef5435092a7e2e8f75fd98d34f848e3a119` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/final_canonical_ir.json` | `8cea66c733003301520220e7fb1d62c1865f80b88f5c47b240b943ad31872d79` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/final_contract.yaml` | `d19c00f565f27c55d1a166b32ae4fbb947a01aed53588145a1727d672e776afb` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/final_four_zone.sql` | `10e338804ca75d6ad821f3f9127587f146f726f6e85213aec708a791456cefb6` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/pipeline_report.json` | `71a6fd81c6f738963f6d28444a7d1d1a65fed63c604d34ad2850de7745f6a375` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/events.jsonl` | `eef46cf0f458950c0a6c7cac56e6c44ac8816d8c5b1a4499850c19ebd988e97c` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/explorer_bundle.json` | `fc41a41d75c5e77ab0d42d9d4e74d0ce158a7fd52f382264ecbb87f1a4c73cbc` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/final_canonical_ir.json` | `5bbcb9ecedb09d9da6daf024402dfe1d877eaa8791250f3dd15a7710a9f2c736` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/final_contract.yaml` | `c051b71db0021aa70b3cb9b31b494fd67c51486685bd5e77e2f2b70dc9a9f134` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/final_four_zone.sql` | `bf4901fa9310edfe6f16c01da73fe7491ba0cbe578d953800287a35a2ffd81a6` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/hold_record.json` | `cee4f59cd159a125c096e5b427d4424247a03e562b7f0eb6037fb04bc5223d27` | `PAR-S8-W3: opendv hold list` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/pipeline_report.json` | `f1397fe8822db62dbb13060a0210a684fdbbdfa7d1a8b4c42a9d5754629883b8` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/canonical_ir.json` | `a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a` | `PAR-PE-S5: opendv compile` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/d10_2026-10-15.json` | `44b6fd8a5ea7310a374680a3737f22bdf2a25651bfb086a991ff1e939f5624d7` | `PAR-PE-S6: opendv sandbox --query-type QUERY_D10_PIT` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/d10b_2026-11-15.json` | `d5cd79ebd2192892c031804553677f36a4c341be1cc55840f549ae42c26d7d2b` | `PAR-PE-S6: opendv sandbox --query-type QUERY_D10B_VALUATION` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/four_zone.sql` | `65aa57f6c7efb1b649caaca23b7ecfb514a16f0b75499b4e5229b03c27632629` | `PAR-PE-S5: opendv compile` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/sandbox_batches.json` | `c80768defb7fa83ea0d09d79381566d896f5f59685b58508e123180f5de3db48` | `PAR-PE-S6: opendv sandbox --query-type ADVERSARIAL_BATCHES_1_TO_4` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/verify.json` | `9bb08432bf645fca3d4cc4aeeb9ab368ee42797febee6f0a9f623761c2e4f495` | `PAR-PE-S5: opendv verify` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/01_dropped_hub/trace.toon` | `13c4da92d86d1ccffd94c29261d2cf36d9508366c8e5ab63e0949e21dbe289cd` | `GT-03: opendv verify 01_dropped_hub` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/01_dropped_hub/verdict.json` | `1fc557e9ff6d62b91c6576e91feabc4cbb06501d1d6ca4ba63bf92e223adefcd` | `GT-03: opendv verify 01_dropped_hub` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/02_tier1_without_global/trace.toon` | `6deacbe36baf13ea366cf734aff2f2e5a218b59eb5038afc5949f5a285bbcee0` | `GT-03: opendv verify 02_tier1_without_global` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/02_tier1_without_global/verdict.json` | `9754a2fc591d7b599ab88f6c42667f92ef2a080977b5c8441e5d41462edbbd11` | `GT-03: opendv verify 02_tier1_without_global` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/03_reflexive_sal/trace.toon` | `e7ee1cf99db9528ad92315bb388f6c5ac83bffe19132b54d78d5ef698fd5f62a` | `GT-03: opendv verify 03_reflexive_sal` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/03_reflexive_sal/verdict.json` | `ca0e06f8e3aebc18613670d9d43505acfe413ed0893d4d4000ef1f1412efb07f` | `GT-03: opendv verify 03_reflexive_sal` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/04_satellite_group_by/trace.toon` | `beb31dcd52c380f1fe9b04350e7695d5aaede29e892a1741a9d5637d54707760` | `GT-03: opendv verify 04_satellite_group_by` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/04_satellite_group_by/verdict.json` | `ab229aa0d6b577f589c5533be1b125c1bcc8d1a2ac3bee5ffdf67bf587009450` | `GT-03: opendv verify 04_satellite_group_by` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/05_path_traversal/problem.json` | `f9e1d4327ee9075c092b5c361a5c5f4242544278242713e606b3a52454b088cf` | `GT-03: opendv verify 05_path_traversal` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/06_schema_invalid/problem.json` | `e0bd5c1be236f15abfecdbf44bdb154ecd25f50fd35823efd5b50f80e4a0183a` | `GT-03: opendv verify 06_schema_invalid` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-05` | `GT-05/render_snapshot.txt` | `5fb79db6161b8d8d7e1e09923b68f76f529091eb2a6f25c760ff025a1255da57` | `PAR-S8-W3: opendv explorer render snapshot` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-06` | `GT-06/accepted_ontology.yaml` | `63e0a8d9cf32c2c2cc92059f6882e79f5a87071321f01e8845dff865ec69b580` | `PAR-ONT-HOLD: apply_ontology_delta` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-06` | `GT-06/base_ontology.yaml` | `5f9b79c6e24556e52a8559f23583a459b252093023fbeb54075135cb166d7adf` | `PAR-ONT-HOLD: base ontology` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-06` | `GT-06/ontology_diff.json` | `3e880982cf2d492c56f42cd1807f605c0cfe6afff88bbd305050e016ba868863` | `PAR-ONT-HOLD: ontology_diff` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-06` | `GT-06/proposal.json` | `d6f91c74700add0eda2278d45eb533c27e0cc48ae07bad35230c6f24c00809f2` | `PAR-ONT-HOLD: testkit proposal` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-06` | `GT-06/validation.json` | `b3643e067fd6d8c306fe4ec56951bdb6a11ebb9ac557afd1099cfe30d5a65d3a` | `PAR-ONT-HOLD: validate_ontology_delta` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
 
 ### G.4 Golden Update and Review Workflow
 

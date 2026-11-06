@@ -942,7 +942,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             assert res_run.headers["location"] == f"/api/v1/runs/{run_id}"
 
             # Wait for background pipeline execution to complete
-            for _ in range(200):
+            for _ in range(300):
                 poll = await client.get(f"/api/v1/runs/{run_id}")
                 if poll.status_code == 200 and poll.json().get("status") in {
                     RunStatus.COMPLETED.value,
@@ -1071,7 +1071,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             run_id = via_runs_handle["run_id"]
             assert res_via_runs.headers["location"] == f"/api/v1/runs/{run_id}"
 
-            for _ in range(200):
+            for _ in range(300):
                 poll = await client.get(f"/api/v1/runs/{run_id}")
                 if poll.status_code == 200 and poll.json().get("status") in {
                     RunStatus.COMPLETED.value,
@@ -1104,7 +1104,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             paused_run_id = handle_paused["run_id"]
             assert res_paused.headers["location"] == f"/api/v1/runs/{paused_run_id}"
 
-            for _ in range(200):
+            for _ in range(300):
                 poll = await client.get(f"/api/v1/runs/{paused_run_id}")
                 if poll.status_code == 200 and poll.json().get("status") in {
                     RunStatus.PAUSED_HOLD.value,
@@ -1170,7 +1170,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
             s0_fail_id = s0_fail_body["run_id"]
             assert res_s0_fail.headers["location"] == f"/api/v1/runs/{s0_fail_id}"
 
-            for _ in range(200):
+            for _ in range(300):
                 poll = await client.get(f"/api/v1/runs/{s0_fail_id}")
                 if poll.status_code == 200 and poll.json().get("status") in {
                     RunStatus.FAILED.value,

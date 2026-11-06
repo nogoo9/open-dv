@@ -262,11 +262,13 @@ async def test_reconnection_with_last_event_id_delivers_missing_events(
         run_id = res.json()["run_id"]
 
         # Wait for completion
-        for _ in range(80):
+        for _ in range(200):
             poll = await client.get(f"/api/v1/runs/{run_id}")
             if poll.status_code == 200 and poll.json().get("status") == "COMPLETED":
                 break
             await asyncio.sleep(0.1)
+        else:
+            pytest.fail(f"Run {run_id} did not finish in time (status={poll.json().get('status')})")
 
         # Full stream
         full_res = await client.get(f"/api/v1/runs/{run_id}/events")

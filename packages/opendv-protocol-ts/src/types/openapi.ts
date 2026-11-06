@@ -84,6 +84,86 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/decisions": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Record Ontology Decision
+		 * @description Record steward decision on an ontology proposal and apply delta if accepted.
+		 */
+		post: operations["record_ontology_decision_api_v1_ontology_decisions_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/diff": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Diff Ontology
+		 * @description Compute structural difference between two Graph A ontologies.
+		 */
+		post: operations["diff_ontology_api_v1_ontology_diff_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/suggestions": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Suggest Ontology
+		 * @description Suggest ontology extensions and mappings from candidate sources.
+		 */
+		post: operations["suggest_ontology_api_v1_ontology_suggestions_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/validate-delta": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Validate Ontology Delta
+		 * @description Validate an ontology delta against Graph A evolution locks.
+		 */
+		post: operations["validate_ontology_delta_api_v1_ontology_validate_delta_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/pipelines/runs": {
 		parameters: {
 			query?: never;
@@ -266,6 +346,26 @@ export interface paths {
 		 * @description Abort an active run.
 		 */
 		post: operations["abort_run_api_v1_runs__run_id__abort_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/runs/{run_id}/artifacts": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List Run Artifacts
+		 * @description Retrieve all run-isolated artifacts with lowercase 64-hex CAS hash and redaction.
+		 */
+		get: operations["list_run_artifacts_api_v1_runs__run_id__artifacts_get"];
+		put?: never;
+		post?: never;
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -492,6 +592,477 @@ export type webhooks = Record<string, never>;
 export interface components {
 	schemas: {
 		/**
+		 * AcceptOntologyDeltaOption
+		 * @description Steward option to accept a proposed ontology delta.
+		 */
+		AcceptOntologyDeltaOption: {
+			/**
+			 * Accepted Op Ids
+			 * @description Explicit list of accepted operation IDs (empty means all)
+			 */
+			accepted_op_ids?: string[];
+			/** @description Ontology delta to accept and apply */
+			delta: components["schemas"]["OntologyDelta"];
+			/**
+			 * Delta Sha256
+			 * @description Cryptographic SHA-256 of the delta
+			 */
+			delta_sha256: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			kind: "accept_ontology_delta";
+			/**
+			 * Steward Note
+			 * @description Human steward rationale notes
+			 * @default
+			 */
+			steward_note: string;
+		};
+		/**
+		 * AddConceptOp
+		 * @description Additive operation to introduce a Canonical Business Concept (CBC) / Hub.
+		 */
+		AddConceptOp: {
+			/**
+			 * Attributes
+			 * @description Associated business attributes
+			 */
+			attributes?: string[];
+			/**
+			 * Concept Name
+			 * @description Human-readable concept name
+			 * @default
+			 */
+			concept_name: string;
+			/**
+			 * Concept Uri
+			 * @description Unique canonical concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Definition
+			 * @description Normative definition of concept
+			 * @default
+			 */
+			definition: string;
+			/**
+			 * Description
+			 * @description Alternative concept description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Elm Archetype
+			 * @description ELM archetype
+			 * @default CORE_BUSINESS_CONCEPT
+			 */
+			elm_archetype: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Governance Constraints
+			 * @description Governance, PII, and MNPI constraints
+			 */
+			governance_constraints?: {
+				[key: string]: unknown;
+			} | null;
+			/**
+			 * Key Authority Tiers
+			 * @description 3-Tier Business Key Authority specification
+			 */
+			key_authority_tiers?: {
+				[key: string]: unknown;
+			} | null;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_concept";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Target Hub
+			 * @description Target Data Vault 2.0 Hub table name
+			 */
+			target_hub?: string | null;
+		};
+		/**
+		 * AddGovernanceConstraintOp
+		 * @description Additive operation to attach PII / MNPI security and satellite split constraints.
+		 */
+		AddGovernanceConstraintOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Constraint Id
+			 * @description Unique constraint identifier
+			 * @default
+			 */
+			constraint_id: string;
+			/**
+			 * Constraint Type
+			 * @description Constraint classification type
+			 * @default
+			 */
+			constraint_type: string;
+			/**
+			 * Description
+			 * @description Constraint description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Mnpi Confidential Attributes
+			 * @description Attributes requiring MNPI confidentiality
+			 */
+			mnpi_confidential_attributes?: string[];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_governance_constraint";
+			/**
+			 * Pii Confidential Attributes
+			 * @description Attributes requiring PII confidentiality
+			 */
+			pii_confidential_attributes?: string[];
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Required Satellite Split
+			 * @description Target security satellite split name
+			 */
+			required_satellite_split?: string | null;
+		};
+		/**
+		 * AddKeyAuthorityPatternOp
+		 * @description Additive operation to attach a Business Key Authority tier pattern.
+		 */
+		AddKeyAuthorityPatternOp: {
+			/**
+			 * Authority Name
+			 * @description Name of the Business Key Authority
+			 */
+			authority_name: string;
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Description
+			 * @description Authority description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_key_authority_pattern";
+			/**
+			 * Pattern Regex
+			 * @description Regex pattern for authority
+			 */
+			pattern_regex?: string | null;
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Tier
+			 * @description Authority tier classification
+			 * @default TIER_1_GLOBAL_STANDARD
+			 */
+			tier: string;
+			/**
+			 * Tier Spec
+			 * @description Full tier specification
+			 */
+			tier_spec?: {
+				[key: string]: unknown;
+			} | null;
+		};
+		/**
+		 * AddReferenceEnumerationOp
+		 * @description Additive operation to introduce a Reference Enumeration / ref_* table.
+		 */
+		AddReferenceEnumerationOp: {
+			/**
+			 * Allowed Codes
+			 * @description Allowed code values
+			 */
+			allowed_codes?: string[];
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Description
+			 * @description Enumeration description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Enum Uri
+			 * @description Unique reference enumeration URN
+			 * @default
+			 */
+			enum_uri: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Name
+			 * @description Enumeration name
+			 * @default
+			 */
+			name: string;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_reference_enumeration";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Target Reference Table
+			 * @description Target reference table name
+			 * @default
+			 */
+			target_reference_table: string;
+			/**
+			 * Values
+			 * @description Allowed code values
+			 */
+			values?: string[];
+		};
+		/**
+		 * AddRelationshipOp
+		 * @description Additive operation to introduce a Unit-of-Work relationship / Link.
+		 */
+		AddRelationshipOp: {
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Description
+			 * @description Alternative relationship description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Endpoints
+			 * @description List of participant concept URN endpoints
+			 */
+			endpoints?: string[];
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Grain Semantics
+			 * @description Relationship grain semantics
+			 * @default
+			 */
+			grain_semantics: string;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_relationship";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Relationship Name
+			 * @description Human-readable relationship name
+			 * @default
+			 */
+			relationship_name: string;
+			/**
+			 * Relationship Uri
+			 * @description Unique canonical relationship URN
+			 */
+			relationship_uri: string;
+			/**
+			 * Source Concept Uri
+			 * @description Source endpoint concept URN
+			 */
+			source_concept_uri?: string | null;
+			/**
+			 * Target Concept Uri
+			 * @description Target endpoint concept URN
+			 */
+			target_concept_uri?: string | null;
+			/**
+			 * Target Link
+			 * @description Target Data Vault 2.0 Link table name
+			 */
+			target_link: string;
+			/**
+			 * Yagni Cost Guard Policy
+			 * @description Attached Gate 4 YAGNI cost guard policy
+			 */
+			yagni_cost_guard_policy?: {
+				[key: string]: unknown;
+			} | null;
+		};
+		/**
+		 * AddSourceHintOp
+		 * @description Additive operation to register a source mapping hint linking source data to a CBC.
+		 */
+		AddSourceHintOp: {
+			/**
+			 * Column Hint
+			 * @description Source column hint
+			 * @default
+			 */
+			column_hint: string;
+			/**
+			 * Column Name
+			 * @description Source column name
+			 * @default
+			 */
+			column_name: string;
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_source_hint";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Source Name
+			 * @description Source system identifier
+			 * @default
+			 */
+			source_name: string;
+			/**
+			 * Source System
+			 * @description Source system identifier
+			 * @default
+			 */
+			source_system: string;
+			/**
+			 * Table Name
+			 * @description Source table or file name
+			 * @default
+			 */
+			table_name: string;
+		};
+		/**
 		 * ArtifactDTO
 		 * @description Comprehensive artifact descriptor for Explorer workbench.
 		 */
@@ -670,6 +1241,18 @@ export interface components {
 			event_id?: string | null;
 			/** Hold Id */
 			hold_id?: string | null;
+			/**
+			 * Hold Option
+			 * @description Typed steward hold option (ONT-04)
+			 */
+			hold_option?:
+				| (
+						| components["schemas"]["AcceptOntologyDeltaOption"]
+						| components["schemas"]["RejectOntologyDeltaOption"]
+						| components["schemas"]["CustomOntologyDeltaOption"]
+						| components["schemas"]["GeneralHoldOption"]
+				  )
+				| null;
 			/** Resolution Notes */
 			resolution_notes?: string | null;
 			/** Selected Candidate Id */
@@ -850,6 +1433,10 @@ export interface components {
 			domain_namespace: string;
 			/** Graph A Ontology Path */
 			graph_a_ontology_path?: string | null;
+			/** Graph A Source */
+			graph_a_source?: {
+				[key: string]: unknown;
+			} | null;
 			/** Graph B Path */
 			graph_b_path?: string | null;
 			/** Name */
@@ -945,6 +1532,30 @@ export interface components {
 			 * @description Target wave identifier (e.g. W0, W1, W2) (GAP-07)
 			 */
 			wave_id?: string | null;
+		};
+		/**
+		 * CustomOntologyDeltaOption
+		 * @description Steward option providing a custom authoring delta.
+		 */
+		CustomOntologyDeltaOption: {
+			/** @description Custom ontology delta to apply */
+			custom_delta: components["schemas"]["OntologyDelta"];
+			/**
+			 * Delta Sha256
+			 * @description Optional SHA-256 of custom delta
+			 */
+			delta_sha256?: string | null;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			kind: "custom_ontology_delta";
+			/**
+			 * Steward Note
+			 * @description Human steward rationale notes
+			 * @default
+			 */
+			steward_note: string;
 		};
 		/**
 		 * DocCandidateOption
@@ -1142,6 +1753,58 @@ export interface components {
 			nodes?: components["schemas"]["DvSvgNodeSpec"][];
 		};
 		/**
+		 * EvidenceRef
+		 * @description Grounding evidence reference for an ontology delta operation.
+		 */
+		EvidenceRef: {
+			/**
+			 * Bronze Table
+			 * @description Source bronze table name
+			 */
+			bronze_table?: string | null;
+			/**
+			 * Char End
+			 * @description Ending character offset
+			 */
+			char_end?: number | null;
+			/**
+			 * Char Start
+			 * @description Starting character offset
+			 */
+			char_start?: number | null;
+			/**
+			 * Column Name
+			 * @description Source column name
+			 */
+			column_name?: string | null;
+			/**
+			 * Confidence
+			 * @description Confidence score between 0.0 and 1.0
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Doc Sha256
+			 * @description Source document SHA-256
+			 */
+			doc_sha256?: string | null;
+			/**
+			 * Evidence Type
+			 * @description Classification of evidence, e.g. column_profile, sample_values, document_span, standard_reference, existing_concept
+			 */
+			evidence_type: string;
+			/**
+			 * Reference Uri
+			 * @description Target reference pointer or URI
+			 */
+			reference_uri?: string | null;
+			/**
+			 * Snippet
+			 * @description Text snippet, excerpt, or sample value grounding the proposal
+			 */
+			snippet?: string | null;
+		};
+		/**
 		 * ExplorerBundleDTO
 		 * @description Top-level 3-Level Pipeline Explorer bundle response DTO.
 		 */
@@ -1286,6 +1949,35 @@ export interface components {
 			| "AUTO_REPAIRED"
 			| "REJECT-WITH-TRACE"
 			| "ASK-USER";
+		/**
+		 * GeneralHoldOption
+		 * @description General action option for steward holds.
+		 */
+		GeneralHoldOption: {
+			/**
+			 * Action
+			 * @description Steward action name
+			 */
+			action: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			kind: "general_hold";
+			/**
+			 * Params
+			 * @description Arbitrary parameters for action
+			 */
+			params?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Steward Note
+			 * @description Steward notes or rationale
+			 * @default
+			 */
+			steward_note: string;
+		};
 		/** HTTPValidationError */
 		HTTPValidationError: {
 			/** Detail */
@@ -1316,6 +2008,527 @@ export interface components {
 			 * @description Concept identifier
 			 */
 			name: string;
+		};
+		/**
+		 * OntologyDecision
+		 * @description Steward or policy decision record governing delta application.
+		 */
+		OntologyDecision: {
+			/**
+			 * Accepted Op Ids
+			 * @description Operation IDs accepted for application
+			 */
+			accepted_op_ids?: string[];
+			/**
+			 * Action
+			 * @description Decision action (ACCEPT, REJECT, PARTIAL)
+			 * @default ACCEPT
+			 */
+			action: string;
+			/**
+			 * Applied Delta Sha256
+			 * @description SHA-256 of accepted delta
+			 */
+			applied_delta_sha256?: string | null;
+			/**
+			 * Base Ontology Sha256
+			 * @description SHA-256 of base ontology
+			 */
+			base_ontology_sha256?: string | null;
+			/**
+			 * Created At Utc
+			 * @description UTC ISO timestamp of decision
+			 * @default
+			 */
+			created_at_utc: string;
+			/**
+			 * Decided By
+			 * @description Steward identifier or policy name
+			 * @default steward
+			 */
+			decided_by: string;
+			/**
+			 * Decision Id
+			 * @description Unique decision record ID
+			 */
+			decision_id: string;
+			/**
+			 * Hold Id
+			 * @description Steward hold ID
+			 */
+			hold_id?: string | null;
+			/**
+			 * Notes
+			 * @description Alternative notes field
+			 * @default
+			 */
+			notes: string;
+			/**
+			 * Proposal Id
+			 * @description Referenced proposal ID
+			 */
+			proposal_id?: string | null;
+			/**
+			 * Rejected Op Ids
+			 * @description Operation IDs explicitly rejected
+			 */
+			rejected_op_ids?: string[];
+			/**
+			 * Resulting Ontology Sha256
+			 * @description SHA-256 of resulting Graph A vN+1
+			 */
+			resulting_ontology_sha256?: string | null;
+			/**
+			 * Run Id
+			 * @description Pipeline run ID
+			 */
+			run_id?: string | null;
+			/**
+			 * Steward Notes
+			 * @description Human steward rationale notes
+			 * @default
+			 */
+			steward_notes: string;
+			/**
+			 * Timestamp
+			 * @description Timestamp of decision
+			 * @default
+			 */
+			timestamp: string;
+		};
+		/**
+		 * OntologyDecisionRequest
+		 * @description Request DTO to record a steward decision and apply/reject an ontology delta.
+		 */
+		OntologyDecisionRequest: {
+			/**
+			 * Accepted Op Ids
+			 * @description List of accepted operation IDs (None = accept all)
+			 */
+			accepted_op_ids?: string[] | null;
+			/**
+			 * Action
+			 * @description Decision action: ACCEPT or REJECT
+			 * @default ACCEPT
+			 * @enum {string}
+			 */
+			action: "ACCEPT" | "REJECT";
+			/**
+			 * Base Ontology
+			 * @description Base Graph A ontology object or dict
+			 */
+			base_ontology?: unknown | null;
+			/**
+			 * Base Ontology Content
+			 * @description Inline base Graph A ontology YAML/JSON text
+			 */
+			base_ontology_content?: string | null;
+			/**
+			 * Base Ontology Path
+			 * @description Path to base Graph A ontology file
+			 */
+			base_ontology_path?: string | null;
+			/**
+			 * Contract Content
+			 * @description Inline deployed Data Vault contract YAML text
+			 */
+			contract_content?: string | null;
+			/**
+			 * Contract Path
+			 * @description Path to deployed Data Vault contract file
+			 */
+			contract_path?: string | null;
+			/**
+			 * Decided By
+			 * @description Decision maker identifier
+			 * @default steward
+			 */
+			decided_by: string;
+			/** @description OntologyDelta object */
+			delta?: components["schemas"]["OntologyDelta"] | null;
+			/**
+			 * Delta Content
+			 * @description Inline delta JSON/YAML text (Decision D1)
+			 */
+			delta_content?: string | null;
+			/**
+			 * Delta Path
+			 * @description Path to delta file
+			 */
+			delta_path?: string | null;
+			/**
+			 * Deployed Contract
+			 * @description Deployed contract object or dict
+			 */
+			deployed_contract?: unknown | null;
+			/**
+			 * Hold Id
+			 * @description Steward hold identifier if resolving hold
+			 */
+			hold_id?: string | null;
+			/**
+			 * Proposal Id
+			 * @description Proposal identifier
+			 */
+			proposal_id?: string | null;
+			/**
+			 * Rejected Op Ids
+			 * @description List of explicitly rejected operation IDs
+			 */
+			rejected_op_ids?: string[] | null;
+			/**
+			 * Run Id
+			 * @description Pipeline run identifier if attached to run
+			 */
+			run_id?: string | null;
+			/**
+			 * Steward Notes
+			 * @description Steward rationale notes
+			 * @default
+			 */
+			steward_notes: string;
+		};
+		/**
+		 * OntologyDecisionResponse
+		 * @description Response DTO for an ontology decision action.
+		 */
+		OntologyDecisionResponse: {
+			/** @description Recorded ontology decision record */
+			decision: components["schemas"]["OntologyDecision"];
+			/**
+			 * Resulting Ontology Sha256
+			 * @description CAS SHA-256 digest of resulting Graph A vN+1
+			 */
+			resulting_ontology_sha256?: string | null;
+			/**
+			 * Resulting Ontology Version
+			 * @description Target version string of Graph A vN+1
+			 */
+			resulting_ontology_version?: string | null;
+			/**
+			 * Resulting Ontology Yaml
+			 * @description Serialized Graph A vN+1 YAML content if ACCEPT
+			 */
+			resulting_ontology_yaml?: string | null;
+			/**
+			 * Status
+			 * @description Status label
+			 * @default COMPLETED
+			 */
+			status: string;
+			/** @description Validation result if delta validation was performed */
+			validation?: components["schemas"]["OntologyValidationResult"] | null;
+		};
+		/**
+		 * OntologyDelta
+		 * @description Ordered collection of additive operations evolving Graph A to vN+1.
+		 */
+		OntologyDelta: {
+			/**
+			 * Base Ontology Version
+			 * @description Base ontology version
+			 * @default 1.0.0
+			 */
+			base_ontology_version: string;
+			/**
+			 * Delta Id
+			 * @description Unique delta identifier
+			 */
+			delta_id: string;
+			/**
+			 * Domain Namespace
+			 * @description Domain namespace matching base Graph A
+			 */
+			domain_namespace?: string | null;
+			/**
+			 * Metadata
+			 * @description Arbitrary authoring provenance metadata
+			 */
+			metadata?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Operations
+			 * @description Ordered sequence of additive operations
+			 */
+			operations?: (
+				| components["schemas"]["AddConceptOp"]
+				| components["schemas"]["AddRelationshipOp"]
+				| components["schemas"]["AddReferenceEnumerationOp"]
+				| components["schemas"]["AddKeyAuthorityPatternOp"]
+				| components["schemas"]["AddGovernanceConstraintOp"]
+				| components["schemas"]["RefineDefinitionOp"]
+				| components["schemas"]["AddSourceHintOp"]
+			)[];
+			/**
+			 * Parent Sha256
+			 * @description Cryptographic SHA-256 of the base Graph A ontology
+			 */
+			parent_sha256?: string | null;
+			/**
+			 * Target Ontology Version
+			 * @description Target ontology version after delta application
+			 * @default 1.1.0
+			 */
+			target_ontology_version: string;
+		};
+		/**
+		 * OntologyDiff
+		 * @description Structural delta between two Graph A ontology instances.
+		 */
+		OntologyDiff: {
+			/**
+			 * Added Concepts
+			 * @description Added concept URNs
+			 */
+			added_concepts?: string[];
+			/**
+			 * Added Enumerations
+			 * @description Added reference enumeration URNs
+			 */
+			added_enumerations?: string[];
+			/**
+			 * Added Relationships
+			 * @description Added relationship URNs
+			 */
+			added_relationships?: string[];
+			/**
+			 * Base Sha256
+			 * @description Base ontology SHA-256
+			 */
+			base_sha256?: string | null;
+			/**
+			 * Base Version
+			 * @description Base ontology version
+			 * @default 1.0.0
+			 */
+			base_version: string;
+			/**
+			 * Breaking Changes
+			 * @description Detected breaking changes
+			 */
+			breaking_changes?: string[];
+			/**
+			 * Diagnostics
+			 * @description Informational diff diagnostics
+			 */
+			diagnostics?: string[];
+			/**
+			 * Refined Concepts
+			 * @description Concepts refined by definition or constraints
+			 */
+			refined_concepts?: string[];
+			/**
+			 * Target Sha256
+			 * @description Target ontology SHA-256
+			 */
+			target_sha256?: string | null;
+			/**
+			 * Target Version
+			 * @description Target ontology version
+			 * @default 1.1.0
+			 */
+			target_version: string;
+		};
+		/**
+		 * OntologyDiffRequest
+		 * @description Request DTO to compute structural diff between two Graph A ontologies.
+		 */
+		OntologyDiffRequest: {
+			/**
+			 * Base Ontology
+			 * @description Base Graph A ontology object or dict
+			 */
+			base_ontology?: unknown | null;
+			/**
+			 * Base Ontology Content
+			 * @description Inline base Graph A ontology YAML/JSON text
+			 */
+			base_ontology_content?: string | null;
+			/**
+			 * Base Ontology Path
+			 * @description Path to base Graph A ontology file
+			 */
+			base_ontology_path?: string | null;
+			/**
+			 * Target Ontology
+			 * @description Target Graph A ontology object or dict
+			 */
+			target_ontology?: unknown | null;
+			/**
+			 * Target Ontology Content
+			 * @description Inline target Graph A ontology YAML/JSON text
+			 */
+			target_ontology_content?: string | null;
+			/**
+			 * Target Ontology Path
+			 * @description Path to target Graph A ontology file
+			 */
+			target_ontology_path?: string | null;
+		};
+		/**
+		 * OntologyProposal
+		 * @description Advisory or blocking proposal emitted by an Ontology Recommender.
+		 */
+		OntologyProposal: {
+			/**
+			 * Base Ontology Sha256
+			 * @description SHA-256 of base ontology
+			 * @default
+			 */
+			base_ontology_sha256: string;
+			/**
+			 * Confidence Score
+			 * @description Aggregate proposal confidence score
+			 * @default 1
+			 */
+			confidence_score: number;
+			/**
+			 * Coverage After
+			 * @description Projected coverage ratio after
+			 */
+			coverage_after?: number | null;
+			/**
+			 * Coverage Before
+			 * @description Projected coverage ratio before
+			 */
+			coverage_before?: number | null;
+			/**
+			 * Created At Utc
+			 * @description UTC ISO-8601 creation timestamp
+			 * @default
+			 */
+			created_at_utc: string;
+			/** @description Proposed ontology delta */
+			delta: components["schemas"]["OntologyDelta"];
+			/**
+			 * Diagnostics
+			 * @description Advisory diagnostic messages
+			 */
+			diagnostics?: string[];
+			/**
+			 * Proposal Id
+			 * @description Unique proposal identifier
+			 */
+			proposal_id: string;
+			/**
+			 * Rationale
+			 * @description Overall business rationale for proposal
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Recommender Id
+			 * @description Recommender module ID
+			 * @default recommender-default
+			 */
+			recommender_id: string;
+			/**
+			 * Recommender Version
+			 * @description Recommender version
+			 * @default 1.0.0
+			 */
+			recommender_version: string;
+			/**
+			 * Wave Id
+			 * @description Optional pipeline wave identifier
+			 */
+			wave_id?: string | null;
+		};
+		/**
+		 * OntologySuggestionRequest
+		 * @description Request DTO to generate ontology proposal from source profiles or context docs (IP-1).
+		 */
+		OntologySuggestionRequest: {
+			/**
+			 * Base Ontology Content
+			 * @description Inline base Graph A ontology YAML/JSON text (Decision D1)
+			 */
+			base_ontology_content?: string | null;
+			/**
+			 * Base Ontology Path
+			 * @description Path to base Graph A ontology file
+			 */
+			base_ontology_path?: string | null;
+			/**
+			 * Base Ontology Sha256
+			 * @description CAS SHA-256 digest of base ontology
+			 */
+			base_ontology_sha256?: string | null;
+			/**
+			 * Bronze Source Content
+			 * @description Inline bronze source dataset content
+			 */
+			bronze_source_content?: string | null;
+			/**
+			 * Bronze Source Path
+			 * @description Path to bronze source dataset file
+			 */
+			bronze_source_path?: string | null;
+			/**
+			 * Business Context
+			 * @description Free-text business description or brief
+			 */
+			business_context?: string | null;
+			/**
+			 * Context Doc Content
+			 * @description Inline context document text
+			 */
+			context_doc_content?: string | null;
+			/**
+			 * Context Doc Path
+			 * @description Path to context document file
+			 */
+			context_doc_path?: string | null;
+			/**
+			 * Context Document Paths
+			 * @description Context document paths (glossary, policy)
+			 */
+			context_document_paths?: string[];
+			/**
+			 * Domain Namespace
+			 * @description Target domain namespace
+			 */
+			domain_namespace?: string | null;
+			/**
+			 * Empirical Profile Content
+			 * @description Inline empirical data profile JSON text
+			 */
+			empirical_profile_content?: string | null;
+			/**
+			 * Empirical Profile Path
+			 * @description Path to empirical data profile (Graph B) JSON file
+			 */
+			empirical_profile_path?: string | null;
+			/**
+			 * Focus
+			 * @description Focus areas: unmapped tables, columns, mentions
+			 */
+			focus?: string[];
+			/**
+			 * Mode
+			 * @description Recommender operation mode
+			 * @default DELTA
+			 * @enum {string}
+			 */
+			mode: "BOOTSTRAP" | "DELTA" | "HOLD_RESOLUTION";
+			/**
+			 * Recommender Id
+			 * @description Specific recommender plugin ID
+			 */
+			recommender_id?: string | null;
+			/**
+			 * Source Paths
+			 * @description Source dataset file paths
+			 */
+			source_paths?: string[];
+			/**
+			 * Source Profiles
+			 * @description Source empirical profiles (Graph B)
+			 */
+			source_profiles?: {
+				[key: string]: unknown;
+			}[];
 		};
 		/**
 		 * OntologySvgEdgeSpec
@@ -1383,6 +2596,81 @@ export interface components {
 			 * @description Y coordinate
 			 */
 			y: number;
+		};
+		/**
+		 * OntologyValidateDeltaRequest
+		 * @description Request DTO to deterministically validate an ontology delta (ONT-EVO-001..003).
+		 */
+		OntologyValidateDeltaRequest: {
+			/**
+			 * Base Ontology
+			 * @description Base Graph A ontology object or dict
+			 */
+			base_ontology?: unknown | null;
+			/**
+			 * Base Ontology Content
+			 * @description Inline base Graph A ontology YAML/JSON text
+			 */
+			base_ontology_content?: string | null;
+			/**
+			 * Base Ontology Path
+			 * @description Path to base Graph A ontology file
+			 */
+			base_ontology_path?: string | null;
+			/**
+			 * Contract Content
+			 * @description Inline deployed Data Vault contract YAML text
+			 */
+			contract_content?: string | null;
+			/**
+			 * Contract Path
+			 * @description Path to deployed Data Vault contract file
+			 */
+			contract_path?: string | null;
+			/** @description OntologyDelta object */
+			delta?: components["schemas"]["OntologyDelta"] | null;
+			/**
+			 * Delta Content
+			 * @description Inline delta JSON/YAML text (Decision D1)
+			 */
+			delta_content?: string | null;
+			/**
+			 * Delta Path
+			 * @description Path to delta file
+			 */
+			delta_path?: string | null;
+			/**
+			 * Deployed Contract
+			 * @description Deployed contract object or dict
+			 */
+			deployed_contract?: unknown | null;
+		};
+		/**
+		 * OntologyValidationResult
+		 * @description Validation report returned by validate_ontology_delta.
+		 */
+		OntologyValidationResult: {
+			/**
+			 * Diagnostics
+			 * @description Informational diagnostics
+			 */
+			diagnostics?: string[];
+			/**
+			 * Error Code
+			 * @description Primary error code if invalid
+			 */
+			error_code?: string | null;
+			/**
+			 * Valid
+			 * @description Whether the delta is valid
+			 * @default true
+			 */
+			valid: boolean;
+			/**
+			 * Violations
+			 * @description Validation violation messages
+			 */
+			violations?: string[];
 		};
 		/**
 		 * OntologyVizDTO
@@ -1512,6 +2800,13 @@ export interface components {
 			 */
 			dry_run: boolean;
 			/**
+			 * Graph A Source
+			 * @description Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)
+			 */
+			graph_a_source?: {
+				[key: string]: unknown;
+			} | null;
+			/**
 			 * Harness Config
 			 * @description Inline harness configuration
 			 */
@@ -1586,6 +2881,13 @@ export interface components {
 		 * @description Request DTO for static pipeline configuration validation (Decision D1).
 		 */
 		PipelineValidateRequest: {
+			/**
+			 * Graph A Source
+			 * @description Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)
+			 */
+			graph_a_source?: {
+				[key: string]: unknown;
+			} | null;
 			/**
 			 * Harness Config
 			 * @description Inline harness configuration
@@ -1897,6 +3199,89 @@ export interface components {
 			 * @description Target wave identifier if restricted (GAP-07)
 			 */
 			wave_id?: string | null;
+		};
+		/**
+		 * RefineDefinitionOp
+		 * @description Additive operation to refine the textual definition or attributes of a concept.
+		 */
+		RefineDefinitionOp: {
+			/**
+			 * Additional Attributes
+			 * @description Additional attributes to append
+			 */
+			additional_attributes?: string[];
+			/**
+			 * Concept Uri
+			 * @description Target concept URN
+			 * @default
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "refine_definition";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Refined Description
+			 * @description Refined definition or description
+			 * @default
+			 */
+			refined_description: string;
+			/**
+			 * Target Uri
+			 * @description Target concept or relationship URN
+			 * @default
+			 */
+			target_uri: string;
+		};
+		/**
+		 * RejectOntologyDeltaOption
+		 * @description Steward option to explicitly reject a proposed ontology delta.
+		 */
+		RejectOntologyDeltaOption: {
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			kind: "reject_ontology_delta";
+			/**
+			 * Reason
+			 * @description Rejection rationale or explanation
+			 */
+			reason: string;
+			/**
+			 * Rejected Op Ids
+			 * @description Explicit list of rejected operation IDs
+			 */
+			rejected_op_ids?: string[];
+			/**
+			 * Steward Note
+			 * @description Human steward notes
+			 * @default
+			 */
+			steward_note: string;
 		};
 		/**
 		 * RenderedOutput
@@ -2479,6 +3864,13 @@ export interface components {
 			 */
 			graph_a_path?: string | null;
 			/**
+			 * Graph A Source
+			 * @description Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)
+			 */
+			graph_a_source?: {
+				[key: string]: unknown;
+			} | null;
+			/**
 			 * Graph B Content
 			 * @description Inline Graph B JSON content
 			 */
@@ -2536,6 +3928,11 @@ export interface components {
 			 */
 			contract_path?: string | null;
 			/**
+			 * Decision Refs
+			 * @description Steward decision IDs that produced this version (ONT-01)
+			 */
+			decision_refs?: string[];
+			/**
 			 * Diagnostics
 			 * @description Human/log diagnostic statements
 			 */
@@ -2548,10 +3945,25 @@ export interface components {
 			/** @description 6-Gate status scorecard */
 			gate_scorecard?: components["schemas"]["GateScorecardSummary"];
 			/**
+			 * Graph A Sha256
+			 * @description SHA-256 hash of loaded Graph A ontology bytes (ONT-01)
+			 */
+			graph_a_sha256?: string | null;
+			/**
+			 * Ontology Version
+			 * @description Semantic version of Graph A ontology (ONT-01)
+			 */
+			ontology_version?: string | null;
+			/**
 			 * Overall Passed
 			 * @description True if verification succeeded or was auto-repaired
 			 */
 			overall_passed: boolean;
+			/**
+			 * Parent Sha256
+			 * @description SHA-256 hash of parent Graph A ontology if evolved (ONT-01)
+			 */
+			parent_sha256?: string | null;
 			/** @description Pre-rendered text output */
 			rendered?: components["schemas"]["RenderedOutput"] | null;
 			/**
@@ -2742,6 +4154,140 @@ export interface operations {
 					"application/json": {
 						[key: string]: unknown;
 					};
+				};
+			};
+		};
+	};
+	record_ontology_decision_api_v1_ontology_decisions_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				"X-OpenDV-Role"?: string | null;
+			};
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologyDecisionRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OntologyDecisionResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	diff_ontology_api_v1_ontology_diff_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologyDiffRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OntologyDiff"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	suggest_ontology_api_v1_ontology_suggestions_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologySuggestionRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OntologyProposal"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	validate_ontology_delta_api_v1_ontology_validate_delta_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologyValidateDeltaRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OntologyValidationResult"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
 				};
 			};
 		};
@@ -3068,6 +4614,39 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["ProjectRunDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	list_run_artifacts_api_v1_runs__run_id__artifacts_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				"X-OpenDV-Role"?: string | null;
+			};
+			path: {
+				run_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["RunArtifactDTO"][];
 				};
 			};
 			/** @description Validation Error */

@@ -130,7 +130,11 @@ class PipelineExecutionMixin:
             ),
             None,
         )
-        ont_sha = ont_art_ref.sha256.upper() if ont_art_ref is not None else None
+        ont_sha = (
+            report.graph_a_sha256.upper()
+            if getattr(report, "graph_a_sha256", None)
+            else (ont_art_ref.sha256.upper() if ont_art_ref is not None else None)
+        )
         last_gb_ref = next(
             (
                 a
@@ -139,21 +143,21 @@ class PipelineExecutionMixin:
             ),
             None,
         )
-        raw_ont_path = Path(spec_obj.graph_a_ontology_path)
-        if raw_ont_path.is_absolute():
-            cand_ont = raw_ont_path.resolve()
-        else:
-            cand_base_ont = (base_dir / raw_ont_path).resolve()
-            cand_repo_ont = (self.repo_root / raw_ont_path).resolve()
-            cand_ont = cand_base_ont if cand_base_ont.exists() else cand_repo_ont
-        if cand_ont.exists() and cand_ont.is_relative_to(self.repo_root):
-            resolved_graph_a_path = str(cand_ont.relative_to(self.repo_root))
-        elif ont_art_ref is not None and ont_art_ref.file_path:
+        resolved_graph_a_path: str = ""
+        if ont_art_ref is not None and ont_art_ref.file_path:
             resolved_graph_a_path = ont_art_ref.file_path
-        elif cand_ont.is_relative_to(self.repo_root):
-            resolved_graph_a_path = str(cand_ont.relative_to(self.repo_root))
-        else:
-            resolved_graph_a_path = str(cand_ont)
+        elif getattr(spec_obj, "graph_a_ontology_path", None):
+            raw_ont_path = Path(spec_obj.graph_a_ontology_path)
+            if raw_ont_path.is_absolute():
+                cand_ont = raw_ont_path.resolve()
+            else:
+                cand_base_ont = (base_dir / raw_ont_path).resolve()
+                cand_repo_ont = (self.repo_root / raw_ont_path).resolve()
+                cand_ont = cand_base_ont if cand_base_ont.exists() else cand_repo_ont
+            if cand_ont.is_relative_to(self.repo_root):
+                resolved_graph_a_path = str(cand_ont.relative_to(self.repo_root))
+            else:
+                resolved_graph_a_path = str(cand_ont)
 
         final_contract_ref = report.final_artifacts.get("final_contract")
         final_ir_ref = report.final_artifacts.get("final_canonical_ir")

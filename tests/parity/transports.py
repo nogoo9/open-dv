@@ -92,6 +92,45 @@ class Transport(Protocol):
         """Execute complete pipeline run."""
         ...
 
+    def suggest_ontology(
+        self,
+        base: Any | None = None,
+        mode: str = "DELTA",
+        domain_namespace: str | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Generate ontology proposals (IP-1)."""
+        ...
+
+    def validate_ontology_delta(
+        self,
+        delta: Any,
+        base: Any,
+        contract: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Validate additive ontology delta (ONT-EVO-001..003)."""
+        ...
+
+    def diff_ontology(
+        self,
+        base: Any,
+        target: Any,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Compute structural diff between two Graph A ontologies."""
+        ...
+
+    def decide_ontology(
+        self,
+        action: str,
+        delta: Any | None = None,
+        base: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        """Record steward decision and accept/reject ontology delta."""
+        ...
+
 
 def _is_fixture_dict(doc: Any) -> bool:
     return (
@@ -326,6 +365,172 @@ class StandaloneCliTransport:
             argv.extend(["--output-dir", str(kwargs["output_dir"])])
         if kwargs.get("wave_id"):
             argv.extend(["--wave-id", str(kwargs["wave_id"])])
+        return self._invoke(argv)
+
+    def _resolve_delta_arg(self, delta: Any, filename: str = "delta.json") -> str:
+        if isinstance(delta, (str, Path)):
+            return str(delta)
+        if isinstance(delta, dict):
+            delta_file = self.workspace_dir / filename
+            delta_file.write_text(json.dumps(delta, indent=2), encoding="utf-8")
+            return str(delta_file)
+        if hasattr(delta, "model_dump"):
+            delta_file = self.workspace_dir / filename
+            delta_file.write_text(json.dumps(delta.model_dump(mode="json"), indent=2), encoding="utf-8")
+            return str(delta_file)
+        raise ValueError(f"Invalid delta argument: {delta!r}")
+
+    def suggest_ontology(
+        self,
+        base: Any | None = None,
+        mode: str = "DELTA",
+        domain_namespace: str | None = None,
+        profile: Any | None = None,
+        source: Any | None = None,
+        context_doc: Any | None = None,
+        recommender_id: str | None = None,
+        output: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(base, dict) and "base_ontology" in base:
+            fixtures = base
+            base = fixtures.get("base_ontology")
+            mode = fixtures.get("mode", mode)
+            domain_namespace = fixtures.get("domain_namespace", domain_namespace)
+            recommender_id = fixtures.get("recommender_id", recommender_id)
+            profile = fixtures.get("profile", profile)
+            source = fixtures.get("source", source)
+            context_doc = fixtures.get("context_doc", context_doc)
+        from opendv_service.ontology.registry import get_ontology_recommender_registry
+        reg = get_ontology_recommender_registry()
+        if not reg.has_recommender():
+            reg.discover(force=True)
+        argv = ["ontology", "suggest", "--json"]
+        if base:
+            base_path = (
+                self._resolve_contract_arg(base, filename="base_ontology.yaml")
+                if isinstance(base, dict) else str(base)
+            )
+            argv.extend(["--base", base_path])
+        if mode:
+            argv.extend(["--mode", mode])
+        if domain_namespace:
+            argv.extend(["--domain-namespace", domain_namespace])
+        if profile:
+            argv.extend(["--profile", str(profile)])
+        if source:
+            argv.extend(["--source", str(source)])
+        if context_doc:
+            argv.extend(["--context-doc", str(context_doc)])
+        if recommender_id:
+            argv.extend(["--recommender-id", recommender_id])
+        if output:
+            argv.extend(["--output", str(output)])
+        return self._invoke(argv)
+
+    def validate_ontology_delta(
+        self,
+        delta: Any = None,
+        base: Any = None,
+        contract: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(delta, dict) and (
+            "base_ontology" in delta or "proposal" in delta or "delta" in delta
+        ):
+            fixtures = delta
+            delta = fixtures.get("proposal") or fixtures.get("delta") or fixtures.get("validation")
+            base = fixtures.get("base_ontology") or fixtures.get("base") or base
+            contract = fixtures.get("contract", contract)
+        delta_path = self._resolve_delta_arg(delta)
+        base_path = (
+            self._resolve_contract_arg(base, filename="base_ontology.yaml")
+            if isinstance(base, dict) else str(base)
+        )
+        argv = ["ontology", "validate-delta", "--delta", delta_path, "--base", base_path, "--json"]
+        if contract:
+            contract_path = (
+                self._resolve_contract_arg(contract, filename="deployed_contract.yaml")
+                if isinstance(contract, dict) else str(contract)
+            )
+            argv.extend(["--contract", contract_path])
+        return self._invoke(argv)
+
+    def diff_ontology(
+        self,
+        base: Any = None,
+        target: Any = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(base, dict) and (
+            "base_ontology" in base or "target_ontology" in base or "accepted_ontology" in base
+        ):
+            fixtures = base
+            target = fixtures.get("target_ontology") or fixtures.get("accepted_ontology") or target
+            base = fixtures.get("base_ontology") or fixtures.get("base") or base
+        base_path = (
+            self._resolve_contract_arg(base, filename="base_ontology.yaml")
+            if isinstance(base, dict) else str(base)
+        )
+        target_path = (
+            self._resolve_contract_arg(target, filename="target_ontology.yaml")
+            if isinstance(target, dict) else str(target)
+        )
+        argv = ["ontology", "diff", "--base", base_path, "--target", target_path, "--json"]
+        return self._invoke(argv)
+
+    def decide_ontology(
+        self,
+        action: Any = "ACCEPT",
+        delta: Any | None = None,
+        base: Any | None = None,
+        proposal_id: str | None = None,
+        contract: Any | None = None,
+        op_id: str | list[str] | None = None,
+        decided_by: str | None = None,
+        notes: str | None = None,
+        output: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(action, dict):
+            fixtures = action
+            action = fixtures.get("action", "ACCEPT")
+            delta = fixtures.get("proposal") or fixtures.get("delta") or delta
+            base = fixtures.get("base_ontology") or fixtures.get("base") or base
+            proposal_id = fixtures.get("proposal_id", proposal_id)
+            contract = fixtures.get("contract", contract)
+            op_id = fixtures.get("op_id", op_id)
+            decided_by = fixtures.get("decided_by", decided_by)
+            notes = fixtures.get("notes", notes)
+            output = fixtures.get("output", output)
+        sub = "accept" if str(action).upper() == "ACCEPT" else "reject"
+        argv = ["ontology", sub, "--json"]
+        if delta:
+            delta_path = self._resolve_delta_arg(delta)
+            argv.extend(["--delta", delta_path])
+        if base:
+            base_path = (
+                self._resolve_contract_arg(base, filename="base_ontology.yaml")
+                if isinstance(base, dict) else str(base)
+            )
+            argv.extend(["--base", base_path])
+        if proposal_id:
+            argv.extend(["--proposal-id", proposal_id])
+        if contract:
+            contract_path = (
+                self._resolve_contract_arg(contract, filename="deployed_contract.yaml")
+                if isinstance(contract, dict) else str(contract)
+            )
+            argv.extend(["--contract", contract_path])
+        if op_id:
+            op_val = ",".join(op_id) if isinstance(op_id, list) else str(op_id)
+            argv.extend(["--op-id", op_val])
+        if decided_by:
+            argv.extend(["--decided-by", decided_by])
+        if notes:
+            argv.extend(["--notes", notes])
+        if output:
+            argv.extend(["--output", str(output)])
         return self._invoke(argv)
 
 
@@ -607,6 +812,165 @@ class ClientCliTransport:
             argv.extend(["--wave-id", str(kwargs["wave_id"])])
         return self._invoke(argv)
 
+    def _resolve_delta_arg(self, delta: Any, filename: str = "delta.json") -> str:
+        if isinstance(delta, (str, Path)):
+            return str(delta)
+        if isinstance(delta, dict):
+            delta_file = self.workspace_dir / filename
+            delta_file.write_text(json.dumps(delta, indent=2), encoding="utf-8")
+            return str(delta_file)
+        if hasattr(delta, "model_dump"):
+            delta_file = self.workspace_dir / filename
+            delta_file.write_text(json.dumps(delta.model_dump(mode="json"), indent=2), encoding="utf-8")
+            return str(delta_file)
+        raise ValueError(f"Invalid delta argument: {delta!r}")
+
+    def suggest_ontology(
+        self,
+        base: Any | None = None,
+        mode: str = "DELTA",
+        domain_namespace: str | None = None,
+        profile: Any | None = None,
+        source: Any | None = None,
+        context_doc: Any | None = None,
+        recommender_id: str | None = None,
+        output: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(base, dict) and "base_ontology" in base:
+            fixtures = base
+            base = fixtures.get("base_ontology")
+            mode = fixtures.get("mode", mode)
+            domain_namespace = fixtures.get("domain_namespace", domain_namespace)
+            recommender_id = fixtures.get("recommender_id", recommender_id)
+            profile = fixtures.get("profile", profile)
+            source = fixtures.get("source", source)
+            context_doc = fixtures.get("context_doc", context_doc)
+        argv = ["ontology", "suggest", "--json"]
+        if base:
+            base_path = self._resolve_contract_arg(base, filename="base_ontology.yaml") if isinstance(base, dict) else str(base)
+            argv.extend(["--base", base_path])
+        if mode:
+            argv.extend(["--mode", mode])
+        if domain_namespace:
+            argv.extend(["--domain-namespace", domain_namespace])
+        if profile:
+            argv.extend(["--profile", str(profile)])
+        if source:
+            argv.extend(["--source", str(source)])
+        if context_doc:
+            argv.extend(["--context-doc", str(context_doc)])
+        if recommender_id:
+            argv.extend(["--recommender-id", recommender_id])
+        if output:
+            argv.extend(["--output", str(output)])
+        return self._invoke(argv)
+
+    def validate_ontology_delta(
+        self,
+        delta: Any = None,
+        base: Any = None,
+        contract: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(delta, dict) and (
+            "base_ontology" in delta or "proposal" in delta or "delta" in delta
+        ):
+            fixtures = delta
+            delta = fixtures.get("proposal") or fixtures.get("delta") or fixtures.get("validation")
+            base = fixtures.get("base_ontology") or fixtures.get("base") or base
+            contract = fixtures.get("contract", contract)
+        delta_path = self._resolve_delta_arg(delta)
+        base_path = (
+            self._resolve_contract_arg(base, filename="base_ontology.yaml")
+            if isinstance(base, dict) else str(base)
+        )
+        argv = ["ontology", "validate-delta", "--delta", delta_path, "--base", base_path, "--json"]
+        if contract:
+            contract_path = (
+                self._resolve_contract_arg(contract, filename="deployed_contract.yaml")
+                if isinstance(contract, dict) else str(contract)
+            )
+            argv.extend(["--contract", contract_path])
+        return self._invoke(argv)
+
+    def diff_ontology(
+        self,
+        base: Any = None,
+        target: Any = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(base, dict) and (
+            "base_ontology" in base or "target_ontology" in base or "accepted_ontology" in base
+        ):
+            fixtures = base
+            target = fixtures.get("target_ontology") or fixtures.get("accepted_ontology") or target
+            base = fixtures.get("base_ontology") or fixtures.get("base") or base
+        base_path = (
+            self._resolve_contract_arg(base, filename="base_ontology.yaml")
+            if isinstance(base, dict) else str(base)
+        )
+        target_path = (
+            self._resolve_contract_arg(target, filename="target_ontology.yaml")
+            if isinstance(target, dict) else str(target)
+        )
+        argv = ["ontology", "diff", "--base", base_path, "--target", target_path, "--json"]
+        return self._invoke(argv)
+
+    def decide_ontology(
+        self,
+        action: Any = "ACCEPT",
+        delta: Any | None = None,
+        base: Any | None = None,
+        proposal_id: str | None = None,
+        contract: Any | None = None,
+        op_id: str | list[str] | None = None,
+        decided_by: str | None = None,
+        notes: str | None = None,
+        output: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(action, dict):
+            fixtures = action
+            action = fixtures.get("action", "ACCEPT")
+            delta = fixtures.get("proposal") or fixtures.get("delta") or delta
+            base = fixtures.get("base_ontology") or fixtures.get("base") or base
+            proposal_id = fixtures.get("proposal_id", proposal_id)
+            contract = fixtures.get("contract", contract)
+            op_id = fixtures.get("op_id", op_id)
+            decided_by = fixtures.get("decided_by", decided_by)
+            notes = fixtures.get("notes", notes)
+            output = fixtures.get("output", output)
+        sub = "accept" if str(action).upper() == "ACCEPT" else "reject"
+        argv = ["ontology", sub, "--json"]
+        if delta:
+            delta_path = self._resolve_delta_arg(delta)
+            argv.extend(["--delta", delta_path])
+        if base:
+            base_path = (
+                self._resolve_contract_arg(base, filename="base_ontology.yaml")
+                if isinstance(base, dict) else str(base)
+            )
+            argv.extend(["--base", base_path])
+        if proposal_id:
+            argv.extend(["--proposal-id", proposal_id])
+        if contract:
+            contract_path = (
+                self._resolve_contract_arg(contract, filename="deployed_contract.yaml")
+                if isinstance(contract, dict) else str(contract)
+            )
+            argv.extend(["--contract", contract_path])
+        if op_id:
+            op_val = ",".join(op_id) if isinstance(op_id, list) else str(op_id)
+            argv.extend(["--op-id", op_val])
+        if decided_by:
+            argv.extend(["--decided-by", decided_by])
+        if notes:
+            argv.extend(["--notes", notes])
+        if output:
+            argv.extend(["--output", str(output)])
+        return self._invoke(argv)
+
 
 class DirectRestTransport:
     """Executes requests against the platform REST/SSE API."""
@@ -886,6 +1250,224 @@ class DirectRestTransport:
                             if rep_res.status_code == 200:
                                 return self._wrap_res(rep_res)
                             return self._wrap_res(st_res)
+        return self._wrap_res(res)
+
+    def suggest_ontology(
+        self,
+        base: Any | None = None,
+        mode: str = "DELTA",
+        domain_namespace: str | None = None,
+        profile: Any | None = None,
+        source: Any | None = None,
+        context_doc: Any | None = None,
+        recommender_id: str | None = None,
+        output: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(base, dict) and "base_ontology" in base:
+            fixtures = base
+            base = fixtures.get("base_ontology")
+            mode = fixtures.get("mode", mode)
+            domain_namespace = fixtures.get("domain_namespace", domain_namespace)
+            recommender_id = fixtures.get("recommender_id", recommender_id)
+            profile = fixtures.get("profile", profile)
+            source = fixtures.get("source", source)
+            context_doc = fixtures.get("context_doc", context_doc)
+        from opendv_service.ontology.registry import get_ontology_recommender_registry
+        reg = get_ontology_recommender_registry()
+        if not reg.has_recommender():
+            reg.discover(force=True)
+        body: dict[str, Any] = {"mode": mode}
+        if domain_namespace:
+            body["domain_namespace"] = domain_namespace
+        if recommender_id:
+            body["recommender_id"] = recommender_id
+        if base:
+            if isinstance(base, (str, Path)):
+                body["base_ontology_path"] = str(base)
+                bp = Path(base)
+                if bp.is_file():
+                    with contextlib.suppress(Exception):
+                        body["base_ontology_content"] = bp.read_text(encoding="utf-8")
+            elif isinstance(base, dict):
+                body["base_ontology_content"] = yaml.safe_dump(base)
+        if profile:
+            if isinstance(profile, (str, Path)):
+                body["empirical_profile_path"] = str(profile)
+            elif isinstance(profile, dict):
+                body["empirical_profile_content"] = json.dumps(profile)
+        if source:
+            if isinstance(source, (str, Path)):
+                body["bronze_source_path"] = str(source)
+            elif isinstance(source, str):
+                body["bronze_source_content"] = source
+        if context_doc:
+            if isinstance(context_doc, (str, Path)):
+                body["context_doc_path"] = str(context_doc)
+            elif isinstance(context_doc, str):
+                body["context_doc_content"] = context_doc
+
+        res = self.client.post("/api/v1/ontology/suggestions", json=body)
+        return self._wrap_res(res)
+
+    def validate_ontology_delta(
+        self,
+        delta: Any = None,
+        base: Any = None,
+        contract: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(delta, dict) and (
+            "base_ontology" in delta or "proposal" in delta or "delta" in delta
+        ):
+            fixtures = delta
+            delta = fixtures.get("proposal") or fixtures.get("delta") or fixtures.get("validation")
+            base = fixtures.get("base_ontology") or fixtures.get("base") or base
+            contract = fixtures.get("contract", contract)
+        body: dict[str, Any] = {}
+        if isinstance(delta, (str, Path)):
+            body["delta_path"] = str(delta)
+            dp = Path(delta)
+            if dp.is_file():
+                with contextlib.suppress(Exception):
+                    body["delta_content"] = dp.read_text(encoding="utf-8")
+        elif isinstance(delta, dict):
+            body["delta_content"] = json.dumps(delta)
+        elif hasattr(delta, "model_dump"):
+            body["delta_content"] = json.dumps(delta.model_dump(mode="json"))
+
+        if isinstance(base, (str, Path)):
+            body["base_ontology_path"] = str(base)
+            bp = Path(base)
+            if bp.is_file():
+                with contextlib.suppress(Exception):
+                    body["base_ontology_content"] = bp.read_text(encoding="utf-8")
+        elif isinstance(base, dict):
+            body["base_ontology_content"] = yaml.safe_dump(base)
+        elif hasattr(base, "model_dump"):
+            body["base_ontology_content"] = yaml.safe_dump(base.model_dump(mode="json"))
+
+        if contract:
+            if isinstance(contract, (str, Path)):
+                body["contract_path"] = str(contract)
+                cp = Path(contract)
+                if cp.is_file():
+                    with contextlib.suppress(Exception):
+                        body["contract_content"] = cp.read_text(encoding="utf-8")
+            elif isinstance(contract, dict):
+                body["contract_content"] = yaml.safe_dump(contract)
+
+        res = self.client.post("/api/v1/ontology/validate-delta", json=body)
+        return self._wrap_res(res)
+
+    def diff_ontology(
+        self,
+        base: Any = None,
+        target: Any = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(base, dict) and (
+            "base_ontology" in base or "target_ontology" in base or "accepted_ontology" in base
+        ):
+            fixtures = base
+            target = fixtures.get("target_ontology") or fixtures.get("accepted_ontology") or target
+            base = fixtures.get("base_ontology") or fixtures.get("base") or base
+        body: dict[str, Any] = {}
+        if isinstance(base, (str, Path)):
+            body["base_ontology_path"] = str(base)
+            bp = Path(base)
+            if bp.is_file():
+                with contextlib.suppress(Exception):
+                    body["base_ontology_content"] = bp.read_text(encoding="utf-8")
+        elif isinstance(base, dict):
+            body["base_ontology_content"] = yaml.safe_dump(base)
+        elif hasattr(base, "model_dump"):
+            body["base_ontology_content"] = yaml.safe_dump(base.model_dump(mode="json"))
+
+        if isinstance(target, (str, Path)):
+            body["target_ontology_path"] = str(target)
+            tp = Path(target)
+            if tp.is_file():
+                with contextlib.suppress(Exception):
+                    body["target_ontology_content"] = tp.read_text(encoding="utf-8")
+        elif isinstance(target, dict):
+            body["target_ontology_content"] = yaml.safe_dump(target)
+        elif hasattr(target, "model_dump"):
+            body["target_ontology_content"] = yaml.safe_dump(target.model_dump(mode="json"))
+
+        res = self.client.post("/api/v1/ontology/diff", json=body)
+        return self._wrap_res(res)
+
+    def decide_ontology(
+        self,
+        action: Any = "ACCEPT",
+        delta: Any | None = None,
+        base: Any | None = None,
+        proposal_id: str | None = None,
+        contract: Any | None = None,
+        op_id: str | list[str] | None = None,
+        decided_by: str | None = None,
+        notes: str | None = None,
+        output: Any | None = None,
+        **kwargs: Any,
+    ) -> dict[str, Any]:
+        if isinstance(action, dict):
+            fixtures = action
+            action = fixtures.get("action", "ACCEPT")
+            delta = fixtures.get("proposal") or fixtures.get("delta") or delta
+            base = fixtures.get("base_ontology") or fixtures.get("base") or base
+            proposal_id = fixtures.get("proposal_id", proposal_id)
+            contract = fixtures.get("contract", contract)
+            op_id = fixtures.get("op_id", op_id)
+            decided_by = fixtures.get("decided_by", decided_by)
+            notes = fixtures.get("notes", notes)
+            output = fixtures.get("output", output)
+        body: dict[str, Any] = {"action": str(action).upper()}
+        if proposal_id:
+            body["proposal_id"] = proposal_id
+        if decided_by:
+            body["decided_by"] = decided_by
+        if notes:
+            body["steward_notes"] = notes
+
+        if delta:
+            if isinstance(delta, (str, Path)):
+                body["delta_path"] = str(delta)
+                dp = Path(delta)
+                if dp.is_file():
+                    with contextlib.suppress(Exception):
+                        body["delta_content"] = dp.read_text(encoding="utf-8")
+            elif isinstance(delta, dict):
+                body["delta_content"] = json.dumps(delta)
+            elif hasattr(delta, "model_dump"):
+                body["delta_content"] = json.dumps(delta.model_dump(mode="json"))
+
+        if base:
+            if isinstance(base, (str, Path)):
+                body["base_ontology_path"] = str(base)
+                bp = Path(base)
+                if bp.is_file():
+                    with contextlib.suppress(Exception):
+                        body["base_ontology_content"] = bp.read_text(encoding="utf-8")
+            elif isinstance(base, dict):
+                body["base_ontology_content"] = yaml.safe_dump(base)
+            elif hasattr(base, "model_dump"):
+                body["base_ontology_content"] = yaml.safe_dump(base.model_dump(mode="json"))
+
+        if contract:
+            if isinstance(contract, (str, Path)):
+                body["contract_path"] = str(contract)
+                cp = Path(contract)
+                if cp.is_file():
+                    with contextlib.suppress(Exception):
+                        body["contract_content"] = cp.read_text(encoding="utf-8")
+            elif isinstance(contract, dict):
+                body["contract_content"] = yaml.safe_dump(contract)
+
+        if op_id:
+            body["accepted_op_ids"] = op_id if isinstance(op_id, list) else [op_id]
+
+        res = self.client.post("/api/v1/ontology/decisions", json=body)
         return self._wrap_res(res)
 
 

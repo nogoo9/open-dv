@@ -3,6 +3,645 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "components": {
     "schemas": {
+      "AcceptOntologyDeltaOption": {
+        "additionalProperties": false,
+        "description": "Steward option to accept a proposed ontology delta.",
+        "properties": {
+          "accepted_op_ids": {
+            "description": "Explicit list of accepted operation IDs (empty means all)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Op Ids",
+            "type": "array"
+          },
+          "delta": {
+            "$ref": "#/components/schemas/OntologyDelta",
+            "description": "Ontology delta to accept and apply"
+          },
+          "delta_sha256": {
+            "description": "Cryptographic SHA-256 of the delta",
+            "title": "Delta Sha256",
+            "type": "string"
+          },
+          "kind": {
+            "const": "accept_ontology_delta",
+            "default": "accept_ontology_delta",
+            "title": "Kind",
+            "type": "string"
+          },
+          "steward_note": {
+            "default": "",
+            "description": "Human steward rationale notes",
+            "title": "Steward Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delta",
+          "delta_sha256"
+        ],
+        "title": "AcceptOntologyDeltaOption",
+        "type": "object"
+      },
+      "AddConceptOp": {
+        "additionalProperties": false,
+        "description": "Additive operation to introduce a Canonical Business Concept (CBC) / Hub.",
+        "properties": {
+          "attributes": {
+            "description": "Associated business attributes",
+            "items": {
+              "type": "string"
+            },
+            "title": "Attributes",
+            "type": "array"
+          },
+          "concept_name": {
+            "default": "",
+            "description": "Human-readable concept name",
+            "title": "Concept Name",
+            "type": "string"
+          },
+          "concept_uri": {
+            "description": "Unique canonical concept URN",
+            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "title": "Concept Uri",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 1.0,
+            "description": "Operation confidence score",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "definition": {
+            "default": "",
+            "description": "Normative definition of concept",
+            "title": "Definition",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "description": "Alternative concept description",
+            "title": "Description",
+            "type": "string"
+          },
+          "elm_archetype": {
+            "default": "CORE_BUSINESS_CONCEPT",
+            "description": "ELM archetype",
+            "title": "Elm Archetype",
+            "type": "string"
+          },
+          "evidence_refs": {
+            "description": "Grounding evidence references",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "governance_constraints": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Governance, PII, and MNPI constraints",
+            "title": "Governance Constraints"
+          },
+          "key_authority_tiers": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "3-Tier Business Key Authority specification",
+            "title": "Key Authority Tiers"
+          },
+          "op_id": {
+            "description": "Unique operation identifier",
+            "title": "Op Id",
+            "type": "string"
+          },
+          "op_type": {
+            "const": "add_concept",
+            "default": "add_concept",
+            "title": "Op Type",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "description": "Business justification for the operation",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "target_hub": {
+            "anyOf": [
+              {
+                "pattern": "^(hub_[a-z0-9_]+)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target Data Vault 2.0 Hub table name",
+            "title": "Target Hub"
+          }
+        },
+        "required": [
+          "op_id",
+          "concept_uri"
+        ],
+        "title": "AddConceptOp",
+        "type": "object"
+      },
+      "AddGovernanceConstraintOp": {
+        "additionalProperties": false,
+        "description": "Additive operation to attach PII / MNPI security and satellite split constraints.",
+        "properties": {
+          "concept_uri": {
+            "description": "Target Canonical Business Concept URN",
+            "title": "Concept Uri",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 1.0,
+            "description": "Operation confidence score",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "constraint_id": {
+            "default": "",
+            "description": "Unique constraint identifier",
+            "title": "Constraint Id",
+            "type": "string"
+          },
+          "constraint_type": {
+            "default": "",
+            "description": "Constraint classification type",
+            "title": "Constraint Type",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "description": "Constraint description",
+            "title": "Description",
+            "type": "string"
+          },
+          "evidence_refs": {
+            "description": "Grounding evidence references",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "mnpi_confidential_attributes": {
+            "description": "Attributes requiring MNPI confidentiality",
+            "items": {
+              "type": "string"
+            },
+            "title": "Mnpi Confidential Attributes",
+            "type": "array"
+          },
+          "op_id": {
+            "description": "Unique operation identifier",
+            "title": "Op Id",
+            "type": "string"
+          },
+          "op_type": {
+            "const": "add_governance_constraint",
+            "default": "add_governance_constraint",
+            "title": "Op Type",
+            "type": "string"
+          },
+          "pii_confidential_attributes": {
+            "description": "Attributes requiring PII confidentiality",
+            "items": {
+              "type": "string"
+            },
+            "title": "Pii Confidential Attributes",
+            "type": "array"
+          },
+          "rationale": {
+            "default": "",
+            "description": "Business justification for the operation",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "required_satellite_split": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target security satellite split name",
+            "title": "Required Satellite Split"
+          }
+        },
+        "required": [
+          "op_id",
+          "concept_uri"
+        ],
+        "title": "AddGovernanceConstraintOp",
+        "type": "object"
+      },
+      "AddKeyAuthorityPatternOp": {
+        "additionalProperties": false,
+        "description": "Additive operation to attach a Business Key Authority tier pattern.",
+        "properties": {
+          "authority_name": {
+            "description": "Name of the Business Key Authority",
+            "title": "Authority Name",
+            "type": "string"
+          },
+          "concept_uri": {
+            "description": "Target Canonical Business Concept URN",
+            "title": "Concept Uri",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 1.0,
+            "description": "Operation confidence score",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "description": {
+            "default": "",
+            "description": "Authority description",
+            "title": "Description",
+            "type": "string"
+          },
+          "evidence_refs": {
+            "description": "Grounding evidence references",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "op_id": {
+            "description": "Unique operation identifier",
+            "title": "Op Id",
+            "type": "string"
+          },
+          "op_type": {
+            "const": "add_key_authority_pattern",
+            "default": "add_key_authority_pattern",
+            "title": "Op Type",
+            "type": "string"
+          },
+          "pattern_regex": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Regex pattern for authority",
+            "title": "Pattern Regex"
+          },
+          "rationale": {
+            "default": "",
+            "description": "Business justification for the operation",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "tier": {
+            "default": "TIER_1_GLOBAL_STANDARD",
+            "description": "Authority tier classification",
+            "title": "Tier",
+            "type": "string"
+          },
+          "tier_spec": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Full tier specification",
+            "title": "Tier Spec"
+          }
+        },
+        "required": [
+          "op_id",
+          "concept_uri",
+          "authority_name"
+        ],
+        "title": "AddKeyAuthorityPatternOp",
+        "type": "object"
+      },
+      "AddReferenceEnumerationOp": {
+        "additionalProperties": false,
+        "description": "Additive operation to introduce a Reference Enumeration / ref_* table.",
+        "properties": {
+          "allowed_codes": {
+            "description": "Allowed code values",
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Codes",
+            "type": "array"
+          },
+          "confidence": {
+            "default": 1.0,
+            "description": "Operation confidence score",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "description": {
+            "default": "",
+            "description": "Enumeration description",
+            "title": "Description",
+            "type": "string"
+          },
+          "enum_uri": {
+            "default": "",
+            "description": "Unique reference enumeration URN",
+            "pattern": "^(urn:ontology:enum:[a-z0-9_]+)?$",
+            "title": "Enum Uri",
+            "type": "string"
+          },
+          "evidence_refs": {
+            "description": "Grounding evidence references",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "name": {
+            "default": "",
+            "description": "Enumeration name",
+            "title": "Name",
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Unique operation identifier",
+            "title": "Op Id",
+            "type": "string"
+          },
+          "op_type": {
+            "const": "add_reference_enumeration",
+            "default": "add_reference_enumeration",
+            "title": "Op Type",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "description": "Business justification for the operation",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "target_reference_table": {
+            "default": "",
+            "description": "Target reference table name",
+            "pattern": "^(ref_[a-z0-9_]+)?$",
+            "title": "Target Reference Table",
+            "type": "string"
+          },
+          "values": {
+            "description": "Allowed code values",
+            "items": {
+              "type": "string"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "op_id"
+        ],
+        "title": "AddReferenceEnumerationOp",
+        "type": "object"
+      },
+      "AddRelationshipOp": {
+        "additionalProperties": false,
+        "description": "Additive operation to introduce a Unit-of-Work relationship / Link.",
+        "properties": {
+          "confidence": {
+            "default": 1.0,
+            "description": "Operation confidence score",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "description": {
+            "default": "",
+            "description": "Alternative relationship description",
+            "title": "Description",
+            "type": "string"
+          },
+          "endpoints": {
+            "description": "List of participant concept URN endpoints",
+            "items": {
+              "type": "string"
+            },
+            "title": "Endpoints",
+            "type": "array"
+          },
+          "evidence_refs": {
+            "description": "Grounding evidence references",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "grain_semantics": {
+            "default": "",
+            "description": "Relationship grain semantics",
+            "title": "Grain Semantics",
+            "type": "string"
+          },
+          "op_id": {
+            "description": "Unique operation identifier",
+            "title": "Op Id",
+            "type": "string"
+          },
+          "op_type": {
+            "const": "add_relationship",
+            "default": "add_relationship",
+            "title": "Op Type",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "description": "Business justification for the operation",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "relationship_name": {
+            "default": "",
+            "description": "Human-readable relationship name",
+            "title": "Relationship Name",
+            "type": "string"
+          },
+          "relationship_uri": {
+            "description": "Unique canonical relationship URN",
+            "pattern": "^urn:ontology:(provisional:)?(event|relationship):[a-z0-9_]+$",
+            "title": "Relationship Uri",
+            "type": "string"
+          },
+          "source_concept_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source endpoint concept URN",
+            "title": "Source Concept Uri"
+          },
+          "target_concept_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target endpoint concept URN",
+            "title": "Target Concept Uri"
+          },
+          "target_link": {
+            "description": "Target Data Vault 2.0 Link table name",
+            "pattern": "^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$",
+            "title": "Target Link",
+            "type": "string"
+          },
+          "yagni_cost_guard_policy": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Attached Gate 4 YAGNI cost guard policy",
+            "title": "Yagni Cost Guard Policy"
+          }
+        },
+        "required": [
+          "op_id",
+          "relationship_uri",
+          "target_link"
+        ],
+        "title": "AddRelationshipOp",
+        "type": "object"
+      },
+      "AddSourceHintOp": {
+        "additionalProperties": false,
+        "description": "Additive operation to register a source mapping hint linking source data to a CBC.",
+        "properties": {
+          "column_hint": {
+            "default": "",
+            "description": "Source column hint",
+            "title": "Column Hint",
+            "type": "string"
+          },
+          "column_name": {
+            "default": "",
+            "description": "Source column name",
+            "title": "Column Name",
+            "type": "string"
+          },
+          "concept_uri": {
+            "description": "Target Canonical Business Concept URN",
+            "title": "Concept Uri",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 1.0,
+            "description": "Operation confidence score",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence_refs": {
+            "description": "Grounding evidence references",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "op_id": {
+            "description": "Unique operation identifier",
+            "title": "Op Id",
+            "type": "string"
+          },
+          "op_type": {
+            "const": "add_source_hint",
+            "default": "add_source_hint",
+            "title": "Op Type",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "description": "Business justification for the operation",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "source_name": {
+            "default": "",
+            "description": "Source system identifier",
+            "title": "Source Name",
+            "type": "string"
+          },
+          "source_system": {
+            "default": "",
+            "description": "Source system identifier",
+            "title": "Source System",
+            "type": "string"
+          },
+          "table_name": {
+            "default": "",
+            "description": "Source table or file name",
+            "title": "Table Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id",
+          "concept_uri"
+        ],
+        "title": "AddSourceHintOp",
+        "type": "object"
+      },
       "ArtifactDTO": {
         "additionalProperties": false,
         "description": "Comprehensive artifact descriptor for Explorer workbench.",
@@ -450,6 +1089,40 @@
             ],
             "title": "Hold Id"
           },
+          "hold_option": {
+            "anyOf": [
+              {
+                "discriminator": {
+                  "mapping": {
+                    "accept_ontology_delta": "#/components/schemas/AcceptOntologyDeltaOption",
+                    "custom_ontology_delta": "#/components/schemas/CustomOntologyDeltaOption",
+                    "general_hold": "#/components/schemas/GeneralHoldOption",
+                    "reject_ontology_delta": "#/components/schemas/RejectOntologyDeltaOption"
+                  },
+                  "propertyName": "kind"
+                },
+                "oneOf": [
+                  {
+                    "$ref": "#/components/schemas/AcceptOntologyDeltaOption"
+                  },
+                  {
+                    "$ref": "#/components/schemas/RejectOntologyDeltaOption"
+                  },
+                  {
+                    "$ref": "#/components/schemas/CustomOntologyDeltaOption"
+                  },
+                  {
+                    "$ref": "#/components/schemas/GeneralHoldOption"
+                  }
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Typed steward hold option (ONT-04)",
+            "title": "Hold Option"
+          },
           "resolution_notes": {
             "anyOf": [
               {
@@ -834,6 +1507,18 @@
             ],
             "title": "Graph A Ontology Path"
           },
+          "graph_a_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph A Source"
+          },
           "graph_b_path": {
             "anyOf": [
               {
@@ -1032,6 +1717,45 @@
           }
         },
         "title": "CreateRunRequest",
+        "type": "object"
+      },
+      "CustomOntologyDeltaOption": {
+        "additionalProperties": false,
+        "description": "Steward option providing a custom authoring delta.",
+        "properties": {
+          "custom_delta": {
+            "$ref": "#/components/schemas/OntologyDelta",
+            "description": "Custom ontology delta to apply"
+          },
+          "delta_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional SHA-256 of custom delta",
+            "title": "Delta Sha256"
+          },
+          "kind": {
+            "const": "custom_ontology_delta",
+            "default": "custom_ontology_delta",
+            "title": "Kind",
+            "type": "string"
+          },
+          "steward_note": {
+            "default": "",
+            "description": "Human steward rationale notes",
+            "title": "Steward Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "custom_delta"
+        ],
+        "title": "CustomOntologyDeltaOption",
         "type": "object"
       },
       "DocCandidateOption": {
@@ -1345,6 +2069,114 @@
         "title": "DvVizDTO",
         "type": "object"
       },
+      "EvidenceRef": {
+        "additionalProperties": false,
+        "description": "Grounding evidence reference for an ontology delta operation.",
+        "properties": {
+          "bronze_table": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source bronze table name",
+            "title": "Bronze Table"
+          },
+          "char_end": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Ending character offset",
+            "title": "Char End"
+          },
+          "char_start": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Starting character offset",
+            "title": "Char Start"
+          },
+          "column_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source column name",
+            "title": "Column Name"
+          },
+          "confidence": {
+            "default": 1.0,
+            "description": "Confidence score between 0.0 and 1.0",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "doc_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Source document SHA-256",
+            "title": "Doc Sha256"
+          },
+          "evidence_type": {
+            "description": "Classification of evidence, e.g. column_profile, sample_values, document_span, standard_reference, existing_concept",
+            "title": "Evidence Type",
+            "type": "string"
+          },
+          "reference_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target reference pointer or URI",
+            "title": "Reference Uri"
+          },
+          "snippet": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text snippet, excerpt, or sample value grounding the proposal",
+            "title": "Snippet"
+          }
+        },
+        "required": [
+          "evidence_type"
+        ],
+        "title": "EvidenceRef",
+        "type": "object"
+      },
       "ExplorerBundleDTO": {
         "additionalProperties": false,
         "description": "Top-level 3-Level Pipeline Explorer bundle response DTO.",
@@ -1525,6 +2357,40 @@
         "title": "GateVerdict",
         "type": "string"
       },
+      "GeneralHoldOption": {
+        "additionalProperties": false,
+        "description": "General action option for steward holds.",
+        "properties": {
+          "action": {
+            "description": "Steward action name",
+            "title": "Action",
+            "type": "string"
+          },
+          "kind": {
+            "const": "general_hold",
+            "default": "general_hold",
+            "title": "Kind",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Arbitrary parameters for action",
+            "title": "Params",
+            "type": "object"
+          },
+          "steward_note": {
+            "default": "",
+            "description": "Steward notes or rationale",
+            "title": "Steward Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "title": "GeneralHoldOption",
+        "type": "object"
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1570,6 +2436,986 @@
           "keys"
         ],
         "title": "OntologyConceptSpec",
+        "type": "object"
+      },
+      "OntologyDecision": {
+        "additionalProperties": false,
+        "description": "Steward or policy decision record governing delta application.",
+        "properties": {
+          "accepted_op_ids": {
+            "description": "Operation IDs accepted for application",
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Op Ids",
+            "type": "array"
+          },
+          "action": {
+            "default": "ACCEPT",
+            "description": "Decision action (ACCEPT, REJECT, PARTIAL)",
+            "title": "Action",
+            "type": "string"
+          },
+          "applied_delta_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 of accepted delta",
+            "title": "Applied Delta Sha256"
+          },
+          "base_ontology_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 of base ontology",
+            "title": "Base Ontology Sha256"
+          },
+          "created_at_utc": {
+            "default": "",
+            "description": "UTC ISO timestamp of decision",
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "decided_by": {
+            "default": "steward",
+            "description": "Steward identifier or policy name",
+            "title": "Decided By",
+            "type": "string"
+          },
+          "decision_id": {
+            "description": "Unique decision record ID",
+            "minLength": 1,
+            "title": "Decision Id",
+            "type": "string"
+          },
+          "hold_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Steward hold ID",
+            "title": "Hold Id"
+          },
+          "notes": {
+            "default": "",
+            "description": "Alternative notes field",
+            "title": "Notes",
+            "type": "string"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Referenced proposal ID",
+            "title": "Proposal Id"
+          },
+          "rejected_op_ids": {
+            "description": "Operation IDs explicitly rejected",
+            "items": {
+              "type": "string"
+            },
+            "title": "Rejected Op Ids",
+            "type": "array"
+          },
+          "resulting_ontology_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 of resulting Graph A vN+1",
+            "title": "Resulting Ontology Sha256"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pipeline run ID",
+            "title": "Run Id"
+          },
+          "steward_notes": {
+            "default": "",
+            "description": "Human steward rationale notes",
+            "title": "Steward Notes",
+            "type": "string"
+          },
+          "timestamp": {
+            "default": "",
+            "description": "Timestamp of decision",
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "decision_id"
+        ],
+        "title": "OntologyDecision",
+        "type": "object"
+      },
+      "OntologyDecisionRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to record a steward decision and apply/reject an ontology delta.",
+        "properties": {
+          "accepted_op_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "List of accepted operation IDs (None = accept all)",
+            "title": "Accepted Op Ids"
+          },
+          "action": {
+            "default": "ACCEPT",
+            "description": "Decision action: ACCEPT or REJECT",
+            "enum": [
+              "ACCEPT",
+              "REJECT"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "base_ontology": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base Graph A ontology object or dict",
+            "title": "Base Ontology"
+          },
+          "base_ontology_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline base Graph A ontology YAML/JSON text",
+            "title": "Base Ontology Content"
+          },
+          "base_ontology_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to base Graph A ontology file",
+            "title": "Base Ontology Path"
+          },
+          "contract_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline deployed Data Vault contract YAML text",
+            "title": "Contract Content"
+          },
+          "contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to deployed Data Vault contract file",
+            "title": "Contract Path"
+          },
+          "decided_by": {
+            "default": "steward",
+            "description": "Decision maker identifier",
+            "title": "Decided By",
+            "type": "string"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OntologyDelta"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "OntologyDelta object"
+          },
+          "delta_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline delta JSON/YAML text (Decision D1)",
+            "title": "Delta Content"
+          },
+          "delta_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to delta file",
+            "title": "Delta Path"
+          },
+          "deployed_contract": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deployed contract object or dict",
+            "title": "Deployed Contract"
+          },
+          "hold_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Steward hold identifier if resolving hold",
+            "title": "Hold Id"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Proposal identifier",
+            "title": "Proposal Id"
+          },
+          "rejected_op_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "List of explicitly rejected operation IDs",
+            "title": "Rejected Op Ids"
+          },
+          "run_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pipeline run identifier if attached to run",
+            "title": "Run Id"
+          },
+          "steward_notes": {
+            "default": "",
+            "description": "Steward rationale notes",
+            "title": "Steward Notes",
+            "type": "string"
+          }
+        },
+        "title": "OntologyDecisionRequest",
+        "type": "object"
+      },
+      "OntologyDecisionResponse": {
+        "additionalProperties": false,
+        "description": "Response DTO for an ontology decision action.",
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/OntologyDecision",
+            "description": "Recorded ontology decision record"
+          },
+          "resulting_ontology_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CAS SHA-256 digest of resulting Graph A vN+1",
+            "title": "Resulting Ontology Sha256"
+          },
+          "resulting_ontology_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target version string of Graph A vN+1",
+            "title": "Resulting Ontology Version"
+          },
+          "resulting_ontology_yaml": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Serialized Graph A vN+1 YAML content if ACCEPT",
+            "title": "Resulting Ontology Yaml"
+          },
+          "status": {
+            "default": "COMPLETED",
+            "description": "Status label",
+            "title": "Status",
+            "type": "string"
+          },
+          "validation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OntologyValidationResult"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Validation result if delta validation was performed"
+          }
+        },
+        "required": [
+          "decision"
+        ],
+        "title": "OntologyDecisionResponse",
+        "type": "object"
+      },
+      "OntologyDelta": {
+        "additionalProperties": false,
+        "description": "Ordered collection of additive operations evolving Graph A to vN+1.",
+        "properties": {
+          "base_ontology_version": {
+            "default": "1.0.0",
+            "description": "Base ontology version",
+            "title": "Base Ontology Version",
+            "type": "string"
+          },
+          "delta_id": {
+            "description": "Unique delta identifier",
+            "minLength": 1,
+            "title": "Delta Id",
+            "type": "string"
+          },
+          "domain_namespace": {
+            "anyOf": [
+              {
+                "pattern": "^([a-z][a-z0-9_]*)?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Domain namespace matching base Graph A",
+            "title": "Domain Namespace"
+          },
+          "metadata": {
+            "additionalProperties": true,
+            "description": "Arbitrary authoring provenance metadata",
+            "title": "Metadata",
+            "type": "object"
+          },
+          "operations": {
+            "description": "Ordered sequence of additive operations",
+            "items": {
+              "discriminator": {
+                "mapping": {
+                  "add_concept": "#/components/schemas/AddConceptOp",
+                  "add_governance_constraint": "#/components/schemas/AddGovernanceConstraintOp",
+                  "add_key_authority_pattern": "#/components/schemas/AddKeyAuthorityPatternOp",
+                  "add_reference_enumeration": "#/components/schemas/AddReferenceEnumerationOp",
+                  "add_relationship": "#/components/schemas/AddRelationshipOp",
+                  "add_source_hint": "#/components/schemas/AddSourceHintOp",
+                  "refine_definition": "#/components/schemas/RefineDefinitionOp"
+                },
+                "propertyName": "op_type"
+              },
+              "oneOf": [
+                {
+                  "$ref": "#/components/schemas/AddConceptOp"
+                },
+                {
+                  "$ref": "#/components/schemas/AddRelationshipOp"
+                },
+                {
+                  "$ref": "#/components/schemas/AddReferenceEnumerationOp"
+                },
+                {
+                  "$ref": "#/components/schemas/AddKeyAuthorityPatternOp"
+                },
+                {
+                  "$ref": "#/components/schemas/AddGovernanceConstraintOp"
+                },
+                {
+                  "$ref": "#/components/schemas/RefineDefinitionOp"
+                },
+                {
+                  "$ref": "#/components/schemas/AddSourceHintOp"
+                }
+              ]
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "parent_sha256": {
+            "anyOf": [
+              {
+                "pattern": "^([a-f0-9]{64})?$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Cryptographic SHA-256 of the base Graph A ontology",
+            "title": "Parent Sha256"
+          },
+          "target_ontology_version": {
+            "default": "1.1.0",
+            "description": "Target ontology version after delta application",
+            "title": "Target Ontology Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delta_id"
+        ],
+        "title": "OntologyDelta",
+        "type": "object"
+      },
+      "OntologyDiff": {
+        "additionalProperties": false,
+        "description": "Structural delta between two Graph A ontology instances.",
+        "properties": {
+          "added_concepts": {
+            "description": "Added concept URNs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Concepts",
+            "type": "array"
+          },
+          "added_enumerations": {
+            "description": "Added reference enumeration URNs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Enumerations",
+            "type": "array"
+          },
+          "added_relationships": {
+            "description": "Added relationship URNs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Added Relationships",
+            "type": "array"
+          },
+          "base_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base ontology SHA-256",
+            "title": "Base Sha256"
+          },
+          "base_version": {
+            "default": "1.0.0",
+            "description": "Base ontology version",
+            "title": "Base Version",
+            "type": "string"
+          },
+          "breaking_changes": {
+            "description": "Detected breaking changes",
+            "items": {
+              "type": "string"
+            },
+            "title": "Breaking Changes",
+            "type": "array"
+          },
+          "diagnostics": {
+            "description": "Informational diff diagnostics",
+            "items": {
+              "type": "string"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "refined_concepts": {
+            "description": "Concepts refined by definition or constraints",
+            "items": {
+              "type": "string"
+            },
+            "title": "Refined Concepts",
+            "type": "array"
+          },
+          "target_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target ontology SHA-256",
+            "title": "Target Sha256"
+          },
+          "target_version": {
+            "default": "1.1.0",
+            "description": "Target ontology version",
+            "title": "Target Version",
+            "type": "string"
+          }
+        },
+        "title": "OntologyDiff",
+        "type": "object"
+      },
+      "OntologyDiffRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to compute structural diff between two Graph A ontologies.",
+        "properties": {
+          "base_ontology": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base Graph A ontology object or dict",
+            "title": "Base Ontology"
+          },
+          "base_ontology_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline base Graph A ontology YAML/JSON text",
+            "title": "Base Ontology Content"
+          },
+          "base_ontology_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to base Graph A ontology file",
+            "title": "Base Ontology Path"
+          },
+          "target_ontology": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target Graph A ontology object or dict",
+            "title": "Target Ontology"
+          },
+          "target_ontology_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline target Graph A ontology YAML/JSON text",
+            "title": "Target Ontology Content"
+          },
+          "target_ontology_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to target Graph A ontology file",
+            "title": "Target Ontology Path"
+          }
+        },
+        "title": "OntologyDiffRequest",
+        "type": "object"
+      },
+      "OntologyProposal": {
+        "additionalProperties": false,
+        "description": "Advisory or blocking proposal emitted by an Ontology Recommender.",
+        "properties": {
+          "base_ontology_sha256": {
+            "default": "",
+            "description": "SHA-256 of base ontology",
+            "pattern": "^([a-f0-9]{64})?$",
+            "title": "Base Ontology Sha256",
+            "type": "string"
+          },
+          "confidence_score": {
+            "default": 1.0,
+            "description": "Aggregate proposal confidence score",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence Score",
+            "type": "number"
+          },
+          "coverage_after": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Projected coverage ratio after",
+            "title": "Coverage After"
+          },
+          "coverage_before": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Projected coverage ratio before",
+            "title": "Coverage Before"
+          },
+          "created_at_utc": {
+            "default": "",
+            "description": "UTC ISO-8601 creation timestamp",
+            "title": "Created At Utc",
+            "type": "string"
+          },
+          "delta": {
+            "$ref": "#/components/schemas/OntologyDelta",
+            "description": "Proposed ontology delta"
+          },
+          "diagnostics": {
+            "description": "Advisory diagnostic messages",
+            "items": {
+              "type": "string"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "proposal_id": {
+            "description": "Unique proposal identifier",
+            "minLength": 1,
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "description": "Overall business rationale for proposal",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "recommender_id": {
+            "default": "recommender-default",
+            "description": "Recommender module ID",
+            "title": "Recommender Id",
+            "type": "string"
+          },
+          "recommender_version": {
+            "default": "1.0.0",
+            "description": "Recommender version",
+            "title": "Recommender Version",
+            "type": "string"
+          },
+          "wave_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional pipeline wave identifier",
+            "title": "Wave Id"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "delta"
+        ],
+        "title": "OntologyProposal",
+        "type": "object"
+      },
+      "OntologySuggestionRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to generate ontology proposal from source profiles or context docs (IP-1).",
+        "properties": {
+          "base_ontology_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline base Graph A ontology YAML/JSON text (Decision D1)",
+            "title": "Base Ontology Content"
+          },
+          "base_ontology_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to base Graph A ontology file",
+            "title": "Base Ontology Path"
+          },
+          "base_ontology_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CAS SHA-256 digest of base ontology",
+            "title": "Base Ontology Sha256"
+          },
+          "bronze_source_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline bronze source dataset content",
+            "title": "Bronze Source Content"
+          },
+          "bronze_source_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to bronze source dataset file",
+            "title": "Bronze Source Path"
+          },
+          "business_context": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Free-text business description or brief",
+            "title": "Business Context"
+          },
+          "context_doc_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline context document text",
+            "title": "Context Doc Content"
+          },
+          "context_doc_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to context document file",
+            "title": "Context Doc Path"
+          },
+          "context_document_paths": {
+            "description": "Context document paths (glossary, policy)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Context Document Paths",
+            "type": "array"
+          },
+          "domain_namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target domain namespace",
+            "title": "Domain Namespace"
+          },
+          "empirical_profile_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline empirical data profile JSON text",
+            "title": "Empirical Profile Content"
+          },
+          "empirical_profile_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to empirical data profile (Graph B) JSON file",
+            "title": "Empirical Profile Path"
+          },
+          "focus": {
+            "description": "Focus areas: unmapped tables, columns, mentions",
+            "items": {
+              "type": "string"
+            },
+            "title": "Focus",
+            "type": "array"
+          },
+          "mode": {
+            "default": "DELTA",
+            "description": "Recommender operation mode",
+            "enum": [
+              "BOOTSTRAP",
+              "DELTA",
+              "HOLD_RESOLUTION"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "recommender_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Specific recommender plugin ID",
+            "title": "Recommender Id"
+          },
+          "source_paths": {
+            "description": "Source dataset file paths",
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Paths",
+            "type": "array"
+          },
+          "source_profiles": {
+            "description": "Source empirical profiles (Graph B)",
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Source Profiles",
+            "type": "array"
+          }
+        },
+        "title": "OntologySuggestionRequest",
         "type": "object"
       },
       "OntologySvgEdgeSpec": {
@@ -1680,6 +3526,159 @@
           "w"
         ],
         "title": "OntologySvgNodeSpec",
+        "type": "object"
+      },
+      "OntologyValidateDeltaRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to deterministically validate an ontology delta (ONT-EVO-001..003).",
+        "properties": {
+          "base_ontology": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Base Graph A ontology object or dict",
+            "title": "Base Ontology"
+          },
+          "base_ontology_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline base Graph A ontology YAML/JSON text",
+            "title": "Base Ontology Content"
+          },
+          "base_ontology_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to base Graph A ontology file",
+            "title": "Base Ontology Path"
+          },
+          "contract_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline deployed Data Vault contract YAML text",
+            "title": "Contract Content"
+          },
+          "contract_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to deployed Data Vault contract file",
+            "title": "Contract Path"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OntologyDelta"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "OntologyDelta object"
+          },
+          "delta_content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline delta JSON/YAML text (Decision D1)",
+            "title": "Delta Content"
+          },
+          "delta_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Path to delta file",
+            "title": "Delta Path"
+          },
+          "deployed_contract": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Deployed contract object or dict",
+            "title": "Deployed Contract"
+          }
+        },
+        "title": "OntologyValidateDeltaRequest",
+        "type": "object"
+      },
+      "OntologyValidationResult": {
+        "additionalProperties": false,
+        "description": "Validation report returned by validate_ontology_delta.",
+        "properties": {
+          "diagnostics": {
+            "description": "Informational diagnostics",
+            "items": {
+              "type": "string"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Primary error code if invalid",
+            "title": "Error Code"
+          },
+          "valid": {
+            "default": true,
+            "description": "Whether the delta is valid",
+            "title": "Valid",
+            "type": "boolean"
+          },
+          "violations": {
+            "description": "Validation violation messages",
+            "items": {
+              "type": "string"
+            },
+            "title": "Violations",
+            "type": "array"
+          }
+        },
+        "title": "OntologyValidationResult",
         "type": "object"
       },
       "OntologyVizDTO": {
@@ -1890,6 +3889,19 @@
             "title": "Dry Run",
             "type": "boolean"
           },
+          "graph_a_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)",
+            "title": "Graph A Source"
+          },
           "harness_config": {
             "anyOf": [
               {
@@ -2058,6 +4070,19 @@
         "additionalProperties": false,
         "description": "Request DTO for static pipeline configuration validation (Decision D1).",
         "properties": {
+          "graph_a_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)",
+            "title": "Graph A Source"
+          },
           "harness_config": {
             "anyOf": [
               {
@@ -2645,6 +4670,112 @@
           "decisions_url"
         ],
         "title": "ProjectRunDTO",
+        "type": "object"
+      },
+      "RefineDefinitionOp": {
+        "additionalProperties": false,
+        "description": "Additive operation to refine the textual definition or attributes of a concept.",
+        "properties": {
+          "additional_attributes": {
+            "description": "Additional attributes to append",
+            "items": {
+              "type": "string"
+            },
+            "title": "Additional Attributes",
+            "type": "array"
+          },
+          "concept_uri": {
+            "default": "",
+            "description": "Target concept URN",
+            "title": "Concept Uri",
+            "type": "string"
+          },
+          "confidence": {
+            "default": 1.0,
+            "description": "Operation confidence score",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Confidence",
+            "type": "number"
+          },
+          "evidence_refs": {
+            "description": "Grounding evidence references",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence Refs",
+            "type": "array"
+          },
+          "op_id": {
+            "description": "Unique operation identifier",
+            "title": "Op Id",
+            "type": "string"
+          },
+          "op_type": {
+            "const": "refine_definition",
+            "default": "refine_definition",
+            "title": "Op Type",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "description": "Business justification for the operation",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "refined_description": {
+            "default": "",
+            "description": "Refined definition or description",
+            "title": "Refined Description",
+            "type": "string"
+          },
+          "target_uri": {
+            "default": "",
+            "description": "Target concept or relationship URN",
+            "title": "Target Uri",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op_id"
+        ],
+        "title": "RefineDefinitionOp",
+        "type": "object"
+      },
+      "RejectOntologyDeltaOption": {
+        "additionalProperties": false,
+        "description": "Steward option to explicitly reject a proposed ontology delta.",
+        "properties": {
+          "kind": {
+            "const": "reject_ontology_delta",
+            "default": "reject_ontology_delta",
+            "title": "Kind",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Rejection rationale or explanation",
+            "title": "Reason",
+            "type": "string"
+          },
+          "rejected_op_ids": {
+            "description": "Explicit list of rejected operation IDs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Rejected Op Ids",
+            "type": "array"
+          },
+          "steward_note": {
+            "default": "",
+            "description": "Human steward notes",
+            "title": "Steward Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "RejectOntologyDeltaOption",
         "type": "object"
       },
       "RenderedOutput": {
@@ -3616,6 +5747,19 @@
             "description": "Path to Graph A ontology YAML",
             "title": "Graph A Path"
           },
+          "graph_a_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)",
+            "title": "Graph A Source"
+          },
           "graph_b_content": {
             "anyOf": [
               {
@@ -3728,6 +5872,14 @@
             "description": "Contract path if file-based",
             "title": "Contract Path"
           },
+          "decision_refs": {
+            "description": "Steward decision IDs that produced this version (ONT-01)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Decision Refs",
+            "type": "array"
+          },
           "diagnostics": {
             "description": "Human/log diagnostic statements",
             "items": {
@@ -3748,10 +5900,46 @@
             "$ref": "#/components/schemas/GateScorecardSummary",
             "description": "6-Gate status scorecard"
           },
+          "graph_a_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 hash of loaded Graph A ontology bytes (ONT-01)",
+            "title": "Graph A Sha256"
+          },
+          "ontology_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Semantic version of Graph A ontology (ONT-01)",
+            "title": "Ontology Version"
+          },
           "overall_passed": {
             "description": "True if verification succeeded or was auto-repaired",
             "title": "Overall Passed",
             "type": "boolean"
+          },
+          "parent_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 hash of parent Graph A ontology if evolved (ONT-01)",
+            "title": "Parent Sha256"
           },
           "rendered": {
             "anyOf": [
@@ -4013,6 +6201,192 @@
         "summary": "Get Health",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/ontology/decisions": {
+      "post": {
+        "description": "Record steward decision on an ontology proposal and apply delta if accepted.",
+        "operationId": "record_ontology_decision_api_v1_ontology_decisions_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyDecisionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyDecisionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Record Ontology Decision",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
+    "/api/v1/ontology/diff": {
+      "post": {
+        "description": "Compute structural difference between two Graph A ontologies.",
+        "operationId": "diff_ontology_api_v1_ontology_diff_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyDiffRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyDiff"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Diff Ontology",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
+    "/api/v1/ontology/suggestions": {
+      "post": {
+        "description": "Suggest ontology extensions and mappings from candidate sources.",
+        "operationId": "suggest_ontology_api_v1_ontology_suggestions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologySuggestionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyProposal"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Suggest Ontology",
+        "tags": [
+          "ontology"
+        ]
+      }
+    },
+    "/api/v1/ontology/validate-delta": {
+      "post": {
+        "description": "Validate an ontology delta against Graph A evolution locks.",
+        "operationId": "validate_ontology_delta_api_v1_ontology_validate_delta_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyValidateDeltaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyValidationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Ontology Delta",
+        "tags": [
+          "ontology"
         ]
       }
     },
@@ -4484,6 +6858,69 @@
           }
         },
         "summary": "Abort Run",
+        "tags": [
+          "runs"
+        ]
+      }
+    },
+    "/api/v1/runs/{run_id}/artifacts": {
+      "get": {
+        "description": "Retrieve all run-isolated artifacts with lowercase 64-hex CAS hash and redaction.",
+        "operationId": "list_run_artifacts_api_v1_runs__run_id__artifacts_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RunArtifactDTO"
+                  },
+                  "title": "Response List Run Artifacts Api V1 Runs  Run Id  Artifacts Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Run Artifacts",
         "tags": [
           "runs"
         ]

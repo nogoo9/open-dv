@@ -141,6 +141,7 @@ def _build_registry_entries() -> list[ScenarioSpec]:
     s3_dir = REPO_ROOT / "examples" / "scenarios" / "s3_unmapped_feed"
     s9_dir = REPO_ROOT / "examples" / "scenarios" / "s9_multitenant"
     uf2_dir = REPO_ROOT / "examples" / "scenarios" / "uf2_renamed_column"
+    gt06_dir = REPO_ROOT / "tests" / "golden" / "GT-06"
 
     return [
         ScenarioSpec(
@@ -440,6 +441,47 @@ def _build_registry_entries() -> list[ScenarioSpec]:
             },
             operations=["pipeline_validate"],
             expected=_expect_pipeline_validate_pass,
+            surface="cli+api",
+        ),
+        ScenarioSpec(
+            id="PAR-ONT-BOOTSTRAP",
+            docs17_anchor="Ontology Recommendation Extension Points — PAR-ONT-BOOTSTRAP",
+            scenarios=["S1"],
+            uf_cases=[],
+            fixtures={
+                "base_ontology": gt06_dir / "base_ontology.yaml",
+                "mode": "BOOTSTRAP",
+                "domain_namespace": "pe_asset_management",
+            },
+            operations=["suggest_ontology"],
+            expected=_expect_any_dict,
+            surface="cli+api",
+        ),
+        ScenarioSpec(
+            id="PAR-ONT-ADVISORY",
+            docs17_anchor="Ontology Recommendation Extension Points — PAR-ONT-ADVISORY",
+            scenarios=["S1", "S3"],
+            uf_cases=["UF-4"],
+            fixtures={
+                "base_ontology": gt06_dir / "base_ontology.yaml",
+                "mode": "DELTA",
+                "domain_namespace": "pe_asset_management",
+            },
+            operations=["suggest_ontology"],
+            expected=_expect_any_dict,
+            surface="cli+api",
+        ),
+        ScenarioSpec(
+            id="PAR-ONT-HOLD",
+            docs17_anchor="Ontology Recommendation Extension Points — PAR-ONT-HOLD",
+            scenarios=["S3"],
+            uf_cases=["UF-4"],
+            fixtures={
+                "base_ontology": gt06_dir / "base_ontology.yaml",
+                "proposal": gt06_dir / "proposal.json",
+            },
+            operations=["validate_ontology_delta", "decide_ontology"],
+            expected=_expect_any_dict,
             surface="cli+api",
         ),
     ]

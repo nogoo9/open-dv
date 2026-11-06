@@ -21,6 +21,7 @@ from opendv_service.errors import (
     HoldNotFoundError,
     InputValidationError,
     NotFoundError,
+    OntologyRecommenderUnavailableError,
     OpenDVError,
     PathContainmentError,
     PayloadTooLargeError,
@@ -58,6 +59,22 @@ from opendv_service.models import (
     SandboxExecutionResponse,
     SandboxQueryRequest,
 )
+from opendv_service.ontology import (
+    OntologyPolicy,
+    OntologyRecommenderRegistry,
+    OntologyResolutionResult,
+    PipelineExtensionHooks,
+    apply_ontology_delta,
+    canonicalize_graph_a_dict,
+    compute_ontology_coverage,
+    compute_ontology_sha256,
+    get_ontology_recommender_registry,
+    get_pipeline_extension_hooks,
+    ontology_diff,
+    redact_sample_data,
+    resolve_ontology_hold,
+    validate_ontology_delta,
+)
 from opendv_service.rbac import (
     ROLE_CLEARANCE_LEVELS,
     RbacRole,
@@ -80,7 +97,11 @@ from opendv_service.service import OpenDVService
 from opendv_service.settings import ConfigurationError, OpenDVSettings
 from opendv_service.state import PlatformStateContainer, StateStore, store_cas_artifact
 from opendv_service.use_cases.compile import compile_pipeline
-from opendv_service.use_cases.explorer import get_explorer_bundle, get_run_artifact
+from opendv_service.use_cases.explorer import (
+    get_explorer_bundle,
+    get_run_artifact,
+    list_run_artifacts,
+)
 from opendv_service.use_cases.profile import profile_pipeline
 from opendv_service.use_cases.sandbox import execute_sandbox_query
 from opendv_service.use_cases.verify import (
@@ -117,6 +138,10 @@ __all__ = [
     "InputValidationError",
     "LifecycleStage",
     "NotFoundError",
+    "OntologyPolicy",
+    "OntologyRecommenderRegistry",
+    "OntologyRecommenderUnavailableError",
+    "OntologyResolutionResult",
     "OpenDVError",
     "OpenDVService",
     "OpenDVSettings",
@@ -125,6 +150,7 @@ __all__ = [
     "PipelineAbortedError",
     "PipelineEvent",
     "PipelineExecutionError",
+    "PipelineExtensionHooks",
     "PipelineRunHandle",
     "PipelineRunRequest",
     "PipelineRunner",
@@ -148,21 +174,32 @@ __all__ = [
     "VerifyRequest",
     "VerifyResponse",
     "__version__",
+    "apply_ontology_delta",
     "build_gate_scorecard_from_axi_result",
+    "canonicalize_graph_a_dict",
     "compile_pipeline",
+    "compute_ontology_coverage",
+    "compute_ontology_sha256",
     "execute_sandbox_query",
     "format_sse_frame",
     "get_default_pipeline_runner",
     "get_explorer_bundle",
     "get_fallback_definition",
+    "get_ontology_recommender_registry",
+    "get_pipeline_extension_hooks",
     "get_run_artifact",
     "is_fallback_enabled",
+    "list_run_artifacts",
     "normalize_rbac_role",
+    "ontology_diff",
     "profile_pipeline",
     "redact_event_for_role",
+    "redact_sample_data",
     "resolve_cleared_tiers",
+    "resolve_ontology_hold",
     "set_pipeline_runner_override",
     "store_cas_artifact",
     "subscribe_run_sse",
+    "validate_ontology_delta",
     "verify_pipeline",
 ]

@@ -966,19 +966,98 @@ HOLD_COMMAND = CommandDef(
 )
 
 
-# --- 8. ontology (Phase P7 seam) ---
+# --- 8. ontology (Phase P7) ---
 ONTOLOGY_COMMAND = CommandDef(
     name="ontology",
-    description="Manage business ontologies: validate, calculate deltas, and apply lineage patches",
-    help="Manage business ontologies",
+    description=(
+        "Manage and evolve enterprise Business Concept ontologies (Graph A), proposals, and deltas"
+    ),
+    help="Manage Graph A ontology suggestions, deltas, diffs, and decisions",
     availability="both",
     subcommands=[
         CommandDef(
-            name="apply",
-            description="Apply ontology delta patch to Graph A",
-            help="Apply ontology delta",
+            name="suggest",
+            description=(
+                "Generate an additive ontology evolution proposal for Graph A "
+                "from source data profiles (IP-1)"
+            ),
+            help="Suggest ontology proposal from source profiles",
             availability="both",
-            request_dto="OntologyDeltaApplyRequest",
+            request_dto="OntologySuggestionRequest",
+            response_dto="OntologyProposal",
+            options=[
+                OptionDef(
+                    name="base",
+                    flag="--base",
+                    short="-b",
+                    type="path",
+                    inline_upload=True,
+                    help="Path to base Graph A ontology YAML/JSON file",
+                ),
+                OptionDef(
+                    name="profile",
+                    flag="--profile",
+                    short="-p",
+                    type="path",
+                    inline_upload=True,
+                    help="Path to empirical Graph B data profile JSON file",
+                ),
+                OptionDef(
+                    name="source",
+                    flag="--source",
+                    short="-s",
+                    type="path",
+                    inline_upload=True,
+                    help="Path to bronze source dataset file",
+                ),
+                OptionDef(
+                    name="context_doc",
+                    flag="--context-doc",
+                    short="-c",
+                    type="path",
+                    inline_upload=True,
+                    help="Path to business context document (e.g. glossary, dictionary, policy)",
+                ),
+                OptionDef(
+                    name="mode",
+                    flag="--mode",
+                    short="-m",
+                    type="string",
+                    default="DELTA",
+                    choices=["BOOTSTRAP", "DELTA", "HOLD_RESOLUTION"],
+                    help="Recommender operation mode (BOOTSTRAP without base ontology, or DELTA)",
+                ),
+                OptionDef(
+                    name="domain_namespace",
+                    flag="--domain-namespace",
+                    type="string",
+                    help="Target domain namespace",
+                ),
+                OptionDef(
+                    name="recommender_id",
+                    flag="--recommender-id",
+                    type="string",
+                    help="Identifier of specific ontology recommender plugin to use",
+                ),
+                OptionDef(
+                    name="output",
+                    flag="--output",
+                    short="-o",
+                    type="path",
+                    help="Path to write output proposal JSON",
+                ),
+            ],
+        ),
+        CommandDef(
+            name="validate-delta",
+            description=(
+                "Deterministically validate an additive ontology delta against deployed "
+                "contract and base Graph A (ONT-EVO-001..003)"
+            ),
+            help="Validate an ontology delta",
+            availability="both",
+            request_dto="OntologyValidateDeltaRequest",
+            response_dto="OntologyValidationResult",
             options=[
                 OptionDef(
                     name="delta",
@@ -987,28 +1066,177 @@ ONTOLOGY_COMMAND = CommandDef(
                     type="path",
                     required=True,
                     inline_upload=True,
-                    help="Path to ontology delta YAML",
+                    help="Path to OntologyDelta JSON/YAML file to validate",
                 ),
                 OptionDef(
-                    name="parent_sha256",
-                    flag="--parent-sha256",
+                    name="base",
+                    flag="--base",
+                    short="-b",
+                    type="path",
+                    required=True,
+                    inline_upload=True,
+                    help="Path to base Graph A ontology YAML/JSON file",
+                ),
+                OptionDef(
+                    name="contract",
+                    flag="--contract",
+                    short="-c",
+                    type="path",
+                    inline_upload=True,
+                    help="Path to deployed Data Vault contract YAML file",
+                ),
+            ],
+        ),
+        CommandDef(
+            name="diff",
+            description=(
+                "Compute structural diff between two Graph A ontologies "
+                "(additions, refinements, breaking changes)"
+            ),
+            help="Compute diff between two ontologies",
+            availability="both",
+            request_dto="OntologyDiffRequest",
+            response_dto="OntologyDiff",
+            options=[
+                OptionDef(
+                    name="base",
+                    flag="--base",
+                    short="-b",
+                    type="path",
+                    required=True,
+                    inline_upload=True,
+                    help="Path to base Graph A ontology YAML/JSON file",
+                ),
+                OptionDef(
+                    name="target",
+                    flag="--target",
+                    short="-t",
+                    type="path",
+                    required=True,
+                    inline_upload=True,
+                    help="Path to target Graph A ontology YAML/JSON file",
+                ),
+            ],
+        ),
+        CommandDef(
+            name="accept",
+            description=(
+                "Apply accepted delta operations to a base ontology, generate Graph A vN+1 "
+                "with CAS lineage, and record decision"
+            ),
+            help="Accept and apply an ontology delta",
+            availability="both",
+            request_dto="OntologyDecisionRequest",
+            response_dto="OntologyDecisionResponse",
+            options=[
+                OptionDef(
+                    name="delta",
+                    flag="--delta",
+                    short="-d",
+                    type="path",
+                    required=True,
+                    inline_upload=True,
+                    help="Path to OntologyDelta JSON/YAML file",
+                ),
+                OptionDef(
+                    name="base",
+                    flag="--base",
+                    short="-b",
+                    type="path",
+                    required=True,
+                    inline_upload=True,
+                    help="Path to base Graph A ontology YAML/JSON file",
+                ),
+                OptionDef(
+                    name="contract",
+                    flag="--contract",
+                    short="-c",
+                    type="path",
+                    inline_upload=True,
+                    help="Path to deployed Data Vault contract YAML file",
+                ),
+                OptionDef(
+                    name="op_id",
+                    flag="--op-id",
+                    type="string",
+                    help="Specific operation ID to accept (can be repeated or comma-separated)",
+                ),
+                OptionDef(
+                    name="decided_by",
+                    flag="--decided-by",
+                    type="string",
+                    default="steward",
+                    help="Identifier of the decision maker (e.g. 'steward' or policy name)",
+                ),
+                OptionDef(
+                    name="notes",
+                    flag="--notes",
+                    short="-n",
+                    type="string",
+                    default="",
+                    help="Steward decision rationale notes",
+                ),
+                OptionDef(
+                    name="output",
+                    flag="--output",
+                    short="-o",
+                    type="path",
+                    help="Path to write resulting Graph A vN+1 YAML file",
+                ),
+            ],
+        ),
+        CommandDef(
+            name="reject",
+            description="Record steward rejection of an ontology delta",
+            help="Reject an ontology delta",
+            availability="both",
+            request_dto="OntologyDecisionRequest",
+            response_dto="OntologyDecisionResponse",
+            options=[
+                OptionDef(
+                    name="delta",
+                    flag="--delta",
+                    short="-d",
+                    type="path",
+                    inline_upload=True,
+                    help="Path to OntologyDelta JSON/YAML file",
+                ),
+                OptionDef(
+                    name="proposal_id",
+                    flag="--proposal-id",
                     short="-p",
                     type="string",
-                    help="Expected parent Graph A SHA-256 digest",
+                    help="Proposal identifier being rejected",
                 ),
                 OptionDef(
-                    name="dry_run",
-                    flag="--dry-run",
-                    type="boolean",
-                    default=False,
-                    help="Validate delta application without committing",
+                    name="base",
+                    flag="--base",
+                    short="-b",
+                    type="path",
+                    inline_upload=True,
+                    help="Path to base Graph A ontology YAML/JSON file",
+                ),
+                OptionDef(
+                    name="decided_by",
+                    flag="--decided-by",
+                    type="string",
+                    default="steward",
+                    help="Identifier of the decision maker",
+                ),
+                OptionDef(
+                    name="notes",
+                    flag="--notes",
+                    short="-n",
+                    type="string",
+                    default="",
+                    help="Steward rejection rationale notes",
                 ),
             ],
         ),
     ],
 )
 
-# Canonical active command list for Phase P6
+# Canonical active command list for Phase P7
 CORE_COMMANDS: list[CommandDef] = [
     PROFILE_COMMAND,
     COMPILE_COMMAND,
@@ -1017,9 +1245,9 @@ CORE_COMMANDS: list[CommandDef] = [
     PIPELINE_COMMAND,
     RUN_COMMAND,
     HOLD_COMMAND,
+    ONTOLOGY_COMMAND,
 ]
 
 ALL_COMMANDS: list[CommandDef] = [
     *CORE_COMMANDS,
-    ONTOLOGY_COMMAND,
 ]

@@ -180,7 +180,7 @@ def normalize_pipeline_report(
     # 1. Mask volatile final artifacts
     for _k, art in list(res.get("final_artifacts", {}).items()):
         name = art.get("name", "")
-        if name in volatile_names or name.endswith("graph_b_profile.json"):
+        if name in volatile_names or name.endswith(("graph_b_profile.json", "ontology_coverage.json")):
             if art.get("sha256"):
                 volatile_shas.add(art["sha256"])
             art["sha256"] = "<VOLATILE_SHA256>"
@@ -189,7 +189,11 @@ def normalize_pipeline_report(
     # 2. Mask volatile intermediate artifacts
     for art in res.get("intermediate_artifacts", []):
         name = art.get("name", "")
-        if name in volatile_names or name.endswith(("graph_b_profile.json", "unstructured_grounding.json")):
+        if name in volatile_names or name.endswith((
+            "graph_b_profile.json",
+            "unstructured_grounding.json",
+            "ontology_coverage.json",
+        )):
             if art.get("sha256"):
                 volatile_shas.add(art["sha256"])
             art["sha256"] = "<VOLATILE_SHA256>"
@@ -250,11 +254,23 @@ def normalize_pipeline_report(
         r"\g<1>0\g<2>",
         md,
     )
+    md = re.sub(
+        r"(`wave_\d+_ontology_coverage\.json`[^\n]*?\|\s*)\d+(\s*\|)",
+        r"\g<1>0\g<2>",
+        md,
+    )
     res["markdown_summary"] = md
 
     # 5. Normalize event_ids in observability_events
     for ev in res.get("observability_events", []):
         if "event_id" in ev and ev["event_id"]:
             ev["event_id"] = _EVENT_ID_REGEX.sub("<EVENT_ID>", ev["event_id"])
+
+    # 6. Exclude recommender_errors when None and default ontology_policy for bit-for-bit golden parity
+    if res.get("recommender_errors") is None and "recommender_errors" in res:
+        del res["recommender_errors"]
+    hs = res.get("harness_setup")
+    if isinstance(hs, dict) and hs.get("ontology_policy") == "off":
+        del hs["ontology_policy"]
 
     return normalize_for_parity(res, path_root=path_root)

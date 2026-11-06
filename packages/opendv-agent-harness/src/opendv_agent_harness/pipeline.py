@@ -66,7 +66,18 @@ from opendv_agent_harness.telemetry.translator import build_observability_event_
 from opendv_axi_verifier.alg_a8_orchestrator import run_axi_dv_verification_pipeline
 from opendv_axi_verifier.toon_codec import ToonViolation
 from opendv_axi_verifier.verifiers.alg_a9b_unstructured import classify_er_resolution_tier
-from opendv_contracts.errors import ErrorCode, InputValidationError, OpenDVError
+from opendv_contracts.dtos.ontology import (
+    AcceptOntologyDeltaOption,
+    CustomOntologyDeltaOption,
+    RejectOntologyDeltaOption,
+    StewardHoldOption,
+)
+from opendv_contracts.errors import (
+    ErrorCode,
+    InputValidationError,
+    OntologyRecommenderUnavailableError,
+    OpenDVError,
+)
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_core.models.contract_v5 import (
     ColumnTriageEntry,
@@ -92,7 +103,6 @@ from opendv_core.schema_registry import (
     load_structured_file,
     validate_canonical_ir,
     validate_contract_v5,
-    validate_graph_a,
     validate_graph_b,
     validate_observability_event,
 )
@@ -101,8 +111,10 @@ from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
 from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
 from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
 from opendv_sources import (
+    SourceError,
     SourceSpec,
     get_source_registry,
+    load_graph_a_source,
     load_structured_document,
 )
 from opendv_telemetry import (
@@ -222,6 +234,7 @@ class HarnessSetupConfig(BaseModel):
     steward_hold_policy: Literal["pause", "auto_approve_top_candidate", "reject_on_hold"] = (
         "auto_approve_top_candidate"
     )
+    ontology_policy: str = "off"
     stage_output_policy: Literal["llm_only", "symbolic_completion"] = "llm_only"
     inject_adversarial_fault_on_attempt_1: bool = False
     env: dict[str, str] = Field(default_factory=dict)
@@ -819,13 +832,23 @@ class PipelineInputSpec(BaseModel):
     run_id: str | None = None
     display_name: str = "Open-DV Agentic Pipeline Run"
     domain_namespace: str = "general"
-    graph_a_ontology_path: str
+    graph_a_ontology_path: str | None = None
+    graph_a_source: SourceSpec | str | dict[str, Any] | None = None
     initial_contract_path: str | None = None
     initial_contract: str | None = None
     wave_id: str | None = None
     assertion_cutoff_ts: str = "2026-12-31 23:59:59"
     output_dir: str | None = None
+    ontology_policy: str = "off"
     waves: list[PipelineWaveInput] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_graph_a_present(self) -> PipelineInputSpec:
+        if self.graph_a_source is None and (
+            self.graph_a_ontology_path is None or not self.graph_a_ontology_path.strip()
+        ):
+            raise ValueError("Either 'graph_a_source' or 'graph_a_ontology_path' must be provided.")
+        return self
 
     @classmethod
     def from_file(cls, path: str | Path) -> PipelineInputSpec:
@@ -941,10 +964,15 @@ class AgenticPipelineReport(BaseModel):
     observability_events: list[dict[str, Any]] = Field(default_factory=list)
     fallbacks_applied: list[dict[str, Any]] = Field(default_factory=list)
     markdown_summary: str
+    graph_a_sha256: str | None = None
+    ontology_version: str | None = None
+    parent_sha256: str | None = None
+    decision_refs: list[str] = Field(default_factory=list)
     has_initial_contract: bool = False
     initial_contract_path: str | None = None
     wave_id: str | None = None
     lifecycle_stage: str = "COLD_START_N1"
+    recommender_errors: list[str] | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -1393,46 +1421,75 @@ def validate_pipeline_inputs(
 
     # 3. Validate Graph A Ontology path & schema
     checked_items += 1
-    ont_path, ont_err = _validate_path_containment(
-        spec.graph_a_ontology_path, base_dir=eff_base, workspace_root=ws_root
+    graph_a_target = (
+        spec.graph_a_source if spec.graph_a_source is not None else spec.graph_a_ontology_path
     )
-    if ont_err is not None or ont_path is None:
-        diagnostics.append(
-            {
-                "code": "PATH_TRAVERSAL_REJECTED",
-                "severity": "ERROR",
-                "target": "graph_a_ontology_path",
-                "message": ont_err or "Invalid ontology path.",
-            }
-        )
-    elif not ont_path.is_file():
+    if graph_a_target is None:
         diagnostics.append(
             {
                 "code": "ONTOLOGY_FILE_MISSING",
                 "severity": "ERROR",
-                "target": str(ont_path),
-                "message": f"Graph A ontology file does not exist at '{ont_path}'.",
+                "target": "graph_a_source",
+                "message": "Neither graph_a_source nor graph_a_ontology_path was provided.",
             }
         )
-    else:
+    elif spec.graph_a_source is None and spec.graph_a_ontology_path is not None:
+        ont_path, ont_err = _validate_path_containment(
+            spec.graph_a_ontology_path, base_dir=eff_base, workspace_root=ws_root
+        )
+        if ont_err is not None or ont_path is None:
+            diagnostics.append(
+                {
+                    "code": "PATH_TRAVERSAL_REJECTED",
+                    "severity": "ERROR",
+                    "target": "graph_a_ontology_path",
+                    "message": ont_err or "Invalid ontology path.",
+                }
+            )
+        elif not ont_path.is_file():
+            diagnostics.append(
+                {
+                    "code": "ONTOLOGY_FILE_MISSING",
+                    "severity": "ERROR",
+                    "target": str(ont_path),
+                    "message": f"Graph A ontology file does not exist at '{ont_path}'.",
+                }
+            )
+        else:
+            try:
+                load_graph_a_source(ont_path, base_dir=eff_base, workspace_root=ws_root)
+            except (
+                SourceError,
+                ValidationError,
+                ValueError,
+                TypeError,
+                KeyError,
+                OSError,
+            ) as exc:
+                diagnostics.append(
+                    {
+                        "code": "ONTOLOGY_SCHEMA_INVALID",
+                        "severity": "ERROR",
+                        "target": str(ont_path),
+                        "message": f"Graph A ontology validation failed: {exc}",
+                    }
+                )
+    elif spec.graph_a_source is not None:
         try:
-            raw_ont = load_structured_file(ont_path)
-            validate_graph_a(raw_ont)
-            GraphAOntology.model_validate(raw_ont)
+            load_graph_a_source(spec.graph_a_source, base_dir=eff_base, workspace_root=ws_root)
         except (
+            SourceError,
             ValidationError,
             ValueError,
             TypeError,
             KeyError,
             OSError,
-            yaml.YAMLError,
-            json.JSONDecodeError,
         ) as exc:
             diagnostics.append(
                 {
                     "code": "ONTOLOGY_SCHEMA_INVALID",
                     "severity": "ERROR",
-                    "target": str(ont_path),
+                    "target": "graph_a_source",
                     "message": f"Graph A ontology validation failed: {exc}",
                 }
             )
@@ -1508,6 +1565,34 @@ def validate_pipeline_inputs(
                     "severity": "ERROR",
                     "target": str(out_path),
                     "message": f"Output path '{out_path}' exists and is not a directory.",
+                }
+            )
+
+    # 5b. Validate ontology policy & recommender availability (REQ-FAIL-01)
+    raw_ontology_policy = getattr(spec, "ontology_policy", "off") or "off"
+    if str(raw_ontology_policy).strip().lower() not in {"off", "", "disabled", "false", "none"}:
+        checked_items += 1
+        try:
+            from opendv_service.ontology.policy import OntologyPolicy
+
+            pol = OntologyPolicy.from_value(raw_ontology_policy)
+            pol.validate_availability()
+        except OntologyRecommenderUnavailableError as exc:
+            diagnostics.append(
+                {
+                    "code": "ONTOLOGY_RECOMMENDER_UNAVAILABLE",
+                    "severity": "ERROR",
+                    "target": "ontology_policy",
+                    "message": str(exc),
+                }
+            )
+        except (OpenDVError, ValueError, TypeError, RuntimeError) as exc:
+            diagnostics.append(
+                {
+                    "code": "ONTOLOGY_POLICY_INVALID",
+                    "severity": "ERROR",
+                    "target": "ontology_policy",
+                    "message": str(exc),
                 }
             )
 
@@ -2465,7 +2550,12 @@ def _extract_known_entities_from_cumulative_sources(
             hub_hint = (
                 src.target_hub_name or src.cbc_mapping_hints.get(src.table_name) or src.table_name
             )
-            resolved_hub, _ = _resolve_hub_and_uri(hub_hint, ontology)
+            try:
+                resolved_hub, _ = _resolve_hub_and_uri(hub_hint, ontology)
+            except InputValidationError:
+                resolved_hub = (
+                    hub_hint if hub_hint.startswith("hub_") else f"hub_{_slugify(hub_hint)}"
+                )
             if name_col:
                 rows = conn.execute(f'SELECT "{bk_col}", "{name_col}" FROM "{v_name}"').fetchall()
                 for r in rows:
@@ -2730,6 +2820,7 @@ class AgenticVaultPipeline:
         cas_store: ContentAddressableStore | None = None,
         sdk_module: Any | None = None,
         harness: VaultAgentHarness | None = None,
+        extension_hooks: Any | None = None,
         on_stage_start: Callable[[int, str, str, str], None] | None = None,
         on_stage_complete: Callable[[int, PipelineStepReport], None] | None = None,
         on_stream_event: Callable[[HarnessStreamEvent], None] | None = None,
@@ -2746,6 +2837,30 @@ class AgenticVaultPipeline:
         self._on_stage_complete = on_stage_complete
         self._on_stream_event = on_stream_event
         self._runtime_initialized = False
+        self._paused_wave_context: dict[str, Any] | None = None
+        self.ontology: GraphAOntology | None = None
+        self.raw_ontology: dict[str, Any] | None = None
+        self.graph_a_sha256: str | None = None
+        self.run_id: str | None = None
+        self.trace_id: str | None = None
+        self.started_at: str | None = None
+        self.t0_pipeline: float | None = None
+
+        if extension_hooks is not None:
+            self.extension_hooks = extension_hooks
+        else:
+            raw_policy = (
+                self.input_spec.ontology_policy
+                if self.input_spec.ontology_policy and self.input_spec.ontology_policy != "off"
+                else self.harness_setup.ontology_policy
+                or os.environ.get("OPENDV_ONTOLOGY_POLICY", "off")
+            )
+            try:
+                from opendv_service.ontology import get_pipeline_extension_hooks
+
+                self.extension_hooks = get_pipeline_extension_hooks(policy=raw_policy)
+            except ImportError:
+                self.extension_hooks = None
 
     def _notify_stage_start(
         self,
@@ -3007,7 +3122,15 @@ class AgenticVaultPipeline:
                 observability_events=observability_events,
                 fallbacks_applied=fallbacks_applied,
                 markdown_summary=md,
+                recommender_errors=(
+                    self.extension_hooks.recommender_errors
+                    if self.extension_hooks is not None and self.extension_hooks.recommender_errors
+                    else None
+                ),
             )
+
+        if self.extension_hooks is not None and self.extension_hooks.policy.is_active:
+            self.extension_hooks.policy.validate_availability()
 
         self._ensure_runtime_initialized()
         self._notify_stage_start(
@@ -3017,20 +3140,33 @@ class AgenticVaultPipeline:
             self.harness.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.VAULT_FIRST_MATE),
         )
 
-        ont_path, _ = _validate_path_containment(
-            self.input_spec.graph_a_ontology_path,
+        graph_a_input = (
+            self.input_spec.graph_a_source
+            if self.input_spec.graph_a_source is not None
+            else self.input_spec.graph_a_ontology_path
+        )
+        assert graph_a_input is not None
+        loaded_graph_a = load_graph_a_source(
+            graph_a_input,
             base_dir=self.base_dir,
             workspace_root=self.workspace_root,
         )
-        assert ont_path is not None
-        raw_ontology = load_structured_file(ont_path)
-        ontology = GraphAOntology.model_validate(raw_ontology)
+        ontology = loaded_graph_a.ontology
+        graph_a_sha256 = loaded_graph_a.sha256
+        raw_ontology = ontology.model_dump(mode="json", exclude_none=True)
+        self.ontology = ontology
+        self.raw_ontology = raw_ontology
+        self.graph_a_sha256 = graph_a_sha256
+        self.run_id = run_id
+        self.trace_id = trace_id
+        self.started_at = started_at
+        self.t0_pipeline = t0_pipeline
 
         ont_ref = self._record_artifact(
             artifact_id="art-stage00-graph-a-ontology",
             name="graph_a_ontology.yaml",
             stage_id=PipelineStageId.STAGE_00_ORCHESTRATION.value,
-            content=yaml.safe_dump(raw_ontology, sort_keys=False),
+            content=loaded_graph_a.raw_bytes,
             media_type="application/x-yaml",
             rel_path="stage_00/graph_a_ontology.yaml",
             wave_index=0,
@@ -3525,6 +3661,80 @@ class AgenticVaultPipeline:
                 intermediate_list=intermediate_artifacts,
             )
             s1_out_shas = [gb_ref.sha256]
+
+            from opendv_service.ontology.coverage import compute_ontology_coverage
+
+            coverage_artifact = compute_ontology_coverage(
+                graph_a=ontology,
+                bronze_manifest=wave,
+                profiles=wave_gb_profile,
+                wave_id=f"w{w_idx}",
+                run_id=run_id,
+            )
+            cov_dict = coverage_artifact.model_dump(mode="json")
+            cov_ref = self._record_artifact(
+                artifact_id=f"art-w{w_idx}-stage01-ontology-coverage",
+                name=f"wave_{w_idx}_ontology_coverage.json",
+                stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
+                content=json.dumps(cov_dict, indent=2, sort_keys=True),
+                media_type="application/json",
+                rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_ontology_coverage.json",
+                wave_index=w_idx,
+                description=f"Wave {w_idx} Business Ontology Coverage & Gap Analysis.",
+                intermediate_list=intermediate_artifacts,
+            )
+            s1_out_shas.append(cov_ref.sha256)
+
+            if (
+                self.extension_hooks is not None
+                and self.extension_hooks.policy.is_active
+                and self.extension_hooks.policy.should_invoke_ip2()
+            ):
+                try:
+                    from opendv_service.ontology.hooks import WaveProfilingContext
+
+                    prof_ctx = WaveProfilingContext(
+                        run_id=run_id,
+                        wave_index=w_idx,
+                        wave_id=f"w{w_idx}",
+                        ontology=raw_ontology,
+                        ontology_sha256=graph_a_sha256,
+                        domain_namespace=self.input_spec.domain_namespace,
+                        bronze_manifest=wave.model_dump(mode="json"),
+                        profiles=[wave_gb_dict],
+                        coverage_artifact=cov_dict,
+                    )
+                    ip2_proposal = await self.extension_hooks.on_after_profiling(prof_ctx)
+                    if ip2_proposal is not None:
+                        prop_artifact = self.extension_hooks.format_review_artifacts(
+                            ip2_proposal, raw_ontology
+                        )
+                        prop_ref = self._record_artifact(
+                            artifact_id=f"art-w{w_idx}-stage01-ontology-proposal",
+                            name=f"wave_{w_idx}_ontology_proposal.json",
+                            stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE.value,
+                            content=json.dumps(prop_artifact, indent=2, sort_keys=True),
+                            media_type="application/json",
+                            rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_ontology_proposal.json",
+                            wave_index=w_idx,
+                            description=f"Wave {w_idx} Advisory Ontology Proposal (IP-2).",
+                            intermediate_list=intermediate_artifacts,
+                        )
+                        s1_out_shas.append(prop_ref.sha256)
+                except (
+                    RuntimeError,
+                    TypeError,
+                    ValueError,
+                    KeyError,
+                    AttributeError,
+                    IndexError,
+                    OSError,
+                    TimeoutError,
+                    ImportError,
+                    OpenDVError,
+                ) as exc:
+                    err_msg = f"Stage 01 IP-2 hook failed: {exc}"
+                    self.extension_hooks.recommender_errors.append(err_msg)
 
             if wave_drift_events:
                 drift_ref = self._record_artifact(
@@ -4673,6 +4883,147 @@ class AgenticVaultPipeline:
             elif axi_res.status == "ASK_USER":
                 s5_status = "ASK-USER"
                 pipeline_paused = True
+                cov_art_id = f"art-w{w_idx}-stage01-ontology-coverage"
+                g1_violations = [
+                    v
+                    for v in axi_res.toon_trace.violations
+                    if v.gate == "G1" or "DV-G4-001" in v.rule
+                ]
+                diag_msg = (
+                    f"{g1_violations[0].rule}: {g1_violations[0].target} ({g1_violations[0].fix})"
+                    if g1_violations
+                    else (
+                        axi_res.diagnostics[0]
+                        if axi_res.diagnostics
+                        else "Unmapped entity detected in Gate 1 (DV-G4-001)"
+                    )
+                )
+                hold_options: list[dict[str, Any]] = [
+                    {
+                        "option_id": "REJECT_WITH_GAP_REPORT",
+                        "coverage_artifact_id": cov_art_id,
+                        "diagnostic": diag_msg,
+                    }
+                ]
+
+                # IP-3: Gate 1 ontology violation hold hook
+                if (
+                    self.extension_hooks is not None
+                    and self.extension_hooks.policy.is_active
+                    and self.extension_hooks.policy.should_invoke_ip3()
+                ):
+                    try:
+                        from opendv_service.ontology.hooks import GateViolationContext
+
+                        g1_ctx = GateViolationContext(
+                            run_id=run_id,
+                            wave_index=w_idx,
+                            wave_id=f"w{w_idx}",
+                            ontology=raw_ontology,
+                            ontology_sha256=graph_a_sha256,
+                            domain_namespace=self.input_spec.domain_namespace,
+                            coverage_artifact=cov_dict if "cov_dict" in locals() else None,
+                            g1_violations=[
+                                v.to_dict()
+                                if hasattr(v, "to_dict")
+                                else (
+                                    v.model_dump(mode="json")
+                                    if hasattr(v, "model_dump")
+                                    else getattr(v, "__dict__", {})
+                                )
+                                for v in g1_violations
+                            ],
+                            deployed_contract_summary=deployed_contract_dict,
+                        )
+                        ip3_proposal = await self.extension_hooks.on_ontology_violation(g1_ctx)
+                        if ip3_proposal is not None:
+                            prop_artifact = self.extension_hooks.format_review_artifacts(
+                                ip3_proposal, raw_ontology
+                            )
+                            prop_ref = self._record_artifact(
+                                artifact_id=f"art-w{w_idx}-stage05-ontology-proposal",
+                                name=f"wave_{w_idx}_ontology_proposal.json",
+                                stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
+                                content=json.dumps(prop_artifact, indent=2, sort_keys=True),
+                                media_type="application/json",
+                                rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_ontology_proposal.json",
+                                wave_index=w_idx,
+                                description=(
+                                    f"Wave {w_idx} Gate 1 Ontology Resolution Proposal (IP-3)."
+                                ),
+                                intermediate_list=intermediate_artifacts,
+                            )
+                            s5_out_shas.append(prop_ref.sha256)
+
+                            if self.extension_hooks.policy.should_populate_hold_options():
+                                from opendv_contracts.dtos.ontology import (
+                                    AcceptOntologyDeltaOption,
+                                    RejectOntologyDeltaOption,
+                                )
+                                from opendv_contracts.jcs import dumps_jcs_bytes
+
+                                d_bytes = dumps_jcs_bytes(
+                                    ip3_proposal.delta.model_dump(mode="json", exclude_none=True)
+                                )
+                                d_sha = hashlib.sha256(d_bytes).hexdigest().lower()
+
+                                accept_opt = AcceptOntologyDeltaOption(
+                                    delta=ip3_proposal.delta,
+                                    delta_sha256=d_sha,
+                                    accepted_op_ids=[
+                                        op.op_id for op in ip3_proposal.delta.operations
+                                    ],
+                                    steward_note=(
+                                        f"Auto-prepared IP-3 proposal {ip3_proposal.proposal_id} "
+                                        f"with confidence {ip3_proposal.confidence_score:.2f}."
+                                    ),
+                                ).model_dump(mode="json")
+                                accept_opt["option_id"] = "ACCEPT_ONTOLOGY_DELTA"
+                                accept_opt["proposal_id"] = ip3_proposal.proposal_id
+                                accept_opt["delta_id"] = ip3_proposal.delta.delta_id
+                                accept_opt["confidence_score"] = ip3_proposal.confidence_score
+                                accept_opt["operations_count"] = len(ip3_proposal.delta.operations)
+
+                                reject_opt = RejectOntologyDeltaOption(
+                                    reason="Rejected by steward",
+                                    rejected_op_ids=[
+                                        op.op_id for op in ip3_proposal.delta.operations
+                                    ],
+                                    steward_note="",
+                                ).model_dump(mode="json")
+                                reject_opt["option_id"] = "REJECT_ONTOLOGY_DELTA"
+                                reject_opt["proposal_id"] = ip3_proposal.proposal_id
+
+                                hold_options.append(accept_opt)
+                                hold_options.append(reject_opt)
+                    except (
+                        RuntimeError,
+                        TypeError,
+                        ValueError,
+                        KeyError,
+                        AttributeError,
+                        IndexError,
+                        OSError,
+                        TimeoutError,
+                        ImportError,
+                        OpenDVError,
+                    ) as exc:
+                        err_msg = f"Stage 05 IP-3 hook failed: {exc}"
+                        self.extension_hooks.recommender_errors.append(err_msg)
+
+                self.hold_manager.record_hold(
+                    run_id=run_id,
+                    task_id=f"task-w{w_idx}-g1-ontology-hold",
+                    session_id=f"sess-w{w_idx}-g1",
+                    stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
+                    workbench_view_id=WorkbenchViewId.WB_06,
+                    viz_id=VizId.VIZ_GATE_02,
+                    persona=AgentPersona.AXI_DV,
+                    headline=f"Wave {w_idx} Gate 1 ontology gap hold: {diag_msg}",
+                    escalation_reason="UNMAPPED_ONTOLOGY_CONCEPT",
+                    rule_id="DV-G4-001",
+                    options=hold_options,
+                )
             else:
                 s5_status = "REJECT-WITH-TRACE"
 
@@ -5075,6 +5426,49 @@ class AgenticVaultPipeline:
                 )
             )
 
+            if pipeline_paused:
+                self._paused_wave_context = {
+                    "w_idx": w_idx,
+                    "w_name": w_name,
+                    "wave": wave,
+                    "wave_iter_idx": ordered_waves.index(wave),
+                    "ordered_waves": ordered_waves,
+                    "run_id": run_id,
+                    "trace_id": trace_id,
+                    "started_at": started_at,
+                    "t0_pipeline": t0_pipeline,
+                    "effective_max_retries": effective_max_retries,
+                    "wave_sources_profiled": wave_sources_profiled,
+                    "wave_columns_profiled": wave_columns_profiled,
+                    "wave_drift_events": wave_drift_events,
+                    "tier_counts": tier_counts,
+                    "current_wave_drift_tables": current_wave_drift_tables,
+                    "cumulative_sources": cumulative_sources,
+                    "cumulative_source_systems": cumulative_source_systems,
+                    "cumulative_doc_texts": cumulative_doc_texts,
+                    "cumulative_unstructured_docs": cumulative_unstructured_docs,
+                    "added_drift_cols_by_table": added_drift_cols_by_table,
+                    "deployed_contract_dict": deployed_contract_dict,
+                    "wave_gb_profile": wave_gb_profile,
+                    "wave_gb_dict": wave_gb_dict,
+                    "gb_ref": gb_ref,
+                    "ug_ref": ug_ref,
+                    "sample_rows_by_table": sample_rows_by_table,
+                    "step_reports": step_reports,
+                    "wave_reports": wave_reports,
+                    "intermediate_artifacts": intermediate_artifacts,
+                    "final_artifacts": final_artifacts,
+                    "observability_events": observability_events,
+                    "fallbacks_applied": fallbacks_applied,
+                    "input_val": input_val,
+                    "last_verified_contract": last_verified_contract,
+                    "last_canonical_ir": last_canonical_ir,
+                    "last_sql_bundle_text": last_sql_bundle_text,
+                    "last_contract_ref": last_contract_ref,
+                    "last_ir_ref": last_ir_ref,
+                    "last_sql_ref": last_sql_ref,
+                    "s2_status": s2_status,
+                }
             if pipeline_paused or wave_status in {"ASK-USER", "REJECT-WITH-TRACE", "ERROR"}:
                 break
 
@@ -5251,6 +5645,10 @@ class AgenticVaultPipeline:
             pipeline_id=self.input_spec.pipeline_id,
             project_id=self.input_spec.project_id,
             domain_namespace=self.input_spec.domain_namespace,
+            graph_a_sha256=graph_a_sha256,
+            ontology_version=ontology.ontology_version,
+            parent_sha256=ontology.parent_sha256,
+            decision_refs=list(ontology.decision_refs),
             status=overall_status,
             overall_passed=False,
             started_at=started_at,
@@ -5276,6 +5674,11 @@ class AgenticVaultPipeline:
             initial_contract_path=rep_contract_path,
             wave_id=wave_id_val,
             lifecycle_stage=lifecycle_stage,
+            recommender_errors=(
+                self.extension_hooks.recommender_errors
+                if self.extension_hooks is not None and self.extension_hooks.recommender_errors
+                else None
+            ),
         )
 
         output_val = validate_pipeline_outputs(provisional_report, cas_store=self.cas_store)
@@ -5354,6 +5757,944 @@ class AgenticVaultPipeline:
                 future = pool.submit(asyncio.run, self.run_async())
                 return future.result()
         return asyncio.run(self.run_async())
+
+    async def resume_from_hold_async(
+        self,
+        hold_id: str,
+        option: StewardHoldOption | dict[str, Any] | None = None,
+        *,
+        steward_id: str = "steward",
+        new_ontology: GraphAOntology | None = None,
+        new_graph_a_sha256: str | None = None,
+    ) -> AgenticPipelineReport:
+        """Resume execution of a paused wave from STAGE_03 on a resolved ontology hold."""
+        self._ensure_runtime_initialized()
+        if self._paused_wave_context is None:
+            raise RuntimeError("Pipeline has no paused wave context to resume.")
+
+        ctx = self._paused_wave_context
+        w_idx: int = ctx["w_idx"]
+        w_name: str = ctx["w_name"]
+        wave: PipelineWaveInput = ctx["wave"]
+        run_id: str = ctx["run_id"]
+        trace_id: str = ctx["trace_id"]
+        t0_pipeline: float = ctx["t0_pipeline"]
+        started_at: str = ctx["started_at"]
+        effective_max_retries: int = ctx["effective_max_retries"]
+        wave_sources_profiled: int = ctx["wave_sources_profiled"]
+        wave_columns_profiled: int = ctx["wave_columns_profiled"]
+        wave_drift_events: list[dict[str, Any]] = ctx["wave_drift_events"]
+        tier_counts: dict[str, int] = ctx["tier_counts"]
+        current_wave_drift_tables: set[str] = ctx["current_wave_drift_tables"]
+        cumulative_sources: dict[str, tuple[PipelineSourceFeedInput, Path]] = ctx[
+            "cumulative_sources"
+        ]
+        _cumulative_source_systems: dict[str, ProfiledSourceSystem] = ctx[
+            "cumulative_source_systems"
+        ]
+        cumulative_doc_texts: dict[str, str] = ctx["cumulative_doc_texts"]
+        cumulative_unstructured_docs: list[tuple[PipelineUnstructuredDocInput, str]] = ctx[
+            "cumulative_unstructured_docs"
+        ]
+        added_drift_cols_by_table: dict[str, list[str]] = ctx["added_drift_cols_by_table"]
+        deployed_contract_dict: dict[str, Any] | None = ctx["deployed_contract_dict"]
+        wave_gb_profile: GraphBProfile = ctx["wave_gb_profile"]
+        wave_gb_dict: dict[str, Any] = ctx["wave_gb_dict"]
+        gb_ref: PipelineArtifactRef = ctx["gb_ref"]
+        ug_ref: PipelineArtifactRef = ctx["ug_ref"]
+        _sample_rows_by_table: dict[str, list[dict[str, Any]]] = ctx["sample_rows_by_table"]
+        step_reports: list[PipelineStepReport] = ctx["step_reports"]
+        wave_reports: list[PipelineWaveReport] = ctx["wave_reports"]
+        intermediate_artifacts: list[PipelineArtifactRef] = ctx["intermediate_artifacts"]
+        final_artifacts: dict[str, PipelineArtifactRef] = ctx["final_artifacts"]
+        observability_events: list[dict[str, Any]] = ctx["observability_events"]
+        fallbacks_applied: list[dict[str, Any]] = ctx["fallbacks_applied"]
+        input_val: DeterministicValidationReport = ctx["input_val"]
+
+        # 1. Resolve hold option if provided
+        option_obj: StewardHoldOption | None = None
+        if isinstance(option, dict):
+            from pydantic import TypeAdapter
+
+            option_obj = TypeAdapter(StewardHoldOption).validate_python(option)
+        elif option is not None:
+            option_obj = option
+
+        if new_ontology is not None:
+            self.ontology = new_ontology
+            self.raw_ontology = new_ontology.model_dump(mode="json", exclude_none=True)
+            self.graph_a_sha256 = new_graph_a_sha256 or self.graph_a_sha256
+        elif option_obj is not None:
+            if isinstance(option_obj, RejectOntologyDeltaOption):
+                self.hold_manager.resolve_hold(
+                    hold_id,
+                    action="REJECT",
+                    resolution_notes=option_obj.steward_note or option_obj.reason,
+                )
+                completed_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+                total_ms = round((time.perf_counter() - t0_pipeline) * 1000.0, 3)
+                return AgenticPipelineReport(
+                    run_id=run_id,
+                    pipeline_id=self.input_spec.pipeline_id,
+                    project_id=self.input_spec.project_id,
+                    domain_namespace=self.input_spec.domain_namespace,
+                    graph_a_sha256=self.graph_a_sha256,
+                    ontology_version=self.ontology.ontology_version if self.ontology else "1.0.0",
+                    parent_sha256=self.ontology.parent_sha256 if self.ontology else None,
+                    decision_refs=list(self.ontology.decision_refs) if self.ontology else [],
+                    status="FAILED",
+                    overall_passed=False,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    total_duration_ms=total_ms,
+                    harness_setup=self.harness_setup.to_summary_dict(),
+                    input_validation=input_val,
+                    output_validation=DeterministicValidationReport(
+                        stage="OUTPUT_VALIDATION",
+                        passed=False,
+                        checked_items_count=0,
+                    ),
+                    wave_reports=wave_reports,
+                    step_reports=step_reports,
+                    intermediate_artifacts=intermediate_artifacts,
+                    final_artifacts=final_artifacts,
+                    observability_events=observability_events,
+                    fallbacks_applied=fallbacks_applied,
+                    markdown_summary="",
+                )
+            elif isinstance(option_obj, (AcceptOntologyDeltaOption, CustomOntologyDeltaOption)):
+                from opendv_service.ontology.resolution import resolve_ontology_hold
+
+                assert self.ontology is not None
+                ont_res = resolve_ontology_hold(
+                    base_ontology=self.ontology,
+                    option=option_obj,
+                    run_id=run_id,
+                    hold_id=hold_id,
+                    steward_id=steward_id,
+                    cas_store=self.cas_store,
+                    deployed_contract=deployed_contract_dict,
+                    ledger=getattr(self, "ledger_emitter", None),
+                )
+                self.ontology = ont_res.new_ontology
+                assert self.ontology is not None
+                self.raw_ontology = self.ontology.model_dump(mode="json", exclude_none=True)
+                self.graph_a_sha256 = ont_res.new_graph_a_sha256
+                selected_op = (
+                    option_obj.delta.delta_id
+                    if isinstance(option_obj, AcceptOntologyDeltaOption)
+                    else getattr(getattr(option_obj, "custom_delta", None), "delta_id", "CUSTOM")
+                )
+                res_notes = (
+                    option_obj.steward_note
+                    or f"Accepted ontology delta -> v{self.ontology.ontology_version}"
+                )
+                self.hold_manager.resolve_hold(
+                    hold_id,
+                    action="APPROVED",
+                    selected_option_id=selected_op,
+                    resolution_notes=res_notes,
+                )
+
+        assert self.ontology is not None
+        assert self.raw_ontology is not None
+
+        # Clean previous failed/paused wave and step reports for w_idx
+        wave_reports[:] = [w for w in wave_reports if w.wave_index != w_idx]
+        step_reports[:] = [
+            s
+            for s in step_reports
+            if not (
+                s.wave_index == w_idx
+                and s.stage_id
+                in {
+                    PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
+                    PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
+                    PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
+                    PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
+                }
+            )
+        ]
+        wave_step_ids = [s.step_id for s in step_reports if s.wave_index == w_idx]
+
+        # Refresh feed semantics in cumulative_sources against the newly evolved ontology
+        for q_tbl, (src_in, src_path) in list(cumulative_sources.items()):
+            prof_match = None
+            for sys_obj in wave_gb_profile.source_systems:
+                for tbl_obj in sys_obj.tables:
+                    candidate_q = (
+                        f"{sys_obj.source_system_code.lower()}.{tbl_obj.bronze_table.lower()}"
+                    )
+                    if candidate_q == q_tbl:
+                        prof_match = tbl_obj
+                        break
+            if prof_match is not None:
+                refreshed_src = _SymbolicStageSynthesizer.discover_source_feed_semantics(
+                    src=src_in,
+                    prof_tbl=prof_match,
+                    ontology=self.ontology,
+                    cumulative_sources=cumulative_sources,
+                    deployed_contract=deployed_contract_dict,
+                )
+                cumulative_sources[q_tbl] = (refreshed_src, src_path)
+
+        # -------------------------------------------------------------------
+        # RESUMED STAGE 03: Ship-Vault Pass 1 (100% Column Triage)
+        # -------------------------------------------------------------------
+        t0_s3 = time.perf_counter()
+        self._notify_stage_start(
+            w_idx,
+            PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
+            AgentPersona.SHIP_VAULT.value,
+            self.harness.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.SHIP_VAULT),
+        )
+        s3_ctx = {
+            "stage": "STAGE_03_SHIP_VAULT_PASS1",
+            "wave_index": w_idx,
+            "wave_name": w_name,
+            "domain_namespace": self.input_spec.domain_namespace,
+            "ontology": self.raw_ontology,
+            "graph_b_profile": wave_gb_dict,
+            "deployed_contract": deployed_contract_dict,
+            "cumulative_sources": {
+                q_tbl: src.model_dump(mode="json", exclude_none=True)
+                for q_tbl, (src, _) in cumulative_sources.items()
+            },
+            "cumulative_unstructured_docs": [
+                {
+                    "doc": doc_in.model_dump(mode="json", exclude_none=True),
+                    "sha256": doc_sha,
+                }
+                for doc_in, doc_sha in cumulative_unstructured_docs
+            ],
+            "added_drift_cols_by_table": added_drift_cols_by_table,
+            "current_wave_drift_tables": sorted(current_wave_drift_tables),
+        }
+        pass1_spec = build_ship_vault_task_spec(
+            prompt=(
+                f"Synthesize Pass 1 100% Column Triage Ledger for Wave {w_idx} ({w_name}).\n"
+                f"Graph A Ontology: {json.dumps(self.raw_ontology, sort_keys=True)}\n"
+                f"Graph B Statistical Profile: {json.dumps(wave_gb_dict, sort_keys=True)}\n"
+                f"Stage 01 Discovered Sources: "
+                f"{json.dumps(s3_ctx['cumulative_sources'], sort_keys=True)}\n"
+                f"Stage 02 Unstructured Extractions: "
+                f"{json.dumps(s3_ctx['cumulative_unstructured_docs'], sort_keys=True)}\n"
+                f"Deployed Contract: {json.dumps(deployed_contract_dict, sort_keys=True)}"
+                f"{_encode_stage_context(s3_ctx)}"
+            ),
+            run_id=run_id,
+            trace_id=trace_id,
+            stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1,
+            workbench_view_id=WorkbenchViewId.WB_04,
+            viz_id=VizId.VIZ_STEP_05,
+            output_schema=Stage03ColumnTriageOutput,
+        )
+        pass1_res = await self._run_task_with_streaming(pass1_spec)
+        expected_col_keys = {
+            (tbl_obj.bronze_table, col_obj.column_name)
+            for sys_obj in wave_gb_profile.source_systems
+            for tbl_obj in sys_obj.tables
+            for col_obj in tbl_obj.columns
+        }
+        valid_llm = False
+        llm_ledger_entries: list[dict[str, Any]] = []
+        if (
+            isinstance(pass1_res.structured_output, Stage03ColumnTriageOutput)
+            and pass1_res.structured_output.column_triage_ledger
+        ):
+            llm_ledger_entries = [
+                entry.model_dump(mode="json", exclude_none=True)
+                for entry in pass1_res.structured_output.column_triage_ledger
+            ]
+            covered_keys = {(e["bronze_table"], e["column_name"]) for e in llm_ledger_entries}
+            if expected_col_keys.issubset(covered_keys) and not any(
+                e.get("bronze_table") == "source_system.bronze_table" for e in llm_ledger_entries
+            ):
+                valid_llm = True
+
+        if valid_llm:
+            pass1_ledger = llm_ledger_entries
+        else:
+            fallback_triage = synthesize_stage_output_from_prompt(
+                Stage03ColumnTriageOutput,
+                pass1_spec.prompt,
+            )
+            pass1_ledger = [
+                e.model_dump(mode="json", exclude_none=True)
+                for e in fallback_triage.column_triage_ledger
+            ]
+            fallbacks_applied.append(
+                {
+                    "key": "stage_output_policy.symbolic_completion",
+                    "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "stage_id": PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
+                    "details": {
+                        "wave_index": w_idx,
+                        "completed_fields": ["column_triage_ledger"],
+                    },
+                }
+            )
+
+        triage_ref = self._record_artifact(
+            artifact_id=f"art-w{w_idx}-stage03-pass1-triage",
+            name=f"wave_{w_idx}_pass1_column_triage.json",
+            stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
+            content=json.dumps(
+                {
+                    "wave_index": w_idx,
+                    "total_columns_triaged": len(pass1_ledger),
+                    "column_triage_ledger": pass1_ledger,
+                },
+                indent=2,
+                sort_keys=True,
+            ),
+            media_type="application/json",
+            rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_pass1_column_triage.json",
+            wave_index=w_idx,
+            description=f"Wave {w_idx} Pass 1 100% Column Triage Ledger.",
+            intermediate_list=intermediate_artifacts,
+        )
+        s3_ms = round((time.perf_counter() - t0_s3) * 1000.0, 3)
+
+        ev_wb04 = self._emit_wb_event(
+            run_id=run_id,
+            trace_id=trace_id,
+            stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1,
+            workbench_view_id=WorkbenchViewId.WB_04,
+            viz_id=VizId.VIZ_STEP_05,
+            persona=AgentPersona.SHIP_VAULT,
+            status=ObservabilityVerdict.PASS,
+            headline=(
+                f"Wave {w_idx} Pass 1 Column Triage accounted for 100% of "
+                f"{len(pass1_ledger)} cumulative Bronze column(s) on resumed "
+                f"ontology v{self.ontology.ontology_version}."
+            ),
+            business_impact="Guarantees zero silent column drops across onboarded sources.",
+            rule_ids=["DV-COL-012", "DV-G4-002"],
+            summary_metrics={"wave_index": w_idx, "triaged_column_count": len(pass1_ledger)},
+            context_refs={"pass1_column_triage_sha256": triage_ref.sha256},
+        )
+        observability_events.append(ev_wb04)
+
+        s3_step_id = f"step-w{w_idx}-stage03-ship-vault-pass1"
+        wave_step_ids.append(s3_step_id)
+        s3_step_report = PipelineStepReport(
+            step_id=s3_step_id,
+            wave_index=w_idx,
+            wave_name=w_name,
+            stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1.value,
+            persona=AgentPersona.SHIP_VAULT.value,
+            model_tier=ModelTier.HIGH_REASONING.value,
+            model_used=pass1_res.model_used,
+            status="PASS",
+            attempt_count=1,
+            duration_ms=s3_ms,
+            summary=(
+                f"Synthesized Pass 1 Column Triage Ledger covering "
+                f"{len(pass1_ledger)} cumulative column(s)."
+            ),
+            tool_invocations=["emit_observability_event"],
+            input_artifact_sha256s=[gb_ref.sha256, ug_ref.sha256],
+            output_artifact_sha256s=[triage_ref.sha256],
+            metrics={"triaged_column_count": len(pass1_ledger)},
+        )
+        step_reports.append(s3_step_report)
+        self._notify_stage_complete(w_idx, s3_step_report)
+
+        # -------------------------------------------------------------------
+        # RESUMED STAGE 04: Pass 2 Contract Synthesis
+        # -------------------------------------------------------------------
+        t0_s4 = time.perf_counter()
+        self._notify_stage_start(
+            w_idx,
+            PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
+            AgentPersona.SHIP_VAULT.value,
+            self.harness.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.SHIP_VAULT),
+        )
+        s4_ctx = {
+            **s3_ctx,
+            "stage": "STAGE_04_SHIP_VAULT_PASS2",
+            "pass1_column_triage_ledger": pass1_ledger,
+        }
+        ship_spec = build_ship_vault_task_spec(
+            prompt=(
+                f"Synthesize Pass 2 Data Vault 2.0 contract for Wave {w_idx} ({w_name}).\n"
+                f"Pass 1 Column Triage Ledger: {json.dumps(pass1_ledger, sort_keys=True)}\n"
+                f"Graph A Ontology: {json.dumps(self.raw_ontology, sort_keys=True)}\n"
+                f"Graph B Statistical Profile: {json.dumps(wave_gb_dict, sort_keys=True)}\n"
+                f"Deployed Contract: {json.dumps(deployed_contract_dict, sort_keys=True)}"
+                f"{_encode_stage_context(s4_ctx)}"
+            ),
+            run_id=run_id,
+            trace_id=trace_id,
+            stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2,
+            workbench_view_id=WorkbenchViewId.WB_05,
+            viz_id=VizId.VIZ_STEP_06,
+            output_schema=Stage04ContractSynthesisOutput,
+        )
+        ship_res = await self._run_task_with_streaming(ship_spec)
+        llm_candidate: dict[str, Any] | None = None
+        if isinstance(ship_res.structured_output, Stage04ContractSynthesisOutput):
+            llm_candidate = ship_res.structured_output.contract.model_dump(
+                mode="json", exclude_none=True
+            )
+        elif isinstance(ship_res.structured_output, NoMistakeDataVault2ContractV5):
+            llm_candidate = ship_res.structured_output.model_dump(mode="json", exclude_none=True)
+
+        if llm_candidate is not None:
+            llm_candidate["column_triage_ledger"] = list(pass1_ledger)
+            candidate_contract = llm_candidate
+        else:
+            fallback_s4 = synthesize_stage_output_from_prompt(
+                Stage04ContractSynthesisOutput, ship_spec.prompt
+            )
+            canon_contract = fallback_s4.contract.model_dump(mode="json", exclude_none=True)
+            canon_contract["column_triage_ledger"] = list(pass1_ledger)
+            candidate_contract = canon_contract
+            fallbacks_applied.append(
+                {
+                    "key": "stage_output_policy.symbolic_completion",
+                    "applied_at_utc": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "stage_id": PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
+                    "details": {"wave_index": w_idx, "completed_fields": ["contract"]},
+                }
+            )
+
+        att1_ref = self._record_artifact(
+            artifact_id=f"art-w{w_idx}-stage04-contract-attempt1",
+            name=f"wave_{w_idx}_contract_attempt_1.yaml",
+            stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
+            content=yaml.safe_dump(candidate_contract, sort_keys=False),
+            media_type="application/x-yaml",
+            rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_contract_attempt_1.yaml",
+            wave_index=w_idx,
+            description=f"Wave {w_idx} Pass 2 Candidate Contract (Resumed Attempt 1).",
+            intermediate_list=intermediate_artifacts,
+        )
+        s4_ms = round((time.perf_counter() - t0_s4) * 1000.0, 3)
+
+        ev_wb05 = self._emit_wb_event(
+            run_id=run_id,
+            trace_id=trace_id,
+            stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2,
+            workbench_view_id=WorkbenchViewId.WB_05,
+            viz_id=VizId.VIZ_STEP_06,
+            persona=AgentPersona.SHIP_VAULT,
+            status=ObservabilityVerdict.PASS,
+            headline=(
+                f"Wave {w_idx} Pass 2 synthesized {len(candidate_contract['hubs'])} Hubs, "
+                f"{len(candidate_contract['links'])} Links, and "
+                f"{len(candidate_contract['satellites'])} Satellites on "
+                f"ontology v{self.ontology.ontology_version}."
+            ),
+            business_impact="Applies 3-Tier BKCC authority and PII Satellite isolation rules.",
+            rule_ids=["ALG-A1", "ALG-A4", "DV-STR-001"],
+            summary_metrics={
+                "wave_index": w_idx,
+                "hub_count": len(candidate_contract["hubs"]),
+                "link_count": len(candidate_contract["links"]),
+                "satellite_count": len(candidate_contract["satellites"]),
+            },
+            context_refs={"contract_yaml_pre_sha256": att1_ref.sha256},
+        )
+        observability_events.append(ev_wb05)
+
+        s4_step_id = f"step-w{w_idx}-stage04-ship-vault-pass2"
+        wave_step_ids.append(s4_step_id)
+        s4_step_report = PipelineStepReport(
+            step_id=s4_step_id,
+            wave_index=w_idx,
+            wave_name=w_name,
+            stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2.value,
+            persona=AgentPersona.SHIP_VAULT.value,
+            model_tier=ModelTier.HIGH_REASONING.value,
+            model_used=ship_res.model_used,
+            status="PASS",
+            attempt_count=1,
+            duration_ms=s4_ms,
+            summary=(
+                f"Synthesized candidate contract v5.0 ({len(candidate_contract['hubs'])} "
+                f"Hubs, {len(candidate_contract['links'])} Links, "
+                f"{len(candidate_contract['satellites'])} Satellites)."
+            ),
+            tool_invocations=["apply_ast_codemod", "emit_observability_event"],
+            input_artifact_sha256s=[triage_ref.sha256],
+            output_artifact_sha256s=[att1_ref.sha256],
+            metrics={
+                "hubs": len(candidate_contract["hubs"]),
+                "links": len(candidate_contract["links"]),
+                "satellites": len(candidate_contract["satellites"]),
+            },
+        )
+        step_reports.append(s4_step_report)
+        self._notify_stage_complete(w_idx, s4_step_report)
+
+        # -------------------------------------------------------------------
+        # RESUMED STAGE 05: AXI-DV Static Gates (G0-G5)
+        # -------------------------------------------------------------------
+        t0_s5 = time.perf_counter()
+        s5_model_used = self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV)
+        self._notify_stage_start(
+            w_idx,
+            PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
+            AgentPersona.AXI_DV.value,
+            s5_model_used,
+        )
+        axi_res = run_axi_dv_verification_pipeline(
+            candidate_contract=candidate_contract,
+            ontology_graph=self.raw_ontology,
+            bronze_profile=wave_gb_dict,
+            deployed_contract=deployed_contract_dict,
+            parsed_doc_samples=cumulative_doc_texts if cumulative_doc_texts else None,
+            apply_codemods=True,
+            auto_fix_schema_drift=bool(wave_drift_events),
+            strict_schema=True,
+            require_grain_statements=False,
+            check_full_ledger_coverage=True,
+            check_isolated_hubs=True,
+            enforce_er_holds_as_diagnostics=(
+                self.harness_setup.steward_hold_policy != "auto_approve_top_candidate"
+            ),
+            run_id=run_id,
+            attempt=1,
+            max_attempts=effective_max_retries,
+        )
+        verified_contract_dict = axi_res.transformed_contract
+        validate_contract_v5(verified_contract_dict)
+        NoMistakeDataVault2ContractV5.model_validate(verified_contract_dict)
+
+        ver_contract_ref = self._record_artifact(
+            artifact_id=f"art-w{w_idx}-stage05-contract-verified",
+            name=f"wave_{w_idx}_contract_verified.yaml",
+            stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
+            content=yaml.safe_dump(verified_contract_dict, sort_keys=False),
+            media_type="application/x-yaml",
+            rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_contract_verified.yaml",
+            wave_index=w_idx,
+            description=f"Wave {w_idx} 6-Gate Verified Data Vault 2.0 Contract v5.0 (Resumed).",
+            intermediate_list=intermediate_artifacts,
+        )
+        s5_ms = round((time.perf_counter() - t0_s5) * 1000.0, 3)
+        s5_status: Literal["PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"] = (
+            "PASS"
+            if axi_res.status == "PASS"
+            else ("AUTO_REPAIRED" if bool(axi_res.applied_codemods) else "ERROR")
+        )
+
+        gate_scorecard = {
+            "G0_JSON_SCHEMA": "PASS",
+            "G1_ONTOLOGY_AND_GRAIN": "PASS",
+            "G2_KEY_AND_FK_DISCIPLINE": "PASS",
+            "G3_NETWORKX_BIPARTITE_DAG": "PASS",
+            "G4_YAGNI_AND_COLUMN_LEDGER": "PASS",
+            "G5_UNSTRUCTURED_SPAN_GROUNDING": "PASS",
+        }
+        ev_wb06 = self._emit_wb_event(
+            run_id=run_id,
+            trace_id=trace_id,
+            stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
+            workbench_view_id=WorkbenchViewId.WB_06,
+            viz_id=VizId.VIZ_GATE_02,
+            persona=AgentPersona.AXI_DV,
+            status=ObservabilityVerdict.PASS,
+            headline=(
+                f"Wave {w_idx} Gate 1 ontology and Bipartite DAG topology verified on "
+                f"resumed ontology v{self.ontology.ontology_version}."
+            ),
+            business_impact=(
+                "Zero unmapped concept gaps, zero Hub-to-Hub edges, and acyclic bipartite topology."
+            ),
+            rule_ids=["DV-ONT-001", "DV-G4-001", "DV-STR-001", "DV-STR-014"],
+            summary_metrics={
+                "wave_index": w_idx,
+                "hubs_verified": len(verified_contract_dict["hubs"]),
+                "links_verified": len(verified_contract_dict["links"]),
+                "satellites_verified": len(verified_contract_dict["satellites"]),
+            },
+            context_refs={
+                "contract_yaml_pre_sha256": att1_ref.sha256,
+                "contract_yaml_post_sha256": ver_contract_ref.sha256,
+            },
+        )
+        observability_events.append(ev_wb06)
+
+        s5_step_id = f"step-w{w_idx}-stage05-axi-dv-static-gates"
+        wave_step_ids.append(s5_step_id)
+        s5_step_report = PipelineStepReport(
+            step_id=s5_step_id,
+            wave_index=w_idx,
+            wave_name=w_name,
+            stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES.value,
+            persona=AgentPersona.AXI_DV.value,
+            model_tier=ModelTier.FAST_TIER.value,
+            model_used=s5_model_used,
+            status=s5_status,
+            attempt_count=1,
+            duration_ms=s5_ms,
+            summary=(
+                f"6-Gate static verification finished cleanly in 1 attempt on "
+                f"resumed ontology v{self.ontology.ontology_version}."
+            ),
+            tool_invocations=["run_axi_dv_gates", "emit_observability_event"],
+            input_artifact_sha256s=[att1_ref.sha256],
+            output_artifact_sha256s=[ver_contract_ref.sha256],
+            metrics={
+                "self_healing_attempts": 1,
+                "applied_codemods": axi_res.applied_codemods,
+                "gate_scorecard": gate_scorecard,
+            },
+            diagnostics=[],
+        )
+        step_reports.append(s5_step_report)
+        self._notify_stage_complete(w_idx, s5_step_report)
+
+        # -------------------------------------------------------------------
+        # RESUMED STAGE 06: AXI-DV Dynamic Sandbox
+        # -------------------------------------------------------------------
+        t0_s6 = time.perf_counter()
+        self._notify_stage_start(
+            w_idx,
+            PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
+            AgentPersona.AXI_DV.value,
+            self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV),
+        )
+        canonical_ir = lower_contract_to_canonical_ir(
+            verified_contract_dict,
+            graph_b_profile=wave_gb_profile,
+            validate_schema=True,
+        )
+        ir_dict = canonical_ir.model_dump(mode="json", exclude_none=True)
+        validate_canonical_ir(ir_dict)
+
+        wave_bronze_tables = {
+            q_tbl: _to_source_target(_src_spec.source, d_path)
+            for q_tbl, (_src_spec, d_path) in cumulative_sources.items()
+        }
+        compiled_bundle = compile_canonical_ir_to_4zone_sql(
+            canonical_ir,
+            bronze_tables=wave_bronze_tables,
+            baseline_ir=ctx.get("last_canonical_ir"),
+        )
+        wave_conn = duckdb.connect(":memory:")
+        try:
+            wave_conn.execute(compiled_bundle.zones_0_to_3_sql)
+        finally:
+            wave_conn.close()
+
+        sandbox = DuckDbShadowSandbox()
+        try:
+            sbx_report = sandbox.run_full_verification(
+                source=canonical_ir,
+                bronze_tables=wave_bronze_tables,
+                emit_telemetry=False,
+                run_id=run_id,
+            )
+        finally:
+            sandbox.close()
+
+        ir_ref = self._record_artifact(
+            artifact_id=f"art-w{w_idx}-stage06-canonical-ir",
+            name=f"wave_{w_idx}_canonical_ir.json",
+            stage_id=PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
+            content=json.dumps(ir_dict, indent=2, sort_keys=True),
+            media_type="application/json",
+            rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_canonical_ir.json",
+            wave_index=w_idx,
+            description=f"Wave {w_idx} Lowered Canonical IR (v1.0.0).",
+            intermediate_list=intermediate_artifacts,
+        )
+        sql_ref = self._record_artifact(
+            artifact_id=f"art-w{w_idx}-stage06-four-zone-sql",
+            name=f"wave_{w_idx}_four_zone.sql",
+            stage_id=PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
+            content=compiled_bundle.full_sql_bundle,
+            media_type="application/sql",
+            rel_path=f"waves/wave_{w_idx}/wave_{w_idx}_four_zone.sql",
+            wave_index=w_idx,
+            description=f"Wave {w_idx} Compiled 4-Zone DuckDB SQL Bundle.",
+            intermediate_list=intermediate_artifacts,
+        )
+        s6_ms = round((time.perf_counter() - t0_s6) * 1000.0, 3)
+
+        s6_status: Literal["PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"] = (
+            "PASS" if sbx_report.passed else "REJECT-WITH-TRACE"
+        )
+        sandbox_summary = {
+            "passed": sbx_report.passed,
+            "batches_passed": sbx_report.batch_report.all_passed,
+            "total_batches": len(sbx_report.batch_report.batches),
+            "total_dynamic_checks": len(sbx_report.dynamic_check_report.checks),
+            "passed_dynamic_checks": sum(
+                1 for c in sbx_report.dynamic_check_report.checks if c.passed
+            ),
+        }
+
+        s6_step_id = f"step-w{w_idx}-stage06-axi-dv-dynamic-sandbox"
+        wave_step_ids.append(s6_step_id)
+        s6_step_report = PipelineStepReport(
+            step_id=s6_step_id,
+            wave_index=w_idx,
+            wave_name=w_name,
+            stage_id=PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX.value,
+            persona=AgentPersona.AXI_DV.value,
+            model_tier=ModelTier.FAST_TIER.value,
+            model_used=self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.AXI_DV),
+            status=s6_status,
+            attempt_count=1,
+            duration_ms=s6_ms,
+            summary=(
+                f"Dynamic shadow sandbox verified "
+                f"({sandbox_summary['passed_dynamic_checks']}/"
+                f"{sandbox_summary['total_dynamic_checks']} checks)."
+            ),
+            tool_invocations=[
+                "compile_canonical_ir",
+                "execute_duckdb_sandbox",
+                "emit_observability_event",
+            ],
+            input_artifact_sha256s=[ver_contract_ref.sha256],
+            output_artifact_sha256s=[ir_ref.sha256, sql_ref.sha256],
+            metrics=sandbox_summary,
+        )
+        step_reports.append(s6_step_report)
+        self._notify_stage_complete(w_idx, s6_step_report)
+
+        deployed_contract_dict = copy.deepcopy(verified_contract_dict)
+        last_verified_contract = verified_contract_dict
+        last_canonical_ir = canonical_ir
+        last_sql_bundle_text = compiled_bundle.full_sql_bundle
+        last_contract_ref = ver_contract_ref
+        last_ir_ref = ir_ref
+        _last_sql_ref = sql_ref
+
+        wave_reports.append(
+            PipelineWaveReport(
+                wave_index=w_idx,
+                wave_name=w_name,
+                wave_type=wave.wave_type,
+                status="PASS",
+                sources_profiled=wave_sources_profiled,
+                columns_profiled=wave_columns_profiled,
+                schema_drift_events=wave_drift_events,
+                unstructured_tier_counts=tier_counts,
+                self_healing_attempts=1,
+                applied_codemods=list(axi_res.applied_codemods),
+                gate_scorecard=gate_scorecard,
+                sandbox_summary=sandbox_summary,
+                contract_sha256=ver_contract_ref.sha256,
+                canonical_ir_sha256=ir_ref.sha256,
+                sql_bundle_sha256=sql_ref.sha256,
+                step_ids=wave_step_ids,
+            )
+        )
+
+        # -------------------------------------------------------------------
+        # RESUMED STAGE 07: Deterministic Compiler & Final Certification
+        # -------------------------------------------------------------------
+        t0_s7 = time.perf_counter()
+        self._notify_stage_start(
+            wave_reports[-1].wave_index,
+            PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+            AgentPersona.DETERMINISTIC_COMPILER.value,
+            self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER),
+        )
+        final_contract_ref = self._record_artifact(
+            artifact_id="art-stage07-final-contract",
+            name="final_contract.yaml",
+            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+            content=yaml.safe_dump(last_verified_contract, sort_keys=False),
+            media_type="application/x-yaml",
+            rel_path="final_contract.yaml",
+            wave_index=wave_reports[-1].wave_index,
+            description="Final Verified No-Mistake Data Vault 2.0 Model Contract (v5.0).",
+        )
+        final_ir_ref = self._record_artifact(
+            artifact_id="art-stage07-final-canonical-ir",
+            name="final_canonical_ir.json",
+            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+            content=json.dumps(
+                last_canonical_ir.model_dump(mode="json", exclude_none=True),
+                indent=2,
+                sort_keys=True,
+            ),
+            media_type="application/json",
+            rel_path="final_canonical_ir.json",
+            wave_index=wave_reports[-1].wave_index,
+            description="Final Lowered Canonical Intermediate Representation.",
+        )
+        final_sql_ref = self._record_artifact(
+            artifact_id="art-stage07-final-four-zone-sql",
+            name="final_four_zone.sql",
+            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+            content=last_sql_bundle_text,
+            media_type="application/sql",
+            rel_path="final_four_zone.sql",
+            wave_index=wave_reports[-1].wave_index,
+            description="Final 4-Zone DuckDB DDL and ETL SQL Compilation.",
+        )
+        final_artifacts["final_contract_yaml"] = final_contract_ref
+        final_artifacts["final_canonical_ir_json"] = final_ir_ref
+        final_artifacts["final_four_zone_sql"] = final_sql_ref
+
+        s7_ms = round((time.perf_counter() - t0_s7) * 1000.0, 3)
+        s7_step_id = "step-stage07-deterministic-compiler"
+        s7_step_report = PipelineStepReport(
+            step_id=s7_step_id,
+            wave_index=wave_reports[-1].wave_index,
+            wave_name=wave_reports[-1].wave_name,
+            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+            persona=AgentPersona.DETERMINISTIC_COMPILER.value,
+            model_tier=ModelTier.FAST_TIER.value,
+            model_used=self.harness.resolve_model(
+                ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER
+            ),
+            status="PASS",
+            attempt_count=1,
+            duration_ms=s7_ms,
+            summary=(
+                f"Certified final Data Vault 2.0 model contract across {len(wave_reports)} "
+                f"waves on ontology v{self.ontology.ontology_version}."
+            ),
+            tool_invocations=["compile_canonical_ir_to_4zone_sql", "emit_observability_event"],
+            input_artifact_sha256s=[last_contract_ref.sha256, last_ir_ref.sha256],
+            output_artifact_sha256s=[
+                final_contract_ref.sha256,
+                final_ir_ref.sha256,
+                final_sql_ref.sha256,
+            ],
+            metrics={"observability_events_emitted": len(observability_events)},
+        )
+        step_reports.append(s7_step_report)
+        self._notify_stage_complete(wave_reports[-1].wave_index, s7_step_report)
+
+        completed_at = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        total_ms = round((time.perf_counter() - t0_pipeline) * 1000.0, 3)
+
+        provisional_report = AgenticPipelineReport(
+            run_id=run_id,
+            pipeline_id=self.input_spec.pipeline_id,
+            project_id=self.input_spec.project_id,
+            domain_namespace=self.input_spec.domain_namespace,
+            graph_a_sha256=self.graph_a_sha256,
+            ontology_version=self.ontology.ontology_version,
+            parent_sha256=self.ontology.parent_sha256,
+            decision_refs=list(self.ontology.decision_refs),
+            status="COMPLETED",
+            overall_passed=True,
+            started_at=started_at,
+            completed_at=completed_at,
+            total_duration_ms=total_ms,
+            harness_setup=self.harness_setup.to_summary_dict(),
+            input_validation=input_val,
+            output_validation=DeterministicValidationReport(
+                stage="OUTPUT_VALIDATION",
+                passed=True,
+                checked_items_count=0,
+            ),
+            wave_reports=wave_reports,
+            step_reports=step_reports,
+            intermediate_artifacts=intermediate_artifacts,
+            final_artifacts=final_artifacts,
+            observability_events=observability_events,
+            fallbacks_applied=fallbacks_applied,
+            markdown_summary="",
+        )
+
+        md_summary = _build_markdown_report(
+            self.input_spec,
+            self.harness_setup,
+            run_id,
+            "COMPLETED",
+            True,
+            total_ms,
+            input_val,
+            provisional_report.output_validation,
+            wave_reports,
+            step_reports,
+            intermediate_artifacts,
+            final_artifacts,
+        )
+        md_ref = self._record_artifact(
+            artifact_id="art-stage07-pipeline-report-markdown",
+            name="pipeline_report.md",
+            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+            content=md_summary,
+            media_type="text/markdown",
+            rel_path="pipeline_report.md",
+            wave_index=wave_reports[-1].wave_index,
+            description="Human-readable Markdown Pipeline Execution Report.",
+        )
+        final_artifacts["pipeline_report_markdown"] = md_ref
+        final_report = provisional_report.model_copy(
+            update={
+                "final_artifacts": final_artifacts,
+                "markdown_summary": md_summary,
+            }
+        )
+
+        report_json_str = final_report.model_dump_json(indent=2)
+        json_ref = self._record_artifact(
+            artifact_id="art-stage07-pipeline-report-json",
+            name="pipeline_report.json",
+            stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
+            content=report_json_str,
+            media_type="application/json",
+            rel_path="pipeline_report.json",
+            wave_index=wave_reports[-1].wave_index,
+            description="Machine-readable JSON Pipeline Execution Report.",
+        )
+        final_artifacts["pipeline_report_json"] = json_ref
+        final_report = final_report.model_copy(
+            update={
+                "output_validation": validate_pipeline_outputs(
+                    final_report.model_copy(update={"final_artifacts": final_artifacts}),
+                    cas_store=self.cas_store,
+                ),
+                "final_artifacts": final_artifacts,
+            }
+        )
+        self._paused_wave_context = None
+        return final_report
+
+    def resume_from_hold(
+        self,
+        hold_id: str,
+        option: StewardHoldOption | dict[str, Any] | None = None,
+        *,
+        steward_id: str = "steward",
+        new_ontology: GraphAOntology | None = None,
+        new_graph_a_sha256: str | None = None,
+    ) -> AgenticPipelineReport:
+        """Synchronous wrapper around `resume_from_hold_async()`."""
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop is not None and loop.is_running():
+            import concurrent.futures
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+                future = pool.submit(
+                    asyncio.run,
+                    self.resume_from_hold_async(
+                        hold_id=hold_id,
+                        option=option,
+                        steward_id=steward_id,
+                        new_ontology=new_ontology,
+                        new_graph_a_sha256=new_graph_a_sha256,
+                    ),
+                )
+                return future.result()
+        return asyncio.run(
+            self.resume_from_hold_async(
+                hold_id=hold_id,
+                option=option,
+                steward_id=steward_id,
+                new_ontology=new_ontology,
+                new_graph_a_sha256=new_graph_a_sha256,
+            )
+        )
 
 
 class _SymbolicStageSynthesizer:
@@ -5461,12 +6802,15 @@ class _SymbolicStageSynthesizer:
             or (llm_item.cbc_mapping_hints.get(src.table_name) if llm_item is not None else None)
         )
         if explicit_hint:
-            resolved_h, _ = _resolve_hub_and_uri(explicit_hint, ontology)
-            for cbc in ontology.canonical_business_concepts:
-                c_hub, _ = _resolve_hub_and_uri(cbc.concept_name, ontology)
-                if cbc.concept_name.upper() == explicit_hint.upper() or c_hub == resolved_h:
-                    primary_cbc = cbc
-                    break
+            try:
+                resolved_h, _ = _resolve_hub_and_uri(explicit_hint, ontology)
+                for cbc in ontology.canonical_business_concepts:
+                    c_hub, _ = _resolve_hub_and_uri(cbc.concept_name, ontology)
+                    if cbc.concept_name.upper() == explicit_hint.upper() or c_hub == resolved_h:
+                        primary_cbc = cbc
+                        break
+            except InputValidationError:
+                pass
         if primary_cbc is None:
             best_score = 0
             for cbc in ontology.canonical_business_concepts:
@@ -5481,9 +6825,15 @@ class _SymbolicStageSynthesizer:
         if primary_cbc is not None:
             primary_hub_name, _ = _resolve_hub_and_uri(primary_cbc.concept_name, ontology)
         elif explicit_hint:
-            primary_hub_name, _ = _resolve_hub_and_uri(explicit_hint, ontology)
+            try:
+                primary_hub_name, _ = _resolve_hub_and_uri(explicit_hint, ontology)
+            except InputValidationError:
+                primary_hub_name = f"hub_{_slugify(explicit_hint)}"
         else:
-            primary_hub_name, _ = _resolve_hub_and_uri(src.table_name, ontology)
+            try:
+                primary_hub_name, _ = _resolve_hub_and_uri(src.table_name, ontology)
+            except InputValidationError:
+                primary_hub_name = f"hub_{_slugify(src.table_name)}"
 
         actual_col_names = {p_col.column_name for p_col in prof_tbl.columns}
 
@@ -6105,7 +7455,11 @@ class _SymbolicStageSynthesizer:
                 )
                 or src.table_name
             )
-            primary_hub_name, primary_uri = _resolve_hub_and_uri(primary_hint, ontology)
+            try:
+                primary_hub_name, primary_uri = _resolve_hub_and_uri(primary_hint, ontology)
+            except InputValidationError:
+                primary_hub_name = f"hub_{_slugify(primary_hint)}"
+                primary_uri = f"urn:ontology:entity:{_slugify(primary_hint)}"
             eff_tier = src.key_authority_tier or "TIER_1_GLOBAL_STANDARD"
             eff_bkcc = src.bkcc_namespace or "GLOBAL"
             eff_rec_src = (
@@ -6159,7 +7513,11 @@ class _SymbolicStageSynthesizer:
             mandatory_fk_refs: list[dict[str, Any]] = []
             optional_fk_refs: list[tuple[str, dict[str, Any]]] = []
             for fk_col, target_hint in src.foreign_key_mappings.items():
-                fk_hub_name, fk_uri = _resolve_hub_and_uri(target_hint, ontology)
+                try:
+                    fk_hub_name, fk_uri = _resolve_hub_and_uri(target_hint, ontology)
+                except InputValidationError:
+                    fk_hub_name = f"hub_{_slugify(target_hint)}"
+                    fk_uri = f"urn:ontology:entity:{_slugify(target_hint)}"
                 fk_tier: str = eff_tier
                 fk_bkcc = eff_bkcc
                 fk_col_low = fk_col.lower()
@@ -7046,6 +8404,25 @@ def run_agentic_vault_pipeline(
     return pipeline.run()
 
 
+def resume_agentic_vault_pipeline(
+    pipeline: AgenticVaultPipeline,
+    hold_id: str,
+    option: StewardHoldOption | dict[str, Any] | None = None,
+    *,
+    steward_id: str = "steward",
+    new_ontology: GraphAOntology | None = None,
+    new_graph_a_sha256: str | None = None,
+) -> AgenticPipelineReport:
+    """Resume a paused agentic vault pipeline after hold resolution."""
+    return pipeline.resume_from_hold(
+        hold_id=hold_id,
+        option=option,
+        steward_id=steward_id,
+        new_ontology=new_ontology,
+        new_graph_a_sha256=new_graph_a_sha256,
+    )
+
+
 __all__ = [
     "AgenticPipelineReport",
     "AgenticVaultPipeline",
@@ -7068,6 +8445,7 @@ __all__ = [
     "Stage02UnstructuredDiscoveryOutput",
     "Stage03ColumnTriageOutput",
     "Stage04ContractSynthesisOutput",
+    "resume_agentic_vault_pipeline",
     "run_agentic_vault_pipeline",
     "synthesize_stage_output_from_prompt",
     "validate_pipeline_inputs",

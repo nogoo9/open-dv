@@ -21,6 +21,7 @@ from opendv_platform_api.routers import (
     explorer,
     gates,
     health,
+    ontology,
     profile,
     projects,
     runs,
@@ -274,6 +275,7 @@ def create_app(
     application.include_router(decisions.router, prefix=api_prefix)
     application.include_router(workbench.router, prefix=api_prefix)
     application.include_router(artifacts.router, prefix=api_prefix)
+    application.include_router(ontology.router, prefix=api_prefix)
 
     return application
 

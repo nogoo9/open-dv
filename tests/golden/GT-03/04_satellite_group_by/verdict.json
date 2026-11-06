@@ -3,6 +3,7 @@
     "ALG_A1_3AXIS_SATELLITE_SPLIT"
   ],
   "contract_path": "<CONTRACT_PATH>",
+  "decision_refs": [],
   "diagnostics": [
     "[DV-AST-006 / DV-G6-005] Raw Vault entity 'sat_fund_investran' contains GROUP BY or HAVING aggregation; aggregations belong in Business Vault.",
     "[DV-AST-006 / DV-G6-005] 'sat_fund_investran' is missing mandatory audit column 'load_dts'.",
@@ -19,8 +20,11 @@
     "gate_4_yagni_cost_guard": "AUTO-FIX",
     "gate_5_duckdb_sandbox": "PASS"
   },
+  "graph_a_sha256": "fc5c791de9306fe64c9b1efecbc343d02d629bdfd2e0a53d3311679153395a9d",
   "mode": "<MODE>",
+  "ontology_version": "1.0.0",
   "overall_passed": false,
+  "parent_sha256": null,
   "rendered": {
     "summary": null,
     "text": "================================================================================\nOpen-DV Verification Report \u2014 Run: run-local-verify\nStatus: REJECT_WITH_TRACE | Verdict: REJECT-WITH-TRACE\n--------------------------------------------------------------------------------\nGate Scorecard (6-Gate AXI Verification):\n--------------------------------------------------------------------------------\nApplied Codemods (1):\n  \u2022 ALG_A1_3AXIS_SATELLITE_SPLIT\n--------------------------------------------------------------------------------\nDiagnostics (5):\n  \u2022 [DV-AST-006 / DV-G6-005] Raw Vault entity 'sat_fund_investran' contains GROUP BY or HAVING aggregation; aggregations belong in Business Vault.\n  \u2022 [DV-AST-006 / DV-G6-005] 'sat_fund_investran' is missing mandatory audit column 'load_dts'.\n  \u2022 [DV-AST-006 / DV-G6-005] 'sat_fund_investran' is missing mandatory audit column 'rec_src'.\n  \u2022 [DV-AST-006 / DV-G6-005] Satellite 'sat_fund_investran' is missing a 'hash_diff' column.\n  \u2022 [DV-AST-005 / DV-G6-004] Satellite INSERT on 'sat_fund_investran' lacks a 'hash_diff' delta comparison in its WHERE clause.\n================================================================================",

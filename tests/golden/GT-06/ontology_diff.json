@@ -1,0 +1,22 @@
+{
+  "base_version": "1.0.0",
+  "target_version": "1.1.0",
+  "base_sha256": "9abb6eefb16f7ff412c18e3580bab76cdccc56b6e58b66944fd56fc49117fc02",
+  "target_sha256": "f466c0683ff3a97e56e71cd709e456548f570f167d73c4fc63d96ecfd5eb3341",
+  "added_concepts": [
+    "urn:ontology:entity:advisor"
+  ],
+  "added_relationships": [
+    "urn:ontology:relationship:fund_advisor"
+  ],
+  "added_enumerations": [
+    "urn:ontology:enum:advisor_role"
+  ],
+  "refined_concepts": [
+    "urn:ontology:entity:fund"
+  ],
+  "breaking_changes": [],
+  "diagnostics": [
+    "Ontology diff computed from v1.0.0 (9abb6eef) to v1.1.0 (f466c068): +1 concepts, +1 relationships, +1 enums, 1 refined concepts, 0 breaking changes."
+  ]
+}

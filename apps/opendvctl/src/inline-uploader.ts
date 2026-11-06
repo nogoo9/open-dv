@@ -81,6 +81,21 @@ export async function processInlineUploads(
 					enriched.prior_contract_path = filePath;
 				} else if (key === "compiled_sql") {
 					enriched.compiled_sql = content;
+				} else if (key === "base") {
+					enriched.base_ontology_content = content;
+					enriched.base_ontology_path = filePath;
+				} else if (key === "delta") {
+					enriched.delta_content = content;
+					enriched.delta_path = filePath;
+				} else if (key === "target") {
+					enriched.target_ontology_content = content;
+					enriched.target_ontology_path = filePath;
+				} else if (key === "profile") {
+					enriched.empirical_profile_content = content;
+					enriched.empirical_profile_path = filePath;
+				} else if (key === "source") {
+					enriched.bronze_source_content = content;
+					enriched.bronze_source_path = filePath;
 				}
 			}
 		}

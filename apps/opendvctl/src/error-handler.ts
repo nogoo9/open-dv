@@ -128,6 +128,9 @@ export class ErrorHandler {
 			if (obj.overall_passed === false) {
 				return 1;
 			}
+			if (obj.valid === false) {
+				return 1;
+			}
 			if (obj.verdict === "FAILED" || obj.status === "FAILED") {
 				return 1;
 			}
