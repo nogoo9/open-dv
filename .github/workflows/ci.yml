@@ -220,6 +220,11 @@ jobs:
           uv run python -m opendv_platform_api.export_openapi
           git diff --exit-code schemas/openapi-v1.json
 
+      - name: Verify CLI specification drift
+        run: |
+          uv run python -m opendv_service.export_cli_spec
+          git diff --exit-code packages/opendv-contracts/schemas/cli-spec.json schemas/v1/cli-spec.json
+
   validate-typescript:
     name: TypeScript Workspace CI (Bun, test, tsc -b)
     runs-on: ubuntu-latest
@@ -243,3 +248,9 @@ jobs:
       - name: Typecheck TypeScript project references (tsc -b)
         run: |
           bun x tsc -b --pretty
+
+      - name: Verify TypeScript DTO codegen freshness
+        run: |
+          cd packages/opendv-protocol-ts && bun run codegen && cd ../..
+          git diff --exit-code packages/opendv-protocol-ts/src/types
+
