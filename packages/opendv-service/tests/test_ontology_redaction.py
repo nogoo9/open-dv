@@ -85,8 +85,7 @@ def test_full_clearance_for_privileged_custodian() -> None:
 def test_sample_dataset_bounding_and_redaction() -> None:
     samples = {
         "raw_suppliers": [
-            {"supplier_id": f"s_{i}", "ssn": "123-45-6789", "valuation": 1000000}
-            for i in range(25)
+            {"supplier_id": f"s_{i}", "ssn": "123-45-6789", "valuation": 1000000} for i in range(25)
         ]
     }
     redacted = redact_sample_data(

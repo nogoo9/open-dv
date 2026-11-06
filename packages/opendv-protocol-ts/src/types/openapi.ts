@@ -4161,7 +4161,9 @@ export interface operations {
 	record_ontology_decision_api_v1_ontology_decisions_post: {
 		parameters: {
 			query?: never;
-			header?: never;
+			header?: {
+				"X-OpenDV-Role"?: string | null;
+			};
 			path?: never;
 			cookie?: never;
 		};

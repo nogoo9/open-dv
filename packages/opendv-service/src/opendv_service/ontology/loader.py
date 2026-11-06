@@ -12,9 +12,50 @@ import yaml
 
 from opendv_contracts.dtos.ontology import OntologyDelta
 from opendv_core.models.graph_a import GraphAOntology
-from opendv_core.paths import resolve_workspace_path
+from opendv_core.paths import PathContainmentError, resolve_workspace_path
 from opendv_service.errors import InputValidationError
 from opendv_sources import load_graph_a_source
+
+
+def _resolve_candidate_file_path(
+    raw_str: str,
+    *,
+    workspace_root: Path | None = None,
+) -> Path | None:
+    """Safely resolve candidate file path with strict workspace containment enforcement."""
+    has_newlines = "\n" in raw_str
+    starts_with_json = raw_str.startswith(("{", "["))
+    if has_newlines or starts_with_json:
+        return None
+
+    is_path_like = (
+        "/" in raw_str
+        or "\\" in raw_str
+        or raw_str.endswith((".yaml", ".yml", ".json"))
+        or raw_str.startswith((".", "~"))
+    )
+
+    if workspace_root is not None:
+        try:
+            resolved = resolve_workspace_path(raw_str, workspace_root=workspace_root)
+            if resolved.is_file():
+                return resolved
+            if is_path_like and not resolved.exists():
+                raise InputValidationError(f"File not found within workspace: '{raw_str}'")
+        except PathContainmentError as exc:
+            raise InputValidationError(
+                f"Path containment violation: path '{raw_str}' escapes workspace root."
+            ) from exc
+        except (ValueError, RuntimeError, OSError) as exc:
+            if is_path_like:
+                raise InputValidationError(f"Invalid workspace path '{raw_str}': {exc}") from exc
+            return None
+    else:
+        p = Path(raw_str)
+        if p.is_file():
+            return p
+
+    return None
 
 
 def load_ontology_delta(
@@ -37,18 +78,7 @@ def load_ontology_delta(
 
     if isinstance(delta_or_path_or_content, (str, Path)):
         raw_str = str(delta_or_path_or_content).strip()
-
-        # Check if raw_str is a file path
-        candidate_path: Path | None = None
-        if "\n" not in raw_str and not raw_str.startswith(("{", "[")):
-            try:
-                candidate_path = (
-                    resolve_workspace_path(raw_str, workspace_root=workspace_root)
-                    if workspace_root
-                    else Path(raw_str)
-                )
-            except (ValueError, RuntimeError, OSError):
-                candidate_path = Path(raw_str)
+        candidate_path = _resolve_candidate_file_path(raw_str, workspace_root=workspace_root)
 
         if candidate_path and candidate_path.is_file():
             content = candidate_path.read_text(encoding="utf-8")
@@ -88,12 +118,21 @@ def load_base_ontology(
     if isinstance(base_or_path_or_content, GraphAOntology):
         return base_or_path_or_content
 
-    loaded = load_graph_a_source(
-        base_or_path_or_content,
-        workspace_root=workspace_root,
-        allow_temp=True,
-    )
-    return loaded.ontology
+    try:
+        loaded = load_graph_a_source(
+            base_or_path_or_content,
+            workspace_root=workspace_root,
+            allow_temp=True,
+        )
+        return loaded.ontology
+    except PathContainmentError as exc:
+        raise InputValidationError(
+            f"Path containment violation: path '{base_or_path_or_content}' escapes workspace root."
+        ) from exc
+    except Exception as exc:
+        if isinstance(exc, InputValidationError):
+            raise
+        raise InputValidationError(f"Failed to load base Graph A ontology: {exc}") from exc
 
 
 def load_deployed_contract(
@@ -113,16 +152,7 @@ def load_deployed_contract(
 
     if isinstance(contract_or_path_or_content, (str, Path)):
         raw_str = str(contract_or_path_or_content).strip()
-        candidate_path: Path | None = None
-        if "\n" not in raw_str and not raw_str.startswith(("{", "[")):
-            try:
-                candidate_path = (
-                    resolve_workspace_path(raw_str, workspace_root=workspace_root)
-                    if workspace_root
-                    else Path(raw_str)
-                )
-            except (ValueError, RuntimeError, OSError):
-                candidate_path = Path(raw_str)
+        candidate_path = _resolve_candidate_file_path(raw_str, workspace_root=workspace_root)
 
         if candidate_path and candidate_path.is_file():
             content = candidate_path.read_text(encoding="utf-8")

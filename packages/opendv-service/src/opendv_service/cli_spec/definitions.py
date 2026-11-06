@@ -970,8 +970,7 @@ HOLD_COMMAND = CommandDef(
 ONTOLOGY_COMMAND = CommandDef(
     name="ontology",
     description=(
-        "Manage and evolve enterprise Business Concept ontologies "
-        "(Graph A), proposals, and deltas"
+        "Manage and evolve enterprise Business Concept ontologies (Graph A), proposals, and deltas"
     ),
     help="Manage Graph A ontology suggestions, deltas, diffs, and decisions",
     availability="both",

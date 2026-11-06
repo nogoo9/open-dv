@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import Any
 
 from opendv_contracts.dtos.ontology import (
     AddConceptOp,
@@ -24,7 +25,7 @@ from opendv_core.models.graph_a import (
     ReferenceEnumeration,
     YagniCostGuardPolicy,
 )
-from opendv_service.ontology.hashing import compute_ontology_sha256
+from opendv_core.ontology_hashing import compute_ontology_sha256
 from opendv_service.ontology.validator import validate_ontology_delta
 
 
@@ -43,12 +44,15 @@ def apply_ontology_delta(
     accepted_op_ids: list[str] | None = None,
     decision_id: str | None = None,
     target_version: str | None = None,
+    deployed_contract: Any | None = None,
 ) -> GraphAOntology:
     """Deterministically apply accepted delta operations to a base Graph A ontology.
 
     - Computes parent_sha256 = base_sha256.
-    - Validates operations against ONT-EVO evolution locks.
+    - Validates operations against ONT-EVO evolution locks (including deployed contract).
     - Applies additive changes in a canonical order.
+    - Merges enumeration allowed_codes additively without replacing.
+    - Preserves existing relationship and key authority definitions.
     - Lexicographically sorts concepts, relationships, and enumerations for deterministic hashing.
     - Appends decision_id to decision_refs.
     - Increments or assigns target ontology version.
@@ -70,7 +74,7 @@ def apply_ontology_delta(
         operations=ops_to_apply,
         metadata=delta.metadata,
     )
-    val_result = validate_ontology_delta(base, sub_delta)
+    val_result = validate_ontology_delta(base, sub_delta, deployed_contract=deployed_contract)
     if not val_result.valid:
         raise ValueError(f"Cannot apply invalid ontology delta: {'; '.join(val_result.violations)}")
 
@@ -106,14 +110,14 @@ def apply_ontology_delta(
                     if op.key_authority_tiers
                     else None
                 )
+                c_name = op.concept_name or op.concept_uri.split(":")[-1].replace("_", " ").title()
                 concepts[op.concept_uri] = CanonicalBusinessConcept(
                     concept_uri=op.concept_uri,
-                    concept_name=op.concept_name
-                    or op.concept_uri.split(":")[-1].replace("_", " ").title(),
+                    concept_name=c_name,
                     elm_archetype=op.elm_archetype or "CORE_BUSINESS_CONCEPT",
                     definition=op.definition
                     or op.description
-                    or f"Canonical concept for {op.concept_name}",
+                    or f"Canonical concept for {c_name}.",
                     target_hub=op.target_hub,
                     governance_constraints=gov,
                     key_authority_tiers=kat,
@@ -129,17 +133,23 @@ def apply_ontology_delta(
                 if op.yagni_cost_guard_policy
                 else None
             )
-            relationships[op.relationship_uri] = CanonicalRelationship(
-                relationship_uri=op.relationship_uri,
-                relationship_name=op.relationship_name
-                or op.relationship_uri.split(":")[-1].replace("_", " ").title(),
-                target_link=op.target_link,
-                endpoints=endpoints,
-                grain_semantics=op.grain_semantics
-                or op.description
-                or f"Unit-of-work link {op.target_link}",
-                yagni_cost_guard_policy=yagni,
-            )
+
+            if op.relationship_uri in relationships:
+                existing_r = relationships[op.relationship_uri]
+                if yagni and existing_r.yagni_cost_guard_policy is None:
+                    existing_r.yagni_cost_guard_policy = yagni
+            else:
+                relationships[op.relationship_uri] = CanonicalRelationship(
+                    relationship_uri=op.relationship_uri,
+                    relationship_name=op.relationship_name
+                    or op.relationship_uri.split(":")[-1].replace("_", " ").title(),
+                    target_link=op.target_link,
+                    endpoints=endpoints,
+                    grain_semantics=op.grain_semantics
+                    or op.description
+                    or f"Unit-of-work link {op.target_link}",
+                    yagni_cost_guard_policy=yagni,
+                )
 
         elif isinstance(op, AddReferenceEnumerationOp):
             enum_uri = (
@@ -149,12 +159,22 @@ def apply_ontology_delta(
             table_name = op.target_reference_table or (
                 f"ref_{op.name}" if not op.name.startswith("ref_") else op.name
             )
-            codes = op.allowed_codes or op.values
-            enumerations[enum_uri] = ReferenceEnumeration(
-                enum_uri=enum_uri,
-                target_reference_table=table_name,
-                allowed_codes=codes,
-            )
+            codes = list(op.allowed_codes or op.values or [])
+
+            if enum_uri in enumerations:
+                existing_codes = enumerations[enum_uri].allowed_codes
+                merged_codes = sorted(list(set(existing_codes + codes)))
+                enumerations[enum_uri] = ReferenceEnumeration(
+                    enum_uri=enum_uri,
+                    target_reference_table=enumerations[enum_uri].target_reference_table,
+                    allowed_codes=merged_codes,
+                )
+            else:
+                enumerations[enum_uri] = ReferenceEnumeration(
+                    enum_uri=enum_uri,
+                    target_reference_table=table_name,
+                    allowed_codes=codes,
+                )
 
         elif isinstance(op, AddKeyAuthorityPatternOp):
             if op.concept_uri in concepts:
@@ -169,11 +189,14 @@ def apply_ontology_delta(
                 )
                 tier_str = (op.tier or "TIER_1_GLOBAL_STANDARD").lower()
                 if "tier_1" in tier_str or "global" in tier_str:
-                    c.key_authority_tiers.tier_1_global_standard = tier_spec
+                    if c.key_authority_tiers.tier_1_global_standard is None:
+                        c.key_authority_tiers.tier_1_global_standard = tier_spec
                 elif "tier_2" in tier_str or "enterprise" in tier_str or "sor" in tier_str:
-                    c.key_authority_tiers.tier_2_enterprise_sor = tier_spec
+                    if c.key_authority_tiers.tier_2_enterprise_sor is None:
+                        c.key_authority_tiers.tier_2_enterprise_sor = tier_spec
                 else:
-                    c.key_authority_tiers.tier_3_local_scoped = tier_spec
+                    if c.key_authority_tiers.tier_3_local_scoped is None:
+                        c.key_authority_tiers.tier_3_local_scoped = tier_spec
 
         elif isinstance(op, AddGovernanceConstraintOp):
             if op.concept_uri in concepts:
@@ -202,7 +225,6 @@ def apply_ontology_delta(
                     c.definition = f"{c.definition} {addition}".strip()
 
         elif isinstance(op, AddSourceHintOp):
-            # Source hints record authoring suggestions without mutating canonical ontology schema
             pass
 
     # 6. Lexicographically sort concepts, relationships, enumerations for deterministic hashing

@@ -20,8 +20,9 @@ from opendv_contracts import (
     OntologyValidateDeltaRequest,
     OntologyValidationResult,
 )
-from opendv_platform_api.deps import get_opendv_service
+from opendv_platform_api.deps import get_opendv_service, get_rbac_role
 from opendv_service import OpenDVService
+from opendv_service.rbac import RbacRole
 
 router = APIRouter(prefix="/ontology", tags=["ontology"])
 
@@ -57,6 +58,7 @@ async def diff_ontology(
 async def record_ontology_decision(
     req: OntologyDecisionRequest,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
+    role: Annotated[RbacRole, Depends(get_rbac_role)],
 ) -> OntologyDecisionResponse:
     """Record steward decision on an ontology proposal and apply delta if accepted."""
     return service.decide_ontology(req)

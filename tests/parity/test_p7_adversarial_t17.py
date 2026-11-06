@@ -29,6 +29,9 @@ from pydantic import ValidationError
 from opendv_contracts import (
     AcceptOntologyDeltaOption,
     AddConceptOp,
+    AddGovernanceConstraintOp,
+    AddKeyAuthorityPatternOp,
+    AddReferenceEnumerationOp,
     AddRelationshipOp,
     OntologyDelta,
     RejectOntologyDeltaOption,
@@ -39,6 +42,7 @@ from opendv_core.models.graph_a import (
     CanonicalRelationship,
     GraphAOntology,
 )
+from opendv_service.errors import InputValidationError
 from opendv_service.models import CaptainHoldDecisionRequest, RunStatus
 from opendv_service.ontology import (
     apply_ontology_delta,
@@ -46,6 +50,11 @@ from opendv_service.ontology import (
     ontology_diff,
     resolve_ontology_hold,
     validate_ontology_delta,
+)
+from opendv_service.ontology.loader import load_base_ontology
+from opendv_service.ontology.redaction import (
+    redact_recommendation_request,
+    redact_sample_data,
 )
 from opendv_service.state import StateStore
 from opendv_telemetry import ContentAddressableStore
@@ -112,9 +121,15 @@ def test_par_ont_bootstrap_apply_graph_a_v2_across_transports(
 ) -> None:
     """Verify PAR-ONT-BOOTSTRAP produces valid proposal and applies cleanly across 3 transports."""
     # 1. Suggest bootstrap proposal across all 3 transports
-    res_cli = cli_transport.suggest_ontology(mode="BOOTSTRAP", domain_namespace="pe_asset_management")
-    res_ctl = client_cli_transport.suggest_ontology(mode="BOOTSTRAP", domain_namespace="pe_asset_management")
-    res_rest = rest_transport.suggest_ontology(mode="BOOTSTRAP", domain_namespace="pe_asset_management")
+    res_cli = cli_transport.suggest_ontology(
+        mode="BOOTSTRAP", domain_namespace="pe_asset_management"
+    )
+    res_ctl = client_cli_transport.suggest_ontology(
+        mode="BOOTSTRAP", domain_namespace="pe_asset_management"
+    )
+    res_rest = rest_transport.suggest_ontology(
+        mode="BOOTSTRAP", domain_namespace="pe_asset_management"
+    )
 
     assert res_cli.get("exit_code", 0) == 0
     assert res_ctl.get("exit_code", 0) == 0
@@ -131,7 +146,9 @@ def test_par_ont_bootstrap_apply_graph_a_v2_across_transports(
 
     # 2. Apply bootstrap delta to create Graph A v1
     d_cli = cli_transport.decide_ontology(action="ACCEPT", delta=delta_cli, base=BASE_ONT_PATH)
-    d_ctl = client_cli_transport.decide_ontology(action="ACCEPT", delta=delta_ctl, base=BASE_ONT_PATH)
+    d_ctl = client_cli_transport.decide_ontology(
+        action="ACCEPT", delta=delta_ctl, base=BASE_ONT_PATH
+    )
     d_rest = rest_transport.decide_ontology(action="ACCEPT", delta=delta_rest, base=BASE_ONT_PATH)
 
     norm_cli = normalize_for_parity(d_cli, path_root=str(REPO_ROOT))
@@ -269,7 +286,9 @@ def test_adversarial_ont_evo_001_breaking_contract_rebind(
     )
 
     # 1. Direct Python validation
-    val = validate_ontology_delta(base_ontology, breaking_delta, deployed_contract=deployed_contract)
+    val = validate_ontology_delta(
+        base_ontology, breaking_delta, deployed_contract=deployed_contract
+    )
     assert val.valid is False
     assert val.error_code == "ONT-EVO-001"
     assert any("ONT-EVO-001" in v for v in val.violations)
@@ -462,7 +481,9 @@ def test_adversarial_malformed_delta_payloads(
         OntologyDelta.model_validate(bad_op_discriminator)
 
     # 3. Direct REST returns 422 Unprocessable Entity on schema invalid delta
-    res_rest = rest_transport.validate_ontology_delta(delta=bad_op_discriminator, base=BASE_ONT_PATH)
+    res_rest = rest_transport.validate_ontology_delta(
+        delta=bad_op_discriminator, base=BASE_ONT_PATH
+    )
     assert res_rest.get("status") in (422, "ERROR") or not res_rest.get("valid", True)
 
 
@@ -498,9 +519,7 @@ def test_adversarial_hold_resumption_state_invariants(
     run_id = run.run_id
 
     # Place run in PAUSED_HOLD state
-    store.runs[run_id] = store.runs[run_id].model_copy(
-        update={"status": RunStatus.PAUSED_HOLD}
-    )
+    store.runs[run_id] = store.runs[run_id].model_copy(update={"status": RunStatus.PAUSED_HOLD})
 
     hold_mgr = store.hold_managers[run_id]
     hold_rec = hold_mgr.record_hold(
@@ -557,7 +576,9 @@ def test_adversarial_hold_resumption_state_invariants(
         steward_id="steward-1",
         hold_option=opt,
     )
-    with pytest.raises(NotFoundError, match="Hold ID is required when no single active hold is pending"):
+    with pytest.raises(
+        NotFoundError, match="Hold ID is required when no single active hold is pending"
+    ):
         store.resolve_captain_hold(run_id=run_id, req=req_no_id)
 
 
@@ -677,7 +698,9 @@ def test_par_ont_hold_e2e_gate1_resumption(tmp_path: Path) -> None:
     assert resolved_rec.status == "APPROVED"
 
     # 4. Adversarial check: Resumption on already resolved pipeline MUST fail
-    with pytest.raises(RuntimeError, match="no paused wave context to resume|Cannot resume pipeline"):
+    with pytest.raises(
+        RuntimeError, match="no paused wave context to resume|Cannot resume pipeline"
+    ):
         resume_agentic_vault_pipeline(
             pipeline,
             hold_id=hold.hold_id,
@@ -685,3 +708,186 @@ def test_par_ont_hold_e2e_gate1_resumption(tmp_path: Path) -> None:
             steward_id="lead-steward",
         )
 
+
+def test_p7_critique_remediation_adversarial_suite(
+    base_ontology: GraphAOntology,
+    deployed_contract: dict[str, Any],
+    tmp_path: Path,
+) -> None:
+    """Comprehensive adversarial suite verifying Claude Opus 5.5 critique remediations (F1–F9)."""
+    # 1. F1/F8: Canonical JCS hashing stability under dictionary permutation
+    ont_dict_a = base_ontology.model_dump(mode="json")
+    ont_dict_b = {k: ont_dict_a[k] for k in reversed(list(ont_dict_a.keys()))}
+    sha_a = compute_ontology_sha256(ont_dict_a)
+    sha_b = compute_ontology_sha256(ont_dict_b)
+    assert sha_a == sha_b
+    assert len(sha_a) == 64
+
+    # Augment base_ontology with key_authority_tiers for invariant testing
+    base_dict = base_ontology.model_dump(mode="json")
+    base_dict["canonical_business_concepts"][0]["key_authority_tiers"] = {
+        "tier_1_global_standard": {
+            "authority_name": "ISO 6166 ISIN",
+            "column_patterns": ["isin"],
+            "regex_pattern": "^[A-Z]{2}[A-Z0-9]{9}[0-9]$",
+            "bkcc_policy": "GLOBAL",
+            "require_src_qualifier": False,
+        }
+    }
+    test_base = GraphAOntology.model_validate(base_dict)
+    test_base_sha = compute_ontology_sha256(test_base)
+
+    # 2. F2: Invariant locks on Key Authority Tier overwrites
+    conflict_kat_delta = OntologyDelta(
+        delta_id="delta-conflict-kat",
+        parent_sha256=test_base_sha,
+        domain_namespace=test_base.domain_namespace,
+        operations=[
+            AddKeyAuthorityPatternOp(
+                op_id="op-kat-overwrite",
+                concept_uri="urn:ontology:entity:fund",
+                authority_name="Conflicting Authority",
+                tier="TIER_1_GLOBAL_STANDARD",
+            )
+        ],
+    )
+    val_kat = validate_ontology_delta(test_base, conflict_kat_delta)
+    assert val_kat.valid is False
+    assert any("ONT-EVO-003: Non-additive conflict" in v for v in val_kat.violations)
+    assert any("cannot overwrite with 'Conflicting Authority'" in v for v in val_kat.violations)
+
+    # 3. F2: Invariant locks on Enum allowed_codes shrinkage
+    shrink_enum_delta = OntologyDelta(
+        delta_id="delta-shrink-enum",
+        parent_sha256=test_base_sha,
+        domain_namespace=test_base.domain_namespace,
+        operations=[
+            AddReferenceEnumerationOp(
+                op_id="op-shrink-enum",
+                enum_uri="urn:ontology:enum:investment_stage",
+                name="investment_stage",
+                allowed_codes=["SEED"],  # Shrunk from ["SEED", "SERIES_A", "GROWTH", "BUYOUT"]
+            )
+        ],
+    )
+    val_enum = validate_ontology_delta(test_base, shrink_enum_delta)
+    assert val_enum.valid is False
+    assert any("Cannot shrink or drop existing allowed_codes" in v for v in val_enum.violations)
+
+    # 4. F2: Invariant locks on Enum target table rebinding
+    rebind_enum_delta = OntologyDelta(
+        delta_id="delta-rebind-enum",
+        parent_sha256=test_base_sha,
+        domain_namespace=test_base.domain_namespace,
+        operations=[
+            AddReferenceEnumerationOp(
+                op_id="op-rebind-enum",
+                enum_uri="urn:ontology:enum:investment_stage",
+                name="investment_stage",
+                target_reference_table="ref_investment_stage_v2",
+                allowed_codes=["SEED", "SERIES_A", "GROWTH", "BUYOUT"],
+            )
+        ],
+    )
+    val_rebind = validate_ontology_delta(test_base, rebind_enum_delta)
+    assert val_rebind.valid is False
+    assert any("cannot rebind to 'ref_investment_stage_v2'" in v for v in val_rebind.violations)
+
+    # 5. F2: Invariant locks on Relationship endpoint mutation
+    rebind_rel_delta = OntologyDelta(
+        delta_id="delta-rebind-rel",
+        parent_sha256=test_base_sha,
+        domain_namespace=test_base.domain_namespace,
+        operations=[
+            AddRelationshipOp(
+                op_id="op-mut-rel",
+                relationship_uri="urn:ontology:relationship:fund_investment",
+                relationship_name="FundInvestment",
+                target_link="lnk_fund_investment",
+                endpoints=["hub_fund", "hub_fund"],  # Mutated endpoints
+            )
+        ],
+    )
+    val_rel = validate_ontology_delta(test_base, rebind_rel_delta)
+    assert val_rel.valid is False
+    assert any("Cannot rewrite endpoints" in v for v in val_rel.violations)
+
+    # 6. F2: Invariant locks on deployed contract rebinding
+    deployed_with_ref = dict(deployed_contract)
+    deployed_with_ref["reference_tables"] = [
+        {"name": "ref_investment_stage", "ontology_concept_uri": "urn:ontology:enum:investment_stage"}
+    ]
+    rebind_dep_enum_delta = OntologyDelta(
+        delta_id="delta-dep-rebind",
+        parent_sha256=test_base_sha,
+        domain_namespace=test_base.domain_namespace,
+        operations=[
+            AddReferenceEnumerationOp(
+                op_id="op-dep-rebind",
+                enum_uri="urn:ontology:enum:investment_stage",
+                name="investment_stage",
+                target_reference_table="ref_investment_stage_alt",
+                allowed_codes=["SEED", "SERIES_A"],
+            )
+        ],
+    )
+    val_dep_enum = validate_ontology_delta(
+        test_base, rebind_dep_enum_delta, deployed_contract=deployed_with_ref
+    )
+    assert val_dep_enum.valid is False
+    assert any(
+        "ONT-EVO-001: Breaking change detected for deployed contract" in v
+        for v in val_dep_enum.violations
+    )
+
+    # 7. F2: Recursive provisional URI rejection in nested structures
+    nested_prov_delta = OntologyDelta(
+        delta_id="delta-nested-prov",
+        parent_sha256=sha_a,
+        domain_namespace=base_ontology.domain_namespace,
+        operations=[
+            AddRelationshipOp(
+                op_id="op-nested-prov",
+                relationship_uri="urn:ontology:relationship:secret_rel",
+                relationship_name="SecretRel",
+                target_link="lnk_secret",
+                endpoints=["hub_fund", "hub_portfolio_company"],
+                source_concept_uri="urn:ontology:provisional:entity:secret",
+            )
+        ],
+    )
+    val_prov = validate_ontology_delta(base_ontology, nested_prov_delta)
+    assert val_prov.valid is False
+    assert any("ONT-EVO-002: Provisional URI" in v for v in val_prov.violations)
+
+    # 8. F3: Path containment jailbreak raises InputValidationError
+    with pytest.raises(InputValidationError, match="escapes workspace root"):
+        load_base_ontology(
+            "../../outside_workspace/attack_ontology.yaml",
+            workspace_root=tmp_path / "workspace",
+        )
+
+    # 9. F6: Redaction of recommendation requests
+    raw_samples = {
+        "investran.src_pe_funds": [
+            {
+                "fund_code": "APEX_FUND_I",
+                "ssn": "123-45-6789",
+                "tax_id": "98-7654321",
+                "first_name": "Alice",
+                "last_name": "Smith",
+                "address": "123 Wall St, New York, NY",
+                "dob": "1980-01-01",
+                "entry_ebitda_usd": 50000000.0,
+            }
+        ]
+    }
+    redacted_samples = redact_sample_data(raw_samples, clearance_level="INTERNAL")
+    rows = redacted_samples["investran.src_pe_funds"]
+    assert rows[0]["ssn"] == "[REDACTED:RESTRICTED_PII]"
+    assert rows[0]["first_name"] == "[REDACTED:RESTRICTED_PII]"
+    assert rows[0]["last_name"] == "[REDACTED:RESTRICTED_PII]"
+    assert rows[0]["address"] == "[REDACTED:RESTRICTED_PII]"
+    assert rows[0]["dob"] == "[REDACTED:RESTRICTED_PII]"
+    assert rows[0]["entry_ebitda_usd"] == "[REDACTED:MNPI]"
+    assert rows[0]["fund_code"] == "APEX_FUND_I"

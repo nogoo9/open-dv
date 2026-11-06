@@ -1,5 +1,5 @@
-import { existsSync, unlinkSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { existsSync, unlinkSync } from "node:fs";
 import { runCli } from "../src/main";
 import { loadCliSpec } from "../src/spec";
 
@@ -23,7 +23,10 @@ describe("opendvctl ontology command group", () => {
 					});
 				}
 
-				if (url.pathname === "/api/v1/ontology/suggestions" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/suggestions" &&
+					req.method === "POST"
+				) {
 					const body = (await req.json()) as Record<string, unknown>;
 					if (body.recommender_id === "unavailable") {
 						return new Response(
@@ -57,11 +60,17 @@ describe("opendvctl ontology command group", () => {
 					});
 				}
 
-				if (url.pathname === "/api/v1/ontology/validate-delta" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/validate-delta" &&
+					req.method === "POST"
+				) {
 					const body = (await req.json()) as Record<string, unknown>;
 					const content = String(body.delta_content || "");
 					const delta = (body.delta || {}) as Record<string, unknown>;
-					if (delta.delta_id === "invalid-delta" || content.includes("invalid-delta")) {
+					if (
+						delta.delta_id === "invalid-delta" ||
+						content.includes("invalid-delta")
+					) {
 						return Response.json({
 							valid: false,
 							violations: ["ONT-EVO-002: Provisional URI forbidden."],
@@ -87,7 +96,10 @@ describe("opendvctl ontology command group", () => {
 					});
 				}
 
-				if (url.pathname === "/api/v1/ontology/decisions" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/decisions" &&
+					req.method === "POST"
+				) {
 					const body = (await req.json()) as Record<string, unknown>;
 					const action = String(body.action || "ACCEPT");
 					return Response.json({
@@ -190,7 +202,10 @@ describe("opendvctl ontology command group", () => {
 		const outLines: string[] = [];
 		// Write a temporary invalid delta
 		const tmpDelta = `temp_invalid_${Date.now()}.json`;
-		await Bun.write(tmpDelta, JSON.stringify({ delta_id: "invalid-delta", operations: [] }));
+		await Bun.write(
+			tmpDelta,
+			JSON.stringify({ delta_id: "invalid-delta", operations: [] }),
+		);
 
 		try {
 			const code = await runCli(

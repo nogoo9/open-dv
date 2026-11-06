@@ -488,7 +488,8 @@ export class RemoteExecutor {
 				const sub = subcommand.toLowerCase();
 				if (sub === "suggest") {
 					const body: Record<string, unknown> = {};
-					if (enrichedOptions.base) body.base_ontology_path = enrichedOptions.base;
+					if (enrichedOptions.base)
+						body.base_ontology_path = enrichedOptions.base;
 					if (enrichedOptions.base_content)
 						body.base_ontology_content = enrichedOptions.base_content;
 					if (enrichedOptions.base_ontology_content)
@@ -500,7 +501,8 @@ export class RemoteExecutor {
 					if (enrichedOptions.empirical_profile_content)
 						body.empirical_profile_content =
 							enrichedOptions.empirical_profile_content;
-					if (enrichedOptions.source) body.bronze_source_path = enrichedOptions.source;
+					if (enrichedOptions.source)
+						body.bronze_source_path = enrichedOptions.source;
 					if (enrichedOptions.source_content)
 						body.bronze_source_content = enrichedOptions.source_content;
 					if (enrichedOptions.bronze_source_content)
@@ -517,7 +519,10 @@ export class RemoteExecutor {
 
 					payload = await this.postJson("/api/v1/ontology/suggestions", body);
 
-					if (enrichedOptions.output && typeof enrichedOptions.output === "string") {
+					if (
+						enrichedOptions.output &&
+						typeof enrichedOptions.output === "string"
+					) {
 						const fs = await import("node:fs/promises");
 						await fs.writeFile(
 							enrichedOptions.output,
@@ -530,7 +535,8 @@ export class RemoteExecutor {
 					if (enrichedOptions.delta) body.delta_path = enrichedOptions.delta;
 					if (enrichedOptions.delta_content)
 						body.delta_content = enrichedOptions.delta_content;
-					if (enrichedOptions.base) body.base_ontology_path = enrichedOptions.base;
+					if (enrichedOptions.base)
+						body.base_ontology_path = enrichedOptions.base;
 					if (enrichedOptions.base_content)
 						body.base_ontology_content = enrichedOptions.base_content;
 					if (enrichedOptions.base_ontology_content)
@@ -540,10 +546,14 @@ export class RemoteExecutor {
 					if (enrichedOptions.contract_content)
 						body.contract_content = enrichedOptions.contract_content;
 
-					payload = await this.postJson("/api/v1/ontology/validate-delta", body);
+					payload = await this.postJson(
+						"/api/v1/ontology/validate-delta",
+						body,
+					);
 				} else if (sub === "diff") {
 					const body: Record<string, unknown> = {};
-					if (enrichedOptions.base) body.base_ontology_path = enrichedOptions.base;
+					if (enrichedOptions.base)
+						body.base_ontology_path = enrichedOptions.base;
 					if (enrichedOptions.base_content)
 						body.base_ontology_content = enrichedOptions.base_content;
 					if (enrichedOptions.base_ontology_content)
@@ -564,7 +574,8 @@ export class RemoteExecutor {
 					if (enrichedOptions.delta) body.delta_path = enrichedOptions.delta;
 					if (enrichedOptions.delta_content)
 						body.delta_content = enrichedOptions.delta_content;
-					if (enrichedOptions.base) body.base_ontology_path = enrichedOptions.base;
+					if (enrichedOptions.base)
+						body.base_ontology_path = enrichedOptions.base;
 					if (enrichedOptions.base_content)
 						body.base_ontology_content = enrichedOptions.base_content;
 					if (enrichedOptions.base_ontology_content)
@@ -586,7 +597,10 @@ export class RemoteExecutor {
 
 					payload = await this.postJson("/api/v1/ontology/decisions", body);
 
-					if (enrichedOptions.output && typeof enrichedOptions.output === "string") {
+					if (
+						enrichedOptions.output &&
+						typeof enrichedOptions.output === "string"
+					) {
 						const resp = payload as Record<string, unknown>;
 						if (typeof resp.resulting_ontology_yaml === "string") {
 							const fs = await import("node:fs/promises");
@@ -606,7 +620,8 @@ export class RemoteExecutor {
 					if (enrichedOptions.delta) body.delta_path = enrichedOptions.delta;
 					if (enrichedOptions.delta_content)
 						body.delta_content = enrichedOptions.delta_content;
-					if (enrichedOptions.base) body.base_ontology_path = enrichedOptions.base;
+					if (enrichedOptions.base)
+						body.base_ontology_path = enrichedOptions.base;
 					if (enrichedOptions.base_content)
 						body.base_ontology_content = enrichedOptions.base_content;
 					if (enrichedOptions.base_ontology_content)

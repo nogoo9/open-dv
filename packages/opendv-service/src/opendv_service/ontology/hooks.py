@@ -21,7 +21,7 @@ from opendv_contracts import (
     OpenDVError,
 )
 from opendv_core.models.graph_a import GraphAOntology
-from opendv_service.ontology.hashing import canonicalize_graph_a_dict, compute_ontology_sha256
+from opendv_core.ontology_hashing import canonicalize_graph_a_dict, compute_ontology_sha256
 from opendv_service.ontology.policy import OntologyPolicy
 from opendv_service.ontology.redaction import redact_sample_data
 from opendv_service.ontology.registry import (
@@ -136,9 +136,7 @@ class PipelineExtensionHooks:
         registry: OntologyRecommenderRegistry | None = None,
     ) -> None:
         self.policy: OntologyPolicy = (
-            OntologyPolicy.from_value(policy)
-            if not isinstance(policy, OntologyPolicy)
-            else policy
+            OntologyPolicy.from_value(policy) if not isinstance(policy, OntologyPolicy) else policy
         )
         self.registry: OntologyRecommenderRegistry = (
             registry if registry is not None else get_ontology_recommender_registry()
@@ -161,10 +159,20 @@ class PipelineExtensionHooks:
         self.policy.validate_availability(self.registry)
         recommender = self.get_recommender()
 
-        # RBAC sample redaction at policy clearance
+        # RBAC sample, profile, and context document redaction at policy clearance
         redacted_samples = redact_sample_data(
             ctx.samples,
             clearance_level=self.policy.clearance_level,
+        )
+        redacted_docs = (
+            redact_sample_data(ctx.context_documents, clearance_level=self.policy.clearance_level)
+            if ctx.context_documents
+            else []
+        )
+        redacted_profiles = (
+            redact_sample_data(ctx.profiles, clearance_level=self.policy.clearance_level)
+            if ctx.profiles
+            else []
         )
 
         base_sha = ctx.base_ontology_sha256
@@ -180,9 +188,9 @@ class PipelineExtensionHooks:
             base_ontology=ctx.base_ontology,
             base_ontology_sha256=base_sha,
             bronze_manifest=ctx.bronze_manifest,
-            profiles=ctx.profiles,
+            profiles=redacted_profiles,
             samples=redacted_samples,
-            context_documents=ctx.context_documents,
+            context_documents=redacted_docs,
             business_context=ctx.business_context,
             focus=ctx.focus,
             injection_point="IP-1",
@@ -237,6 +245,16 @@ class PipelineExtensionHooks:
             ctx.samples,
             clearance_level=self.policy.clearance_level,
         )
+        redacted_docs = (
+            redact_sample_data(ctx.context_documents, clearance_level=self.policy.clearance_level)
+            if ctx.context_documents
+            else []
+        )
+        redacted_profiles = (
+            redact_sample_data(ctx.profiles, clearance_level=self.policy.clearance_level)
+            if ctx.profiles
+            else []
+        )
 
         base_sha = ctx.ontology_sha256 or compute_ontology_sha256(ctx.ontology)
 
@@ -249,10 +267,10 @@ class PipelineExtensionHooks:
             run_id=ctx.run_id,
             wave_id=ctx.wave_id,
             bronze_manifest=ctx.bronze_manifest,
-            profiles=ctx.profiles,
+            profiles=redacted_profiles,
             samples=redacted_samples,
             coverage_artifact=ctx.coverage_artifact,
-            context_documents=ctx.context_documents,
+            context_documents=redacted_docs,
             business_context=ctx.business_context,
             deployed_contract_summary=ctx.deployed_contract_summary,
             injection_point="IP-2",
@@ -321,6 +339,11 @@ class PipelineExtensionHooks:
             ctx.samples,
             clearance_level=self.policy.clearance_level,
         )
+        redacted_docs = (
+            redact_sample_data(ctx.context_documents, clearance_level=self.policy.clearance_level)
+            if ctx.context_documents
+            else []
+        )
 
         base_sha = ctx.ontology_sha256 or compute_ontology_sha256(ctx.ontology)
 
@@ -334,7 +357,7 @@ class PipelineExtensionHooks:
             wave_id=ctx.wave_id,
             coverage_artifact=ctx.coverage_artifact,
             samples=redacted_samples,
-            context_documents=ctx.context_documents,
+            context_documents=redacted_docs,
             business_context=ctx.business_context,
             deployed_contract_summary=ctx.deployed_contract_summary,
             focus={"violations": ctx.g1_violations},
@@ -403,6 +426,11 @@ class PipelineExtensionHooks:
             return None
 
         base_sha = ctx.ontology_sha256 or compute_ontology_sha256(ctx.ontology)
+        redacted_docs = (
+            redact_sample_data(ctx.context_documents, clearance_level=self.policy.clearance_level)
+            if ctx.context_documents
+            else []
+        )
 
         req = OntologyRecommendationRequest(
             request_id=f"req-ip4-{ctx.wave_id}-{uuid.uuid4().hex[:8]}",
@@ -412,7 +440,7 @@ class PipelineExtensionHooks:
             base_ontology_sha256=base_sha,
             run_id=ctx.run_id,
             wave_id=ctx.wave_id,
-            context_documents=ctx.context_documents,
+            context_documents=redacted_docs,
             business_context=ctx.business_context,
             focus={"unresolved_mentions": ctx.unresolved_mentions},
             injection_point="IP-4",

@@ -313,9 +313,7 @@ class OntologySuggestionRequest(BaseContractModel):
     mode: Literal["BOOTSTRAP", "DELTA", "HOLD_RESOLUTION"] = Field(
         default="DELTA", description="Recommender operation mode"
     )
-    domain_namespace: str | None = Field(
-        default=None, description="Target domain namespace"
-    )
+    domain_namespace: str | None = Field(default=None, description="Target domain namespace")
     base_ontology_path: str | None = Field(
         default=None, description="Path to base Graph A ontology file"
     )
@@ -325,9 +323,7 @@ class OntologySuggestionRequest(BaseContractModel):
     base_ontology_sha256: str | None = Field(
         default=None, description="CAS SHA-256 digest of base ontology"
     )
-    source_paths: list[str] = Field(
-        default_factory=list, description="Source dataset file paths"
-    )
+    source_paths: list[str] = Field(default_factory=list, description="Source dataset file paths")
     bronze_source_path: str | None = Field(
         default=None, description="Path to bronze source dataset file"
     )
@@ -346,9 +342,7 @@ class OntologySuggestionRequest(BaseContractModel):
     context_document_paths: list[str] = Field(
         default_factory=list, description="Context document paths (glossary, policy)"
     )
-    context_doc_path: str | None = Field(
-        default=None, description="Path to context document file"
-    )
+    context_doc_path: str | None = Field(default=None, description="Path to context document file")
     context_doc_content: str | None = Field(
         default=None, description="Inline context document text"
     )
@@ -358,9 +352,7 @@ class OntologySuggestionRequest(BaseContractModel):
     focus: list[str] = Field(
         default_factory=list, description="Focus areas: unmapped tables, columns, mentions"
     )
-    recommender_id: str | None = Field(
-        default=None, description="Specific recommender plugin ID"
-    )
+    recommender_id: str | None = Field(default=None, description="Specific recommender plugin ID")
 
 
 class OntologyValidateDeltaRequest(BaseContractModel):
@@ -464,9 +456,7 @@ class OntologyDecisionResponse(BaseContractModel):
     """Response DTO for an ontology decision action."""
 
     status: str = Field(default="COMPLETED", description="Status label")
-    decision: OntologyDecision = Field(
-        ..., description="Recorded ontology decision record"
-    )
+    decision: OntologyDecision = Field(..., description="Recorded ontology decision record")
     resulting_ontology_yaml: str | None = Field(
         default=None, description="Serialized Graph A vN+1 YAML content if ACCEPT"
     )
@@ -535,8 +525,6 @@ StewardHoldOption = Annotated[
 ]
 
 OntologyDeltaOption = Annotated[
-    AcceptOntologyDeltaOption
-    | RejectOntologyDeltaOption
-    | CustomOntologyDeltaOption,
+    AcceptOntologyDeltaOption | RejectOntologyDeltaOption | CustomOntologyDeltaOption,
     Field(discriminator="kind"),
 ]

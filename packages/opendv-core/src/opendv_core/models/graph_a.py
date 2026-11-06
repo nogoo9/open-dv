@@ -112,11 +112,9 @@ class YagniCostGuardPolicy(StrictGraphAModel):
 class CanonicalRelationship(StrictGraphAModel):
     """Unit-of-Work Relationship / Event edge in Graph A mapping to a Data Vault 2.0 Link."""
 
-    relationship_uri: str = Field(
-        pattern=r"^urn:ontology:(event|relationship):[a-z0-9_]+$"
-    )
+    relationship_uri: str = Field(pattern=r"^urn:ontology:(event|relationship):[a-z0-9_]+$")
     relationship_name: str = Field(default="")
-    target_link: str = Field(default="")
+    target_link: str = Field(pattern=r"^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$")
     endpoints: list[str] = Field(min_length=2)
     grain_semantics: str = Field(default="Canonical relationship edge.")
     yagni_cost_guard_policy: YagniCostGuardPolicy | None = None

@@ -18,9 +18,7 @@ class MappedConceptCoverage(BaseContractModel):
         default_factory=list,
         description="List of mapped column references ({'table': ..., 'column': ...})",
     )
-    confidence: float = Field(
-        default=1.0, ge=0.0, le=1.0, description="Mapping confidence score"
-    )
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Mapping confidence score")
 
 
 class UnmappedTableGap(BaseContractModel):
@@ -34,9 +32,7 @@ class UnmappedTableGap(BaseContractModel):
     candidate_hints: list[str] = Field(
         default_factory=list, description="Potential concept candidate hints"
     )
-    reason: str = Field(
-        default="ABSENT_FROM_ONTOLOGY", description="Reason for unmapped status"
-    )
+    reason: str = Field(default="ABSENT_FROM_ONTOLOGY", description="Reason for unmapped status")
 
 
 class UnmappedColumnGap(BaseContractModel):

@@ -34,6 +34,7 @@ _PII_KEY_TOKENS = frozenset(
         "bank_account",
         "account_number",
         "wire_iban",
+        "iban",
         "credit_card",
         "card_number",
         "passport",
@@ -41,6 +42,23 @@ _PII_KEY_TOKENS = frozenset(
         "password",
         "secret",
         "private_key",
+        "name",
+        "first_name",
+        "last_name",
+        "full_name",
+        "dob",
+        "birth",
+        "date_of_birth",
+        "birth_date",
+        "address",
+        "street",
+        "zip",
+        "postal",
+        "postal_code",
+        "national_id",
+        "phone",
+        "telephone",
+        "email",
     }
 )
 
@@ -193,9 +211,37 @@ def redact_sample_data(
     return _redact_recursive(cloned, "", clearance_level, max_str_len)
 
 
+def redact_recommendation_request(
+    req: Any,
+    clearance_level: str | RbacRole = "INTERNAL",
+) -> Any:
+    """Redact samples, context documents, and profiles on an OntologyRecommendationRequest."""
+    if not hasattr(req, "model_copy"):
+        return req
+
+    updates: dict[str, Any] = {}
+    if getattr(req, "samples", None) is not None:
+        updates["samples"] = redact_sample_data(req.samples, clearance_level=clearance_level)
+
+    if getattr(req, "context_documents", None) is not None:
+        docs = req.context_documents
+        if isinstance(docs, list):
+            updates["context_documents"] = [
+                redact_sample_data(d, clearance_level=clearance_level) for d in docs
+            ]
+        elif isinstance(docs, dict):
+            updates["context_documents"] = redact_sample_data(docs, clearance_level=clearance_level)
+
+    if getattr(req, "profiles", None) is not None:
+        updates["profiles"] = redact_sample_data(req.profiles, clearance_level=clearance_level)
+
+    return req.model_copy(update=updates) if updates else req
+
+
 __all__ = [
     "is_mnpi_key",
     "is_pii_key",
+    "redact_recommendation_request",
     "redact_sample_data",
     "redact_sample_value",
 ]

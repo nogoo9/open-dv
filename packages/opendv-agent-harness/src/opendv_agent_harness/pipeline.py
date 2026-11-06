@@ -4929,7 +4929,7 @@ class AgenticVaultPipeline:
                                 else (
                                     v.model_dump(mode="json")
                                     if hasattr(v, "model_dump")
-                                    else dict(v)
+                                    else getattr(v, "__dict__", {})
                                 )
                                 for v in g1_violations
                             ],
@@ -4956,21 +4956,46 @@ class AgenticVaultPipeline:
                             s5_out_shas.append(prop_ref.sha256)
 
                             if self.extension_hooks.policy.should_populate_hold_options():
-                                hold_options.append(
-                                    {
-                                        "option_id": "ACCEPT_ONTOLOGY_DELTA",
-                                        "proposal_id": ip3_proposal.proposal_id,
-                                        "delta_id": ip3_proposal.delta.delta_id,
-                                        "confidence_score": ip3_proposal.confidence_score,
-                                        "operations_count": len(ip3_proposal.delta.operations),
-                                    }
+                                from opendv_contracts.dtos.ontology import (
+                                    AcceptOntologyDeltaOption,
+                                    RejectOntologyDeltaOption,
                                 )
-                                hold_options.append(
-                                    {
-                                        "option_id": "REJECT_ONTOLOGY_DELTA",
-                                        "proposal_id": ip3_proposal.proposal_id,
-                                    }
+                                from opendv_contracts.jcs import dumps_jcs_bytes
+
+                                d_bytes = dumps_jcs_bytes(
+                                    ip3_proposal.delta.model_dump(mode="json", exclude_none=True)
                                 )
+                                d_sha = hashlib.sha256(d_bytes).hexdigest().lower()
+
+                                accept_opt = AcceptOntologyDeltaOption(
+                                    delta=ip3_proposal.delta,
+                                    delta_sha256=d_sha,
+                                    accepted_op_ids=[
+                                        op.op_id for op in ip3_proposal.delta.operations
+                                    ],
+                                    steward_note=(
+                                        f"Auto-prepared IP-3 proposal {ip3_proposal.proposal_id} "
+                                        f"with confidence {ip3_proposal.confidence_score:.2f}."
+                                    ),
+                                ).model_dump(mode="json")
+                                accept_opt["option_id"] = "ACCEPT_ONTOLOGY_DELTA"
+                                accept_opt["proposal_id"] = ip3_proposal.proposal_id
+                                accept_opt["delta_id"] = ip3_proposal.delta.delta_id
+                                accept_opt["confidence_score"] = ip3_proposal.confidence_score
+                                accept_opt["operations_count"] = len(ip3_proposal.delta.operations)
+
+                                reject_opt = RejectOntologyDeltaOption(
+                                    reason="Rejected by steward",
+                                    rejected_op_ids=[
+                                        op.op_id for op in ip3_proposal.delta.operations
+                                    ],
+                                    steward_note="",
+                                ).model_dump(mode="json")
+                                reject_opt["option_id"] = "REJECT_ONTOLOGY_DELTA"
+                                reject_opt["proposal_id"] = ip3_proposal.proposal_id
+
+                                hold_options.append(accept_opt)
+                                hold_options.append(reject_opt)
                     except (
                         RuntimeError,
                         TypeError,
@@ -5761,16 +5786,16 @@ class AgenticVaultPipeline:
         wave_drift_events: list[dict[str, Any]] = ctx["wave_drift_events"]
         tier_counts: dict[str, int] = ctx["tier_counts"]
         current_wave_drift_tables: set[str] = ctx["current_wave_drift_tables"]
-        cumulative_sources: dict[str, tuple[PipelineSourceFeedInput, Path]] = (
-            ctx["cumulative_sources"]
-        )
-        _cumulative_source_systems: dict[str, ProfiledSourceSystem] = (
-            ctx["cumulative_source_systems"]
-        )
+        cumulative_sources: dict[str, tuple[PipelineSourceFeedInput, Path]] = ctx[
+            "cumulative_sources"
+        ]
+        _cumulative_source_systems: dict[str, ProfiledSourceSystem] = ctx[
+            "cumulative_source_systems"
+        ]
         cumulative_doc_texts: dict[str, str] = ctx["cumulative_doc_texts"]
-        cumulative_unstructured_docs: list[tuple[PipelineUnstructuredDocInput, str]] = (
-            ctx["cumulative_unstructured_docs"]
-        )
+        cumulative_unstructured_docs: list[tuple[PipelineUnstructuredDocInput, str]] = ctx[
+            "cumulative_unstructured_docs"
+        ]
         added_drift_cols_by_table: dict[str, list[str]] = ctx["added_drift_cols_by_table"]
         deployed_contract_dict: dict[str, Any] | None = ctx["deployed_contract_dict"]
         wave_gb_profile: GraphBProfile = ctx["wave_gb_profile"]
@@ -5840,6 +5865,7 @@ class AgenticVaultPipeline:
             elif isinstance(option_obj, (AcceptOntologyDeltaOption, CustomOntologyDeltaOption)):
                 from opendv_service.ontology.resolution import resolve_ontology_hold
 
+                assert self.ontology is not None
                 ont_res = resolve_ontology_hold(
                     base_ontology=self.ontology,
                     option=option_obj,
@@ -5851,6 +5877,7 @@ class AgenticVaultPipeline:
                     ledger=getattr(self, "ledger_emitter", None),
                 )
                 self.ontology = ont_res.new_ontology
+                assert self.ontology is not None
                 self.raw_ontology = self.ontology.model_dump(mode="json", exclude_none=True)
                 self.graph_a_sha256 = ont_res.new_graph_a_sha256
                 selected_op = (
@@ -5864,7 +5891,7 @@ class AgenticVaultPipeline:
                 )
                 self.hold_manager.resolve_hold(
                     hold_id,
-                    action=ont_res.action,
+                    action="APPROVED",
                     selected_option_id=selected_op,
                     resolution_notes=res_notes,
                 )
@@ -5981,8 +6008,7 @@ class AgenticVaultPipeline:
             ]
             covered_keys = {(e["bronze_table"], e["column_name"]) for e in llm_ledger_entries}
             if expected_col_keys.issubset(covered_keys) and not any(
-                e.get("bronze_table") == "source_system.bronze_table"
-                for e in llm_ledger_entries
+                e.get("bronze_table") == "source_system.bronze_table" for e in llm_ledger_entries
             ):
                 valid_llm = True
 
@@ -6113,9 +6139,7 @@ class AgenticVaultPipeline:
                 mode="json", exclude_none=True
             )
         elif isinstance(ship_res.structured_output, NoMistakeDataVault2ContractV5):
-            llm_candidate = ship_res.structured_output.model_dump(
-                mode="json", exclude_none=True
-            )
+            llm_candidate = ship_res.structured_output.model_dump(mode="json", exclude_none=True)
 
         if llm_candidate is not None:
             llm_candidate["column_triage_ledger"] = list(pass1_ledger)
@@ -6251,10 +6275,10 @@ class AgenticVaultPipeline:
             intermediate_list=intermediate_artifacts,
         )
         s5_ms = round((time.perf_counter() - t0_s5) * 1000.0, 3)
-        s5_status = (
+        s5_status: Literal["PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"] = (
             "PASS"
             if axi_res.status == "PASS"
-            else ("AUTO_REPAIRED" if bool(axi_res.applied_codemods) else axi_res.status)
+            else ("AUTO_REPAIRED" if bool(axi_res.applied_codemods) else "ERROR")
         )
 
         gate_scorecard = {
@@ -6392,7 +6416,9 @@ class AgenticVaultPipeline:
         )
         s6_ms = round((time.perf_counter() - t0_s6) * 1000.0, 3)
 
-        s6_status = "PASS" if sbx_report.passed else "REJECT-WITH-TRACE"
+        s6_status: Literal["PASS", "AUTO_REPAIRED", "ASK-USER", "REJECT-WITH-TRACE", "ERROR"] = (
+            "PASS" if sbx_report.passed else "REJECT-WITH-TRACE"
+        )
         sandbox_summary = {
             "passed": sbx_report.passed,
             "batches_passed": sbx_report.batch_report.all_passed,

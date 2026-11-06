@@ -6208,6 +6208,24 @@
       "post": {
         "description": "Record steward decision on an ontology proposal and apply delta if accepted.",
         "operationId": "record_ontology_decision_api_v1_ontology_decisions_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
         "requestBody": {
           "content": {
             "application/json": {

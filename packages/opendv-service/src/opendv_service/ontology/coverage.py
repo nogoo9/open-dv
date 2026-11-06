@@ -7,7 +7,6 @@ Replaces silent provisional-URI synthesis with explicit gap reporting.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import re
 from datetime import UTC, datetime
@@ -22,6 +21,7 @@ from opendv_contracts.dtos.coverage import (
     UnmappedTableGap,
 )
 from opendv_core.models.graph_a import CanonicalBusinessConcept, GraphAOntology
+from opendv_core.ontology_hashing import compute_ontology_sha256
 
 
 def _slugify(val: str) -> str:
@@ -53,9 +53,7 @@ def _normalize_ontology_dict(raw: dict[str, Any]) -> dict[str, Any]:
             elif "concept_name" not in c_norm and "concept_id" in c_norm:
                 c_norm["concept_name"] = str(c_norm["concept_id"])
             if "elm_archetype" not in c_norm:
-                c_norm["elm_archetype"] = str(
-                    c_norm.get("taxonomy_class", "CORE_BUSINESS_ENTITY")
-                )
+                c_norm["elm_archetype"] = str(c_norm.get("taxonomy_class", "CORE_BUSINESS_ENTITY"))
             if "definition" not in c_norm:
                 ent_name = c_norm.get("concept_name", "entity")
                 c_norm["definition"] = f"Canonical definition for {ent_name}"
@@ -90,21 +88,14 @@ def _normalize_ontology_dict(raw: dict[str, Any]) -> dict[str, Any]:
 def _resolve_graph_a(graph_a: Any) -> tuple[GraphAOntology, str]:
     """Parse or validate Graph A and compute canonical SHA-256."""
     if isinstance(graph_a, GraphAOntology):
-        ont_obj = graph_a
-        raw_bytes = json.dumps(
-            ont_obj.model_dump(mode="json", exclude_none=True), sort_keys=True
-        ).encode("utf-8")
-        sha256 = hashlib.sha256(raw_bytes).hexdigest()
-        return ont_obj, sha256
+        return graph_a, compute_ontology_sha256(graph_a)
 
     if isinstance(graph_a, dict):
         try:
             ont_obj = GraphAOntology.model_validate(graph_a)
         except (ValueError, TypeError):
             ont_obj = GraphAOntology.model_validate(_normalize_ontology_dict(graph_a))
-        raw_bytes = json.dumps(graph_a, sort_keys=True).encode("utf-8")
-        sha256 = hashlib.sha256(raw_bytes).hexdigest()
-        return ont_obj, sha256
+        return ont_obj, compute_ontology_sha256(ont_obj)
 
     if isinstance(graph_a, (str, Path)):
         p = Path(graph_a)
@@ -119,8 +110,7 @@ def _resolve_graph_a(graph_a: Any) -> tuple[GraphAOntology, str]:
             ont_obj = GraphAOntology.model_validate(parsed)
         except (ValueError, TypeError):
             ont_obj = GraphAOntology.model_validate(_normalize_ontology_dict(parsed))
-        sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
-        return ont_obj, sha256
+        return ont_obj, compute_ontology_sha256(ont_obj)
 
     raise TypeError(f"Unsupported Graph A input type: {type(graph_a)}")
 
@@ -202,9 +192,7 @@ def compute_ontology_coverage(
     # 2a. From profiles (GraphBProfile or dict)
     if profiles is not None:
         p_dict = (
-            profiles.model_dump(mode="json")
-            if hasattr(profiles, "model_dump")
-            else dict(profiles)
+            profiles.model_dump(mode="json") if hasattr(profiles, "model_dump") else dict(profiles)
         )
         for sys_obj in p_dict.get("source_systems", []):
             if isinstance(sys_obj, dict):
@@ -242,9 +230,7 @@ def compute_ontology_coverage(
             sources = list(bronze_manifest)
 
     for src in sources:
-        s_dict = (
-            src.model_dump(mode="json") if hasattr(src, "model_dump") else dict(src)
-        )
+        s_dict = src.model_dump(mode="json") if hasattr(src, "model_dump") else dict(src)
         sys_code = str(s_dict.get("source_system", "bronze")).lower()
         tbl_name = str(s_dict.get("table_name", "")).lower()
         q_tbl = f"{sys_code}.{tbl_name}" if sys_code and tbl_name else (tbl_name or "unknown")
@@ -256,7 +242,7 @@ def compute_ontology_coverage(
 
         cols = list(s_dict.get("business_key_columns", []))
         cols.extend(list(s_dict.get("foreign_key_mappings", {}).keys()))
-        cols.extend(list(s_dict.get("surrogate_key_columns", [])) )
+        cols.extend(list(s_dict.get("surrogate_key_columns", [])))
         cols.extend(list(s_dict.get("pii_columns", [])))
 
         if q_tbl in surveyed_tables:
@@ -344,10 +330,9 @@ def compute_ontology_coverage(
                         for bks in h.get("business_key_sources", [])
                         if isinstance(bks, dict)
                     ]
-                    if (
-                        t_name in h_bks
-                        or t_name.rsplit(".", 1)[-1] in [b.rsplit(".", 1)[-1] for b in h_bks]
-                    ):
+                    if t_name in h_bks or t_name.rsplit(".", 1)[-1] in [
+                        b.rsplit(".", 1)[-1] for b in h_bks
+                    ]:
                         h_uri = str(h.get("ontology_concept_uri", ""))
                         if h_uri.lower() in known_cbc_by_uri:
                             matched_cbc = known_cbc_by_uri[h_uri.lower()]
@@ -439,9 +424,7 @@ def compute_ontology_coverage(
         unstr_list.extend(bronze_manifest.unstructured_documents)
 
     for doc in unstr_list:
-        doc_d = (
-            doc.model_dump(mode="json") if hasattr(doc, "model_dump") else dict(doc)
-        )
+        doc_d = doc.model_dump(mode="json") if hasattr(doc, "model_dump") else dict(doc)
         doc_sha = str(doc_d.get("doc_sha256") or doc_d.get("sha256") or "unknown")
         for cand in doc_d.get("extracted_candidates", []):
             if isinstance(cand, dict):
@@ -479,9 +462,7 @@ def compute_ontology_coverage(
     )
 
     norm_wave_id = (
-        wave_id
-        if wave_id.startswith("wave_") or wave_id.startswith("w")
-        else f"wave_{wave_id}"
+        wave_id if wave_id.startswith("wave_") or wave_id.startswith("w") else f"wave_{wave_id}"
     )
     art_id = f"art-{norm_wave_id}-stage01-ontology-coverage"
 

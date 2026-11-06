@@ -128,6 +128,10 @@ from opendv_core.models import (
     YagniCostGuardPolicy,
     YagniTelemetry,
 )
+from opendv_core.ontology_hashing import (
+    canonicalize_graph_a_dict,
+    compute_ontology_sha256,
+)
 from opendv_core.paths import (
     PathContainmentError,
     resolve_workspace_path,
@@ -259,6 +263,7 @@ __all__ = [
     "YagniCostGuardPolicy",
     "YagniTelemetry",
     "__version__",
+    "canonicalize_graph_a_dict",
     "compute_asymmetric_containment",
     "compute_cdc_velocity",
     "compute_dv2_length_prefixed_sha256",
@@ -269,6 +274,7 @@ __all__ = [
     "compute_non_null_ratio",
     "compute_normalized_shannon_entropy",
     "compute_null_rate",
+    "compute_ontology_sha256",
     "compute_shannon_entropy",
     "compute_u_c",
     "compute_u_nn",

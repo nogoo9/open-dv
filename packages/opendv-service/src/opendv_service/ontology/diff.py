@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from opendv_contracts.dtos.ontology import OntologyDiff
 from opendv_core.models.graph_a import GraphAOntology
-from opendv_service.ontology.hashing import compute_ontology_sha256
+from opendv_core.ontology_hashing import compute_ontology_sha256
 
 
 def ontology_diff(base: GraphAOntology, target: GraphAOntology) -> OntologyDiff:
@@ -35,13 +35,32 @@ def ontology_diff(base: GraphAOntology, target: GraphAOntology) -> OntologyDiff:
                     f"to '{t_concept.target_hub}'."
                 )
                 refined_concepts.append(uri)
-            elif (
-                b_concept.definition != t_concept.definition
-                or b_concept.elm_archetype != t_concept.elm_archetype
-                or b_concept.governance_constraints != t_concept.governance_constraints
-                or b_concept.key_authority_tiers != t_concept.key_authority_tiers
-            ):
-                refined_concepts.append(uri)
+            else:
+                # Check key authority tier breaking changes
+                b_kat = b_concept.key_authority_tiers
+                t_kat = t_concept.key_authority_tiers
+                if (
+                    b_kat
+                    and t_kat
+                    and b_kat.tier_1_global_standard
+                    and t_kat.tier_1_global_standard
+                    and (
+                        b_kat.tier_1_global_standard.authority_name
+                        != t_kat.tier_1_global_standard.authority_name
+                    )
+                ):
+                    breaking_changes.append(
+                        f"BREAKING: Concept '{uri}' Tier 1 authority changed from "
+                        f"'{b_kat.tier_1_global_standard.authority_name}' to "
+                        f"'{t_kat.tier_1_global_standard.authority_name}'."
+                    )
+                if (
+                    b_concept.definition != t_concept.definition
+                    or b_concept.elm_archetype != t_concept.elm_archetype
+                    or b_concept.governance_constraints != t_concept.governance_constraints
+                    or b_concept.key_authority_tiers != t_concept.key_authority_tiers
+                ):
+                    refined_concepts.append(uri)
 
     # 2. Compare Relationships
     base_rels = {r.relationship_uri: r for r in base.canonical_relationships}
@@ -61,6 +80,11 @@ def ontology_diff(base: GraphAOntology, target: GraphAOntology) -> OntologyDiff:
                     f"BREAKING: Relationship '{uri}' target_link rebound from "
                     f"'{b_rel.target_link}' to '{t_rel.target_link}'."
                 )
+            if set(b_rel.endpoints) != set(t_rel.endpoints):
+                breaking_changes.append(
+                    f"BREAKING: Relationship '{uri}' endpoints changed from "
+                    f"{b_rel.endpoints} to {t_rel.endpoints}."
+                )
 
     # 3. Compare Reference Enumerations
     base_enums = {e.enum_uri: e for e in base.reference_enumerations}
@@ -73,6 +97,23 @@ def ontology_diff(base: GraphAOntology, target: GraphAOntology) -> OntologyDiff:
         breaking_changes.append(
             f"BREAKING: Reference enumeration '{uri}' was removed in target ontology."
         )
+
+    for uri, b_enum in base_enums.items():
+        if uri in target_enums:
+            t_enum = target_enums[uri]
+            if b_enum.target_reference_table != t_enum.target_reference_table:
+                breaking_changes.append(
+                    f"BREAKING: Reference enumeration '{uri}' table changed from "
+                    f"'{b_enum.target_reference_table}' to '{t_enum.target_reference_table}'."
+                )
+            b_codes = set(b_enum.allowed_codes)
+            t_codes = set(t_enum.allowed_codes)
+            if not b_codes.issubset(t_codes):
+                dropped_codes = b_codes - t_codes
+                breaking_changes.append(
+                    f"BREAKING: Reference enumeration '{uri}' dropped allowed codes: "
+                    f"{sorted(dropped_codes)}."
+                )
 
     diagnostics = [
         f"Ontology diff computed from v{base.ontology_version} ({base_sha256[:8]}) to "

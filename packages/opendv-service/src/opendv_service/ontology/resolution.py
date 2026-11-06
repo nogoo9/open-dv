@@ -23,11 +23,11 @@ from opendv_contracts.dtos.ontology import (
 from opendv_contracts.jcs import dumps_jcs_bytes
 from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
 from opendv_core.models.graph_a import GraphAOntology
-from opendv_service.ontology.applier import apply_ontology_delta
-from opendv_service.ontology.hashing import (
+from opendv_core.ontology_hashing import (
     canonicalize_graph_a_dict,
     compute_ontology_sha256,
 )
+from opendv_service.ontology.applier import apply_ontology_delta
 from opendv_service.ontology.validator import validate_ontology_delta
 from opendv_telemetry import ContentAddressableStore
 
@@ -79,7 +79,23 @@ def resolve_ontology_hold(
         )
 
         # 1. Validate delta against base ontology and deployed contract
-        val_res = validate_ontology_delta(base_ontology, delta, deployed_contract=deployed_contract)
+        if accepted_op_ids is not None:
+            sub_ops = [op for op in delta.operations if op.op_id in set(accepted_op_ids)]
+            delta_to_validate = OntologyDelta(
+                delta_id=delta.delta_id,
+                parent_sha256=delta.parent_sha256,
+                domain_namespace=delta.domain_namespace,
+                base_ontology_version=delta.base_ontology_version,
+                target_ontology_version=delta.target_ontology_version,
+                operations=sub_ops,
+                metadata=delta.metadata,
+            )
+        else:
+            delta_to_validate = delta
+
+        val_res = validate_ontology_delta(
+            base_ontology, delta_to_validate, deployed_contract=deployed_contract
+        )
         if not val_res.valid:
             violations_str = "; ".join(val_res.violations)
             raise ValueError(f"Cannot accept invalid ontology delta: {violations_str}")
@@ -92,6 +108,7 @@ def resolve_ontology_hold(
             accepted_op_ids=accepted_op_ids,
             decision_id=decision_id,
             target_version=target_version,
+            deployed_contract=deployed_contract,
         )
         new_sha256 = compute_ontology_sha256(new_ontology)
 
@@ -117,9 +134,12 @@ def resolve_ontology_hold(
         effective_rejected_ops = [
             op.op_id for op in delta.operations if op.op_id not in effective_accepted_ops
         ]
-        delta_sha = getattr(option, "delta_sha256", None) or hashlib.sha256(
-            delta.model_dump_json().encode("utf-8")
-        ).hexdigest()
+        computed_delta_sha = (
+            hashlib.sha256(dumps_jcs_bytes(delta.model_dump(mode="json", exclude_none=True)))
+            .hexdigest()
+            .lower()
+        )
+        delta_sha = getattr(option, "delta_sha256", None) or computed_delta_sha
 
         decision = OntologyDecision(
             decision_id=decision_id,
@@ -187,9 +207,7 @@ def resolve_ontology_hold(
 
     elif isinstance(option, RejectOntologyDeltaOption):
         decision_id = f"dec-ont-{uuid.uuid4().hex[:10]}"
-        rejected_ops = (
-            option.rejected_op_ids if option.rejected_op_ids else []
-        )
+        rejected_ops = option.rejected_op_ids if option.rejected_op_ids else []
         notes = f"{option.reason}; {option.steward_note}".strip("; ")
 
         decision = OntologyDecision(

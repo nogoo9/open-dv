@@ -127,9 +127,7 @@ class ContractLinkSpec(StrictContractModel):
 
     name: str = Field(pattern=r"^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$")
     link_type: ContractLinkTypeLiteral
-    ontology_concept_uri: str = Field(
-        pattern=r"^urn:ontology:(event|relationship):[a-z0-9_]+$"
-    )
+    ontology_concept_uri: str = Field(pattern=r"^urn:ontology:(event|relationship):[a-z0-9_]+$")
     source_bronze_table: str
     driving_key_hub: str | None = None
     where_filter_condition: str | None = None
