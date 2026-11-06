@@ -492,6 +492,477 @@ export type webhooks = Record<string, never>;
 export interface components {
 	schemas: {
 		/**
+		 * AcceptOntologyDeltaOption
+		 * @description Steward option to accept a proposed ontology delta.
+		 */
+		AcceptOntologyDeltaOption: {
+			/**
+			 * Accepted Op Ids
+			 * @description Explicit list of accepted operation IDs (empty means all)
+			 */
+			accepted_op_ids?: string[];
+			/** @description Ontology delta to accept and apply */
+			delta: components["schemas"]["OntologyDelta"];
+			/**
+			 * Delta Sha256
+			 * @description Cryptographic SHA-256 of the delta
+			 */
+			delta_sha256: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			kind: "accept_ontology_delta";
+			/**
+			 * Steward Note
+			 * @description Human steward rationale notes
+			 * @default
+			 */
+			steward_note: string;
+		};
+		/**
+		 * AddConceptOp
+		 * @description Additive operation to introduce a Canonical Business Concept (CBC) / Hub.
+		 */
+		AddConceptOp: {
+			/**
+			 * Attributes
+			 * @description Associated business attributes
+			 */
+			attributes?: string[];
+			/**
+			 * Concept Name
+			 * @description Human-readable concept name
+			 * @default
+			 */
+			concept_name: string;
+			/**
+			 * Concept Uri
+			 * @description Unique canonical concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Definition
+			 * @description Normative definition of concept
+			 * @default
+			 */
+			definition: string;
+			/**
+			 * Description
+			 * @description Alternative concept description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Elm Archetype
+			 * @description ELM archetype
+			 * @default CORE_BUSINESS_CONCEPT
+			 */
+			elm_archetype: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Governance Constraints
+			 * @description Governance, PII, and MNPI constraints
+			 */
+			governance_constraints?: {
+				[key: string]: unknown;
+			} | null;
+			/**
+			 * Key Authority Tiers
+			 * @description 3-Tier Business Key Authority specification
+			 */
+			key_authority_tiers?: {
+				[key: string]: unknown;
+			} | null;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_concept";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Target Hub
+			 * @description Target Data Vault 2.0 Hub table name
+			 */
+			target_hub?: string | null;
+		};
+		/**
+		 * AddGovernanceConstraintOp
+		 * @description Additive operation to attach PII / MNPI security and satellite split constraints.
+		 */
+		AddGovernanceConstraintOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Constraint Id
+			 * @description Unique constraint identifier
+			 * @default
+			 */
+			constraint_id: string;
+			/**
+			 * Constraint Type
+			 * @description Constraint classification type
+			 * @default
+			 */
+			constraint_type: string;
+			/**
+			 * Description
+			 * @description Constraint description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Mnpi Confidential Attributes
+			 * @description Attributes requiring MNPI confidentiality
+			 */
+			mnpi_confidential_attributes?: string[];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_governance_constraint";
+			/**
+			 * Pii Confidential Attributes
+			 * @description Attributes requiring PII confidentiality
+			 */
+			pii_confidential_attributes?: string[];
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Required Satellite Split
+			 * @description Target security satellite split name
+			 */
+			required_satellite_split?: string | null;
+		};
+		/**
+		 * AddKeyAuthorityPatternOp
+		 * @description Additive operation to attach a Business Key Authority tier pattern.
+		 */
+		AddKeyAuthorityPatternOp: {
+			/**
+			 * Authority Name
+			 * @description Name of the Business Key Authority
+			 */
+			authority_name: string;
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Description
+			 * @description Authority description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_key_authority_pattern";
+			/**
+			 * Pattern Regex
+			 * @description Regex pattern for authority
+			 */
+			pattern_regex?: string | null;
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Tier
+			 * @description Authority tier classification
+			 * @default TIER_1_GLOBAL_STANDARD
+			 */
+			tier: string;
+			/**
+			 * Tier Spec
+			 * @description Full tier specification
+			 */
+			tier_spec?: {
+				[key: string]: unknown;
+			} | null;
+		};
+		/**
+		 * AddReferenceEnumerationOp
+		 * @description Additive operation to introduce a Reference Enumeration / ref_* table.
+		 */
+		AddReferenceEnumerationOp: {
+			/**
+			 * Allowed Codes
+			 * @description Allowed code values
+			 */
+			allowed_codes?: string[];
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Description
+			 * @description Enumeration description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Enum Uri
+			 * @description Unique reference enumeration URN
+			 * @default
+			 */
+			enum_uri: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Name
+			 * @description Enumeration name
+			 * @default
+			 */
+			name: string;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_reference_enumeration";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Target Reference Table
+			 * @description Target reference table name
+			 * @default
+			 */
+			target_reference_table: string;
+			/**
+			 * Values
+			 * @description Allowed code values
+			 */
+			values?: string[];
+		};
+		/**
+		 * AddRelationshipOp
+		 * @description Additive operation to introduce a Unit-of-Work relationship / Link.
+		 */
+		AddRelationshipOp: {
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Description
+			 * @description Alternative relationship description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Endpoints
+			 * @description List of participant concept URN endpoints
+			 */
+			endpoints?: string[];
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Grain Semantics
+			 * @description Relationship grain semantics
+			 * @default
+			 */
+			grain_semantics: string;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_relationship";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Relationship Name
+			 * @description Human-readable relationship name
+			 * @default
+			 */
+			relationship_name: string;
+			/**
+			 * Relationship Uri
+			 * @description Unique canonical relationship URN
+			 */
+			relationship_uri: string;
+			/**
+			 * Source Concept Uri
+			 * @description Source endpoint concept URN
+			 */
+			source_concept_uri?: string | null;
+			/**
+			 * Target Concept Uri
+			 * @description Target endpoint concept URN
+			 */
+			target_concept_uri?: string | null;
+			/**
+			 * Target Link
+			 * @description Target Data Vault 2.0 Link table name
+			 */
+			target_link: string;
+			/**
+			 * Yagni Cost Guard Policy
+			 * @description Attached Gate 4 YAGNI cost guard policy
+			 */
+			yagni_cost_guard_policy?: {
+				[key: string]: unknown;
+			} | null;
+		};
+		/**
+		 * AddSourceHintOp
+		 * @description Additive operation to register a source mapping hint linking source data to a CBC.
+		 */
+		AddSourceHintOp: {
+			/**
+			 * Column Hint
+			 * @description Source column hint
+			 * @default
+			 */
+			column_hint: string;
+			/**
+			 * Column Name
+			 * @description Source column name
+			 * @default
+			 */
+			column_name: string;
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_source_hint";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Source Name
+			 * @description Source system identifier
+			 * @default
+			 */
+			source_name: string;
+			/**
+			 * Source System
+			 * @description Source system identifier
+			 * @default
+			 */
+			source_system: string;
+			/**
+			 * Table Name
+			 * @description Source table or file name
+			 * @default
+			 */
+			table_name: string;
+		};
+		/**
 		 * ArtifactDTO
 		 * @description Comprehensive artifact descriptor for Explorer workbench.
 		 */
@@ -670,6 +1141,18 @@ export interface components {
 			event_id?: string | null;
 			/** Hold Id */
 			hold_id?: string | null;
+			/**
+			 * Hold Option
+			 * @description Typed steward hold option (ONT-04)
+			 */
+			hold_option?:
+				| (
+						| components["schemas"]["AcceptOntologyDeltaOption"]
+						| components["schemas"]["RejectOntologyDeltaOption"]
+						| components["schemas"]["CustomOntologyDeltaOption"]
+						| components["schemas"]["GeneralHoldOption"]
+				  )
+				| null;
 			/** Resolution Notes */
 			resolution_notes?: string | null;
 			/** Selected Candidate Id */
@@ -850,6 +1333,10 @@ export interface components {
 			domain_namespace: string;
 			/** Graph A Ontology Path */
 			graph_a_ontology_path?: string | null;
+			/** Graph A Source */
+			graph_a_source?: {
+				[key: string]: unknown;
+			} | null;
 			/** Graph B Path */
 			graph_b_path?: string | null;
 			/** Name */
@@ -945,6 +1432,30 @@ export interface components {
 			 * @description Target wave identifier (e.g. W0, W1, W2) (GAP-07)
 			 */
 			wave_id?: string | null;
+		};
+		/**
+		 * CustomOntologyDeltaOption
+		 * @description Steward option providing a custom authoring delta.
+		 */
+		CustomOntologyDeltaOption: {
+			/** @description Custom ontology delta to apply */
+			custom_delta: components["schemas"]["OntologyDelta"];
+			/**
+			 * Delta Sha256
+			 * @description Optional SHA-256 of custom delta
+			 */
+			delta_sha256?: string | null;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			kind: "custom_ontology_delta";
+			/**
+			 * Steward Note
+			 * @description Human steward rationale notes
+			 * @default
+			 */
+			steward_note: string;
 		};
 		/**
 		 * DocCandidateOption
@@ -1142,6 +1653,58 @@ export interface components {
 			nodes?: components["schemas"]["DvSvgNodeSpec"][];
 		};
 		/**
+		 * EvidenceRef
+		 * @description Grounding evidence reference for an ontology delta operation.
+		 */
+		EvidenceRef: {
+			/**
+			 * Bronze Table
+			 * @description Source bronze table name
+			 */
+			bronze_table?: string | null;
+			/**
+			 * Char End
+			 * @description Ending character offset
+			 */
+			char_end?: number | null;
+			/**
+			 * Char Start
+			 * @description Starting character offset
+			 */
+			char_start?: number | null;
+			/**
+			 * Column Name
+			 * @description Source column name
+			 */
+			column_name?: string | null;
+			/**
+			 * Confidence
+			 * @description Confidence score between 0.0 and 1.0
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Doc Sha256
+			 * @description Source document SHA-256
+			 */
+			doc_sha256?: string | null;
+			/**
+			 * Evidence Type
+			 * @description Classification of evidence, e.g. column_profile, sample_values, document_span, standard_reference, existing_concept
+			 */
+			evidence_type: string;
+			/**
+			 * Reference Uri
+			 * @description Target reference pointer or URI
+			 */
+			reference_uri?: string | null;
+			/**
+			 * Snippet
+			 * @description Text snippet, excerpt, or sample value grounding the proposal
+			 */
+			snippet?: string | null;
+		};
+		/**
 		 * ExplorerBundleDTO
 		 * @description Top-level 3-Level Pipeline Explorer bundle response DTO.
 		 */
@@ -1286,6 +1849,35 @@ export interface components {
 			| "AUTO_REPAIRED"
 			| "REJECT-WITH-TRACE"
 			| "ASK-USER";
+		/**
+		 * GeneralHoldOption
+		 * @description General action option for steward holds.
+		 */
+		GeneralHoldOption: {
+			/**
+			 * Action
+			 * @description Steward action name
+			 */
+			action: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			kind: "general_hold";
+			/**
+			 * Params
+			 * @description Arbitrary parameters for action
+			 */
+			params?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Steward Note
+			 * @description Steward notes or rationale
+			 * @default
+			 */
+			steward_note: string;
+		};
 		/** HTTPValidationError */
 		HTTPValidationError: {
 			/** Detail */
@@ -1316,6 +1908,59 @@ export interface components {
 			 * @description Concept identifier
 			 */
 			name: string;
+		};
+		/**
+		 * OntologyDelta
+		 * @description Ordered collection of additive operations evolving Graph A to vN+1.
+		 */
+		OntologyDelta: {
+			/**
+			 * Base Ontology Version
+			 * @description Base ontology version
+			 * @default 1.0.0
+			 */
+			base_ontology_version: string;
+			/**
+			 * Delta Id
+			 * @description Unique delta identifier
+			 */
+			delta_id: string;
+			/**
+			 * Domain Namespace
+			 * @description Domain namespace matching base Graph A
+			 */
+			domain_namespace?: string | null;
+			/**
+			 * Metadata
+			 * @description Arbitrary authoring provenance metadata
+			 */
+			metadata?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Operations
+			 * @description Ordered sequence of additive operations
+			 */
+			operations?: (
+				| components["schemas"]["AddConceptOp"]
+				| components["schemas"]["AddRelationshipOp"]
+				| components["schemas"]["AddReferenceEnumerationOp"]
+				| components["schemas"]["AddKeyAuthorityPatternOp"]
+				| components["schemas"]["AddGovernanceConstraintOp"]
+				| components["schemas"]["RefineDefinitionOp"]
+				| components["schemas"]["AddSourceHintOp"]
+			)[];
+			/**
+			 * Parent Sha256
+			 * @description Cryptographic SHA-256 of the base Graph A ontology
+			 */
+			parent_sha256?: string | null;
+			/**
+			 * Target Ontology Version
+			 * @description Target ontology version after delta application
+			 * @default 1.1.0
+			 */
+			target_ontology_version: string;
 		};
 		/**
 		 * OntologySvgEdgeSpec
@@ -1512,6 +2157,13 @@ export interface components {
 			 */
 			dry_run: boolean;
 			/**
+			 * Graph A Source
+			 * @description Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)
+			 */
+			graph_a_source?: {
+				[key: string]: unknown;
+			} | null;
+			/**
 			 * Harness Config
 			 * @description Inline harness configuration
 			 */
@@ -1586,6 +2238,13 @@ export interface components {
 		 * @description Request DTO for static pipeline configuration validation (Decision D1).
 		 */
 		PipelineValidateRequest: {
+			/**
+			 * Graph A Source
+			 * @description Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)
+			 */
+			graph_a_source?: {
+				[key: string]: unknown;
+			} | null;
 			/**
 			 * Harness Config
 			 * @description Inline harness configuration
@@ -1897,6 +2556,89 @@ export interface components {
 			 * @description Target wave identifier if restricted (GAP-07)
 			 */
 			wave_id?: string | null;
+		};
+		/**
+		 * RefineDefinitionOp
+		 * @description Additive operation to refine the textual definition or attributes of a concept.
+		 */
+		RefineDefinitionOp: {
+			/**
+			 * Additional Attributes
+			 * @description Additional attributes to append
+			 */
+			additional_attributes?: string[];
+			/**
+			 * Concept Uri
+			 * @description Target concept URN
+			 * @default
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "refine_definition";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Refined Description
+			 * @description Refined definition or description
+			 * @default
+			 */
+			refined_description: string;
+			/**
+			 * Target Uri
+			 * @description Target concept or relationship URN
+			 * @default
+			 */
+			target_uri: string;
+		};
+		/**
+		 * RejectOntologyDeltaOption
+		 * @description Steward option to explicitly reject a proposed ontology delta.
+		 */
+		RejectOntologyDeltaOption: {
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			kind: "reject_ontology_delta";
+			/**
+			 * Reason
+			 * @description Rejection rationale or explanation
+			 */
+			reason: string;
+			/**
+			 * Rejected Op Ids
+			 * @description Explicit list of rejected operation IDs
+			 */
+			rejected_op_ids?: string[];
+			/**
+			 * Steward Note
+			 * @description Human steward notes
+			 * @default
+			 */
+			steward_note: string;
 		};
 		/**
 		 * RenderedOutput
@@ -2479,6 +3221,13 @@ export interface components {
 			 */
 			graph_a_path?: string | null;
 			/**
+			 * Graph A Source
+			 * @description Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)
+			 */
+			graph_a_source?: {
+				[key: string]: unknown;
+			} | null;
+			/**
 			 * Graph B Content
 			 * @description Inline Graph B JSON content
 			 */
@@ -2536,6 +3285,11 @@ export interface components {
 			 */
 			contract_path?: string | null;
 			/**
+			 * Decision Refs
+			 * @description Steward decision IDs that produced this version (ONT-01)
+			 */
+			decision_refs?: string[];
+			/**
 			 * Diagnostics
 			 * @description Human/log diagnostic statements
 			 */
@@ -2548,10 +3302,25 @@ export interface components {
 			/** @description 6-Gate status scorecard */
 			gate_scorecard?: components["schemas"]["GateScorecardSummary"];
 			/**
+			 * Graph A Sha256
+			 * @description SHA-256 hash of loaded Graph A ontology bytes (ONT-01)
+			 */
+			graph_a_sha256?: string | null;
+			/**
+			 * Ontology Version
+			 * @description Semantic version of Graph A ontology (ONT-01)
+			 */
+			ontology_version?: string | null;
+			/**
 			 * Overall Passed
 			 * @description True if verification succeeded or was auto-repaired
 			 */
 			overall_passed: boolean;
+			/**
+			 * Parent Sha256
+			 * @description SHA-256 hash of parent Graph A ontology if evolved (ONT-01)
+			 */
+			parent_sha256?: string | null;
 			/** @description Pre-rendered text output */
 			rendered?: components["schemas"]["RenderedOutput"] | null;
 			/**

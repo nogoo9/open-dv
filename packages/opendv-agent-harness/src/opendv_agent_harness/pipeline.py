@@ -2517,7 +2517,9 @@ def _extract_known_entities_from_cumulative_sources(
             try:
                 resolved_hub, _ = _resolve_hub_and_uri(hub_hint, ontology)
             except InputValidationError:
-                resolved_hub = hub_hint if hub_hint.startswith("hub_") else f"hub_{_slugify(hub_hint)}"
+                resolved_hub = (
+                    hub_hint if hub_hint.startswith("hub_") else f"hub_{_slugify(hub_hint)}"
+                )
             if name_col:
                 rows = conn.execute(f'SELECT "{bk_col}", "{name_col}" FROM "{v_name}"').fetchall()
                 for r in rows:
@@ -6050,7 +6052,11 @@ class AgenticVaultPipeline:
             intermediate_list=intermediate_artifacts,
         )
         s5_ms = round((time.perf_counter() - t0_s5) * 1000.0, 3)
-        s5_status = "PASS" if axi_res.status == "PASS" else ("AUTO_REPAIRED" if bool(axi_res.applied_codemods) else axi_res.status)
+        s5_status = (
+            "PASS"
+            if axi_res.status == "PASS"
+            else ("AUTO_REPAIRED" if bool(axi_res.applied_codemods) else axi_res.status)
+        )
 
         gate_scorecard = {
             "G0_JSON_SCHEMA": "PASS",
@@ -6068,8 +6074,13 @@ class AgenticVaultPipeline:
             viz_id=VizId.VIZ_GATE_02,
             persona=AgentPersona.AXI_DV,
             status=ObservabilityVerdict.PASS,
-            headline=f"Wave {w_idx} Gate 1 ontology and Bipartite DAG topology verified on resumed ontology v{self.ontology.ontology_version}.",
-            business_impact="Zero unmapped concept gaps, zero Hub-to-Hub edges, and acyclic bipartite topology.",
+            headline=(
+                f"Wave {w_idx} Gate 1 ontology and Bipartite DAG topology verified on "
+                f"resumed ontology v{self.ontology.ontology_version}."
+            ),
+            business_impact=(
+                "Zero unmapped concept gaps, zero Hub-to-Hub edges, and acyclic bipartite topology."
+            ),
             rule_ids=["DV-ONT-001", "DV-G4-001", "DV-STR-001", "DV-STR-014"],
             summary_metrics={
                 "wave_index": w_idx,
@@ -6097,7 +6108,10 @@ class AgenticVaultPipeline:
             status=s5_status,
             attempt_count=1,
             duration_ms=s5_ms,
-            summary=f"6-Gate static verification finished cleanly in 1 attempt on resumed ontology v{self.ontology.ontology_version}.",
+            summary=(
+                f"6-Gate static verification finished cleanly in 1 attempt on "
+                f"resumed ontology v{self.ontology.ontology_version}."
+            ),
             tool_invocations=["run_axi_dv_gates", "emit_observability_event"],
             input_artifact_sha256s=[att1_ref.sha256],
             output_artifact_sha256s=[ver_contract_ref.sha256],
@@ -6185,7 +6199,9 @@ class AgenticVaultPipeline:
             "batches_passed": sbx_report.batch_report.all_passed,
             "total_batches": len(sbx_report.batch_report.batches),
             "total_dynamic_checks": len(sbx_report.dynamic_check_report.checks),
-            "passed_dynamic_checks": sum(1 for c in sbx_report.dynamic_check_report.checks if c.passed),
+            "passed_dynamic_checks": sum(
+                1 for c in sbx_report.dynamic_check_report.checks if c.passed
+            ),
         }
 
         s6_step_id = f"step-w{w_idx}-stage06-axi-dv-dynamic-sandbox"
@@ -6201,8 +6217,16 @@ class AgenticVaultPipeline:
             status=s6_status,
             attempt_count=1,
             duration_ms=s6_ms,
-            summary=f"Dynamic shadow sandbox verified ({sandbox_summary['passed_dynamic_checks']}/{sandbox_summary['total_dynamic_checks']} checks).",
-            tool_invocations=["compile_canonical_ir", "execute_duckdb_sandbox", "emit_observability_event"],
+            summary=(
+                f"Dynamic shadow sandbox verified "
+                f"({sandbox_summary['passed_dynamic_checks']}/"
+                f"{sandbox_summary['total_dynamic_checks']} checks)."
+            ),
+            tool_invocations=[
+                "compile_canonical_ir",
+                "execute_duckdb_sandbox",
+                "emit_observability_event",
+            ],
             input_artifact_sha256s=[ver_contract_ref.sha256],
             output_artifact_sha256s=[ir_ref.sha256, sql_ref.sha256],
             metrics=sandbox_summary,
@@ -6216,7 +6240,7 @@ class AgenticVaultPipeline:
         last_sql_bundle_text = compiled_bundle.full_sql_bundle
         last_contract_ref = ver_contract_ref
         last_ir_ref = ir_ref
-        last_sql_ref = sql_ref
+        _last_sql_ref = sql_ref
 
         wave_reports.append(
             PipelineWaveReport(
@@ -6263,7 +6287,11 @@ class AgenticVaultPipeline:
             artifact_id="art-stage07-final-canonical-ir",
             name="final_canonical_ir.json",
             stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
-            content=json.dumps(last_canonical_ir.model_dump(mode="json", exclude_none=True), indent=2, sort_keys=True),
+            content=json.dumps(
+                last_canonical_ir.model_dump(mode="json", exclude_none=True),
+                indent=2,
+                sort_keys=True,
+            ),
             media_type="application/json",
             rel_path="final_canonical_ir.json",
             wave_index=wave_reports[-1].wave_index,
@@ -6292,14 +6320,23 @@ class AgenticVaultPipeline:
             stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER.value,
             persona=AgentPersona.DETERMINISTIC_COMPILER.value,
             model_tier=ModelTier.FAST_TIER.value,
-            model_used=self.harness.resolve_model(ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER),
+            model_used=self.harness.resolve_model(
+                ModelTier.FAST_TIER, AgentPersona.DETERMINISTIC_COMPILER
+            ),
             status="PASS",
             attempt_count=1,
             duration_ms=s7_ms,
-            summary=f"Certified final Data Vault 2.0 model contract across {len(wave_reports)} waves on ontology v{self.ontology.ontology_version}.",
+            summary=(
+                f"Certified final Data Vault 2.0 model contract across {len(wave_reports)} "
+                f"waves on ontology v{self.ontology.ontology_version}."
+            ),
             tool_invocations=["compile_canonical_ir_to_4zone_sql", "emit_observability_event"],
             input_artifact_sha256s=[last_contract_ref.sha256, last_ir_ref.sha256],
-            output_artifact_sha256s=[final_contract_ref.sha256, final_ir_ref.sha256, final_sql_ref.sha256],
+            output_artifact_sha256s=[
+                final_contract_ref.sha256,
+                final_ir_ref.sha256,
+                final_sql_ref.sha256,
+            ],
             metrics={"observability_events_emitted": len(observability_events)},
         )
         step_reports.append(s7_step_report)

@@ -53,9 +53,12 @@ def _normalize_ontology_dict(raw: dict[str, Any]) -> dict[str, Any]:
             elif "concept_name" not in c_norm and "concept_id" in c_norm:
                 c_norm["concept_name"] = str(c_norm["concept_id"])
             if "elm_archetype" not in c_norm:
-                c_norm["elm_archetype"] = str(c_norm.get("taxonomy_class", "CORE_BUSINESS_ENTITY"))
+                c_norm["elm_archetype"] = str(
+                    c_norm.get("taxonomy_class", "CORE_BUSINESS_ENTITY")
+                )
             if "definition" not in c_norm:
-                c_norm["definition"] = f"Canonical definition for {c_norm.get('concept_name', 'entity')}"
+                ent_name = c_norm.get("concept_name", "entity")
+                c_norm["definition"] = f"Canonical definition for {ent_name}"
             if "concept_uri" in c_norm and ":provisional:" in str(c_norm["concept_uri"]):
                 c_norm["concept_uri"] = str(c_norm["concept_uri"]).replace(":provisional:", ":")
             valid_keys = {
@@ -97,7 +100,7 @@ def _resolve_graph_a(graph_a: Any) -> tuple[GraphAOntology, str]:
     if isinstance(graph_a, dict):
         try:
             ont_obj = GraphAOntology.model_validate(graph_a)
-        except Exception:
+        except (ValueError, TypeError):
             ont_obj = GraphAOntology.model_validate(_normalize_ontology_dict(graph_a))
         raw_bytes = json.dumps(graph_a, sort_keys=True).encode("utf-8")
         sha256 = hashlib.sha256(raw_bytes).hexdigest()
@@ -105,19 +108,16 @@ def _resolve_graph_a(graph_a: Any) -> tuple[GraphAOntology, str]:
 
     if isinstance(graph_a, (str, Path)):
         p = Path(graph_a)
-        if p.is_file():
-            content = p.read_text(encoding="utf-8")
-        else:
-            content = str(graph_a)
+        content = p.read_text(encoding="utf-8") if p.is_file() else str(graph_a)
         try:
             import yaml
 
             parsed = yaml.safe_load(content) or {}
-        except Exception:
+        except (yaml.YAMLError, ValueError):
             parsed = json.loads(content)
         try:
             ont_obj = GraphAOntology.model_validate(parsed)
-        except Exception:
+        except (ValueError, TypeError):
             ont_obj = GraphAOntology.model_validate(_normalize_ontology_dict(parsed))
         sha256 = hashlib.sha256(content.encode("utf-8")).hexdigest()
         return ont_obj, sha256
@@ -285,7 +285,7 @@ def compute_ontology_coverage(
                 import yaml
 
                 contract_dict = yaml.safe_load(raw_c) or {}
-            except Exception:
+            except (yaml.YAMLError, ValueError):
                 contract_dict = json.loads(raw_c)
         elif hasattr(contract, "model_dump"):
             contract_dict = contract.model_dump(mode="json")
@@ -478,7 +478,11 @@ def compute_ontology_coverage(
         else round(float(mapped_columns_count) / float(max(1, total_columns)), 4)
     )
 
-    norm_wave_id = wave_id if wave_id.startswith("wave_") or wave_id.startswith("w") else f"wave_{wave_id}"
+    norm_wave_id = (
+        wave_id
+        if wave_id.startswith("wave_") or wave_id.startswith("w")
+        else f"wave_{wave_id}"
+    )
     art_id = f"art-{norm_wave_id}-stage01-ontology-coverage"
 
     return OntologyCoverageArtifact(
