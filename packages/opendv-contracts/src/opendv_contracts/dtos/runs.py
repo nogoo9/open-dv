@@ -73,8 +73,14 @@ class CreateRunRequest(BaseContractModel):
         default=None,
         description="Path to initial deployed contract YAML/JSON (Decision D1 / GAP-07)",
     )
+    initial_contract_content: str | None = Field(
+        default=None,
+        max_length=1_000_000,
+        description="Inline starting contract YAML or JSON string (alias for initial_contract)",
+    )
     initial_contract: str | None = Field(
         default=None,
+        max_length=1_000_000,
         description="Inline starting contract YAML or JSON string (Decision D1 / GAP-07)",
     )
     wave_id: str | None = Field(
@@ -84,6 +90,10 @@ class CreateRunRequest(BaseContractModel):
 
     @model_validator(mode="after")
     def _validate_target(self) -> CreateRunRequest:
+        if self.initial_contract is None and self.initial_contract_content is not None:
+            object.__setattr__(self, "initial_contract", self.initial_contract_content)
+        elif self.initial_contract_content is None and self.initial_contract is not None:
+            object.__setattr__(self, "initial_contract_content", self.initial_contract)
         if self.pipeline_input_path is not None and self.pipeline_input_path.strip() == "":
             object.__setattr__(self, "pipeline_input_path", None)
         if self.harness_config_path is not None and self.harness_config_path.strip() == "":

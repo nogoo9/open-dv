@@ -11,16 +11,12 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-import yaml
-
 from opendv_contracts import (
-    LifecycleStage,
     PipelineRunHandle,
     PipelineRunRequest,
     RbacRole,
     RunStatus,
 )
-from opendv_core.paths import resolve_workspace_path
 from opendv_service.errors import NotFoundError, PipelineAbortedError
 from opendv_service.models import (
     CreateRunRequest,
@@ -28,6 +24,7 @@ from opendv_service.models import (
     ProjectRunDTO,
 )
 from opendv_service.runs.callbacks import build_pipeline_callbacks
+from opendv_service.runs.options import resolve_run_creation_options
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
 
 if TYPE_CHECKING:
@@ -100,30 +97,11 @@ class RunExecutionEngine:
             else request
         )
 
-        has_initial_contract = False
-        initial_contract_path = request.initial_contract_path
-        lifecycle_stage = LifecycleStage.COLD_START_N1.value
-
-        if request.initial_contract_path is not None:
-            resolved_c_path = resolve_workspace_path(
-                str(request.initial_contract_path),
-                workspace_root=state.repo_root,
-                allow_temp=True,
-            )
-            content = resolved_c_path.read_text(encoding="utf-8")
-            yaml.safe_load(content)
-            has_initial_contract = True
-            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
-        elif getattr(request, "initial_contract", None) is not None:
-            yaml.safe_load(str(request.initial_contract))
-            has_initial_contract = True
-            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
-        elif getattr(request, "initial_contract_content", None) is not None:
-            yaml.safe_load(str(request.initial_contract_content))
-            has_initial_contract = True
-            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
-
-        target_wave_id = getattr(request, "wave_id", None)
+        run_opts = resolve_run_creation_options(request, workspace_root=state.repo_root)
+        has_initial_contract = run_opts.has_initial_contract
+        initial_contract_path = run_opts.initial_contract_path
+        lifecycle_stage = run_opts.lifecycle_stage
+        target_wave_id = run_opts.target_wave_id
 
         run_dto = ProjectRunDTO(
             run_id=run_id,
@@ -238,32 +216,12 @@ class RunExecutionEngine:
         pipeline_runner: PipelineRunner | None = None,
     ) -> PipelineRunHandle:
         """Launch a generic platform run or pipeline asynchronously."""
-        provider_override = (
-            req.harness_provider
-            if (req.harness_config_path is None or req.harness_provider != "antigravity")
-            else None
-        )
-
-        has_initial_contract = False
-        initial_contract_path = req.initial_contract_path
-        lifecycle_stage = LifecycleStage.COLD_START_N1.value
-
-        if req.initial_contract_path is not None:
-            resolved_path = resolve_workspace_path(
-                str(req.initial_contract_path),
-                workspace_root=state.repo_root,
-                allow_temp=True,
-            )
-            content = resolved_path.read_text(encoding="utf-8")
-            yaml.safe_load(content)
-            has_initial_contract = True
-            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
-        elif req.initial_contract is not None:
-            yaml.safe_load(str(req.initial_contract))
-            has_initial_contract = True
-            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
-
-        target_wave_id = req.wave_id
+        run_opts = resolve_run_creation_options(req, workspace_root=state.repo_root)
+        provider_override = run_opts.provider_override
+        has_initial_contract = run_opts.has_initial_contract
+        initial_contract_path = run_opts.initial_contract_path
+        lifecycle_stage = run_opts.lifecycle_stage
+        target_wave_id = run_opts.target_wave_id
 
         if req.pipeline_input_path is not None:
             return self.submit_pipeline_run(

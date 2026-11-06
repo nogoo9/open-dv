@@ -6,18 +6,15 @@ import shutil
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any, Literal
 
-import yaml
-
 from opendv_agent_harness import StewardHoldManager
-from opendv_core.paths import resolve_workspace_path
 from opendv_service.models import (
     CreateRunRequest,
     GateScorecardSummary,
-    LifecycleStage,
     PipelineRunRequest,
     ProjectRunDTO,
     RunStatus,
 )
+from opendv_service.runs.options import resolve_run_creation_options
 from opendv_sources import get_source_registry
 from opendv_telemetry import VaultLedgerEmitter
 
@@ -214,32 +211,12 @@ class RunStateMixin:
         req: CreateRunRequest,
     ) -> ProjectRunDTO:
         """Start a new verification/sandbox run and populate its observability ledger."""
-        provider_override = (
-            req.harness_provider
-            if (req.harness_config_path is None or req.harness_provider != "antigravity")
-            else None
-        )
-
-        has_initial_contract = False
-        initial_contract_path = req.initial_contract_path
-        lifecycle_stage = LifecycleStage.COLD_START_N1.value
-
-        if req.initial_contract_path is not None:
-            resolved_path = resolve_workspace_path(
-                str(req.initial_contract_path),
-                workspace_root=self.repo_root,
-                allow_temp=True,
-            )
-            content = resolved_path.read_text(encoding="utf-8")
-            yaml.safe_load(content)
-            has_initial_contract = True
-            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
-        elif req.initial_contract is not None:
-            yaml.safe_load(str(req.initial_contract))
-            has_initial_contract = True
-            lifecycle_stage = LifecycleStage.MULTI_SOURCE_EXPANSION.value
-
-        target_wave_id = req.wave_id
+        run_opts = resolve_run_creation_options(req, workspace_root=self.repo_root)
+        provider_override = run_opts.provider_override
+        has_initial_contract = run_opts.has_initial_contract
+        initial_contract_path = run_opts.initial_contract_path
+        lifecycle_stage = run_opts.lifecycle_stage
+        target_wave_id = run_opts.target_wave_id
 
         if req.pipeline_input_path is not None:
             rep_dict = self.execute_agentic_pipeline_run(
