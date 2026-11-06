@@ -642,3 +642,91 @@ def test_wp24_opendv_pipeline_run_live_stage_progress_and_token_streaming(
     assert parsed_json["overall_passed"] is True
     assert "[Wave 0][STAGE 00]" in captured_json.err
     assert "[Wave 0][STAGE 07]" in captured_json.err
+
+
+def test_opendv_cli_run_explorer_artifact_and_hold_decide(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify newly inventoried subcommands `run explorer`, `run artifact`, and `hold decide`."""
+    from opendv_agent_harness import StewardHoldManager
+    from opendv_cli.executor import LocalExecutor
+    from opendv_testkit import seed_canonical_pe_demo
+
+    executor = LocalExecutor(workspace_root=REPO_ROOT)
+    seed_canonical_pe_demo(executor.service)
+    service = executor.service
+
+    # 1. run explorer
+    rc_exp = app_main(
+        ["run", "explorer", "--run-id", "run-pe-apex-horizon-20261030", "--json"],
+        executor=executor,
+    )
+    assert rc_exp == 0
+    out_exp = json.loads(capsys.readouterr().out)
+    assert out_exp["mode"] == "local"
+    assert (out_exp.get("runId") or out_exp.get("run_id")) == "run-pe-apex-horizon-20261030"
+    assert "artifacts" in out_exp
+
+    # 2. run artifact
+    rc_art = app_main(
+        [
+            "run",
+            "artifact",
+            "--run-id",
+            "run-pe-apex-horizon-20261030",
+            "--artifact-id",
+            "final_contract",
+            "--json",
+        ],
+        executor=executor,
+    )
+    assert rc_art == 0
+    out_art = json.loads(capsys.readouterr().out)
+    assert out_art["mode"] == "local"
+    assert out_art["run_id"] == "run-pe-apex-horizon-20261030"
+    assert out_art["artifact_id"] == "final_contract"
+
+    # Missing artifact-id returns error code 2
+    rc_art_err = app_main(
+        ["run", "artifact", "--run-id", "run-pe-apex-horizon-20261030"],
+        executor=executor,
+    )
+    assert rc_art_err != 0
+    capsys.readouterr()
+
+    # 3. hold decide
+    hold_run_id = "run-pe-apex-horizon-20261030"
+    hold_mgr = service.state.hold_managers.setdefault(hold_run_id, StewardHoldManager())
+    hold_mgr.record_hold(
+        run_id=hold_run_id,
+        task_id="task-001",
+        session_id="session-001",
+        hold_id="hold-pe-001",
+        event_id="evt-pe-hold-001",
+    )
+    service.state.runs[hold_run_id] = service.state.runs[hold_run_id].model_copy(
+        update={"active_hold_ids": ["hold-pe-001"]}
+    )
+
+    rc_decide = app_main(
+        [
+            "hold",
+            "decide",
+            "--run-id",
+            hold_run_id,
+            "--action",
+            "APPROVE",
+            "--hold-id",
+            "hold-pe-001",
+            "--event-id",
+            "evt-pe-hold-001",
+            "--notes",
+            "Approved via opendv CLI test",
+            "--json",
+        ],
+        executor=executor,
+    )
+    assert rc_decide == 0
+    out_decide = json.loads(capsys.readouterr().out)
+    assert out_decide["mode"] == "local"
+    assert out_decide["status"] in ["ACCEPTED", "RESOLVED", "APPROVED"]

@@ -1,13 +1,116 @@
 /**
  * Normative HTTP REST & SSE Wire DTOs for `/api/v1/*` (`docs/08` §5 & `docs/10` §2.3).
+ * Re-exported directly from OpenAPI 3.1 generated types (Issue #97).
  */
 
-import type { HarnessProvider, ModelTier, RbacRole, RunStatus } from "./common";
-import type {
-	StageId,
-	VaultObservabilityEventDTO,
-	WorkbenchViewId,
-} from "./observability-event";
+import type { VaultObservabilityEventDTO } from "./observability-event";
+import type { components, paths } from "./openapi";
+
+export type { components, paths };
+
+// Direct OpenAPI Schema Re-exports
+export type ProfileRequest = components["schemas"]["ProfileRequest"];
+export type ProfileResponse = components["schemas"]["ProfileResponse"];
+export type CompileRequest = components["schemas"]["CompileRequest"];
+export type CompileResponse = components["schemas"]["CompileResponse"];
+export type VerifyRequest = components["schemas"]["VerifyRequest"];
+export type VerifyResponse = components["schemas"]["VerifyResponse"];
+export type SandboxQueryRequest = components["schemas"]["SandboxQueryRequest"];
+export type SandboxQueryResponse =
+	components["schemas"]["SandboxQueryResponse"];
+export type ExplorerBundleDTO = components["schemas"]["ExplorerBundleDTO"];
+export type RunArtifactDTO = components["schemas"]["RunArtifactDTO"];
+export type PipelineRunHandle = components["schemas"]["PipelineRunHandle"];
+export type PipelineRunRequest = components["schemas"]["PipelineRunRequest"];
+export type PipelineValidateRequest =
+	components["schemas"]["PipelineValidateRequest"];
+export type CreateProjectRequest =
+	components["schemas"]["CreateProjectRequest"];
+export type CreateRunRequest = components["schemas"]["CreateRunRequest"];
+export type ProjectRunDTO = components["schemas"]["ProjectRunDTO"];
+export type RawCaptainHoldDecisionRequest =
+	components["schemas"]["CaptainHoldDecisionRequest"];
+export type RawCaptainHoldDecisionResponse =
+	components["schemas"]["CaptainHoldDecisionResponse"];
+
+export interface CaptainHoldDecisionRequest {
+	action: "APPROVE" | "REJECT" | "ANSWER";
+	decision?: ("APPROVE" | "REJECT" | "ANSWER") | null | undefined;
+	decision_type?: "RESOLVE_CAPTAIN_HOLD" | undefined;
+	event_id?: string | null | undefined;
+	hold_id?: string | null | undefined;
+	resolution_notes?: string | null | undefined;
+	selected_candidate_id?: string | null | undefined;
+	steward_id?: string | undefined;
+	steward_rationale?: string | null | undefined;
+}
+
+export interface CaptainHoldDecisionResponse {
+	decision_id: string;
+	status: "ACCEPTED" | "REJECTED";
+	resumed_run_id: string;
+	next_stage_id: string;
+	next_event_id: string;
+	action?: string | undefined;
+	hold_id?: string | undefined;
+	resolved_at_utc?: string | undefined;
+	updated_run_status?:
+		| components["schemas"]["opendv_service__models__RunStatus"]
+		| undefined;
+}
+export type SandboxExecutionResponse =
+	components["schemas"]["SandboxExecutionResponse"];
+export type GateScorecardSummary =
+	components["schemas"]["GateScorecardSummary"];
+export type GateVerdict = components["schemas"]["GateVerdict"];
+export type ArtifactDTO = components["schemas"]["ArtifactDTO"];
+export type RenderedOutput = components["schemas"]["RenderedOutput"];
+
+// Ergonomic Aliases
+export type GateScorecardSummaryDTO = GateScorecardSummary;
+export type GateVerdictDTO = GateVerdict;
+
+// Canonical Error Taxonomy across REST and CLI
+export type ErrorCode =
+	| "OK"
+	| "VERIFICATION_FAILED"
+	| "PATH_CONTAINMENT_ERROR"
+	| "INVALID_REQUEST"
+	| "RESOURCE_NOT_FOUND"
+	| "RUN_NOT_FOUND"
+	| "PROJECT_NOT_FOUND"
+	| "HOLD_NOT_FOUND"
+	| "ARTIFACT_NOT_FOUND"
+	| "PAYLOAD_TOO_LARGE"
+	| "UNSUPPORTED_FORMAT"
+	| "INPUT_VALIDATION_ERROR"
+	| "SCHEMA_VALIDATION_ERROR"
+	| "SOURCE_LOAD_ERROR"
+	| "SANDBOX_EXECUTION_ERROR"
+	| "PROVIDER_CONFIG_ERROR"
+	| "DETERMINISTIC_PROVIDER_REJECTED"
+	| "CONTRACT_VERSION_MISMATCH"
+	| "CAS_INTEGRITY_FAILURE"
+	| "INTERNAL_ERROR"
+	| "API_UNREACHABLE"
+	| "PROVIDER_UNAVAILABLE";
+
+export interface ErrorDetail {
+	field: string;
+	message: string;
+	error_type?: string | undefined;
+}
+
+export interface ProblemDetail {
+	type: string;
+	title: string;
+	status: number;
+	detail: string;
+	instance?: string | null | undefined;
+	error_code: ErrorCode;
+	invalid_params?: ErrorDetail[] | undefined;
+	extensions?: Record<string, unknown> | undefined;
+}
 
 export interface OpenDVClientOptions {
 	baseUrl: string;
@@ -24,15 +127,6 @@ export type GateStatus =
 	| "REJECT-WITH-TRACE"
 	| "ASK-USER";
 
-export interface GateScorecardSummaryDTO {
-	gate_0_profile_drift: GateStatus;
-	gate_1_contract_grain: GateStatus;
-	gate_2_sqlglot_ast: GateStatus;
-	gate_3_networkx_dag: GateStatus;
-	gate_4_yagni_cost_guard: GateStatus;
-	gate_5_duckdb_sandbox: GateStatus;
-}
-
 export interface ProjectDTO {
 	project_id: string;
 	display_name: string;
@@ -42,80 +136,10 @@ export interface ProjectDTO {
 	created_at_utc: string;
 }
 
-export interface CreateProjectRequest {
-	project_id: string;
-	display_name: string;
-	domain_namespace: string;
-	graph_a_ontology_path: string;
-	bronze_sources: string[];
-}
-
-export interface CreateRunRequest {
-	project_id: string;
-	harness_provider?: HarnessProvider | undefined;
-	model_tier_override?: ModelTier | null | undefined;
-	contract_path?: string | null | undefined;
-	max_repair_retries?: number | undefined;
-	run_sandbox_batches?: boolean | undefined;
-}
-
-export interface ProjectRunDTO {
-	run_id: string;
-	project_id: string;
-	harness_provider: HarnessProvider;
-	status: RunStatus;
-	started_at_utc: string;
-	completed_at_utc?: string | null | undefined;
-	current_stage_id: StageId;
-	current_view_id: WorkbenchViewId;
-	event_count: number;
-	gate_scorecard: GateScorecardSummaryDTO;
-	active_hold_ids: string[];
-	events_sse_url: string;
-	gates_url: string;
-	sandbox_url: string;
-	decisions_url: string;
-}
-
-export interface CaptainHoldDecisionRequest {
-	event_id: string;
-	hold_id?: string | null | undefined;
-	decision_type: "RESOLVE_CAPTAIN_HOLD";
-	action: "APPROVE" | "REJECT" | "ANSWER";
-	selected_candidate_id?: string | null | undefined;
-	resolution_notes?: string | null | undefined;
-}
-
-export interface CaptainHoldDecisionResponse {
-	decision_id: string;
-	status: "ACCEPTED" | "REJECTED";
-	resumed_run_id: string;
-	next_stage_id: StageId;
-	next_event_id: string;
-}
-
-export interface SandboxQueryRequest {
-	query_type:
-		| "ADVERSARIAL_BATCHES_1_TO_4"
-		| "QUERY_D10_PIT"
-		| "QUERY_D10B_VALUATION";
-	assertion_cutoff_ts?: string | undefined;
-}
-
-export interface SandboxExecutionResponse {
-	run_id: string;
-	all_batches_passed: boolean;
-	batch_verdicts: Record<string, "PASS" | "FAIL">;
-	dynamic_rules_passed: number;
-	dynamic_rules_total: number;
-	replay_delta_rows: number;
-	query_d10_rows: Record<string, unknown>[];
-}
-
 export interface WorkbenchViewProjectionDTO {
 	run_id: string;
-	view_id: WorkbenchViewId;
-	rbac_role?: RbacRole | string | undefined;
+	view_id?: string | undefined;
+	rbac_role?: string | undefined;
 	latest_event?: VaultObservabilityEventDTO | null | undefined;
 	events?: VaultObservabilityEventDTO[] | undefined;
 	[key: string]: unknown;
