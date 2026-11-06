@@ -9,6 +9,7 @@ from opendv_contracts.errors import (
     HoldNotFoundError,
     InputValidationError,
     NotFoundError,
+    OntologyRecommenderUnavailableError,
     OpenDVError,
 )
 
@@ -92,6 +93,7 @@ __all__ = [
     "HoldNotFoundError",
     "InputValidationError",
     "NotFoundError",
+    "OntologyRecommenderUnavailableError",
     "OpenDVError",
     "PathContainmentError",
     "PayloadTooLargeError",

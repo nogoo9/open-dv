@@ -532,6 +532,7 @@ Both CLIs adhere to normative exit code standards across all failure scenarios:
 | `PROVIDER_CONFIG_ERROR` | `2` | `422` | Provider Configuration Error | `urn:opendv:provider-config-error` |
 | `DETERMINISTIC_PROVIDER_REJECTED` | `2` | `422` | Deterministic Provider Prohibited | `urn:opendv:deterministic-rejected` |
 | `CONTRACT_VERSION_MISMATCH` | `2` | `422` | Contract Version Mismatch | `urn:opendv:version-mismatch` |
+| `ONTOLOGY_RECOMMENDER_UNAVAILABLE` | `2` | `422` | Ontology Recommender Unavailable | `urn:opendv:ontology-recommender-unavailable` |
 | `CAS_INTEGRITY_FAILURE` | `2` | `500` | CAS Digest Integrity Failure | `urn:opendv:cas-integrity-failure` |
 | `INTERNAL_ERROR` | `2` | `500` | Internal Server Error | `urn:opendv:internal-error` |
 | `API_UNREACHABLE` | `2` | `503` | API Service Unreachable | `urn:opendv:api-unreachable` |
