@@ -3721,7 +3721,18 @@ class AgenticVaultPipeline:
                             intermediate_list=intermediate_artifacts,
                         )
                         s1_out_shas.append(prop_ref.sha256)
-                except Exception as exc:  # noqa: BLE001 - non-blocking recommender error
+                except (
+                    RuntimeError,
+                    TypeError,
+                    ValueError,
+                    KeyError,
+                    AttributeError,
+                    IndexError,
+                    OSError,
+                    TimeoutError,
+                    ImportError,
+                    OpenDVError,
+                ) as exc:
                     err_msg = f"Stage 01 IP-2 hook failed: {exc}"
                     self.extension_hooks.recommender_errors.append(err_msg)
 
@@ -4960,7 +4971,18 @@ class AgenticVaultPipeline:
                                         "proposal_id": ip3_proposal.proposal_id,
                                     }
                                 )
-                    except Exception as exc:  # noqa: BLE001 - non-blocking recommender error
+                    except (
+                        RuntimeError,
+                        TypeError,
+                        ValueError,
+                        KeyError,
+                        AttributeError,
+                        IndexError,
+                        OSError,
+                        TimeoutError,
+                        ImportError,
+                        OpenDVError,
+                    ) as exc:
                         err_msg = f"Stage 05 IP-3 hook failed: {exc}"
                         self.extension_hooks.recommender_errors.append(err_msg)
 
