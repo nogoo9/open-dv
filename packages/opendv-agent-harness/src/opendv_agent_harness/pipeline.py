@@ -92,7 +92,6 @@ from opendv_core.schema_registry import (
     load_structured_file,
     validate_canonical_ir,
     validate_contract_v5,
-    validate_graph_a,
     validate_graph_b,
     validate_observability_event,
 )
@@ -101,8 +100,10 @@ from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
 from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
 from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
 from opendv_sources import (
+    SourceError,
     SourceSpec,
     get_source_registry,
+    load_graph_a_source,
     load_structured_document,
 )
 from opendv_telemetry import (
@@ -819,13 +820,22 @@ class PipelineInputSpec(BaseModel):
     run_id: str | None = None
     display_name: str = "Open-DV Agentic Pipeline Run"
     domain_namespace: str = "general"
-    graph_a_ontology_path: str
+    graph_a_ontology_path: str | None = None
+    graph_a_source: SourceSpec | str | dict[str, Any] | None = None
     initial_contract_path: str | None = None
     initial_contract: str | None = None
     wave_id: str | None = None
     assertion_cutoff_ts: str = "2026-12-31 23:59:59"
     output_dir: str | None = None
     waves: list[PipelineWaveInput] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def _validate_graph_a_present(self) -> PipelineInputSpec:
+        if self.graph_a_source is None and (
+            self.graph_a_ontology_path is None or not self.graph_a_ontology_path.strip()
+        ):
+            raise ValueError("Either 'graph_a_source' or 'graph_a_ontology_path' must be provided.")
+        return self
 
     @classmethod
     def from_file(cls, path: str | Path) -> PipelineInputSpec:
@@ -941,6 +951,10 @@ class AgenticPipelineReport(BaseModel):
     observability_events: list[dict[str, Any]] = Field(default_factory=list)
     fallbacks_applied: list[dict[str, Any]] = Field(default_factory=list)
     markdown_summary: str
+    graph_a_sha256: str | None = None
+    ontology_version: str | None = None
+    parent_sha256: str | None = None
+    decision_refs: list[str] = Field(default_factory=list)
     has_initial_contract: bool = False
     initial_contract_path: str | None = None
     wave_id: str | None = None
@@ -1393,46 +1407,75 @@ def validate_pipeline_inputs(
 
     # 3. Validate Graph A Ontology path & schema
     checked_items += 1
-    ont_path, ont_err = _validate_path_containment(
-        spec.graph_a_ontology_path, base_dir=eff_base, workspace_root=ws_root
+    graph_a_target = (
+        spec.graph_a_source if spec.graph_a_source is not None else spec.graph_a_ontology_path
     )
-    if ont_err is not None or ont_path is None:
-        diagnostics.append(
-            {
-                "code": "PATH_TRAVERSAL_REJECTED",
-                "severity": "ERROR",
-                "target": "graph_a_ontology_path",
-                "message": ont_err or "Invalid ontology path.",
-            }
-        )
-    elif not ont_path.is_file():
+    if graph_a_target is None:
         diagnostics.append(
             {
                 "code": "ONTOLOGY_FILE_MISSING",
                 "severity": "ERROR",
-                "target": str(ont_path),
-                "message": f"Graph A ontology file does not exist at '{ont_path}'.",
+                "target": "graph_a_source",
+                "message": "Neither graph_a_source nor graph_a_ontology_path was provided.",
             }
         )
-    else:
+    elif spec.graph_a_source is None and spec.graph_a_ontology_path is not None:
+        ont_path, ont_err = _validate_path_containment(
+            spec.graph_a_ontology_path, base_dir=eff_base, workspace_root=ws_root
+        )
+        if ont_err is not None or ont_path is None:
+            diagnostics.append(
+                {
+                    "code": "PATH_TRAVERSAL_REJECTED",
+                    "severity": "ERROR",
+                    "target": "graph_a_ontology_path",
+                    "message": ont_err or "Invalid ontology path.",
+                }
+            )
+        elif not ont_path.is_file():
+            diagnostics.append(
+                {
+                    "code": "ONTOLOGY_FILE_MISSING",
+                    "severity": "ERROR",
+                    "target": str(ont_path),
+                    "message": f"Graph A ontology file does not exist at '{ont_path}'.",
+                }
+            )
+        else:
+            try:
+                load_graph_a_source(ont_path, base_dir=eff_base, workspace_root=ws_root)
+            except (
+                SourceError,
+                ValidationError,
+                ValueError,
+                TypeError,
+                KeyError,
+                OSError,
+            ) as exc:
+                diagnostics.append(
+                    {
+                        "code": "ONTOLOGY_SCHEMA_INVALID",
+                        "severity": "ERROR",
+                        "target": str(ont_path),
+                        "message": f"Graph A ontology validation failed: {exc}",
+                    }
+                )
+    elif spec.graph_a_source is not None:
         try:
-            raw_ont = load_structured_file(ont_path)
-            validate_graph_a(raw_ont)
-            GraphAOntology.model_validate(raw_ont)
+            load_graph_a_source(spec.graph_a_source, base_dir=eff_base, workspace_root=ws_root)
         except (
+            SourceError,
             ValidationError,
             ValueError,
             TypeError,
             KeyError,
             OSError,
-            yaml.YAMLError,
-            json.JSONDecodeError,
         ) as exc:
             diagnostics.append(
                 {
                     "code": "ONTOLOGY_SCHEMA_INVALID",
                     "severity": "ERROR",
-                    "target": str(ont_path),
+                    "target": "graph_a_source",
                     "message": f"Graph A ontology validation failed: {exc}",
                 }
             )
@@ -3017,20 +3060,26 @@ class AgenticVaultPipeline:
             self.harness.resolve_model(ModelTier.HIGH_REASONING, AgentPersona.VAULT_FIRST_MATE),
         )
 
-        ont_path, _ = _validate_path_containment(
-            self.input_spec.graph_a_ontology_path,
+        graph_a_input = (
+            self.input_spec.graph_a_source
+            if self.input_spec.graph_a_source is not None
+            else self.input_spec.graph_a_ontology_path
+        )
+        assert graph_a_input is not None
+        loaded_graph_a = load_graph_a_source(
+            graph_a_input,
             base_dir=self.base_dir,
             workspace_root=self.workspace_root,
         )
-        assert ont_path is not None
-        raw_ontology = load_structured_file(ont_path)
-        ontology = GraphAOntology.model_validate(raw_ontology)
+        ontology = loaded_graph_a.ontology
+        graph_a_sha256 = loaded_graph_a.sha256
+        raw_ontology = ontology.model_dump(mode="json", exclude_none=True)
 
         ont_ref = self._record_artifact(
             artifact_id="art-stage00-graph-a-ontology",
             name="graph_a_ontology.yaml",
             stage_id=PipelineStageId.STAGE_00_ORCHESTRATION.value,
-            content=yaml.safe_dump(raw_ontology, sort_keys=False),
+            content=loaded_graph_a.raw_bytes,
             media_type="application/x-yaml",
             rel_path="stage_00/graph_a_ontology.yaml",
             wave_index=0,
@@ -5251,6 +5300,10 @@ class AgenticVaultPipeline:
             pipeline_id=self.input_spec.pipeline_id,
             project_id=self.input_spec.project_id,
             domain_namespace=self.input_spec.domain_namespace,
+            graph_a_sha256=graph_a_sha256,
+            ontology_version=ontology.ontology_version,
+            parent_sha256=ontology.parent_sha256,
+            decision_refs=list(ontology.decision_refs),
             status=overall_status,
             overall_passed=False,
             started_at=started_at,

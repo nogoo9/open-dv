@@ -34,8 +34,8 @@ def _extract_tier_sources_and_columns(
     if isinstance(tier_entry, list | set | tuple):
         return {str(x) for x in tier_entry}, set(), None
     if isinstance(tier_entry, dict):
-        cols = {str(x) for x in tier_entry.get("column_patterns", [])}
-        srcs = {str(x) for x in tier_entry.get("authoritative_sor", [])}
+        cols = {str(x) for x in (tier_entry.get("column_patterns") or [])}
+        srcs = {str(x) for x in (tier_entry.get("authoritative_sor") or [])}
         bkcc_policy = tier_entry.get("bkcc_policy")
         policy_str = str(bkcc_policy) if bkcc_policy else None
         if policy_str and policy_str not in {"GLOBAL", "SOURCE_SYSTEM_PREFIX_REQUIRED"}:

@@ -1,6 +1,7 @@
 {
   "active_holds": [],
   "completed_at": "<TIMESTAMP>",
+  "decision_refs": [],
   "domain_namespace": "global_commerce",
   "fallbacks_applied": [],
   "final_artifacts": {
@@ -71,6 +72,7 @@
       "wave_index": 0
     }
   },
+  "graph_a_sha256": "b070b99f76ceee006cf2371e6b4053e57283ac69761c92f3a999f733d3af9609",
   "harness_setup": {
     "agent_models": {},
     "api_key_env_var": null,
@@ -148,12 +150,12 @@
   "intermediate_artifacts": [
     {
       "artifact_id": "art-stage00-graph-a-ontology",
-      "byte_length": 4441,
+      "byte_length": 4821,
       "description": "Verified Enterprise Core Business Concept (Graph A) Ontology.",
       "file_path": "<OUT>",
       "media_type": "application/x-yaml",
       "name": "graph_a_ontology.yaml",
-      "sha256": "23B1D93F8EC18576C4162441068E7F5D38C6B4503A36793ECD4EF43126F415DA",
+      "sha256": "B070B99F76CEEE006CF2371E6B4053E57283AC69761C92F3A999F733D3AF9609",
       "stage_id": "STAGE_00_ORCHESTRATION",
       "wave_index": 0
     },
@@ -258,7 +260,7 @@
     }
   ],
   "lifecycle_stage": "MULTI_SOURCE_EXPANSION",
-  "markdown_summary": "# Global Commerce Vault \u2014 Wave 0 Cold Start (CRM & ERP)\n\n- **Pipeline ID**: `pipe-global-commerce-wave0-cold-start`\n- **Project ID**: `proj-global-commerce-001`\n- **Run ID**: `run-global-commerce-wave0`\n- **Domain Namespace**: `global_commerce`\n- **Harness Provider**: `agy`\n- **Overall Status**: `COMPLETED` (`overall_passed=True`)\n- **Total Duration**: `<DURATION>`\n\n## 1. Deterministic Validation Summary\n\n| Validation Stage | Passed | Checked Items | Verified Artifacts | Verified Events | PII Check | CAS Integrity |\n| :--- | :---: | :---: | :---: | :---: | :---: | :---: |\n| `INPUT_VALIDATION` | `True` | 6 | 0 | 0 | `True` | `True` |\n| `OUTPUT_VALIDATION` | `True` | 36 | 14 | 11 | `True` | `True` |\n\n## 2. Multi-Wave Progression Summary\n\n| Wave | Name | Type | Status | Sources | Columns | Attempts | Codemods | Sandbox |\n| :---: | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :---: |\n| 0 | `Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)` | `COLD_START` | `AUTO_REPAIRED` | 2 | 15 | 2 | `ALG_A4_COLD_START_EXTENSIBILITY`, `ALG_A1_3AXIS_SATELLITE_SPLIT` | `True` |\n\n## 3. Step-by-Step Execution Ledger\n\n| Step ID | Wave | Stage | Persona | Tier | Status | Attempts | Duration (ms) | Summary |\n| :--- | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :--- |\n| `step-w0-stage00-orchestration` | 0 | `STAGE_00_ORCHESTRATION` | `vault-first-mate` | `reasoning` | `PASS` | 1 | <DURATION> | Validated 6 input items, loaded Graph A ontology (5 CBCs), and initialized agy harness. |\n| `step-w0-stage01-scout-source` | 0 | `STAGE_01_SCOUT_SOURCE` | `scout-source` | `fast` | `PASS` | 1 | <DURATION> | Profiled 2 source(s) (15 columns); detected 0 schema drift event(s). |\n| `step-w0-stage02-scout-unstructured` | 0 | `STAGE_02_SCOUT_UNSTRUCTURED` | `scout-unstructured` | `fast` | `PASS` | 1 | <DURATION> | Processed 0 unstructured document(s) with 0 verified spans (tiers={'Tier-U1': 0, 'Tier-U2': 0, 'Tier-U3': 0}). |\n| `step-w0-stage03-ship-vault-pass1` | 0 | `STAGE_03_SHIP_VAULT_PASS1` | `ship-vault` | `reasoning` | `PASS` | 1 | <DURATION> | Synthesized Pass 1 Column Triage Ledger covering 16 cumulative column(s). |\n| `step-w0-stage04-ship-vault-pass2` | 0 | `STAGE_04_SHIP_VAULT_PASS2` | `ship-vault` | `reasoning` | `PASS` | 1 | <DURATION> | Synthesized candidate contract v5.0 (3 Hubs, 1 Links, 3 Satellites). |\n| `step-w0-stage05-axi-dv-static-gates` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `axi-dv` | `fast` | `AUTO_REPAIRED` | 2 | <DURATION> | 6-Gate static verification finished in 2 attempt(s) with status AUTO_REPAIRED; codemods=['ALG_A4_COLD_START_EXTENSIBILITY', 'ALG_A1_3AXIS_SATELLITE_SPLIT']. |\n| `step-w0-stage06-axi-dv-dynamic-sandbox` | 0 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `axi-dv` | `fast` | `PASS` | 1 | <DURATION> | Lowered Canonical IR, compiled 4-Zone SQL, and ran 4-Batch DuckDB Shadow Sandbox (15/15 DV-DYN checks). |\n| `step-w0-stage07-deterministic-compiler` | 0 | `STAGE_07_DETERMINISTIC_COMPILER` | `deterministic-compiler` | `fast` | `PASS` | 1 | <DURATION> | Materialized final contract, Canonical IR, 4-Zone SQL, and certified CAS + PII output invariants. |\n\n## 4. Final Artifacts\n\n| Key | Name | Stage | SHA-256 (Prefix) | Bytes | File Path |\n| :--- | :--- | :--- | :--- | :---: | :--- |\n| `final_contract` | `final_contract.yaml` | `STAGE_07_DETERMINISTIC_COMPILER` | `7FF31CD296A524AC...` | 5506 | `<OUT> |\n| `final_canonical_ir` | `final_canonical_ir.json` | `STAGE_07_DETERMINISTIC_COMPILER` | `830502BCEBFFDAF2...` | 15444 | `<OUT> |\n| `final_four_zone_sql` | `final_four_zone.sql` | `STAGE_07_DETERMINISTIC_COMPILER` | `3A6ED2E685973923...` | 43624 | `<OUT> |\n| `vault_ledger_jsonl` | `vault-ledger.jsonl` | `STAGE_07_DETERMINISTIC_COMPILER` | `<VOLATILE_SHA256_PREFIX>...` | 0 | `<OUT> |\n\n## 5. Intermediate Artifacts (10 recorded)\n\n| Artifact ID | Wave | Stage | Name | SHA-256 (Prefix) | Bytes |\n| :--- | :---: | :--- | :--- | :--- | :---: |\n| `art-stage00-graph-a-ontology` | 0 | `STAGE_00_ORCHESTRATION` | `graph_a_ontology.yaml` | `23B1D93F8EC18576...` | 4441 |\n| `art-w0-stage01-graph-b-profile` | 0 | `STAGE_01_SCOUT_SOURCE` | `wave_0_graph_b_profile.json` | `<VOLATILE_SHA256_PREFIX>...` | 0 |\n| `art-w0-stage02-unstructured-grounding` | 0 | `STAGE_02_SCOUT_UNSTRUCTURED` | `wave_0_unstructured_grounding.json` | `<VOLATILE_SHA256_PREFIX>...` | 0 |\n| `art-w0-stage03-pass1-triage` | 0 | `STAGE_03_SHIP_VAULT_PASS1` | `wave_0_pass1_column_triage.json` | `4F72D1E8C05FCE0A...` | 3206 |\n| `art-w0-stage04-contract-attempt1` | 0 | `STAGE_04_SHIP_VAULT_PASS2` | `wave_0_contract_attempt_1.yaml` | `DA46236B147B258C...` | 4629 |\n| `art-w0-stage05-toon-attempt1` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_0_axi_trace_attempt_1.toon` | `781B3F5A0C81C068...` | 612 |\n| `art-w0-stage05-toon-attempt2` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_0_axi_trace_attempt_2.toon` | `063A8DC390680807...` | 335 |\n| `art-w0-stage05-contract-verified` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_0_contract_verified.yaml` | `7FF31CD296A524AC...` | 5506 |\n| `art-w0-stage06-canonical-ir` | 0 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `wave_0_canonical_ir.json` | `830502BCEBFFDAF2...` | 15444 |\n| `art-w0-stage06-four-zone-sql` | 0 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `wave_0_four_zone.sql` | `3A6ED2E685973923...` | 43624 |",
+  "markdown_summary": "# Global Commerce Vault \u2014 Wave 0 Cold Start (CRM & ERP)\n\n- **Pipeline ID**: `pipe-global-commerce-wave0-cold-start`\n- **Project ID**: `proj-global-commerce-001`\n- **Run ID**: `run-global-commerce-wave0`\n- **Domain Namespace**: `global_commerce`\n- **Harness Provider**: `agy`\n- **Overall Status**: `COMPLETED` (`overall_passed=True`)\n- **Total Duration**: `<DURATION>`\n\n## 1. Deterministic Validation Summary\n\n| Validation Stage | Passed | Checked Items | Verified Artifacts | Verified Events | PII Check | CAS Integrity |\n| :--- | :---: | :---: | :---: | :---: | :---: | :---: |\n| `INPUT_VALIDATION` | `True` | 6 | 0 | 0 | `True` | `True` |\n| `OUTPUT_VALIDATION` | `True` | 36 | 14 | 11 | `True` | `True` |\n\n## 2. Multi-Wave Progression Summary\n\n| Wave | Name | Type | Status | Sources | Columns | Attempts | Codemods | Sandbox |\n| :---: | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :---: |\n| 0 | `Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)` | `COLD_START` | `AUTO_REPAIRED` | 2 | 15 | 2 | `ALG_A4_COLD_START_EXTENSIBILITY`, `ALG_A1_3AXIS_SATELLITE_SPLIT` | `True` |\n\n## 3. Step-by-Step Execution Ledger\n\n| Step ID | Wave | Stage | Persona | Tier | Status | Attempts | Duration (ms) | Summary |\n| :--- | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :--- |\n| `step-w0-stage00-orchestration` | 0 | `STAGE_00_ORCHESTRATION` | `vault-first-mate` | `reasoning` | `PASS` | 1 | <DURATION> | Validated 6 input items, loaded Graph A ontology (5 CBCs), and initialized agy harness. |\n| `step-w0-stage01-scout-source` | 0 | `STAGE_01_SCOUT_SOURCE` | `scout-source` | `fast` | `PASS` | 1 | <DURATION> | Profiled 2 source(s) (15 columns); detected 0 schema drift event(s). |\n| `step-w0-stage02-scout-unstructured` | 0 | `STAGE_02_SCOUT_UNSTRUCTURED` | `scout-unstructured` | `fast` | `PASS` | 1 | <DURATION> | Processed 0 unstructured document(s) with 0 verified spans (tiers={'Tier-U1': 0, 'Tier-U2': 0, 'Tier-U3': 0}). |\n| `step-w0-stage03-ship-vault-pass1` | 0 | `STAGE_03_SHIP_VAULT_PASS1` | `ship-vault` | `reasoning` | `PASS` | 1 | <DURATION> | Synthesized Pass 1 Column Triage Ledger covering 16 cumulative column(s). |\n| `step-w0-stage04-ship-vault-pass2` | 0 | `STAGE_04_SHIP_VAULT_PASS2` | `ship-vault` | `reasoning` | `PASS` | 1 | <DURATION> | Synthesized candidate contract v5.0 (3 Hubs, 1 Links, 3 Satellites). |\n| `step-w0-stage05-axi-dv-static-gates` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `axi-dv` | `fast` | `AUTO_REPAIRED` | 2 | <DURATION> | 6-Gate static verification finished in 2 attempt(s) with status AUTO_REPAIRED; codemods=['ALG_A4_COLD_START_EXTENSIBILITY', 'ALG_A1_3AXIS_SATELLITE_SPLIT']. |\n| `step-w0-stage06-axi-dv-dynamic-sandbox` | 0 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `axi-dv` | `fast` | `PASS` | 1 | <DURATION> | Lowered Canonical IR, compiled 4-Zone SQL, and ran 4-Batch DuckDB Shadow Sandbox (15/15 DV-DYN checks). |\n| `step-w0-stage07-deterministic-compiler` | 0 | `STAGE_07_DETERMINISTIC_COMPILER` | `deterministic-compiler` | `fast` | `PASS` | 1 | <DURATION> | Materialized final contract, Canonical IR, 4-Zone SQL, and certified CAS + PII output invariants. |\n\n## 4. Final Artifacts\n\n| Key | Name | Stage | SHA-256 (Prefix) | Bytes | File Path |\n| :--- | :--- | :--- | :--- | :---: | :--- |\n| `final_contract` | `final_contract.yaml` | `STAGE_07_DETERMINISTIC_COMPILER` | `7FF31CD296A524AC...` | 5506 | `<OUT> |\n| `final_canonical_ir` | `final_canonical_ir.json` | `STAGE_07_DETERMINISTIC_COMPILER` | `830502BCEBFFDAF2...` | 15444 | `<OUT> |\n| `final_four_zone_sql` | `final_four_zone.sql` | `STAGE_07_DETERMINISTIC_COMPILER` | `3A6ED2E685973923...` | 43624 | `<OUT> |\n| `vault_ledger_jsonl` | `vault-ledger.jsonl` | `STAGE_07_DETERMINISTIC_COMPILER` | `<VOLATILE_SHA256_PREFIX>...` | 0 | `<OUT> |\n\n## 5. Intermediate Artifacts (10 recorded)\n\n| Artifact ID | Wave | Stage | Name | SHA-256 (Prefix) | Bytes |\n| :--- | :---: | :--- | :--- | :--- | :---: |\n| `art-stage00-graph-a-ontology` | 0 | `STAGE_00_ORCHESTRATION` | `graph_a_ontology.yaml` | `B070B99F76CEEE00...` | 4821 |\n| `art-w0-stage01-graph-b-profile` | 0 | `STAGE_01_SCOUT_SOURCE` | `wave_0_graph_b_profile.json` | `<VOLATILE_SHA256_PREFIX>...` | 0 |\n| `art-w0-stage02-unstructured-grounding` | 0 | `STAGE_02_SCOUT_UNSTRUCTURED` | `wave_0_unstructured_grounding.json` | `<VOLATILE_SHA256_PREFIX>...` | 0 |\n| `art-w0-stage03-pass1-triage` | 0 | `STAGE_03_SHIP_VAULT_PASS1` | `wave_0_pass1_column_triage.json` | `4F72D1E8C05FCE0A...` | 3206 |\n| `art-w0-stage04-contract-attempt1` | 0 | `STAGE_04_SHIP_VAULT_PASS2` | `wave_0_contract_attempt_1.yaml` | `DA46236B147B258C...` | 4629 |\n| `art-w0-stage05-toon-attempt1` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_0_axi_trace_attempt_1.toon` | `781B3F5A0C81C068...` | 612 |\n| `art-w0-stage05-toon-attempt2` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_0_axi_trace_attempt_2.toon` | `063A8DC390680807...` | 335 |\n| `art-w0-stage05-contract-verified` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_0_contract_verified.yaml` | `7FF31CD296A524AC...` | 5506 |\n| `art-w0-stage06-canonical-ir` | 0 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `wave_0_canonical_ir.json` | `830502BCEBFFDAF2...` | 15444 |\n| `art-w0-stage06-four-zone-sql` | 0 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `wave_0_four_zone.sql` | `3A6ED2E685973923...` | 43624 |",
   "observability_events": [
     {
       "agent_persona": "vault-first-mate",
@@ -651,6 +653,7 @@
       "workbench_view_id": "WB-11"
     }
   ],
+  "ontology_version": "1.0.0",
   "output_validation": {
     "cas_integrity_verified": true,
     "checked_items_count": 38,
@@ -662,6 +665,7 @@
     "verified_events_count": 11
   },
   "overall_passed": true,
+  "parent_sha256": null,
   "pipeline_id": "pipe-global-commerce-wave0-cold-start",
   "project_id": "proj-global-commerce-001",
   "resolved_holds": [],
@@ -687,7 +691,7 @@
       "model_tier": "reasoning",
       "model_used": "gemini-4-argon-high",
       "output_artifact_sha256s": [
-        "23B1D93F8EC18576C4162441068E7F5D38C6B4503A36793ECD4EF43126F415DA"
+        "B070B99F76CEEE006CF2371E6B4053E57283AC69761C92F3A999F733D3AF9609"
       ],
       "persona": "vault-first-mate",
       "stage_id": "STAGE_00_ORCHESTRATION",
@@ -705,7 +709,7 @@
       "diagnostics": [],
       "duration_ms": "<DURATION>",
       "input_artifact_sha256s": [
-        "23B1D93F8EC18576C4162441068E7F5D38C6B4503A36793ECD4EF43126F415DA"
+        "B070B99F76CEEE006CF2371E6B4053E57283AC69761C92F3A999F733D3AF9609"
       ],
       "metrics": {
         "columns_profiled": 15,

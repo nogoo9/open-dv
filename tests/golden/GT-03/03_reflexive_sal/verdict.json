@@ -3,6 +3,7 @@
     "ALG_A1_3AXIS_SATELLITE_SPLIT"
   ],
   "contract_path": "<CONTRACT_PATH>",
+  "decision_refs": [],
   "diagnostics": [
     "[DV-STR-004] Self-referencing / SAME_AS_LINK Link 'sal_limited_partner' must declare distinct non-empty role names and distinct FK columns.",
     "[DV-STR-015] Same-As Link 'sal_limited_partner' violates asymmetry (hk_master != hk_duplicate): reflexive self-loop (A, A) detected between endpoints (lp_id vs lp_id)."
@@ -16,8 +17,11 @@
     "gate_4_yagni_cost_guard": "AUTO-FIX",
     "gate_5_duckdb_sandbox": "PASS"
   },
+  "graph_a_sha256": "fc5c791de9306fe64c9b1efecbc343d02d629bdfd2e0a53d3311679153395a9d",
   "mode": "<MODE>",
+  "ontology_version": "1.0.0",
   "overall_passed": false,
+  "parent_sha256": null,
   "rendered": {
     "summary": null,
     "text": "================================================================================\nOpen-DV Verification Report \u2014 Run: run-local-verify\nStatus: REJECT_WITH_TRACE | Verdict: REJECT-WITH-TRACE\n--------------------------------------------------------------------------------\nGate Scorecard (6-Gate AXI Verification):\n--------------------------------------------------------------------------------\nApplied Codemods (1):\n  \u2022 ALG_A1_3AXIS_SATELLITE_SPLIT\n--------------------------------------------------------------------------------\nDiagnostics (2):\n  \u2022 [DV-STR-004] Self-referencing / SAME_AS_LINK Link 'sal_limited_partner' must declare distinct non-empty role names and distinct FK columns.\n  \u2022 [DV-STR-015] Same-As Link 'sal_limited_partner' violates asymmetry (hk_master != hk_duplicate): reflexive self-loop (A, A) detected between endpoints (lp_id vs lp_id).\n================================================================================",

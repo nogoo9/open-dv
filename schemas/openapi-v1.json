@@ -834,6 +834,18 @@
             ],
             "title": "Graph A Ontology Path"
           },
+          "graph_a_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Graph A Source"
+          },
           "graph_b_path": {
             "anyOf": [
               {
@@ -1890,6 +1902,19 @@
             "title": "Dry Run",
             "type": "boolean"
           },
+          "graph_a_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)",
+            "title": "Graph A Source"
+          },
           "harness_config": {
             "anyOf": [
               {
@@ -2058,6 +2083,19 @@
         "additionalProperties": false,
         "description": "Request DTO for static pipeline configuration validation (Decision D1).",
         "properties": {
+          "graph_a_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)",
+            "title": "Graph A Source"
+          },
           "harness_config": {
             "anyOf": [
               {
@@ -3616,6 +3654,19 @@
             "description": "Path to Graph A ontology YAML",
             "title": "Graph A Path"
           },
+          "graph_a_source": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Pluggable SourceSpec dictionary or inline mapping for Graph A ontology (Decision D1 / ONT-01)",
+            "title": "Graph A Source"
+          },
           "graph_b_content": {
             "anyOf": [
               {
@@ -3728,6 +3779,14 @@
             "description": "Contract path if file-based",
             "title": "Contract Path"
           },
+          "decision_refs": {
+            "description": "Steward decision IDs that produced this version (ONT-01)",
+            "items": {
+              "type": "string"
+            },
+            "title": "Decision Refs",
+            "type": "array"
+          },
           "diagnostics": {
             "description": "Human/log diagnostic statements",
             "items": {
@@ -3748,10 +3807,46 @@
             "$ref": "#/components/schemas/GateScorecardSummary",
             "description": "6-Gate status scorecard"
           },
+          "graph_a_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 hash of loaded Graph A ontology bytes (ONT-01)",
+            "title": "Graph A Sha256"
+          },
+          "ontology_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Semantic version of Graph A ontology (ONT-01)",
+            "title": "Ontology Version"
+          },
           "overall_passed": {
             "description": "True if verification succeeded or was auto-repaired",
             "title": "Overall Passed",
             "type": "boolean"
+          },
+          "parent_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "SHA-256 hash of parent Graph A ontology if evolved (ONT-01)",
+            "title": "Parent Sha256"
           },
           "rendered": {
             "anyOf": [

@@ -23,6 +23,7 @@ from opendv_core.paths import resolve_workspace_path
 from opendv_service.errors import InputValidationError, NotFoundError
 from opendv_service.rendering import render_verify_text
 from opendv_service.use_cases.contract_resolver import resolve_and_load_contract_doc
+from opendv_sources import SourceNotFoundError, load_graph_a_source
 
 GateVerdictStatus = str
 
@@ -134,15 +135,43 @@ def verify_pipeline(
 
     # 2. Resolve Graph A ontology document (optional)
     graph_a_doc: dict[str, Any] = {}
-    if request.graph_a_content is not None and request.graph_a_content.strip():
-        graph_a_doc = yaml.safe_load(request.graph_a_content) or {}
-    elif request.graph_a_path is not None and request.graph_a_path.strip():
-        graph_a_p = resolve_workspace_path(
-            request.graph_a_path, workspace_root=root, allow_temp=True
+    graph_a_sha256: str | None = None
+    ontology_version: str | None = None
+    parent_sha256: str | None = None
+    decision_refs: list[str] = []
+
+    graph_a_target = (
+        request.graph_a_source
+        if request.graph_a_source is not None
+        else (
+            request.graph_a_content
+            if request.graph_a_content is not None and request.graph_a_content.strip()
+            else (
+                request.graph_a_path
+                if request.graph_a_path is not None and request.graph_a_path.strip()
+                else None
+            )
         )
-        if not graph_a_p.exists():
-            raise NotFoundError(f"Graph A file not found: {graph_a_p}")
-        graph_a_doc = yaml.safe_load(graph_a_p.read_text(encoding="utf-8")) or {}
+    )
+    if graph_a_target is not None:
+        try:
+            loaded_graph_a = load_graph_a_source(
+                graph_a_target,
+                workspace_root=root,
+                allow_temp=True,
+            )
+            graph_a_doc = loaded_graph_a.ontology.model_dump(mode="json", exclude_none=True)
+            graph_a_sha256 = loaded_graph_a.sha256
+            ontology_version = loaded_graph_a.ontology.ontology_version
+            parent_sha256 = loaded_graph_a.ontology.parent_sha256
+            decision_refs = list(loaded_graph_a.ontology.decision_refs)
+        except SourceNotFoundError as exc:
+            raise NotFoundError(f"Graph A file not found: {exc}") from exc
+        except Exception as exc:
+            raise InputValidationError(
+                f"Invalid Graph A ontology: {exc}",
+                error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+            ) from exc
 
     # 3. Resolve Graph B profile document (optional)
     graph_b_doc: dict[str, Any] = {}
@@ -205,6 +234,10 @@ def verify_pipeline(
         "contract_path": (
             str(resolved_contract_path) if resolved_contract_path else request.contract_path
         ),
+        "graph_a_sha256": graph_a_sha256,
+        "ontology_version": ontology_version,
+        "parent_sha256": parent_sha256,
+        "decision_refs": decision_refs,
         "applied_codemods": list(axi_res.applied_codemods),
         "diagnostics": list(axi_res.diagnostics),
         "gate_scorecard": scorecard,
