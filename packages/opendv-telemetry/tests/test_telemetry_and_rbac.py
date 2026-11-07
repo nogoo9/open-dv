@@ -82,8 +82,6 @@ def base_valid_event() -> dict:
         "parent_span_id": "b9c7c989f97918e1",
         "timestamp_utc": "2026-10-30T14:25:12Z",
         "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
-        "workbench_view_id": "WB-07",
-        "viz_id": "VIZ-GATE-05",
         "agent_persona": "axi-dv",
         "status": "PASS",
         "data_classification": "INTERNAL",

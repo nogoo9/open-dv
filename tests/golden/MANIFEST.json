@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-11-06T10:47:19.999676+00:00",
+  "generated_at": "2026-11-07T05:24:10.020019+00:00",
   "generator_transport": "STANDALONE_CLI",
   "entries": [
     {
@@ -46,10 +46,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave0/pipeline_report.json",
-      "sha256": "d3c9b02bc6ee020a6147bf3396e9c58a2168aba71ff408dc60b992aa887cd453",
-      "byte_size": 40776,
+      "sha256": "b7fadcb47daac9fbc8bdc0976aa34e34c7d7ff8b99af9a23be3071dac0280b25",
+      "byte_size": 40024,
       "generated_from": "PAR-S1-W0: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#113] Drop legacy view identifiers per Decision D3"
     },
     {
       "golden_id": "GT-01",
@@ -94,10 +94,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave1/pipeline_report.json",
-      "sha256": "baad9f7727a01e3adb75cefe40ef29608ff7b7f6a003e4d7a044da708813df6a",
-      "byte_size": 39130,
+      "sha256": "4a93f0603d4ce4ee2daf6b959b94a08cb80c8ab8df8f5eb69d9fac9ebadb9e47",
+      "byte_size": 38378,
       "generated_from": "PAR-S1-W1: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#113] Drop legacy view identifiers per Decision D3"
     },
     {
       "golden_id": "GT-01",
@@ -142,10 +142,10 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave2/pipeline_report.json",
-      "sha256": "71a6fd81c6f738963f6d28444a7d1d1a65fed63c604d34ad2850de7745f6a375",
-      "byte_size": 43962,
+      "sha256": "18d82be0d192f2d82d5ab49ba78978971709138c1fdcc109d8f9e7b3632ed78a",
+      "byte_size": 43143,
       "generated_from": "PAR-S1-W2: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#113] Drop legacy view identifiers per Decision D3"
     },
     {
       "golden_id": "GT-01",
@@ -190,18 +190,18 @@
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/hold_record.json",
-      "sha256": "cee4f59cd159a125c096e5b427d4424247a03e562b7f0eb6037fb04bc5223d27",
-      "byte_size": 1017,
+      "sha256": "4fcfebb408044695bf18a25c28b6e31c5184413f5e2c21223ed39ff2c3c5e717",
+      "byte_size": 958,
       "generated_from": "PAR-S8-W3: opendv hold list",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#113] Drop legacy view identifiers per Decision D3"
     },
     {
       "golden_id": "GT-01",
       "file": "GT-01/wave3/pipeline_report.json",
-      "sha256": "f1397fe8822db62dbb13060a0210a684fdbbdfa7d1a8b4c42a9d5754629883b8",
-      "byte_size": 40512,
+      "sha256": "581a473df3ca55e9aeb5405c6487d1dfb64810af26d692de1e8cdf2d1b94ef1c",
+      "byte_size": 39693,
       "generated_from": "PAR-S1-W3: opendv pipeline run",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#113] Drop legacy view identifiers per Decision D3"
     },
     {
       "golden_id": "GT-02",

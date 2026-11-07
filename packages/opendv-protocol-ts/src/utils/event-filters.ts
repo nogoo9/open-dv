@@ -7,23 +7,18 @@ import {
 	ROLE_CLEARANCE_LEVELS,
 	type RbacRole,
 } from "../types/common";
-import {
-	ALL_WORKBENCH_VIEW_IDS,
-	type AgentPersona,
-	type StageId,
-	type VaultObservabilityEventDTO,
-	type VerdictStatus,
-	type VizId,
-	type WorkbenchViewId,
+import type {
+	AgentPersona,
+	StageId,
+	VaultObservabilityEventDTO,
+	VerdictStatus,
 } from "../types/observability-event";
 
 export interface EventFilterCriteria {
-	workbenchViewId?: WorkbenchViewId | readonly WorkbenchViewId[] | undefined;
 	stageId?: StageId | readonly StageId[] | undefined;
 	status?: VerdictStatus | readonly VerdictStatus[] | undefined;
 	agentPersona?: AgentPersona | readonly AgentPersona[] | undefined;
 	ruleId?: string | readonly string[] | undefined;
-	vizId?: VizId | readonly VizId[] | undefined;
 	runId?: string | undefined;
 }
 
@@ -32,15 +27,6 @@ function toSet<T>(value: T | readonly T[]): ReadonlySet<T> {
 		return new Set(value as readonly T[]);
 	}
 	return new Set([value as T]);
-}
-
-/** Filter events matching one or more `WorkbenchViewId` values (`WB-00`..`WB-11`). */
-export function filterEventsByViewId(
-	events: readonly VaultObservabilityEventDTO[],
-	viewId: WorkbenchViewId | readonly WorkbenchViewId[],
-): VaultObservabilityEventDTO[] {
-	const allowed = toSet(viewId);
-	return events.filter((ev) => allowed.has(ev.workbench_view_id));
 }
 
 /** Filter events matching one or more `StageId` values (`STAGE_00`..`STAGE_07`). */
@@ -92,10 +78,6 @@ export function filterObservabilityEvents(
 	events: readonly VaultObservabilityEventDTO[],
 	criteria: EventFilterCriteria,
 ): VaultObservabilityEventDTO[] {
-	const viewSet =
-		criteria.workbenchViewId !== undefined
-			? toSet(criteria.workbenchViewId)
-			: null;
 	const stageSet =
 		criteria.stageId !== undefined ? toSet(criteria.stageId) : null;
 	const statusSet =
@@ -103,13 +85,9 @@ export function filterObservabilityEvents(
 	const personaSet =
 		criteria.agentPersona !== undefined ? toSet(criteria.agentPersona) : null;
 	const ruleSet = criteria.ruleId !== undefined ? toSet(criteria.ruleId) : null;
-	const vizSet = criteria.vizId !== undefined ? toSet(criteria.vizId) : null;
 
 	return events.filter((ev) => {
 		if (criteria.runId !== undefined && ev.run_id !== criteria.runId) {
-			return false;
-		}
-		if (viewSet !== null && !viewSet.has(ev.workbench_view_id)) {
 			return false;
 		}
 		if (stageSet !== null && !stageSet.has(ev.stage_id)) {
@@ -119,9 +97,6 @@ export function filterObservabilityEvents(
 			return false;
 		}
 		if (personaSet !== null && !personaSet.has(ev.agent_persona)) {
-			return false;
-		}
-		if (vizSet !== null && !vizSet.has(ev.viz_id)) {
 			return false;
 		}
 		if (ruleSet !== null) {
@@ -135,34 +110,6 @@ export function filterObservabilityEvents(
 		}
 		return true;
 	});
-}
-
-/** Group a stream of events into buckets keyed by all 12 `WorkbenchViewId`s (`WB-00`..`WB-11`). */
-export function groupEventsByViewId(
-	events: readonly VaultObservabilityEventDTO[],
-): Record<WorkbenchViewId, VaultObservabilityEventDTO[]> {
-	const grouped = {} as Record<WorkbenchViewId, VaultObservabilityEventDTO[]>;
-	for (const viewId of ALL_WORKBENCH_VIEW_IDS) {
-		grouped[viewId] = [];
-	}
-	for (const ev of events) {
-		grouped[ev.workbench_view_id]?.push(ev);
-	}
-	return grouped;
-}
-
-/** Return the most recent event for a specific `WorkbenchViewId`, or `null` if none exists. */
-export function getLatestEventForView(
-	events: readonly VaultObservabilityEventDTO[],
-	viewId: WorkbenchViewId,
-): VaultObservabilityEventDTO | null {
-	for (let i = events.length - 1; i >= 0; i -= 1) {
-		const ev = events[i];
-		if (ev && ev.workbench_view_id === viewId) {
-			return ev;
-		}
-	}
-	return null;
 }
 
 /**

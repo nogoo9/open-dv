@@ -1216,7 +1216,7 @@ def test_issue_33_gate5_deduplicates_span_errors_across_decisions(
 
 
 def test_toon_v1_round_trip_serialization() -> None:
-    """Verify `@toon_v1` serializer & parser round-trip matches Scene 5 (`WB-08`)."""
+    """Verify `@toon_v1` serializer & parser round-trip matches Scene 5 self-healing."""
     trace = ToonTrace(
         run_id="run-pe-apex-horizon-20261030",
         attempt="1/3",

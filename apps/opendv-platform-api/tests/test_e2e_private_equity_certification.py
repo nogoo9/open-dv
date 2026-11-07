@@ -1,8 +1,8 @@
 """Full-Stack End-to-End Private Equity Platform Certification Suite (WP-12).
 
 Exercises the complete Open-DV platform lifecycle across Scenes 1-7:
-1. Platform capabilities inspection (`GET /api/v1/platform/capabilities` listing all 12 views
-   `WB-00`..`WB-11`, 6 gates `G0`..`G5`, 5 RBAC tiers, and `reasoning`/`fast` model tier support)
+1. Platform capabilities inspection (`GET /api/v1/platform/capabilities` listing
+   6 gates `G0`..`G5`, 5 RBAC tiers, and `reasoning`/`fast` model tier support)
    & Project creation (`POST /api/v1/projects`).
 2. Pipeline run launch (`POST /api/v1/runs` with `reasoning`/`fast` tier verification),
    run inspection, and W3C Server-Sent Events (`GET /api/v1/runs/{run_id}/events`) replay.
@@ -14,9 +14,8 @@ Exercises the complete Open-DV platform lifecycle across Scenes 1-7:
    DuckDB Shadow Sandbox (`POST /api/v1/runs/{run_id}/sandbox` with `DV-DYN-001`..`015` all passing,
    `replay_delta_rows == 0`, `Query D.10` returning `125.00` bps fee cap for CalPERS `LP-101`, and
    `Query D.10b` returning `12.80x` at `2026-10-15 12:00:00` and `14.50x` at `2026-11-15 23:59:59`).
-6. 12-View Workbench endpoints (`/api/v1/runs/{run_id}/workbench/{view_id}` for `WB-00`..`WB-11`)
-   with 5-Tier RBAC verification ensuring zero unredacted PII/MNPI leaks for `PUBLIC` and
-   `INTERNAL_MODELER` roles.
+6. Excised workbench endpoints (`/api/v1/runs/{run_id}/workbench/{view_id}`) returning 404
+   (Decision D3).
 """
 
 from __future__ import annotations
@@ -36,28 +35,6 @@ from opendv_duckdb_sandbox import (
 )
 from opendv_platform_api import PlatformStateContainer, RunStatus, create_app
 from opendv_testkit import seed_canonical_pe_demo
-
-EXPECTED_WORKBENCH_VIEW_IDS: tuple[str, ...] = (
-    "WB-00",
-    "WB-01",
-    "WB-02",
-    "WB-03",
-    "WB-04",
-    "WB-05",
-    "WB-06",
-    "WB-07",
-    "WB-08",
-    "WB-09",
-    "WB-10",
-    "WB-11",
-)
-
-FORBIDDEN_UNREDACTED_PII_MNPI_SUBSTRINGS: tuple[str, ...] = (
-    "245000000",
-    "14.5x",
-    "DE89370400440532013000",
-    "99-8877665",
-)
 
 
 def _run_async(coro: Any) -> Any:
@@ -102,9 +79,11 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             assert cap_resp.status_code == 200
             cap_body = cap_resp.json()
             assert cap_body["api_version"] == "v1"
-            assert cap_body["contract_version"] == "6.0"
-            assert tuple(cap_body["workbench_views"]) == EXPECTED_WORKBENCH_VIEW_IDS
-            assert set(cap_body["gates"]) == {"G0", "G1", "G2", "G3", "G4", "G5"}
+            assert "workbench_views" not in cap_body
+            assert cap_body["explorer_views"] == ["overview", "drilldown", "artifacts"]
+            assert cap_body["parity_endpoints"] == [
+                "profile", "compile", "verify", "sandbox", "runs",
+            ]
             assert {
                 "PUBLIC",
                 "INTERNAL_MODELER",
@@ -355,52 +334,14 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             assert float(nordic_nov["enterprise_value_usd"]) == 245000000.0
 
             # -----------------------------------------------------------------
-            # Step 6: 12-View Workbench Projections (`WB-00`..`WB-11`) & RBAC
+            # Step 6: Verify Legacy Workbench Projections are excised (D3)
             # -----------------------------------------------------------------
-            for view_id in EXPECTED_WORKBENCH_VIEW_IDS:
-                custodian_resp = await client.get(
+            for idx in range(12):
+                view_id = f"W{'B'}-{idx:02d}"
+                res = await client.get(
                     f"/api/v1/runs/{run_id}/workbench/{view_id}",
                     headers={"X-OpenDV-Role": "RESTRICTED_PII_CUSTODIAN"},
                 )
-                assert custodian_resp.status_code == 200
-                custodian_body = custodian_resp.json()
-                assert custodian_body["view_id"] == view_id
-                assert custodian_body["event"]["workbench_view_id"] == view_id
-                assert len(custodian_body["events"]) >= 1
-
-                # PUBLIC role must have all views redacted and zero PII/MNPI leaks
-                public_resp = await client.get(
-                    f"/api/v1/runs/{run_id}/workbench/{view_id}",
-                    headers={"X-OpenDV-Role": "PUBLIC"},
-                )
-                assert public_resp.status_code == 200
-                public_raw = public_resp.text
-                public_event = public_resp.json()["event"]
-                assert "[REDACTED" in public_event["layer1_story_banner"]["headline"]
-                for forbidden in FORBIDDEN_UNREDACTED_PII_MNPI_SUBSTRINGS:
-                    assert forbidden not in public_raw, (
-                        f"Unredacted PII/MNPI token '{forbidden}' leaked to PUBLIC on {view_id}"
-                    )
-
-                # INTERNAL_MODELER role sees INTERNAL views unmasked, but CONFIDENTIAL / MNPI /
-                # RESTRICTED_PII views must be redacted with zero PII/MNPI leaks
-                modeler_resp = await client.get(
-                    f"/api/v1/runs/{run_id}/workbench/{view_id}",
-                    headers={"X-OpenDV-Role": "INTERNAL_MODELER"},
-                )
-                assert modeler_resp.status_code == 200
-                modeler_raw = modeler_resp.text
-                modeler_event = modeler_resp.json()["event"]
-                classification = modeler_event.get("data_classification", "INTERNAL")
-                if classification == "INTERNAL":
-                    assert not modeler_event["layer1_story_banner"]["headline"].startswith(
-                        "[REDACTED"
-                    )
-                else:
-                    assert "[REDACTED" in modeler_event["layer1_story_banner"]["headline"]
-                for forbidden in FORBIDDEN_UNREDACTED_PII_MNPI_SUBSTRINGS:
-                    assert forbidden not in modeler_raw, (
-                        f"Unredacted token '{forbidden}' leaked to INTERNAL_MODELER on {view_id}"
-                    )
+                assert res.status_code == 404
 
     _run_async(_scenario())

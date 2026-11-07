@@ -19,8 +19,6 @@ from opendv_agent_harness.models import (
     HarnessStreamEvent,
     ObservabilityVerdict,
     PipelineStageId,
-    VizId,
-    WorkbenchViewId,
 )
 from opendv_core.models.observability import RULE_ID_RE, VaultObservabilityEvent
 from opendv_core.schema_registry import validate_observability_event
@@ -89,8 +87,6 @@ def build_observability_event_dict(
     parent_span_id: str | None = None,
     timestamp_utc: str | None = None,
     stage_id: PipelineStageId | str = PipelineStageId.STAGE_00_ORCHESTRATION,
-    workbench_view_id: WorkbenchViewId | str = WorkbenchViewId.WB_00,
-    viz_id: VizId | str = VizId.VIZ_PIPE_00,
     agent_persona: AgentPersona | str = AgentPersona.VAULT_FIRST_MATE,
     status: ObservabilityVerdict | str = ObservabilityVerdict.PASS,
     headline: str = "Agent harness telemetry checkpoint recorded.",
@@ -109,8 +105,6 @@ def build_observability_event_dict(
     """Construct and validate a schema-compliant VaultObservabilityEvent dictionary."""
     status_str = str(ObservabilityVerdict(status).value)
     stage_str = str(PipelineStageId(stage_id).value)
-    view_str = str(WorkbenchViewId(workbench_view_id).value)
-    viz_str = str(VizId(viz_id).value)
     persona_str = str(AgentPersona(agent_persona).value)
     classification_str = str(DataClassification(data_classification).value)
 
@@ -135,8 +129,6 @@ def build_observability_event_dict(
         "parent_span_id": parent_span_id,
         "timestamp_utc": ts_str,
         "stage_id": stage_str,
-        "workbench_view_id": view_str,
-        "viz_id": viz_str,
         "agent_persona": persona_str,
         "status": status_str,
         "rule_ids_evaluated": _normalize_rule_ids(rule_ids_evaluated),
@@ -227,8 +219,6 @@ def translate_stream_event_to_observability(
             parent_span_id=raw.get("parent_span_id", stream_event.parent_span_id),
             timestamp_utc=str(raw.get("timestamp_utc") or stream_event.timestamp_utc),
             stage_id=raw.get("stage_id") or stream_event.stage_id,
-            workbench_view_id=raw.get("workbench_view_id") or stream_event.workbench_view_id,
-            viz_id=raw.get("viz_id") or stream_event.viz_id,
             agent_persona=raw.get("agent_persona") or stream_event.persona,
             status=raw_status,
             headline=str(
@@ -317,8 +307,6 @@ def translate_stream_event_to_observability(
             parent_span_id=stream_event.parent_span_id,
             timestamp_utc=stream_event.timestamp_utc,
             stage_id=stream_event.stage_id,
-            workbench_view_id=stream_event.workbench_view_id,
-            viz_id=stream_event.viz_id,
             agent_persona=stream_event.persona,
             status=status,
             headline=headline,

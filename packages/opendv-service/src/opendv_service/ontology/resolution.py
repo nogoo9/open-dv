@@ -169,8 +169,6 @@ def resolve_ontology_hold(
                 parent_span_id=None,
                 timestamp_utc=now_iso,
                 stage_id="STAGE_05_AXI_DV_STATIC_GATES",
-                workbench_view_id="WB-06",
-                viz_id="VIZ-GATE-02",
                 agent_persona="vault-first-mate",
                 status="PASS",
                 headline=(
@@ -237,8 +235,6 @@ def resolve_ontology_hold(
                 parent_span_id=None,
                 timestamp_utc=now_iso,
                 stage_id="STAGE_05_AXI_DV_STATIC_GATES",
-                workbench_view_id="WB-06",
-                viz_id="VIZ-GATE-02",
                 agent_persona="vault-first-mate",
                 status="REJECT-WITH-TRACE",
                 headline=f"Steward '{steward_id}' rejected ontology delta: {option.reason}",

@@ -17,8 +17,6 @@ from opendv_agent_harness.models import (
     ObservabilityVerdict,
     PipelineStageId,
     ToolExecutionContext,
-    VizId,
-    WorkbenchViewId,
 )
 
 
@@ -320,14 +318,6 @@ class EmitObservabilityEventInput(DomainToolInput):
         default=None,
         description="Optional override for pipeline stage ID.",
     )
-    workbench_view_id: WorkbenchViewId | None = Field(
-        default=None,
-        description="Optional override for workbench view ID.",
-    )
-    viz_id: VizId | None = Field(
-        default=None,
-        description="Optional override for visualization ID.",
-    )
     data_classification: DataClassification = Field(
         default=DataClassification.INTERNAL,
         description="5-tier RBAC data classification.",
@@ -360,8 +350,6 @@ class EmitObservabilityEventOutput(DomainToolOutput):
     event_id: str
     status: ObservabilityVerdict
     stage_id: PipelineStageId
-    workbench_view_id: WorkbenchViewId
-    viz_id: VizId
     recorded: bool = True
 
 

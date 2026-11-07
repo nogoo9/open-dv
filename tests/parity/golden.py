@@ -25,12 +25,12 @@ from typing import Any
 import pytest
 import yaml
 
-from opendv_testkit import build_deterministic_agy_sdk_shim
 from opendv_core import validate_contract_v5
 from opendv_duckdb_sandbox import (
     compile_canonical_ir_to_4zone_sql,
     lower_contract_to_canonical_ir,
 )
+from opendv_testkit import build_deterministic_agy_sdk_shim
 
 
 class NonDeterministicCompilerError(Exception):
@@ -257,7 +257,7 @@ class GoldenManager:
                     # Parse python literal list
                     try:
                         tokens = ast.literal_eval(tokens_raw)
-                    except Exception:
+                    except (ValueError, SyntaxError):
                         tokens = [tokens_raw]
 
                     is_bk_raw = parts[4].strip("`").lower()
@@ -341,6 +341,10 @@ class GoldenManager:
         updated = False
         for idx, entry in enumerate(entries):
             if entry["file"] == file_rel:
+                if entry.get("sha256") == sha256:
+                    new_entry["last_justified_change"] = entry.get(
+                        "last_justified_change", justification
+                    )
                 entries[idx] = new_entry
                 updated = True
                 break

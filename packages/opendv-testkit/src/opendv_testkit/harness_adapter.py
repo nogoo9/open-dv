@@ -143,8 +143,7 @@ class DeterministicHarnessAdapter(BaseVaultAgentHarness):
 
             thought_text = (
                 f"[{self.provider_name}:{model_id}] Executing deterministic "
-                f"{spec.stage_id.value} as persona '{spec.persona.value}' "
-                f"for view {spec.workbench_view_id.value} ({spec.viz_id.value})."
+                f"{spec.stage_id.value} as persona '{spec.persona.value}'."
             )
             yield self._make_event(
                 spec,
@@ -162,7 +161,7 @@ class DeterministicHarnessAdapter(BaseVaultAgentHarness):
                 call_id = f"det-call-{uuid.uuid4().hex[:8]}"
                 headline = (
                     f"Deterministic {spec.persona.value} checkpoint at "
-                    f"{spec.stage_id.value} ({spec.workbench_view_id.value})."
+                    f"{spec.stage_id.value}."
                 )
                 tool_args: dict[str, Any] = {
                     "status": "PASS",

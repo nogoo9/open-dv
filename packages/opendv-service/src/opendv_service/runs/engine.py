@@ -110,7 +110,6 @@ class RunExecutionEngine:
             status=RunStatus.RUNNING,
             started_at_utc=now_utc,
             current_stage_id="STAGE_00_ORCHESTRATION",
-            current_view_id="WB-00",
             event_count=0,
             gate_scorecard=GateScorecardSummary(),
             active_hold_ids=[],

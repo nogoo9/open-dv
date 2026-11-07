@@ -27,7 +27,6 @@ from opendv_platform_api.routers import (
     runs,
     sandbox,
     verify,
-    workbench,
 )
 from opendv_service import OpenDVService, OpenDVSettings, PlatformStateContainer
 from opendv_service.errors import OpenDVError
@@ -273,7 +272,6 @@ def create_app(
     application.include_router(gates.router, prefix=api_prefix)
     application.include_router(sandbox.router, prefix=api_prefix)
     application.include_router(decisions.router, prefix=api_prefix)
-    application.include_router(workbench.router, prefix=api_prefix)
     application.include_router(artifacts.router, prefix=api_prefix)
     application.include_router(ontology.router, prefix=api_prefix)
 

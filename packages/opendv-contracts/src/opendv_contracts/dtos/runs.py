@@ -140,10 +140,6 @@ class ProjectRunDTO(BaseContractModel):
         default="STAGE_00_ORCHESTRATION",
         description="Current or terminal pipeline stage identifier",
     )
-    current_view_id: str = Field(
-        default="WB-00",
-        description="Current or terminal workbench view identifier",
-    )
     event_count: int = Field(
         default=0,
         ge=0,

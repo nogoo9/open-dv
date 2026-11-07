@@ -1,26 +1,47 @@
 /**
  * `@opendv/web-workbench`
- * Decoupled 12-View Explainability & Observability Web Workbench Shell,
- * Semantic Theme Engine (`Obsidian Dark`, `Daylight Paper`, `High-Contrast Audit`),
- * Zustand State Store, Extensible Plugin Registry, and Workbench Views `WB-00`–`WB-11`
- * with Co-Located Gate Cards (`VIZ-GATE-01` through `VIZ-GATE-08`).
+ * Modern 3-Level Pipeline Explorer Web Workbench (Pipeline -> Stage -> Artifact).
+ * Legacy 12-View Shell excised per Architecture Plan v3.9 Decision D3 (#109, #110).
  */
 
 import { PROTOCOL_VERSION } from "@opendv/protocol-ts";
-import { createElement } from "react";
+import { type ReactElement, createElement } from "react";
 import { type Root, createRoot } from "react-dom/client";
-import { WorkbenchShell } from "./components/shell/WorkbenchShell";
-import { defaultWorkbenchPluginRegistry } from "./plugins/plugin-registry";
-import { defaultThemeRegistry } from "./theme/theme-registry";
-import { registerWB00toWB05 } from "./views/register-wb00-wb05";
-import { registerWb06ToWb11Views } from "./views/register-wb06-wb11";
 
 export function getWorkbenchVersion(): string {
 	return `Open-DV Web Workbench (Protocol ${PROTOCOL_VERSION})`;
 }
 
+/**
+ * OpenDVWorkbenchExplorer component.
+ * Clean Explorer entrypoint; PR #60 is still open and full 3-level pipeline explorer integration lands in Phase P9 (#114).
+ */
+export function OpenDVWorkbenchExplorer(): ReactElement {
+	return createElement(
+		"main",
+		{
+			className: "opendv-workbench-explorer",
+			"data-testid": "workbench-explorer-root",
+		},
+		createElement(
+			"header",
+			{ className: "explorer-header" },
+			createElement("h1", null, "Open-DV Workbench Explorer"),
+			createElement("p", null, getWorkbenchVersion()),
+		),
+		createElement(
+			"section",
+			{ className: "explorer-content" },
+			createElement(
+				"div",
+				{ className: "explorer-placeholder-banner" },
+				"3-Level Pipeline Explorer (Pipeline Overview, Stage Drill-Down, Artifact Inspector)",
+			),
+		),
+	);
+}
+
 export function mountWorkbenchApp(container?: HTMLElement | null): Root | null {
-	registerWB00toWB05(defaultWorkbenchPluginRegistry);
 	const target =
 		container !== undefined
 			? container
@@ -32,10 +53,8 @@ export function mountWorkbenchApp(container?: HTMLElement | null): Root | null {
 	if (!target) {
 		return null;
 	}
-	registerWb06ToWb11Views(defaultWorkbenchPluginRegistry);
-	defaultThemeRegistry.initializeFromEnvironment();
 	const root = createRoot(target);
-	root.render(createElement(WorkbenchShell));
+	root.render(createElement(OpenDVWorkbenchExplorer));
 	return root;
 }
 
@@ -47,62 +66,3 @@ if (
 ) {
 	mountWorkbenchApp();
 }
-
-// Theme Engine & Accessible Theme Selector
-export * from "./theme/theme-registry";
-export * from "./theme/ThemeToggle";
-
-// Zustand Workbench State Store
-export * from "./store/workbench-store";
-
-// Extensible View & Gate Card Plugin Registry
-export * from "./plugins/plugin-types";
-export * from "./plugins/plugin-registry";
-export * from "./plugins/custom-esg-gate-plugin";
-
-// Responsive 3-Layer Progressive Disclosure Shell Components
-export * from "./components/shell/PlaybackControls";
-export * from "./components/shell/Layer1StoryBanner";
-export * from "./components/shell/SidebarNav";
-export * from "./components/shell/Layer3ProofDrawer";
-export * from "./components/shell/WorkbenchShell";
-
-// Workbench Views Part 1 (WB-00 through WB-05) & Co-Located Gate Cards
-export * from "./views/register-wb00-wb05";
-export * from "./views/wb00/MultiAgentTimeline";
-export * from "./views/wb00/SixGateFunnelCard";
-export * from "./views/wb00/WB00CommandCenter";
-export * from "./views/wb01/BipartiteMapCanvas";
-export * from "./views/wb01/CounterfactualTrapDrawer";
-export * from "./views/wb01/WB01DualGraphView";
-export * from "./views/wb02/FourQuadrantScatterPlot";
-export * from "./views/wb02/InclusionDependencyDAG";
-export * from "./views/wb02/WB02EmpiricalProfiler";
-export * from "./views/wb03/CaptainHoldDecisionModal";
-export * from "./views/wb03/DocumentSpanHighlighter";
-export * from "./views/wb03/ThreeTierERFunnel";
-export * from "./views/wb03/WB03UnstructuredView";
-export * from "./views/wb04/ColumnAccountingSankey";
-export * from "./views/wb04/TriageLedgerTable";
-export * from "./views/wb04/WB04ColumnTriageView";
-export * from "./views/wb05/BkccCollisionShieldDrawer";
-export * from "./views/wb05/TopologyCanvas";
-export * from "./views/wb05/WB05ELMTopologyView";
-
-// Workbench Views Part 2 (WB-06 through WB-11) & Co-Located Gate Cards
-export * from "./views/register-wb06-wb11";
-export * from "./views/wb06/GrainAdjacencyMatrix";
-export * from "./views/wb06/WB06TopologicalDAGView";
-export * from "./views/wb07/WriteAmplificationGauge";
-export * from "./views/wb07/WB07LinkSplitterYagniView";
-export * from "./views/wb08/AttemptDiffViewer";
-export * from "./views/wb08/ToonTraceHighlighter";
-export * from "./views/wb08/WB08SelfHealingWorkbench";
-export * from "./views/wb09/DriftDeltaGrid";
-export * from "./views/wb09/WB09SchemaDriftRadar";
-export * from "./views/wb10/AdversarialBatchGrid";
-export * from "./views/wb10/BiTemporalTimeline";
-export * from "./views/wb10/WB10DuckDBSandboxView";
-export * from "./views/wb11/PreHashStepper";
-export * from "./views/wb11/FourZoneSQLViewer";
-export * from "./views/wb11/WB11RosettaStoneView";

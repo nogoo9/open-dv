@@ -39,15 +39,15 @@ type PhaseIdLiteral = Literal[
 ]
 
 type StepIdLiteral = Literal[
-    "VIZ-PIPE-00",
-    "VIZ-STEP-01",
-    "VIZ-STEP-02",
-    "VIZ-STEP-03",
-    "VIZ-STEP-04",
-    "VIZ-STEP-05",
-    "VIZ-STEP-06",
-    "VIZ-STEP-07",
-    "VIZ-STEP-08",
+    "PIPE-00",
+    "STEP-01",
+    "STEP-02",
+    "STEP-03",
+    "STEP-04",
+    "STEP-05",
+    "STEP-06",
+    "STEP-07",
+    "STEP-08",
 ]
 
 type GateIdLiteral = Literal[
@@ -59,41 +59,6 @@ type GateIdLiteral = Literal[
     "G6",
     "G_DYN",
     "G_AUD",
-]
-
-type WorkbenchViewIdLiteral = Literal[
-    "WB-00",
-    "WB-01",
-    "WB-02",
-    "WB-03",
-    "WB-04",
-    "WB-05",
-    "WB-06",
-    "WB-07",
-    "WB-08",
-    "WB-09",
-    "WB-10",
-    "WB-11",
-]
-
-type VizIdLiteral = Literal[
-    "VIZ-PIPE-00",
-    "VIZ-STEP-01",
-    "VIZ-STEP-02",
-    "VIZ-STEP-03",
-    "VIZ-STEP-04",
-    "VIZ-STEP-05",
-    "VIZ-STEP-06",
-    "VIZ-STEP-07",
-    "VIZ-STEP-08",
-    "VIZ-GATE-01",
-    "VIZ-GATE-02",
-    "VIZ-GATE-03",
-    "VIZ-GATE-04",
-    "VIZ-GATE-05",
-    "VIZ-GATE-06",
-    "VIZ-GATE-07",
-    "VIZ-GATE-08",
 ]
 
 type AgentPersonaLiteral = Literal[
@@ -124,12 +89,12 @@ type DataClassificationLiteral = Literal[
 type SummaryMetricValue = int | float | str | bool
 
 PHASE_ALLOWED_STEPS: dict[str, set[str]] = {
-    "P1_INGESTION": {"VIZ-PIPE-00", "VIZ-STEP-01"},
-    "P2_PROFILING": {"VIZ-STEP-02", "VIZ-STEP-03"},
-    "P3_EXTRACTION": {"VIZ-STEP-04"},
-    "P4_SYNTHESIS_PASS1": {"VIZ-STEP-05"},
-    "P5_SYNTHESIS_PASS2": {"VIZ-STEP-06"},
-    "P8_OPERATIONS": {"VIZ-STEP-07", "VIZ-STEP-08"},
+    "P1_INGESTION": {"PIPE-00", "STEP-01"},
+    "P2_PROFILING": {"STEP-02", "STEP-03"},
+    "P3_EXTRACTION": {"STEP-04"},
+    "P4_SYNTHESIS_PASS1": {"STEP-05"},
+    "P5_SYNTHESIS_PASS2": {"STEP-06"},
+    "P8_OPERATIONS": {"STEP-07", "STEP-08"},
 }
 
 
@@ -214,8 +179,6 @@ class VaultObservabilityEvent(StrictObservabilityModel):
     rule_code: str | None = Field(default=None, min_length=1)
     contract_version: Literal["5.0", "6.0"] | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
-    workbench_view_id: WorkbenchViewIdLiteral
-    viz_id: VizIdLiteral
     agent_persona: AgentPersonaLiteral
     status: EventStatusLiteral
     remediation: EventRemediation | None = None
@@ -283,6 +246,4 @@ __all__ = [
     "StepIdLiteral",
     "SummaryMetricValue",
     "VaultObservabilityEvent",
-    "VizIdLiteral",
-    "WorkbenchViewIdLiteral",
 ]

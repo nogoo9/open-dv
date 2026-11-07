@@ -2,7 +2,7 @@
 
 > **Module:** `docs/08-platform-mvp-monorepo-and-api-spec.md`  
 > **Parent Specification:** [`DV2_AGENT_REFERENCE_GUIDE.md`](DV2_AGENT_REFERENCE_GUIDE.md) (`v6.0.0`)  
-> **Companion Platform Specs:** [`09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md) · [`10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) · [`11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)  
+> **Companion Platform Specs:** [`09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md) · [`11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)  
 > **Scope:** Polyglot monorepo orchestration (`proto` + `moon` + `uv` + `bun`), package boundary topology (`packages/*` and `apps/*`), 5-tier RBAC data redaction, Content-Addressable Artifact Store (CAS), and the OpenAPI 3.1 REST + Server-Sent Events (SSE) NDJSON streaming contract (`/api/v1/...`) that guarantees 100% UI-to-backend decoupling.
 
 ---
@@ -46,7 +46,7 @@ open-dv/
 ├── schemas/                                      # Normative Draft 2020-12 JSON Schemas & exported OpenAPI 3.1 contract
 │   ├── no-mistake-dv2-contract-v5.schema.json    # Constrained decoding contract schema (v5.0)
 │   ├── dv2-canonical-ir.schema.json              # Canonical Intermediate Representation (IR v1.0.0)
-│   ├── vault-observability-event.schema.json     # VaultObservabilityEvent telemetry schema (WB-00..WB-11)
+│   ├── vault-observability-event.schema.json     # VaultObservabilityEvent telemetry schema
 │   └── openapi-v1.json                           # Deterministically exported by `moon run opendv-platform-api:export-openapi`
 ├── examples/                                     # Reference contracts, Canonical IR, Graph A ontology, Graph B profile
 │   ├── dv_model_contract.yaml
@@ -71,7 +71,7 @@ open-dv/
 └── apps/
     ├── opendv-platform-api/                      # [Python Application] Headless FastAPI ASGI Server (/api/v1 REST + SSE)
     ├── opendv-cli/                               # [Python Application] Unified `opendv` & `axi-dv` CLI (Remote API or Local Mode)
-    └── opendv-web-workbench/                     # [TypeScript Application] Decoupled 12-View Explainability UI (WB-00..WB-11)
+    └── opendv-web-workbench/                     # [TypeScript Application] Decoupled Explorer UI
 ```
 
 ### 2.2 Workspace Project Dependency DAG & Layer Constraints
@@ -93,7 +93,7 @@ flowchart TD
 
     subgraph TSWorkspace ["TypeScript Bun Workspace (packages/* & apps/*)"]
         PTS["opendv-protocol-ts\n(layer: library, tag: protocol-sdk)\nZero-Dep DTOs + REST/SSE/Replay SDK"]
-        WEB["opendv-web-workbench\n(layer: application, tag: web-ui)\n12-View Workbench (WB-00..WB-11)"]
+        WEB["opendv-web-workbench\n(layer: application, tag: web-ui)\nExplorer UI"]
     end
 
     SCHEMAS[("/schemas/*.json &\n/schemas/openapi-v1.json")]
@@ -543,7 +543,7 @@ testpaths = [
   "name": "opendv-monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "Open-DV TypeScript Protocol SDK and Decoupled 12-View Explainability Web Workbench",
+  "description": "Open-DV TypeScript Protocol SDK and Decoupled 3-Level Explainability Web Workbench",
   "packageManager": "bun@1.3.13",
   "workspaces": [
     "packages/opendv-protocol-ts",
@@ -661,7 +661,7 @@ All endpoints are versioned under `/api/v1`. Error responses conform to **RFC 94
 | Resource Group | HTTP Method & Path | Description | Primary Backing Package |
 | :--- | :--- | :--- | :--- |
 | **Health & Capabilities** | `GET /api/v1/health` | Liveness, DuckDB version, active harness adapters (`antigravity`, `claude`), and schema versions. | `opendv-platform-api` |
-| **Health & Capabilities** | `GET /api/v1/platform/capabilities` | Supported model tiers (`reasoning`, `fast`), RBAC tiers, 6 gates, and 12 workbench views (`WB-00`–`WB-11`). | `opendv-platform-api` |
+| **Health & Capabilities** | `GET /api/v1/platform/capabilities` | Supported model tiers (`reasoning`, `fast`), RBAC tiers, 6 gates, explorer views, and parity endpoints. | `opendv-platform-api` |
 | **Projects** | `POST /api/v1/projects` | Register a project workspace with `Graph A` ontology, Bronze source feeds, and optional baseline contract. | `opendv-core` |
 | **Projects** | `GET /api/v1/projects` | List registered projects and their latest pipeline run status. | `opendv-core` |
 | **Projects** | `GET /api/v1/projects/{project_id}` | Inspect project manifest, `Graph A` ontology summary, and registered Bronze tables/documents. | `opendv-core` |
@@ -676,7 +676,7 @@ All endpoints are versioned under `/api/v1`. Error responses conform to **RFC 94
 | **Run Shadow Sandbox** | `POST /api/v1/runs/{run_id}/sandbox` | Execute Adversarial Batches `1–4` or run Bi-Temporal Point-in-Time `Query D.10` / `D.10b` at custom `assertion_cutoff_ts`. | `opendv-duckdb-sandbox` |
 | **Captain-Hold Decisions** | `GET /api/v1/runs/{run_id}/decisions` | List pending and resolved `ASK-USER` / Captain-Hold escalations (e.g., `Tier-U3` entity resolution or `DV-EVO-003`). | `opendv-agent-harness` |
 | **Captain-Hold Decisions** | `POST /api/v1/runs/{run_id}/decisions` | Submit a human steward decision (`APPROVE`, `REJECT`, `ANSWER`) to resolve a Captain-Hold and resume the run. | `opendv-agent-harness` |
-| **Workbench Projections** | `GET /api/v1/runs/{run_id}/workbench/{view_id}` | Fetch pre-computed, RBAC-redacted 3-Layer view state for `WB-00` through `WB-11`. | `opendv-platform-api` |
+| **Explorer Projections** | `GET /api/v1/runs/{run_id}/report` | Fetch run execution report, stage summaries, and pipeline artifacts. | `opendv-platform-api` |
 | **CAS Artifacts** | `GET /api/v1/artifacts/{sha256}` | Fetch immutable content-addressable artifact (`YAML`, `CanonicalIR` JSON, `4-Zone SQL`, `@toon_v1` trace) by SHA-256. | `opendv-telemetry` |
 | **CAS Artifacts** | `POST /api/v1/artifacts` | Upload a content-addressable artifact and return its verified uppercase hex `sha256` digest. | `opendv-telemetry` |
 
@@ -907,10 +907,10 @@ Every `VaultObservabilityEvent` emitted by the platform is simultaneously:
 
 ```text
 id: evt-pe-001
-data: {"event_id":"evt-pe-001","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7","parent_span_id":null,"timestamp_utc":"2026-10-30T09:00:01Z","stage_id":"STAGE_00_ORCHESTRATION","workbench_view_id":"WB-01","viz_id":"VIZ-STEP-01","agent_persona":"vault-first-mate","status":"PASS","rule_ids_evaluated":["DV-STR-001","KEY-04"],"data_classification":"INTERNAL","layer1_story_banner":{"headline":"Enterprise Ontology Grounded: 4 core business concepts anchored to 44 physical columns.","business_impact":"Prevents siloed source-system Data Vault schemas across Investran, DealCloud, and Legacy GP.","verdict_pill":"PASS"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]","full_sha256_hex":"5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4","bkcc_prefix":"GLOBAL","business_key":"LP-101","entity_label":"CalPERS"}],"summary_metrics":{"ontology_coverage_pct":100.0,"unmapped_concepts":0}}}
+data: {"event_id":"evt-pe-001","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7","parent_span_id":null,"timestamp_utc":"2026-10-30T09:00:01Z","stage_id":"STAGE_00_ORCHESTRATION","agent_persona":"vault-first-mate","status":"PASS","rule_ids_evaluated":["DV-STR-001","KEY-04"],"data_classification":"INTERNAL","layer1_story_banner":{"headline":"Enterprise Ontology Grounded: 4 core business concepts anchored to 44 physical columns.","business_impact":"Prevents siloed source-system Data Vault schemas across Investran, DealCloud, and Legacy GP.","verdict_pill":"PASS"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]","full_sha256_hex":"5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4","bkcc_prefix":"GLOBAL","business_key":"LP-101","entity_label":"CalPERS"}],"summary_metrics":{"ontology_coverage_pct":100.0,"unmapped_concepts":0}}}
 
 id: evt-pe-004
-data: {"event_id":"evt-pe-004","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"a2fb4a1d1a96d312","parent_span_id":"00f067aa0ba902b7","timestamp_utc":"2026-10-30T09:00:08Z","stage_id":"STAGE_02_SCOUT_UNSTRUCTURED","workbench_view_id":"WB-03","viz_id":"VIZ-GATE-06","agent_persona":"scout-unstructured","status":"ASK-USER","rule_ids_evaluated":["ALG-A9B"],"data_classification":"CONFIDENTIAL","layer1_story_banner":{"headline":"Extracted 4 terms from calpers_side_letter.pdf: 2 LEIs bound; 1 mention held for Captain.","business_impact":"Prevents hallucinated Fund Hub keys from unverified PDF text; awaits steward confirmation.","verdict_pill":"ASK-USER"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 864D..EE6B | GLOBAL:calpers_side_letter.pdf]","full_sha256_hex":"864D5083723B9FD7FE69085C2C31B646BD5E3DEAEF61B64C08D545EDE502EE6B","bkcc_prefix":"GLOBAL","business_key":"s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf","entity_label":"CalPERS Side Letter"}],"summary_metrics":{"spans_extracted":4,"tier_u1_bound":2,"tier_u2_bound":1,"tier_u3_held":1}}}
+data: {"event_id":"evt-pe-004","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"a2fb4a1d1a96d312","parent_span_id":"00f067aa0ba902b7","timestamp_utc":"2026-10-30T09:00:08Z","stage_id":"STAGE_02_SCOUT_UNSTRUCTURED","agent_persona":"scout-unstructured","status":"ASK-USER","rule_ids_evaluated":["ALG-A9B"],"data_classification":"CONFIDENTIAL","layer1_story_banner":{"headline":"Extracted 4 terms from calpers_side_letter.pdf: 2 LEIs bound; 1 mention held for Captain.","business_impact":"Prevents hallucinated Fund Hub keys from unverified PDF text; awaits steward confirmation.","verdict_pill":"ASK-USER"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 864D..EE6B | GLOBAL:calpers_side_letter.pdf]","full_sha256_hex":"864D5083723B9FD7FE69085C2C31B646BD5E3DEAEF61B64C08D545EDE502EE6B","bkcc_prefix":"GLOBAL","business_key":"s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf","entity_label":"CalPERS Side Letter"}],"summary_metrics":{"spans_extracted":4,"tier_u1_bound":2,"tier_u2_bound":1,"tier_u3_held":1}}}
 
 event: run_complete
 data: {"status":"COMPLETED"}

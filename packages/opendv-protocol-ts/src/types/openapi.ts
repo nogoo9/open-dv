@@ -213,7 +213,8 @@ export interface paths {
 		};
 		/**
 		 * Get Platform Capabilities
-		 * @description Return supported agent harnesses, 5-Tier RBAC roles, WB-00..WB-11 views, and gates.
+		 * @description Return supported agent harnesses, 5-Tier RBAC roles, Explorer views,
+		 *     parity endpoints, and gates.
 		 */
 		get: operations["get_platform_capabilities_api_v1_platform_capabilities_get"];
 		put?: never;
@@ -520,26 +521,6 @@ export interface paths {
 		 * @description Execute a parameterized audit query or 4-Batch sequence in the DuckDB sandbox for a run.
 		 */
 		post: operations["execute_run_sandbox_query_api_v1_runs__run_id__sandbox_post"];
-		delete?: never;
-		options?: never;
-		head?: never;
-		patch?: never;
-		trace?: never;
-	};
-	"/api/v1/runs/{run_id}/workbench/{view_id}": {
-		parameters: {
-			query?: never;
-			header?: never;
-			path?: never;
-			cookie?: never;
-		};
-		/**
-		 * Get Workbench View Projection
-		 * @description Return RBAC-redacted 3-Layer workbench view state (`WB-00` through `WB-11`).
-		 */
-		get: operations["get_workbench_view_projection_api_v1_runs__run_id__workbench__view_id__get"];
-		put?: never;
-		post?: never;
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -3111,12 +3092,6 @@ export interface components {
 			 */
 			current_stage_id: string;
 			/**
-			 * Current View Id
-			 * @description Current or terminal workbench view identifier
-			 * @default WB-00
-			 */
-			current_view_id: string;
-			/**
 			 * Decisions Url
 			 * @description REST endpoint URL for Steward hold resolutions
 			 */
@@ -4996,42 +4971,6 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["SandboxExecutionResponse"];
-				};
-			};
-			/** @description Validation Error */
-			422: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					"application/json": components["schemas"]["HTTPValidationError"];
-				};
-			};
-		};
-	};
-	get_workbench_view_projection_api_v1_runs__run_id__workbench__view_id__get: {
-		parameters: {
-			query?: never;
-			header?: {
-				"X-OpenDV-Role"?: string | null;
-			};
-			path: {
-				run_id: string;
-				view_id: string;
-			};
-			cookie?: never;
-		};
-		requestBody?: never;
-		responses: {
-			/** @description Successful Response */
-			200: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					"application/json": {
-						[key: string]: unknown;
-					};
 				};
 			};
 			/** @description Validation Error */

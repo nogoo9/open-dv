@@ -51,8 +51,6 @@ from opendv_agent_harness.models import (
     OutputT,
     PipelineStageId,
     SandboxPolicy,
-    VizId,
-    WorkbenchViewId,
 )
 from opendv_agent_harness.personas import (
     build_scout_source_task_spec,
@@ -2975,8 +2973,6 @@ class AgenticVaultPipeline:
         run_id: str,
         trace_id: str,
         stage_id: PipelineStageId,
-        workbench_view_id: WorkbenchViewId,
-        viz_id: VizId,
         persona: AgentPersona,
         status: ObservabilityVerdict,
         headline: str,
@@ -2989,7 +2985,7 @@ class AgenticVaultPipeline:
         event_type: str | None = None,
     ) -> dict[str, Any]:
         """Build, redact-check, and persist a schema-valid `VaultObservabilityEvent`."""
-        event_id = f"evt-{run_id}-{workbench_view_id.value.lower()}-{uuid.uuid4().hex[:8]}"
+        event_id = f"evt-{run_id}-{uuid.uuid4().hex[:8]}"
         raw_event = build_observability_event_dict(
             event_id=event_id,
             event_type=event_type,
@@ -2998,8 +2994,6 @@ class AgenticVaultPipeline:
             span_id=uuid.uuid4().hex[:16],
             parent_span_id=None,
             stage_id=stage_id,
-            workbench_view_id=workbench_view_id,
-            viz_id=viz_id,
             agent_persona=persona,
             status=status,
             headline=headline,
@@ -3029,8 +3023,6 @@ class AgenticVaultPipeline:
             run_id=run_id,
             trace_id=trace_id,
             stage_id=stage_id,
-            workbench_view_id=WorkbenchViewId.WB_00,
-            viz_id=VizId.VIZ_PIPE_00,
             persona=AgentPersona.VAULT_FIRST_MATE,
             status=ObservabilityVerdict.AUTO_REPAIRED,
             headline=(
@@ -3234,8 +3226,6 @@ class AgenticVaultPipeline:
             run_id=run_id,
             trace_id=trace_id,
             stage_id=PipelineStageId.STAGE_00_ORCHESTRATION,
-            workbench_view_id=WorkbenchViewId.WB_00,
-            viz_id=VizId.VIZ_PIPE_00,
             persona=AgentPersona.VAULT_FIRST_MATE,
             status=ObservabilityVerdict.PASS,
             headline=(
@@ -3261,8 +3251,6 @@ class AgenticVaultPipeline:
             run_id=run_id,
             trace_id=trace_id,
             stage_id=PipelineStageId.STAGE_00_ORCHESTRATION,
-            workbench_view_id=WorkbenchViewId.WB_01,
-            viz_id=VizId.VIZ_STEP_01,
             persona=AgentPersona.VAULT_FIRST_MATE,
             status=ObservabilityVerdict.PASS,
             headline=(
@@ -3765,8 +3753,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE,
-                workbench_view_id=WorkbenchViewId.WB_02,
-                viz_id=VizId.VIZ_STEP_02,
                 persona=AgentPersona.SCOUT_SOURCE,
                 status=(
                     ObservabilityVerdict.AUTO_REPAIRED
@@ -3811,8 +3797,6 @@ class AgenticVaultPipeline:
                     run_id=run_id,
                     trace_id=trace_id,
                     stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE,
-                    workbench_view_id=WorkbenchViewId.WB_09,
-                    viz_id=VizId.VIZ_STEP_03,
                     persona=AgentPersona.SCOUT_SOURCE,
                     status=ObservabilityVerdict.AUTO_REPAIRED,
                     headline=(
@@ -4069,8 +4053,6 @@ class AgenticVaultPipeline:
                             task_id=f"task-w{w_idx}-u3-{cand.extraction_id}",
                             session_id=f"sess-w{w_idx}-{doc.doc_id}",
                             stage_id=PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
-                            workbench_view_id=WorkbenchViewId.WB_03,
-                            viz_id=VizId.VIZ_GATE_07,
                             persona=AgentPersona.SCOUT_UNSTRUCTURED,
                             headline=(
                                 f"Tier-U3 ambiguous entity extraction '{cand.extraction_id}' in "
@@ -4173,8 +4155,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
-                workbench_view_id=WorkbenchViewId.WB_03,
-                viz_id=VizId.VIZ_STEP_04,
                 persona=AgentPersona.SCOUT_UNSTRUCTURED,
                 status=_step_status_to_verdict(s2_status),
                 headline=(
@@ -4286,8 +4266,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1,
-                workbench_view_id=WorkbenchViewId.WB_04,
-                viz_id=VizId.VIZ_STEP_05,
                 output_schema=Stage03ColumnTriageOutput,
             )
             pass1_res = await self._run_task_with_streaming(pass1_spec)
@@ -4416,8 +4394,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1,
-                workbench_view_id=WorkbenchViewId.WB_04,
-                viz_id=VizId.VIZ_STEP_05,
                 persona=AgentPersona.SHIP_VAULT,
                 status=ObservabilityVerdict.PASS,
                 headline=(
@@ -4492,8 +4468,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2,
-                workbench_view_id=WorkbenchViewId.WB_05,
-                viz_id=VizId.VIZ_STEP_06,
                 output_schema=Stage04ContractSynthesisOutput,
             )
             ship_res = await self._run_task_with_streaming(ship_spec)
@@ -4623,8 +4597,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2,
-                workbench_view_id=WorkbenchViewId.WB_05,
-                viz_id=VizId.VIZ_STEP_06,
                 persona=AgentPersona.SHIP_VAULT,
                 status=ObservabilityVerdict.PASS,
                 headline=(
@@ -4754,8 +4726,6 @@ class AgenticVaultPipeline:
                         run_id=run_id,
                         trace_id=trace_id,
                         stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
-                        workbench_view_id=WorkbenchViewId.WB_08,
-                        viz_id=VizId.VIZ_GATE_04,
                         output_schema=Stage04ContractSynthesisOutput,
                     )
                     repair_res = await self._run_task_with_streaming(repair_spec)
@@ -5016,8 +4986,6 @@ class AgenticVaultPipeline:
                     task_id=f"task-w{w_idx}-g1-ontology-hold",
                     session_id=f"sess-w{w_idx}-g1",
                     stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
-                    workbench_view_id=WorkbenchViewId.WB_06,
-                    viz_id=VizId.VIZ_GATE_02,
                     persona=AgentPersona.AXI_DV,
                     headline=f"Wave {w_idx} Gate 1 ontology gap hold: {diag_msg}",
                     escalation_reason="UNMAPPED_ONTOLOGY_CONCEPT",
@@ -5061,8 +5029,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
-                workbench_view_id=WorkbenchViewId.WB_06,
-                viz_id=VizId.VIZ_GATE_02,
                 persona=AgentPersona.AXI_DV,
                 status=(
                     ObservabilityVerdict.PASS
@@ -5092,8 +5058,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
-                workbench_view_id=WorkbenchViewId.WB_07,
-                viz_id=VizId.VIZ_GATE_04,
                 persona=AgentPersona.AXI_DV,
                 status=_step_status_to_verdict(s5_status),
                 headline=(
@@ -5136,8 +5100,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
-                workbench_view_id=WorkbenchViewId.WB_08,
-                viz_id=VizId.VIZ_GATE_03,
                 persona=AgentPersona.AXI_DV,
                 status=_step_status_to_verdict(s5_status),
                 headline=(
@@ -5312,8 +5274,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX,
-                workbench_view_id=WorkbenchViewId.WB_10,
-                viz_id=VizId.VIZ_GATE_08,
                 persona=AgentPersona.AXI_DV,
                 status=_step_status_to_verdict(s6_status),
                 headline=(
@@ -5529,8 +5489,6 @@ class AgenticVaultPipeline:
                 run_id=run_id,
                 trace_id=trace_id,
                 stage_id=PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER,
-                workbench_view_id=WorkbenchViewId.WB_11,
-                viz_id=VizId.VIZ_STEP_08,
                 persona=AgentPersona.DETERMINISTIC_COMPILER,
                 status=ObservabilityVerdict.PASS,
                 headline=(
@@ -5568,7 +5526,7 @@ class AgenticVaultPipeline:
                 sha256=ledger_sha,
                 byte_length=len(ledger_bytes),
                 file_path=str(self.ledger_path),
-                description="Immutable JSONL Observability Event Ledger (WB-00..WB-11).",
+                description="Immutable JSONL Observability Event Ledger.",
             )
 
             final_artifacts["final_contract"] = final_contract_ref
@@ -5985,8 +5943,6 @@ class AgenticVaultPipeline:
             run_id=run_id,
             trace_id=trace_id,
             stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1,
-            workbench_view_id=WorkbenchViewId.WB_04,
-            viz_id=VizId.VIZ_STEP_05,
             output_schema=Stage03ColumnTriageOutput,
         )
         pass1_res = await self._run_task_with_streaming(pass1_spec)
@@ -6060,8 +6016,6 @@ class AgenticVaultPipeline:
             run_id=run_id,
             trace_id=trace_id,
             stage_id=PipelineStageId.STAGE_03_SHIP_VAULT_PASS1,
-            workbench_view_id=WorkbenchViewId.WB_04,
-            viz_id=VizId.VIZ_STEP_05,
             persona=AgentPersona.SHIP_VAULT,
             status=ObservabilityVerdict.PASS,
             headline=(
@@ -6128,8 +6082,6 @@ class AgenticVaultPipeline:
             run_id=run_id,
             trace_id=trace_id,
             stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2,
-            workbench_view_id=WorkbenchViewId.WB_05,
-            viz_id=VizId.VIZ_STEP_06,
             output_schema=Stage04ContractSynthesisOutput,
         )
         ship_res = await self._run_task_with_streaming(ship_spec)
@@ -6177,8 +6129,6 @@ class AgenticVaultPipeline:
             run_id=run_id,
             trace_id=trace_id,
             stage_id=PipelineStageId.STAGE_04_SHIP_VAULT_PASS2,
-            workbench_view_id=WorkbenchViewId.WB_05,
-            viz_id=VizId.VIZ_STEP_06,
             persona=AgentPersona.SHIP_VAULT,
             status=ObservabilityVerdict.PASS,
             headline=(
@@ -6293,8 +6243,6 @@ class AgenticVaultPipeline:
             run_id=run_id,
             trace_id=trace_id,
             stage_id=PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
-            workbench_view_id=WorkbenchViewId.WB_06,
-            viz_id=VizId.VIZ_GATE_02,
             persona=AgentPersona.AXI_DV,
             status=ObservabilityVerdict.PASS,
             headline=(

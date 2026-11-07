@@ -6,8 +6,8 @@ Coordinates:
 3. Executing the 4 Adversarial Shadow Sandbox Batches in DuckDB `:memory:`
 4. Evaluating all 15 dynamic sandbox invariants (`DV-DYN-001` through `DV-DYN-015`)
 5. Executing Zone 4 Bi-Temporal `Query D.10` and `Query D.10b` verification
-6. Optionally emitting schema-valid `VaultObservabilityEvent` (`VIZ-GATE-08`, `WB-10`,
-    `STAGE_06_AXI_DV_DYNAMIC_SANDBOX`) records via `opendv_telemetry`.
+6. Optionally emitting schema-valid `VaultObservabilityEvent`
+    (`STAGE_06_AXI_DV_DYNAMIC_SANDBOX`) records via `opendv_telemetry`.
 """
 
 from __future__ import annotations
@@ -452,8 +452,6 @@ class DuckDbShadowSandbox:
             rule_code="DV-DYN-009",
             contract_version="5.0",
             confidence=1.0,
-            workbench_view_id="WB-10",
-            viz_id="VIZ-GATE-08",
             agent_persona="axi-dv",
             status="PASS" if overall_passed else "REJECT-WITH-TRACE",
             rule_ids_evaluated=[c.check_id for c in dyn_report.checks],

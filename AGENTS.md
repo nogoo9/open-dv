@@ -54,7 +54,7 @@ Provided all Immutable Outcomes and verification gates pass, contributors have f
 - **Agent Harnesses & Foundation Models (`packages/opendv-agent-harness`):** Add new LLM providers, CLI/SDK adapters beyond `agy`, `claude-cli`, `antigravity`, and `claude`, or refine prompt decomposition and `@toon_v1` repair loops. *(Rationale: Avoids LLM vendor lock-in as reasoning models evolve.)*
 - **Target Dialect Compilers & Exporters:** Add downstream compilers lowering `CanonicalIR` / `NoMistakeDataVault2ContractV5` to **dbt (`AutomateDV` / `datavault4dbt`)**, **Snowflake**, **BigQuery**, **Databricks Delta Live Tables**, **SQLMesh**, or **Apache Iceberg**. *(Rationale: Decouples DV 2.0 architectural modelling from the user's physical production warehouse technology.)*
 - **Profiling & Graph Discovery Engines:** Enhance `GraphBProfiler`, functional dependency discovery, semantic similarity matchers, and multimodal OCR/PDF chunking strategies. *(Rationale: Allows scaling from local CSV/Parquet files to push-down cloud warehouse metadata profiling.)*
-- **UI & API Transports (`apps/opendv-platform-api`, `apps/opendv-web-workbench`, `packages/opendv-protocol-ts`):** Evolve workbench visualizations (`WB-00`–`WB-11`), state persistence backends, and enterprise catalog integrations. *(Rationale: Enables seamless embedding into diverse enterprise governance portals and CI/CD pipelines.)*
+- **UI & API Transports (`apps/opendv-platform-api`, `apps/opendv-web-workbench`, `packages/opendv-protocol-ts`):** Evolve Explorer visualizations, state persistence backends, and enterprise catalog integrations. *(Rationale: Enables seamless embedding into diverse enterprise governance portals and CI/CD pipelines.)*
 
 ---
 
@@ -69,7 +69,7 @@ Provided all Immutable Outcomes and verification gates pass, contributors have f
 | **P1** | [`docs/DV2_AGENT_REFERENCE_GUIDE.md`](docs/DV2_AGENT_REFERENCE_GUIDE.md) | Single-file technical reference for DV 2.0 layers, 6-stage hashing, `INV-01..06`, `EVO-01..08`, `AP-01..15`, and `Algorithms A.1–A.9b`. |
 | **P1** | [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](docs/12-agentic-pipeline-inputs-and-harness-guide.md) | Complete specification for `pipeline_input.yaml`, `harness_config.yaml`, `model_overrides`, `agent_models`, and auth modes. |
 | **P1** | [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](docs/14-end-to-end-consistency-and-scenarios-audit.md) | 10-scenario architectural consistency audit, unmatched ontology field routing matrix, and tracked remediation issues (`#30`–`#34`, `#37`–`#44`). |
-| **P2** | [`docs/01-core-modelling-spec.md`](docs/01-core-modelling-spec.md) – [`docs/15-end-to-end-pipeline-execution-and-interactive-spec.md`](docs/15-end-to-end-pipeline-execution-and-interactive-spec.md) | Deep-dive modular specifications covering ELM calculus, 6-Gate `axi-dv` verification, unstructured DV 2.0, observability (`WB-00..11`), and API/SDK contracts. |
+| **P2** | [`docs/01-core-modelling-spec.md`](docs/01-core-modelling-spec.md) – [`docs/15-end-to-end-pipeline-execution-and-interactive-spec.md`](docs/15-end-to-end-pipeline-execution-and-interactive-spec.md) | Deep-dive modular specifications covering ELM calculus, 6-Gate `axi-dv` verification, unstructured DV 2.0, observability, and API/SDK contracts. |
 
 ---
 
@@ -85,7 +85,7 @@ Provided all Immutable Outcomes and verification gates pass, contributors have f
 | `packages/opendv-protocol-ts` | Zero-dependency TypeScript SDK (`@opendv/protocol-ts`), SSE client, Web Crypto Hash Pills. | Pure TypeScript / Web APIs. |
 | `apps/opendv-cli` | Unified `opendv` & `axi-dv` CLI (`--local` in-process and `--api-url` remote modes). | All Python packages above. |
 | `apps/opendv-platform-api` | FastAPI REST + W3C SSE headless server (`:8420`) and OpenAPI 3.1 exporter. | All Python packages above + `fastapi`. |
-| `apps/opendv-web-workbench` | 12-View React 19 + Bun Explainability & Steward Workbench (`WB-00`–`WB-11`, `:5173`). | `@opendv/protocol-ts`. |
+| `apps/opendv-web-workbench` | 3-Level React 19 + Bun Explorer & Steward Workbench (`:5173`). | `@opendv/protocol-ts`. |
 
 ---
 

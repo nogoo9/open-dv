@@ -26,8 +26,6 @@ from opendv_agent_harness import (
     SandboxPolicy,
     StewardHoldManager,
     VaultAgentHarness,
-    VizId,
-    WorkbenchViewId,
     build_default_domain_tool_map,
     build_persona_subagent_spec,
     build_persona_task_spec,
@@ -570,8 +568,6 @@ def test_registry_persona_builders_and_steward_hold_manager(tmp_path: Path) -> N
         task_id=su_spec.task_id,
         session_id="sess-agy-u3-01",
         stage_id=PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
-        workbench_view_id=WorkbenchViewId.WB_03,
-        viz_id=VizId.VIZ_GATE_06,
         persona=AgentPersona.SCOUT_UNSTRUCTURED,
         headline="Ambiguous entity 'Apex IV' margin 0.08 < 0.15.",
         options=[

@@ -14,21 +14,6 @@ from opendv_telemetry import (
     validate_no_pii_leaks,
 )
 
-WORKBENCH_VIEW_TITLES: dict[str, str] = {
-    "WB-00": "WB-00: Master Pipeline Command Center & 6-Gate Scoreboard",
-    "WB-01": "WB-01: Dual-Graph Grounding & Anti-Pattern Counterfactual Inspector",
-    "WB-02": "WB-02: Empirical Column Profiler & Candidate Discovery Matrix",
-    "WB-03": "WB-03: Unstructured PDF Span-Grounding & 3-Tier ER Inspector",
-    "WB-04": "WB-04: Pass 1 Exhaustive Column Triage Sankey & Surrogate Sink",
-    "WB-05": "WB-05: Pass 2/3 ELM Topology & 3-Tier BKCC Collision Shield",
-    "WB-06": "WB-06: Gate 3 Topological DAG & Grain Matrix Inspector",
-    "WB-07": "WB-07: Nullable-FK Link Splitter & Gate 4 YAGNI Cost Guard",
-    "WB-08": "WB-08: Closed-Loop Self-Healing Diff & TOON Diagnostic Workbench",
-    "WB-09": "WB-09: Intra-Source Schema Drift Radar (S1(t) -> S1(t+1))",
-    "WB-10": "WB-10: Gate 5 Dynamic DuckDB Shadow Sandbox & Evolution Matrix",
-    "WB-11": "WB-11: Pre-Hash Stepper (Alg A.5) & 4-Zone SQL Rosetta Stone",
-}
-
 PE_DEMO_CONTEXT_REFS: dict[str, str] = {
     "graph_a_sha256": "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90",
     "graph_b_sha256": "B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90A1",
@@ -44,7 +29,7 @@ def build_pe_canonical_events(
     run_id: str = "run-pe-apex-horizon-20261030",
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     """Construct the 9 canonical PE VaultObservabilityEvent dicts (`evt-pe-001`..`evt-pe-009`)
-    plus the full 12-view (`WB-00`..`WB-11`) workbench projection events.
+    plus the full projection events.
     """
     trace_id = "4bf92f3577b34da6a3ce929d0e0e4736"
 
@@ -102,11 +87,9 @@ def build_pe_canonical_events(
         "timestamp_utc": "2026-10-30T09:00:02Z",
         "stage_id": "STAGE_00_ORCHESTRATION",
         "phase_id": "P1_INGESTION",
-        "step_id": "VIZ-STEP-01",
+        "step_id": "STEP-01",
         "contract_version": "6.0",
         "confidence": 1.0,
-        "workbench_view_id": "WB-01",
-        "viz_id": "VIZ-STEP-01",
         "agent_persona": "vault-first-mate",
         "status": "PASS",
         "rule_ids_evaluated": ["DV-STR-001", "KEY-04", "AP-11"],
@@ -149,11 +132,9 @@ def build_pe_canonical_events(
         "timestamp_utc": "2026-10-30T09:00:04Z",
         "stage_id": "STAGE_01_SCOUT_SOURCE",
         "phase_id": "P2_PROFILING",
-        "step_id": "VIZ-STEP-02",
+        "step_id": "STEP-02",
         "contract_version": "6.0",
         "confidence": 0.99,
-        "workbench_view_id": "WB-02",
-        "viz_id": "VIZ-STEP-02",
         "agent_persona": "scout-source",
         "status": "PASS",
         "rule_ids_evaluated": ["KEY-01", "ALG-A4"],
@@ -197,11 +178,9 @@ def build_pe_canonical_events(
         "timestamp_utc": "2026-10-30T09:00:06Z",
         "stage_id": "STAGE_01_SCOUT_SOURCE",
         "phase_id": "P2_PROFILING",
-        "step_id": "VIZ-STEP-03",
+        "step_id": "STEP-03",
         "contract_version": "6.0",
         "confidence": 0.99,
-        "workbench_view_id": "WB-09",
-        "viz_id": "VIZ-STEP-03",
         "agent_persona": "scout-source",
         "status": "AUTO-FIX",
         "rule_ids_evaluated": ["ALG-A9A", "EVO-01", "EVO-02", "EVO-03", "EVO-04"],
@@ -246,11 +225,9 @@ def build_pe_canonical_events(
         "timestamp_utc": "2026-10-30T09:00:08Z",
         "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
         "phase_id": "P3_EXTRACTION",
-        "step_id": "VIZ-STEP-04",
+        "step_id": "STEP-04",
         "contract_version": "6.0",
         "confidence": 0.98,
-        "workbench_view_id": "WB-03",
-        "viz_id": "VIZ-STEP-04",
         "agent_persona": "scout-unstructured",
         "status": "ASK-USER",
         "rule_ids_evaluated": ["ALG-A9B", "U1", "U2", "U3", "TMP-01"],
@@ -307,11 +284,9 @@ def build_pe_canonical_events(
         "timestamp_utc": "2026-10-30T09:00:12Z",
         "stage_id": "STAGE_03_SHIP_VAULT_PASS1",
         "phase_id": "P4_SYNTHESIS_PASS1",
-        "step_id": "VIZ-STEP-05",
+        "step_id": "STEP-05",
         "contract_version": "6.0",
         "confidence": 1.0,
-        "workbench_view_id": "WB-04",
-        "viz_id": "VIZ-STEP-05",
         "agent_persona": "ship-vault",
         "status": "PASS",
         "rule_ids_evaluated": ["DV-COL-001", "KEY-01", "ALG-A2"],
@@ -361,11 +336,9 @@ def build_pe_canonical_events(
         "timestamp_utc": "2026-10-30T09:00:16Z",
         "stage_id": "STAGE_04_SHIP_VAULT_PASS2",
         "phase_id": "P5_SYNTHESIS_PASS2",
-        "step_id": "VIZ-STEP-06",
+        "step_id": "STEP-06",
         "contract_version": "6.0",
         "confidence": 1.0,
-        "workbench_view_id": "WB-05",
-        "viz_id": "VIZ-STEP-06",
         "agent_persona": "ship-vault",
         "status": "PASS",
         "rule_ids_evaluated": ["KEY-04", "DV-COL-012", "EVO-05", "EVO-07"],
@@ -413,8 +386,6 @@ def build_pe_canonical_events(
         "gate_id": "G3",
         "rule_code": "DV-STR-001",
         "contract_version": "6.0",
-        "workbench_view_id": "WB-06",
-        "viz_id": "VIZ-GATE-03",
         "agent_persona": "axi-dv",
         "status": "PASS",
         "rule_ids_evaluated": ["DV-STR-001", "DV-STR-002", "DV-STR-003", "INV-01", "INV-02"],
@@ -463,8 +434,6 @@ def build_pe_canonical_events(
         "gate_id": "G1",
         "rule_code": "DV-COL-012",
         "contract_version": "6.0",
-        "workbench_view_id": "WB-08",
-        "viz_id": "VIZ-GATE-07",
         "agent_persona": "ship-vault",
         "status": "AUTO_REPAIRED",
         "remediation": {
@@ -529,10 +498,8 @@ def build_pe_canonical_events(
         "timestamp_utc": "2026-10-30T09:00:42Z",
         "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
         "phase_id": "P8_OPERATIONS",
-        "step_id": "VIZ-STEP-07",
+        "step_id": "STEP-07",
         "contract_version": "6.0",
-        "workbench_view_id": "WB-11",
-        "viz_id": "VIZ-STEP-07",
         "agent_persona": "deterministic-compiler",
         "status": "PASS",
         "rule_ids_evaluated": ["ALG-A5", "ALG-A6", "DV-AST-001", "TMP-01", "TMP-02"],
@@ -571,8 +538,8 @@ def build_pe_canonical_events(
         },
     }
 
-    evt_wb00: dict[str, Any] = {
-        "event_id": "evt-pe-wb00",
+    evt_orchestration: dict[str, Any] = {
+        "event_id": "evt-pe-launch",
         "run_id": run_id,
         "trace_id": trace_id,
         "span_id": "00f067aa0ba902b0",
@@ -580,10 +547,8 @@ def build_pe_canonical_events(
         "timestamp_utc": "2026-10-30T09:00:00Z",
         "stage_id": "STAGE_00_ORCHESTRATION",
         "phase_id": "P1_INGESTION",
-        "step_id": "VIZ-PIPE-00",
+        "step_id": "PIPE-00",
         "contract_version": "6.0",
-        "workbench_view_id": "WB-00",
-        "viz_id": "VIZ-PIPE-00",
         "agent_persona": "vault-first-mate",
         "status": "PASS",
         "rule_ids_evaluated": ["DV-STR-001", "KEY-01", "EVO-01"],
@@ -617,8 +582,8 @@ def build_pe_canonical_events(
         },
     }
 
-    evt_wb07: dict[str, Any] = {
-        "event_id": "evt-pe-wb07",
+    evt_gate4_fix: dict[str, Any] = {
+        "event_id": "evt-pe-gate4-fix",
         "run_id": run_id,
         "trace_id": trace_id,
         "span_id": "00f067aa0ba902ba",
@@ -629,8 +594,6 @@ def build_pe_canonical_events(
         "gate_id": "G4",
         "rule_code": "ALG-A1",
         "contract_version": "6.0",
-        "workbench_view_id": "WB-07",
-        "viz_id": "VIZ-GATE-05",
         "agent_persona": "axi-dv",
         "status": "AUTO-FIX",
         "rule_ids_evaluated": ["ALG-A1", "ALG-A4"],
@@ -663,8 +626,8 @@ def build_pe_canonical_events(
         },
     }
 
-    evt_wb10: dict[str, Any] = {
-        "event_id": "evt-pe-wb10",
+    evt_sandbox_pass: dict[str, Any] = {
+        "event_id": "evt-pe-sandbox-pass",
         "run_id": run_id,
         "trace_id": trace_id,
         "span_id": "00f067aa0ba902bb",
@@ -673,8 +636,6 @@ def build_pe_canonical_events(
         "stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
         "phase_id": "P7_DYNAMIC_SANDBOX",
         "contract_version": "6.0",
-        "workbench_view_id": "WB-10",
-        "viz_id": "VIZ-GATE-08",
         "agent_persona": "axi-dv",
         "status": "PASS",
         "rule_ids_evaluated": [
@@ -724,11 +685,11 @@ def build_pe_canonical_events(
         evt_008,
         evt_009,
     ]
-    all_workbench = [evt_wb00, *canonical_9, evt_wb07, evt_wb10]
+    all_events = [evt_orchestration, *canonical_9, evt_gate4_fix, evt_sandbox_pass]
 
-    for ev in all_workbench:
+    for ev in all_events:
         VaultObservabilityEvent.model_validate(ev)
         validate_observability_event(ev)
         validate_no_pii_leaks(ev)
 
-    return canonical_9, all_workbench
+    return canonical_9, all_events

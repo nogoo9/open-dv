@@ -527,8 +527,6 @@ def test_adversarial_hold_resumption_state_invariants(
         task_id="task-g1",
         session_id="sess-01",
         stage_id="STAGE_05_AXI_DV_STATIC_GATES",
-        workbench_view_id="WB-06",
-        viz_id="VIZ-GATE-02",
         persona="axi-dv",
         headline="Gate 1 hold",
         escalation_reason="UNMAPPED_ONTOLOGY_CONCEPT",

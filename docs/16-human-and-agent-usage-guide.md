@@ -26,7 +26,7 @@
 5. [Role-Specific Guides for Humans](#5-role-specific-guides-for-humans)
    - [5.1 Data Architects (Ontology Curation, BKCC Governance & Topology Review)](#51-data-architects-ontology-curation-bkcc-governance--topology-review)
    - [5.2 Data & Analytics Engineers (Running Waves, Consuming IR & Inspecting Hash Formulas)](#52-data--analytics-engineers-running-waves-consuming-ir--inspecting-hash-formulas)
-   - [5.3 Data Stewards (Resolving Captain-Holds via CLI & Web Workbench `WB-03` / `WB-07`)](#53-data-stewards-resolving-captain-holds-via-cli--web-workbench-wb-03--wb-07)
+   - [5.3 Data Stewards (Resolving Captain-Holds via CLI & Explorer UI)](#53-data-stewards-resolving-captain-holds-via-cli--explorer-ui)
 6. [Role-Specific Guides for Autonomous Agents](#6-role-specific-guides-for-autonomous-agents)
    - [6.1 Modelling & Orchestration Agents (`--json`, `--toon`, Exit Codes & Gate Discipline)](#61-modelling--orchestration-agents---json---toon-exit-codes--gate-discipline)
    - [6.2 Downstream Warehouse Translation Agents (Consuming `final_canonical_ir.json` Safely)](#62-downstream-warehouse-translation-agents-consuming-final_canonical_irjson-safely)
@@ -319,8 +319,8 @@ Whenever a live source feed contains columns that are added, renamed, dropped, o
 | **1** | **New Descriptive Column on a Known Entity** *(e.g., `loyalty_tier_code`, `annual_spend_band` added to `crm_customers_v2.csv`)* | `STAGE_01_SCOUT_SOURCE` (`GraphBProfiler.detect_schema_drift`) $\to$ `STAGE_03` Pass 1 Triage | `EVO-01` + **`Algorithm A.9a`** (`codemod_intra_source_schema_drift`) + `Algorithm A.7` Lock | Keeps the existing `sat_customer_core` payload list 100% untouched (preserving all historical `hash_diff` values) and spawns an **additive companion Satellite (`sat_customer_core_ext_v2`)** with `volatility_tier: ADDITIVE_DRIFT_COMPANION` containing only the newly added columns. *(If a column is dropped upstream, `Algorithm A.9a` records it in `soft_deprecated_columns` and projects `CAST(NULL AS <type>)` in Zone 1 Staging.)* |
 | **2** | **Renamed Source Column** *(Semantic/statistical match to an existing attribute, but physical column name changed)* | `STAGE_01_SCOUT_SOURCE` (functional dependency / distribution match + Levenshtein similarity $\ge 0.85$) $\to$ `STAGE_04` | `EVO-03` (Renamed Column Alias) | Maps `stg.<new_physical_col> AS <canonical_col>` inside the **Zone 1 Staging View (`stg_*`)**. The Raw Vault Satellite DDL and `hash_diff` formula remain 100% invariant. |
 | **3** | **System / Operational Noise Column** *(e.g., `_fivetran_synced`, `etl_batch_id`, `row_seq_id` absent from ontology)* | `STAGE_01_SCOUT_SOURCE` regex/entropy profile $\to$ `STAGE_03_SHIP_VAULT_PASS1` | `DV-COL-012` (100% Column Accounting) + `SYSTEM_SURROGATE_DROPPED` | Explicitly records the column in `column_triage_ledger` with `elm_classification: "SYSTEM_SURROGATE_DROPPED"` and `target_dv_entity: "DROPPED_SURROGATE"`. Satisfies the 100% column audit rule while excluding the noise column from all Hubs and Satellite `hash_diff` calculations. |
-| **4** | **Unknown Business Key or Orphan Foreign Key** *(Table or FK references an entity completely absent from `Graph A` ontology)* | `STAGE_01` (Gate 0) $\to$ `STAGE_05_AXI_DV_STATIC_GATES` (`Gate 1` `DV-G4-001` / `Gate 3` `DV-STR-*`) | `@toon_v1` `REJECT-WITH-TRACE` ($k \le 3$ self-heal) or `ASK-USER` (`PAUSED_HOLD`) | First emits a `@toon_v1` trace for `@ship-vault` to re-triage against existing `Graph A` concepts ($k=1 \to 2$). If the source genuinely introduces a new business concept not yet in `Graph A` (`urn:ontology:provisional:entity:<slug>`), Gate 1 blocks silent Hub proliferation (`Trap 1`) and either pauses with a **`StewardHoldRecord`** or fails static gates (`WB-07`), prompting the Data Architect to add the new CBC to `graph_a_ontology.yaml`. |
-| **5** | **Unmatched / Ambiguous Entity Extracted from Unstructured Documents** *(e.g., `"Apex Sovereign Co-Invest Vehicle"` in an MSA addendum)* | `STAGE_02_SCOUT_UNSTRUCTURED` (`Algorithm A.9b` 3-Tier Entity Resolution) | `Tier-U3` (`TIER_U3_CAPTAIN_HOLD`, confidence $c < 0.75$ or top-2 margin $\Delta < 0.15$) $\to$ `Rule U1 / U4` | Refuses to guess or silently pollute `hub_customer`. Creates a `StewardHoldRecord` routed according to `steward_hold_policy` (`pause` halts the run for human Steward approval in `WB-03` or `opendv hold approve`; `auto_approve_top_candidate` selects the top match and logs an explicit `AUTO_REPAIRED` audit event). |
+| **4** | **Unknown Business Key or Orphan Foreign Key** *(Table or FK references an entity completely absent from `Graph A` ontology)* | `STAGE_01` (Gate 0) $\to$ `STAGE_05_AXI_DV_STATIC_GATES` (`Gate 1` `DV-G4-001` / `Gate 3` `DV-STR-*`) | `@toon_v1` `REJECT-WITH-TRACE` ($k \le 3$ self-heal) or `ASK-USER` (`PAUSED_HOLD`) | First emits a `@toon_v1` trace for `@ship-vault` to re-triage against existing `Graph A` concepts ($k=1 \to 2$). If the source genuinely introduces a new business concept not yet in `Graph A` (`urn:ontology:provisional:entity:<slug>`), Gate 1 blocks silent Hub proliferation (`Trap 1`) and either pauses with a **`StewardHoldRecord`** or fails static gates, prompting the Data Architect to add the new CBC to `graph_a_ontology.yaml`. |
+| **5** | **Unmatched / Ambiguous Entity Extracted from Unstructured Documents** *(e.g., `"Apex Sovereign Co-Invest Vehicle"` in an MSA addendum)* | `STAGE_02_SCOUT_UNSTRUCTURED` (`Algorithm A.9b` 3-Tier Entity Resolution) | `Tier-U3` (`TIER_U3_CAPTAIN_HOLD`, confidence $c < 0.75$ or top-2 margin $\Delta < 0.15$) $\to$ `Rule U1 / U4` | Refuses to guess or silently pollute `hub_customer`. Creates a `StewardHoldRecord` routed according to `steward_hold_policy` (`pause` halts the run for human Steward approval in the Explorer UI or `opendv hold approve`; `auto_approve_top_candidate` selects the top match and logs an explicit `AUTO_REPAIRED` audit event). |
 
 ---
 
@@ -625,10 +625,10 @@ As a **Data Architect**, you govern the semantic guardrails (`Graph A`) and revi
    - Specify `governance_constraints.pii_confidential_attributes` and `required_satellite_split` so PII columns are automatically isolated into `PII_HIGH` satellites.
    - Define `key_authority_tiers` (`tier_1_global_standard`, `tier_2_enterprise_sor`, `tier_3_local_scoped`) and `bkcc_policy` namespaces (`GLOBAL` vs source-scoped prefixes like `STRIPE_EU` or `LEGACY_GP_ADMIN`).
 2. **Review Wave Topology Diffs & Gate Scorecards:**
-   - Inspect `pipeline_report.md` or open the Web Workbench (`WB-00` Command Center, `WB-02` Bipartite Topology Canvas, `WB-04` 6-Gate Scorecard, and `WB-06` Schema Evolution & Drift Inspector).
+   - Inspect `pipeline_report.md` or open the Explorer UI (Pipeline Overview, Bipartite Topology Canvas, 6-Gate Scorecard, and Schema Evolution & Drift Inspector).
    - Verify that `TIER_3_LOCAL_SCOPED` keys have a valid `system_scoped_bk_justification` and never collide with `TIER_1_GLOBAL_STANDARD` keys in shared Hubs.
 3. **Approve Ontology Additions When Scenario S3 Occurs:**
-   - When a new data source introduces an unmapped concept and halts at Gate 1 (`DV-G4-001` / `WB-07`), decide whether the table belongs to an existing Hub (add a `cbc_mapping_hints` entry) or represents a genuine new enterprise concept (add the new CBC and relationship to `graph_a_ontology.yaml`).
+   - When a new data source introduces an unmapped concept and halts at Gate 1 (`DV-G4-001`), decide whether the table belongs to an existing Hub (add a `cbc_mapping_hints` entry) or represents a genuine new enterprise concept (add the new CBC and relationship to `graph_a_ontology.yaml`).
 
 ---
 
@@ -649,25 +649,25 @@ As a **Data / Analytics Engineer**, you execute onboarding waves, troubleshoot s
 2. **Run Pre-Flight Validation & Incremental Pipeline Waves (`opendv pipeline`):**
    - Always run `opendv pipeline validate` first to catch missing files, column typos (`DECLARED_COLUMNS_MISSING`), or unstructured character-span mismatches (`SPAN_QUOTE_MISMATCH`) in $<1$ second.
    - Run `opendv pipeline run --initial-contract <prev_final_contract.yaml> --output-dir <wave_dir>`.
-3. **Inspect Column Lineage & Hash Formulas (`WB-05` & `final_four_zone.sql`):**
-   - Check `waves/wave_<w>/wave_<w>_pass1_column_triage.json` (or `WB-05` Column Lineage & Hash-Pill Inspector) to verify how every physical source column was routed (`BUSINESS_KEY`, `FOREIGN_KEY_REF`, `OPTIONAL_FOREIGN_KEY_REF`, `DESCRIPTIVE_PAYLOAD`, `PII_RESTRICTED_PAYLOAD`, `SYSTEM_SURROGATE_DROPPED`).
+3. **Inspect Column Lineage & Hash Formulas (`final_four_zone.sql`):**
+   - Check `waves/wave_<w>/wave_<w>_pass1_column_triage.json` (or Column Lineage & Hash-Pill Inspector) to verify how every physical source column was routed (`BUSINESS_KEY`, `FOREIGN_KEY_REF`, `OPTIONAL_FOREIGN_KEY_REF`, `DESCRIPTIVE_PAYLOAD`, `PII_RESTRICTED_PAYLOAD`, `SYSTEM_SURROGATE_DROPPED`).
    - Use `final_four_zone.sql` as your reference blueprint when validating custom dbt macros or debugging hash discrepancies across environments.
 
 ---
 
-### 5.3 Data Stewards (Resolving Captain-Holds via CLI & Web Workbench `WB-03` / `WB-07`)
+### 5.3 Data Stewards (Resolving Captain-Holds via CLI & Explorer UI)
 
 As a **Data Steward**, you are the human-in-the-loop authority whenever `open-dv` encounters ambiguous entity resolution in unstructured documents (`Tier-U3` Captain-Hold, confidence $c < 0.75$ or top-2 margin $\Delta < 0.15$) or ambiguous grain escalations (`Gate 3 / Gate 4` holds).
 
 #### Your Core Workflow:
-1. **Listing Active Captain-Holds via CLI (`opendv hold list`) or Workbench (`WB-03`):**
+1. **Listing Active Captain-Holds via CLI (`opendv hold list`) or Explorer UI:**
    When a pipeline run is executed with `--hold-policy pause` (or `steward_hold_policy: pause` in `harness_config.yaml`), any `Tier-U3` extraction pauses the run with `status: "PAUSED_HOLD"`.
    ```bash
    # List all pending Steward Captain-Holds
    uv run opendv hold list --local --role DATA_STEWARD --json
    ```
 2. **Inspecting Evidence & Candidate Matches:**
-   In Web Workbench View **`WB-03` (Steward Captain-Hold & Entity Resolution Queue)** (or **`WB-07` Unmapped Escalation & Governance Console**), inspect:
+   In Explorer UI (Steward Captain-Hold & Entity Resolution Queue or Unmapped Escalation & Governance Console), inspect:
    - The exact `verbatim_quote` highlighted at `[char_start, char_end]` in the source document.
    - The ranked `candidate_hub_matches` (with similarity scores and top-2 margin $\Delta = s_1 - s_2$).
 3. **Approving, Rejecting, or Answering a Hold (`opendv hold approve | reject | answer`):**
@@ -712,7 +712,7 @@ Check both the process exit code and the top-level JSON `status` / `verdict` fie
 | **`0`** | `PASS` / `COMPLETED` | All static gates (`G0`–`G5`) and dynamic sandbox batches (`Batches 1–4`, `DV-DYN-001..015`) passed (or `PAUSED_HOLD` cleanly persisted when `--hold-policy pause` is active). | Proceed to consume `final_contract.yaml` and `final_canonical_ir.json` (or notify Steward if `status == "PAUSED_HOLD"`). |
 | **`1`** *(Normative `10`)* | `REJECT_WITH_TRACE` / `FAILED_STATIC_GATES` | One or more static gates (`G0`–`G4`: schema, grain, BKCC authority, SQLGlot AST, NetworkX DAG, or YAGNI guard) failed. | Read `diagnostics[]` or `toon_text` (`@toon_v1`) and repair the candidate contract within the retry budget (`max_schema_validation_retries <= 3`). **Never bypass the gate.** |
 | **`1`** *(Normative `20` / `21`)* | `FAILED_EVOLUTION_LOCK` (`DV-EVO-001..008`) / `FAILED_DYNAMIC_SANDBOX` (`DV-DYN-001..015`) | Breaking mutation against `--initial-contract` (`Algorithm A.7`) or runtime failure in the 4-Batch DuckDB Shadow Sandbox (`STAGE_06`). | Restore dropped/mutated baseline entities (`DV-EVO-*`) or fix grain/FK mappings causing runtime duplicates/orphans (`DV-DYN-*`). If intentional grain shift is required, escalate to human Architect. |
-| **`0` / `1`** *(Normative `30`)* | `ASK_USER` / `PAUSED_HOLD` | Ambiguous `Tier-U3` entity resolution or `unmapped_escalations` requiring human Steward or Architect decision. | Do **not** hallucinate a resolution. Surface the `StewardHoldRecord` (`hold_id`, `verbatim_quote`, `candidate_hub_matches`) to the human via `opendv hold` or `WB-03` / `WB-07`. |
+| **`0` / `1`** *(Normative `30`)* | `ASK_USER` / `PAUSED_HOLD` | Ambiguous `Tier-U3` entity resolution or `unmapped_escalations` requiring human Steward or Architect decision. | Do **not** hallucinate a resolution. Surface the `StewardHoldRecord` (`hold_id`, `verbatim_quote`, `candidate_hub_matches`) to the human via `opendv hold` or the Explorer UI. |
 | **`2`** *(Normative `40`)* | `ERROR` / `PREFLIGHT_FAILED` | Invalid CLI arguments, missing input files, path traversal attempt, or harness credential failure (`HARNESS_AUTH_MISSING`, `HARNESS_PROVIDER_UNAVAILABLE`). | Inspect `validation_errors[]` / `detail` in the JSON output and fix the input file path or environment variable configuration. |
 
 #### 3. Anti-Reward-Hacking Boundaries (Hard Rules for Orchestration Agents):
@@ -754,6 +754,6 @@ If you are a **Core Contributor Agent** implementing bug fixes (such as the reme
      # Run Python unit, package, and end-to-end normative specification tests
      uv run pytest -v
 
-     # Run TypeScript Protocol SDK and 12-View Web Workbench tests
+     # Run TypeScript Protocol SDK and 3-Level Explorer Web Workbench tests
      bun test
      ```

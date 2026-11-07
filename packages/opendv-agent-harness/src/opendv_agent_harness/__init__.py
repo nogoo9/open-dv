@@ -45,8 +45,6 @@ from opendv_agent_harness.models import (
     SandboxPolicy,
     SubagentSpec,
     ToolExecutionContext,
-    VizId,
-    WorkbenchViewId,
 )
 from opendv_agent_harness.personas import (
     SCOUT_SOURCE_SYSTEM_INSTRUCTIONS,
@@ -226,8 +224,6 @@ __all__ = [
     "SubagentSpec",
     "ToolExecutionContext",
     "VaultAgentHarness",
-    "VizId",
-    "WorkbenchViewId",
     "__version__",
     "build_claude_sdk_mcp_bundle",
     "build_default_domain_tool_map",

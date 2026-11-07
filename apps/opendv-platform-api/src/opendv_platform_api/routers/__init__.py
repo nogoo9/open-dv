@@ -13,7 +13,6 @@ from opendv_platform_api.routers import (
     runs,
     sandbox,
     verify,
-    workbench,
 )
 
 __all__ = [
@@ -29,5 +28,4 @@ __all__ = [
     "runs",
     "sandbox",
     "verify",
-    "workbench",
 ]

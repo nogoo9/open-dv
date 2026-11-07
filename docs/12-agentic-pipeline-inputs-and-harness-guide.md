@@ -320,7 +320,7 @@ The pipeline input file (`pipeline_input.yaml`, `wave0_cold_start.yaml`..`wave3_
 | `pipeline_id` | `str` | **Yes** | — | Unique identifier for the pipeline definition (e.g., `"pipe-global-commerce-vault-v1"`). |
 | `project_id` | `str` | **Yes** | — | Platform project identifier owning the run (e.g., `"proj-global-commerce-001"`). |
 | `run_id` | `str \| null` | No | Auto-generated (`run-<10-hex>`) | Optional explicit run identifier for deterministic replay and idempotent ledger correlation. |
-| `display_name` | `str` | No | `"Open-DV Agentic Pipeline Run"` | Human-readable title rendered at the top of `pipeline_report.md` and in the `WB-00` Web Workbench Command Center. |
+| `display_name` | `str` | No | `"Open-DV Agentic Pipeline Run"` | Human-readable title rendered at the top of `pipeline_report.md` and in the Explorer Web Workbench. |
 | `domain_namespace` | `str` | No | `"general"` | Enterprise governance domain namespace (normalized to lowercase `snake_case`, e.g., `"global_commerce"`). Must match or align with the ontology namespace. |
 | `graph_a_ontology_path` | `str` | **Yes** | — | Path to the Enterprise Core Business Concept (CBC) `GraphAOntology` YAML/JSON file, resolved relative to `base_dir` (the directory containing `pipeline_input.yaml`) or the workspace root. Path traversal (`..`) is strictly forbidden. |
 | `initial_contract_path` | `str \| null` | No | `null` | Optional path to an existing production `NoMistakeDataVault2ContractV5` YAML/JSON file (e.g., the previous CLI run's `final_contract.yaml`), which can also be supplied via the `--initial-contract` CLI flag or REST API `initial_contract_path` payload field. When provided, the pipeline seeds its baseline `NoMistakeDataVault2ContractV5` and `GraphBProfile` from this deployed contract, transitions Wave 0 to `lifecycle_stage: "MULTI_SOURCE_EXPANSION"`, resolves cross-call foreign keys against existing Hubs, detects intra-source schema drift (`Algorithm A.9a`), and enforces `Algorithm A.7` additive evolution locks against it (see §3.2–§3.3). |
@@ -583,7 +583,7 @@ After all waves complete and `STAGE_07_DETERMINISTIC_COMPILER` materializes the 
 | `final_artifacts` | `dict[str, PipelineArtifactRef]` | Keyed dictionary of final sealed deliverables (`final_contract`, `final_canonical_ir`, `final_four_zone_sql`, `vault_ledger_jsonl`, `pipeline_report_md`, `pipeline_report_json`). |
 | `active_holds` | `list[dict[str, Any]]` | Currently pending `StewardHoldRecord` items (non-empty when `status == "PAUSED_HOLD"`). |
 | `resolved_holds` | `list[dict[str, Any]]` | Resolved `StewardHoldRecord` items (e.g., `Tier-U3` holds auto-approved or manually resolved). |
-| `observability_events` | `list[dict[str, Any]]` | Redacted, schema-valid `VaultObservabilityEvent` records emitted across Workbench views `WB-00` through `WB-11`. |
+| `observability_events` | `list[dict[str, Any]]` | Redacted, schema-valid `VaultObservabilityEvent` records emitted across pipeline execution. |
 | `markdown_summary` | `str` | Complete human-readable Markdown report (also written to `<output_dir>/pipeline_report.md`). |
 
 ---
@@ -607,7 +607,7 @@ Every pipeline run materializes a self-contained, cryptographically verifiable d
 | `final_contract.yaml` | `final_artifacts["final_contract"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/x-yaml` | Final verified cumulative Data Vault 2.0 Model Contract (`v5.0`). |
 | `final_canonical_ir.json` | `final_artifacts["final_canonical_ir"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/json` | Final lowered Canonical IR (`v1.0.0`). |
 | `final_four_zone.sql` | `final_artifacts["final_four_zone_sql"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/sql` | Final compiled 4-Zone DuckDB SQL bundle. |
-| `vault-ledger.jsonl` | `final_artifacts["vault_ledger_jsonl"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/x-ndjson` | Append-only JSONL ledger of RBAC-redacted `VaultObservabilityEvent` records (`WB-00..WB-11`). |
+| `vault-ledger.jsonl` | `final_artifacts["vault_ledger_jsonl"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/x-ndjson` | Append-only JSONL ledger of RBAC-redacted `VaultObservabilityEvent` records. |
 | `pipeline_report.md` | `final_artifacts["pipeline_report_md"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `text/markdown` | Human-readable Markdown summary report with validation tables, wave progression, step ledger, and SHA-256 artifact manifest. |
 | `pipeline_report.json` | `final_artifacts["pipeline_report_json"]` | `STAGE_07_DETERMINISTIC_COMPILER` | `application/json` | Full serialized `AgenticPipelineReport` JSON document. |
 | `cas/<sha256>` | Content-Addressable Store | All stages | Binary / UTF-8 | Immutable SHA-256 content-addressable blobs backing every intermediate and final artifact. |
