@@ -21,7 +21,7 @@ For any valid operation $O \in \{\text{verify}, \text{profile}, \text{compile}, 
 $$\text{JCS}(\text{Normalize}(T_{\text{STANDALONE}}(O, I))) \equiv \text{JCS}(\text{Normalize}(T_{\text{CLIENT}}(O, I))) \equiv \text{JCS}(\text{Normalize}(T_{\text{REST}}(O, I)))$$
 
 where:
-- **RFC 8785 JSON Canonicalization Scheme (JCS)** produces bit-for-bit identical serialization (`sort_keys=True`, deterministic floating-point formatting, LF line-endings).
+- **RFC 8785 JSON Canonicalization Scheme (JCS)** produces bit-for-bit identical serialization conforming strictly to RFC 8785 §3.2.2–3.2.3: object member keys sorted by UTF-16 code units (lexicographical UTF-16 order), IEEE 754 floating-point numbers formatted per ECMAScript specification without exponential notation where unneeded, rejection of NaN/Infinity, integer range bounded within $[-(2^{53}-1), 2^{53}-1]$, and zero insignificant whitespace (no inter-token whitespace or line breaks).
 - **Normalization** redacts volatile execution metadata (e.g. wall-clock timestamps, temporary CAS directory paths) while strictly verifying all deterministic outputs, gate scorecards, AST DDLs, hash pills, and DAG load orders.
 - **Exit Code Equality**: If $T_{\text{STANDALONE}}$ exits with code $C$, then $T_{\text{CLIENT}}$ must exit with code $C$, and $T_{\text{REST}}$ must return the corresponding HTTP status code mapping ($0 \implies 200$, $10 \implies 422$, $20 \implies 409$, $30 \implies 200 \text{ PAUSED}$, $40 \implies 400$).
 - **Identical Error Diagnostics**: In failure modes, all three transports must emit matching error codes, field JSON paths, and `@toon_v1` remediation traces.

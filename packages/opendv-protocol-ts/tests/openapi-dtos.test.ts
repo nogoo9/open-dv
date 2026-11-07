@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
-import path from "node:path";
+import * as path from "node:path";
 import type {
 	AcceptOntologyDeltaOption,
 	AddConceptOp,
@@ -86,11 +86,15 @@ describe("OpenAPI 3.1 & TypeScript SDK Synchronization (Task P10.1 / Issue #121)
 
 	it("validates typed CaptainHoldDecisionRequest with ontology hold_option", () => {
 		const acceptOption: AcceptOntologyDeltaOption = {
-			kind: "accept_proposal",
-			delta_id: "delta-w0-01",
-			parent_sha256: "0".repeat(64),
-			apply_on_resume: true,
-			reopen_decision_ids: ["dec-01"],
+			kind: "accept_ontology_delta",
+			delta: {
+				delta_id: "delta-w0-01",
+				base_ontology_version: "1.0.0",
+				target_ontology_version: "1.1.0",
+				operations: [],
+			},
+			delta_sha256: "0".repeat(64),
+			steward_note: "Accepted ontology proposal delta",
 		};
 
 		const requestWithHoldOption: CaptainHoldDecisionRequest = {
@@ -107,19 +111,20 @@ describe("OpenAPI 3.1 & TypeScript SDK Synchronization (Task P10.1 / Issue #121)
 		};
 
 		expect(requestWithHoldOption.action).toBe("APPROVE");
-		expect(requestWithHoldOption.hold_option?.kind).toBe("accept_proposal");
+		expect(requestWithHoldOption.hold_option?.kind).toBe("accept_ontology_delta");
 	});
 
 	it("validates typed CaptainHoldDecisionResponse structure", () => {
 		const response: CaptainHoldDecisionResponse = {
-			decision_id: "dec-01",
-			status: "ACCEPTED",
-			resumed_run_id: "run-01",
-			next_stage_id: "STAGE_02_SHIP_VAULT_PASS1",
-			next_event_id: "evt-resumed-01",
 			action: "APPROVE",
+			decision_id: "dec-01",
 			hold_id: "hold-01",
+			next_event_id: "evt-resumed-01",
+			next_stage_id: "STAGE_02_SHIP_VAULT_PASS1",
 			resolved_at_utc: "2026-11-07T09:00:00Z",
+			resumed_run_id: "run-01",
+			status: "ACCEPTED",
+			updated_run_status: "RUNNING",
 		};
 
 		expect(response.status).toBe("ACCEPTED");
@@ -139,6 +144,10 @@ describe("OpenAPI 3.1 & TypeScript SDK Synchronization (Task P10.1 / Issue #121)
 			harness_provider: "antigravity",
 			initial_contract: "contract_v5: true\n",
 			wave_id: "W0",
+			assertion_cutoff_ts: "2026-11-07T09:00:00Z",
+			execute_duckdb_sandbox: true,
+			max_repair_retries: 3,
+			run_sandbox_batches: true,
 		};
 		expect(createRun.wave_id).toBe("W0");
 
@@ -146,34 +155,43 @@ describe("OpenAPI 3.1 & TypeScript SDK Synchronization (Task P10.1 / Issue #121)
 			run_id: "run-01",
 			status: "RUNNING",
 			created_at_utc: "2026-11-07T09:00:00Z",
+			event_stream_url: "/api/v1/runs/run-01/events",
 			events_sse_url: "/api/v1/runs/run-01/events",
 			status_url: "/api/v1/runs/run-01",
+			has_initial_contract: true,
+			lifecycle_stage: "STAGE_01_RAW_SCHEMA_DISCOVERY",
 		};
 		expect(runHandle.status).toBe("RUNNING");
 	});
 
 	it("validates typed ontology recommendation and delta DTOs", () => {
 		const addConcept: AddConceptOp = {
-			op: "add_concept",
+			op_id: "op-01",
+			op_type: "add_concept",
 			concept_name: "customer_loyalty",
+			concept_uri: "urn:opendv:concept:customer_loyalty",
+			confidence: 0.95,
 			definition: "Customer loyalty program member metrics",
-			business_keys: ["customer_id", "program_id"],
+			description: "Customer loyalty program member metrics",
+			elm_archetype: "CONCEPT",
+			rationale: "Discovered from bronze sources",
 		};
-		expect(addConcept.op).toBe("add_concept");
+		expect(addConcept.concept_name).toBe("customer_loyalty");
 
 		const delta: OntologyDelta = {
 			delta_id: "delta-01",
+			base_ontology_version: "1.0.0",
+			target_ontology_version: "1.1.0",
+			operations: [addConcept],
 			parent_sha256: "a".repeat(64),
-			additions: [addConcept],
-			decision_refs: ["dec-01"],
 		};
-		expect(delta.additions.length).toBe(1);
+		expect(delta.operations?.length).toBe(1);
 
 		const diffReq: OntologyDiffRequest = {
-			base_ontology_yaml: "version: 1.0.0\n",
-			delta,
+			base_ontology_content: "version: 1.0.0\n",
+			target_ontology_content: "version: 1.1.0\n",
 		};
-		expect(diffReq.delta.delta_id).toBe("delta-01");
+		expect(diffReq.base_ontology_content).toBe("version: 1.0.0\n");
 	});
 
 	it("validates typed Explorer bundle component DTOs", () => {
@@ -183,7 +201,7 @@ describe("OpenAPI 3.1 & TypeScript SDK Synchronization (Task P10.1 / Issue #121)
 			writes: ["raw_vault.hub_customer"],
 			desc: "Extracts business keys and loads Hub",
 		};
-		expect(step.reads.length).toBe(2);
+		expect(step.reads?.length).toBe(2);
 
 		const phase: PhaseSpecDTO = {
 			index: 0,

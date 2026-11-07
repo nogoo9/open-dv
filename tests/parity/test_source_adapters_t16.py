@@ -270,6 +270,12 @@ def test_document_extraction_equivalence_and_page_map() -> None:
     pdf_spec = SourceSpec(adapter="pdf", uri="enterprise_msa_addendum_2026.pdf")
     crlf_spec = SourceSpec(adapter="text", uri="enterprise_msa_addendum_2026_crlf.txt")
 
+    # 0. Pinned SHA-256 for committed PDF fixture (REQ-SRC-01/02, §7.7 item 10)
+    pdf_path = SRC_MATRIX_DIR / "enterprise_msa_addendum_2026.pdf"
+    assert hashlib.sha256(pdf_path.read_bytes()).hexdigest() == (
+        "dc2d57a5ca1981b7786c7745492154df49d14b21c03374defc1b0d01bf334b63"
+    )
+
     doc_txt = text_adapter.extract_document(txt_spec)
     doc_pdf = pdf_adapter.extract_document(pdf_spec)
     doc_crlf = text_adapter.extract_document(crlf_spec)

@@ -360,11 +360,12 @@ export async function executeResolveStewardHold(
 	const { holdId, action, selectedCandidateId, resolutionNotes, eventId, fetchImpl } = params;
 	const currentRunId = get().bundle.runId;
 	const req: CaptainHoldDecisionRequest = {
-		event_id: eventId ?? undefined,
+		event_id: eventId ?? null,
 		hold_id: holdId,
 		decision_type: "RESOLVE_CAPTAIN_HOLD",
 		action,
-		selected_candidate_id: selectedCandidateId ?? undefined,
+		steward_id: "steward-captain",
+		selected_candidate_id: selectedCandidateId ?? null,
 		resolution_notes:
 			resolutionNotes ??
 			(action === "APPROVE"

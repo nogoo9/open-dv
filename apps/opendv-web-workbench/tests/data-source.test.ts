@@ -177,9 +177,11 @@ describe("ExplorerDataSource SPI & Live REST/SSE Data Source", () => {
 
 		// 5. submitDecision
 		const decisionReq: CaptainHoldDecisionRequest = {
+			decision_type: "RESOLVE_CAPTAIN_HOLD",
 			event_id: "evt-001",
 			hold_id: "hold-001",
 			action: "APPROVE",
+			steward_id: "steward-captain",
 			selected_candidate_id: "CAND_01",
 		};
 		const decisionResp = await liveDs.submitDecision(

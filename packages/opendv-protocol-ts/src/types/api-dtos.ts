@@ -27,43 +27,12 @@ export type CreateProjectRequest =
 	components["schemas"]["CreateProjectRequest"];
 export type CreateRunRequest = components["schemas"]["CreateRunRequest"];
 export type ProjectRunDTO = components["schemas"]["ProjectRunDTO"];
-export type RawCaptainHoldDecisionRequest =
+export type CaptainHoldDecisionRequest =
 	components["schemas"]["CaptainHoldDecisionRequest"];
-export type RawCaptainHoldDecisionResponse =
+export type CaptainHoldDecisionResponse =
 	components["schemas"]["CaptainHoldDecisionResponse"];
-
-export interface CaptainHoldDecisionRequest {
-	action: "APPROVE" | "REJECT" | "ANSWER";
-	decision?: ("APPROVE" | "REJECT" | "ANSWER") | null | undefined;
-	decision_type?: "RESOLVE_CAPTAIN_HOLD" | undefined;
-	event_id?: string | null | undefined;
-	hold_id?: string | null | undefined;
-	resolution_notes?: string | null | undefined;
-	selected_candidate_id?: string | null | undefined;
-	steward_id?: string | undefined;
-	steward_rationale?: string | null | undefined;
-	hold_option?:
-		| components["schemas"]["AcceptOntologyDeltaOption"]
-		| components["schemas"]["RejectOntologyDeltaOption"]
-		| components["schemas"]["CustomOntologyDeltaOption"]
-		| components["schemas"]["GeneralHoldOption"]
-		| null
-		| undefined;
-}
-
-export interface CaptainHoldDecisionResponse {
-	decision_id: string;
-	status: "ACCEPTED" | "REJECTED";
-	resumed_run_id: string;
-	next_stage_id: string;
-	next_event_id: string;
-	action?: string | undefined;
-	hold_id?: string | undefined;
-	resolved_at_utc?: string | undefined;
-	updated_run_status?:
-		| components["schemas"]["opendv_service__models__RunStatus"]
-		| undefined;
-}
+export type RawCaptainHoldDecisionRequest = CaptainHoldDecisionRequest;
+export type RawCaptainHoldDecisionResponse = CaptainHoldDecisionResponse;
 export type SandboxExecutionResponse =
 	components["schemas"]["SandboxExecutionResponse"];
 export type GateScorecardSummary =

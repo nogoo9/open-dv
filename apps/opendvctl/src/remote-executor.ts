@@ -460,13 +460,14 @@ export class RemoteExecutor {
 
 					payload = await this.client.submitDecision(runId, {
 						action,
-						hold_id: enrichedOptions.hold_id as string | undefined,
-						selected_candidate_id: enrichedOptions.selected_candidate_id as
-							| string
-							| undefined,
-						resolution_notes: enrichedOptions.resolution_notes as
-							| string
-							| undefined,
+						decision_type: "RESOLVE_CAPTAIN_HOLD",
+						steward_id: "steward-captain",
+						hold_id: (enrichedOptions.hold_id as string | undefined) ?? null,
+						selected_candidate_id:
+							(enrichedOptions.selected_candidate_id as string | undefined) ??
+							null,
+						resolution_notes:
+							(enrichedOptions.resolution_notes as string | undefined) ?? null,
 					});
 				} else {
 					throw new CliDomainError(

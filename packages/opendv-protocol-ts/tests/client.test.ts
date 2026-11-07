@@ -245,9 +245,13 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 				return new Response(
 					JSON.stringify({
 						run_id: "run-async-202",
-						status: "accepted",
+						status: "RUNNING",
 						status_url: "/api/v1/runs/run-async-202",
 						events_sse_url: "/api/v1/runs/run-async-202/events",
+						has_initial_contract: false,
+						event_stream_url: "/api/v1/runs/run-async-202/events",
+						lifecycle_stage: "STAGE_01_RAW_SCHEMA_DISCOVERY",
+						created_at_utc: new Date().toISOString(),
 					}),
 					{ status: 202 },
 				);
@@ -291,6 +295,7 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 			hold_id: "hold-tier-u3-horizon-sovereign-vehicle",
 			decision_type: "RESOLVE_CAPTAIN_HOLD",
 			action: "APPROVE",
+			steward_id: "steward-captain",
 			selected_candidate_id: "APEX_CO_I",
 			resolution_notes: "Confirmed with LPAC counsel.",
 		});
@@ -311,9 +316,10 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 			input_spec_path:
 				"examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml",
 			steward_hold_policy: "pause",
+			dry_run: false,
 		});
 		expect(pipelineRunHandle.run_id).toBe("run-async-202");
-		expect(pipelineRunHandle.status).toBe("accepted");
+		expect(pipelineRunHandle.status).toBe("RUNNING");
 
 		expect(client.getRun("missing-run")).rejects.toThrow("HTTP 404");
 		expect(requests.length).toBeGreaterThanOrEqual(11);

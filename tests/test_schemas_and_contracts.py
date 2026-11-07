@@ -200,14 +200,14 @@ def test_expected_schema_inventory_present() -> None:
 
 def test_openapi_v1_specification_drift_free() -> None:
     """Assert openapi-v1.json matches FastAPI app.openapi() export byte-for-byte with zero drift."""
-    from opendv_platform_api.export_openapi import generate_openapi_spec
+    from opendv_platform_api.export_openapi import generate_openapi_spec, render_openapi_spec
 
     openapi_path = SCHEMAS_DIR / "openapi-v1.json"
     assert openapi_path.exists(), f"Missing OpenAPI spec at {openapi_path}"
 
     on_disk_raw = openapi_path.read_text(encoding="utf-8")
+    rendered_expected = render_openapi_spec()
     generated_spec = generate_openapi_spec()
-    rendered_expected = json.dumps(generated_spec, indent=2, sort_keys=True) + "\n"
 
     # Normalize line endings for cross-platform assertion
     assert on_disk_raw.replace("\r\n", "\n") == rendered_expected.replace("\r\n", "\n")
