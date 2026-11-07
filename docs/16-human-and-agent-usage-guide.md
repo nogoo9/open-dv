@@ -9,6 +9,7 @@
 ## Table of Contents
 
 1. [Executive Summary: How Does `open-dv` Fit Into Your Data Stack?](#1-executive-summary-how-does-open-dv-fit-into-your-data-stack)
+   - [1.1 The Two-CLI Architecture: In-Process Engine (`opendv`) vs Platform Client (`opendvctl`)](#11-the-two-cli-architecture-in-process-engine-opendv-vs-platform-client-opendvctl)
 2. [Operating Mode Matrix & The Role of the SQL Bundle (`final_four_zone.sql`)](#2-operating-mode-matrix--the-role-of-the-sql-bundle-final_four_zonesql)
    - [2.1 The Three Operating Modes (`Mode A`, `Mode B`, `Mode C`)](#21-the-three-operating-modes-mode-a-mode-b-mode-c)
    - [2.2 Answering the Core Question: "If I Only Want DV 2.0 Modelling for My Production Warehouse, Is the SQL Bundle Needed?"](#22-answering-the-core-question-if-i-only-want-dv-20-modelling-for-my-production-warehouse-is-the-sql-bundle-needed)
@@ -44,6 +45,19 @@ When teams adopt **`open-dv`**, their primary pain point is **Data Vault 2.0 arc
 
 `open-dv` is designed with a strict **Intermediate Representation (IR)-First Architecture** specifically to serve this workflow. You can use `open-dv` purely as your **neuro-symbolic DV 2.0 modelling, evolution, and certification engine**, exporting target-agnostic contracts (`final_contract.yaml` and `final_canonical_ir.json`) directly into your production warehouse tooling.
 
+### 1.1 The Two-CLI Architecture: In-Process Engine (`opendv`) vs Platform Client (`opendvctl`)
+
+`open-dv` provides two distinct, contract-identical command-line interfaces generated from the canonical machine-readable specification in [`packages/opendv-contracts/schemas/cli-spec.json`](../packages/opendv-contracts/schemas/cli-spec.json):
+
+| Feature / Dimension | **In-Process Engine: `opendv`** (`apps/opendv-cli`) | **Platform Client: `opendvctl`** (`apps/opendvctl`) |
+| :--- | :--- | :--- |
+| **Runtime & Binary** | Python 3.12+ package executed via `uv run opendv` or direct console script. | Bun-compiled standalone binary (zero Python or Node runtime needed on the client). |
+| **Execution Architecture** | In-process execution: directly invokes the shared application core in `opendv_service` within the local Python process. | Remote client: communicates over HTTP/SSE with an `opendv-platform-api` server via `--api-url <url>` (default `http://localhost:8000`). |
+| **Target Use Cases** | Air-gapped environments, standalone pipelines, local developer iterations, deterministic CI/CD runners, and headless serverless workers. | Shared data engineering teams, CI/CD runners dispatching to platform services, enterprise environments requiring role-based access control, and Explorer UI. |
+| **Pluggable Sources** | Resolves local and server-side files directly from the execution host (`server_resolved`). | Automatically detects local files and uploads them inline (`client_uploadable`) via multipart stream to the platform service. |
+| **Subcommands & Flags** | `verify`, `profile`, `compile`, `sandbox`, `run`, `hold`, `pipeline`, `ontology` | Identical: `verify`, `profile`, `compile`, `sandbox`, `run`, `hold`, `pipeline`, `ontology` |
+| **Output Parity** | RFC 8785 canonical JSON (`--json`), Token-Oriented Object Notation (`--toon`), and identical exit codes. | Identical RFC 8785 canonical JSON (`--json`), `@toon_v1` (`--toon`), and identical exit codes. |
+
 ---
 
 ## 2. Operating Mode Matrix & The Role of the SQL Bundle (`final_four_zone.sql`)
@@ -55,8 +69,8 @@ Depending on your goal, `open-dv` supports three distinct operating modes:
 | Dimension | **Mode A: Target-Agnostic DV 2.0 Modelling & Evolution Engine** *(Most Common Enterprise Mode)* | **Mode B: Standalone Symbolic Verifier & CI/CD Quality Gate** *(Zero-LLM Mode)* | **Mode C: End-to-End Local / DuckDB Reference Execution** *(Prototyping & Lakehouse Mode)* |
 | :--- | :--- | :--- | :--- |
 | **Primary Goal** | Automatically model Day-1 sources ($N=1$) and periodically onboard new sources ($N \to N+1$) or schema drift ($S_k(t) \to S_k(t+1)$), then implement the verified model in **dbt / AutomateDV / Snowflake / Databricks / BigQuery / SQLMesh**. | Deterministically verify hand-authored or externally generated DV 2.0 contracts in CI/CD pull requests against enterprise ontologies (`Graph A`), empirical data profiles (`Graph B`), and prior production contracts. | Run the complete 8-stage pipeline and execute the generated 4-Zone SQL directly inside DuckDB for local prototyping, education, or DuckDB/MotherDuck data lakes. |
-| **Primary Commands** | `opendv pipeline validate`<br>`opendv pipeline run --initial-contract ...` | `opendv profile`<br>`opendv verify --toon`<br>`opendv sandbox` | `opendv pipeline run`<br>`opendv compile`<br>`opendv sandbox` |
-| **LLM Harness Required?** | **Yes** (`agy`, `claude-cli`, `antigravity`, or `claude`). | **No** (`--local` runs 100% deterministically with zero LLM tokens). | **Yes** for `pipeline run`; **No** for standalone `compile` / `sandbox`. |
+| **Primary Commands** | `opendv pipeline validate`<br>`opendv pipeline run --initial-contract ...`<br>*(or `opendvctl pipeline run --api-url ...`)* | `opendv profile`<br>`opendv verify --toon`<br>`opendv sandbox`<br>*(or `opendvctl verify --api-url ...`)* | `opendv pipeline run`<br>`opendv compile`<br>`opendv sandbox` |
+| **LLM Harness Required?** | **Yes** (`agy`, `claude-cli`, `antigravity`, or `claude`). | **No** (runs 100% deterministically with zero LLM tokens). | **Yes** for `pipeline run`; **No** for standalone `compile` / `sandbox`. |
 | **Primary Output Artifacts You Consume** | 1. **`final_contract.yaml`** (`NoMistakeDataVault2ContractV5` — stored in Git as your versioned architectural source of truth and passed as `--initial-contract` on the next wave)<br>2. **`final_canonical_ir.json`** (`CanonicalIR` — machine-readable AST fed into your dbt/Snowflake/Databricks code generator) | 1. **Gate Scorecard JSON / `@toon_v1` Trace**<br>2. **Process Exit Code** (blocks non-compliant PRs in GitHub Actions / GitLab CI) | 1. **`final_four_zone.sql`** (Zones 0–4 DuckDB DDL, Staging Views, Raw Vault DML, Business Vault PIT/Bridge, and Bi-Temporal PIT queries)<br>2. **`final_contract.yaml` & `pipeline_report.md`** |
 | **Is `final_four_zone.sql` Deployed to Production?** | **No.** Your production warehouse executes its own native SQL / dbt macros generated from `final_canonical_ir.json` or `final_contract.yaml`. | **No** (used only transiently inside the ephemeral `:memory:` DuckDB sandbox during Gate 5 verification). | **Yes** (executed directly in DuckDB / MotherDuck). |
 
@@ -173,27 +187,58 @@ waves:
       - source_system: "crm_salesforce"
         table_name: "crm_customers"
         data_path: "sources/wave0_cold_start/crm_customers.csv"
+        # Pluggable source adapter specification (REQ-SRC-01/02):
+        source:
+          adapter: "file"
+          uri: "sources/wave0_cold_start/crm_customers.csv"
+          format: "csv"
+          options:
+            delimiter: ","
+            header: true
       - source_system: "erp_netsuite"
         table_name: "erp_orders"
         data_path: "sources/wave0_cold_start/erp_orders.csv"
+        source:
+          adapter: "file"
+          uri: "sources/wave0_cold_start/erp_orders.csv"
+          format: "csv"
 ```
+
+> [!NOTE]
+> **Pluggable Sources & Transport Modes (`client_uploadable` vs `server_resolved`):**
+> `open-dv` supports both legacy `data_path` and explicit `source:` blocks (`adapter: "file" | "duckdb_attach" | "text" | "pdf"`).
+> When using `opendvctl` against a remote platform API, local file paths are marked `client_uploadable` and streamed automatically as an inline multipart upload archive. When using `opendv` standalone in-process, or when specifying remote database connections, URIs are `server_resolved` directly by the execution engine.
 
 #### Execute Wave 0 Validation & Modelling Run:
 
 ```bash
 # Step 1: Deterministic pre-flight validation (zero LLM tokens)
+# Standalone in-process engine:
 uv run opendv pipeline validate \
   --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
   --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
   --json
 
+# Or remote platform client:
+opendvctl pipeline validate \
+  --api-url http://localhost:8000 \
+  --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
+  --json
+
 # Step 2: Execute the 8-stage neuro-symbolic pipeline for Wave 0
+# Standalone in-process engine:
 uv run opendv pipeline run \
-  --local \
   --stream \
   --role INTERNAL_MODELER \
   --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
   --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
+  --output-dir ./releases/wave0
+
+# Or remote platform client:
+opendvctl pipeline run \
+  --api-url http://localhost:8000 \
+  --role INTERNAL_MODELER \
+  --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml \
   --output-dir ./releases/wave0
 ```
 
@@ -241,6 +286,7 @@ waves:
 
 ```bash
 # Validate Wave 1 against Wave 0's verified contract
+# Standalone in-process:
 uv run opendv pipeline validate \
   --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml \
   --initial-contract ./releases/wave0/final_contract.yaml \
@@ -248,14 +294,17 @@ uv run opendv pipeline validate \
   --json
 
 # Run Wave 1 incremental evolution
+# Standalone in-process:
 uv run opendv pipeline run \
-  --local \
   --stream \
   --role INTERNAL_MODELER \
   --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml \
   --initial-contract ./releases/wave0/final_contract.yaml \
   --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml \
   --output-dir ./releases/wave1
+
+# Or remote platform client:
+# opendvctl pipeline run --api-url http://localhost:8000 --role INTERNAL_MODELER --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml --initial-contract ./releases/wave0/final_contract.yaml --output-dir ./releases/wave1
 ```
 
 #### What `--initial-contract` Guarantees (`Algorithm A.7` Additive Evolution Lock):
@@ -300,8 +349,8 @@ waves:
 ```
 
 ```bash
+# Standalone in-process:
 uv run opendv pipeline run \
-  --local \
   --stream \
   --role INTERNAL_MODELER \
   --input examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml \
@@ -329,8 +378,8 @@ Whenever a live source feed contains columns that are added, renamed, dropped, o
 When you want to link unstructured documents (Master Services Agreements, side letters, investment memos) to your existing relational Hubs (`Wave 3` — [`wave3_unstructured_msa.yaml`](../examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml)):
 
 ```bash
+# Standalone in-process:
 uv run opendv pipeline run \
-  --local \
   --stream \
   --role INTERNAL_MODELER \
   --input examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml \
@@ -629,6 +678,35 @@ As a **Data Architect**, you govern the semantic guardrails (`Graph A`) and revi
    - Verify that `TIER_3_LOCAL_SCOPED` keys have a valid `system_scoped_bk_justification` and never collide with `TIER_1_GLOBAL_STANDARD` keys in shared Hubs.
 3. **Approve Ontology Additions When Scenario S3 Occurs:**
    - When a new data source introduces an unmapped concept and halts at Gate 1 (`DV-G4-001`), decide whether the table belongs to an existing Hub (add a `cbc_mapping_hints` entry) or represents a genuine new enterprise concept (add the new CBC and relationship to `graph_a_ontology.yaml`).
+4. **Govern Ontology Mutations via Decision-Gated CLI Commands (`opendv ontology` / `opendvctl ontology`):**
+   - In accordance with `FR-DOM-06` and `REQ-ONT-01/02`, recommenders (LLM or heuristic) produce proposals only; human Architects or Stewards retain sole authority to accept deltas.
+   ```bash
+   # Step A: Generate recommended concept proposals for a domain (zero silent mutation)
+   uv run opendv ontology suggest \
+     --mode BOOTSTRAP \
+     --domain-namespace global_commerce \
+     --json
+
+   # Step B: Validate candidate delta against base Graph A ontology and anti-silo invariants
+   uv run opendv ontology validate-delta \
+     --base ontology/commerce_graph_a_ontology.yaml \
+     --delta delta_proposal.json \
+     --json
+
+   # Step C: Inspect semantic and structural diff (additions, modifications, deprecations)
+   uv run opendv ontology diff \
+     --base ontology/commerce_graph_a_ontology.yaml \
+     --delta delta_proposal.json \
+     --json
+
+   # Step D: Formally apply and version the approved delta into Graph A
+   uv run opendv ontology accept \
+     --base ontology/commerce_graph_a_ontology.yaml \
+     --delta delta_proposal.json \
+     --json
+
+   # (Or execute remotely via platform client: opendvctl ontology suggest --api-url http://localhost:8000 ...)
+   ```
 
 ---
 
@@ -637,9 +715,18 @@ As a **Data Architect**, you govern the semantic guardrails (`Graph A`) and revi
 As a **Data / Analytics Engineer**, you execute onboarding waves, troubleshoot source data quality issues, and wire `final_canonical_ir.json` into your `dbt` / Snowflake / Databricks / SQLMesh deployment pipelines.
 
 #### Your Core Workflow:
-1. **Profile New Bronze Feeds Quickly (`opendv profile`):**
+1. **Profile New Bronze Feeds Quickly (`opendv profile` / `opendvctl profile`):**
    ```bash
-   uv run opendv profile --local \
+   # Standalone in-process:
+   uv run opendv profile \
+     --source-csv path/to/new_source.csv \
+     --source-system billing_stripe \
+     --table-name stripe_invoices \
+     --json
+
+   # Or remote platform client:
+   opendvctl profile \
+     --api-url http://localhost:8000 \
      --source-csv path/to/new_source.csv \
      --source-system billing_stripe \
      --table-name stripe_invoices \
@@ -660,11 +747,14 @@ As a **Data / Analytics Engineer**, you execute onboarding waves, troubleshoot s
 As a **Data Steward**, you are the human-in-the-loop authority whenever `open-dv` encounters ambiguous entity resolution in unstructured documents (`Tier-U3` Captain-Hold, confidence $c < 0.75$ or top-2 margin $\Delta < 0.15$) or ambiguous grain escalations (`Gate 3 / Gate 4` holds).
 
 #### Your Core Workflow:
-1. **Listing Active Captain-Holds via CLI (`opendv hold list`) or Explorer UI:**
+1. **Listing Active Captain-Holds via CLI (`opendv hold list` / `opendvctl hold list`) or Explorer UI:**
    When a pipeline run is executed with `--hold-policy pause` (or `steward_hold_policy: pause` in `harness_config.yaml`), any `Tier-U3` extraction pauses the run with `status: "PAUSED_HOLD"`.
    ```bash
-   # List all pending Steward Captain-Holds
-   uv run opendv hold list --local --role DATA_STEWARD --json
+   # Standalone in-process:
+   uv run opendv hold list --role DATA_STEWARD --json
+
+   # Or remote platform client:
+   opendvctl hold list --api-url http://localhost:8000 --role DATA_STEWARD --json
    ```
 2. **Inspecting Evidence & Candidate Matches:**
    In Explorer UI (Steward Captain-Hold & Entity Resolution Queue or Unmapped Escalation & Governance Console), inspect:
@@ -673,7 +763,7 @@ As a **Data Steward**, you are the human-in-the-loop authority whenever `open-dv
 3. **Approving, Rejecting, or Answering a Hold (`opendv hold approve | reject | answer`):**
    ```bash
    # Approve a Tier-U3 hold by selecting the verified target candidate business key
-   uv run opendv hold approve --local \
+   uv run opendv hold approve \
      --role DATA_STEWARD \
      --hold-id hold-ext-msa-guarantor-u3 \
      --candidate "TAX-DE-440912" \
@@ -682,12 +772,15 @@ As a **Data Steward**, you are the human-in-the-loop authority whenever `open-dv
      --json
 
    # Or reject an invalid/hallucinated extraction
-   uv run opendv hold reject --local \
+   uv run opendv hold reject \
      --role DATA_STEWARD \
      --hold-id hold-ext-msa-guarantor-u3 \
      --steward "jane.steward@enterprise.com" \
      --notes "Mention refers to a non-binding marketing partner, not a legal counterparty." \
      --json
+
+   # Or via remote platform client:
+   # opendvctl hold approve --api-url http://localhost:8000 --hold-id <id> --candidate <candidate> --steward <steward> --notes <notes> --json
    ```
    Every Steward decision is cryptographically recorded in `vault-ledger.jsonl` with your `steward_id`, timestamp, and rationale notes.
 
@@ -702,7 +795,7 @@ If you are an **autonomous orchestration agent** (e.g., an enterprise data platf
 #### 1. Always Use Machine-Parseable Output Flags (`--json` and `--toon`):
 - Pass `--json` on `opendv pipeline validate`, `opendv pipeline run`, `opendv pipeline report`, `opendv profile`, `opendv compile`, and `opendv sandbox` so `stdout` is guaranteed to be pure, deterministic JSON (`sort_keys=True`).
 - When combining `--stream` with `--json`, `open-dv` automatically routes live stage/token progress to `stderr` so `stdout` remains uncorrupted JSON.
-- Pass `--toon` on `opendv verify` / `axi-dv verify` (`uv run axi-dv verify --local --contract ... --toon`) when feeding verification diagnostics into an LLM repair loop. `@toon_v1` (Token-Oriented Object Notation) compresses verbose JSON traces by ~65% while preserving exact rule IDs (`DV-STR-*`, `DV-COL-*`, `DV-EVO-*`), JSON paths, and prescriptive remediation hints.
+- Pass `--toon` on `opendv verify` / `axi-dv verify` (`uv run opendv verify --contract ... --toon` or `opendvctl verify --api-url ... --contract ... --toon`) when feeding verification diagnostics into an LLM repair loop. `@toon_v1` (Token-Oriented Object Notation) compresses verbose JSON traces by ~65% while preserving exact rule IDs (`DV-STR-*`, `DV-COL-*`, `DV-EVO-*`), JSON paths, and prescriptive remediation hints.
 
 #### 2. Respect CLI Exit Codes & Normative Status Verdicts:
 Check both the process exit code and the top-level JSON `status` / `verdict` fields:

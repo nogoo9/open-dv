@@ -160,7 +160,6 @@ uv run opendv pipeline validate \
 #    --stream (default) prints live [Wave W][STAGE 00..07] progress
 #    --stream-tokens streams live LLM token deltas from the harness
 uv run opendv pipeline run \
-  --local \
   --stream \
   --stream-tokens \
   --role INTERNAL_MODELER \
@@ -171,7 +170,6 @@ uv run opendv pipeline run \
 # 3. Run Wave 1 Incremental Evolution (N=1 -> N=2: Stripe EU Billing Invoices)
 #    Passes Wave 0's verified contract via --initial-contract to enforce Algorithm A.7 additive evolution locks
 uv run opendv pipeline run \
-  --local \
   --stream \
   --role INTERNAL_MODELER \
   --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml \
@@ -194,7 +192,6 @@ Each pipeline run seals its verified outputs and per-wave intermediate artifacts
 ```bash
 # Inspect the RBAC-redacted pipeline run report via CLI
 uv run opendv pipeline report \
-  --local \
   --role INTERNAL_MODELER \
   --report-path /tmp/opendv-quickstart/wave1/pipeline_report.json \
   --json
@@ -204,22 +201,22 @@ uv run opendv pipeline report \
 
 ### Step 4: Run Standalone Symbolic Verification, Compilation & DuckDB Sandbox
 
-You can run the deterministic 6-Gate `axi-dv` verifier, 4-Zone SQL compiler, and 4-Batch Adversarial DuckDB Shadow Sandbox standalone (in-process via `--local`, with zero LLM calls) against the included Private Equity reference package in [`examples/private_equity/`](examples/private_equity/):
+You can run the deterministic 6-Gate `axi-dv` verifier, 4-Zone SQL compiler, and 4-Batch Adversarial DuckDB Shadow Sandbox standalone (in-process via `opendv`, with zero LLM calls) against the included Private Equity reference package in [`examples/private_equity/`](examples/private_equity/):
 
 ```bash
 # 1. Verify a Data Vault 2.0 contract through Gates 0–5 (add --toon for compact @toon_v1 trace output)
-uv run opendv verify --local \
+uv run opendv verify \
   --contract examples/private_equity/dv_pe_model_contract.yaml \
   --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
   --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # 2. Compile a verified contract into Canonical IR & 4-Zone DuckDB SQL
-uv run opendv compile --local \
+uv run opendv compile \
   --contract examples/private_equity/dv_pe_model_contract.yaml \
   --canonical-ir examples/private_equity/pe_canonical_ir.json
 
 # 3. Execute the 4-Batch Adversarial DuckDB Shadow Sandbox (DV-DYN-001..015) & Query D.10 PIT audit
-uv run opendv sandbox --local \
+uv run opendv sandbox \
   --contract examples/private_equity/dv_pe_model_contract.yaml \
   --canonical-ir examples/private_equity/pe_canonical_ir.json \
   --query-type ADVERSARIAL_BATCHES_1_TO_4 \
@@ -250,9 +247,13 @@ bun run --cwd apps/opendv-web-workbench dev
 
 ## 3. CLI Command Reference & Monorepo Structure
 
-### Core `opendv` / `axi-dv` CLI Commands
+### Two-CLI Architecture & Command Reference
 
-Both `opendv` and `axi-dv` share the same unified parser ([`apps/opendv-cli/src/opendv_cli/main.py`](apps/opendv-cli/src/opendv_cli/main.py)) and support `--local` (direct library execution), `--api-url <url>` (remote Platform API execution), `--role <RBAC_ROLE>`, and `--json`:
+`open-dv` provides two contract-identical CLIs generated from [`packages/opendv-contracts/schemas/cli-spec.json`](packages/opendv-contracts/schemas/cli-spec.json):
+- **`opendv` (`apps/opendv-cli`)**: Standalone in-process Python CLI executing directly against the shared core in `opendv_service` (zero HTTP server required; air-gapped, local CI/CD).
+- **`opendvctl` (`apps/opendvctl`)**: Bun-compiled standalone binary platform client connecting over HTTP/SSE to `opendv-platform-api` via `--api-url <url>` (default `http://localhost:8000`).
+
+Both CLIs share identical subcommands, options, exit codes, and RFC 8785 canonical JSON outputs:
 
 | Command | Purpose & Key Flags |
 | :--- | :--- |
@@ -265,6 +266,7 @@ Both `opendv` and `axi-dv` share the same unified parser ([`apps/opendv-cli/src/
 | `opendv sandbox` | Executes the 4-Batch Adversarial DuckDB Shadow Sandbox (`--query-type ADVERSARIAL_BATCHES_1_TO_4`) and bi-temporal PIT queries (`QUERY_D10_PIT`, `QUERY_D10B_VALUATION`) at `--cutoff <timestamp>`. |
 | `opendv run [list\|get\|create\|abort\|events]` | Manages verification runs and streams real-time W3C Server-Sent Events (`events --last-event-id <id>`). |
 | `opendv hold [list\|approve\|reject\|answer\|resolve]` | Lists or resolves Steward Captain-Holds (`Tier-U3` ambiguous entity resolution or `Gate 3/4` holds) via `--hold-id`, `--candidate`, and `--notes`. |
+| `opendv ontology [suggest\|validate-delta\|diff\|accept]` | Recommends ontology concepts from sources or deltas, validates proposals, diffs candidate models, and applies decision-gated mutations to Graph A. |
 
 ### Monorepo Directory Layout
 
@@ -272,13 +274,19 @@ Both `opendv` and `axi-dv` share the same unified parser ([`apps/opendv-cli/src/
 open-dv/
 ├── packages/
 │   ├── opendv-core/            # Pydantic v2 contracts, Canonical IR, ELM calculus & Alg A.5 SHA-256 hashing
+│   ├── opendv-contracts/       # Pydantic DTOs, schemas, errors & canonical CLI specification (cli-spec.json)
+│   ├── opendv-cli-common/      # Spec-driven argument parser builder, JCS canonical printer & terminal presenters
+│   ├── opendv-service/         # Shared application core use cases (Verify, Compile, Sandbox, Pipeline, Ontology)
+│   ├── opendv-sources/         # Pluggable source adapters (file, inline, duckdb_attach, text, pdf)
 │   ├── opendv-telemetry/       # JSONL ledger emitter, CAS store, 5-tier RBAC redactor, PII detector & Hash Pills
 │   ├── opendv-axi-verifier/    # 6-Gate axi-dv orchestrator (Alg A.8), AST codemods (A.1..A.9b) & @toon_v1 codec
 │   ├── opendv-duckdb-sandbox/  # GraphBProfiler, IR lowerer, 4-Zone SQL compiler & 4-Batch DuckDB Shadow Sandbox
 │   ├── opendv-agent-harness/   # 8-stage AgenticVaultPipeline, 4 personas, 8 tools & agy/claude/CLI/SDK adapters
+│   ├── opendv-testkit/         # Test fixtures, in-memory repositories & transport parity test harnesses
 │   └── opendv-protocol-ts/     # Zero-dependency TypeScript SDK (@opendv/protocol-ts), SSE client & Web Crypto Hash Pills
 ├── apps/
-│   ├── opendv-cli/             # Unified `opendv` & `axi-dv` CLI (--local & --api-url modes)
+│   ├── opendv-cli/             # Standalone in-process Python CLI (`opendv` & `axi-dv`)
+│   ├── opendvctl/              # Bun-compiled standalone platform client binary
 │   ├── opendv-platform-api/    # FastAPI REST + SSE headless platform server (:8420) & OpenAPI 3.1 exporter
 │   └── opendv-web-workbench/   # 3-Level Explainability & Observability React 19 + Bun Web Workbench (:5173)
 ├── examples/
@@ -289,7 +297,7 @@ open-dv/
 │       ├── global_commerce_vault/     # 4-wave progressive commerce dataset, per-wave specs & harness_config*.yaml
 │       └── scenario_s2_issue39_bkcc/  # Scenario S2 multi-source convergence & composite-feed BKCC dataset
 ├── schemas/                    # Normative JSON Schemas (Draft 2020-12) & OpenAPI 3.1.0 specification
-├── docs/                       # Architecture & engineering specifications (00..17, DV2_AGENT_REFERENCE_GUIDE.md)
+├── docs/                       # Architecture & engineering specifications (00..18, DV2_AGENT_REFERENCE_GUIDE.md)
 ├── AGENTS.md                   # Root Agent & Contributor Constitution (Mission, Guardrails & Conformance)
 └── tests/                      # Normative end-to-end pytest specification suite (+ per-package tests)
 ```
@@ -536,80 +544,86 @@ The repository is organized as a polyglot monorepo managed with [`proto`](.proto
 
 > **Normative References:** [`docs/08-platform-mvp-monorepo-and-api-spec.md`](docs/08-platform-mvp-monorepo-and-api-spec.md) and [`docs/09-agnostic-agent-harness-and-sdk-spec.md`](docs/09-agnostic-agent-harness-and-sdk-spec.md).
 
-#### 1. Direct Local CLI Recipes (`--local` & `--toon`)
+#### 1. In-Process Standalone CLI Recipes (`opendv`)
 
-Execute directly against the workspace packages without running an HTTP server:
+Execute directly in-process against the workspace packages (zero server required):
 
 ```bash
 # Verify a Data Vault 2.0 contract through the 6-Gate AXI-DV pipeline
-uv run --package opendv-cli opendv verify --local \
+uv run opendv verify \
   --contract examples/private_equity/dv_pe_model_contract.yaml \
   --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
   --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Or with TOON token-dense trace output
-uv run --package opendv-cli axi-dv verify --local --toon \
+uv run axi-dv verify --toon \
   --contract examples/private_equity/dv_pe_model_contract.yaml \
   --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
   --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Inspect empirical Bronze column profiles (Graph B)
-uv run --package opendv-cli opendv profile --local \
+uv run opendv profile \
   --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Compile contract into Canonical IR & 4-Zone SQL
-uv run --package opendv-cli opendv compile --local \
+uv run opendv compile \
   --contract examples/private_equity/dv_pe_model_contract.yaml \
   --canonical-ir examples/private_equity/pe_canonical_ir.json
 
 # Execute 4-Batch Adversarial DuckDB Sandbox verification & Query D.10 bi-temporal audit
-uv run --package opendv-cli opendv sandbox --local \
+uv run opendv sandbox \
   --contract examples/private_equity/dv_pe_model_contract.yaml \
   --canonical-ir examples/private_equity/pe_canonical_ir.json \
   --query-type ADVERSARIAL_BATCHES_1_TO_4 \
   --cutoff "2026-11-15 23:59:59"
 
 # Create and inspect local pipeline runs
-uv run --package opendv-cli opendv run list --local \
+uv run opendv run list \
   --project-id proj-apex-horizon-pe
-uv run --package opendv-cli opendv run get --local \
+uv run opendv run get \
   --project-id proj-apex-horizon-pe \
   --run-id run-pe-apex-horizon-20261030
 
 # Inspect and resolve Steward Captain-Holds
-uv run --package opendv-cli opendv hold list --local \
+uv run opendv hold list \
   --run-id run-pe-apex-horizon-20261030
-uv run --package opendv-cli opendv hold approve --local \
+uv run opendv hold approve \
   --run-id run-pe-apex-horizon-20261030 \
   --hold-id hold-tier-u3-horizon-sovereign-vehicle \
   --candidate APEX_CO_I
+
+# Suggest and govern ontology extensions
+uv run opendv ontology suggest \
+  --mode BOOTSTRAP \
+  --domain-namespace pe_funds \
+  --json
 ```
 
-#### 2. Remote Platform API CLI Recipes (`--api-url`)
+#### 2. Remote Platform Client Recipes (`opendvctl`)
 
 Execute against a live Platform API server on `http://127.0.0.1:8420`:
 
 ```bash
 # Verify contract via remote Platform API
-uv run --package opendv-cli opendv verify --api-url http://127.0.0.1:8420 \
+opendvctl verify --api-url http://127.0.0.1:8420 \
   --run-id run-pe-apex-horizon-20261030 \
   --contract examples/private_equity/dv_pe_model_contract.yaml \
   --graph-a examples/private_equity/pe_graph_a_ontology.yaml \
   --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Inspect Bronze profiles via remote Platform API
-uv run --package opendv-cli opendv profile --api-url http://127.0.0.1:8420 \
+opendvctl profile --api-url http://127.0.0.1:8420 \
   --run-id run-pe-apex-horizon-20261030 \
   --graph-b examples/private_equity/pe_graph_b_profile.json
 
 # Compile contract via remote Platform API
-uv run --package opendv-cli opendv compile --api-url http://127.0.0.1:8420 \
+opendvctl compile --api-url http://127.0.0.1:8420 \
   --run-id run-pe-apex-horizon-20261030 \
   --contract examples/private_equity/dv_pe_model_contract.yaml \
   --canonical-ir examples/private_equity/pe_canonical_ir.json
 
 # Execute 4-Batch sandbox & bi-temporal queries via remote Platform API
-uv run --package opendv-cli opendv sandbox --api-url http://127.0.0.1:8420 \
+opendvctl sandbox --api-url http://127.0.0.1:8420 \
   --run-id run-pe-apex-horizon-20261030 \
   --contract examples/private_equity/dv_pe_model_contract.yaml \
   --canonical-ir examples/private_equity/pe_canonical_ir.json \
@@ -617,24 +631,24 @@ uv run --package opendv-cli opendv sandbox --api-url http://127.0.0.1:8420 \
   --cutoff "2026-11-15 23:59:59"
 
 # Manage verification runs and stream real-time SSE observability events
-uv run --package opendv-cli opendv run list --api-url http://127.0.0.1:8420 \
+opendvctl run list --api-url http://127.0.0.1:8420 \
   --project-id proj-apex-horizon-pe
-uv run --package opendv-cli opendv run get --api-url http://127.0.0.1:8420 \
+opendvctl run get --api-url http://127.0.0.1:8420 \
   --project-id proj-apex-horizon-pe \
   --run-id run-pe-apex-horizon-20261030
-uv run --package opendv-cli opendv run events --api-url http://127.0.0.1:8420 \
+opendvctl run events --api-url http://127.0.0.1:8420 \
   --run-id run-pe-apex-horizon-20261030
 
 # List and resolve Steward Captain-Holds via remote Platform API
-uv run --package opendv-cli opendv hold list --api-url http://127.0.0.1:8420 \
+opendvctl hold list --api-url http://127.0.0.1:8420 \
   --run-id run-pe-apex-horizon-20261030
-uv run --package opendv-cli opendv hold approve --api-url http://127.0.0.1:8420 \
+opendvctl hold approve --api-url http://127.0.0.1:8420 \
   --run-id run-pe-apex-horizon-20261030 \
   --hold-id hold-tier-u3-horizon-sovereign-vehicle \
   --candidate APEX_CO_I
 
 # Trigger or inspect a pipeline run via remote Platform API
-uv run opendv pipeline run \
+opendvctl pipeline run \
   --api-url http://127.0.0.1:8420 \
   --role INTERNAL_MODELER \
   --input examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml \
@@ -642,10 +656,17 @@ uv run opendv pipeline run \
   --harness-config examples/pipeline_samples/global_commerce_vault/harness_config.yaml \
   --json
 
-uv run opendv pipeline report \
+opendvctl pipeline report \
   --api-url http://127.0.0.1:8420 \
   --role INTERNAL_MODELER \
   --run-id run-global-commerce-sample-001 \
+  --json
+
+# Suggest and govern ontology extensions via remote Platform API
+opendvctl ontology suggest \
+  --api-url http://127.0.0.1:8420 \
+  --mode BOOTSTRAP \
+  --domain-namespace pe_funds \
   --json
 ```
 

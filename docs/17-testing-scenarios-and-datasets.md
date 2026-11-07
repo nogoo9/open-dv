@@ -4,6 +4,62 @@
 
 ---
 
+## Normative Rule: Shared CLI & Platform Test Parity
+
+The Open-DV platform enforces a strict, mathematical **Parity Invariant** across all user and agent interfaces. In accordance with `FR-INT-01` and Decision D1, all domain capabilities must be accessible across three production transports with zero behavioral drift:
+
+### 1. The Three Parity Transports
+
+1. **`STANDALONE_CLI`**: In-process Python CLI (`opendv`, located in `apps/opendv-cli`), invoking use cases in `packages/opendv-service` directly without an HTTP network hop.
+2. **`CLIENT_CLI`**: Bun-compiled standalone binary (`opendvctl`, located in `apps/opendvctl`), communicating over HTTP/SSE with the remote platform API (`--api-url http://localhost:8000`).
+3. **`DIRECT_REST`**: Headless FastAPI HTTP + SSE platform server (`apps/opendv-platform-api`), invoked directly via REST endpoints (`/api/v1/*`).
+
+### 2. The Parity Invariant
+
+For any valid operation $O \in \{\text{verify}, \text{profile}, \text{compile}, \text{sandbox}, \text{hold}, \text{ontology}, \text{pipeline}\}$ and test fixture input $I$:
+
+$$\text{JCS}(\text{Normalize}(T_{\text{STANDALONE}}(O, I))) \equiv \text{JCS}(\text{Normalize}(T_{\text{CLIENT}}(O, I))) \equiv \text{JCS}(\text{Normalize}(T_{\text{REST}}(O, I)))$$
+
+where:
+- **RFC 8785 JSON Canonicalization Scheme (JCS)** produces bit-for-bit identical serialization (`sort_keys=True`, deterministic floating-point formatting, LF line-endings).
+- **Normalization** redacts volatile execution metadata (e.g. wall-clock timestamps, temporary CAS directory paths) while strictly verifying all deterministic outputs, gate scorecards, AST DDLs, hash pills, and DAG load orders.
+- **Exit Code Equality**: If $T_{\text{STANDALONE}}$ exits with code $C$, then $T_{\text{CLIENT}}$ must exit with code $C$, and $T_{\text{REST}}$ must return the corresponding HTTP status code mapping ($0 \implies 200$, $10 \implies 422$, $20 \implies 409$, $30 \implies 200 \text{ PAUSED}$, $40 \implies 400$).
+- **Identical Error Diagnostics**: In failure modes, all three transports must emit matching error codes, field JSON paths, and `@toon_v1` remediation traces.
+
+### 3. Scenario Registry & Meta-Test Verification
+
+Every test scenario in this document is formally registered in `tests/parity/scenarios.py` as a `ScenarioSpec` object defining its fixtures, tested operations, expected outcomes, and docs/17 anchor.
+
+The integrity of this catalog is verified on every pull request by `tests/parity/test_docs17_registry.py`:
+- **Catalog Row Verification**: Every catalog entry (`S1`–`S10`) maps to at least one active `ScenarioSpec`.
+- **Anchor Existence**: Every `docs17_anchor` string in the registry must exist verbatim in this document.
+- **Path Audit**: Every markdown link target and backticked repo path cited in this document must exist on disk.
+- **Golden Agreement**: Every entry in the §G Golden Manifest table must match `tests/golden/MANIFEST.json` and committed files under `tests/golden/`.
+
+### 4. Standardized Scenario Documentation Template
+
+When adding a new scenario or regression test to this repository, authors must adhere to the following 5-part structure:
+
+```markdown
+### Template: Issue Specification Template
+
+- **GitHub Issue**: Issue URL and title
+- **Audit ID & Severity**: Identifier (e.g. BUG-XX) and severity level
+- **Governing Functional Requirements**: Requirements list (e.g. FR-DOM-01, FR-INT-01)
+- **DV 2.0 Invariants & Algorithms**: Governed invariants and algorithms
+
+#### 1. Scenario & Architectural Context
+Detailed problem statement, architectural significance, and failure trap addressed.
+
+#### 2. Test Dataset Layout
+Table of fixtures, roles, columns, and authority tiers.
+
+#### 3. Running the Unit & End-to-End Tests
+Exact commands for pytest, opendv standalone CLI, and opendvctl platform client.
+```
+
+---
+
 ## Repository Testing Scenarios & Datasets Catalog
 
 | Scenario / Suite | Dataset & Fixture Path | Governing Requirements & Invariants | Primary Test Suite & CLI Entrypoint |

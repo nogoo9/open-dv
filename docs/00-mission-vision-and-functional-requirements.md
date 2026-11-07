@@ -115,6 +115,7 @@ To keep `open-dv` resilient, extensible, and open to continuous engineering inno
 | **6. Closed-Loop Self-Healing Diagnostics (Machine-Readable Critic Loop)** | Static or dynamic verification failures MUST be serialized into structured, deterministic diagnostic traces containing rule IDs, offending entity/column paths, and actionable repair directives for bounded agent retry. | Reference `v6.0` encodes diagnostics in the token-dense `@toon_v1` wire format with up to $K$ retries (`max_schema_validation_retries`). JSON-RPC, structured XML/Markdown diagnostics, or constrained decoding grammars are equally valid. | **Why Mandate the What:** Complex multi-source schemas frequently require 1–2 iterative refinements (e.g., adding a missing `BKCC` namespace prefix or splitting a high-velocity Satellite). Deterministic, rule-indexed diagnostic traces allow the modelling agent to self-heal autonomously without human toil, while a strict retry ceiling ($K_{\max}$) prevents infinite repair loops.<br>**Why Decouple the How:** `@toon_v1` optimizes LLM context window efficiency (~65% token reduction over raw JSON), but the wire encoding itself is an optimization detail that can evolve alongside LLM structured-output capabilities. |
 | **7. Downstream Target Compilation (Portable Model vs. Target SQL Separation)** | Certified `final_contract.yaml` and `final_canonical_ir.json` artifacts MUST be sufficient to deterministically generate target warehouse DDL/DML or transformation project files without further LLM inference. | Reference `v6.0` includes a built-in 4-Zone DuckDB SQL compiler. External or pluggable compilers can target **dbt (`AutomateDV` / `datavault4dbt`)**, **SQLMesh**, **Snowflake**, **Databricks**, **BigQuery**, or **Apache Iceberg**. | **Why Mandate the What:** Enterprise data platforms run on diverse warehouse engines and transformation frameworks (`dbt`, `AutomateDV`, `Snowflake`, `Databricks`, `BigQuery`). Making `final_contract.yaml` and `final_canonical_ir.json` 100% self-contained decouples **Data Vault 2.0 modelling & evolution** from **physical warehouse execution**, ensuring teams never need the DuckDB SQL bundle in production.<br>**Why Decouple the How:** Once `CanonicalIR` is certified, emitting target SQL or `dbt` YAML is a pure deterministic template projection that any downstream compiler or macro package can perform natively. |
 | **8. Steward Governance, Security & Telemetry (Fail-Closed Human Sovereignty)** | Ambiguous semantics MUST pause or escalate via auditable hold records; restricted PII/MNPI MUST be isolated and redacted by role; artifacts MUST be cryptographically fingerprinted. | Reference `v6.0` provides file-backed `StewardHoldManager`, JSONL telemetry (`vault-ledger.jsonl`), SHA-256 CAS storage, FastAPI (`:8420`), and a React Explorer Workbench. Enterprise deployments may integrate with Jira/ServiceNow, OpenLineage/DataHub, S3/GCS, or BI portals. | **Why Mandate the What:** When an upstream feed introduces an unmapped ontology concept or an unstructured document yields a low-confidence entity match (`Tier-U3`), an autonomous agent must **never guess**—because a false entity link in an insert-only Vault permanently pollutes enterprise master data. Fail-closed Steward holds, PII Satellite isolation (for GDPR crypto-shredding), and SHA-256 CAS provenance are mandatory for enterprise trust and regulatory compliance.<br>**Why Decouple the How:** Governance UIs, identity providers, and enterprise data catalogs vary by organization; the underlying hold and telemetry contracts must integrate cleanly into any enterprise control plane. |
+| **9. Shared Application Core & Two Consistent CLIs (`REQ-CORE-01`, `REQ-CLI-01/02`)** | All domain pipeline logic, verification, profiling, compilation, and sandbox orchestration MUST live in `packages/opendv-service`. Standalone CLI (`opendv`), Bun platform client (`opendvctl`), and REST/SSE API (`apps/opendv-platform-api`) MUST act strictly as thin protocol adapters with zero duplicated business logic and identical output semantics. | Reference `v6.0` exposes `OpenDVService` with typed request/response DTOs in `packages/opendv-contracts`. CLI and REST endpoints delegate 100% of execution to the service. `cli-spec.json` drives both Python `opendv` and Bun-compiled single-binary `opendvctl`. | **Why Mandate the What:** Duplicating verification rules or pipeline stage execution between CLI scripts and REST controllers inevitably introduces subtle behavior divergence (e.g., CLI accepts a contract that the API rejects). Housing domain orchestration in an isolated headless core guarantees 100% parity across transports.<br>**Why Decouple the How:** Transport protocols (in-process calls, REST HTTP/2, WebSocket/SSE) and client runtimes (Python virtualenv vs. standalone Bun binary) are communication details that can evolve without touching core Data Vault algorithms. |
 
 ---
 
@@ -199,6 +200,21 @@ When ingesting unstructured or semi-structured business documents (contracts, PD
 
 ---
 
+#### `FR-DOM-06`: Ontology Recommendation Extension Points (`REQ-ONT-01`, `REQ-ONT-02`)
+When empirical source profiling or incoming schema drift suggests unmapped enterprise business concepts or attributes:
+1. **Additive Proposal Seams (IP-1..6):** The platform provides typed extension points for external or testkit recommender modules to emit structured proposals (`OntologyProposal` / `OntologyDelta`) across six pipeline injection points:
+   - *IP-1 (Bootstrap):* Propose initial enterprise concepts from cold-start source profiling.
+   - *IP-2 (Advisory Pre-Stage):* Emit non-blocking advisory concept proposals during early pipeline stages.
+   - *IP-3 (Blocking Hold):* On Gate 1 unmapped concept violations, emit an `OntologyProposal` attached to a `STEWARD_HOLD` with typed options (`ACCEPT_ONTOLOGY_DELTA`, `REJECT_ONTOLOGY_DELTA`).
+   - *IP-4 (Advisory Post-Stage):* Record prospective ontology evolution candidates after successful wave completion.
+   - *IP-5 (CLI/API Seams):* Expose deterministic ontology commands (`suggest`, `validate-delta`, `diff`, `accept`) across both CLIs and REST API.
+   - *IP-6 (Web UI / Explorer):* Present interactive ontology proposal review and diff visualization.
+2. **Deterministic Additive Validation (`ONT-EVO-001`..`003`):** Proposed ontology deltas MUST be validated against existing Graph A concepts: deltas MUST be purely additive, MUST NOT mutate existing concept grains or identifiers in place, and MUST NOT introduce provisional URIs (`urn:ontology:provisional:*`).
+3. **Data Steward Decision Gate & CAS Versioning:** Graph A mutations MUST NEVER be applied autonomously. Every applied delta requires explicit Data Steward decision authorization, applies deterministically via `apply_ontology_delta`, and records full Content-Addressable Storage (CAS) lineage (`parent_sha256`, `decision_refs`) yielding version $N+1$.
+   - *Rationale:* Reduces onboarding friction and accelerates schema discovery across large enterprise data estates without weakening anti-silo discipline or bypassing human domain governance.
+
+---
+
 ### 5.2 Symbolic & Dynamic Verification & Self-Healing Requirements (`FR-VER-01` – `FR-VER-04`)
 
 #### `FR-VER-01`: Static Structural, Cryptographic, Grain & Evolution Verification
@@ -243,9 +259,10 @@ When a candidate contract fails any static (`FR-VER-01`) or dynamic (`FR-VER-02`
 
 ### 5.3 Target-Agnostic Interoperability, Security & Governance Requirements (`FR-INT-01` – `FR-INT-03`)
 
-#### `FR-INT-01`: Portable `Contract` & `CanonicalIR` Export for External Warehouse Ecosystems
+#### `FR-INT-01`: Portable `Contract` & `CanonicalIR` Export and Shared Core Architecture
 1. **Self-Contained Deliverable Completeness:** Every successful pipeline run MUST output a schema-validated **Model Contract (`final_contract.yaml`)** and **Canonical IR (`final_canonical_ir.json`)** that are 100% self-contained.
 2. **Decoupled Downstream Compilation:** External enterprise toolchains (e.g., **dbt / AutomateDV / datavault4dbt**, **SQLMesh**, **Snowflake**, **Databricks**, **BigQuery**) MUST be able to consume `final_contract.yaml` and `final_canonical_ir.json` directly to generate native warehouse objects without invoking `open-dv`'s internal LLM harness or requiring DuckDB in production.
+3. **Shared Application Core Architecture (`REQ-CORE-01`):** All pipeline execution, contract verification, profiling, compilation, and sandbox orchestration MUST be implemented within the shared, headless core service `packages/opendv-service`. The standalone CLI (`apps/opendv-cli`), Bun platform client (`apps/opendvctl`), and Platform API (`apps/opendv-platform-api`) MUST act strictly as thin protocol and transport adapters over `OpenDVService`. Zero business logic may be duplicated between CLI and API, and CLI packages MUST NEVER import from `opendv_platform_api`.
 
 #### `FR-INT-02`: Multi-Tier RBAC & Zero-Leak PII/MNPI Redaction
 1. **Role-Based Access Control (RBAC):** All CLI commands, REST/SSE APIs, run reports, and observability views MUST enforce multi-tier RBAC roles (e.g., `EXTERNAL_AUDITOR`, `DATA_STEWARD`, `INTERNAL_MODELER`, `SECURITY_ADMIN`, `PLATFORM_ROOT`).
@@ -259,9 +276,9 @@ When a candidate contract fails any static (`FR-VER-01`) or dynamic (`FR-VER-02`
 
 ## 6. Enhancement & Implementation Conformance Rubric
 
-Whenever a human engineer or autonomous coding agent proposes a new feature, refactors an internal package, adds a target warehouse compiler, or resolves a bug in `open-dv`, the change MUST be evaluated against this **6-Point Conformance Rubric**.
+Whenever a human engineer or autonomous coding agent proposes a new feature, refactors an internal package, adds a target warehouse compiler, or resolves a bug in `open-dv`, the change MUST be evaluated against this **7-Point Conformance Rubric**.
 
-### 6.1 The 6-Point Conformance Checklist
+### 6.1 The 7-Point Conformance Checklist
 
 - [ ] **1. Deliverable Boundary Check (`FR-INT-01`):** Does this change preserve `final_contract.yaml` and `final_canonical_ir.json` as the authoritative, target-agnostic source of truth? *(No business/modelling semantics may be hidden exclusively inside a target-specific SQL generator like `compiler_4zone.py` without representation in the Contract/IR).*
 - [ ] **2. Neuro-Symbolic Safety Check (`OBJ-01`):** Are generative LLM outputs strictly confined to proposing declarative contract structures that subsequently pass through deterministic static (`FR-VER-01`) and dynamic (`FR-VER-02`) verification?
@@ -269,6 +286,7 @@ Whenever a human engineer or autonomous coding agent proposes a new feature, ref
 - [ ] **4. Non-Destructive Lifecycle Check (`FR-DOM-01..05`):** Does the change hold across all lifecycle waves—Cold Start ($N=1$), Multi-Source Convergence ($N \to N+1$), Schema Drift ($S_k(t) \to S_k(t+1)$), Unmatched Ontology Routing, and Unstructured Document Grounding—without mutating deployed Hub/Link grains or triggering false Satellite delta reloads?
 - [ ] **5. Fail-Closed Governance & Security Check (`FR-VER-04`, `FR-INT-02`):** Do low-confidence/unmapped structures fail closed into auditable Steward Holds (`APPROVED` gating enforced all the way to DML), and are PII/MNPI and credentials strictly redacted?
 - [ ] **6. Non-Prescriptive Modularity Check (§3):** Is the implementation decoupled behind clean interfaces so that agent harnesses, profilers, and target SQL compilers remain swappable without breaking normative invariants?
+- [ ] **7. Platform Parity & Shared Core Check (`REQ-CORE-01`, `REQ-CLI-01/02`):** Does any new or modified platform capability expose its domain logic through the shared application core (`opendv-service`) rather than directly inside a CLI or API router? Can the capability be invoked equivalently across standalone Python CLI (`opendv`), Bun platform client (`opendvctl`), and direct REST route, with an entry in `docs/17-testing-scenarios-and-datasets.md` and the scenario registry (`test_docs17_registry.py`)?
 
 ---
 
