@@ -9,8 +9,10 @@ import type {
 	HoldResolutionParams,
 	RbacRole,
 } from "@opendv/protocol-ts";
+import { useEffect, useRef } from "react";
 import { ArtifactVisualizer } from "./ArtifactVisualizers";
 import {
+	EXPLORER_A11Y,
 	EXPLORER_FONTS,
 	EXPLORER_GLYPHS,
 	EXPLORER_VIZ_LABELS,
@@ -41,6 +43,82 @@ export function ArtifactFullModal({
 	onSelectTab,
 	onResolveHold,
 }: ArtifactFullModalProps) {
+	const modalRef = useRef<HTMLDivElement | null>(null);
+	const backBtnRef = useRef<HTMLButtonElement | null>(null);
+	const prevActiveElementRef = useRef<HTMLElement | null>(null);
+
+	// Focus trap & focus restoration lifecycle
+	useEffect(() => {
+		prevActiveElementRef.current =
+			typeof document !== "undefined"
+				? (document.activeElement as HTMLElement | null)
+				: null;
+
+		// Move initial focus to the back button
+		if (backBtnRef.current && typeof backBtnRef.current.focus === "function") {
+			backBtnRef.current.focus();
+		}
+
+		const handleKeyDown = (ev: KeyboardEvent) => {
+			if (ev.key === "Escape") {
+				ev.preventDefault();
+				ev.stopPropagation();
+				onClose();
+				return;
+			}
+
+			if (ev.key === "Tab" && modalRef.current) {
+				const focusable = Array.from(
+					modalRef.current.querySelectorAll<HTMLElement>(
+						'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+					),
+				).filter(
+					(el) =>
+						el === backBtnRef.current ||
+						el.offsetParent !== null ||
+						el.offsetWidth > 0 ||
+						el.offsetHeight > 0,
+				);
+
+				if (focusable.length === 0) {
+					ev.preventDefault();
+					return;
+				}
+
+				const first = focusable[0];
+				const last = focusable[focusable.length - 1];
+
+				if (ev.shiftKey) {
+					if (document.activeElement === first) {
+						ev.preventDefault();
+						last?.focus();
+					}
+				} else {
+					if (document.activeElement === last) {
+						ev.preventDefault();
+						first?.focus();
+					}
+				}
+			}
+		};
+
+		if (typeof window !== "undefined") {
+			window.addEventListener("keydown", handleKeyDown);
+		}
+		return () => {
+			if (typeof window !== "undefined") {
+				window.removeEventListener("keydown", handleKeyDown);
+			}
+			// Restore focus to trigger element
+			if (
+				prevActiveElementRef.current &&
+				typeof prevActiveElementRef.current.focus === "function"
+			) {
+				prevActiveElementRef.current.focus();
+			}
+		};
+	}, [onClose]);
+
 	const glyphSpec =
 		artifact.group === "Setting"
 			? EXPLORER_GLYPHS.setting
@@ -72,9 +150,10 @@ export function ArtifactFullModal({
 
 	return (
 		<div
+			ref={modalRef}
 			role="dialog"
 			aria-modal="true"
-			aria-label={`${artifact.name} Artifact Full View`}
+			aria-labelledby="artifact-full-modal-title"
 			data-testid="artifact-full-modal"
 			style={{
 				position: "fixed",
@@ -101,9 +180,11 @@ export function ArtifactFullModal({
 			>
 				<div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
 					<button
+						ref={backBtnRef}
 						type="button"
 						data-testid="btn-artifact-modal-back"
 						onClick={onClose}
+						aria-label="Back to previous view (Press Escape to dismiss)"
 						style={{
 							all: "unset",
 							cursor: "pointer",
@@ -119,8 +200,10 @@ export function ArtifactFullModal({
 						← Back
 					</button>
 					<span style={getGlyphCssStyle(glyphSpec, 10)} />
-					<span
+					<h1
+						id="artifact-full-modal-title"
 						style={{
+							margin: 0,
 							fontFamily: EXPLORER_FONTS.mono,
 							fontSize: "16px",
 							fontWeight: 600,
@@ -128,12 +211,12 @@ export function ArtifactFullModal({
 						}}
 					>
 						{artifact.name}
-					</span>
+					</h1>
 					<span
 						style={{
 							fontFamily: EXPLORER_FONTS.mono,
 							fontSize: "12px",
-							color: "#6B7280",
+							color: "#525866",
 						}}
 					>
 						{artifact.type} · {artifact.fmt} · {artifact.group}

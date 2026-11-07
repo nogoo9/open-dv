@@ -15,7 +15,7 @@ export const EXPLORER_COLORS = {
 	inkPrimary: "#16181D",
 	inkBody: "#3B414C",
 	inkMuted: "#545A66",
-	inkLabel: "#6B7280",
+	inkLabel: "#525866",
 	bgPage: "#F6F7F8",
 	bgSurface: "#FFFFFF",
 	bgSubtle: "#F2F3F5",
@@ -38,6 +38,15 @@ export const EXPLORER_COLORS = {
 	spanTierU3Bg: "#FFEDD5",
 	spanTierU3Ring: "0 0 0 1px #FDBA74",
 	spanTierU3Swatch: "#FED7AA",
+} as const;
+
+export const EXPLORER_A11Y = {
+	focusRing: "0 0 0 2px #FFFFFF, 0 0 0 4px #1D4ED8",
+	focusOutline: "2px solid #1D4ED8",
+	focusOutlineOffset: "2px",
+	minTargetSize: "32px",
+	liveRegionPolite: "polite" as const,
+	liveRegionAssertive: "assertive" as const,
 } as const;
 
 export interface GlyphStyleSpec {
@@ -89,6 +98,30 @@ export const EXPLORER_STATUS_TAGS: Record<
 	"AUTO-FIX": { bg: "#EEF2FF", fg: "#1E3A8A" },
 };
 
+export const EXPLORER_STATUS_INDICATORS: Record<
+	StatusTag,
+	{ label: string; symbol: string }
+> = {
+	PASS: { label: "Pass", symbol: "✓" },
+	AUTO_REPAIRED: {
+		label: "Auto Repaired",
+		symbol: "↺",
+	},
+	"ASK-USER": {
+		label: "Steward Hold",
+		symbol: "⚠️",
+	},
+	"ASK-USER → resolved": {
+		label: "Hold Resolved",
+		symbol: "✓",
+	},
+	"REJECT-WITH-TRACE": {
+		label: "Rejected with Trace",
+		symbol: "✕",
+	},
+	"AUTO-FIX": { label: "Auto Fix", symbol: "⚡" },
+};
+
 export const EXPLORER_VIZ_LABELS: Record<VizKind, string> = {
 	ontology: "Ontology graph (Graph A)",
 	dv: "Data Vault 2.0 topology",
@@ -108,6 +141,19 @@ export function getStatusTagStyle(tag: StatusTag | string): {
 		EXPLORER_STATUS_TAGS[tag as StatusTag] ?? EXPLORER_STATUS_TAGS.PASS
 	);
 }
+
+export function getStatusIndicator(tag: StatusTag | string): {
+	label: string;
+	symbol: string;
+} {
+	return (
+		EXPLORER_STATUS_INDICATORS[tag as StatusTag] ?? {
+			label: String(tag),
+			symbol: "●",
+		}
+	);
+}
+
 
 export function getGlyphCssStyle(
 	glyph: GlyphStyleSpec,
