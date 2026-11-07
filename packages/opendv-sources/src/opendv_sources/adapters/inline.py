@@ -77,10 +77,13 @@ class InlineSourceAdapter(SourceAdapter, TabularSourceAdapter):
 
         system_limit = 50 * 1024 * 1024
         caller_limit = spec.options.get("max_inline_bytes")
-        max_limit = min(int(caller_limit), system_limit) if caller_limit is not None else system_limit
+        max_limit = (
+            min(int(caller_limit), system_limit) if caller_limit is not None else system_limit
+        )
         if len(content_bytes) > max_limit:
             raise PayloadTooLargeError(
-                f"Inline payload size ({len(content_bytes)} bytes) exceeds maximum limit ({max_limit} bytes)."
+                f"Inline payload size ({len(content_bytes)} bytes) "
+                f"exceeds maximum limit ({max_limit} bytes)."
             )
         return content_bytes
 

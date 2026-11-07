@@ -158,7 +158,10 @@ def create_app(
                 if content_length > max_limit:
                     return build_problem_details_response(
                         status_code=413,
-                        detail=f"Request payload size ({content_length} bytes) exceeds limit ({max_limit} bytes).",
+                        detail=(
+                            f"Request payload size ({content_length} bytes) "
+                            f"exceeds limit ({max_limit} bytes)."
+                        ),
                         instance=str(request.url.path),
                         problem_type="urn:opendv:payload-too-large",
                         title="Payload Too Large",
