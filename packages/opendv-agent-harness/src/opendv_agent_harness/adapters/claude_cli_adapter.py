@@ -41,8 +41,11 @@ from opendv_agent_harness.models import (
     ToolExecutionContext,
 )
 from opendv_agent_harness.protocol import BaseVaultAgentHarness
-from opendv_agent_harness.routing import resolve_provider_model
-from opendv_contracts.fallbacks import FallbackKey, is_fallback_enabled
+from opendv_agent_harness.routing import (
+    is_cli_schema_omission_retry_allowed,
+    resolve_provider_model,
+)
+from opendv_contracts.fallbacks import FallbackKey
 
 _STAGE_CONTEXT_MARKERS: tuple[str, ...] = (
     "\n__OPENDV_STAGE_CONTEXT_JSON__:",
@@ -426,21 +429,7 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
                 last_result_payload = dict(result_obj)
 
         # Fallback without --json-schema flag only if explicitly enabled and rejected
-        fb_dict = getattr(
-            self._config, "fallbacks", None
-        ) or self._config.extra_provider_options.get("fallbacks")
-        allow_schema_retry = (
-            getattr(self._config, "allow_cli_schema_omission_retry", False)
-            or bool(self._config.extra_provider_options.get("allow_cli_schema_omission_retry"))
-            or is_fallback_enabled(
-                FallbackKey.CLI_SCHEMA_OMISSION_RETRY,
-                {"fallbacks": fb_dict} if isinstance(fb_dict, dict) else None,
-            )
-            or (
-                os.environ.get("OPENDV_FALLBACK_CLI_SCHEMA_OMISSION_RETRY", "").lower()
-                in ("1", "true", "yes")
-            )
-        )
+        allow_schema_retry = is_cli_schema_omission_retry_allowed(self._config)
         stderr_lower = str(run_state.get("stderr") or "").lower()
         is_schema_rejection = any(
             term in stderr_lower for term in ("schema", "--json-schema", "$defs", "validation")

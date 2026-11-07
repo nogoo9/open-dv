@@ -764,29 +764,108 @@ def test_scenario_s7_intrabatch_deduplication_ast_and_duckdb_e2e() -> None:
         assert dyn_report.passed_count == 15
 
 
-def test_b1_m4_replay_tiebreak_and_multi_active_guard() -> None:
+def test_b1_m4_replay_tiebreak_and_multi_active_guard(tmp_path: Path) -> None:
     """Verify B1 deterministic tie-breaking on tied timestamps and M4
-    multi-active satellite primary key preservation.
+    bi-temporal multi-active satellite primary key preservation.
     """
-    commerce_ir = _build_global_commerce_canonical_ir()
-    bundle = compile_canonical_ir_to_4zone_sql(commerce_ir)
+    csv_path = tmp_path / "crm_customers.csv"
+    csv_content = (
+        "customer_code,customer_name,tier,tag_seq,applied_dts\n"
+        "CUST-REAL-101,Acme Global,VIP,1,2026-10-01 06:00:00\n"
+    )
+    csv_path.write_text(csv_content, encoding="utf-8")
+    base_ir = _build_global_commerce_canonical_ir()
+    mas_sat = IRSatellite(
+        name="mas_customer_tags",
+        satellite_type="MULTI_ACTIVE",
+        split_classification="CORE",
+        parent_entity="hub_customer",
+        parent_hk_column=IRParentHkColumn(
+            name="hk_customer",
+            target_column="hk_customer",
+            data_type="BINARY(32)",
+            nullable=False,
+        ),
+        child_dependent_keys=[IRColumnDef(name="tag_seq", data_type="INTEGER", nullable=False)],
+        load_dts_column=IRColumnDef(name="load_dts", data_type="TIMESTAMP_NTZ(9)", nullable=False),
+        applied_dts_column=IRColumnDef(
+            name="applied_dts", data_type="TIMESTAMP_NTZ(9)", nullable=False
+        ),
+        rec_src_column=IRColumnDef(name="rec_src", data_type="VARCHAR(255)", nullable=False),
+        hash_diff_column=IRHashColumn(
+            name="hash_diff",
+            data_type="BINARY(32)",
+            nullable=False,
+            hash_expression=IRHashExpression(
+                algorithm="SHA256",
+                input_columns=["tag_seq", "tier"],
+                normalization="EXACT_TRIM",
+            ),
+        ),
+        hash_diff_migration_policy="SPLIT_NEW_SATELLITE",
+        payload_columns=[IRColumnDef(name="tier", data_type="VARCHAR(255)", nullable=True)],
+        source_mapping=IRSourceMapping(staging_table="stg_crm_customers", rec_src_value="CRM_SFDC"),
+    )
+    mas_ir = base_ir.model_copy(update={"satellites": [*base_ir.satellites, mas_sat]})
+    bundle = compile_canonical_ir_to_4zone_sql(mas_ir)
 
     with DuckDbShadowSandbox() as sandbox:
-        sandbox.run_full_verification(source=commerce_ir, emit_telemetry=False)
+        sandbox.run_full_verification(
+            source=mas_ir,
+            bronze_tables={"bronze.crm_customers": csv_path},
+            emit_telemetry=False,
+        )
 
-        # 1. Capture initial sat_customer_core count
+        # 1. Capture initial sat_customer_core count (standard satellite B1 replay test)
         before_count = sandbox.conn.execute(
-            "SELECT COUNT(*) FROM raw_vault.sat_customer_core"
+            "SELECT COUNT(*) FROM raw_vault.sat_customer_core WHERE rec_src <> 'SYSTEM_GHOST'"
         ).fetchone()[0]
         assert before_count > 0
 
+        # Initial mas rows in vault
+        r1 = sandbox.conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.mas_customer_tags WHERE rec_src <> 'SYSTEM_GHOST'"
+        ).fetchone()[0]
+        assert r1 > 0
+
         # 2. Replay Zone 2 DML with existing staging rows (tied applied_dts and load_dts)
-        # B1 Invariant: Must execute deterministically without duplicate key constraint violations
-        # and result in 0 new rows inserted (idempotent replay)
         sandbox.conn.execute(bundle.zone_2_sql)
         after_count = sandbox.conn.execute(
-            "SELECT COUNT(*) FROM raw_vault.sat_customer_core"
+            "SELECT COUNT(*) FROM raw_vault.sat_customer_core WHERE rec_src <> 'SYSTEM_GHOST'"
         ).fetchone()[0]
         assert after_count == before_count, (
             f"Replay inserted extra rows: {after_count} vs {before_count}"
         )
+        r1_replay = sandbox.conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.mas_customer_tags WHERE rec_src <> 'SYSTEM_GHOST'"
+        ).fetchone()[0]
+        assert r1_replay == r1, f"Replay extra rows: {r1_replay} vs {r1}"
+
+        # 3. M4 Invariant: Insert a second active tag for the same customer with identical
+        # load_dts & applied_dts but different child key (tag_seq = 2).
+        # The composite primary key guard must preserve it and not drop it.
+        first_row = sandbox.conn.execute(
+            "SELECT parent_bk__bkcc, parent_bk__customer_code, "
+            "CAST(load_dts AS VARCHAR), CAST(applied_dts AS VARCHAR), rec_src "
+            "FROM bronze.src_mas_customer_tags WHERE tag_seq = 1 LIMIT 1"
+        ).fetchone()
+        bkcc, cust_code, ld, ad, rs = first_row
+        sandbox.conn.execute(
+            "INSERT INTO bronze.src_mas_customer_tags ("
+            "parent_bk__bkcc, parent_bk__customer_code, load_dts, applied_dts, "
+            "rec_src, tag_seq, tier"
+            f") VALUES ('{bkcc}', '{cust_code}', '{ld}', '{ad}', '{rs}', 2, 'PLUS')"
+        )
+
+        sandbox.conn.execute(bundle.zone_2_sql)
+        r2 = sandbox.conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.mas_customer_tags WHERE rec_src <> 'SYSTEM_GHOST'"
+        ).fetchone()[0]
+        assert r2 == r1 + 1, f"M4 Error: tag_seq=2 dropped! Count: {r2} (expected {r1 + 1})"
+
+        # 4. Replay again to confirm idempotency with multi-active satellite
+        sandbox.conn.execute(bundle.zone_2_sql)
+        r3 = sandbox.conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.mas_customer_tags WHERE rec_src <> 'SYSTEM_GHOST'"
+        ).fetchone()[0]
+        assert r3 == r2, f"Second replay extra rows: {r3} vs {r2}"

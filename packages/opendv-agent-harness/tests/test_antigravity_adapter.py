@@ -41,6 +41,8 @@ from opendv_agent_harness import (
     list_available_harnesses,
     register_harness,
 )
+from opendv_agent_harness.adapters.agy_cli_adapter import AgyCliHarnessAdapter
+from opendv_agent_harness.adapters.antigravity_adapter import ProviderConfigurationError
 from opendv_agent_harness.registry import _HARNESS_REGISTRY
 
 SAMPLE_TRACE_ID = "4bf92f3577b34da6a3ce929d0e0e4736"
@@ -1079,3 +1081,75 @@ async def test_wp20_antigravity_and_agy_cli_agent_models_propagation_to_agents_a
     assert cli_su_res.model_used == "custom-unstructured-v1"
     su_model_idx = cli_cmds[-1].index("--model")
     assert cli_cmds[-1][su_model_idx + 1] == "custom-unstructured-v1"
+
+    # 5. Verify AgyCliHarnessAdapter schema omission fallback retry gating
+    agy_fb_cmds: list[list[str]] = []
+
+    def _agy_fb_runner(
+        cmd: list[str],
+        *,
+        env: dict[str, str],
+        timeout: float,
+    ) -> subprocess.CompletedProcess[str]:
+        del env, timeout
+        agy_fb_cmds.append(list(cmd))
+        if "--json-schema" in cmd:
+            return subprocess.CompletedProcess(
+                args=cmd,
+                returncode=1,
+                stdout=json.dumps({"type": "text_delta", "text": "discarded"}),
+                stderr="--json-schema validation unsupported for schema",
+            )
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=0,
+            stdout=json.dumps(
+                {
+                    "conversation_id": "conv-agy-fb",
+                    "status": "SUCCESS",
+                    "response": '{"contract_id":"c1","hub_count":1,"verdict":"PASS"}',
+                }
+            ),
+            stderr="",
+        )
+
+    # 5a. Default config: fails fast without opt-in
+    agy_fb_default_cfg = cfg.model_copy(
+        update={
+            "provider": "agy-cli",
+            "env": {"OPENDV_AGY_CLI_BIN": str(fake_agy_exe)},
+            "extra_provider_options": {"agy_cli_runner": _agy_fb_runner},
+            "allow_cli_schema_omission_retry": False,
+        }
+    )
+    agy_fb_default_adapter = AgyCliHarnessAdapter(agy_fb_default_cfg)
+    with pytest.raises(ProviderConfigurationError, match="validation unsupported"):
+        await agy_fb_default_adapter.run_task(vfm_spec)
+    assert len(agy_fb_cmds) == 1
+    assert "--json-schema" in agy_fb_cmds[0]
+
+    # 5b. Opt-in config: retries without --json-schema and emits FALLBACK_APPLIED event
+    agy_fb_cmds.clear()
+    agy_fb_optin_cfg = agy_fb_default_cfg.model_copy(
+        update={"allow_cli_schema_omission_retry": True}
+    )
+    agy_fb_optin_adapter = AgyCliHarnessAdapter(agy_fb_optin_cfg)
+    agy_fb_res = await agy_fb_optin_adapter.run_task(vfm_spec)
+    assert len(agy_fb_cmds) == 2
+    assert "--json-schema" in agy_fb_cmds[0]
+    assert "--json-schema" not in agy_fb_cmds[1]
+    assert agy_fb_res.model_used == "tier-reasoning-model"
+
+    # Verify FALLBACK_APPLIED event emission in stream
+    agy_fb_cmds.clear()
+    agy_stream_events = [ev async for ev in agy_fb_optin_adapter.stream_task(vfm_spec)]
+    agy_fb_events = [
+        ev
+        for ev in agy_stream_events
+        if ev.observability_event and ev.observability_event.get("event_type") == "FALLBACK_APPLIED"
+    ]
+    assert len(agy_fb_events) == 1
+    assert (
+        agy_fb_events[0].observability_event.get("fallback_key")
+        == "harness.cli.schema_omission_retry"
+    )

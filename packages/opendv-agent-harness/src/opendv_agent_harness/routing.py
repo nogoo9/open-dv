@@ -283,6 +283,26 @@ def is_tool_authorized_for_persona(persona: AgentPersona | str, tool_name: str) 
     return tool_name in profile.authorized_tools
 
 
+def is_cli_schema_omission_retry_allowed(config: Any) -> bool:
+    """Determine whether a CLI harness is permitted to retry when LLM rejects schema flag."""
+    from opendv_contracts.fallbacks import FallbackKey, is_fallback_enabled
+
+    extra = getattr(config, "extra_provider_options", {}) or {}
+    fb_dict = extra.get("fallbacks")
+    return (
+        getattr(config, "allow_cli_schema_omission_retry", False)
+        or bool(extra.get("allow_cli_schema_omission_retry"))
+        or is_fallback_enabled(
+            FallbackKey.CLI_SCHEMA_OMISSION_RETRY,
+            {"fallbacks": fb_dict} if isinstance(fb_dict, dict) else None,
+        )
+        or (
+            os.environ.get("OPENDV_FALLBACK_CLI_SCHEMA_OMISSION_RETRY", "").lower()
+            in ("1", "true", "yes")
+        )
+    )
+
+
 __all__ = [
     "DEFAULT_AGY_MODEL_MAP",
     "DEFAULT_CLAUDE_MODEL_MAP",
@@ -290,6 +310,7 @@ __all__ = [
     "PERSONA_CAPABILITY_MATRIX",
     "PersonaCapabilityProfile",
     "get_persona_capability",
+    "is_cli_schema_omission_retry_allowed",
     "is_tool_authorized_for_persona",
     "resolve_default_tier_for_persona",
     "resolve_provider_model",
