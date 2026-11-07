@@ -263,11 +263,14 @@ export class OpenDVPlatformClient {
 	async validatePipeline(
 		request: PipelineValidateRequest,
 	): Promise<Record<string, unknown>> {
-		const res = await this.fetchImpl(`${this.baseUrl}/api/v1/pipelines/validate`, {
-			method: "POST",
-			headers: this.headers,
-			body: JSON.stringify(request),
-		});
+		const res = await this.fetchImpl(
+			`${this.baseUrl}/api/v1/pipelines/validate`,
+			{
+				method: "POST",
+				headers: this.headers,
+				body: JSON.stringify(request),
+			},
+		);
 		if (!res.ok) {
 			const errJson = (await res.json().catch(() => ({}))) as {
 				detail?: string;

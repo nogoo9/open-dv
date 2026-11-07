@@ -187,14 +187,39 @@ def test_cli_spec_conforms_to_schema() -> None:
 
 
 def test_expected_schema_inventory_present() -> None:
-    """Verify the three canonical schema files exist in `schemas/`."""
+    """Verify the canonical schema files exist in `schemas/`."""
     found_names = {p.name for p in SCHEMAS_DIR.glob("*.json")}
     expected = {
         "no-mistake-dv2-contract-v5.schema.json",
         "dv2-canonical-ir.schema.json",
         "vault-observability-event.schema.json",
+        "openapi-v1.json",
     }
     assert expected.issubset(found_names)
+
+
+def test_openapi_v1_specification_drift_free() -> None:
+    """Assert openapi-v1.json matches FastAPI app.openapi() export byte-for-byte with zero drift."""
+    from opendv_platform_api.export_openapi import generate_openapi_spec
+
+    openapi_path = SCHEMAS_DIR / "openapi-v1.json"
+    assert openapi_path.exists(), f"Missing OpenAPI spec at {openapi_path}"
+
+    on_disk_raw = openapi_path.read_text(encoding="utf-8")
+    generated_spec = generate_openapi_spec()
+    rendered_expected = json.dumps(generated_spec, indent=2, sort_keys=True) + "\n"
+
+    # Normalize line endings for cross-platform assertion
+    assert on_disk_raw.replace("\r\n", "\n") == rendered_expected.replace("\r\n", "\n")
+    assert generated_spec.get("openapi") == "3.1.0"
+    assert generated_spec.get("jsonSchemaDialect") == "https://json-schema.org/draft/2020-12/schema"
+    assert generated_spec.get("$schema") == "https://json-schema.org/draft/2020-12/schema"
+
+    # Invariant: zero legacy workbench routes
+    paths = generated_spec.get("paths", {})
+    workbench_paths = [p for p in paths if "workbench" in p]
+    msg = f"Found forbidden legacy workbench routes in openapi spec: {workbench_paths}"
+    assert workbench_paths == [], msg
 
 
 # ============================================================================

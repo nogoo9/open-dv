@@ -67,7 +67,8 @@ export function buildExplorerBundleFromObservabilityEvents(
 	baseBundle?: Partial<ExplorerBundleDTO> | undefined,
 ): ExplorerBundleDTO {
 	const bundle = createEmptyExplorerBundle();
-	const projectId = project?.project_id ?? baseBundle?.projectId ?? bundle.projectId;
+	const projectId =
+		project?.project_id ?? baseBundle?.projectId ?? bundle.projectId;
 	const runId = run?.run_id ?? baseBundle?.runId ?? bundle.runId;
 
 	const clonedArtifacts: Record<string, Artifact> = {};
@@ -78,7 +79,9 @@ export function buildExplorerBundleFromObservabilityEvents(
 				waves: v.waves ? [...v.waves] : undefined,
 				cols: v.cols ? [...v.cols] : undefined,
 				rows: v.rows ? v.rows.map((r) => [...r]) : undefined,
-				kv: v.kv ? v.kv.map((pair) => [...pair] as [string, string]) : undefined,
+				kv: v.kv
+					? v.kv.map((pair) => [...pair] as [string, string])
+					: undefined,
 				checks: v.checks
 					? v.checks.map((c) => [...c] as [string, string, StatusTag])
 					: undefined,
@@ -133,7 +136,8 @@ export function buildExplorerBundleFromObservabilityEvents(
 		...bundle,
 		...baseBundle,
 		projectId,
-		displayName: project?.project_id || baseBundle?.displayName || bundle.displayName,
+		displayName:
+			project?.project_id || baseBundle?.displayName || bundle.displayName,
 		runId,
 		rbacRole,
 		artifacts: clonedArtifacts,
