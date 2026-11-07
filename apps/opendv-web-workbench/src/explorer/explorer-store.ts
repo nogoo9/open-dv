@@ -13,9 +13,7 @@ import {
 	type CaptainHoldDecisionRequest,
 	type CaptainHoldDecisionResponse,
 	type ExplorerBundleDTO,
-	GLOBAL_COMMERCE_EXPLORER_BUNDLE,
 	OpenDVPlatformClient,
-	PE_EXPLORER_BUNDLE,
 	type RbacRole,
 	type Stage,
 	type StatusTag,
@@ -23,10 +21,23 @@ import {
 	type VaultObservabilityEventDTO,
 	type WaveFilterId,
 	buildExplorerBundleFromObservabilityEvents,
+	createEmptyExplorerBundle,
 	filterArtifactIdsByWave,
 } from "@opendv/protocol-ts";
+import * as React from "react";
 import { type StoreApi, type UseBoundStore, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
+
+export function hasActiveReactDispatcher(): boolean {
+	const internals = React as unknown as {
+		__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE?: { H?: unknown };
+		__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED?: { ReactCurrentDispatcher?: { current?: unknown } };
+	};
+	return Boolean(
+		internals.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE?.H ||
+		internals.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED?.ReactCurrentDispatcher?.current,
+	);
+}
 
 export type ExplorerViewLevel = "pipeline" | "stage";
 export type ExplorerSelectionType = "artifact" | "step" | "component" | null;
@@ -191,13 +202,13 @@ function cloneBundle(bundle: ExplorerBundleDTO): ExplorerBundleDTO {
 }
 
 export interface ExplorerStoreInitOptions {
-	bundle?: ExplorerBundleDTO;
-	startView?: ExplorerViewLevel | "artifact";
-	startStage?: number;
-	startArtifact?: string | null;
-	startWave?: WaveFilterId;
-	platformClient?: OpenDVPlatformClient;
-	syncBrowserUrl?: boolean;
+	bundle?: ExplorerBundleDTO | undefined;
+	startView?: (ExplorerViewLevel | "artifact") | undefined;
+	startStage?: number | undefined;
+	startArtifact?: string | null | undefined;
+	startWave?: WaveFilterId | undefined;
+	platformClient?: OpenDVPlatformClient | undefined;
+	syncBrowserUrl?: boolean | undefined;
 }
 
 export interface HoldResolutionRecord {
@@ -233,7 +244,7 @@ export interface ExplorerStoreState {
 	selectStep: (stepIdx: number) => void;
 	selectComponent: (compIdx: number) => void;
 	clearSelection: () => void;
-	openFullArtifact: (artifactId: string, tab?: ArtifactFullTab) => void;
+	openFullArtifact: (artifactId: string, tab?: ArtifactFullTab | undefined) => void;
 	closeFullArtifact: () => void;
 	setFullTab: (tab: ArtifactFullTab) => void;
 
@@ -243,7 +254,7 @@ export interface ExplorerStoreState {
 	switchPresetBundle: (key: ExplorerPresetBundleKey) => void;
 	loadBundleFromEvents: (
 		events: readonly VaultObservabilityEventDTO[],
-		rbacRole?: RbacRole,
+		rbacRole?: RbacRole | undefined,
 	) => void;
 
 	// URL Synchronization
@@ -252,24 +263,24 @@ export interface ExplorerStoreState {
 
 	// Live Run & Steward Hold Actions
 	triggerPipelineRun: (options?: {
-		inputSpecPath?: string;
-		baseUrl?: string;
-		fetchImpl?: typeof fetch;
-	}) => Promise<void>;
+		inputSpecPath?: string | undefined;
+		baseUrl?: string | undefined;
+		fetchImpl?: (typeof fetch) | undefined;
+	} | undefined) => Promise<void>;
 	ingestLiveObservabilityEvent: (event: VaultObservabilityEventDTO) => void;
 	resolveStewardHold: (params: {
 		holdId: string;
 		action: "APPROVE" | "REJECT";
-		selectedCandidateId?: string;
-		resolutionNotes?: string;
-		eventId?: string;
-		fetchImpl?: typeof fetch;
+		selectedCandidateId?: string | undefined;
+		resolutionNotes?: string | undefined;
+		eventId?: string | undefined;
+		fetchImpl?: (typeof fetch) | undefined;
 	}) => Promise<CaptainHoldDecisionResponse>;
 }
 
 export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 	const initialBundle = cloneBundle(
-		options.bundle ?? GLOBAL_COMMERCE_EXPLORER_BUNDLE,
+		options.bundle ?? createEmptyExplorerBundle(),
 	);
 	const startV = options.startView ?? "pipeline";
 	const initialView: ExplorerViewLevel =
@@ -461,9 +472,7 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 				activeSseClient = null;
 			}
 			const nextBundle = cloneBundle(
-				key === "proj-apex-horizon-pe"
-					? PE_EXPLORER_BUNDLE
-					: GLOBAL_COMMERCE_EXPLORER_BUNDLE,
+				options.bundle ?? createEmptyExplorerBundle(),
 			);
 			set({
 				bundle: nextBundle,
@@ -715,7 +724,7 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 				holdId,
 				action,
 				selectedCandidateId: chosenCandidate,
-				resolutionNotes: req.resolution_notes,
+				resolutionNotes: req.resolution_notes ?? undefined,
 				decisionId: response.decision_id,
 			};
 
@@ -737,13 +746,23 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 
 	const useBoundStore = (<T = ExplorerStoreState>(
 		selector?: (state: ExplorerStoreState) => T,
-	): T =>
-		useStore(
-			api,
-			(selector ?? ((s: ExplorerStoreState) => s as unknown as T)) as (
-				state: ExplorerStoreState,
-			) => T,
-		)) as UseBoundStore<StoreApi<ExplorerStoreState>>;
+	): T => {
+		if (!hasActiveReactDispatcher()) {
+			const state = api.getState();
+			return selector ? selector(state) : (state as unknown as T);
+		}
+		try {
+			return useStore(
+				api,
+				(selector ?? ((s: ExplorerStoreState) => s as unknown as T)) as (
+					state: ExplorerStoreState,
+				) => T,
+			);
+		} catch {
+			const state = api.getState();
+			return selector ? selector(state) : (state as unknown as T);
+		}
+	}) as UseBoundStore<StoreApi<ExplorerStoreState>>;
 
 	Object.assign(useBoundStore, api);
 	return useBoundStore;

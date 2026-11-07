@@ -1,49 +1,19 @@
 /**
- * Canonical 8-Stage Pipeline Explorer Metadata, Dynamic Bundle Builder, and
- * Multi-Wave Explorer Bundles (`GLOBAL_COMMERCE_EXPLORER_BUNDLE` & `PE_EXPLORER_BUNDLE`)
- * for `@opendv/protocol-ts` (`docs/design/open-dv-workbench/HANDOFF.md`).
+ * Test Fixture: Global Commerce Explorer Bundle & Mock Events
+ * Extracted from protocol-ts SDK per Architecture Plan v3.9 Decision D3 / Phase P9 (#115).
  */
 
-import type { ProjectDTO, ProjectRunDTO } from "../types/api-dtos";
-import type { RbacRole } from "../types/common";
-import type { VaultObservabilityEventDTO } from "../types/observability-event";
-import type {
-	Artifact,
-	ExplorerBundleDTO,
-	OntologyConceptSpec,
-	PhaseSpec,
-	Stage,
-	StatusTag,
-	WaveFilterId,
-} from "../types/workbench-explorer";
 import {
-	PE_DEMO_EVENTS,
-	PE_DEMO_PROJECT,
-	PE_DEMO_RUN,
-} from "./pe-demo-bundle";
-
-export const EXPLORER_PHASES: readonly PhaseSpec[] = [
-	{
-		index: 0,
-		label: "Discovery",
-		sub: "LLM agents · read-only scouts",
-	},
-	{
-		index: 1,
-		label: "Modelling",
-		sub: "LLM agent · declarative contract only",
-	},
-	{
-		index: 2,
-		label: "Verification",
-		sub: "deterministic · symbolic gates",
-	},
-	{
-		index: 3,
-		label: "Compilation",
-		sub: "deterministic · no LLM",
-	},
-] as const;
+	type Artifact,
+	CANONICAL_STAGE_DEFINITIONS,
+	EXPLORER_PHASES,
+	type ExplorerBundleDTO,
+	type OntologyConceptSpec,
+	type ProjectDTO,
+	type ProjectRunDTO,
+	type VaultObservabilityEventDTO,
+	buildExplorerBundleFromObservabilityEvents,
+} from "@opendv/protocol-ts";
 
 export const COMMERCE_MSA_QUOTE_U1 =
 	"Northwind Industrial Supply Corp. (US Federal Tax ID: TAX-US-900101)";
@@ -1990,73 +1960,66 @@ export const GLOBAL_COMMERCE_EXPLORER_BUNDLE: ExplorerBundleDTO = {
 	outputIds: ["final_contract", "final_ir", "final_sql", "report", "ledger"],
 };
 
-/**
- * Dynamically build or hydrate an `ExplorerBundleDTO` from `@opendv/protocol-ts`
- * `ProjectDTO`, `ProjectRunDTO`, and `VaultObservabilityEventDTO[]`.
- */
-export function buildExplorerBundleFromObservabilityEvents(
-	project: ProjectDTO = PE_DEMO_PROJECT,
-	run: ProjectRunDTO = PE_DEMO_RUN,
-	events: readonly VaultObservabilityEventDTO[] = PE_DEMO_EVENTS,
-	rbacRole: RbacRole = "INTERNAL_MODELER",
-): ExplorerBundleDTO {
-	const clonedArtifacts: Record<string, Artifact> = {};
-	for (const [k, v] of Object.entries(GLOBAL_COMMERCE_ARTIFACTS)) {
-		clonedArtifacts[k] = {
-			...v,
-			waves: v.waves ? [...v.waves] : undefined,
-			cols: v.cols ? [...v.cols] : undefined,
-			rows: v.rows ? v.rows.map((r) => [...r]) : undefined,
-			kv: v.kv ? v.kv.map((pair) => [...pair] as [string, string]) : undefined,
-			checks: v.checks
-				? v.checks.map((c) => [...c] as [string, string, StatusTag])
-				: undefined,
-			events: v.events
-				? v.events.map((e) => [...e] as [string, string, StatusTag])
-				: undefined,
-		};
-	}
+export const PE_DEMO_PROJECT: ProjectDTO = {
+	project_id: "proj-apex-horizon-pe",
+	display_name: "Apex Horizon Capital Partners — Private Equity Vault",
+	domain_namespace: "pe_asset_management",
+	graph_a_sha256: "A1B2C3D4E5F60718293A4B5C6D7E8F90A1B2C3D4E5F60718293A4B5C6D7E8F90",
+	latest_run_id: "run-pe-apex-horizon-20261030",
+	created_at_utc: "2026-10-30T08:55:00Z",
+};
 
-	if (events.length > 0 && clonedArtifacts.ledger) {
-		const mappedEvents: [string, string, StatusTag][] = events.map((ev) => {
-			const shortStage = ev.stage_id.slice(0, 8);
-			const statusTag: StatusTag =
-				ev.status === "PASS" ||
-				ev.status === "AUTO_REPAIRED" ||
-				ev.status === "ASK-USER" ||
-				ev.status === "REJECT-WITH-TRACE" ||
-				ev.status === "AUTO-FIX"
-					? ev.status
-					: "PASS";
-			return [shortStage, ev.layer1_story_banner.headline, statusTag];
-		});
-		clonedArtifacts.ledger = {
-			...clonedArtifacts.ledger,
-			short: `${events.length} events · RBAC-redacted stream`,
-			events: mappedEvents,
-			raw: events
-				.map((ev, idx) =>
-					JSON.stringify({
-						seq: idx + 1,
-						event_id: ev.event_id,
-						stage: ev.stage_id,
-						status: ev.status,
-						headline: ev.layer1_story_banner.headline,
-					}),
-				)
-				.join("\n"),
-		};
-	}
+export const PE_DEMO_RUN: ProjectRunDTO = {
+	run_id: "run-pe-apex-horizon-20261030",
+	project_id: "proj-apex-horizon-pe",
+	harness_provider: "antigravity",
+	status: "COMPLETED",
+	started_at_utc: "2026-10-30T09:00:00Z",
+	completed_at_utc: "2026-10-30T09:00:45Z",
+	current_stage_id: "STAGE_07_DETERMINISTIC_COMPILER",
+	event_count: 1,
+	events_sse_url: "/api/v1/runs/run-pe-apex-horizon-20261030/events",
+	gates_url: "/api/v1/runs/run-pe-apex-horizon-20261030/gates",
+	sandbox_url: "/api/v1/runs/run-pe-apex-horizon-20261030/sandbox",
+	decisions_url: "/api/v1/runs/run-pe-apex-horizon-20261030/decisions",
+};
 
-	return {
-		...GLOBAL_COMMERCE_EXPLORER_BUNDLE,
-		projectId: project.project_id,
-		displayName: project.project_id,
-		runId: run.run_id,
-		rbacRole,
-		artifacts: clonedArtifacts,
-	};
-}
+export const PE_DEMO_EVENTS: readonly VaultObservabilityEventDTO[] = [
+	{
+		event_id: "evt-pe-000",
+		run_id: "run-pe-apex-horizon-20261030",
+		trace_id: "4bf92f3577b34da6a3ce929d0e0e4736",
+		span_id: "00f067aa0ba902b0",
+		parent_span_id: null,
+		timestamp_utc: "2026-10-30T09:00:00Z",
+		stage_id: "STAGE_00_ORCHESTRATION",
+		phase_id: "P1_INGESTION",
+		step_id: "STEP_00_INIT",
+		contract_version: "6.0",
+		agent_persona: "vault-first-mate",
+		status: "PASS",
+		layer1_story_banner: {
+			headline: "Master Pipeline Command Center & 6-Gate Scoreboard",
+			sub_bullet: "Orchestration initialization verified",
+			status_color: "GREEN",
+			proof_available: true,
+			counterfactual_trap: false,
+		},
+		metrics: {},
+		gate_evaluations: [],
+		audit_record: {
+			agent_persona: "vault-first-mate",
+			model_tier: "pro",
+			temperature: 0.1,
+			prompt_tokens: 120,
+			completion_tokens: 45,
+			total_cost_usd: 0.001,
+			duration_ms: 120,
+			cached: false,
+		},
+		rbac_redaction_level: "RAW",
+	},
+];
 
 export const PE_EXPLORER_BUNDLE: ExplorerBundleDTO =
 	buildExplorerBundleFromObservabilityEvents(
@@ -2064,55 +2027,3 @@ export const PE_EXPLORER_BUNDLE: ExplorerBundleDTO =
 		PE_DEMO_RUN,
 		PE_DEMO_EVENTS,
 	);
-
-/**
- * Compute which stage(s) produced a given artifact ID.
- */
-export function getArtifactProducedBy(
-	stages: readonly Stage[],
-	artifactId: string,
-): string {
-	const producers: string[] = [];
-	for (const stage of stages) {
-		if (stage.outs.includes(artifactId)) {
-			producers.push(stage.key.slice(0, 8));
-		}
-	}
-	return producers.join(", ") || "— (provided)";
-}
-
-/**
- * Compute which stage(s) consumed a given artifact ID.
- */
-export function getArtifactConsumedBy(
-	stages: readonly Stage[],
-	artifactId: string,
-): string {
-	const consumers: string[] = [];
-	for (const stage of stages) {
-		if (stage.ins.includes(artifactId)) {
-			consumers.push(stage.key.slice(0, 8));
-		}
-	}
-	return consumers.join(", ") || "— (final)";
-}
-
-/**
- * Filter input artifact IDs by active wave (`all` | `W0` | `W1` | `W2` | `W3`).
- */
-export function filterArtifactIdsByWave(
-	artifactIds: readonly string[],
-	artifacts: Readonly<Record<string, Artifact>>,
-	wave: WaveFilterId,
-): string[] {
-	if (wave === "all") {
-		return [...artifactIds];
-	}
-	return artifactIds.filter((id) => {
-		const art = artifacts[id];
-		if (!art || !art.waves || art.waves.length === 0) {
-			return true;
-		}
-		return art.waves.includes(wave);
-	});
-}

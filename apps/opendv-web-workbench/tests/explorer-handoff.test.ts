@@ -5,12 +5,14 @@
 
 import { describe, expect, it } from "bun:test";
 import {
-	GLOBAL_COMMERCE_EXPLORER_BUNDLE,
-	PE_DEMO_EVENTS,
 	type VaultObservabilityEventDTO,
 	getArtifactConsumedBy,
 	getArtifactProducedBy,
 } from "@opendv/protocol-ts";
+import {
+	GLOBAL_COMMERCE_EXPLORER_BUNDLE,
+	PE_DEMO_EVENTS,
+} from "./fixtures/commerce-explorer-fixture";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { createWorkbenchDevServer } from "../src/dev-server";
@@ -77,7 +79,10 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 
 	describe("2. View 1 — Pipeline Overview & Contextual Inspector", () => {
 		it("renders Global Top Bar, Settings, 7 Inputs, 4 Phases (8 Stages), and 5 Outputs", () => {
-			const store = createExplorerStore({ syncBrowserUrl: false });
+			const store = createExplorerStore({
+				bundle: GLOBAL_COMMERCE_EXPLORER_BUNDLE,
+				syncBrowserUrl: false,
+			});
 			const html = renderToStaticMarkup(
 				createElement(OpenDVWorkbenchExplorer, { store }),
 			);
@@ -121,7 +126,10 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 		});
 
 		it("opens the contextual Inspector when an artifact card is selected in Pipeline view", () => {
-			const store = createExplorerStore({ syncBrowserUrl: false });
+			const store = createExplorerStore({
+				bundle: GLOBAL_COMMERCE_EXPLORER_BUNDLE,
+				syncBrowserUrl: false,
+			});
 			store.getState().selectArtifact("final_contract");
 
 			const html = renderToStaticMarkup(
@@ -138,6 +146,7 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 	describe("3. View 2 — Stage Drill-Down (Components, Control & Data Flow, Inspector)", () => {
 		it("renders Stage 05 drill-down with Enters with, 6 steps, Hands off, Components, and Step Inspector", () => {
 			const store = createExplorerStore({
+				bundle: GLOBAL_COMMERCE_EXPLORER_BUNDLE,
 				startView: "stage",
 				startStage: 5,
 				syncBrowserUrl: false,
@@ -260,7 +269,10 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 
 	describe("5. Wave Filter, URL Deep-Linking, Live Runs & Steward Hold Resolution", () => {
 		it("filters inputs and stage counts by Wave (All, W0, W1, W2, W3) and round-trips deep-link URLs", () => {
-			const store = createExplorerStore({ syncBrowserUrl: false });
+			const store = createExplorerStore({
+				bundle: GLOBAL_COMMERCE_EXPLORER_BUNDLE,
+				syncBrowserUrl: false,
+			});
 			expect(store.getState().getVisibleInputIds()).toEqual([
 				"spec",
 				"ontology",
@@ -341,7 +353,10 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 				return new Response("{}", { status: 200 });
 			}) as unknown as typeof fetch;
 
-			const store = createExplorerStore({ syncBrowserUrl: false });
+			const store = createExplorerStore({
+				bundle: GLOBAL_COMMERCE_EXPLORER_BUNDLE,
+				syncBrowserUrl: false,
+			});
 
 			// Ingest a live event
 			const sampleEvent = PE_DEMO_EVENTS[0] as VaultObservabilityEventDTO;

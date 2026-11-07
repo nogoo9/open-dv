@@ -6,6 +6,7 @@
 
 import {
 	type Artifact,
+	type HoldResolutionParams,
 	type Stage,
 	getArtifactConsumedBy,
 	getArtifactProducedBy,
@@ -31,13 +32,7 @@ export interface InspectorPanelProps {
 	artifacts: Readonly<Record<string, Artifact>>;
 	onClearSelection: () => void;
 	onOpenFullArtifact: (artifactId: string) => void;
-	onResolveHold?: (params: {
-		holdId: string;
-		action: "APPROVE" | "REJECT";
-		selectedCandidateId?: string;
-		resolutionNotes?: string;
-		eventId?: string;
-	}) => void;
+	onResolveHold?: ((params: HoldResolutionParams) => void) | undefined;
 }
 
 function buildArtifactPreview(artifact: Artifact): string {

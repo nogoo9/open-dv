@@ -45,14 +45,14 @@ export interface OntologySvgNodeSpec {
 	x: number;
 	y: number;
 	w: number;
-	h?: number;
+	h?: number | undefined;
 }
 
 export interface OntologySvgEdgeSpec {
 	path: string;
-	label?: string;
-	lx?: number;
-	ly?: number;
+	label?: string | undefined;
+	lx?: number | undefined;
+	ly?: number | undefined;
 }
 
 export interface DvSvgNodeSpec {
@@ -71,7 +71,7 @@ export interface DvSvgEdgeSpec {
 	y1: number;
 	x2: number;
 	y2: number;
-	dashed?: boolean;
+	dashed?: boolean | undefined;
 }
 
 export interface DocCandidateOption {
@@ -88,12 +88,20 @@ export interface DocExtractionSpec {
 	tier: "Tier-U1" | "Tier-U2" | "Tier-U3";
 	conf: string;
 	decision: string;
-	holdId?: string;
-	eventId?: string;
-	resolved?: boolean;
-	resolutionAction?: "APPROVE" | "REJECT";
-	selectedCandidateId?: string;
-	candidates?: DocCandidateOption[];
+	holdId?: string | undefined;
+	eventId?: string | undefined;
+	resolved?: boolean | undefined;
+	resolutionAction?: ("APPROVE" | "REJECT") | undefined;
+	selectedCandidateId?: string | undefined;
+	candidates?: DocCandidateOption[] | undefined;
+}
+
+export interface HoldResolutionParams {
+	holdId: string;
+	action: "APPROVE" | "REJECT";
+	selectedCandidateId?: string | undefined;
+	resolutionNotes?: string | undefined;
+	eventId?: string | undefined;
 }
 
 export interface Artifact {
@@ -106,43 +114,49 @@ export interface Artifact {
 	viz: VizKind;
 	desc: string;
 	raw: string;
-	waves?: Exclude<WaveFilterId, "all">[];
-	sha256?: string;
+	waves?: Exclude<WaveFilterId, "all">[] | undefined;
+	sha256?: string | undefined;
 	// For viz === 'table'
-	cols?: string[];
-	rows?: string[][];
-	foot?: string;
+	cols?: string[] | undefined;
+	rows?: string[][] | undefined;
+	foot?: string | undefined;
 	// For viz === 'kv'
-	kv?: [string, string][];
+	kv?: [string, string][] | undefined;
 	// For viz === 'checks'
-	checks?: [string, string, StatusTag][];
+	checks?: [string, string, StatusTag][] | undefined;
 	// For viz === 'events'
-	events?: [string, string, StatusTag][];
+	events?: [string, string, StatusTag][] | undefined;
 	// For viz === 'code'
-	outline?: [string, string][];
+	outline?: [string, string][] | undefined;
 	// For viz === 'ontology'
-	ontology?: {
-		concepts: OntologyConceptSpec[];
-		nodes: OntologySvgNodeSpec[];
-		edges: OntologySvgEdgeSpec[];
-	};
+	ontology?:
+		| {
+				concepts: OntologyConceptSpec[];
+				nodes: OntologySvgNodeSpec[];
+				edges: OntologySvgEdgeSpec[];
+		  }
+		| undefined;
 	// For viz === 'dv'
-	dv?: {
-		nodes: DvSvgNodeSpec[];
-		edges: DvSvgEdgeSpec[];
-	};
+	dv?:
+		| {
+				nodes: DvSvgNodeSpec[];
+				edges: DvSvgEdgeSpec[];
+		  }
+		| undefined;
 	// For viz === 'doc'
-	doc?: {
-		documentName: string;
-		sourceText: string;
-		extractions: DocExtractionSpec[];
-	};
+	doc?:
+		| {
+				documentName: string;
+				sourceText: string;
+				extractions: DocExtractionSpec[];
+		  }
+		| undefined;
 }
 
 export interface Step {
 	name: string;
-	kind?: "action" | "decision" | "loop";
-	branch?: string;
+	kind?: ("action" | "decision" | "loop") | undefined;
+	branch?: string | undefined;
 	reads: string[];
 	writes: string[];
 	desc: string;
@@ -164,7 +178,7 @@ export interface Stage {
 	tag: StatusTag;
 	blurb: string;
 	desc: string;
-	note?: string;
+	note?: string | undefined;
 	ins: string[];
 	outs: string[];
 	steps: Step[];

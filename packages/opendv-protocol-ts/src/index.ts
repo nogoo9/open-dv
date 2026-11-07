@@ -17,3 +17,4 @@ export * from "./client/ledger-replay-client";
 export * from "./utils/hash-pill";
 export * from "./utils/event-filters";
 export * from "./utils/sse-parser";
+export * from "./utils/explorer-bundle";

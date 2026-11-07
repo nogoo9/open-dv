@@ -3,7 +3,11 @@
  * for the Open-DV 3-Level Pipeline Explorer (`docs/design/open-dv-workbench/HANDOFF.md`).
  */
 
-import type { Artifact, DocExtractionSpec } from "@opendv/protocol-ts";
+import type {
+	Artifact,
+	DocExtractionSpec,
+	HoldResolutionParams,
+} from "@opendv/protocol-ts";
 import { useState } from "react";
 import {
 	EXPLORER_COLORS,
@@ -13,13 +17,7 @@ import {
 
 export interface ArtifactVisualizerProps {
 	artifact: Artifact;
-	onResolveHold?: (params: {
-		holdId: string;
-		action: "APPROVE" | "REJECT";
-		selectedCandidateId?: string;
-		resolutionNotes?: string;
-		eventId?: string;
-	}) => void;
+	onResolveHold?: ((params: HoldResolutionParams) => void) | undefined;
 }
 
 function buildDocSegments(

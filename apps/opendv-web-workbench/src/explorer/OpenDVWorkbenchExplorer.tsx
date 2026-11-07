@@ -3,7 +3,7 @@
  * (`Pipeline -> Stage -> Artifact`) (`docs/design/open-dv-workbench/HANDOFF.md`).
  */
 
-import type { WaveFilterId } from "@opendv/protocol-ts";
+import type { HoldResolutionParams, WaveFilterId } from "@opendv/protocol-ts";
 import { useEffect } from "react";
 import type { StoreApi, UseBoundStore } from "zustand";
 import { ArtifactFullModal } from "./ArtifactFullModal";
@@ -12,12 +12,27 @@ import { StageDrillDownView } from "./StageDrillDownView";
 import { EXPLORER_COLORS, EXPLORER_FONTS } from "./design-tokens";
 import {
 	type ExplorerStoreState,
+	hasActiveReactDispatcher,
 	useExplorerStore,
 } from "./explorer-store";
 
 export interface OpenDVWorkbenchExplorerProps {
-	store?: UseBoundStore<StoreApi<ExplorerStoreState>>;
-	fetchImpl?: typeof fetch;
+	store?: UseBoundStore<StoreApi<ExplorerStoreState>> | undefined;
+	fetchImpl?: (typeof fetch) | undefined;
+}
+
+function safeUseEffect(
+	effect: () => void | (() => void),
+	deps?: readonly unknown[] | undefined,
+): void {
+	if (!hasActiveReactDispatcher()) {
+		return;
+	}
+	try {
+		useEffect(effect, deps);
+	} catch {
+		// Ignore hook errors when called outside of a React render tree
+	}
 }
 
 const WAVE_SEGMENTS: readonly { label: string; id: WaveFilterId }[] = [
@@ -31,7 +46,7 @@ const WAVE_SEGMENTS: readonly { label: string; id: WaveFilterId }[] = [
 export function OpenDVWorkbenchExplorer({
 	store = useExplorerStore,
 	fetchImpl,
-}: OpenDVWorkbenchExplorerProps) {
+}: OpenDVWorkbenchExplorerProps = {}) {
 	const bundle = store((s) => s.bundle);
 	const activeBundleKey = store((s) => s.activeBundleKey);
 	const view = store((s) => s.view);
@@ -62,7 +77,7 @@ export function OpenDVWorkbenchExplorer({
 	const resolveStewardHold = store((s) => s.resolveStewardHold);
 
 	// Sync initial URL and browser popstate
-	useEffect(() => {
+	safeUseEffect(() => {
 		if (
 			typeof globalThis !== "undefined" &&
 			"location" in globalThis &&
@@ -94,7 +109,7 @@ export function OpenDVWorkbenchExplorer({
 	}, [syncFromUrl]);
 
 	// Escape key handler: close Artifact Full View first, otherwise clear selection
-	useEffect(() => {
+	safeUseEffect(() => {
 		if (
 			typeof globalThis === "undefined" ||
 			typeof globalThis.addEventListener !== "function"
@@ -122,16 +137,10 @@ export function OpenDVWorkbenchExplorer({
 	const stageShortCode = currentStage?.key.slice(0, 8) ?? "STAGE_00";
 	const fullArtifact = fullId ? bundle.artifacts[fullId] : undefined;
 
-	const handleResolveHold = (params: {
-		holdId: string;
-		action: "APPROVE" | "REJECT";
-		selectedCandidateId?: string;
-		resolutionNotes?: string;
-		eventId?: string;
-	}) => {
+	const handleResolveHold = (params: HoldResolutionParams) => {
 		void resolveStewardHold({
 			...params,
-			fetchImpl,
+			...(fetchImpl !== undefined ? { fetchImpl } : {}),
 		});
 	};
 
@@ -139,8 +148,9 @@ export function OpenDVWorkbenchExplorer({
 		runState === "running" || runState === "hold" ? "#B45309" : "#16181D";
 
 	return (
-		<div
-			data-testid="opendv-workbench-explorer"
+		<main
+			className="opendv-workbench-explorer"
+			data-testid="workbench-explorer-root"
 			style={{
 				minHeight: "100vh",
 				backgroundColor: EXPLORER_COLORS.bgPage,
@@ -362,7 +372,9 @@ export function OpenDVWorkbenchExplorer({
 						type="button"
 						data-testid="btn-explorer-run-pipeline"
 						onClick={() => {
-							void triggerPipelineRun({ fetchImpl });
+							void triggerPipelineRun(
+								fetchImpl !== undefined ? { fetchImpl } : undefined,
+							);
 						}}
 						style={{
 							all: "unset",
@@ -434,6 +446,6 @@ export function OpenDVWorkbenchExplorer({
 					onResolveHold={handleResolveHold}
 				/>
 			)}
-		</div>
+		</main>
 	);
 }

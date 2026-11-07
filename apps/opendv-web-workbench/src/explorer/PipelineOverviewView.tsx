@@ -6,6 +6,7 @@
 
 import {
 	type Artifact,
+	type HoldResolutionParams,
 	type PhaseSpec,
 	type Stage,
 	type WaveFilterId,
@@ -35,13 +36,7 @@ export interface PipelineOverviewViewProps {
 	onOpenFullArtifact: (artifactId: string) => void;
 	onOpenStage: (stageIdx: number) => void;
 	onClearSelection: () => void;
-	onResolveHold?: (params: {
-		holdId: string;
-		action: "APPROVE" | "REJECT";
-		selectedCandidateId?: string;
-		resolutionNotes?: string;
-		eventId?: string;
-	}) => void;
+	onResolveHold?: ((params: HoldResolutionParams) => void) | undefined;
 }
 
 function buildCardPreviewLines(artifact: Artifact): string {
@@ -57,7 +52,7 @@ function buildCardPreviewLines(artifact: Artifact): string {
 interface ArtifactCardItemProps {
 	artifact: Artifact;
 	isSelected: boolean;
-	showPreviewLines?: boolean;
+	showPreviewLines?: boolean | undefined;
 	onSelect: () => void;
 	onExpand: () => void;
 }

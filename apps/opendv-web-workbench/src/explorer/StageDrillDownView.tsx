@@ -4,7 +4,11 @@
  * and Inspector Column (`docs/design/open-dv-workbench/HANDOFF.md`).
  */
 
-import type { Artifact, Stage } from "@opendv/protocol-ts";
+import type {
+	Artifact,
+	HoldResolutionParams,
+	Stage,
+} from "@opendv/protocol-ts";
 import { InspectorPanel } from "./InspectorPanel";
 import {
 	EXPLORER_FONTS,
@@ -28,13 +32,7 @@ export interface StageDrillDownViewProps {
 	onSelectComponent: (compIdx: number) => void;
 	onClearSelection: () => void;
 	onOpenFullArtifact: (artifactId: string) => void;
-	onResolveHold?: (params: {
-		holdId: string;
-		action: "APPROVE" | "REJECT";
-		selectedCandidateId?: string;
-		resolutionNotes?: string;
-		eventId?: string;
-	}) => void;
+	onResolveHold?: ((params: HoldResolutionParams) => void) | undefined;
 }
 
 export function StageDrillDownView({

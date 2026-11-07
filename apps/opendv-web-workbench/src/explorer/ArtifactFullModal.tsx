@@ -4,7 +4,11 @@
  * (`docs/design/open-dv-workbench/HANDOFF.md`).
  */
 
-import type { Artifact, RbacRole } from "@opendv/protocol-ts";
+import type {
+	Artifact,
+	HoldResolutionParams,
+	RbacRole,
+} from "@opendv/protocol-ts";
 import { ArtifactVisualizer } from "./ArtifactVisualizers";
 import {
 	EXPLORER_FONTS,
@@ -20,13 +24,7 @@ export interface ArtifactFullModalProps {
 	rbacRole: RbacRole;
 	onClose: () => void;
 	onSelectTab: (tab: ArtifactFullTab) => void;
-	onResolveHold?: (params: {
-		holdId: string;
-		action: "APPROVE" | "REJECT";
-		selectedCandidateId?: string;
-		resolutionNotes?: string;
-		eventId?: string;
-	}) => void;
+	onResolveHold?: ((params: HoldResolutionParams) => void) | undefined;
 }
 
 const TABS: readonly { label: string; id: ArtifactFullTab }[] = [
@@ -233,7 +231,7 @@ export function ArtifactFullModal({
 						</div>
 						<ArtifactVisualizer
 							artifact={artifact}
-							onResolveHold={onResolveHold}
+							onResolveHold={onResolveHold ?? undefined}
 						/>
 					</div>
 				)}
