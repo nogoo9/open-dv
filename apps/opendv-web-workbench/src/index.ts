@@ -5,40 +5,12 @@
  */
 
 import { PROTOCOL_VERSION } from "@opendv/protocol-ts";
-import { type ReactElement, createElement } from "react";
+import { createElement } from "react";
 import { type Root, createRoot } from "react-dom/client";
+import { OpenDVWorkbenchExplorer } from "./explorer/OpenDVWorkbenchExplorer";
 
 export function getWorkbenchVersion(): string {
 	return `Open-DV Web Workbench (Protocol ${PROTOCOL_VERSION})`;
-}
-
-/**
- * OpenDVWorkbenchExplorer component.
- * Clean Explorer entrypoint; PR #60 is still open and full 3-level pipeline explorer integration lands in Phase P9 (#114).
- */
-export function OpenDVWorkbenchExplorer(): ReactElement {
-	return createElement(
-		"main",
-		{
-			className: "opendv-workbench-explorer",
-			"data-testid": "workbench-explorer-root",
-		},
-		createElement(
-			"header",
-			{ className: "explorer-header" },
-			createElement("h1", null, "Open-DV Workbench Explorer"),
-			createElement("p", null, getWorkbenchVersion()),
-		),
-		createElement(
-			"section",
-			{ className: "explorer-content" },
-			createElement(
-				"div",
-				{ className: "explorer-placeholder-banner" },
-				"3-Level Pipeline Explorer (Pipeline Overview, Stage Drill-Down, Artifact Inspector)",
-			),
-		),
-	);
 }
 
 export function mountWorkbenchApp(container?: HTMLElement | null): Root | null {
@@ -66,3 +38,13 @@ if (
 ) {
 	mountWorkbenchApp();
 }
+
+// 3-Level Pipeline Explorer Workbench (Pipeline -> Stage -> Artifact) (HANDOFF.md)
+export * from "./explorer/design-tokens";
+export * from "./explorer/explorer-store";
+export * from "./explorer/ArtifactVisualizers";
+export * from "./explorer/ArtifactFullModal";
+export * from "./explorer/InspectorPanel";
+export * from "./explorer/PipelineOverviewView";
+export * from "./explorer/StageDrillDownView";
+export * from "./explorer/OpenDVWorkbenchExplorer";
