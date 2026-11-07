@@ -2,15 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://open-dv.org/schemas/vault-observability-event.schema.json",
   "title": "VaultObservabilityEvent",
-  "description": "Unified JSONL telemetry event emitted by open-dv agents (Vault First Mate, scout-source, scout-unstructured, ship-vault, axi-dv, and DeterministicCompiler) over state/vault-ledger.jsonl to drive the 12-View Explainability & Observability Workbench (WB-00 through WB-11).",
+  "description": "Unified JSONL telemetry event emitted by open-dv agents (Vault First Mate, scout-source, scout-unstructured, ship-vault, axi-dv, and DeterministicCompiler) over state/vault-ledger.jsonl.",
   "type": "object",
   "required": [
     "event_id",
     "run_id",
     "timestamp_utc",
     "stage_id",
-    "workbench_view_id",
-    "viz_id",
     "agent_persona",
     "status",
     "layer1_story_banner",
@@ -22,6 +20,10 @@
       "type": "string",
       "minLength": 1,
       "description": "Unique identifier for this telemetry event (UUIDv7 or deterministic trace ID)."
+    },
+    "event_type": {
+      "type": "string",
+      "description": "Optional normative telemetry event classification (e.g. FALLBACK_APPLIED)."
     },
     "run_id": {
       "type": "string",
@@ -79,15 +81,15 @@
       "type": "string",
       "description": "Optional step visualization identifier bound to the active pipeline phase.",
       "enum": [
-        "VIZ-PIPE-00",
-        "VIZ-STEP-01",
-        "VIZ-STEP-02",
-        "VIZ-STEP-03",
-        "VIZ-STEP-04",
-        "VIZ-STEP-05",
-        "VIZ-STEP-06",
-        "VIZ-STEP-07",
-        "VIZ-STEP-08"
+        "PIPE-00",
+        "STEP-01",
+        "STEP-02",
+        "STEP-03",
+        "STEP-04",
+        "STEP-05",
+        "STEP-06",
+        "STEP-07",
+        "STEP-08"
       ]
     },
     "gate_id": {
@@ -119,45 +121,6 @@
       "minimum": 0.0,
       "maximum": 1.0,
       "description": "Normalized confidence score in [0.0, 1.0] for discovery, resolution, or extraction events."
-    },
-    "workbench_view_id": {
-      "type": "string",
-      "enum": [
-        "WB-00",
-        "WB-01",
-        "WB-02",
-        "WB-03",
-        "WB-04",
-        "WB-05",
-        "WB-06",
-        "WB-07",
-        "WB-08",
-        "WB-09",
-        "WB-10",
-        "WB-11"
-      ]
-    },
-    "viz_id": {
-      "type": "string",
-      "enum": [
-        "VIZ-PIPE-00",
-        "VIZ-STEP-01",
-        "VIZ-STEP-02",
-        "VIZ-STEP-03",
-        "VIZ-STEP-04",
-        "VIZ-STEP-05",
-        "VIZ-STEP-06",
-        "VIZ-STEP-07",
-        "VIZ-STEP-08",
-        "VIZ-GATE-01",
-        "VIZ-GATE-02",
-        "VIZ-GATE-03",
-        "VIZ-GATE-04",
-        "VIZ-GATE-05",
-        "VIZ-GATE-06",
-        "VIZ-GATE-07",
-        "VIZ-GATE-08"
-      ]
     },
     "agent_persona": {
       "type": "string",
@@ -330,7 +293,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-PIPE-00", "VIZ-STEP-01"]}}
+        "properties": {"step_id": {"enum": ["PIPE-00", "STEP-01"]}}
       }
     },
     {
@@ -339,7 +302,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-STEP-02", "VIZ-STEP-03"]}}
+        "properties": {"step_id": {"enum": ["STEP-02", "STEP-03"]}}
       }
     },
     {
@@ -348,7 +311,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-STEP-04"]}}
+        "properties": {"step_id": {"enum": ["STEP-04"]}}
       }
     },
     {
@@ -357,7 +320,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-STEP-05"]}}
+        "properties": {"step_id": {"enum": ["STEP-05"]}}
       }
     },
     {
@@ -366,7 +329,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-STEP-06"]}}
+        "properties": {"step_id": {"enum": ["STEP-06"]}}
       }
     },
     {
@@ -375,7 +338,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-STEP-07", "VIZ-STEP-08"]}}
+        "properties": {"step_id": {"enum": ["STEP-07", "STEP-08"]}}
       }
     },
     {

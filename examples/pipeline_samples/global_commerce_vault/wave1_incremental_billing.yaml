@@ -14,4 +14,7 @@ waves:
     sources:
       - source_system: "billing_stripe"
         table_name: "stripe_invoices"
+        source:
+          adapter: "file"
+          uri: "sources/wave1_incremental_billing/stripe_invoices.csv"
         data_path: "sources/wave1_incremental_billing/stripe_invoices.csv"

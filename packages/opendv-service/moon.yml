@@ -1,0 +1,38 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-service'
+language: 'python'
+layer: 'library'
+tags:
+  - 'python'
+  - 'service'
+  - 'core'
+
+dependsOn:
+  - 'opendv-contracts'
+  - 'opendv-core'
+  - 'opendv-axi-verifier'
+  - 'opendv-duckdb-sandbox'
+  - 'opendv-agent-harness'
+  - 'opendv-telemetry'
+
+tasks:
+  export-cli-spec:
+    description: 'Export deterministic CLI specification to packages/opendv-contracts/schemas/cli-spec.json and schemas/v1/cli-spec.json.'
+    command: 'uv'
+    args:
+      - 'run'
+      - '--package'
+      - 'opendv-service'
+      - 'python'
+      - '-m'
+      - 'opendv_service.export_cli_spec'
+    inputs:
+      - 'src/**/*.py'
+    outputs:
+      - '/packages/opendv-contracts/schemas/cli-spec.json'
+      - '/schemas/v1/cli-spec.json'
+      - '/schemas/cli-spec.json'
+    options:
+      runFromWorkspaceRoot: true
+

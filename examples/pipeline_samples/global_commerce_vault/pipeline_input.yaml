@@ -14,9 +14,15 @@ waves:
     sources:
       - source_system: "crm_salesforce"
         table_name: "crm_customers"
+        source:
+          adapter: "file"
+          uri: "sources/wave0_cold_start/crm_customers.csv"
         data_path: "sources/wave0_cold_start/crm_customers.csv"
       - source_system: "erp_netsuite"
         table_name: "erp_orders"
+        source:
+          adapter: "file"
+          uri: "sources/wave0_cold_start/erp_orders.csv"
         data_path: "sources/wave0_cold_start/erp_orders.csv"
 
   - wave_index: 1
@@ -26,6 +32,9 @@ waves:
     sources:
       - source_system: "billing_stripe"
         table_name: "stripe_invoices"
+        source:
+          adapter: "file"
+          uri: "sources/wave1_incremental_billing/stripe_invoices.csv"
         data_path: "sources/wave1_incremental_billing/stripe_invoices.csv"
 
   - wave_index: 2
@@ -35,6 +44,12 @@ waves:
     sources:
       - source_system: "crm_salesforce"
         table_name: "crm_customers"
+        source:
+          adapter: "file"
+          uri: "sources/wave2_schema_drift/crm_customers_v2.csv"
+        baseline_source:
+          adapter: "file"
+          uri: "sources/wave0_cold_start/crm_customers.csv"
         data_path: "sources/wave2_schema_drift/crm_customers_v2.csv"
         baseline_data_path: "sources/wave0_cold_start/crm_customers.csv"
 
@@ -44,5 +59,8 @@ waves:
     description: "Span-grounded extraction from Enterprise MSA Addendum 2026 with Tier-U1 exact match and Tier-U3 ambiguous entity Steward Hold."
     unstructured_documents:
       - doc_id: "DOC-MSA-2026-089"
+        source:
+          adapter: "text"
+          uri: "sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt"
         document_path: "sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt"
         record_source: "LEGAL_DOC_VAULT"

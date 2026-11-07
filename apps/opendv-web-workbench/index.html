@@ -5,32 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
     <!-- TODO(security): Enforce strict Content-Security-Policy header with script-src nonce and frame-ancestors 'self' at reverse proxy / FastAPI BFF layer -->
-    <title>Open-DV — 12-View Explainability &amp; Observability Workbench</title>
-    <script>
-      (function () {
-        var STORAGE_KEY = 'open-dv-active-theme';
-        var SAFE_THEME_PATTERN = /^[a-z0-9-]+$/;
-        var resolvedTheme = 'obsidian';
-        try {
-          var saved = localStorage.getItem(STORAGE_KEY);
-          if (saved && SAFE_THEME_PATTERN.test(saved)) {
-            resolvedTheme = saved;
-          } else if (
-            typeof window !== 'undefined' &&
-            typeof window.matchMedia === 'function'
-          ) {
-            if (window.matchMedia('(prefers-contrast: more)').matches) {
-              resolvedTheme = 'high-contrast';
-            } else if (window.matchMedia('(prefers-color-scheme: light)').matches) {
-              resolvedTheme = 'paper';
-            }
-          }
-        } catch (_err) {
-          resolvedTheme = 'obsidian';
-        }
-        document.documentElement.setAttribute('data-theme', resolvedTheme);
-      })();
-    </script>
+    <title>Open-DV Explorer</title>
     <link rel="stylesheet" href="/src/index.css" />
   </head>
   <body class="dv-canvas-body">

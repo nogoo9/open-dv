@@ -69,6 +69,7 @@ from opendv_duckdb_sandbox.graph_b_profiler import (
     SchemaDriftEvent,
     SchemaDriftKind,
     SchemaDriftReport,
+    profile_relation,
 )
 from opendv_duckdb_sandbox.ir_lowerer import (
     compute_topological_load_waves,
@@ -86,7 +87,9 @@ from opendv_duckdb_sandbox.pit_query_engine import (
 )
 from opendv_duckdb_sandbox.sandbox_engine import (
     DuckDbShadowSandbox,
+    SafeSqlResult,
     SandboxVerificationReport,
+    validate_safe_sql,
 )
 
 __version__ = "0.1.0"
@@ -104,6 +107,7 @@ __all__ = [
     "PitQueryEngine",
     "QueryD10Row",
     "QueryD10bRow",
+    "SafeSqlResult",
     "SandboxVerificationReport",
     "SchemaDriftEvent",
     "SchemaDriftKind",
@@ -138,10 +142,12 @@ __all__ = [
     "execute_query_d10",
     "execute_query_d10b",
     "lower_contract_to_canonical_ir",
+    "profile_relation",
     "resolve_staging_bkcc_literal",
     "run_batch_1_baseline_and_ghost_completeness",
     "run_batch_2_replay_idempotency",
     "run_batch_3_delta_and_boundary_shift",
     "run_batch_4_cross_source_and_bitemporal_restatement",
     "topological_load_dag",
+    "validate_safe_sql",
 ]

@@ -33,7 +33,7 @@ from opendv_core.models.canonical_ir import (
     IRSystemColumns,
 )
 from opendv_core.schema_registry import get_examples_dir, validate_observability_event
-from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_sql, is_pe_domain
+from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_sql
 from opendv_duckdb_sandbox.dynamic_checks import (
     build_vault_topology_maps,
     check_dv_dyn_002_referential_integrity,
@@ -293,7 +293,6 @@ def _build_global_commerce_canonical_ir() -> CanonicalIR:
 def test_global_commerce_vault_4zone_compiler_and_full_verification(tmp_path: Path) -> None:
     """Verify non-PE `global_commerce_vault` passes all 4 batches and all 15 DV-DYN checks."""
     commerce_ir = _build_global_commerce_canonical_ir()
-    assert is_pe_domain(commerce_ir) is False
 
     hub_map, link_map, sat_map, fk_edges = build_vault_topology_maps(commerce_ir)
     assert hub_map == {

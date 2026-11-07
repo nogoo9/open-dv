@@ -19,8 +19,6 @@ from opendv_agent_harness.models import (
     OutputT,
     PipelineStageId,
     SubagentSpec,
-    VizId,
-    WorkbenchViewId,
 )
 from opendv_agent_harness.personas.scout_source import build_scout_source_subagent_spec
 from opendv_agent_harness.personas.scout_unstructured import (
@@ -33,7 +31,7 @@ from opendv_agent_harness.tools.catalog import get_tools_for_persona
 VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS: str = (
     "You are `vault-first-mate`, the Read-Only Supervisor and Enterprise Core Business Concept "
     "(Graph A) Ontology Steward for the Open-DV neuro-symbolic pipeline "
-    "(`STAGE_00_ORCHESTRATION`, `WB-00` / `WB-01`).\n"
+    "(`STAGE_00_ORCHESTRATION`).\n"
     "Responsibilities:\n"
     "1. Enforce Hard Rule 1: Read-Only First Mate (`read_only_workspace=True`, "
     "`allow_shell_execution=False`). Never directly edit contracts or author SQL.\n"
@@ -65,7 +63,7 @@ def build_vault_first_mate_subagent_spec() -> SubagentSpec:
         persona=AgentPersona.VAULT_FIRST_MATE,
         description=(
             "Read-Only Supervisor & Enterprise Ontology Steward "
-            "(STAGE_00_ORCHESTRATION, WB-00/WB-01)."
+            "(STAGE_00_ORCHESTRATION)."
         ),
         system_instructions=VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS,
         model_tier=profile.default_model_tier,
@@ -83,8 +81,6 @@ def build_vault_first_mate_task_spec(
     parent_span_id: str | None = None,
     task_id: str | None = None,
     stage_id: PipelineStageId = PipelineStageId.STAGE_00_ORCHESTRATION,
-    workbench_view_id: WorkbenchViewId = WorkbenchViewId.WB_00,
-    viz_id: VizId = VizId.VIZ_PIPE_00,
     model_tier: ModelTier = ModelTier.HIGH_REASONING,
     model_override: str | None = None,
     tools: Sequence[AgentToolDefinition[Any, Any]] | None = None,
@@ -111,8 +107,6 @@ def build_vault_first_mate_task_spec(
         "parent_span_id": parent_span_id,
         "persona": AgentPersona.VAULT_FIRST_MATE,
         "stage_id": stage_id,
-        "workbench_view_id": workbench_view_id,
-        "viz_id": viz_id,
         "prompt": prompt,
         "system_instructions": system_instructions,
         "model_tier": model_tier,

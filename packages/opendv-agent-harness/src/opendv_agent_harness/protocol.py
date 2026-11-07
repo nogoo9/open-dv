@@ -122,8 +122,6 @@ class BaseVaultAgentHarness(abc.ABC):
             provider=self.provider_name,
             persona=spec.persona,
             stage_id=spec.stage_id,
-            workbench_view_id=spec.workbench_view_id,
-            viz_id=spec.viz_id,
             **kwargs,
         )
 
@@ -136,8 +134,6 @@ class BaseVaultAgentHarness(abc.ABC):
             parent_span_id=spec.parent_span_id,
             persona=spec.persona,
             stage_id=spec.stage_id,
-            workbench_view_id=spec.workbench_view_id,
-            viz_id=spec.viz_id,
             config=self._config,
         )
 

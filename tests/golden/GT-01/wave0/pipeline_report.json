@@ -1,0 +1,1008 @@
+{
+  "active_holds": [],
+  "completed_at": "<TIMESTAMP>",
+  "decision_refs": [],
+  "domain_namespace": "global_commerce",
+  "fallbacks_applied": [],
+  "final_artifacts": {
+    "final_canonical_ir": {
+      "artifact_id": "art-stage07-final-canonical-ir",
+      "byte_length": 15444,
+      "description": "Final Lowered Canonical IR (v1.0.0).",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "final_canonical_ir.json",
+      "sha256": "830502BCEBFFDAF2A82B01C290A6F27A872FE14C7A59DBBC6AC5C3A3D7AF1332",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 0
+    },
+    "final_contract": {
+      "artifact_id": "art-stage07-final-contract",
+      "byte_length": 5506,
+      "description": "Final Verified No-Mistake Data Vault 2.0 Model Contract (v5.0).",
+      "file_path": "<OUT>",
+      "media_type": "application/x-yaml",
+      "name": "final_contract.yaml",
+      "sha256": "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 0
+    },
+    "final_four_zone_sql": {
+      "artifact_id": "art-stage07-final-four-zone-sql",
+      "byte_length": 43624,
+      "description": "Final Compiled 4-Zone DuckDB SQL Bundle.",
+      "file_path": "<OUT>",
+      "media_type": "application/sql",
+      "name": "final_four_zone.sql",
+      "sha256": "3A6ED2E6859739230D76E162087463DCD47A319475F60260074107EB0DB77C8E",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 0
+    },
+    "pipeline_report_json": {
+      "artifact_id": "art-stage07-pipeline-report-json",
+      "byte_length": 0,
+      "description": "Machine-readable JSON Pipeline Execution Report.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "pipeline_report.json",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 0
+    },
+    "pipeline_report_md": {
+      "artifact_id": "art-stage07-pipeline-report-md",
+      "byte_length": 0,
+      "description": "Human-readable Markdown Pipeline Execution Report.",
+      "file_path": "<OUT>",
+      "media_type": "text/markdown",
+      "name": "pipeline_report.md",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 0
+    },
+    "vault_ledger_jsonl": {
+      "artifact_id": "art-stage07-vault-ledger",
+      "byte_length": 0,
+      "description": "Immutable JSONL Observability Event Ledger.",
+      "file_path": "<OUT>",
+      "media_type": "application/x-ndjson",
+      "name": "vault-ledger.jsonl",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 0
+    }
+  },
+  "graph_a_sha256": "b070b99f76ceee006cf2371e6b4053e57283ac69761c92f3a999f733d3af9609",
+  "harness_setup": {
+    "agent_models": {},
+    "api_key_env_var": null,
+    "auth": {
+      "api_base_url": null,
+      "api_key_env_var": null,
+      "auth_mode": "cli_session",
+      "aws_profile": null,
+      "aws_region": null,
+      "gcp_credentials_path": null,
+      "gcp_location": null,
+      "gcp_project": null,
+      "mode": "<MODE>",
+      "require_credentials_present": false,
+      "require_preflight": false
+    },
+    "auth_mode": "cli_session",
+    "budget": {
+      "max_cost_usd": 5.0,
+      "max_input_tokens": 200000,
+      "max_model_calls": 20,
+      "max_output_tokens": 32000,
+      "max_schema_validation_retries": 3,
+      "max_tool_calls": 40,
+      "max_total_tokens": 232000,
+      "max_turns": 12,
+      "timeout_seconds": 300.0
+    },
+    "env": {},
+    "extra_provider_options": {},
+    "inject_adversarial_fault_on_attempt_1": true,
+    "model_overrides": {
+      "fast": "gemini-3.8-flash-high",
+      "reasoning": "gemini-4-argon-high"
+    },
+    "provider": "agy",
+    "sandbox": {
+      "allow_shell_execution": false,
+      "allowed_builtin_tools": [
+        "view_file",
+        "list_directory",
+        "find_file",
+        "search_directory"
+      ],
+      "allowed_workspaces": [],
+      "blocked_shell_substrings": [
+        "rm -rf",
+        "git push",
+        "git worktree",
+        "treehouse",
+        "no-mistakes daemon"
+      ],
+      "denied_builtin_tools": [
+        "run_command",
+        "create_file",
+        "edit_file"
+      ],
+      "read_only_workspace": true
+    },
+    "stage_output_policy": "llm_only",
+    "steward_hold_policy": "auto_approve_top_candidate"
+  },
+  "has_initial_contract": true,
+  "initial_contract_path": null,
+  "input_validation": {
+    "cas_integrity_verified": true,
+    "checked_items_count": 6,
+    "diagnostics": [],
+    "passed": true,
+    "pii_leak_check_passed": true,
+    "stage": "INPUT_VALIDATION",
+    "verified_artifacts_count": 0,
+    "verified_events_count": 0
+  },
+  "intermediate_artifacts": [
+    {
+      "artifact_id": "art-stage00-graph-a-ontology",
+      "byte_length": 4821,
+      "description": "Verified Enterprise Core Business Concept (Graph A) Ontology.",
+      "file_path": "<OUT>",
+      "media_type": "application/x-yaml",
+      "name": "graph_a_ontology.yaml",
+      "sha256": "B070B99F76CEEE006CF2371E6B4053E57283AC69761C92F3A999F733D3AF9609",
+      "stage_id": "STAGE_00_ORCHESTRATION",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w0-stage01-graph-b-profile",
+      "byte_length": 0,
+      "description": "Wave 0 Empirical Graph B Statistical Profile.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_0_graph_b_profile.json",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_01_SCOUT_SOURCE",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w0-stage01-ontology-coverage",
+      "byte_length": 0,
+      "description": "Wave 0 Business Ontology Coverage & Gap Analysis.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_0_ontology_coverage.json",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_01_SCOUT_SOURCE",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w0-stage02-unstructured-grounding",
+      "byte_length": 0,
+      "description": "Wave 0 Unstructured Span Grounding & 3-Tier ER Report.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_0_unstructured_grounding.json",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w0-stage03-pass1-triage",
+      "byte_length": 3206,
+      "description": "Wave 0 Pass 1 100% Column Triage Ledger.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_0_pass1_column_triage.json",
+      "sha256": "4F72D1E8C05FCE0ABACEB1022C45B02203BB0718517855DC77D282CC9C47ECBE",
+      "stage_id": "STAGE_03_SHIP_VAULT_PASS1",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w0-stage04-contract-attempt1",
+      "byte_length": 4629,
+      "description": "Wave 0 Pass 2 Candidate Contract (Attempt 1).",
+      "file_path": "<OUT>",
+      "media_type": "application/x-yaml",
+      "name": "wave_0_contract_attempt_1.yaml",
+      "sha256": "DA46236B147B258CB6EC05455DC326B555BAC773D3686504ED20511663B8E9E6",
+      "stage_id": "STAGE_04_SHIP_VAULT_PASS2",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w0-stage05-toon-attempt1",
+      "byte_length": 612,
+      "description": "Wave 0 @toon_v1 Diagnostic Trace (Attempt 1).",
+      "file_path": "<OUT>",
+      "media_type": "text/plain",
+      "name": "wave_0_axi_trace_attempt_1.toon",
+      "sha256": "781B3F5A0C81C0687F267426704EDF0926406BFA6F92500DE232196FE37D9F39",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w0-stage05-toon-attempt2",
+      "byte_length": 335,
+      "description": "Wave 0 @toon_v1 Diagnostic Trace (Attempt 2).",
+      "file_path": "<OUT>",
+      "media_type": "text/plain",
+      "name": "wave_0_axi_trace_attempt_2.toon",
+      "sha256": "063A8DC3906808079E40E9368E5123A5857E7724D8FCE7EA1A5336A8F13A97B2",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w0-stage05-contract-verified",
+      "byte_length": 5506,
+      "description": "Wave 0 6-Gate Verified Data Vault 2.0 Contract v5.0.",
+      "file_path": "<OUT>",
+      "media_type": "application/x-yaml",
+      "name": "wave_0_contract_verified.yaml",
+      "sha256": "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w0-stage06-canonical-ir",
+      "byte_length": 15444,
+      "description": "Wave 0 Lowered Canonical IR (v1.0.0).",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_0_canonical_ir.json",
+      "sha256": "830502BCEBFFDAF2A82B01C290A6F27A872FE14C7A59DBBC6AC5C3A3D7AF1332",
+      "stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w0-stage06-four-zone-sql",
+      "byte_length": 43624,
+      "description": "Wave 0 Compiled 4-Zone DuckDB SQL Bundle.",
+      "file_path": "<OUT>",
+      "media_type": "application/sql",
+      "name": "wave_0_four_zone.sql",
+      "sha256": "3A6ED2E6859739230D76E162087463DCD47A319475F60260074107EB0DB77C8E",
+      "stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+      "wave_index": 0
+    }
+  ],
+  "lifecycle_stage": "MULTI_SOURCE_EXPANSION",
+  "markdown_summary": "# Global Commerce Vault \u2014 Wave 0 Cold Start (CRM & ERP)\n\n- **Pipeline ID**: `pipe-global-commerce-wave0-cold-start`\n- **Project ID**: `proj-global-commerce-001`\n- **Run ID**: `run-global-commerce-wave0`\n- **Domain Namespace**: `global_commerce`\n- **Harness Provider**: `agy`\n- **Overall Status**: `COMPLETED` (`overall_passed=True`)\n- **Total Duration**: `<DURATION>`\n\n## 1. Deterministic Validation Summary\n\n| Validation Stage | Passed | Checked Items | Verified Artifacts | Verified Events | PII Check | CAS Integrity |\n| :--- | :---: | :---: | :---: | :---: | :---: | :---: |\n| `INPUT_VALIDATION` | `True` | 6 | 0 | 0 | `True` | `True` |\n| `OUTPUT_VALIDATION` | `True` | 37 | 15 | 11 | `True` | `True` |\n\n## 2. Multi-Wave Progression Summary\n\n| Wave | Name | Type | Status | Sources | Columns | Attempts | Codemods | Sandbox |\n| :---: | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :---: |\n| 0 | `Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)` | `COLD_START` | `AUTO_REPAIRED` | 2 | 15 | 2 | `ALG_A4_COLD_START_EXTENSIBILITY`, `ALG_A1_3AXIS_SATELLITE_SPLIT` | `True` |\n\n## 3. Step-by-Step Execution Ledger\n\n| Step ID | Wave | Stage | Persona | Tier | Status | Attempts | Duration (ms) | Summary |\n| :--- | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :--- |\n| `step-w0-stage00-orchestration` | 0 | `STAGE_00_ORCHESTRATION` | `vault-first-mate` | `reasoning` | `PASS` | 1 | <DURATION> | Validated 6 input items, loaded Graph A ontology (5 CBCs), and initialized agy harness. |\n| `step-w0-stage01-scout-source` | 0 | `STAGE_01_SCOUT_SOURCE` | `scout-source` | `fast` | `PASS` | 1 | <DURATION> | Profiled 2 source(s) (15 columns); detected 0 schema drift event(s). |\n| `step-w0-stage02-scout-unstructured` | 0 | `STAGE_02_SCOUT_UNSTRUCTURED` | `scout-unstructured` | `fast` | `PASS` | 1 | <DURATION> | Processed 0 unstructured document(s) with 0 verified spans (tiers={'Tier-U1': 0, 'Tier-U2': 0, 'Tier-U3': 0}). |\n| `step-w0-stage03-ship-vault-pass1` | 0 | `STAGE_03_SHIP_VAULT_PASS1` | `ship-vault` | `reasoning` | `PASS` | 1 | <DURATION> | Synthesized Pass 1 Column Triage Ledger covering 16 cumulative column(s). |\n| `step-w0-stage04-ship-vault-pass2` | 0 | `STAGE_04_SHIP_VAULT_PASS2` | `ship-vault` | `reasoning` | `PASS` | 1 | <DURATION> | Synthesized candidate contract v5.0 (3 Hubs, 1 Links, 3 Satellites). |\n| `step-w0-stage05-axi-dv-static-gates` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `axi-dv` | `fast` | `AUTO_REPAIRED` | 2 | <DURATION> | 6-Gate static verification finished in 2 attempt(s) with status AUTO_REPAIRED; codemods=['ALG_A4_COLD_START_EXTENSIBILITY', 'ALG_A1_3AXIS_SATELLITE_SPLIT']. |\n| `step-w0-stage06-axi-dv-dynamic-sandbox` | 0 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `axi-dv` | `fast` | `PASS` | 1 | <DURATION> | Lowered Canonical IR, compiled 4-Zone SQL, and ran 4-Batch DuckDB Shadow Sandbox (15/15 DV-DYN checks). |\n| `step-w0-stage07-deterministic-compiler` | 0 | `STAGE_07_DETERMINISTIC_COMPILER` | `deterministic-compiler` | `fast` | `PASS` | 1 | <DURATION> | Materialized final contract, Canonical IR, 4-Zone SQL, and certified CAS + PII output invariants. |\n\n## 4. Final Artifacts\n\n| Key | Name | Stage | SHA-256 (Prefix) | Bytes | File Path |\n| :--- | :--- | :--- | :--- | :---: | :--- |\n| `final_contract` | `final_contract.yaml` | `STAGE_07_DETERMINISTIC_COMPILER` | `7FF31CD296A524AC...` | 5506 | `<OUT> |\n| `final_canonical_ir` | `final_canonical_ir.json` | `STAGE_07_DETERMINISTIC_COMPILER` | `830502BCEBFFDAF2...` | 15444 | `<OUT> |\n| `final_four_zone_sql` | `final_four_zone.sql` | `STAGE_07_DETERMINISTIC_COMPILER` | `3A6ED2E685973923...` | 43624 | `<OUT> |\n| `vault_ledger_jsonl` | `vault-ledger.jsonl` | `STAGE_07_DETERMINISTIC_COMPILER` | `<VOLATILE_SHA256_PREFIX>...` | 0 | `<OUT> |\n\n## 5. Intermediate Artifacts (11 recorded)\n\n| Artifact ID | Wave | Stage | Name | SHA-256 (Prefix) | Bytes |\n| :--- | :---: | :--- | :--- | :--- | :---: |\n| `art-stage00-graph-a-ontology` | 0 | `STAGE_00_ORCHESTRATION` | `graph_a_ontology.yaml` | `B070B99F76CEEE00...` | 4821 |\n| `art-w0-stage01-graph-b-profile` | 0 | `STAGE_01_SCOUT_SOURCE` | `wave_0_graph_b_profile.json` | `<VOLATILE_SHA256_PREFIX>...` | 0 |\n| `art-w0-stage01-ontology-coverage` | 0 | `STAGE_01_SCOUT_SOURCE` | `wave_0_ontology_coverage.json` | `<VOLATILE_SHA256_PREFIX>...` | 0 |\n| `art-w0-stage02-unstructured-grounding` | 0 | `STAGE_02_SCOUT_UNSTRUCTURED` | `wave_0_unstructured_grounding.json` | `<VOLATILE_SHA256_PREFIX>...` | 0 |\n| `art-w0-stage03-pass1-triage` | 0 | `STAGE_03_SHIP_VAULT_PASS1` | `wave_0_pass1_column_triage.json` | `4F72D1E8C05FCE0A...` | 3206 |\n| `art-w0-stage04-contract-attempt1` | 0 | `STAGE_04_SHIP_VAULT_PASS2` | `wave_0_contract_attempt_1.yaml` | `DA46236B147B258C...` | 4629 |\n| `art-w0-stage05-toon-attempt1` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_0_axi_trace_attempt_1.toon` | `781B3F5A0C81C068...` | 612 |\n| `art-w0-stage05-toon-attempt2` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_0_axi_trace_attempt_2.toon` | `063A8DC390680807...` | 335 |\n| `art-w0-stage05-contract-verified` | 0 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_0_contract_verified.yaml` | `7FF31CD296A524AC...` | 5506 |\n| `art-w0-stage06-canonical-ir` | 0 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `wave_0_canonical_ir.json` | `830502BCEBFFDAF2...` | 15444 |\n| `art-w0-stage06-four-zone-sql` | 0 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `wave_0_four_zone.sql` | `3A6ED2E685973923...` | 43624 |",
+  "observability_events": [
+    {
+      "agent_persona": "vault-first-mate",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_00_ORCHESTRATION masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "checked_input_items": 6,
+          "model_used": "gemini-4-argon-high",
+          "provider": "agy",
+          "wave_count": 1
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-STR-001"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_00_ORCHESTRATION",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "vault-first-mate",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_00_ORCHESTRATION masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "cbc_count": 5,
+          "relationship_count": 4
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-ONT-001",
+        "DV-ONT-002",
+        "DV-ONT-004"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_00_ORCHESTRATION",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "scout-source",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_01_SCOUT_SOURCE masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "columns_profiled": 15,
+          "drift_events_detected": 0,
+          "sources_profiled": 2,
+          "wave_index": 0
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-REL-001",
+        "ALG-A9A"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_01_SCOUT_SOURCE",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "scout-unstructured",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_02_SCOUT_UNSTRUCTURED masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "documents_count": 0,
+          "extractions_count": 0,
+          "tier_u1_count": 0,
+          "tier_u2_count": 0,
+          "tier_u3_count": 0,
+          "wave_index": 0
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "ALG-A9B"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "ship-vault",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_03_SHIP_VAULT_PASS1 masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "triaged_column_count": 16,
+          "wave_index": 0
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-COL-012"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_03_SHIP_VAULT_PASS1",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "ship-vault",
+      "context_refs": {
+        "contract_yaml_pre_sha256": "DA46236B147B258CB6EC05455DC326B555BAC773D3686504ED20511663B8E9E6"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_04_SHIP_VAULT_PASS2 masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "hub_count": 3,
+          "link_count": 1,
+          "satellite_count": 3,
+          "wave_index": 0
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "ALG-A1",
+        "ALG-A4",
+        "DV-STR-001"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_04_SHIP_VAULT_PASS2",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "axi-dv",
+      "context_refs": {
+        "contract_yaml_post_sha256": "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913",
+        "contract_yaml_pre_sha256": "DA46236B147B258CB6EC05455DC326B555BAC773D3686504ED20511663B8E9E6"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "hubs_verified": 3,
+          "links_verified": 2,
+          "satellites_verified": 4,
+          "wave_index": 0
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-STR-001",
+        "DV-STR-014",
+        "ALG-A4"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "axi-dv",
+      "context_refs": {
+        "contract_yaml_post_sha256": "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913",
+        "contract_yaml_pre_sha256": "DA46236B147B258CB6EC05455DC326B555BAC773D3686504ED20511663B8E9E6"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
+        "verdict_pill": "AUTO_REPAIRED"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "applied_codemods": 2,
+          "wave_index": 0
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "remediation": {
+        "action_description": "Applied deterministic 3-axis satellite split & TOON repair",
+        "codemod_type": "ALG_A4_COLD_START_EXTENSIBILITY",
+        "patch_diff": "Applied codemods: ['ALG_A4_COLD_START_EXTENSIBILITY', 'ALG_A1_3AXIS_SATELLITE_SPLIT']",
+        "target_entity": "satellites"
+      },
+      "rule_ids_evaluated": [
+        "ALG-A1"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "status": "AUTO_REPAIRED",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "axi-dv",
+      "context_refs": {
+        "contract_yaml_post_sha256": "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913",
+        "contract_yaml_pre_sha256": "DA46236B147B258CB6EC05455DC326B555BAC773D3686504ED20511663B8E9E6",
+        "toon_trace_sha256": "781B3F5A0C81C0687F267426704EDF0926406BFA6F92500DE232196FE37D9F39"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
+        "verdict_pill": "AUTO_REPAIRED"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "applied_codemod_count": 2,
+          "attempts": 2,
+          "wave_index": 0
+        }
+      },
+      "layer3_formal_proof": {
+        "algorithm_ref": "Algorithm A.8 (6-Gate Orchestrator)",
+        "toon_diagnostic_payload": "[REDACTED INTERNAL]"
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "remediation": {
+        "action_description": "Closed-loop @toon_v1 self-healing & AST codemod convergence",
+        "codemod_type": "ALG_A4_COLD_START_EXTENSIBILITY",
+        "patch_diff": "Converged on attempt 2",
+        "target_entity": "column_triage_ledger"
+      },
+      "rule_ids_evaluated": [
+        "ALG-A8",
+        "DV-STR-001"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "status": "AUTO_REPAIRED",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "axi-dv",
+      "context_refs": {
+        "canonical_ir_sha256": "830502BCEBFFDAF2A82B01C290A6F27A872FE14C7A59DBBC6AC5C3A3D7AF1332",
+        "compiled_sql_sha256": "3A6ED2E6859739230D76E162087463DCD47A319475F60260074107EB0DB77C8E"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_06_AXI_DV_DYNAMIC_SANDBOX masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "batches_passed": 4,
+          "dynamic_checks_passed": 15,
+          "wave_index": 0
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-DYN-001",
+        "DV-DYN-003",
+        "DV-DYN-005",
+        "DV-DYN-007",
+        "DV-DYN-015"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "deterministic-compiler",
+      "context_refs": {
+        "canonical_ir_sha256": "830502BCEBFFDAF2A82B01C290A6F27A872FE14C7A59DBBC6AC5C3A3D7AF1332",
+        "compiled_sql_sha256": "3A6ED2E6859739230D76E162087463DCD47A319475F60260074107EB0DB77C8E",
+        "contract_yaml_post_sha256": "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_07_DETERMINISTIC_COMPILER masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "total_hubs": 3,
+          "total_links": 2,
+          "total_satellites": 4,
+          "waves_completed": 1
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "ALG-A5",
+        "ALG-A6",
+        "DV-EVO-001"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    }
+  ],
+  "ontology_version": "1.0.0",
+  "output_validation": {
+    "cas_integrity_verified": true,
+    "checked_items_count": 39,
+    "diagnostics": [],
+    "passed": true,
+    "pii_leak_check_passed": true,
+    "stage": "OUTPUT_VALIDATION",
+    "verified_artifacts_count": 17,
+    "verified_events_count": 11
+  },
+  "overall_passed": true,
+  "parent_sha256": null,
+  "pipeline_id": "pipe-global-commerce-wave0-cold-start",
+  "project_id": "proj-global-commerce-001",
+  "resolved_holds": [],
+  "run_id": "<RUN_ID_1>",
+  "started_at": "<TIMESTAMP>",
+  "status": "COMPLETED",
+  "step_reports": [
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [],
+      "metrics": {
+        "cbc_count": 5,
+        "checked_items_count": 6,
+        "effective_max_retries": 3,
+        "llm_structured_plan_used": true,
+        "risk_assessment": "Validated 1 wave(s) for domain 'global_commerce'.",
+        "wave_execution_order": [
+          0
+        ]
+      },
+      "model_tier": "reasoning",
+      "model_used": "gemini-4-argon-high",
+      "output_artifact_sha256s": [
+        "B070B99F76CEEE006CF2371E6B4053E57283AC69761C92F3A999F733D3AF9609"
+      ],
+      "persona": "vault-first-mate",
+      "stage_id": "STAGE_00_ORCHESTRATION",
+      "status": "PASS",
+      "step_id": "step-w0-stage00-orchestration",
+      "summary": "Validated 6 input items, loaded Graph A ontology (5 CBCs), and initialized agy harness.",
+      "tool_invocations": [
+        "emit_observability_event"
+      ],
+      "wave_index": 0,
+      "wave_name": "Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "B070B99F76CEEE006CF2371E6B4053E57283AC69761C92F3A999F733D3AF9609"
+      ],
+      "metrics": {
+        "columns_profiled": 15,
+        "llm_structured_discovery_used": true,
+        "schema_drift_events": 0,
+        "sources_profiled": 2
+      },
+      "model_tier": "fast",
+      "model_used": "gemini-3.8-flash-high",
+      "output_artifact_sha256s": [
+        "<VOLATILE_SHA256>"
+      ],
+      "persona": "scout-source",
+      "stage_id": "STAGE_01_SCOUT_SOURCE",
+      "status": "PASS",
+      "step_id": "step-w0-stage01-scout-source",
+      "summary": "Profiled 2 source(s) (15 columns); detected 0 schema drift event(s).",
+      "tool_invocations": [
+        "profile_source_feed",
+        "emit_observability_event"
+      ],
+      "wave_index": 0,
+      "wave_name": "Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "<VOLATILE_SHA256>"
+      ],
+      "metrics": {
+        "llm_structured_extraction_used": false,
+        "tier_counts": {
+          "Tier-U1": 0,
+          "Tier-U2": 0,
+          "Tier-U3": 0
+        }
+      },
+      "model_tier": "fast",
+      "model_used": "gemini-3.8-flash-high",
+      "output_artifact_sha256s": [
+        "<VOLATILE_SHA256>"
+      ],
+      "persona": "scout-unstructured",
+      "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
+      "status": "PASS",
+      "step_id": "step-w0-stage02-scout-unstructured",
+      "summary": "Processed 0 unstructured document(s) with 0 verified spans (tiers={'Tier-U1': 0, 'Tier-U2': 0, 'Tier-U3': 0}).",
+      "tool_invocations": [
+        "extract_pdf_spans",
+        "emit_observability_event"
+      ],
+      "wave_index": 0,
+      "wave_name": "Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "<VOLATILE_SHA256>",
+        "<VOLATILE_SHA256>"
+      ],
+      "metrics": {
+        "llm_structured_triage_used": true,
+        "triaged_column_count": 16
+      },
+      "model_tier": "reasoning",
+      "model_used": "gemini-4-argon-high",
+      "output_artifact_sha256s": [
+        "4F72D1E8C05FCE0ABACEB1022C45B02203BB0718517855DC77D282CC9C47ECBE"
+      ],
+      "persona": "ship-vault",
+      "stage_id": "STAGE_03_SHIP_VAULT_PASS1",
+      "status": "PASS",
+      "step_id": "step-w0-stage03-ship-vault-pass1",
+      "summary": "Synthesized Pass 1 Column Triage Ledger covering 16 cumulative column(s).",
+      "tool_invocations": [
+        "emit_observability_event"
+      ],
+      "wave_index": 0,
+      "wave_name": "Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "4F72D1E8C05FCE0ABACEB1022C45B02203BB0718517855DC77D282CC9C47ECBE"
+      ],
+      "metrics": {
+        "hubs": 3,
+        "links": 1,
+        "satellites": 3
+      },
+      "model_tier": "reasoning",
+      "model_used": "gemini-4-argon-high",
+      "output_artifact_sha256s": [
+        "DA46236B147B258CB6EC05455DC326B555BAC773D3686504ED20511663B8E9E6"
+      ],
+      "persona": "ship-vault",
+      "stage_id": "STAGE_04_SHIP_VAULT_PASS2",
+      "status": "PASS",
+      "step_id": "step-w0-stage04-ship-vault-pass2",
+      "summary": "Synthesized candidate contract v5.0 (3 Hubs, 1 Links, 3 Satellites).",
+      "tool_invocations": [
+        "apply_ast_codemod",
+        "emit_observability_event"
+      ],
+      "wave_index": 0,
+      "wave_name": "Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)"
+    },
+    {
+      "attempt_count": 2,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "DA46236B147B258CB6EC05455DC326B555BAC773D3686504ED20511663B8E9E6"
+      ],
+      "metrics": {
+        "applied_codemods": [
+          "ALG_A4_COLD_START_EXTENSIBILITY",
+          "ALG_A1_3AXIS_SATELLITE_SPLIT"
+        ],
+        "gate_scorecard": {
+          "G0_JSON_SCHEMA": "PASS",
+          "G1_ONTOLOGY_AND_GRAIN": "PASS",
+          "G2_KEY_AND_FK_DISCIPLINE": "PASS",
+          "G3_NETWORKX_BIPARTITE_DAG": "PASS",
+          "G4_YAGNI_AND_COLUMN_LEDGER": "PASS",
+          "G5_UNSTRUCTURED_SPAN_GROUNDING": "PASS"
+        },
+        "self_healing_attempts": 2
+      },
+      "model_tier": "fast",
+      "model_used": "gemini-4-argon-high",
+      "output_artifact_sha256s": [
+        "781B3F5A0C81C0687F267426704EDF0926406BFA6F92500DE232196FE37D9F39",
+        "063A8DC3906808079E40E9368E5123A5857E7724D8FCE7EA1A5336A8F13A97B2",
+        "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913"
+      ],
+      "persona": "axi-dv",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "status": "AUTO_REPAIRED",
+      "step_id": "step-w0-stage05-axi-dv-static-gates",
+      "summary": "6-Gate static verification finished in 2 attempt(s) with status AUTO_REPAIRED; codemods=['ALG_A4_COLD_START_EXTENSIBILITY', 'ALG_A1_3AXIS_SATELLITE_SPLIT'].",
+      "tool_invocations": [
+        "run_axi_dv_gates",
+        "apply_ast_codemod",
+        "emit_observability_event"
+      ],
+      "wave_index": 0,
+      "wave_name": "Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913"
+      ],
+      "metrics": {
+        "batch_count": 4,
+        "batches_passed": true,
+        "dynamic_checks_passed": 15,
+        "dynamic_checks_total": 15,
+        "dynamic_rule_ids": [
+          "DV-DYN-001",
+          "DV-DYN-002",
+          "DV-DYN-003",
+          "DV-DYN-004",
+          "DV-DYN-005",
+          "DV-DYN-006",
+          "DV-DYN-007",
+          "DV-DYN-008",
+          "DV-DYN-009",
+          "DV-DYN-010",
+          "DV-DYN-011",
+          "DV-DYN-012",
+          "DV-DYN-013",
+          "DV-DYN-014",
+          "DV-DYN-015"
+        ],
+        "passed": true
+      },
+      "model_tier": "fast",
+      "model_used": "gemini-3.8-flash-high",
+      "output_artifact_sha256s": [
+        "830502BCEBFFDAF2A82B01C290A6F27A872FE14C7A59DBBC6AC5C3A3D7AF1332",
+        "3A6ED2E6859739230D76E162087463DCD47A319475F60260074107EB0DB77C8E"
+      ],
+      "persona": "axi-dv",
+      "stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+      "status": "PASS",
+      "step_id": "step-w0-stage06-axi-dv-dynamic-sandbox",
+      "summary": "Lowered Canonical IR, compiled 4-Zone SQL, and ran 4-Batch DuckDB Shadow Sandbox (15/15 DV-DYN checks).",
+      "tool_invocations": [
+        "compile_canonical_ir",
+        "execute_duckdb_sandbox",
+        "emit_observability_event"
+      ],
+      "wave_index": 0,
+      "wave_name": "Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913",
+        "830502BCEBFFDAF2A82B01C290A6F27A872FE14C7A59DBBC6AC5C3A3D7AF1332",
+        "3A6ED2E6859739230D76E162087463DCD47A319475F60260074107EB0DB77C8E"
+      ],
+      "metrics": {
+        "observability_events_emitted": 11
+      },
+      "model_tier": "fast",
+      "model_used": "gemini-3.8-flash-high",
+      "output_artifact_sha256s": [
+        "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913",
+        "830502BCEBFFDAF2A82B01C290A6F27A872FE14C7A59DBBC6AC5C3A3D7AF1332",
+        "3A6ED2E6859739230D76E162087463DCD47A319475F60260074107EB0DB77C8E",
+        "<VOLATILE_SHA256>"
+      ],
+      "persona": "deterministic-compiler",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "status": "PASS",
+      "step_id": "step-w0-stage07-deterministic-compiler",
+      "summary": "Materialized final contract, Canonical IR, 4-Zone SQL, and certified CAS + PII output invariants.",
+      "tool_invocations": [
+        "compile_canonical_ir",
+        "emit_observability_event"
+      ],
+      "wave_index": 0,
+      "wave_name": "Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)"
+    }
+  ],
+  "total_duration_ms": "<DURATION>",
+  "wave_id": "W0",
+  "wave_reports": [
+    {
+      "applied_codemods": [
+        "ALG_A4_COLD_START_EXTENSIBILITY",
+        "ALG_A1_3AXIS_SATELLITE_SPLIT"
+      ],
+      "canonical_ir_sha256": "830502BCEBFFDAF2A82B01C290A6F27A872FE14C7A59DBBC6AC5C3A3D7AF1332",
+      "columns_profiled": 15,
+      "contract_sha256": "7FF31CD296A524AC2C05236F277FE84F7385DD56766037DEED470D7A8BBDF913",
+      "gate_scorecard": {
+        "G0_JSON_SCHEMA": "PASS",
+        "G1_ONTOLOGY_AND_GRAIN": "PASS",
+        "G2_KEY_AND_FK_DISCIPLINE": "PASS",
+        "G3_NETWORKX_BIPARTITE_DAG": "PASS",
+        "G4_YAGNI_AND_COLUMN_LEDGER": "PASS",
+        "G5_UNSTRUCTURED_SPAN_GROUNDING": "PASS"
+      },
+      "sandbox_summary": {
+        "batch_count": 4,
+        "batches_passed": true,
+        "dynamic_checks_passed": 15,
+        "dynamic_checks_total": 15,
+        "dynamic_rule_ids": [
+          "DV-DYN-001",
+          "DV-DYN-002",
+          "DV-DYN-003",
+          "DV-DYN-004",
+          "DV-DYN-005",
+          "DV-DYN-006",
+          "DV-DYN-007",
+          "DV-DYN-008",
+          "DV-DYN-009",
+          "DV-DYN-010",
+          "DV-DYN-011",
+          "DV-DYN-012",
+          "DV-DYN-013",
+          "DV-DYN-014",
+          "DV-DYN-015"
+        ],
+        "passed": true
+      },
+      "schema_drift_events": [],
+      "self_healing_attempts": 2,
+      "sources_profiled": 2,
+      "sql_bundle_sha256": "3A6ED2E6859739230D76E162087463DCD47A319475F60260074107EB0DB77C8E",
+      "status": "AUTO_REPAIRED",
+      "step_ids": [
+        "step-w0-stage00-orchestration",
+        "step-w0-stage01-scout-source",
+        "step-w0-stage02-scout-unstructured",
+        "step-w0-stage03-ship-vault-pass1",
+        "step-w0-stage04-ship-vault-pass2",
+        "step-w0-stage05-axi-dv-static-gates",
+        "step-w0-stage06-axi-dv-dynamic-sandbox",
+        "step-w0-stage07-deterministic-compiler"
+      ],
+      "unstructured_tier_counts": {
+        "Tier-U1": 0,
+        "Tier-U2": 0,
+        "Tier-U3": 0
+      },
+      "wave_index": 0,
+      "wave_name": "Wave 0 \u2014 Cold Start (CRM Customers & ERP Orders)",
+      "wave_type": "COLD_START"
+    }
+  ]
+}

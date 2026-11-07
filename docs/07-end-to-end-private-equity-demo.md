@@ -7,7 +7,7 @@
 > - **[Doc 03: 6-Gate Verification & `dv-firstmate` Architecture](./03-verification-and-agentic-architecture.md)**
 > - **[Doc 04: Unstructured & Multi-Modal DV 2.0](./04-unstructured-and-multimodal-dv2.md)**
 > - **[Doc 05: ELM Calculus, 3-Pass CoT & Reference Algorithms](./05-elm-calculus-and-reference-algorithms.md)**
-> - **[Doc 06: Explainability, Observability & Visualization Architecture (`WB-00..WB-11`)](./06-explainability-and-observability-spec.md)**
+> - **[Doc 06: Explainability, Observability & Visualization Architecture](./06-explainability-and-observability-spec.md)**
 > - **Executable Schemas:** [`schemas/vault-observability-event.schema.json`](../schemas/vault-observability-event.schema.json) | [`schemas/no-mistake-dv2-contract-v5.schema.json`](../schemas/no-mistake-dv2-contract-v5.schema.json) | [`schemas/dv2-canonical-ir.schema.json`](../schemas/dv2-canonical-ir.schema.json)
 > - **Private Equity Reference Package:** [`examples/private_equity/dv_pe_model_contract.yaml`](../examples/private_equity/dv_pe_model_contract.yaml) | [`examples/private_equity/pe_canonical_ir.json`](../examples/private_equity/pe_canonical_ir.json) | [`examples/private_equity/pe_graph_a_ontology.yaml`](../examples/private_equity/pe_graph_a_ontology.yaml) | [`examples/private_equity/pe_graph_b_profile.json`](../examples/private_equity/pe_graph_b_profile.json)
 
@@ -15,7 +15,7 @@
 
 ## Executive Overview
 
-This document provides a complete, self-contained **End-to-End Private Equity Asset Management Demo Walkthrough** for `open-dv`. Using **Apex Horizon Capital Partners**—an institutional Private Equity firm managing Buyout and Co-Investment funds—we trace how the `open-dv` agent team (`vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`, `axi-dv`, and `deterministic-compiler`) transforms five heterogeneous source systems and two unstructured PDFs into a mathematically verified, four-zone Data Vault 2.0 warehouse across the **12-View Explainability & Observability Workbench (`WB-00` through `WB-11`)**.
+This document provides a complete, self-contained **End-to-End Private Equity Asset Management Demo Walkthrough** for `open-dv`. Using **Apex Horizon Capital Partners**—an institutional Private Equity firm managing Buyout and Co-Investment funds—we trace how the `open-dv` agent team (`vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`, `axi-dv`, and `deterministic-compiler`) transforms five heterogeneous source systems and two unstructured PDFs into a mathematically verified, four-zone Data Vault 2.0 warehouse across the **Explorer & Observability Architecture**.
 
 ```mermaid
 flowchart LR
@@ -28,14 +28,14 @@ flowchart LR
         S5["Source 5: MDM_STEWARD_RESOLUTION\n(Approved LP Equivalence Crosswalk)"]
     end
 
-    subgraph Scenes["7-Scene End-to-End Demo Walkthrough (WB-00..WB-11)"]
-        SC1["Scene 1 (WB-00..02)\nDual-Graph Grounding &\n5 Fatal Traps Counterfactual"]
-        SC2["Scene 2 (WB-03)\nPDF Span Grounding, 3-Tier ER\n& Tier-U3 Captain Hold"]
-        SC3["Scene 3 (WB-04,05,07)\nCold-Start N=1 Modelling,\nSurrogate Drop & YAGNI Merge"]
-        SC4["Scene 4 (WB-05)\nMulti-Source N=2 Onboarding,\nBKCC Collision Shield & SAL"]
-        SC5["Scene 5 (WB-06,08)\n6-Gate axi-dv Verification &\nTOON Self-Healing Loop"]
-        SC6["Scene 6 (WB-09,10)\nDay-3 Schema Drift (Alg A.9a)\n& 4-Batch DuckDB Sandbox"]
-        SC7["Scene 7 (WB-11)\nDeterministic Compilation:\nYAML -> IR -> 4-Zone SQL & D.10"]
+    subgraph Scenes["7-Scene End-to-End Demo Walkthrough"]
+        SC1["Scene 1\nDual-Graph Grounding &\n5 Fatal Traps Counterfactual"]
+        SC2["Scene 2\nPDF Span Grounding, 3-Tier ER\n& Tier-U3 Captain Hold"]
+        SC3["Scene 3\nCold-Start N=1 Modelling,\nSurrogate Drop & YAGNI Merge"]
+        SC4["Scene 4\nMulti-Source N=2 Onboarding,\nBKCC Collision Shield & SAL"]
+        SC5["Scene 5\n6-Gate axi-dv Verification &\nTOON Self-Healing Loop"]
+        SC6["Scene 6\nDay-3 Schema Drift (Alg A.9a)\n& 4-Batch DuckDB Sandbox"]
+        SC7["Scene 7\nDeterministic Compilation:\nYAML -> IR -> 4-Zone SQL & D.10"]
     end
 
     GA & S1 & S2 & S3 & S4 & S5 --> SC1 --> SC2 --> SC3 --> SC4 --> SC5 --> SC6 --> SC7
@@ -146,7 +146,7 @@ These tables hold the resolved Hub keys and span-grounded attributes extracted i
 | :--- | :--- | :--- | :---: | :---: | :---: | :--- | :--- | :---: | :--- | :--- |
 | `s3://.../ic_q3_valuation_nordic_cloud.pdf` | `529900T8BM49AURSDO55` | `Level 3` | `14.50` | `245000000.00` | `245000000.00` | `2026-09-30` | `claude-3-7-sonnet` | `0.990` | `[108:1151]` | `VALUATION EFFECTIVE DATE: ... operating holding.` |
 
-Each row stores one `chunk_id` span and one `evidence_quote`, equal to `doc_text[span_start:span_end]`, that covers every attribute on the row (shortened above with `...`). The per-field spans in Section 1.3 are WB-03 UI highlight sub-spans inside that row quote.
+Each row stores one `chunk_id` span and one `evidence_quote`, equal to `doc_text[span_start:span_end]`, that covers every attribute on the row (shortened above with `...`). The per-field spans in Section 1.3 are UI highlight sub-spans inside that row quote.
 
 ---
 
@@ -216,26 +216,26 @@ External Auditor Review: PriceWaterhouseCoopers LLP (PwC Valuation Services).
 
 ---
 
-## Section 2: The 7-Scene End-to-End Interactive Demo Walkthrough (`Scenes 1–7` across `WB-00..WB-11`)
+## Section 2: The 7-Scene End-to-End Interactive Demo Walkthrough (`Scenes 1–7`)
 
 ---
 
-### Scene 1: Context & Source Intake + The 5 Fatal Agentic Traps Counterfactual (`WB-00`, `WB-01`, `WB-02`)
+### Scene 1: Context & Source Intake + The 5 Fatal Agentic Traps Counterfactual
 
 #### 1. What the Agent Team Does
-1. **`vault-first-mate` (`STAGE_00_ORCHESTRATION`, `WB-01`):** Loads the top-down Enterprise Ontology `Graph A` ([`pe_graph_a_ontology.yaml`](../examples/private_equity/pe_graph_a_ontology.yaml)) and dispatches `scout-source` to profile the physical Bronze schemas (`Graph B`, [`pe_graph_b_profile.json`](../examples/private_equity/pe_graph_b_profile.json)).
-2. **Bipartite Concept Grounding (`VIZ-STEP-01`):** Maps `investran.src_pe_funds` $\to$ `Fund`, both `investran.src_lp_investors` and `legacy_gp.src_legacy_lp_roster` $\to$ `LimitedPartner`, `dealcloud.src_portfolio_companies` $\to$ `PortfolioCompany`, and `dms.documents` $\to$ `Document`. `mdm.src_lp_steward_crosswalk` grounds to the `SameAsLimitedPartner` relationship, and the two extraction tables are bound in Scene 2. Leaves `CustodianBank` unallocated (`4/5 = 80.0%` coverage) rather than hallucinating a phantom table (`AP-11`).
-3. **`scout-source` Empirical Profiling (`STAGE_01_SCOUT_SOURCE`, `WB-02`):** Computes uniqueness, entropy, null rates, and inclusion dependencies across all 44 relational columns:
+1. **`vault-first-mate` (`STAGE_00_ORCHESTRATION`):** Loads the top-down Enterprise Ontology `Graph A` ([`pe_graph_a_ontology.yaml`](../examples/private_equity/pe_graph_a_ontology.yaml)) and dispatches `scout-source` to profile the physical Bronze schemas (`Graph B`, [`pe_graph_b_profile.json`](../examples/private_equity/pe_graph_b_profile.json)).
+2. **Bipartite Concept Grounding:** Maps `investran.src_pe_funds` $\to$ `Fund`, both `investran.src_lp_investors` and `legacy_gp.src_legacy_lp_roster` $\to$ `LimitedPartner`, `dealcloud.src_portfolio_companies` $\to$ `PortfolioCompany`, and `dms.documents` $\to$ `Document`. `mdm.src_lp_steward_crosswalk` grounds to the `SameAsLimitedPartner` relationship, and the two extraction tables are bound in Scene 2. Leaves `CustodianBank` unallocated (`4/5 = 80.0%` coverage) rather than hallucinating a phantom table (`AP-11`).
+3. **`scout-source` Empirical Profiling (`STAGE_01_SCOUT_SOURCE`):** Computes uniqueness, entropy, null rates, and inclusion dependencies across all 44 relational columns:
    - Flags `investran.src_lp_investors.row_seq_id` ($U=1.0, \Delta=+1$) as `[SURROGATE_SEQUENCE]`.
    - Flags `investran.src_lp_commitments_and_calls.co_invest_portco_lei` ($N_{\text{null}} = 71.43\%, \mathcal{I}_{nn} = 1.00$) as an optional contextual FK requiring `Algorithm A.4` Link splitting.
 
-#### 2. What the User Sees in `WB-01` & `WB-02`
+#### 2. What the User Sees in Scene 1
 
 This synthetic demo shows the unmasked `MNPI_CLEARED_STEWARD` view throughout; see the visibility policy in [Doc 06 §1.1](./06-explainability-and-observability-spec.md#11-architectural-principles-zero-trust-telemetry--content-addressable-lineage).
 
 ```
 +====================================================================================================+
-| SCENE 1 — WB-01 & WB-02: DUAL-GRAPH GROUNDING & EMPIRICAL PROFILING                        [PASS ●]|
+| SCENE 1: DUAL-GRAPH GROUNDING & EMPIRICAL PROFILING                                         [PASS ●]|
 | Layer 1 Story: 7 Bronze tables grounded to 4 Enterprise CBCs; row_seq_id quarantined as surrogate. |
 +----------------------------------------------------------------------------------------------------+
 | [Graph A CBC Ontology]              <=== Bipartite Grounding ===> [Graph B Bronze Tables]          |
@@ -247,7 +247,7 @@ This synthetic demo shows the unmasked `MNPI_CLEARED_STEWARD` view throughout; s
 |  • urn:ontology:relationship:same_as <-------------------------- mdm.src_lp_steward_crosswalk (2c) |
 |  • urn:ontology:entity:custodian    [UNALLOCATED — 0 Phantom Hubs Created (Zero-Hallucination ●)]  |
 +----------------------------------------------------------------------------------------------------+
-| COUNTERFACTUAL DRAWER (VIZ-GATE-02 — What Naive Prompt-Only LLMs Get Wrong Here):                  |
+| COUNTERFACTUAL DRAWER (What Naive Prompt-Only LLMs Get Wrong Here):                                |
 |  [Trap 1: Source-System DV ■] Naive LLM creates `hub_investran_lp` + `hub_legacy_lp` -> Broken MDM |
 |  [Trap 2: Surrogate Key ■]    Naive LLM hashes `row_seq_id=10001` as Hub BK -> Destroyed on reload |
 +====================================================================================================+
@@ -255,10 +255,10 @@ This synthetic demo shows the unmasked `MNPI_CLEARED_STEWARD` view throughout; s
 
 ---
 
-### Scene 2: Unstructured PDF Span Grounding & 3-Tier Entity Resolution with `Tier-U3` Captain Hold (`WB-03`)
+### Scene 2: Unstructured PDF Span Grounding & 3-Tier Entity Resolution with `Tier-U3` Captain Hold
 
 #### 1. What the Agent Team Does
-1. **`scout-unstructured` (`STAGE_02_SCOUT_UNSTRUCTURED`, `WB-03`):** Ingests `calpers_side_letter_fund_iv_2026.pdf` (`[HK: 864D..EE6B]`) and `ic_q3_valuation_nordic_cloud.pdf` (`[HK: 99D8..4158]`).
+1. **`scout-unstructured` (`STAGE_02_SCOUT_UNSTRUCTURED`):** Ingests `calpers_side_letter_fund_iv_2026.pdf` (`[HK: 864D..EE6B]`) and `ic_q3_valuation_nordic_cloud.pdf` (`[HK: 99D8..4158]`).
 2. **3-Tier Entity Resolution (`docs/04` §3):**
    - **`Tier-U1` Auto-Bind:** Matches LEI `5493006MHB84DD0ZWV18` (`[227:247]`) to `sat_limited_partner_investran.lei`, resolving to CalPERS master key `LP-101` (`[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`), and LEI `529900T8BM49AURSDO55` (`[226:246]`) to Nordic Cloud SaaS AB (`[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]`).
    - **`Tier-U2` Guarded Hybrid Bind:** Matches `"California Public Employees' Retirement System"` (`[134:180]`, $S_{\text{er}} = 0.98$) and `"Nordic Cloud SaaS AB"` ($S_{\text{er}} = 0.96$, top-2 margin $= 0.31 \ge 0.15$).
@@ -302,21 +302,21 @@ for sub_start, sub_end in [(44, 61), (499, 506), (607, 614), (665, 691), (878, 9
 
 ---
 
-### Scene 3: Cold-Start ($N=1$) `INVESTRAN_FUND_ADMIN` Pass 1–3 Modelling, Surrogate Drop, Nullable-FK Link Splitter, PII Split, & Gate 4 YAGNI Merge (`WB-04`, `WB-05`, `WB-07`)
+### Scene 3: Cold-Start ($N=1$) `INVESTRAN_FUND_ADMIN` Pass 1–3 Modelling, Surrogate Drop, Nullable-FK Link Splitter, PII Split, & Gate 4 YAGNI Merge
 
 #### 1. What the Agent Team Does
-1. **Pass 1 Exhaustive Column Triage (`STAGE_03_SHIP_VAULT_PASS1`, `WB-04`):** `ship-vault` accounts for 100% of `INVESTRAN_FUND_ADMIN` columns in `column_triage_ledger`. `row_seq_id` is explicitly routed to `SYSTEM_SURROGATE_DROPPED` (`target_dv_entity: "DROPPED"`), satisfying the Gate 1 `column_triage_ledger` completeness check.
-2. **Pass 2 Governance Satellite Split (`STAGE_04_SHIP_VAULT_PASS2`, `WB-05`):** Because `wire_iban` and `tax_id` carry `PII_HIGH` governance tags in `Graph A`, `ship-vault` isolates them into `sat_limited_partner_pii` (`security_classification: PII_HIGH`) while standard attributes (`lp_legal_name`, `domicile_country`, `tier_status`) reside in `sat_limited_partner_investran` (`INTERNAL`).
-3. **Gate 1 Nullable-FK Link Splitter (`Algorithm A.4`, `WB-07`):** Splits `co_invest_portco_lei` ($71.43\%$ NULL) out of `lnk_lp_commitment` into `lnk_lp_commitment_co_invest` with `where_filter_condition: "co_invest_portco_lei IS NOT NULL"`.
-4. **Gate 4 YAGNI Write-Amplification Cost Guard (`Algorithm A.1`, `WB-07`):** `ship-vault` initially proposes splitting the 3 daily FX/NAV columns (`eur_usd_rate`, `gbp_usd_rate`, `daily_interim_nav_usd`) into `sat_lp_commitment_fx_high_freq`. `axi-dv` evaluates **Algorithm A.1**:
+1. **Pass 1 Exhaustive Column Triage (`STAGE_03_SHIP_VAULT_PASS1`):** `ship-vault` accounts for 100% of `INVESTRAN_FUND_ADMIN` columns in `column_triage_ledger`. `row_seq_id` is explicitly routed to `SYSTEM_SURROGATE_DROPPED` (`target_dv_entity: "DROPPED"`), satisfying the Gate 1 `column_triage_ledger` completeness check.
+2. **Pass 2 Governance Satellite Split (`STAGE_04_SHIP_VAULT_PASS2`):** Because `wire_iban` and `tax_id` carry `PII_HIGH` governance tags in `Graph A`, `ship-vault` isolates them into `sat_limited_partner_pii` (`security_classification: PII_HIGH`) while standard attributes (`lp_legal_name`, `domicile_country`, `tier_status`) reside in `sat_limited_partner_investran` (`INTERNAL`).
+3. **Gate 1 Nullable-FK Link Splitter (`Algorithm A.4`):** Splits `co_invest_portco_lei` ($71.43\%$ NULL) out of `lnk_lp_commitment` into `lnk_lp_commitment_co_invest` with `where_filter_condition: "co_invest_portco_lei IS NOT NULL"`.
+4. **Gate 4 YAGNI Write-Amplification Cost Guard (`Algorithm A.1`):** `ship-vault` initially proposes splitting the 3 daily FX/NAV columns (`eur_usd_rate`, `gbp_usd_rate`, `daily_interim_nav_usd`) into `sat_lp_commitment_fx_high_freq`. `axi-dv` evaluates **Algorithm A.1**:
    - $|C_{\text{general}}| = 6 < 10$ (fails minimum column-count threshold)
    - $W_{\text{amp}} = R_{\text{daily}} \times P(\Delta C_{\text{high}}) \times B_{\text{low}} = 157,000 \times 0.85 \times 33\text{ B} = 4,403,850\text{ B/day} \approx 4.20\text{ MB/day} < 50.0\text{ MB/day}$
    - **Verdict:** `[AUTO-FIX ◆]` — `axi-dv` executes deterministic codemod `merge_satellites`, folding the 3 columns back into `sat_lp_commitment_investran` and eliminating 1 unnecessary PIT join.
 
-#### 2. What the User Sees in `WB-04` & `WB-07`
+#### 2. What the User Sees in Scene 3
 ```
 +====================================================================================================+
-| SCENE 3 — WB-04 & WB-07: COLD-START N=1 TRIAGE, NULLABLE-FK SPLIT & YAGNI COST GUARD   [AUTO-FIX ◆]|
+| SCENE 3: COLD-START N=1 TRIAGE, NULLABLE-FK SPLIT & YAGNI COST GUARD                    [AUTO-FIX ◆]|
 | Layer 1 Story: 27/27 Investran cols triaged; row_seq_id dropped; 4.20 MB/d FX sat merged via YAGNI.|
 +----------------------------------------------------------------------------------------------------+
 | 1. SURROGATE QUARANTINE (Gate 1 Ledger):                                                           |
@@ -337,7 +337,7 @@ for sub_start, sub_end in [(44, 61), (499, 506), (607, 614), (665, 691), (878, 9
 ```
 
 ---
-### Scene 4: Multi-Source ($N=2$) `DEALCLOUD_PE_CRM` & `LEGACY_GP_ADMIN` Onboarding, Passive LEI Integration vs. Tier-3 `BKCC` Isolation of `lp_num = 'LP-101'`, & `sal_limited_partner` (`WB-05`)
+### Scene 4: Multi-Source ($N=2$) `DEALCLOUD_PE_CRM` & `LEGACY_GP_ADMIN` Onboarding, Passive LEI Integration vs. Tier-3 `BKCC` Isolation of `lp_num = 'LP-101'`, & `sal_limited_partner`
 
 #### 1. What the Agent Team Does
 1. **Onboarding `DEALCLOUD_PE_CRM` (`dealcloud.src_portfolio_companies`):**
@@ -349,10 +349,10 @@ for sub_start, sub_end in [(44, 61), (499, 506), (607, 614), (665, 691), (878, 9
    - **Collision Alert (`DV-COL-012`):** `axi-dv` Gate 1 detects that unscoped `'LP-101'` collides with Investran `LP-101` (*CalPERS*, $500M commitment) while their entity overlap is $J_{\text{entity}} = 0.00 < 0.95$.
    - **Self-Healed `BKCC` Isolation & `sal_limited_partner`:** After receiving the TOON diagnostic in Scene 5, `ship-vault` sets `require_src_qualifier: true` and `bkcc_prefix: "LEGACY_GP_ADMIN"`, isolating *Bavarian Pension Reserve Fund* at `[HK: 6B7C..D8B9 | LEGACY_GP_ADMIN:LP-101 Bavarian Pension]` while *CalPERS* remains at `[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`. For Row 2 (`LEGACY_GP_ADMIN:LP-102`, *Nordisk Suverän Fond*), which genuinely represents the same legal institution as `GLOBAL:LP-104` (*Nordic Sovereign Pension Fund*), the steward-approved row in `mdm.src_lp_steward_crosswalk` (`master_lp_id = LP-104`, `lp_num = 'LP-102'`) drives the non-destructive Same-As Link `sal_limited_partner` (`rec_src = MDM_STEWARD_RESOLUTION`).
 
-#### 2. What the User Sees in `WB-05` (`VIZ-STEP-06` + `VIZ-GATE-04`)
+#### 2. What the User Sees in Scene 4
 ```
 +====================================================================================================+
-| SCENE 4 — WB-05: MULTI-SOURCE N=2 ONBOARDING, PASSIVE LEI INTEGRATION & BKCC SHIELD       [PASS ●] |
+| SCENE 4: MULTI-SOURCE N=2 ONBOARDING, PASSIVE LEI INTEGRATION & BKCC SHIELD                [PASS ●] |
 | Layer 1 Story: Nordic Cloud unified passively via LEI; Bavarian Pension isolated from CalPERS.     |
 +----------------------------------------------------------------------------------------------------+
 | CASE A: PASSIVE INTEGRATION ON TIER-1 GLOBAL LEI (`hub_portfolio_company`)                         |
@@ -374,20 +374,20 @@ for sub_start, sub_end in [(44, 61), (499, 506), (607, 614), (665, 691), (878, 9
 
 ---
 
-### Scene 5: 6-Gate `axi-dv` Static/AST/DAG Verification & Closed-Loop `TOON` Self-Healing (`WB-06`, `WB-08`)
+### Scene 5: 6-Gate `axi-dv` Static/AST/DAG Verification & Closed-Loop `TOON` Self-Healing
 
 #### 1. What the Agent Team Does
 1. **Gate 1 (Constrained Decoding Schema):** Validates [`examples/private_equity/dv_pe_model_contract.yaml`](../examples/private_equity/dv_pe_model_contract.yaml) against [`schemas/no-mistake-dv2-contract-v5.schema.json`](../schemas/no-mistake-dv2-contract-v5.schema.json) (`PASS`).
-2. **Gate 3 (Topological & Grain DAG Verification, `WB-06`):** Runs the `networkx` Graph Verifier (`DV-STR-*`) over all 4 Hubs, 5 Links, and 11 Satellites. Confirms zero Hub-to-Hub edges (`DV-STR-001`), zero Link-to-Link edges (`docs/01` §2.2), and single-parent Satellite attachment (`DV-STR-005`) (`14/14 PASS`).
-3. **Gate 1 (`REJECT-WITH-TRACE`) & Gate 4 (`AUTO-FIX`) Closed-Loop Self-Healing (`WB-08`):**
+2. **Gate 3 (Topological & Grain DAG Verification):** Runs the `networkx` Graph Verifier (`DV-STR-*`) over all 4 Hubs, 5 Links, and 11 Satellites. Confirms zero Hub-to-Hub edges (`DV-STR-001`), zero Link-to-Link edges (`docs/01` §2.2), and single-parent Satellite attachment (`DV-STR-005`) (`14/14 PASS`).
+3. **Gate 1 (`REJECT-WITH-TRACE`) & Gate 4 (`AUTO-FIX`) Closed-Loop Self-Healing:**
    - On Attempt 1, `axi-dv` blocks promotion because `legacy_gp.src_legacy_lp_roster.lp_num` lacks `bkcc_prefix` (`DV-COL-012`) and auto-merges the 4.20 MB/day FX satellite (Gate 4, `Algorithm A.1`).
    - `axi-dv` emits a compact **48-token `TOON` diagnostic payload** to `ship-vault`.
    - On Attempt 2 ($K=2 \le K_{\max}=3$), `ship-vault` patches `require_src_qualifier: true` and `bkcc_prefix: "LEGACY_GP_ADMIN"`. Re-verification passes all static gates with `0` errors.
 
-#### 2. What the User Sees in `WB-08` (`VIZ-GATE-07`)
+#### 2. What the User Sees in Scene 5
 ```
 +====================================================================================================+
-| SCENE 5 — WB-08: CLOSED-LOOP SELF-HEALING DIFF & TOON DIAGNOSTIC INSPECTOR     [HEALED IN K=2 ●]   |
+| SCENE 5: CLOSED-LOOP SELF-HEALING DIFF & TOON DIAGNOSTIC INSPECTOR              [HEALED IN K=2 ●]   |
 | Layer 1 Story: Gate 1 blocked unscoped Legacy GP key 'LP-101'; ship-vault healed YAML in 1 retry.  |
 +----------------------------------------------------------------------------------------------------+
 | TOON TRACE SENT BY `axi-dv` TO `ship-vault`:    | SELF-HEALING YAML DIFF (Attempt 1 -> Attempt 2): |
@@ -408,16 +408,16 @@ for sub_start, sub_end in [(44, 61), (499, 506), (607, 614), (665, 691), (878, 9
 
 ---
 
-### Scene 6: Day-3 Intra-Source Schema Drift ($S_1(t) \to S_1(t+1)$ `Alg A.9a`) & Gate 5 4-Batch Adversarial DuckDB Shadow Sandbox (`WB-09`, `WB-10`)
+### Scene 6: Day-3 Intra-Source Schema Drift ($S_1(t) \to S_1(t+1)$ `Alg A.9a`) & Gate 5 4-Batch Adversarial DuckDB Shadow Sandbox
 
 #### 1. What the Agent Team Does
-1. **Day-3 Intra-Source Schema Drift (`Algorithm A.9a`, `WB-09`):**
+1. **Day-3 Intra-Source Schema Drift (`Algorithm A.9a`):**
    - Upstream `INVESTRAN_FUND_ADMIN` deploys a Day-3 release $S_1(t+1)$ that:
      1. Adds `ilpa_esg_rating VARCHAR(16)` to `investran.src_pe_funds` $\to$ Routed to new companion satellite `sat_fund_investran_esg` (`volatility_tier: ADDITIVE_DRIFT_COMPANION`), preserving 100% of historical `sat_fund_investran.hash_diff` digests (`EVO-01`).
      2. Drops `deprecated_fax_no` from `investran.src_pe_funds` $\to$ Marked in `soft_deprecated_columns: ["deprecated_fax_no"]`; Staging view injects `CAST(NULL AS VARCHAR(64)) AS deprecated_fax_no` (`EVO-02`).
      3. Renames `commitment_amount_usd` $\to$ `committed_amt` ($J_{\text{val}} = 0.994 \ge 0.90$) $\to$ Absorbed via Staging alias `committed_amt AS commitment_amount_usd` (`EVO-03`).
      4. In the same release window, `DEALCLOUD_PE_CRM` widens `company_name` from `VARCHAR(128)` to `VARCHAR(255)` $\to$ Absorbed by a metadata-only type change (`EVO-04`).
-2. **Gate 5 Dynamic DuckDB Shadow Sandbox (`STAGE_06_AXI_DV_DYNAMIC_SANDBOX`, `WB-10`):**
+2. **Gate 5 Dynamic DuckDB Shadow Sandbox (`STAGE_06_AXI_DV_DYNAMIC_SANDBOX`):**
    - Executes all compiled DDL and DML inside an ephemeral in-memory DuckDB instance across the **4 Adversarial Batches**:
      - **Batch 1 (`t_0` Initial Load + Ghost Seed):** Loads the Investran, DealCloud, and `dms` rows (`N=1` for LP keys) with NULL optional FKs + the Zero Key rows (`0x00..00`, `0xFF..FF`) in every Hub and Link + System Ghost Record (`0x00..00` at `'1900-01-01 00:00:00'`). Verifies `0` orphan FKs, both Zero Keys, and `1` Ghost Record per Satellite (`DV-DYN-006`, `DV-DYN-007`, `DV-DYN-009`).
      - **Batch 2 (`t_1` Duplicate Replay):** Re-executes the exact Batch 1 load at `t_1 > t_0`. Verifies $\Delta\text{Hub} = 0, \Delta\text{Link} = 0, \Delta\text{Sat} = 0$ (`DV-DYN-012`).
@@ -456,7 +456,7 @@ assert dv2_sha256(["A||B", "C"]) != dv2_sha256(["A", "B||C"])
 
 ---
 
-### Scene 7: Deterministic Compilation from `NoMistakeDataVault2ContractV5` YAML $\to$ Canonical IR JSON $\to$ 4-Zone SQL DDL/DML, Logarithmic `PIT`, and Bi-Temporal Multimodal `Query D.10` (`WB-11`)
+### Scene 7: Deterministic Compilation from `NoMistakeDataVault2ContractV5` YAML $\to$ Canonical IR JSON $\to$ 4-Zone SQL DDL/DML, Logarithmic `PIT`, and Bi-Temporal Multimodal `Query D.10`
 
 #### 1. What the Agent Team Does
 Once `axi-dv` clears Gates 1–5, `deterministic-compiler` (`STAGE_07_DETERMINISTIC_COMPILER`, verified by `Algorithm A.6`) lowers the verified contract ([`examples/private_equity/dv_pe_model_contract.yaml`](../examples/private_equity/dv_pe_model_contract.yaml)) into the Canonical IR ([`examples/private_equity/pe_canonical_ir.json`](../examples/private_equity/pe_canonical_ir.json)) and emits the **Four-Zone DuckDB SQL Bundle** with zero LLM token generation:
@@ -1465,7 +1465,7 @@ QUALIFY ROW_NUMBER() OVER (
 ) = 1;
 ```
 
-#### 2. Bi-Temporal Audit Output Summary (`WB-11` Execution Result)
+#### 2. Bi-Temporal Audit Output Summary
 
 **`Query D.10` at `('2026-11-20T12:00:00Z', '2026-09-30')`** returns one row per commitment. Three of the seven rows from the bundle above are shown (after Scene 6 Batch 3, the first row's `called_usd` is `160000000.00`):
 

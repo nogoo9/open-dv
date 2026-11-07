@@ -1,0 +1,10 @@
+ontology_version: "1.0.0"
+domain_namespace: "logistics_and_commerce"
+enterprise_owner: "Enterprise Architecture Council"
+canonical_business_concepts:
+  - concept_uri: "urn:ontology:entity:customer"
+    concept_name: "CBC_CUSTOMER"
+    elm_archetype: "WHO_PARTY"
+    definition: "Enterprise B2B or B2C customer counterparty."
+    target_hub: "hub_customer"
+canonical_relationships: []

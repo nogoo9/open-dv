@@ -28,6 +28,12 @@ import yaml
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
+
+def find_workspace_root(start_path: Path | None = None) -> Path:
+    """Test helper for locating repository root."""
+    _ = start_path
+    return REPO_ROOT
+
 _WORKSPACE_SRC_DIRS: tuple[Path, ...] = (
     REPO_ROOT / "packages" / "opendv-core" / "src",
     REPO_ROOT / "packages" / "opendv-telemetry" / "src",
@@ -199,3 +205,34 @@ def populated_pe_duckdb(
     _, zone0_to_3, _, _ = doc07_sql_bundle
     duckdb_conn.execute(zone0_to_3)
     return duckdb_conn
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add CLI flags for the golden test suite."""
+    group = parser.getgroup("golden", "Open-DV Golden Test Suite Configuration")
+    group.addoption(
+        "--update-golden",
+        action="store_true",
+        default=False,
+        help="Regenerate golden baseline files, MANIFEST.json, and docs/17 §G table.",
+    )
+    group.addoption(
+        "--golden-justification",
+        action="store",
+        default="",
+        help=(
+            "Mandatory justification with issue/PR number (>= 10 chars) "
+            "when using --update-golden."
+        ),
+    )
+
+
+@pytest.fixture
+def golden_manager(request: pytest.FixtureRequest) -> Any:
+    """Provide a configured GoldenManager instance for golden assertions and updates."""
+    from tests.parity.golden import GoldenManager
+
+    golden_root = REPO_ROOT / "tests" / "golden"
+    docs17_path = DOCS_DIR / "17-testing-scenarios-and-datasets.md"
+    return GoldenManager(golden_root=golden_root, docs17_path=docs17_path, request=request)
+

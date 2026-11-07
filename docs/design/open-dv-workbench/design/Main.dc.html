@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>open-dv Workbench</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#1D4ED8}a:hover{color:#1E3A8A}
+button{font:inherit;color:inherit}
+</style>
+</helmet>
+<div style="position: relative; width: 100%; min-height: 1040px; box-sizing: border-box; background: #F6F7F8; color: #16181D; font-family: 'IBM Plex Sans', system-ui, sans-serif; font-size: 14px; line-height: 20px">
+
+<header style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 10px 24px; min-height: 56px; box-sizing: border-box; background: #FFFFFF; border-bottom: 1px solid #E3E5E8">
+<div style="display: flex; align-items: center; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-weight: 500; font-size: 15px"><span style="width: 10px; height: 10px; background: #16181D; border-radius: 2px"></span>open-dv</div>
+<nav aria-label="Breadcrumb" style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #545A66">
+<button onClick="{{ goPipeline }}" style="border: 0; background: none; padding: 6px 4px; cursor: pointer; color: {{ crumbColor }}; font-weight: 500">Pipeline</button>
+<sc-if value="{{ isStage }}" hint-placeholder-val="{{ false }}">
+<span aria-hidden="true">/</span>
+<span style="font-family: 'IBM Plex Mono', monospace; color: #16181D">{{ stage.code }}</span>
+<span style="color: #16181D; font-weight: 500">{{ stage.name }}</span>
+</sc-if>
+</nav>
+<div style="display: flex; align-items: center; gap: 8px; padding: 4px 10px; border: 1px solid #E3E5E8; border-radius: 6px; font-size: 13px">
+<span style="font-weight: 500">Global Commerce Vault</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #545A66">pipeline_input.yaml · 4 waves</span>
+</div>
+<div style="flex: 1 1 0"></div>
+<div role="group" aria-label="Wave" style="display: flex; border: 1px solid #E3E5E8; border-radius: 6px; overflow: hidden; font-family: 'IBM Plex Mono', monospace; font-size: 12px">
+<button style="border: 0; padding: 6px 10px; background: #16181D; color: #FFFFFF; cursor: pointer">All</button>
+<button style="border: 0; border-left: 1px solid #E3E5E8; padding: 6px 10px; background: #FFFFFF; cursor: pointer">W0</button>
+<button style="border: 0; border-left: 1px solid #E3E5E8; padding: 6px 10px; background: #FFFFFF; cursor: pointer">W1</button>
+<button style="border: 0; border-left: 1px solid #E3E5E8; padding: 6px 10px; background: #FFFFFF; cursor: pointer">W2</button>
+<button style="border: 0; border-left: 1px solid #E3E5E8; padding: 6px 10px; background: #FFFFFF; cursor: pointer">W3</button>
+</div>
+<div style="display: flex; align-items: center; gap: 6px; font-size: 13px; color: #545A66"><span style="width: 8px; height: 8px; border-radius: 50%; background: #16181D"></span>Sealed · 6/6 gates PASS</div>
+<button style="display: flex; align-items: center; gap: 8px; min-height: 36px; padding: 0 14px; border: 0; border-radius: 6px; background: #16181D; color: #FFFFFF; font-weight: 500; cursor: pointer"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><path d="M3 1.5 L10 6 L3 10.5 Z" fill="#FFFFFF"></path></svg>Run pipeline</button>
+</header>
+
+<sc-if value="{{ isPipeline }}" hint-placeholder-val="{{ true }}">
+<main style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; padding: 24px">
+
+<section aria-label="Settings and inputs" style="flex: 1 1 260px; max-width: 320px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: baseline; justify-content: space-between"><h2 style="margin: 0; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #545A66; font-weight: 600">Settings</h2><span style="font-size: 12px; color: #6B7280">2</span></div>
+<sc-for list="{{ settings }}" as="c" hint-placeholder-count="2">
+<div style="position: relative; background: #FFFFFF; border: 1px solid {{ c.border }}; border-radius: 8px">
+<button onClick="{{ c.pick }}" style="display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 12px 44px 12px 12px; border: 0; background: none; text-align: left; cursor: pointer; border-radius: 8px">
+<span style="display: flex; align-items: center; gap: 8px; min-width: 0"><span style="flex: none; width: 10px; height: 10px; box-sizing: border-box; background: {{ c.g.bg }}; border: {{ c.g.border }}; border-radius: {{ c.g.radius }}; clip-path: {{ c.g.clip }}"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ c.name }}</span></span>
+<span style="font-size: 12px; line-height: 16px; color: #545A66">{{ c.short }}</span>
+<span style="display: block; padding: 8px; background: #F6F7F8; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; color: #3B414C; white-space: pre; overflow: hidden; max-height: 48px">{{ c.lines }}</span>
+</button>
+<button onClick="{{ c.expand }}" aria-label="Open full view" title="Open full view" style="position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 6px; cursor: pointer"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #545A66; stroke-width: 1.5"><path d="M8.5 1.5 H12.5 V5.5 M12.5 1.5 L8 6 M5.5 12.5 H1.5 V8.5 M1.5 12.5 L6 8"></path></svg></button>
+</div>
+</sc-for>
+
+<div style="display: flex; align-items: baseline; justify-content: space-between; margin-top: 14px"><h2 style="margin: 0; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #545A66; font-weight: 600">Inputs</h2><span style="font-size: 12px; color: #6B7280">{{ inputCount }}</span></div>
+<sc-for list="{{ inputs }}" as="c" hint-placeholder-count="4">
+<div style="position: relative; background: #FFFFFF; border: 1px solid {{ c.border }}; border-radius: 8px">
+<button onClick="{{ c.pick }}" style="display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 12px 44px 12px 12px; border: 0; background: none; text-align: left; cursor: pointer; border-radius: 8px">
+<span style="display: flex; align-items: center; gap: 8px; min-width: 0"><span style="flex: none; width: 10px; height: 10px; box-sizing: border-box; background: {{ c.g.bg }}; border: {{ c.g.border }}; border-radius: {{ c.g.radius }}; clip-path: {{ c.g.clip }}"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ c.name }}</span></span>
+<span style="font-size: 12px; line-height: 16px; color: #545A66">{{ c.short }}</span>
+<span style="display: block; padding: 8px; background: #F6F7F8; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; color: #3B414C; white-space: pre; overflow: hidden; max-height: 48px">{{ c.lines }}</span>
+</button>
+<button onClick="{{ c.expand }}" aria-label="Open full view" title="Open full view" style="position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 6px; cursor: pointer"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #545A66; stroke-width: 1.5"><path d="M8.5 1.5 H12.5 V5.5 M12.5 1.5 L8 6 M5.5 12.5 H1.5 V8.5 M1.5 12.5 L6 8"></path></svg></button>
+</div>
+</sc-for>
+<div style="padding: 12px; border: 1px dashed #C9CDD3; border-radius: 8px; font-size: 12px; line-height: 16px; color: #545A66"><span style="font-family: 'IBM Plex Mono', monospace; color: #16181D">initial_contract</span> — not set. Cold start: no prior verified contract to lock against.</div>
+</section>
+
+<section aria-label="Pipeline stages" style="flex: 999 1 440px; min-width: 0; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px">
+<h1 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600">Pipeline <span style="font-weight: 400; color: #545A66">· 8 stages</span></h1>
+<div style="display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: #545A66">
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; background: #B45309; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%)"></span>control</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; background: #1D4ED8; border-radius: 2px"></span>data</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 10px; height: 10px; background: #4B5563; border-radius: 50%"></span>component</span>
+</div>
+</div>
+<div style="position: relative; display: flex; flex-direction: column; gap: 8px">
+<div aria-hidden="true" style="position: absolute; left: 19px; top: 12px; bottom: 24px; width: 1px; background: #D4D7DC"></div>
+<sc-for list="{{ phases }}" as="ph" hint-placeholder-count="4">
+<div style="position: relative; display: flex; align-items: baseline; gap: 10px; padding: 10px 0 2px 44px">
+<span style="font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; font-weight: 600; color: #16181D">{{ ph.label }}</span>
+<span style="font-size: 12px; color: #6B7280">{{ ph.sub }}</span>
+</div>
+<sc-for list="{{ ph.stages }}" as="s" hint-placeholder-count="2">
+<button onClick="{{ s.open }}" style="position: relative; display: grid; grid-template-columns: 40px minmax(0, 1fr) auto; align-items: center; gap: 4px 12px; width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer">
+<span style="width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; box-sizing: border-box; border-radius: 50%; background: #FFFFFF; border: 1px solid #C9CDD3; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500">{{ s.num }}</span>
+<span style="display: flex; flex-direction: column; gap: 4px; padding: 12px 14px; background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 8px; min-width: 0">
+<span style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px"><span style="font-weight: 600">{{ s.name }}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #6B7280">{{ s.key }}</span><span style="margin-left: auto; padding: 2px 8px; border-radius: 999px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; background: {{ s.tagBg }}; color: {{ s.tagFg }}">{{ s.tag }}</span></span>
+<span style="font-size: 12px; line-height: 16px; color: #545A66">{{ s.blurb }}</span>
+<span style="display: flex; flex-wrap: wrap; gap: 4px 14px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #545A66"><span>@{{ s.persona }}</span><span>tier: {{ s.tier }}</span><span>{{ s.counts }}</span></span>
+<sc-if value="{{ s.hasNote }}" hint-placeholder-val="{{ false }}"><span style="font-size: 12px; line-height: 16px; color: #8A3B07">{{ s.note }}</span></sc-if>
+</span>
+<svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style="fill: none; stroke: #6B7280; stroke-width: 1.5"><path d="M6 3 L11 8 L6 13"></path></svg>
+</button>
+</sc-for>
+</sc-for>
+</div>
+</section>
+
+<section aria-label="Outputs" style="flex: 1 1 260px; max-width: 320px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: baseline; justify-content: space-between"><h2 style="margin: 0; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #545A66; font-weight: 600">Outputs</h2><span style="font-size: 12px; color: #6B7280">CAS-sealed</span></div>
+<sc-for list="{{ outputs }}" as="c" hint-placeholder-count="5">
+<div style="position: relative; background: #FFFFFF; border: 1px solid {{ c.border }}; border-radius: 8px">
+<button onClick="{{ c.pick }}" style="display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 12px 44px 12px 12px; border: 0; background: none; text-align: left; cursor: pointer; border-radius: 8px">
+<span style="display: flex; align-items: center; gap: 8px; min-width: 0"><span style="flex: none; width: 10px; height: 10px; box-sizing: border-box; background: {{ c.g.bg }}; border: {{ c.g.border }}; border-radius: {{ c.g.radius }}; clip-path: {{ c.g.clip }}"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ c.name }}</span></span>
+<span style="font-size: 12px; line-height: 16px; color: #545A66">{{ c.short }}</span>
+<span style="display: block; padding: 8px; background: #F6F7F8; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; color: #3B414C; white-space: pre; overflow: hidden; max-height: 48px">{{ c.lines }}</span>
+</button>
+<button onClick="{{ c.expand }}" aria-label="Open full view" title="Open full view" style="position: absolute; top: 6px; right: 6px; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 6px; cursor: pointer"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #545A66; stroke-width: 1.5"><path d="M8.5 1.5 H12.5 V5.5 M12.5 1.5 L8 6 M5.5 12.5 H1.5 V8.5 M1.5 12.5 L6 8"></path></svg></button>
+</div>
+</sc-for>
+</section>
+
+<sc-if value="{{ insp.has }}" hint-placeholder-val="{{ false }}">
+<aside aria-label="Inspector" style="flex: 1 1 320px; max-width: 380px; min-width: 0; box-sizing: border-box; background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+<div style="display: flex; align-items: center; gap: 8px"><span style="flex: none; width: 10px; height: 10px; box-sizing: border-box; background: {{ insp.g.bg }}; border: {{ insp.g.border }}; border-radius: {{ insp.g.radius }}; clip-path: {{ insp.g.clip }}"></span><span style="font-size: 12px; color: #545A66">{{ insp.kind }}</span><button onClick="{{ clearSel }}" aria-label="Close inspector" style="margin-left: auto; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 6px; cursor: pointer"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="fill: none; stroke: #545A66; stroke-width: 1.5"><path d="M2 2 L10 10 M10 2 L2 10"></path></svg></button></div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 500; word-break: break-word">{{ insp.title }}</div>
+<p style="margin: 0; font-size: 13px; line-height: 20px; color: #3B414C">{{ insp.desc }}</p>
+<dl style="margin: 0; display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 6px 12px; font-size: 12px; line-height: 16px">
+<sc-for list="{{ insp.meta }}" as="m" hint-placeholder-count="3"><dt style="color: #6B7280">{{ m.k }}</dt><dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; word-break: break-word">{{ m.v }}</dd></sc-for>
+</dl>
+<sc-if value="{{ insp.isArtifact }}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; color: #545A66">Preview</div>
+<div style="padding: 10px; background: #F6F7F8; border-radius: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; color: #3B414C; white-space: pre; overflow: hidden; max-height: 176px">{{ insp.preview }}</div>
+<button onClick="{{ insp.expand }}" style="display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; border: 1px solid #16181D; border-radius: 6px; background: #FFFFFF; font-weight: 500; cursor: pointer"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #16181D; stroke-width: 1.5"><path d="M8.5 1.5 H12.5 V5.5 M12.5 1.5 L8 6 M5.5 12.5 H1.5 V8.5 M1.5 12.5 L6 8"></path></svg>Open full view · {{ insp.vizName }}</button>
+</div>
+</sc-if>
+</aside>
+</sc-if>
+</main>
+</sc-if>
+
+<sc-if value="{{ isStage }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 20px 24px 0">
+<button onClick="{{ goPipeline }}" style="display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px 0 6px; border: 1px solid #E3E5E8; border-radius: 6px; background: #FFFFFF; font-size: 13px; cursor: pointer"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #16181D; stroke-width: 1.5"><path d="M9 2.5 L4.5 7 L9 11.5"></path></svg>All stages</button>
+<span style="width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; box-sizing: border-box; border-radius: 50%; border: 1px solid #16181D; background: #FFFFFF; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500">{{ stage.num }}</span>
+<div style="display: flex; flex-direction: column; min-width: 0">
+<h1 style="margin: 0; font-size: 20px; line-height: 28px; font-weight: 600">{{ stage.name }}</h1>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #545A66">{{ stage.key }} · @{{ stage.persona }} · tier: {{ stage.tier }}</span>
+</div>
+<span style="padding: 2px 8px; border-radius: 999px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; background: {{ stage.tagBg }}; color: {{ stage.tagFg }}">{{ stage.tag }}</span>
+<div style="flex: 1 1 0"></div>
+<div style="display: flex; gap: 6px">
+<button onClick="{{ prevStage }}" aria-label="Previous stage" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: 1px solid #E3E5E8; border-radius: 6px; background: #FFFFFF; cursor: pointer"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #16181D; stroke-width: 1.5"><path d="M9 2.5 L4.5 7 L9 11.5"></path></svg></button>
+<button onClick="{{ nextStage }}" aria-label="Next stage" style="width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; border: 1px solid #E3E5E8; border-radius: 6px; background: #FFFFFF; cursor: pointer"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #16181D; stroke-width: 1.5"><path d="M5 2.5 L9.5 7 L5 11.5"></path></svg></button>
+</div>
+<p style="flex: 1 1 100%; margin: 0; max-width: 880px; font-size: 13px; line-height: 20px; color: #3B414C">{{ stage.desc }}</p>
+</div>
+
+<main style="display: flex; flex-wrap: wrap; align-items: flex-start; gap: 24px; padding: 20px 24px 24px">
+<section aria-label="Components" style="flex: 1 1 240px; max-width: 300px; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<h2 style="margin: 0 0 2px; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #545A66; font-weight: 600">Components</h2>
+<sc-for list="{{ stage.components }}" as="k" hint-placeholder-count="4">
+<button onClick="{{ k.pick }}" style="display: flex; align-items: flex-start; gap: 10px; width: 100%; padding: 10px 12px; box-sizing: border-box; background: #FFFFFF; border: 1px solid {{ k.border }}; border-radius: 8px; text-align: left; cursor: pointer">
+<span style="flex: none; margin-top: 5px; width: 10px; height: 10px; border-radius: 50%; background: #4B5563"></span>
+<span style="display: flex; flex-direction: column; gap: 2px; min-width: 0"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; word-break: break-word">{{ k.name }}</span><span style="font-size: 12px; line-height: 16px; color: #6B7280">{{ k.type }}</span></span>
+</button>
+</sc-for>
+</section>
+
+<section aria-label="Control and data flow" style="flex: 999 1 460px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px">
+<h2 style="margin: 0; font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #545A66; font-weight: 600">Control &amp; data flow</h2>
+<div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; width: min(100%, 520px); font-size: 11px; color: #6B7280; text-align: center"><span style="text-align: right">reads ■</span><span>◆ step</span><span style="text-align: left">■ writes</span></div>
+</div>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 12px; border: 1px dashed #C9CDD3; border-radius: 8px">
+<span style="font-size: 12px; color: #545A66; margin-right: 4px">Enters with</span>
+<sc-for list="{{ stage.enters }}" as="d" hint-placeholder-count="3"><button onClick="{{ d.pick }}" style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 8px; background: #FFFFFF; border: 1px solid {{ d.border }}; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer"><span style="width: 8px; height: 8px; border-radius: 2px; background: #1D4ED8"></span>{{ d.name }}</button></sc-for>
+</div>
+<sc-for list="{{ stage.steps }}" as="st" hint-placeholder-count="4">
+<sc-if value="{{ st.notFirst }}" hint-placeholder-val="{{ true }}"><div aria-hidden="true" style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr); gap: 12px; height: 14px"><span></span><span style="justify-self: center; width: 1px; background: #B45309"></span><span></span></div></sc-if>
+<div style="display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr); align-items: center; gap: 12px">
+<div style="display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 4px">
+<sc-for list="{{ st.reads }}" as="d" hint-placeholder-count="1"><button onClick="{{ d.pick }}" style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 8px; background: #FFFFFF; border: 1px solid {{ d.border }}; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer; max-width: 100%"><span style="flex: none; width: 8px; height: 8px; border-radius: 2px; background: #1D4ED8"></span><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ d.name }}</span></button></sc-for>
+</div>
+<button onClick="{{ st.pick }}" style="display: flex; flex-direction: column; gap: 4px; width: 100%; padding: 10px 12px; box-sizing: border-box; background: #FFFFFF; border: 1px solid {{ st.border }}; border-radius: 8px; text-align: left; cursor: pointer">
+<span style="display: flex; align-items: center; gap: 8px"><span style="flex: none; width: 10px; height: 10px; background: #B45309; clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%)"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #6B7280">{{ st.n }}</span><span style="font-weight: 500; font-size: 13px">{{ st.name }}</span></span>
+<sc-if value="{{ st.hasBranch }}" hint-placeholder-val="{{ false }}"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; color: #8A3B07">{{ st.branch }}</span></sc-if>
+</button>
+<div style="display: flex; flex-wrap: wrap; gap: 4px">
+<sc-for list="{{ st.writes }}" as="d" hint-placeholder-count="1"><button onClick="{{ d.pick }}" style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 8px; background: #FFFFFF; border: 1px solid {{ d.border }}; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer; max-width: 100%"><span style="flex: none; width: 8px; height: 8px; border-radius: 2px; background: #1D4ED8"></span><span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ d.name }}</span></button></sc-for>
+</div>
+</div>
+</sc-for>
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 10px 12px; margin-top: 4px; border: 1px dashed #C9CDD3; border-radius: 8px">
+<span style="font-size: 12px; color: #545A66; margin-right: 4px">Hands off</span>
+<sc-for list="{{ stage.hands }}" as="d" hint-placeholder-count="2"><button onClick="{{ d.pick }}" style="display: inline-flex; align-items: center; gap: 6px; min-height: 28px; padding: 0 8px; background: #FFFFFF; border: 1px solid {{ d.border }}; border-radius: 4px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; cursor: pointer"><span style="width: 8px; height: 8px; border-radius: 2px; background: #1D4ED8"></span>{{ d.name }}</button></sc-for>
+<span style="font-size: 12px; color: #545A66">→ {{ stage.nextLabel }}</span>
+</div>
+</section>
+
+<aside aria-label="Inspector" style="flex: 1 1 300px; max-width: 360px; min-width: 0; box-sizing: border-box; background: #FFFFFF; border: 1px solid #E3E5E8; border-radius: 8px; padding: 16px; display: flex; flex-direction: column; gap: 14px">
+<sc-if value="{{ insp.empty }}" hint-placeholder-val="{{ false }}">
+<div style="font-size: 13px; line-height: 20px; color: #545A66">Select a step, a data item or a component to see what it does.</div>
+</sc-if>
+<sc-if value="{{ insp.has }}" hint-placeholder-val="{{ true }}">
+<div style="display: flex; align-items: center; gap: 8px"><span style="flex: none; width: 10px; height: 10px; box-sizing: border-box; background: {{ insp.g.bg }}; border: {{ insp.g.border }}; border-radius: {{ insp.g.radius }}; clip-path: {{ insp.g.clip }}"></span><span style="font-size: 12px; color: #545A66">{{ insp.kind }}</span><button onClick="{{ clearSel }}" aria-label="Clear selection" style="margin-left: auto; width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; border: 0; background: none; border-radius: 6px; cursor: pointer"><svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true" style="fill: none; stroke: #545A66; stroke-width: 1.5"><path d="M2 2 L10 10 M10 2 L2 10"></path></svg></button></div>
+<div style="font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 500; word-break: break-word">{{ insp.title }}</div>
+<p style="margin: 0; font-size: 13px; line-height: 20px; color: #3B414C">{{ insp.desc }}</p>
+<dl style="margin: 0; display: grid; grid-template-columns: 88px minmax(0, 1fr); gap: 6px 12px; font-size: 12px; line-height: 16px">
+<sc-for list="{{ insp.meta }}" as="m" hint-placeholder-count="3"><dt style="color: #6B7280">{{ m.k }}</dt><dd style="margin: 0; font-family: 'IBM Plex Mono', monospace; word-break: break-word">{{ m.v }}</dd></sc-for>
+</dl>
+<sc-if value="{{ insp.isArtifact }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; gap: 8px">
+<div style="font-size: 12px; color: #545A66">Preview</div>
+<div style="padding: 10px; background: #F6F7F8; border-radius: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; color: #3B414C; white-space: pre; overflow: hidden; max-height: 176px">{{ insp.preview }}</div>
+<button onClick="{{ insp.expand }}" style="display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 40px; border: 1px solid #16181D; border-radius: 6px; background: #FFFFFF; font-weight: 500; cursor: pointer"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #16181D; stroke-width: 1.5"><path d="M8.5 1.5 H12.5 V5.5 M12.5 1.5 L8 6 M5.5 12.5 H1.5 V8.5 M1.5 12.5 L6 8"></path></svg>Open full view · {{ insp.vizName }}</button>
+</div>
+</sc-if>
+</sc-if>
+</aside>
+</main>
+</sc-if>
+
+<sc-if value="{{ fullOpen }}" hint-placeholder-val="{{ false }}">
+<div role="dialog" aria-label="Artifact full view" style="position: absolute; inset: 0; z-index: 20; display: flex; flex-direction: column; background: #FFFFFF">
+<div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; padding: 12px 24px; border-bottom: 1px solid #E3E5E8">
+<button onClick="{{ closeFull }}" style="display: flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 10px 0 6px; border: 1px solid #E3E5E8; border-radius: 6px; background: #FFFFFF; font-size: 13px; cursor: pointer"><svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style="fill: none; stroke: #16181D; stroke-width: 1.5"><path d="M9 2.5 L4.5 7 L9 11.5"></path></svg>Back</button>
+<span style="flex: none; width: 12px; height: 12px; box-sizing: border-box; background: {{ full.g.bg }}; border: {{ full.g.border }}; border-radius: {{ full.g.radius }}"></span>
+<div style="display: flex; flex-direction: column; min-width: 0">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 16px; font-weight: 500">{{ full.name }}</span>
+<span style="font-size: 12px; color: #545A66">{{ full.type }} · {{ full.fmt }} · {{ full.group }}</span>
+</div>
+<div style="flex: 1 1 0"></div>
+<div role="tablist" aria-label="View mode" style="display: flex; border: 1px solid #E3E5E8; border-radius: 6px; overflow: hidden; font-size: 13px">
+<sc-for list="{{ full.tabs }}" as="t" hint-placeholder-count="3"><button role="tab" onClick="{{ t.pick }}" style="border: 0; min-height: 34px; padding: 0 14px; background: {{ t.bg }}; color: {{ t.fg }}; cursor: pointer">{{ t.label }}</button></sc-for>
+</div>
+</div>
+<p style="margin: 0; padding: 12px 24px 0; max-width: 960px; font-size: 13px; line-height: 20px; color: #3B414C">{{ full.desc }}</p>
+<div style="flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 20px; padding: 16px 24px 24px; min-height: 0">
+
+<sc-if value="{{ full.showViz }}" hint-placeholder-val="{{ true }}">
+<section aria-label="Visualization" style="flex: 3 1 560px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<div style="font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #545A66; font-weight: 600">{{ full.vizName }}</div>
+
+<sc-if value="{{ full.isOntology }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div style="flex: 3 1 420px; min-width: 0; border: 1px solid #E3E5E8; border-radius: 8px; padding: 12px; background: #FBFBFC">
+<svg viewBox="0 0 760 450" width="100%" role="img" aria-label="Graph A ontology: five business concepts joined by four relationships" style="display: block; font-family: 'IBM Plex Sans', sans-serif">
+<g style="stroke: #9AA1AC; stroke-width: 1.5; fill: none">
+<path d="M130 110 L560 230"></path>
+<path d="M130 110 L130 360"></path>
+<path d="M380 112 L130 110"></path>
+<path d="M380 112 L560 70"></path>
+<path d="M380 112 L560 230"></path>
+<path d="M560 230 L560 380"></path>
+</g>
+<g style="fill: #B45309">
+<polygon points="345,162 353,170 345,178 337,170"></polygon>
+<polygon points="130,227 138,235 130,243 122,235"></polygon>
+<polygon points="380,104 388,112 380,120 372,112"></polygon>
+<polygon points="560,297 568,305 560,313 552,305"></polygon>
+</g>
+<g style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; fill: #8A3B07">
+<text x="345" y="196" text-anchor="middle">REL_ORDER_CUSTOMER</text>
+<text x="146" y="239">REL_ORDER_PROMOTION</text>
+<text x="380" y="96" text-anchor="middle">REL_INVOICE_ORDER_CUSTOMER</text>
+<text x="576" y="309">REL_DOCUMENT_CUSTOMER</text>
+</g>
+<g style="fill: #FFFFFF; stroke: #1D4ED8; stroke-width: 1.5">
+<rect x="45" y="84" width="170" height="52" rx="8"></rect>
+<rect x="45" y="334" width="170" height="52" rx="8"></rect>
+<rect x="475" y="204" width="170" height="52" rx="8"></rect>
+<rect x="475" y="44" width="170" height="52" rx="8"></rect>
+<rect x="475" y="354" width="170" height="52" rx="8"></rect>
+</g>
+<g style="font-size: 13px; font-weight: 600; fill: #16181D" text-anchor="middle">
+<text x="130" y="106">CBC_ORDER</text>
+<text x="130" y="356">CBC_PROMOTION</text>
+<text x="560" y="226">CBC_CUSTOMER</text>
+<text x="560" y="66">CBC_INVOICE</text>
+<text x="560" y="376">CBC_CONTRACT_DOCUMENT</text>
+</g>
+<g style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; fill: #545A66" text-anchor="middle">
+<text x="130" y="124">→ hub_order</text>
+<text x="130" y="374">→ hub_promotion</text>
+<text x="560" y="244">→ hub_customer</text>
+<text x="560" y="84">→ hub_invoice</text>
+<text x="560" y="394">→ hub_document</text>
+</g>
+</svg>
+</div>
+<div style="flex: 2 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<sc-for list="{{ concepts }}" as="cc" hint-placeholder-count="5">
+<div style="padding: 10px 12px; border: 1px solid #E3E5E8; border-radius: 8px; display: flex; flex-direction: column; gap: 4px">
+<span style="display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline"><span style="font-weight: 600; font-size: 13px">{{ cc.name }}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #545A66">{{ cc.arch }}</span></span>
+<span style="font-size: 12px; line-height: 17px; color: #3B414C">{{ cc.def }}</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #1D4ED8">{{ cc.keys }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ full.isDv }}" hint-placeholder-val="{{ false }}">
+<div style="border: 1px solid #E3E5E8; border-radius: 8px; padding: 12px; background: #FBFBFC">
+<svg viewBox="0 0 1020 480" width="100%" role="img" aria-label="Data Vault model: five hubs, four links and seven satellites" style="display: block; font-family: 'IBM Plex Mono', monospace">
+<g style="stroke: #9AA1AC; stroke-width: 1.5; fill: none">
+<path d="M120 150 L120 440"></path>
+<path d="M120 250 L905 250"></path>
+<path d="M330 70 L540 250"></path>
+<path d="M540 70 L540 250"></path>
+<path d="M750 70 L540 250"></path>
+<path d="M905 150 L905 250"></path>
+<path d="M340 350 L120 250"></path>
+<path d="M340 350 L540 250"></path>
+<path d="M340 350 L340 440"></path>
+<path d="M340 440 L560 440"></path>
+<path d="M740 250 L740 350"></path>
+</g>
+<g style="fill: #F2F3F5; stroke: #9AA1AC; stroke-width: 1">
+<rect x="10" y="136" width="220" height="28" rx="4"></rect>
+<rect x="220" y="56" width="220" height="28" rx="4"></rect>
+<rect x="640" y="56" width="220" height="28" rx="4"></rect>
+<rect x="470" y="426" width="180" height="28" rx="4"></rect>
+<rect x="615" y="336" width="250" height="28" rx="4"></rect>
+<rect x="810" y="136" width="190" height="28" rx="4"></rect>
+</g>
+<rect x="450" y="56" width="180" height="28" rx="4" style="fill: #FFFFFF; stroke: #B45309; stroke-width: 1.25; stroke-dasharray: 4 3"></rect>
+<g style="fill: #FFF4E5; stroke: #B45309; stroke-width: 1.25">
+<rect x="240" y="235" width="200" height="30" rx="15"></rect>
+<rect x="645" y="235" width="190" height="30" rx="15"></rect>
+<rect x="20" y="335" width="200" height="30" rx="15"></rect>
+<rect x="240" y="335" width="200" height="30" rx="15"></rect>
+</g>
+<g style="fill: #1D4ED8">
+<rect x="45" y="231" width="150" height="38" rx="4"></rect>
+<rect x="465" y="231" width="150" height="38" rx="4"></rect>
+<rect x="840" y="231" width="130" height="38" rx="4"></rect>
+<rect x="45" y="421" width="150" height="38" rx="4"></rect>
+<rect x="265" y="421" width="150" height="38" rx="4"></rect>
+</g>
+<g style="font-size: 12px; font-weight: 500; fill: #FFFFFF" text-anchor="middle">
+<text x="120" y="254">hub_order</text>
+<text x="540" y="254">hub_customer</text>
+<text x="905" y="254">hub_document</text>
+<text x="120" y="444">hub_promotion</text>
+<text x="340" y="444">hub_invoice</text>
+</g>
+<g style="font-size: 10.5px; fill: #8A3B07" text-anchor="middle">
+<text x="340" y="254">lnk_order_customer</text>
+<text x="740" y="254">lnk_document_customer</text>
+<text x="120" y="354">lnk_order_customer_promotion</text>
+<text x="340" y="354">lnk_invoice_order_customer</text>
+</g>
+<g style="font-size: 10.5px; fill: #3B414C" text-anchor="middle">
+<text x="120" y="154">sat_order_core</text>
+<text x="330" y="74">sat_customer_core</text>
+<text x="540" y="74">sat_customer_pii · PII</text>
+<text x="750" y="74">sat_customer_core_ext_v2</text>
+<text x="560" y="444">sat_invoice_core</text>
+<text x="740" y="354">sat_document_customer_ai_provenance</text>
+<text x="905" y="154">mas_document_extractions</text>
+</g>
+</svg>
+</div>
+<div style="display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 12px; color: #545A66">
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 10px; background: #1D4ED8; border-radius: 2px"></span>Hub · business key</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 10px; background: #FFF4E5; border: 1px solid #B45309; border-radius: 6px"></span>Link · association</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 10px; background: #F2F3F5; border: 1px solid #9AA1AC; border-radius: 2px"></span>Satellite · insert-only history</span>
+<span style="display: flex; align-items: center; gap: 6px"><span style="width: 14px; height: 10px; box-sizing: border-box; border: 1px dashed #B45309; border-radius: 2px"></span>RESTRICTED_PII satellite</span>
+</div>
+</sc-if>
+
+<sc-if value="{{ full.isTable }}" hint-placeholder-val="{{ false }}">
+<div style="overflow-x: auto; border: 1px solid #E3E5E8; border-radius: 8px">
+<div role="table" style="min-width: max-content; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 16px">
+<div role="row" style="display: grid; grid-template-columns: {{ full.gridCols }}; background: #F6F7F8; border-bottom: 1px solid #E3E5E8"><sc-for list="{{ full.cols }}" as="h" hint-placeholder-count="4"><span role="columnheader" style="padding: 8px 12px; font-weight: 500; white-space: nowrap">{{ h.v }}</span></sc-for></div>
+<sc-for list="{{ full.rows }}" as="r" hint-placeholder-count="4"><div role="row" style="display: grid; grid-template-columns: {{ full.gridCols }}; border-bottom: 1px solid #EEF0F2"><sc-for list="{{ r.cells }}" as="cl" hint-placeholder-count="4"><span role="cell" style="padding: 8px 12px; white-space: nowrap; color: {{ cl.fg }}">{{ cl.v }}</span></sc-for></div></sc-for>
+</div>
+</div>
+<sc-if value="{{ full.hasFoot }}" hint-placeholder-val="{{ false }}"><div style="font-size: 12px; color: #545A66">{{ full.foot }}</div></sc-if>
+</sc-if>
+
+<sc-if value="{{ full.isKv }}" hint-placeholder-val="{{ false }}">
+<dl style="margin: 0; display: grid; grid-template-columns: minmax(160px, 260px) minmax(0, 1fr); border: 1px solid #E3E5E8; border-radius: 8px; overflow: hidden; font-size: 13px">
+<sc-for list="{{ full.kv }}" as="m" hint-placeholder-count="5"><dt style="padding: 9px 12px; background: #F6F7F8; border-bottom: 1px solid #E3E5E8; font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: #545A66">{{ m.k }}</dt><dd style="margin: 0; padding: 9px 12px; border-bottom: 1px solid #E3E5E8; font-family: 'IBM Plex Mono', monospace; font-size: 12px">{{ m.v }}</dd></sc-for>
+</dl>
+</sc-if>
+
+<sc-if value="{{ full.isChecks }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-direction: column; border: 1px solid #E3E5E8; border-radius: 8px; overflow: hidden">
+<sc-for list="{{ full.checks }}" as="ck" hint-placeholder-count="6">
+<div style="display: grid; grid-template-columns: 120px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 12px; border-bottom: 1px solid #EEF0F2">
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500">{{ ck.id }}</span>
+<span style="font-size: 13px; color: #3B414C">{{ ck.name }}</span>
+<span style="padding: 2px 8px; border-radius: 999px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; background: {{ ck.bg }}; color: {{ ck.fg }}">{{ ck.status }}</span>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ full.isEvents }}" hint-placeholder-val="{{ false }}">
+<div style="position: relative; display: flex; flex-direction: column; gap: 0; padding-left: 8px">
+<div aria-hidden="true" style="position: absolute; left: 12px; top: 10px; bottom: 10px; width: 1px; background: #D4D7DC"></div>
+<sc-for list="{{ full.events }}" as="ev" hint-placeholder-count="6">
+<div style="position: relative; display: grid; grid-template-columns: 16px 64px 250px minmax(0, 1fr) auto; gap: 10px; align-items: center; padding: 7px 0">
+<span style="width: 9px; height: 9px; border-radius: 50%; background: {{ ev.dot }}; border: 2px solid #FFFFFF"></span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #6B7280">#{{ ev.seq }}</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">{{ ev.stage }}</span>
+<span style="font-size: 13px; color: #3B414C">{{ ev.msg }}</span>
+<span style="padding: 2px 8px; border-radius: 999px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; line-height: 16px; background: {{ ev.bg }}; color: {{ ev.fg }}">{{ ev.status }}</span>
+</div>
+</sc-for>
+</div>
+</sc-if>
+
+<sc-if value="{{ full.isDoc }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<div style="flex: 3 1 380px; min-width: 0; padding: 16px; border: 1px solid #E3E5E8; border-radius: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 20px; white-space: pre-wrap"><sc-for list="{{ docSegs }}" as="sg" hint-placeholder-count="3"><span style="background: {{ sg.bg }}; box-shadow: {{ sg.ring }}; border-radius: 2px">{{ sg.text }}</span></sc-for></div>
+<div style="flex: 2 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 8px">
+<sc-for list="{{ extractions }}" as="ex" hint-placeholder-count="2">
+<div style="padding: 10px 12px; border: 1px solid #E3E5E8; border-radius: 8px; display: flex; flex-direction: column; gap: 6px">
+<span style="display: flex; align-items: center; gap: 8px"><span style="width: 10px; height: 10px; border-radius: 2px; background: {{ ex.swatch }}"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500">{{ ex.id }}</span></span>
+<span style="font-size: 13px">“{{ ex.quote }}”</span>
+<span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #545A66">span [{{ ex.start }}, {{ ex.end }}] · {{ ex.tier }} · conf {{ ex.conf }}</span>
+<span style="font-size: 12px; line-height: 17px; color: {{ ex.decisionFg }}">{{ ex.decision }}</span>
+</div>
+</sc-for>
+</div>
+</div>
+</sc-if>
+
+<sc-if value="{{ full.isCode }}" hint-placeholder-val="{{ false }}">
+<div style="display: flex; flex-wrap: wrap; gap: 16px">
+<nav aria-label="SQL zones" style="flex: 1 1 200px; max-width: 260px; display: flex; flex-direction: column; gap: 6px">
+<sc-for list="{{ full.outline }}" as="o" hint-placeholder-count="5"><div style="padding: 8px 10px; border: 1px solid #E3E5E8; border-radius: 6px; display: flex; flex-direction: column; gap: 2px"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500">{{ o.k }}</span><span style="font-size: 12px; line-height: 16px; color: #545A66">{{ o.v }}</span></div></sc-for>
+</nav>
+<pre style="flex: 3 1 360px; min-width: 0; margin: 0; padding: 14px 16px; background: #16181D; color: #E6E8EB; border-radius: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 19px; overflow: auto; max-height: 720px">{{ full.raw }}</pre>
+</div>
+</sc-if>
+</section>
+</sc-if>
+
+<sc-if value="{{ full.showRaw }}" hint-placeholder-val="{{ true }}">
+<section aria-label="Raw data" style="flex: 2 1 360px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+<div style="display: flex; align-items: baseline; justify-content: space-between"><span style="font-size: 12px; letter-spacing: 0.06em; text-transform: uppercase; color: #545A66; font-weight: 600">Raw · {{ full.fmt }}</span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #6B7280">{{ full.redaction }}</span></div>
+<pre style="margin: 0; padding: 14px 16px; background: #F6F7F8; border: 1px solid #E3E5E8; border-radius: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 19px; color: #16181D; overflow: auto; max-height: 760px; white-space: pre">{{ full.raw }}</pre>
+</section>
+</sc-if>
+</div>
+</div>
+</sc-if>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"startView":{"editor":"enum","options":["pipeline","stage","artifact"],"default":"pipeline","section":"Start state"},"startStage":{"editor":"int","min":0,"max":7,"default":5,"section":"Start state"},"startArtifact":{"editor":"enum","options":["ontology","harness","spec","crm","msa","profile","triage","contract","gates","toon","sandbox","final_contract","final_ir","final_sql","report","ledger"],"default":"ontology","section":"Start state"},"$preview":{"width":1440,"height":1040}}'>
+var G = {
+  data: { bg: '#1D4ED8', border: '0 solid transparent', radius: '2px', clip: 'none' },
+  setting: { bg: 'transparent', border: '1.5px solid #1D4ED8', radius: '2px', clip: 'none' },
+  control: { bg: '#B45309', border: '0 solid transparent', radius: '0', clip: 'polygon(50% 0, 100% 50%, 50% 100%, 0 50%)' },
+  component: { bg: '#4B5563', border: '0 solid transparent', radius: '50%', clip: 'none' }
+};
+var TAG = {
+  'PASS': { bg: '#EEF0F2', fg: '#16181D' },
+  'AUTO_REPAIRED': { bg: '#FFF4E5', fg: '#8A3B07' },
+  'REJECT-WITH-TRACE': { bg: '#FDECEA', fg: '#8F1D12' },
+  'ASK-USER': { bg: '#FFF4E5', fg: '#8A3B07' },
+  'ASK-USER → resolved': { bg: '#FFF4E5', fg: '#8A3B07' },
+  'AUTO-FIX': { bg: '#EEF2FF', fg: '#1E3A8A' }
+};
+var VIZNAME = { ontology: 'Ontology graph', dv: 'Data Vault model graph', table: 'Table', kv: 'Fields', checks: 'Verdicts', events: 'Event timeline', doc: 'Span-grounded document', code: 'Outline + source' };
+
+var MSA = 'MASTER SERVICES AGREEMENT ADDENDUM (2026-MSA-089)\nEffective Date: March 1, 2026\n\n1. CONTRACTING COUNTERPARTY (TIER-U1 EXACT REGISTRATION)\nThis Commercial Volume Addendum is entered into by Apex Industrial Holdings LLC (Tax ID: TAX-US-900101), which is hereby granted an extended net-90 payment settlement window and a 4.50% volume rebate on all fulfilled enterprise orders exceeding USD 150,000.00.\n\n2. REGIONAL SUBSIDIARY GUARANTEE (TIER-U3 AMBIGUOUS ENTITY)\nCross-border fulfilment obligations under Section 4 may also be guaranteed by Rheinland Precision Holding Group, subject to steward verification of whether the guarantor corresponds to Rheinland Precision GmbH (TAX-DE-800202) or an unaffiliated regional holding affiliate.';
+var Q1 = 'Apex Industrial Holdings LLC (Tax ID: TAX-US-900101)';
+var Q3 = 'Rheinland Precision Holding Group';
+
+var A = {
+  harness: { group: 'Setting', name: 'harness_config.yaml', type: 'HarnessSetupConfig', fmt: 'YAML', viz: 'kv',
+    short: 'Harness adapter, model tiers, auth, budget, hold policy',
+    desc: 'Chooses which LLM harness runs the agent personas (agy, claude-cli, antigravity or claude), maps the reasoning and fast model tiers to concrete models, and sets auth mode, run budget, sandbox limits and the steward-hold policy.',
+    kv: [['provider','agy'],['model_overrides.reasoning','gemini-4-argon-high'],['model_overrides.fast','gemini-3.8-flash-high'],['auth.auth_mode','cli_session'],['steward_hold_policy','auto_approve_top_candidate'],['budget.max_total_tokens','232000'],['budget.max_cost_usd','5.0'],['budget.timeout_seconds','300.0'],['sandbox.read_only_workspace','true'],['sandbox.allow_shell_execution','false'],['inject_adversarial_fault_on_attempt_1','true']],
+    raw: 'provider: agy\nmodel_overrides:\n  reasoning: gemini-4-argon-high\n  fast: gemini-3.8-flash-high\nauth:\n  auth_mode: cli_session\n  require_credentials_present: false\nbudget:\n  max_turns: 12\n  max_model_calls: 20\n  max_tool_calls: 40\n  max_input_tokens: 200000\n  max_output_tokens: 32000\n  max_total_tokens: 232000\n  max_cost_usd: 5.0\n  timeout_seconds: 300.0\n  max_schema_validation_retries: 3\nsandbox:\n  read_only_workspace: true\n  allow_shell_execution: false\nsteward_hold_policy: auto_approve_top_candidate\ninject_adversarial_fault_on_attempt_1: true' },
+  runopts: { group: 'Setting', name: 'run options', type: 'opendv pipeline run', fmt: 'CLI', viz: 'kv',
+    short: 'Execution mode, RBAC role, streaming, output dir',
+    desc: 'Flags for this invocation: local in-process execution, the RBAC role that decides what telemetry and reports are redacted, live stage streaming, and where sealed artifacts land.',
+    kv: [['--local','in-process (no Platform API)'],['--role','INTERNAL_MODELER'],['--stream','on'],['--stream-tokens','on'],['--hold-policy','from harness_config.yaml'],['assertion_cutoff_ts','2026-12-31 23:59:59'],['--output-dir','/tmp/opendv-commerce']],
+    raw: 'uv run opendv pipeline run \\\n  --local \\\n  --stream \\\n  --stream-tokens \\\n  --role INTERNAL_MODELER \\\n  --input examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml \\\n  --harness-config examples/pipeline_samples/global_commerce_vault/harness_config.yaml \\\n  --output-dir /tmp/opendv-commerce' },
+  spec: { group: 'Input', name: 'pipeline_input.yaml', type: 'PipelineInputSpec', fmt: 'YAML', viz: 'table',
+    short: '4 waves · cold start → billing → drift → MSA',
+    desc: 'Declares the run: ids, domain namespace, the Graph A ontology path, the assertion cut-off, and the waves to execute, each listing relational sources and unstructured documents.',
+    cols: ['wave','wave_type','sources','scenario'],
+    rows: [['0','COLD_START','crm_customers, erp_orders','PII split, sparse promo FK split'],['1','INCREMENTAL_SOURCE','stripe_invoices','STRIPE_EU BKCC, A.7 evolution lock'],['2','SCHEMA_DRIFT','crm_customers_v2','A.9a → sat_customer_core_ext_v2'],['3','UNSTRUCTURED_ONBOARDING','enterprise_msa_addendum_2026.txt','Rules U1–U4 span grounding']],
+    raw: 'pipeline_id: "pipe-global-commerce"\nproject_id: "proj-global-commerce-001"\ndomain_namespace: "global_commerce"\ngraph_a_ontology_path: "ontology/commerce_graph_a_ontology.yaml"\nassertion_cutoff_ts: "2026-12-31 23:59:59"\n\nwaves:\n  - wave_index: 0\n    wave_type: "COLD_START"\n    sources:\n      - source_system: "crm_salesforce"\n        table_name: "crm_customers"\n        data_path: "sources/wave0_cold_start/crm_customers.csv"\n      - source_system: "erp_netsuite"\n        table_name: "erp_orders"\n        data_path: "sources/wave0_cold_start/erp_orders.csv"\n  - wave_index: 1\n    wave_type: "INCREMENTAL_SOURCE"\n    ...' },
+  ontology: { group: 'Input', name: 'commerce_graph_a_ontology.yaml', type: 'GraphAOntology (Graph A)', fmt: 'YAML', viz: 'ontology',
+    short: '5 business concepts · 4 relationships',
+    desc: 'The enterprise ontology. Defines core business concepts, which hub each grounds, the 3-tier business-key authority for each, PII governance constraints and the canonical relationships links must follow.',
+    raw: 'ontology_version: "1.0.0"\ndomain_namespace: "global_commerce"\nenterprise_owner: "Global Commerce Architecture Council"\n\ncanonical_business_concepts:\n  - concept_uri: "urn:ontology:entity:customer"\n    concept_name: "CBC_CUSTOMER"\n    elm_archetype: "WHO_PARTY"\n    target_hub: "hub_customer"\n    governance_constraints:\n      pii_confidential_attributes: ["contact_email", "tax_ssn_tin"]\n      required_satellite_split: "sat_customer_pii"\n    key_authority_tiers:\n      tier_1_global_standard:\n        column_patterns: ["customer_tax_id"]\n        bkcc_policy: "GLOBAL"\n      tier_3_local_scoped:\n        column_patterns: ["stripe_customer_code"]\n        bkcc_policy: "SOURCE_SYSTEM_PREFIX_REQUIRED"\n  ...\n\ncanonical_relationships:\n  - relationship_name: "REL_ORDER_CUSTOMER"\n    target_link: "lnk_order_customer"\n    endpoints: [order, customer]\n  - relationship_name: "REL_ORDER_PROMOTION"\n    target_link: "lnk_order_customer_promotion"\n  - relationship_name: "REL_INVOICE_ORDER_CUSTOMER"\n    target_link: "lnk_invoice_order_customer"\n  - relationship_name: "REL_DOCUMENT_CUSTOMER"\n    target_link: "lnk_document_customer"' },
+  crm: { group: 'Input', name: 'crm_customers.csv', type: 'Relational source · crm_salesforce', fmt: 'CSV', viz: 'table',
+    short: 'Wave 0 · customer master, 2 PII columns',
+    desc: 'CRM customer master for the cold start. Carries a system surrogate (customer_row_seq) that must be dropped and two RESTRICTED_PII columns that must be isolated.',
+    cols: ['customer_row_seq','customer_tax_id','legal_name','country_iso2','account_segment','credit_limit_usd','contact_email','tax_ssn_tin'],
+    rows: [['1','TAX-US-900101','Apex Industrial Holdings LLC','US','ENTERPRISE','1250000.00','‹PII›','‹PII›'],['2','TAX-DE-800202','Rheinland Precision GmbH','DE','ENTERPRISE','980000.00','‹PII›','‹PII›'],['3','TAX-SG-700303','Merlion Maritime Logistics Pte Ltd','SG','MID_MARKET','640000.00','‹PII›','‹PII›']],
+    foot: 'contact_email and tax_ssn_tin are redacted for role INTERNAL_MODELER.',
+    raw: 'customer_row_seq,customer_tax_id,legal_name,country_iso2,account_segment,credit_limit_usd,contact_email,tax_ssn_tin\n1,TAX-US-900101,Apex Industrial Holdings LLC,US,ENTERPRISE,1250000.00,‹PII›,‹PII›\n2,TAX-DE-800202,Rheinland Precision GmbH,DE,ENTERPRISE,980000.00,‹PII›,‹PII›\n3,TAX-SG-700303,Merlion Maritime Logistics Pte Ltd,SG,MID_MARKET,640000.00,‹PII›,‹PII›' },
+  erp: { group: 'Input', name: 'erp_orders.csv', type: 'Relational source · erp_netsuite', fmt: 'CSV', viz: 'table',
+    short: 'Wave 0 · orders with a sparse promo FK',
+    desc: 'ERP sales orders. promo_campaign_code is an optional foreign key, sparse enough to be split into its own link (Algorithm A.4).',
+    cols: ['order_id','customer_tax_id','order_date','order_total_usd','currency_code','order_status','promo_campaign_code'],
+    rows: [['ORD-2026-1001','TAX-US-900101','2026-01-15','185000.00','USD','FULFILLED','PROMO-SPRING-2026'],['ORD-2026-1002','TAX-DE-800202','2026-01-18','92400.50','EUR','FULFILLED','∅'],['ORD-2026-1003','TAX-SG-700303','2026-01-22','64000.00','SGD','SHIPPED','PROMO-SPRING-2026']],
+    raw: 'order_id,customer_tax_id,order_date,order_total_usd,currency_code,order_status,promo_campaign_code\nORD-2026-1001,TAX-US-900101,2026-01-15,185000.00,USD,FULFILLED,PROMO-SPRING-2026\nORD-2026-1002,TAX-DE-800202,2026-01-18,92400.50,EUR,FULFILLED,\nORD-2026-1003,TAX-SG-700303,2026-01-22,64000.00,SGD,SHIPPED,PROMO-SPRING-2026' },
+  stripe: { group: 'Input', name: 'stripe_invoices.csv', type: 'Relational source · stripe_eu', fmt: 'CSV', viz: 'table',
+    short: 'Wave 1 · regional EU billing invoices',
+    desc: 'Second source system (N=1 → N=2). Invoice numbers are locally scoped, so they need the STRIPE_EU business-key collision code.',
+    cols: ['invoice_number','order_id','customer_tax_id','invoice_amount_usd','settlement_status'],
+    rows: [['INV-EU-5001','ORD-2026-1001','TAX-US-900101','185000.00','SETTLED'],['INV-EU-5002','ORD-2026-1002','TAX-DE-800202','92400.50','SETTLED']],
+    raw: 'invoice_number,order_id,customer_tax_id,invoice_amount_usd,settlement_status\nINV-EU-5001,ORD-2026-1001,TAX-US-900101,185000.00,SETTLED\nINV-EU-5002,ORD-2026-1002,TAX-DE-800202,92400.50,SETTLED' },
+  crm2: { group: 'Input', name: 'crm_customers_v2.csv', type: 'Relational source · crm_salesforce (drifted)', fmt: 'CSV', viz: 'table',
+    short: 'Wave 2 · same feed, 2 new columns',
+    desc: 'The CRM feed after upstream schema drift: loyalty_tier_code and annual_spend_band appear. Compared against the wave 0 baseline by Algorithm A.9a.',
+    cols: ['customer_tax_id','legal_name','…','loyalty_tier_code','annual_spend_band'],
+    rows: [['TAX-US-900101','Apex Industrial Holdings LLC','…','PLATINUM','BAND_1M_5M'],['TAX-DE-800202','Rheinland Precision GmbH','…','GOLD','BAND_500K_1M']],
+    raw: 'customer_row_seq,customer_tax_id,legal_name,country_iso2,account_segment,credit_limit_usd,contact_email,tax_ssn_tin,loyalty_tier_code,annual_spend_band\n1,TAX-US-900101,Apex Industrial Holdings LLC,US,ENTERPRISE,1250000.00,‹PII›,‹PII›,PLATINUM,BAND_1M_5M\n2,TAX-DE-800202,Rheinland Precision GmbH,DE,ENTERPRISE,980000.00,‹PII›,‹PII›,GOLD,BAND_500K_1M' },
+  msa: { group: 'Input', name: 'enterprise_msa_addendum_2026.txt', type: 'Unstructured document', fmt: 'TXT', viz: 'doc',
+    short: 'Wave 3 · contract addendum, 2 counterparties',
+    desc: 'A signed MSA addendum. Every claim drawn from it must cite a verbatim character span; the guarantor mention is ambiguous and needs a steward decision.',
+    raw: MSA },
+  waveplan: { group: 'Intermediate', name: 'wave_plan', type: 'Orchestration plan', fmt: 'JSON', viz: 'kv',
+    short: 'Wave order, worktree, dispatched scouts',
+    desc: 'The first mate’s plan for executing each wave: order, which scouts to dispatch, and the state context the ship-vault worker runs in.',
+    kv: [['waves','4 (W0 → W3)'],['initial_contract','none · cold start'],['dispatch','scout-source, scout-unstructured'],['worker','ship-vault (isolated worktree)'],['ledger','state/vault-ledger.jsonl']],
+    raw: '{\n  "pipeline_id": "pipe-global-commerce",\n  "waves": [0, 1, 2, 3],\n  "initial_contract": null,\n  "dispatch": ["scout-source", "scout-unstructured"],\n  "worker": "ship-vault",\n  "ledger": "state/vault-ledger.jsonl"\n}' },
+  profile: { group: 'Intermediate', name: 'graph_b_profile.json', type: 'GraphBProfile (Graph B)', fmt: 'JSON', viz: 'table',
+    short: 'Column statistics & inclusion dependencies',
+    desc: 'Graph B — the statistical profile of every source column: uniqueness U(C), entropy H(C), null rate, inclusion dependencies I(A.x ⊆ B.y) and an inferred role.',
+    cols: ['table','column','U(C)','N_null','inferred role'],
+    rows: [['crm_customers','customer_row_seq','1.00','0.00','SYSTEM_SURROGATE'],['crm_customers','customer_tax_id','1.00','0.00','BUSINESS_KEY candidate'],['crm_customers','contact_email','1.00','0.00','RESTRICTED_PII'],['erp_orders','order_id','1.00','0.00','BUSINESS_KEY candidate'],['erp_orders','customer_tax_id','—','0.00','FK ⊆ crm_customers'],['erp_orders','promo_campaign_code','—','> 0.05','sparse FK · U_nn < 0.95']],
+    raw: '{\n  "tables": [\n    {\n      "table_name": "erp_orders",\n      "columns": [\n        { "name": "order_id", "uniqueness": 1.0, "null_rate": 0.0 },\n        { "name": "promo_campaign_code", "sparse_fk": true }\n      ],\n      "inclusion_dependencies": [\n        { "lhs": "erp_orders.customer_tax_id",\n          "rhs": "crm_customers.customer_tax_id" }\n      ]\n    }\n  ]\n}' },
+  drift: { group: 'Intermediate', name: 'drift_report', type: 'Algorithm A.9a result', fmt: 'JSON', viz: 'table',
+    short: 'Added / removed columns vs baseline',
+    desc: 'Intra-source drift S(t) → S(t+1) for each feed against its baseline. Added columns are routed to an additive companion satellite; nothing existing is mutated.',
+    cols: ['table','column','change','routing'],
+    rows: [['crm_customers','loyalty_tier_code','ADDED','sat_customer_core_ext_v2'],['crm_customers','annual_spend_band','ADDED','sat_customer_core_ext_v2']],
+    raw: '{\n  "algorithm": "A.9a",\n  "table": "crm_customers",\n  "added_columns": ["loyalty_tier_code", "annual_spend_band"],\n  "dropped_columns": [],\n  "routing": "sat_customer_core_ext_v2"\n}' },
+  extract: { group: 'Intermediate', name: 'extraction_contract', type: 'Span-grounded extraction (A.9b)', fmt: 'JSON', viz: 'doc',
+    short: '2 entity mentions with char spans',
+    desc: 'Entities pulled from documents, each with a verbatim quote and [char_start, char_end] span, an entity-resolution tier and confidence. Feeds hub_document, lnk_document_customer and the extraction satellite.',
+    raw: '' },
+  hold: { group: 'Intermediate', name: 'steward_hold', type: 'Captain-Hold (Tier-U3)', fmt: 'JSON', viz: 'kv',
+    short: 'Ambiguous guarantor needs a steward',
+    desc: 'A pause raised when entity resolution is too uncertain to promote. The steward picks a candidate; this run resolved it with the auto_approve_top_candidate policy.',
+    kv: [['tier','Tier-U3'],['mention','Rheinland Precision Holding Group'],['confidence','0.68'],['top_candidate','hub_customer · TAX-DE-800202'],['alternative','new unaffiliated holding affiliate'],['policy','auto_approve_top_candidate'],['status','ASK-USER → resolved']],
+    raw: '{\n  "hold_type": "TIER_U3_CAPTAIN_HOLD",\n  "extraction_id": "ext_msa_guarantor_u3",\n  "confidence": 0.68,\n  "candidates": [\n    { "hub": "hub_customer", "bk": "TAX-DE-800202" },\n    { "hub": "hub_customer", "bk": null, "note": "new affiliate" }\n  ],\n  "policy": "auto_approve_top_candidate",\n  "resolution": "APPROVED_TOP_CANDIDATE"\n}' },
+  triage: { group: 'Intermediate', name: 'column_triage_ledger', type: 'Pass 1 triage', fmt: 'YAML', viz: 'table',
+    short: 'Every source column classified',
+    desc: '100% column accountability: every physical column is a business key, foreign-key reference, descriptive payload, dropped surrogate, or omitted with a written rationale. A silent drop fails the gates.',
+    cols: ['bronze_table','column_name','classification','target'],
+    rows: [['crm_customers','customer_row_seq','SYSTEM_SURROGATE_DROPPED','—'],['crm_customers','customer_tax_id','BUSINESS_KEY','hub_customer'],['crm_customers','legal_name','DESCRIPTIVE_PAYLOAD','sat_customer_core'],['crm_customers','contact_email','DESCRIPTIVE_PAYLOAD','sat_customer_pii'],['crm_customers','tax_ssn_tin','DESCRIPTIVE_PAYLOAD','sat_customer_pii'],['erp_orders','order_id','BUSINESS_KEY','hub_order'],['erp_orders','customer_tax_id','FOREIGN_KEY_REF','lnk_order_customer'],['erp_orders','promo_campaign_code','FOREIGN_KEY_REF','lnk_order_customer_promotion']],
+    raw: 'column_triage_ledger:\n  - bronze_table: crm_customers\n    column_name: customer_row_seq\n    classification: SYSTEM_SURROGATE_DROPPED\n    rationale: "System row sequence; not a business key."\n  - bronze_table: crm_customers\n    column_name: customer_tax_id\n    classification: BUSINESS_KEY\n  - bronze_table: crm_customers\n    column_name: contact_email\n    classification: DESCRIPTIVE_PAYLOAD\n    data_classification: RESTRICTED_PII\n  ...' },
+  contract: { group: 'Intermediate', name: 'dv_model_contract.yaml', type: 'NoMistakeDataVault2ContractV5 (draft)', fmt: 'YAML', viz: 'dv',
+    short: 'Hubs, links, satellites — declarative only',
+    desc: 'The model ship-vault proposes. It is the only thing an LLM writes: declarative YAML, never SQL. The gates verify it and send traces back until it passes.',
+    raw: 'contract_version: "5.0"\nhubs:\n  - name: hub_customer\n    business_keys: [customer_tax_id]\n    bkcc_tier: TIER_1_GLOBAL_STANDARD\n  - name: hub_order\n    business_keys: [order_id]\nlinks:\n  - name: lnk_order_customer\n    hubs: [hub_order, hub_customer]\n  - name: lnk_order_customer_promotion\n    hubs: [hub_order, hub_promotion]\n    split_reason: "Algorithm A.4 sparse optional FK"\nsatellites:\n  - name: sat_customer_core\n    parent: hub_customer\n  - name: sat_customer_pii\n    parent: hub_customer\n    data_classification: RESTRICTED_PII\n  ...' },
+  gates: { group: 'Intermediate', name: 'gate_verdicts', type: 'axi-dv Gates 0–4', fmt: 'JSON', viz: 'checks',
+    short: 'Per-gate verdicts across repair attempts',
+    desc: 'The static verifier’s verdict per gate. Attempt 1 drops a triage entry on purpose (fault injection) so the reject → trace → repair loop is exercised; attempt 2 passes.',
+    checks: [['Gate 0','Pre-flight profile & drift (Graph B / A.9a)','PASS'],['Gate 1','JSON Schema, 3-tier BK & grain (A.4)','PASS'],['Gate 2','Deterministic hash & SQLGlot AST (A.5 / A.6)','PASS'],['Gate 3','NetworkX bipartite DAG & evolution lock (A.7)','PASS'],['Gate 4 · k=1','100% column triage (DV-G4-002)','REJECT-WITH-TRACE'],['Gate 4 · k=2','YAGNI write-amp guard ≥ 50 MB/day (A.1)','AUTO_REPAIRED']],
+    raw: '{\n  "stage": "STAGE_05_AXI_DV_STATIC_GATES",\n  "attempts": [\n    { "k": 1, "status": "REJECT-WITH-TRACE",\n      "violations": [{ "gate": "G4", "rule": "DV-G4-002" }] },\n    { "k": 2, "status": "AUTO_REPAIRED" }\n  ]\n}' },
+  toon: { group: 'Intermediate', name: '@toon_v1 trace', type: 'Repair diagnostic', fmt: 'TOON', viz: 'code',
+    short: 'Compact rejection trace sent back to ship-vault',
+    desc: 'A token-dense diagnostic the verifier hands back to ship-vault so it can repair the contract (about 60% fewer tokens than verbose JSON).',
+    outline: [['violations[1]','G4 · DV-G4-002 · REJECT'],['fix','Add the missing column_triage_ledger entry']],
+    raw: '@toon_v1\nrun_id: run-global-commerce-wave0\nattempt: 1/3\nstatus: REJECT-WITH-TRACE\nviolations[1]{gate,rule,action,target,fix}:\n G4,DV-G4-002,REJECT,erp_orders.promo_campaign_code,"Add column_triage_ledger entry"' },
+  sandbox: { group: 'Intermediate', name: 'sandbox_report', type: 'Gate 5 · DV-DYN-001..015', fmt: 'JSON', viz: 'checks',
+    short: '4 adversarial batches, 15 runtime checks',
+    desc: 'The compiled model run in an ephemeral in-memory DuckDB across 4 adversarial batches, proving 15 runtime invariants before anything is sealed.',
+    checks: [['DV-DYN-001','Primary-key uniqueness across hubs, links, satellites','PASS'],['DV-DYN-002','Parent–child referential integrity (0 orphans)','PASS'],['DV-DYN-003','Replay idempotency (Δrows = 0)','PASS'],['DV-DYN-004','True change capture (+1 sat row, +0 hub/link)','PASS'],['DV-DYN-005','Boundary-shift collision resistance','PASS'],['DV-DYN-006','Multi-source BK convergence & BKCC isolation','PASS'],['DV-DYN-007','Ghost & zero-key INNER JOIN completeness','PASS'],['DV-DYN-008','Topological load order','PASS'],['DV-DYN-009','Bi-temporal late-arrival correctness','PASS'],['DV-DYN-010','PIT lookup parity & ghost coalescing','PASS'],['DV-DYN-011','Driving-key effectivity exclusivity','PASS'],['DV-DYN-012','Unstructured extraction provenance integrity','PASS'],['DV-DYN-013','Confidence threshold & human review governance','PASS'],['DV-DYN-014','Additive evolution non-destructiveness','PASS'],['DV-DYN-015','Zero-update / insert-only audit','PASS']],
+    raw: '{\n  "engine": "duckdb :memory:",\n  "batches": [\n    "B1 baseline + null-FK & ghost joins",\n    "B2 replay idempotency",\n    "B3 attribute delta & boundary-shift collision",\n    "B4 cross-source collision & backdated restatement"\n  ],\n  "checks_passed": 15,\n  "checks_total": 15\n}' },
+  final_contract: { group: 'Output', name: 'final_contract.yaml', type: 'NoMistakeDataVault2ContractV5', fmt: 'YAML', viz: 'dv',
+    short: 'Verified, vendor-neutral model contract',
+    desc: 'The primary deliverable: the verified Data Vault 2.0 model. Target-agnostic, ready for dbt (AutomateDV / datavault4dbt), Databricks, Snowflake, BigQuery or SQLMesh.',
+    raw: 'contract_version: "5.0"\nhubs:\n  - name: hub_customer\n  - name: hub_order\n  - name: hub_promotion\n  - name: hub_invoice\n  - name: hub_document\nlinks:\n  - name: lnk_order_customer\n  - name: lnk_order_customer_promotion\n  - name: lnk_invoice_order_customer\n  - name: lnk_document_customer\nsatellites:\n  - name: sat_customer_core\n  - name: sat_customer_pii\n  - name: sat_customer_core_ext_v2\n  - name: sat_order_core\n  - name: sat_invoice_core\n  - name: sat_document_customer_ai_provenance\n  - name: mas_document_extractions\ncolumn_triage_ledger: [ ... ]\nunmapped_escalations: []' },
+  final_ir: { group: 'Output', name: 'final_canonical_ir.json', type: 'CanonicalIR', fmt: 'JSON', viz: 'dv',
+    short: 'Lowered IR for any downstream compiler',
+    desc: 'The contract lowered into a deterministic intermediate representation: exact hash recipes, column orders and load order, for any warehouse compiler or metadata catalog.',
+    raw: '{\n  "ir_version": "1.0",\n  "entities": [\n    {\n      "kind": "HUB",\n      "name": "hub_customer",\n      "hash_key": {\n        "name": "hub_customer_hk",\n        "algorithm": "A.5 length-prefixed SHA-256",\n        "null_token": "-1:^^"\n      }\n    },\n    ...\n  ],\n  "load_order": ["HUB", "LINK", "SAT", "PIT"]\n}' },
+  final_sql: { group: 'Output', name: 'final_four_zone.sql', type: '4-Zone DuckDB SQL', fmt: 'SQL', viz: 'code',
+    short: 'Reference SQL used for verification',
+    desc: 'Deterministically compiled SQL — never written by an LLM. Used as the Gate 5 harness and as a golden reference implementation; DuckDB is not needed in production.',
+    outline: [['Zone 0','Schemas, Bronze seeds, vault DDL, ghost & zero records'],['Zone 1','Hashed staging views (A.5)'],['Zone 2','Insert-only raw vault loads'],['Zone 3','Business vault: same-as, effectivity, PIT'],['Zone 4','Bi-temporal point-in-time audit queries']],
+    raw: '-- ZONE 0: TARGET SCHEMAS, BRONZE SOURCE SEEDS, VAULT DDL & GHOST/ZERO RECORDS\nCREATE SCHEMA IF NOT EXISTS raw_vault;\nCREATE TABLE raw_vault.hub_customer (\n  hub_customer_hk VARCHAR(64) PRIMARY KEY,\n  customer_tax_id VARCHAR NOT NULL,\n  load_dts TIMESTAMP NOT NULL,\n  rec_src VARCHAR NOT NULL\n);\n\n-- ZONE 1: HASHED STAGING VIEWS (ALGORITHM A.5 LENGTH-PREFIXED SHA-256 & \'-1:^^\')\nCREATE VIEW staging.stg_crm_customers AS\nSELECT sha256(octet_length(customer_tax_id) || \':\' || customer_tax_id) AS hub_customer_hk, ...\n\n-- ZONE 2: INSERT-ONLY RAW VAULT LOADS (HUBS, REFS, LINKS, SATELLITES)\nINSERT INTO raw_vault.hub_customer\nSELECT DISTINCT ... WHERE NOT EXISTS (...);\n\n-- ZONE 3: BUSINESS VAULT (SAME-AS LINK, EFFECTIVITY SATELLITE, AI PROVENANCE, PIT)\n\n-- ZONE 4: BI-TEMPORAL MULTIMODAL POINT-IN-TIME AUDIT QUERIES' },
+  report: { group: 'Output', name: 'pipeline_report.json', type: 'AgenticPipelineReport', fmt: 'JSON', viz: 'checks',
+    short: 'Stage verdicts, gate results, token & cost',
+    desc: 'The run report: verdict per stage and gate, token and cost metrics and CAS digests for every artifact. RBAC-redacted for the viewing role.',
+    checks: [['STAGE_00','Orchestration','PASS'],['STAGE_01','Scout source','PASS'],['STAGE_02','Scout unstructured','ASK-USER → resolved'],['STAGE_03','Ship-vault pass 1','PASS'],['STAGE_04','Ship-vault pass 2/3','PASS'],['STAGE_05','axi-dv static gates','AUTO_REPAIRED'],['STAGE_06','axi-dv dynamic sandbox','PASS'],['STAGE_07','Deterministic compiler','PASS']],
+    raw: '{\n  "run_id": "run-global-commerce",\n  "role": "INTERNAL_MODELER",\n  "stages": [\n    { "stage_id": "STAGE_00_ORCHESTRATION", "status": "PASS" },\n    { "stage_id": "STAGE_05_AXI_DV_STATIC_GATES", "status": "AUTO_REPAIRED",\n      "repair_attempts": 2 },\n    ...\n  ],\n  "metrics": { "total_tokens": "[TOKENS]", "cost_usd": "[COST]" },\n  "artifacts": { "final_contract.yaml": "sha256:[DIGEST]" }\n}' },
+  ledger: { group: 'Output', name: 'vault-ledger.jsonl', type: 'VaultObservabilityEvent stream', fmt: 'JSONL', viz: 'events',
+    short: 'Append-only telemetry for the workbench',
+    desc: 'Every stage, gate and steward event in order. Append-only, RBAC-redacted, and the source for live SSE progress.',
+    events: [['STAGE_00_ORCHESTRATION','Inputs pass pre-flight validation','PASS'],['STAGE_01_SCOUT_SOURCE','Graph B profiled for 4 tables','PASS'],['STAGE_01_SCOUT_SOURCE','Drift on crm_customers: +2 columns','AUTO-FIX'],['STAGE_02_SCOUT_UNSTRUCTURED','Tier-U3 guarantor match raised a hold','ASK-USER'],['STAGE_02_SCOUT_UNSTRUCTURED','Hold resolved by auto_approve_top_candidate','PASS'],['STAGE_03_SHIP_VAULT_PASS1','Column triage ledger emitted','PASS'],['STAGE_04_SHIP_VAULT_PASS2','Contract emitted (attempt 1)','PASS'],['STAGE_05_AXI_DV_STATIC_GATES','G4 DV-G4-002 — triage entry missing','REJECT-WITH-TRACE'],['STAGE_05_AXI_DV_STATIC_GATES','Repaired on attempt 2; gates 0–4 pass','AUTO_REPAIRED'],['STAGE_06_AXI_DV_DYNAMIC_SANDBOX','15/15 dynamic checks pass','PASS'],['STAGE_07_DETERMINISTIC_COMPILER','Artifacts sealed into CAS','PASS']],
+    raw: '{"seq":1,"stage_id":"STAGE_00_ORCHESTRATION","agent_persona":"vault-first-mate","status":"PASS"}\n{"seq":2,"stage_id":"STAGE_01_SCOUT_SOURCE","agent_persona":"scout-source","status":"PASS"}\n{"seq":4,"stage_id":"STAGE_02_SCOUT_UNSTRUCTURED","agent_persona":"scout-unstructured","status":"ASK-USER"}\n{"seq":8,"stage_id":"STAGE_05_AXI_DV_STATIC_GATES","agent_persona":"axi-dv","gate_id":"G4","status":"REJECT-WITH-TRACE"}\n{"seq":9,"stage_id":"STAGE_05_AXI_DV_STATIC_GATES","agent_persona":"ship-vault","status":"AUTO_REPAIRED"}\n{"seq":11,"stage_id":"STAGE_07_DETERMINISTIC_COMPILER","agent_persona":"deterministic-compiler","status":"PASS"}' },
+  cas: { group: 'Intermediate', name: 'cas_manifest', type: 'Content-addressable store', fmt: 'JSON', viz: 'table',
+    short: 'SHA-256 digest per sealed artifact',
+    desc: 'Provenance seal: each artifact stored under its SHA-256 digest so any report or contract can be proven unchanged.',
+    cols: ['artifact','schema','post-flight'],
+    rows: [['final_contract.yaml','no-mistake-dv2-contract-v5','PASS'],['final_canonical_ir.json','dv2-canonical-ir','PASS'],['final_four_zone.sql','—','PASS'],['pipeline_report.json','AgenticPipelineReport','PASS'],['vault-ledger.jsonl','vault-observability-event','PASS']],
+    raw: '{\n  "store": "cas",\n  "entries": [\n    { "path": "final_contract.yaml", "sha256": "[DIGEST]" },\n    { "path": "final_canonical_ir.json", "sha256": "[DIGEST]" },\n    { "path": "final_four_zone.sql", "sha256": "[DIGEST]" }\n  ]\n}' }
+};
+
+var S = [
+  { key: 'STAGE_00_ORCHESTRATION', name: 'Orchestration', persona: 'vault-first-mate', tier: 'reasoning', tag: 'PASS', phase: 0,
+    blurb: 'Validates inputs and Graph A, sets up wave state, plans the run.',
+    desc: 'The read-only supervisor validates every input, checks the ontology, opens the wave worktree and ledger, and dispatches the scouts. It never writes SQL or models itself.',
+    ins: ['spec','harness','runopts','ontology'], outs: ['waveplan','ledger'],
+    steps: [
+      { name: 'Pre-flight input validation', kind: 'decision', branch: 'fail → halt run at STAGE_00', reads: ['spec','harness','runopts'], writes: [], desc: 'validate_pipeline_inputs checks path containment, file existence, provider/auth compatibility, CSV headers and unstructured span bounds before any model is called.' },
+      { name: 'Validate Graph A ontology', reads: ['ontology'], writes: [], desc: 'Parses the ontology against GraphAOntology: concepts, key authority tiers and relationships must be well formed.' },
+      { name: 'Initialise wave worktree & ledger', reads: [], writes: ['ledger'], desc: 'Creates the isolated state context for the wave and opens the append-only observability ledger.' },
+      { name: 'Plan wave execution', reads: ['spec'], writes: ['waveplan'], desc: 'Orders the waves and decides which scouts each wave needs.' },
+      { name: 'Dispatch scouts', reads: ['waveplan'], writes: [], branch: 'fan-out → STAGE_01 ∥ STAGE_02', desc: 'Hands control to scout-source and scout-unstructured, which can run in parallel.' }
+    ],
+    comps: [
+      ['vault-first-mate','Agent persona','Read-only supervisor. Owns the ledger and Graph A; plans and dispatches; never writes SQL or YAML models.','packages/opendv-agent-harness/…/personas/vault_first_mate.py'],
+      ['validate_pipeline_inputs','Pre-flight validator','Deterministic checks on every input before any LLM call.','packages/opendv-agent-harness/…/pipeline.py'],
+      ['GraphAOntology','Pydantic model','Schema for the enterprise ontology.','packages/opendv-core/…/models/graph_a.py'],
+      ['LedgerEmitter','Telemetry','Appends VaultObservabilityEvent records to the JSONL ledger.','packages/opendv-telemetry/…/ledger_emitter.py'],
+      ['AgyCliHarnessAdapter','Harness adapter','Runs personas through the local agy CLI (provider: agy).','packages/opendv-agent-harness/…/adapters/agy_cli_adapter.py']
+    ] },
+  { key: 'STAGE_01_SCOUT_SOURCE', name: 'Scout source', persona: 'scout-source', tier: 'fast', tag: 'PASS', phase: 0,
+    blurb: 'Profiles relational feeds into Graph B and detects schema drift.',
+    note: '∥ runs alongside STAGE_02',
+    desc: 'Statistically profiles every relational column and compares each feed with its baseline to detect intra-source schema drift (Algorithm A.9a).',
+    ins: ['waveplan','crm','erp','stripe','crm2'], outs: ['profile','drift'],
+    steps: [
+      { name: 'Load source feeds', reads: ['crm','erp','stripe','crm2'], writes: [], desc: 'Reads each CSV / Parquet feed listed for the wave.' },
+      { name: 'Profile columns', reads: [], writes: ['profile'], desc: 'GraphBProfiler computes uniqueness U(C), entropy H(C), null rate and the non-null uniqueness used to spot sparse FKs.' },
+      { name: 'Discover inclusion dependencies', reads: [], writes: ['profile'], desc: 'Finds I(A.x ⊆ B.y) candidate foreign keys across tables.' },
+      { name: 'Detect schema drift (A.9a)', kind: 'decision', branch: 'drift → route to companion satellite', reads: ['crm2'], writes: ['drift'], desc: 'Compares S(t+1) with the baseline; added columns go to additive companion satellites, dropped ones are projected as typed NULLs.' }
+    ],
+    comps: [
+      ['scout-source','Agent persona','Relational profiler and drift detector. Fast tier.','packages/opendv-agent-harness/…/personas/scout_source.py'],
+      ['GraphBProfiler','Profiler','Computes Graph B column statistics.','packages/opendv-duckdb-sandbox/…/graph_b_profiler.py'],
+      ['Algorithm A.9a','Codemod','Intra-source schema drift detection and routing.','packages/opendv-axi-verifier/…/codemods/alg_a9a_schema_drift.py']
+    ] },
+  { key: 'STAGE_02_SCOUT_UNSTRUCTURED', name: 'Scout unstructured', persona: 'scout-unstructured', tier: 'fast', tag: 'ASK-USER → resolved', phase: 0,
+    blurb: 'Grounds document spans and resolves entities in 3 tiers.',
+    note: '∥ runs alongside STAGE_01 · 1 steward hold',
+    desc: 'Extracts entities from documents with verbatim character spans, resolves them against existing hubs in three confidence tiers, and pauses for a steward when a match is ambiguous.',
+    ins: ['waveplan','msa','ontology'], outs: ['extract','hold'],
+    steps: [
+      { name: 'Ground spans', reads: ['msa'], writes: [], desc: 'Every claim keeps [char_start, char_end] and a verbatim quote (Rules U2/U3). Raw blobs and vectors never enter satellites (Rule U1).' },
+      { name: 'Span NER', reads: ['ontology'], writes: [], desc: 'Tags mentions with ontology concepts (customer, document…).' },
+      { name: '3-tier entity resolution', kind: 'decision', branch: 'U1 exact → link · U2 → link + review · U3 → hold', reads: [], writes: ['extract'], desc: 'Matches each mention to an existing hub key and assigns a tier from its confidence.' },
+      { name: 'Raise steward hold', kind: 'decision', branch: 'policy auto_approve_top_candidate → resolved', reads: ['harness'], writes: ['hold'], desc: 'Tier-U3 mentions pause for a human decision unless the hold policy resolves them.' },
+      { name: 'Emit extraction contract (A.9b)', reads: [], writes: ['extract'], desc: 'Produces hub_document, lnk_document_<cbc> and mas_document_<cbc>_extraction entries.' }
+    ],
+    comps: [
+      ['scout-unstructured','Agent persona','Span-grounded NER and 3-tier entity resolver. Fast tier.','packages/opendv-agent-harness/…/personas/scout_unstructured.py'],
+      ['StewardHoldManager','Governance','Raises, lists and resolves Captain-Holds.','packages/opendv-agent-harness/…/hold_manager.py'],
+      ['Algorithm A.9b','Verifier','Unstructured span and provenance verification.','packages/opendv-axi-verifier/…/verifiers/alg_a9b_unstructured.py'],
+      ['Rules U1–U4','Policy','No blobs in satellites; verbatim spans; steward gating for ambiguity.','docs/DV2_AGENT_REFERENCE_GUIDE.md']
+    ] },
+  { key: 'STAGE_03_SHIP_VAULT_PASS1', name: 'Ship-vault · pass 1', persona: 'ship-vault', tier: 'reasoning', tag: 'PASS', phase: 1,
+    blurb: 'Exhaustive triage: every source column classified.',
+    desc: 'The modeller accounts for every physical column before designing anything. Nothing may be dropped silently.',
+    ins: ['profile','drift','extract','ontology'], outs: ['triage'],
+    steps: [
+      { name: 'Enumerate physical columns', reads: ['profile','drift'], writes: [], desc: 'Lists every column in every source of the wave.' },
+      { name: 'Classify each column', reads: ['ontology','extract'], writes: ['triage'], desc: 'BUSINESS_KEY, FOREIGN_KEY_REF, DESCRIPTIVE_PAYLOAD, SYSTEM_SURROGATE_DROPPED or OMITTED_INTENTIONALLY.' },
+      { name: 'Accountability check', kind: 'decision', branch: 'unaccounted column → gate failure DV-G4-002', reads: [], writes: ['triage'], desc: 'Omissions need a rationale of at least 15 characters; coverage must be 100%.' }
+    ],
+    comps: [
+      ['ship-vault','Agent persona','3-pass chain-of-thought modeller; emits only declarative contracts.','packages/opendv-agent-harness/…/personas/ship_vault.py'],
+      ['ColumnTriageLedger','Contract section','The 100% accountability ledger inside the contract.','packages/opendv-core/…/models/contract_v5.py']
+    ] },
+  { key: 'STAGE_04_SHIP_VAULT_PASS2', name: 'Ship-vault · pass 2/3', persona: 'ship-vault', tier: 'reasoning', tag: 'PASS', phase: 1,
+    blurb: 'Synthesises hubs, links and satellites into a contract.',
+    desc: 'Builds the Ensemble Logical Model: hubs from business keys, links from relationships, satellites split by PII and rate of change, under additive evolution locks.',
+    ins: ['triage','ontology','profile'], outs: ['contract'],
+    steps: [
+      { name: 'Map business keys to hubs', reads: ['triage','ontology'], writes: [], desc: 'Uses the ontology’s key authority tiers and BKCC collision codes so keys from different sources cannot collide.' },
+      { name: 'Derive links', reads: ['profile'], writes: [], desc: 'From FKs and canonical relationships; sparse optional FKs split into their own link (A.4).' },
+      { name: 'Split satellites', reads: [], writes: [], desc: 'PII into its own satellite and payload by rate of change (A.1).' },
+      { name: 'Apply evolution locks (A.7)', kind: 'decision', branch: 'prior contract? → additive-only', reads: [], writes: [], desc: 'Existing grains and hash_diff digests are immutable across waves.' },
+      { name: 'Emit contract', reads: [], writes: ['contract'], desc: 'Writes dv_model_contract.yaml — declarative only.' }
+    ],
+    comps: [
+      ['ship-vault','Agent persona','Passes 2 and 3 of the modelling state machine.','packages/opendv-agent-harness/…/personas/ship_vault.py'],
+      ['ELM calculus','Library','Ensemble Logical Model maths for hubs, links and satellites.','packages/opendv-core/…/elm_calculus.py'],
+      ['Algorithm A.4','Codemod','Cold-start sparse optional FK split.','packages/opendv-axi-verifier/…/codemods/alg_a4_cold_start.py'],
+      ['Algorithm A.1','Codemod','Satellite split and merge.','packages/opendv-axi-verifier/…/codemods/alg_a1_satellite_split.py']
+    ] },
+  { key: 'STAGE_05_AXI_DV_STATIC_GATES', name: 'axi-dv · static gates', persona: 'axi-dv', tier: 'fast', tag: 'AUTO_REPAIRED', phase: 2,
+    blurb: 'Gates 0–4 verify the contract; failures loop back with a trace.',
+    note: '↺ @toon_v1 repair loop → ship-vault · k=1 → k=2',
+    desc: 'The symbolic verifier runs Gates 0–4 against the contract. A rejection becomes a compact @toon_v1 trace that ship-vault uses to repair the contract, then the gates run again.',
+    ins: ['contract','ontology','profile'], outs: ['gates','toon'],
+    steps: [
+      { name: 'Gate 1 · schema, BK tiers & grain', reads: ['contract'], writes: [], desc: 'JSON Schema validation, 3-tier business-key rules and grain checks.' },
+      { name: 'Gate 2 · hash & SQLGlot AST', reads: [], writes: [], desc: 'Length-prefixed SHA-256 recipes (A.5) and AST verification of generated expressions (A.6).' },
+      { name: 'Gate 3 · bipartite DAG & evolution lock', reads: ['ontology'], writes: [], desc: 'NetworkX topology checks and the A.7 additive-only lock.' },
+      { name: 'Gate 4 · YAGNI cost & triage', kind: 'decision', branch: 'fail → encode trace', reads: ['profile'], writes: ['gates'], desc: 'Write-amplification guard and 100% triage accountability.' },
+      { name: 'Encode @toon_v1 trace', reads: [], writes: ['toon'], desc: 'Compresses violations into a token-dense rejection trace.' },
+      { name: 'ship-vault repair', kind: 'loop', branch: 'k=1 → k=2 · re-run gates', reads: ['toon'], writes: ['contract'], desc: 'The modeller fixes only what the trace names, then the gates re-run. This run passed on attempt 2.' }
+    ],
+    comps: [
+      ['Algorithm A.8 orchestrator','Verifier','Runs the gates in order and manages repair attempts.','packages/opendv-axi-verifier/…/alg_a8_orchestrator.py'],
+      ['gate1_contract_grain','Gate','Schema, BK tiers and grain.','packages/opendv-axi-verifier/…/verifiers/gate1_contract_grain.py'],
+      ['alg_a6_sqlglot_ast','Gate','SQLGlot AST verification.','packages/opendv-axi-verifier/…/verifiers/alg_a6_sqlglot_ast.py'],
+      ['gate3_networkx_dag','Gate','Bipartite topology DAG checks.','packages/opendv-axi-verifier/…/verifiers/gate3_networkx_dag.py'],
+      ['alg_a7_evolution_lock','Gate','Additive-only evolution lock.','packages/opendv-axi-verifier/…/verifiers/alg_a7_evolution_lock.py'],
+      ['toon_codec','Codec','Serialises and parses @toon_v1 traces.','packages/opendv-axi-verifier/…/toon_codec.py']
+    ] },
+  { key: 'STAGE_06_AXI_DV_DYNAMIC_SANDBOX', name: 'axi-dv · dynamic sandbox', persona: 'axi-dv', tier: 'fast', tag: 'PASS', phase: 2,
+    blurb: 'Gate 5: 4 adversarial batches in an in-memory DuckDB.',
+    desc: 'Compiles the verified contract and runs it in an ephemeral DuckDB across 4 adversarial batches, checking 15 runtime invariants.',
+    ins: ['contract'], outs: ['sandbox'],
+    steps: [
+      { name: 'Lower & compile to 4-zone SQL', reads: ['contract'], writes: [], desc: 'Deterministic compile of the contract; no LLM involved.' },
+      { name: 'Start :memory: DuckDB', reads: [], writes: [], desc: 'A throwaway engine per run.' },
+      { name: 'Run 4 adversarial batches', reads: [], writes: [], desc: 'Baseline + ghost joins, replay, attribute delta & boundary-shift, cross-source collision & backdated restatement.' },
+      { name: 'Evaluate DV-DYN-001..015', kind: 'decision', branch: 'any fail → REJECT-WITH-TRACE', reads: [], writes: ['sandbox'], desc: 'All 15 invariants must hold before the contract can be sealed.' }
+    ],
+    comps: [
+      ['SandboxEngine','Runtime','Hosts the ephemeral DuckDB instance.','packages/opendv-duckdb-sandbox/…/sandbox_engine.py'],
+      ['AdversarialBatches','Test data','The 4 shadow batches.','packages/opendv-duckdb-sandbox/…/adversarial_batches.py'],
+      ['DynamicChecks','Verifier','DV-DYN-001..015 evaluators.','packages/opendv-duckdb-sandbox/…/dynamic_checks.py']
+    ] },
+  { key: 'STAGE_07_DETERMINISTIC_COMPILER', name: 'Deterministic compiler', persona: 'deterministic-compiler', tier: 'fast', tag: 'PASS', phase: 3,
+    blurb: 'Lowers to Canonical IR, compiles SQL, seals everything.',
+    desc: 'Produces the deliverables: Canonical IR, 4-zone SQL and PIT audit queries, then runs post-flight validation and seals every artifact into the content-addressable store.',
+    ins: ['contract','sandbox'], outs: ['final_contract','final_ir','final_sql','report','cas'],
+    steps: [
+      { name: 'Lower contract → Canonical IR', reads: ['contract'], writes: ['final_ir'], desc: 'Deterministic lowering into the vendor-neutral IR.' },
+      { name: 'Compile 4-zone SQL', reads: [], writes: ['final_sql'], desc: 'Zones 0–4: DDL & seeds, hashed staging, insert-only loads, business vault, PIT queries.' },
+      { name: 'Run PIT audit (D.10 / D.10b)', reads: [], writes: [], desc: 'Bi-temporal point-in-time queries at the assertion cut-off.' },
+      { name: 'Post-flight validation', kind: 'decision', branch: 'schema or PII leak → fail', reads: ['runopts'], writes: ['report'], desc: 'Every artifact against its JSON Schema; zero unredacted RESTRICTED_PII, MNPI or raw digests for the role.' },
+      { name: 'Seal into CAS', reads: [], writes: ['final_contract','cas'], desc: 'Stores each artifact under its SHA-256 digest.' }
+    ],
+    comps: [
+      ['ir_lowerer','Compiler','Contract → CanonicalIR.','packages/opendv-duckdb-sandbox/…/ir_lowerer.py'],
+      ['compiler_4zone','Compiler','CanonicalIR → 4-zone DuckDB SQL.','packages/opendv-duckdb-sandbox/…/compiler_4zone.py'],
+      ['pit_query_engine','Query engine','Bi-temporal PIT queries.','packages/opendv-duckdb-sandbox/…/pit_query_engine.py'],
+      ['cas_store','Storage','Content-addressable store.','packages/opendv-telemetry/…/cas_store.py'],
+      ['rbac_redactor','Governance','5-tier RBAC redaction and PII checks.','packages/opendv-telemetry/…/rbac_redactor.py']
+    ] }
+];
+
+var PHASES = [
+  { label: 'Discovery', sub: 'LLM agents · read-only scouts' },
+  { label: 'Modelling', sub: 'LLM agent · declarative contract only' },
+  { label: 'Verification', sub: 'deterministic · symbolic gates' },
+  { label: 'Compilation', sub: 'deterministic · no LLM' }
+];
+
+var CONCEPTS = [
+  { name: 'CBC_CUSTOMER', arch: 'WHO_PARTY', def: 'B2B or B2C legal counterparty under a verified tax identifier. PII split required.', keys: 'T1 customer_tax_id · T3 stripe_customer_code' },
+  { name: 'CBC_ORDER', arch: 'WHAT_EVENT_ANCHOR', def: 'Sales order committing line items and pricing for a customer.', keys: 'T1 order_id' },
+  { name: 'CBC_INVOICE', arch: 'WHAT_FINANCIAL_INSTRUMENT', def: 'Settlement invoice issued by a payment processor against an order.', keys: 'T3 invoice_number · STRIPE_EU' },
+  { name: 'CBC_PROMOTION', arch: 'HOW_CONTRACTUAL_RULE', def: 'Optional promotional campaign applied to qualifying orders.', keys: 'T1 promo_campaign_code' },
+  { name: 'CBC_CONTRACT_DOCUMENT', arch: 'WHAT_UNSTRUCTURED_ARTIFACT', def: 'Signed MSA or addendum governing customer terms.', keys: 'T1 doc_id' }
+];
+
+function produced(id) { var r = []; S.forEach(function (s) { if (s.outs.indexOf(id) >= 0) r.push(s.key.slice(0, 8)); }); return r.join(', ') || '— (provided)'; }
+function consumed(id) { var r = []; S.forEach(function (s) { if (s.ins.indexOf(id) >= 0) r.push(s.key.slice(0, 8)); }); return r.join(', ') || '— (final)'; }
+function tag(t) { return TAG[t] || TAG['PASS']; }
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    var v = props.startView || 'pipeline';
+    var si = Math.max(0, Math.min(7, props.startStage == null ? 5 : props.startStage));
+    this.state = {
+      view: v === 'stage' ? 'stage' : 'pipeline',
+      stageIdx: si,
+      selType: v === 'stage' ? 'step' : (v === 'artifact' ? 'artifact' : null),
+      selId: v === 'stage' ? 5 : (v === 'artifact' ? (props.startArtifact || 'ontology') : null),
+      fullId: v === 'artifact' ? (props.startArtifact || 'ontology') : null,
+      fullTab: 'split'
+    };
+  }
+
+  renderVals() {
+    var self = this, st = this.state;
+    var set = function (o) { return function () { self.setState(o); }; };
+    var selA = function (id) { return function () { self.setState({ selType: 'artifact', selId: id }); }; };
+    var full = function (id) { return function () { self.setState({ fullId: id, fullTab: 'split' }); }; };
+    var isSel = function (t, id) { return st.selType === t && st.selId === id; };
+
+    var card = function (id) {
+      var a = A[id];
+      var lines = a.viz === 'table' ? [a.cols.join(' | ')].concat(a.rows.slice(0, 2).map(function (r) { return r.join(' | '); })).join('\n') : a.raw.split('\n').slice(0, 3).join('\n');
+      return { id: id, name: a.name, short: a.short, lines: lines, g: a.group === 'Setting' ? G.setting : G.data,
+        border: isSel('artifact', id) ? '#1D4ED8' : '#E3E5E8', pick: selA(id), expand: full(id) };
+    };
+    var chip = function (id) { return { name: A[id].name, pick: selA(id), border: isSel('artifact', id) ? '#1D4ED8' : '#E3E5E8' }; };
+
+    var phases = PHASES.map(function (p, pi) {
+      return { label: p.label, sub: p.sub, stages: S.map(function (s, i) { return { s: s, i: i }; }).filter(function (x) { return x.s.phase === pi; }).map(function (x) {
+        var s = x.s, t = tag(s.tag);
+        return { num: String(x.i).padStart(2, '0'), key: s.key, name: s.name, persona: s.persona, tier: s.tier, blurb: s.blurb,
+          tag: s.tag, tagBg: t.bg, tagFg: t.fg, hasNote: !!s.note, note: s.note || '',
+          counts: s.ins.length + ' in · ' + s.outs.length + ' out · ' + s.steps.length + ' steps',
+          open: function () { self.setState({ view: 'stage', stageIdx: x.i, selType: null, selId: null }); } };
+      }) };
+    });
+
+    var cs = S[st.stageIdx], ct = tag(cs.tag);
+    var nextLabel = st.stageIdx < 7 ? S[st.stageIdx + 1].key : 'pipeline outputs';
+    var stage = {
+      num: String(st.stageIdx).padStart(2, '0'), code: cs.key.slice(0, 8), key: cs.key, name: cs.name, persona: cs.persona, tier: cs.tier, desc: cs.desc,
+      tag: cs.tag, tagBg: ct.bg, tagFg: ct.fg, nextLabel: nextLabel,
+      enters: cs.ins.map(chip), hands: cs.outs.map(chip),
+      components: cs.comps.map(function (k, i) { return { name: k[0], type: k[1], pick: set({ selType: 'component', selId: i }), border: isSel('component', i) ? '#1D4ED8' : '#E3E5E8' }; }),
+      steps: cs.steps.map(function (s, i) { return { n: String(i + 1).padStart(2, '0'), name: s.name, notFirst: i > 0, hasBranch: !!s.branch, branch: s.branch || '',
+        reads: s.reads.map(chip), writes: s.writes.map(chip), pick: set({ selType: 'step', selId: i }), border: isSel('step', i) ? '#1D4ED8' : '#E3E5E8' }; })
+    };
+
+    var insp = { has: false, empty: true, isArtifact: false, g: G.data, kind: '', title: '', desc: '', meta: [], preview: '', vizName: '', expand: null };
+    if (st.selType === 'artifact' && A[st.selId]) {
+      var a = A[st.selId];
+      var pv = a.viz === 'table' ? [a.cols.join(' | ')].concat(a.rows.slice(0, 6).map(function (r) { return r.join(' | '); })).join('\n') : a.raw.split('\n').slice(0, 10).join('\n');
+      if (st.selId === 'extract') pv = '"' + Q1 + '"\n  → Tier-U1 · 0.98\n"' + Q3 + '"\n  → Tier-U3 · 0.68 · hold';
+      insp = { has: true, empty: false, isArtifact: true, g: a.group === 'Setting' ? G.setting : G.data, kind: 'Data · ' + a.group, title: a.name, desc: a.desc,
+        meta: [{ k: 'Type', v: a.type }, { k: 'Format', v: a.fmt }, { k: 'Produced by', v: produced(st.selId) }, { k: 'Consumed by', v: consumed(st.selId) }],
+        preview: pv, vizName: VIZNAME[a.viz], expand: full(st.selId) };
+    } else if (st.view === 'stage' && st.selType === 'step' && cs.steps[st.selId]) {
+      var sp = cs.steps[st.selId];
+      var meta = [{ k: 'Kind', v: sp.kind === 'decision' ? 'decision' : (sp.kind === 'loop' ? 'loop' : 'action') }];
+      if (sp.branch) meta.push({ k: 'Branches', v: sp.branch });
+      meta.push({ k: 'Reads', v: sp.reads.map(function (r) { return A[r].name; }).join(', ') || '—' });
+      meta.push({ k: 'Writes', v: sp.writes.map(function (r) { return A[r].name; }).join(', ') || '—' });
+      insp = { has: true, empty: false, isArtifact: false, g: G.control, kind: 'Control · step ' + (st.selId + 1) + ' of ' + cs.steps.length, title: sp.name, desc: sp.desc, meta: meta };
+    } else if (st.view === 'stage' && st.selType === 'component' && cs.comps[st.selId]) {
+      var k = cs.comps[st.selId];
+      insp = { has: true, empty: false, isArtifact: false, g: G.component, kind: 'Component · ' + k[1], title: k[0], desc: k[2], meta: [{ k: 'Source', v: k[3] }, { k: 'Stage', v: cs.key }] };
+    }
+
+    var fo = { name: '', fmt: '', type: '', group: '', desc: '', g: G.data, tabs: [], showViz: false, showRaw: false, raw: '', vizName: '' };
+    if (st.fullId && A[st.fullId]) {
+      var f = A[st.fullId];
+      var raw = f.raw;
+      if (st.fullId === 'extract') raw = JSON.stringify({ algorithm: 'A.9b', document: 'enterprise_msa_addendum_2026.txt', extractions: this.extractions().map(function (e) { return { extraction_id: e.id, verbatim_quote: e.quote, char_start: e.start, char_end: e.end, tier: e.tier, confidence: Number(e.conf) }; }) }, null, 2);
+      var tabs = [['Visual', 'viz'], ['Raw', 'raw'], ['Split', 'split']].map(function (t) {
+        var on = st.fullTab === t[1];
+        return { label: t[0], pick: set({ fullTab: t[1] }), bg: on ? '#16181D' : '#FFFFFF', fg: on ? '#FFFFFF' : '#16181D' };
+      });
+      var tbl = f.viz === 'table';
+      fo = { name: f.name, fmt: f.fmt, type: f.type, group: f.group, desc: f.desc, g: f.group === 'Setting' ? G.setting : G.data, tabs: tabs,
+        showViz: st.fullTab !== 'raw', showRaw: st.fullTab !== 'viz' && f.viz !== 'code', raw: raw, vizName: VIZNAME[f.viz],
+        redaction: 'role: INTERNAL_MODELER',
+        isOntology: f.viz === 'ontology', isDv: f.viz === 'dv', isTable: tbl, isKv: f.viz === 'kv', isChecks: f.viz === 'checks', isEvents: f.viz === 'events', isDoc: f.viz === 'doc', isCode: f.viz === 'code',
+        gridCols: tbl ? f.cols.map(function (c, ci) { var n = c.length; f.rows.forEach(function (r) { n = Math.max(n, String(r[ci]).length); }); return Math.max(72, Math.ceil(n * 7.4) + 28) + 'px'; }).join(' ') : 'none',
+        cols: tbl ? f.cols.map(function (c) { return { v: c }; }) : [],
+        rows: tbl ? f.rows.map(function (r) { return { cells: r.map(function (c) { return { v: c, fg: c === '‹PII›' ? '#8A3B07' : '#16181D' }; }) }; }) : [],
+        hasFoot: !!f.foot, foot: f.foot || '',
+        kv: f.kv ? f.kv.map(function (p) { return { k: p[0], v: p[1] }; }) : [],
+        checks: f.checks ? f.checks.map(function (c) { var t = tag(c[2]); return { id: c[0], name: c[1], status: c[2], bg: t.bg, fg: t.fg }; }) : [],
+        events: f.events ? f.events.map(function (e, i) { var t = tag(e[2]); return { seq: i + 1, stage: e[0], msg: e[1], status: e[2], bg: t.bg, fg: t.fg, dot: e[2] === 'PASS' ? '#16181D' : '#B45309' }; }) : [],
+        outline: f.outline ? f.outline.map(function (o) { return { k: o[0], v: o[1] }; }) : []
+      };
+      if (f.viz === 'code' && st.fullTab === 'raw') { fo.showViz = false; fo.showRaw = true; }
+    }
+
+    return {
+      isPipeline: st.view === 'pipeline', isStage: st.view === 'stage', fullOpen: !!st.fullId,
+      crumbColor: st.view === 'stage' ? '#1D4ED8' : '#16181D',
+      goPipeline: set({ view: 'pipeline', selType: null, selId: null }),
+      prevStage: function () { self.setState({ stageIdx: Math.max(0, st.stageIdx - 1), selType: null, selId: null }); },
+      nextStage: function () { self.setState({ stageIdx: Math.min(7, st.stageIdx + 1), selType: null, selId: null }); },
+      clearSel: set({ selType: null, selId: null }),
+      closeFull: set({ fullId: null }),
+      settings: ['harness', 'runopts'].map(card),
+      inputs: ['spec', 'ontology', 'crm', 'erp', 'stripe', 'crm2', 'msa'].map(card),
+      inputCount: 7,
+      outputs: ['final_contract', 'final_ir', 'final_sql', 'report', 'ledger'].map(card),
+      phases: phases, stage: stage, insp: insp, full: fo,
+      concepts: CONCEPTS, docSegs: this.docSegs(), extractions: this.extractions()
+    };
+  }
+
+  extractions() {
+    var s1 = MSA.indexOf(Q1), s3 = MSA.indexOf(Q3);
+    return [
+      { id: 'ext_msa_counterparty_u1', quote: Q1, start: s1, end: s1 + Q1.length, tier: 'Tier-U1', conf: '0.98', swatch: '#BFDBFE', decisionFg: '#16181D', decision: 'Exact tax-ID match → hub_customer TAX-US-900101. Linked automatically.' },
+      { id: 'ext_msa_guarantor_u3', quote: Q3, start: s3, end: s3 + Q3.length, tier: 'Tier-U3', conf: '0.68', swatch: '#FED7AA', decisionFg: '#8A3B07', decision: 'Ambiguous: Rheinland Precision GmbH (TAX-DE-800202) or an unaffiliated affiliate. STEWARD_HOLD → resolved by auto_approve_top_candidate.' }
+    ];
+  }
+
+  docSegs() {
+    var s1 = MSA.indexOf(Q1), s3 = MSA.indexOf(Q3);
+    var none = { bg: 'transparent', ring: 'none' };
+    return [
+      { text: MSA.slice(0, s1), bg: none.bg, ring: none.ring },
+      { text: Q1, bg: '#DBEAFE', ring: '0 0 0 1px #93C5FD' },
+      { text: MSA.slice(s1 + Q1.length, s3), bg: none.bg, ring: none.ring },
+      { text: Q3, bg: '#FFEDD5', ring: '0 0 0 1px #FDBA74' },
+      { text: MSA.slice(s3 + Q3.length), bg: none.bg, ring: none.ring }
+    ];
+  }
+}
+</script>
+</body>
+</html>

@@ -314,8 +314,6 @@ def run_axi_dv_verification_pipeline(
             "gate_id": "G3",
             "rule_code": (toon_trace.violations[0].rule if toon_trace.violations else "DV-STR-001"),
             "contract_version": "5.0",
-            "workbench_view_id": "WB-08",
-            "viz_id": "VIZ-GATE-03",
             "agent_persona": "axi-dv",
             "status": event_status,
             "context_refs": {

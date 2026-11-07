@@ -31,22 +31,17 @@ from opendv_agent_harness import (
     AgenticPipelineReport,
     AntigravityHarnessAdapter,
     ClaudeAgentHarnessAdapter,
-    DeterministicHarnessAdapter,
     HarnessAuthConfig,
     HarnessBudget,
     HarnessSetupConfig,
     ObservabilityVerdict,
     PipelineInputSpec,
+    PipelineStageId,
     create_agent_harness,
     get_harness_adapter,
     run_agentic_vault_pipeline,
     validate_pipeline_inputs,
     validate_pipeline_outputs,
-)
-from opendv_agent_harness.adapters.deterministic_adapter import (
-    _synthesize_minimal_schema_instance,
-    build_deterministic_agy_sdk_shim,
-    build_deterministic_claude_sdk_shim,
 )
 from opendv_agent_harness.pipeline import (
     PipelineUnstructuredCandidateInput,
@@ -57,12 +52,21 @@ from opendv_agent_harness.pipeline import (
     Stage03ColumnTriageOutput,
     Stage04ContractSynthesisOutput,
 )
-from opendv_core.schema_registry import find_workspace_root
 from opendv_telemetry import ContentAddressableStore
+from opendv_testkit import (
+    DeterministicHarnessAdapter,
+    build_deterministic_agy_sdk_shim,
+    build_deterministic_claude_sdk_shim,
+)
+from opendv_testkit import (
+    synthesize_minimal_schema_instance as _synthesize_minimal_schema_instance,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 def _sample_dir() -> Path:
-    return find_workspace_root() / "examples" / "pipeline_samples" / "global_commerce_vault"
+    return REPO_ROOT / "examples" / "pipeline_samples" / "global_commerce_vault"
 
 
 def test_deterministic_harness_adapter_registration(tmp_path: Path) -> None:
@@ -492,8 +496,9 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
     assert any(
         d["code"] == "WAVE_EXECUTION_REJECTED" for d in reject_rep.output_validation.diagnostics
     )
+    target_stage = PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED.value
     wb03_events = [
-        ev for ev in reject_rep.observability_events if ev["workbench_view_id"] == "WB-03"
+        ev for ev in reject_rep.observability_events if ev.get("stage_id") == target_stage
     ]
     assert len(wb03_events) == 2
     assert wb03_events[-1]["status"] == ObservabilityVerdict.REJECT_WITH_TRACE.value
@@ -569,7 +574,7 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
         opt_spec,
         harness_setup,
         output_dir=out_dir,
-        base_dir=tmp_path,
+        base_dir=sample_dir,
         sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert rep.status == "COMPLETED"
@@ -609,7 +614,7 @@ def test_optional_only_foreign_key_link_synthesis(tmp_path: Path) -> None:
         opt_spec,
         exhausted_setup,
         output_dir=exhausted_out,
-        base_dir=tmp_path,
+        base_dir=sample_dir,
         sdk_module=build_deterministic_agy_sdk_shim(),
     )
     assert exhausted_rep.status == "FAILED"
@@ -1039,6 +1044,7 @@ def test_real_llm_structured_output_consumption(tmp_path: Path) -> None:
     setup = HarnessSetupConfig(
         provider="agy",
         steward_hold_policy="auto_approve_top_candidate",
+        stage_output_policy="symbolic_completion",
         extra_provider_options={"structured_output_factory": _custom_structured_output_factory},
     )
     out_dir = tmp_path / "llm_structured_out"
@@ -1625,8 +1631,6 @@ def test_issue_33_wave3_crlf_unstructured_document_pipeline_e2e(tmp_path: Path) 
         AgentPersona,
         PipelineStageId,
         ToolExecutionContext,
-        VizId,
-        WorkbenchViewId,
     )
     from opendv_agent_harness.pipeline import PipelineUnstructuredDocInput
     from opendv_agent_harness.tools.base import ExtractPdfSpansInput
@@ -1717,8 +1721,6 @@ def test_issue_33_wave3_crlf_unstructured_document_pipeline_e2e(tmp_path: Path) 
         span_id="span-issue-33-crlf",
         persona=AgentPersona.SCOUT_UNSTRUCTURED,
         stage_id=PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
-        workbench_view_id=WorkbenchViewId.WB_03,
-        viz_id=VizId.VIZ_STEP_04,
         config=setup.to_harness_config(workspace_dir=work_dir),
     )
     tool_out = asyncio.run(

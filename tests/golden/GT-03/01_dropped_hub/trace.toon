@@ -1,0 +1,12 @@
+@toon_v1
+run_id: run-local-verify
+attempt: 1/3
+status: REJECT-WITH-TRACE
+violations[7]{gate,rule,action,target,fix}:
+ G4,ALG-A1,AUTO-FIX,satellites,"Applied 3-axis Satellite split & Gate 4 YAGNI cost guard (W_amp >= 50.0 MB/d)"
+ G3,DV-EVO-002,REJECT,hub_fund,"Hub 'hub_fund' was deleted."
+ G3,DV-STR-003,REJECT,lnk_lp_commitment,"[DV-STR-003] Link 'lnk_lp_commitment' references non-existent Hub 'hub_fund'."
+ G3,DV-STR-003,REJECT,lnk_lp_commitment_co_invest,"[DV-STR-003] Link 'lnk_lp_commitment_co_invest' references non-existent Hub 'hub_fund'."
+ G3,DV-STR-003,REJECT,lnk_document_lp_commitment,"[DV-STR-003] Link 'lnk_document_lp_commitment' references non-existent Hub 'hub_fund'."
+ G3,DV-STR-005,REJECT,sat_fund_investran,"[DV-STR-005 / DV-G3-003] Satellite 'sat_fund_investran' violates single-parent invariant (parent='hub_fund', additional_parents=[])."
+ G3,DV-STR-005,REJECT,sat_fund_investran_esg,"[DV-STR-005 / DV-G3-003] Satellite 'sat_fund_investran_esg' violates single-parent invariant (parent='hub_fund', additional_parents=[])."

@@ -14,5 +14,11 @@ waves:
     sources:
       - source_system: "crm_salesforce"
         table_name: "crm_customers"
+        source:
+          adapter: "file"
+          uri: "sources/wave2_schema_drift/crm_customers_v2.csv"
+        baseline_source:
+          adapter: "file"
+          uri: "sources/wave0_cold_start/crm_customers.csv"
         data_path: "sources/wave2_schema_drift/crm_customers_v2.csv"
         baseline_data_path: "sources/wave0_cold_start/crm_customers.csv"

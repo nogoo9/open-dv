@@ -1,0 +1,12 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendv-cli-common'
+language: 'python'
+layer: 'library'
+tags:
+  - 'python'
+  - 'cli'
+  - 'common'
+
+dependsOn:
+  - 'opendv-contracts'

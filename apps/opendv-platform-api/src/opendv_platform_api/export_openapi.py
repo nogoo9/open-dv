@@ -10,7 +10,6 @@ from typing import Any
 
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
-from opendv_platform_api.deps import REPO_ROOT
 from opendv_platform_api.main import create_app
 
 DRAFT_2020_12_URI = "https://json-schema.org/draft/2020-12/schema"
@@ -18,7 +17,7 @@ DRAFT_2020_12_URI = "https://json-schema.org/draft/2020-12/schema"
 
 def generate_openapi_spec() -> dict[str, Any]:
     """Build the deterministic OpenAPI 3.1.0 document with Draft 2020-12 dialect metadata."""
-    app = create_app()
+    app = create_app(workspace_root=Path.cwd())
     raw_spec = copy.deepcopy(app.openapi())
     raw_spec["$schema"] = DRAFT_2020_12_URI
     raw_spec["$id"] = "https://open-dv.dev/schemas/openapi-v1.json"
@@ -27,13 +26,19 @@ def generate_openapi_spec() -> dict[str, Any]:
     return raw_spec
 
 
+def render_openapi_spec() -> str:
+    """Serialize the deterministic OpenAPI 3.1.0 document to canonical JSON string."""
+    spec = generate_openapi_spec()
+    return json.dumps(spec, indent=2, sort_keys=True) + "\n"
+
+
 def export_openapi_to_file(out_path: Path | None = None) -> Path:
     """Write the deterministic OpenAPI 3.1.0 specification to `schemas/openapi-v1.json`."""
-    target = (out_path or (REPO_ROOT / "schemas" / "openapi-v1.json")).resolve()
+    target = (out_path or Path("schemas/openapi-v1.json")).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
-    spec = generate_openapi_spec()
-    rendered = json.dumps(spec, indent=2, sort_keys=True) + "\n"
-    target.write_text(rendered, encoding="utf-8")
+    rendered = render_openapi_spec()
+    with open(target, "w", encoding="utf-8", newline="\n") as f:
+        f.write(rendered)
     return target
 
 
@@ -46,7 +51,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--out",
         type=Path,
-        default=REPO_ROOT / "schemas" / "openapi-v1.json",
+        default=Path("schemas/openapi-v1.json"),
         help="Destination path for openapi-v1.json",
     )
     args = parser.parse_args(argv)

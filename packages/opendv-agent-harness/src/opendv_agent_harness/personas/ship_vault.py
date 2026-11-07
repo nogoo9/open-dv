@@ -19,8 +19,6 @@ from opendv_agent_harness.models import (
     OutputT,
     PipelineStageId,
     SubagentSpec,
-    VizId,
-    WorkbenchViewId,
 )
 from opendv_agent_harness.routing import get_persona_capability
 from opendv_agent_harness.tools.catalog import get_tools_for_persona
@@ -28,7 +26,7 @@ from opendv_agent_harness.tools.catalog import get_tools_for_persona
 SHIP_VAULT_SYSTEM_INSTRUCTIONS: str = (
     "You are `ship-vault`, the 3-Pass Chain-of-Thought Data Vault 2.0 Modeller and Closed-Loop "
     "TOON Self-Healing Worker in the Open-DV neuro-symbolic pipeline (`STAGE_03_SHIP_VAULT_PASS1` "
-    "through `STAGE_07_DETERMINISTIC_COMPILER`, `WB-04`..`WB-08`, `WB-10`, `WB-11`).\n"
+    "through `STAGE_07_DETERMINISTIC_COMPILER`).\n"
     "Responsibilities:\n"
     "1. Operate in an isolated disposable worktree (`read_only_workspace=False`, "
     "`allow_shell_execution=False`). Never author raw SQL DDL/DML directly.\n"
@@ -52,7 +50,7 @@ def build_ship_vault_subagent_spec() -> SubagentSpec:
         persona=AgentPersona.SHIP_VAULT,
         description=(
             "3-Pass CoT Data Vault 2.0 Modeller & Closed-Loop TOON Repair Worker "
-            "(STAGE_03..STAGE_07, WB-04..WB-11)."
+            "(STAGE_03..STAGE_07)."
         ),
         system_instructions=SHIP_VAULT_SYSTEM_INSTRUCTIONS,
         model_tier=profile.default_model_tier,
@@ -70,8 +68,6 @@ def build_ship_vault_task_spec(
     parent_span_id: str | None = None,
     task_id: str | None = None,
     stage_id: PipelineStageId = PipelineStageId.STAGE_03_SHIP_VAULT_PASS1,
-    workbench_view_id: WorkbenchViewId = WorkbenchViewId.WB_04,
-    viz_id: VizId = VizId.VIZ_STEP_05,
     model_tier: ModelTier = ModelTier.HIGH_REASONING,
     model_override: str | None = None,
     tools: Sequence[AgentToolDefinition[Any, Any]] | None = None,
@@ -93,8 +89,6 @@ def build_ship_vault_task_spec(
         "parent_span_id": parent_span_id,
         "persona": AgentPersona.SHIP_VAULT,
         "stage_id": stage_id,
-        "workbench_view_id": workbench_view_id,
-        "viz_id": viz_id,
         "prompt": prompt,
         "system_instructions": system_instructions,
         "model_tier": model_tier,

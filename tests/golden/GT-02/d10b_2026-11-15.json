@@ -1,0 +1,164 @@
+{
+  "all_batches_passed": true,
+  "assertion_cutoff_ts": "2026-11-15 23:59:59",
+  "batch_report": {
+    "all_passed": true,
+    "batches": [
+      {
+        "batch_name": "Baseline + Null-FK & Ghost INNER JOIN Completeness",
+        "batch_number": 1,
+        "delta_rows": 67,
+        "error_message": null,
+        "passed": true,
+        "row_count": 67
+      },
+      {
+        "batch_name": "Replay Idempotency",
+        "batch_number": 2,
+        "delta_rows": 0,
+        "error_message": null,
+        "passed": true,
+        "row_count": 0
+      },
+      {
+        "batch_name": "Single-Attribute Delta & Boundary-Shift Collision",
+        "batch_number": 3,
+        "delta_rows": 1,
+        "error_message": null,
+        "passed": true,
+        "row_count": 1
+      },
+      {
+        "batch_name": "N=1->N=2 Cross-Source Collision & Bi-Temporal Backdated Restatement",
+        "batch_number": 4,
+        "delta_rows": 3,
+        "error_message": null,
+        "passed": true,
+        "row_count": 3
+      }
+    ]
+  },
+  "batch_verdicts": {
+    "batch_1": "PASS",
+    "batch_2": "PASS",
+    "batch_3": "PASS",
+    "batch_4": "PASS"
+  },
+  "batches": [
+    {
+      "batch_name": "Baseline + Null-FK & Ghost INNER JOIN Completeness",
+      "batch_number": 1,
+      "delta_rows": 67,
+      "error_message": null,
+      "passed": true,
+      "row_count": 67
+    },
+    {
+      "batch_name": "Replay Idempotency",
+      "batch_number": 2,
+      "delta_rows": 0,
+      "error_message": null,
+      "passed": true,
+      "row_count": 0
+    },
+    {
+      "batch_name": "Single-Attribute Delta & Boundary-Shift Collision",
+      "batch_number": 3,
+      "delta_rows": 1,
+      "error_message": null,
+      "passed": true,
+      "row_count": 1
+    },
+    {
+      "batch_name": "N=1->N=2 Cross-Source Collision & Bi-Temporal Backdated Restatement",
+      "batch_number": 4,
+      "delta_rows": 3,
+      "error_message": null,
+      "passed": true,
+      "row_count": 3
+    }
+  ],
+  "columns": [],
+  "dynamic_check_report": {
+    "checks": [],
+    "failed_count": 0,
+    "passed_count": 15
+  },
+  "dynamic_rules_passed": 15,
+  "dynamic_rules_total": 15,
+  "execution_stats": {},
+  "mode": "<MODE>",
+  "query_d10_rows": [
+    {
+      "commitment_amount_usd": "150000000.00",
+      "commitment_ccy": "USD",
+      "committed_amount": "150000000.00",
+      "domicile_iso": "domicile_country_val_1",
+      "fund_code": "APEX-BUYOUT-IV",
+      "golden_bkcc": "GLOBAL",
+      "golden_lp_id": "LP-101",
+      "golden_lp_name": "lp_legal_name_val_1",
+      "governance_verdict": "APPROVED",
+      "has_mfn_protection": true,
+      "llm_confidence": "0.9500",
+      "lp_natural_key": "LP-101",
+      "pdf_page": 1,
+      "reconciled_legacy_nav_usd": "0.00",
+      "reconciled_unfunded_usd": "0.00",
+      "side_letter_discounted_fee_bps": 25,
+      "side_letter_doc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "side_letter_fee_discount_bps": 25
+    }
+  ],
+  "query_d10b_rows": [
+    {
+      "assertion_cutoff_ts": "2026-11-15T23:59:59",
+      "company_legal_name": "Nordic Cloud Infrastructure AB",
+      "effective_quarter": "2026-09-30",
+      "enterprise_value_usd": "245000000.00",
+      "entry_ebitda_usd": "16896550.00",
+      "ev_ebitda_multiple": "14.50",
+      "gics_sub_industry": "Internet Services & Infrastructure",
+      "ic_memo_ai_confidence": "0.9500",
+      "ic_memo_doc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "implied_ev_from_ebitda_usd": "244999975.00",
+      "lei_code": "529900T8BM49AURSDO55",
+      "portco_natural_key": "529900T8BM49AURSDO55",
+      "reported_nav_usd": "245000000.00",
+      "state_cutoff_date": "2026-09-30",
+      "steward_gate_status": "STEWARD_VERIFIED",
+      "tier3_semantic_cosine": "0.9421",
+      "valuation_asserted_dts": "2026-11-15T09:15:00"
+    }
+  ],
+  "query_type": "QUERY_D10B_VALUATION",
+  "rendered": {
+    "summary": null,
+    "text": "================================================================================\nOpen-DV DuckDB Sandbox Query: QUERY_D10B_VALUATION\nResult: PASS | Rows Returned: 1\n--------------------------------------------------------------------------------\nassertion_cutoff_ts | state_cutoff_date | lei_code         | company_legal_name | gics_sub_industry | effective_quarter\n-----------------------------------------------------------------------------------------------------------------------\n2026-11-15T23:59 | 2026-09-30       | 529900T8BM49AURS | Nordic Cloud Inf | Internet Service | 2026-09-30      \n================================================================================",
+    "toon": null
+  },
+  "replay_delta_rows": 0,
+  "row_count": 1,
+  "rows": [
+    {
+      "assertion_cutoff_ts": "2026-11-15T23:59:59",
+      "company_legal_name": "Nordic Cloud Infrastructure AB",
+      "effective_quarter": "2026-09-30",
+      "enterprise_value_usd": "245000000.00",
+      "entry_ebitda_usd": "16896550.00",
+      "ev_ebitda_multiple": "14.50",
+      "gics_sub_industry": "Internet Services & Infrastructure",
+      "ic_memo_ai_confidence": "0.9500",
+      "ic_memo_doc_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "implied_ev_from_ebitda_usd": "244999975.00",
+      "lei_code": "529900T8BM49AURSDO55",
+      "portco_natural_key": "529900T8BM49AURSDO55",
+      "reported_nav_usd": "245000000.00",
+      "state_cutoff_date": "2026-09-30",
+      "steward_gate_status": "STEWARD_VERIFIED",
+      "tier3_semantic_cosine": "0.9421",
+      "valuation_asserted_dts": "2026-11-15T09:15:00"
+    }
+  ],
+  "run_id": "<RUN_ID_1>"
+}

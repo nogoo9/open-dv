@@ -1,0 +1,74 @@
+contract_version: "5.0"
+domain_namespace: "multi_tenant_saas"
+lifecycle_stage: "COLD_START_N1"
+column_triage_ledger:
+  - bronze_table: "bronze_saas.tenant_accounts"
+    column_name: "tenant_id"
+    elm_classification: "BUSINESS_KEY"
+    target_dv_entity: "hub_tenant_account"
+  - bronze_table: "bronze_saas.tenant_accounts"
+    column_name: "account_id"
+    elm_classification: "BUSINESS_KEY"
+    target_dv_entity: "hub_tenant_account"
+  - bronze_table: "bronze_saas.tenant_accounts"
+    column_name: "account_name"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_tenant_account_core"
+  - bronze_table: "bronze_saas.tenant_accounts"
+    column_name: "plan_tier"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_tenant_account_core"
+  - bronze_table: "bronze_saas.tenant_subscriptions"
+    column_name: "tenant_id"
+    elm_classification: "FOREIGN_KEY_REF"
+    target_dv_entity: "lnk_tenant_account_subscription"
+  - bronze_table: "bronze_saas.tenant_subscriptions"
+    column_name: "account_id"
+    elm_classification: "FOREIGN_KEY_REF"
+    target_dv_entity: "lnk_tenant_account_subscription"
+  - bronze_table: "bronze_saas.tenant_subscriptions"
+    column_name: "subscription_id"
+    elm_classification: "BUSINESS_KEY"
+    target_dv_entity: "hub_subscription"
+hubs:
+  - name: "hub_tenant_account"
+    ontology_concept_uri: "urn:ontology:entity:tenant_account"
+    business_key_sources:
+      - bronze_table: "bronze_saas.tenant_accounts"
+        key_columns: ["tenant_id", "account_id"]
+        record_source_code: "SAAS_CORE"
+        key_authority_tier: "TIER_3_LOCAL_SCOPED"
+        require_src_qualifier: true
+        bkcc_column_expr: "tenant_id"
+        system_scoped_bk_justification: "Single-table multi-tenant feed where ACCT-1001 collides across TENANT_US and TENANT_EU."
+  - name: "hub_subscription"
+    ontology_concept_uri: "urn:ontology:entity:subscription"
+    business_key_sources:
+      - bronze_table: "bronze_saas.tenant_subscriptions"
+        key_columns: ["subscription_id"]
+        record_source_code: "SAAS_BILLING"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: "GLOBAL"
+links:
+  - name: "lnk_tenant_account_subscription"
+    link_type: "STANDARD_LINK"
+    ontology_concept_uri: "urn:ontology:relationship:account_subscription"
+    source_bronze_table: "bronze_saas.tenant_subscriptions"
+    hub_references:
+      - target_hub: "hub_tenant_account"
+        role_alias: "subscriber_account"
+        source_fk_columns: ["tenant_id", "account_id"]
+      - target_hub: "hub_subscription"
+        role_alias: "subscription"
+        source_fk_columns: ["subscription_id"]
+satellites:
+  - name: "sat_tenant_account_core"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_tenant_account"
+    source_bronze_table: "bronze_saas.tenant_accounts"
+    security_classification: "INTERNAL"
+    volatility_tier: "STANDARD"
+    payload_columns: ["account_name", "plan_tier"]
+reference_tables: []
+unmapped_escalations: []

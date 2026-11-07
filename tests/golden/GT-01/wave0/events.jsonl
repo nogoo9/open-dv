@@ -1,0 +1,8 @@
+{"stage_id": "STAGE_00_ORCHESTRATION", "status": "PASS", "wave_index": 0}
+{"stage_id": "STAGE_01_SCOUT_SOURCE", "status": "PASS", "wave_index": 0}
+{"stage_id": "STAGE_02_SCOUT_UNSTRUCTURED", "status": "PASS", "wave_index": 0}
+{"stage_id": "STAGE_03_SHIP_VAULT_PASS1", "status": "PASS", "wave_index": 0}
+{"stage_id": "STAGE_04_SHIP_VAULT_PASS2", "status": "PASS", "wave_index": 0}
+{"stage_id": "STAGE_05_AXI_DV_STATIC_GATES", "status": "AUTO_REPAIRED", "wave_index": 0}
+{"stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX", "status": "PASS", "wave_index": 0}
+{"stage_id": "STAGE_07_DETERMINISTIC_COMPILER", "status": "PASS", "wave_index": 0}

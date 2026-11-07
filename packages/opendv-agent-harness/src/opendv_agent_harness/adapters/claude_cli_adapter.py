@@ -156,7 +156,7 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
         )
 
     def _resolve_claude_binary(self) -> str | None:
-        """Locate the `claude` CLI executable from config, environment, PATH, or user dirs."""
+        """Locate the `claude` CLI executable from config, environment, or PATH (CFG-06)."""
         explicit_candidates = (
             self._config.env.get("OPENDV_CLAUDE_CLI_BIN"),
             self._config.extra_provider_options.get("claude_binary"),
@@ -177,18 +177,6 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             if found:
                 return found
 
-        if getattr(shutil.which, "__module__", "") != "shutil":
-            return None
-
-        fallback_paths = (
-            Path.home() / ".local" / "bin" / "claude",
-            Path.home() / ".claude" / "local" / "claude",
-            Path("/usr/local/bin/claude"),
-            Path.home() / "AppData" / "Local" / "Programs" / "claude" / "claude.exe",
-        )
-        for fb_path in fallback_paths:
-            if fb_path.is_file():
-                return str(fb_path)
         return None
 
     def _resolve_subagent_models(self, spec: AgentTaskSpec[Any]) -> dict[str, str]:
@@ -364,9 +352,9 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
         claude_bin = self._resolve_claude_binary()
         if claude_bin is None:
             raise ProviderConfigurationError(
-                "Claude Code CLI ('claude') executable was not found on PATH or in "
-                "OPENDV_CLAUDE_CLI_BIN. Install and log in to 'claude' or set "
-                "OPENDV_CLAUDE_CLI_BIN."
+                "Claude Code CLI ('claude') executable was not found. Checked sources: "
+                "1) extra_provider_options.claude_binary, "
+                "2) env var OPENDV_CLAUDE_CLI_BIN, 3) PATH."
             )
 
         def make_event(kind: HarnessEventKind, **kwargs: Any) -> HarnessStreamEvent:
@@ -436,8 +424,12 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             if result_obj is not None:
                 last_result_payload = dict(result_obj)
 
-        # Fallback without --json-schema flag if the CLI rejected a complex $defs schema
-        if run_state["returncode"] != 0 and schema_json_str is not None:
+        # Fallback without --json-schema flag only if CLI rejected a complex schema
+        stderr_lower = str(run_state.get("stderr") or "").lower()
+        is_schema_rejection = any(
+            term in stderr_lower for term in ("schema", "--json-schema", "$defs", "validation")
+        )
+        if run_state["returncode"] != 0 and schema_json_str is not None and is_schema_rejection:
             streamed_text_chunks.clear()
             emitted_any_text_delta = False
             seen_fine_grained = False

@@ -1,5 +1,5 @@
 /**
- * Vite 6 configuration for `@opendv/web-workbench` (`docs/10` §1).
+ * Vite 6 configuration for `@opendv/web-workbench`.
  *
  * Security & Decoupling Guarantees:
  * - Binds local development server strictly to `127.0.0.1` (`localhost`) on port `5173`.

@@ -1,0 +1,186 @@
+"""Profile pipeline use case: Profile bronze tabular data into Statistical Graph B."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from pathlib import Path
+from typing import Any
+
+from opendv_contracts import ProfileRequest, ProfileResponse, RenderedOutput
+from opendv_core import validate_graph_b
+from opendv_core.paths import resolve_workspace_path
+from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
+from opendv_service.errors import InputValidationError
+from opendv_service.rendering import render_profile_text
+from opendv_sources import SourceSpec, get_source_registry
+
+
+def _sanitize_sql_name(raw: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_]+", "_", raw).strip("_").lower()
+    return cleaned or "bronze_table"
+
+
+def _sanitize_domain_ns(raw: str) -> str:
+    cleaned = re.sub(r"[^a-z0-9_]+", "_", raw.lower()).strip("_")
+    return cleaned or "default_domain"
+
+
+def profile_pipeline(
+    request: ProfileRequest,
+    *,
+    workspace_root: Path | None = None,
+    allow_temp: bool = True,
+    allowed_roots: list[Path] | None = None,
+) -> ProfileResponse:
+    """Profile tabular data via SourceSpec or validate an existing Graph B profile descriptor."""
+    root = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
+
+    # Case A: Source data profiling (SourceSpec, CSV/data file, or inline content)
+    has_source = request.source is not None
+    has_source_path = request.source_path is not None and bool(request.source_path.strip())
+    has_file_content = request.file_content is not None and bool(request.file_content.strip())
+
+    if has_source or has_source_path or has_file_content:
+        if has_source:
+            assert request.source is not None
+            if isinstance(request.source, dict):
+                spec = SourceSpec.model_validate(request.source)
+            elif isinstance(request.source, SourceSpec):
+                spec = request.source
+            else:
+                spec = SourceSpec.model_validate(request.source)
+            for banned in ("workspace_root", "allowed_roots", "base_dir", "allow_temp"):
+                spec.options.pop(banned, None)
+            display_source_path = spec.uri or spec.client_path or f"source:{spec.adapter}"
+            inferred_table = Path(spec.uri).stem if spec.uri else spec.adapter
+        elif has_file_content:
+            assert request.file_content is not None
+            display_source_path = request.client_path or "inline:source.csv"
+            spec = SourceSpec(
+                adapter="inline",
+                inline_content=request.file_content,
+                client_path=request.client_path,
+                format="csv",
+            )
+            inferred_table = Path(request.client_path).stem if request.client_path else "source"
+        else:
+            assert request.source_path is not None
+            resolved_path = resolve_workspace_path(
+                request.source_path,
+                workspace_root=root,
+                allow_temp=allow_temp,
+                allowed_roots=allowed_roots,
+            )
+            if not resolved_path.exists():
+                raise InputValidationError(f"Source data file not found: {resolved_path}")
+            display_source_path = str(resolved_path)
+            spec = SourceSpec(
+                adapter="file",
+                uri=str(resolved_path),
+            )
+            inferred_table = resolved_path.stem
+
+        source_system_raw = request.source_system or "bronze_source"
+        source_sys_code = (
+            re.sub(r"[^A-Z0-9_]+", "_", source_system_raw.upper()).strip("_") or "BRONZE_SOURCE"
+        )
+        table_name_raw = request.table_name
+        resolved_table_name = _sanitize_sql_name(table_name_raw or inferred_table)
+        domain_ns = _sanitize_domain_ns(request.project_id or source_system_raw)
+
+        profiler = GraphBProfiler()
+        try:
+            reg = get_source_registry()
+            adapter = reg.get_tabular_adapter(
+                spec.adapter,
+                workspace_root=root,
+                allow_temp=allow_temp,
+                allowed_roots=allowed_roots,
+            )
+            adapter.register(spec, profiler.conn, resolved_table_name)
+            profiler.profile_relation(resolved_table_name)
+            profile_obj = profiler.build_graph_b_profile(
+                domain=domain_ns,
+                source_system_id=source_sys_code,
+                bkcc_namespace=source_sys_code,
+                table_names=[resolved_table_name],
+            )
+        finally:
+            profiler.close()
+
+        graph_b_doc = profile_obj.model_dump(mode="json", exclude_none=True)
+        validate_graph_b(graph_b_doc)
+
+        total_cols = sum(
+            len(t.columns) for sys_item in profile_obj.source_systems for t in sys_item.tables
+        )
+        total_tables = sum(len(sys_item.tables) for sys_item in profile_obj.source_systems)
+
+        res_dict: dict[str, Any] = {
+            "status": "PASS",
+            "profile_id": f"{domain_ns}_profile",
+            "source_system": source_sys_code,
+            "table_name": resolved_table_name,
+            "table_count": total_tables,
+            "column_count": total_cols,
+            "source_path": display_source_path,
+            "source_csv_path": display_source_path,
+            "graph_b_profile": graph_b_doc,
+        }
+        rendered_text = render_profile_text(res_dict)
+        res_dict["rendered"] = RenderedOutput(text=rendered_text)
+        return ProfileResponse(**res_dict)
+
+    # Case B: Validation of pre-existing Graph B profile
+    if request.graph_b_content is not None or (
+        request.graph_b_path is not None and request.graph_b_path.strip()
+    ):
+        if request.graph_b_content is not None:
+            graph_b_doc = request.graph_b_content
+            display_path = "inline:graph_b.json"
+        else:
+            assert request.graph_b_path is not None
+            graph_b_path = resolve_workspace_path(
+                request.graph_b_path, workspace_root=root, allow_temp=True
+            )
+            if not graph_b_path.exists():
+                raise InputValidationError(f"Graph B profile file not found: {graph_b_path}")
+            graph_b_doc = json.loads(graph_b_path.read_text(encoding="utf-8"))
+            display_path = str(graph_b_path)
+
+        validate_graph_b(graph_b_doc)
+        tables: list[dict[str, Any]] = list(graph_b_doc.get("tables", []))
+        for sys_item in graph_b_doc.get("source_systems", []):
+            if isinstance(sys_item, dict):
+                tables.extend(t for t in sys_item.get("tables", []) if isinstance(t, dict))
+        total_cols = sum(len(t.get("columns", [])) for t in tables if isinstance(t, dict))
+
+        source_sys = request.source_system or "UNKNOWN_SOURCE"
+        table_name = request.table_name or (tables[0].get("table_name", "") if tables else "")
+
+        res_dict = {
+            "status": "PASS",
+            "profile_id": (
+                graph_b_doc.get("profile_id")
+                or graph_b_doc.get("domain_namespace")
+                or "graph_b_profile"
+            ),
+            "source_system": source_sys,
+            "table_name": table_name,
+            "table_count": len(tables),
+            "column_count": total_cols,
+            "source_path": display_path,
+            "graph_b_profile": graph_b_doc,
+        }
+        rendered_text = render_profile_text(res_dict)
+        res_dict["rendered"] = RenderedOutput(text=rendered_text)
+        return ProfileResponse(**res_dict)
+
+    raise InputValidationError(
+        "Either source, source_path, file_content, or graph_b_path must be provided."
+    )
+
+
+__all__ = ["profile_pipeline"]

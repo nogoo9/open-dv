@@ -46,44 +46,6 @@ class PipelineStageId(StrEnum):
     STAGE_07_DETERMINISTIC_COMPILER = "STAGE_07_DETERMINISTIC_COMPILER"
 
 
-class WorkbenchViewId(StrEnum):
-    """Canonical 12-view Explainability & Observability Workbench identifiers."""
-
-    WB_00 = "WB-00"
-    WB_01 = "WB-01"
-    WB_02 = "WB-02"
-    WB_03 = "WB-03"
-    WB_04 = "WB-04"
-    WB_05 = "WB-05"
-    WB_06 = "WB-06"
-    WB_07 = "WB-07"
-    WB_08 = "WB-08"
-    WB_09 = "WB-09"
-    WB_10 = "WB-10"
-    WB_11 = "WB-11"
-
-
-class VizId(StrEnum):
-    """Canonical step and gate visualization identifiers."""
-
-    VIZ_PIPE_00 = "VIZ-PIPE-00"
-    VIZ_STEP_01 = "VIZ-STEP-01"
-    VIZ_STEP_02 = "VIZ-STEP-02"
-    VIZ_STEP_03 = "VIZ-STEP-03"
-    VIZ_STEP_04 = "VIZ-STEP-04"
-    VIZ_STEP_05 = "VIZ-STEP-05"
-    VIZ_STEP_06 = "VIZ-STEP-06"
-    VIZ_STEP_07 = "VIZ-STEP-07"
-    VIZ_STEP_08 = "VIZ-STEP-08"
-    VIZ_GATE_01 = "VIZ-GATE-01"
-    VIZ_GATE_02 = "VIZ-GATE-02"
-    VIZ_GATE_03 = "VIZ-GATE-03"
-    VIZ_GATE_04 = "VIZ-GATE-04"
-    VIZ_GATE_05 = "VIZ-GATE-05"
-    VIZ_GATE_06 = "VIZ-GATE-06"
-    VIZ_GATE_07 = "VIZ-GATE-07"
-    VIZ_GATE_08 = "VIZ-GATE-08"
-
 
 class ObservabilityVerdict(StrEnum):
     """Normative 5-state gate and stage observability verdicts."""
@@ -286,8 +248,6 @@ class ToolExecutionContext:
         parent_span_id: str | None = None,
         persona: AgentPersona,
         stage_id: PipelineStageId,
-        workbench_view_id: WorkbenchViewId,
-        viz_id: VizId,
         config: HarnessConfig,
     ) -> None:
         self.run_id = run_id
@@ -296,8 +256,6 @@ class ToolExecutionContext:
         self.parent_span_id = parent_span_id
         self.persona = persona
         self.stage_id = stage_id
-        self.workbench_view_id = workbench_view_id
-        self.viz_id = viz_id
         self.config = config
         self._session_state: dict[str, Any] = {}
         self.emitted_events: list[dict[str, Any]] = []
@@ -349,7 +307,6 @@ class AgentToolDefinition(Generic[InT, OutT]):  # noqa: UP046
         allowed_personas: frozenset[AgentPersona] | set[AgentPersona],
         read_only: bool = True,
         requires_steward_approval: bool = False,
-        default_viz_id: VizId | None = None,
     ) -> None:
         if not name.isidentifier():
             raise ValueError(f"Tool name '{name}' must be a valid Python identifier.")
@@ -361,7 +318,6 @@ class AgentToolDefinition(Generic[InT, OutT]):  # noqa: UP046
         self.allowed_personas: frozenset[AgentPersona] = frozenset(allowed_personas)
         self.read_only = read_only
         self.requires_steward_approval = requires_steward_approval
-        self.default_viz_id = default_viz_id
 
     def json_schema(self) -> dict[str, Any]:
         """Return the Draft 2020-12 JSON Schema for the tool input model."""
@@ -408,8 +364,6 @@ class AgentTaskSpec(BaseModel, Generic[OutputT]):  # noqa: UP046
     parent_span_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
     persona: AgentPersona
     stage_id: PipelineStageId
-    workbench_view_id: WorkbenchViewId
-    viz_id: VizId
     prompt: str
     system_instructions: str
     model_tier: ModelTier = ModelTier.HIGH_REASONING
@@ -453,8 +407,6 @@ class HarnessStreamEvent(BaseModel):
     provider: str
     persona: AgentPersona
     stage_id: PipelineStageId
-    workbench_view_id: WorkbenchViewId
-    viz_id: VizId
     kind: HarnessEventKind
     delta_text: str | None = None
     tool_name: str | None = None
@@ -535,6 +487,4 @@ __all__ = [
     "SandboxPolicy",
     "SubagentSpec",
     "ToolExecutionContext",
-    "VizId",
-    "WorkbenchViewId",
 ]

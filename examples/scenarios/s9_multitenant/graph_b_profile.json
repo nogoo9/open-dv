@@ -1,0 +1,26 @@
+{
+  "source_systems": [
+    {
+      "system_id": "bronze_saas",
+      "tables": [
+        {
+          "bronze_table": "bronze_saas.tenant_accounts",
+          "columns": [
+            {"column_name": "tenant_id", "data_type": "VARCHAR(64)"},
+            {"column_name": "account_id", "data_type": "VARCHAR(64)"},
+            {"column_name": "account_name", "data_type": "VARCHAR(255)"},
+            {"column_name": "plan_tier", "data_type": "VARCHAR(64)"}
+          ]
+        },
+        {
+          "bronze_table": "bronze_saas.tenant_subscriptions",
+          "columns": [
+            {"column_name": "tenant_id", "data_type": "VARCHAR(64)"},
+            {"column_name": "account_id", "data_type": "VARCHAR(64)"},
+            {"column_name": "subscription_id", "data_type": "VARCHAR(64)"}
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+@toon_v1
+run_id: run-local-verify
+attempt: 1/3
+status: REJECT-WITH-TRACE
+violations[2]{gate,rule,action,target,fix}:
+ G1,DV-COL-013,REJECT,hub_portfolio_company,"Hub 'hub_portfolio_company' source 'dealcloud.src_portfolio_companies' is Tier-1 global-standard (TIER_1_GLOBAL_STANDARD) but has require_src_qualifier=True or non-standard bkcc_prefix='DEALCLOUD_LOCAL_SILO' (expected require_src_qualifier=false and bkcc_prefix='GLOBAL')."
+ G2,DV-COL-013,REJECT,dealcloud.src_portfolio_companies,"Hub hub_portfolio_company Tier-1 global standard source 'dealcloud.src_portfolio_companies' must use require_src_qualifier=false and canonical bkcc_prefix='GLOBAL'."

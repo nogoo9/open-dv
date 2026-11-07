@@ -1,0 +1,254 @@
+"""Verify pipeline use case: 6-Gate AXI symbolic verification and scorecard derivation."""
+
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from opendv_axi_verifier import AxiDvPipelineResult, run_axi_dv_verification_pipeline
+from opendv_contracts import (
+    GateScorecardSummary,
+    GateVerdict,
+    RenderedOutput,
+    VerifyRequest,
+    VerifyResponse,
+)
+from opendv_contracts.errors import ErrorCode
+from opendv_core import validate_contract_v5
+from opendv_core.paths import resolve_workspace_path
+from opendv_service.errors import InputValidationError, NotFoundError
+from opendv_service.rendering import render_verify_text
+from opendv_service.use_cases.contract_resolver import resolve_and_load_contract_doc
+from opendv_sources import SourceNotFoundError, load_graph_a_source
+
+GateVerdictStatus = str
+
+
+def build_gate_scorecard_from_axi_result(
+    axi_result: AxiDvPipelineResult,
+) -> tuple[bool, GateVerdictStatus, GateScorecardSummary]:
+    """Derive overall pass boolean, verdict, and 6-Gate scorecard from an AXI pipeline result."""
+    passed = axi_result.status in {
+        "PASS",
+        "AUTO-FIX",
+        "AUTO_REPAIRED",
+        "ASK-USER",
+        "ASK_USER",
+    }
+    codemods = set(axi_result.applied_codemods)
+    if passed:
+        scorecard_dict: dict[str, GateVerdictStatus] = {
+            "gate_0_profile_drift": (
+                "AUTO-FIX" if "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT" in codemods else "PASS"
+            ),
+            "gate_1_contract_grain": (
+                "ASK-USER" if axi_result.status in {"ASK-USER", "ASK_USER"} else "AUTO_REPAIRED"
+            ),
+            "gate_2_sqlglot_ast": "PASS",
+            "gate_3_networkx_dag": "PASS",
+            "gate_4_yagni_cost_guard": "AUTO-FIX",
+            "gate_5_duckdb_sandbox": "PASS",
+        }
+    else:
+        scorecard_dict = {
+            "gate_0_profile_drift": (
+                "AUTO-FIX" if "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT" in codemods else "PASS"
+            ),
+            "gate_1_contract_grain": (
+                "AUTO_REPAIRED"
+                if codemods & {"ALG_A2_ENUM_DEMOTION", "ALG_A4_COLD_START_EXTENSIBILITY"}
+                else "PASS"
+            ),
+            "gate_2_sqlglot_ast": "PASS",
+            "gate_3_networkx_dag": (
+                "AUTO-FIX" if "ALG_A3_LINK_EFFECTIVITY" in codemods else "PASS"
+            ),
+            "gate_4_yagni_cost_guard": (
+                "AUTO-FIX" if "ALG_A1_3AXIS_SATELLITE_SPLIT" in codemods else "PASS"
+            ),
+            "gate_5_duckdb_sandbox": "PASS",
+        }
+
+    for violation in axi_result.toon_trace.violations:
+        if violation.rule.startswith("DV-EVO") or "EVOLUTION" in violation.rule:
+            gate_key = "gate_0_profile_drift"
+        elif violation.gate in {"G1", "G2"} or violation.rule.startswith("DV-COL"):
+            gate_key = "gate_1_contract_grain"
+        elif violation.gate == "G6" or violation.rule.startswith("DV-AST"):
+            gate_key = "gate_2_sqlglot_ast"
+        elif violation.gate == "G3":
+            gate_key = "gate_3_networkx_dag"
+        elif violation.gate == "G4":
+            gate_key = "gate_4_yagni_cost_guard"
+        elif violation.gate == "G5":
+            gate_key = "gate_5_duckdb_sandbox"
+        else:
+            gate_key = "gate_1_contract_grain"
+
+        if violation.action == "REJECT":
+            scorecard_dict[gate_key] = "REJECT-WITH-TRACE"
+        elif violation.action == "ASK-USER" and scorecard_dict[gate_key] != "REJECT-WITH-TRACE":
+            scorecard_dict[gate_key] = "ASK-USER"
+
+    if not passed and "REJECT-WITH-TRACE" not in scorecard_dict.values():
+        scorecard_dict["gate_1_contract_grain"] = "REJECT-WITH-TRACE"
+
+    scorecard = GateScorecardSummary(**scorecard_dict)
+    verdict: GateVerdictStatus
+    if not passed:
+        verdict = "REJECT-WITH-TRACE"
+    elif "ASK-USER" in scorecard_dict.values():
+        verdict = "ASK-USER"
+    else:
+        verdict = "PASS"
+    return passed, verdict, scorecard
+
+
+def verify_pipeline(
+    request: VerifyRequest,
+    *,
+    workspace_root: Path | None = None,
+) -> VerifyResponse:
+    """Execute 6-Gate symbolic verification across contract, Graph A, and Graph B inputs."""
+    root = Path(workspace_root or os.environ.get("OPENDV_WORKSPACE_ROOT") or Path.cwd()).resolve()
+
+    # 1. Resolve contract document
+    contract_doc, resolved_contract_path = resolve_and_load_contract_doc(
+        contract_path=request.contract_path,
+        contract_content=request.contract_content,
+        workspace_root=root,
+        not_found_as_not_found_error=True,
+    )
+
+    if "contract_version" not in contract_doc:
+        try:
+            validate_contract_v5(contract_doc)
+        except Exception as exc:
+            raise InputValidationError(
+                f"Invalid contract schema: {exc}",
+                error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+            ) from exc
+
+    # 2. Resolve Graph A ontology document (optional)
+    graph_a_doc: dict[str, Any] = {}
+    graph_a_sha256: str | None = None
+    ontology_version: str | None = None
+    parent_sha256: str | None = None
+    decision_refs: list[str] = []
+
+    graph_a_target = (
+        request.graph_a_source
+        if request.graph_a_source is not None
+        else (
+            request.graph_a_content
+            if request.graph_a_content is not None and request.graph_a_content.strip()
+            else (
+                request.graph_a_path
+                if request.graph_a_path is not None and request.graph_a_path.strip()
+                else None
+            )
+        )
+    )
+    if graph_a_target is not None:
+        try:
+            loaded_graph_a = load_graph_a_source(
+                graph_a_target,
+                workspace_root=root,
+                allow_temp=True,
+            )
+            graph_a_doc = loaded_graph_a.ontology.model_dump(mode="json", exclude_none=True)
+            graph_a_sha256 = loaded_graph_a.sha256
+            ontology_version = loaded_graph_a.ontology.ontology_version
+            parent_sha256 = loaded_graph_a.ontology.parent_sha256
+            decision_refs = list(loaded_graph_a.ontology.decision_refs)
+        except SourceNotFoundError as exc:
+            raise NotFoundError(f"Graph A file not found: {exc}") from exc
+        except Exception as exc:
+            raise InputValidationError(
+                f"Invalid Graph A ontology: {exc}",
+                error_code=ErrorCode.SCHEMA_VALIDATION_ERROR,
+            ) from exc
+
+    # 3. Resolve Graph B profile document (optional)
+    graph_b_doc: dict[str, Any] = {}
+    if request.graph_b_content is not None:
+        if isinstance(request.graph_b_content, dict):
+            graph_b_doc = request.graph_b_content
+        elif isinstance(request.graph_b_content, str) and request.graph_b_content.strip():
+            graph_b_doc = json.loads(request.graph_b_content) or {}
+    elif request.graph_b_path is not None and request.graph_b_path.strip():
+        graph_b_p = resolve_workspace_path(
+            request.graph_b_path, workspace_root=root, allow_temp=True
+        )
+        if not graph_b_p.exists():
+            raise NotFoundError(f"Graph B file not found: {graph_b_p}")
+        graph_b_doc = json.loads(graph_b_p.read_text(encoding="utf-8")) or {}
+
+    # 4. Resolve prior contract document (optional)
+    prior_contract_doc: dict[str, Any] | None = None
+    if request.prior_contract_content is not None and request.prior_contract_content.strip():
+        prior_contract_doc = yaml.safe_load(request.prior_contract_content)
+    elif request.prior_contract_path is not None and request.prior_contract_path.strip():
+        prior_contract_p = resolve_workspace_path(
+            request.prior_contract_path, workspace_root=root, allow_temp=True
+        )
+        if not prior_contract_p.exists():
+            raise NotFoundError(f"Prior contract file not found: {prior_contract_p}")
+        prior_contract_doc = yaml.safe_load(prior_contract_p.read_text(encoding="utf-8"))
+
+    effective_run_id = request.run_id or "run-local-verify"
+    sql_models: dict[str, str] | None = None
+    if request.compiled_sql_models:
+        sql_models = dict(request.compiled_sql_models)
+    elif request.compiled_sql:
+        import sqlglot
+        from sqlglot import exp
+
+        sql_models = {
+            tbl.name: stmt.sql(dialect="duckdb")
+            for stmt in sqlglot.parse(request.compiled_sql, read="duckdb")
+            if stmt is not None and (tbl := stmt.find(exp.Table)) is not None
+        }
+
+    axi_res = run_axi_dv_verification_pipeline(
+        contract_doc,
+        graph_a_doc,
+        graph_b_doc,
+        deployed_contract=prior_contract_doc,
+        compiled_sql_models=sql_models,
+        apply_codemods=request.apply_codemods,
+        run_id=effective_run_id,
+    )
+    passed, verdict_str, scorecard = build_gate_scorecard_from_axi_result(axi_res)
+
+    verdict_enum = GateVerdict(verdict_str)
+    res_dict: dict[str, Any] = {
+        "run_id": effective_run_id,
+        "status": axi_res.status,
+        "verdict": verdict_enum,
+        "overall_passed": passed,
+        "contract_path": (
+            str(resolved_contract_path) if resolved_contract_path else request.contract_path
+        ),
+        "graph_a_sha256": graph_a_sha256,
+        "ontology_version": ontology_version,
+        "parent_sha256": parent_sha256,
+        "decision_refs": decision_refs,
+        "applied_codemods": list(axi_res.applied_codemods),
+        "diagnostics": list(axi_res.diagnostics),
+        "gate_scorecard": scorecard,
+        "toon_text": axi_res.toon_text,
+    }
+    rendered_text = render_verify_text(res_dict)
+    res_dict["rendered"] = RenderedOutput(text=rendered_text, toon=axi_res.toon_text)
+    return VerifyResponse(**res_dict)
+
+
+__all__ = [
+    "build_gate_scorecard_from_axi_result",
+    "verify_pipeline",
+]
