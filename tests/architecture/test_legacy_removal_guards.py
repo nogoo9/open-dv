@@ -12,6 +12,7 @@ Enforces:
 from __future__ import annotations
 
 import ast
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -57,6 +58,11 @@ SKIP_DIR_NAMES = {
     ".moon",
     ".proto",
     "worktrees",
+    ".opendv",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache",
+    ".agents",
 }
 
 
@@ -251,16 +257,15 @@ def test_no_legacy_workbench_references() -> None:
     this_file = Path(__file__).resolve()
 
     violations: list[str] = []
-    for path in REPO_ROOT.rglob("*"):
-        if not path.is_file():
-            continue
-        if any(skip in path.parts for skip in SKIP_DIR_NAMES):
-            continue
-        if path.resolve() == this_file:
-            continue
-        # docs/18 is the PR #60 breaking changes note / implementation plan, explicitly exempted
-        if "docs" in path.parts and path.name.startswith("18-implementation-plan"):
-            continue
+    for root, dirnames, filenames in os.walk(REPO_ROOT):
+        dirnames[:] = [d for d in dirnames if d not in SKIP_DIR_NAMES]
+        for filename in filenames:
+            path = Path(root) / filename
+            if path.resolve() == this_file:
+                continue
+            # docs/18 is the PR #60 breaking changes note / implementation plan, explicitly exempted
+            if "docs" in path.parts and path.name.startswith("18-implementation-plan"):
+                continue
 
         try:
             content = path.read_text(encoding="utf-8", errors="replace")
