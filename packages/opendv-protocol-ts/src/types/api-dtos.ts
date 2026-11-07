@@ -42,6 +42,13 @@ export interface CaptainHoldDecisionRequest {
 	selected_candidate_id?: string | null | undefined;
 	steward_id?: string | undefined;
 	steward_rationale?: string | null | undefined;
+	hold_option?:
+		| components["schemas"]["AcceptOntologyDeltaOption"]
+		| components["schemas"]["RejectOntologyDeltaOption"]
+		| components["schemas"]["CustomOntologyDeltaOption"]
+		| components["schemas"]["GeneralHoldOption"]
+		| null
+		| undefined;
 }
 
 export interface CaptainHoldDecisionResponse {
@@ -64,6 +71,76 @@ export type GateScorecardSummary =
 export type GateVerdict = components["schemas"]["GateVerdict"];
 export type ArtifactDTO = components["schemas"]["ArtifactDTO"];
 export type RenderedOutput = components["schemas"]["RenderedOutput"];
+
+// Artifact & Project DTOs
+export type ArtifactUploadRequest =
+	components["schemas"]["ArtifactUploadRequest"];
+export type ArtifactMetadataResponse =
+	components["schemas"]["ArtifactMetadataResponse"];
+export type ProjectResponse = components["schemas"]["ProjectResponse"];
+
+// Sandbox Execution DTOs
+export type SandboxBatchResult = components["schemas"]["SandboxBatchResult"];
+export type SandboxColumnMetadata =
+	components["schemas"]["SandboxColumnMetadata"];
+export type SandboxQueryType = components["schemas"]["SandboxQueryType"];
+
+// Ontology REST & Seam DTOs
+export type OntologyDecisionRequest =
+	components["schemas"]["OntologyDecisionRequest"];
+export type OntologyDecisionResponse =
+	components["schemas"]["OntologyDecisionResponse"];
+export type OntologyDecision = components["schemas"]["OntologyDecision"];
+export type OntologyDiffRequest = components["schemas"]["OntologyDiffRequest"];
+export type OntologyDiff = components["schemas"]["OntologyDiff"];
+export type OntologySuggestionRequest =
+	components["schemas"]["OntologySuggestionRequest"];
+export type OntologyProposal = components["schemas"]["OntologyProposal"];
+export type OntologyValidateDeltaRequest =
+	components["schemas"]["OntologyValidateDeltaRequest"];
+export type OntologyValidationResult =
+	components["schemas"]["OntologyValidationResult"];
+export type OntologyDelta = components["schemas"]["OntologyDelta"];
+
+// Ontology Delta Operations
+export type AddConceptOp = components["schemas"]["AddConceptOp"];
+export type RefineDefinitionOp = components["schemas"]["RefineDefinitionOp"];
+export type AddRelationshipOp = components["schemas"]["AddRelationshipOp"];
+export type AddKeyAuthorityPatternOp =
+	components["schemas"]["AddKeyAuthorityPatternOp"];
+export type AddReferenceEnumerationOp =
+	components["schemas"]["AddReferenceEnumerationOp"];
+export type AddSourceHintOp = components["schemas"]["AddSourceHintOp"];
+export type AddGovernanceConstraintOp =
+	components["schemas"]["AddGovernanceConstraintOp"];
+
+// Steward Hold Options
+export type AcceptOntologyDeltaOption =
+	components["schemas"]["AcceptOntologyDeltaOption"];
+export type RejectOntologyDeltaOption =
+	components["schemas"]["RejectOntologyDeltaOption"];
+export type CustomOntologyDeltaOption =
+	components["schemas"]["CustomOntologyDeltaOption"];
+export type GeneralHoldOption = components["schemas"]["GeneralHoldOption"];
+
+// Explorer Structure DTOs
+export type StageDTO = components["schemas"]["StageDTO"];
+export type StepDTO = components["schemas"]["StepDTO"];
+export type PhaseSpecDTO = components["schemas"]["PhaseSpecDTO"];
+export type WaveMetadataSpecDTO = components["schemas"]["WaveMetadataSpecDTO"];
+export type RuleEvaluationDTO = components["schemas"]["RuleEvaluationDTO"];
+export type DvVizDTO = components["schemas"]["DvVizDTO"];
+export type OntologyVizDTO = components["schemas"]["OntologyVizDTO"];
+export type DocVizDTO = components["schemas"]["DocVizDTO"];
+export type EvidenceRef = components["schemas"]["EvidenceRef"];
+export type DvSvgNodeSpecDTO = components["schemas"]["DvSvgNodeSpec"];
+export type DvSvgEdgeSpecDTO = components["schemas"]["DvSvgEdgeSpec"];
+export type OntologySvgNodeSpecDTO =
+	components["schemas"]["OntologySvgNodeSpec"];
+export type OntologySvgEdgeSpecDTO =
+	components["schemas"]["OntologySvgEdgeSpec"];
+export type DocCandidateOptionDTO = components["schemas"]["DocCandidateOption"];
+export type DocExtractionSpecDTO = components["schemas"]["DocExtractionSpec"];
 
 // Ergonomic Aliases
 export type GateScorecardSummaryDTO = GateScorecardSummary;
