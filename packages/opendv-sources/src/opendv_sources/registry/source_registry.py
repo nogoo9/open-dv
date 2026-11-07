@@ -61,9 +61,8 @@ class SourceAdapterRegistry:
                 raise TypeError(
                     f"Expected TabularSourceAdapter instance or subclass, got {type(inst).__name__}"
                 )
-            if (
-                key in self._tabular_adapters
-                and type(self._tabular_adapters[key]) is not type(inst)
+            if key in self._tabular_adapters and type(self._tabular_adapters[key]) is not type(
+                inst
             ):
                 logger.warning(
                     "Overwriting tabular adapter '%s' (%s) with %s",
@@ -84,9 +83,8 @@ class SourceAdapterRegistry:
             inst = adapter() if isinstance(adapter, type) else adapter
             if not isinstance(inst, DocumentSourceAdapter):
                 raise TypeError(f"Expected DocumentSourceAdapter, got {type(inst).__name__}")
-            if (
-                key in self._document_adapters
-                and type(self._document_adapters[key]) is not type(inst)
+            if key in self._document_adapters and type(self._document_adapters[key]) is not type(
+                inst
             ):
                 logger.warning(
                     "Overwriting document adapter '%s' (%s) with %s",

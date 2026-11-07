@@ -357,6 +357,9 @@ class OntologyRecommenderUnavailableError(OpenDVError):
     error_code = ErrorCode.ONTOLOGY_RECOMMENDER_UNAVAILABLE
 
 
+DEFAULT_MAX_INLINE_BYTES: int = 50 * 1024 * 1024
+
+
 class PayloadTooLargeError(OpenDVError):
     """Raised when an uploaded payload or request body exceeds the configured maximum byte size."""
 
@@ -366,6 +369,7 @@ class PayloadTooLargeError(OpenDVError):
 
 
 __all__ = [
+    "DEFAULT_MAX_INLINE_BYTES",
     "ERROR_MAP",
     "ERROR_MAPPINGS",
     "ErrorCode",

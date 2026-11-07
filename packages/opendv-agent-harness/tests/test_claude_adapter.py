@@ -978,17 +978,28 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
             stderr="",
         )
 
-    fb_cfg = cli_cfg.model_copy(
+    # 5. Verify fallback retry is gated by default (fails fast without opt-in)
+    fb_cfg_default = cli_cfg.model_copy(
         update={
             "extra_provider_options": {
                 "claude_binary": str(fake_claude_exe),
                 "claude_cli_runner": _fallback_runner,
             },
+            "allow_cli_schema_omission_retry": False,
             "env": {},
         }
     )
-    fb_adapter = ClaudeCliHarnessAdapter(fb_cfg)
-    fb_res = await fb_adapter.run_task(vfm_spec)
+    fb_adapter_default = ClaudeCliHarnessAdapter(fb_cfg_default)
+    with pytest.raises(ProviderConfigurationError, match="validation unsupported"):
+        await fb_adapter_default.run_task(vfm_spec)
+    assert len(fallback_cmds) == 1
+    assert "--json-schema" in fallback_cmds[0]
+
+    # 5b. Verify opt-in fallback retry without --json-schema emits FALLBACK_APPLIED
+    fallback_cmds.clear()
+    fb_cfg_optin = fb_cfg_default.model_copy(update={"allow_cli_schema_omission_retry": True})
+    fb_adapter_optin = ClaudeCliHarnessAdapter(fb_cfg_optin)
+    fb_res = await fb_adapter_optin.run_task(vfm_spec)
     assert len(fallback_cmds) == 2
     assert "--json-schema" in fallback_cmds[0]
     assert "--json-schema" not in fallback_cmds[1]
@@ -998,6 +1009,20 @@ async def test_wp23_claude_cli_harness_adapter_registration_routing_subprocess_a
     assert isinstance(fb_res.structured_output, _ClaudeStructuredResult)
     assert fb_res.structured_output.contract_id == "dv_fallback_v5"
     assert "dv_fallback_v5" in fb_res.text_output
+
+    # Verify FALLBACK_APPLIED event emission in event stream
+    fallback_cmds.clear()
+    stream_events = [ev async for ev in fb_adapter_optin.stream_task(vfm_spec)]
+    fallback_events = [
+        ev
+        for ev in stream_events
+        if ev.observability_event and ev.observability_event.get("event_type") == "FALLBACK_APPLIED"
+    ]
+    assert len(fallback_events) == 1
+    assert (
+        fallback_events[0].observability_event.get("fallback_key")
+        == "harness.cli.schema_omission_retry"
+    )
 
     # 6. Verify error handling when binary is missing, non-zero exit after NDJSON, or is_error=True
     assert _extract_json_from_stdout('{"type": "text_delta", "text": "ok"}') == {

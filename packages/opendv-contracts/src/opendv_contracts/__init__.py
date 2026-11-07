@@ -6,7 +6,7 @@ Language-neutral Pydantic DTOs, Error Taxonomy, RFC 8785 JCS, and CLI Spec.
 # ruff: noqa: F401
 from __future__ import annotations
 
-from opendv_contracts import dtos, errors
+from opendv_contracts import dtos, errors, fallbacks
 from opendv_contracts.dtos import (
     AcceptOntologyDeltaOption,
     AddConceptOp,
@@ -107,6 +107,14 @@ from opendv_contracts.errors import (
     get_error_entry,
     get_error_mapping,
 )
+from opendv_contracts.fallbacks import (
+    FALLBACK_REGISTRY,
+    FallbackDefinition,
+    FallbackKey,
+    FallbackRecord,
+    get_fallback_definition,
+    is_fallback_enabled,
+)
 from opendv_contracts.jcs import (
     CanonicalizationError,
     FloatDomainError,
@@ -138,6 +146,7 @@ __all__ = [
     "CONTRACT_VERSION",
     "ERROR_MAP",
     "ERROR_MAPPINGS",
+    "FALLBACK_REGISTRY",
     "SPEC_VERSION",
     "AcceptOntologyDeltaOption",
     "AddConceptOp",
@@ -167,6 +176,9 @@ __all__ = [
     "EventType",
     "EvidenceRef",
     "ExplorerBundleDTO",
+    "FallbackDefinition",
+    "FallbackKey",
+    "FallbackRecord",
     "FloatDomainError",
     "GateRuleEvaluation",
     "GateScorecardSummary",
@@ -236,6 +248,8 @@ __all__ = [
     "dumps_jcs_bytes",
     "get_error_entry",
     "get_error_mapping",
+    "get_fallback_definition",
+    "is_fallback_enabled",
     "load_cli_spec",
     "load_cli_spec_model",
     "load_cli_spec_schema",

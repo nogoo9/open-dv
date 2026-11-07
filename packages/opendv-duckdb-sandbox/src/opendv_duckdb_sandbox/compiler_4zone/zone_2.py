@@ -143,6 +143,7 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
         part_cols = [parent_hk, *child_keys]
         part_csv = ", ".join(part_cols)
         join_on = " AND ".join(f"cur.{c} = src.{c}" for c in part_cols)
+        ex_guard = "\n        AND ".join(f"ex.{c} = cand.{c}" for c in [*part_cols, "load_dts"])
 
         sat_cols = [parent_hk, "load_dts", "applied_dts", "rec_src", "hash_diff", *col_names]
         comb_csv = ",\n        ".join(f"combined.{c}" for c in [*sat_cols, "is_new"])
@@ -194,8 +195,7 @@ def _compile_generic_zone_2_raw_vault_dml(ir_obj: CanonicalIR) -> str:
                 f"WHERE cand.is_new = 1\n"
                 f"  AND NOT EXISTS (\n"
                 f"      SELECT 1 FROM {schema}.{tbl} ex\n"
-                f"      WHERE ex.{parent_hk} = cand.{parent_hk}\n"
-                f"        AND ex.load_dts = cand.load_dts\n"
+                f"      WHERE {ex_guard}\n"
                 f"  )\n"
                 f"  AND (\n"
                 f"      cand.prev_hash_diff IS NULL\n"

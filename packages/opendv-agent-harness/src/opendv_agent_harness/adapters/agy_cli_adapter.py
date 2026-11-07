@@ -38,6 +38,7 @@ from opendv_agent_harness.models import (
 )
 from opendv_agent_harness.protocol import BaseVaultAgentHarness
 from opendv_agent_harness.routing import resolve_provider_model
+from opendv_contracts.fallbacks import FallbackKey, is_fallback_enabled
 
 _STAGE_CONTEXT_MARKERS: tuple[str, ...] = (
     "\n__OPENDV_STAGE_CONTEXT_JSON__:",
@@ -578,16 +579,41 @@ class AgyCliHarnessAdapter(BaseVaultAgentHarness):
                 if result_obj is not None:
                     last_result_payload = dict(result_obj)
 
-            # Fallback without --json-schema flag only if CLI rejected a complex schema
+            # Fallback without --json-schema flag only if explicitly enabled and rejected
+            fb_dict = getattr(
+                self._config, "fallbacks", None
+            ) or self._config.extra_provider_options.get("fallbacks")
+            allow_schema_retry = (
+                getattr(self._config, "allow_cli_schema_omission_retry", False)
+                or bool(self._config.extra_provider_options.get("allow_cli_schema_omission_retry"))
+                or is_fallback_enabled(
+                    FallbackKey.CLI_SCHEMA_OMISSION_RETRY,
+                    {"fallbacks": fb_dict} if isinstance(fb_dict, dict) else None,
+                )
+                or (
+                    os.environ.get("OPENDV_FALLBACK_CLI_SCHEMA_OMISSION_RETRY", "").lower()
+                    in ("1", "true", "yes")
+                )
+            )
             stderr_lower = str(run_state.get("stderr") or "").lower()
             is_schema_rejection = any(
                 term in stderr_lower for term in ("schema", "--json-schema", "$defs", "validation")
             )
             if (
-                run_state["returncode"] != 0
+                allow_schema_retry
+                and run_state["returncode"] != 0
                 and schema_file_path is not None
                 and is_schema_rejection
             ):
+                yield make_event(
+                    HarnessEventKind.OBSERVABILITY_EVENT,
+                    observability_event={
+                        "event_type": "FALLBACK_APPLIED",
+                        "fallback_key": str(FallbackKey.CLI_SCHEMA_OMISSION_RETRY),
+                        "reason": "cli_schema_rejection",
+                        "detail": stderr_lower[:200],
+                    },
+                )
                 streamed_text_chunks.clear()
                 emitted_any_text_delta = False
                 seen_fine_grained = False

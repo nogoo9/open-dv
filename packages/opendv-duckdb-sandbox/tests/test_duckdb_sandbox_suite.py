@@ -762,3 +762,31 @@ def test_scenario_s7_intrabatch_deduplication_ast_and_duckdb_e2e() -> None:
         dyn_report = evaluate_all_dynamic_checks(sandbox.conn, ir=commerce_ir)
         assert dyn_report.all_passed is True
         assert dyn_report.passed_count == 15
+
+
+def test_b1_m4_replay_tiebreak_and_multi_active_guard() -> None:
+    """Verify B1 deterministic tie-breaking on tied timestamps and M4
+    multi-active satellite primary key preservation.
+    """
+    commerce_ir = _build_global_commerce_canonical_ir()
+    bundle = compile_canonical_ir_to_4zone_sql(commerce_ir)
+
+    with DuckDbShadowSandbox() as sandbox:
+        sandbox.run_full_verification(source=commerce_ir, emit_telemetry=False)
+
+        # 1. Capture initial sat_customer_core count
+        before_count = sandbox.conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.sat_customer_core"
+        ).fetchone()[0]
+        assert before_count > 0
+
+        # 2. Replay Zone 2 DML with existing staging rows (tied applied_dts and load_dts)
+        # B1 Invariant: Must execute deterministically without duplicate key constraint violations
+        # and result in 0 new rows inserted (idempotent replay)
+        sandbox.conn.execute(bundle.zone_2_sql)
+        after_count = sandbox.conn.execute(
+            "SELECT COUNT(*) FROM raw_vault.sat_customer_core"
+        ).fetchone()[0]
+        assert after_count == before_count, (
+            f"Replay inserted extra rows: {after_count} vs {before_count}"
+        )

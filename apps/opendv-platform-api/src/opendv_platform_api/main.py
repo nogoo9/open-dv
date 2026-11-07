@@ -11,8 +11,14 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import Message
 
-from opendv_contracts.errors import ERROR_MAP, ErrorCode
+from opendv_contracts.errors import (
+    DEFAULT_MAX_INLINE_BYTES,
+    ERROR_MAP,
+    ErrorCode,
+    PayloadTooLargeError,
+)
 from opendv_core.paths import PathContainmentError
 from opendv_platform_api.routers import (
     artifacts,
@@ -115,6 +121,7 @@ def create_app(
         active_state = PlatformStateContainer(
             workspace_root=active_settings.workspace_root,
             storage_root=active_settings.state_dir,
+            settings=active_settings,
         )
         active_service = OpenDVService(
             state_store=active_state,
@@ -136,6 +143,8 @@ def create_app(
     application.state.settings = active_settings
     application.state.service = active_service
     application.state.platform_state = active_service.state
+    if getattr(active_service.state, "settings", None) is None:
+        active_service.state.settings = active_settings
 
     application.add_middleware(
         CORSMiddleware,
@@ -150,11 +159,11 @@ def create_app(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],
     ) -> Response:
-        max_limit = getattr(active_settings, "max_inline_bytes", 50 * 1024 * 1024)
+        max_limit = getattr(active_settings, "max_inline_bytes", DEFAULT_MAX_INLINE_BYTES)
         cl_header = request.headers.get("content-length")
         if cl_header:
             try:
-                content_length = int(cl_header)
+                content_length = int(cl_header.strip())
                 if content_length > max_limit:
                     return build_problem_details_response(
                         status_code=413,
@@ -167,8 +176,42 @@ def create_app(
                         title="Payload Too Large",
                     )
             except ValueError:
-                pass
-        return await call_next(request)
+                return build_problem_details_response(
+                    status_code=400,
+                    detail="Invalid Content-Length header.",
+                    instance=str(request.url.path),
+                    problem_type="urn:opendv:invalid-request",
+                    title="Invalid Request",
+                )
+
+        # Wrap receive to enforce limits on chunked / streamed requests
+        original_receive = request.receive
+        received_bytes = 0
+
+        async def limited_receive() -> Message:
+            nonlocal received_bytes
+            message = await original_receive()
+            if message.get("type") == "http.request":
+                chunk = message.get("body", b"")
+                received_bytes += len(chunk)
+                if received_bytes > max_limit:
+                    raise PayloadTooLargeError(
+                        f"Request payload stream ({received_bytes} bytes) "
+                        f"exceeds limit ({max_limit} bytes)."
+                    )
+            return message
+
+        request._receive = limited_receive
+        try:
+            return await call_next(request)
+        except PayloadTooLargeError as exc:
+            return build_problem_details_response(
+                status_code=413,
+                detail=str(exc),
+                instance=str(request.url.path),
+                problem_type="urn:opendv:payload-too-large",
+                title="Payload Too Large",
+            )
 
     @application.middleware("http")
     async def attach_security_headers(
@@ -202,6 +245,25 @@ def create_app(
         request: Request,
         exc: StarletteHTTPException,
     ) -> JSONResponse:
+        cause = exc.__cause__
+        payload_too_large: PayloadTooLargeError | None = None
+        if isinstance(cause, PayloadTooLargeError):
+            payload_too_large = cause
+        elif isinstance(cause, BaseExceptionGroup):
+            for sub_exc in cause.exceptions:
+                if isinstance(sub_exc, PayloadTooLargeError):
+                    payload_too_large = sub_exc
+                    break
+
+        if payload_too_large is not None:
+            return build_problem_details_response(
+                status_code=413,
+                detail=str(payload_too_large),
+                instance=str(request.url.path),
+                problem_type="urn:opendv:payload-too-large",
+                title="Payload Too Large",
+            )
+
         return build_problem_details_response(
             status_code=exc.status_code,
             detail=str(exc.detail),

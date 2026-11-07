@@ -122,7 +122,10 @@ class OpenDVService:
         self.state = active_state or StateStore(
             workspace_root=self.workspace_root,
             storage_root=self.storage_root,
+            settings=self.settings,
         )
+        if getattr(self.state, "settings", None) is None:
+            self.state.settings = self.settings
         self.pipeline_runner = pipeline_runner or get_default_pipeline_runner()
         self.run_engine = RunExecutionEngine()
 

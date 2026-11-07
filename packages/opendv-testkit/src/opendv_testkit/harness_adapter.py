@@ -160,8 +160,7 @@ class DeterministicHarnessAdapter(BaseVaultAgentHarness):
             if emit_tool is not None:
                 call_id = f"det-call-{uuid.uuid4().hex[:8]}"
                 headline = (
-                    f"Deterministic {spec.persona.value} checkpoint at "
-                    f"{spec.stage_id.value}."
+                    f"Deterministic {spec.persona.value} checkpoint at {spec.stage_id.value}."
                 )
                 tool_args: dict[str, Any] = {
                     "status": "PASS",

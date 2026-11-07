@@ -50,7 +50,9 @@ class BaseStateContainer:
         *,
         repo_root: Path | None = None,
         state_dir: Path | None = None,
+        settings: Any | None = None,
     ) -> None:
+        self.settings = settings
         eff_ws = workspace_root if workspace_root is not None else repo_root
         self._explicit_workspace = eff_ws is not None
         if eff_ws is None:

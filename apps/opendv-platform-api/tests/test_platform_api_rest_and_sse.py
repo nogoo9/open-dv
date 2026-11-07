@@ -193,7 +193,11 @@ def test_health_and_capabilities_endpoints(tmp_path: Path) -> None:
             assert "workbench_views" not in body_cap
             assert body_cap["explorer_views"] == ["overview", "drilldown", "artifacts"]
             assert body_cap["parity_endpoints"] == [
-                "profile", "compile", "verify", "sandbox", "runs",
+                "profile",
+                "compile",
+                "verify",
+                "sandbox",
+                "runs",
             ]
             assert body_cap["gates"] == ["G0", "G1", "G2", "G3", "G4", "G5"]
 
@@ -396,11 +400,7 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
                     headers={"X-OpenDV-Role": role_name},
                 )
                 frames = _parse_sse_frames(res.text)
-                return {
-                    ev["event_id"]: ev
-                    for f in frames[:-1]
-                    if (ev := json.loads(f["data"]))
-                }
+                return {ev["event_id"]: ev for f in frames[:-1] if (ev := json.loads(f["data"]))}
 
             # 2. DATA_STEWARD role: CONFIDENTIAL (evt-pe-004) is visible,
             #    but MNPI (evt-pe-006) and RESTRICTED_PII (evt-pe-005) are masked
@@ -424,7 +424,9 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
             #    but RESTRICTED_PII (evt-pe-005) remains masked
             events_auditor = await _get_events_by_id("AUDITOR_FINANCE")
             assert (
-                events_auditor["evt-pe-006"]["layer2_visual_payload"]["summary_metrics"]["fair_value_usd"]
+                events_auditor["evt-pe-006"]["layer2_visual_payload"]["summary_metrics"][
+                    "fair_value_usd"
+                ]
                 == 245000000.0
             )
             assert events_auditor["evt-pe-005"]["layer1_story_banner"]["headline"].startswith(
@@ -434,7 +436,9 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
             # 5. RESTRICTED_PII_CUSTODIAN role: evt-pe-005 is unmasked
             events_custodian = await _get_events_by_id("RESTRICTED_PII_CUSTODIAN")
             assert (
-                events_custodian["evt-pe-005"]["layer2_visual_payload"]["summary_metrics"]["pii_satellite"]
+                events_custodian["evt-pe-005"]["layer2_visual_payload"]["summary_metrics"][
+                    "pii_satellite"
+                ]
                 == "sat_limited_partner_pii"
             )
 

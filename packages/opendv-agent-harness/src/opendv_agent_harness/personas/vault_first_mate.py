@@ -62,8 +62,7 @@ def build_vault_first_mate_subagent_spec() -> SubagentSpec:
         name=AgentPersona.VAULT_FIRST_MATE.value,
         persona=AgentPersona.VAULT_FIRST_MATE,
         description=(
-            "Read-Only Supervisor & Enterprise Ontology Steward "
-            "(STAGE_00_ORCHESTRATION)."
+            "Read-Only Supervisor & Enterprise Ontology Steward (STAGE_00_ORCHESTRATION)."
         ),
         system_instructions=VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS,
         model_tier=profile.default_model_tier,

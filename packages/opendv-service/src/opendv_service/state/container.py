@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from opendv_service.seams import PipelineRunner
 from opendv_service.state.base import BaseStateContainer
@@ -33,12 +34,14 @@ class PlatformStateContainer(
         repo_root: Path | None = None,
         state_dir: Path | None = None,
         pipeline_runner: PipelineRunner | None = None,
+        settings: Any | None = None,
     ) -> None:
         super().__init__(
             workspace_root=workspace_root,
             storage_root=storage_root,
             repo_root=repo_root,
             state_dir=state_dir,
+            settings=settings,
         )
         self._custom_pipeline_runner = pipeline_runner
 

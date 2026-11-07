@@ -46,7 +46,6 @@ class PipelineStageId(StrEnum):
     STAGE_07_DETERMINISTIC_COMPILER = "STAGE_07_DETERMINISTIC_COMPILER"
 
 
-
 class ObservabilityVerdict(StrEnum):
     """Normative 5-state gate and stage observability verdicts."""
 
@@ -147,6 +146,7 @@ class HarnessConfig(BaseModel):
     sandbox: SandboxPolicy = Field(default_factory=SandboxPolicy)
     env: dict[str, str] = Field(default_factory=dict)
     viewer_rbac_clears_mnpi: bool = False
+    allow_cli_schema_omission_retry: bool = False
     extra_provider_options: dict[str, Any] = Field(default_factory=dict)
 
     @pydantic.field_validator("workspace_dir", "state_dir", "app_data_dir", "save_dir")

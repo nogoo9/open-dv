@@ -82,7 +82,11 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             assert "workbench_views" not in cap_body
             assert cap_body["explorer_views"] == ["overview", "drilldown", "artifacts"]
             assert cap_body["parity_endpoints"] == [
-                "profile", "compile", "verify", "sandbox", "runs",
+                "profile",
+                "compile",
+                "verify",
+                "sandbox",
+                "runs",
             ]
             assert {
                 "PUBLIC",

@@ -77,7 +77,11 @@ class DeterministicTestkitRecommender:
         self.capabilities = RecommenderCapabilities(
             supported_modes=["BOOTSTRAP", "DELTA", "HOLD_RESOLUTION"],
             supported_input_kinds=[
-                "profiles", "samples", "context_documents", "unmapped_gaps", "deployed_contract"
+                "profiles",
+                "samples",
+                "context_documents",
+                "unmapped_gaps",
+                "deployed_contract",
             ],
             needs_llm=False,
             clearance_level="INTERNAL",
@@ -108,9 +112,7 @@ class DeterministicTestkitRecommender:
 
         # Normalize request parameters across DTO representations
         mode: str = getattr(request, "mode", None) or "DELTA"
-        domain_namespace: str = (
-            getattr(request, "domain_namespace", None) or "pe_asset_management"
-        )
+        domain_namespace: str = getattr(request, "domain_namespace", None) or "pe_asset_management"
         base_ontology: Any = getattr(request, "base_ontology", None) or getattr(
             request, "current_ontology", None
         )
@@ -372,8 +374,9 @@ class DeterministicTestkitRecommender:
             base_ontology_sha256=effective_sha or "",
             delta=delta,
             rationale=(
-                "Incorporate external deal advisory domain concepts into institutional PE "
-                "ontology." if is_advisor_scenario else "Resolve Gate 1 hold via delta."
+                "Incorporate external deal advisory domain concepts into institutional PE ontology."
+                if is_advisor_scenario
+                else "Resolve Gate 1 hold via delta."
             ),
             confidence_score=0.94,
             coverage_before=0.8,

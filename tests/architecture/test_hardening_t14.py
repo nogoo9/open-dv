@@ -623,8 +623,10 @@ def test_t14_payload_too_large_behavioral(tmp_path: Path) -> None:
     assert exc_info.value.exit_code == 2
 
     # 2. CAS artifact upload rejects payload exceeding max_inline_bytes with PayloadTooLargeError
-    state = PlatformStateContainer(state_dir=tmp_path / "state")
-    state.settings = OpenDVSettings(max_inline_bytes=50)
+    state = PlatformStateContainer(
+        state_dir=tmp_path / "state",
+        settings=OpenDVSettings(max_inline_bytes=50),
+    )
     req = ArtifactUploadRequest(
         artifact_name="large.txt",
         media_type="text/plain",
@@ -635,3 +637,62 @@ def test_t14_payload_too_large_behavioral(tmp_path: Path) -> None:
     assert exc_cas.value.error_code == ErrorCode.PAYLOAD_TOO_LARGE
     assert exc_cas.value.http_status == 413
     assert exc_cas.value.exit_code == 2
+
+
+@pytest.mark.architecture
+@pytest.mark.hardening
+def test_t14_settings_injection_and_streaming_413_http(tmp_path: Path) -> None:
+    """T14 Invariant: Settings inject into PlatformState and streaming 413 blocks chunked over-limit."""
+    settings = OpenDVSettings(
+        state_dir=tmp_path / "state",
+        workspace_root=tmp_path / "ws",
+        max_inline_bytes=1024,
+    )
+    app = create_app(settings=settings)
+    assert getattr(app.state.platform_state, "settings", None) is not None
+    assert app.state.platform_state.settings.max_inline_bytes == 1024
+
+    client = TestClient(app)
+
+    # 1. Valid artifact upload within limit returns 201
+    resp_ok = client.post(
+        "/api/v1/artifacts",
+        json={
+            "artifact_name": "valid.txt",
+            "media_type": "text/plain",
+            "content": "A" * 100,
+        },
+    )
+    assert resp_ok.status_code == 201
+    assert "sha256" in resp_ok.json()
+
+    # 2. Oversized Content-Length header returns 413
+    resp_cl_large = client.post(
+        "/api/v1/artifacts",
+        content=b"X" * 2000,
+        headers={"Content-Type": "application/octet-stream", "Content-Length": "2000"},
+    )
+    assert resp_cl_large.status_code == 413
+    assert "exceeds limit" in resp_cl_large.text
+
+    # 3. Malformed Content-Length header returns 400
+    resp_bad_cl = client.post(
+        "/api/v1/artifacts",
+        content=b"{}",
+        headers={"Content-Length": "not-an-int"},
+    )
+    assert resp_bad_cl.status_code == 400
+    assert "Invalid Content-Length header" in resp_bad_cl.text
+
+    # 4. Chunked stream without Content-Length exceeding limit returns 413
+    def _chunk_gen():
+        for _ in range(20):
+            yield b"Z" * 100
+
+    resp_chunked = client.post(
+        "/api/v1/artifacts",
+        content=_chunk_gen(),
+        headers={"Content-Type": "application/octet-stream"},
+    )
+    assert resp_chunked.status_code == 413
+    assert "exceeds limit" in resp_chunked.text

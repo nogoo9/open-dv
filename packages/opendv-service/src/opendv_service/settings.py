@@ -10,14 +10,13 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, Field
 
+from opendv_contracts.errors import DEFAULT_MAX_INLINE_BYTES
+
 
 class ConfigurationError(ValueError):
     """Raised when required configuration is missing or invalid."""
 
     pass
-
-
-DEFAULT_MAX_INLINE_BYTES: int = 50 * 1024 * 1024
 
 
 class OpenDVSettings(BaseModel):
