@@ -17,6 +17,9 @@ class ConfigurationError(ValueError):
     pass
 
 
+DEFAULT_MAX_INLINE_BYTES: int = 50 * 1024 * 1024
+
+
 class OpenDVSettings(BaseModel):
     """Authoritative settings model for OpenDV runtime environments."""
 
@@ -60,7 +63,7 @@ class OpenDVSettings(BaseModel):
         description="Path to active configuration file, if loaded.",
     )
     max_inline_bytes: int = Field(
-        default=50 * 1024 * 1024,
+        default=DEFAULT_MAX_INLINE_BYTES,
         description="Maximum allowed byte size for inline uploads or request payloads.",
     )
 

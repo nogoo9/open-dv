@@ -13,6 +13,7 @@ class FallbackKey(StrEnum):
     STAGE_OUTPUT_SYMBOLIC = "stage_output_policy.symbolic_completion"
     HARNESS_RETRY_POLICY = "harness.retry_policy"
     HARNESS_TRANSPORT_REST = "harness.transport.rest"
+    CLI_SCHEMA_OMISSION_RETRY = "harness.cli.schema_omission_retry"
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,12 @@ FALLBACK_REGISTRY: dict[FallbackKey, FallbackDefinition] = {
         default_enabled=False,
         description="Explicit REST transport selection instead of native SDK",
         valid_use_case="Environments lacking native SDK bindings",
+    ),
+    FallbackKey.CLI_SCHEMA_OMISSION_RETRY: FallbackDefinition(
+        key=FallbackKey.CLI_SCHEMA_OMISSION_RETRY,
+        default_enabled=False,
+        description="Retry CLI LLM invocation without --json-schema when CLI rejects schema flag",
+        valid_use_case="Experimental or local CLI harnesses with models that reject schema flags",
     ),
 }
 

@@ -292,6 +292,7 @@ def capture_gt03_rejections(
     repo_root: Path,
     workspace_dir: Path,
     rest_transport: DirectRestTransport | None = None,
+    client_cli_transport: Any | None = None,
 ) -> None:
     """Execute GT-03 6 canonical bad inputs and assert/update 10 golden files."""
     pe_contract_path = repo_root / "examples" / "private_equity" / "dv_pe_model_contract.yaml"
@@ -325,6 +326,10 @@ def capture_gt03_rejections(
             res_rest = rest_transport.verify(contract=candidate, **extra_kwargs)
             norm_rest = normalize_for_parity(res_rest, path_root=str(repo_root))
             assert norm_cli == norm_rest, f"Parity mismatch on GT-03/{case_id}"
+        if client_cli_transport:
+            res_client = client_cli_transport.verify(contract=candidate, **extra_kwargs)
+            norm_client = normalize_for_parity(res_client, path_root=str(repo_root))
+            assert norm_cli == norm_client, f"Client CLI parity mismatch on GT-03/{case_id}"
 
         verdict_bytes = (json.dumps(norm_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
         golden_manager.assert_golden_byte_equality(
@@ -352,6 +357,12 @@ def capture_gt03_rejections(
         )
         norm_rest_4 = normalize_for_parity(res_rest_4, path_root=str(repo_root))
         assert norm_cli_4 == norm_rest_4, "Parity mismatch on GT-03/04_satellite_group_by"
+    if client_cli_transport:
+        res_client_4 = client_cli_transport.verify(
+            contract=c4, graph_a=graph_a, graph_b=graph_b, compiled_sql_models=sql4
+        )
+        norm_client_4 = normalize_for_parity(res_client_4, path_root=str(repo_root))
+        assert norm_cli_4 == norm_client_4, "Client CLI parity mismatch on GT-03/04_satellite_group_by"
 
     verdict_4_bytes = (json.dumps(norm_cli_4, indent=2, sort_keys=True) + "\n").encode("utf-8")
     golden_manager.assert_golden_byte_equality(

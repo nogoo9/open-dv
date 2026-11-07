@@ -357,6 +357,14 @@ class OntologyRecommenderUnavailableError(OpenDVError):
     error_code = ErrorCode.ONTOLOGY_RECOMMENDER_UNAVAILABLE
 
 
+class PayloadTooLargeError(OpenDVError):
+    """Raised when an uploaded payload or request body exceeds the configured maximum byte size."""
+
+    error_code = ErrorCode.PAYLOAD_TOO_LARGE
+    exit_code = 2
+    http_status = 413
+
+
 __all__ = [
     "ERROR_MAP",
     "ERROR_MAPPINGS",
@@ -368,6 +376,7 @@ __all__ = [
     "NotFoundError",
     "OntologyRecommenderUnavailableError",
     "OpenDVError",
+    "PayloadTooLargeError",
     "ProblemDetail",
     "create_problem_detail",
     "get_error_entry",

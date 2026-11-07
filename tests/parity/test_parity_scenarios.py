@@ -48,24 +48,25 @@ def test_scenario_parity(
             )
 
         # 3. Direct REST execution with clean handling of acknowledged gaps
+        rest_res = None
         try:
             rest_res = getattr(rest_transport, op)(spec.fixtures)
         except ParityGapError as gap:
             gaps.append((op, gap))
-            continue
         except Exception as exc:
             pytest.fail(f"DIRECT_REST failed on operation '{op}' for {spec.id}: {exc}")
 
         # 4. Parity assertion: normalized outputs MUST match bit-for-bit
-        norm_rest = normalize_for_parity(rest_res, path_root=str(tmp_path))
-        assert norm_cli == norm_rest, (
-            f"Parity divergence detected on operation '{op}' for {spec.id}:\n"
-            f"CLI:  {norm_cli}\n"
-            f"REST: {norm_rest}"
-        )
+        if rest_res is not None:
+            norm_rest = normalize_for_parity(rest_res, path_root=str(tmp_path))
+            assert norm_cli == norm_rest, (
+                f"Parity divergence detected on operation '{op}' for {spec.id}:\n"
+                f"CLI:  {norm_cli}\n"
+                f"REST: {norm_rest}"
+            )
 
-        # 4b. Client CLI (opendvctl) parity assertion across supported operations
-        if op in ("compile", "verify", "sandbox", "profile") and hasattr(client_cli_transport, op):
+        # 4b. Client CLI (opendvctl) parity assertion across all operations implemented by ClientCliTransport
+        if hasattr(client_cli_transport, op):
             try:
                 client_res = getattr(client_cli_transport, op)(spec.fixtures)
                 norm_client = normalize_for_parity(client_res, path_root=str(tmp_path))
@@ -74,14 +75,14 @@ def test_scenario_parity(
                     f"CLI:    {norm_cli}\n"
                     f"CLIENT: {norm_client}"
                 )
-            except ParityGapError:
-                pass
+            except ParityGapError as gap:
+                gaps.append((f"client_{op}", gap))
             except Exception as exc:
                 pytest.fail(f"CLIENT_CLI failed on operation '{op}' for {spec.id}: {exc}")
 
-    # 5. If acknowledged parity gaps were encountered on REST, mark xfail after all ops complete
+    # 5. If acknowledged parity gaps were encountered, mark xfail after all ops complete
     if gaps:
         gap_details = "; ".join(f"{op} ({gap.gap_id})" for op, gap in gaps)
         pytest.xfail(
-            f"Acknowledged parity gap(s) for {spec.id}: {gap_details} (resolved in Phase P5)"
+            f"Acknowledged parity gap(s) for {spec.id}: {gap_details}"
         )

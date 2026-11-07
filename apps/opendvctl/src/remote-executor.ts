@@ -306,8 +306,17 @@ export class RemoteExecutor {
 						body.input_spec_path =
 							enrichedOptions.input_spec_path || enrichedOptions.input;
 					}
-					if (enrichedOptions.input_spec_content)
-						body.input_spec = enrichedOptions.input_spec_content;
+					if (enrichedOptions.input_spec_content) {
+						if (typeof enrichedOptions.input_spec_content === "object") {
+							body.input_spec = enrichedOptions.input_spec_content;
+						} else if (typeof enrichedOptions.input_spec_content === "string") {
+							try {
+								body.input_spec = JSON.parse(enrichedOptions.input_spec_content);
+							} catch {
+								// Non-JSON input spec (e.g. YAML) resolved via input_spec_path
+							}
+						}
+					}
 					if (enrichedOptions.initial_contract_path)
 						body.initial_contract_path = enrichedOptions.initial_contract_path;
 					if (enrichedOptions.initial_contract_content)
@@ -324,8 +333,17 @@ export class RemoteExecutor {
 						body.input_spec_path =
 							enrichedOptions.input_spec_path || enrichedOptions.input;
 					}
-					if (enrichedOptions.input_spec_content)
-						body.input_spec = enrichedOptions.input_spec_content;
+					if (enrichedOptions.input_spec_content) {
+						if (typeof enrichedOptions.input_spec_content === "object") {
+							body.input_spec = enrichedOptions.input_spec_content;
+						} else if (typeof enrichedOptions.input_spec_content === "string") {
+							try {
+								body.input_spec = JSON.parse(enrichedOptions.input_spec_content);
+							} catch {
+								// Non-JSON input spec (e.g. YAML) resolved via input_spec_path
+							}
+						}
+					}
 					if (enrichedOptions.initial_contract_path)
 						body.initial_contract_path = enrichedOptions.initial_contract_path;
 					if (enrichedOptions.initial_contract_content)

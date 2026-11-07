@@ -598,3 +598,40 @@ def test_t14_fallback_registry_completeness() -> None:
 
     assert FallbackKey.STAGE_OUTPUT_SYMBOLIC.value == "stage_output_policy.symbolic_completion"
     assert FallbackKey.STAGE_OUTPUT_SYMBOLIC in FALLBACK_REGISTRY
+    assert FallbackKey.CLI_SCHEMA_OMISSION_RETRY in FALLBACK_REGISTRY
+    assert FALLBACK_REGISTRY[FallbackKey.CLI_SCHEMA_OMISSION_RETRY].default_enabled is False
+
+
+@pytest.mark.architecture
+@pytest.mark.hardening
+def test_t14_payload_too_large_behavioral(tmp_path: Path) -> None:
+    """T14 Invariant: Oversized inline or CAS payloads fail loudly with PayloadTooLargeError (413)."""
+    from opendv_contracts.errors import ErrorCode, PayloadTooLargeError
+    from opendv_sources.adapters.inline import InlineSourceAdapter
+    from opendv_sources.models.specs import SourceSpec
+
+    # 1. InlineSourceAdapter rejects payload exceeding system or caller limit with PayloadTooLargeError
+    adapter = InlineSourceAdapter()
+    spec = SourceSpec(
+        adapter="inline",
+        options={"file_content": "A" * 200, "max_inline_bytes": 100},
+    )
+    with pytest.raises(PayloadTooLargeError) as exc_info:
+        adapter.read_bytes(spec)
+    assert exc_info.value.error_code == ErrorCode.PAYLOAD_TOO_LARGE
+    assert exc_info.value.http_status == 413
+    assert exc_info.value.exit_code == 2
+
+    # 2. CAS artifact upload rejects payload exceeding max_inline_bytes with PayloadTooLargeError
+    state = PlatformStateContainer(state_dir=tmp_path / "state")
+    state.settings = OpenDVSettings(max_inline_bytes=50)
+    req = ArtifactUploadRequest(
+        artifact_name="large.txt",
+        media_type="text/plain",
+        content="X" * 100,
+    )
+    with pytest.raises(PayloadTooLargeError) as exc_cas:
+        state.store_artifact(req)
+    assert exc_cas.value.error_code == ErrorCode.PAYLOAD_TOO_LARGE
+    assert exc_cas.value.http_status == 413
+    assert exc_cas.value.exit_code == 2

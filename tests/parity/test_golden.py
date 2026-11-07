@@ -269,11 +269,16 @@ def test_gt02_private_equity_baseline(
 def test_gt03_golden_rejections(
     golden_manager: GoldenManager,
     rest_transport: DirectRestTransport,
+    client_cli_transport: ClientCliTransport,
     tmp_path: Path,
 ) -> None:
     """Verify GT-03 6 canonical bad inputs across exit codes, ProblemDetails, and trace.toon."""
     capture_gt03_rejections(
-        golden_manager, REPO_ROOT, tmp_path, rest_transport=rest_transport
+        golden_manager,
+        REPO_ROOT,
+        tmp_path,
+        rest_transport=rest_transport,
+        client_cli_transport=client_cli_transport,
     )
 
 

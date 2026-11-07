@@ -146,6 +146,28 @@ def create_app(
     )
 
     @application.middleware("http")
+    async def enforce_payload_size_limit(
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
+        max_limit = getattr(active_settings, "max_inline_bytes", 50 * 1024 * 1024)
+        cl_header = request.headers.get("content-length")
+        if cl_header:
+            try:
+                content_length = int(cl_header)
+                if content_length > max_limit:
+                    return build_problem_details_response(
+                        status_code=413,
+                        detail=f"Request payload size ({content_length} bytes) exceeds limit ({max_limit} bytes).",
+                        instance=str(request.url.path),
+                        problem_type="urn:opendv:payload-too-large",
+                        title="Payload Too Large",
+                    )
+            except ValueError:
+                pass
+        return await call_next(request)
+
+    @application.middleware("http")
     async def attach_security_headers(
         request: Request,
         call_next: Callable[[Request], Awaitable[Response]],

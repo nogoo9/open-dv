@@ -14,6 +14,7 @@ from opendv_service.models import (
     ArtifactMetadataResponse,
     ArtifactUploadRequest,
 )
+from opendv_service.settings import DEFAULT_MAX_INLINE_BYTES
 from opendv_telemetry import ArtifactCorruptedError, ContentAddressableStore
 
 if TYPE_CHECKING:
@@ -47,7 +48,11 @@ class ArtifactStateMixin:
             raw_bytes = req.content.encode("utf-8")
         else:
             raw_bytes = json.dumps(req.content, sort_keys=True).encode("utf-8")
-        max_limit = getattr(getattr(self, "settings", None), "max_inline_bytes", 50 * 1024 * 1024)
+        max_limit = getattr(
+            getattr(self, "settings", None),
+            "max_inline_bytes",
+            DEFAULT_MAX_INLINE_BYTES,
+        )
         if len(raw_bytes) > max_limit:
             raise PayloadTooLargeError(
                 f"Artifact size ({len(raw_bytes)} bytes) exceeds limit ({max_limit} bytes)"

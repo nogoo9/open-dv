@@ -13,6 +13,7 @@ import pyarrow.csv
 import pyarrow.json
 import pyarrow.parquet
 
+from opendv_contracts.errors import PayloadTooLargeError
 from opendv_sources.exceptions import (
     SourceEmptyError,
     SourceLoadError,
@@ -74,10 +75,12 @@ class InlineSourceAdapter(SourceAdapter, TabularSourceAdapter):
         else:
             raise SourceLoadError(f"Unsupported inline content type: {type(raw).__name__}")
 
-        max_limit = spec.options.get("max_inline_bytes", 50 * 1024 * 1024)
+        system_limit = 50 * 1024 * 1024
+        caller_limit = spec.options.get("max_inline_bytes")
+        max_limit = min(int(caller_limit), system_limit) if caller_limit is not None else system_limit
         if len(content_bytes) > max_limit:
-            raise SourceLoadError(
-                f"Inline size ({len(content_bytes)} bytes) exceeds limit ({max_limit} bytes)"
+            raise PayloadTooLargeError(
+                f"Inline payload size ({len(content_bytes)} bytes) exceeds maximum limit ({max_limit} bytes)."
             )
         return content_bytes
 
