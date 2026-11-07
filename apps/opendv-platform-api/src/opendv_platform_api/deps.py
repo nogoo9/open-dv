@@ -49,7 +49,15 @@ def get_rbac_role(
     request: Request,
     x_opendv_role: Annotated[str | None, Header(alias="X-OpenDV-Role")] = None,
 ) -> RbacRole:
-    """Extract and normalize 5-Tier RBAC role context from request headers."""
+    """Extract and normalize 5-Tier RBAC role context from request headers (docs/08 §5.2).
+
+    SECURITY ARCHITECTURE BOUNDARY (H5):
+    In production deployments, the Open-DV Platform API is designed to sit behind an
+    authenticating reverse proxy or API Gateway (e.g., OAuth2/OIDC, mTLS, Envoy) that
+    authenticates callers and asserts verified role claims via the `X-OpenDV-Role` header.
+    Direct untrusted callers should not have direct network access to this endpoint without
+    gateway authentication.
+    """
     header_val = x_opendv_role or request.headers.get("x-opendv-role")
     return normalize_rbac_role(header_val)
 

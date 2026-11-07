@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from opendv_contracts.errors import ErrorCode
-from opendv_service.errors import OpenDVError
+from opendv_service.errors import OpenDVError, PayloadTooLargeError
 from opendv_service.models import (
     ArtifactMetadataResponse,
     ArtifactUploadRequest,
@@ -47,6 +47,11 @@ class ArtifactStateMixin:
             raw_bytes = req.content.encode("utf-8")
         else:
             raw_bytes = json.dumps(req.content, sort_keys=True).encode("utf-8")
+        max_limit = getattr(getattr(self, "settings", None), "max_inline_bytes", 50 * 1024 * 1024)
+        if len(raw_bytes) > max_limit:
+            raise PayloadTooLargeError(
+                f"Artifact size ({len(raw_bytes)} bytes) exceeds limit ({max_limit} bytes)"
+            )
         digest = store_cas_artifact(self.cas_root, raw_bytes)
         meta = ArtifactMetadataResponse(
             sha256=digest.upper(),

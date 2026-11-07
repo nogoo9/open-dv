@@ -24,6 +24,8 @@ class PayloadTooLargeError(OpenDVError):
     """Raised when an uploaded payload exceeds the configured maximum byte size."""
 
     error_code = ErrorCode.PAYLOAD_TOO_LARGE
+    exit_code = 2
+    http_status = 413
 
 
 class RolePermissionError(OpenDVError):

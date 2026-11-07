@@ -10,6 +10,7 @@ from starlette.testclient import TestClient
 from tests.parity.normalize import normalize_for_parity
 from tests.parity.scenarios import ScenarioSpec, list_scenarios
 from tests.parity.transports import (
+    ClientCliTransport,
     DirectRestTransport,
     ParityGapError,
     StandaloneCliTransport,
@@ -22,8 +23,9 @@ def test_scenario_parity(
     spec: ScenarioSpec,
     tmp_path: Path,
     platform_api_client: TestClient,
+    client_cli_transport: ClientCliTransport,
 ) -> None:
-    """Verify cross-surface parity between Standalone CLI and Direct REST transports."""
+    """Verify cross-surface parity between Standalone CLI, Direct REST, and Client CLI transports."""
     cli_transport = StandaloneCliTransport(tmp_path / "cli_ws")
     rest_transport = DirectRestTransport(platform_api_client)
 
@@ -61,6 +63,21 @@ def test_scenario_parity(
             f"CLI:  {norm_cli}\n"
             f"REST: {norm_rest}"
         )
+
+        # 4b. Client CLI (opendvctl) parity assertion across supported operations
+        if op in ("compile", "verify", "sandbox", "profile") and hasattr(client_cli_transport, op):
+            try:
+                client_res = getattr(client_cli_transport, op)(spec.fixtures)
+                norm_client = normalize_for_parity(client_res, path_root=str(tmp_path))
+                assert norm_cli == norm_client, (
+                    f"Client CLI parity divergence detected on operation '{op}' for {spec.id}:\n"
+                    f"CLI:    {norm_cli}\n"
+                    f"CLIENT: {norm_client}"
+                )
+            except ParityGapError:
+                pass
+            except Exception as exc:
+                pytest.fail(f"CLIENT_CLI failed on operation '{op}' for {spec.id}: {exc}")
 
     # 5. If acknowledged parity gaps were encountered on REST, mark xfail after all ops complete
     if gaps:

@@ -32,7 +32,11 @@ from tests.parity.golden_fixtures import (
     run_gt01_lifecycle_waves,
 )
 from tests.parity.normalize import normalize_for_parity
-from tests.parity.transports import DirectRestTransport, StandaloneCliTransport
+from tests.parity.transports import (
+    ClientCliTransport,
+    DirectRestTransport,
+    StandaloneCliTransport,
+)
 
 pytestmark = [pytest.mark.golden, pytest.mark.parity]
 
@@ -127,19 +131,23 @@ def test_gt02_private_equity_baseline(
     golden_manager: GoldenManager,
     cli_transport: StandaloneCliTransport,
     rest_transport: DirectRestTransport,
+    client_cli_transport: ClientCliTransport,
 ) -> None:
-    """Verify GT-02 Private Equity reference outputs across CLI and REST transports."""
+    """Verify GT-02 Private Equity reference outputs across CLI, REST, and opendvctl transports."""
     pe_contract = REPO_ROOT / "examples" / "private_equity" / "dv_pe_model_contract.yaml"
     graph_a = REPO_ROOT / "examples" / "private_equity" / "pe_graph_a_ontology.yaml"
     graph_b = REPO_ROOT / "examples" / "private_equity" / "pe_graph_b_profile.json"
     pe_ir_path = REPO_ROOT / "examples" / "private_equity" / "pe_canonical_ir.json"
 
-    # 1. verify.json (with parity check)
+    # 1. verify.json (with three-transport parity check)
     verify_cli = cli_transport.verify(contract=pe_contract, graph_a=graph_a, graph_b=graph_b)
     verify_rest = rest_transport.verify(contract=pe_contract, graph_a=graph_a, graph_b=graph_b)
+    verify_client = client_cli_transport.verify(contract=pe_contract, graph_a=graph_a, graph_b=graph_b)
     norm_cli = normalize_for_parity(verify_cli, path_root=str(REPO_ROOT))
     norm_rest = normalize_for_parity(verify_rest, path_root=str(REPO_ROOT))
-    assert norm_cli == norm_rest, "Cross-surface parity mismatch on GT-02 verify"
+    norm_client = normalize_for_parity(verify_client, path_root=str(REPO_ROOT))
+    assert norm_cli == norm_rest, "Cross-surface parity mismatch on GT-02 verify (CLI vs REST)"
+    assert norm_cli == norm_client, "Cross-surface parity mismatch on GT-02 verify (CLI vs opendvctl)"
     verify_bytes = (json.dumps(norm_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
     golden_manager.assert_golden_byte_equality(
         golden_id="GT-02",
@@ -170,16 +178,21 @@ def test_gt02_private_equity_baseline(
         generated_from="PAR-PE-S5: opendv compile",
     )
 
-    # 4. sandbox_batches.json (4 adversarial batches across CLI and REST)
+    # 4. sandbox_batches.json (4 adversarial batches across CLI, REST, and opendvctl)
     batches_cli = cli_transport.sandbox(
         contract=pe_contract, canonical_ir=pe_ir_path, query_type="ADVERSARIAL_BATCHES_1_TO_4"
     )
     batches_rest = rest_transport.sandbox(
         contract=pe_contract, canonical_ir=pe_ir_path, query_type="ADVERSARIAL_BATCHES_1_TO_4"
     )
+    batches_client = client_cli_transport.sandbox(
+        contract=pe_contract, canonical_ir=pe_ir_path, query_type="ADVERSARIAL_BATCHES_1_TO_4"
+    )
     norm_b_cli = normalize_for_parity(batches_cli, path_root=str(REPO_ROOT))
     norm_b_rest = normalize_for_parity(batches_rest, path_root=str(REPO_ROOT))
-    assert norm_b_cli == norm_b_rest, "Cross-surface parity mismatch on GT-02 sandbox batches"
+    norm_b_client = normalize_for_parity(batches_client, path_root=str(REPO_ROOT))
+    assert norm_b_cli == norm_b_rest, "Cross-surface parity mismatch on GT-02 sandbox batches (CLI vs REST)"
+    assert norm_b_cli == norm_b_client, "Cross-surface parity mismatch on GT-02 sandbox batches (CLI vs opendvctl)"
     batches_bytes = (json.dumps(norm_b_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
     golden_manager.assert_golden_byte_equality(
         golden_id="GT-02",
@@ -188,7 +201,7 @@ def test_gt02_private_equity_baseline(
         generated_from="PAR-PE-S6: opendv sandbox --query-type ADVERSARIAL_BATCHES_1_TO_4",
     )
 
-    # 5. d10_2026-10-15.json (D.10 PIT query rows across CLI and REST)
+    # 5. d10_2026-10-15.json (D.10 PIT query rows across CLI, REST, and opendvctl)
     d10_cli = cli_transport.sandbox(
         contract=pe_contract,
         canonical_ir=pe_ir_path,
@@ -201,9 +214,17 @@ def test_gt02_private_equity_baseline(
         query_type="QUERY_D10_PIT",
         cutoff="2026-10-15 00:00:00",
     )
+    d10_client = client_cli_transport.sandbox(
+        contract=pe_contract,
+        canonical_ir=pe_ir_path,
+        query_type="QUERY_D10_PIT",
+        cutoff="2026-10-15 00:00:00",
+    )
     norm_d10_cli = normalize_for_parity(d10_cli, path_root=str(REPO_ROOT))
     norm_d10_rest = normalize_for_parity(d10_rest, path_root=str(REPO_ROOT))
-    assert norm_d10_cli == norm_d10_rest, "Cross-surface parity mismatch on GT-02 D.10 PIT"
+    norm_d10_client = normalize_for_parity(d10_client, path_root=str(REPO_ROOT))
+    assert norm_d10_cli == norm_d10_rest, "Cross-surface parity mismatch on GT-02 D.10 PIT (CLI vs REST)"
+    assert norm_d10_cli == norm_d10_client, "Cross-surface parity mismatch on GT-02 D.10 PIT (CLI vs opendvctl)"
     d10_bytes = (json.dumps(norm_d10_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
     golden_manager.assert_golden_byte_equality(
         golden_id="GT-02",
@@ -212,7 +233,7 @@ def test_gt02_private_equity_baseline(
         generated_from="PAR-PE-S6: opendv sandbox --query-type QUERY_D10_PIT",
     )
 
-    # 6. d10b_2026-11-15.json (D.10b valuation query rows across CLI and REST)
+    # 6. d10b_2026-11-15.json (D.10b valuation query rows across CLI, REST, and opendvctl)
     d10b_cli = cli_transport.sandbox(
         contract=pe_contract,
         canonical_ir=pe_ir_path,
@@ -225,9 +246,17 @@ def test_gt02_private_equity_baseline(
         query_type="QUERY_D10B_VALUATION",
         cutoff="2026-11-15 23:59:59",
     )
+    d10b_client = client_cli_transport.sandbox(
+        contract=pe_contract,
+        canonical_ir=pe_ir_path,
+        query_type="QUERY_D10B_VALUATION",
+        cutoff="2026-11-15 23:59:59",
+    )
     norm_d10b_cli = normalize_for_parity(d10b_cli, path_root=str(REPO_ROOT))
     norm_d10b_rest = normalize_for_parity(d10b_rest, path_root=str(REPO_ROOT))
-    assert norm_d10b_cli == norm_d10b_rest, "Cross-surface parity mismatch on GT-02 D.10b valuation"
+    norm_d10b_client = normalize_for_parity(d10b_client, path_root=str(REPO_ROOT))
+    assert norm_d10b_cli == norm_d10b_rest, "Cross-surface parity mismatch on GT-02 D.10b valuation (CLI vs REST)"
+    assert norm_d10b_cli == norm_d10b_client, "Cross-surface parity mismatch on GT-02 D.10b valuation (CLI vs opendvctl)"
     d10b_bytes = (json.dumps(norm_d10b_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
     golden_manager.assert_golden_byte_equality(
         golden_id="GT-02",

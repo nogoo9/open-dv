@@ -1270,7 +1270,7 @@ export interface components {
 			 * @enum {string}
 			 */
 			status: "ACCEPTED" | "REJECTED";
-			updated_run_status: components["schemas"]["opendv_service__models__RunStatus"];
+			updated_run_status: components["schemas"]["RunStatus"];
 		};
 		/**
 		 * CompileRequest
@@ -2750,7 +2750,7 @@ export interface components {
 			 * @description Initial run status
 			 * @default RUNNING
 			 */
-			status: components["schemas"]["opendv_contracts__dtos__common__RunStatus"];
+			status: components["schemas"]["RunStatus"];
 			/**
 			 * Status Url
 			 * @description REST endpoint URL to query current run status
@@ -3168,7 +3168,7 @@ export interface components {
 			 * @description Current lifecycle status of the run
 			 * @default PENDING
 			 */
-			status: components["schemas"]["opendv_contracts__dtos__common__RunStatus"];
+			status: components["schemas"]["RunStatus"];
 			/**
 			 * Wave Id
 			 * @description Target wave identifier if restricted (GAP-07)
@@ -3358,11 +3358,12 @@ export interface components {
 		};
 		/**
 		 * RunStatus
-		 * @description Execution lifecycle status of a platform verification or sandbox run (docs/08 §5.2).
+		 * @description Lifecycle status of a pipeline run.
 		 * @enum {string}
 		 */
-		"RunStatus-Input":
+		RunStatus:
 			| "PENDING"
+			| "QUEUED"
 			| "RUNNING"
 			| "PAUSED_HOLD"
 			| "COMPLETED"
@@ -3980,31 +3981,6 @@ export interface components {
 			 */
 			name: string;
 		};
-		/**
-		 * RunStatus
-		 * @description Lifecycle status of a pipeline run.
-		 * @enum {string}
-		 */
-		opendv_contracts__dtos__common__RunStatus:
-			| "PENDING"
-			| "QUEUED"
-			| "RUNNING"
-			| "PAUSED_HOLD"
-			| "COMPLETED"
-			| "FAILED"
-			| "ABORTED";
-		/**
-		 * RunStatus
-		 * @description Execution lifecycle status of a platform verification or sandbox run (docs/08 §5.2).
-		 * @enum {string}
-		 */
-		opendv_service__models__RunStatus:
-			| "PENDING"
-			| "RUNNING"
-			| "PAUSED_HOLD"
-			| "COMPLETED"
-			| "FAILED"
-			| "ABORTED";
 	};
 	responses: never;
 	parameters: never;
@@ -4478,7 +4454,7 @@ export interface operations {
 		parameters: {
 			query?: {
 				project_id?: string | null;
-				status?: components["schemas"]["RunStatus-Input"] | null;
+				status?: components["schemas"]["RunStatus"] | null;
 				stage_id?: string | null;
 			};
 			header?: never;

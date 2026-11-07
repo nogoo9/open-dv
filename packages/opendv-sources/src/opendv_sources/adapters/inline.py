@@ -61,16 +61,25 @@ class InlineSourceAdapter(SourceAdapter, TabularSourceAdapter):
             raise SourceLoadError(msg)
 
         if isinstance(raw, bytes):
-            return raw
-        if isinstance(raw, str):
+            content_bytes = raw
+        elif isinstance(raw, str):
             if spec.options.get("is_base64", False):
                 try:
-                    return base64.b64decode(raw)
+                    content_bytes = base64.b64decode(raw)
                 except Exception as exc:
                     raise SourceLoadError(f"Failed to decode base64 inline content: {exc}") from exc
-            encoding = spec.options.get("encoding", "utf-8")
-            return raw.encode(encoding)
-        raise SourceLoadError(f"Unsupported inline content type: {type(raw).__name__}")
+            else:
+                encoding = spec.options.get("encoding", "utf-8")
+                content_bytes = raw.encode(encoding)
+        else:
+            raise SourceLoadError(f"Unsupported inline content type: {type(raw).__name__}")
+
+        max_limit = spec.options.get("max_inline_bytes", 50 * 1024 * 1024)
+        if len(content_bytes) > max_limit:
+            raise SourceLoadError(
+                f"Inline size ({len(content_bytes)} bytes) exceeds limit ({max_limit} bytes)"
+            )
+        return content_bytes
 
     def read_bytes(self, spec: SourceSpec) -> bytes:
         return self._get_raw_bytes(spec)

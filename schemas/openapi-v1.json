@@ -1206,7 +1206,7 @@
             "type": "string"
           },
           "updated_run_status": {
-            "$ref": "#/components/schemas/opendv_service__models__RunStatus"
+            "$ref": "#/components/schemas/RunStatus"
           }
         },
         "required": [
@@ -3842,7 +3842,7 @@
             "type": "string"
           },
           "status": {
-            "$ref": "#/components/schemas/opendv_contracts__dtos__common__RunStatus",
+            "$ref": "#/components/schemas/RunStatus",
             "default": "RUNNING",
             "description": "Initial run status"
           },
@@ -4637,7 +4637,7 @@
             "type": "string"
           },
           "status": {
-            "$ref": "#/components/schemas/opendv_contracts__dtos__common__RunStatus",
+            "$ref": "#/components/schemas/RunStatus",
             "default": "PENDING",
             "description": "Current lifecycle status of the run"
           },
@@ -4939,10 +4939,11 @@
         "title": "RunArtifactDTO",
         "type": "object"
       },
-      "RunStatus-Input": {
-        "description": "Execution lifecycle status of a platform verification or sandbox run (docs/08 \u00a75.2).",
+      "RunStatus": {
+        "description": "Lifecycle status of a pipeline run.",
         "enum": [
           "PENDING",
+          "QUEUED",
           "RUNNING",
           "PAUSED_HOLD",
           "COMPLETED",
@@ -6009,33 +6010,6 @@
         ],
         "title": "WaveMetadataSpecDTO",
         "type": "object"
-      },
-      "opendv_contracts__dtos__common__RunStatus": {
-        "description": "Lifecycle status of a pipeline run.",
-        "enum": [
-          "PENDING",
-          "QUEUED",
-          "RUNNING",
-          "PAUSED_HOLD",
-          "COMPLETED",
-          "FAILED",
-          "ABORTED"
-        ],
-        "title": "RunStatus",
-        "type": "string"
-      },
-      "opendv_service__models__RunStatus": {
-        "description": "Execution lifecycle status of a platform verification or sandbox run (docs/08 \u00a75.2).",
-        "enum": [
-          "PENDING",
-          "RUNNING",
-          "PAUSED_HOLD",
-          "COMPLETED",
-          "FAILED",
-          "ABORTED"
-        ],
-        "title": "RunStatus",
-        "type": "string"
       }
     }
   },
@@ -6673,7 +6647,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "$ref": "#/components/schemas/RunStatus-Input"
+                  "$ref": "#/components/schemas/RunStatus"
                 },
                 {
                   "type": "null"

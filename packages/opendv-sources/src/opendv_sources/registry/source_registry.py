@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.metadata
+import logging
 import threading
 from collections.abc import Sequence
 from pathlib import Path
@@ -12,6 +13,8 @@ from opendv_sources.exceptions import UnsupportedFormatError
 from opendv_sources.registry.format_registry import get_format_registry
 from opendv_sources.spi.document import DocumentSourceAdapter
 from opendv_sources.spi.tabular import TabularSourceAdapter
+
+logger = logging.getLogger(__name__)
 
 SOURCE_ADAPTER_ENTRY_POINT_GROUP = "opendv.source_adapters"
 
@@ -42,9 +45,8 @@ class SourceAdapterRegistry:
                     loaded = ep.load()
                     inst = loaded() if isinstance(loaded, type) else loaded
                     self.register_adapter(ep.name, inst)
-                except (ImportError, AttributeError, TypeError, ValueError):
-                    # Gracefully skip unloadable broken third-party entry points
-                    pass
+                except (ImportError, AttributeError, TypeError, ValueError) as exc:
+                    logger.warning("Failed to load source adapter plugin '%s': %s", ep.name, exc)
 
     def register_tabular_adapter(
         self,
@@ -53,12 +55,23 @@ class SourceAdapterRegistry:
     ) -> None:
         """Register a tabular source adapter."""
         with self._lock:
+            key = name.lower().strip()
             inst = adapter() if isinstance(adapter, type) else adapter
             if not isinstance(inst, TabularSourceAdapter):
                 raise TypeError(
                     f"Expected TabularSourceAdapter instance or subclass, got {type(inst).__name__}"
                 )
-            self._tabular_adapters[name.lower().strip()] = inst
+            if (
+                key in self._tabular_adapters
+                and type(self._tabular_adapters[key]) is not type(inst)
+            ):
+                logger.warning(
+                    "Overwriting tabular adapter '%s' (%s) with %s",
+                    key,
+                    type(self._tabular_adapters[key]).__name__,
+                    type(inst).__name__,
+                )
+            self._tabular_adapters[key] = inst
 
     def register_document_adapter(
         self,
@@ -67,10 +80,21 @@ class SourceAdapterRegistry:
     ) -> None:
         """Register a document source adapter."""
         with self._lock:
+            key = name.lower().strip()
             inst = adapter() if isinstance(adapter, type) else adapter
             if not isinstance(inst, DocumentSourceAdapter):
                 raise TypeError(f"Expected DocumentSourceAdapter, got {type(inst).__name__}")
-            self._document_adapters[name.lower().strip()] = inst
+            if (
+                key in self._document_adapters
+                and type(self._document_adapters[key]) is not type(inst)
+            ):
+                logger.warning(
+                    "Overwriting document adapter '%s' (%s) with %s",
+                    key,
+                    type(self._document_adapters[key]).__name__,
+                    type(inst).__name__,
+                )
+            self._document_adapters[key] = inst
 
     def register_adapter(
         self,

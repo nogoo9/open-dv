@@ -22,7 +22,7 @@ export const API_URL_OPTION: CliOption = {
 	choices: null,
 	env_var: "OPENDV_API_URL",
 	inline_upload: false,
-	help: "Open-DV Platform REST/SSE API base endpoint (e.g. http://127.0.0.1:8000)",
+	help: "Open-DV Platform REST/SSE API base endpoint (e.g. https://api.open-dv.internal)",
 };
 
 export function getEffectiveCliTree(spec?: CliSpec): CliSpec {

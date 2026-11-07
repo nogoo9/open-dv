@@ -424,8 +424,12 @@ class ClaudeCliHarnessAdapter(BaseVaultAgentHarness):
             if result_obj is not None:
                 last_result_payload = dict(result_obj)
 
-        # Fallback without --json-schema flag if the CLI rejected a complex $defs schema
-        if run_state["returncode"] != 0 and schema_json_str is not None:
+        # Fallback without --json-schema flag only if CLI rejected a complex schema
+        stderr_lower = str(run_state.get("stderr") or "").lower()
+        is_schema_rejection = any(
+            term in stderr_lower for term in ("schema", "--json-schema", "$defs", "validation")
+        )
+        if run_state["returncode"] != 0 and schema_json_str is not None and is_schema_rejection:
             streamed_text_chunks.clear()
             emitted_any_text_delta = False
             seen_fine_grained = False

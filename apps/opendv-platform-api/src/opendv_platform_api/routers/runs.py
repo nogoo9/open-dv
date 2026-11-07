@@ -98,8 +98,6 @@ async def abort_run(
 
 
 @router.get("/runs/{run_id}/events")
-@router.get("/pipeline/run/{run_id}/events", include_in_schema=False)
-@router.get("/pipelines/runs/{run_id}/events", include_in_schema=False)
 async def stream_run_events(
     run_id: str,
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
@@ -142,12 +140,6 @@ async def validate_pipeline(
     "/pipelines/runs",
     response_model=PipelineRunHandle,
     status_code=status.HTTP_202_ACCEPTED,
-)
-@router.post(
-    "/pipeline/run",
-    response_model=PipelineRunHandle,
-    status_code=status.HTTP_202_ACCEPTED,
-    include_in_schema=False,
 )
 async def run_pipeline(
     req: PipelineRunRequest,

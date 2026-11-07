@@ -568,9 +568,12 @@ class ClientCliTransport:
             win_bin = release_dir / "opendvctl-windows-x64.exe"
             return win_bin if win_bin.is_file() else None
         elif sys.platform == "darwin":
+            import platform
+
+            machine = platform.machine().lower()
             mac_bin = (
                 release_dir / "opendvctl-darwin-arm64"
-                if "arm" in sys.version.lower()
+                if "arm" in machine or "aarch64" in machine
                 else release_dir / "opendvctl-darwin-x64"
             )
             return mac_bin if mac_bin.is_file() else None

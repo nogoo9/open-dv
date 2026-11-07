@@ -59,6 +59,10 @@ class OpenDVSettings(BaseModel):
         default=None,
         description="Path to active configuration file, if loaded.",
     )
+    max_inline_bytes: int = Field(
+        default=50 * 1024 * 1024,
+        description="Maximum allowed byte size for inline uploads or request payloads.",
+    )
 
     @classmethod
     def load(
