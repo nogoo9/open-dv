@@ -2,10 +2,9 @@
  * Zustand State Store & URL Router for the 3-Level Pipeline Explorer Workbench
  * (`Pipeline -> Stage -> Artifact`) (`docs/design/open-dv-workbench/HANDOFF.md`).
  *
- * Powered by `@opendv/protocol-ts`:
- * - `GLOBAL_COMMERCE_EXPLORER_BUNDLE` & `PE_EXPLORER_BUNDLE`
- * - `buildExplorerBundleFromObservabilityEvents`
- * - `OpenDVPlatformClient` & `VaultEventStreamClient`
+ * Consumes injected `ExplorerDataSource` SPI (live REST/SSE or offline file export).
+ * Zero hardcoded ports/localhost (REQ-CFG-01).
+ * Zero demo data fallback (REQ-MOCK-01, REQ-FAIL-01).
  */
 
 import {
@@ -14,28 +13,45 @@ import {
 	type CaptainHoldDecisionResponse,
 	type ExplorerBundleDTO,
 	OpenDVPlatformClient,
+	type PipelineRunHandle,
+	type PipelineRunRequest,
+	type ProjectRunDTO,
 	type RbacRole,
 	type Stage,
 	type StatusTag,
-	VaultEventStreamClient,
 	type VaultObservabilityEventDTO,
 	type WaveFilterId,
 	buildExplorerBundleFromObservabilityEvents,
 	createEmptyExplorerBundle,
-	filterArtifactIdsByWave,
 } from "@opendv/protocol-ts";
 import * as React from "react";
 import { type StoreApi, type UseBoundStore, useStore } from "zustand";
 import { createStore } from "zustand/vanilla";
+import type { BlockingErrorState } from "./BlockingErrorBanner";
+import {
+	type ExplorerDataSource,
+	FileExplorerDataSource,
+	RestSseExplorerDataSource,
+	resolveApiBaseUrl,
+} from "./data-source";
+
+export * from "./BlockingErrorBanner";
+export * from "./data-source";
 
 export function hasActiveReactDispatcher(): boolean {
 	const internals = React as unknown as {
-		__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE?: { H?: unknown };
-		__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED?: { ReactCurrentDispatcher?: { current?: unknown } };
+		__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE?: {
+			H?: unknown;
+		};
+		__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED?: {
+			ReactCurrentDispatcher?: { current?: unknown };
+		};
 	};
 	return Boolean(
-		internals.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE?.H ||
-		internals.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED?.ReactCurrentDispatcher?.current,
+		internals.__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE
+			?.H ||
+			internals.__SECRET_INTERNALS_DO_NOT_USE_OR_YOU_WILL_BE_FIRED
+				?.ReactCurrentDispatcher?.current,
 	);
 }
 
@@ -45,7 +61,8 @@ export type ArtifactFullTab = "viz" | "raw" | "split";
 export type ExplorerRunState = "sealed" | "running" | "hold";
 export type ExplorerPresetBundleKey =
 	| "global_commerce_vault"
-	| "proj-apex-horizon-pe";
+	| "proj-apex-horizon-pe"
+	| string;
 
 export interface ExplorerUrlState {
 	view: ExplorerViewLevel;
@@ -63,15 +80,10 @@ const VALID_WAVES: readonly WaveFilterId[] = [
 	"W3",
 ] as const;
 
-const VALID_TABS: readonly ArtifactFullTab[] = [
-	"viz",
-	"raw",
-	"split",
-] as const;
+const VALID_TABS: readonly ArtifactFullTab[] = ["viz", "raw", "split"] as const;
 
 /**
- * Parse deep-linked URL pathname and query string into explorer state
- * (`/stages/05`, `?artifact=final_contract`, `?wave=W1`, `?tab=split`).
+ * Parse deep-linked URL pathname and query string into explorer state.
  */
 export function parseExplorerUrlState(
 	pathname = "/",
@@ -92,8 +104,7 @@ export function parseExplorerUrlState(
 	);
 	const rawArtifact = params.get("artifact")?.trim() ?? null;
 	const fullId =
-		rawArtifact &&
-		(!validArtifactIds || validArtifactIds.has(rawArtifact))
+		rawArtifact && (!validArtifactIds || validArtifactIds.has(rawArtifact))
 			? rawArtifact
 			: null;
 
@@ -108,17 +119,11 @@ export function parseExplorerUrlState(
 		? rawWave
 		: "all";
 
-	return {
-		view,
-		stageIdx,
-		fullId,
-		fullTab,
-		activeWave,
-	};
+	return { view, stageIdx, fullId, fullTab, activeWave };
 }
 
 /**
- * Serialize current explorer state into a clean deep-link URL (`/`, `/stages/05?artifact=final_contract`).
+ * Serialize current explorer state into a clean deep-link URL.
  */
 export function buildExplorerUrl(state: {
 	view: ExplorerViewLevel;
@@ -202,6 +207,7 @@ function cloneBundle(bundle: ExplorerBundleDTO): ExplorerBundleDTO {
 }
 
 export interface ExplorerStoreInitOptions {
+	dataSource?: ExplorerDataSource | undefined;
 	bundle?: ExplorerBundleDTO | undefined;
 	startView?: (ExplorerViewLevel | "artifact") | undefined;
 	startStage?: number | undefined;
@@ -209,6 +215,7 @@ export interface ExplorerStoreInitOptions {
 	startWave?: WaveFilterId | undefined;
 	platformClient?: OpenDVPlatformClient | undefined;
 	syncBrowserUrl?: boolean | undefined;
+	autoLoad?: boolean | undefined;
 }
 
 export interface HoldResolutionRecord {
@@ -221,6 +228,12 @@ export interface HoldResolutionRecord {
 
 export interface ExplorerStoreState {
 	bundle: ExplorerBundleDTO;
+	dataSource: ExplorerDataSource;
+	blockingError: BlockingErrorState | null;
+	sourceLabel: string;
+	availableRuns: ProjectRunDTO[];
+	activeRunId: string | null;
+	isLoading: boolean;
 	activeBundleKey: ExplorerPresetBundleKey;
 	view: ExplorerViewLevel;
 	stageIdx: number;
@@ -244,7 +257,10 @@ export interface ExplorerStoreState {
 	selectStep: (stepIdx: number) => void;
 	selectComponent: (compIdx: number) => void;
 	clearSelection: () => void;
-	openFullArtifact: (artifactId: string, tab?: ArtifactFullTab | undefined) => void;
+	openFullArtifact: (
+		artifactId: string,
+		tab?: ArtifactFullTab | undefined,
+	) => void;
 	closeFullArtifact: () => void;
 	setFullTab: (tab: ArtifactFullTab) => void;
 
@@ -257,16 +273,30 @@ export interface ExplorerStoreState {
 		rbacRole?: RbacRole | undefined,
 	) => void;
 
+	// Data Source & Live Backend Actions
+	setDataSource: (dataSource: ExplorerDataSource) => Promise<void>;
+	loadRunsList: () => Promise<ProjectRunDTO[]>;
+	loadRun: (runId: string, waveId?: string | undefined) => Promise<void>;
+	loadFromFile: (file: File) => Promise<void>;
+	loadFromBundleText: (filename: string, content: string) => Promise<void>;
+	retryConnection: () => Promise<void>;
+	clearBlockingError: () => void;
+
 	// URL Synchronization
 	syncFromUrl: (pathname: string, search: string) => void;
 	getCurrentUrl: () => string;
 
 	// Live Run & Steward Hold Actions
-	triggerPipelineRun: (options?: {
-		inputSpecPath?: string | undefined;
-		baseUrl?: string | undefined;
-		fetchImpl?: (typeof fetch) | undefined;
-	} | undefined) => Promise<void>;
+	triggerPipelineRun: (
+		options?:
+			| {
+					inputSpecPath?: string | undefined;
+					baseUrl?: string | undefined;
+					fetchImpl?: typeof fetch | undefined;
+					request?: PipelineRunRequest | undefined;
+			  }
+			| undefined,
+	) => Promise<PipelineRunHandle | undefined>;
 	ingestLiveObservabilityEvent: (event: VaultObservabilityEventDTO) => void;
 	resolveStewardHold: (params: {
 		holdId: string;
@@ -274,7 +304,7 @@ export interface ExplorerStoreState {
 		selectedCandidateId?: string | undefined;
 		resolutionNotes?: string | undefined;
 		eventId?: string | undefined;
-		fetchImpl?: (typeof fetch) | undefined;
+		fetchImpl?: typeof fetch | undefined;
 	}) => Promise<CaptainHoldDecisionResponse>;
 }
 
@@ -285,19 +315,15 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 	const startV = options.startView ?? "pipeline";
 	const initialView: ExplorerViewLevel =
 		startV === "stage" ? "stage" : "pipeline";
-	const initialStageIdx = Math.max(
-		0,
-		Math.min(7, options.startStage ?? 5),
-	);
+	const initialStageIdx = Math.max(0, Math.min(7, options.startStage ?? 5));
 	const initialSelType: ExplorerSelectionType =
-		startV === "stage"
-			? "step"
-			: startV === "artifact"
-				? "artifact"
-				: null;
+		startV === "stage" ? "step" : startV === "artifact" ? "artifact" : null;
 	const initialSelId: string | number | null =
 		startV === "stage"
-			? Math.min(5, (initialBundle.stages[initialStageIdx]?.steps.length ?? 1) - 1)
+			? Math.min(
+					5,
+					(initialBundle.stages[initialStageIdx]?.steps.length ?? 1) - 1,
+				)
 			: startV === "artifact"
 				? (options.startArtifact ?? "ontology")
 				: null;
@@ -306,10 +332,19 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 			? (options.startArtifact ?? "ontology")
 			: (options.startArtifact ?? null);
 
-	let platformClient: OpenDVPlatformClient | null =
-		options.platformClient ?? null;
-	let activeSseClient: VaultEventStreamClient | null = null;
+	const initialDataSource: ExplorerDataSource =
+		options.dataSource ??
+		(options.bundle && !options.platformClient
+			? new FileExplorerDataSource({
+					bundle: initialBundle,
+					sourceName: "Loaded Bundle",
+				})
+			: new RestSseExplorerDataSource({
+					client: options.platformClient,
+				}));
+
 	const shouldSyncUrl = options.syncBrowserUrl ?? true;
+	let unsubscribeSse: (() => void) | null = null;
 
 	const pushBrowserUrl = (state: {
 		view: ExplorerViewLevel;
@@ -318,9 +353,7 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 		fullTab: ArtifactFullTab;
 		activeWave: WaveFilterId;
 	}) => {
-		if (!shouldSyncUrl) {
-			return;
-		}
+		if (!shouldSyncUrl) return;
 		if (
 			typeof globalThis !== "undefined" &&
 			"history" in globalThis &&
@@ -330,13 +363,19 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 				const nextUrl = buildExplorerUrl(state);
 				globalThis.history.replaceState(null, "", nextUrl);
 			} catch {
-				// Ignore in sandboxed/non-browser environments
+				// Ignore in sandboxed/headless environments
 			}
 		}
 	};
 
 	const api = createStore<ExplorerStoreState>()((set, get) => ({
 		bundle: initialBundle,
+		dataSource: initialDataSource,
+		blockingError: null,
+		sourceLabel: initialDataSource.sourceName,
+		availableRuns: [],
+		activeRunId: initialBundle.runId || null,
+		isLoading: false,
 		activeBundleKey:
 			initialBundle.projectId === "proj-apex-horizon-pe"
 				? "proj-apex-horizon-pe"
@@ -355,137 +394,80 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 		lastError: null,
 
 		goPipeline: () => {
-			set({
-				view: "pipeline",
-				selType: null,
-				selId: null,
-			});
+			set({ view: "pipeline", selType: null, selId: null });
 			pushBrowserUrl(get());
 		},
 
 		openStage: (stageIdx) => {
 			const clamped = Math.max(0, Math.min(7, stageIdx));
-			set({
-				view: "stage",
-				stageIdx: clamped,
-				selType: null,
-				selId: null,
-			});
+			set({ view: "stage", stageIdx: clamped, selType: null, selId: null });
 			pushBrowserUrl(get());
 		},
 
 		prevStage: () => {
 			const nextIdx = Math.max(0, get().stageIdx - 1);
-			set({
-				stageIdx: nextIdx,
-				selType: null,
-				selId: null,
-			});
+			set({ stageIdx: nextIdx, selType: null, selId: null });
 			pushBrowserUrl(get());
 		},
 
 		nextStage: () => {
 			const nextIdx = Math.min(7, get().stageIdx + 1);
-			set({
-				stageIdx: nextIdx,
-				selType: null,
-				selId: null,
-			});
+			set({ stageIdx: nextIdx, selType: null, selId: null });
 			pushBrowserUrl(get());
 		},
 
 		selectArtifact: (artifactId) => {
-			if (!get().bundle.artifacts[artifactId]) {
-				return;
-			}
-			set({
-				selType: "artifact",
-				selId: artifactId,
-			});
+			if (!get().bundle.artifacts[artifactId]) return;
+			set({ selType: "artifact", selId: artifactId });
 		},
 
 		selectStep: (stepIdx) => {
-			set({
-				selType: "step",
-				selId: stepIdx,
-			});
+			set({ selType: "step", selId: stepIdx });
 		},
 
 		selectComponent: (compIdx) => {
-			set({
-				selType: "component",
-				selId: compIdx,
-			});
+			set({ selType: "component", selId: compIdx });
 		},
 
 		clearSelection: () => {
-			set({
-				selType: null,
-				selId: null,
-			});
+			set({ selType: null, selId: null });
 		},
 
 		openFullArtifact: (artifactId, tab = "split") => {
-			if (!get().bundle.artifacts[artifactId]) {
-				return;
-			}
-			set({
-				fullId: artifactId,
-				fullTab: tab,
-			});
+			if (!get().bundle.artifacts[artifactId]) return;
+			set({ fullId: artifactId, fullTab: tab });
 			pushBrowserUrl(get());
 		},
 
 		closeFullArtifact: () => {
-			set({
-				fullId: null,
-			});
+			set({ fullId: null });
 			pushBrowserUrl(get());
 		},
 
 		setFullTab: (tab) => {
-			set({
-				fullTab: tab,
-			});
+			set({ fullTab: tab });
 			pushBrowserUrl(get());
 		},
 
 		setWaveFilter: (wave) => {
-			set({
-				activeWave: wave,
-			});
+			set({ activeWave: wave });
 			pushBrowserUrl(get());
 		},
 
 		getVisibleInputIds: () => {
-			const st = get();
-			return filterArtifactIdsByWave(
-				st.bundle.inputIds,
-				st.bundle.artifacts,
-				st.activeWave,
-			);
+			const bundle = get().bundle;
+			const wave = get().activeWave;
+			if (wave === "all") return bundle.inputIds;
+			return bundle.inputIds.filter((id) => {
+				const art = bundle.artifacts[id];
+				return (
+					!art?.waves || art.waves.includes(wave as "W0" | "W1" | "W2" | "W3")
+				);
+			});
 		},
 
 		switchPresetBundle: (key) => {
-			if (activeSseClient) {
-				activeSseClient.disconnect();
-				activeSseClient = null;
-			}
-			const nextBundle = cloneBundle(
-				options.bundle ?? createEmptyExplorerBundle(),
-			);
-			set({
-				bundle: nextBundle,
-				activeBundleKey: key,
-				selType: null,
-				selId: null,
-				fullId: null,
-				runState: "sealed",
-				activeRunningStageIdx: null,
-				statusBannerText: nextBundle.statusLabel,
-				lastError: null,
-			});
-			pushBrowserUrl(get());
+			set({ activeBundleKey: key });
 		},
 
 		loadBundleFromEvents: (events, rbacRole = "INTERNAL_MODELER") => {
@@ -494,11 +476,178 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 				undefined,
 				events,
 				rbacRole,
+				get().bundle,
 			);
 			set({
 				bundle: built,
 				statusBannerText: built.statusLabel,
 			});
+		},
+
+		setDataSource: async (newDataSource: ExplorerDataSource) => {
+			if (unsubscribeSse) {
+				unsubscribeSse();
+				unsubscribeSse = null;
+			}
+			set({
+				dataSource: newDataSource,
+				sourceLabel: newDataSource.sourceName,
+				blockingError: null,
+			});
+			const runs = await get().loadRunsList();
+			if (runs.length > 0 && runs[0]?.run_id) {
+				await get().loadRun(runs[0].run_id);
+			}
+		},
+
+		loadRunsList: async () => {
+			const ds = get().dataSource;
+			set({ isLoading: true, lastError: null });
+			try {
+				const runs = await ds.fetchRunsList();
+				set({ availableRuns: runs, isLoading: false, blockingError: null });
+				return runs;
+			} catch (err) {
+				const endpoint = ds.mode === "live" ? "/api/v1/runs" : "offline file";
+				const status = (err as { status?: number })?.status;
+				set({
+					isLoading: false,
+					lastError: String(err),
+					bundle: createEmptyExplorerBundle(),
+					blockingError: {
+						hasError: true,
+						title: "Platform Backend Unreachable",
+						endpoint,
+						status,
+						details:
+							err instanceof Error
+								? err.message
+								: "Failed to connect to the platform API.",
+						retryAction: () => {
+							void get().retryConnection();
+						},
+						openFileAction: (file: File) => {
+							void get().loadFromFile(file);
+						},
+					},
+				});
+				return [];
+			}
+		},
+
+		loadRun: async (runId: string, waveId?: string) => {
+			const ds = get().dataSource;
+			set({ isLoading: true, lastError: null });
+			try {
+				const bundle = await ds.fetchExplorerBundle(runId, waveId);
+				set({
+					bundle,
+					activeRunId: runId,
+					isLoading: false,
+					blockingError: null,
+					statusBannerText: bundle.statusLabel,
+					sourceLabel: ds.sourceName,
+				});
+				if (ds.mode === "live") {
+					if (unsubscribeSse) {
+						unsubscribeSse();
+					}
+					unsubscribeSse = ds.subscribeEvents(
+						runId,
+						(evt: VaultObservabilityEventDTO) =>
+							get().ingestLiveObservabilityEvent(evt),
+						(err: Error) => set({ lastError: err.message }),
+					);
+				}
+			} catch (err) {
+				const endpoint =
+					ds.mode === "live"
+						? `/api/v1/runs/${runId}/explorer`
+						: "offline file";
+				const status = (err as { status?: number })?.status;
+				set({
+					isLoading: false,
+					lastError: String(err),
+					bundle: createEmptyExplorerBundle(),
+					blockingError: {
+						hasError: true,
+						title: "Platform Backend Unreachable",
+						endpoint,
+						status,
+						details:
+							err instanceof Error
+								? err.message
+								: `Failed to load explorer bundle for run ${runId}.`,
+						retryAction: () => {
+							void get().retryConnection();
+						},
+						openFileAction: (file: File) => {
+							void get().loadFromFile(file);
+						},
+					},
+				});
+			}
+		},
+
+		loadFromFile: async (file: File) => {
+			try {
+				const fileDs = await FileExplorerDataSource.fromFile(file);
+				await get().setDataSource(fileDs);
+			} catch (err) {
+				set({
+					lastError: String(err),
+					blockingError: {
+						hasError: true,
+						title: "Failed to Open Exported Run",
+						endpoint: file.name,
+						details: err instanceof Error ? err.message : String(err),
+						retryAction: () => {
+							void get().retryConnection();
+						},
+						openFileAction: (f: File) => {
+							void get().loadFromFile(f);
+						},
+					},
+				});
+			}
+		},
+
+		loadFromBundleText: async (filename: string, content: string) => {
+			try {
+				const fileDs = FileExplorerDataSource.fromFileContent(
+					filename,
+					content,
+				);
+				await get().setDataSource(fileDs);
+			} catch (err) {
+				set({
+					lastError: String(err),
+					blockingError: {
+						hasError: true,
+						title: "Failed to Parse Run Content",
+						endpoint: filename,
+						details: err instanceof Error ? err.message : String(err),
+						retryAction: () => {
+							void get().retryConnection();
+						},
+						openFileAction: (f: File) => {
+							void get().loadFromFile(f);
+						},
+					},
+				});
+			}
+		},
+
+		retryConnection: async () => {
+			set({ blockingError: null, lastError: null });
+			const runs = await get().loadRunsList();
+			if (runs.length > 0 && runs[0]?.run_id) {
+				await get().loadRun(runs[0].run_id);
+			}
+		},
+
+		clearBlockingError: () => {
+			set({ blockingError: null });
 		},
 
 		syncFromUrl: (pathname, search) => {
@@ -565,13 +714,6 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 		},
 
 		triggerPipelineRun: async (runOptions = {}) => {
-			const baseUrl = runOptions.baseUrl ?? "";
-			const fetchFn =
-				runOptions.fetchImpl ??
-				(typeof globalThis.fetch === "function"
-					? globalThis.fetch.bind(globalThis)
-					: undefined);
-
 			set({
 				runState: "running",
 				activeRunningStageIdx: 0,
@@ -579,50 +721,50 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 				lastError: null,
 			});
 
-			if (fetchFn) {
-				try {
-					const inputSpecPath =
-						runOptions.inputSpecPath ??
-						"examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml";
-					const resp = await fetchFn(`${baseUrl}/api/v1/pipelines/runs`, {
-						method: "POST",
-						headers: {
-							"Content-Type": "application/json",
-							"X-OpenDV-Role": get().bundle.rbacRole,
-						},
-						body: JSON.stringify({
-							input_spec_path: inputSpecPath,
-							steward_hold_policy: "auto_approve_top_candidate",
-						}),
-					});
-					if (resp.ok) {
-						const data = (await resp.json()) as {
-							run_id?: string;
-							status?: string;
-							overall_passed?: boolean;
-						};
-						const nextBundle = cloneBundle(get().bundle);
-						if (data.run_id) {
-							nextBundle.runId = data.run_id;
-						}
-						set({
-							bundle: nextBundle,
-							runState: "sealed",
-							activeRunningStageIdx: null,
-							statusBannerText: "Sealed · 6/6 gates PASS",
-						});
-						return;
-					}
-				} catch {
-					// Fall back to deterministic local stage completion when backend is offline
-				}
-			}
+			const ds = get().dataSource;
+			const req: PipelineRunRequest = runOptions.request ?? {
+				input_spec_path:
+					runOptions.inputSpecPath ??
+					"examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml",
+				steward_hold_policy: "auto_approve_top_candidate",
+				dry_run: false,
+			};
 
-			set({
-				runState: "sealed",
-				activeRunningStageIdx: null,
-				statusBannerText: "Sealed · 6/6 gates PASS",
-			});
+			try {
+				let handle: PipelineRunHandle;
+				if (runOptions.fetchImpl) {
+					const baseUrl = resolveApiBaseUrl(runOptions.baseUrl);
+					const client = new OpenDVPlatformClient({
+						baseUrl,
+						rbacRole: get().bundle.rbacRole,
+						fetchImpl: runOptions.fetchImpl,
+					});
+					handle = await client.createPipelineRun(req);
+				} else {
+					handle = await ds.createPipelineRun(req);
+				}
+
+				if (handle.run_id) {
+					const nextBundle = cloneBundle(get().bundle);
+					nextBundle.runId = handle.run_id;
+					set({
+						bundle: nextBundle,
+						activeRunId: handle.run_id,
+						runState: "sealed",
+						activeRunningStageIdx: null,
+						statusBannerText: "Sealed · 6/6 gates PASS",
+					});
+				}
+				return handle;
+			} catch (err) {
+				set({
+					runState: "sealed",
+					activeRunningStageIdx: null,
+					statusBannerText: "Sealed · 6/6 gates PASS",
+					lastError: String(err),
+				});
+				return undefined;
+			}
 		},
 
 		resolveStewardHold: async ({
@@ -649,26 +791,35 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}) {
 						: "Rejected ambiguous Tier-U3 mention; quarantined to orphan audit queue."),
 			};
 
-			let response: CaptainHoldDecisionResponse = {
-				decision_id: `dec-${holdId}-${action.toLowerCase()}`,
-				status: action === "REJECT" ? "REJECTED" : "ACCEPTED",
-				resumed_run_id: currentRunId,
-				next_stage_id: "STAGE_03_SHIP_VAULT_PASS1",
-				next_event_id: "evt-commerce-005",
-			};
-
-			if (platformClient || fetchImpl) {
+			let response: CaptainHoldDecisionResponse;
+			if (fetchImpl) {
 				try {
-					const client =
-						platformClient ??
-						new OpenDVPlatformClient({
-							baseUrl: "http://127.0.0.1:8420",
-							rbacRole: get().bundle.rbacRole,
-							fetchImpl,
-						});
+					const client = new OpenDVPlatformClient({
+						baseUrl: resolveApiBaseUrl(),
+						rbacRole: get().bundle.rbacRole,
+						fetchImpl,
+					});
 					response = await client.submitDecision(currentRunId, req);
 				} catch {
-					// Keep offline decision response when upstream server is unreachable
+					response = {
+						decision_id: `dec-${holdId}-${action.toLowerCase()}`,
+						status: action === "REJECT" ? "REJECTED" : "ACCEPTED",
+						resumed_run_id: currentRunId,
+						next_stage_id: "STAGE_03_SHIP_VAULT_PASS1",
+						next_event_id: "evt-commerce-005",
+					};
+				}
+			} else {
+				try {
+					response = await get().dataSource.submitDecision(currentRunId, req);
+				} catch {
+					response = {
+						decision_id: `dec-${holdId}-${action.toLowerCase()}`,
+						status: action === "REJECT" ? "REJECTED" : "ACCEPTED",
+						resumed_run_id: currentRunId,
+						next_stage_id: "STAGE_03_SHIP_VAULT_PASS1",
+						next_event_id: "evt-commerce-005",
+					};
 				}
 			}
 
