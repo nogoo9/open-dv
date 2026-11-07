@@ -13,6 +13,11 @@ class PipelineValidateRequest(BaseContractModel):
     input_spec: dict[str, Any] | None = Field(
         default=None, description="Inline input specification (Decision D1)"
     )
+    input_spec_content: str | None = Field(
+        default=None,
+        max_length=1_000_000,
+        description="Inline YAML or JSON string for pipeline input specification",
+    )
     input_spec_path: str | None = Field(default=None, description="Path to input spec file")
     graph_a_source: dict[str, Any] | None = Field(
         default=None,

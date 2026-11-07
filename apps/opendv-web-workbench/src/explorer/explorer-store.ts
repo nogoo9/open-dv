@@ -61,13 +61,21 @@ export function hasActiveReactDispatcher(): boolean {
 	);
 }
 
-export function createExplorerStore(options: ExplorerStoreInitOptions = {}): ExplorerStore {
+export function createExplorerStore(
+	options: ExplorerStoreInitOptions = {},
+): ExplorerStore {
 	const initialBundle = cloneBundle(
 		options.bundle ?? createEmptyExplorerBundle(),
 	);
 	const startV = options.startView ?? "pipeline";
 	const initialView: ExplorerViewLevel =
-		startV === "stage" ? "stage" : "pipeline";
+		startV === "stage"
+			? "stage"
+			: startV === "builder"
+				? "builder"
+				: startV === "settings"
+					? "settings"
+					: "pipeline";
 	const initialStageIdx = Math.max(0, Math.min(7, options.startStage ?? 5));
 	const initialSelType: ExplorerSelectionType =
 		startV === "stage" ? "step" : startV === "artifact" ? "artifact" : null;
@@ -145,6 +153,16 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}): Exp
 
 		goPipeline: () => {
 			set({ view: "pipeline", selType: null, selId: null });
+			pushBrowserUrl(get());
+		},
+
+		goBuilder: () => {
+			set({ view: "builder", selType: null, selId: null });
+			pushBrowserUrl(get());
+		},
+
+		goSettings: () => {
+			set({ view: "settings", selType: null, selId: null });
 			pushBrowserUrl(get());
 		},
 
@@ -301,8 +319,7 @@ export function createExplorerStore(options: ExplorerStoreInitOptions = {}): Exp
 		triggerPipelineRun: (runOptions) =>
 			executeTriggerPipelineRun(get, set, runOptions),
 
-		resolveStewardHold: (params) =>
-			executeResolveStewardHold(get, set, params),
+		resolveStewardHold: (params) => executeResolveStewardHold(get, set, params),
 	}));
 
 	api.getInitialState = () => api.getState();

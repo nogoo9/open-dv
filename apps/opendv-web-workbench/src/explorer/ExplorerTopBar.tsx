@@ -16,9 +16,18 @@ const WAVE_SEGMENTS: readonly { label: string; id: WaveFilterId }[] = [
 	{ label: "W3", id: "W3" },
 ] as const;
 
-const DROPDOWN_ITEM_STYLE: CSSProperties = {
-	all: "unset",
+const RESET_BUTTON_STYLE: CSSProperties = {
+	background: "transparent",
+	border: "none",
+	padding: 0,
+	margin: 0,
+	font: "inherit",
+	textAlign: "left",
 	cursor: "pointer",
+};
+
+const DROPDOWN_ITEM_STYLE: CSSProperties = {
+	...RESET_BUTTON_STYLE,
 	padding: "6px 8px",
 	borderRadius: "4px",
 	display: "flex",
@@ -43,6 +52,8 @@ export interface ExplorerTopBarProps {
 	onSelectRun: (run: ProjectRunDTO) => void;
 	onOpenNewRunModal: () => void;
 	onGoPipeline: () => void;
+	onGoBuilder?: (() => void) | undefined;
+	onGoSettings?: (() => void) | undefined;
 	onSetWaveFilter: (wave: WaveFilterId) => void;
 }
 
@@ -63,6 +74,8 @@ export function ExplorerTopBar({
 	onSelectRun,
 	onOpenNewRunModal,
 	onGoPipeline,
+	onGoBuilder,
+	onGoSettings,
 	onSetWaveFilter,
 }: ExplorerTopBarProps) {
 	return (
@@ -118,8 +131,7 @@ export function ExplorerTopBar({
 						data-testid="breadcrumb-pipeline"
 						onClick={onGoPipeline}
 						style={{
-							all: "unset",
-							cursor: "pointer",
+							...RESET_BUTTON_STYLE,
 							fontWeight: 500,
 							color: view === "stage" ? "#1D4ED8" : "#16181D",
 						}}
@@ -145,6 +157,78 @@ export function ExplorerTopBar({
 						</div>
 					)}
 				</nav>
+
+				<span style={{ color: "#D4D7DC" }}>|</span>
+				<nav
+					aria-label="Primary Workspace Views"
+					style={{
+						display: "flex",
+						alignItems: "center",
+						gap: "4px",
+					}}
+				>
+					<button
+						type="button"
+						data-testid="nav-tab-explorer"
+						aria-current={
+							view === "pipeline" || view === "stage" ? "page" : undefined
+						}
+						onClick={onGoPipeline}
+						style={{
+							...RESET_BUTTON_STYLE,
+							fontSize: "12px",
+							fontWeight: 500,
+							padding: "4px 9px",
+							borderRadius: "6px",
+							background:
+								view === "pipeline" || view === "stage"
+									? "#EEF0F2"
+									: "transparent",
+							color:
+								view === "pipeline" || view === "stage" ? "#16181D" : "#545A66",
+						}}
+					>
+						Explorer
+					</button>
+					{onGoBuilder && (
+						<button
+							type="button"
+							data-testid="nav-tab-builder"
+							aria-current={view === "builder" ? "page" : undefined}
+							onClick={onGoBuilder}
+							style={{
+								...RESET_BUTTON_STYLE,
+								fontSize: "12px",
+								fontWeight: 500,
+								padding: "4px 9px",
+								borderRadius: "6px",
+								background: view === "builder" ? "#EEF0F2" : "transparent",
+								color: view === "builder" ? "#16181D" : "#545A66",
+							}}
+						>
+							Pipeline Builder
+						</button>
+					)}
+					{onGoSettings && (
+						<button
+							type="button"
+							data-testid="nav-tab-settings"
+							aria-current={view === "settings" ? "page" : undefined}
+							onClick={onGoSettings}
+							style={{
+								...RESET_BUTTON_STYLE,
+								fontSize: "12px",
+								fontWeight: 500,
+								padding: "4px 9px",
+								borderRadius: "6px",
+								background: view === "settings" ? "#EEF0F2" : "transparent",
+								color: view === "settings" ? "#16181D" : "#545A66",
+							}}
+						>
+							Settings
+						</button>
+					)}
+				</nav>
 			</div>
 
 			{/* Center: Run Selector Pill & Dropdown + Wave Segmented Filter */}
@@ -163,8 +247,7 @@ export function ExplorerTopBar({
 						title="Click to select recent pipeline runs"
 						onClick={onToggleRunSelector}
 						style={{
-							all: "unset",
-							cursor: "pointer",
+							...RESET_BUTTON_STYLE,
 							display: "flex",
 							alignItems: "center",
 							gap: "8px",
@@ -294,8 +377,7 @@ export function ExplorerTopBar({
 												borderRadius: "4px",
 												background:
 													run.status === "RUNNING" ? "#FFF4E5" : "#EEF0F2",
-												color:
-													run.status === "RUNNING" ? "#8A3B07" : "#16181D",
+												color: run.status === "RUNNING" ? "#8A3B07" : "#16181D",
 											}}
 										>
 											{run.status}
@@ -353,8 +435,7 @@ export function ExplorerTopBar({
 								aria-pressed={isActive}
 								onClick={() => onSetWaveFilter(seg.id)}
 								style={{
-									all: "unset",
-									cursor: "pointer",
+									...RESET_BUTTON_STYLE,
 									padding: "5px 9px",
 									background: isActive ? "#16181D" : "#FFFFFF",
 									color: isActive ? "#FFFFFF" : "#545A66",
@@ -421,8 +502,7 @@ export function ExplorerTopBar({
 					data-testid="btn-explorer-run-pipeline"
 					onClick={onOpenNewRunModal}
 					style={{
-						all: "unset",
-						cursor: "pointer",
+						...RESET_BUTTON_STYLE,
 						fontSize: "12.5px",
 						fontWeight: 500,
 						padding: "6px 12px",

@@ -42,6 +42,10 @@ export function parseExplorerUrlState(
 	if (stageMatch?.[1] !== undefined) {
 		view = "stage";
 		stageIdx = Math.max(0, Math.min(7, Number.parseInt(stageMatch[1], 10)));
+	} else if (pathname === "/builder" || pathname.startsWith("/builder/")) {
+		view = "builder";
+	} else if (pathname === "/settings" || pathname.startsWith("/settings/")) {
+		view = "settings";
 	}
 
 	const params = new URLSearchParams(
@@ -80,7 +84,11 @@ export function buildExplorerUrl(state: {
 	const path =
 		state.view === "stage"
 			? `/stages/${String(state.stageIdx).padStart(2, "0")}`
-			: "/";
+			: state.view === "builder"
+				? "/builder"
+				: state.view === "settings"
+					? "/settings"
+					: "/";
 	const params = new URLSearchParams();
 	if (state.fullId) {
 		params.set("artifact", state.fullId);

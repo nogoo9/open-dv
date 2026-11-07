@@ -14,7 +14,7 @@ import {
 } from "@opendv/protocol-ts";
 import { InspectorPanel } from "../InspectorPanel";
 import { EXPLORER_FONTS } from "../design-tokens";
-import type { ExplorerSelectionType } from "../types";
+import type { ExplorerRunState, ExplorerSelectionType } from "../types";
 import { OverviewInputsColumn } from "./OverviewInputsColumn";
 import { OverviewOutputsColumn } from "./OverviewOutputsColumn";
 import { OverviewSettingsColumn } from "./OverviewSettingsColumn";
@@ -36,6 +36,8 @@ export interface PipelineOverviewViewProps {
 	onOpenStage: (stageIdx: number) => void;
 	onClearSelection: () => void;
 	onResolveHold?: ((params: HoldResolutionParams) => void) | undefined;
+	runState?: ExplorerRunState | undefined;
+	activeRunningStageIdx?: number | null | undefined;
 }
 
 export function PipelineOverviewView({
@@ -54,6 +56,8 @@ export function PipelineOverviewView({
 	onOpenStage,
 	onClearSelection,
 	onResolveHold,
+	runState,
+	activeRunningStageIdx,
 }: PipelineOverviewViewProps) {
 	const visibleInputIds = filterArtifactIdsByWave(
 		inputIds,
@@ -114,6 +118,8 @@ export function PipelineOverviewView({
 				artifacts={artifacts}
 				activeWave={activeWave}
 				onOpenStage={onOpenStage}
+				runState={runState}
+				activeRunningStageIdx={activeRunningStageIdx}
 			/>
 
 			{/* Right Column: Outputs */}

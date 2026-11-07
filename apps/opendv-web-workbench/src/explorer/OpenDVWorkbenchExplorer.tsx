@@ -17,7 +17,6 @@ import {
 	type VaultObservabilityEventDTO,
 	filterArtifactIdsByWave,
 } from "@opendv/protocol-ts";
-import { useEffect, useState } from "react";
 import type { StoreApi, UseBoundStore } from "zustand";
 import { ArtifactFullModal } from "./ArtifactFullModal";
 import { BlockingErrorBanner } from "./BlockingErrorBanner";
@@ -25,13 +24,14 @@ import { ExplorerTopBar } from "./ExplorerTopBar";
 import { NewRunModal, type PipelineValidationReport } from "./NewRunModal";
 import { PipelineOverviewView } from "./PipelineOverviewView";
 import { StageDrillDownView } from "./StageDrillDownView";
-import { EXPLORER_COLORS, EXPLORER_FONTS } from "./design-tokens";
+import { PipelineBuilderView } from "./builder/PipelineBuilderView";
+import type { StagedPipelineSpec } from "./builder/specBuilderUtils";
 import type { ExplorerDataSource } from "./data-source";
-import {
-	type ExplorerStoreState,
-	hasActiveReactDispatcher,
-	useExplorerStore,
-} from "./explorer-store";
+import { EXPLORER_COLORS, EXPLORER_FONTS } from "./design-tokens";
+import { type ExplorerStoreState, useExplorerStore } from "./explorer-store";
+import { safeUseEffect, safeUseState } from "./modals/safeHooks";
+import { PipelineRunProgressBar } from "./progress/PipelineRunProgressBar";
+import { PlatformSettingsView } from "./settings/PlatformSettingsView";
 
 export interface OpenDVWorkbenchExplorerProps {
 	store?: UseBoundStore<StoreApi<ExplorerStoreState>> | undefined;
@@ -39,39 +39,6 @@ export interface OpenDVWorkbenchExplorerProps {
 	dataSource?: ExplorerDataSource | undefined;
 	apiUrl?: string | undefined;
 	onRunStarted?: ((handle: PipelineRunHandle) => void) | undefined;
-}
-
-function safeUseEffect(
-	effect: Parameters<typeof useEffect>[0],
-	deps?: readonly unknown[] | undefined,
-): void {
-	if (!hasActiveReactDispatcher()) return;
-	try {
-		useEffect(effect, deps);
-	} catch {
-		// Ignore hook errors outside React render tree
-	}
-}
-
-function safeUseState<T>(
-	initialValue: T | (() => T),
-): [T, (val: T | ((prev: T) => T)) => void] {
-	if (!hasActiveReactDispatcher()) {
-		const val =
-			typeof initialValue === "function"
-				? (initialValue as () => T)()
-				: initialValue;
-		return [val, () => {}];
-	}
-	try {
-		return useState(initialValue);
-	} catch {
-		const val =
-			typeof initialValue === "function"
-				? (initialValue as () => T)()
-				: initialValue;
-		return [val, () => {}];
-	}
 }
 
 export function OpenDVWorkbenchExplorer({
@@ -90,10 +57,13 @@ export function OpenDVWorkbenchExplorer({
 	const fullTab = store((s) => s.fullTab);
 	const activeWave = store((s) => s.activeWave);
 	const runState = store((s) => s.runState);
+	const activeRunningStageIdx = store((s) => s.activeRunningStageIdx);
 	const statusBannerText = store((s) => s.statusBannerText);
 	const blockingError = store((s) => s.blockingError);
 
 	const goPipeline = store((s) => s.goPipeline);
+	const goBuilder = store((s) => s.goBuilder);
+	const goSettings = store((s) => s.goSettings);
 	const openStage = store((s) => s.openStage);
 	const prevStage = store((s) => s.prevStage);
 	const nextStage = store((s) => s.nextStage);
@@ -114,6 +84,9 @@ export function OpenDVWorkbenchExplorer({
 	const [isLoadingRuns, setIsLoadingRuns] = safeUseState(false);
 	const [streamedTokens, setStreamedTokens] = safeUseState<number>(0);
 	const [isNewRunModalOpen, setIsNewRunModalOpen] = safeUseState(false);
+	const [stagedSpec, setStagedSpec] = safeUseState<StagedPipelineSpec | null>(
+		null,
+	);
 
 	// Sync initial URL and browser popstate
 	safeUseEffect(() => {
@@ -145,11 +118,14 @@ export function OpenDVWorkbenchExplorer({
 		if (dataSource) {
 			void store.getState().setDataSource(dataSource);
 		} else if (!bundle.runId && !store.getState().blockingError) {
-			void store.getState().loadRunsList().then((runs) => {
-				if (runs.length > 0 && runs[0]?.run_id) {
-					void store.getState().loadRun(runs[0].run_id);
-				}
-			});
+			void store
+				.getState()
+				.loadRunsList()
+				.then((runs) => {
+					if (runs.length > 0 && runs[0]?.run_id) {
+						void store.getState().loadRun(runs[0].run_id);
+					}
+				});
 		}
 	}, [dataSource, store, bundle.runId]);
 
@@ -230,7 +206,9 @@ export function OpenDVWorkbenchExplorer({
 						(s) => s.tag === "ASK-USER" || (s.tag as string) === "HOLD",
 					) ||
 					Object.values(nextBundle.artifacts).some((a) =>
-						a.doc?.extractions?.some((e) => e.tier === "Tier-U3" && !e.resolved),
+						a.doc?.extractions?.some(
+							(e) => e.tier === "Tier-U3" && !e.resolved,
+						),
 					);
 				const hasFailure =
 					run.status === "FAILED" ||
@@ -280,10 +258,9 @@ export function OpenDVWorkbenchExplorer({
 				});
 			}
 		} else {
-			await store.getState().loadRun(
-				run.run_id,
-				activeWave !== "all" ? activeWave : undefined,
-			);
+			await store
+				.getState()
+				.loadRun(run.run_id, activeWave !== "all" ? activeWave : undefined);
 		}
 	};
 
@@ -352,18 +329,53 @@ export function OpenDVWorkbenchExplorer({
 				onSelectRun={handleSelectRun}
 				onOpenNewRunModal={() => setIsNewRunModalOpen(true)}
 				onGoPipeline={goPipeline}
+				onGoBuilder={goBuilder}
+				onGoSettings={goSettings}
 				onSetWaveFilter={setWaveFilter}
 			/>
 
 			{/* Main Content Workspace or Explicit Blocking Error Banner (REQ-MOCK-01, REQ-FAIL-01) */}
-			{blockingError !== null && blockingError.hasError ? (
+			{blockingError?.hasError ? (
 				<BlockingErrorBanner error={blockingError} />
 			) : (
 				<div
 					data-testid="explorer-main-workspace"
 					inert={fullArtifact ? true : undefined}
 				>
-					{view === "pipeline" ? (
+					{(view === "pipeline" || view === "stage") && (
+						<div style={{ padding: "12px 24px 0" }}>
+							<PipelineRunProgressBar
+								stages={displayedStages}
+								runState={runState}
+								activeRunningStageIdx={activeRunningStageIdx}
+								statusBannerText={statusBannerText}
+								streamedTokens={streamedTokens}
+								onSelectStage={openStage}
+							/>
+						</div>
+					)}
+					{view === "builder" ? (
+						<PipelineBuilderView
+							stagedSpec={stagedSpec}
+							onStageSpec={setStagedSpec}
+							onRunStarted={(handle) => {
+								handleRunStarted(handle);
+								goPipeline();
+							}}
+							fetchImpl={fetchImpl}
+							apiUrl={apiUrl}
+							validatePipelineFn={dataSource?.validatePipeline?.bind(
+								dataSource,
+							)}
+							createRunFn={dataSource?.createPipelineRun?.bind(dataSource)}
+						/>
+					) : view === "settings" ? (
+						<PlatformSettingsView
+							apiUrl={apiUrl}
+							fetchImpl={fetchImpl}
+							onBackToExplorer={goPipeline}
+						/>
+					) : view === "pipeline" ? (
 						<PipelineOverviewView
 							settingIds={bundle.settingIds}
 							inputIds={bundle.inputIds}
@@ -380,6 +392,8 @@ export function OpenDVWorkbenchExplorer({
 							onOpenStage={openStage}
 							onClearSelection={clearSelection}
 							onResolveHold={handleResolveHold}
+							runState={runState}
+							activeRunningStageIdx={activeRunningStageIdx}
 						/>
 					) : (
 						<StageDrillDownView
@@ -422,6 +436,11 @@ export function OpenDVWorkbenchExplorer({
 				fetchImpl={fetchImpl}
 				apiUrl={apiUrl}
 				defaultWaveId={activeWave !== "all" ? activeWave : ""}
+				stagedSpec={stagedSpec}
+				onOpenBuilderView={() => {
+					setIsNewRunModalOpen(false);
+					goBuilder();
+				}}
 				createRunFn={dataSource?.createPipelineRun?.bind(dataSource)}
 				validatePipelineFn={dataSource?.validatePipeline?.bind(dataSource)}
 			/>

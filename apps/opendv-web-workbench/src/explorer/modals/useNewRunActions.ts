@@ -10,6 +10,7 @@ export interface ValidateActionParams {
 	specPath: string;
 	specFileName?: string | undefined;
 	specFileContent?: string | undefined;
+	inputSpec?: Record<string, unknown> | undefined;
 	contractPath: string;
 	contractFileContent?: string | undefined;
 	waveId: string;
@@ -21,13 +22,30 @@ export interface ValidateActionParams {
 		| undefined;
 }
 
+function parseJsonSpecIfPossible(
+	specFileContent?: string | undefined,
+): Record<string, unknown> | undefined {
+	if (!specFileContent) return undefined;
+	const trimmed = specFileContent.trim();
+	if (!trimmed.startsWith("{")) return undefined;
+	try {
+		const parsed = JSON.parse(trimmed) as unknown;
+		if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+			return parsed as Record<string, unknown>;
+		}
+	} catch {
+		// Ignore non-JSON content (e.g., raw YAML)
+	}
+	return undefined;
+}
+
 export async function executeValidate(
 	params: ValidateActionParams,
 ): Promise<PipelineValidationReport> {
 	const {
 		specPath,
-		specFileName,
 		specFileContent,
+		inputSpec,
 		contractPath,
 		contractFileContent,
 		waveId,
@@ -37,7 +55,10 @@ export async function executeValidate(
 		validatePipelineFn,
 	} = params;
 
+	const parsedSpec = parseJsonSpecIfPossible(specFileContent);
 	const req: PipelineValidateRequest = {
+		input_spec: inputSpec ?? parsedSpec ?? null,
+		input_spec_content: specFileContent || null,
 		input_spec_path: specPath.trim() || null,
 		initial_contract_path: contractPath.trim() || null,
 		initial_contract_content: contractFileContent || null,
@@ -112,6 +133,8 @@ export async function executeValidate(
 
 export interface SubmitRunActionParams {
 	specPath: string;
+	specFileContent?: string | undefined;
+	inputSpec?: Record<string, unknown> | undefined;
 	contractPath: string;
 	contractFileContent?: string | undefined;
 	waveId: string;
@@ -128,6 +151,8 @@ export async function executeSubmitRun(
 ): Promise<PipelineRunHandle> {
 	const {
 		specPath,
+		specFileContent,
+		inputSpec,
 		contractPath,
 		contractFileContent,
 		waveId,
@@ -137,8 +162,11 @@ export async function executeSubmitRun(
 		createRunFn,
 	} = params;
 
+	const parsedSpec = parseJsonSpecIfPossible(specFileContent);
 	const req: PipelineRunRequest = {
 		dry_run: false,
+		input_spec: inputSpec ?? parsedSpec ?? null,
+		input_spec_content: specFileContent || null,
 		input_spec_path: specPath.trim() || null,
 		initial_contract_path: contractPath.trim() || null,
 		initial_contract_content: contractFileContent || null,

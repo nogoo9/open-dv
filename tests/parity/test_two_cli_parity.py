@@ -64,10 +64,16 @@ def test_dump_cli_tree_canonical_equality(
     py_shared_opts = [o for o in py_tree["global_options"] if o["flag"] != "--api-url"]
     assert dumps_jcs(py_shared_opts) == dumps_jcs(ts_shared_opts)
 
-    # 6. Shared commands: leaf commands match bit-for-bit in JCS
+    # 6. Shared commands: leaf commands match bit-for-bit in JCS; standalone_only excluded in ts
     py_cmds: dict[str, Any] = py_tree["commands"]
     ts_cmds: dict[str, Any] = {c["name"]: c for c in ts_tree["commands"]}
-    assert set(py_cmds.keys()) == set(ts_cmds.keys())
+    assert "serve" in py_cmds
+    assert py_cmds["serve"]["availability"] == "standalone_only"
+    assert "serve" not in ts_cmds
+    py_shared_cmd_names = {
+        name for name, cmd in py_cmds.items() if cmd.get("availability") != "standalone_only"
+    }
+    assert py_shared_cmd_names == set(ts_cmds.keys())
 
     for leaf in ["profile", "compile", "verify", "sandbox"]:
         assert dumps_jcs(py_cmds[leaf]) == dumps_jcs(ts_cmds[leaf]), (
@@ -87,8 +93,8 @@ def test_dump_cli_tree_canonical_equality(
             f"Pipeline subcommand mismatch for '{sub}'"
         )
 
-    # 8. Run and Hold subcommands match bit-for-bit
-    for parent in ["run", "hold"]:
+    # 8. Run, Hold, and Config subcommands match bit-for-bit
+    for parent in ["run", "hold", "config"]:
         py_subs = py_cmds[parent]["subcommands"]
         ts_subs = {s["name"]: s for s in ts_cmds[parent]["subcommands"]}
         assert set(py_subs.keys()) == set(ts_subs.keys())

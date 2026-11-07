@@ -628,6 +628,104 @@ opendv ontology reject --help
 opendvctl ontology reject --api-url $OPENDV_API_URL --json
 ```
 
+### `opendv config` / `opendvctl config`
+
+**Availability:** *(Both CLIs)*  
+**Description:** Inspect, update, and validate Open-DV platform and agnostic agent harness configuration  
+**Summary:** Manage platform and agent harness configuration
+
+#### Subcommands of `config`
+
+##### `config show` *(Both CLIs)*
+
+Display active platform settings, default agent harness configuration, resolved persona models, and provider readiness
+
+- **Response DTO:** `PlatformConfigResponse`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv config show --help
+
+# Client execution
+opendvctl config show --api-url $OPENDV_API_URL --json
+```
+
+##### `config set` *(Both CLIs)*
+
+Update and persist platform default agent harness provider, model routing, budgets, and governance policies
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--provider` | `-p` | `string` | No | — | No | Default agent harness provider |
+| `--reasoning-model` | — | `string` | No | — | No | Model override for HIGH_REASONING tier ('reasoning') |
+| `--fast-model` | — | `string` | No | — | No | Model override for FAST_TIER ('fast') |
+| `--auth-mode` | — | `string` | No | — | No | Authentication mode for the harness provider |
+| `--api-key-env-var` | — | `string` | No | — | No | Environment variable name storing the provider API key |
+| `--hold-policy` | — | `string` | No | — | No | Default Steward Hold policy |
+| `--ontology-policy` | — | `string` | No | — | No | Default ontology evolution policy (off, recommend, auto_accept) |
+| `--stage-output-policy` | — | `string` | No | — | No | Default stage output synthesis policy |
+| `--max-turns` | — | `integer` | No | — | No | Maximum agent turns per task |
+| `--timeout-seconds` | — | `integer` | No | — | No | Task execution timeout in seconds |
+| `--harness-config` | `-c` | `path` | No | — | Yes | Optional path to a full harness_config.yaml file to import |
+
+- **Request DTO:** `PlatformConfigUpdateRequest`
+- **Response DTO:** `PlatformConfigResponse`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv config set --help
+
+# Client execution
+opendvctl config set --api-url $OPENDV_API_URL --json
+```
+
+##### `config validate` *(Both CLIs)*
+
+Deterministically validate platform and agent harness configuration and probe provider readiness
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--provider` | `-p` | `string` | No | — | No | Candidate harness provider to validate |
+| `--harness-config` | `-c` | `path` | No | — | Yes | Optional path to a candidate harness_config.yaml file to validate |
+
+- **Request DTO:** `PlatformConfigValidateRequest`
+- **Response DTO:** `PlatformConfigValidationResponse`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv config validate --help
+
+# Client execution
+opendvctl config validate --api-url $OPENDV_API_URL --json
+```
+
+### `opendv serve` / `opendvctl serve`
+
+**Availability:** *(Standalone `opendv` only)*  
+**Description:** Launch the unified Open-DV Platform Server serving both the REST/SSE API and the embedded static Web Explorer UI  
+**Summary:** Start the unified Open-DV Platform & Web Explorer server
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--host` | — | `string` | No | `127.0.0.1` | No | Bind host address for the platform server |
+| `--port` | `-p` | `integer` | No | `8420` | No | Bind port for the platform server and Web Explorer UI |
+| `--config` | `-c` | `path` | No | — | No | Path to opendv.config.yaml configuration file |
+| `--workspace` | `-w` | `path` | No | — | No | Workspace root directory for path containment and state storage |
+| `--open` | — | `boolean` | No | `False` | No | Automatically open the Web Explorer UI in the default browser on startup |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv serve --help
+
+# Client execution
+opendvctl serve --api-url $OPENDV_API_URL --json
+```
+
 ---
 
 ## 4. Exit Codes & Error Mapping

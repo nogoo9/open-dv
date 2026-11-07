@@ -17,6 +17,9 @@ dependencies = [
     "opendv-sources[standard]",
 ]
 
+[project.scripts]
+opendv-platform = "opendv_platform_api.cli:main"
+
 [tool.uv.sources]
 opendv-contracts = { workspace = true }
 opendv-core = { workspace = true }

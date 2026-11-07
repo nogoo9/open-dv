@@ -17,7 +17,8 @@
 		"typescript": "^5.8.0"
 	},
 	"scripts": {
-		"build": "bun build src/index.ts --outdir dist",
+		"build": "tsc && bun run src/build-static.ts",
+		"build:static": "bun run src/build-static.ts",
 		"dev": "bun run src/dev-server.ts",
 		"lint": "bun x biome check src tests",
 		"test": "bun test"

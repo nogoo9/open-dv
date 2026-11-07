@@ -46,3 +46,7 @@ tasks:
       - '--reload'
       - '--port'
       - '8420'
+    env:
+      OPENDV_CONFIG: 'opendv.config.yaml'
+    options:
+      runFromWorkspaceRoot: true

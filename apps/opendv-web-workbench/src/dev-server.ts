@@ -3,7 +3,8 @@ import { join, resolve } from "node:path";
 
 export const DEFAULT_DEV_SERVER_PORT = 5173;
 export const DEFAULT_DEV_SERVER_HOST = "127.0.0.1";
-export const DEFAULT_API_URL = process.env.OPENDV_API_URL ?? "";
+export const DEFAULT_API_URL =
+	process.env.OPENDV_API_URL ?? "http://127.0.0.1:8420";
 export const WORKBENCH_CSP =
 	"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'";
 

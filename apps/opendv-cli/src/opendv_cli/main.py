@@ -16,7 +16,18 @@ from opendv_cli_common import (
 )
 
 SUBCOMMANDS = frozenset(
-    {"verify", "profile", "compile", "sandbox", "run", "hold", "pipeline", "ontology"}
+    {
+        "verify",
+        "profile",
+        "compile",
+        "sandbox",
+        "run",
+        "hold",
+        "pipeline",
+        "ontology",
+        "config",
+        "serve",
+    }
 )
 _BOOLEAN_FLAGS = frozenset(
     {
@@ -30,6 +41,7 @@ _BOOLEAN_FLAGS = frozenset(
         "--stream",
         "--stream-tokens",
         "--dump-cli-tree",
+        "--open",
     }
 )
 _NO_SUBCOMMAND_EXEMPT_FLAGS: tuple[str, ...] = ("-h", "--help", "--version")

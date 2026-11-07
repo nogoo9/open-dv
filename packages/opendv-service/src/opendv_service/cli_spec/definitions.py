@@ -1237,6 +1237,11 @@ ONTOLOGY_COMMAND = CommandDef(
 )
 
 # Canonical active command list for Phase P7
+from opendv_service.cli_spec.platform_commands import (  # noqa: E402
+    CONFIG_COMMAND,
+    SERVE_COMMAND,
+)
+
 CORE_COMMANDS: list[CommandDef] = [
     PROFILE_COMMAND,
     COMPILE_COMMAND,
@@ -1246,6 +1251,8 @@ CORE_COMMANDS: list[CommandDef] = [
     RUN_COMMAND,
     HOLD_COMMAND,
     ONTOLOGY_COMMAND,
+    CONFIG_COMMAND,
+    SERVE_COMMAND,
 ]
 
 ALL_COMMANDS: list[CommandDef] = [

@@ -17,3 +17,5 @@ tasks:
     args:
       - 'run'
       - 'dev'
+    env:
+      OPENDV_API_URL: 'http://127.0.0.1:8420'
