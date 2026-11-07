@@ -267,19 +267,19 @@ def test_no_legacy_workbench_references() -> None:
             if "docs" in path.parts and path.name.startswith("18-implementation-plan"):
                 continue
 
-        try:
-            content = path.read_text(encoding="utf-8", errors="replace")
-        except (OSError, UnicodeDecodeError):
-            continue
+            try:
+                content = path.read_text(encoding="utf-8", errors="replace")
+            except (OSError, UnicodeDecodeError):
+                continue
 
-        rel = path.relative_to(REPO_ROOT)
-        for line_no, line in enumerate(content.splitlines(), 1):
-            for pattern in banned_repo_patterns:
-                if pattern.search(line):
-                    violations.append(
-                        f"{rel}:{line_no}: Legacy reference matched {pattern.pattern}: "
-                        f"{line.strip()}"
-                    )
+            rel = path.relative_to(REPO_ROOT)
+            for line_no, line in enumerate(content.splitlines(), 1):
+                for pattern in banned_repo_patterns:
+                    if pattern.search(line):
+                        violations.append(
+                            f"{rel}:{line_no}: Legacy reference matched {pattern.pattern}: "
+                            f"{line.strip()}"
+                        )
 
     assert not violations, (
         f"Repository scan found {len(violations)} legacy workbench references:\n"
