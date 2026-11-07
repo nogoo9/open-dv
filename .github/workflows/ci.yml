@@ -212,6 +212,22 @@ jobs:
           print(f"[PASS] Verified HTML reference guide: {html_ref} ({html_ref.stat().st_size} bytes)")
           PY
 
+      - name: Run Architecture & no-duplication guards (T13)
+        run: |
+          uv run pytest tests/architecture/
+
+      - name: Run Hardening & fail-loud guards (T14)
+        run: |
+          uv run pytest -m hardening
+
+      - name: Run Two-CLI consistency & parity suite (T15)
+        run: |
+          uv run pytest tests/parity/test_two_cli_parity.py
+
+      - name: Execute Golden test suite (GT-01..GT-06)
+        run: |
+          uv run pytest -m golden
+
       - name: Run normative pytest test suite
         run: |
           uv run pytest -v
@@ -256,6 +272,6 @@ jobs:
 
       - name: Verify TypeScript DTO codegen freshness
         run: |
-          cd packages/opendv-protocol-ts && bun run codegen && cd ../..
+          bun run --cwd packages/opendv-protocol-ts codegen
           git diff --exit-code packages/opendv-protocol-ts/src/types
 
