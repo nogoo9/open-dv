@@ -14,6 +14,7 @@ import {
 	EXPLORER_FONTS,
 	EXPLORER_GLYPHS,
 	getGlyphCssStyle,
+	getStatusIndicator,
 	getStatusTagStyle,
 } from "./design-tokens";
 import type { ExplorerSelectionType } from "./explorer-store";
@@ -57,6 +58,7 @@ export function StageDrillDownView({
 	}
 	const numStr = String(stageIdx).padStart(2, "0");
 	const tagStyle = getStatusTagStyle(stage.tag);
+	const indicator = getStatusIndicator(stage.tag);
 	const nextLabel =
 		stageIdx < stages.length - 1
 			? (stages[stageIdx + 1]?.key ?? "pipeline outputs")
@@ -123,6 +125,25 @@ export function StageDrillDownView({
 		<main
 			data-testid="stage-drilldown-view"
 			onClick={() => onClearSelection()}
+			onKeyDown={(ev) => {
+				if (ev.key === "Escape") {
+					ev.preventDefault();
+					onGoPipeline();
+				} else if (
+					(ev.key === "ArrowLeft" && ev.altKey) ||
+					(ev.key === "ArrowLeft" && ev.target === ev.currentTarget)
+				) {
+					ev.preventDefault();
+					onPrevStage();
+				} else if (
+					(ev.key === "ArrowRight" && ev.altKey) ||
+					(ev.key === "ArrowRight" && ev.target === ev.currentTarget)
+				) {
+					ev.preventDefault();
+					onNextStage();
+				}
+			}}
+			tabIndex={-1}
 			style={{
 				maxWidth: "1600px",
 				margin: "0 auto",
@@ -159,6 +180,8 @@ export function StageDrillDownView({
 							type="button"
 							data-testid="btn-stage-all-stages"
 							onClick={onGoPipeline}
+							aria-label="Back to all stages (Esc)"
+							title="Back to all stages (Esc)"
 							style={{
 								all: "unset",
 								cursor: "pointer",
@@ -208,6 +231,7 @@ export function StageDrillDownView({
 									{stage.name}
 								</h1>
 								<span
+									aria-label={`Status: ${stage.tag} (${indicator.label})`}
 									style={{
 										fontFamily: EXPLORER_FONTS.mono,
 										fontSize: "11px",
@@ -216,16 +240,20 @@ export function StageDrillDownView({
 										borderRadius: "999px",
 										background: tagStyle.bg,
 										color: tagStyle.fg,
+										display: "inline-flex",
+										alignItems: "center",
+										gap: "4px",
 									}}
 								>
-									{stage.tag}
+									<span aria-hidden="true">{indicator.symbol}</span>
+									<span>{stage.tag}</span>
 								</span>
 							</div>
 							<div
 								style={{
 									fontFamily: EXPLORER_FONTS.mono,
 									fontSize: "11.5px",
-									color: "#6B7280",
+									color: "#525866",
 									marginTop: "2px",
 								}}
 							>
@@ -343,11 +371,34 @@ export function StageDrillDownView({
 									if (ev.key === "Enter" || ev.key === " ") {
 										ev.preventDefault();
 										onSelectComponent(idx);
+									} else if (ev.key === "ArrowDown") {
+										ev.preventDefault();
+										const items = Array.from(
+											ev.currentTarget.parentElement?.querySelectorAll<HTMLElement>(
+												'[data-testid^="stage-component-"]',
+											) ?? [],
+										);
+										const currentIdx = items.indexOf(ev.currentTarget);
+										if (currentIdx >= 0 && currentIdx < items.length - 1) {
+											items[currentIdx + 1]?.focus();
+										}
+									} else if (ev.key === "ArrowUp") {
+										ev.preventDefault();
+										const items = Array.from(
+											ev.currentTarget.parentElement?.querySelectorAll<HTMLElement>(
+												'[data-testid^="stage-component-"]',
+											) ?? [],
+										);
+										const currentIdx = items.indexOf(ev.currentTarget);
+										if (currentIdx > 0) {
+											items[currentIdx - 1]?.focus();
+										}
 									}
 								}}
 								tabIndex={0}
 								role="button"
 								aria-pressed={isSelected}
+								aria-label={`Component ${comp[0]}, type ${comp[1]}`}
 								style={{
 									background: "#FFFFFF",
 									border: `1.5px solid ${isSelected ? "#1D4ED8" : "#E3E5E8"}`,
@@ -541,16 +592,40 @@ export function StageDrillDownView({
 
 										{/* Center: ◆ step card */}
 										<div
+											data-testid={`stage-step-card-${stepNumStr}`}
 											onClick={() => onSelectStep(idx)}
 											onKeyDown={(ev) => {
 												if (ev.key === "Enter" || ev.key === " ") {
 													ev.preventDefault();
 													onSelectStep(idx);
+												} else if (ev.key === "ArrowDown") {
+													ev.preventDefault();
+													const cards = Array.from(
+														document.querySelectorAll<HTMLElement>(
+															'[data-testid^="stage-step-card-"]',
+														),
+													);
+													const currentIdx = cards.indexOf(ev.currentTarget);
+													if (currentIdx >= 0 && currentIdx < cards.length - 1) {
+														cards[currentIdx + 1]?.focus();
+													}
+												} else if (ev.key === "ArrowUp") {
+													ev.preventDefault();
+													const cards = Array.from(
+														document.querySelectorAll<HTMLElement>(
+															'[data-testid^="stage-step-card-"]',
+														),
+													);
+													const currentIdx = cards.indexOf(ev.currentTarget);
+													if (currentIdx > 0) {
+														cards[currentIdx - 1]?.focus();
+													}
 												}
 											}}
 											tabIndex={0}
 											role="button"
 											aria-pressed={isSelected}
+											aria-label={`Step ${stepNumStr}: ${step.name}`}
 											style={{
 												background: "#FFFFFF",
 												border: `1.5px solid ${isSelected ? "#1D4ED8" : "#E3E5E8"}`,

@@ -17,6 +17,7 @@ import {
 	EXPLORER_FONTS,
 	EXPLORER_GLYPHS,
 	getGlyphCssStyle,
+	getStatusIndicator,
 	getStatusTagStyle,
 } from "./design-tokens";
 import type { ExplorerSelectionType } from "./explorer-store";
@@ -85,14 +86,43 @@ function ArtifactCardItem({
 					ev.preventDefault();
 					ev.stopPropagation();
 					onSelect();
+				} else if (ev.key === "ArrowDown") {
+					ev.preventDefault();
+					const current = ev.currentTarget;
+					const container = current.closest("section");
+					const cards = Array.from(
+						container?.querySelectorAll<HTMLElement>(
+							'[data-testid^="artifact-card-"]',
+						) ?? [],
+					);
+					const idx = cards.indexOf(current);
+					if (idx >= 0 && idx < cards.length - 1) {
+						cards[idx + 1]?.focus();
+					}
+				} else if (ev.key === "ArrowUp") {
+					ev.preventDefault();
+					const current = ev.currentTarget;
+					const container = current.closest("section");
+					const cards = Array.from(
+						container?.querySelectorAll<HTMLElement>(
+							'[data-testid^="artifact-card-"]',
+						) ?? [],
+					);
+					const idx = cards.indexOf(current);
+					if (idx > 0) {
+						cards[idx - 1]?.focus();
+					}
 				}
 			}}
 			tabIndex={0}
 			role="button"
 			aria-pressed={isSelected}
+			aria-label={`Artifact ${artifact.name}, format ${artifact.fmt}, group ${artifact.group}`}
 			style={{
 				background: "#FFFFFF",
 				border: `1.5px solid ${borderColor}`,
+				outline: isSelected ? "2px solid #1D4ED8" : "none",
+				outlineOffset: "1px",
 				borderRadius: "6px",
 				padding: showPreviewLines ? "10px 12px" : "9px 11px",
 				cursor: "pointer",
@@ -482,6 +512,7 @@ export function PipelineOverviewView({
 								{stagesInPhase.map(({ stage, idx }) => {
 									const numStr = String(idx).padStart(2, "0");
 									const tagStyle = getStatusTagStyle(stage.tag);
+									const indicator = getStatusIndicator(stage.tag);
 									const filteredIns = filterArtifactIdsByWave(
 										stage.ins,
 										artifacts,
@@ -503,10 +534,33 @@ export function PipelineOverviewView({
 												if (ev.key === "Enter" || ev.key === " ") {
 													ev.preventDefault();
 													onOpenStage(idx);
+												} else if (ev.key === "ArrowDown") {
+													ev.preventDefault();
+													const cards = Array.from(
+														document.querySelectorAll<HTMLElement>(
+															'[data-testid^="stage-card-"]',
+														),
+													);
+													const currentIdx = cards.indexOf(ev.currentTarget);
+													if (currentIdx >= 0 && currentIdx < cards.length - 1) {
+														cards[currentIdx + 1]?.focus();
+													}
+												} else if (ev.key === "ArrowUp") {
+													ev.preventDefault();
+													const cards = Array.from(
+														document.querySelectorAll<HTMLElement>(
+															'[data-testid^="stage-card-"]',
+														),
+													);
+													const currentIdx = cards.indexOf(ev.currentTarget);
+													if (currentIdx > 0) {
+														cards[currentIdx - 1]?.focus();
+													}
 												}
 											}}
 											tabIndex={0}
 											role="button"
+											aria-label={`Stage ${numStr}: ${stage.name}. Status: ${stage.tag} (${indicator.label}). Press Enter to open stage.`}
 											style={{
 												display: "flex",
 												gap: "12px",
@@ -607,12 +661,13 @@ export function PipelineOverviewView({
 														style={{
 															fontFamily: EXPLORER_FONTS.mono,
 															fontSize: "11px",
-															color: "#6B7280",
+															color: "#525866",
 														}}
 													>
 														{stage.key} · {stage.persona} · {stage.tier}
 													</span>
 													<span
+														aria-label={`Status: ${stage.tag} (${indicator.label})`}
 														style={{
 															fontFamily: EXPLORER_FONTS.mono,
 															fontSize: "10.5px",
@@ -621,9 +676,13 @@ export function PipelineOverviewView({
 															borderRadius: "999px",
 															background: tagStyle.bg,
 															color: tagStyle.fg,
+															display: "inline-flex",
+															alignItems: "center",
+															gap: "4px",
 														}}
 													>
-														{stage.tag}
+														<span aria-hidden="true">{indicator.symbol}</span>
+														<span>{stage.tag}</span>
 													</span>
 												</div>
 

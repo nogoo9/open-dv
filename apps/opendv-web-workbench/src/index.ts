@@ -47,4 +47,8 @@ export * from "./explorer/ArtifactFullModal";
 export * from "./explorer/InspectorPanel";
 export * from "./explorer/PipelineOverviewView";
 export * from "./explorer/StageDrillDownView";
-export * from "./explorer/OpenDVWorkbenchExplorer";
+export * from "./explorer/render-text-snapshot";
+export {
+	OpenDVWorkbenchExplorer,
+	type OpenDVWorkbenchExplorerProps,
+} from "./explorer/OpenDVWorkbenchExplorer";
