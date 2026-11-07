@@ -754,6 +754,6 @@ If you are a **Core Contributor Agent** implementing bug fixes (such as the reme
      # Run Python unit, package, and end-to-end normative specification tests
      uv run pytest -v
 
-     # Run TypeScript Protocol SDK and 12-View Web Workbench tests
+     # Run TypeScript Protocol SDK and 3-Level Explorer Web Workbench tests
      bun test
      ```

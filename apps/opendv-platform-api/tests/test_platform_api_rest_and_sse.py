@@ -454,8 +454,11 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
     _run_async(_scenario())
 
 
-def test_legacy_workbench_views_return_404_and_gates_endpoints(tmp_path: Path, repo_root: Path) -> None:
-    """Verify legacy workbench endpoints return 404 (Decision D3) and /api/v1/runs/{run_id}/gates."""
+def test_legacy_workbench_views_return_404_and_gates_endpoints(
+    tmp_path: Path, repo_root: Path
+) -> None:
+    """Verify legacy workbench endpoints return 404 (Decision D3) and
+    /api/v1/runs/{run_id}/gates."""
     state = PlatformStateContainer(state_dir=tmp_path / "state", workspace_root=repo_root)
     seed_canonical_pe_demo(state)
     app = create_app(platform_state=state, workspace_root=repo_root)

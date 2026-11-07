@@ -543,7 +543,7 @@ testpaths = [
   "name": "opendv-monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "Open-DV TypeScript Protocol SDK and Decoupled 12-View Explainability Web Workbench",
+  "description": "Open-DV TypeScript Protocol SDK and Decoupled 3-Level Explainability Web Workbench",
   "packageManager": "bun@1.3.13",
   "workspaces": [
     "packages/opendv-protocol-ts",

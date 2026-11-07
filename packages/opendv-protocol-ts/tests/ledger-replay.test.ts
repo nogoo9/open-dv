@@ -83,6 +83,14 @@ const SYNTHETIC_EVENTS: readonly VaultObservabilityEventDTO[] = [
 		rule_code: "DV-COL-012",
 		rule_ids_evaluated: ["DV-GATE-003", "DV-COL-012"],
 		data_classification: "CONFIDENTIAL",
+		remediation: {
+			codemod_type: "enforce_tier3_bkcc_prefix",
+			target_entity: "hub_limited_partner",
+			patch_diff:
+				'- require_src_qualifier: false\n+ require_src_qualifier: true\n+ bkcc_prefix: "LEGACY_GP_ADMIN"',
+			action_description:
+				"Scoped legacy_gp.src_legacy_lp_roster.lp_num under BKCC=LEGACY_GP_ADMIN on Attempt 2.",
+		},
 		layer1_story_banner: {
 			headline: "Static verification gates passed with topology adjustments",
 			business_impact: "Grain dependencies normalized",
@@ -102,7 +110,7 @@ const SYNTHETIC_EVENTS: readonly VaultObservabilityEventDTO[] = [
 		status: "ASK-USER",
 		rule_code: "DV-GATE-007",
 		rule_ids_evaluated: ["DV-GATE-007"],
-		data_classification: "RESTRICTED",
+		data_classification: "CONFIDENTIAL",
 		layer1_story_banner: {
 			headline: "Ambiguous entity resolution requires steward approval",
 			business_impact: "Pipeline held pending steward decision",

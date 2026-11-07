@@ -266,8 +266,7 @@ flowchart TD
   - `packages/opendv-protocol-ts/src/types/{common,observability-event,canonical-ir,contract-v5,api-dtos}.ts`
   - `packages/opendv-protocol-ts/src/client/{platform-client,sse-client,mock-client}.ts`
   - `packages/opendv-protocol-ts/src/utils/{hash-pill,event-filters,sse-parser}.ts`
-  - `packages/opendv-protocol-ts/src/demo/pe-demo-bundle.ts`
-  - `packages/opendv-protocol-ts/tests/{client,sse-parser,hash-pill,mock-replay}.test.ts`
+  - `packages/opendv-protocol-ts/tests/{client,sse-parser,hash-pill,ledger-replay}.test.ts`
 - **Acceptance Criteria:**
   1. `packages/opendv-protocol-ts/package.json` has zero runtime `dependencies`.
   2. `computeDv2LengthPrefixedSha256` uses `'-1:^^'` null token and matches Python `Algorithm A.5` test vectors (`5D15..0AE4` CalPERS, `94A6..8759` Fund IV, `6B7C..D8B9` Bavarian Pension).
@@ -285,14 +284,11 @@ flowchart TD
 - **Prerequisites (`blocked-by`):** `WP-09`
 - **Normative Spec References:** [`docs/06-explainability-and-observability-spec.md`](06-explainability-and-observability-spec.md) (§1, §3)
 - **Exact Files to Create / Modify:**
-  - `apps/opendv-web-workbench/index.html` (with zero-FOUC theme initializer)
+  - `apps/opendv-web-workbench/index.html`
   - `apps/opendv-web-workbench/vite.config.ts`
-  - `apps/opendv-web-workbench/src/index.css` (`--dv-*` tokens for `obsidian`, `paper`, and `high-contrast`)
-  - `apps/opendv-web-workbench/src/theme/{theme-registry.ts,ThemeToggle.tsx}`
-  - `apps/opendv-web-workbench/src/store/workbench-store.ts` (Zustand store binding Live SSE & Offline Replay)
-  - `apps/opendv-web-workbench/src/plugins/{plugin-types.ts,plugin-registry.ts,custom-esg-gate-plugin.tsx}`
-  - `apps/opendv-web-workbench/src/components/shell/{WorkbenchShell,Layer1StoryBanner,SidebarNav,Layer3ProofDrawer,PlaybackControls}.tsx`
-  - `apps/opendv-web-workbench/tests/shell-and-theme.test.ts`
+  - `apps/opendv-web-workbench/src/index.css`
+  - `apps/opendv-web-workbench/src/index.ts`
+  - `apps/opendv-web-workbench/tests/smoke.test.ts`
 - **Acceptance Criteria:**
   1. Zero backend imports; imports exclusively from `@opendv/protocol-ts`, `react`, `react-dom`, and `zustand`.
   2. Instant switching across `Obsidian Dark`, `Daylight Paper`, `High-Contrast Audit` (WCAG AAA), and custom registered themes via `ThemeRegistry`.
@@ -485,11 +481,8 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
             "apps/opendv-web-workbench/index.html",
             "apps/opendv-web-workbench/vite.config.ts",
             "apps/opendv-web-workbench/src/index.css",
-            "apps/opendv-web-workbench/src/theme/",
-            "apps/opendv-web-workbench/src/store/",
-            "apps/opendv-web-workbench/src/plugins/",
-            "apps/opendv-web-workbench/src/components/shell/",
-            "apps/opendv-web-workbench/tests/shell-and-theme.test.ts",
+            "apps/opendv-web-workbench/src/index.ts",
+            "apps/opendv-web-workbench/tests/smoke.test.ts",
         ),
         normative_docs=("docs/06-explainability-and-observability-spec.md",),
         verify_cmd="moon run opendv-web-workbench:lint opendv-web-workbench:typecheck opendv-web-workbench:test opendv-web-workbench:build",
@@ -500,13 +493,8 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
         tier="fast",
         blocked_by=("WP-10",),
         owned_paths=(
-            "apps/opendv-web-workbench/src/views/wb00/",
-            "apps/opendv-web-workbench/src/views/wb01/",
-            "apps/opendv-web-workbench/src/views/wb02/",
-            "apps/opendv-web-workbench/src/views/wb03/",
-            "apps/opendv-web-workbench/src/views/wb04/",
-            "apps/opendv-web-workbench/src/views/wb05/",
-            "apps/opendv-web-workbench/tests/views-wb00-wb05.test.ts",
+            "apps/opendv-web-workbench/src/explorer/",
+            "apps/opendv-web-workbench/tests/explorer.test.ts",
         ),
         normative_docs=("docs/06-explainability-and-observability-spec.md",),
         verify_cmd="moon run opendv-web-workbench:lint opendv-web-workbench:typecheck opendv-web-workbench:test opendv-web-workbench:build",
@@ -517,13 +505,6 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
         tier="reasoning",
         blocked_by=("WP-08", "WP-10", "WP-11"),
         owned_paths=(
-            "apps/opendv-web-workbench/src/views/wb06/",
-            "apps/opendv-web-workbench/src/views/wb07/",
-            "apps/opendv-web-workbench/src/views/wb08/",
-            "apps/opendv-web-workbench/src/views/wb09/",
-            "apps/opendv-web-workbench/src/views/wb10/",
-            "apps/opendv-web-workbench/src/views/wb11/",
-            "apps/opendv-web-workbench/tests/views-wb06-wb11.test.ts",
             "apps/opendv-platform-api/tests/test_e2e_private_equity_certification.py",
         ),
         normative_docs=("docs/06-explainability-and-observability-spec.md", "docs/07-end-to-end-private-equity-demo.md"),

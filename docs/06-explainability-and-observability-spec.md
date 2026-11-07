@@ -30,7 +30,7 @@ This specification defines the complete **Explainability, Observability, and Vis
 
 ### 1.1 Architectural Principles: Zero-Trust Telemetry & Content-Addressable Lineage
 
-In `open-dv`, the Explainability & Observability Workbench never queries LLM conversation transcripts directly to infer model state. Instead, every agent persona (`vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`, `axi-dv`, and `deterministic-compiler`) emits structured, schema-validated `VaultObservabilityEvent` records to an append-only JSON Lines ledger at `state/vault-ledger.jsonl`.
+In `open-dv`, the OpenDV Explorer UI never queries LLM conversation transcripts directly to infer model state. Instead, every agent persona (`vault-first-mate`, `scout-source`, `scout-unstructured`, `ship-vault`, `axi-dv`, and `deterministic-compiler`) emits structured, schema-validated `VaultObservabilityEvent` records to an append-only JSON Lines ledger at `state/vault-ledger.jsonl`.
 
 ```mermaid
 flowchart LR
@@ -275,7 +275,7 @@ To eliminate context switching between pipeline step views and verification gate
 | **Topology** | **Pass 2/3 ELM Topology & 3-Tier `BKCC` Collision Shield** | `STEP-06` (ELM Hub/Link/Sat Graph) | `GATE-04` (3-Tier BK Authority & `BKCC` Shield) | `ship-vault`, `axi-dv` | `KEY-01..05`, `DV-COL-012`, `Algorithm A.4`, `sal_*` Same-As Links. |
 | **Topological DAG** | **Gate 3 Topological DAG & Grain Matrix Inspector** | — *(Dedicated Structural Verification View)* | `GATE-03` (Bipartite DAG Proof & Grain Matrix) | `axi-dv` | `INV-01..06`, `DV-STR-001..014`, `networkx` Graph Verifier. |
 | **YAGNI Cost Guard** | **Nullable-FK Link Splitter & Gate 4 YAGNI Cost Guard** | — *(Co-located with Pass 2/3 Refinement)* | `GATE-05` *(Part B: `Alg A.4` & `Alg A.1` Cost Guard)* | `axi-dv`, `ship-vault` | `Algorithm A.4` (Optional FK Split), `Algorithm A.1` ($W_{\text{amp}}$). |
-| **Self-Healing** | **Closed-Loop Self-Healing Diff & `TOON` Diagnostic Workbench** | — *(Triggered on `AUTO-FIX` or `REJECT`)* | `GATE-07` (TOON Trace & Attempt $1 \to 2$ Diff) | `axi-dv`, `ship-vault` | Closed-loop state machine (`PASS`, `AUTO-FIX`, `REJECT-WITH-TRACE`, `ASK-USER`). |
+| **Self-Healing** | **Closed-Loop Self-Healing Diff & `TOON` Diagnostic View** | — *(Triggered on `AUTO-FIX` or `REJECT`)* | `GATE-07` (TOON Trace & Attempt $1 \to 2$ Diff) | `axi-dv`, `ship-vault` | Closed-loop state machine (`PASS`, `AUTO-FIX`, `REJECT-WITH-TRACE`, `ASK-USER`). |
 | **Drift Radar** | **Intra-Source Schema Drift Radar ($S_1(t) \to S_1(t+1)$)** | `STEP-03` (Drift Classification Radar) | — *(Feeds Gate 5 Evolution Checks)* | `scout-source`, `vault-first-mate` | `Algorithm A.9a` (Additive, Soft-Deprecated, Rename, Type Widening, Key Drift). |
 | **Sandbox** | **Gate 5 Dynamic DuckDB Shadow Sandbox & Evolution Matrix** | — *(Pre-Compilation Runtime Gate)* | `GATE-08` (4-Batch Adversarial Matrix & `EVO-01..08`) | `axi-dv` | `DV-DYN-001..015`, `EVO-01..08`, `DV-EVO-001..008`, Batches 1–4. |
 | **Rosetta Stone** | **Pre-Hash Stepper (`Alg A.5`) & 4-Zone SQL Rosetta Stone (`DeterministicCompiler`)** | `STEP-07` (Left) + `STEP-08` (Right) | `DV-AST-001..006` (SQLGlot AST Badges) | `deterministic-compiler`, `axi-dv` | `Algorithm A.5`, `Algorithm A.6` (AST Verifier), Ghost Record `0x00..00`, Logarithmic `PIT`, `Query D.10`. |
@@ -307,10 +307,10 @@ This section specifies the nine pipeline and step visualizations across the five
 
 ---
 
-### 3.1 `PIPE-00` (`Explorer Scope 00`): Master End-to-End Orchestration & Dual-Loop State Machine Canvas
+### 3.1 Overview (`PIPE-00`): Master End-to-End Orchestration & Dual-Loop State Machine Canvas
 
 - **Agent Persona:** `vault-first-mate` (Orchestrator) + `axi-dv` (Scoreboard)
-- **Workbench View:** `Explorer Scope 00` (*Master Pipeline Command Center & 6-Gate Scoreboard*)
+- **Explorer Level:** Level 1 (`overview`), keyed by `run_id` (*Master Pipeline Command Center & 6-Gate Scoreboard*)
 - **Architectural Purpose:** Provides the top-level "subway map" of the entire `open-dv` pipeline across both macro lifecycle waves (**Loop A:** Cold-Start $N=1 \to$ Incremental $N=2$ Source Onboarding $\to$ Day-3 Intra-Source Schema Drift $S_1(t) \to S_1(t+1)$) and the micro self-healing verification loop (**Loop B:** Pass 1/Pass 2 Synthesis $\to$ 6-Gate `axi-dv` $\to$ `auto-fix` / `reject-with-trace` / `ask-user` $\to$ `DeterministicCompiler`).
 
 #### 3-Layer Progressive Disclosure Specification (`PIPE-00`)
@@ -319,12 +319,12 @@ This section specifies the nine pipeline and step visualizations across the five
   - *Business Impact:* `"All 4 Hubs, 5 Links, and 11 Satellites verified across 99 formal invariants; 4-Zone DuckDB SQL compiled with zero drift loss."`
   - *Verdict Pill:* `[PASS]` *(with `[1 ASK-USER HOLD]` badge on `Tier-U3` PDF span)*
 - **Layer 2 (Interactive Visual Canvas):**
-  - **Horizontal Stage Subway Map (`STAGE_00` $\to$ `STAGE_07`):** Displays live node badges for each stage, active wave selector (`Wave 1: Cold-Start N=1`, `Wave 2: Multi-Source N=2`, `Wave 3: Day-3 Drift S1(t+1)`), and click-to-drill navigation into `the Explorer views`.
+  - **Horizontal Stage Subway Map (`STAGE_00` $\to$ `STAGE_07`):** Displays live node badges for each stage, active wave selector (`Wave 1: Cold-Start N=1`, `Wave 2: Multi-Source N=2`, `Wave 3: Day-3 Drift S1(t+1)`), and click-to-drill navigation into the Explorer drilldown views.
   - **Co-Located 6-Gate Scoreboard (`GATE-01`):** Displays compact gate pills (`Gate 0 Drift: PASS`, `Gate 1 Authority: REJECT->FIXED`, `Gate 2 AST: PASS`, `Gate 3 DAG: PASS`, `Gate 4 YAGNI: AUTO-FIX`, `Gate 5 Sandbox: PASS`).
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Full W3C trace waterfall (`trace_id = 4bf92f3577b34da6a3ce929d0e0e4736`), stage latency breakdown, and JSONL event export from `state/vault-ledger.jsonl`.
 
-#### Mermaid & ASCII Wireframe (`PIPE-00` / `Explorer Scope 00`)
+#### Mermaid & ASCII Wireframe (`PIPE-00` / Level 1 `overview`)
 
 ```mermaid
 flowchart LR
@@ -334,19 +334,19 @@ flowchart LR
     end
 
     subgraph LoopB["Micro Synthesis & Self-Healing Pipeline (Loop B)"]
-        S0["Explorer Scope 01: Dual-Graph Grounding\n(Graph A <-> Graph B)"] --> S1["Explorer Scope 02: scout-source\nProfiler & Drift Radar"]
-        S0 --> S2["Explorer Scope 03: scout-unstructured\nPDF Span & 3-Tier ER"]
-        S1 & S2 --> S3["Explorer Scope 04: ship-vault Pass 1\n100% Column Triage Sankey"]
-        S3 --> S4["Explorer Scope 05: ship-vault Pass 2/3\nELM Topology & BKCC"]
-        S4 --> S5["Explorer Scope 06..Explorer Scope 10: axi-dv\n6-Gate Verification & DuckDB Sandbox"]
+        S0["Stage 01: Dual-Graph Grounding\n(Graph A <-> Graph B)"] --> S1["Stage 02: scout-source\nProfiler & Drift Radar"]
+        S0 --> S2["Stage 03: scout-unstructured\nPDF Span & 3-Tier ER"]
+        S1 & S2 --> S3["Stage 04: ship-vault Pass 1\n100% Column Triage Sankey"]
+        S3 --> S4["Stage 05: ship-vault Pass 2/3\nELM Topology & BKCC"]
+        S4 --> S5["Stage 06/07: axi-dv\n6-Gate Verification & DuckDB Sandbox"]
         S5 -->|"REJECT-WITH-TRACE (TOON)"| S4
-        S5 -->|"AUTO-FIX Codemod"| S6["Explorer Scope 11: DeterministicCompiler\nAlg A.5 Hash & 4-Zone SQL"]
+        S5 -->|"AUTO-FIX Codemod"| S6["Level 3 Artifacts: DeterministicCompiler\nAlg A.5 Hash & 4-Zone SQL"]
     end
 ```
 
 ```
 +====================================================================================================+
-| Explorer Scope 00: MASTER PIPELINE COMMAND CENTER (PIPE-00 + GATE-01)                    [PASS | 99/99]|
+| Level 1: MASTER PIPELINE COMMAND CENTER (PIPE-00 + GATE-01)                          [PASS | 99/99]|
 | Story: Apex Horizon PE Vault compiled across 5 sources (67/67 cols accounted; 2 healed; 1 U3 hold) |
 +----------------------------------------------------------------------------------------------------+
 | ACTIVE WAVE: (o) All Waves Combined  ( ) Wave 1: Cold-Start N=1  ( ) Wave 2: N=2  ( ) Wave 3: Drift|
@@ -354,22 +354,22 @@ flowchart LR
 |  [STAGE 00] ---> [STAGE 01] ---> [STAGE 02] ---> [STAGE 03] ---> [STAGE 04] ---> [STAGE 05/06]     |
 |  First Mate      scout-source    scout-unstruct  ship Pass 1     ship Pass 2     axi-dv 6-Gates    |
 |  Graph A<->B     7 Tables, 44c   2 PDFs, 17 sp   67/67 Triage    4H, 5L, 11S     2 Healed, 1 Hold  |
-|   [Explorer Scope 01 ●]       [Explorer Scope 02/09 ●]    [Explorer Scope 03 ▲]       [Explorer Scope 04 ●]       [Explorer Scope 05 ●]       [Explorer Scope 06..10 ◆]    |
+|   [Stage 01 ●]        [Stage 02 ●]                [Stage 03 ▲]            [Stage 04 ●]            [Stage 05 ●]            [Stage 06 ◆]             |
 |                                                                                         |          |
 |                                                                                         v          |
-|  +--- 6-GATE AXI-DV SCOREBOARD (Click any gate to open workbench) ---+           [STAGE 07]        |
+|  +--- 6-GATE AXI-DV SCOREBOARD (Click any gate to inspect in Explorer) ------+    [STAGE 07]       |
 |  | G0 Drift: [PASS] | G1 Authority: [FIXED (Attempt2)] | G2 AST: [PASS]|           Compiler        |
 |  | G3 DAG: [PASS] | G4 YAGNI: [AUTO-FIX 4.2MB/d] | G5: [PASS]            |        4-Zone SQL + D.10|
-|  +-------------------------------------------------------------------+            [Explorer Scope 11 ●]        |
+|  +-------------------------------------------------------------------+    [Level 3 Artifacts ●]    |
 +====================================================================================================+
 ```
 
 ---
 
-### 3.2 `STEP-01` (`Explorer Scope 01`): Dual-Graph Grounding Inspector (`Graph A` CBC Ontology $\leftrightarrow$ `Graph B` Relational Profile)
+### 3.2 Stage Drill-Down (`STEP-01`): Dual-Graph Grounding Inspector (`Graph A` CBC Ontology $\leftrightarrow$ `Graph B` Relational Profile)
 
 - **Agent Persona:** `vault-first-mate`
-- **Workbench View:** `Explorer Scope 01` *(Co-located with `GATE-02` Anti-Pattern Counterfactual Modal)*
+- **Explorer Level:** Level 2 (`drilldown`), keyed by `stage_id="STAGE_01"` *(Co-located with `GATE-02` Anti-Pattern Counterfactual Modal)*
 - **Architectural Purpose:** Visualizes how `open-dv` prevents **`AP-11` (Source-System-Specific Hubs)** and ontology hallucination by anchoring every physical Bronze table in `Graph B` ([`examples/private_equity/pe_graph_b_profile.json`](../examples/private_equity/pe_graph_b_profile.json)) to an enterprise Canonical Business Concept (`CBC`) in `Graph A` ([`examples/private_equity/pe_graph_a_ontology.yaml`](../examples/private_equity/pe_graph_a_ontology.yaml)) *before* any Hub or Link is proposed.
 
 #### 3-Layer Progressive Disclosure Specification (`STEP-01`)
@@ -384,11 +384,11 @@ flowchart LR
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Raw `pe_graph_a_ontology.yaml` and `pe_graph_b_profile.json` snapshots and formal bipartite grounding relation $M \subseteq V_A \times V_B$.
 
-#### ASCII Wireframe (`STEP-01` / `Explorer Scope 01`)
+#### ASCII Wireframe (`STEP-01` / Level 2 `drilldown`)
 
 ```
 +====================================================================================================+
-| Explorer Scope 01: DUAL-GRAPH GROUNDING INSPECTOR (STEP-01)                                        [PASS ●]|
+| Level 2 Drilldown: DUAL-GRAPH GROUNDING INSPECTOR (STAGE_01 / STEP-01)                     [PASS ●]|
 | Story: 9 Bronze tables grounded onto 4 Enterprise CBCs; multi-source LPs unified into 1 Hub.       |
 +----------------------------------------------------------------------------------------------------+
 | GRAPH A: ENTERPRISE CBC ONTOLOGY (Top-Down)        GRAPH B: EMPIRICAL BRONZE PROFILE (Bottom-Up)   |
@@ -430,11 +430,11 @@ flowchart LR
 
 ---
 
-### 3.3 `STEP-02` (`Explorer Scope 02`): Empirical Column Profiler & Candidate Discovery Matrix (`scout-source`)
+### 3.3 Stage Drill-Down (`STEP-02`): Empirical Column Profiler & Candidate Discovery Matrix (`scout-source`)
 
 - **Agent Persona:** `scout-source`
-- **Workbench View:** `Explorer Scope 02`
-- **Architectural Purpose:** Visualizes how `scout-source` computes empirical uniqueness $U(C)$, non-null ratio $U_{nn}(C) = 1 - N_{\text{null}}(C)$ (`docs/02` §6.2.2), Shannon entropy $H(C)$, null rate $N_{\text{null}}(C)$, monotonic sequence step $\Delta = 1$, and cross-table inclusion $\mathcal{I}(A.x \subseteq B.y)$ to classify every column into one of four candidate quadrants before `ship-vault` writes a single line of YAML.
+- **Explorer Level:** Level 2 (`drilldown`), keyed by `stage_id="STAGE_02"`
+- **Architectural Purpose:** Visualizes how `scout-source` computes empirical uniqueness $U(C)$, non-null ratio $U_{nn}(C) = 1 - N_{\text{null}}(C)$ (`docs/02` §6.2.2), Shannon entropy $H(C)$, null rate $N_{\text{null}}(C), monotonic sequence step $\Delta = 1$, and cross-table inclusion $\mathcal{I}(A.x \subseteq B.y)$ to classify every column into one of four candidate quadrants before `ship-vault` writes a single line of YAML.
 
 #### 3-Layer Progressive Disclosure Specification (`STEP-02`)
 - **Layer 1 (Executive Story Banner):**
@@ -452,11 +452,11 @@ flowchart LR
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Full column-level profile table from [`examples/private_equity/pe_graph_b_profile.json`](../examples/private_equity/pe_graph_b_profile.json) and DuckDB profiling SQL queries.
 
-#### ASCII Wireframe (`STEP-02` / `Explorer Scope 02`)
+#### ASCII Wireframe (`STEP-02` / Level 2 `drilldown`)
 
 ```
 +====================================================================================================+
-| Explorer Scope 02: EMPIRICAL COLUMN PROFILER & CANDIDATE DISCOVERY MATRIX (STEP-02)                [PASS ●]|
+| Level 2 Drilldown: EMPIRICAL COLUMN PROFILER & CANDIDATE DISCOVERY MATRIX (STAGE_02)       [PASS ●]|
 | Story: 8 BK candidates found; row_seq_id quarantined as surrogate; co_invest_portco_lei flagged    |
 +----------------------------------------------------------------------------------------------------+
 | QUADRANT SCATTER: Uniqueness U(C) vs. Entropy H(C)                | INCLUSION DAG: I(A.x <= B.y)   |
@@ -478,10 +478,10 @@ flowchart LR
 
 ---
 
-### 3.4 `STEP-03` (`Explorer Scope 09`): Intra-Source Schema Drift Radar ($S_1(t) \to S_1(t+1)$ `Algorithm A.9a`)
+### 3.4 Stage Drill-Down (`STEP-03`): Intra-Source Schema Drift Radar ($S_1(t) \to S_1(t+1)$ `Algorithm A.9a`)
 
 - **Agent Persona:** `scout-source` + `vault-first-mate`
-- **Workbench View:** `Explorer Scope 09` (*Intra-Source Schema Drift Radar*)
+- **Explorer Level:** Level 2 (`drilldown`), keyed by `stage_id="STAGE_02"`, `wave_index=2` (*Intra-Source Schema Drift Radar*)
 - **Architectural Purpose:** Visualizes **Algorithm A.9a** (`docs/05-elm-calculus-and-reference-algorithms.md`) when an already-onboarded source system evolves from schema $S_1(t)$ to $S_1(t+1)$ on Day 3. It classifies every column delta into one of five deterministic drift categories and shows why historical Satellite rows are **never** mutated or backfilled.
 
 #### 3-Layer Progressive Disclosure Specification (`STEP-03`)
@@ -499,11 +499,11 @@ flowchart LR
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Formal `Algorithm A.9a` decision tree, Jaccard value-overlap calculation $J(C_t, C_{t+1}) = \frac{|V_t \cap V_{t+1}|}{|V_t \cup V_{t+1}|} = 0.994$, and staging SQL diff.
 
-#### ASCII Wireframe (`STEP-03` / `Explorer Scope 09`)
+#### ASCII Wireframe (`STEP-03` / Level 2 `drilldown`)
 
 ```
 +====================================================================================================+
-| Explorer Scope 09: INTRA-SOURCE SCHEMA DRIFT RADAR (STEP-03 | Algorithm A.9a)                      [PASS ●]|
+| Level 2 Drilldown: INTRA-SOURCE SCHEMA DRIFT RADAR (STAGE_02 / Algorithm A.9a)             [PASS ●]|
 | Story: Day-3 drift on INVESTRAN + DEALCLOUD absorbed across 4 columns with 0 historical rewrites.  |
 +----------------------------------------------------------------------------------------------------+
 | SOURCE DELTA: S1(t = 2026-10-28) ---> S1(t+1 = 2026-10-30)                                         |
@@ -529,10 +529,10 @@ flowchart LR
 
 ---
 
-### 3.5 `STEP-04` (`Explorer Scope 03`): Unstructured Document Span-Grounding & 3-Tier Entity Resolution Funnel (`scout-unstructured`)
+### 3.5 Stage Drill-Down (`STEP-04`): Unstructured Document Span-Grounding & 3-Tier Entity Resolution Funnel (`scout-unstructured`)
 
 - **Agent Persona:** `scout-unstructured` + `axi-dv` (Gate 5 `A.9b` & Rules `U1..U4`)
-- **Workbench View:** `Explorer Scope 03` (*Unstructured PDF Span-Grounding & 3-Tier ER Inspector*, co-located with `GATE-06`)
+- **Explorer Level:** Level 2 (`drilldown`), keyed by `stage_id="STAGE_03"` (*Unstructured PDF Span-Grounding & 3-Tier ER Inspector*, co-located with `GATE-06`)
 - **Architectural Purpose:** Demonstrates how `open-dv` extracts structured Private Equity facts from legal PDFs (`calpers_side_letter_fund_iv_2026.pdf`) and Investment Committee valuation memos (`ic_q3_valuation_nordic_cloud.pdf`) without hallucinating Hub keys or mutating historical relational Satellites.
 
 #### 3-Layer Progressive Disclosure Specification (`STEP-04`)
@@ -552,11 +552,11 @@ flowchart LR
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Tier-U2 composite score (lexical similarity + graph neighborhood overlap, `docs/04` §3.1), Python slice verification `doc_text[span_start:span_end] == verbatim_quote`, and bi-temporal assertion vs. effective date inequality.
 
-#### ASCII Wireframe (`STEP-04` + `GATE-06` / `Explorer Scope 03`)
+#### ASCII Wireframe (`STEP-04` + `GATE-06` / Level 2 `drilldown`)
 
 ```
 +====================================================================================================+
-| Explorer Scope 03: UNSTRUCTURED PDF SPAN-GROUNDING & 3-TIER ER INSPECTOR (STEP-04 + GATE-06) [HOLD ▲]  |
+| Level 2 Drilldown: UNSTRUCTURED PDF SPAN-GROUNDING & 3-TIER ER INSPECTOR (STAGE_03)       [HOLD ▲] |
 | Story: 16/17 PDF spans grounded (Rules U1-U4 PASS); 1 ambiguous vehicle held for Steward.          |
 +----------------------------------------------------------------------------------------------------+
 | PDF CORPUS VIEWER (Byte-Exact Offsets)     | 3-TIER ENTITY RESOLUTION FUNNEL (docs/04 Sec. 3)      |
@@ -587,10 +587,10 @@ flowchart LR
 
 ---
 
-### 3.6 `STEP-05` (`Explorer Scope 04`): Pass 1 Exhaustive Column Triage Sankey & Surrogate Drop Sink (`ship-vault`)
+### 3.6 Stage Drill-Down (`STEP-05`): Pass 1 Exhaustive Column Triage Sankey & Surrogate Drop Sink (`ship-vault`)
 
 - **Agent Persona:** `ship-vault` (Pass 1) + `axi-dv` (Gate 1 `column_triage_ledger`)
-- **Workbench View:** `Explorer Scope 04`
+- **Explorer Level:** Level 2 (`drilldown`), keyed by `stage_id="STAGE_04"`
 - **Architectural Purpose:** Visualizes the **100% Column Accountability Invariant (Gate 1)** enforced by `column_triage_ledger` in [`schemas/no-mistake-dv2-contract-v5.schema.json`](../schemas/no-mistake-dv2-contract-v5.schema.json). Every single column across all 9 Bronze tables ($67/67 = 100\%$) must flow through a conservation-of-mass Sankey diagram into its exact ELM classification and target Data Vault entity—or explicitly terminate in the **Dropped Surrogate Quarantine Sink (`DROPPED`)**.
 
 #### 3-Layer Progressive Disclosure Specification (`STEP-05`)
@@ -605,7 +605,7 @@ flowchart LR
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Set-equality proof $\bigcup_{t \in \text{Tables}} \text{Cols}_{\text{GraphB}}(t) \equiv \text{Cols}(\text{column\_triage\_ledger})$ and full YAML ledger slice from [`examples/private_equity/dv_pe_model_contract.yaml`](../examples/private_equity/dv_pe_model_contract.yaml).
 
-#### Mermaid & ASCII Wireframe (`STEP-05` / `Explorer Scope 04`)
+#### Mermaid & ASCII Wireframe (`STEP-05` / Level 2 `drilldown`)
 
 ```mermaid
 flowchart LR
@@ -646,10 +646,10 @@ flowchart LR
 
 ---
 
-### 3.7 `STEP-06` (`Explorer Scope 05`): Pass 2/3 ELM Topology, 3-Tier `BKCC` Synthesis & Satellite Split Graph (`ship-vault`)
+### 3.7 Stage Drill-Down (`STEP-06`): Pass 2/3 ELM Topology, 3-Tier `BKCC` Synthesis & Satellite Split Graph (`ship-vault`)
 
 - **Agent Persona:** `ship-vault` (Pass 2/3) + `axi-dv` (Gate 1 `GATE-04`)
-- **Workbench View:** `Explorer Scope 05` (*Pass 2/3 ELM Topology & 3-Tier `BKCC` Collision Shield*)
+- **Explorer Level:** Level 2 (`drilldown`), keyed by `stage_id="STAGE_05"` (*Pass 2/3 ELM Topology & 3-Tier `BKCC` Collision Shield*)
 - **Architectural Purpose:** Visualizes the synthesized Enterprise Data Vault 2.0 topology (4 Hubs, 5 Links, 11 Satellites, 2 Reference Tables) alongside the co-located **Gate 1 3-Tier Business Key Authority & `BKCC` Collision Shield (`GATE-04`)**. It proves how multi-source integration works in practice:
   - **Passive Integration on the Hub Master Key:** `INVESTRAN` and `DEALCLOUD` share ISO 17442 LEI `529900T8BM49AURSDO55` (*Nordic Cloud SaaS AB*) $\to$ Both sources hash to the exact same `hub_portfolio_company` key `[HK: 0C18..454E | GLOBAL:529900T8..DO55 Nordic Cloud]`.
   - **Active Collision Isolation on Tier-3 Local Keys (`BKCC`):** `LEGACY_GP_ADMIN` reuses local code `lp_num = 'LP-101'` for *Bavarian Pension Reserve Fund*, the same value as `INVESTRAN` `lp_id = 'LP-101'` (*CalPERS*). Gate 1 enforces `bkcc_prefix = 'LEGACY_GP_ADMIN'`, isolating *Bavarian Pension* as `[HK: 6B7C..D8B9 | LEGACY_GP_ADMIN:LP-101 Bavarian Pension]` while *CalPERS* remains `[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`, and links verified alias pairs via `sal_limited_partner`.
@@ -665,7 +665,7 @@ flowchart LR
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Formal `Algorithm A.4` 3-Tier Business Key Resolution hierarchy, `NoMistakeDataVault2ContractV5` YAML `hubs` & `satellites` definitions, and RBAC column-masking policies for `sat_limited_partner_pii` and `sat_portco_valuation_mnpi`.
 
-#### Mermaid Topology Diagram (`STEP-06` / `Explorer Scope 05`)
+#### Mermaid Topology Diagram (`STEP-06` / Level 2 `drilldown`)
 
 ```mermaid
 flowchart TB
@@ -714,10 +714,10 @@ flowchart TB
 
 ---
 
-### 3.8 `STEP-07` (`Explorer Scope 11` Left Pane): 6-Stage Pre-Hash Canonicalization & Cryptographic Digest Stepper (`Algorithm A.5`)
+### 3.8 Artifact Full View (`STEP-07` Left Pane): 6-Stage Pre-Hash Canonicalization & Cryptographic Digest Stepper (`Algorithm A.5`)
 
 - **Agent Persona:** `deterministic-compiler` + `axi-dv` (Gate 2 `DV-AST-001..003`)
-- **Workbench View:** `Explorer Scope 11` *(Left Pane, synchronized with `STEP-08` Right Pane)*
+- **Explorer Level:** Level 3 (`artifacts`), keyed by `stage_id="STAGE_07"` / `artifact_id` *(Left Pane, synchronized with `STEP-08` Right Pane)*
 - **Architectural Purpose:** Opens the "black box" of Data Vault 2.0 hash key (`hk_*`) and `hash_diff` generation. By stepping interactively through all **6 stages of `Algorithm A.5`** (`docs/05-elm-calculus-and-reference-algorithms.md`), it proves both **Formatting Resilience** (why `' lp-101 '` with trailing whitespace produces the exact same Hub key as `'LP-101'`) and **Delimiter Collision Immunity** (why `['A||B', 'C']` and `['A', 'B||C']` never collide under length-prefixed encoding `4:A||B||1:C` vs. `1:A||4:B||C`).
 
 #### 3-Layer Progressive Disclosure Specification (`STEP-07`)
@@ -730,11 +730,11 @@ flowchart TB
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Mathematical injectivity proof of length-prefixed tuple encoding and SQLGlot AST verification of the generated `SHA256(CONCAT_WS('||', ...))` expression.
 
-#### ASCII Wireframe (`STEP-07` / `Explorer Scope 11` Left Pane)
+#### ASCII Wireframe (`STEP-07` / Level 3 `artifacts` Left Pane)
 
 ```
 +====================================================================================================+
-| Explorer Scope 11 (LEFT PANE): 6-STAGE PRE-HASH CANONICALIZATION STEPPER (STEP-07 | Alg A.5)      [PASS ●] |
+| Level 3 Artifacts (LEFT PANE): 6-STAGE PRE-HASH CANONICALIZATION STEPPER (STEP-07 | Alg A.5)[PASS ●]|
 +----------------------------------------------------------------------------------------------------+
 | Select Test Vector: [ (o) CalPERS vs Bavarian Collision  ( ) Adversarial Delimiter 'A||B' + 'C' ]  |
 |                                                                                                    |
@@ -755,10 +755,10 @@ flowchart TB
 
 ---
 
-### 3.9 `STEP-08` (`Explorer Scope 11` Right Pane): Deterministic Compiler 4-Zone Rosetta Stone (`Contract YAML` $\to$ `Canonical IR` $\to$ `4-Zone SQL` & `Query D.10`)
+### 3.9 Artifact Full View (`STEP-08` Right Pane): Deterministic Compiler 4-Zone Rosetta Stone (`Contract YAML` $\to$ `Canonical IR` $\to$ `4-Zone SQL` & `Query D.10`)
 
 - **Agent Persona:** `deterministic-compiler` (verified by `Algorithm A.6`)
-- **Workbench View:** `Explorer Scope 11` *(Right Pane, synchronized with `STEP-07` Left Pane)*
+- **Explorer Level:** Level 3 (`artifacts`), keyed by `stage_id="STAGE_07"` / `artifact_id` *(Right Pane, synchronized with `STEP-07` Left Pane)*
 - **Architectural Purpose:** Proves that **no LLM ever free-hands SQL DDL or DML**. Once `axi-dv` clears the `NoMistakeDataVault2ContractV5` YAML contract and `Canonical IR` JSON, `DeterministicCompiler` lowers every declarative node into four synchronized SQL zones with line-by-line bidirectional highlighting ("Rosetta Stone" cursor sync) and SQLGlot AST verification badges (`DV-AST-001..006`).
 
 #### 3-Layer Progressive Disclosure Specification (`STEP-08`)
@@ -778,11 +778,11 @@ flowchart TB
 - **Layer 3 (On-Demand Formal Proof Drawer):**
   - Full SQLGlot AST node inspection proving zero `UPDATE`/`DELETE`/`DROP`/`TRUNCATE` statements (`DV-AST-004`) and alphabetical `hash_diff` column ordering (`DV-AST-002`).
 
-#### ASCII Wireframe (`STEP-08` / `Explorer Scope 11` Right Pane)
+#### ASCII Wireframe (`STEP-08` / Level 3 `artifacts` Right Pane)
 
 ```
 +====================================================================================================+
-| Explorer Scope 11 (RIGHT PANE): DETERMINISTIC COMPILER 4-ZONE ROSETTA STONE (STEP-08 | Compiler)   [PASS ●]|
+| Level 3 Artifacts (RIGHT PANE): DETERMINISTIC COMPILER 4-ZONE ROSETTA STONE (STEP-08 | Comp) [PASS ●]|
 +----------------------------------------------------------------------------------------------------+
 | [Col A: Contract YAML]        | [Col B: Canonical IR JSON]    | [Col C: Compiled 4-Zone SQL]       |
 |  satellites:                  |  "pit_tables": [{             |  [Z1:Stg] [Z2:Raw] [Z3:PIT] [Z4:D10|
@@ -806,30 +806,30 @@ flowchart TB
 
 ### 4.1 Master 99-Check Constraint & Verification Mapping Matrix
 
-Every constraint, mathematical invariant, anti-pattern guard, static rule, AST rule, and runtime sandbox check across `docs/01` through `docs/05` maps deterministically to one of the eight gate visualizations (`GATE-01` through `GATE-08`) and its corresponding workbench view (`Explorer Scope 00` through `Explorer Scope 11`):
+Every constraint, mathematical invariant, anti-pattern guard, static rule, AST rule, and runtime sandbox check across `docs/01` through `docs/05` maps deterministically to one of the eight gate visualizations (`GATE-01` through `GATE-08`) in the 3-level Explorer taxonomy (`overview`, `drilldown`, `artifacts`, keyed by `stage_id`/`wave_index`):
 
-| Rule Family / Check ID Range | Count | Source Specification | Primary Gate View (`GATE-*`) | Workbench View (`WB-*`) | Verification Mechanism & Remediation Policy |
+| Rule Family / Check ID Range | Count | Source Specification | Primary Gate View (`GATE-*`) | Explorer Level & Scope | Verification Mechanism & Remediation Policy |
 | :--- | :---: | :--- | :--- | :--- | :--- |
-| **Stability Invariants (`INV-01..06`)** | 6 | `docs/02` §1.1 | `GATE-03` | `Explorer Scope 06` | Insert-only immutability, virtual end-dating, Hub and Link grain invariance, triad separation, and idempotent delta suppression. |
-| **Key Rules (`KEY-01..05`)** | 5 | `docs/02` §3.1, `Alg A.4`, `Alg A.5` | `GATE-04`, `STEP-07` | `Explorer Scope 05`, `Explorer Scope 11` | Key canonicalization, NULL handling, length-prefixed concatenation, `BKCC` namespace isolation, and fixed Link key order. |
-| **Temporal Rules (`TMP-01..04`)** | 4 | `docs/02` §3.1, `Query D.10` | `GATE-06`, `GATE-08` | `Explorer Scope 03`, `Explorer Scope 10`, `Explorer Scope 11` | Timeline separation (`load_dts` vs. `effective_date`), non-spoofed `load_dts`, Hub-first integrity, and out-of-order Satellite grain. |
-| **Source Drift Playbooks (`EVO-01..08`)** | 8 | `docs/02` §2.1, `Alg A.9a` | `STEP-03`, `GATE-08` | `Explorer Scope 09`, `Explorer Scope 10` | Additive companion sat (`EVO-01`), soft-deprecation (`EVO-02`), staging alias (`EVO-03`), and new-source passive integration (`EVO-08`). |
-| **Evolution Diff Gates (`DV-EVO-001..008`)** | 8 | `docs/03` §1.4.2, `Alg A.7` | `GATE-08` | `Explorer Scope 10` | Hash config and grain immutability, no entity or column deletion, insert-only DML, and `hash_diff` stability. |
-| **Unstructured Tenets (`Rules U1..U4`)** | 4 | `docs/04` §1, `Alg A.9b` | `GATE-06` | `Explorer Scope 03` | Object-store binaries with manifests (`U1`), `hub_document` (`U2`), raw vs. Business Vault AI split (`U3`), and vector isolation (`U4`). |
-| **15 Anti-Patterns (`AP-01..15`)** | 15 | `docs/02` §4.1 | `GATE-02` | `Explorer Scope 01` | Counterfactual simulation proving how each of the 15 Data Vault failure modes is blocked. |
-| **Gate 1 Contract Schema (`NoMistakeDataVault2ContractV5`)** | 1 | `docs/03` §9.1 | `GATE-01` | `Explorer Scope 00` | Draft 2020-12 JSON Schema validation, 3-Tier BK authority, `Alg A.4` Nullable-FK split, and complete `column_triage_ledger`. |
-| **Gate 3 Topological Rules (`DV-STR-001..014`)** | 14 | `docs/03` §1.2 | `GATE-03` | `Explorer Scope 06` | `networkx` graph verifier; `REJECT-WITH-TRACE` on forbidden edges. |
-| **Column & Hash Contract Rules (`DV-COL-001..012`)** | 12 | `docs/03` §1.3.3 | `GATE-04`, `GATE-05` | `Explorer Scope 04`, `Explorer Scope 05`, `Explorer Scope 07` | Hash key and BK non-nullability, type parity, `hash_diff` ordering and audit-column exclusion, and multi-source `bkcc` (`DV-COL-012`). |
-| **Gate 2 SQLGlot AST Rules (`DV-AST-001..006`)** | 6 | `README.md`, `docs/03` §9.1, `Alg A.6` | `STEP-08`, `GATE-01` | `Explorer Scope 11`, `Explorer Scope 00` | SQLGlot AST verifier: sorted `hash_diff`, null sentinels, zero `UPDATE`/`DELETE`, and idempotent DML. |
-| **Gate 4 YAGNI Write-Amplification Cost Guard (`Alg A.1`)** | 1 | `docs/02` §6.3, `docs/03` §9.1 | `GATE-05` | `Explorer Scope 07` | Evaluates $|C_{\text{general}}| \ge 10$ and $W_{\text{amp}} \ge 50\text{ MB/day}$; executes `auto-fix: merge_satellites` when below threshold. |
-| **Gate 5 Dynamic DuckDB Sandbox (`DV-DYN-001..015` / Batches 1–4)** | 15 | `docs/03` §2.1, §7 | `GATE-08` | `Explorer Scope 10` | Ephemeral DuckDB execution across Batch 1 (Initial Load), Batch 2 (Replay), Batch 3 (Mutation), Batch 4 (Multi-Source Collision). |
-| **TOTAL FORMAL VERIFICATION CHECKS** | **99** | `docs/01`–`docs/05`, `README.md` | `GATE-01..08` | `Explorer Scope 00..Explorer Scope 11` | **100% Deterministic Coverage** |
+| **Stability Invariants (`INV-01..06`)** | 6 | `docs/02` §1.1 | `GATE-03` | Level 2 Drilldown (`STAGE_05`) | Insert-only immutability, virtual end-dating, Hub and Link grain invariance, triad separation, and idempotent delta suppression. |
+| **Key Rules (`KEY-01..05`)** | 5 | `docs/02` §3.1, `Alg A.4`, `Alg A.5` | `GATE-04`, `STEP-07` | Level 2 / Level 3 (`STAGE_05`, `STAGE_07`) | Key canonicalization, NULL handling, length-prefixed concatenation, `BKCC` namespace isolation, and fixed Link key order. |
+| **Temporal Rules (`TMP-01..04`)** | 4 | `docs/02` §3.1, `Query D.10` | `GATE-06`, `GATE-08` | Level 2 Drilldown (`STAGE_03`, `STAGE_07`) | Timeline separation (`load_dts` vs. `effective_date`), non-spoofed `load_dts`, Hub-first integrity, and out-of-order Satellite grain. |
+| **Source Drift Playbooks (`EVO-01..08`)** | 8 | `docs/02` §2.1, `Alg A.9a` | `STEP-03`, `GATE-08` | Level 2 Drilldown (`STAGE_02`, `STAGE_07`) | Additive companion sat (`EVO-01`), soft-deprecation (`EVO-02`), staging alias (`EVO-03`), and new-source passive integration (`EVO-08`). |
+| **Evolution Diff Gates (`DV-EVO-001..008`)** | 8 | `docs/03` §1.4.2, `Alg A.7` | `GATE-08` | Level 2 Drilldown (`STAGE_07`) | Hash config and grain immutability, no entity or column deletion, insert-only DML, and `hash_diff` stability. |
+| **Unstructured Tenets (`Rules U1..U4`)** | 4 | `docs/04` §1, `Alg A.9b` | `GATE-06` | Level 2 Drilldown (`STAGE_03`) | Object-store binaries with manifests (`U1`), `hub_document` (`U2`), raw vs. Business Vault AI split (`U3`), and vector isolation (`U4`). |
+| **15 Anti-Patterns (`AP-01..15`)** | 15 | `docs/02` §4.1 | `GATE-02` | Level 2 Drilldown (`STAGE_01`) | Counterfactual simulation proving how each of the 15 Data Vault failure modes is blocked. |
+| **Gate 1 Contract Schema (`NoMistakeDataVault2ContractV5`)** | 1 | `docs/03` §9.1 | `GATE-01` | Level 1 Overview (`STAGE_00`) | Draft 2020-12 JSON Schema validation, 3-Tier BK authority, `Alg A.4` Nullable-FK split, and complete `column_triage_ledger`. |
+| **Gate 3 Topological Rules (`DV-STR-001..014`)** | 14 | `docs/03` §1.2 | `GATE-03` | Level 2 Drilldown (`STAGE_05`) | `networkx` graph verifier; `REJECT-WITH-TRACE` on forbidden edges. |
+| **Column & Hash Contract Rules (`DV-COL-001..012`)** | 12 | `docs/03` §1.3.3 | `GATE-04`, `GATE-05` | Level 2 Drilldown (`STAGE_04`, `STAGE_05`) | Hash key and BK non-nullability, type parity, `hash_diff` ordering and audit-column exclusion, and multi-source `bkcc` (`DV-COL-012`). |
+| **Gate 2 SQLGlot AST Rules (`DV-AST-001..006`)** | 6 | `README.md`, `docs/03` §9.1, `Alg A.6` | `STEP-08`, `GATE-01` | Level 1 / Level 3 (`STAGE_00`, `STAGE_07`) | SQLGlot AST verifier: sorted `hash_diff`, null sentinels, zero `UPDATE`/`DELETE`, and idempotent DML. |
+| **Gate 4 YAGNI Write-Amplification Cost Guard (`Alg A.1`)** | 1 | `docs/02` §6.3, `docs/03` §9.1 | `GATE-05` | Level 2 Drilldown (`STAGE_05`) | Evaluates $|C_{\text{general}}| \ge 10$ and $W_{\text{amp}} \ge 50\text{ MB/day}$; executes `auto-fix: merge_satellites` when below threshold. |
+| **Gate 5 Dynamic DuckDB Sandbox (`DV-DYN-001..015` / Batches 1–4)** | 15 | `docs/03` §2.1, §7 | `GATE-08` | Level 2 Drilldown (`STAGE_07`) | Ephemeral DuckDB execution across Batch 1 (Initial Load), Batch 2 (Replay), Batch 3 (Mutation), Batch 4 (Multi-Source Collision). |
+| **TOTAL FORMAL VERIFICATION CHECKS** | **99** | `docs/01`–`docs/05`, `README.md` | `GATE-01..08` | 3-Level Explorer (`overview`, `drilldown`, `artifacts`) | **100% Deterministic Coverage** |
 
 ---
 
 ### 4.2 Universal 4-Quadrant Counterfactual Proof Card Anatomy
 
-Whenever a user clicks an active exception or rule badge in any `GATE-*` view, the workbench renders a standardized **4-Quadrant Counterfactual Proof Card** that explains the violation without requiring Data Vault certification:
+Whenever a user clicks an active exception or rule badge in any `GATE-*` view, the Explorer UI renders a standardized **4-Quadrant Counterfactual Proof Card** that explains the violation without requiring Data Vault certification:
 
 ```
 +----------------------------------------------------------------------------------------------------+
@@ -852,9 +852,9 @@ Whenever a user clicks an active exception or rule badge in any `GATE-*` view, t
 
 ---
 
-### 4.3 `GATE-01` (`Explorer Scope 00` Scoreboard): 6-Gate `axi-dv` Verification Funnel & Rule Compliance Matrix
+### 4.3 `GATE-01` (Level 1 Overview Scoreboard): 6-Gate `axi-dv` Verification Funnel & Rule Compliance Matrix
 
-- **Workbench Placement:** Embedded in `Explorer Scope 00` (*Master Pipeline Command Center*)
+- **Explorer Placement:** Embedded in Level 1 (`overview`) (*Master Pipeline Command Center*)
 - **Purpose:** Summarizes all 6 verification gates as a progressive sieve so users see at a glance which gates passed cleanly (`Gate 0`, `Gate 2`, `Gate 3`), which gates executed a deterministic `auto-fix` (`Gate 1`, `Gate 4`), which gate triggered a closed-loop `reject-with-trace` self-healing cycle (`Gate 1`), and which gate raised a `Tier-U3` `ask-user` hold (`Gate 5 Unstructured`).
 
 ```
@@ -882,15 +882,15 @@ Whenever a user clicks an active exception or rule badge in any `GATE-*` view, t
 
 ---
 
-### 4.4 `GATE-02` (`Explorer Scope 01` Modal): The 5 Fatal Agentic Traps & 15 Anti-Pattern Counterfactual Simulator (`AP-01..15`)
+### 4.4 `GATE-02` (Level 2 Drilldown Modal): The 5 Fatal Agentic Traps & 15 Anti-Pattern Counterfactual Simulator (`AP-01..15`)
 
-- **Workbench Placement:** Interactive Counterfactual Simulator Drawer inside `Explorer Scope 01`
+- **Explorer Placement:** Interactive Counterfactual Simulator Drawer inside Level 2 (`drilldown`, `stage_id="STAGE_01"`)
 - **Purpose:** Allows users to toggle any of the **5 Fatal Agentic Traps** (or the full catalog of **15 Anti-Patterns `AP-01..15`** from `docs/02` §4.1 and `docs/01` §7.1) on the Private Equity dataset and see side-by-side how a naive LLM corrupts the vault vs. how `open-dv` prevents it.
 
 | Fatal Trap # | Anti-Pattern IDs | Naive LLM Failure on Apex Horizon PE Dataset | `open-dv` Deterministic Guard & Visual Proof |
 | :--- | :--- | :--- | :--- |
 | **Trap 1: Source-Driven Hub Proliferation** | `AP-11` | Creates `hub_investran_lp` and `hub_legacy_gp_lp`, forcing downstream analysts to manually `UNION` investor tables. | `Graph A` CBC Grounding (`STEP-01`) binds both tables to `urn:ontology:entity:limited_partner` $\to$ single `hub_limited_partner`. |
-| **Trap 2: Surrogate Key Leakage** | — *(Gate 1 ledger check)* | Hashes `investran.src_lp_investors.row_seq_id` (`10001..10004`) as the Hub Business Key; an upstream DB rebuild renumbers every LP. | `scout-source` (`STEP-02`) flags $\Delta = 1$ sequence; Gate 1 routes `row_seq_id` to the `DROPPED` sink (`Explorer Scope 04`). |
+| **Trap 2: Surrogate Key Leakage** | — *(Gate 1 ledger check)* | Hashes `investran.src_lp_investors.row_seq_id` (`10001..10004`) as the Hub Business Key; an upstream DB rebuild renumbers every LP. | `scout-source` (`STEP-02`) flags $\Delta = 1$ sequence; Gate 1 routes `row_seq_id` to the `DROPPED` sink (Level 2 drilldown, `STAGE_04`). |
 | **Trap 3: Silent Hash Collisions** | `AP-08` | Hashes `fund_code \|\| lp_id` without length prefixes or NULL sentinels, so shifted delimiters and NULLs collide. | `Algorithm A.5` (`STEP-07`) length-prefixes every token; Gate 2 and Gate 5 Batch 3 verify it. |
 | **Trap 4: Soft Rule Contamination** | `INV-07` | Embeds `COALESCE(called_usd, 0)` or an `ACTIVE`-only filter in Staging or Raw Vault loads. | `Algorithm A.6` rejects joins and filters in Staging; `Rule U3` keeps AI interpretations in the Business Vault. |
 | **Trap 5: Destructive `UPDATE`s** | `AP-01`, `AP-02` | Runs `UPDATE sat_lp_commitment_investran SET load_end_dts = NOW()` to close prior rows. | `DV-EVO-005` and `INV-01` block mutating DML; end dates stay virtual (`INV-02`). |
@@ -899,9 +899,9 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 ---
 
-### 4.5 `GATE-03` (`Explorer Scope 06`): Gate 3 Topological DAG & Grain Matrix Inspector (`DV-STR-001..014`, `INV-01..06`)
+### 4.5 `GATE-03` (Level 2 Drilldown): Gate 3 Topological DAG & Grain Matrix Inspector (`DV-STR-001..014`, `INV-01..06`)
 
-- **Workbench Placement:** `Explorer Scope 06` (*Gate 3 Topological DAG & Grain Matrix Inspector*)
+- **Explorer Placement:** Level 2 (`drilldown`, `stage_id="STAGE_05"`) (*Gate 3 Topological DAG & Grain Matrix Inspector*)
 - **Purpose:** Visualizes the NetworkX bipartite directed acyclic graph (`DAG`) verification (`networkx` Graph Verifier, `docs/03` §1.2). It proves that the model satisfies all 14 structural rules (`DV-STR-001..014`):
   - **Zero Hub-to-Hub Foreign Keys (`DV-STR-001`):** `hub_fund` and `hub_limited_partner` never reference each other directly; they connect solely via `lnk_lp_commitment`.
   - **Zero Link-to-Link Foreign Keys (`docs/01` §2.2):** `lnk_lp_commitment` never embeds `hk_lnk_lp_commitment_co_invest`; both resolve to independent Hubs (`hub_fund`, `hub_limited_partner`, `hub_portfolio_company`).
@@ -909,7 +909,7 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 ```
 +====================================================================================================+
-| Explorer Scope 06: GATE 3 TOPOLOGICAL DAG & ADJACENCY MATRIX INSPECTOR (GATE-03 | networkx)  [14/14 PASS ●]|
+| Level 2 Drilldown: GATE 3 TOPOLOGICAL DAG & ADJACENCY MATRIX INSPECTOR (GATE-03 | networkx)  [14/14 PASS ●]|
 | Story: Bipartite DAG verified across 20 nodes (4 Hubs, 5 Links, 11 Satellites); 0 forbidden edges. |
 +----------------------------------------------------------------------------------------------------+
 | ADJACENCY BLOCK MATRIX (Rows = Source Parent, Cols = Target Reference)                             |
@@ -929,14 +929,14 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 ---
 
-### 4.6 `GATE-04` (`Explorer Scope 05` Drawer): Gate 1 3-Tier Business Key Authority & `BKCC` Collision Shield (`KEY-01..05`, `DV-COL-012`)
+### 4.6 `GATE-04` (Level 2 Drilldown Drawer): Gate 1 3-Tier Business Key Authority & `BKCC` Collision Shield (`KEY-01..05`, `DV-COL-012`)
 
-- **Workbench Placement:** Co-located Collision Shield Drawer inside `Explorer Scope 05`
+- **Explorer Placement:** Co-located Collision Shield Drawer inside Level 2 (`drilldown`, `stage_id="STAGE_05"`)
 - **Purpose:** Visualizes **Algorithm A.4** (`docs/05-elm-calculus-and-reference-algorithms.md`) and proves how Gate 1 catches and repairs cross-source Business Key collisions before any SQL is generated.
 
 ```
 +====================================================================================================+
-| GATE-04 (Explorer Scope 05 DRAWER): 3-TIER BUSINESS KEY AUTHORITY & BKCC COLLISION SHIELD          [PASS ●]|
+| GATE-04 (Level 2 Drilldown DRAWER): 3-TIER BUSINESS KEY AUTHORITY & BKCC COLLISION SHIELD          [PASS ●]|
 | Story: Tier-3 BKCC prefix 'LEGACY_GP_ADMIN' isolated colliding key 'LP-101' (Bavarian vs CalPERS). |
 +----------------------------------------------------------------------------------------------------+
 | COUNTERFACTUAL COLLISION TEST ON `hub_limited_partner`:                                            |
@@ -958,9 +958,9 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 ---
 
-### 4.7 `GATE-05` (`Explorer Scope 07`): Gate 1/2 Nullable-FK Link Splitter (`Alg A.4`) & Gate 4 YAGNI Cost Guard (`Alg A.1`)
+### 4.7 `GATE-05` (Level 2 Drilldown): Gate 1/2 Nullable-FK Link Splitter (`Alg A.4`) & Gate 4 YAGNI Cost Guard (`Alg A.1`)
 
-- **Workbench Placement:** `Explorer Scope 07` (*Nullable-FK Link Splitter & Gate 4 YAGNI Cost Guard*)
+- **Explorer Placement:** Level 2 (`drilldown`, `stage_id="STAGE_05"`) (*Nullable-FK Link Splitter & Gate 4 YAGNI Cost Guard*)
 - **Purpose:** Visualizes the two structural/cost optimizations executed during Gate 1 and Gate 4:
   1. **Algorithm A.4 — Nullable Foreign Key Link Splitter (Gate 1):**
      - In `investran.src_lp_commitments_and_calls`, `co_invest_portco_lei` is NULL on $5/7$ rows ($N_{\text{null}} = 71.43\% > 5\%$). Including a nullable FK inside `lnk_lp_commitment` would inject `-1` Zero Keys into 71.4% of standard fund commitments.
@@ -973,7 +973,7 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 ```
 +====================================================================================================+
-| Explorer Scope 07: NULLABLE-FK LINK SPLITTER (Alg A.4) & GATE 4 YAGNI COST GUARD (Alg A.1)        [AUTO-FIX ◆] |
+| Level 2 Drilldown: NULLABLE-FK LINK SPLITTER (Alg A.4) & GATE 4 YAGNI COST GUARD (Alg A.1)        [AUTO-FIX ◆] |
 | Story: Split sparse co_invest_portco_lei (71.4% NULL) into contextual Link; merged 4.20 MB/d Sat.  |
 +----------------------------------------------------------------------------------------------------+
 | PART 1: ALGORITHM A.4 NULLABLE-FK LINK SPLITTER (Gate 1)                                           |
@@ -995,9 +995,9 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 ---
 
-### 4.8 `GATE-06` (`Explorer Scope 03` Overlay): Gate 5 Unstructured Document Grounding & Bi-Temporal Cut-Off Inspector (`Rules U1..U4`, `TMP-01..04`)
+### 4.8 `GATE-06` (Level 2 Drilldown Overlay): Gate 5 Unstructured Document Grounding & Bi-Temporal Cut-Off Inspector (`Rules U1..U4`, `TMP-01..04`)
 
-- **Workbench Placement:** Co-located inside `Explorer Scope 03` (and connected to `Query D.10` in `Explorer Scope 11`)
+- **Explorer Placement:** Co-located inside Level 2 (`drilldown`, `stage_id="STAGE_03"`) (and connected to `Query D.10` in Level 3 `artifacts`)
 - **Purpose:** Visualizes the four Unstructured Multimodal Rules (`Rules U1..U4`) and the Bi-Temporal Dual Cut-Off Plane (`ldts` warehouse assertion timestamp vs. `effective_date` legal/valuation business date) that prevents **Point-in-Time Leakage (`TMP-01`, `TMP-02`)**.
 
 ```
@@ -1020,14 +1020,14 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 ---
 
-### 4.9 `GATE-07` (`Explorer Scope 08`): Closed-Loop Self-Healing Diff & `TOON` Diagnostic Inspector (`auto-fix`, `reject-with-trace`, `ask-user`)
+### 4.9 `GATE-07` (Level 2 Drilldown): Closed-Loop Self-Healing Diff & `TOON` Diagnostic Inspector (`auto-fix`, `reject-with-trace`, `ask-user`)
 
-- **Workbench Placement:** `Explorer Scope 08` (*Closed-Loop Self-Healing Diff & `TOON` Diagnostic Workbench*)
+- **Explorer Placement:** Level 2 (`drilldown`, `stage_id="STAGE_06"`) (*Closed-Loop Self-Healing Diff & TOON Diagnostic View*)
 - **Purpose:** Visualizes the closed-loop interaction between `axi-dv` and `ship-vault` (`docs/03-verification-and-agentic-architecture.md`). Instead of returning prose error messages that bloat the LLM context window, `axi-dv` serializes compact **Token-Oriented Object Notation (`TOON`)** diagnostics (~60% fewer tokens than verbose JSON) and tracks the exact convergence from Attempt 1 (`FAIL`) to Attempt 2 (`PASS`) within the $K_{\max} = 3$ retry bound.
 
 ```
 +====================================================================================================+
-| Explorer Scope 08: CLOSED-LOOP SELF-HEALING DIFF & TOON DIAGNOSTIC WORKBENCH (GATE-07)    [CONVERGED K=2 ●]|
+| Level 2 Drilldown: CLOSED-LOOP SELF-HEALING DIFF & TOON DIAGNOSTIC VIEW (GATE-07)         [CONVERGED K=2 ●]|
 | Story: 2 Attempt-1 violations resolved deterministically (1 TOON reject-with-trace, 1 auto-fix).   |
 +----------------------------------------------------------------------------------------------------+
 | RETRY CONVERGENCE TIMELINE (Max Retries K_max = 3):                                                |
@@ -1053,9 +1053,9 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 ---
 
-### 4.10 `GATE-08` (`Explorer Scope 10`): Gate 5 Dynamic DuckDB Shadow Sandbox & Schema Evolution Matrix (`DV-DYN-001..015`, `EVO-01..08`, Adversarial Batches 1–4)
+### 4.10 `GATE-08` (Level 2 Drilldown): Gate 5 Dynamic DuckDB Shadow Sandbox & Schema Evolution Matrix (`DV-DYN-001..015`, `EVO-01..08`, Adversarial Batches 1–4)
 
-- **Workbench Placement:** `Explorer Scope 10` (*Gate 5 Dynamic DuckDB Shadow Sandbox & Evolution Matrix*)
+- **Explorer Placement:** Level 2 (`drilldown`, `stage_id="STAGE_07"`) (*Gate 5 Dynamic DuckDB Shadow Sandbox & Evolution Matrix*)
 - **Purpose:** Proves that compiled SQL is not merely syntactically valid—it is **runtime-verified inside an ephemeral in-memory DuckDB shadow warehouse** across **4 synthetic adversarial batches** (`docs/03` §7) before a single statement is promoted to production.
 
 #### The 4-Batch Adversarial Verification Matrix (`DV-DYN-001..015` & `DV-EVO-001..008`)
@@ -1069,11 +1069,11 @@ The simulator adds four PE-specific counterfactuals: an unscoped `LP-101` mergin
 
 **Bi-Temporal Late Arrival (after Batch 4):** The audited Nordic Cloud Q3 IC memo arrives at `load_dts = 2026-11-14` with `effective_date = 2026-09-30` (`14.5x` / `$245M`), adding +1 Link and +1 Business Vault Satellite row (`TMP-01`, `TMP-02`, `Alg A.9b`). `Query D.10b` at assertion cutoff `2026-10-15` returns DealCloud entry `12.8x` (`$216.28M`); at cutoff `2026-11-20` it returns audited `14.5x` (`$245.00M`) with its PDF quote citation.
 
-#### ASCII Wireframe (`GATE-08` / `Explorer Scope 10`)
+#### ASCII Wireframe (`GATE-08` / Level 2 `drilldown`)
 
 ```
 +====================================================================================================+
-| Explorer Scope 10: GATE 5 DYNAMIC DUCKDB SHADOW SANDBOX & EVOLUTION MATRIX (GATE-08)       [15/15 PASS ●]  |
+| Level 2 Drilldown: GATE 5 DYNAMIC DUCKDB SHADOW SANDBOX & EVOLUTION MATRIX (GATE-08)       [15/15 PASS ●]  |
 | Story: Compiled 4-Zone SQL passed all 4 Adversarial Batches in DuckDB (0 orphans, 100% idempotent).|
 +----------------------------------------------------------------------------------------------------+
 | ADVERSARIAL BATCH                 | HUB DELTA | LINK DELTA | SAT DELTA  | ORPHANS | VERDICT        |

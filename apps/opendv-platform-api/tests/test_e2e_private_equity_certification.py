@@ -14,7 +14,8 @@ Exercises the complete Open-DV platform lifecycle across Scenes 1-7:
    DuckDB Shadow Sandbox (`POST /api/v1/runs/{run_id}/sandbox` with `DV-DYN-001`..`015` all passing,
    `replay_delta_rows == 0`, `Query D.10` returning `125.00` bps fee cap for CalPERS `LP-101`, and
    `Query D.10b` returning `12.80x` at `2026-10-15 12:00:00` and `14.50x` at `2026-11-15 23:59:59`).
-6. Excised workbench endpoints (`/api/v1/runs/{run_id}/workbench/{view_id}`) returning 404 (Decision D3).
+6. Excised workbench endpoints (`/api/v1/runs/{run_id}/workbench/{view_id}`) returning 404
+   (Decision D3).
 """
 
 from __future__ import annotations

@@ -14,7 +14,7 @@ export function getWorkbenchVersion(): string {
 
 /**
  * OpenDVWorkbenchExplorer component.
- * Clean Explorer entrypoint; full 3-level pipeline explorer design integrated via PR #60.
+ * Clean Explorer entrypoint; PR #60 is still open and full 3-level pipeline explorer integration lands in Phase P9 (#114).
  */
 export function OpenDVWorkbenchExplorer(): ReactElement {
 	return createElement(

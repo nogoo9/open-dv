@@ -430,7 +430,8 @@ def test_pit_query_engine_d10_and_d10b_bitemporal_audit() -> None:
 
 
 def test_duckdb_shadow_sandbox_full_verification_and_telemetry(tmp_path: Path) -> None:
-    """Verify DuckDbShadowSandbox runs Batches 1-4, DV-DYN-001-015, and dynamic sandbox event emission."""
+    """Verify DuckDbShadowSandbox runs Batches 1-4, DV-DYN-001-015, and dynamic sandbox event
+    emission."""
     ledger_path = tmp_path / "sandbox_events.jsonl"
     emitter = VaultLedgerEmitter(ledger_path=ledger_path)
 

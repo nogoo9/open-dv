@@ -12,7 +12,7 @@
   - [Step 2: Configure Your Agent Harness (`harness_config.yaml`)](#step-2-configure-your-agent-harness-harness_configyaml)
   - [Step 3: Validate Inputs & Run the End-to-End Agentic Pipeline (`opendv pipeline`)](#step-3-validate-inputs--run-the-end-to-end-agentic-pipeline-opendv-pipeline)
   - [Step 4: Run Standalone Symbolic Verification, Compilation & DuckDB Sandbox](#step-4-run-standalone-symbolic-verification-compilation--duckdb-sandbox)
-  - [Step 5: Launch the Platform API & 12-View Web Workbench](#step-5-launch-the-platform-api--12-view-web-workbench)
+  - [Step 5: Launch the Platform API & 3-Level Explorer Web Workbench](#step-5-launch-the-platform-api--3-level-explorer-web-workbench)
 - [3. CLI Command Reference & Monorepo Structure](#3-cli-command-reference--monorepo-structure)
 - [4. Documentation & Specification Map](#4-documentation--specification-map)
 - [Appendix: Deep-Dive Technical Reference & Specifications](#appendix-deep-dive-technical-reference--specifications)
@@ -86,7 +86,7 @@ flowchart LR
 
 Ensure you have the following installed:
 - **Python `>=3.12`** and **[`uv`](https://docs.astral.sh/uv/)**
-- **[`bun`](https://bun.sh/) `>=1.1`** (for the TypeScript Protocol SDK and 12-View Web Workbench)
+- **[`bun`](https://bun.sh/) `>=1.1`** (for the TypeScript Protocol SDK and 3-Level Explorer Web Workbench)
 - **At least one LLM Agent Harness** (for running `opendv pipeline run`):
   - Local logged-in **`agy` CLI** (`provider: agy`) or **`claude` CLI** (`provider: claude-cli`)
   - Or API credentials for **Google Antigravity / Gemini** (`provider: antigravity`, `$GEMINI_API_KEY` or Vertex ADC) or **Anthropic Claude** (`provider: claude`, `$ANTHROPIC_API_KEY`, AWS Bedrock, or Vertex ADC)
@@ -228,9 +228,9 @@ uv run opendv sandbox --local \
 
 ---
 
-### Step 5: Launch the Platform API & 12-View Web Workbench
+### Step 5: Launch the Platform API & 3-Level Explorer Web Workbench
 
-Start the headless FastAPI backend (`:8420`) and the React 19 + Bun 12-View Explainability & Observability Web Workbench (`:5173`):
+Start the headless FastAPI backend (`:8420`) and the React 19 + Bun 3-Level Explainability & Observability Explorer Web Workbench (`:5173`):
 
 ```bash
 # Terminal 1: Start the Headless Platform REST + SSE API Server on http://127.0.0.1:8420
@@ -280,7 +280,7 @@ open-dv/
 ├── apps/
 │   ├── opendv-cli/             # Unified `opendv` & `axi-dv` CLI (--local & --api-url modes)
 │   ├── opendv-platform-api/    # FastAPI REST + SSE headless platform server (:8420) & OpenAPI 3.1 exporter
-│   └── opendv-web-workbench/   # 12-View Explainability & Observability React 19 + Bun Web Workbench (:5173)
+│   └── opendv-web-workbench/   # 3-Level Explainability & Observability React 19 + Bun Web Workbench (:5173)
 ├── examples/
 │   ├── dv_model_contract.yaml  # Annotated single-Hub multi-source Data Vault 2.0 contract example
 │   ├── private_equity/         # Complete Private Equity reference bundle (Contract, Canonical IR, Graph A, Graph B)
@@ -708,7 +708,7 @@ The [CI workflow](.github/workflows/ci.yml) validates all JSON Schemas against D
 # Run the full Python test suite (root specification tests + all packages/* and apps/* tests)
 uv run pytest -v
 
-# Run TypeScript unit & component tests for the Protocol SDK and 12-View Web Workbench
+# Run TypeScript unit & component tests for the Protocol SDK and 3-Level Explorer Web Workbench
 bun run --cwd packages/opendv-protocol-ts test
 bun run --cwd apps/opendv-web-workbench test
 
