@@ -29,7 +29,6 @@ import {
 export type PipelineRunSummary = ProjectRunDTO;
 export type ExplorerBundle = ExplorerBundleDTO;
 export type ObservabilityEvent = VaultObservabilityEventDTO;
-
 declare global {
 	interface Window {
 		__OPENDV_CONFIG__?: {
@@ -154,7 +153,7 @@ export class RestSseExplorerDataSource implements ExplorerDataSource {
 		artifactId: string,
 	): Promise<string> {
 		const art = await this.client.getRunArtifact(runId, artifactId);
-		if (art.content) {
+		if (typeof art.content === "string") {
 			return art.content;
 		}
 		if (art.sha256) {
@@ -303,6 +302,12 @@ export class FileExplorerDataSource implements ExplorerDataSource {
 
 		try {
 			const parsed = JSON.parse(content) as Record<string, unknown>;
+			if (parsed.event_id && parsed.stage_id) {
+				return FileExplorerDataSource.fromJSONL(
+					content,
+					`Exported Run (${filename})`,
+				);
+			}
 			if (parsed.stages && parsed.artifacts) {
 				return FileExplorerDataSource.fromBundle(
 					parsed as unknown as ExplorerBundleDTO,
@@ -330,7 +335,9 @@ export class FileExplorerDataSource implements ExplorerDataSource {
 				status: "COMPLETED",
 				started_at_utc: new Date().toISOString(),
 				completed_at_utc: new Date().toISOString(),
-				current_stage_id: "STAGE_07_DETERMINISTIC_COMPILER",
+				current_stage_id:
+					this.bundle.stages[this.bundle.stages.length - 1]?.key ??
+					"STAGE_COMPLETED",
 				event_count: this.ledgerEvents.length,
 				active_hold_ids: [],
 				events_sse_url: `/api/v1/runs/${runId}/events`,
@@ -401,7 +408,15 @@ export class FileExplorerDataSource implements ExplorerDataSource {
 			decision_id: decisionId,
 			status: decision.action === "REJECT" ? "REJECTED" : "ACCEPTED",
 			resumed_run_id: runId,
-			next_stage_id: "STAGE_03_SHIP_VAULT_PASS1",
+			next_stage_id: (() => {
+				const holdStage = this.bundle.stages.find(
+					(s) => s.tag === "ASK-USER" || (s.tag as string) === "HOLD",
+				);
+				const idx = holdStage ? this.bundle.stages.indexOf(holdStage) : -1;
+				return idx >= 0 && this.bundle.stages[idx + 1]
+					? this.bundle.stages[idx + 1]?.key ?? "STAGE_NEXT"
+					: "STAGE_RESUMED";
+			})(),
 			next_event_id: `evt-${decisionId}`,
 		};
 	}

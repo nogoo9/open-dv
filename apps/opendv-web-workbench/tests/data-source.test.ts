@@ -27,6 +27,7 @@ import {
 	resolveApiBaseUrl,
 } from "../src/explorer/data-source";
 import { createExplorerStore } from "../src/explorer/explorer-store";
+import { OpenDVWorkbenchExplorer } from "../src/explorer/OpenDVWorkbenchExplorer";
 import {
 	GLOBAL_COMMERCE_EXPLORER_BUNDLE,
 	PE_DEMO_EVENTS,
@@ -443,5 +444,31 @@ describe("Explicit Blocking Error UX & Zero Demo Fallback (REQ-MOCK-01, REQ-FAIL
 			"/api/v1/runs/run-timeout-999/explorer",
 		);
 		expect(state.bundle.runId).toBe("");
+	});
+
+	it("renders BlockingErrorBanner in place of main workspace when store enters blocking error state", async () => {
+		const failingFetch = (async () => {
+			throw new Error("Connection refused (ECONNREFUSED)");
+		}) as unknown as typeof fetch;
+
+		const liveDs = new RestSseExplorerDataSource({
+			baseUrl: "/api/v1",
+			fetchImpl: failingFetch,
+		});
+
+		const store = createExplorerStore({
+			dataSource: liveDs,
+			syncBrowserUrl: false,
+		});
+
+		await store.getState().loadRunsList();
+
+		const html = renderToStaticMarkup(
+			createElement(OpenDVWorkbenchExplorer, { store }),
+		);
+
+		expect(html).toContain('data-testid="blocking-error-banner"');
+		expect(html).toContain("Platform Backend Unreachable");
+		expect(html).not.toContain('data-testid="explorer-main-workspace"');
 	});
 });

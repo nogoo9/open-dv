@@ -122,7 +122,7 @@ export const EXPLORER_STATUS_INDICATORS: Record<
 	"AUTO-FIX": { label: "Auto Fix", symbol: "⚡" },
 };
 
-export const EXPLORER_VIZ_LABELS: Record<VizKind, string> = {
+export const EXPLORER_VIZ_LABELS: Record<string, string> = {
 	ontology: "Ontology graph (Graph A)",
 	dv: "Data Vault 2.0 topology",
 	table: "Tabular view",
@@ -131,6 +131,13 @@ export const EXPLORER_VIZ_LABELS: Record<VizKind, string> = {
 	events: "Event timeline",
 	doc: "Document + span highlights",
 	code: "Structured code & outline",
+};
+
+export const EXPLORER_EXTENDED_VIZ_LABELS: Record<string, string> = {
+	...EXPLORER_VIZ_LABELS,
+	ontology_coverage: "Ontology Grounding & Coverage",
+	ontology_proposal: "Proposed Ontology Delta",
+	ontology_diff: "Ontology Structural Diff",
 };
 
 export function getStatusTagStyle(tag: StatusTag | string): {

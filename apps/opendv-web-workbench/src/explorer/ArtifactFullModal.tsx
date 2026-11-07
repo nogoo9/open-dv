@@ -123,7 +123,15 @@ export function ArtifactFullModal({
 		artifact.group === "Setting"
 			? EXPLORER_GLYPHS.setting
 			: EXPLORER_GLYPHS.data;
-	const vizLabel = EXPLORER_VIZ_LABELS[artifact.viz];
+	const vizLabel =
+		EXPLORER_VIZ_LABELS[artifact.viz] ??
+		(artifact.type === "ontology_coverage"
+			? "Ontology Grounding & Coverage"
+			: artifact.type === "ontology_proposal"
+				? "Proposed Ontology Delta"
+				: artifact.type === "ontology_diff"
+					? "Ontology Structural Diff"
+					: "Visual View");
 
 	const showViz =
 		artifact.viz === "code" && activeTab === "raw"
