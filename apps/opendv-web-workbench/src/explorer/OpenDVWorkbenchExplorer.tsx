@@ -26,31 +26,12 @@ import { NewRunModal, type PipelineValidationReport } from "./NewRunModal";
 import { PipelineOverviewView } from "./PipelineOverviewView";
 import { StageDrillDownView } from "./StageDrillDownView";
 import { EXPLORER_COLORS, EXPLORER_FONTS } from "./design-tokens";
+import type { ExplorerDataSource } from "./data-source";
 import {
 	type ExplorerStoreState,
 	hasActiveReactDispatcher,
 	useExplorerStore,
 } from "./explorer-store";
-
-export interface ExplorerDataSource {
-	readonly mode?: ("live" | "file") | undefined;
-	readonly sourceName?: string | undefined;
-	fetchRunsList(): Promise<ProjectRunDTO[]>;
-	fetchExplorerBundle(
-		runId: string,
-		waveId?: string | undefined,
-	): Promise<ExplorerBundleDTO>;
-	fetchArtifactContent?(runId: string, artifactId: string): Promise<string>;
-	createPipelineRun?(request: PipelineRunRequest): Promise<PipelineRunHandle>;
-	validatePipeline?(
-		request: PipelineValidateRequest,
-	): Promise<PipelineValidationReport>;
-	subscribeEvents?(
-		runId: string,
-		onEvent: (event: VaultObservabilityEventDTO) => void,
-		onError?: ((err: Error) => void) | undefined,
-	): () => void;
-}
 
 export interface OpenDVWorkbenchExplorerProps {
 	store?: UseBoundStore<StoreApi<ExplorerStoreState>> | undefined;
@@ -159,6 +140,19 @@ export function OpenDVWorkbenchExplorer({
 		return;
 	}, [syncFromUrl]);
 
+	// Connect to data source or load initial runs list if empty on startup (B1)
+	safeUseEffect(() => {
+		if (dataSource) {
+			void store.getState().setDataSource(dataSource);
+		} else if (!bundle.runId && !store.getState().blockingError) {
+			void store.getState().loadRunsList().then((runs) => {
+				if (runs.length > 0 && runs[0]?.run_id) {
+					void store.getState().loadRun(runs[0].run_id);
+				}
+			});
+		}
+	}, [dataSource, store, bundle.runId]);
+
 	// Escape key handler: close dropdown or modal or clear selection
 	safeUseEffect(() => {
 		if (
@@ -214,46 +208,9 @@ export function OpenDVWorkbenchExplorer({
 					const runs = await dataSource.fetchRunsList();
 					setRunsList(runs);
 				} else {
-					const fetchFn =
-						fetchImpl ??
-						(typeof globalThis.fetch === "function"
-							? globalThis.fetch.bind(globalThis)
-							: undefined);
-					const base = (apiUrl ?? "").replace(/\/+$/, "");
-					if (fetchFn) {
-						const resp = await fetchFn(`${base}/api/v1/runs`);
-						if (resp.ok) {
-							setRunsList((await resp.json()) as ProjectRunDTO[]);
-						} else {
-							store.setState({
-								blockingError: {
-									hasError: true,
-									title: "Platform Backend Unreachable",
-									endpoint: `${base}/api/v1/runs`,
-									status: resp.status,
-									details: `HTTP ${resp.status} error fetching runs list`,
-									retryAction: () => void handleToggleRunSelector(),
-									openFileAction: (file: File) => {
-										void store.getState().loadFromFile(file);
-									},
-								},
-							});
-						}
-					}
+					const runs = await store.getState().loadRunsList();
+					setRunsList(runs);
 				}
-			} catch (err) {
-				store.setState({
-					blockingError: {
-						hasError: true,
-						title: "Platform Backend Unreachable",
-						endpoint: "/api/v1/runs",
-						details: err instanceof Error ? err.message : String(err),
-						retryAction: () => void handleToggleRunSelector(),
-						openFileAction: (file: File) => {
-							void store.getState().loadFromFile(file);
-						},
-					},
-				});
 			} finally {
 				setIsLoadingRuns(false);
 			}
@@ -268,20 +225,36 @@ export function OpenDVWorkbenchExplorer({
 					run.run_id,
 					activeWave !== "all" ? activeWave : undefined,
 				);
+				const hasActiveHold =
+					nextBundle.stages.some(
+						(s) => s.tag === "ASK-USER" || (s.tag as string) === "HOLD",
+					) ||
+					Object.values(nextBundle.artifacts).some((a) =>
+						a.doc?.extractions?.some((e) => e.tier === "Tier-U3" && !e.resolved),
+					);
+				const hasFailure =
+					run.status === "FAILED" ||
+					nextBundle.stages.some((s) => s.tag === "REJECT-WITH-TRACE");
+				const runState = hasActiveHold
+					? "hold"
+					: hasFailure
+						? "failed"
+						: run.status === "RUNNING"
+							? "running"
+							: "sealed";
+				const statusBannerText = hasActiveHold
+					? `Hold · ${run.current_stage_id.slice(0, 8)} awaiting steward`
+					: hasFailure
+						? `Failed · ${run.current_stage_id.slice(0, 8)}`
+						: run.status === "RUNNING"
+							? `Running · ${run.current_stage_id.slice(0, 8)}`
+							: nextBundle.statusLabel;
+
 				store.setState({
 					bundle: nextBundle,
-					runState:
-						run.status === "RUNNING"
-							? "running"
-							: run.status === "PAUSED_HOLD"
-								? "hold"
-								: "sealed",
-					statusBannerText:
-						run.status === "RUNNING"
-							? `Running · ${run.current_stage_id.slice(0, 8)}`
-							: run.status === "PAUSED_HOLD"
-								? `Hold · ${run.current_stage_id.slice(0, 8)} awaiting steward`
-								: "Sealed · 6/6 gates PASS",
+					activeRunId: run.run_id,
+					runState,
+					statusBannerText,
 				});
 				if (run.status === "RUNNING" && dataSource.subscribeEvents) {
 					dataSource.subscribeEvents(run.run_id, (ev) => {
@@ -297,7 +270,7 @@ export function OpenDVWorkbenchExplorer({
 					blockingError: {
 						hasError: true,
 						title: "Error Loading Run Bundle",
-						endpoint: `/api/v1/runs/${run.run_id}/bundle`,
+						endpoint: `/api/v1/runs/${run.run_id}/explorer`,
 						details: err instanceof Error ? err.message : String(err),
 						retryAction: () => void handleSelectRun(run),
 						openFileAction: (file: File) => {
@@ -306,27 +279,20 @@ export function OpenDVWorkbenchExplorer({
 					},
 				});
 			}
+		} else {
+			await store.getState().loadRun(
+				run.run_id,
+				activeWave !== "all" ? activeWave : undefined,
+			);
 		}
 	};
 
 	const handleRunStarted = (handle: PipelineRunHandle) => {
 		setIsNewRunModalOpen(false);
-		store.setState({
-			runState: "running",
-			activeRunningStageIdx: 0,
-			statusBannerText: "Running · STAGE_00",
-		});
 		setStreamedTokens(0);
 		onRunStarted?.(handle);
-
-		if (dataSource?.subscribeEvents) {
-			dataSource.subscribeEvents(handle.run_id, (ev) => {
-				store.getState().ingestLiveObservabilityEvent(ev);
-				const tokens = Number(
-					ev.layer2_visual_payload?.summary_metrics?.tokens_streamed ?? 0,
-				);
-				if (tokens > 0) setStreamedTokens((prev) => prev + tokens);
-			});
+		if (handle.run_id) {
+			void store.getState().loadRun(handle.run_id);
 		}
 	};
 

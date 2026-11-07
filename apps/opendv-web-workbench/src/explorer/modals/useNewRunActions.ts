@@ -60,7 +60,11 @@ export async function executeValidate(
 	if (fetchFn) {
 		const resp = await fetchFn(`${base}/api/v1/pipelines/validate`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: {
+				"Content-Type": "application/json",
+				Accept: "application/json",
+				"X-OpenDV-Role": "INTERNAL_MODELER",
+			},
 			body: JSON.stringify(req),
 		});
 		if (resp.ok) {
@@ -91,26 +95,18 @@ export async function executeValidate(
 		};
 	}
 
-	// Local deterministic validation when backend is offline
-	const hasSpec = Boolean(specPath.trim() || specFileContent);
 	return {
 		stage: "INPUT_VALIDATION",
-		passed: hasSpec,
-		checked_items_count: hasSpec ? 2 : 1,
-		diagnostics: hasSpec
-			? [
-					{
-						severity: "INFO",
-						message: `Spec '${specPath || specFileName}' syntax check passed.`,
-					},
-				]
-			: [
-					{
-						code: "SPEC_REQUIRED",
-						severity: "ERROR",
-						message: "Either spec path or uploaded file is required.",
-					},
-				],
+		passed: false,
+		checked_items_count: 1,
+		diagnostics: [
+			{
+				code: "BACKEND_UNAVAILABLE",
+				severity: "ERROR",
+				message:
+					"Platform API is unavailable: cannot validate pipeline spec offline.",
+			},
+		],
 	};
 }
 
@@ -167,7 +163,11 @@ export async function executeSubmitRun(
 
 	const resp = await fetchFn(`${base}/api/v1/pipelines/runs`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: {
+			"Content-Type": "application/json",
+			Accept: "application/json",
+			"X-OpenDV-Role": "INTERNAL_MODELER",
+		},
 		body: JSON.stringify(req),
 	});
 

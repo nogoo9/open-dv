@@ -23,7 +23,7 @@ import type { ExplorerDataSource } from "./data-source";
 export type ExplorerViewLevel = "pipeline" | "stage";
 export type ExplorerSelectionType = "artifact" | "step" | "component" | null;
 export type ArtifactFullTab = "viz" | "raw" | "split";
-export type ExplorerRunState = "sealed" | "running" | "hold";
+export type ExplorerRunState = "sealed" | "running" | "hold" | "failed";
 export type ExplorerPresetBundleKey = string;
 
 export interface ExplorerStoreInitOptions {

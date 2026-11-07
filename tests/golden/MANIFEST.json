@@ -1,6 +1,6 @@
 {
   "manifest_version": "1.0.0",
-  "generated_at": "2026-11-07T05:24:10.020019+00:00",
+  "generated_at": "2026-11-07T09:04:33.585855+00:00",
   "generator_transport": "STANDALONE_CLI",
   "entries": [
     {
@@ -334,10 +334,10 @@
     {
       "golden_id": "GT-05",
       "file": "GT-05/render_snapshot.txt",
-      "sha256": "5fb79db6161b8d8d7e1e09923b68f76f529091eb2a6f25c760ff025a1255da57",
-      "byte_size": 2848,
+      "sha256": "05e8f9c7fee9d44a7fa60a2333d00756749c41ce11be26f94e2c2317495d111b",
+      "byte_size": 2855,
       "generated_from": "PAR-S8-W3: opendv explorer render snapshot",
-      "last_justified_change": "[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis"
+      "last_justified_change": "[#114] Fix GT-05 renderer reading genuine stage tag and artifact fmt"
     },
     {
       "golden_id": "GT-06",

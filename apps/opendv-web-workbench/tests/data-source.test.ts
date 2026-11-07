@@ -293,33 +293,19 @@ describe("FileExplorerDataSource & Exported Run Bundles", () => {
 		unsub();
 	});
 
-	it("resolves Steward Holds offline in memory and updates artifacts", async () => {
+	it("rejects Steward Hold submission in exported-run file mode (read-only)", async () => {
 		const fileDs = FileExplorerDataSource.fromBundle(
 			GLOBAL_COMMERCE_EXPLORER_BUNDLE,
 			"Exported Bundle",
 		);
 
-		const decisionRes = await fileDs.submitDecision(
-			GLOBAL_COMMERCE_EXPLORER_BUNDLE.runId,
-			{
+		await expect(
+			fileDs.submitDecision(GLOBAL_COMMERCE_EXPLORER_BUNDLE.runId, {
 				hold_id: "hold-tier-u3-rheinland-precision",
 				action: "APPROVE",
 				selected_candidate_id: "TAX-DE-800202",
-			},
-		);
-
-		expect(decisionRes.status).toBe("ACCEPTED");
-		expect(decisionRes.decision_id).toContain("hold-tier-u3");
-
-		const bundle = await fileDs.fetchExplorerBundle(
-			GLOBAL_COMMERCE_EXPLORER_BUNDLE.runId,
-		);
-		const msaDoc = bundle.artifacts.msa?.doc;
-		const extraction = msaDoc?.extractions.find(
-			(e) => e.holdId === "hold-tier-u3-rheinland-precision",
-		);
-		expect(extraction?.resolved).toBe(true);
-		expect(extraction?.resolutionAction).toBe("APPROVE");
+			}),
+		).rejects.toThrow("read-only");
 	});
 });
 

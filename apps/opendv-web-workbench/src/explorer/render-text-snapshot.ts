@@ -22,6 +22,7 @@ export interface ExplorerBundleSnapshotInput {
 	readonly gatesTotal?: number | null | undefined;
 	readonly stages?:
 		| readonly {
+				readonly tag?: string | null | undefined;
 				readonly status_tag?: string | null | undefined;
 				readonly statusTag?: string | null | undefined;
 				readonly key?: string | null | undefined;
@@ -35,6 +36,7 @@ export interface ExplorerBundleSnapshotInput {
 				{
 					readonly group?: string | null | undefined;
 					readonly name?: string | null | undefined;
+					readonly fmt?: string | null | undefined;
 					readonly format?: string | null | undefined;
 					readonly [key: string]: unknown;
 				}
@@ -87,6 +89,8 @@ export function renderExplorerTextSnapshot(
 		statusLabel === "PAUSED_HOLD" ||
 		stages.some(
 			(s) =>
+				s.tag === "HOLD" ||
+				s.tag === "ASK-USER" ||
 				s.status_tag === "HOLD" ||
 				s.statusTag === "HOLD" ||
 				s.status_tag === "ASK-USER" ||
@@ -121,7 +125,7 @@ export function renderExplorerTextSnapshot(
 	);
 
 	for (const s of stages) {
-		const stag = s.status_tag || s.statusTag || "PENDING";
+		const stag = s.tag || s.status_tag || s.statusTag || "PENDING";
 		const key = s.key || "";
 		const name = s.name || "";
 		lines.push(`[${padRight(stag, 14)}] ${padRight(key, 20)} ${name}`);
@@ -140,7 +144,7 @@ export function renderExplorerTextSnapshot(
 		const art = artifacts[artId] ?? {};
 		const grp = art.group || "";
 		const name = art.name || "";
-		const fmt = art.format || "";
+		const fmt = art.fmt || art.format || "";
 		lines.push(
 			`* ${padRight(artId, 15)} [${padRight(grp, 12)}] [${padRight(fmt, 5)}] ${name}`,
 		);

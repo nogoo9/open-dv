@@ -13,6 +13,7 @@ import type {
 	OpenDVClientOptions,
 	PipelineRunHandle,
 	PipelineRunRequest,
+	PipelineValidateRequest,
 	ProjectDTO,
 	ProjectRunDTO,
 	RunArtifactDTO,
@@ -33,6 +34,7 @@ export type {
 	OpenDVClientOptions,
 	PipelineRunHandle,
 	PipelineRunRequest,
+	PipelineValidateRequest,
 	ProjectDTO,
 	ProjectRunDTO,
 	RunArtifactDTO,
@@ -256,5 +258,34 @@ export class OpenDVPlatformClient {
 			throw new Error(`Failed to create pipeline run: HTTP ${res.status}`);
 		}
 		return (await res.json()) as PipelineRunHandle;
+	}
+
+	async validatePipeline(
+		request: PipelineValidateRequest,
+	): Promise<Record<string, unknown>> {
+		const res = await this.fetchImpl(`${this.baseUrl}/api/v1/pipelines/validate`, {
+			method: "POST",
+			headers: this.headers,
+			body: JSON.stringify(request),
+		});
+		if (!res.ok) {
+			const errJson = (await res.json().catch(() => ({}))) as {
+				detail?: string;
+				error_code?: string;
+			};
+			return {
+				stage: "INPUT_VALIDATION",
+				passed: false,
+				checked_items_count: 1,
+				diagnostics: [
+					{
+						code: errJson.error_code ?? "VALIDATION_FAILED",
+						severity: "ERROR",
+						message: errJson.detail ?? `HTTP ${res.status} validation failure`,
+					},
+				],
+			};
+		}
+		return (await res.json()) as Record<string, unknown>;
 	}
 }

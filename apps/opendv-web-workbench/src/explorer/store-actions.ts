@@ -80,12 +80,36 @@ export async function executeLoadRun(
 	set({ isLoading: true, lastError: null });
 	try {
 		const bundle = await ds.fetchExplorerBundle(runId, waveId);
+		const hasActiveHold =
+			bundle.stages.some(
+				(s) => s.tag === "ASK-USER" || (s.tag as string) === "HOLD",
+			) ||
+			Object.values(bundle.artifacts).some((a) =>
+				a.doc?.extractions?.some((e) => e.tier === "Tier-U3" && !e.resolved),
+			);
+		const hasFailure = bundle.stages.some(
+			(s) => s.tag === "REJECT-WITH-TRACE",
+		);
+		const runState = hasActiveHold
+			? "hold"
+			: hasFailure
+				? "failed"
+				: bundle.statusLabel.toLowerCase().includes("run")
+					? "running"
+					: "sealed";
+		const statusBannerText = hasActiveHold
+			? "Hold · Awaiting steward review"
+			: hasFailure
+				? `Failed · ${bundle.statusLabel}`
+				: bundle.statusLabel;
+
 		set({
 			bundle,
 			activeRunId: runId,
 			isLoading: false,
 			blockingError: null,
-			statusBannerText: bundle.statusLabel,
+			runState,
+			statusBannerText,
 			sourceLabel: ds.sourceName,
 		});
 		if (ds.mode === "live") {
@@ -201,17 +225,20 @@ export function executeIngestLiveObservabilityEvent(
 		event.status === "REJECT-WITH-TRACE" ||
 		event.status === "AUTO-FIX"
 			? event.status
-			: "PASS";
+			: "REJECT-WITH-TRACE";
 
 	if (stageMatchIdx >= 0 && currentBundle.stages[stageMatchIdx]) {
 		currentBundle.stages[stageMatchIdx].tag = statusTag;
 	}
 
+	const headline =
+		event.layer1_story_banner?.headline ?? `${shortStage} step executed`;
+
 	if (currentBundle.artifacts.ledger) {
 		const existingEvents = currentBundle.artifacts.ledger.events ?? [];
 		const nextEvents: [string, string, StatusTag][] = [
 			...existingEvents,
-			[shortStage, event.layer1_story_banner.headline, statusTag],
+			[shortStage, headline, statusTag],
 		];
 		currentBundle.artifacts.ledger.events = nextEvents;
 		currentBundle.artifacts.ledger.short = `${nextEvents.length} events · RBAC-redacted stream`;
@@ -220,20 +247,35 @@ export function executeIngestLiveObservabilityEvent(
 				seq: nextEvents.length,
 				stage: event.stage_id,
 				status: event.status,
-				headline: event.layer1_story_banner.headline,
+				headline,
 			},
 		)}`;
 	}
 
 	const isHold = event.status === "ASK-USER";
+	const isFailure = statusTag === "REJECT-WITH-TRACE";
+	const isCompleted =
+		stageMatchIdx === currentBundle.stages.length - 1 &&
+		(statusTag === "PASS" || statusTag === "AUTO_REPAIRED");
+
 	set({
 		bundle: currentBundle,
-		runState: isHold ? "hold" : get().runState,
+		runState: isCompleted
+			? "sealed"
+			: isFailure
+				? "failed"
+				: isHold
+					? "hold"
+					: get().runState,
 		activeRunningStageIdx:
 			stageMatchIdx >= 0 ? stageMatchIdx : get().activeRunningStageIdx,
-		statusBannerText: isHold
-			? `Hold · ${shortStage} awaiting steward`
-			: `Running · ${shortStage}`,
+		statusBannerText: isCompleted
+			? `Sealed · ${currentBundle.gatesPassed}/${currentBundle.gatesTotal} gates PASS`
+			: isFailure
+				? `Failed · ${shortStage}`
+				: isHold
+					? `Hold · ${shortStage} awaiting steward`
+					: `Running · ${shortStage}`,
 	});
 }
 
@@ -257,7 +299,7 @@ export async function executeTriggerPipelineRun(
 	const ds = get().dataSource;
 	const req: PipelineRunRequest = runOptions.request ?? {
 		input_spec_path: runOptions.inputSpecPath ?? get().bundle.specFile ?? "",
-		steward_hold_policy: "auto_approve_top_candidate",
+		steward_hold_policy: "pause",
 		dry_run: false,
 	};
 
@@ -344,6 +386,11 @@ export async function executeResolveStewardHold(
 		} else {
 			response = await get().dataSource.submitDecision(currentRunId, req);
 		}
+		if (response.status !== "ACCEPTED") {
+			throw new Error(
+				`Steward decision rejected by server: status ${response.status}`,
+			);
+		}
 	} catch (err) {
 		set({ lastError: String(err) });
 		throw err;
@@ -360,7 +407,7 @@ export async function executeResolveStewardHold(
 	for (const art of Object.values(nextBundle.artifacts)) {
 		if (art?.doc?.extractions) {
 			art.doc.extractions = art.doc.extractions.map((ex) => {
-				if (ex.holdId === holdId || (ex.tier === "Tier-U3" && !ex.resolved)) {
+				if (ex.holdId === holdId) {
 					return {
 						...ex,
 						resolved: true,

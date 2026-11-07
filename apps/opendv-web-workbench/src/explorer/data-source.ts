@@ -17,6 +17,7 @@ import {
 	OpenDVPlatformClient,
 	type PipelineRunHandle,
 	type PipelineRunRequest,
+	type PipelineValidateRequest,
 	type ProjectRunDTO,
 	type RbacRole,
 	type RunArtifactDTO,
@@ -25,6 +26,10 @@ import {
 	buildExplorerBundleFromObservabilityEvents,
 	createEmptyExplorerBundle,
 } from "@opendv/protocol-ts";
+import type {
+	PipelineValidationReport,
+	ValidationDiagnostic,
+} from "./modals/NewRunValidationSection";
 
 export type PipelineRunSummary = ProjectRunDTO;
 export type ExplorerBundle = ExplorerBundleDTO;
@@ -96,6 +101,9 @@ export interface ExplorerDataSource {
 	): Promise<ExplorerBundleDTO>;
 	fetchArtifactContent(runId: string, artifactId: string): Promise<string>;
 	createPipelineRun(request: PipelineRunRequest): Promise<PipelineRunHandle>;
+	validatePipeline?(
+		request: PipelineValidateRequest,
+	): Promise<PipelineValidationReport>;
 	submitDecision(
 		runId: string,
 		decision: CaptainHoldDecisionRequest,
@@ -166,6 +174,22 @@ export class RestSseExplorerDataSource implements ExplorerDataSource {
 		request: PipelineRunRequest,
 	): Promise<PipelineRunHandle> {
 		return this.client.createPipelineRun(request);
+	}
+
+	async validatePipeline(
+		request: PipelineValidateRequest,
+	): Promise<PipelineValidationReport> {
+		const res = await this.client.validatePipeline(request);
+		return {
+			stage: (res.stage as string) ?? "INPUT_VALIDATION",
+			passed: Boolean(res.passed),
+			checked_items_count: Number(
+				res.checked_items_count ??
+					(res.diagnostics as unknown[])?.length ??
+					0,
+			),
+			diagnostics: (res.diagnostics as ValidationDiagnostic[]) ?? [],
+		};
 	}
 
 	async submitDecision(
@@ -378,47 +402,21 @@ export class FileExplorerDataSource implements ExplorerDataSource {
 		);
 	}
 
+	async validatePipeline(
+		_request: PipelineValidateRequest,
+	): Promise<PipelineValidationReport> {
+		throw new Error(
+			"Cannot validate pipeline run in exported-run file mode (read-only).",
+		);
+	}
+
 	async submitDecision(
-		runId: string,
-		decision: CaptainHoldDecisionRequest,
+		_runId: string,
+		_decision: CaptainHoldDecisionRequest,
 	): Promise<CaptainHoldDecisionResponse> {
-		const chosenCandidate =
-			decision.selected_candidate_id ?? "APPROVED_CANDIDATE";
-		const decisionId = `dec-${decision.hold_id ?? "hold"}-${decision.action.toLowerCase()}`;
-
-		for (const art of Object.values(this.bundle.artifacts)) {
-			if (art.doc) {
-				art.doc.extractions = art.doc.extractions.map((ex) => {
-					if (ex.holdId === decision.hold_id || ex.tier === "Tier-U3") {
-						return {
-							...ex,
-							resolved: true,
-							resolutionAction:
-								decision.action === "APPROVE" ? "APPROVE" : "REJECT",
-							selectedCandidateId: chosenCandidate,
-							decision: `Offline hold resolved: ${decision.action} (${chosenCandidate})`,
-						};
-					}
-					return ex;
-				});
-			}
-		}
-
-		return {
-			decision_id: decisionId,
-			status: decision.action === "REJECT" ? "REJECTED" : "ACCEPTED",
-			resumed_run_id: runId,
-			next_stage_id: (() => {
-				const holdStage = this.bundle.stages.find(
-					(s) => s.tag === "ASK-USER" || (s.tag as string) === "HOLD",
-				);
-				const idx = holdStage ? this.bundle.stages.indexOf(holdStage) : -1;
-				return idx >= 0 && this.bundle.stages[idx + 1]
-					? this.bundle.stages[idx + 1]?.key ?? "STAGE_NEXT"
-					: "STAGE_RESUMED";
-			})(),
-			next_event_id: `evt-${decisionId}`,
-		};
+		throw new Error(
+			"Cannot submit steward decision in exported-run file mode (read-only).",
+		);
 	}
 
 	subscribeEvents(
