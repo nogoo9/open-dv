@@ -19,7 +19,6 @@ from __future__ import annotations
 import re
 from datetime import UTC, datetime
 from enum import StrEnum
-from pathlib import Path
 from typing import Any
 
 import duckdb
@@ -55,7 +54,7 @@ _SAFE_SQL_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*(\.[A-Za-z_][A-Za-
 def _quote_identifier(identifier: str) -> str:
     """Validate and double-quote a SQL table or column identifier (optionally schema-qualified)."""
     if not _SAFE_SQL_IDENTIFIER_RE.match(identifier):
-        msg = f"Unsafe SQL identifier rejected: {identifier!r}"
+        msg = "Unsafe SQL identifier rejected: identifier contains invalid characters"
         raise ValueError(msg)
     parts = identifier.split(".")
     return ".".join(f'"{part}"' for part in parts)
@@ -425,36 +424,23 @@ class GraphBProfiler:
 
         return metrics_list
 
-    def profile_parquet(
+    def profile_relation(
         self,
-        parquet_path: str | Path,
+        relation_name: str,
         *,
-        view_name: str = "temp_profiled_parquet",
-        **kwargs: Any,
+        delta_mutations_by_column: dict[str, int] | None = None,
+        window_seconds: float = 86400.0,
+        parent_key_values_by_column: dict[str, set[Any]] | None = None,
+        hash_overhead_bytes: int = 88,
     ) -> list[ColumnProfileMetrics]:
-        """Register a Parquet file in DuckDB and compute Graph B metrics for all columns."""
-        resolved = str(Path(parquet_path).resolve()).replace("'", "''")
-        quoted_view = _quote_identifier(view_name)
-        self.conn.execute(
-            f"CREATE OR REPLACE TEMP VIEW {quoted_view} AS SELECT * FROM read_parquet('{resolved}')"
+        """Compute empirical Graph B metrics for columns in the registered relation (SRC-02)."""
+        return self.profile_table_columns(
+            relation_name,
+            delta_mutations_by_column=delta_mutations_by_column,
+            window_seconds=window_seconds,
+            parent_key_values_by_column=parent_key_values_by_column,
+            hash_overhead_bytes=hash_overhead_bytes,
         )
-        return self.profile_table_columns(view_name, **kwargs)
-
-    def profile_csv(
-        self,
-        csv_path: str | Path,
-        *,
-        view_name: str = "temp_profiled_csv",
-        **kwargs: Any,
-    ) -> list[ColumnProfileMetrics]:
-        """Register a CSV file in DuckDB and compute Graph B metrics for all columns."""
-        resolved = str(Path(csv_path).resolve()).replace("'", "''")
-        quoted_view = _quote_identifier(view_name)
-        self.conn.execute(
-            f"CREATE OR REPLACE TEMP VIEW {quoted_view} "
-            f"AS SELECT * FROM read_csv_auto('{resolved}')"
-        )
-        return self.profile_table_columns(view_name, **kwargs)
 
     def compute_table_inclusion_edge(
         self,
@@ -749,3 +735,34 @@ class GraphBProfiler:
             has_drift=len(events) > 0,
             events=events,
         )
+
+
+def profile_relation(
+    conn: duckdb.DuckDBPyConnection,
+    relation_name: str,
+    *,
+    delta_mutations_by_column: dict[str, int] | None = None,
+    window_seconds: float = 86400.0,
+    parent_key_values_by_column: dict[str, set[Any]] | None = None,
+    hash_overhead_bytes: int = 88,
+) -> list[ColumnProfileMetrics]:
+    """Compute empirical Graph B metrics for columns in the registered relation (SRC-02)."""
+    profiler = GraphBProfiler(conn)
+    return profiler.profile_relation(
+        relation_name,
+        delta_mutations_by_column=delta_mutations_by_column,
+        window_seconds=window_seconds,
+        parent_key_values_by_column=parent_key_values_by_column,
+        hash_overhead_bytes=hash_overhead_bytes,
+    )
+
+
+__all__ = [
+    "ColumnProfileMetrics",
+    "ForeignKeyInclusionEdge",
+    "GraphBProfiler",
+    "SchemaDriftEvent",
+    "SchemaDriftKind",
+    "SchemaDriftReport",
+    "profile_relation",
+]

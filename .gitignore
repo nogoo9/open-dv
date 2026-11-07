@@ -10,3 +10,6 @@ dist/
 .mypy_cache/
 .ruff_cache/
 *.tsbuildinfo
+worktrees/
+.opendv/
+.agents/

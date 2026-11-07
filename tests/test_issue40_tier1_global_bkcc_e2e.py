@@ -33,6 +33,7 @@ from opendv_duckdb_sandbox.compiler_4zone import compile_canonical_ir_to_4zone_s
 from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
 from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
 from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+from opendv_sources import SourceSpec, get_source_registry
 
 
 def _build_issue40_ontology() -> dict[str, Any]:
@@ -91,56 +92,47 @@ def _build_issue40_ontology() -> dict[str, Any]:
     }
 
 
-def _write_issue40_csv_datasets(base_dir: Path) -> dict[str, Path]:
-    """Write real S1 (Wave 0 Cold Start) and S2 (Wave 1 Multi-Source) CSV feeds."""
-    w0_dir = base_dir / "wave0_cold_start"
-    w1_dir = base_dir / "wave1_multi_source"
-    w0_dir.mkdir(parents=True, exist_ok=True)
-    w1_dir.mkdir(parents=True, exist_ok=True)
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SCENARIO_I40_DIR = REPO_ROOT / "examples" / "scenarios" / "issue_40_tier1_global_bkcc"
 
-    crm_csv = w0_dir / "crm_accounts.csv"
-    crm_csv.write_text(
-        "company_uen,legal_name,credit_Tier\n"
-        "202601234K,Acme Global Holdings Pte Ltd,PLATINUM\n"
-        "202609876M,Meridian Maritime Corp,GOLD\n",
-        encoding="utf-8",
-    )
 
-    erp_csv = w0_dir / "erp_invoices.csv"
-    erp_csv.write_text(
-        "invoice_global_id,tax_reg_no,invoice_amount_sgd\n"
-        "INV-SG-2026-0001,202601234K,125000.00\n"
-        "INV-SG-2026-0002,202609876M,84500.00\n",
-        encoding="utf-8",
-    )
-
-    legacy_csv = w1_dir / "legacy_tickets.csv"
-    legacy_csv.write_text(
-        "legacy_client_no,support_sla_tier\n"
-        "1001,24X7_MISSION_CRITICAL\n"
-        "1002,STANDARD_BUSINESS_HOURS\n",
-        encoding="utf-8",
-    )
-
+def _resolve_issue40_csv_datasets() -> dict[str, Path]:
+    """Resolve real S1 (Wave 0 Cold Start) and S2 (Wave 1 Multi-Source) CSV feeds from examples."""
     return {
-        "bronze_crm.accounts": crm_csv,
-        "bronze_erp.invoices": erp_csv,
-        "bronze_legacy.tickets": legacy_csv,
+        "bronze_crm.accounts": SCENARIO_I40_DIR / "accounts.csv",
+        "bronze_erp.invoices": SCENARIO_I40_DIR / "invoices.csv",
+        "bronze_legacy.tickets": SCENARIO_I40_DIR / "tickets.csv",
     }
 
 
-def test_issue40_e2e_scenario_s1_and_s2_tier1_global_bkcc_invariants(tmp_path: Path) -> None:
+def test_issue40_e2e_scenario_s1_and_s2_tier1_global_bkcc_invariants() -> None:
     """End-to-End verification of Issue #40 across Scenario S1 (Cold Start) and
     Scenario S2 (Multi-Source Convergence).
     """
     ontology = _build_issue40_ontology()
-    csv_paths = _write_issue40_csv_datasets(tmp_path)
+    csv_paths = _resolve_issue40_csv_datasets()
 
     # Profile real CSV files with DuckDB GraphBProfiler
+    reg = get_source_registry()
     with GraphBProfiler() as profiler:
-        crm_metrics = profiler.profile_csv(csv_paths["bronze_crm.accounts"])
-        erp_metrics = profiler.profile_csv(csv_paths["bronze_erp.invoices"])
-        leg_metrics = profiler.profile_csv(csv_paths["bronze_legacy.tickets"])
+        reg.get_tabular_adapter("file").register(
+            SourceSpec(adapter="file", uri=str(csv_paths["bronze_crm.accounts"])),
+            profiler.conn,
+            "v_crm_accounts",
+        )
+        reg.get_tabular_adapter("file").register(
+            SourceSpec(adapter="file", uri=str(csv_paths["bronze_erp.invoices"])),
+            profiler.conn,
+            "v_erp_invoices",
+        )
+        reg.get_tabular_adapter("file").register(
+            SourceSpec(adapter="file", uri=str(csv_paths["bronze_legacy.tickets"])),
+            profiler.conn,
+            "v_leg_tickets",
+        )
+        crm_metrics = profiler.profile_relation("v_crm_accounts")
+        erp_metrics = profiler.profile_relation("v_erp_invoices")
+        leg_metrics = profiler.profile_relation("v_leg_tickets")
     assert len(crm_metrics) == 3
     assert len(erp_metrics) == 3
     assert len(leg_metrics) == 2

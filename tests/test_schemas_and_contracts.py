@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import inspect
 import json
 import pathlib
@@ -168,7 +169,7 @@ def validate_dv2_contract_and_ir_policy(
 
 @pytest.mark.parametrize(
     "schema_path",
-    sorted(SCHEMAS_DIR.glob("*.json")),
+    sorted(p for p in SCHEMAS_DIR.glob("*.json") if p.name != "cli-spec.json"),
     ids=lambda p: p.name,
 )
 def test_all_schemas_valid_draft_2020_12(schema_path: pathlib.Path) -> None:
@@ -178,15 +179,47 @@ def test_all_schemas_valid_draft_2020_12(schema_path: pathlib.Path) -> None:
     Draft202012Validator.check_schema(schema_doc)
 
 
+def test_cli_spec_conforms_to_schema() -> None:
+    """Assert schemas/cli-spec.json validates against Draft 2020-12 cli-spec.schema.json."""
+    from opendv_contracts.spec import validate_cli_spec
+
+    validate_cli_spec()
+
+
 def test_expected_schema_inventory_present() -> None:
-    """Verify the three canonical schema files exist in `schemas/`."""
+    """Verify the canonical schema files exist in `schemas/`."""
     found_names = {p.name for p in SCHEMAS_DIR.glob("*.json")}
     expected = {
         "no-mistake-dv2-contract-v5.schema.json",
         "dv2-canonical-ir.schema.json",
         "vault-observability-event.schema.json",
+        "openapi-v1.json",
     }
     assert expected.issubset(found_names)
+
+
+def test_openapi_v1_specification_drift_free() -> None:
+    """Assert openapi-v1.json matches FastAPI app.openapi() export byte-for-byte with zero drift."""
+    from opendv_platform_api.export_openapi import generate_openapi_spec, render_openapi_spec
+
+    openapi_path = SCHEMAS_DIR / "openapi-v1.json"
+    assert openapi_path.exists(), f"Missing OpenAPI spec at {openapi_path}"
+
+    on_disk_raw = openapi_path.read_text(encoding="utf-8")
+    rendered_expected = render_openapi_spec()
+    generated_spec = generate_openapi_spec()
+
+    # Normalize line endings for cross-platform assertion
+    assert on_disk_raw.replace("\r\n", "\n") == rendered_expected.replace("\r\n", "\n")
+    assert generated_spec.get("openapi") == "3.1.0"
+    assert generated_spec.get("jsonSchemaDialect") == "https://json-schema.org/draft/2020-12/schema"
+    assert generated_spec.get("$schema") == "https://json-schema.org/draft/2020-12/schema"
+
+    # Invariant: zero legacy workbench routes
+    paths = generated_spec.get("paths", {})
+    workbench_paths = [p for p in paths if "workbench" in p]
+    msg = f"Found forbidden legacy workbench routes in openapi spec: {workbench_paths}"
+    assert workbench_paths == [], msg
 
 
 # ============================================================================
@@ -504,6 +537,41 @@ def _exec_doc_python_blocks(doc_rel_path: str) -> dict[str, Any]:
     return mod.__dict__
 
 
+def _verify_ts_python_hash_pill_parity(
+    tokens: list[str | None],
+    *,
+    is_business_key: bool = True,
+    bkcc_prefix: str | None = None,
+) -> str:
+    """Reference implementation matching computeDv2LengthPrefixedSha256 in @opendv/protocol-ts."""
+    normalized: list[str] = []
+    for token in tokens:
+        if token is None:
+            normalized.append("")
+        else:
+            trimmed = token.strip()
+            normalized.append(trimmed.upper() if is_business_key else trimmed)
+
+    if is_business_key and all(val == "" for val in normalized):
+        return "0" * 64
+
+    parts: list[str] = []
+    if is_business_key and bkcc_prefix:
+        bkcc = bkcc_prefix.strip().upper()
+        if bkcc:
+            bkcc_len = len(bkcc.encode("utf-8"))
+            parts.append(f"{bkcc_len}:{bkcc}")
+
+    for cleaned in normalized:
+        if not cleaned:
+            parts.append("-1:^^")
+        else:
+            byte_len = len(cleaned.encode("utf-8"))
+            parts.append(f"{byte_len}:{cleaned}")
+    payload = "||".join(parts).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest().upper()
+
+
 def test_doc08_monorepo_configs_rbac_redaction_and_sse_wire_vectors() -> None:
     doc08 = "docs/08-platform-mvp-monorepo-and-api-spec.md"
     toml_blocks = [tomllib.loads(block) for block in _extract_fenced_blocks(doc08, "toml")]
@@ -556,7 +624,6 @@ def test_doc08_monorepo_configs_rbac_redaction_and_sse_wire_vectors() -> None:
             "business_impact": "Exposes confidential LP fee terms and tax IDs",
         },
         "layer2_visual_payload": {
-            "viz_id": "VIZ-STEP-04",
             "summary_metrics": {"extracted_ssn_count": 3, "lp_commitment_usd": 150000000},
             "ner_spans": [{"text": "999-00-1234", "span": [10, 21]}],
             "semantic_hash_pills": [
@@ -613,8 +680,7 @@ def test_doc08_monorepo_configs_rbac_redaction_and_sse_wire_vectors() -> None:
     assert redact_event_for_role(mnpi_event, rbac_role_cls.AUDITOR_FINANCE) == mnpi_event
     assert redact_event_for_role(mnpi_event, rbac_role_cls.RESTRICTED_PII_CUSTODIAN) == mnpi_event
 
-    ns10 = _exec_doc_python_blocks("docs/10-decoupled-ui-workbench-and-theme-spec.md")
-    verify_hash = ns10["verify_ts_python_hash_pill_parity"]
+    verify_hash = _verify_ts_python_hash_pill_parity
     obs_schema = json.loads(
         (REPO_ROOT / "schemas/vault-observability-event.schema.json").read_text(encoding="utf-8")
     )
@@ -700,8 +766,6 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
         persona=agent_persona_cls.SCOUT_SOURCE,
         model_tier=model_tier_cls.FAST_TIER,
         stage_id="STAGE_01_SCOUT_SOURCE",
-        workbench_view_id="WB-02",
-        viz_id="VIZ-STEP-02",
         system_instructions="Profile Bronze tables.",
         prompt="Profile raw_lp_commitments.",
         tools=(tool_def,),
@@ -952,12 +1016,8 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
     asyncio.run(_run_harness_checks())
 
 
-def test_doc10_hash_pill_parity_and_workbench_view_map() -> None:
-    ns10 = _exec_doc_python_blocks("docs/10-decoupled-ui-workbench-and-theme-spec.md")
-    verify_hash = ns10["verify_ts_python_hash_pill_parity"]
-    view_map = ns10["WORKBENCH_VIEW_STAGE_MAP"]
-
-    assert list(view_map) == [f"WB-{i:02d}" for i in range(12)]
+def test_protocol_hash_pill_parity() -> None:
+    verify_hash = _verify_ts_python_hash_pill_parity
     assert verify_hash(["ANNE||O", "BRIEN"]) != verify_hash(["ANNE", "O||BRIEN"])
     assert verify_hash(["VAL_X", None, "VAL_Y"]) != verify_hash(["VAL_X", "VAL_Y", None])
     assert (

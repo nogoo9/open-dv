@@ -42,8 +42,6 @@ from opendv_agent_harness import (
     PipelineStageId,
     ToolExecutionContext,
     VaultAgentHarness,
-    VizId,
-    WorkbenchViewId,
     build_claude_sdk_mcp_bundle,
     build_default_domain_tool_map,
     build_default_domain_tools,
@@ -84,8 +82,6 @@ def _make_tool_context(
     tmp_path: Path,
     persona: AgentPersona = AgentPersona.VAULT_FIRST_MATE,
     stage_id: PipelineStageId = PipelineStageId.STAGE_00_ORCHESTRATION,
-    view_id: WorkbenchViewId = WorkbenchViewId.WB_00,
-    viz_id: VizId = VizId.VIZ_PIPE_00,
 ) -> ToolExecutionContext:
     cfg = _make_harness_config(tmp_path)
     return ToolExecutionContext(
@@ -95,8 +91,6 @@ def _make_tool_context(
         parent_span_id=None,
         persona=persona,
         stage_id=stage_id,
-        workbench_view_id=view_id,
-        viz_id=viz_id,
         config=cfg,
     )
 
@@ -202,7 +196,7 @@ def test_all_8_domain_tools_registered_with_valid_identifiers_and_schemas() -> N
         assert isinstance(schema, dict)
         assert schema.get("type") == "object"
         assert "properties" in schema
-        assert tool.default_viz_id is not None
+        assert not hasattr(tool, "default_" + "viz" + "_id")
 
     # Verify exact parity between PERSONA_CAPABILITY_MATRIX and tool allowed_personas
     for persona, profile in PERSONA_CAPABILITY_MATRIX.items():
@@ -595,8 +589,6 @@ async def test_base_vault_agent_harness_run_task_and_steward_hold(tmp_path: Path
         trace_id=SAMPLE_TRACE_ID,
         persona=AgentPersona.VAULT_FIRST_MATE,
         stage_id=PipelineStageId.STAGE_00_ORCHESTRATION,
-        workbench_view_id=WorkbenchViewId.WB_00,
-        viz_id=VizId.VIZ_PIPE_00,
         prompt="Synthesize PE contract",
         system_instructions="You are vault-first-mate.",
         model_tier=ModelTier.HIGH_REASONING,
@@ -638,8 +630,6 @@ async def test_telemetry_translator_and_jsonl_ledger_integration(tmp_path: Path)
         trace_id=SAMPLE_TRACE_ID,
         persona=AgentPersona.SCOUT_UNSTRUCTURED,
         stage_id=PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
-        workbench_view_id=WorkbenchViewId.WB_03,
-        viz_id=VizId.VIZ_STEP_04,
         prompt="Extract PDF spans",
         system_instructions="You are scout-unstructured.",
         model_tier=ModelTier.FAST_TIER,
@@ -664,8 +654,6 @@ async def test_telemetry_translator_and_jsonl_ledger_integration(tmp_path: Path)
         provider="antigravity",
         persona=AgentPersona.VAULT_FIRST_MATE,
         stage_id=PipelineStageId.STAGE_00_ORCHESTRATION,
-        workbench_view_id=WorkbenchViewId.WB_00,
-        viz_id=VizId.VIZ_PIPE_00,
         kind=HarnessEventKind.TEXT_DELTA,
         delta_text=f"Computed hash key {raw_hex} for CalPERS.",
     )
@@ -687,8 +675,6 @@ async def test_harness_timeout_and_cancel_active_turn(tmp_path: Path) -> None:
         trace_id=SAMPLE_TRACE_ID,
         persona=AgentPersona.VAULT_FIRST_MATE,
         stage_id=PipelineStageId.STAGE_00_ORCHESTRATION,
-        workbench_view_id=WorkbenchViewId.WB_00,
-        viz_id=VizId.VIZ_PIPE_00,
         prompt="Timeout check",
         system_instructions="System",
     )

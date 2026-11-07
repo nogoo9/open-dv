@@ -106,6 +106,12 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
 
             return claude_agent_sdk
         except ImportError:
+            transport = self._config.extra_provider_options.get("transport")
+            if transport == "sdk":
+                raise ProviderConfigurationError(
+                    "Configured transport 'sdk' is unavailable because "
+                    "'claude_agent_sdk' is not installed."
+                ) from None
             if self._resolve_api_key() is not None:
                 return None
             raise ProviderConfigurationError(
@@ -307,7 +313,14 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                                 "content": json.dumps(res_dict),
                             }
                         )
-                    except Exception as exc:
+                    except (
+                        ValueError,
+                        TypeError,
+                        KeyError,
+                        AttributeError,
+                        OSError,
+                        RuntimeError,
+                    ) as exc:
                         err_msg = f"{type(exc).__name__}: {exc}"
                         yield make_event(
                             HarnessEventKind.TOOL_CALL_ERROR,
@@ -522,19 +535,6 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
                             yield make_event(HarnessEventKind.STEWARD_HOLD, obs_event=obs_ev)
                     if msg_type == "ResultMessage":
                         raw_struct = getattr(message, "structured_output", None)
-                        if (
-                            raw_struct is None
-                            and spec.output_schema is not None
-                            and getattr(cas, "_is_deterministic_shim", False)
-                        ):
-                            from opendv_agent_harness.adapters.deterministic_adapter import (
-                                _synthesize_minimal_schema_instance,
-                            )
-
-                            raw_struct = _synthesize_minimal_schema_instance(
-                                spec.output_schema,
-                                prompt=spec.prompt,
-                            )
                         turn_meta: dict[str, Any] = {
                             "session_id": str(getattr(message, "session_id", session_id)),
                             "structured_output": raw_struct,

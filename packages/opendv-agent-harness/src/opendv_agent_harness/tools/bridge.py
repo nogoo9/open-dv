@@ -119,7 +119,7 @@ def build_claude_sdk_mcp_bundle(
                     "content": [{"type": "text", "text": result.model_dump_json()}],
                     "is_error": False,
                 }
-            except Exception as exc:
+            except (ValueError, TypeError, KeyError, AttributeError, OSError, RuntimeError) as exc:
                 return {
                     "content": [
                         {

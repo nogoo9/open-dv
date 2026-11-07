@@ -1,0 +1,65 @@
+contract_version: "5.0"
+domain_namespace: "logistics_and_commerce"
+lifecycle_stage: "COLD_START_N1"
+column_triage_ledger:
+  - bronze_table: "bronze_logistics.feed_unmapped_supplier"
+    column_name: "delivery_id"
+    elm_classification: "BUSINESS_KEY"
+    target_dv_entity: "hub_supplier_delivery"
+  - bronze_table: "bronze_logistics.feed_unmapped_supplier"
+    column_name: "supplier_code"
+    elm_classification: "BUSINESS_KEY"
+    target_dv_entity: "hub_supplier_delivery"
+  - bronze_table: "bronze_logistics.feed_unmapped_supplier"
+    column_name: "destination_warehouse_code"
+    elm_classification: "FOREIGN_KEY_REF"
+    target_dv_entity: "lnk_delivery_warehouse"
+  - bronze_table: "bronze_logistics.feed_unmapped_supplier"
+    column_name: "delivery_status"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_supplier_delivery_core"
+  - bronze_table: "bronze_logistics.feed_unmapped_supplier"
+    column_name: "carrier_tracking_ref"
+    elm_classification: "DESCRIPTIVE_PAYLOAD"
+    target_dv_entity: "sat_supplier_delivery_core"
+hubs:
+  - name: "hub_supplier_delivery"
+    ontology_concept_uri: "urn:ontology:entity:supplier_delivery"
+    business_key_sources:
+      - bronze_table: "bronze_logistics.feed_unmapped_supplier"
+        key_columns: ["delivery_id"]
+        record_source_code: "LOGISTICS_FEED"
+        key_authority_tier: "TIER_1_GLOBAL_STANDARD"
+        require_src_qualifier: false
+        bkcc_prefix: "GLOBAL"
+  - name: "hub_warehouse"
+    ontology_concept_uri: "urn:ontology:entity:warehouse"
+    business_key_sources:
+      - bronze_table: "bronze_logistics.feed_unmapped_supplier"
+        key_columns: ["destination_warehouse_code"]
+        record_source_code: "LOGISTICS_FEED"
+        key_authority_tier: "TIER_3_LOCAL_SCOPED"
+        require_src_qualifier: true
+        bkcc_prefix: "LOGISTICS_FEED"
+links:
+  - name: "lnk_delivery_warehouse"
+    link_type: "STANDARD_LINK"
+    ontology_concept_uri: "urn:ontology:relationship:delivery_warehouse"
+    source_bronze_table: "bronze_logistics.feed_unmapped_supplier"
+    hub_references:
+      - target_hub: "hub_supplier_delivery"
+        role_alias: "delivery"
+        source_fk_columns: ["delivery_id"]
+      - target_hub: "hub_warehouse"
+        role_alias: "warehouse"
+        source_fk_columns: ["destination_warehouse_code"]
+satellites:
+  - name: "sat_supplier_delivery_core"
+    satellite_type: "STANDARD_SATELLITE"
+    parent_entity: "hub_supplier_delivery"
+    source_bronze_table: "bronze_logistics.feed_unmapped_supplier"
+    security_classification: "INTERNAL"
+    volatility_tier: "STANDARD"
+    payload_columns: ["delivery_status", "carrier_tracking_ref"]
+reference_tables: []
+unmapped_escalations: []

@@ -8,14 +8,12 @@ and docs/09-agnostic-agent-harness-and-sdk-spec.md.
 from __future__ import annotations
 
 from opendv_agent_harness.adapters import (
-    DEFAULT_DETERMINISTIC_MODEL_MAP,
     AgyCliHarnessAdapter,
     AntigravityCliAdapter,
     AntigravityHarnessAdapter,
     ClaudeAgentHarnessAdapter,
     ClaudeCliHarnessAdapter,
     ClaudeCodeCliAdapter,
-    DeterministicHarnessAdapter,
 )
 from opendv_agent_harness.adapters.antigravity_adapter import (
     ProviderConfigurationError,
@@ -47,8 +45,6 @@ from opendv_agent_harness.models import (
     SandboxPolicy,
     SubagentSpec,
     ToolExecutionContext,
-    VizId,
-    WorkbenchViewId,
 )
 from opendv_agent_harness.personas import (
     SCOUT_SOURCE_SYSTEM_INSTRUCTIONS,
@@ -85,6 +81,7 @@ from opendv_agent_harness.pipeline import (
     PipelineUnstructuredDocInput,
     PipelineWaveInput,
     PipelineWaveReport,
+    resume_agentic_vault_pipeline,
     run_agentic_vault_pipeline,
     validate_pipeline_inputs,
     validate_pipeline_outputs,
@@ -152,7 +149,6 @@ __all__ = [
     "CANONICAL_TOOL_NAMES",
     "DEFAULT_AGY_MODEL_MAP",
     "DEFAULT_CLAUDE_MODEL_MAP",
-    "DEFAULT_DETERMINISTIC_MODEL_MAP",
     "PERSONA_CAPABILITY_MATRIX",
     "SCOUT_SOURCE_SYSTEM_INSTRUCTIONS",
     "SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS",
@@ -176,7 +172,6 @@ __all__ = [
     "CompileCanonicalIrInput",
     "CompileCanonicalIrOutput",
     "DataClassification",
-    "DeterministicHarnessAdapter",
     "DeterministicValidationReport",
     "DomainToolInput",
     "DomainToolOutput",
@@ -229,8 +224,6 @@ __all__ = [
     "SubagentSpec",
     "ToolExecutionContext",
     "VaultAgentHarness",
-    "VizId",
-    "WorkbenchViewId",
     "__version__",
     "build_claude_sdk_mcp_bundle",
     "build_default_domain_tool_map",
@@ -261,6 +254,7 @@ __all__ = [
     "register_harness",
     "resolve_default_tier_for_persona",
     "resolve_provider_model",
+    "resume_agentic_vault_pipeline",
     "run_agentic_vault_pipeline",
     "to_antigravity_tool_callable",
     "translate_stream_event_to_observability",

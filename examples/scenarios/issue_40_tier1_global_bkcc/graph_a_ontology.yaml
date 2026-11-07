@@ -1,0 +1,34 @@
+ontology_id: "enterprise_commercial_ontology_v1"
+version: "1.0.0"
+canonical_business_concepts:
+  - concept_id: "CBC-CUSTOMER"
+    concept_uri: "urn:ontology:entity:customer"
+    label: "Customer Legal Entity"
+    description: "Corporate customer identified globally by ACRA UEN or locally by ticket sequence."
+    taxonomy_class: "CORE_BUSINESS_ENTITY"
+    authoritative_sor: ["SFDC_CRM", "SAP_ERP"]
+    key_authority_tiers:
+      tier_1_global_standard:
+        authoritative_sor: ["SFDC_CRM", "SAP_ERP"]
+        column_patterns: ["company_uen", "tax_reg_no"]
+        bkcc_policy: "GLOBAL"
+      tier_3_local_scoped:
+        authoritative_sor: ["LEGACY_TICKET_DB"]
+        column_patterns: ["legacy_client_no"]
+        bkcc_policy: "LEGACY_TICKET_DB"
+  - concept_id: "CBC-INVOICE"
+    concept_uri: "urn:ontology:entity:invoice"
+    label: "Commercial Invoice"
+    description: "Commercial billing invoice issued to a customer legal entity."
+    taxonomy_class: "CORE_BUSINESS_ENTITY"
+    authoritative_sor: ["SAP_ERP"]
+    key_authority_tiers:
+      tier_1_global_standard:
+        authoritative_sor: ["SAP_ERP"]
+        column_patterns: ["invoice_global_id"]
+        bkcc_policy: "GLOBAL"
+canonical_relationships:
+  - relationship_id: "REL-CUSTOMER-INVOICE"
+    relationship_uri: "urn:ontology:relationship:customer_invoice"
+    label: "Customer Billed on Invoice"
+    endpoints: ["hub_customer", "hub_invoice"]

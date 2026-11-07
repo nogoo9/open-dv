@@ -4,19 +4,75 @@
 
 ---
 
+## Normative Rule: Shared CLI & Platform Test Parity
+
+The Open-DV platform enforces a strict, mathematical **Parity Invariant** across all user and agent interfaces. In accordance with `FR-INT-01` and Decision D1, all domain capabilities must be accessible across three production transports with zero behavioral drift:
+
+### 1. The Three Parity Transports
+
+1. **`STANDALONE_CLI`**: In-process Python CLI (`opendv`, located in `apps/opendv-cli`), invoking use cases in `packages/opendv-service` directly without an HTTP network hop.
+2. **`CLIENT_CLI`**: Bun-compiled standalone binary (`opendvctl`, located in `apps/opendvctl`), communicating over HTTP/SSE with the remote platform API (`--api-url http://localhost:8000`).
+3. **`DIRECT_REST`**: Headless FastAPI HTTP + SSE platform server (`apps/opendv-platform-api`), invoked directly via REST endpoints (`/api/v1/*`).
+
+### 2. The Parity Invariant
+
+For any valid operation $O \in \{\text{verify}, \text{profile}, \text{compile}, \text{sandbox}, \text{hold}, \text{ontology}, \text{pipeline}\}$ and test fixture input $I$:
+
+$$\text{JCS}(\text{Normalize}(T_{\text{STANDALONE}}(O, I))) \equiv \text{JCS}(\text{Normalize}(T_{\text{CLIENT}}(O, I))) \equiv \text{JCS}(\text{Normalize}(T_{\text{REST}}(O, I)))$$
+
+where:
+- **RFC 8785 JSON Canonicalization Scheme (JCS)** produces bit-for-bit identical serialization conforming strictly to RFC 8785 §3.2.2–3.2.3: object member keys sorted by UTF-16 code units (lexicographical UTF-16 order), IEEE 754 floating-point numbers formatted per ECMAScript specification without exponential notation where unneeded, rejection of NaN/Infinity, integer range bounded within $[-(2^{53}-1), 2^{53}-1]$, and zero insignificant whitespace (no inter-token whitespace or line breaks).
+- **Normalization** redacts volatile execution metadata (e.g. wall-clock timestamps, temporary CAS directory paths) while strictly verifying all deterministic outputs, gate scorecards, AST DDLs, hash pills, and DAG load orders.
+- **Exit Code Equality**: If $T_{\text{STANDALONE}}$ exits with code $C$, then $T_{\text{CLIENT}}$ must exit with code $C$, and $T_{\text{REST}}$ must return the corresponding HTTP status code mapping ($0 \implies 200$, $10 \implies 422$, $20 \implies 409$, $30 \implies 200 \text{ PAUSED}$, $40 \implies 400$).
+- **Identical Error Diagnostics**: In failure modes, all three transports must emit matching error codes, field JSON paths, and `@toon_v1` remediation traces.
+
+### 3. Scenario Registry & Meta-Test Verification
+
+Every test scenario in this document is formally registered in `tests/parity/scenarios.py` as a `ScenarioSpec` object defining its fixtures, tested operations, expected outcomes, and docs/17 anchor.
+
+The integrity of this catalog is verified on every pull request by `tests/parity/test_docs17_registry.py`:
+- **Catalog Row Verification**: Every catalog entry (`S1`–`S10`) maps to at least one active `ScenarioSpec`.
+- **Anchor Existence**: Every `docs17_anchor` string in the registry must exist verbatim in this document.
+- **Path Audit**: Every markdown link target and backticked repo path cited in this document must exist on disk.
+- **Golden Agreement**: Every entry in the §G Golden Manifest table must match `tests/golden/MANIFEST.json` and committed files under `tests/golden/`.
+
+### 4. Standardized Scenario Documentation Template
+
+When adding a new scenario or regression test to this repository, authors must adhere to the following 5-part structure:
+
+```markdown
+### Template: Issue Specification Template
+
+- **GitHub Issue**: Issue URL and title
+- **Audit ID & Severity**: Identifier (e.g. BUG-XX) and severity level
+- **Governing Functional Requirements**: Requirements list (e.g. FR-DOM-01, FR-INT-01)
+- **DV 2.0 Invariants & Algorithms**: Governed invariants and algorithms
+
+#### 1. Scenario & Architectural Context
+Detailed problem statement, architectural significance, and failure trap addressed.
+
+#### 2. Test Dataset Layout
+Table of fixtures, roles, columns, and authority tiers.
+
+#### 3. Running the Unit & End-to-End Tests
+Exact commands for pytest, opendv standalone CLI, and opendvctl platform client.
+```
+
+---
+
 ## Repository Testing Scenarios & Datasets Catalog
 
 | Scenario / Suite | Dataset & Fixture Path | Governing Requirements & Invariants | Primary Test Suite & CLI Entrypoint |
 | :--- | :--- | :--- | :--- |
-| **S1: Day-1 Cold Start ($N=1$)** | [`examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml`](../examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml) (`sources/crm_customers_w0.csv`, `sources/erp_orders_w0.csv`) | `FR-DOM-01`, `INV-01..06`, `KEY-01..05`, `DV-G4-002` (100% Column Triage), `Algorithms A.1`, `A.4`, `A.5` | `uv run opendv pipeline validate --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml --json` |
-| **S2: Multi-Source Entity Convergence & Composite-Feed Scoped BKCC (Issue [#39](https://github.com/nogoo9/open-dv/issues/39))** | [`examples/pipeline_samples/scenario_s2_issue39_bkcc/`](../examples/pipeline_samples/scenario_s2_issue39_bkcc/) (`src_composite_deals.csv`, `src_global_issuers.csv`, `src_local_companies.csv`, `src_company_convergence.csv`, `dv_s2_issue39_contract.yaml`) & [`examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml`](../examples/pipeline_samples/global_commerce_vault/wave1_incremental_billing.yaml) | `FR-DOM-02`, `FR-INT-01`, `KEY-04`, `ANTI_SILO_VIOLATION`, `EVO-08`, `Algorithm A.4` & `A.5` (`BUG-08`) | `uv run pytest packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py -k "test_issue_39" -v` |
-| **S3: Unmapped Feed / Absent Ontology Concept** | `packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py` & `packages/opendv-agent-harness/tests/test_hold_manager_and_pipeline.py` | `FR-DOM-04`, `DV-G4-001` (Ontology Firewall), `ASK-USER` / `STEWARD_HOLD` | `uv run pytest packages/opendv-axi-verifier/tests/ packages/opendv-agent-harness/tests/ -v` |
-| **S4: Upstream Schema Drift ($S_k(t) \to S_k(t+1)$)** | [`examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml`](../examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml) (`sources/crm_customers_w2_drifted.csv`) | `FR-DOM-03`, `EVO-01..08`, `DV-EVO-001..008`, `Algorithms A.7`, `A.9a` | `uv run pytest packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py -k "drift or evolution" -v` |
+| **S1: Day-1 Cold Start ($N=1$)** | [`examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml`](../examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml) & [`examples/scenarios/issue_40_tier1_global_bkcc/`](../examples/scenarios/issue_40_tier1_global_bkcc/) (`accounts.csv`, `invoices.csv`, `contract_w0.yaml`) | `FR-DOM-01`, `INV-01..06`, `KEY-01..05`, `DV-G4-002` (100% Column Triage), `Algorithms A.1`, `A.4`, `A.5` | `uv run opendv pipeline validate --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml --json` |
+| **S2: Multi-Source Entity Convergence & Composite-Feed Scoped BKCC (Issue [#39](https://github.com/nogoo9/open-dv/issues/39), [#40](https://github.com/nogoo9/open-dv/issues/40))** | [`examples/pipeline_samples/scenario_s2_issue39_bkcc/`](../examples/pipeline_samples/scenario_s2_issue39_bkcc/) & [`examples/scenarios/issue_40_tier1_global_bkcc/`](../examples/scenarios/issue_40_tier1_global_bkcc/) (`tickets.csv`, `contract_w1.yaml`) | `FR-DOM-02`, `FR-INT-01`, `KEY-04`, `ANTI_SILO_VIOLATION`, `EVO-08`, `Algorithm A.4` & `A.5` (`BUG-08`, `DV-COL-013`) | `uv run pytest tests/test_issue40_tier1_global_bkcc_e2e.py -v` |
+| **S3: Unmapped Feed / Absent Ontology Concept (Case UF-4)** | [`examples/scenarios/s3_unmapped_feed/`](../examples/scenarios/s3_unmapped_feed/) (`contract_s3.yaml`, `graph_a_ontology.yaml`, `feed_unmapped_supplier.csv`) | `FR-DOM-04`, `DV-G4-001` (Ontology Firewall), `ASK-USER` / `STEWARD_HOLD` (`PAUSED_HOLD`) | `uv run opendv verify --local --contract examples/scenarios/s3_unmapped_feed/contract_s3.yaml --graph-a examples/scenarios/s3_unmapped_feed/graph_a_ontology.yaml --json` |
+| **S4: Upstream Schema Drift ($S_k(t) \to S_k(t+1)$, Case UF-2)** | [`examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml`](../examples/pipeline_samples/global_commerce_vault/wave2_schema_drift.yaml) & [`examples/scenarios/uf2_renamed_column/`](../examples/scenarios/uf2_renamed_column/) (`contract_uf2.yaml`, `sources/wave0_baseline/crm_customers.csv`, `sources/wave1_renamed/crm_customers.csv`) | `FR-DOM-03`, `EVO-01..08`, `DV-EVO-001..008`, `Algorithms A.7`, `A.9a` | `uv run pytest packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py -k "drift or evolution" -v` |
 | **S5: Nullable Foreign Key / $0..1$ Relationship ($U_{\text{nn}} < 0.95$)** | [`examples/private_equity/`](../examples/private_equity/) (`lnk_capital_call_co_invest`) & `packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py` | `FR-DOM-01`, `DV-G2-001`, `Algorithm A.4` (Sparse FK Companion Link Split) | `uv run pytest packages/opendv-axi-verifier/tests/test_codemods_and_static_gates.py -k "a4 or gate2" -v` |
 | **S6: Retroactive / Out-of-Order Bi-Temporal Arrival** | [`examples/private_equity/dv_pe_model_contract.yaml`](../examples/private_equity/dv_pe_model_contract.yaml) & [`examples/private_equity/pe_canonical_ir.json`](../examples/private_equity/pe_canonical_ir.json) (Adversarial Batch 4 Q3 valuation restatement) | `FR-DOM-03`, `FR-VER-02`, `TMP-01..04`, `DV-DYN-009`, `Queries D.10` & `D.10b` | `uv run opendv sandbox --local --contract examples/private_equity/dv_pe_model_contract.yaml --canonical-ir examples/private_equity/pe_canonical_ir.json --query-type ADVERSARIAL_BATCHES_1_TO_4` |
 | **S7: Malformed / Adversarial Raw Data & Hash Parity** | `packages/opendv-core/tests/test_core_models_and_hashing.py` & `packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py` (Batches 1–3) | `FR-VER-01`, `Algorithm A.5` (6-Stage Length-Prefixed SHA-256), `Algorithm A.6` (`DV-AST-001..007`) | `uv run pytest packages/opendv-core/tests/ packages/opendv-duckdb-sandbox/tests/ -v` |
-| **S8: Unstructured Document Ingestion, Span Grounding & Steward Approval Gating (Issues [#32](https://github.com/nogoo9/open-dv/issues/32), [#33](https://github.com/nogoo9/open-dv/issues/33))** | [`examples/private_equity/pe_canonical_ir.json`](../examples/private_equity/pe_canonical_ir.json) & [`examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml`](../examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml) (`sources/enterprise_msa_addendum_2026.txt`) | `FR-DOM-05`, `FR-VER-04`, `Rules U1–U4`, `Tier-U1..U3`, `DV-AST-007`, `DV-DYN-013`, `Algorithm A.9b` (`SPAN_HALLUCINATION`) | `uv run pytest tests/test_multimodal_and_duckdb_e2e.py -k "test_issue_32 or test_issue_33" -v` |
-| **S9: Multi-Tenant / Multi-Unit Keyspace Collisions** | [`examples/dv_model_contract.yaml`](../examples/dv_model_contract.yaml), [`examples/private_equity/`](../examples/private_equity/) (`GLOBAL` vs `LEGACY_GP_ADMIN`), & [`examples/pipeline_samples/scenario_s2_issue39_bkcc/`](../examples/pipeline_samples/scenario_s2_issue39_bkcc/) | `FR-DOM-02`, `KEY-04` (3-Tier `BKCC` Namespace Isolation), `Algorithm A.4` & `A.5` | `uv run opendv verify --local --contract examples/private_equity/dv_pe_model_contract.yaml --graph-a examples/private_equity/pe_graph_a_ontology.yaml --graph-b examples/private_equity/pe_graph_b_profile.json` |
+| **S8: Unstructured Document Ingestion, Span Grounding & Steward Approval Gating (Issues [#32](https://github.com/nogoo9/open-dv/issues/32), [#33](https://github.com/nogoo9/open-dv/issues/33))** | [`examples/private_equity/pe_canonical_ir.json`](../examples/private_equity/pe_canonical_ir.json) & [`examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml`](../examples/pipeline_samples/global_commerce_vault/wave3_unstructured_msa.yaml) (`sources/wave3_unstructured_msa/enterprise_msa_addendum_2026.txt`) | `FR-DOM-05`, `FR-VER-04`, `Rules U1–U4`, `Tier-U1..U3`, `DV-AST-007`, `DV-DYN-013`, `Algorithm A.9b` (`SPAN_HALLUCINATION`) | `uv run pytest tests/test_multimodal_and_duckdb_e2e.py -k "test_issue_32 or test_issue_33" -v` |
+| **S9: Multi-Tenant / Multi-Unit Keyspace Collisions (Issue [#42](https://github.com/nogoo9/open-dv/issues/42))** | [`examples/scenarios/s9_multitenant/`](../examples/scenarios/s9_multitenant/) (`contract_s9.yaml`, `tenant_accounts.csv`, `tenant_subscriptions.csv`) & [`examples/private_equity/`](../examples/private_equity/) | `FR-DOM-02`, `KEY-04` (3-Tier `BKCC` Namespace Isolation), `Algorithm A.4` & `A.5` | `uv run pytest packages/opendv-duckdb-sandbox/tests/test_compiler_and_4batch_sandbox.py -k "s9_multitenant" -v` |
 | **S10: Ghost Record & Dual Zero-Key Completeness** | [`examples/private_equity/`](../examples/private_equity/) & [`examples/pipeline_samples/scenario_s2_issue39_bkcc/`](../examples/pipeline_samples/scenario_s2_issue39_bkcc/) (Adversarial Batch 1 & Batch 2) | `FR-DOM-01`, `FR-VER-02`, `KEY-02b`, `DV-DYN-003` (Replay Idempotency), `DV-DYN-007` (Zero/Ghost Seed) | `uv run pytest packages/opendv-duckdb-sandbox/tests/test_duckdb_sandbox_suite.py -v` |
 
 ---
@@ -705,3 +761,307 @@ uv run opendv sandbox --local \
   --query-type ADVERSARIAL_BATCHES_1_TO_4 \
   --cutoff "2026-11-15 23:59:59"
 ```
+
+---
+
+## Scenario S3 / Case UF-4 — Unmapped Feed & Absent Ontology Concept
+
+### 1. Scenario & Architectural Context
+- **GitHub Issue**: [#67 — `[P1.3] Promote inline datasets and author missing S3/UF-4 and UF-2 datasets`](https://github.com/nogoo9/open-dv/issues/67)
+- **Governing Requirements**: `FR-DOM-04` (Ontology Seam & Adaptive Graph Harmonization), `DV-G4-001` (Ontology Firewall), `ASK-USER` / `STEWARD_HOLD` (`PAUSED_HOLD`).
+- **Problem Statement**: An incoming feed (`feed_unmapped_supplier.csv`) contains business keys and foreign key references that do not exist in the governing Graph A domain ontology (`graph_a_ontology.yaml`). Specifically, `supplier_code` references an unknown concept `urn:ontology:entity:supplier_delivery` and `destination_warehouse_code` references an unknown concept `urn:ontology:entity:warehouse` with an orphan link reference.
+- **Enforced Invariant**: Gate 1 static verification halts execution with `DV-G4-001`, blocking un-governed entities from polluting the Data Vault schema.
+
+### 2. Dataset Specification (`examples/scenarios/s3_unmapped_feed/`)
+
+| File Path | Description | Role / Diagnostic |
+| :--- | :--- | :--- |
+| `contract_s3.yaml` | Candidate Contract V5 with unknown concept URIs | Triggers `SEMANTIC_ERROR [Gate 1 - DV-G4-001]` on `hub_supplier_delivery` & `hub_warehouse` |
+| `graph_a_ontology.yaml` | Restricted core ontology (`CBC-CUSTOMER` only) | Lacks supplier and warehouse entities, enforcing strict ontology boundary |
+| `feed_unmapped_supplier.csv` | Bronze logistics feed with unmapped supplier & warehouse | 3 rows of delivery tracking data |
+| `sources/crm_customers.csv` | Baseline known customer dataset | Reference baseline |
+
+### 3. Verification Commands
+
+```bash
+# 1. Standalone CLI execution (exits with code 1, reporting DV-G4-001)
+uv run opendv verify --local \
+  --contract examples/scenarios/s3_unmapped_feed/contract_s3.yaml \
+  --graph-a examples/scenarios/s3_unmapped_feed/graph_a_ontology.yaml \
+  --json
+
+# 2. REST API execution (returns HTTP 200 with REJECT_WITH_TRACE and DV-G4-001 diagnostics)
+curl -X POST http://localhost:8000/api/v1/verify \
+  -H "Content-Type: application/json" \
+  -d @examples/scenarios/s3_unmapped_feed/contract_s3.yaml
+```
+
+---
+
+## Scenario S4 / Case UF-2 — Upstream Column Rename with Invariant Vault DDL
+
+### 1. Scenario & Architectural Context
+- **GitHub Issue**: [#67 — `[P1.3] Promote inline datasets and author missing S3/UF-4 and UF-2 datasets`](https://github.com/nogoo9/open-dv/issues/67)
+- **Governing Requirements**: `FR-DOM-03` (Upstream Schema Drift), `EVO-03` (Renamed Column Alias), `Algorithm A.9a` (`detect_intra_source_schema_drift`).
+- **Levenshtein Constraint**: Normalized similarity $\ge 0.85$. Comparing `customer_legal_name` (19 chars) and `customer_legal_names` (20 chars):
+  $$\text{dist} = 1, \quad \text{sim} = 1 - \frac{1}{20} = 0.95 \ge 0.85$$
+- **Enforced Invariant**: The Zone 1 Staging SQL aliases `stg.customer_legal_names AS customer_legal_name`. The compiled Raw Vault Satellite DDL and `hash_diff` expression remain 100% byte-identical to Wave 0, preventing unnecessary table alterations or historical re-hashing storms.
+
+### 2. Dataset Specification (`examples/scenarios/uf2_renamed_column/`)
+
+| File Path | Description | Key Features |
+| :--- | :--- | :--- |
+| `sources/wave0_baseline/crm_customers.csv` | Baseline Wave 0 customer dataset | Contains `customer_legal_name` |
+| `sources/wave1_renamed/crm_customers.csv` | Evolved Wave 1 customer dataset | Renamed column `customer_legal_names` (Levenshtein similarity = 0.95) |
+| `contract_uf2.yaml` | Standardized Contract V5 for UF-2 | Compiles Zone 1 and Raw Vault artifacts |
+| `contract_w0.yaml` / `contract_w1.yaml` | Baseline and evolved contracts | Demonstrates staging alias evolution without satellite DDL change |
+
+### 3. Verification Commands
+
+```bash
+# 1. Standalone CLI compilation
+uv run opendv compile --local \
+  --contract examples/scenarios/uf2_renamed_column/contract_uf2.yaml \
+  --json
+
+# 2. REST API compilation
+curl -X POST http://localhost:8000/api/v1/compile \
+  -H "Content-Type: application/json" \
+  -d @examples/scenarios/uf2_renamed_column/contract_uf2.yaml
+```
+
+---
+
+## Scenario S9 — Single-Table Multi-Tenant Partitioning with Scoped BKCC
+
+### 1. Scenario & Architectural Context
+- **GitHub Issue**: [#42 — `fix(core,compiler_4zone): support single-table multi-tenant BKCC via bkcc_column_expr`](https://github.com/nogoo9/open-dv/issues/42)
+- **Governing Requirements**: `FR-DOM-02` (Multi-Source Entity Convergence), `KEY-04` (3-Tier BKCC Authority), `Algorithm A.4` & `Algorithm A.5`.
+- **Problem Statement**: In a shared SaaS environment, identical local identifiers (`ACCT-1001`) from `TENANT_US` and `TENANT_EU` reside within the same Bronze table (`bronze_saas.tenant_accounts`).
+- **Enforced Invariant**: Using dynamic `bkcc_column_expr: "tenant_id"` ensures each tenant's business key is isolated in its own namespace (`TENANT_US` vs `TENANT_EU`), producing distinct SHA-256 hash keys in `hub_tenant_account` and preventing cross-tenant data collisions.
+
+### 2. Dataset Specification (`examples/scenarios/s9_multitenant/`)
+
+| File Path | Description | Key Features |
+| :--- | :--- | :--- |
+| `tenant_accounts.csv` | Multi-tenant SaaS accounts | Contains colliding `ACCT-1001` under `TENANT_US` and `TENANT_EU` |
+| `tenant_subscriptions.csv` | Multi-tenant SaaS subscriptions | Subscriptions referencing partitioned accounts |
+| `contract_s9.yaml` | Contract V5 with `bkcc_column_expr: "tenant_id"` | Configures Tier-3 local-scoped BK with dynamic tenant qualification |
+| `graph_a_ontology.yaml` | SaaS Domain Ontology | `urn:ontology:entity:tenant_account`, `urn:ontology:entity:subscription` |
+| `graph_b_profile.json` | Source Table Profile | Profile metadata for `bronze_saas` tables |
+
+### 3. Verification Commands
+
+```bash
+# 1. Standalone CLI verification
+uv run opendv verify --local \
+  --contract examples/scenarios/s9_multitenant/contract_s9.yaml \
+  --graph-a examples/scenarios/s9_multitenant/graph_a_ontology.yaml \
+  --graph-b examples/scenarios/s9_multitenant/graph_b_profile.json \
+  --json
+
+# 2. Standalone CLI compilation
+uv run opendv compile --local \
+  --contract examples/scenarios/s9_multitenant/contract_s9.yaml \
+  --json
+
+# 3. Direct REST verification
+curl -X POST http://localhost:8000/api/v1/verify \
+  -H "Content-Type: application/json" \
+  -d @examples/scenarios/s9_multitenant/contract_s9.yaml
+```
+
+---
+
+## Source & Format Adapter Matrix
+
+The Source & Format Adapter Matrix defines the normative conformance criteria, pre-installed plugin distribution extras, cross-format dataset derivations, document span grounding equivalences, and zero-core-change extensibility proofs (`REQ-SRC-01`, `REQ-SRC-02`, Decision D8, T16).
+
+### 1. Adapter & Format Capabilities Matrix
+
+| Adapter ID | Module / Provider | Formats & Schemes | Client Uploadable | Server Resolved | Governing Conformance Suite |
+| :--- | :--- | :--- | :---: | :---: | :--- |
+| `file` | `LocalFilesystemSourceAdapter` (`packages/opendv-sources`) | CSV, TSV, Parquet, JSON, JSONL | No | Yes | `TabularAdapterConformanceSuite` |
+| `inline` | `InlineSourceAdapter` (`packages/opendv-sources`) | CSV, TSV, Parquet, JSON, JSONL, NdJSON | Yes | No | `TabularAdapterConformanceSuite` |
+| `duckdb_attach` | `DuckdbAttachSourceAdapter` (`packages/opendv-sources`) | SQLite (`.db`, `.sqlite`), DuckDB (`.duckdb`) | Yes | Yes | `TabularAdapterConformanceSuite` |
+| `text` | `TextDocumentSourceAdapter` (`packages/opendv-sources`) | Plaintext (`.txt`, `.text`), Markdown (`.md`, `.markdown`) | Yes | Yes | `DocumentAdapterConformanceSuite` |
+| `pdf` | `PdfDocumentSourceAdapter` (`packages/opendv-sources`) | Portable Document Format (`.pdf`) | Yes | Yes | `DocumentAdapterConformanceSuite` |
+| `records` | `RecordsSourceAdapter` (`packages/opendv-testkit`) | In-memory list-of-dict records | Yes | No | `TabularAdapterConformanceSuite` |
+
+### 2. Pre-Installed Plugin Distribution Extras
+
+Official Open-DV packages (`opendv-cli`, `opendv-platform-api`, server container images) declare dependency on `opendv-sources[standard]`, which aggregates all standard plugin extras:
+
+- `opendv-sources[file]`: Local filesystem reader with path containment jail.
+- `opendv-sources[inline]`: Zero-disk in-memory byte/stream ingestion (Decision D1).
+- `opendv-sources[db]`: Direct SQLite and DuckDB database attach ingestion.
+- `opendv-sources[text]`: Normalized plaintext and markdown document reader.
+- `opendv-sources[pdf]`: Pure-Python PDF text extraction using `pypdf>=5.0.0`.
+- `opendv-sources[standard]`: Metapackage aggregating `[file,inline,db,text,pdf]`.
+
+When unextended (`opendv-sources` alone without installed plugins or against an empty registry), any adapter or format resolution fails fast with `UNSUPPORTED_FORMAT` (CLI exit code 2, HTTP status 415), enumerating all installed adapters.
+
+### 3. Cross-Format Dataset Derivation
+
+The Wave-0 Global Commerce datasets (`examples/pipeline_samples/global_commerce_vault/sources/wave0_cold_start/`):
+- `crm_customers.csv` (6 customer records, BK `customer_tax_id`, PII `contact_email`, `tax_ssn_tin`)
+- `erp_orders.csv` (6 order records, BK `order_id`, FK `customer_tax_id`)
+
+are dynamically derived in temporary test state into equivalent representations:
+1. **TSV**: Tab-delimited formatting via `pyarrow.csv.write_csv(..., delimiter='\t')`.
+2. **Parquet**: Binary columnar format with snappy compression via `pyarrow.parquet.write_table(...)`.
+3. **JSONL**: Newline-delimited JSON objects via `json.dumps(...)`.
+4. **SQLite Database**: Table attachments inside standalone `.sqlite` file via `DuckdbAttachSourceAdapter`.
+5. **DuckDB Database**: Native table attachments inside `.duckdb` catalog file via `DuckdbAttachSourceAdapter`.
+
+Running `PAR-S1-W0` against each derived format produces an identical Graph B profile (modulo declared physical type differences), an identical synthesized contract (`7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913`), and an identical compiled 4-zone SQL SHA-256 (`3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e`).
+
+### 4. Document Extraction Equivalence & Grounding Fixture
+
+The committed reference document pair:
+- Text source: `packages/opendv-sources/tests/fixtures/enterprise_msa_addendum_2026.txt`
+- PDF fixture: `packages/opendv-sources/tests/fixtures/enterprise_msa_addendum_2026.pdf`
+- CRLF text source: `packages/opendv-sources/tests/fixtures/enterprise_msa_addendum_2026_crlf.txt`
+
+validates Algorithm A.9b span grounding invariants:
+- **Normalized Character Count**: 733 characters across all variants with zero `\r` carriage returns.
+- **Page Map**: Page 1 covers spans $[0, 400)$, Page 2 covers spans $[400, 733]$.
+- **Span Grounding Parity**:
+  - Tier-U1 mention (`Apex Industrial Holdings LLC (Tax ID: TAX-US-900101)`) matches offset identically between TXT and PDF on Page 1.
+  - Tier-U3 mention (`Rheinland Precision Holding Group`) matches offset identically between TXT and PDF on Page 2.
+---
+
+## Ontology Recommendation Extension Points
+
+The Ontology Recommendation Extension Points section defines the normative scenarios, datasets, and acceptance criteria for testing the pluggable Ontology Recommender seams (`REQ-ONT-01`, `REQ-ONT-02`, Decision D9, T17).
+
+### 1. Scenarios and Invariants
+
+| Scenario ID | Mode & Invariants | Dataset & Fixtures | Primary Entrypoint |
+| :--- | :--- | :--- | :--- |
+| **PAR-ONT-BOOTSTRAP** | Ontology Recommendation Extension Points — PAR-ONT-BOOTSTRAP: IP-1 cold-start ontology bootstrap; generates Graph A v1 with CAS lineage | [`tests/golden/GT-06/base_ontology.yaml`](../tests/golden/GT-06/base_ontology.yaml) | `uv run opendv ontology suggest --mode BOOTSTRAP --domain-namespace pe_asset_management --json` |
+| **PAR-ONT-ADVISORY** | Ontology Recommendation Extension Points — PAR-ONT-ADVISORY: IP-2 / IP-4 advisory delta proposals; contract and Graph A unchanged; loud fail-fast on unavailable recommender; error isolation | [`examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml`](../examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml) | `uv run opendv pipeline run --input examples/pipeline_samples/global_commerce_vault/wave0_cold_start.yaml --harness-config examples/pipeline_samples/global_commerce_vault/harness_config_agy.yaml --json` |
+| **PAR-ONT-HOLD** | Ontology Recommendation Extension Points — PAR-ONT-HOLD: IP-3 Gate 1 violation hold resolution; typed `ACCEPT_ONTOLOGY_DELTA` option; wave resumption on Graph A vN+1 | [`tests/golden/GT-06/`](../tests/golden/GT-06/) (`base_ontology.yaml`, `proposal.json`, `accepted_ontology.yaml`, `ontology_diff.json`, `validation.json`) | `uv run opendv ontology accept --base tests/golden/GT-06/base_ontology.yaml --delta tests/golden/GT-06/proposal.json --json` |
+
+### 2. Normative Invariants
+- **Port Conformance**: The testkit recommender's proposals validate without warnings. Destructive or invalid operations, provisional URIs (`urn:ontology:provisional:*`), and evolution-lock breaks are rejected with `ONT-EVO-*` diagnostics.
+- **Delta Application**: `apply_ontology_delta` is deterministic, idempotent, and records cryptographic lineage (`parent_sha256`, `decision_refs`). Golden GT-06 covers base ontology + delta -> resulting ontology YAML and structural diff.
+- **IP-1 Parity**: `ontology suggest`, `validate-delta`, `diff`, and `accept` give identical results through `STANDALONE_CLI`, `CLIENT_CLI`, and `DIRECT_REST`. Without an installed module, `suggest` raises `ONTOLOGY_RECOMMENDER_UNAVAILABLE` on all three surfaces.
+- **IP-2 / IP-4 Advisory Seams**: With policy `suggest_only`, unmapped-column datasets receive proposal artifacts while the contract and Graph A remain unchanged. With policy `off`, the recommender is never invoked. Recommender exceptions produce visible diagnostics while allowing wave execution to complete.
+- **IP-3 Blocking Seams**: On Gate 1 unmapped-concept violations with policy `steward_review`, holds carry typed ontology options (`ACCEPT_ONTOLOGY_DELTA`, `REJECT_ONTOLOGY_DELTA`). Acceptance resumes the wave from Stage 03 on Graph A vN+1.
+- **Data Protection**: At default `INTERNAL` clearance, data samples are scrubbed of raw PII/MNPI via `redact_sample_data()` before recommender invocation.
+- **No Silent Mutation**: Graph A is immutable outside decision-gated delta application. Recommender modules receive frozen, read-only contexts.
+
+---
+
+## §G — Golden Test Suite (Normative Expected Outputs)
+
+The Open-DV Golden Test Suite guarantees that the shared application core and its transports (standalone CLI, client CLI, and REST API) agree not only with each other, but with committed, reviewed, and cryptographically pinned reference outputs.
+
+### G.1 Golden Cases Catalog
+
+| Golden ID | Dataset (from §7.4 registry) | Golden outputs committed under tests/golden/ | Transports |
+| :--- | :--- | :--- | :--- |
+| **GT-01 Global Commerce lifecycle** | `PAR-S1-W0` → `PAR-S2-W1` → `PAR-S4-W2` → `PAR-S8-W3` (4 chained calls with `--initial-contract`) | Per wave: `final_contract.yaml`, `final_canonical_ir.json`, `final_four_zone.sql`, normalized `pipeline_report.json`, normalized `explorer_bundle.json`, normalized SSE stage-event sequence (`events.jsonl`), and wave 3's `hold_record.json` | CLI `--local`, CLI `--api-url`, REST |
+| **GT-02 Private Equity reference** | `PAR-PE-S5`, `PAR-PE-S6`, `PAR-I37-HASH` | `verify.json` + `verify.toon`, `canonical_ir.json`, `four_zone.sql`, `sandbox_batches.json`, `d10_2026-10-15.json`, `d10b_2026-11-15.json`, and `explorer_bundle.<role>.json` across all 5 RBAC roles | CLI `--local`, CLI `--api-url`, REST |
+| **GT-03 Golden rejections** | Canonical bad inputs: dropped hub vs prior contract (`DV-EVO-*`), Tier-1 without GLOBAL (`DV-COL-013`), reflexive SAL (`DV-STR-015`), satellite `GROUP BY` (`DV-AST-006`), path traversal, schema-invalid contract | For each case: `verdict.json`, `trace.toon`, CLI exit code, and REST status + `problem+json` body | CLI `--local`, CLI `--api-url`, REST |
+| **GT-04 Golden hash vectors** | Consolidates #37, #40, #30, #42 and the #43 zero keys | Normative Markdown table in §G.2 below (input tokens, BKCC, canonical pre-hash string, lowercase SHA-256) | Python, TypeScript, DuckDB |
+| **GT-05 Golden Explorer render** | GT-01 wave-3 `explorer_bundle.json` | Text snapshot of the rendered Explorer (stage list, statuses, artifact index, hold banner) | Bun |
+| **GT-06 Ontology delta application** | `PAR-ONT-HOLD` base ontology plus testkit proposal | `base_ontology.yaml`, `proposal.json`, `validation.json`, `accepted_ontology.yaml`, `ontology_diff.json` | Standalone, Client, REST |
+
+### G.2 Consolidated GT-04 Normative Hash Vectors Table
+
+The table below is the single normative source of truth for Algorithm A.5 length-prefixed hashing across Python (`opendv-core`), TypeScript (`@opendv/protocol-ts`), and DuckDB SQL (`compiler_4zone`):
+
+| Vector ID | Source Issue | Category | Input Tokens | `is_business_key` | `bkcc_prefix` | Canonical Pre-Hash String (Stage 4) | Expected Lowercase SHA-256 Digest (`[0-9a-f]{64}`) |
+| :--- | :---: | :--- | :--- | :---: | :---: | :--- | :--- |
+| `VEC-01` | #37 | Tier-1 Hub BK (`CalPERS`) | `['LP-101']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|6:LP-101'` | `5d15eb10c8d7621d3167849c41c5f9cd9244fd79fb720cb17104d49e4b820ae4` |
+| `VEC-02` | #37 | Tier-3 Hub BK (`Bavarian Pension`) | `['LP-101']` | `True` | `'LEGACY_GP_ADMIN'` | `'15:LEGACY_GP_ADMIN\|\|6:LP-101'` | `6b7c7180b62164f31f14eebcd16cc5fd2b0ce58143de66a4b67521113ec5d8b9` |
+| `VEC-03` | #37 | Tier-2 Hub BK (`Apex Buyout Fund IV`) | `['APEX_BO_IV']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|10:APEX_BO_IV'` | `94a60fcda278c5aec284c595413935793d5cec113c511f20690046061d388759` |
+| `VEC-04` | #40 | Tier-1 ACRA UEN (`Acme Global`) | `['202601234K']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|10:202601234K'` | `452e5f90e20e894cf6fb9ab6dd799752b60915669d7ddba0ed2ff283774992e8` |
+| `VEC-05` | #40 | Tier-1 Global Invoice | `['INV-SG-2026-0001']` | `True` | `'GLOBAL'` | `'6:GLOBAL\|\|16:INV-SG-2026-0001'` | `0b26bb8471756644be558a60b03ca26bc7f3f84168dd04e3b7711ef73fef4895` |
+| `VEC-06` | #40 | Tier-3 Legacy Ticket Client | `['1001']` | `True` | `'LEGACY_TICKET_DB'` | `'16:LEGACY_TICKET_DB\|\|4:1001'` | `28f087bb678034b531ff6991fdd613f6793d0a66ef6b5ece88bd5945d5f8488f` |
+| `VEC-07` | #42 | Multi-Tenant EU Account | `['ACCT-1001']` | `True` | `'TENANT_EU'` | `'9:TENANT_EU\|\|9:ACCT-1001'` | `2530e2e2959ce91a2582cdcc0369df5367ba21659d14078ea37902e23af18c4b` |
+| `VEC-08` | #42 | Multi-Tenant US Account 1 | `['ACCT-1001']` | `True` | `'TENANT_US'` | `'9:TENANT_US\|\|9:ACCT-1001'` | `05732713befe836172388e84bd17a65b7fc1cd080a775cb9f9b2aafb48f407a5` |
+| `VEC-09` | #42 | Multi-Tenant US Account 2 | `['ACCT-1002']` | `True` | `'TENANT_US'` | `'9:TENANT_US\|\|9:ACCT-1002'` | `aa878e0129a5d13e21718834b48473337925ac1db45214194155e0c275b14e8d` |
+| `VEC-10` | #30 | 2-Byte Nordic UTF-8 (`Nordisk Suverän Fond`) | `['Nordisk Suverän Fond']` | `False` | `None` | `'21:Nordisk Suverän Fond'` | `8f158a694b28984db2ddd2d99d3fa4e67a624791dc3e1d7e27df363a49cd1ff7` |
+| `VEC-11` | #30 | 3-Byte Euro Sign UTF-8 (`München €25M`) | `['München €25M']` | `False` | `None` | `'15:München €25M'` | `e8cdf47ea5d7fc86222aea1232609e57f960e5e5d03c6c8c041e9dac72e34f57` |
+| `VEC-12` | #30 | 3-Byte CJK Kanji UTF-8 | `['日本国年金積立金管理運用独立行政法人']` | `False` | `None` | `'54:日本国年金積立金管理運用独立行政法人'` | `b537f8a15b4fd2f74743b6b2245607c346e89f22d321934a67872854e02807d1` |
+| `VEC-13` | #30 | 4-Byte Emoji UTF-8 (`🏦 Sovereign Fund`) | `['🏦 Sovereign Fund']` | `False` | `None` | `'19:🏦 Sovereign Fund'` | `49828efad954c7a21d6ce5723459a90d2727b6a08d7ec02db3604c84cdcf2ae0` |
+| `VEC-14` | #37 | Boundary-Shift Pair A | `['AB', 'C']` | `False` | `None` | `'2:AB\|\|1:C'` | `eae8ab373cc2e986a9e927aee681b79e51503ff73db0799ae0e2a0774624ec10` |
+| `VEC-15` | #37 | Boundary-Shift Pair B | `['A', 'BC']` | `False` | `None` | `'1:A\|\|2:BC'` | `99e84adb77816ffb5c3c3430360737cb9d96e5215bfc1cc8d1876548907226f0` |
+| `VEC-16` | #37 | Embedded Delimiter Pair A | `['ANNE\|\|O', 'BRIEN']` | `False` | `None` | `'7:ANNE\|\|O\|\|5:BRIEN'` | `4205b6693ec25ce23191bcd4c88b22f0f613c1ddcf4873db22c6db6f187248a0` |
+| `VEC-17` | #37 | Embedded Delimiter Pair B | `['ANNE', 'O\|\|BRIEN']` | `False` | `None` | `'4:ANNE\|\|8:O\|\|BRIEN'` | `e42ace65c05875c0e32265fdd3c2d696f2af0aa65c6151e003ecc53dacf4320d` |
+| `VEC-18` | #37 | Positional NULL Pair A | `['VAL_X', None, 'VAL_Y']` | `False` | `None` | `'5:VAL_X\|\|-1:^^\|\|5:VAL_Y'` | `a58e23e8b0f2ee8f43b76df48fc1c0a921682021ea391a99409b74c49c180c9e` |
+| `VEC-19` | #37 | Positional NULL Pair B | `['VAL_X', 'VAL_Y', None]` | `False` | `None` | `'5:VAL_X\|\|5:VAL_Y\|\|-1:^^'` | `a8b1220f06cccf9a0f16f01d083bdb0989d4878336e831940d3fd927735ce58f` |
+| `VEC-20` | #43 | Mandatory FK NULL / Missing (`-1`) | `[None]` | `True` | `'GLOBAL'` | `(Short-circuits to Zero Key Unknown)` | `0000000000000000000000000000000000000000000000000000000000000000` |
+| `VEC-21` | #43 | Optional Inapplicable / Error (`-2`) | `['-2']` | `True` | `'GLOBAL'` | `(Short-circuits to Zero Key Error)` | `ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff` |
+
+### G.3 Golden Manifest Table
+
+| Golden ID | File | SHA-256 | Generated From | Last Justified Change |
+| :--- | :--- | :--- | :--- | :--- |
+| `GT-01` | `GT-01/wave0/events.jsonl` | `a3712ae0a0f92eb8c82c97a97cd730c20f3b6e6ec3d4058735b4ad023ee01921` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave0/explorer_bundle.json` | `68d9a19d1828bb901ecf782affc61bac646a121c8573b5504f930f029be48c16` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave0/final_canonical_ir.json` | `830502bcebffdaf2a82b01c290a6f27a872fe14c7a59dbbc6ac5c3a3d7af1332` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave0/final_contract.yaml` | `7ff31cd296a524ac2c05236f277fe84f7385dd56766037deed470d7a8bbdf913` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave0/final_four_zone.sql` | `3a6ed2e6859739230d76e162087463dcd47a319475f60260074107eb0db77c8e` | `PAR-S1-W0: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave0/pipeline_report.json` | `b7fadcb47daac9fbc8bdc0976aa34e34c7d7ff8b99af9a23be3071dac0280b25` | `PAR-S1-W0: opendv pipeline run` | `[#113] Drop legacy view identifiers per Decision D3` |
+| `GT-01` | `GT-01/wave1/events.jsonl` | `18df992afb1b94c907b1e07c71780ad17a5229957b8b05da92ea59dcb92ab5b1` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/explorer_bundle.json` | `bcb170715866dc017f86045f7182c178dff4cd76b9ef3388975bd5fd009c1e89` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/final_canonical_ir.json` | `4e587b201c404654e989be6f3497349d8f37d5f8551892e6272e4975453d24dd` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/final_contract.yaml` | `81e70f3dc172844b26403266ee7e1abdc751179cde6786c01707e11ff68f2c72` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/final_four_zone.sql` | `c4c61c7f30a318801acf1c7d6fe8e6c80718bbd657cd97df6d738de5f235c621` | `PAR-S1-W1: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave1/pipeline_report.json` | `4a93f0603d4ce4ee2daf6b959b94a08cb80c8ab8df8f5eb69d9fac9ebadb9e47` | `PAR-S1-W1: opendv pipeline run` | `[#113] Drop legacy view identifiers per Decision D3` |
+| `GT-01` | `GT-01/wave2/events.jsonl` | `5007407b851033d69c644ffb1718999de6299eef57dfeab39f366245d76bfc38` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/explorer_bundle.json` | `de5906fcabea67a9a555a166d7233ef5435092a7e2e8f75fd98d34f848e3a119` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/final_canonical_ir.json` | `8cea66c733003301520220e7fb1d62c1865f80b88f5c47b240b943ad31872d79` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/final_contract.yaml` | `d19c00f565f27c55d1a166b32ae4fbb947a01aed53588145a1727d672e776afb` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/final_four_zone.sql` | `10e338804ca75d6ad821f3f9127587f146f726f6e85213aec708a791456cefb6` | `PAR-S1-W2: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave2/pipeline_report.json` | `18d82be0d192f2d82d5ab49ba78978971709138c1fdcc109d8f9e7b3632ed78a` | `PAR-S1-W2: opendv pipeline run` | `[#113] Drop legacy view identifiers per Decision D3` |
+| `GT-01` | `GT-01/wave3/events.jsonl` | `eef46cf0f458950c0a6c7cac56e6c44ac8816d8c5b1a4499850c19ebd988e97c` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/explorer_bundle.json` | `fc41a41d75c5e77ab0d42d9d4e74d0ce158a7fd52f382264ecbb87f1a4c73cbc` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/final_canonical_ir.json` | `5bbcb9ecedb09d9da6daf024402dfe1d877eaa8791250f3dd15a7710a9f2c736` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/final_contract.yaml` | `c051b71db0021aa70b3cb9b31b494fd67c51486685bd5e77e2f2b70dc9a9f134` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/final_four_zone.sql` | `bf4901fa9310edfe6f16c01da73fe7491ba0cbe578d953800287a35a2ffd81a6` | `PAR-S1-W3: opendv pipeline run` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-01` | `GT-01/wave3/hold_record.json` | `4fcfebb408044695bf18a25c28b6e31c5184413f5e2c21223ed39ff2c3c5e717` | `PAR-S8-W3: opendv hold list` | `[#113] Drop legacy view identifiers per Decision D3` |
+| `GT-01` | `GT-01/wave3/pipeline_report.json` | `581a473df3ca55e9aeb5405c6487d1dfb64810af26d692de1e8cdf2d1b94ef1c` | `PAR-S1-W3: opendv pipeline run` | `[#113] Drop legacy view identifiers per Decision D3` |
+| `GT-02` | `GT-02/canonical_ir.json` | `a28e5bfb759d6837bee765b6089501f1075ccffde1d0c756c8d97ce5fa1f762a` | `PAR-PE-S5: opendv compile` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/d10_2026-10-15.json` | `44b6fd8a5ea7310a374680a3737f22bdf2a25651bfb086a991ff1e939f5624d7` | `PAR-PE-S6: opendv sandbox --query-type QUERY_D10_PIT` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/d10b_2026-11-15.json` | `d5cd79ebd2192892c031804553677f36a4c341be1cc55840f549ae42c26d7d2b` | `PAR-PE-S6: opendv sandbox --query-type QUERY_D10B_VALUATION` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/four_zone.sql` | `65aa57f6c7efb1b649caaca23b7ecfb514a16f0b75499b4e5229b03c27632629` | `PAR-PE-S5: opendv compile` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/sandbox_batches.json` | `c80768defb7fa83ea0d09d79381566d896f5f59685b58508e123180f5de3db48` | `PAR-PE-S6: opendv sandbox --query-type ADVERSARIAL_BATCHES_1_TO_4` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-02` | `GT-02/verify.json` | `9bb08432bf645fca3d4cc4aeeb9ab368ee42797febee6f0a9f623761c2e4f495` | `PAR-PE-S5: opendv verify` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/01_dropped_hub/trace.toon` | `13c4da92d86d1ccffd94c29261d2cf36d9508366c8e5ab63e0949e21dbe289cd` | `GT-03: opendv verify 01_dropped_hub` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/01_dropped_hub/verdict.json` | `1fc557e9ff6d62b91c6576e91feabc4cbb06501d1d6ca4ba63bf92e223adefcd` | `GT-03: opendv verify 01_dropped_hub` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/02_tier1_without_global/trace.toon` | `6deacbe36baf13ea366cf734aff2f2e5a218b59eb5038afc5949f5a285bbcee0` | `GT-03: opendv verify 02_tier1_without_global` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/02_tier1_without_global/verdict.json` | `9754a2fc591d7b599ab88f6c42667f92ef2a080977b5c8441e5d41462edbbd11` | `GT-03: opendv verify 02_tier1_without_global` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/03_reflexive_sal/trace.toon` | `e7ee1cf99db9528ad92315bb388f6c5ac83bffe19132b54d78d5ef698fd5f62a` | `GT-03: opendv verify 03_reflexive_sal` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/03_reflexive_sal/verdict.json` | `ca0e06f8e3aebc18613670d9d43505acfe413ed0893d4d4000ef1f1412efb07f` | `GT-03: opendv verify 03_reflexive_sal` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/04_satellite_group_by/trace.toon` | `beb31dcd52c380f1fe9b04350e7695d5aaede29e892a1741a9d5637d54707760` | `GT-03: opendv verify 04_satellite_group_by` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/04_satellite_group_by/verdict.json` | `ab229aa0d6b577f589c5533be1b125c1bcc8d1a2ac3bee5ffdf67bf587009450` | `GT-03: opendv verify 04_satellite_group_by` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/05_path_traversal/problem.json` | `f9e1d4327ee9075c092b5c361a5c5f4242544278242713e606b3a52454b088cf` | `GT-03: opendv verify 05_path_traversal` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-03` | `GT-03/06_schema_invalid/problem.json` | `e0bd5c1be236f15abfecdbf44bdb154ecd25f50fd35823efd5b50f80e4a0183a` | `GT-03: opendv verify 06_schema_invalid` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-05` | `GT-05/render_snapshot.txt` | `05e8f9c7fee9d44a7fa60a2333d00756749c41ce11be26f94e2c2317495d111b` | `PAR-S8-W3: opendv explorer render snapshot` | `[#114] Fix GT-05 renderer reading genuine stage tag and artifact fmt` |
+| `GT-06` | `GT-06/accepted_ontology.yaml` | `63e0a8d9cf32c2c2cc92059f6882e79f5a87071321f01e8845dff865ec69b580` | `PAR-ONT-HOLD: apply_ontology_delta` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-06` | `GT-06/base_ontology.yaml` | `5f9b79c6e24556e52a8559f23583a459b252093023fbeb54075135cb166d7adf` | `PAR-ONT-HOLD: base ontology` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-06` | `GT-06/ontology_diff.json` | `3e880982cf2d492c56f42cd1807f605c0cfe6afff88bbd305050e016ba868863` | `PAR-ONT-HOLD: ontology_diff` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-06` | `GT-06/proposal.json` | `d6f91c74700add0eda2278d45eb533c27e0cc48ae07bad35230c6f24c00809f2` | `PAR-ONT-HOLD: testkit proposal` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+| `GT-06` | `GT-06/validation.json` | `b3643e067fd6d8c306fe4ec56951bdb6a11ebb9ac557afd1099cfe30d5a65d3a` | `PAR-ONT-HOLD: validate_ontology_delta` | `[#104] P7.3 ontology coverage artifact and stop silent provisional-URI synthesis` |
+
+### G.4 Golden Update and Review Workflow
+
+1. **Strict Justification Enforcement**:
+   Baseline files under `tests/golden/` may never be updated by manual hand-editing. Any intentional schema or compiler modification requires regenerating the affected golden files using:
+   ```bash
+   uv run pytest -m golden --update-golden --golden-justification="[#ISSUE] reason for divergence"
+   ```
+   Omitting `--golden-justification` or providing a justification string under 10 characters immediately aborts with a validation error.
+
+2. **Automated Three-Way Agreement**:
+   Every CI run executes `test_golden_three_way_agreement`, validating that:
+   $$\text{Committed Files under tests/golden/} \equiv \text{MANIFEST.json entries} \equiv \text{docs/17 §G.3 table}$$
+   Any mismatch in file inventory, SHA-256 digest, or justification text fails the CI gate.
+
+3. **Determinism Verification**:
+   Before updating or asserting goldens, `GoldenManager` verifies compiler byte-stability across successive compiles, LF line-ending invariance, and floating-point precision formatting.

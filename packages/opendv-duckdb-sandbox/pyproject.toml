@@ -7,14 +7,19 @@ dependencies = [
     "opendv-core",
     "opendv-axi-verifier",
     "opendv-telemetry",
+    "opendv-sources",
+    "opendv-contracts",
     "duckdb>=1.1.0",
     "pydantic>=2.9.0",
+    "sqlglot>=26.0.0",
 ]
 
 [tool.uv.sources]
 opendv-core = { workspace = true }
 opendv-axi-verifier = { workspace = true }
 opendv-telemetry = { workspace = true }
+opendv-sources = { workspace = true }
+opendv-contracts = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

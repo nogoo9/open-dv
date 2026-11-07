@@ -18,6 +18,7 @@ from typing import Any, Literal
 import duckdb
 import sqlglot
 import yaml
+from pydantic import ValidationError
 from sqlglot import exp
 
 from opendv_agent_harness.models import (
@@ -25,7 +26,6 @@ from opendv_agent_harness.models import (
     AgentToolDefinition,
     ObservabilityVerdict,
     ToolExecutionContext,
-    VizId,
 )
 from opendv_agent_harness.telemetry.translator import build_observability_event_dict
 from opendv_agent_harness.tools.base import (
@@ -76,6 +76,7 @@ from opendv_core.elm_calculus import (
 from opendv_core.hashing import compute_dv2_length_prefixed_sha256
 from opendv_core.models.canonical_ir import CanonicalIR
 from opendv_core.models.contract_v5 import NoMistakeDataVault2ContractV5
+from opendv_core.paths import PathContainmentError, resolve_workspace_path
 from opendv_duckdb_sandbox.compiler_4zone import (
     build_algorithm_a5_sha256_sql,
     compile_canonical_ir_to_4zone_sql,
@@ -83,6 +84,7 @@ from opendv_duckdb_sandbox.compiler_4zone import (
 from opendv_duckdb_sandbox.graph_b_profiler import GraphBProfiler
 from opendv_duckdb_sandbox.ir_lowerer import lower_contract_to_canonical_ir
 from opendv_duckdb_sandbox.sandbox_engine import DuckDbShadowSandbox
+from opendv_sources import SourceSpec, get_source_registry
 
 CANONICAL_TOOL_NAMES: tuple[str, ...] = (
     "profile_source_feed",
@@ -117,41 +119,22 @@ def _resolve_existing_file(raw_path: str, ctx: ToolExecutionContext) -> Path | N
     """Resolve `raw_path` to an existing file strictly contained within workspace/state dirs."""
     if not raw_path or not raw_path.strip():
         return None
-    candidate = Path(raw_path.strip())
-    if ".." in candidate.parts:
-        raise PermissionError(f"Path traversal ('..') is not allowed: {raw_path}")
-
-    allowed_roots = tuple(
-        {
-            ctx.config.workspace_dir.resolve(),
-            ctx.config.state_dir.resolve(),
-            ctx.config.app_data_dir.resolve(),
-            ctx.config.save_dir.resolve(),
-            *(p.resolve() for p in ctx.config.sandbox.allowed_workspaces),
-        }
-    )
-
-    if candidate.is_absolute():
-        resolved = candidate.resolve()
-        if not any(resolved.is_relative_to(root) for root in allowed_roots):
-            raise PermissionError(f"Path '{raw_path}' is outside allowed workspace directories.")
-        return resolved if resolved.is_file() else None
-
-    for root in (
-        ctx.config.workspace_dir,
+    allowed_roots = [
         ctx.config.state_dir,
+        ctx.config.app_data_dir,
+        ctx.config.save_dir,
         *ctx.config.sandbox.allowed_workspaces,
-    ):
-        try:
-            resolved = (root / candidate).resolve()
-            if (
-                any(resolved.is_relative_to(allowed) for allowed in allowed_roots)
-                and resolved.is_file()
-            ):
-                return resolved
-        except OSError:
-            continue
-    return None
+    ]
+    try:
+        resolved = resolve_workspace_path(
+            raw_path,
+            workspace_root=ctx.config.workspace_dir,
+            allowed_roots=allowed_roots,
+            allow_temp=False,
+        )
+        return resolved if resolved.is_file() else None
+    except PathContainmentError as exc:
+        raise PermissionError(str(exc)) from exc
 
 
 def _infer_python_value_type(values: list[Any]) -> str:
@@ -182,18 +165,27 @@ async def _handle_profile_source_feed(
     if file_path is not None:
         profiler = GraphBProfiler()
         try:
-            suffix = file_path.suffix.lower()
-            if suffix == ".parquet":
-                col_profiles = profiler.profile_parquet(file_path)
-            elif suffix in {".json", ".jsonl"}:
-                escaped = str(file_path).replace("'", "''")
-                profiler.conn.execute(
-                    f'CREATE OR REPLACE TEMP VIEW "temp_profiled_json" '
-                    f"AS SELECT * FROM read_json_auto('{escaped}')"
-                )
-                col_profiles = profiler.profile_table_columns("temp_profiled_json")
-            else:
-                col_profiles = profiler.profile_csv(file_path)
+            cfg = getattr(ctx, "config", None)
+            ws = (
+                getattr(ctx, "workspace_root", None)
+                or getattr(cfg, "workspace_dir", None)
+                or getattr(ctx, "storage_root", None)
+                or Path.cwd()
+            )
+            extra_roots = [
+                getattr(cfg, "state_dir", None),
+                getattr(cfg, "app_data_dir", None),
+                getattr(cfg, "save_dir", None),
+            ]
+            allowed_roots = [r for r in extra_roots if r is not None]
+            spec = SourceSpec(adapter="file", uri=str(file_path))
+            get_source_registry().get_tabular_adapter(
+                spec.adapter,
+                workspace_root=ws,
+                allowed_roots=allowed_roots,
+                allow_temp=True,
+            ).register(spec, profiler.conn, "temp_profiled_feed")
+            col_profiles = profiler.profile_relation("temp_profiled_feed")
 
             row_count = col_profiles[0].row_count if col_profiles else 0
             col_names = [m.column_name for m in col_profiles]
@@ -343,11 +335,33 @@ async def _handle_extract_pdf_spans(
     if not doc_text:
         doc_file = _resolve_existing_file(args.document_uri, ctx)
         if doc_file is not None:
-            doc_text = (
-                doc_file.read_text(encoding="utf-8", errors="replace")
-                .replace("\r\n", "\n")
-                .replace("\r", "\n")
+            adapter_name = get_source_registry().resolve_document_adapter_name(doc_file)
+            cfg = getattr(ctx, "config", None)
+            ws = (
+                getattr(ctx, "workspace_root", None)
+                or getattr(cfg, "workspace_dir", None)
+                or getattr(ctx, "storage_root", None)
+                or Path.cwd()
             )
+            extra_roots = [
+                getattr(cfg, "state_dir", None),
+                getattr(cfg, "app_data_dir", None),
+                getattr(cfg, "save_dir", None),
+            ]
+            allowed_roots = [r for r in extra_roots if r is not None]
+            doc_adapter = get_source_registry().get_document_adapter(
+                adapter_name,
+                workspace_root=ws,
+                allowed_roots=allowed_roots,
+                allow_temp=True,
+            )
+            extracted = doc_adapter.extract_document(
+                SourceSpec(
+                    adapter=adapter_name,
+                    uri=str(doc_file),
+                )
+            )
+            doc_text = extracted.normalized_text
 
     default_tier: Literal["Tier-U1", "Tier-U2", "Tier-U3"] = (
         "Tier-U3" if args.er_margin < 0.15 else ("Tier-U2" if args.er_margin < 0.5 else "Tier-U1")
@@ -560,13 +574,13 @@ async def _handle_compile_canonical_ir(
     if "ir_version" in payload and "model_name" in payload:
         try:
             canonical_ir_obj = CanonicalIR.model_validate(payload)
-        except Exception:
+        except (ValidationError, ValueError, TypeError, KeyError):
             canonical_ir_obj = None
     elif payload:
         try:
             contract_v5 = NoMistakeDataVault2ContractV5.model_validate(payload)
             canonical_ir_obj = lower_contract_to_canonical_ir(contract_v5, validate_schema=False)
-        except Exception:
+        except (ValidationError, ValueError, TypeError, KeyError):
             canonical_ir_obj = None
 
     if canonical_ir_obj is not None:
@@ -722,7 +736,7 @@ async def _handle_run_axi_dv_gates(
                     gate="G3",
                     rule="DV-STR-001",
                     action="REJECT",
-                    target="hub_fund",
+                    target="hub_account",
                     fix="Remove direct Hub-to-Hub foreign key and route via Link",
                 )
             ],
@@ -975,7 +989,7 @@ async def _handle_apply_ast_codemod(
     else:
         try:
             loaded = yaml.safe_load(pre_content)
-        except Exception:
+        except (yaml.YAMLError, ValueError, TypeError):
             loaded = None
 
         if isinstance(loaded, dict):
@@ -1142,7 +1156,7 @@ async def _handle_execute_duckdb_sandbox(
         if sql_stripped.startswith("{"):
             try:
                 source_obj = json.loads(sql_stripped)
-            except Exception:
+            except (json.JSONDecodeError, ValueError, TypeError):
                 source_obj = None
         if source_obj is None:
             source_obj = ctx.get_state("last_canonical_ir")
@@ -1194,7 +1208,7 @@ async def _handle_execute_duckdb_sandbox(
         if not checks_ok:
             all_passed = False
         orphan_count = computed_orphans
-    except Exception:
+    except (duckdb.Error, ValueError, TypeError, KeyError):
         all_passed = False
         orphan_count = 1
     finally:
@@ -1224,8 +1238,6 @@ async def _handle_emit_observability_event(
     """Validate and emit a VaultObservabilityEvent record into the active ToolExecutionContext."""
     event_id = f"evt-{uuid.uuid4().hex[:12]}"
     eff_stage = args.stage_id or ctx.stage_id
-    eff_view = args.workbench_view_id or ctx.workbench_view_id
-    eff_viz = args.viz_id or ctx.viz_id
 
     event_dict = build_observability_event_dict(
         event_id=event_id,
@@ -1234,8 +1246,6 @@ async def _handle_emit_observability_event(
         span_id=ctx.span_id,
         parent_span_id=ctx.parent_span_id,
         stage_id=eff_stage,
-        workbench_view_id=eff_view,
-        viz_id=eff_viz,
         agent_persona=ctx.persona,
         status=args.status,
         headline=args.headline,
@@ -1254,8 +1264,6 @@ async def _handle_emit_observability_event(
         event_id=event_id,
         status=args.status,
         stage_id=eff_stage,
-        workbench_view_id=eff_view,
-        viz_id=eff_viz,
         recorded=True,
     )
 
@@ -1275,8 +1283,6 @@ async def _handle_request_steward_decision(
         span_id=ctx.span_id,
         parent_span_id=ctx.parent_span_id,
         stage_id=ctx.stage_id,
-        workbench_view_id=ctx.workbench_view_id,
-        viz_id=VizId.VIZ_GATE_07,
         agent_persona=ctx.persona,
         status=ObservabilityVerdict.ASK_USER,
         headline=args.headline,
@@ -1317,7 +1323,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SCOUT_SOURCE, AgentPersona.VAULT_FIRST_MATE}),
             read_only=True,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_STEP_02,
         ),
         AgentToolDefinition(
             name="extract_pdf_spans",
@@ -1331,7 +1336,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SCOUT_UNSTRUCTURED}),
             read_only=True,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_STEP_04,
         ),
         AgentToolDefinition(
             name="compile_canonical_ir",
@@ -1345,7 +1349,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SHIP_VAULT, AgentPersona.VAULT_FIRST_MATE}),
             read_only=False,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_STEP_07,
         ),
         AgentToolDefinition(
             name="run_axi_dv_gates",
@@ -1359,7 +1362,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SHIP_VAULT, AgentPersona.VAULT_FIRST_MATE}),
             read_only=True,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_GATE_01,
         ),
         AgentToolDefinition(
             name="apply_ast_codemod",
@@ -1373,7 +1375,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SHIP_VAULT}),
             read_only=False,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_GATE_04,
         ),
         AgentToolDefinition(
             name="execute_duckdb_sandbox",
@@ -1387,7 +1388,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SHIP_VAULT, AgentPersona.VAULT_FIRST_MATE}),
             read_only=False,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_GATE_08,
         ),
         AgentToolDefinition(
             name="emit_observability_event",
@@ -1408,7 +1408,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             ),
             read_only=False,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_PIPE_00,
         ),
         AgentToolDefinition(
             name="request_steward_decision",
@@ -1428,7 +1427,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             ),
             read_only=False,
             requires_steward_approval=True,
-            default_viz_id=VizId.VIZ_GATE_07,
         ),
     ]
 

@@ -1,0 +1,12 @@
+[test]
+# Ignore worktrees, build dist artifacts, and node_modules so root `bun test` runs cleanly out of the box
+pathIgnorePatterns = [
+  "**/worktrees/**",
+  "**/dist/**",
+  "**/node_modules/**"
+]
+ignore = [
+  "**/worktrees/**",
+  "**/dist/**",
+  "**/node_modules/**"
+]

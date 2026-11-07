@@ -1,0 +1,49 @@
+============================================================
+OPEN-DV PIPELINE EXPLORER SNAPSHOT
+============================================================
+Project:     Global Commerce Vault — Wave 0 Cold Start (CRM & ERP)
+Run ID:      <NORMALIZED_RUN_ID>
+Spec File:   pipeline_input.yaml
+Status:      Sealed · 6/6 gates PASS
+Waves:       4
+RBAC Role:   DATA_STEWARD
+Gates:       6/6 passed
+------------------------------------------------------------
+STAGES
+------------------------------------------------------------
+[PASS          ] STAGE_00_ORCHESTRATION Orchestration & Grounding
+[AUTO-FIX      ] STAGE_01_SCOUT_SOURCE Relational Profiling & Drift
+[ASK-USER → resolved] STAGE_02_SCOUT_UNSTRUCTURED Unstructured Document Extraction
+[PASS          ] STAGE_03_SHIP_VAULT_PASS1 Pass 1 · Column Triage
+[PASS          ] STAGE_04_SHIP_VAULT_PASS2 Pass 2/3 · Vault Topology & Keys
+[AUTO_REPAIRED ] STAGE_05_AXI_DV_STATIC_GATES Gates 0-4 · Static Verification
+[PASS          ] STAGE_06_DUCKDB_SANDBOX Gate 5 · Analytical Sandbox
+[PASS          ] STAGE_07_DETERMINISTIC_COMPILER Deterministic Artifact Seal & CAS
+------------------------------------------------------------
+ARTIFACTS INDEX
+------------------------------------------------------------
+* crm             [Input       ] [CSV  ] crm_customers.csv
+* crm2            [Input       ] [CSV  ] crm_customers_v2_drift.csv
+* draft_contract  [Stage output] [YAML ] draft_contract.yaml
+* drift           [Stage output] [JSON ] schema_drift_report.json
+* erp             [Input       ] [CSV  ] erp_orders.csv
+* extract         [Stage output] [JSON ] unstructured_extractions.json
+* final_contract  [Final output] [YAML ] final_contract.yaml
+* final_ir        [Final output] [JSON ] final_canonical_ir.json
+* final_sql       [Final output] [SQL  ] final_four_zone.sql
+* gate_sandbox    [Stage output] [JSON ] sandbox_execution_scorecard.json
+* gate_static     [Stage output] [JSON ] static_gates_scorecard.json
+* grounding       [Stage output] [JSON ] concept_grounding_ledger.json
+* harness         [Setting     ] [YAML ] harness_config.yaml
+* ledger          [Final output] [JSONL] vault-ledger.jsonl
+* msa             [Input       ] [TXT  ] enterprise_msa_addendum_2026.txt
+* ontology        [Input       ] [YAML ] graph_a_ontology.yaml
+* profile         [Stage output] [JSON ] graph_b_profile.json
+* report          [Final output] [JSON ] pipeline_report.json
+* runopts         [Setting     ] [Flags] run options
+* sandbox_report  [Stage output] [JSON ] sandbox_report.json
+* spec            [Input       ] [YAML ] pipeline_input.yaml
+* stripe          [Input       ] [CSV  ] stripe_eu_invoices.csv
+* toon            [Stage output] [TOON ] axi_diagnostic_trace.toon
+* triage          [Stage output] [JSON ] column_triage_ledger.json
+============================================================

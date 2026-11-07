@@ -1,0 +1,12 @@
+$schema: 'https://moonrepo.dev/schemas/project.json'
+
+id: 'opendvctl'
+language: 'typescript'
+layer: 'application'
+tags:
+  - 'typescript'
+  - 'client-cli'
+
+dependsOn:
+  - 'opendv-protocol-ts'
+

@@ -90,8 +90,6 @@ from opendv_core.models.observability import (
     StepIdLiteral,
     SummaryMetricValue,
     VaultObservabilityEvent,
-    VizIdLiteral,
-    WorkbenchViewIdLiteral,
 )
 
 __all__ = [
@@ -171,9 +169,7 @@ __all__ = [
     "SummaryMetricValue",
     "UnmappedEscalation",
     "VaultObservabilityEvent",
-    "VizIdLiteral",
     "VolatilityTierLiteral",
-    "WorkbenchViewIdLiteral",
     "YagniCostGuardPolicy",
     "YagniTelemetry",
 ]

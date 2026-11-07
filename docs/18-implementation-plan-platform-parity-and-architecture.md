@@ -1,7 +1,7 @@
 # 18 — Implementation Plan (v3.9): Platform Parity & Architecture — Shared Core, Two Consistent CLIs, Pluggable Source Adapters, Hardening, Ontology-Recommender Seams, Legacy Workbench Removal & 3-Level Explorer Integration
 
 > **Module:** `docs/18-implementation-plan-platform-parity-and-architecture.md` · **Revision:** v3.9 (2026-11-04)
-> **Status:** Approved plan. Implementation is tracked in the master tracker [#63](https://github.com/nogoo9/open-dv/issues/63), with phase sub-issues #64, #70, #76, #82, #89, #96, #101, #109, #114 and #120, and their task sub-issues. P0 (rebase) is done.
+> **Status:** Implementation completed across all phases P0–P10. Tracked in the master tracker [#63](https://github.com/nogoo9/open-dv/issues/63), with phase sub-issues #64, #70, #76, #82, #89, #96, #101, #109, #114 and #120, and all task sub-issues (#65–#123) merged and verified.
 > **Governing docs:** [`docs/00`](00-mission-vision-and-functional-requirements.md) (mission & FRs) · [`docs/17`](17-testing-scenarios-and-datasets.md) (test ledger) · [`docs/design/open-dv-workbench/HANDOFF.md`](design/open-dv-workbench/HANDOFF.md) (on PR #60) · [`AGENTS.md`](../AGENTS.md)
 > **How to use this document:** future agents and contributors pick up a **task issue** (`P<phase>.<n>`), read the referenced sections here, and deliver one PR per task that passes full CI and no-mistakes. Requirements (`REQ-*`), decisions (`D1`–`D9`), tests (`T1`–`T17`, goldens `GT-01`–`GT-06`) and risks (`R1`–`R19`) are referenced by ID. §0 is the revision history of how the plan evolved.
 
@@ -251,7 +251,7 @@ flowchart LR
 
 | Task | Title | Depends on | Parallelizable | Plan ref | Issue |
 | :--- | :--- | :--- | :---: | :--- | :--- |
-| **P10.1** | Governance and normative docs update | — | ✅ | §8 | [#121](https://github.com/nogoo9/open-dv/issues/121) |
+| **P10.1** | OpenAPI 3.1 & TypeScript SDK Synchronization | — | ✅ | §8 | [#121](https://github.com/nogoo9/open-dv/issues/121) |
 | **P10.2** | docs/17 normative parity rule and §G finalization | — | ✅ | §8, §7.8 | [#122](https://github.com/nogoo9/open-dv/issues/122) |
 | **P10.3** | Final verification and no-mistakes validation | P10.1, P10.2 | after deps | §10 | [#123](https://github.com/nogoo9/open-dv/issues/123) |
 
@@ -268,7 +268,7 @@ flowchart LR
 | S3b Ontology seams | P7 |
 | S4 Legacy workbench removal | P8 |
 | S5 Frontend integration | P9 |
-| S6 Docs & governance | P10.1, P10.2 (each phase also updates the docs it touches) |
+| S6 Docs & governance | P10.1 (OpenAPI/SDK sync), P10.2 (normative docs & §G) |
 | S7 Final verification | P10.3 |
 
 Any remaining references to S-steps in later sections should be read through this mapping. Where a later section says "this PR", it means the phase PR(s) that deliver it.
@@ -1058,7 +1058,7 @@ Today CI installs via pip and runs only `pytest -v`. Add:
 6. The golden test (§7.8): `uv run pytest -m golden` with **no** `--update-golden`, then `git diff --exit-code tests/golden docs/17-testing-scenarios-and-datasets.md`.
 7. The no-duplication guards (T13): `uv run pytest tests/architecture` and `uv run pylint --disable=all --enable=duplicate-code --min-similarity-lines=8 apps/opendv-cli/src apps/opendv-platform-api/src packages/opendv-service/src`. Add `pylint` as a dev dependency.
 8. The §3B guards (T14): `uv run ruff check packages apps` with `BLE001`, `S110`, `S112` and the selected `TRY` rules enabled for production sources, plus `uv run pytest -m "hardening"`. This includes the outside-repo run, which CI performs from a temp working directory.
-9. The two-CLI checks (T15): `uv run pytest tests/architecture/test_two_cli_consistency.py`, `bun test` in `apps/opendvctl` (including shared JCS vectors), the TS-types-from-OpenAPI and `docs/16`-from-spec drift checks, and a **release job** that runs `bun build --compile` for `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64` and `windows-x64`. That job runs the compiled `linux-x64` binary in a container **without Python, Node or Bun** against a started API (smoke + T1/§7.8 subset), runs native smoke tests on macOS and Windows runners, and publishes checksums.
+9. The two-CLI checks (T15): `uv run pytest tests/parity/test_two_cli_parity.py`, `bun test` in `apps/opendvctl` (including shared JCS vectors), the TS-types-from-OpenAPI and `docs/16`-from-spec drift checks, and a **release job** that runs `bun build --compile` for `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64` and `windows-x64`. That job runs the compiled `linux-x64` binary in a container **without Python, Node or Bun** against a started API (smoke + T1/§7.8 subset), runs native smoke tests on macOS and Windows runners, and publishes checksums.
 10. The source-adapter checks (T16): the conformance suite, cross-format equivalence, the PDF fixture, the plugin extensibility test and the static reader scan, all inside `uv run pytest`, plus a CI check that the committed PDF fixture regenerates byte-identically from its text source (or is pinned by SHA-256).
 11. The ontology-seam checks (T17) inside `uv run pytest`, plus GT-06 in the golden job.
 

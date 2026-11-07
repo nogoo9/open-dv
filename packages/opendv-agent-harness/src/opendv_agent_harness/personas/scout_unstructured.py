@@ -20,15 +20,13 @@ from opendv_agent_harness.models import (
     OutputT,
     PipelineStageId,
     SubagentSpec,
-    VizId,
-    WorkbenchViewId,
 )
 from opendv_agent_harness.routing import get_persona_capability
 from opendv_agent_harness.tools.catalog import get_tools_for_persona
 
 SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS: str = (
     "You are `scout-unstructured`, the Span-Grounded Multimodal NER and 3-Tier Entity Resolution "
-    "Scout in the Open-DV neuro-symbolic pipeline (`STAGE_02_SCOUT_UNSTRUCTURED`, `WB-03`).\n"
+    "Scout in the Open-DV neuro-symbolic pipeline (`STAGE_02_SCOUT_UNSTRUCTURED`).\n"
     "Responsibilities:\n"
     "1. Operate strictly in read-only mode "
     "(`read_only_workspace=True`, `allow_shell_execution=False`).\n"
@@ -50,7 +48,7 @@ def build_scout_unstructured_subagent_spec() -> SubagentSpec:
         persona=AgentPersona.SCOUT_UNSTRUCTURED,
         description=(
             "Span-Grounded Multimodal NER & 3-Tier Entity Resolution Scout "
-            "(STAGE_02_SCOUT_UNSTRUCTURED, WB-03)."
+            "(STAGE_02_SCOUT_UNSTRUCTURED)."
         ),
         system_instructions=SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS,
         model_tier=profile.default_model_tier,
@@ -70,8 +68,6 @@ def build_scout_unstructured_task_spec(
     parent_span_id: str | None = None,
     task_id: str | None = None,
     stage_id: PipelineStageId = PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
-    workbench_view_id: WorkbenchViewId = WorkbenchViewId.WB_03,
-    viz_id: VizId = VizId.VIZ_STEP_04,
     model_tier: ModelTier = ModelTier.FAST_TIER,
     model_override: str | None = None,
     tools: Sequence[AgentToolDefinition[Any, Any]] | None = None,
@@ -95,8 +91,6 @@ def build_scout_unstructured_task_spec(
         "parent_span_id": parent_span_id,
         "persona": AgentPersona.SCOUT_UNSTRUCTURED,
         "stage_id": stage_id,
-        "workbench_view_id": workbench_view_id,
-        "viz_id": viz_id,
         "prompt": prompt,
         "system_instructions": system_instructions,
         "model_tier": model_tier,

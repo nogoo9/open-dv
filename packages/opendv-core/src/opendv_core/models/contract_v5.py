@@ -110,7 +110,7 @@ class ContractHubSpec(StrictContractModel):
     """Data Vault 2.0 Hub contract specification."""
 
     name: str = Field(pattern=r"^hub_[a-z0-9_]+$")
-    ontology_concept_uri: str = Field(pattern=r"^urn:ontology:(provisional:)?entity:[a-z0-9_]+$")
+    ontology_concept_uri: str = Field(pattern=r"^urn:ontology:entity:[a-z0-9_]+$")
     business_key_sources: list[BusinessKeySource] = Field(min_length=1)
 
 
@@ -127,9 +127,7 @@ class ContractLinkSpec(StrictContractModel):
 
     name: str = Field(pattern=r"^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$")
     link_type: ContractLinkTypeLiteral
-    ontology_concept_uri: str = Field(
-        pattern=r"^urn:ontology:(provisional:)?(event|relationship):[a-z0-9_]+$"
-    )
+    ontology_concept_uri: str = Field(pattern=r"^urn:ontology:(event|relationship):[a-z0-9_]+$")
     source_bronze_table: str
     driving_key_hub: str | None = None
     where_filter_condition: str | None = None

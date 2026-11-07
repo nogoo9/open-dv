@@ -1,13 +1,39 @@
 import { describe, expect, it } from "bun:test";
 import {
 	NULL_TOKEN,
-	PE_CANONICAL_HASH_PILLS,
 	ZERO_KEY_ERROR_HEX,
 	ZERO_KEY_HEX,
 	computeDv2LengthPrefixedSha256,
 	computeDv2PrehashString,
 	formatSemanticHashPill,
 } from "../src/index";
+
+const EXPECTED_HASH_PILLS = {
+	CALPERS_LP_101: {
+		pill_label: "[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]",
+		full_sha256_hex:
+			"5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4",
+		bkcc_prefix: "GLOBAL",
+		business_key: "LP-101",
+		entity_label: "CalPERS",
+	},
+	FUND_IV_APEX_BO_IV: {
+		pill_label: "[HK: 94A6..8759 | GLOBAL:APEX_BO_IV Fund IV]",
+		full_sha256_hex:
+			"94A60FCDA278C5AEC284C595413935793D5CEC113C511F20690046061D388759",
+		bkcc_prefix: "GLOBAL",
+		business_key: "APEX_BO_IV",
+		entity_label: "Fund IV",
+	},
+	BAVARIAN_PENSION_LP_101: {
+		pill_label: "[HK: 6B7C..D8B9 | LEGACY_GP_ADMIN:LP-101 Bavarian Pension]",
+		full_sha256_hex:
+			"6B7C7180B62164F31F14EEBCD16CC5FD2B0CE58143DE66A4B67521113EC5D8B9",
+		bkcc_prefix: "LEGACY_GP_ADMIN",
+		business_key: "LP-101",
+		entity_label: "Bavarian Pension",
+	},
+};
 
 describe("hash-pill utilities (Algorithm A.5)", () => {
 	it("defines canonical 64-hex Zero Keys and -1:^^ null token", () => {
@@ -37,7 +63,7 @@ describe("hash-pill utilities (Algorithm A.5)", () => {
 		expect(calpersPill.pill_label).toBe(
 			"[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]",
 		);
-		expect(calpersPill).toEqual(PE_CANONICAL_HASH_PILLS.CALPERS_LP_101);
+		expect(calpersPill).toEqual(EXPECTED_HASH_PILLS.CALPERS_LP_101);
 
 		// 2. Fund IV (GLOBAL:APEX_BO_IV -> 94A6..8759)
 		const fundIvSha = await computeDv2LengthPrefixedSha256(["APEX_BO_IV"], {
@@ -56,7 +82,7 @@ describe("hash-pill utilities (Algorithm A.5)", () => {
 		expect(fundIvPill.pill_label).toBe(
 			"[HK: 94A6..8759 | GLOBAL:APEX_BO_IV Fund IV]",
 		);
-		expect(fundIvPill).toEqual(PE_CANONICAL_HASH_PILLS.FUND_IV_APEX_BO_IV);
+		expect(fundIvPill).toEqual(EXPECTED_HASH_PILLS.FUND_IV_APEX_BO_IV);
 
 		// 3. Bavarian Pension Reserve Fund (LEGACY_GP_ADMIN:LP-101 -> 6B7C..D8B9)
 		const bavarianSha = await computeDv2LengthPrefixedSha256(["lp-101"], {
@@ -75,9 +101,7 @@ describe("hash-pill utilities (Algorithm A.5)", () => {
 		expect(bavarianPill.pill_label).toBe(
 			"[HK: 6B7C..D8B9 | LEGACY_GP_ADMIN:LP-101 Bavarian Pension]",
 		);
-		expect(bavarianPill).toEqual(
-			PE_CANONICAL_HASH_PILLS.BAVARIAN_PENSION_LP_101,
-		);
+		expect(bavarianPill).toEqual(EXPECTED_HASH_PILLS.BAVARIAN_PENSION_LP_101);
 		expect(bavarianSha).not.toBe(calpersSha);
 
 		// 4. Nordic Cloud SaaS AB (GLOBAL:529900T8BM49AURSDO55 -> 0C18..454E)

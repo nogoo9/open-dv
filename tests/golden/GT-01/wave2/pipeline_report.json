@@ -1,0 +1,1065 @@
+{
+  "active_holds": [],
+  "completed_at": "<TIMESTAMP>",
+  "decision_refs": [],
+  "domain_namespace": "global_commerce",
+  "fallbacks_applied": [],
+  "final_artifacts": {
+    "final_canonical_ir": {
+      "artifact_id": "art-stage07-final-canonical-ir",
+      "byte_length": 22139,
+      "description": "Final Lowered Canonical IR (v1.0.0).",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "final_canonical_ir.json",
+      "sha256": "8CEA66C733003301520220E7FB1D62C1865F80B88F5C47B240B943AD31872D79",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 2
+    },
+    "final_contract": {
+      "artifact_id": "art-stage07-final-contract",
+      "byte_length": 8242,
+      "description": "Final Verified No-Mistake Data Vault 2.0 Model Contract (v5.0).",
+      "file_path": "<OUT>",
+      "media_type": "application/x-yaml",
+      "name": "final_contract.yaml",
+      "sha256": "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 2
+    },
+    "final_four_zone_sql": {
+      "artifact_id": "art-stage07-final-four-zone-sql",
+      "byte_length": 61439,
+      "description": "Final Compiled 4-Zone DuckDB SQL Bundle.",
+      "file_path": "<OUT>",
+      "media_type": "application/sql",
+      "name": "final_four_zone.sql",
+      "sha256": "10E338804CA75D6AD821F3F9127587F146F726F6E85213AEC708A791456CEFB6",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 2
+    },
+    "pipeline_report_json": {
+      "artifact_id": "art-stage07-pipeline-report-json",
+      "byte_length": 0,
+      "description": "Machine-readable JSON Pipeline Execution Report.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "pipeline_report.json",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 2
+    },
+    "pipeline_report_md": {
+      "artifact_id": "art-stage07-pipeline-report-md",
+      "byte_length": 0,
+      "description": "Human-readable Markdown Pipeline Execution Report.",
+      "file_path": "<OUT>",
+      "media_type": "text/markdown",
+      "name": "pipeline_report.md",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 2
+    },
+    "vault_ledger_jsonl": {
+      "artifact_id": "art-stage07-vault-ledger",
+      "byte_length": 0,
+      "description": "Immutable JSONL Observability Event Ledger.",
+      "file_path": "<OUT>",
+      "media_type": "application/x-ndjson",
+      "name": "vault-ledger.jsonl",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "wave_index": 2
+    }
+  },
+  "graph_a_sha256": "b070b99f76ceee006cf2371e6b4053e57283ac69761c92f3a999f733d3af9609",
+  "harness_setup": {
+    "agent_models": {},
+    "api_key_env_var": null,
+    "auth": {
+      "api_base_url": null,
+      "api_key_env_var": null,
+      "auth_mode": "cli_session",
+      "aws_profile": null,
+      "aws_region": null,
+      "gcp_credentials_path": null,
+      "gcp_location": null,
+      "gcp_project": null,
+      "mode": "<MODE>",
+      "require_credentials_present": false,
+      "require_preflight": false
+    },
+    "auth_mode": "cli_session",
+    "budget": {
+      "max_cost_usd": 5.0,
+      "max_input_tokens": 200000,
+      "max_model_calls": 20,
+      "max_output_tokens": 32000,
+      "max_schema_validation_retries": 3,
+      "max_tool_calls": 40,
+      "max_total_tokens": 232000,
+      "max_turns": 12,
+      "timeout_seconds": 300.0
+    },
+    "env": {},
+    "extra_provider_options": {},
+    "inject_adversarial_fault_on_attempt_1": true,
+    "model_overrides": {
+      "fast": "gemini-3.8-flash-high",
+      "reasoning": "gemini-4-argon-high"
+    },
+    "provider": "agy",
+    "sandbox": {
+      "allow_shell_execution": false,
+      "allowed_builtin_tools": [
+        "view_file",
+        "list_directory",
+        "find_file",
+        "search_directory"
+      ],
+      "allowed_workspaces": [],
+      "blocked_shell_substrings": [
+        "rm -rf",
+        "git push",
+        "git worktree",
+        "treehouse",
+        "no-mistakes daemon"
+      ],
+      "denied_builtin_tools": [
+        "run_command",
+        "create_file",
+        "edit_file"
+      ],
+      "read_only_workspace": true
+    },
+    "stage_output_policy": "llm_only",
+    "steward_hold_policy": "auto_approve_top_candidate"
+  },
+  "has_initial_contract": true,
+  "initial_contract_path": "<OUT>",
+  "input_validation": {
+    "cas_integrity_verified": true,
+    "checked_items_count": 7,
+    "diagnostics": [],
+    "passed": true,
+    "pii_leak_check_passed": true,
+    "stage": "INPUT_VALIDATION",
+    "verified_artifacts_count": 0,
+    "verified_events_count": 0
+  },
+  "intermediate_artifacts": [
+    {
+      "artifact_id": "art-stage00-graph-a-ontology",
+      "byte_length": 4821,
+      "description": "Verified Enterprise Core Business Concept (Graph A) Ontology.",
+      "file_path": "<OUT>",
+      "media_type": "application/x-yaml",
+      "name": "graph_a_ontology.yaml",
+      "sha256": "B070B99F76CEEE006CF2371E6B4053E57283AC69761C92F3A999F733D3AF9609",
+      "stage_id": "STAGE_00_ORCHESTRATION",
+      "wave_index": 0
+    },
+    {
+      "artifact_id": "art-w2-stage01-graph-b-profile",
+      "byte_length": 0,
+      "description": "Wave 2 Empirical Graph B Statistical Profile.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_2_graph_b_profile.json",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_01_SCOUT_SOURCE",
+      "wave_index": 2
+    },
+    {
+      "artifact_id": "art-w2-stage01-ontology-coverage",
+      "byte_length": 0,
+      "description": "Wave 2 Business Ontology Coverage & Gap Analysis.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_2_ontology_coverage.json",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_01_SCOUT_SOURCE",
+      "wave_index": 2
+    },
+    {
+      "artifact_id": "art-w2-stage01-schema-drift",
+      "byte_length": 1052,
+      "description": "Wave 2 Intra-Source Schema Drift Report.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_2_schema_drift_report.json",
+      "sha256": "DBAC1740F71228777B120F823FAB2976BF8EBC1CD3E775074E0EF21B947FCD9D",
+      "stage_id": "STAGE_01_SCOUT_SOURCE",
+      "wave_index": 2
+    },
+    {
+      "artifact_id": "art-w2-stage02-unstructured-grounding",
+      "byte_length": 0,
+      "description": "Wave 2 Unstructured Span Grounding & 3-Tier ER Report.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_2_unstructured_grounding.json",
+      "sha256": "<VOLATILE_SHA256>",
+      "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
+      "wave_index": 2
+    },
+    {
+      "artifact_id": "art-w2-stage03-pass1-triage",
+      "byte_length": 4687,
+      "description": "Wave 2 Pass 1 100% Column Triage Ledger.",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_2_pass1_column_triage.json",
+      "sha256": "C945F6C869A5F633AC56E721CD7E7DC40B6B63339486373C1F427C94E9B69B4B",
+      "stage_id": "STAGE_03_SHIP_VAULT_PASS1",
+      "wave_index": 2
+    },
+    {
+      "artifact_id": "art-w2-stage04-contract-attempt1",
+      "byte_length": 7947,
+      "description": "Wave 2 Pass 2 Candidate Contract (Attempt 1).",
+      "file_path": "<OUT>",
+      "media_type": "application/x-yaml",
+      "name": "wave_2_contract_attempt_1.yaml",
+      "sha256": "2FE0F7E32843836A664D6ADE17F17D11E5D9CEC8C109B35CCE742EDA35FD29E1",
+      "stage_id": "STAGE_04_SHIP_VAULT_PASS2",
+      "wave_index": 2
+    },
+    {
+      "artifact_id": "art-w2-stage05-toon-attempt1",
+      "byte_length": 112,
+      "description": "Wave 2 @toon_v1 Diagnostic Trace (Attempt 1).",
+      "file_path": "<OUT>",
+      "media_type": "text/plain",
+      "name": "wave_2_axi_trace_attempt_1.toon",
+      "sha256": "2978F83DD0AC644645838FD62A34E45893FE644F9D54455D7A7896D2BA8E8F80",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "wave_index": 2
+    },
+    {
+      "artifact_id": "art-w2-stage05-contract-verified",
+      "byte_length": 8242,
+      "description": "Wave 2 6-Gate Verified Data Vault 2.0 Contract v5.0.",
+      "file_path": "<OUT>",
+      "media_type": "application/x-yaml",
+      "name": "wave_2_contract_verified.yaml",
+      "sha256": "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "wave_index": 2
+    },
+    {
+      "artifact_id": "art-w2-stage06-canonical-ir",
+      "byte_length": 22139,
+      "description": "Wave 2 Lowered Canonical IR (v1.0.0).",
+      "file_path": "<OUT>",
+      "media_type": "application/json",
+      "name": "wave_2_canonical_ir.json",
+      "sha256": "8CEA66C733003301520220E7FB1D62C1865F80B88F5C47B240B943AD31872D79",
+      "stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+      "wave_index": 2
+    },
+    {
+      "artifact_id": "art-w2-stage06-four-zone-sql",
+      "byte_length": 61439,
+      "description": "Wave 2 Compiled 4-Zone DuckDB SQL Bundle.",
+      "file_path": "<OUT>",
+      "media_type": "application/sql",
+      "name": "wave_2_four_zone.sql",
+      "sha256": "10E338804CA75D6AD821F3F9127587F146F726F6E85213AEC708A791456CEFB6",
+      "stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+      "wave_index": 2
+    }
+  ],
+  "lifecycle_stage": "MULTI_SOURCE_EXPANSION",
+  "markdown_summary": "# Global Commerce Vault \u2014 Wave 2 Intra-Source Schema Drift (CRM Customers v2)\n\n- **Pipeline ID**: `pipe-global-commerce-wave2-schema-drift`\n- **Project ID**: `proj-global-commerce-001`\n- **Run ID**: `run-global-commerce-wave2`\n- **Domain Namespace**: `global_commerce`\n- **Harness Provider**: `agy`\n- **Overall Status**: `COMPLETED` (`overall_passed=True`)\n- **Total Duration**: `<DURATION>`\n\n## 1. Deterministic Validation Summary\n\n| Validation Stage | Passed | Checked Items | Verified Artifacts | Verified Events | PII Check | CAS Integrity |\n| :--- | :---: | :---: | :---: | :---: | :---: | :---: |\n| `INPUT_VALIDATION` | `True` | 7 | 0 | 0 | `True` | `True` |\n| `OUTPUT_VALIDATION` | `True` | 38 | 15 | 12 | `True` | `True` |\n\n## 2. Multi-Wave Progression Summary\n\n| Wave | Name | Type | Status | Sources | Columns | Attempts | Codemods | Sandbox |\n| :---: | :--- | :--- | :---: | :---: | :---: | :---: | :--- | :---: |\n| 2 | `Wave 2 \u2014 Intra-Source Schema Drift (CRM Customers v2)` | `SCHEMA_DRIFT` | `AUTO_REPAIRED` | 1 | 10 | 1 | `ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT` | `True` |\n\n## 3. Step-by-Step Execution Ledger\n\n| Step ID | Wave | Stage | Persona | Tier | Status | Attempts | Duration (ms) | Summary |\n| :--- | :---: | :--- | :--- | :---: | :---: | :---: | :---: | :--- |\n| `step-w0-stage00-orchestration` | 0 | `STAGE_00_ORCHESTRATION` | `vault-first-mate` | `reasoning` | `PASS` | 1 | <DURATION> | Validated 7 input items, loaded Graph A ontology (5 CBCs), and initialized agy harness. |\n| `step-w2-stage01-scout-source` | 2 | `STAGE_01_SCOUT_SOURCE` | `scout-source` | `fast` | `AUTO_REPAIRED` | 1 | <DURATION> | Profiled 1 source(s) (10 columns); detected 2 schema drift event(s). |\n| `step-w2-stage02-scout-unstructured` | 2 | `STAGE_02_SCOUT_UNSTRUCTURED` | `scout-unstructured` | `fast` | `PASS` | 1 | <DURATION> | Processed 0 unstructured document(s) with 0 verified spans (tiers={'Tier-U1': 0, 'Tier-U2': 0, 'Tier-U3': 0}). |\n| `step-w2-stage03-ship-vault-pass1` | 2 | `STAGE_03_SHIP_VAULT_PASS1` | `ship-vault` | `reasoning` | `PASS` | 1 | <DURATION> | Synthesized Pass 1 Column Triage Ledger covering 23 cumulative column(s). |\n| `step-w2-stage04-ship-vault-pass2` | 2 | `STAGE_04_SHIP_VAULT_PASS2` | `ship-vault` | `reasoning` | `PASS` | 1 | <DURATION> | Synthesized candidate contract v5.0 (4 Hubs, 3 Links, 5 Satellites). |\n| `step-w2-stage05-axi-dv-static-gates` | 2 | `STAGE_05_AXI_DV_STATIC_GATES` | `axi-dv` | `fast` | `AUTO_REPAIRED` | 1 | <DURATION> | 6-Gate static verification finished in 1 attempt(s) with status AUTO_REPAIRED; codemods=['ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT']. |\n| `step-w2-stage06-axi-dv-dynamic-sandbox` | 2 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `axi-dv` | `fast` | `PASS` | 1 | <DURATION> | Lowered Canonical IR, compiled 4-Zone SQL, and ran 4-Batch DuckDB Shadow Sandbox (15/15 DV-DYN checks). |\n| `step-w2-stage07-deterministic-compiler` | 2 | `STAGE_07_DETERMINISTIC_COMPILER` | `deterministic-compiler` | `fast` | `PASS` | 1 | <DURATION> | Materialized final contract, Canonical IR, 4-Zone SQL, and certified CAS + PII output invariants. |\n\n## 4. Final Artifacts\n\n| Key | Name | Stage | SHA-256 (Prefix) | Bytes | File Path |\n| :--- | :--- | :--- | :--- | :---: | :--- |\n| `final_contract` | `final_contract.yaml` | `STAGE_07_DETERMINISTIC_COMPILER` | `D19C00F565F27C55...` | 8242 | `<OUT> |\n| `final_canonical_ir` | `final_canonical_ir.json` | `STAGE_07_DETERMINISTIC_COMPILER` | `8CEA66C733003301...` | 22139 | `<OUT> |\n| `final_four_zone_sql` | `final_four_zone.sql` | `STAGE_07_DETERMINISTIC_COMPILER` | `10E338804CA75D6A...` | 61439 | `<OUT> |\n| `vault_ledger_jsonl` | `vault-ledger.jsonl` | `STAGE_07_DETERMINISTIC_COMPILER` | `<VOLATILE_SHA256_PREFIX>...` | 0 | `<OUT> |\n\n## 5. Intermediate Artifacts (11 recorded)\n\n| Artifact ID | Wave | Stage | Name | SHA-256 (Prefix) | Bytes |\n| :--- | :---: | :--- | :--- | :--- | :---: |\n| `art-stage00-graph-a-ontology` | 0 | `STAGE_00_ORCHESTRATION` | `graph_a_ontology.yaml` | `B070B99F76CEEE00...` | 4821 |\n| `art-w2-stage01-graph-b-profile` | 2 | `STAGE_01_SCOUT_SOURCE` | `wave_2_graph_b_profile.json` | `<VOLATILE_SHA256_PREFIX>...` | 0 |\n| `art-w2-stage01-ontology-coverage` | 2 | `STAGE_01_SCOUT_SOURCE` | `wave_2_ontology_coverage.json` | `<VOLATILE_SHA256_PREFIX>...` | 0 |\n| `art-w2-stage01-schema-drift` | 2 | `STAGE_01_SCOUT_SOURCE` | `wave_2_schema_drift_report.json` | `DBAC1740F7122877...` | 1052 |\n| `art-w2-stage02-unstructured-grounding` | 2 | `STAGE_02_SCOUT_UNSTRUCTURED` | `wave_2_unstructured_grounding.json` | `<VOLATILE_SHA256_PREFIX>...` | 0 |\n| `art-w2-stage03-pass1-triage` | 2 | `STAGE_03_SHIP_VAULT_PASS1` | `wave_2_pass1_column_triage.json` | `C945F6C869A5F633...` | 4687 |\n| `art-w2-stage04-contract-attempt1` | 2 | `STAGE_04_SHIP_VAULT_PASS2` | `wave_2_contract_attempt_1.yaml` | `2FE0F7E32843836A...` | 7947 |\n| `art-w2-stage05-toon-attempt1` | 2 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_2_axi_trace_attempt_1.toon` | `2978F83DD0AC6446...` | 112 |\n| `art-w2-stage05-contract-verified` | 2 | `STAGE_05_AXI_DV_STATIC_GATES` | `wave_2_contract_verified.yaml` | `D19C00F565F27C55...` | 8242 |\n| `art-w2-stage06-canonical-ir` | 2 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `wave_2_canonical_ir.json` | `8CEA66C733003301...` | 22139 |\n| `art-w2-stage06-four-zone-sql` | 2 | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `wave_2_four_zone.sql` | `10E338804CA75D6A...` | 61439 |",
+  "observability_events": [
+    {
+      "agent_persona": "vault-first-mate",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_00_ORCHESTRATION masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "checked_input_items": 7,
+          "model_used": "gemini-4-argon-high",
+          "provider": "agy",
+          "wave_count": 1
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-STR-001"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_00_ORCHESTRATION",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "vault-first-mate",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_00_ORCHESTRATION masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "cbc_count": 5,
+          "relationship_count": 4
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-ONT-001",
+        "DV-ONT-002",
+        "DV-ONT-004"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_00_ORCHESTRATION",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "scout-source",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_01_SCOUT_SOURCE masked for role 'VIEWER'.",
+        "verdict_pill": "AUTO_REPAIRED"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "columns_profiled": 10,
+          "drift_events_detected": 2,
+          "sources_profiled": 1,
+          "wave_index": 2
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "remediation": {
+        "action_description": "Route additive schema drift columns to companion satellite",
+        "codemod_type": "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT",
+        "patch_diff": "Detected 2 schema drift transition(s)",
+        "target_entity": "crm_salesforce.crm_customers"
+      },
+      "rule_ids_evaluated": [
+        "DV-REL-001",
+        "ALG-A9A"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_01_SCOUT_SOURCE",
+      "status": "AUTO_REPAIRED",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "scout-source",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_01_SCOUT_SOURCE masked for role 'VIEWER'.",
+        "verdict_pill": "AUTO_REPAIRED"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "drift_event_count": 2,
+          "wave_index": 2
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "remediation": {
+        "action_description": "Isolate newly added columns into additive companion Satellite",
+        "codemod_type": "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT",
+        "patch_diff": "[{\"drift_kind\": \"ADD_COLUMN\", \"source_table\": \"crm_salesforce.crm_customers\", \"column_name\": \"loyalty_tier_code\", \"previous_column_name\": null, \"previous_type\": null, \"new_type\": \"VARCHAR\", \"jaccard_value_overlap\": null, \"recommended_action\": \"Isolate 'loyalty_tier_code' (VARCHAR) into an additive extension Satellite (Algorithm A.9a) so existing Satellite hash_diff history remains immutable.\"}, {\"drift_kind\": \"ADD_COLUMN\", \"source_table\": \"crm_salesforce.crm_customers\", \"column_name\": \"annual_spend_band\", \"previous_column_name\": null, \"previous_type\": null, \"new_type\": \"VARCHAR\", \"jaccard_value_overlap\": null, \"recommended_action\": \"Isolate 'annual_spend_band' (VARCHAR) into an additive extension Satellite (Algorithm A.9a) so existing Satellite hash_diff history remains immutable.\"}]",
+        "target_entity": "crm_salesforce.crm_customers"
+      },
+      "rule_ids_evaluated": [
+        "ALG-A9A",
+        "DV-EVO-006"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_01_SCOUT_SOURCE",
+      "status": "AUTO_REPAIRED",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "scout-unstructured",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_02_SCOUT_UNSTRUCTURED masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "documents_count": 0,
+          "extractions_count": 0,
+          "tier_u1_count": 0,
+          "tier_u2_count": 0,
+          "tier_u3_count": 0,
+          "wave_index": 2
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "ALG-A9B"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "ship-vault",
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_03_SHIP_VAULT_PASS1 masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "triaged_column_count": 23,
+          "wave_index": 2
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-COL-012"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_03_SHIP_VAULT_PASS1",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "ship-vault",
+      "context_refs": {
+        "contract_yaml_pre_sha256": "2FE0F7E32843836A664D6ADE17F17D11E5D9CEC8C109B35CCE742EDA35FD29E1"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_04_SHIP_VAULT_PASS2 masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "hub_count": 4,
+          "link_count": 3,
+          "satellite_count": 5,
+          "wave_index": 2
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "ALG-A1",
+        "ALG-A4",
+        "DV-STR-001"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_04_SHIP_VAULT_PASS2",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "axi-dv",
+      "context_refs": {
+        "contract_yaml_post_sha256": "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB",
+        "contract_yaml_pre_sha256": "2FE0F7E32843836A664D6ADE17F17D11E5D9CEC8C109B35CCE742EDA35FD29E1"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "hubs_verified": 4,
+          "links_verified": 3,
+          "satellites_verified": 6,
+          "wave_index": 2
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-STR-001",
+        "DV-STR-014",
+        "ALG-A4"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "axi-dv",
+      "context_refs": {
+        "contract_yaml_post_sha256": "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB",
+        "contract_yaml_pre_sha256": "2FE0F7E32843836A664D6ADE17F17D11E5D9CEC8C109B35CCE742EDA35FD29E1"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
+        "verdict_pill": "AUTO_REPAIRED"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "applied_codemods": 1,
+          "wave_index": 2
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "remediation": {
+        "action_description": "Applied deterministic 3-axis satellite split & TOON repair",
+        "codemod_type": "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT",
+        "patch_diff": "Applied codemods: ['ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT']",
+        "target_entity": "satellites"
+      },
+      "rule_ids_evaluated": [
+        "ALG-A1"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "status": "AUTO_REPAIRED",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "axi-dv",
+      "context_refs": {
+        "contract_yaml_post_sha256": "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB",
+        "contract_yaml_pre_sha256": "2FE0F7E32843836A664D6ADE17F17D11E5D9CEC8C109B35CCE742EDA35FD29E1",
+        "toon_trace_sha256": "2978F83DD0AC644645838FD62A34E45893FE644F9D54455D7A7896D2BA8E8F80"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_05_AXI_DV_STATIC_GATES masked for role 'VIEWER'.",
+        "verdict_pill": "AUTO_REPAIRED"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "applied_codemod_count": 1,
+          "attempts": 1,
+          "wave_index": 2
+        }
+      },
+      "layer3_formal_proof": {
+        "algorithm_ref": "Algorithm A.8 (6-Gate Orchestrator)",
+        "toon_diagnostic_payload": "[REDACTED INTERNAL]"
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "remediation": {
+        "action_description": "Closed-loop @toon_v1 self-healing & AST codemod convergence",
+        "codemod_type": "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT",
+        "patch_diff": "Converged on attempt 1",
+        "target_entity": "column_triage_ledger"
+      },
+      "rule_ids_evaluated": [
+        "ALG-A8",
+        "DV-STR-001"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "status": "AUTO_REPAIRED",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "axi-dv",
+      "context_refs": {
+        "canonical_ir_sha256": "8CEA66C733003301520220E7FB1D62C1865F80B88F5C47B240B943AD31872D79",
+        "compiled_sql_sha256": "10E338804CA75D6AD821F3F9127587F146F726F6E85213AEC708A791456CEFB6"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_06_AXI_DV_DYNAMIC_SANDBOX masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "batches_passed": 4,
+          "dynamic_checks_passed": 15,
+          "wave_index": 2
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "DV-DYN-001",
+        "DV-DYN-003",
+        "DV-DYN-005",
+        "DV-DYN-007",
+        "DV-DYN-015"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    },
+    {
+      "agent_persona": "deterministic-compiler",
+      "context_refs": {
+        "canonical_ir_sha256": "8CEA66C733003301520220E7FB1D62C1865F80B88F5C47B240B943AD31872D79",
+        "compiled_sql_sha256": "10E338804CA75D6AD821F3F9127587F146F726F6E85213AEC708A791456CEFB6",
+        "contract_yaml_post_sha256": "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB"
+      },
+      "data_classification": "INTERNAL",
+      "event_id": "<EVENT_ID>",
+      "layer1_story_banner": {
+        "business_impact": "Sensitive INTERNAL telemetry payload masked for role 'VIEWER'.",
+        "headline": "[REDACTED INTERNAL] Stage STAGE_07_DETERMINISTIC_COMPILER masked for role 'VIEWER'.",
+        "verdict_pill": "PASS"
+      },
+      "layer2_visual_payload": {
+        "semantic_hash_pills": [],
+        "summary_metrics": {
+          "total_hubs": 4,
+          "total_links": 3,
+          "total_satellites": 6,
+          "waves_completed": 1
+        }
+      },
+      "parent_span_id": "<TELEMETRY_ID>",
+      "rule_ids_evaluated": [
+        "ALG-A5",
+        "ALG-A6",
+        "DV-EVO-001"
+      ],
+      "run_id": "<RUN_ID_1>",
+      "span_id": "<TELEMETRY_ID>",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "status": "PASS",
+      "timestamp_utc": "<TIMESTAMP>",
+      "trace_id": "<TELEMETRY_ID>"
+    }
+  ],
+  "ontology_version": "1.0.0",
+  "output_validation": {
+    "cas_integrity_verified": true,
+    "checked_items_count": 40,
+    "diagnostics": [],
+    "passed": true,
+    "pii_leak_check_passed": true,
+    "stage": "OUTPUT_VALIDATION",
+    "verified_artifacts_count": 17,
+    "verified_events_count": 12
+  },
+  "overall_passed": true,
+  "parent_sha256": null,
+  "pipeline_id": "pipe-global-commerce-wave2-schema-drift",
+  "project_id": "proj-global-commerce-001",
+  "resolved_holds": [],
+  "run_id": "<RUN_ID_1>",
+  "started_at": "<TIMESTAMP>",
+  "status": "COMPLETED",
+  "step_reports": [
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [],
+      "metrics": {
+        "cbc_count": 5,
+        "checked_items_count": 7,
+        "effective_max_retries": 3,
+        "llm_structured_plan_used": true,
+        "risk_assessment": "Validated 1 wave(s) for domain 'global_commerce'.",
+        "wave_execution_order": [
+          2
+        ]
+      },
+      "model_tier": "reasoning",
+      "model_used": "gemini-4-argon-high",
+      "output_artifact_sha256s": [
+        "B070B99F76CEEE006CF2371E6B4053E57283AC69761C92F3A999F733D3AF9609"
+      ],
+      "persona": "vault-first-mate",
+      "stage_id": "STAGE_00_ORCHESTRATION",
+      "status": "PASS",
+      "step_id": "step-w0-stage00-orchestration",
+      "summary": "Validated 7 input items, loaded Graph A ontology (5 CBCs), and initialized agy harness.",
+      "tool_invocations": [
+        "emit_observability_event"
+      ],
+      "wave_index": 0,
+      "wave_name": "Wave 2 \u2014 Intra-Source Schema Drift (CRM Customers v2)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "B070B99F76CEEE006CF2371E6B4053E57283AC69761C92F3A999F733D3AF9609"
+      ],
+      "metrics": {
+        "columns_profiled": 10,
+        "llm_structured_discovery_used": true,
+        "schema_drift_events": 2,
+        "sources_profiled": 1
+      },
+      "model_tier": "fast",
+      "model_used": "gemini-3.8-flash-high",
+      "output_artifact_sha256s": [
+        "<VOLATILE_SHA256>"
+      ],
+      "persona": "scout-source",
+      "stage_id": "STAGE_01_SCOUT_SOURCE",
+      "status": "AUTO_REPAIRED",
+      "step_id": "step-w2-stage01-scout-source",
+      "summary": "Profiled 1 source(s) (10 columns); detected 2 schema drift event(s).",
+      "tool_invocations": [
+        "profile_source_feed",
+        "emit_observability_event"
+      ],
+      "wave_index": 2,
+      "wave_name": "Wave 2 \u2014 Intra-Source Schema Drift (CRM Customers v2)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "<VOLATILE_SHA256>"
+      ],
+      "metrics": {
+        "llm_structured_extraction_used": false,
+        "tier_counts": {
+          "Tier-U1": 0,
+          "Tier-U2": 0,
+          "Tier-U3": 0
+        }
+      },
+      "model_tier": "fast",
+      "model_used": "gemini-3.8-flash-high",
+      "output_artifact_sha256s": [
+        "<VOLATILE_SHA256>"
+      ],
+      "persona": "scout-unstructured",
+      "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
+      "status": "PASS",
+      "step_id": "step-w2-stage02-scout-unstructured",
+      "summary": "Processed 0 unstructured document(s) with 0 verified spans (tiers={'Tier-U1': 0, 'Tier-U2': 0, 'Tier-U3': 0}).",
+      "tool_invocations": [
+        "extract_pdf_spans",
+        "emit_observability_event"
+      ],
+      "wave_index": 2,
+      "wave_name": "Wave 2 \u2014 Intra-Source Schema Drift (CRM Customers v2)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "<VOLATILE_SHA256>",
+        "<VOLATILE_SHA256>"
+      ],
+      "metrics": {
+        "llm_structured_triage_used": true,
+        "triaged_column_count": 23
+      },
+      "model_tier": "reasoning",
+      "model_used": "gemini-4-argon-high",
+      "output_artifact_sha256s": [
+        "C945F6C869A5F633AC56E721CD7E7DC40B6B63339486373C1F427C94E9B69B4B"
+      ],
+      "persona": "ship-vault",
+      "stage_id": "STAGE_03_SHIP_VAULT_PASS1",
+      "status": "PASS",
+      "step_id": "step-w2-stage03-ship-vault-pass1",
+      "summary": "Synthesized Pass 1 Column Triage Ledger covering 23 cumulative column(s).",
+      "tool_invocations": [
+        "emit_observability_event"
+      ],
+      "wave_index": 2,
+      "wave_name": "Wave 2 \u2014 Intra-Source Schema Drift (CRM Customers v2)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "C945F6C869A5F633AC56E721CD7E7DC40B6B63339486373C1F427C94E9B69B4B"
+      ],
+      "metrics": {
+        "hubs": 4,
+        "links": 3,
+        "satellites": 5
+      },
+      "model_tier": "reasoning",
+      "model_used": "gemini-4-argon-high",
+      "output_artifact_sha256s": [
+        "2FE0F7E32843836A664D6ADE17F17D11E5D9CEC8C109B35CCE742EDA35FD29E1"
+      ],
+      "persona": "ship-vault",
+      "stage_id": "STAGE_04_SHIP_VAULT_PASS2",
+      "status": "PASS",
+      "step_id": "step-w2-stage04-ship-vault-pass2",
+      "summary": "Synthesized candidate contract v5.0 (4 Hubs, 3 Links, 5 Satellites).",
+      "tool_invocations": [
+        "apply_ast_codemod",
+        "emit_observability_event"
+      ],
+      "wave_index": 2,
+      "wave_name": "Wave 2 \u2014 Intra-Source Schema Drift (CRM Customers v2)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "2FE0F7E32843836A664D6ADE17F17D11E5D9CEC8C109B35CCE742EDA35FD29E1"
+      ],
+      "metrics": {
+        "applied_codemods": [
+          "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT"
+        ],
+        "gate_scorecard": {
+          "G0_JSON_SCHEMA": "PASS",
+          "G1_ONTOLOGY_AND_GRAIN": "PASS",
+          "G2_KEY_AND_FK_DISCIPLINE": "PASS",
+          "G3_NETWORKX_BIPARTITE_DAG": "PASS",
+          "G4_YAGNI_AND_COLUMN_LEDGER": "PASS",
+          "G5_UNSTRUCTURED_SPAN_GROUNDING": "PASS"
+        },
+        "self_healing_attempts": 1
+      },
+      "model_tier": "fast",
+      "model_used": "gemini-3.8-flash-high",
+      "output_artifact_sha256s": [
+        "2978F83DD0AC644645838FD62A34E45893FE644F9D54455D7A7896D2BA8E8F80",
+        "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB"
+      ],
+      "persona": "axi-dv",
+      "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
+      "status": "AUTO_REPAIRED",
+      "step_id": "step-w2-stage05-axi-dv-static-gates",
+      "summary": "6-Gate static verification finished in 1 attempt(s) with status AUTO_REPAIRED; codemods=['ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT'].",
+      "tool_invocations": [
+        "run_axi_dv_gates",
+        "apply_ast_codemod",
+        "emit_observability_event"
+      ],
+      "wave_index": 2,
+      "wave_name": "Wave 2 \u2014 Intra-Source Schema Drift (CRM Customers v2)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB"
+      ],
+      "metrics": {
+        "batch_count": 4,
+        "batches_passed": true,
+        "dynamic_checks_passed": 15,
+        "dynamic_checks_total": 15,
+        "dynamic_rule_ids": [
+          "DV-DYN-001",
+          "DV-DYN-002",
+          "DV-DYN-003",
+          "DV-DYN-004",
+          "DV-DYN-005",
+          "DV-DYN-006",
+          "DV-DYN-007",
+          "DV-DYN-008",
+          "DV-DYN-009",
+          "DV-DYN-010",
+          "DV-DYN-011",
+          "DV-DYN-012",
+          "DV-DYN-013",
+          "DV-DYN-014",
+          "DV-DYN-015"
+        ],
+        "passed": true
+      },
+      "model_tier": "fast",
+      "model_used": "gemini-3.8-flash-high",
+      "output_artifact_sha256s": [
+        "8CEA66C733003301520220E7FB1D62C1865F80B88F5C47B240B943AD31872D79",
+        "10E338804CA75D6AD821F3F9127587F146F726F6E85213AEC708A791456CEFB6"
+      ],
+      "persona": "axi-dv",
+      "stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
+      "status": "PASS",
+      "step_id": "step-w2-stage06-axi-dv-dynamic-sandbox",
+      "summary": "Lowered Canonical IR, compiled 4-Zone SQL, and ran 4-Batch DuckDB Shadow Sandbox (15/15 DV-DYN checks).",
+      "tool_invocations": [
+        "compile_canonical_ir",
+        "execute_duckdb_sandbox",
+        "emit_observability_event"
+      ],
+      "wave_index": 2,
+      "wave_name": "Wave 2 \u2014 Intra-Source Schema Drift (CRM Customers v2)"
+    },
+    {
+      "attempt_count": 1,
+      "diagnostics": [],
+      "duration_ms": "<DURATION>",
+      "input_artifact_sha256s": [
+        "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB",
+        "8CEA66C733003301520220E7FB1D62C1865F80B88F5C47B240B943AD31872D79",
+        "10E338804CA75D6AD821F3F9127587F146F726F6E85213AEC708A791456CEFB6"
+      ],
+      "metrics": {
+        "observability_events_emitted": 12
+      },
+      "model_tier": "fast",
+      "model_used": "gemini-3.8-flash-high",
+      "output_artifact_sha256s": [
+        "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB",
+        "8CEA66C733003301520220E7FB1D62C1865F80B88F5C47B240B943AD31872D79",
+        "10E338804CA75D6AD821F3F9127587F146F726F6E85213AEC708A791456CEFB6",
+        "<VOLATILE_SHA256>"
+      ],
+      "persona": "deterministic-compiler",
+      "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
+      "status": "PASS",
+      "step_id": "step-w2-stage07-deterministic-compiler",
+      "summary": "Materialized final contract, Canonical IR, 4-Zone SQL, and certified CAS + PII output invariants.",
+      "tool_invocations": [
+        "compile_canonical_ir",
+        "emit_observability_event"
+      ],
+      "wave_index": 2,
+      "wave_name": "Wave 2 \u2014 Intra-Source Schema Drift (CRM Customers v2)"
+    }
+  ],
+  "total_duration_ms": "<DURATION>",
+  "wave_id": "W2",
+  "wave_reports": [
+    {
+      "applied_codemods": [
+        "ALG_A9A_INTRA_SOURCE_SCHEMA_DRIFT"
+      ],
+      "canonical_ir_sha256": "8CEA66C733003301520220E7FB1D62C1865F80B88F5C47B240B943AD31872D79",
+      "columns_profiled": 10,
+      "contract_sha256": "D19C00F565F27C55D1A166B32AE4FBB947A01AED53588145A1727D672E776AFB",
+      "gate_scorecard": {
+        "G0_JSON_SCHEMA": "PASS",
+        "G1_ONTOLOGY_AND_GRAIN": "PASS",
+        "G2_KEY_AND_FK_DISCIPLINE": "PASS",
+        "G3_NETWORKX_BIPARTITE_DAG": "PASS",
+        "G4_YAGNI_AND_COLUMN_LEDGER": "PASS",
+        "G5_UNSTRUCTURED_SPAN_GROUNDING": "PASS"
+      },
+      "sandbox_summary": {
+        "batch_count": 4,
+        "batches_passed": true,
+        "dynamic_checks_passed": 15,
+        "dynamic_checks_total": 15,
+        "dynamic_rule_ids": [
+          "DV-DYN-001",
+          "DV-DYN-002",
+          "DV-DYN-003",
+          "DV-DYN-004",
+          "DV-DYN-005",
+          "DV-DYN-006",
+          "DV-DYN-007",
+          "DV-DYN-008",
+          "DV-DYN-009",
+          "DV-DYN-010",
+          "DV-DYN-011",
+          "DV-DYN-012",
+          "DV-DYN-013",
+          "DV-DYN-014",
+          "DV-DYN-015"
+        ],
+        "passed": true
+      },
+      "schema_drift_events": [
+        {
+          "column_name": "loyalty_tier_code",
+          "drift_kind": "ADD_COLUMN",
+          "jaccard_value_overlap": null,
+          "new_type": "VARCHAR",
+          "previous_column_name": null,
+          "previous_type": null,
+          "recommended_action": "Isolate 'loyalty_tier_code' (VARCHAR) into an additive extension Satellite (Algorithm A.9a) so existing Satellite hash_diff history remains immutable.",
+          "source_table": "crm_salesforce.crm_customers"
+        },
+        {
+          "column_name": "annual_spend_band",
+          "drift_kind": "ADD_COLUMN",
+          "jaccard_value_overlap": null,
+          "new_type": "VARCHAR",
+          "previous_column_name": null,
+          "previous_type": null,
+          "recommended_action": "Isolate 'annual_spend_band' (VARCHAR) into an additive extension Satellite (Algorithm A.9a) so existing Satellite hash_diff history remains immutable.",
+          "source_table": "crm_salesforce.crm_customers"
+        }
+      ],
+      "self_healing_attempts": 1,
+      "sources_profiled": 1,
+      "sql_bundle_sha256": "10E338804CA75D6AD821F3F9127587F146F726F6E85213AEC708A791456CEFB6",
+      "status": "AUTO_REPAIRED",
+      "step_ids": [
+        "step-w2-stage01-scout-source",
+        "step-w2-stage02-scout-unstructured",
+        "step-w2-stage03-ship-vault-pass1",
+        "step-w2-stage04-ship-vault-pass2",
+        "step-w2-stage05-axi-dv-static-gates",
+        "step-w2-stage06-axi-dv-dynamic-sandbox",
+        "step-w2-stage07-deterministic-compiler"
+      ],
+      "unstructured_tier_counts": {
+        "Tier-U1": 0,
+        "Tier-U2": 0,
+        "Tier-U3": 0
+      },
+      "wave_index": 2,
+      "wave_name": "Wave 2 \u2014 Intra-Source Schema Drift (CRM Customers v2)",
+      "wave_type": "SCHEMA_DRIFT"
+    }
+  ]
+}

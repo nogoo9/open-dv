@@ -224,7 +224,7 @@ def verify_additive_evolution_invariants(
                 continue
             try:
                 parsed_list = sqlglot.parse(script)
-            except Exception as exc:
+            except (sqlglot.errors.SqlglotError, ValueError, TypeError) as exc:
                 violations.append(f"BREAKING_EVOLUTION [DV-EVO-005 / SQL_PARSE_ERR]: {exc}")
                 continue
             for ast in parsed_list:

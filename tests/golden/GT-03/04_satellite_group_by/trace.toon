@@ -1,0 +1,11 @@
+@toon_v1
+run_id: run-local-verify
+attempt: 1/3
+status: REJECT-WITH-TRACE
+violations[6]{gate,rule,action,target,fix}:
+ G4,ALG-A1,AUTO-FIX,satellites,"Applied 3-axis Satellite split & Gate 4 YAGNI cost guard (W_amp >= 50.0 MB/d)"
+ G6,DV-AST-006,REJECT,sat_fund_investran,"[DV-AST-006 / DV-G6-005] Raw Vault entity 'sat_fund_investran' contains GROUP BY or HAVING aggregation; aggregations belong in Business Vault."
+ G6,DV-AST-006,REJECT,sat_fund_investran,"[DV-AST-006 / DV-G6-005] 'sat_fund_investran' is missing mandatory audit column 'load_dts'."
+ G6,DV-AST-006,REJECT,sat_fund_investran,"[DV-AST-006 / DV-G6-005] 'sat_fund_investran' is missing mandatory audit column 'rec_src'."
+ G6,DV-AST-006,REJECT,sat_fund_investran,"[DV-AST-006 / DV-G6-005] Satellite 'sat_fund_investran' is missing a 'hash_diff' column."
+ G6,DV-AST-005,REJECT,sat_fund_investran,"[DV-AST-005 / DV-G6-004] Satellite INSERT on 'sat_fund_investran' lacks a 'hash_diff' delta comparison in its WHERE clause."

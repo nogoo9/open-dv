@@ -1,0 +1,1829 @@
+{
+  "spec_version": "1.0.0",
+  "contract_version": "1.0.0",
+  "global_options": [
+    {
+      "name": "format",
+      "flag": "--format",
+      "short": "-f",
+      "type": "string",
+      "required": false,
+      "default": "toon",
+      "choices": [
+        "toon",
+        "json",
+        "text"
+      ],
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Output formatting style (diagnostic TOON, machine RFC 8785 JSON, or human table)"
+    },
+    {
+      "name": "verbose",
+      "flag": "--verbose",
+      "short": "-v",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "choices": null,
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Enable verbose diagnostic logs"
+    },
+    {
+      "name": "version",
+      "flag": "--version",
+      "short": null,
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "choices": null,
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Show OpenDV CLI version"
+    },
+    {
+      "name": "json",
+      "flag": "--json",
+      "short": null,
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "choices": null,
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Format command output as deterministic RFC 8785 canonical JSON"
+    },
+    {
+      "name": "toon",
+      "flag": "--toon",
+      "short": null,
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "choices": null,
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Print compact diagnostic @toon_v1 trace output"
+    },
+    {
+      "name": "role",
+      "flag": "--role",
+      "short": null,
+      "type": "string",
+      "required": false,
+      "default": "INTERNAL_MODELER",
+      "choices": [
+        "PUBLIC",
+        "INTERNAL_MODELER",
+        "DATA_STEWARD",
+        "AUDITOR_FINANCE",
+        "RESTRICTED_PII_CUSTODIAN"
+      ],
+      "env_var": "OPENDV_ROLE",
+      "inline_upload": false,
+      "help": "5-Tier RBAC role clearance context"
+    }
+  ],
+  "commands": [
+    {
+      "name": "profile",
+      "description": "Profile raw CSV or data files to discover schema, types, candidate keys, and empirical distributions (Graph B)",
+      "help": "Profile Bronze tabular sources to extract empirical Graph B schema",
+      "aliases": [],
+      "availability": "both",
+      "request_dto": "ProfileRequest",
+      "response_dto": "ProfileResponse",
+      "options": [
+        {
+          "name": "source",
+          "flag": "--source",
+          "short": null,
+          "type": "string",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Source URI or adapter spec string to profile"
+        },
+        {
+          "name": "file",
+          "flag": "--file",
+          "short": null,
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to data file to profile (backwards compatibility alias for --source)"
+        },
+        {
+          "name": "source_csv",
+          "flag": "--source-csv",
+          "short": "-s",
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to source CSV file"
+        },
+        {
+          "name": "graph_b",
+          "flag": "--graph-b",
+          "short": "-g",
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to existing Graph B profile to validate"
+        },
+        {
+          "name": "project_id",
+          "flag": "--project-id",
+          "short": "-p",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Associated project identifier"
+        },
+        {
+          "name": "source_system",
+          "flag": "--source-system",
+          "short": null,
+          "type": "string",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Origin source system identifier"
+        },
+        {
+          "name": "table_name",
+          "flag": "--table-name",
+          "short": "-t",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Target physical table name"
+        }
+      ]
+    },
+    {
+      "name": "compile",
+      "description": "Compile Data Vault 2.0 contract into Canonical Intermediate Representation (IR) and 4-Zone SQL",
+      "help": "Compile Data Vault contract YAML to 4-Zone SQL bundle",
+      "aliases": [],
+      "availability": "both",
+      "request_dto": "CompileRequest",
+      "response_dto": "CompileResponse",
+      "options": [
+        {
+          "name": "contract",
+          "flag": "--contract",
+          "short": "-c",
+          "type": "path",
+          "required": true,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to Data Vault 2.0 YAML contract"
+        },
+        {
+          "name": "canonical_ir",
+          "flag": "--canonical-ir",
+          "short": "-i",
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Optional pre-existing Canonical IR JSON path"
+        },
+        {
+          "name": "run_id",
+          "flag": "--run-id",
+          "short": "-r",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Associated pipeline run ID"
+        }
+      ]
+    },
+    {
+      "name": "verify",
+      "description": "Execute Axi-DV verification gates against Data Vault 2.0 contracts, profiles, and compiled bundles",
+      "help": "Verify Data Vault 2.0 contract against Axi-DV gates",
+      "aliases": [
+        "axi-dv"
+      ],
+      "availability": "both",
+      "request_dto": "VerifyRequest",
+      "response_dto": "VerifyResponse",
+      "options": [
+        {
+          "name": "contract",
+          "flag": "--contract",
+          "short": "-c",
+          "type": "path",
+          "required": true,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to Data Vault 2.0 contract YAML"
+        },
+        {
+          "name": "graph_a",
+          "flag": "--graph-a",
+          "short": "-a",
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to Graph A business ontology YAML"
+        },
+        {
+          "name": "graph_b",
+          "flag": "--graph-b",
+          "short": "-b",
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to Graph B statistical profile JSON"
+        },
+        {
+          "name": "prior_contract",
+          "flag": "--prior-contract",
+          "short": null,
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to baseline contract YAML for grain/nullability drift checks"
+        },
+        {
+          "name": "compiled_sql",
+          "flag": "--compiled-sql",
+          "short": "-s",
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to compiled 4-Zone SQL bundle for AST validation"
+        },
+        {
+          "name": "run_id",
+          "flag": "--run-id",
+          "short": "-r",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Associated pipeline run ID"
+        },
+        {
+          "name": "apply_codemods",
+          "flag": "--apply-codemods",
+          "short": null,
+          "type": "boolean",
+          "required": false,
+          "default": true,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Automatically synthesize and apply rule-governed codemod repairs"
+        }
+      ]
+    },
+    {
+      "name": "sandbox",
+      "description": "Execute DuckDB sandbox assertions, point-in-time joins, and dynamic adversarial batch stress-testing",
+      "help": "Execute DuckDB dynamic validation sandbox queries",
+      "aliases": [],
+      "availability": "both",
+      "request_dto": "SandboxQueryRequest",
+      "response_dto": "SandboxQueryResponse",
+      "options": [
+        {
+          "name": "run_id",
+          "flag": "--run-id",
+          "short": "-r",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Target pipeline run ID containing compiled sandbox assets"
+        },
+        {
+          "name": "contract",
+          "flag": "--contract",
+          "short": "-c",
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to Data Vault 2.0 contract YAML"
+        },
+        {
+          "name": "canonical_ir",
+          "flag": "--canonical-ir",
+          "short": "-i",
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": true,
+          "help": "Path to Canonical IR JSON"
+        },
+        {
+          "name": "query_type",
+          "flag": "--query-type",
+          "short": "-q",
+          "type": "string",
+          "required": false,
+          "default": "ADVERSARIAL_BATCHES_1_TO_4",
+          "choices": [
+            "ADVERSARIAL_BATCHES_1_TO_4",
+            "QUERY_D10_PIT",
+            "QUERY_D10B_VALUATION"
+          ],
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Sandbox verification scenario type"
+        },
+        {
+          "name": "cutoff",
+          "flag": "--cutoff",
+          "short": null,
+          "type": "string",
+          "required": false,
+          "default": "2026-11-15 23:59:59",
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Point-in-time assertion timestamp cutoff (YYYY-MM-DD HH:MM:SS)"
+        },
+        {
+          "name": "sql",
+          "flag": "--sql",
+          "short": "-s",
+          "type": "string",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Custom ad-hoc SQL query to execute against active sandbox zones"
+        }
+      ]
+    },
+    {
+      "name": "pipeline",
+      "description": "Manage and execute end-to-end multi-agent Data Vault 2.0 synthesis pipelines",
+      "help": "Execute or validate end-to-end Data Vault synthesis pipelines",
+      "aliases": [],
+      "availability": "both",
+      "subcommands": [
+        {
+          "name": "run",
+          "description": "Execute end-to-end 8-stage synthesis pipeline run",
+          "help": "Execute end-to-end pipeline run",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "PipelineRunRequest",
+          "response_dto": "PipelineRunHandle",
+          "options": [
+            {
+              "name": "input",
+              "flag": "--input",
+              "short": "-i",
+              "type": "path",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to pipeline input specification YAML"
+            },
+            {
+              "name": "harness_config",
+              "flag": "--harness-config",
+              "short": "-c",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Path to agent harness configuration YAML"
+            },
+            {
+              "name": "initial_contract",
+              "flag": "--initial-contract",
+              "short": null,
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to starting contract YAML"
+            },
+            {
+              "name": "provider",
+              "flag": "--provider",
+              "short": "-p",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target harness provider override"
+            },
+            {
+              "name": "hold_policy",
+              "flag": "--hold-policy",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Captain hold intervention policy"
+            },
+            {
+              "name": "output_dir",
+              "flag": "--output-dir",
+              "short": "-o",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target directory for generated artifacts and reports"
+            },
+            {
+              "name": "stream",
+              "flag": "--stream",
+              "short": "-s",
+              "type": "boolean",
+              "required": false,
+              "default": true,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Stream live stage execution progress"
+            },
+            {
+              "name": "stream_tokens",
+              "flag": "--stream-tokens",
+              "short": null,
+              "type": "boolean",
+              "required": false,
+              "default": false,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Stream live LLM tokens and thinking deltas"
+            },
+            {
+              "name": "wave_id",
+              "flag": "--wave-id",
+              "short": "-w",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target wave identifier (e.g. W0, W1, W2)"
+            }
+          ]
+        },
+        {
+          "name": "validate",
+          "description": "Deterministically validate pipeline input specifications, sources, and harness configuration",
+          "help": "Validate pipeline inputs and pre-flight configuration",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "PipelineValidateRequest",
+          "response_dto": null,
+          "options": [
+            {
+              "name": "input",
+              "flag": "--input",
+              "short": "-i",
+              "type": "path",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to input spec file"
+            },
+            {
+              "name": "harness_config",
+              "flag": "--harness-config",
+              "short": "-c",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Path to harness config file"
+            },
+            {
+              "name": "initial_contract",
+              "flag": "--initial-contract",
+              "short": null,
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to initial contract YAML"
+            },
+            {
+              "name": "provider",
+              "flag": "--provider",
+              "short": "-p",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target harness provider override"
+            },
+            {
+              "name": "hold_policy",
+              "flag": "--hold-policy",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Steward hold policy"
+            }
+          ]
+        },
+        {
+          "name": "report",
+          "description": "Inspect or dump a completed pipeline run report",
+          "help": "Inspect pipeline execution report",
+          "aliases": [],
+          "availability": "standalone_only",
+          "request_dto": null,
+          "response_dto": null,
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Pipeline run ID"
+            },
+            {
+              "name": "report_path",
+              "flag": "--report-path",
+              "short": "-o",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Export report path"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "run",
+      "description": "Manage platform runs: list, query status, trigger, abort, or inspect event streams",
+      "help": "Manage pipeline execution runs",
+      "aliases": [],
+      "availability": "both",
+      "subcommands": [
+        {
+          "name": "list",
+          "description": "List runs for a project",
+          "help": "List runs",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": null,
+          "response_dto": null,
+          "options": [
+            {
+              "name": "project_id",
+              "flag": "--project-id",
+              "short": "-p",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Filter by project ID"
+            }
+          ]
+        },
+        {
+          "name": "get",
+          "description": "Get run details and current lifecycle status",
+          "help": "Get run details",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": null,
+          "response_dto": "ProjectRunDTO",
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target run ID"
+            }
+          ]
+        },
+        {
+          "name": "create",
+          "description": "Create and initialize a run",
+          "help": "Create a run",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "CreateRunRequest",
+          "response_dto": "PipelineRunHandle",
+          "options": [
+            {
+              "name": "project_id",
+              "flag": "--project-id",
+              "short": "-p",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Project ID"
+            },
+            {
+              "name": "harness",
+              "flag": "--harness",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Harness configuration name"
+            },
+            {
+              "name": "contract",
+              "flag": "--contract",
+              "short": "-c",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Contract YAML path"
+            },
+            {
+              "name": "initial_contract_path",
+              "flag": "--initial-contract-path",
+              "short": null,
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to initial contract YAML file"
+            },
+            {
+              "name": "initial_contract",
+              "flag": "--initial-contract",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Inline starting contract YAML or JSON string"
+            },
+            {
+              "name": "wave_id",
+              "flag": "--wave-id",
+              "short": "-w",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target wave identifier"
+            }
+          ]
+        },
+        {
+          "name": "abort",
+          "description": "Abort an in-flight pipeline run",
+          "help": "Abort run",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": null,
+          "response_dto": null,
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target run ID"
+            }
+          ]
+        },
+        {
+          "name": "events",
+          "description": "Stream or query events for a run",
+          "help": "Stream run events",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": null,
+          "response_dto": null,
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target run ID"
+            },
+            {
+              "name": "last_event_id",
+              "flag": "--last-event-id",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Replay starting after this event ID"
+            },
+            {
+              "name": "role",
+              "flag": "--role",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": "PUBLIC",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "RBAC role clearance for event redaction"
+            }
+          ]
+        },
+        {
+          "name": "explorer",
+          "description": "Fetch 3-Level Explorer bundle for a completed or active run",
+          "help": "Fetch 3-Level Explorer bundle",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": null,
+          "response_dto": "ExplorerBundleDTO",
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target run ID"
+            },
+            {
+              "name": "wave_id",
+              "flag": "--wave-id",
+              "short": "-w",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target wave identifier"
+            }
+          ]
+        },
+        {
+          "name": "artifact",
+          "description": "Fetch specific run artifact content and metadata",
+          "help": "Fetch run artifact",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": null,
+          "response_dto": "RunArtifactDTO",
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target run ID"
+            },
+            {
+              "name": "artifact_id",
+              "flag": "--artifact-id",
+              "short": "-a",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Artifact ID to retrieve"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "hold",
+      "description": "Inspect and resolve Captain-Hold human-in-the-loop escalations",
+      "help": "Manage Captain-Hold escalations",
+      "aliases": [],
+      "availability": "both",
+      "subcommands": [
+        {
+          "name": "list",
+          "description": "List holds for a run",
+          "help": "List active holds",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": null,
+          "response_dto": null,
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target run ID"
+            }
+          ]
+        },
+        {
+          "name": "decide",
+          "description": "Resolve a Captain-Hold escalation with APPROVE, REJECT, or ANSWER",
+          "help": "Resolve Captain-Hold escalation",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "CaptainHoldDecisionRequest",
+          "response_dto": "CaptainHoldDecisionResponse",
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target run ID"
+            },
+            {
+              "name": "action",
+              "flag": "--action",
+              "short": "-a",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": [
+                "APPROVE",
+                "REJECT",
+                "ANSWER"
+              ],
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Decision action to take"
+            },
+            {
+              "name": "hold_id",
+              "flag": "--hold-id",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Specific hold ID"
+            },
+            {
+              "name": "event_id",
+              "flag": "--event-id",
+              "short": "-e",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Triggering event ID"
+            },
+            {
+              "name": "candidate_id",
+              "flag": "--candidate-id",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Selected candidate option ID"
+            },
+            {
+              "name": "notes",
+              "flag": "--notes",
+              "short": "-n",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Steward justification notes"
+            },
+            {
+              "name": "steward_id",
+              "flag": "--steward-id",
+              "short": "-s",
+              "type": "string",
+              "required": false,
+              "default": "steward-cli",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Acting steward identity"
+            }
+          ]
+        },
+        {
+          "name": "approve",
+          "description": "Approve a Captain-Hold escalation to proceed",
+          "help": "Approve hold",
+          "aliases": [
+            "resolve"
+          ],
+          "availability": "both",
+          "request_dto": "CaptainHoldDecisionRequest",
+          "response_dto": "CaptainHoldDecisionResponse",
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target run ID"
+            },
+            {
+              "name": "hold_id",
+              "flag": "--hold-id",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Specific hold ID"
+            },
+            {
+              "name": "event_id",
+              "flag": "--event-id",
+              "short": "-e",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Triggering event ID"
+            },
+            {
+              "name": "candidate_id",
+              "flag": "--candidate-id",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Selected candidate option ID"
+            },
+            {
+              "name": "notes",
+              "flag": "--notes",
+              "short": "-n",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Steward justification notes"
+            },
+            {
+              "name": "steward_id",
+              "flag": "--steward-id",
+              "short": "-s",
+              "type": "string",
+              "required": false,
+              "default": "steward-cli",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Acting steward identity"
+            }
+          ]
+        },
+        {
+          "name": "reject",
+          "description": "Reject a Captain-Hold escalation",
+          "help": "Reject hold",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "CaptainHoldDecisionRequest",
+          "response_dto": "CaptainHoldDecisionResponse",
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target run ID"
+            },
+            {
+              "name": "hold_id",
+              "flag": "--hold-id",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Specific hold ID"
+            },
+            {
+              "name": "event_id",
+              "flag": "--event-id",
+              "short": "-e",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Triggering event ID"
+            },
+            {
+              "name": "notes",
+              "flag": "--notes",
+              "short": "-n",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Steward rejection notes"
+            },
+            {
+              "name": "steward_id",
+              "flag": "--steward-id",
+              "short": "-s",
+              "type": "string",
+              "required": false,
+              "default": "steward-cli",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Acting steward identity"
+            }
+          ]
+        },
+        {
+          "name": "answer",
+          "description": "Answer a Captain-Hold prompt by choosing a candidate option",
+          "help": "Answer hold",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "CaptainHoldDecisionRequest",
+          "response_dto": "CaptainHoldDecisionResponse",
+          "options": [
+            {
+              "name": "run_id",
+              "flag": "--run-id",
+              "short": "-r",
+              "type": "string",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target run ID"
+            },
+            {
+              "name": "hold_id",
+              "flag": "--hold-id",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Specific hold ID"
+            },
+            {
+              "name": "event_id",
+              "flag": "--event-id",
+              "short": "-e",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Triggering event ID"
+            },
+            {
+              "name": "candidate_id",
+              "flag": "--candidate-id",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Selected candidate option ID"
+            },
+            {
+              "name": "notes",
+              "flag": "--notes",
+              "short": "-n",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Steward response notes"
+            },
+            {
+              "name": "steward_id",
+              "flag": "--steward-id",
+              "short": "-s",
+              "type": "string",
+              "required": false,
+              "default": "steward-cli",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Acting steward identity"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "ontology",
+      "description": "Manage and evolve enterprise Business Concept ontologies (Graph A), proposals, and deltas",
+      "help": "Manage Graph A ontology suggestions, deltas, diffs, and decisions",
+      "aliases": [],
+      "availability": "both",
+      "subcommands": [
+        {
+          "name": "suggest",
+          "description": "Generate an additive ontology evolution proposal for Graph A from source data profiles (IP-1)",
+          "help": "Suggest ontology proposal from source profiles",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "OntologySuggestionRequest",
+          "response_dto": "OntologyProposal",
+          "options": [
+            {
+              "name": "base",
+              "flag": "--base",
+              "short": "-b",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to base Graph A ontology YAML/JSON file"
+            },
+            {
+              "name": "profile",
+              "flag": "--profile",
+              "short": "-p",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to empirical Graph B data profile JSON file"
+            },
+            {
+              "name": "source",
+              "flag": "--source",
+              "short": "-s",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to bronze source dataset file"
+            },
+            {
+              "name": "context_doc",
+              "flag": "--context-doc",
+              "short": "-c",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to business context document (e.g. glossary, dictionary, policy)"
+            },
+            {
+              "name": "mode",
+              "flag": "--mode",
+              "short": "-m",
+              "type": "string",
+              "required": false,
+              "default": "DELTA",
+              "choices": [
+                "BOOTSTRAP",
+                "DELTA",
+                "HOLD_RESOLUTION"
+              ],
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Recommender operation mode (BOOTSTRAP without base ontology, or DELTA)"
+            },
+            {
+              "name": "domain_namespace",
+              "flag": "--domain-namespace",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Target domain namespace"
+            },
+            {
+              "name": "recommender_id",
+              "flag": "--recommender-id",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Identifier of specific ontology recommender plugin to use"
+            },
+            {
+              "name": "output",
+              "flag": "--output",
+              "short": "-o",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Path to write output proposal JSON"
+            }
+          ]
+        },
+        {
+          "name": "validate-delta",
+          "description": "Deterministically validate an additive ontology delta against deployed contract and base Graph A (ONT-EVO-001..003)",
+          "help": "Validate an ontology delta",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "OntologyValidateDeltaRequest",
+          "response_dto": "OntologyValidationResult",
+          "options": [
+            {
+              "name": "delta",
+              "flag": "--delta",
+              "short": "-d",
+              "type": "path",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to OntologyDelta JSON/YAML file to validate"
+            },
+            {
+              "name": "base",
+              "flag": "--base",
+              "short": "-b",
+              "type": "path",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to base Graph A ontology YAML/JSON file"
+            },
+            {
+              "name": "contract",
+              "flag": "--contract",
+              "short": "-c",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to deployed Data Vault contract YAML file"
+            }
+          ]
+        },
+        {
+          "name": "diff",
+          "description": "Compute structural diff between two Graph A ontologies (additions, refinements, breaking changes)",
+          "help": "Compute diff between two ontologies",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "OntologyDiffRequest",
+          "response_dto": "OntologyDiff",
+          "options": [
+            {
+              "name": "base",
+              "flag": "--base",
+              "short": "-b",
+              "type": "path",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to base Graph A ontology YAML/JSON file"
+            },
+            {
+              "name": "target",
+              "flag": "--target",
+              "short": "-t",
+              "type": "path",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to target Graph A ontology YAML/JSON file"
+            }
+          ]
+        },
+        {
+          "name": "accept",
+          "description": "Apply accepted delta operations to a base ontology, generate Graph A vN+1 with CAS lineage, and record decision",
+          "help": "Accept and apply an ontology delta",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "OntologyDecisionRequest",
+          "response_dto": "OntologyDecisionResponse",
+          "options": [
+            {
+              "name": "delta",
+              "flag": "--delta",
+              "short": "-d",
+              "type": "path",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to OntologyDelta JSON/YAML file"
+            },
+            {
+              "name": "base",
+              "flag": "--base",
+              "short": "-b",
+              "type": "path",
+              "required": true,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to base Graph A ontology YAML/JSON file"
+            },
+            {
+              "name": "contract",
+              "flag": "--contract",
+              "short": "-c",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to deployed Data Vault contract YAML file"
+            },
+            {
+              "name": "op_id",
+              "flag": "--op-id",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Specific operation ID to accept (can be repeated or comma-separated)"
+            },
+            {
+              "name": "decided_by",
+              "flag": "--decided-by",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": "steward",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Identifier of the decision maker (e.g. 'steward' or policy name)"
+            },
+            {
+              "name": "notes",
+              "flag": "--notes",
+              "short": "-n",
+              "type": "string",
+              "required": false,
+              "default": "",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Steward decision rationale notes"
+            },
+            {
+              "name": "output",
+              "flag": "--output",
+              "short": "-o",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Path to write resulting Graph A vN+1 YAML file"
+            }
+          ]
+        },
+        {
+          "name": "reject",
+          "description": "Record steward rejection of an ontology delta",
+          "help": "Reject an ontology delta",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "OntologyDecisionRequest",
+          "response_dto": "OntologyDecisionResponse",
+          "options": [
+            {
+              "name": "delta",
+              "flag": "--delta",
+              "short": "-d",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to OntologyDelta JSON/YAML file"
+            },
+            {
+              "name": "proposal_id",
+              "flag": "--proposal-id",
+              "short": "-p",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Proposal identifier being rejected"
+            },
+            {
+              "name": "base",
+              "flag": "--base",
+              "short": "-b",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Path to base Graph A ontology YAML/JSON file"
+            },
+            {
+              "name": "decided_by",
+              "flag": "--decided-by",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": "steward",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Identifier of the decision maker"
+            },
+            {
+              "name": "notes",
+              "flag": "--notes",
+              "short": "-n",
+              "type": "string",
+              "required": false,
+              "default": "",
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Steward rejection rationale notes"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "error_map": [
+    {
+      "error_code": "OK",
+      "exit_code": 0,
+      "http_status": 200,
+      "problem_title": "OK",
+      "problem_type_uri": "urn:opendv:ok"
+    },
+    {
+      "error_code": "VERIFICATION_FAILED",
+      "exit_code": 1,
+      "http_status": 200,
+      "problem_title": "Verification Rejection",
+      "problem_type_uri": "urn:opendv:verification-failed"
+    },
+    {
+      "error_code": "PATH_CONTAINMENT_ERROR",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Path Containment Violation",
+      "problem_type_uri": "urn:opendv:path-containment-error"
+    },
+    {
+      "error_code": "INVALID_REQUEST",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Bad Request",
+      "problem_type_uri": "urn:opendv:invalid-request"
+    },
+    {
+      "error_code": "RESOURCE_NOT_FOUND",
+      "exit_code": 2,
+      "http_status": 404,
+      "problem_title": "Resource Not Found",
+      "problem_type_uri": "urn:opendv:not-found"
+    },
+    {
+      "error_code": "RUN_NOT_FOUND",
+      "exit_code": 2,
+      "http_status": 404,
+      "problem_title": "Run Not Found",
+      "problem_type_uri": "urn:opendv:run-not-found"
+    },
+    {
+      "error_code": "PROJECT_NOT_FOUND",
+      "exit_code": 2,
+      "http_status": 404,
+      "problem_title": "Project Not Found",
+      "problem_type_uri": "urn:opendv:project-not-found"
+    },
+    {
+      "error_code": "HOLD_NOT_FOUND",
+      "exit_code": 2,
+      "http_status": 404,
+      "problem_title": "Hold Not Found",
+      "problem_type_uri": "urn:opendv:hold-not-found"
+    },
+    {
+      "error_code": "ARTIFACT_NOT_FOUND",
+      "exit_code": 2,
+      "http_status": 404,
+      "problem_title": "Artifact Not Found",
+      "problem_type_uri": "urn:opendv:artifact-not-found"
+    },
+    {
+      "error_code": "PAYLOAD_TOO_LARGE",
+      "exit_code": 2,
+      "http_status": 413,
+      "problem_title": "Payload Too Large",
+      "problem_type_uri": "urn:opendv:payload-too-large"
+    },
+    {
+      "error_code": "UNSUPPORTED_FORMAT",
+      "exit_code": 2,
+      "http_status": 415,
+      "problem_title": "Unsupported Format",
+      "problem_type_uri": "urn:opendv:unsupported-format"
+    },
+    {
+      "error_code": "INPUT_VALIDATION_ERROR",
+      "exit_code": 2,
+      "http_status": 422,
+      "problem_title": "Input Validation Error",
+      "problem_type_uri": "urn:opendv:input-validation-error"
+    },
+    {
+      "error_code": "SCHEMA_VALIDATION_ERROR",
+      "exit_code": 2,
+      "http_status": 422,
+      "problem_title": "Schema Validation Error",
+      "problem_type_uri": "urn:opendv:schema-validation-error"
+    },
+    {
+      "error_code": "SOURCE_LOAD_ERROR",
+      "exit_code": 2,
+      "http_status": 422,
+      "problem_title": "Source Ingestion Error",
+      "problem_type_uri": "urn:opendv:source-load-error"
+    },
+    {
+      "error_code": "SANDBOX_EXECUTION_ERROR",
+      "exit_code": 2,
+      "http_status": 422,
+      "problem_title": "Sandbox Execution Failure",
+      "problem_type_uri": "urn:opendv:sandbox-error"
+    },
+    {
+      "error_code": "PROVIDER_CONFIG_ERROR",
+      "exit_code": 2,
+      "http_status": 422,
+      "problem_title": "Provider Configuration Error",
+      "problem_type_uri": "urn:opendv:provider-config-error"
+    },
+    {
+      "error_code": "DETERMINISTIC_PROVIDER_REJECTED",
+      "exit_code": 2,
+      "http_status": 422,
+      "problem_title": "Deterministic Provider Prohibited",
+      "problem_type_uri": "urn:opendv:deterministic-rejected"
+    },
+    {
+      "error_code": "CONTRACT_VERSION_MISMATCH",
+      "exit_code": 2,
+      "http_status": 422,
+      "problem_title": "Contract Version Mismatch",
+      "problem_type_uri": "urn:opendv:version-mismatch"
+    },
+    {
+      "error_code": "ONTOLOGY_RECOMMENDER_UNAVAILABLE",
+      "exit_code": 2,
+      "http_status": 422,
+      "problem_title": "Ontology Recommender Unavailable",
+      "problem_type_uri": "urn:opendv:ontology-recommender-unavailable"
+    },
+    {
+      "error_code": "CAS_INTEGRITY_FAILURE",
+      "exit_code": 2,
+      "http_status": 500,
+      "problem_title": "CAS Digest Integrity Failure",
+      "problem_type_uri": "urn:opendv:cas-integrity-failure"
+    },
+    {
+      "error_code": "INTERNAL_ERROR",
+      "exit_code": 2,
+      "http_status": 500,
+      "problem_title": "Internal Server Error",
+      "problem_type_uri": "urn:opendv:internal-error"
+    },
+    {
+      "error_code": "API_UNREACHABLE",
+      "exit_code": 2,
+      "http_status": 503,
+      "problem_title": "API Service Unreachable",
+      "problem_type_uri": "urn:opendv:api-unreachable"
+    },
+    {
+      "error_code": "PROVIDER_UNAVAILABLE",
+      "exit_code": 2,
+      "http_status": 503,
+      "problem_title": "Harness Provider Unavailable",
+      "problem_type_uri": "urn:opendv:provider-unavailable"
+    }
+  ]
+}

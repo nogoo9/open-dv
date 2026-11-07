@@ -5,7 +5,6 @@ Provides:
 - `ClaudeCliHarnessAdapter`: Claude Code CLI (`claude-cli` / `claude-code`)
 - `AntigravityHarnessAdapter`: Google Antigravity SDK (`google.antigravity`)
 - `ClaudeAgentHarnessAdapter`: Anthropic Claude Agent SDK (`claude_agent_sdk`)
-- `DeterministicHarnessAdapter`: Internal test-only deterministic mock adapter
 """
 
 from __future__ import annotations
@@ -26,20 +25,14 @@ from opendv_agent_harness.adapters.claude_cli_adapter import (
     ClaudeCliHarnessAdapter,
     ClaudeCodeCliAdapter,
 )
-from opendv_agent_harness.adapters.deterministic_adapter import (
-    DEFAULT_DETERMINISTIC_MODEL_MAP,
-    DeterministicHarnessAdapter,
-)
 
 __all__ = [
     "DEFAULT_AGY_MODEL_MAP",
     "DEFAULT_CLAUDE_MODEL_MAP",
-    "DEFAULT_DETERMINISTIC_MODEL_MAP",
     "AgyCliHarnessAdapter",
     "AntigravityCliAdapter",
     "AntigravityHarnessAdapter",
     "ClaudeAgentHarnessAdapter",
     "ClaudeCliHarnessAdapter",
     "ClaudeCodeCliAdapter",
-    "DeterministicHarnessAdapter",
 ]

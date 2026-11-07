@@ -1,0 +1,429 @@
+{
+  "$defs": {
+    "MappedConceptCoverage": {
+      "additionalProperties": false,
+      "description": "Detailed mapping breakdown for a Canonical Business Concept.",
+      "properties": {
+        "concept_uri": {
+          "description": "Canonical concept URI in Graph A",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "concept_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Concept name",
+          "title": "Concept Name"
+        },
+        "target_hub": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target Data Vault Hub",
+          "title": "Target Hub"
+        },
+        "mapped_tables": {
+          "description": "Bronze tables mapped to this concept",
+          "items": {
+            "type": "string"
+          },
+          "title": "Mapped Tables",
+          "type": "array"
+        },
+        "mapped_columns": {
+          "description": "List of mapped column references ({'table': ..., 'column': ...})",
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Mapped Columns",
+          "type": "array"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Mapping confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        }
+      },
+      "required": [
+        "concept_uri"
+      ],
+      "title": "MappedConceptCoverage",
+      "type": "object"
+    },
+    "UnmappedColumnGap": {
+      "additionalProperties": false,
+      "description": "Diagnostic detail for an unmapped bronze column gap.",
+      "properties": {
+        "table_name": {
+          "description": "Table containing the unmapped column",
+          "title": "Table Name",
+          "type": "string"
+        },
+        "column_name": {
+          "description": "Unmapped column name",
+          "title": "Column Name",
+          "type": "string"
+        },
+        "inferred_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inferred or physical data type",
+          "title": "Inferred Type"
+        },
+        "sample_values": {
+          "description": "Sample values if available",
+          "items": {
+            "type": "string"
+          },
+          "title": "Sample Values",
+          "type": "array"
+        },
+        "candidate_concept_uris": {
+          "description": "Candidate concept URIs for recommender",
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Concept Uris",
+          "type": "array"
+        }
+      },
+      "required": [
+        "table_name",
+        "column_name"
+      ],
+      "title": "UnmappedColumnGap",
+      "type": "object"
+    },
+    "UnmappedMentionGap": {
+      "additionalProperties": false,
+      "description": "Diagnostic detail for an unmapped unstructured mention gap.",
+      "properties": {
+        "doc_sha256": {
+          "description": "Document content SHA-256",
+          "title": "Doc Sha256",
+          "type": "string"
+        },
+        "char_start": {
+          "description": "Character start offset",
+          "minimum": 0,
+          "title": "Char Start",
+          "type": "integer"
+        },
+        "char_end": {
+          "description": "Character end offset",
+          "minimum": 0,
+          "title": "Char End",
+          "type": "integer"
+        },
+        "text_snippet": {
+          "description": "Verbatim text span quote",
+          "title": "Text Snippet",
+          "type": "string"
+        },
+        "inferred_entity_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Inferred entity type",
+          "title": "Inferred Entity Type"
+        }
+      },
+      "required": [
+        "doc_sha256",
+        "char_start",
+        "char_end",
+        "text_snippet"
+      ],
+      "title": "UnmappedMentionGap",
+      "type": "object"
+    },
+    "UnmappedTableGap": {
+      "additionalProperties": false,
+      "description": "Diagnostic detail for an unmapped bronze table gap.",
+      "properties": {
+        "table_name": {
+          "description": "Qualified or base table name",
+          "title": "Table Name",
+          "type": "string"
+        },
+        "columns": {
+          "description": "All columns in this unmapped table",
+          "items": {
+            "type": "string"
+          },
+          "title": "Columns",
+          "type": "array"
+        },
+        "row_count": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Observed row count if profiled",
+          "title": "Row Count"
+        },
+        "candidate_hints": {
+          "description": "Potential concept candidate hints",
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Hints",
+          "type": "array"
+        },
+        "reason": {
+          "default": "ABSENT_FROM_ONTOLOGY",
+          "description": "Reason for unmapped status",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "table_name"
+      ],
+      "title": "UnmappedTableGap",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Explicit deterministic coverage artifact reporting ontology mapping metrics and gaps.\n\nReplaces silent provisional-URI synthesis per Decision D9 and ONT-03.",
+  "properties": {
+    "artifact_id": {
+      "description": "Unique artifact identifier, e.g. art-w0-stage01-ontology-coverage",
+      "title": "Artifact Id",
+      "type": "string"
+    },
+    "run_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Pipeline run identifier",
+      "title": "Run Id"
+    },
+    "wave_id": {
+      "default": "wave_0",
+      "description": "Pipeline wave identifier or index",
+      "title": "Wave Id",
+      "type": "string"
+    },
+    "domain_namespace": {
+      "default": "",
+      "description": "Domain namespace of the ontology",
+      "title": "Domain Namespace",
+      "type": "string"
+    },
+    "graph_a_version": {
+      "default": "1.0.0",
+      "description": "Graph A ontology version",
+      "title": "Graph A Version",
+      "type": "string"
+    },
+    "graph_a_sha256": {
+      "default": "",
+      "description": "Cryptographic SHA-256 hash of Graph A ontology",
+      "title": "Graph A Sha256",
+      "type": "string"
+    },
+    "total_tables": {
+      "default": 0,
+      "description": "Total number of Bronze tables surveyed",
+      "minimum": 0,
+      "title": "Total Tables",
+      "type": "integer"
+    },
+    "mapped_tables_count": {
+      "default": 0,
+      "description": "Count of mapped tables",
+      "minimum": 0,
+      "title": "Mapped Tables Count",
+      "type": "integer"
+    },
+    "unmapped_tables_count": {
+      "default": 0,
+      "description": "Count of unmapped tables",
+      "minimum": 0,
+      "title": "Unmapped Tables Count",
+      "type": "integer"
+    },
+    "total_columns": {
+      "default": 0,
+      "description": "Total number of Bronze columns surveyed",
+      "minimum": 0,
+      "title": "Total Columns",
+      "type": "integer"
+    },
+    "mapped_columns_count": {
+      "default": 0,
+      "description": "Count of mapped columns",
+      "minimum": 0,
+      "title": "Mapped Columns Count",
+      "type": "integer"
+    },
+    "unmapped_columns_count": {
+      "default": 0,
+      "description": "Count of unmapped columns",
+      "minimum": 0,
+      "title": "Unmapped Columns Count",
+      "type": "integer"
+    },
+    "coverage_ratio": {
+      "description": "Exact coverage ratio: mapped_columns / max(1, total_columns)",
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Coverage Ratio",
+      "type": "number"
+    },
+    "mapped_concepts": {
+      "description": "List of mapped canonical concept URIs",
+      "items": {
+        "type": "string"
+      },
+      "title": "Mapped Concepts",
+      "type": "array"
+    },
+    "mapped_tables": {
+      "description": "List of mapped bronze table names",
+      "items": {
+        "type": "string"
+      },
+      "title": "Mapped Tables",
+      "type": "array"
+    },
+    "unmapped_tables": {
+      "description": "List of unmapped bronze table names",
+      "items": {
+        "type": "string"
+      },
+      "title": "Unmapped Tables",
+      "type": "array"
+    },
+    "unmapped_columns": {
+      "description": "List of unmapped column entries: [{'table': ..., 'column': ...}]",
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Unmapped Columns",
+      "type": "array"
+    },
+    "unmapped_mentions": {
+      "description": "List of unmapped document mentions / entity snippets",
+      "items": {
+        "type": "string"
+      },
+      "title": "Unmapped Mentions",
+      "type": "array"
+    },
+    "provisional_uris_found": {
+      "description": "List of deprecated provisional URIs detected in inputs",
+      "items": {
+        "type": "string"
+      },
+      "title": "Provisional Uris Found",
+      "type": "array"
+    },
+    "diagnostics": {
+      "description": "Diagnostic messages and gap notices for steward/recommender",
+      "items": {
+        "type": "string"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "detailed_mapped_concepts": {
+      "description": "Detailed concept mapping breakdowns",
+      "items": {
+        "$ref": "#/$defs/MappedConceptCoverage"
+      },
+      "title": "Detailed Mapped Concepts",
+      "type": "array"
+    },
+    "detailed_unmapped_tables": {
+      "description": "Detailed unmapped table gap descriptions",
+      "items": {
+        "$ref": "#/$defs/UnmappedTableGap"
+      },
+      "title": "Detailed Unmapped Tables",
+      "type": "array"
+    },
+    "detailed_unmapped_columns": {
+      "description": "Detailed unmapped column gap descriptions",
+      "items": {
+        "$ref": "#/$defs/UnmappedColumnGap"
+      },
+      "title": "Detailed Unmapped Columns",
+      "type": "array"
+    },
+    "detailed_unmapped_mentions": {
+      "description": "Detailed unmapped mention gap descriptions",
+      "items": {
+        "$ref": "#/$defs/UnmappedMentionGap"
+      },
+      "title": "Detailed Unmapped Mentions",
+      "type": "array"
+    },
+    "generated_at_utc": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO 8601 UTC timestamp of coverage calculation",
+      "title": "Generated At Utc"
+    }
+  },
+  "required": [
+    "artifact_id",
+    "coverage_ratio"
+  ],
+  "title": "OntologyCoverageArtifact",
+  "type": "object"
+}

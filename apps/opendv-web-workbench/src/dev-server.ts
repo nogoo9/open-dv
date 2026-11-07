@@ -3,14 +3,14 @@ import { join, resolve } from "node:path";
 
 export const DEFAULT_DEV_SERVER_PORT = 5173;
 export const DEFAULT_DEV_SERVER_HOST = "127.0.0.1";
-export const DEFAULT_API_URL = "http://127.0.0.1:8420";
+export const DEFAULT_API_URL = process.env.OPENDV_API_URL ?? "";
 export const WORKBENCH_CSP =
 	"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'";
 
 export interface WorkbenchDevServerOptions {
 	/** Port to listen on. Defaults to process.env.PORT ?? 5173. Use 0 for an ephemeral port in tests. */
 	port?: number;
-	/** Upstream Platform API URL. Defaults to process.env.OPENDV_API_URL ?? "http://127.0.0.1:8420". */
+	/** Upstream Platform API URL. Defaults to process.env.OPENDV_API_URL. */
 	apiUrl?: string;
 	/** Whether to suppress listening / proxy startup log messages. */
 	silent?: boolean;
@@ -43,7 +43,7 @@ async function buildBrowserBundle(workbenchRoot: string): Promise<string> {
  * - Serves `index.html` at `/` and `/index.html` with CSP headers.
  * - Serves `/src/index.css` with text/css and CSP headers.
  * - Compiles and serves the browser bundle at `/src/index.ts` with application/javascript and CSP headers.
- * - Proxies `/api/*` requests to the upstream Platform API server (default `http://127.0.0.1:8420`),
+ * - Proxies `/api/*` requests to the upstream Platform API server (configured via OPENDV_API_URL),
  *   returning RFC 9457 `502 Bad Gateway` problem details if upstream is unreachable.
  */
 export function createWorkbenchDevServer(
@@ -122,8 +122,12 @@ export function createWorkbenchDevServer(
 				}
 			}
 
-			// 2. Serve index.html at / or /index.html
-			if (url.pathname === "/" || url.pathname === "/index.html") {
+			// 2. Serve index.html at /, /index.html, or deep-linked /stages/00..07 routes
+			if (
+				url.pathname === "/" ||
+				url.pathname === "/index.html" ||
+				/^\/stages\/0?[0-7]\/?$/.test(url.pathname)
+			) {
 				const htmlPath = join(workbenchRoot, "index.html");
 				if (existsSync(htmlPath)) {
 					const html = readFileSync(htmlPath, "utf-8");

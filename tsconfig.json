@@ -7,6 +7,12 @@
     },
     {
       "path": "./packages/opendv-protocol-ts"
+    },
+    {
+      "path": "./packages/opendv-protocol-ts/tests"
+    },
+    {
+      "path": "./apps/opendvctl"
     }
   ]
 }

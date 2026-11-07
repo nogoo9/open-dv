@@ -1,0 +1,105 @@
+{
+  "proposal_id": "prop-gt06-001",
+  "wave_id": "wave_1",
+  "recommender_id": "testkit-recommender",
+  "recommender_version": "1.0.0",
+  "base_ontology_sha256": "9abb6eefb16f7ff412c18e3580bab76cdccc56b6e58b66944fd56fc49117fc02",
+  "delta": {
+    "delta_id": "delta-gt06-001",
+    "parent_sha256": "9abb6eefb16f7ff412c18e3580bab76cdccc56b6e58b66944fd56fc49117fc02",
+    "domain_namespace": "pe_asset_management",
+    "base_ontology_version": "1.0.0",
+    "target_ontology_version": "1.1.0",
+    "operations": [
+      {
+        "op_id": "op-gt06-01",
+        "op_type": "add_concept",
+        "rationale": "Deal advisory fees detected in unmapped advisory fee invoices.",
+        "confidence": 0.95,
+        "evidence_refs": [
+          {
+            "evidence_type": "column_profile",
+            "reference_uri": "bronze_advisory_invoices.tax_id",
+            "snippet": "ADV-9921",
+            "confidence": 0.95
+          }
+        ],
+        "concept_uri": "urn:ontology:entity:advisor",
+        "concept_name": "Advisor",
+        "elm_archetype": "WHO_EXTERNAL_ADVISOR",
+        "definition": "An advisory firm providing deal due diligence and transaction services.",
+        "description": "",
+        "target_hub": "hub_advisor",
+        "attributes": [
+          "advisor_name",
+          "tax_id"
+        ]
+      },
+      {
+        "op_id": "op-gt06-02",
+        "op_type": "add_relationship",
+        "rationale": "Connect Fund entity with external advisory firm.",
+        "confidence": 0.92,
+        "evidence_refs": [],
+        "relationship_uri": "urn:ontology:relationship:fund_advisor",
+        "relationship_name": "FundAdvisor",
+        "target_link": "lnk_fund_advisor",
+        "endpoints": [
+          "urn:ontology:entity:advisor",
+          "urn:ontology:entity:fund"
+        ],
+        "grain_semantics": "A Fund retains external Advisors for transaction due diligence.",
+        "description": ""
+      },
+      {
+        "op_id": "op-gt06-03",
+        "op_type": "add_reference_enumeration",
+        "rationale": "Categorize external advisor scope of work.",
+        "confidence": 0.9,
+        "evidence_refs": [],
+        "enum_uri": "urn:ontology:enum:advisor_role",
+        "name": "advisor_role",
+        "target_reference_table": "ref_advisor_role",
+        "values": [
+          "LEGAL",
+          "TAX",
+          "ACCOUNTING",
+          "TECHNICAL_DD"
+        ],
+        "allowed_codes": [
+          "LEGAL",
+          "TAX",
+          "ACCOUNTING",
+          "TECHNICAL_DD"
+        ],
+        "description": "Advisory engagement service categories."
+      },
+      {
+        "op_id": "op-gt06-04",
+        "op_type": "refine_definition",
+        "rationale": "Clarify vehicle scope under ILPA v2 reporting standard.",
+        "confidence": 0.98,
+        "evidence_refs": [],
+        "target_uri": "urn:ontology:entity:fund",
+        "concept_uri": "urn:ontology:entity:fund",
+        "refined_description": "Includes co-investment vehicles and special purpose syndicates.",
+        "additional_attributes": [
+          "vintage_year",
+          "target_commitment_usd"
+        ]
+      }
+    ],
+    "metadata": {
+      "author": "testkit-recommender",
+      "benchmark": "PAR-ONT-HOLD"
+    }
+  },
+  "rationale": "Incorporate external deal advisory domain concepts into institutional PE ontology.",
+  "confidence_score": 0.94,
+  "coverage_before": 0.8,
+  "coverage_after": 1.0,
+  "diagnostics": [
+    "Resolved unmapped feed bronze_advisory_invoices"
+  ],
+  "created_at_utc": "2026-11-06T12:00:00Z"
+}

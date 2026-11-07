@@ -2,7 +2,7 @@
 
 > **Module:** `docs/08-platform-mvp-monorepo-and-api-spec.md`  
 > **Parent Specification:** [`DV2_AGENT_REFERENCE_GUIDE.md`](DV2_AGENT_REFERENCE_GUIDE.md) (`v6.0.0`)  
-> **Companion Platform Specs:** [`09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md) · [`10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) · [`11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)  
+> **Companion Platform Specs:** [`09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md) · [`11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)  
 > **Scope:** Polyglot monorepo orchestration (`proto` + `moon` + `uv` + `bun`), package boundary topology (`packages/*` and `apps/*`), 5-tier RBAC data redaction, Content-Addressable Artifact Store (CAS), and the OpenAPI 3.1 REST + Server-Sent Events (SSE) NDJSON streaming contract (`/api/v1/...`) that guarantees 100% UI-to-backend decoupling.
 
 ---
@@ -17,7 +17,7 @@
 2. **Single Source of Protocol Truth (`schemas/` $\to$ `openapi-v1.json` $\to$ `@opendv/protocol-ts`):**
    - The normative Draft 2020-12 JSON Schemas in [`schemas/`](../schemas/) (`no-mistake-dv2-contract-v5.schema.json`, `dv2-canonical-ir.schema.json`, `vault-observability-event.schema.json`) and the FastAPI Pydantic v2 models in `apps/opendv-platform-api` deterministically export `schemas/openapi-v1.json` via `moon run opendv-platform-api:export-openapi`.
    - `packages/opendv-protocol-ts` consumes `schemas/*.json` to provide zero-dependency TypeScript DTOs, a typed `OpenDVPlatformClient` (REST), a resilient `VaultEventStreamClient` (SSE with `Last-Event-ID` replay), and an offline `MockVaultEventStreamClient` (`.jsonl` replay).
-3. **1-Day UI Re-Implementation Guarantee:** Because the backend pre-computes view projections (`/api/v1/runs/{id}/workbench/{view_id}`) and streams self-contained `VaultObservabilityEvent` records (`/api/v1/runs/{id}/events`), any presentation client—whether `apps/opendv-web-workbench` (React 19 + Tailwind v4), a future Svelte/Vue/Solid web app, a Tauri/Electron desktop client, a VS Code extension, or `apps/opendv-cli`—can be built or replaced from scratch without touching a single line of backend code.
+3. **1-Day UI Re-Implementation Guarantee:** Because the backend pre-computes 3-level Explorer projections (`/api/v1/runs/{id}/explorer`, `/api/v1/runs/{id}/artifacts/{artifact_id}`) and streams self-contained `VaultObservabilityEvent` records (`/api/v1/runs/{id}/events`), any presentation client—whether `apps/opendv-web-workbench` (React 19 + Tailwind v4), a future Svelte/Vue/Solid web app, a Tauri/Electron desktop client, a VS Code extension, or `apps/opendvctl`—can be built or replaced from scratch without touching a single line of backend code.
 4. **Content-Addressable Artifact Store (CAS):** Every model contract YAML, Canonical IR JSON, `@toon_v1` diagnostic trace, compiled 4-Zone SQL bundle, and Graph B empirical profile is stored by its uppercase hex SHA-256 digest under `state/artifacts/<sha256>` and referenced in `VaultObservabilityEvent.context_refs` (`graph_a_sha256`, `graph_b_sha256`, `contract_yaml_pre_sha256`, `contract_yaml_post_sha256`, `canonical_ir_sha256`, `compiled_sql_sha256`, `toon_trace_sha256`).
 5. **Server-Side 5-Tier RBAC Redaction Before Wire Serialization:** Every HTTP request and SSE connection is filtered through `opendv-telemetry`'s 5-tier RBAC classification engine *before* leaving the server process. Raw `CONFIDENTIAL`, `MNPI`, or `RESTRICTED_PII` values (and unauthorized semantic hash pill business keys/labels) are masked unless the caller holds clearance, while identity keys are rendered as **Semantic Hash Pills** (`[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`).
 6. **First-Class Human-in-the-Loop (`ASK-USER` / Captain-Hold) Lifecycle:** When the pipeline encounters a genuine business-semantic ambiguity (`Tier-U3` unstructured entity resolution margin $< 0.15$, `DV-EVO-003` grain conflict, unmapped ontology concept, or `max_retries=3` exhaustion), the run transitions to `PAUSED_HOLD`, emits an `ASK-USER` event on the SSE stream, and parks until resolved via `POST /api/v1/runs/{id}/decisions`.
@@ -46,7 +46,7 @@ open-dv/
 ├── schemas/                                      # Normative Draft 2020-12 JSON Schemas & exported OpenAPI 3.1 contract
 │   ├── no-mistake-dv2-contract-v5.schema.json    # Constrained decoding contract schema (v5.0)
 │   ├── dv2-canonical-ir.schema.json              # Canonical Intermediate Representation (IR v1.0.0)
-│   ├── vault-observability-event.schema.json     # VaultObservabilityEvent telemetry schema (WB-00..WB-11)
+│   ├── vault-observability-event.schema.json     # VaultObservabilityEvent telemetry schema
 │   └── openapi-v1.json                           # Deterministically exported by `moon run opendv-platform-api:export-openapi`
 ├── examples/                                     # Reference contracts, Canonical IR, Graph A ontology, Graph B profile
 │   ├── dv_model_contract.yaml
@@ -62,6 +62,11 @@ open-dv/
 │   ├── sandboxes/                                # Persistent DuckDB shadow sandbox files: state/sandboxes/<run_id>.duckdb
 │   └── holds/                                    # Durable Captain-Hold decision records: state/holds/<hold_id>.json
 ├── packages/
+│   ├── opendv-contracts/                         # [Python Library] Language-Neutral DTOs, Events & Request/Response Models
+│   ├── opendv-cli-common/                        # [Python Library] Shared CLI Rendering, Tables, TOON & Exit Code Invariants
+│   ├── opendv-service/                           # [Python Library] Headless Application Core & Pipeline Orchestrator (REQ-CORE-01)
+│   ├── opendv-sources/                           # [Python Library] Pluggable Source Adapters & Format Parsers (REQ-SRC-01/02)
+│   ├── opendv-testkit/                           # [Python Library] Isolated Test Doubles, Fixtures & Deterministic Recommender
 │   ├── opendv-core/                              # [Python Library] Domain Models, IR, Contract v5, ELM Math, Alg A.5 Hashing
 │   ├── opendv-telemetry/                         # [Python Library] Ledger Emitter, CAS, 5-Tier RBAC Redaction, Hash Pills
 │   ├── opendv-axi-verifier/                      # [Python Library] 6-Gate Verifier, Codemods A.1-A.9b, NetworkX, SQLGlot, TOON
@@ -70,8 +75,9 @@ open-dv/
 │   └── opendv-protocol-ts/                       # [TypeScript Library] Zero-Dep Schema DTOs, REST Client, SSE Client & Replay Engine
 └── apps/
     ├── opendv-platform-api/                      # [Python Application] Headless FastAPI ASGI Server (/api/v1 REST + SSE)
-    ├── opendv-cli/                               # [Python Application] Unified `opendv` & `axi-dv` CLI (Remote API or Local Mode)
-    └── opendv-web-workbench/                     # [TypeScript Application] Decoupled 12-View Explainability UI (WB-00..WB-11)
+    ├── opendv-cli/                               # [Python Application] Standalone In-Process Engine CLI (`opendv`)
+    ├── opendvctl/                                # [TypeScript Application] Compiled Standalone Bun Platform Client (`opendvctl`)
+    └── opendv-web-workbench/                     # [TypeScript Application] Decoupled 3-Level Explorer UI
 ```
 
 ### 2.2 Workspace Project Dependency DAG & Layer Constraints
@@ -79,36 +85,47 @@ open-dv/
 ```mermaid
 flowchart TD
     subgraph PyLibs ["Python Workspace Libraries (packages/* — layer: library)"]
-        CORE["opendv-core\n(tag: domain-core)"]
-        TEL["opendv-telemetry\n(tag: telemetry)"]
-        AXI["opendv-axi-verifier\n(tag: verifier)"]
-        SBX["opendv-duckdb-sandbox\n(tag: duckdb-sandbox)"]
-        HAR["opendv-agent-harness\n(tag: agent-harness)"]
+        CONTRACTS["opendv-contracts\n(tag: contracts)\nDTOs & Events"]
+        CORE["opendv-core\n(tag: domain-core)\nMath, Hashing, Models"]
+        SOURCES["opendv-sources\n(tag: sources)\nPluggable Adapters"]
+        TEL["opendv-telemetry\n(tag: telemetry)\nLedger, CAS, RBAC"]
+        AXI["opendv-axi-verifier\n(tag: verifier)\n6-Gate Engine"]
+        SBX["opendv-duckdb-sandbox\n(tag: duckdb-sandbox)\n4-Zone Compiler & Sandbox"]
+        HAR["opendv-agent-harness\n(tag: agent-harness)\nPersonas & Tools"]
+        SERVICE["opendv-service\n(tag: service)\nShared App Core (REQ-CORE-01)"]
+        CLICOM["opendv-cli-common\nCLI Rendering & Formatting"]
+        TESTKIT["opendv-testkit\n(tag: testkit)\nIsolated Test Doubles"]
     end
 
-    subgraph PyApps ["Python Headless Applications (apps/* — layer: application)"]
-        API["opendv-platform-api\n(tag: api-server)\nExposes /api/v1/* REST + SSE"]
-        CLI["opendv-cli\n(tag: cli)\n`opendv` & `axi-dv` CLI"]
+    subgraph PyApps ["Python Applications (apps/*)"]
+        API["opendv-platform-api\n(layer: application, tag: api-server)\nFastAPI Controller (/api/v1)"]
+        CLI["opendv-cli\n(layer: automation, tag: cli)\n`opendv` Standalone In-Process Engine"]
     end
 
     subgraph TSWorkspace ["TypeScript Bun Workspace (packages/* & apps/*)"]
-        PTS["opendv-protocol-ts\n(layer: library, tag: protocol-sdk)\nZero-Dep DTOs + REST/SSE/Replay SDK"]
-        WEB["opendv-web-workbench\n(layer: application, tag: web-ui)\n12-View Workbench (WB-00..WB-11)"]
+        PTS["opendv-protocol-ts\n(layer: library, tag: protocol-sdk)\nZero-Dep DTOs + REST/SSE Client"]
+        CTL["apps/opendvctl\n(layer: application, tag: client-cli)\nCompiled Platform Client"]
+        WEB["opendv-web-workbench\n(layer: application, tag: web-ui)\n3-Level Explorer UI"]
     end
 
     SCHEMAS[("/schemas/*.json &\n/schemas/openapi-v1.json")]
 
-    TEL --> CORE
-    AXI --> CORE & TEL
-    SBX --> CORE & AXI & TEL
-    HAR --> CORE & AXI & SBX & TEL
-    API --> CORE & TEL & AXI & SBX & HAR
-    CLI --> CORE & TEL & AXI & SBX & HAR & API
+    CORE --> CONTRACTS
+    SOURCES --> CORE & CONTRACTS
+    TEL --> CORE & CONTRACTS
+    AXI --> CORE & TEL & CONTRACTS
+    SBX --> CORE & AXI & TEL & CONTRACTS & SOURCES
+    HAR --> CORE & AXI & SBX & TEL & CONTRACTS & SOURCES
+    SERVICE --> CORE & TEL & AXI & SBX & HAR & CONTRACTS & SOURCES
+    CLICOM --> CONTRACTS
+    TESTKIT --> SERVICE & CORE & CONTRACTS
+    API --> SERVICE & CONTRACTS
+    CLI --> SERVICE & CLICOM & CONTRACTS
     API -. "export-openapi" .-> SCHEMAS
     SCHEMAS -. "schema & DTO sync" .-> PTS
+    CTL --> PTS
     WEB --> PTS
     PTS -. "HTTP REST + SSE (/api/v1/*)" .-> API
-    CLI -. "HTTP REST + SSE (--api-url)" .-> API
 ```
 
 ### 2.3 Four Empirical Toolchain Guardrails Baked into the Monorepo Configs
@@ -117,7 +134,7 @@ flowchart TD
 | :---: | :--- | :--- | :--- |
 | **1** | **`.moon/toolchains.yml` & WASM Plugin IDs** | In `moon >= 2.0` (`2.3.0`), toolchain configuration lives in `.moon/toolchains.yml` (plural) and uses WASM plugin keys `unstable_python` and `unstable_uv`. | Commit `.moon/toolchains.yml` with `unstable_python` and `unstable_uv` plugin keys (never the legacy Moon 1.x `.moon/toolchain.yml`). |
 | **2** | **`$project` vs. `$projectName` Token Expansion in `.moon/tasks/python.yml`** | `$projectName` expands to `project.title` (containing spaces), breaking `uv run --package $projectName`. | Always use `$project` (which expands to the exact project ID, e.g. `opendv-core`) in `.moon/tasks/python.yml`. |
-| **3** | **Moon Layer Constraint (`application` $\not\to$ `application`)** | `unstable_python` infers Moon graph edges from `pyproject.toml` `dependencies`. When `apps/opendv-cli` depends on `opendv-platform-api` (for `--local` state/sandbox parity), keeping both on `layer: 'application'` raises `invalid_layer_relationship`. | Declare `layer: 'automation'` in `apps/opendv-cli/moon.yml` and include `'api-server'` in `constraints.tagRelationships.cli` in `.moon/workspace.yml`. |
+| **3** | **Moon Layer Constraint (`application` $\not\to$ `application`) & Shared Core (`REQ-CORE-01`)** | `unstable_python` infers Moon graph edges from `pyproject.toml` `dependencies`. When `apps/opendv-cli` and `apps/opendv-platform-api` both consume shared core `packages/opendv-service`, declare `layer: 'automation'` for `apps/opendv-cli` and `layer: 'application'` for `apps/opendv-platform-api`. | Enforce `tagRelationships` in `.moon/workspace.yml`: `opendv-cli` delegates 100% to `opendv-service` and never imports from `opendv_platform_api` (Decision D5). |
 | **4** | **TypeScript `TS6305` Composite Project Reference Ordering** | Running `tsc --noEmit` in `apps/opendv-web-workbench` before `packages/opendv-protocol-ts` emits `.d.ts` declarations fails when `includeProjectReferenceSources: true`. | Set `includeProjectReferenceSources: false` in `.moon/toolchains.yml`, run `bun x tsc --emitDeclarationOnly && bun build ...` in `opendv-protocol-ts:build`, and declare `deps: ['^:build']` in `.moon/tasks/typescript.yml`. |
 
 ---
@@ -543,7 +560,7 @@ testpaths = [
   "name": "opendv-monorepo",
   "version": "0.1.0",
   "private": true,
-  "description": "Open-DV TypeScript Protocol SDK and Decoupled 12-View Explainability Web Workbench",
+  "description": "Open-DV TypeScript Protocol SDK and Decoupled 3-Level Explainability Web Workbench",
   "packageManager": "bun@1.3.13",
   "workspaces": [
     "packages/opendv-protocol-ts",
@@ -605,50 +622,87 @@ testpaths = [
 
 | Project Path | Moon `id` | `language` | `layer` | `tags` | `dependsOn` | Custom Tasks |
 | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| `packages/opendv-core` | `opendv-core` | `python` | `library` | `['python', 'domain-core']` | `[]` | `validate-schemas` |
-| `packages/opendv-telemetry` | `opendv-telemetry` | `python` | `library` | `['python', 'telemetry']` | `['opendv-core']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
-| `packages/opendv-axi-verifier` | `opendv-axi-verifier` | `python` | `library` | `['python', 'verifier']` | `['opendv-core', 'opendv-telemetry']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
-| `packages/opendv-duckdb-sandbox` | `opendv-duckdb-sandbox` | `python` | `library` | `['python', 'duckdb-sandbox']` | `['opendv-core', 'opendv-axi-verifier', 'opendv-telemetry']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
-| `packages/opendv-agent-harness` | `opendv-agent-harness` | `python` | `library` | `['python', 'agent-harness']` | `['opendv-core', 'opendv-axi-verifier', 'opendv-duckdb-sandbox', 'opendv-telemetry']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
+| `packages/opendv-contracts` | `opendv-contracts` | `python` | `library` | `['python', 'contracts']` | `[]` | Inherited (`lint`, `typecheck`, `test`, `build`) |
+| `packages/opendv-cli-common` | `opendv-cli-common` | `python` | `library` | `['python', 'cli-common']` | `['opendv-contracts']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
+| `packages/opendv-core` | `opendv-core` | `python` | `library` | `['python', 'domain-core']` | `['opendv-contracts']` | `validate-schemas` |
+| `packages/opendv-sources` | `opendv-sources` | `python` | `library` | `['python', 'sources']` | `['opendv-core', 'opendv-contracts']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
+| `packages/opendv-telemetry` | `opendv-telemetry` | `python` | `library` | `['python', 'telemetry']` | `['opendv-core', 'opendv-contracts']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
+| `packages/opendv-axi-verifier` | `opendv-axi-verifier` | `python` | `library` | `['python', 'verifier']` | `['opendv-core', 'opendv-telemetry', 'opendv-contracts']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
+| `packages/opendv-duckdb-sandbox` | `opendv-duckdb-sandbox` | `python` | `library` | `['python', 'duckdb-sandbox']` | `['opendv-core', 'opendv-axi-verifier', 'opendv-telemetry', 'opendv-contracts', 'opendv-sources']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
+| `packages/opendv-agent-harness` | `opendv-agent-harness` | `python` | `library` | `['python', 'agent-harness']` | `['opendv-core', 'opendv-axi-verifier', 'opendv-duckdb-sandbox', 'opendv-telemetry', 'opendv-contracts', 'opendv-sources']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
+| `packages/opendv-service` | `opendv-service` | `python` | `application` | `['python', 'service']` | All domain libraries + `contracts`, `sources` | Inherited (`lint`, `typecheck`, `test`, `build`) |
+| `packages/opendv-testkit` | `opendv-testkit` | `python` | `library` | `['python', 'testkit']` | `['opendv-service', 'opendv-core', 'opendv-contracts']` | Inherited (`lint`, `typecheck`, `test`, `build`) |
 | `packages/opendv-protocol-ts` | `opendv-protocol-ts` | `typescript` | `library` | `['typescript', 'protocol-sdk']` | `[]` | `codegen`, `build` (`tsc --emitDeclarationOnly && bun build`) |
-| `apps/opendv-platform-api` | `opendv-platform-api` | `python` | `application` | `['python', 'api-server']` | All 5 Python libraries | `export-openapi`, `dev` (port `8420`) |
-| `apps/opendv-cli` | `opendv-cli` | `python` | `automation` | `['python', 'cli']` | All 5 Python libraries + `opendv-platform-api` | `dev` (`opendv` & `axi-dv` entrypoints) |
+| `apps/opendv-platform-api` | `opendv-platform-api` | `python` | `application` | `['python', 'api-server']` | `['opendv-service', 'opendv-contracts']` | `export-openapi`, `dev` (port `8420`) |
+| `apps/opendv-cli` | `opendv-cli` | `python` | `automation` | `['python', 'cli']` | `['opendv-service', 'opendv-cli-common', 'opendv-contracts']` | `dev` (`opendv` in-process CLI) |
+| `apps/opendvctl` | `opendvctl` | `typescript` | `application` | `['typescript', 'client-cli']` | `['opendv-protocol-ts']` | `build`, `package` (standalone Bun binary) |
 | `apps/opendv-web-workbench` | `opendv-web-workbench` | `typescript` | `application` | `['typescript', 'web-ui']` | `['opendv-protocol-ts']` | `dev` (Vite 6 on port `5173`) |
 
 ---
 
 ## 4. Decoupled Backend Package Specifications (`packages/*` & `apps/*`)
 
-### 4.1 `packages/opendv-core` — Domain Models, Schemas, ELM Calculus & Hashing
+### 4.1 `packages/opendv-contracts` — Language-Neutral Schemas & DTOs
+- **Responsibilities:**
+  1. Houses Pydantic v2 / TypeSpec DTOs, request/response models, and event models used across Python and TypeScript.
+  2. Implements RFC 8785 JSON Canonicalization Scheme (JCS) deterministic hashing and canonical string encoding.
+  3. Serves as the single contract foundation with zero dependencies on other internal packages.
+
+### 4.2 `packages/opendv-service` — Shared Application Core (`REQ-CORE-01`, Decision D5)
+- **Responsibilities:**
+  1. Headless domain service (`OpenDVService`) implementing all pipeline lifecycle orchestration, profiling, compilation, verification, and sandbox operations.
+  2. Both `apps/opendv-cli` and `apps/opendv-platform-api` delegate 100% of execution to `OpenDVService`.
+  3. Pre-renders CLI terminal tables and `@toon_v1` diagnostics (`rendered.text`, `rendered.toon`) ensuring identical display across `opendv` and `opendvctl`.
+
+### 4.3 `packages/opendv-sources` — Pluggable Source & Format Adapters (`REQ-SRC-01/02`, Decision D8)
+- **Responsibilities:**
+  1. Implements standard `SourceAdapter` and `FormatParser` SPIs for `file`, `inline`, `duckdb_attach`, `text`, and `pdf`.
+  2. Parses universal `source:` configuration blocks with credentials, format detection, and path jail containment.
+  3. Supports both client-uploadable in-memory data (Decision D1) and server-resolved workspace paths.
+
+### 4.4 `packages/opendv-testkit` — Isolated Test Doubles & Mock Guards (`REQ-MOCK-01`)
+- **Responsibilities:**
+  1. Provides deterministic test harnesses, synthetic datasets, and test doubles strictly isolated from production bundles.
+  2. Houses deterministic ontology recommender doubles for T17 / GT-06 golden tests.
+  3. Protected by AST static analysis guards ensuring zero production package imports.
+
+### 4.5 `packages/opendv-cli-common` — Shared CLI Rendering & Exit Codes
+- **Responsibilities:**
+  1. Implements unified CLI table rendering, exit code definitions, and formatting options (`--format`, `--json`, `--toon`).
+  2. Shared between Python CLI (`opendv`) and platform test harnesses.
+
+### 4.6 `packages/opendv-core` — Domain Models, Schemas, ELM Calculus & Hashing
 - **Responsibilities:**
   1. Loads and validates Draft 2020-12 JSON Schemas from `/schemas/*.json` (`NoMistakeDataVault2ContractV5`, `CanonicalIR`, `VaultObservabilityEvent`).
   2. Implements the formal **Graph B Information-Theoretic Metrics** (`docs/05` §1): Uniqueness $U(C)$, Non-Null Ratio $U_{nn}(C) = 1 - N_{\text{null}}(C)$, Normalized Shannon Entropy $H_{\text{norm}}(C)$, Jaccard Inclusion $I(A.x \subseteq B.y)$, CDC Velocity $\lambda(c)$, and Write Amplification $W_{\text{amp}}$ (MB/day).
   3. Implements the **Algorithm A.5 6-Stage Length-Prefixed SHA-256 Hashing Recipe** (`<byte_len>:<val>`, `'-1:^^'` null token, `'0'*64` / `'f'*64` Zero Keys).
 
-### 4.2 `packages/opendv-telemetry` — Append-Only Ledger, CAS & 5-Tier RBAC Redaction
+### 4.7 `packages/opendv-telemetry` — Append-Only Ledger, CAS & 5-Tier RBAC Redaction
 - **Responsibilities:**
   1. Manages the immutable Content-Addressable Store (`state/artifacts/<sha256>`) and appends validated `VaultObservabilityEvent` records to `state/vault-ledger.jsonl`.
   2. Broadcasts live events to in-memory `asyncio.Queue` subscribers for low-latency SSE streaming (`/api/v1/runs/{id}/events`) with `Last-Event-ID` cursor replay.
   3. Enforces the **5-Tier RBAC Data Classification & Redaction Matrix** (`PUBLIC`, `INTERNAL`, `CONFIDENTIAL`, `MNPI`, `RESTRICTED_PII`) and formats **Semantic Hash Pills** (`[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]`).
 
-### 4.3 `packages/opendv-axi-verifier` — 6-Gate Verifier, Codemods (`A.1`–`A.9b`) & `TOON`
+### 4.8 `packages/opendv-axi-verifier` — 6-Gate Verifier, Codemods (`A.1`–`A.9b`) & `TOON`
 - **Responsibilities:**
   1. Executes deterministic cold-start codemods (`Algorithm A.1` 3-Axis Satellite Split & Gate 4 YAGNI Cost Guard $W_{\text{amp}} \ge 50\text{ MB/day}$, `Algorithm A.2` Enum-to-Ref Demotion, `Algorithm A.3` Link Effectivity Satellite `esat_*` Injection, `Algorithm A.4` 3-Tier `BKCC` Authority & Nullable-FK Link Splitter $U_{nn} \ge 0.95$, `Algorithm A.9a` Intra-Source Schema Drift).
   2. Executes static verification gates (`Gate 1` Contract & 100% `column_triage_ledger` coverage, `Gate 2` `Algorithm A.5`/`A.6` SQLGlot AST verification, `Gate 3` `networkx` Bipartite DAG `DV-STR-001`–`014` + `Algorithm A.7` $N \to N+1$ Additive Evolution Lock, `Gate 5` `Algorithm A.9b` Unstructured Span Substring Verifier).
   3. Serializes `REJECT-WITH-TRACE` violations into **Token-Oriented Object Notation (`@toon_v1`)** via `Algorithm A.8`.
 
-### 4.4 `packages/opendv-duckdb-sandbox` — Graph B Profiler, 4-Zone SQL Compiler & 4-Batch Sandbox
+### 4.9 `packages/opendv-duckdb-sandbox` — Graph B Profiler, 4-Zone SQL Compiler & 4-Batch Sandbox
 - **Responsibilities:**
   1. Profiles relational tables/Parquet files in DuckDB to produce `Graph B` JSON profiles and detect $S_k(t) \to S_k(t+1)$ schema drift.
   2. Lowers verified `NoMistakeDataVault2ContractV5` contracts into `CanonicalIR` (`schemas/dv2-canonical-ir.schema.json`) and compiles **4-Zone SQL** (Zone 0 Schemas & Ghost/Zero Records, Zone 1 Hashed Staging Views, Zone 2 Insert-Only Raw Vault DDL/DML, Zone 3 Business Vault `sal_*`/`esat_*`/`pit_*`, and Zone 4 Bi-Temporal `Query D.10` / `D.10b`).
   3. Runs the **4 Adversarial Shadow Sandbox Batches** (Batch 1 Null-FK & Ghost `INNER JOIN` Completeness, Batch 2 Replay Idempotency $\Delta\text{rows}=0$, Batch 3 Single-Attribute Delta & Boundary-Shift Collision, Batch 4 $N=1 \to N=2$ Cross-Source Collision) and evaluates `DV-DYN-001`–`015`.
 
-### 4.5 `packages/opendv-agent-harness` — Vendor-Neutral Agent Runtime (`VaultAgentHarness`)
+### 4.10 `packages/opendv-agent-harness` — Vendor-Neutral Agent Runtime (`VaultAgentHarness`)
 - Fully specified in [`docs/09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md). Provides `VaultAgentHarness`, the 8 pure-Python domain tools, `AntigravityHarnessAdapter` (`google.antigravity`), and `ClaudeAgentHarnessAdapter` (`claude_agent_sdk`).
 
-### 4.6 `apps/opendv-platform-api` & `apps/opendv-cli` — Headless ASGI Server & CLI
-- `apps/opendv-platform-api` exposes all platform capabilities over `/api/v1/...` REST + SSE endpoints.
-- `apps/opendv-cli` provides the `opendv` and `axi-dv` command-line tools, operating either against a remote `--api-url http://localhost:8420` server or directly against the local Python libraries (`--local`).
+### 4.11 Applications: `opendv-platform-api`, `opendv-cli`, `opendvctl`, `opendv-web-workbench`
+- `apps/opendv-platform-api`: Headless ASGI FastAPI server exposing `/api/v1/...` REST and live SSE streaming over `opendv-service`.
+- `apps/opendv-cli`: Python standalone in-process CLI (`opendv`) calling `opendv-service` directly with zero server requirements.
+- `apps/opendvctl`: Compiled single-file Bun platform client binary (`opendvctl`) communicating with Platform API over HTTP/SSE.
+- `apps/opendv-web-workbench`: Decoupled 3-level Explorer React 19 UI consuming `@opendv/protocol-ts`.
 
 ---
 
@@ -660,25 +714,30 @@ All endpoints are versioned under `/api/v1`. Error responses conform to **RFC 94
 
 | Resource Group | HTTP Method & Path | Description | Primary Backing Package |
 | :--- | :--- | :--- | :--- |
-| **Health & Capabilities** | `GET /api/v1/health` | Liveness, DuckDB version, active harness adapters (`antigravity`, `claude`), and schema versions. | `opendv-platform-api` |
-| **Health & Capabilities** | `GET /api/v1/platform/capabilities` | Supported model tiers (`reasoning`, `fast`), RBAC tiers, 6 gates, and 12 workbench views (`WB-00`–`WB-11`). | `opendv-platform-api` |
-| **Projects** | `POST /api/v1/projects` | Register a project workspace with `Graph A` ontology, Bronze source feeds, and optional baseline contract. | `opendv-core` |
-| **Projects** | `GET /api/v1/projects` | List registered projects and their latest pipeline run status. | `opendv-core` |
-| **Projects** | `GET /api/v1/projects/{project_id}` | Inspect project manifest, `Graph A` ontology summary, and registered Bronze tables/documents. | `opendv-core` |
-| **Pipeline Runs** | `POST /api/v1/runs` | Launch a full or stage-scoped pipeline run using `antigravity` or `claude` harness. | `opendv-agent-harness` |
-| **Pipeline Runs** | `GET /api/v1/runs` | List pipeline runs filtered by `project_id`, `status`, or `harness_provider`. | `opendv-telemetry` |
-| **Pipeline Runs** | `GET /api/v1/runs/{run_id}` | Get run summary, current `stage_id`, 6-Gate scoreboard, active Captain-Holds, and CAS `context_refs`. | `opendv-telemetry` |
-| **Pipeline Runs** | `POST /api/v1/runs/{run_id}/abort` | Cancel an active run (`AntigravityHarnessAdapter.cancel_active_turn` / `ClaudeSDKClient.interrupt`). | `opendv-agent-harness` |
-| **SSE Event Stream** | `GET /api/v1/runs/{run_id}/events` | **Real-time SSE stream (`text/event-stream`)** of `VaultObservabilityEvent` JSON/NDJSON frames with `Last-Event-ID` replay. | `opendv-telemetry` |
-| **Run Gate Verdicts** | `GET /api/v1/runs/{run_id}/gates` | Retrieve the 6-Gate verification matrix (`Gates 0–5`), applied codemods (`A.1`–`A.5`, `A.9a`), and `@toon_v1` diagnostic traces for `run_id`. | `opendv-axi-verifier` |
-| **Run Gate Evaluation** | `POST /api/v1/runs/{run_id}/gates` | Trigger or re-evaluate static/topological/AST gates and preview codemod diffs on a candidate contract. | `opendv-axi-verifier` |
-| **Run Shadow Sandbox** | `GET /api/v1/runs/{run_id}/sandbox` | Retrieve the 4-Batch Adversarial DuckDB Shadow Sandbox results and `DV-DYN-001`–`015` check matrix for `run_id`. | `opendv-duckdb-sandbox` |
-| **Run Shadow Sandbox** | `POST /api/v1/runs/{run_id}/sandbox` | Execute Adversarial Batches `1–4` or run Bi-Temporal Point-in-Time `Query D.10` / `D.10b` at custom `assertion_cutoff_ts`. | `opendv-duckdb-sandbox` |
-| **Captain-Hold Decisions** | `GET /api/v1/runs/{run_id}/decisions` | List pending and resolved `ASK-USER` / Captain-Hold escalations (e.g., `Tier-U3` entity resolution or `DV-EVO-003`). | `opendv-agent-harness` |
-| **Captain-Hold Decisions** | `POST /api/v1/runs/{run_id}/decisions` | Submit a human steward decision (`APPROVE`, `REJECT`, `ANSWER`) to resolve a Captain-Hold and resume the run. | `opendv-agent-harness` |
-| **Workbench Projections** | `GET /api/v1/runs/{run_id}/workbench/{view_id}` | Fetch pre-computed, RBAC-redacted 3-Layer view state for `WB-00` through `WB-11`. | `opendv-platform-api` |
-| **CAS Artifacts** | `GET /api/v1/artifacts/{sha256}` | Fetch immutable content-addressable artifact (`YAML`, `CanonicalIR` JSON, `4-Zone SQL`, `@toon_v1` trace) by SHA-256. | `opendv-telemetry` |
-| **CAS Artifacts** | `POST /api/v1/artifacts` | Upload a content-addressable artifact and return its verified uppercase hex `sha256` digest. | `opendv-telemetry` |
+| **Health & Capabilities** | `GET /healthz`, `GET /api/v1/health` | Liveness, DuckDB version, active harness adapters (`antigravity`, `claude`), and schema versions. | `opendv-platform-api` |
+| **Health & Capabilities** | `GET /api/v1/platform/capabilities` | Supported model tiers (`reasoning`, `fast`), RBAC tiers, 6 gates, explorer views, and parity endpoints. | `opendv-platform-api` |
+| **Platform Operations** | `POST /api/v1/profile` | Profile Bronze tabular or document sources to extract empirical Graph B schema (supports inline upload). | `opendv-service` |
+| **Platform Operations** | `POST /api/v1/compile` | Compile verified model contract to Canonical IR and 4-Zone DuckDB SQL bundle. | `opendv-service` |
+| **Platform Operations** | `POST /api/v1/verify` | Execute 6-Gate symbolic verification with `@toon_v1` closed-loop diagnostics. | `opendv-service` |
+| **Platform Operations** | `POST /api/v1/sandbox` | Execute 4-Batch Adversarial Shadow Sandbox or Bi-Temporal Point-in-Time queries. | `opendv-service` |
+| **Pipelines** | `POST /api/v1/pipelines/validate` | Deterministically validate pipeline inputs, sources, ontology, and harness configuration. | `opendv-service` |
+| **Pipelines** | `POST /api/v1/pipelines/runs` | Launch asynchronous pipeline run returning HTTP 202 Accepted with run handle and event stream URL (Decision D2). | `opendv-service` |
+| **Runs Management** | `GET /api/v1/runs` | List pipeline runs filtered by `project_id`, `status`, or `harness_provider`. | `opendv-service` |
+| **Runs Management** | `GET /api/v1/runs/{run_id}` | Get run summary, current `stage_id`, 6-Gate scoreboard, and CAS `context_refs`. | `opendv-service` |
+| **Runs Management** | `POST /api/v1/runs/{run_id}/abort` | Cancel an active pipeline execution turn. | `opendv-service` |
+| **Live Event Stream** | `GET /api/v1/runs/{run_id}/events` | **Real-time SSE stream (`text/event-stream`)** of `VaultObservabilityEvent` frames with `Last-Event-ID` replay. | `opendv-telemetry` |
+| **3-Level Explorer** | `GET /api/v1/runs/{run_id}/explorer` | Retrieve 3-Level Explorer bundle (Pipelines $\to$ Stages $\to$ Artifacts hierarchy) with RBAC redaction. | `opendv-service` |
+| **3-Level Explorer** | `GET /api/v1/runs/{run_id}/artifacts/{artifact_id}` | Fetch specific stage artifact content (`contract.yaml`, `canonical_ir.json`, `four_zone.sql`, report). | `opendv-service` |
+| **Steward Holds** | `GET /api/v1/holds` | List all pending and resolved `ASK-USER` / Captain-Hold records across projects. | `opendv-service` |
+| **Steward Holds** | `GET /api/v1/runs/{run_id}/decisions` | List pending and resolved holds for a specific run. | `opendv-service` |
+| **Steward Holds** | `POST /api/v1/runs/{run_id}/decisions` | Submit human steward decision (`APPROVE`, `REJECT`, `ANSWER`) to resolve a hold and resume run. | `opendv-service` |
+| **Steward Holds** | `POST /api/v1/holds/{hold_id}/decisions` | Submit decision targeting a specific hold identifier. | `opendv-service` |
+| **Ontology Seams** | `POST /api/v1/ontology/suggest` | Generate ontology recommendations from profile (`BOOTSTRAP`) or schema drift (`DELTA`). | `opendv-service` |
+| **Ontology Seams** | `POST /api/v1/ontology/validate-delta` | Validate candidate ontology delta against evolutionary invariants (`ONT-EVO-001..003`). | `opendv-service` |
+| **Ontology Seams** | `POST /api/v1/ontology/diff` | Compute structural difference between base ontology and proposed delta. | `opendv-service` |
+| **Ontology Seams** | `POST /api/v1/ontology/accept` | Authorize and apply ontology delta, yielding versioned Graph A under CAS lineage. | `opendv-service` |
+| **CAS Artifacts** | `GET /api/v1/artifacts/{sha256}` | Fetch immutable content-addressable artifact (`YAML`, `CanonicalIR`, `SQL`, `@toon_v1`) by SHA-256. | `opendv-telemetry` |
+| **CAS Artifacts** | `POST /api/v1/artifacts` | Upload content-addressable artifact and return its verified uppercase hex SHA-256 digest. | `opendv-telemetry` |
 
 ### 5.2 Reference Python Implementation of the Headless Platform API Contracts (`apps/opendv-platform-api`)
 
@@ -907,10 +966,10 @@ Every `VaultObservabilityEvent` emitted by the platform is simultaneously:
 
 ```text
 id: evt-pe-001
-data: {"event_id":"evt-pe-001","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7","parent_span_id":null,"timestamp_utc":"2026-10-30T09:00:01Z","stage_id":"STAGE_00_ORCHESTRATION","workbench_view_id":"WB-01","viz_id":"VIZ-STEP-01","agent_persona":"vault-first-mate","status":"PASS","rule_ids_evaluated":["DV-STR-001","KEY-04"],"data_classification":"INTERNAL","layer1_story_banner":{"headline":"Enterprise Ontology Grounded: 4 core business concepts anchored to 44 physical columns.","business_impact":"Prevents siloed source-system Data Vault schemas across Investran, DealCloud, and Legacy GP.","verdict_pill":"PASS"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]","full_sha256_hex":"5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4","bkcc_prefix":"GLOBAL","business_key":"LP-101","entity_label":"CalPERS"}],"summary_metrics":{"ontology_coverage_pct":100.0,"unmapped_concepts":0}}}
+data: {"event_id":"evt-pe-001","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"00f067aa0ba902b7","parent_span_id":null,"timestamp_utc":"2026-10-30T09:00:01Z","stage_id":"STAGE_00_ORCHESTRATION","agent_persona":"vault-first-mate","status":"PASS","rule_ids_evaluated":["DV-STR-001","KEY-04"],"data_classification":"INTERNAL","layer1_story_banner":{"headline":"Enterprise Ontology Grounded: 4 core business concepts anchored to 44 physical columns.","business_impact":"Prevents siloed source-system Data Vault schemas across Investran, DealCloud, and Legacy GP.","verdict_pill":"PASS"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 5D15..0AE4 | GLOBAL:LP-101 CalPERS]","full_sha256_hex":"5D15EB10C8D7621D3167849C41C5F9CD9244FD79FB720CB17104D49E4B820AE4","bkcc_prefix":"GLOBAL","business_key":"LP-101","entity_label":"CalPERS"}],"summary_metrics":{"ontology_coverage_pct":100.0,"unmapped_concepts":0}}}
 
 id: evt-pe-004
-data: {"event_id":"evt-pe-004","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"a2fb4a1d1a96d312","parent_span_id":"00f067aa0ba902b7","timestamp_utc":"2026-10-30T09:00:08Z","stage_id":"STAGE_02_SCOUT_UNSTRUCTURED","workbench_view_id":"WB-03","viz_id":"VIZ-GATE-06","agent_persona":"scout-unstructured","status":"ASK-USER","rule_ids_evaluated":["ALG-A9B"],"data_classification":"CONFIDENTIAL","layer1_story_banner":{"headline":"Extracted 4 terms from calpers_side_letter.pdf: 2 LEIs bound; 1 mention held for Captain.","business_impact":"Prevents hallucinated Fund Hub keys from unverified PDF text; awaits steward confirmation.","verdict_pill":"ASK-USER"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 864D..EE6B | GLOBAL:calpers_side_letter.pdf]","full_sha256_hex":"864D5083723B9FD7FE69085C2C31B646BD5E3DEAEF61B64C08D545EDE502EE6B","bkcc_prefix":"GLOBAL","business_key":"s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf","entity_label":"CalPERS Side Letter"}],"summary_metrics":{"spans_extracted":4,"tier_u1_bound":2,"tier_u2_bound":1,"tier_u3_held":1}}}
+data: {"event_id":"evt-pe-004","run_id":"run-pe-apex-horizon-20261030","trace_id":"4bf92f3577b34da6a3ce929d0e0e4736","span_id":"a2fb4a1d1a96d312","parent_span_id":"00f067aa0ba902b7","timestamp_utc":"2026-10-30T09:00:08Z","stage_id":"STAGE_02_SCOUT_UNSTRUCTURED","agent_persona":"scout-unstructured","status":"ASK-USER","rule_ids_evaluated":["ALG-A9B"],"data_classification":"CONFIDENTIAL","layer1_story_banner":{"headline":"Extracted 4 terms from calpers_side_letter.pdf: 2 LEIs bound; 1 mention held for Captain.","business_impact":"Prevents hallucinated Fund Hub keys from unverified PDF text; awaits steward confirmation.","verdict_pill":"ASK-USER"},"layer2_visual_payload":{"semantic_hash_pills":[{"pill_label":"[HK: 864D..EE6B | GLOBAL:calpers_side_letter.pdf]","full_sha256_hex":"864D5083723B9FD7FE69085C2C31B646BD5E3DEAEF61B64C08D545EDE502EE6B","bkcc_prefix":"GLOBAL","business_key":"s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf","entity_label":"CalPERS Side Letter"}],"summary_metrics":{"spans_extracted":4,"tier_u1_bound":2,"tier_u2_bound":1,"tier_u3_held":1}}}
 
 event: run_complete
 data: {"status":"COMPLETED"}

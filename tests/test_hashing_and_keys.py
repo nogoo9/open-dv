@@ -281,8 +281,8 @@ def test_delimiter_and_boundary_collision_immunity(
     assert hash_a != hash_b
 
 
-def test_doc06_wb11_adversarial_delimiter_vectors() -> None:
-    """Verify exact digests from `docs/06` §3.8 `WB-11` (`('A||B', 'C')` vs `('A', 'B||C')`)."""
+def test_doc06_adversarial_delimiter_vectors() -> None:
+    """Verify exact digests from `docs/06` §3.8 (`('A||B', 'C')` vs `('A', 'B||C')`)."""
     h1 = compute_dv2_length_prefixed_sha256(["A||B", "C"], is_business_key=True)
     h2 = compute_dv2_length_prefixed_sha256(["A", "B||C"], is_business_key=True)
     assert h1.startswith("D9FD") and h1.endswith("549C")

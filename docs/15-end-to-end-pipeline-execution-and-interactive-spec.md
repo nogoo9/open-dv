@@ -20,7 +20,7 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
 │                                       USER / CI / AGENTS                                         │
-│                    CLI (`opendv`)  │  Platform REST API  │  Web Workbench (WB-00..11)            │
+│                    CLI (`opendv`)  │  Platform REST API  │  Web Workbench (Explorer)             │
 └────────────────────────────────────────────────┬─────────────────────────────────────────────────┘
                                                  │
                                                  ▼
@@ -60,7 +60,7 @@
 - **`opendv-duckdb-sandbox`**: Embedded DuckDB execution engine. Performs empirical column profiling (Graph B), detects schema drift, compiles 4-Zone SQL, and runs 4-batch dynamic integration tests.
 - **`opendv-telemetry`**: Content-Addressable Storage (CAS), append-only JSONL ledger emitter, and 5-tier Role-Based Access Control (RBAC) PII redaction.
 - **`opendv-platform-api` & `opendv-cli`**: Headless FastAPI server and unified Click/Typer CLI for running pipelines, inspecting gates, resolving holds, and streaming live Server-Sent Events (SSE).
-- **`opendv-web-workbench`**: Decoupled, zero-FOUC web frontend (Vite/React/Zustand) exposing views `WB-00` through `WB-11`.
+- **`opendv-web-workbench`**: Decoupled, zero-FOUC web frontend (Vite/React/Zustand) exposing 3-Level Explorer views.
 
 ---
 
@@ -123,7 +123,7 @@ sequenceDiagram
 - **Outputs**:
   - `art-stage00-graph-a-ontology` (`stage_00/graph_a_ontology.yaml`): Standardized, CAS-registered Graph A ontology.
   - `Stage00OrchestrationPlanOutput`: Structured plan specifying `wave_execution_order`, `recommended_max_retries`, and risk rationale.
-  - Telemetry event `WB-00` / `WB-01` emitted to `vault-ledger.jsonl`.
+  - Telemetry event emitted to `vault-ledger.jsonl`.
 
 ---
 

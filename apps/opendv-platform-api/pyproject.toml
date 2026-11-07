@@ -7,19 +7,25 @@ dependencies = [
     "fastapi>=0.115.0",
     "uvicorn>=0.34.0",
     "pydantic>=2.9.0",
+    "opendv-contracts",
     "opendv-core",
     "opendv-telemetry",
     "opendv-axi-verifier",
     "opendv-duckdb-sandbox",
     "opendv-agent-harness",
+    "opendv-service",
+    "opendv-sources[standard]",
 ]
 
 [tool.uv.sources]
+opendv-contracts = { workspace = true }
 opendv-core = { workspace = true }
 opendv-telemetry = { workspace = true }
 opendv-axi-verifier = { workspace = true }
 opendv-duckdb-sandbox = { workspace = true }
 opendv-agent-harness = { workspace = true }
+opendv-service = { workspace = true }
+opendv-sources = { workspace = true }
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,30 @@
+[project]
+name = "opendv-service"
+version = "0.1.0"
+description = "Open-DV Shared Headless Application Core Service & Pipeline Orchestrator"
+requires-python = ">=3.12"
+dependencies = [
+    "opendv-contracts",
+    "opendv-core",
+    "opendv-axi-verifier",
+    "opendv-duckdb-sandbox",
+    "opendv-agent-harness",
+    "opendv-telemetry",
+    "opendv-sources",
+    "pydantic>=2.10.0",
+    "pyyaml>=6.0.2",
+    "duckdb>=1.2.0",
+]
+
+[tool.uv.sources]
+opendv-contracts = { workspace = true }
+opendv-core = { workspace = true }
+opendv-axi-verifier = { workspace = true }
+opendv-duckdb-sandbox = { workspace = true }
+opendv-agent-harness = { workspace = true }
+opendv-telemetry = { workspace = true }
+opendv-sources = { workspace = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

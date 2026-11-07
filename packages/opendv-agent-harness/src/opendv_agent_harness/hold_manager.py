@@ -24,8 +24,6 @@ from opendv_agent_harness.models import (
     HarnessStreamEvent,
     OutputT,
     PipelineStageId,
-    VizId,
-    WorkbenchViewId,
 )
 
 StewardHoldStatus = Literal["PENDING", "APPROVED", "REJECTED"]
@@ -45,8 +43,6 @@ class StewardHoldRecord(BaseModel):
     session_id: str
     persona: AgentPersona = AgentPersona.VAULT_FIRST_MATE
     stage_id: PipelineStageId = PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED
-    workbench_view_id: WorkbenchViewId = WorkbenchViewId.WB_03
-    viz_id: VizId = VizId.VIZ_GATE_07
     headline: str = "Steward Captain-Hold decision required."
     escalation_reason: str = "TIER_U3_AMBIGUOUS_ENTITY"
     rule_id: str = "ALG-A9B"
@@ -107,8 +103,6 @@ class StewardHoldManager:
         task_id: str,
         session_id: str,
         stage_id: PipelineStageId | str = PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
-        workbench_view_id: WorkbenchViewId | str = WorkbenchViewId.WB_03,
-        viz_id: VizId | str = VizId.VIZ_GATE_07,
         options: list[dict[str, Any]] | None = None,
         decision_id: str | None = None,
         hold_id: str | None = None,
@@ -131,8 +125,6 @@ class StewardHoldManager:
             session_id=session_id,
             persona=AgentPersona(persona),
             stage_id=PipelineStageId(stage_id),
-            workbench_view_id=WorkbenchViewId(workbench_view_id),
-            viz_id=VizId(viz_id),
             headline=headline,
             escalation_reason=escalation_reason,
             rule_id=rule_id,
@@ -174,8 +166,6 @@ class StewardHoldManager:
             task_id=result.task_id,
             session_id=result.session_id,
             stage_id=ask_ev.get("stage_id") or spec.stage_id,
-            workbench_view_id=ask_ev.get("workbench_view_id") or spec.workbench_view_id,
-            viz_id=ask_ev.get("viz_id") or spec.viz_id,
             options=options,
             decision_id=decision_id or extracted_hold_id,
             hold_id=extracted_hold_id,
@@ -213,8 +203,6 @@ class StewardHoldManager:
             task_id=event.task_id,
             session_id=session_id or event.task_id,
             stage_id=obs.get("stage_id") or event.stage_id,
-            workbench_view_id=obs.get("workbench_view_id") or event.workbench_view_id,
-            viz_id=obs.get("viz_id") or event.viz_id,
             options=options,
             decision_id=decision_id or extracted_hold_id,
             hold_id=extracted_hold_id,
