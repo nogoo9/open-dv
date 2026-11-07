@@ -203,6 +203,55 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 					{ status: 200 },
 				);
 			}
+			if (url.includes(`/api/v1/runs/${MOCK_RUN_ID}/explorer`)) {
+				return new Response(
+					JSON.stringify({
+						projectId: MOCK_PROJECT.project_id,
+						displayName: "Test Run Explorer",
+						runId: MOCK_RUN_ID,
+						specFile: "pipeline_input.yaml",
+						wavesCount: 1,
+						waves: [],
+						statusLabel: "Sealed",
+						gatesPassed: 6,
+						gatesTotal: 6,
+						rbacRole: "AUDITOR_FINANCE",
+						hasInitialContract: true,
+						phases: [],
+						stages: [],
+						artifacts: {},
+						settingIds: [],
+						inputIds: [],
+						outputIds: [],
+					}),
+					{ status: 200 },
+				);
+			}
+			if (
+				url.includes(`/api/v1/runs/${MOCK_RUN_ID}/artifacts/final_contract`)
+			) {
+				return new Response(
+					JSON.stringify({
+						artifact_id: "final_contract",
+						cas_sha256: "A1".repeat(32),
+						format: "yaml",
+						content: "contract_version: '5.0'\n",
+						size_bytes: 24,
+					}),
+					{ status: 200 },
+				);
+			}
+			if (url.endsWith("/api/v1/pipelines/runs") && method === "POST") {
+				return new Response(
+					JSON.stringify({
+						run_id: "run-async-202",
+						status: "accepted",
+						status_url: "/api/v1/runs/run-async-202",
+						events_sse_url: "/api/v1/runs/run-async-202/events",
+					}),
+					{ status: 202 },
+				);
+			}
 			if (url.includes("/api/v1/artifacts/")) {
 				return new Response("contract_version: '5.0'\n", { status: 200 });
 			}
@@ -250,8 +299,24 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 		const artifactText = await client.getArtifact("A1".repeat(32));
 		expect(artifactText).toContain("contract_version");
 
+		const bundle = await client.getExplorerBundle(MOCK_RUN_ID, "W1");
+		expect(bundle.displayName).toBe("Test Run Explorer");
+		expect(bundle.runId).toBe(MOCK_RUN_ID);
+
+		const runArt = await client.getRunArtifact(MOCK_RUN_ID, "final_contract");
+		expect(runArt.artifact_id).toBe("final_contract");
+		expect(runArt.content).toContain("contract_version");
+
+		const pipelineRunHandle = await client.createPipelineRun({
+			input_spec_path:
+				"examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml",
+			steward_hold_policy: "pause",
+		});
+		expect(pipelineRunHandle.run_id).toBe("run-async-202");
+		expect(pipelineRunHandle.status).toBe("accepted");
+
 		expect(client.getRun("missing-run")).rejects.toThrow("HTTP 404");
-		expect(requests.length).toBeGreaterThanOrEqual(8);
+		expect(requests.length).toBeGreaterThanOrEqual(11);
 	});
 
 	it("VaultEventStreamClient deduplicates seenEventIds, replays Last-Event-ID, and reconnects with jittered backoff", async () => {

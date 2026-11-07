@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Artifact full view</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 100%; min-height: 1040px; background: #FFFFFF">
+<dc-import name="Main" start-view="artifact" start-artifact="{{ artifact }}" hint-size="100%,1040px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"artifact":{"editor":"enum","options":["ontology","final_contract","crm","msa","sandbox","ledger","final_sql","harness"],"default":"ontology"},"$preview":{"width":1440,"height":1040}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return { artifact: this.props.artifact ?? 'ontology' };
+  }
+}
+</script>
+</body>
+</html>

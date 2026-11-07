@@ -113,7 +113,9 @@ def render_explorer_text_snapshot(bundle: dict[str, Any]) -> str:
 
     status = bundle.get("status_label") or bundle.get("statusLabel")
     is_hold = status == "PAUSED_HOLD" or any(
-        s.get("status_tag") == "HOLD" or s.get("statusTag") == "HOLD"
+        s.get("tag") in ("HOLD", "ASK-USER")
+        or s.get("status_tag") in ("HOLD", "ASK-USER")
+        or s.get("statusTag") in ("HOLD", "ASK-USER")
         for s in bundle.get("stages", [])
     )
     if is_hold:
@@ -129,7 +131,7 @@ def render_explorer_text_snapshot(bundle: dict[str, Any]) -> str:
         "------------------------------------------------------------",
     ])
     for s in bundle.get("stages", []):
-        stag = s.get("status_tag") or s.get("statusTag") or "PENDING"
+        stag = s.get("tag") or s.get("status_tag") or s.get("statusTag") or "PENDING"
         key = s.get("key") or ""
         name = s.get("name") or ""
         lines.append(f"[{stag:14}] {key:20} {name}")
@@ -144,7 +146,7 @@ def render_explorer_text_snapshot(bundle: dict[str, Any]) -> str:
         art = artifacts[art_id]
         grp = art.get("group") or ""
         name = art.get("name") or ""
-        fmt = art.get("format") or ""
+        fmt = art.get("fmt") or art.get("format") or ""
         lines.append(f"* {art_id:15} [{grp:12}] [{fmt:5}] {name}")
 
     lines.append("============================================================\n")

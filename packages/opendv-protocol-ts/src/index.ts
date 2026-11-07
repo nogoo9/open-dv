@@ -8,6 +8,7 @@ export * from "./types/observability-event";
 export * from "./types/canonical-ir";
 export * from "./types/contract-v5";
 export * from "./types/api-dtos";
+export * from "./types/workbench-explorer";
 
 export * from "./client/platform-client";
 export * from "./client/sse-client";
@@ -16,3 +17,4 @@ export * from "./client/ledger-replay-client";
 export * from "./utils/hash-pill";
 export * from "./utils/event-filters";
 export * from "./utils/sse-parser";
+export * from "./utils/explorer-bundle";

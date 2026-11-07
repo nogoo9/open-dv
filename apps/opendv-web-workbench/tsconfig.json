@@ -15,5 +15,6 @@
 			"path": "../../packages/opendv-protocol-ts"
 		}
 	],
-	"include": ["src/**/*"]
+	"include": ["src/**/*"],
+	"exclude": ["dist", "tests"]
 }

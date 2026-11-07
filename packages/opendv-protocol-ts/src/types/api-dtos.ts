@@ -17,7 +17,7 @@ export type VerifyResponse = components["schemas"]["VerifyResponse"];
 export type SandboxQueryRequest = components["schemas"]["SandboxQueryRequest"];
 export type SandboxQueryResponse =
 	components["schemas"]["SandboxQueryResponse"];
-export type ExplorerBundleDTO = components["schemas"]["ExplorerBundleDTO"];
+export type RawExplorerBundleDTO = components["schemas"]["ExplorerBundleDTO"];
 export type RunArtifactDTO = components["schemas"]["RunArtifactDTO"];
 export type PipelineRunHandle = components["schemas"]["PipelineRunHandle"];
 export type PipelineRunRequest = components["schemas"]["PipelineRunRequest"];
