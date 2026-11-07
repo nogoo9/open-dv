@@ -12,11 +12,10 @@
 > - [03 — Automated 6-Gate `axi-dv` Verification, 4 Adversarial Sandbox Batches, and `dv-firstmate` Swarm Architecture](03-verification-and-agentic-architecture.md)
 > - [04 — Unstructured & Multi-Modal Data Vault 2.0 Integration (`Rules U1–U4`, `hub_document`, `Tier-U1..U3`)](04-unstructured-and-multimodal-dv2.md)
 > - [05 — ELM Calculus, Graph B Profiling Math, 3-Pass CoT Prompt, and Reference Algorithms (`A.1`–`A.9` & `D.10`)](05-elm-calculus-and-reference-algorithms.md)
-> - [06 — Explainability, Observability & Visualization Architecture (`WB-00..WB-11`, `VIZ-PIPE-00`, `VIZ-STEP-01..08`, `VIZ-GATE-01..08`)](06-explainability-and-observability-spec.md)
+> - [06 — Explainability, Observability & Visualization Architecture](06-explainability-and-observability-spec.md)
 > - [07 — End-to-End Private Equity Asset Management Modelling & Verification Demo (`Scenes 1–7`)](07-end-to-end-private-equity-demo.md)
 > - [08 — Platform MVP Monorepo Toolchain (`proto` + `moon` + `uv` + `bun`) & Headless REST + SSE API Specification (`/api/v1/...`)](08-platform-mvp-monorepo-and-api-spec.md)
 > - [09 — Harness-Agnostic Agent Runtime (`VaultAgentHarness`) & Dual-SDK Adapter Specification (`google.antigravity` & `claude_agent_sdk`)](09-agnostic-agent-harness-and-sdk-spec.md)
-> - [10 — Decoupled UI Workbench (`WB-00..WB-11`), Zero-Dependency Protocol SDK (`@opendv/protocol-ts`) & Semantic Theme Engine Specification](10-decoupled-ui-workbench-and-theme-spec.md)
 > - [11 — Master Agent Worker Implementation & Dispatch Plan (`WP-01` through `WP-12`)](11-agent-worker-implementation-plan.md)
 > - [12 — Agentic Pipeline Inputs, Setup, Authentication, and Execution Guide](12-agentic-pipeline-inputs-and-harness-guide.md)
 > - [13 — Real Agentic Pipeline Remediation Specification](13-real-agentic-pipeline-remediation-spec.md)
@@ -1167,15 +1166,14 @@ All production reference implementations are provided in full, unshortened Pytho
 
 ---
 
-## 13. Platform MVP Monorepo, Agnostic Agent Harness, Decoupled UI Workbench & Worker Implementation Plan (`docs/08`–`docs/11`)
+## 13. Platform MVP Monorepo, Agnostic Agent Harness & Worker Implementation Plan (`docs/08`–`docs/11`)
 
-> **Deep-Dive References:** [`08 — Monorepo & Platform API`](08-platform-mvp-monorepo-and-api-spec.md) · [`09 — Agnostic Agent Harness`](09-agnostic-agent-harness-and-sdk-spec.md) · [`10 — Decoupled UI Workbench & Theme Engine`](10-decoupled-ui-workbench-and-theme-spec.md) · [`11 — Master Agent Worker Implementation Plan`](11-agent-worker-implementation-plan.md)
+> **Deep-Dive References:** [`08 — Monorepo & Platform API`](08-platform-mvp-monorepo-and-api-spec.md) · [`09 — Agnostic Agent Harness`](09-agnostic-agent-harness-and-sdk-spec.md) · [`11 — Master Agent Worker Implementation Plan`](11-agent-worker-implementation-plan.md)
 
 | Specification Document | Primary Scope | Key Architectural Deliverables |
 | :--- | :--- | :--- |
 | **[`docs/08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md)** | Polyglot Monorepo (`proto` + `moon` + `uv` + `bun`) & Headless Platform API | Verbatim `.prototools`, `.moon/workspace.yml`, `.moon/toolchains.yml`, `.moon/tasks/*.yml`, 9 workspace packages (`packages/opendv-*`, `apps/opendv-*`), 5-tier RBAC redaction, Content-Addressable Store (`state/artifacts/<sha256>`), and OpenAPI 3.1 REST + SSE NDJSON contract (`/api/v1/projects`, `/runs`, `/events`, `/gates`, `/sandbox`, `/decisions`, `/artifacts`). |
 | **[`docs/09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md)** | Vendor-Neutral Agent Runtime (`packages/opendv-agent-harness`) | `VaultAgentHarness` Protocol, `AgentTaskSpec`, `AgentToolDefinition`, `SubagentSpec`, `reasoning`/`fast` model-tier & `agent_models` routing, 8 pure-Python domain tools, automatic dual-SDK tool bridges, **`AntigravityHarnessAdapter`** (`google.antigravity`) and **`ClaudeAgentHarnessAdapter`** (`claude_agent_sdk`), and `VaultObservabilityEvent` stream translation. |
-| **[`docs/10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md)** | Protocol SDK (`@opendv/protocol-ts`) & Web Workbench (`apps/opendv-web-workbench`) | Zero-dependency TypeScript Protocol SDK (`OpenDVPlatformClient`, `VaultEventStreamClient`, `MockVaultEventStreamClient`, Web Crypto `Alg A.5` Hash Pills), React 19 + Vite 6 + Tailwind CSS v4 + Zustand UI on `bun`, CSS Custom Properties Theme Engine (`Obsidian Dark`, `Daylight Paper`, `High-Contrast Audit`), 3-Layer Progressive Disclosure Shell, `WorkbenchViewPlugin` registry, and all 12 Workbench Views (`WB-00`–`WB-11`). |
-| **[`docs/11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)** | Turnkey Worker Dispatch Plan (`WP-01`–`WP-12`) | 12 dependency-ordered Work Packages (`WP-01` through `WP-12`) with target branch, agent tier (`reasoning` vs `fast`), `blocked-by` prerequisites, disjoint file ownership, normative spec references (`docs/01`–`docs/10`), acceptance criteria, and exact `moon run` / `pytest` / `bun test` verification commands. |
+| **[`docs/11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)** | Turnkey Worker Dispatch Plan (`WP-01`–`WP-12`) | 12 dependency-ordered Work Packages (`WP-01` through `WP-12`) with target branch, agent tier (`reasoning` vs `fast`), `blocked-by` prerequisites, disjoint file ownership, normative spec references (`docs/01`–`docs/09`), acceptance criteria, and exact `moon run` / `pytest` / `bun test` verification commands. |
 
 

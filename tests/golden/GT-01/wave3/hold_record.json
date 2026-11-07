@@ -26,7 +26,5 @@
   "session_id": "<TASK_ID_3>",
   "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
   "status": "APPROVED",
-  "task_id": "<TASK_ID_4>",
-  "viz_id": "VIZ-GATE-07",
-  "workbench_view_id": "WB-03"
+  "task_id": "<TASK_ID_4>"
 }

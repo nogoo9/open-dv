@@ -63,7 +63,7 @@
     "vault_ledger_jsonl": {
       "artifact_id": "art-stage07-vault-ledger",
       "byte_length": 0,
-      "description": "Immutable JSONL Observability Event Ledger (WB-00..WB-11).",
+      "description": "Immutable JSONL Observability Event Ledger.",
       "file_path": "<OUT>",
       "media_type": "application/x-ndjson",
       "name": "vault-ledger.jsonl",
@@ -289,9 +289,7 @@
       "stage_id": "STAGE_00_ORCHESTRATION",
       "status": "PASS",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-PIPE-00",
-      "workbench_view_id": "WB-00"
+      "trace_id": "<TELEMETRY_ID>"
     },
     {
       "agent_persona": "vault-first-mate",
@@ -320,9 +318,7 @@
       "stage_id": "STAGE_00_ORCHESTRATION",
       "status": "PASS",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-STEP-01",
-      "workbench_view_id": "WB-01"
+      "trace_id": "<TELEMETRY_ID>"
     },
     {
       "agent_persona": "scout-source",
@@ -352,9 +348,7 @@
       "stage_id": "STAGE_01_SCOUT_SOURCE",
       "status": "PASS",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-STEP-02",
-      "workbench_view_id": "WB-02"
+      "trace_id": "<TELEMETRY_ID>"
     },
     {
       "agent_persona": "scout-unstructured",
@@ -391,9 +385,7 @@
       "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
       "status": "AUTO_REPAIRED",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-STEP-04",
-      "workbench_view_id": "WB-03"
+      "trace_id": "<TELEMETRY_ID>"
     },
     {
       "agent_persona": "ship-vault",
@@ -420,9 +412,7 @@
       "stage_id": "STAGE_03_SHIP_VAULT_PASS1",
       "status": "PASS",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-STEP-05",
-      "workbench_view_id": "WB-04"
+      "trace_id": "<TELEMETRY_ID>"
     },
     {
       "agent_persona": "ship-vault",
@@ -456,9 +446,7 @@
       "stage_id": "STAGE_04_SHIP_VAULT_PASS2",
       "status": "PASS",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-STEP-06",
-      "workbench_view_id": "WB-05"
+      "trace_id": "<TELEMETRY_ID>"
     },
     {
       "agent_persona": "axi-dv",
@@ -493,9 +481,7 @@
       "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
       "status": "PASS",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-GATE-02",
-      "workbench_view_id": "WB-06"
+      "trace_id": "<TELEMETRY_ID>"
     },
     {
       "agent_persona": "axi-dv",
@@ -526,9 +512,7 @@
       "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
       "status": "PASS",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-GATE-04",
-      "workbench_view_id": "WB-07"
+      "trace_id": "<TELEMETRY_ID>"
     },
     {
       "agent_persona": "axi-dv",
@@ -566,9 +550,7 @@
       "stage_id": "STAGE_05_AXI_DV_STATIC_GATES",
       "status": "PASS",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-GATE-03",
-      "workbench_view_id": "WB-08"
+      "trace_id": "<TELEMETRY_ID>"
     },
     {
       "agent_persona": "axi-dv",
@@ -604,9 +586,7 @@
       "stage_id": "STAGE_06_AXI_DV_DYNAMIC_SANDBOX",
       "status": "PASS",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-GATE-08",
-      "workbench_view_id": "WB-10"
+      "trace_id": "<TELEMETRY_ID>"
     },
     {
       "agent_persona": "deterministic-compiler",
@@ -642,9 +622,7 @@
       "stage_id": "STAGE_07_DETERMINISTIC_COMPILER",
       "status": "PASS",
       "timestamp_utc": "<TIMESTAMP>",
-      "trace_id": "<TELEMETRY_ID>",
-      "viz_id": "VIZ-STEP-08",
-      "workbench_view_id": "WB-11"
+      "trace_id": "<TELEMETRY_ID>"
     }
   ],
   "ontology_version": "1.0.0",
@@ -691,9 +669,7 @@
       "session_id": "<TASK_ID_3>",
       "stage_id": "STAGE_02_SCOUT_UNSTRUCTURED",
       "status": "APPROVED",
-      "task_id": "<TASK_ID_4>",
-      "viz_id": "VIZ-GATE-07",
-      "workbench_view_id": "WB-03"
+      "task_id": "<TASK_ID_4>"
     }
   ],
   "run_id": "<RUN_ID_1>",

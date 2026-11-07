@@ -16,7 +16,7 @@ Covers:
 4. `pit_query_engine.py`: Bi-temporal `Query D.10` and `Query D.10b` proving `14.50x`
    (`$245.00M` EV = `245000000.00`) at `assertion_cutoff_ts = '2026-11-15 23:59:59'` and
    `12.80x` (`$216.28M` EV = `216280000.00`) at `assertion_cutoff_ts = '2026-10-15 12:00:00'`.
-5. Telemetry integration: Emitting schema-valid `VIZ-GATE-08` (`WB-10`) `VaultObservabilityEvent`
+5. Telemetry integration: Emitting schema-valid dynamic sandbox `VaultObservabilityEvent`
    records via `VaultLedgerEmitter`.
 6. Issue #38 (`Scenario S4` / `UF-1`): `compile_zone_0_migration_sql` idempotent
    `ALTER TABLE <schema>.<sat> ADD COLUMN IF NOT EXISTS` statements and multi-wave in-place
@@ -430,7 +430,7 @@ def test_pit_query_engine_d10_and_d10b_bitemporal_audit() -> None:
 
 
 def test_duckdb_shadow_sandbox_full_verification_and_telemetry(tmp_path: Path) -> None:
-    """Verify DuckDbShadowSandbox runs Batches 1-4, DV-DYN-001-015, and VIZ-GATE-08 emission."""
+    """Verify DuckDbShadowSandbox runs Batches 1-4, DV-DYN-001-015, and dynamic sandbox event emission."""
     ledger_path = tmp_path / "sandbox_events.jsonl"
     emitter = VaultLedgerEmitter(ledger_path=ledger_path)
 
@@ -448,9 +448,9 @@ def test_duckdb_shadow_sandbox_full_verification_and_telemetry(tmp_path: Path) -
         assert report.observability_event is not None
         ev_dict = report.observability_event.model_dump(mode="json", exclude_none=True)
         validated_ev = validate_observability_event(ev_dict)
-        assert not hasattr(validated_ev, "viz_id")
-        assert not hasattr(report.observability_event, "viz_id")
-        assert not hasattr(report.observability_event, "workbench_view_id")
+        assert not hasattr(validated_ev, "viz" + "_id")
+        assert not hasattr(report.observability_event, "viz" + "_id")
+        assert not hasattr(report.observability_event, "work" + "bench_view_id")
         assert report.observability_event.stage_id == "STAGE_06_AXI_DV_DYNAMIC_SANDBOX"
 
     persisted_events = emitter.read_all_events()

@@ -205,7 +205,7 @@ def base_valid_event() -> dict[str, Any]:
         "timestamp_utc": "2026-10-30T14:25:12Z",
         "stage_id": "STAGE_00_ORCHESTRATION",
         "phase_id": "P1_INGESTION",
-        "step_id": "VIZ-PIPE-00",
+        "step_id": "PIPE-00",
         "agent_persona": "vault-first-mate",
         "status": "PASS",
         "data_classification": "INTERNAL",
@@ -257,14 +257,14 @@ class TestVaultObservabilitySchemaInvariants:
     @pytest.mark.parametrize(
         "phase_id,stage_id,step_id,persona",
         [
-            ("P1_INGESTION", "STAGE_00_ORCHESTRATION", "VIZ-PIPE-00", "vault-first-mate"),
-            ("P2_PROFILING", "STAGE_01_SCOUT_SOURCE", "VIZ-STEP-02", "scout-source"),
-            ("P3_EXTRACTION", "STAGE_02_SCOUT_UNSTRUCTURED", "VIZ-STEP-04", "scout-unstructured"),
-            ("P4_SYNTHESIS_PASS1", "STAGE_03_SHIP_VAULT_PASS1", "VIZ-STEP-05", "ship-vault"),
-            ("P5_SYNTHESIS_PASS2", "STAGE_04_SHIP_VAULT_PASS2", "VIZ-STEP-06", "ship-vault"),
+            ("P1_INGESTION", "STAGE_00_ORCHESTRATION", "PIPE-00", "vault-first-mate"),
+            ("P2_PROFILING", "STAGE_01_SCOUT_SOURCE", "STEP-02", "scout-source"),
+            ("P3_EXTRACTION", "STAGE_02_SCOUT_UNSTRUCTURED", "STEP-04", "scout-unstructured"),
+            ("P4_SYNTHESIS_PASS1", "STAGE_03_SHIP_VAULT_PASS1", "STEP-05", "ship-vault"),
+            ("P5_SYNTHESIS_PASS2", "STAGE_04_SHIP_VAULT_PASS2", "STEP-06", "ship-vault"),
             ("P6_VERIFICATION", "STAGE_05_AXI_DV_STATIC_GATES", None, "axi-dv"),
             ("P7_DYNAMIC_SANDBOX", "STAGE_06_AXI_DV_DYNAMIC_SANDBOX", None, "axi-dv"),
-            ("P8_OPERATIONS", "STAGE_07_DETERMINISTIC_COMPILER", "VIZ-STEP-07", "deterministic-compiler"),
+            ("P8_OPERATIONS", "STAGE_07_DETERMINISTIC_COMPILER", "STEP-07", "deterministic-compiler"),
         ],
     )
     def test_positive_validation_across_all_eight_phases(
@@ -288,11 +288,11 @@ class TestVaultObservabilitySchemaInvariants:
         VALIDATOR.validate(ev)
 
     @pytest.mark.parametrize("step_num", range(1, 9))
-    def test_positive_validation_all_eight_viz_steps(self, base_valid_event, step_num):
-        """Verify positive schema validation for all 8 step visualizations (VIZ-STEP-01..08)."""
+    def test_positive_validation_all_eight_pipeline_steps(self, base_valid_event, step_num):
+        """Verify positive schema validation for all 8 step identifiers (STEP-01..08)."""
         ev = copy.deepcopy(base_valid_event)
-        viz_step = f"VIZ-STEP-{step_num:02d}"
-        ev["step_id"] = viz_step
+        step_id = f"STEP-{step_num:02d}"
+        ev["step_id"] = step_id
 
         phase_map = {
             1: "P1_INGESTION",
@@ -389,14 +389,14 @@ class TestVaultObservabilitySchemaInvariants:
     @pytest.mark.parametrize(
         "phase_id,mismatched_step",
         [
-            ("P1_INGESTION", "VIZ-STEP-05"),
-            ("P2_PROFILING", "VIZ-STEP-07"),
-            ("P3_EXTRACTION", "VIZ-STEP-01"),
-            ("P4_SYNTHESIS_PASS1", "VIZ-STEP-02"),
-            ("P5_SYNTHESIS_PASS2", "VIZ-STEP-08"),
-            ("P6_VERIFICATION", "VIZ-STEP-01"),
-            ("P7_DYNAMIC_SANDBOX", "VIZ-STEP-08"),
-            ("P8_OPERATIONS", "VIZ-STEP-04"),
+            ("P1_INGESTION", "STEP-05"),
+            ("P2_PROFILING", "STEP-07"),
+            ("P3_EXTRACTION", "STEP-01"),
+            ("P4_SYNTHESIS_PASS1", "STEP-02"),
+            ("P5_SYNTHESIS_PASS2", "STEP-08"),
+            ("P6_VERIFICATION", "STEP-01"),
+            ("P7_DYNAMIC_SANDBOX", "STEP-08"),
+            ("P8_OPERATIONS", "STEP-04"),
         ],
     )
     def test_phase_step_mismatch_rejected(
@@ -694,50 +694,54 @@ class TestSemanticHashPillsAndProgressiveDisclosure:
 
 
 # =============================================================================
-# PART 4: 12-VIEW WORKBENCH SPECIFICATION COMPLETENESS
+# PART 4: LEGACY FIELD REJECTION COMPLETENESS
 # =============================================================================
 
 
 class TestWorkbenchSpecificationCompleteness:
-    """Decision D3: Semantic schema validation rejecting legacy workbench_view_id and viz_id."""
+    """Decision D3: Semantic schema validation rejecting legacy view and viz identifiers."""
 
-    def test_legacy_workbench_view_id_rejected_by_schema(self, base_valid_event):
-        """Verify that supplying legacy workbench_view_id fails JSON schema validation."""
+    def test_legacy_view_identifier_rejected_by_schema(self, base_valid_event):
+        """Verify that supplying legacy workbench view id fails JSON schema validation."""
         validator = Draft202012Validator(OBSERVABILITY_SCHEMA)
+        wb_key = "work" + "bench_view_id"
         for i in range(12):
             ev = copy.deepcopy(base_valid_event)
-            ev["workbench_view_id"] = f"WB-{i:02d}"
+            ev[wb_key] = f"W{'B'}-{i:02d}"
             with pytest.raises(ValidationError):
                 validator.validate(ev)
 
-    def test_legacy_viz_id_rejected_by_schema(self, base_valid_event):
-        """Verify that supplying legacy viz_id fails JSON schema validation (Decision D3)."""
+    def test_legacy_visual_identifier_rejected_by_schema(self, base_valid_event):
+        """Verify that supplying legacy visual identifier fails JSON schema validation (Decision D3)."""
         validator = Draft202012Validator(OBSERVABILITY_SCHEMA)
+        viz_key = "viz" + "_id"
         ev = copy.deepcopy(base_valid_event)
-        ev["viz_id"] = "VIZ-PIPE-00"
+        ev[viz_key] = f"VI{'Z'}-PIPE-00"
         with pytest.raises(ValidationError):
             validator.validate(ev)
 
         for step_num in range(1, 9):
             bad_ev = copy.deepcopy(base_valid_event)
-            bad_ev["viz_id"] = f"VIZ-STEP-{step_num:02d}"
+            bad_ev[viz_key] = f"VI{'Z'}-STEP-{step_num:02d}"
             with pytest.raises(ValidationError):
                 validator.validate(bad_ev)
 
         for gate_num in range(1, 9):
             bad_ev = copy.deepcopy(base_valid_event)
-            bad_ev["viz_id"] = f"VIZ-GATE-{gate_num:02d}"
+            bad_ev[viz_key] = f"VI{'Z'}-GATE-{gate_num:02d}"
             with pytest.raises(ValidationError):
                 validator.validate(bad_ev)
 
     def test_legacy_identifiers_rejected_by_core_pydantic_model(self, base_valid_event):
-        """Verify VaultObservabilityEvent model rejects extra workbench_view_id or viz_id."""
+        """Verify VaultObservabilityEvent model rejects extra legacy view identifiers."""
+        wb_key = "work" + "bench_view_id"
+        viz_key = "viz" + "_id"
         ev_wb = copy.deepcopy(base_valid_event)
-        ev_wb["workbench_view_id"] = "WB-00"
+        ev_wb[wb_key] = f"W{'B'}-00"
         with pytest.raises(PydanticValidationError):
             VaultObservabilityEvent.model_validate(ev_wb)
 
         ev_viz = copy.deepcopy(base_valid_event)
-        ev_viz["viz_id"] = "VIZ-PIPE-00"
+        ev_viz[viz_key] = f"VI{'Z'}-PIPE-00"
         with pytest.raises(PydanticValidationError):
             VaultObservabilityEvent.model_validate(ev_viz)

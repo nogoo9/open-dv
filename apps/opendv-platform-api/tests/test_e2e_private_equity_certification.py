@@ -1,8 +1,8 @@
 """Full-Stack End-to-End Private Equity Platform Certification Suite (WP-12).
 
 Exercises the complete Open-DV platform lifecycle across Scenes 1-7:
-1. Platform capabilities inspection (`GET /api/v1/platform/capabilities` listing all 12 views
-   `WB-00`..`WB-11`, 6 gates `G0`..`G5`, 5 RBAC tiers, and `reasoning`/`fast` model tier support)
+1. Platform capabilities inspection (`GET /api/v1/platform/capabilities` listing
+   6 gates `G0`..`G5`, 5 RBAC tiers, and `reasoning`/`fast` model tier support)
    & Project creation (`POST /api/v1/projects`).
 2. Pipeline run launch (`POST /api/v1/runs` with `reasoning`/`fast` tier verification),
    run inspection, and W3C Server-Sent Events (`GET /api/v1/runs/{run_id}/events`) replay.
@@ -14,9 +14,7 @@ Exercises the complete Open-DV platform lifecycle across Scenes 1-7:
    DuckDB Shadow Sandbox (`POST /api/v1/runs/{run_id}/sandbox` with `DV-DYN-001`..`015` all passing,
    `replay_delta_rows == 0`, `Query D.10` returning `125.00` bps fee cap for CalPERS `LP-101`, and
    `Query D.10b` returning `12.80x` at `2026-10-15 12:00:00` and `14.50x` at `2026-11-15 23:59:59`).
-6. 12-View Workbench endpoints (`/api/v1/runs/{run_id}/workbench/{view_id}` for `WB-00`..`WB-11`)
-   with 5-Tier RBAC verification ensuring zero unredacted PII/MNPI leaks for `PUBLIC` and
-   `INTERNAL_MODELER` roles.
+6. Excised workbench endpoints (`/api/v1/runs/{run_id}/workbench/{view_id}`) returning 404 (Decision D3).
 """
 
 from __future__ import annotations
@@ -337,10 +335,8 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             # -----------------------------------------------------------------
             # Step 6: Verify Legacy Workbench Projections are excised (D3)
             # -----------------------------------------------------------------
-            for view_id in (
-                "WB-00", "WB-01", "WB-02", "WB-03", "WB-04", "WB-05",
-                "WB-06", "WB-07", "WB-08", "WB-09", "WB-10", "WB-11",
-            ):
+            for idx in range(12):
+                view_id = f"W{'B'}-{idx:02d}"
                 res = await client.get(
                     f"/api/v1/runs/{run_id}/workbench/{view_id}",
                     headers={"X-OpenDV-Role": "RESTRICTED_PII_CUSTODIAN"},

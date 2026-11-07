@@ -2,7 +2,7 @@
 
 > **Module:** `docs/11-agent-worker-implementation-plan.md`  
 > **Parent Specification:** [`DV2_AGENT_REFERENCE_GUIDE.md`](DV2_AGENT_REFERENCE_GUIDE.md) (`v6.0.0`)  
-> **Companion Platform Specs:** [`08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) · [`09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md) · [`10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md)  
+> **Companion Platform Specs:** [`08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) · [`09-agnostic-agent-harness-and-sdk-spec.md`](09-agnostic-agent-harness-and-sdk-spec.md)  
 > **Scope:** Turnkey, dependency-ordered Work Breakdown Structure (`WP-01` through `WP-12`) for autonomous agent workers (`reasoning` high-reasoning tier and `fast` fast-execution tier) to build the complete `open-dv` Platform MVP with zero file-ownership collisions.
 
 ---
@@ -23,8 +23,8 @@ flowchart TD
     WP08["WP-08: Headless Platform REST+SSE API & Unified CLI\n(apps/opendv-platform-api & apps/opendv-cli)\n[Tier: reasoning]"]
     WP09["WP-09: Zero-Dep TypeScript Protocol SDK & Replay\n(packages/opendv-protocol-ts)\n[Tier: reasoning]"]
     WP10["WP-10: Web Workbench Shell, Theme Engine & Plugins\n(apps/opendv-web-workbench Part 1)\n[Tier: reasoning]"]
-    WP11["WP-11: Workbench Views Part 1 (WB-00..WB-05)\n(Intake, Profiler, PDF Spans & Cold-Start)\n[Tier: fast]"]
-    WP12["WP-12: Workbench Views Part 2 (WB-06..WB-11) & E2E\n(DAG, YAGNI, TOON, Drift, Sandbox, SQL & E2E)\n[Tier: reasoning]"]
+    WP11["WP-11: Explorer Views Part 1\n(Intake, Profiler, PDF Spans & Cold-Start)\n[Tier: fast]"]
+    WP12["WP-12: Explorer Views Part 2 & E2E\n(DAG, YAGNI, TOON, Drift, Sandbox, SQL & E2E)\n[Tier: reasoning]"]
 
     WP01 --> WP02
     WP01 --> WP09
@@ -57,11 +57,11 @@ flowchart TD
 | **Wave 3** | **`WP-10`** | `fm/wp10-web-workbench-shell` | `apps/opendv-web-workbench` (Part 1: React 19 + Vite 6 + Tailwind v4, Theme Engine, 3-Layer Shell, Plugin Registry) | `reasoning` | `WP-09` |
 | **Wave 4** | **`WP-04`** | `fm/wp04-opendv-axi-verifier` | `packages/opendv-axi-verifier` (Codemods `A.1`–`A.5`, `A.9a`, Gates `A.6`, `A.7`, `A.9b`, `networkx` DAG, `TOON`, `A.8`) | `reasoning` | `WP-02`, `WP-03` |
 | **Wave 4** | **`WP-06`** | `fm/wp06-agent-harness-core` | `packages/opendv-agent-harness` (Part 1: `VaultAgentHarness` Protocol, 8 Domain Tools, Dual-SDK Tool Bridge, Router) | `reasoning` | `WP-02`, `WP-03` |
-| **Wave 4** | **`WP-11`** | `fm/wp11-workbench-views-00-05` | `apps/opendv-web-workbench` (Part 2: Views `WB-00` through `WB-05` including `Tier-U3` Captain-Hold Modal) | `fast` | `WP-10` |
+| **Wave 4** | **`WP-11`** | `fm/wp11-workbench-views-00-05` | `apps/opendv-web-workbench` (Part 2: Explorer Views Part 1 including `Tier-U3` Captain-Hold Modal) | `fast` | `WP-10` |
 | **Wave 5** | **`WP-05`** | `fm/wp05-opendv-duckdb-sandbox` | `packages/opendv-duckdb-sandbox` (Graph B Profiler, 4-Zone SQL Compiler, 4 Batches, `DV-DYN-001`–`015`, `Query D.10`) | `reasoning` | `WP-03`, `WP-04` |
 | **Wave 5** | **`WP-07`** | `fm/wp07-agent-harness-adapters` | `packages/opendv-agent-harness` (Part 2: `AntigravityHarnessAdapter`, `ClaudeAgentHarnessAdapter`, Personas) | `reasoning` | `WP-04`, `WP-06` |
 | **Wave 6** | **`WP-08`** | `fm/wp08-platform-api-and-cli` | `apps/opendv-platform-api` (`/api/v1/*` REST + SSE + OpenAPI 3.1) & `apps/opendv-cli` (`opendv` / `axi-dv`) | `reasoning` | `WP-05`, `WP-07` |
-| **Wave 7** | **`WP-12`** | `fm/wp12-workbench-views-06-11-e2e` | `apps/opendv-web-workbench` (Part 3: Views `WB-06` through `WB-11`) + Full-Stack E2E Private Equity Certification Suite | `reasoning` | `WP-08`, `WP-10`, `WP-11` |
+| **Wave 7** | **`WP-12`** | `fm/wp12-workbench-views-06-11-e2e` | `apps/opendv-web-workbench` (Part 3: Explorer Views Part 2) + Full-Stack E2E Private Equity Certification Suite | `reasoning` | `WP-08`, `WP-10`, `WP-11` |
 
 ---
 
@@ -260,7 +260,7 @@ flowchart TD
 - **Target Branch / Scope:** `fm/wp09-protocol-ts-sdk` (`packages/opendv-protocol-ts`)
 - **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-01`
-- **Normative Spec References:** [`docs/10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) (§2)
+- **Normative Spec References:** [`docs/08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md)
 - **Exact Files to Create / Modify:**
   - `packages/opendv-protocol-ts/src/index.ts`
   - `packages/opendv-protocol-ts/src/types/{common,observability-event,canonical-ir,contract-v5,api-dtos}.ts`
@@ -283,7 +283,7 @@ flowchart TD
 - **Target Branch / Scope:** `fm/wp10-web-workbench-shell` (`apps/opendv-web-workbench`)
 - **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-09`
-- **Normative Spec References:** [`docs/10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) (§1, §3)
+- **Normative Spec References:** [`docs/06-explainability-and-observability-spec.md`](06-explainability-and-observability-spec.md) (§1, §3)
 - **Exact Files to Create / Modify:**
   - `apps/opendv-web-workbench/index.html` (with zero-FOUC theme initializer)
   - `apps/opendv-web-workbench/vite.config.ts`
@@ -304,23 +304,20 @@ flowchart TD
 
 ---
 
-### `WP-11`: Workbench Views Part 1 — Intake, Empirical Profiler, PDF Span-Grounding & Cold-Start (`WB-00`–`WB-05`)
-- **Target Branch / Scope:** `fm/wp11-workbench-views-00-05` (`apps/opendv-web-workbench/src/views/wb00..wb05`)
+### `WP-11`: Explorer Views Part 1 — Intake, Empirical Profiler, PDF Span-Grounding & Cold-Start
+- **Target Branch / Scope:** `fm/wp11-workbench-views-00-05` (`apps/opendv-web-workbench/src/explorer`)
 - **Assigned Agent Tier:** `fast`
 - **Prerequisites (`blocked-by`):** `WP-10`
-- **Normative Spec References:** [`docs/06-explainability-and-observability-spec.md`](06-explainability-and-observability-spec.md) (§2–§3), [`docs/10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) (§4)
+- **Normative Spec References:** [`docs/06-explainability-and-observability-spec.md`](06-explainability-and-observability-spec.md) (§2–§3)
 - **Exact Files to Create / Modify:**
-  - `apps/opendv-web-workbench/src/views/wb00/{WB00CommandCenter,SixGateFunnelCard,MultiAgentTimeline}.tsx`
-  - `apps/opendv-web-workbench/src/views/wb01/{WB01DualGraphView,BipartiteMapCanvas,CounterfactualTrapDrawer}.tsx`
-  - `apps/opendv-web-workbench/src/views/wb02/{WB02EmpiricalProfiler,FourQuadrantScatterPlot,InclusionDependencyDAG}.tsx`
-  - `apps/opendv-web-workbench/src/views/wb03/{WB03UnstructuredView,DocumentSpanHighlighter,ThreeTierERFunnel,CaptainHoldDecisionModal}.tsx`
-  - `apps/opendv-web-workbench/src/views/wb04/{WB04ColumnTriageView,ColumnAccountingSankey,TriageLedgerTable}.tsx`
-  - `apps/opendv-web-workbench/src/views/wb05/{WB05ELMTopologyView,TopologyCanvas,BkccCollisionShieldDrawer}.tsx`
-  - `apps/opendv-web-workbench/tests/views-wb00-wb05.test.ts`
+  - `apps/opendv-web-workbench/src/explorer/OpenDVWorkbenchExplorer.tsx`
+  - `apps/opendv-web-workbench/src/explorer/PipelineOverviewView.tsx`
+  - `apps/opendv-web-workbench/src/explorer/StageDrillDownView.tsx`
+  - `apps/opendv-web-workbench/src/explorer/ArtifactVisualizers.tsx`
 - **Acceptance Criteria:**
-  1. Registers `WB-00` through `WB-05` via `WorkbenchPluginRegistry.registerView(...)`.
-  2. `WB-03` highlights exact PDF character spans and wires `CaptainHoldDecisionModal` to `submitDecision` (`POST /api/v1/runs/{id}/decisions`) and local replay state.
-  3. `WB-05` renders dual-encoded WCAG AA entity badges (`[HUB]`, `[LNK]`, `[SAL]`, `[SAT]`, `[SAT-PII]`) and the `BKCC` Collision Shield (`GLOBAL:LP-101` vs `LEGACY_GP_ADMIN:LP-101`).
+  1. Registers Explorer Views via `OpenDVWorkbenchExplorer`.
+  2. Highlights exact PDF character spans and wires `CaptainHoldDecisionModal` to `submitDecision` (`POST /api/v1/runs/{id}/decisions`) and local replay state.
+  3. Renders dual-encoded WCAG AA entity badges (`[HUB]`, `[LNK]`, `[SAL]`, `[SAT]`, `[SAT-PII]`) and the `BKCC` Collision Shield (`GLOBAL:LP-101` vs `LEGACY_GP_ADMIN:LP-101`).
 - **Verification Commands:**
   ```bash
   ( cd /path/to/worktree && moon run opendv-web-workbench:lint opendv-web-workbench:typecheck opendv-web-workbench:test opendv-web-workbench:build )
@@ -328,23 +325,18 @@ flowchart TD
 
 ---
 
-### `WP-12`: Workbench Views Part 2 (`WB-06`–`WB-11`) & Full-Stack End-to-End Platform Certification
-- **Target Branch / Scope:** `fm/wp12-workbench-views-06-11-e2e` (`apps/opendv-web-workbench/src/views/wb06..wb11` & E2E certification tests)
+### `WP-12`: Explorer Views Part 2 & Full-Stack End-to-End Platform Certification
+- **Target Branch / Scope:** `fm/wp12-workbench-views-06-11-e2e` (`apps/opendv-web-workbench/src/explorer` & E2E certification tests)
 - **Assigned Agent Tier:** `reasoning`
 - **Prerequisites (`blocked-by`):** `WP-08`, `WP-10`, `WP-11`
-- **Normative Spec References:** [`docs/06-explainability-and-observability-spec.md`](06-explainability-and-observability-spec.md) (§2–§3), [`docs/07-end-to-end-private-equity-demo.md`](07-end-to-end-private-equity-demo.md) (Scenes 1–7), [`docs/10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) (§4)
+- **Normative Spec References:** [`docs/06-explainability-and-observability-spec.md`](06-explainability-and-observability-spec.md) (§2–§3), [`docs/07-end-to-end-private-equity-demo.md`](07-end-to-end-private-equity-demo.md) (Scenes 1–7)
 - **Exact Files to Create / Modify:**
-  - `apps/opendv-web-workbench/src/views/wb06/{WB06TopologicalDAGView,GrainAdjacencyMatrix}.tsx`
-  - `apps/opendv-web-workbench/src/views/wb07/{WB07LinkSplitterYagniView,WriteAmplificationGauge}.tsx`
-  - `apps/opendv-web-workbench/src/views/wb08/{WB08SelfHealingWorkbench,AttemptDiffViewer,ToonTraceHighlighter}.tsx`
-  - `apps/opendv-web-workbench/src/views/wb09/{WB09SchemaDriftRadar,DriftDeltaGrid}.tsx`
-  - `apps/opendv-web-workbench/src/views/wb10/{WB10DuckDBSandboxView,AdversarialBatchGrid,BiTemporalTimeline}.tsx`
-  - `apps/opendv-web-workbench/src/views/wb11/{WB11RosettaStoneView,PreHashStepper,FourZoneSQLViewer}.tsx`
-  - `apps/opendv-web-workbench/tests/views-wb06-wb11.test.ts`
+  - `apps/opendv-web-workbench/src/explorer/ArtifactFullModal.tsx`
+  - `apps/opendv-web-workbench/src/explorer/explorer-store.ts`
   - `apps/opendv-platform-api/tests/test_e2e_private_equity_certification.py`
 - **Acceptance Criteria:**
-  1. All 12 Workbench Views (`WB-00`–`WB-11`) are registered, render 3-Layer Progressive Disclosure state, and pass unit tests.
-  2. Full-stack Private Equity certification test exercises project creation, run launch, `Tier-U3` Captain-Hold resolution, 6-Gate verification, 4-Zone SQL compilation, 4-Batch DuckDB Shadow Sandbox (`DV-DYN-001`–`015`), `Query D.10` / `D.10b` PIT verification, and `WB-00`–`WB-11` projection endpoints with zero unredacted PII/MNPI leaks.
+  1. All Explorer Views are registered, render 3-Layer Progressive Disclosure state, and pass unit tests.
+  2. Full-stack Private Equity certification test exercises project creation, run launch, `Tier-U3` Captain-Hold resolution, 6-Gate verification, 4-Zone SQL compilation, 4-Batch DuckDB Shadow Sandbox (`DV-DYN-001`–`015`), `Query D.10` / `D.10b` PIT verification, and telemetry projection endpoints with zero unredacted PII/MNPI leaks.
 - **Verification Commands:**
   ```bash
   ( cd /path/to/worktree && moon run :lint :typecheck :test :build )
@@ -481,7 +473,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
         tier="reasoning",
         blocked_by=("WP-01",),
         owned_paths=("packages/opendv-protocol-ts/",),
-        normative_docs=("docs/08-platform-mvp-monorepo-and-api-spec.md", "docs/10-decoupled-ui-workbench-and-theme-spec.md"),
+        normative_docs=("docs/08-platform-mvp-monorepo-and-api-spec.md",),
         verify_cmd="moon run opendv-protocol-ts:lint opendv-protocol-ts:typecheck opendv-protocol-ts:test opendv-protocol-ts:build",
     ),
     WorkPackageSpec(
@@ -499,7 +491,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
             "apps/opendv-web-workbench/src/components/shell/",
             "apps/opendv-web-workbench/tests/shell-and-theme.test.ts",
         ),
-        normative_docs=("docs/06-explainability-and-observability-spec.md", "docs/10-decoupled-ui-workbench-and-theme-spec.md"),
+        normative_docs=("docs/06-explainability-and-observability-spec.md",),
         verify_cmd="moon run opendv-web-workbench:lint opendv-web-workbench:typecheck opendv-web-workbench:test opendv-web-workbench:build",
     ),
     WorkPackageSpec(
@@ -516,7 +508,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
             "apps/opendv-web-workbench/src/views/wb05/",
             "apps/opendv-web-workbench/tests/views-wb00-wb05.test.ts",
         ),
-        normative_docs=("docs/06-explainability-and-observability-spec.md", "docs/10-decoupled-ui-workbench-and-theme-spec.md"),
+        normative_docs=("docs/06-explainability-and-observability-spec.md",),
         verify_cmd="moon run opendv-web-workbench:lint opendv-web-workbench:typecheck opendv-web-workbench:test opendv-web-workbench:build",
     ),
     WorkPackageSpec(
@@ -534,7 +526,7 @@ WORK_PACKAGE_MANIFEST: tuple[WorkPackageSpec, ...] = (
             "apps/opendv-web-workbench/tests/views-wb06-wb11.test.ts",
             "apps/opendv-platform-api/tests/test_e2e_private_equity_certification.py",
         ),
-        normative_docs=("docs/06-explainability-and-observability-spec.md", "docs/07-end-to-end-private-equity-demo.md", "docs/10-decoupled-ui-workbench-and-theme-spec.md"),
+        normative_docs=("docs/06-explainability-and-observability-spec.md", "docs/07-end-to-end-private-equity-demo.md"),
         verify_cmd="moon run :lint :typecheck :test :build",
     ),
 )

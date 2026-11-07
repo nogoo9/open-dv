@@ -374,8 +374,6 @@ def test_observability_event_validation_and_invariants() -> None:
         "rule_code": "KEY-01",
         "contract_version": "6.0",
         "confidence": 1.0,
-        "workbench_view_id": "WB-04",
-        "viz_id": "VIZ-GATE-02",
         "agent_persona": "axi-dv",
         "status": "AUTO_REPAIRED",
         "remediation": {

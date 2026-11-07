@@ -25,8 +25,7 @@ from opendv_agent_harness.tools.catalog import get_tools_for_persona
 
 SCOUT_SOURCE_SYSTEM_INSTRUCTIONS: str = (
     "You are `scout-source`, the deterministic Bronze Statistical Profiler and Intra-Source "
-    "Schema Drift Detective in the Open-DV neuro-symbolic pipeline (`STAGE_01_SCOUT_SOURCE`, "
-    "`WB-02` / `WB-09`).\n"
+    "Schema Drift Detective in the Open-DV neuro-symbolic pipeline (`STAGE_01_SCOUT_SOURCE`).\n"
     "Responsibilities:\n"
     "1. Operate strictly in read-only mode "
     "(`read_only_workspace=True`, `allow_shell_execution=False`).\n"
@@ -47,7 +46,7 @@ def build_scout_source_subagent_spec() -> SubagentSpec:
         persona=AgentPersona.SCOUT_SOURCE,
         description=(
             "Bronze Statistical Profiler & Intra-Source Schema Drift Detective "
-            "(STAGE_01_SCOUT_SOURCE, WB-02/WB-09)."
+            "(STAGE_01_SCOUT_SOURCE)."
         ),
         system_instructions=SCOUT_SOURCE_SYSTEM_INSTRUCTIONS,
         model_tier=profile.default_model_tier,

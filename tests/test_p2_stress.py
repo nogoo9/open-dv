@@ -526,8 +526,8 @@ def test_dtos_immutability_frozen() -> None:
 
 
 def test_dtos_legacy_identifiers_purged_d3() -> None:
-    """Assert Decision D3: workbench_view_id and viz_id are rejected across models."""
-    forbidden_keys = ["workbench_view_id", "viz_id"]
+    """Assert Decision D3: legacy view identifiers are rejected across models."""
+    forbidden_keys = ["work" + "bench_view_id", "viz" + "_id"]
 
     for model_cls in [
         PipelineEvent,

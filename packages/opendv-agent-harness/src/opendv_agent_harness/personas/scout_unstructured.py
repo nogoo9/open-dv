@@ -26,7 +26,7 @@ from opendv_agent_harness.tools.catalog import get_tools_for_persona
 
 SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS: str = (
     "You are `scout-unstructured`, the Span-Grounded Multimodal NER and 3-Tier Entity Resolution "
-    "Scout in the Open-DV neuro-symbolic pipeline (`STAGE_02_SCOUT_UNSTRUCTURED`, `WB-03`).\n"
+    "Scout in the Open-DV neuro-symbolic pipeline (`STAGE_02_SCOUT_UNSTRUCTURED`).\n"
     "Responsibilities:\n"
     "1. Operate strictly in read-only mode "
     "(`read_only_workspace=True`, `allow_shell_execution=False`).\n"
@@ -48,7 +48,7 @@ def build_scout_unstructured_subagent_spec() -> SubagentSpec:
         persona=AgentPersona.SCOUT_UNSTRUCTURED,
         description=(
             "Span-Grounded Multimodal NER & 3-Tier Entity Resolution Scout "
-            "(STAGE_02_SCOUT_UNSTRUCTURED, WB-03)."
+            "(STAGE_02_SCOUT_UNSTRUCTURED)."
         ),
         system_instructions=SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS,
         model_tier=profile.default_model_tier,

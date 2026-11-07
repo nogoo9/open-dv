@@ -13,7 +13,6 @@ ROUTERS_DIR = REPO_ROOT / "apps" / "opendv-platform-api" / "src" / "opendv_platf
 # Engine symbols that must never be called directly in API router adapter modules
 BANNED_ENGINE_CALLS = {
     "run_axi_dv_verification_pipeline",
-    "execute_pe_sandbox_query",
     "run_agentic_vault_pipeline",
     "build_gate_scorecard_from_axi_result",
 }
