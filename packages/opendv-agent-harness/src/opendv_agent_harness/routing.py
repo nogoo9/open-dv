@@ -17,7 +17,6 @@ from opendv_agent_harness.models import (
     ModelTier,
     PipelineStageId,
     SandboxPolicy,
-    WorkbenchViewId,
 )
 
 DEFAULT_AGY_MODEL_MAP: dict[ModelTier, str] = {
@@ -51,7 +50,6 @@ class PersonaCapabilityProfile(BaseModel):
     authorized_tools: frozenset[str]
     allowed_subagents: tuple[str, ...] = ()
     primary_stages: tuple[PipelineStageId, ...] = ()
-    primary_views: tuple[WorkbenchViewId, ...] = ()
 
     @property
     def model_tier(self) -> ModelTier:
@@ -104,7 +102,6 @@ PERSONA_CAPABILITY_MATRIX: dict[AgentPersona, PersonaCapabilityProfile] = {
             AgentPersona.SHIP_VAULT.value,
         ),
         primary_stages=(PipelineStageId.STAGE_00_ORCHESTRATION,),
-        primary_views=(WorkbenchViewId.WB_00, WorkbenchViewId.WB_01),
     ),
     AgentPersona.SCOUT_SOURCE: PersonaCapabilityProfile(
         persona=AgentPersona.SCOUT_SOURCE,
@@ -121,7 +118,6 @@ PERSONA_CAPABILITY_MATRIX: dict[AgentPersona, PersonaCapabilityProfile] = {
         ),
         allowed_subagents=(),
         primary_stages=(PipelineStageId.STAGE_01_SCOUT_SOURCE,),
-        primary_views=(WorkbenchViewId.WB_02, WorkbenchViewId.WB_09),
     ),
     AgentPersona.SCOUT_UNSTRUCTURED: PersonaCapabilityProfile(
         persona=AgentPersona.SCOUT_UNSTRUCTURED,
@@ -139,7 +135,6 @@ PERSONA_CAPABILITY_MATRIX: dict[AgentPersona, PersonaCapabilityProfile] = {
         ),
         allowed_subagents=(),
         primary_stages=(PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,),
-        primary_views=(WorkbenchViewId.WB_03,),
     ),
     AgentPersona.SHIP_VAULT: PersonaCapabilityProfile(
         persona=AgentPersona.SHIP_VAULT,
@@ -174,15 +169,6 @@ PERSONA_CAPABILITY_MATRIX: dict[AgentPersona, PersonaCapabilityProfile] = {
             PipelineStageId.STAGE_05_AXI_DV_STATIC_GATES,
             PipelineStageId.STAGE_06_AXI_DV_DYNAMIC_SANDBOX,
             PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER,
-        ),
-        primary_views=(
-            WorkbenchViewId.WB_04,
-            WorkbenchViewId.WB_05,
-            WorkbenchViewId.WB_06,
-            WorkbenchViewId.WB_07,
-            WorkbenchViewId.WB_08,
-            WorkbenchViewId.WB_10,
-            WorkbenchViewId.WB_11,
         ),
     ),
 }

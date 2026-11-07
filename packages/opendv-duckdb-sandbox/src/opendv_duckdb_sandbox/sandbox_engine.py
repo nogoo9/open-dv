@@ -452,8 +452,6 @@ class DuckDbShadowSandbox:
             rule_code="DV-DYN-009",
             contract_version="5.0",
             confidence=1.0,
-            workbench_view_id="WB-10",
-            viz_id="VIZ-GATE-08",
             agent_persona="axi-dv",
             status="PASS" if overall_passed else "REJECT-WITH-TRACE",
             rule_ids_evaluated=[c.check_id for c in dyn_report.checks],

@@ -210,8 +210,6 @@ class HoldStateMixin:
             parent_span_id=uuid.uuid4().hex[:16],
             timestamp_utc=resolved_at,
             stage_id="STAGE_02_SCOUT_UNSTRUCTURED",
-            workbench_view_id="WB-03",
-            viz_id="VIZ-STEP-04",
             agent_persona="vault-first-mate",
             status=verdict,
             headline=(
@@ -231,10 +229,6 @@ class HoldStateMixin:
 
         self.run_ledgers[run_id].emit(resolution_event)
         self.run_events[run_id].append(resolution_event)
-        self.run_workbench_events[run_id].append(resolution_event)
-        self.run_events_by_view.setdefault(run_id, {}).setdefault("WB-03", []).append(
-            resolution_event
-        )
 
         if ont_res is not None and ont_res.new_ontology and ont_res.new_graph_a_sha256:
             meta = ArtifactMetadataResponse(

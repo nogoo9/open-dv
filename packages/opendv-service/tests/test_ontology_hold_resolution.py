@@ -202,8 +202,6 @@ def test_state_store_resolve_captain_hold_with_hold_option(
             task_id="task-g1-hold",
             session_id="sess-g1",
             stage_id="STAGE_05_AXI_DV_STATIC_GATES",
-            workbench_view_id="WB-06",
-            viz_id="VIZ-GATE-02",
             persona="axi-dv",
             headline="Gate 1 ontology concept gap",
             escalation_reason="UNMAPPED_ONTOLOGY_CONCEPT",

@@ -84,8 +84,6 @@ class BaseStateContainer:
         self.project_bronze_sources: dict[str, list[str]] = {}
         self.runs: dict[str, ProjectRunDTO] = {}
         self.run_events: dict[str, list[dict[str, Any]]] = {}
-        self.run_workbench_events: dict[str, list[dict[str, Any]]] = {}
-        self.run_events_by_view: dict[str, dict[str, list[dict[str, Any]]]] = {}
         self.run_ledgers: dict[str, VaultLedgerEmitter] = {}
         self.hold_managers: dict[str, StewardHoldManager] = {}
         self.run_gate_reports: dict[str, dict[str, Any]] = {}

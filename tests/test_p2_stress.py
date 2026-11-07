@@ -67,6 +67,7 @@ from opendv_contracts import (
     ProblemDetail,
     ProfileRequest,
     ProfileResponse,
+    ProjectRunDTO,
     RbacRole,
     RenderedOutput,
     RuleEvaluationDTO,
@@ -87,6 +88,7 @@ from opendv_contracts import (
     validate_cli_spec,
 )
 from opendv_contracts.jcs import FloatDomainError, IntegerDomainError
+from opendv_core import VaultObservabilityEvent
 from opendv_service import set_pipeline_runner_override
 
 
@@ -527,9 +529,19 @@ def test_dtos_legacy_identifiers_purged_d3() -> None:
     """Assert Decision D3: workbench_view_id and viz_id are rejected across models."""
     forbidden_keys = ["workbench_view_id", "viz_id"]
 
-    for model_cls in [PipelineEvent, PipelineRunHandle, VerifyResponse, ProfileResponse, CompileResponse]:
+    for model_cls in [
+        PipelineEvent,
+        PipelineRunHandle,
+        VerifyResponse,
+        ProfileResponse,
+        CompileResponse,
+        ProjectRunDTO,
+        VaultObservabilityEvent,
+    ]:
         for forbidden in forbidden_keys:
             assert forbidden not in model_cls.model_fields, f"{forbidden} found in {model_cls.__name__}"
+
+    assert "current_view_id" not in ProjectRunDTO.model_fields
 
 
 def test_dtos_inline_payloads_d1() -> None:
