@@ -44,11 +44,6 @@ jobs:
         run: |
           uv sync --all-packages --locked
 
-      - name: Package opendvctl release artifacts
-        run: |
-          bun install --frozen-lockfile
-          bun run --cwd apps/opendvctl package
-
       - name: Run Ruff static analysis
         run: |
           uv run ruff check packages/ apps/
@@ -246,6 +241,11 @@ jobs:
           uv run python -m opendv_service.export_cli_spec
           git diff --exit-code packages/opendv-contracts/schemas/cli-spec.json schemas/v1/cli-spec.json
 
+      - name: Verify CLI reference documentation drift
+        run: |
+          uv run python scripts/generate_cli_reference.py
+          git diff --exit-code docs/16-cli-reference.md
+
   validate-typescript:
     name: TypeScript Workspace CI (Bun, test, tsc -b)
     runs-on: ubuntu-latest
@@ -274,4 +274,47 @@ jobs:
         run: |
           bun run --cwd packages/opendv-protocol-ts codegen
           git diff --exit-code packages/opendv-protocol-ts/src/types
+
+  release-opendvctl:
+    name: opendvctl Release Packaging & Cross-Compilation (§7.7)
+    runs-on: ubuntu-latest
+    needs: [validate-python, validate-typescript]
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Install Bun dependencies
+        run: |
+          bun install --frozen-lockfile
+
+      - name: Build 5-target binaries and package archives
+        run: |
+          bun run --cwd apps/opendvctl package
+
+      - name: Verify SHA256SUMS and release files
+        run: |
+          test -f apps/opendvctl/dist/release/SHA256SUMS.txt
+          test -f apps/opendvctl/dist/release/opendvctl-linux-x64
+          test -f apps/opendvctl/dist/release/opendvctl-linux-arm64
+          test -f apps/opendvctl/dist/release/opendvctl-darwin-x64
+          test -f apps/opendvctl/dist/release/opendvctl-darwin-arm64
+          test -f apps/opendvctl/dist/release/opendvctl-windows-x64.exe
+          cat apps/opendvctl/dist/release/SHA256SUMS.txt
+
+      - name: Host native binary smoke test
+        run: |
+          chmod +x apps/opendvctl/dist/release/opendvctl-linux-x64
+          ./apps/opendvctl/dist/release/opendvctl-linux-x64 --version
+          ./apps/opendvctl/dist/release/opendvctl-linux-x64 --dump-cli-tree
+
+      - name: Upload opendvctl release artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: opendvctl-release-binaries
+          path: apps/opendvctl/dist/release/
 

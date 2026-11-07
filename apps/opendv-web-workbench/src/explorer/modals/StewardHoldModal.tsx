@@ -141,13 +141,13 @@ export function StewardHoldModal({
 			hold_id: holdId,
 			event_id: effectiveEventId,
 			steward_id: "steward-captain",
-			selected_candidate_id: selectedCandidate || undefined,
+			selected_candidate_id: selectedCandidate || null,
 			resolution_notes:
 				rationale ||
 				(action === "APPROVE"
 					? `Approved hold ${holdId}`
 					: `Rejected hold ${holdId}`),
-			steward_rationale: rationale || undefined,
+			steward_rationale: rationale || null,
 		};
 
 		if (ontologyOps && ontologyOps.length > 0) {
@@ -183,6 +183,8 @@ export function StewardHoldModal({
 						next_event_id: `evt-resumed-${Date.now()}`,
 						action,
 						hold_id: holdId,
+						resolved_at_utc: new Date().toISOString(),
+						updated_run_status: "RUNNING",
 					};
 
 			setSuccessMsg("Hold resolved. Resuming pipeline.");

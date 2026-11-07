@@ -99,7 +99,7 @@ export function InspectorHoldSection({
 				(effectiveAction === "APPROVE"
 					? `Approved candidate ${candidateId}`
 					: `Rejected hold ${activeHoldId}`),
-			steward_rationale: rationale || undefined,
+			steward_rationale: rationale || null,
 		};
 
 		if (detectedOps.length > 0) {

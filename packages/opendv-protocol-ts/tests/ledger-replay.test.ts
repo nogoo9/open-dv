@@ -256,7 +256,7 @@ describe("LedgerReplayClient (Offline Event Ledger Replay Engine)", () => {
 	});
 
 	it("enforces 5-Tier RBAC redaction across PUBLIC, INTERNAL_MODELER, and AUDITOR_FINANCE roles", () => {
-		const mnpiEvent = SYNTHETIC_EVENTS[5];
+		const mnpiEvent = SYNTHETIC_EVENTS[5]!;
 		expect(mnpiEvent.data_classification).toBe("MNPI");
 
 		// INTERNAL_MODELER lacks MNPI clearance -> masked

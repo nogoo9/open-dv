@@ -26,13 +26,19 @@ def generate_openapi_spec() -> dict[str, Any]:
     return raw_spec
 
 
+def render_openapi_spec() -> str:
+    """Serialize the deterministic OpenAPI 3.1.0 document to canonical JSON string."""
+    spec = generate_openapi_spec()
+    return json.dumps(spec, indent=2, sort_keys=True) + "\n"
+
+
 def export_openapi_to_file(out_path: Path | None = None) -> Path:
     """Write the deterministic OpenAPI 3.1.0 specification to `schemas/openapi-v1.json`."""
     target = (out_path or Path("schemas/openapi-v1.json")).resolve()
     target.parent.mkdir(parents=True, exist_ok=True)
-    spec = generate_openapi_spec()
-    rendered = json.dumps(spec, indent=2, sort_keys=True) + "\n"
-    target.write_text(rendered, encoding="utf-8")
+    rendered = render_openapi_spec()
+    with open(target, "w", encoding="utf-8", newline="\n") as f:
+        f.write(rendered)
     return target
 
 
