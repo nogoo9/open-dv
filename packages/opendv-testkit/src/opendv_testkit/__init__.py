@@ -8,7 +8,6 @@ from __future__ import annotations
 
 from opendv_testkit.fixtures import (
     PE_DEMO_CONTEXT_REFS,
-    WORKBENCH_VIEW_TITLES,
     build_pe_canonical_events,
     create_ephemeral_project,
     create_ephemeral_run,
@@ -39,7 +38,6 @@ from opendv_testkit.synthesis import (
 __all__ = [
     "DEFAULT_DETERMINISTIC_MODEL_MAP",
     "PE_DEMO_CONTEXT_REFS",
-    "WORKBENCH_VIEW_TITLES",
     "DeterministicHarnessAdapter",
     "DeterministicTestkitRecommender",
     "RecordsSourceAdapter",

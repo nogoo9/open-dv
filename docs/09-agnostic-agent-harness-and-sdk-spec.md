@@ -2,7 +2,7 @@
 
 > **Module:** `docs/09-agnostic-agent-harness-and-sdk-spec.md`  
 > **Parent Specification:** [`DV2_AGENT_REFERENCE_GUIDE.md`](DV2_AGENT_REFERENCE_GUIDE.md) (`v6.0.0`)  
-> **Companion Platform Specs:** [`08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) · [`10-decoupled-ui-workbench-and-theme-spec.md`](10-decoupled-ui-workbench-and-theme-spec.md) · [`11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)  
+> **Companion Platform Specs:** [`08-platform-mvp-monorepo-and-api-spec.md`](08-platform-mvp-monorepo-and-api-spec.md) · [`11-agent-worker-implementation-plan.md`](11-agent-worker-implementation-plan.md)  
 > **Scope:** Vendor-neutral `VaultAgentHarness` protocol, `AgentTaskSpec`, `AgentToolDefinition`, `SubagentSpec`, `reasoning`/`fast` model-tier routing, automatic dual-SDK tool bridges, concrete `AgyCliHarnessAdapter` (`agy` CLI), `ClaudeCliHarnessAdapter` (`claude` CLI), `AntigravityHarnessAdapter` (`google.antigravity`) and `ClaudeAgentHarnessAdapter` (`claude_agent_sdk`) implementations, and real-time translation of SDK streams into `VaultObservabilityEvent` ledger records.
 
 ---
@@ -76,41 +76,6 @@ class PipelineStageId(StrEnum):
     STAGE_05_AXI_DV_STATIC_GATES = "STAGE_05_AXI_DV_STATIC_GATES"
     STAGE_06_AXI_DV_DYNAMIC_SANDBOX = "STAGE_06_AXI_DV_DYNAMIC_SANDBOX"
     STAGE_07_DETERMINISTIC_COMPILER = "STAGE_07_DETERMINISTIC_COMPILER"
-
-
-class WorkbenchViewId(StrEnum):
-    WB_00 = "WB-00"
-    WB_01 = "WB-01"
-    WB_02 = "WB-02"
-    WB_03 = "WB-03"
-    WB_04 = "WB-04"
-    WB_05 = "WB-05"
-    WB_06 = "WB-06"
-    WB_07 = "WB-07"
-    WB_08 = "WB-08"
-    WB_09 = "WB-09"
-    WB_10 = "WB-10"
-    WB_11 = "WB-11"
-
-
-class VizId(StrEnum):
-    VIZ_PIPE_00 = "VIZ-PIPE-00"
-    VIZ_STEP_01 = "VIZ-STEP-01"
-    VIZ_STEP_02 = "VIZ-STEP-02"
-    VIZ_STEP_03 = "VIZ-STEP-03"
-    VIZ_STEP_04 = "VIZ-STEP-04"
-    VIZ_STEP_05 = "VIZ-STEP-05"
-    VIZ_STEP_06 = "VIZ-STEP-06"
-    VIZ_STEP_07 = "VIZ-STEP-07"
-    VIZ_STEP_08 = "VIZ-STEP-08"
-    VIZ_GATE_01 = "VIZ-GATE-01"
-    VIZ_GATE_02 = "VIZ-GATE-02"
-    VIZ_GATE_03 = "VIZ-GATE-03"
-    VIZ_GATE_04 = "VIZ-GATE-04"
-    VIZ_GATE_05 = "VIZ-GATE-05"
-    VIZ_GATE_06 = "VIZ-GATE-06"
-    VIZ_GATE_07 = "VIZ-GATE-07"
-    VIZ_GATE_08 = "VIZ-GATE-08"
 
 
 class ObservabilityVerdict(StrEnum):
@@ -594,16 +559,16 @@ class BaseVaultAgentHarness(abc.ABC):
 
 ### 3.1 The 8 Canonical `open-dv` Domain Tools
 
-| Tool # | Tool Identifier | Authorized Personas | Read-Only? | Primary Pipeline Stage(s) | Workbench / `VizId` | Underlying Algorithm / Schema |
+| Tool # | Tool Identifier | Authorized Personas | Read-Only? | Primary Pipeline Stage(s) | Explorer View Scope | Underlying Algorithm / Schema |
 | :---: | :--- | :--- | :---: | :--- | :--- | :--- |
-| **1** | `profile_source_feed` | `scout-source`, `vault-first-mate` | Yes | `STAGE_01_SCOUT_SOURCE` | `WB-02` (`VIZ-STEP-02`), `WB-09` (`VIZ-STEP-03`) | `docs/05` §1 Graph B + `Algorithm A.9a` |
-| **2** | `extract_pdf_spans` | `scout-unstructured` | Yes | `STAGE_02_SCOUT_UNSTRUCTURED` | `WB-03` (`VIZ-STEP-04`, `VIZ-GATE-06`) | `docs/04` Rules `U1–U4`, `Tier-U1..U3`, `Alg A.9b` |
-| **3** | `compile_canonical_ir` | `ship-vault`, `vault-first-mate` | Writes CAS | `STAGE_07_DETERMINISTIC_COMPILER` | `WB-11` (`VIZ-STEP-07`, `VIZ-STEP-08`) | `schemas/dv2-canonical-ir.schema.json` + `Alg A.5` + `D.10` |
-| **4** | `run_axi_dv_gates` | `ship-vault`, `vault-first-mate` | Yes | `STAGE_05_AXI_DV_STATIC_GATES` | `WB-00` (`VIZ-GATE-01`), `WB-06` (`VIZ-GATE-03`), `WB-08` (`VIZ-GATE-07`) | `Algorithms A.6`, `A.7`, `A.8`, `@toon_v1` |
-| **5** | `apply_ast_codemod` | `ship-vault` | Writes CAS | `STAGE_04_SHIP_VAULT_PASS2`, `STAGE_05` | `WB-05` (`VIZ-GATE-04`), `WB-07` (`VIZ-GATE-05`) | `Algorithms A.1`, `A.2`, `A.3`, `A.4`, `A.5`, `A.9a` |
-| **6** | `execute_duckdb_sandbox` | `ship-vault`, `vault-first-mate` | Ephemeral DB | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | `WB-10` (`VIZ-GATE-08`) | `docs/03` §2 & §7 (`DV-DYN-001..015` + Batches 1–4) |
-| **7** | `emit_observability_event` | All 4 Agent Personas | Appends JSONL | `STAGE_00` .. `STAGE_07` | `WB-00` .. `WB-11` | `schemas/vault-observability-event.schema.json` |
-| **8** | `request_steward_decision` | `vault-first-mate`, `scout-unstructured`, `ship-vault` | Holds Task | `STAGE_00`, `STAGE_02`, `STAGE_05` | `WB-03` (`Tier-U3`), `WB-08` (`ASK-USER`) | Captain-Hold (`ASK-USER` on `Tier-U3` or `DV-EVO-003`) |
+| **1** | `profile_source_feed` | `scout-source`, `vault-first-mate` | Yes | `STAGE_01_SCOUT_SOURCE` | Empirical Profiler & Drift Radar | `docs/05` §1 Graph B + `Algorithm A.9a` |
+| **2** | `extract_pdf_spans` | `scout-unstructured` | Yes | `STAGE_02_SCOUT_UNSTRUCTURED` | Unstructured Document Grounding | `docs/04` Rules `U1–U4`, `Tier-U1..U3`, `Alg A.9b` |
+| **3** | `compile_canonical_ir` | `ship-vault`, `vault-first-mate` | Writes CAS | `STAGE_07_DETERMINISTIC_COMPILER` | Rosetta Stone & 4-Zone SQL | `schemas/dv2-canonical-ir.schema.json` + `Alg A.5` + `D.10` |
+| **4** | `run_axi_dv_gates` | `ship-vault`, `vault-first-mate` | Yes | `STAGE_05_AXI_DV_STATIC_GATES` | 6-Gate Verification Scoreboard | `Algorithms A.6`, `A.7`, `A.8`, `@toon_v1` |
+| **5** | `apply_ast_codemod` | `ship-vault` | Writes CAS | `STAGE_04_SHIP_VAULT_PASS2`, `STAGE_05` | ELM Topology & Link Splitter | `Algorithms A.1`, `A.2`, `A.3`, `A.4`, `A.5`, `A.9a` |
+| **6** | `execute_duckdb_sandbox` | `ship-vault`, `vault-first-mate` | Ephemeral DB | `STAGE_06_AXI_DV_DYNAMIC_SANDBOX` | DuckDB Shadow Sandbox | `docs/03` §2 & §7 (`DV-DYN-001..015` + Batches 1–4) |
+| **7** | `emit_observability_event` | All 4 Agent Personas | Appends JSONL | `STAGE_00` .. `STAGE_07` | Pipeline Telemetry Stream | `schemas/vault-observability-event.schema.json` |
+| **8** | `request_steward_decision` | `vault-first-mate`, `scout-unstructured`, `ship-vault` | Holds Task | `STAGE_00`, `STAGE_02`, `STAGE_05` | Captain-Hold Resolution Queue | Captain-Hold (`ASK-USER` on `Tier-U3` or `DV-EVO-003`) |
 
 ### 3.2 Automatic Dual-SDK Tool Bridge (`tools/bridge.py`)
 
@@ -1226,9 +1191,9 @@ class ClaudeAgentHarnessAdapter(BaseVaultAgentHarness):
 
 ## 5. Persona Capability Matrix & Model-Tier Routing Policy
 
-| Persona (`AgentPersona`) | Default `ModelTier` | Filesystem Sandbox (`SandboxPolicy`) | Authorized Domain Tools | Allowed Subagents | Primary Stages & Workbench Views |
+| Persona (`AgentPersona`) | Default `ModelTier` | Filesystem Sandbox (`SandboxPolicy`) | Authorized Domain Tools | Allowed Subagents | Primary Stages & Explorer Scope |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| **`vault-first-mate`** *(Read-Only Supervisor & Ontology Steward)* | `HIGH_REASONING` (`reasoning`) | `read_only_workspace=True`, `allow_shell_execution=False` | `profile_source_feed`, `run_axi_dv_gates`, `execute_duckdb_sandbox`, `compile_canonical_ir`, `emit_observability_event`, `request_steward_decision` | `scout-source`, `scout-unstructured`, `ship-vault` | `STAGE_00_ORCHESTRATION` (`WB-00`, `WB-01`) |
-| **`scout-source`** *(Bronze Statistical Profiler & Drift Detective)* | `FAST_TIER` (`fast`) | `read_only_workspace=True`, `allow_shell_execution=False` | `profile_source_feed`, `emit_observability_event` | None (`leaf scout`) | `STAGE_01_SCOUT_SOURCE` (`WB-02`, `WB-09`) |
-| **`scout-unstructured`** *(Span-Grounded NER & 3-Tier ER Scout)* | `FAST_TIER` (`fast`) | `read_only_workspace=True`, `allow_shell_execution=False` | `extract_pdf_spans`, `emit_observability_event`, `request_steward_decision` | None (`leaf scout`) | `STAGE_02_SCOUT_UNSTRUCTURED` (`WB-03`) |
-| **`ship-vault`** *(3-Pass CoT Modeller & Closed-Loop TOON Repair Worker)* | `HIGH_REASONING` (`reasoning`) | `read_only_workspace=False` *(isolated worktree)*, `allow_shell_execution=False` | `apply_ast_codemod`, `run_axi_dv_gates`, `execute_duckdb_sandbox`, `compile_canonical_ir`, `emit_observability_event`, `request_steward_decision` | None (`isolated worker`) | `STAGE_03` .. `STAGE_07` (`WB-04`..`WB-08`, `WB-10`, `WB-11`) |
+| **`vault-first-mate`** *(Read-Only Supervisor & Ontology Steward)* | `HIGH_REASONING` (`reasoning`) | `read_only_workspace=True`, `allow_shell_execution=False` | `profile_source_feed`, `run_axi_dv_gates`, `execute_duckdb_sandbox`, `compile_canonical_ir`, `emit_observability_event`, `request_steward_decision` | `scout-source`, `scout-unstructured`, `ship-vault` | `STAGE_00_ORCHESTRATION` (Dual-Loop Orchestration & Intake) |
+| **`scout-source`** *(Bronze Statistical Profiler & Drift Detective)* | `FAST_TIER` (`fast`) | `read_only_workspace=True`, `allow_shell_execution=False` | `profile_source_feed`, `emit_observability_event` | None (`leaf scout`) | `STAGE_01_SCOUT_SOURCE` (Source Profiling & Drift) |
+| **`scout-unstructured`** *(Span-Grounded NER & 3-Tier ER Scout)* | `FAST_TIER` (`fast`) | `read_only_workspace=True`, `allow_shell_execution=False` | `extract_pdf_spans`, `emit_observability_event`, `request_steward_decision` | None (`leaf scout`) | `STAGE_02_SCOUT_UNSTRUCTURED` (Unstructured Extraction & Holds) |
+| **`ship-vault`** *(3-Pass CoT Modeller & Closed-Loop TOON Repair Worker)* | `HIGH_REASONING` (`reasoning`) | `read_only_workspace=False` *(isolated worktree)*, `allow_shell_execution=False` | `apply_ast_codemod`, `run_axi_dv_gates`, `execute_duckdb_sandbox`, `compile_canonical_ir`, `emit_observability_event`, `request_steward_decision` | None (`isolated worker`) | `STAGE_03` .. `STAGE_07` (Triage, Static Gates, Sandbox & Compiler) |

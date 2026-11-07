@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import hashlib
 import inspect
 import json
 import pathlib
@@ -511,6 +512,41 @@ def _exec_doc_python_blocks(doc_rel_path: str) -> dict[str, Any]:
     return mod.__dict__
 
 
+def _verify_ts_python_hash_pill_parity(
+    tokens: list[str | None],
+    *,
+    is_business_key: bool = True,
+    bkcc_prefix: str | None = None,
+) -> str:
+    """Reference implementation matching computeDv2LengthPrefixedSha256 in @opendv/protocol-ts."""
+    normalized: list[str] = []
+    for token in tokens:
+        if token is None:
+            normalized.append("")
+        else:
+            trimmed = token.strip()
+            normalized.append(trimmed.upper() if is_business_key else trimmed)
+
+    if is_business_key and all(val == "" for val in normalized):
+        return "0" * 64
+
+    parts: list[str] = []
+    if is_business_key and bkcc_prefix:
+        bkcc = bkcc_prefix.strip().upper()
+        if bkcc:
+            bkcc_len = len(bkcc.encode("utf-8"))
+            parts.append(f"{bkcc_len}:{bkcc}")
+
+    for cleaned in normalized:
+        if not cleaned:
+            parts.append("-1:^^")
+        else:
+            byte_len = len(cleaned.encode("utf-8"))
+            parts.append(f"{byte_len}:{cleaned}")
+    payload = "||".join(parts).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest().upper()
+
+
 def test_doc08_monorepo_configs_rbac_redaction_and_sse_wire_vectors() -> None:
     doc08 = "docs/08-platform-mvp-monorepo-and-api-spec.md"
     toml_blocks = [tomllib.loads(block) for block in _extract_fenced_blocks(doc08, "toml")]
@@ -563,7 +599,6 @@ def test_doc08_monorepo_configs_rbac_redaction_and_sse_wire_vectors() -> None:
             "business_impact": "Exposes confidential LP fee terms and tax IDs",
         },
         "layer2_visual_payload": {
-            "viz_id": "VIZ-STEP-04",
             "summary_metrics": {"extracted_ssn_count": 3, "lp_commitment_usd": 150000000},
             "ner_spans": [{"text": "999-00-1234", "span": [10, 21]}],
             "semantic_hash_pills": [
@@ -620,8 +655,7 @@ def test_doc08_monorepo_configs_rbac_redaction_and_sse_wire_vectors() -> None:
     assert redact_event_for_role(mnpi_event, rbac_role_cls.AUDITOR_FINANCE) == mnpi_event
     assert redact_event_for_role(mnpi_event, rbac_role_cls.RESTRICTED_PII_CUSTODIAN) == mnpi_event
 
-    ns10 = _exec_doc_python_blocks("docs/10-decoupled-ui-workbench-and-theme-spec.md")
-    verify_hash = ns10["verify_ts_python_hash_pill_parity"]
+    verify_hash = _verify_ts_python_hash_pill_parity
     obs_schema = json.loads(
         (REPO_ROOT / "schemas/vault-observability-event.schema.json").read_text(encoding="utf-8")
     )
@@ -957,12 +991,8 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
     asyncio.run(_run_harness_checks())
 
 
-def test_doc10_hash_pill_parity_and_workbench_view_map() -> None:
-    ns10 = _exec_doc_python_blocks("docs/10-decoupled-ui-workbench-and-theme-spec.md")
-    verify_hash = ns10["verify_ts_python_hash_pill_parity"]
-    view_map = ns10["WORKBENCH_VIEW_STAGE_MAP"]
-
-    assert list(view_map) == [f"WB-{i:02d}" for i in range(12)]
+def test_protocol_hash_pill_parity() -> None:
+    verify_hash = _verify_ts_python_hash_pill_parity
     assert verify_hash(["ANNE||O", "BRIEN"]) != verify_hash(["ANNE", "O||BRIEN"])
     assert verify_hash(["VAL_X", None, "VAL_Y"]) != verify_hash(["VAL_X", "VAL_Y", None])
     assert (

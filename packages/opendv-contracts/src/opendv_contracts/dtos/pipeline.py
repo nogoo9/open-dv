@@ -116,7 +116,7 @@ class PipelineRunHandle(BaseContractModel):
 
 class PipelineEvent(BaseContractModel):
     """Normative event frame streamed across SSE or recorded in run ledger.
-    Note: Under Decision D3, legacy identifiers workbench_view_id and viz_id are omitted outright.
+    Note: Under Decision D3, legacy view identifiers are omitted outright.
     """
 
     event_id: str = Field(..., description="Unique event identifier")

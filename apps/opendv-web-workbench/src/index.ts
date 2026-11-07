@@ -1,7 +1,7 @@
 /**
  * `@opendv/web-workbench`
  * Modern 3-Level Pipeline Explorer Web Workbench (Pipeline -> Stage -> Artifact).
- * Legacy 12-View Shell (WB-00..WB-11) excised per Architecture Plan v3.9 Decision D3 (#109, #110).
+ * Legacy 12-View Shell excised per Architecture Plan v3.9 Decision D3 (#109, #110).
  */
 
 import { PROTOCOL_VERSION } from "@opendv/protocol-ts";

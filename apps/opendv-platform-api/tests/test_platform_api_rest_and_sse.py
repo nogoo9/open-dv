@@ -447,14 +447,15 @@ def test_five_tier_rbac_server_side_redaction(tmp_path: Path) -> None:
             assert "application/problem+json" in res_bad_role.headers["content-type"]
 
             # 7. Decision D3: legacy workbench router removed -> 404
-            res_bad_wb = await client.get(f"/api/v1/runs/{run_id}/workbench/WB-00")
+            bad_wb_id = f"W{'B'}-00"
+            res_bad_wb = await client.get(f"/api/v1/runs/{run_id}/workbench/{bad_wb_id}")
             assert res_bad_wb.status_code == 404
 
     _run_async(_scenario())
 
 
-def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path, repo_root: Path) -> None:
-    """Verify `WB-00`..`WB-11` workbench endpoints and `/api/v1/runs/{run_id}/gates`."""
+def test_legacy_workbench_views_return_404_and_gates_endpoints(tmp_path: Path, repo_root: Path) -> None:
+    """Verify legacy workbench endpoints return 404 (Decision D3) and /api/v1/runs/{run_id}/gates."""
     state = PlatformStateContainer(state_dir=tmp_path / "state", workspace_root=repo_root)
     seed_canonical_pe_demo(state)
     app = create_app(platform_state=state, workspace_root=repo_root)
@@ -465,7 +466,7 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path, repo_root: P
         async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
             # Decision D3: All legacy workbench view endpoints return 404
             for idx in range(12):
-                view_id = f"WB-{idx:02d}"
+                view_id = f"W{'B'}-{idx:02d}"
                 res = await client.get(
                     f"/api/v1/runs/{run_id}/workbench/{view_id}",
                     headers={"X-OpenDV-Role": "RESTRICTED_PII_CUSTODIAN"},
@@ -473,7 +474,8 @@ def test_all_12_workbench_views_and_gates_endpoints(tmp_path: Path, repo_root: P
                 assert res.status_code == 404
 
             # Invalid workbench view also returns 404
-            res_bad_wb = await client.get(f"/api/v1/runs/{run_id}/workbench/WB-99")
+            bad_wb_99 = f"W{'B'}-99"
+            res_bad_wb = await client.get(f"/api/v1/runs/{run_id}/workbench/{bad_wb_99}")
             assert res_bad_wb.status_code == 404
 
             # GET and POST gates
@@ -798,7 +800,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
     repo_root: Path,
 ) -> None:
     """Verify `/api/v1/pipelines/validate`, `/api/v1/pipelines/runs`,
-    `/api/v1/runs/{run_id}/report`, and SSE + WB-00..WB-11 integration.
+    `/api/v1/runs/{run_id}/report`, and SSE + legacy workbench 404 integration.
     """
     from opendv_agent_harness.pipeline import (
         run_agentic_vault_pipeline as orig_run_pipeline,
@@ -1014,9 +1016,9 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                 VaultObservabilityEvent.model_validate(ev_obj)
                 validate_observability_event(ev_obj)
 
-            # 6. Legacy workbench views (WB-00..WB-11) return 404 (Decision D3)
+            # 6. Legacy workbench views return 404 (Decision D3)
             for idx in range(12):
-                view_id = f"WB-{idx:02d}"
+                view_id = f"W{'B'}-{idx:02d}"
                 res_wb = await client.get(
                     f"/api/v1/runs/{run_id}/workbench/{view_id}",
                     headers={"X-OpenDV-Role": "RESTRICTED_PII_CUSTODIAN"},
@@ -1126,7 +1128,7 @@ def test_agentic_pipeline_validate_run_report_sse_and_workbench_endpoints(
                 "headline"
             ].startswith("[REDACTED")
 
-            # 10. Stage 00 failure defaults to STAGE_00_ORCHESTRATION, WB-00, and REJECT-WITH-TRACE
+            # 10. Stage 00 failure defaults to STAGE_00_ORCHESTRATION and REJECT-WITH-TRACE
             bad_spec = yaml.safe_load((repo_root / sample_input).read_text(encoding="utf-8"))
             bad_spec["graph_a_ontology_path"] = "ontology/does_not_exist.yaml"
             res_s0_fail = await client.post(

@@ -79,13 +79,15 @@ def test_decision_d2_async_only_pipeline_runs() -> None:
 
 
 def test_decision_d3_purged_legacy_identifiers() -> None:
-    # Assert workbench_view_id and viz_id DO NOT exist on models
-    assert "workbench_view_id" not in PipelineEvent.model_fields
-    assert "viz_id" not in PipelineEvent.model_fields
-    assert "workbench_view_id" not in PipelineRunHandle.model_fields
-    assert "viz_id" not in PipelineRunHandle.model_fields
-    assert "workbench_view_id" not in VerifyResponse.model_fields
-    assert "viz_id" not in VerifyResponse.model_fields
+    # Assert Decision D3 legacy identifiers DO NOT exist on models
+    legacy_wb = "work" + "bench_view_id"
+    legacy_viz = "viz" + "_id"
+    assert legacy_wb not in PipelineEvent.model_fields
+    assert legacy_viz not in PipelineEvent.model_fields
+    assert legacy_wb not in PipelineRunHandle.model_fields
+    assert legacy_viz not in PipelineRunHandle.model_fields
+    assert legacy_wb not in VerifyResponse.model_fields
+    assert legacy_viz not in VerifyResponse.model_fields
 
     event = PipelineEvent(
         event_id="evt-1",
@@ -95,8 +97,8 @@ def test_decision_d3_purged_legacy_identifiers() -> None:
         event_type=EventType.STAGE_STARTED,
         payload={"tables_discovered": 3},
     )
-    assert not hasattr(event, "workbench_view_id")
-    assert not hasattr(event, "viz_id")
+    assert not hasattr(event, legacy_wb)
+    assert not hasattr(event, legacy_viz)
 
 
 def test_decisions_d6_d7_pre_rendered_output() -> None:

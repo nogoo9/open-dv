@@ -81,15 +81,15 @@
       "type": "string",
       "description": "Optional step visualization identifier bound to the active pipeline phase.",
       "enum": [
-        "VIZ-PIPE-00",
-        "VIZ-STEP-01",
-        "VIZ-STEP-02",
-        "VIZ-STEP-03",
-        "VIZ-STEP-04",
-        "VIZ-STEP-05",
-        "VIZ-STEP-06",
-        "VIZ-STEP-07",
-        "VIZ-STEP-08"
+        "PIPE-00",
+        "STEP-01",
+        "STEP-02",
+        "STEP-03",
+        "STEP-04",
+        "STEP-05",
+        "STEP-06",
+        "STEP-07",
+        "STEP-08"
       ]
     },
     "gate_id": {
@@ -293,7 +293,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-PIPE-00", "VIZ-STEP-01"]}}
+        "properties": {"step_id": {"enum": ["PIPE-00", "STEP-01"]}}
       }
     },
     {
@@ -302,7 +302,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-STEP-02", "VIZ-STEP-03"]}}
+        "properties": {"step_id": {"enum": ["STEP-02", "STEP-03"]}}
       }
     },
     {
@@ -311,7 +311,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-STEP-04"]}}
+        "properties": {"step_id": {"enum": ["STEP-04"]}}
       }
     },
     {
@@ -320,7 +320,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-STEP-05"]}}
+        "properties": {"step_id": {"enum": ["STEP-05"]}}
       }
     },
     {
@@ -329,7 +329,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-STEP-06"]}}
+        "properties": {"step_id": {"enum": ["STEP-06"]}}
       }
     },
     {
@@ -338,7 +338,7 @@
         "required": ["phase_id", "step_id"]
       },
       "then": {
-        "properties": {"step_id": {"enum": ["VIZ-STEP-07", "VIZ-STEP-08"]}}
+        "properties": {"step_id": {"enum": ["STEP-07", "STEP-08"]}}
       }
     },
     {

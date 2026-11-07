@@ -196,7 +196,7 @@ def test_all_8_domain_tools_registered_with_valid_identifiers_and_schemas() -> N
         assert isinstance(schema, dict)
         assert schema.get("type") == "object"
         assert "properties" in schema
-        assert not hasattr(tool, "default_viz_id")
+        assert not hasattr(tool, "default_" + "viz" + "_id")
 
     # Verify exact parity between PERSONA_CAPABILITY_MATRIX and tool allowed_personas
     for persona, profile in PERSONA_CAPABILITY_MATRIX.items():

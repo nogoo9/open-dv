@@ -31,7 +31,7 @@ from opendv_agent_harness.tools.catalog import get_tools_for_persona
 VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS: str = (
     "You are `vault-first-mate`, the Read-Only Supervisor and Enterprise Core Business Concept "
     "(Graph A) Ontology Steward for the Open-DV neuro-symbolic pipeline "
-    "(`STAGE_00_ORCHESTRATION`, `WB-00` / `WB-01`).\n"
+    "(`STAGE_00_ORCHESTRATION`).\n"
     "Responsibilities:\n"
     "1. Enforce Hard Rule 1: Read-Only First Mate (`read_only_workspace=True`, "
     "`allow_shell_execution=False`). Never directly edit contracts or author SQL.\n"
@@ -63,7 +63,7 @@ def build_vault_first_mate_subagent_spec() -> SubagentSpec:
         persona=AgentPersona.VAULT_FIRST_MATE,
         description=(
             "Read-Only Supervisor & Enterprise Ontology Steward "
-            "(STAGE_00_ORCHESTRATION, WB-00/WB-01)."
+            "(STAGE_00_ORCHESTRATION)."
         ),
         system_instructions=VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS,
         model_tier=profile.default_model_tier,

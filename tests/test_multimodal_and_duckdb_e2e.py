@@ -1165,7 +1165,7 @@ def test_four_adversarial_shadow_sandbox_batches_and_bitemporal_queries(
     duckdb_conn: duckdb.DuckDBPyConnection,
     doc07_sql_bundle: tuple[str, str, str, str],
 ) -> None:
-    """Execute all 4 Adversarial Shadow Sandbox Batches (Scene 6 / WB-10 in docs/07 & docs/06 §4.10)
+    """Execute all 4 Adversarial Shadow Sandbox Batches (Scene 6 in docs/07 & docs/06 §4.10)
     followed by the Bi-Temporal Late-Arriving IC Memo & Queries D.10 / D.10b:
 
     - Batch 1 (t0 = '2026-10-05 09:00:00' Baseline Load):

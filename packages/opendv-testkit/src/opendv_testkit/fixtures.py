@@ -30,7 +30,6 @@ from opendv_service.state.cas import store_cas_artifact
 from opendv_telemetry import VaultLedgerEmitter
 from opendv_testkit.pe_canonical_events import (
     PE_DEMO_CONTEXT_REFS,
-    WORKBENCH_VIEW_TITLES,
     build_pe_canonical_events,
 )
 
@@ -280,7 +279,6 @@ def create_ephemeral_run(
 
 __all__ = [
     "PE_DEMO_CONTEXT_REFS",
-    "WORKBENCH_VIEW_TITLES",
     "build_pe_canonical_events",
     "create_ephemeral_project",
     "create_ephemeral_run",
