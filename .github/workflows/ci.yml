@@ -44,6 +44,11 @@ jobs:
         run: |
           uv sync --all-packages --locked
 
+      - name: Build opendvctl release packaging artifacts (T15 test prerequisite)
+        run: |
+          bun install --frozen-lockfile
+          bun run --cwd apps/opendvctl package
+
       - name: Run Ruff static analysis
         run: |
           uv run ruff check packages/ apps/

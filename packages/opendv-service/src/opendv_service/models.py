@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -14,21 +13,10 @@ from opendv_contracts import (
     PipelineRunRequest,
     PipelineValidateRequest,
     ProjectRunDTO,
+    RunStatus,
     SandboxQueryRequest,
     StewardHoldOption,
 )
-
-
-class RunStatus(StrEnum):
-    """Execution lifecycle status of a platform verification or sandbox run (docs/08 §5.2)."""
-
-    PENDING = "PENDING"
-    RUNNING = "RUNNING"
-    PAUSED_HOLD = "PAUSED_HOLD"
-    COMPLETED = "COMPLETED"
-    FAILED = "FAILED"
-    ABORTED = "ABORTED"
-
 
 type GateVerdictStatus = Literal[
     "PENDING",
