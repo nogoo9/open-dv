@@ -15,9 +15,7 @@ import type {
 	ProjectRunDTO,
 	SandboxExecutionResponse,
 	SandboxQueryRequest,
-	WorkbenchViewProjectionDTO,
 } from "../types/api-dtos";
-import type { WorkbenchViewId } from "../types/observability-event";
 
 export type {
 	CaptainHoldDecisionRequest,
@@ -32,7 +30,6 @@ export type {
 	ProjectRunDTO,
 	SandboxExecutionResponse,
 	SandboxQueryRequest,
-	WorkbenchViewProjectionDTO,
 };
 
 export class OpenDVPlatformClient {
@@ -165,24 +162,6 @@ export class OpenDVPlatformClient {
 			);
 		}
 		return (await res.json()) as Record<string, unknown>;
-	}
-
-	async getWorkbenchView(
-		runId: string,
-		viewId: WorkbenchViewId,
-	): Promise<WorkbenchViewProjectionDTO> {
-		const res = await this.fetchImpl(
-			`${this.baseUrl}/api/v1/runs/${encodeURIComponent(runId)}/workbench/${encodeURIComponent(viewId)}`,
-			{
-				headers: this.headers,
-			},
-		);
-		if (!res.ok) {
-			throw new Error(
-				`Failed to fetch workbench view ${viewId} for run ${runId}: HTTP ${res.status}`,
-			);
-		}
-		return (await res.json()) as WorkbenchViewProjectionDTO;
 	}
 
 	async submitDecision(

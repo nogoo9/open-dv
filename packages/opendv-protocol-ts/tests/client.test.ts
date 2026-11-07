@@ -6,12 +6,91 @@ import {
 	VaultEventStreamClient,
 	type VaultObservabilityEventDTO,
 } from "../src/index";
-import {
-	PE_DEMO_EVENTS,
-	PE_DEMO_PROJECT,
-	PE_DEMO_RUN,
-	PE_DEMO_RUN_ID,
-} from "./fixtures/pe-demo-bundle";
+const MOCK_PROJECT_ID = "proj-test-client";
+const MOCK_RUN_ID = "run-test-client-20261107";
+
+const MOCK_PROJECT = {
+	project_id: MOCK_PROJECT_ID,
+	display_name: "Test Project",
+	domain_namespace: "test_domain",
+	graph_a_sha256: "A1".repeat(32),
+	latest_run_id: MOCK_RUN_ID,
+	created_at_utc: "2026-11-07T00:00:00Z",
+};
+
+const MOCK_RUN = {
+	run_id: MOCK_RUN_ID,
+	project_id: MOCK_PROJECT_ID,
+	harness_provider: "antigravity",
+	status: "COMPLETED",
+	started_at_utc: "2026-11-07T00:00:00Z",
+	completed_at_utc: "2026-11-07T00:01:00Z",
+	current_stage_id: "STAGE_07_DETERMINISTIC_COMPILER",
+	event_count: 2,
+	gate_scorecard: {
+		gate_1_contract_grain: "PASS",
+		gate_4_yagni_cost_guard: "AUTO-FIX",
+	},
+	active_hold_ids: [],
+	events_sse_url: `/api/v1/runs/${MOCK_RUN_ID}/events`,
+	gates_url: `/api/v1/runs/${MOCK_RUN_ID}/gates`,
+	sandbox_url: `/api/v1/runs/${MOCK_RUN_ID}/sandbox`,
+	decisions_url: `/api/v1/runs/${MOCK_RUN_ID}/decisions`,
+};
+
+const MOCK_EVENTS: VaultObservabilityEventDTO[] = [
+	{
+		event_id: "evt-test-000",
+		run_id: MOCK_RUN_ID,
+		timestamp_utc: "2026-11-07T00:00:00Z",
+		stage_id: "STAGE_00_ORCHESTRATION",
+		agent_persona: "vault-first-mate",
+		status: "PASS",
+		layer1_story_banner: {
+			headline: "Orchestration initialized",
+			business_impact: "Ready to process",
+			verdict_pill: "PASS",
+		},
+		layer2_visual_payload: {
+			semantic_hash_pills: [],
+			summary_metrics: {},
+		},
+	},
+	{
+		event_id: "evt-test-001",
+		run_id: MOCK_RUN_ID,
+		timestamp_utc: "2026-11-07T00:00:05Z",
+		stage_id: "STAGE_01_SCOUT_SOURCE",
+		agent_persona: "scout-source",
+		status: "PASS",
+		layer1_story_banner: {
+			headline: "Source discovered",
+			business_impact: "Source ingested",
+			verdict_pill: "PASS",
+		},
+		layer2_visual_payload: {
+			semantic_hash_pills: [],
+			summary_metrics: {},
+		},
+	},
+	{
+		event_id: "evt-test-002",
+		run_id: MOCK_RUN_ID,
+		timestamp_utc: "2026-11-07T00:00:10Z",
+		stage_id: "STAGE_02_SCOUT_UNSTRUCTURED",
+		agent_persona: "scout-unstructured",
+		status: "PASS",
+		layer1_story_banner: {
+			headline: "Unstructured documents scanned",
+			business_impact: "Entities extracted",
+			verdict_pill: "PASS",
+		},
+		layer2_visual_payload: {
+			semantic_hash_pills: [],
+			summary_metrics: {},
+		},
+	},
+];
 
 class FakeEventSource implements EventSourceLike {
 	readonly url: string;
@@ -88,15 +167,15 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 				);
 			}
 			if (url.endsWith("/api/v1/projects") && method === "GET") {
-				return new Response(JSON.stringify([PE_DEMO_PROJECT]), { status: 200 });
+				return new Response(JSON.stringify([MOCK_PROJECT]), { status: 200 });
 			}
 			if (url.endsWith("/api/v1/runs") && method === "GET") {
-				return new Response(JSON.stringify([PE_DEMO_RUN]), { status: 200 });
+				return new Response(JSON.stringify([MOCK_RUN]), { status: 200 });
 			}
-			if (url.endsWith(`/api/v1/runs/${PE_DEMO_RUN_ID}`)) {
-				return new Response(JSON.stringify(PE_DEMO_RUN), { status: 200 });
+			if (url.endsWith(`/api/v1/runs/${MOCK_RUN_ID}`)) {
+				return new Response(JSON.stringify(MOCK_RUN), { status: 200 });
 			}
-			if (url.endsWith(`/api/v1/runs/${PE_DEMO_RUN_ID}/gates`)) {
+			if (url.endsWith(`/api/v1/runs/${MOCK_RUN_ID}/gates`)) {
 				return new Response(
 					JSON.stringify({ gate_1: "PASS", gate_4: "AUTO-FIX" }),
 					{
@@ -104,31 +183,20 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 					},
 				);
 			}
-			if (url.endsWith(`/api/v1/runs/${PE_DEMO_RUN_ID}/sandbox`)) {
+			if (url.endsWith(`/api/v1/runs/${MOCK_RUN_ID}/sandbox`)) {
 				return new Response(JSON.stringify({ all_batches_passed: true }), {
 					status: 200,
 				});
 			}
-			if (url.endsWith(`/api/v1/runs/${PE_DEMO_RUN_ID}/workbench/WB-03`)) {
-				return new Response(
-					JSON.stringify({
-						run_id: PE_DEMO_RUN_ID,
-						view_id: "WB-03",
-						latest_event: PE_DEMO_EVENTS[4],
-						events: [PE_DEMO_EVENTS[4]],
-					}),
-					{ status: 200 },
-				);
-			}
 			if (
-				url.endsWith(`/api/v1/runs/${PE_DEMO_RUN_ID}/decisions`) &&
+				url.endsWith(`/api/v1/runs/${MOCK_RUN_ID}/decisions`) &&
 				method === "POST"
 			) {
 				return new Response(
 					JSON.stringify({
 						decision_id: "dec-001",
 						status: "ACCEPTED",
-						resumed_run_id: PE_DEMO_RUN_ID,
+						resumed_run_id: MOCK_RUN_ID,
 						next_stage_id: "STAGE_03_SHIP_VAULT_PASS1",
 						next_event_id: "evt-pe-005",
 					}),
@@ -155,24 +223,21 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 
 		const projects = await client.listProjects();
 		expect(projects).toHaveLength(1);
-		expect(projects[0]?.project_id).toBe(PE_DEMO_PROJECT.project_id);
+		expect(projects[0]?.project_id).toBe(MOCK_PROJECT.project_id);
 
 		const runs = await client.listRuns();
 		expect(runs).toHaveLength(1);
 
-		const run = await client.getRun(PE_DEMO_RUN_ID);
-		expect(run.run_id).toBe(PE_DEMO_RUN_ID);
+		const run = await client.getRun(MOCK_RUN_ID);
+		expect(run.run_id).toBe(MOCK_RUN_ID);
 
-		const gates = await client.getRunGates(PE_DEMO_RUN_ID);
+		const gates = await client.getRunGates(MOCK_RUN_ID);
 		expect(gates.gate_4).toBe("AUTO-FIX");
 
-		const sandbox = await client.getRunSandbox(PE_DEMO_RUN_ID);
+		const sandbox = await client.getRunSandbox(MOCK_RUN_ID);
 		expect(sandbox.all_batches_passed).toBe(true);
 
-		const wb03 = await client.getWorkbenchView(PE_DEMO_RUN_ID, "WB-03");
-		expect(wb03.view_id).toBe("WB-03");
-
-		const decisionRes = await client.submitDecision(PE_DEMO_RUN_ID, {
+		const decisionRes = await client.submitDecision(MOCK_RUN_ID, {
 			event_id: "evt-pe-004",
 			hold_id: "hold-tier-u3-horizon-sovereign-vehicle",
 			decision_type: "RESOLVE_CAPTAIN_HOLD",
@@ -186,7 +251,7 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 		expect(artifactText).toContain("contract_version");
 
 		expect(client.getRun("missing-run")).rejects.toThrow("HTTP 404");
-		expect(requests.length).toBeGreaterThanOrEqual(9);
+		expect(requests.length).toBeGreaterThanOrEqual(8);
 	});
 
 	it("VaultEventStreamClient deduplicates seenEventIds, replays Last-Event-ID, and reconnects with jittered backoff", async () => {
@@ -197,7 +262,7 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 
 		const streamClient = new VaultEventStreamClient({
 			streamUrl: "http://localhost:8420/api/v1/runs/run-1/events",
-			lastEventId: "evt-pe-000",
+			lastEventId: "evt-test-000",
 			reconnectBaseDelayMs: 20,
 			maxReconnectDelayMs: 100,
 			randomFn: () => 0.5,
@@ -211,36 +276,36 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 			onError: (err) => errors.push(err),
 		});
 
-		expect(streamClient.getLastEventId()).toBe("evt-pe-000");
+		expect(streamClient.getLastEventId()).toBe("evt-test-000");
 		expect(streamClient.computeNextReconnectDelayMs()).toBe(22);
 
 		streamClient.connect();
 		expect(streamClient.isConnected()).toBe(true);
 		expect(createdSources).toHaveLength(1);
-		expect(createdSources[0]?.url).toContain("last_event_id=evt-pe-000");
-		expect(createdSources[0]?.headers?.["Last-Event-ID"]).toBe("evt-pe-000");
+		expect(createdSources[0]?.url).toContain("last_event_id=evt-test-000");
+		expect(createdSources[0]?.headers?.["Last-Event-ID"]).toBe("evt-test-000");
 
 		// Duplicate of initial lastEventId should be ignored
 		createdSources[0]?.emit(
 			"message",
-			JSON.stringify(PE_DEMO_EVENTS[0]),
-			"evt-pe-000",
+			JSON.stringify(MOCK_EVENTS[0]),
+			"evt-test-000",
 		);
 		expect(receivedEvents).toHaveLength(0);
 
-		// New event evt-pe-001 should be delivered once
+		// New event evt-test-001 should be delivered once
 		createdSources[0]?.emit(
 			"message",
-			JSON.stringify(PE_DEMO_EVENTS[1]),
-			"evt-pe-001",
+			JSON.stringify(MOCK_EVENTS[1]),
+			"evt-test-001",
 		);
 		createdSources[0]?.emit(
 			"message",
-			JSON.stringify(PE_DEMO_EVENTS[1]),
-			"evt-pe-001",
+			JSON.stringify(MOCK_EVENTS[1]),
+			"evt-test-001",
 		);
 		expect(receivedEvents).toHaveLength(1);
-		expect(streamClient.getLastEventId()).toBe("evt-pe-001");
+		expect(streamClient.getLastEventId()).toBe("evt-test-001");
 
 		// Simulate connection drop and automatic reconnect with updated last_event_id
 		createdSources[0]?.triggerError(new Error("SSE dropped"));
@@ -249,7 +314,7 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 
 		await new Promise((resolve) => setTimeout(resolve, 40));
 		expect(createdSources).toHaveLength(2);
-		expect(createdSources[1]?.url).toContain("last_event_id=evt-pe-001");
+		expect(createdSources[1]?.url).toContain("last_event_id=evt-test-001");
 
 		// Emit run_complete and verify client disconnects cleanly
 		createdSources[1]?.emit(
@@ -273,7 +338,7 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 
 		client.ingestSseChunk("event: run_complete\r");
 		client.ingestSseChunk(
-			`\ndata: {"status":"COMPLETED"}\r\n\r\nid: evt-pe-002\ndata: ${JSON.stringify(PE_DEMO_EVENTS[2])}\r\n\r\n`,
+			`\ndata: {"status":"COMPLETED"}\r\n\r\nid: evt-test-002\ndata: ${JSON.stringify(MOCK_EVENTS[2])}\r\n\r\n`,
 		);
 		expect(doneStatus).toBe("COMPLETED");
 		expect(events).toHaveLength(0);
@@ -286,10 +351,10 @@ describe("package.json zero-dependency invariant & REST/SSE clients", () => {
 			},
 		});
 		secondClient.ingestSseChunk(
-			`id: evt-pe-002\ndata: ${JSON.stringify(PE_DEMO_EVENTS[2])}\n\nevent: run_complete\ndata: {"status":"COMPLETED"}\n\n`,
+			`id: evt-test-002\ndata: ${JSON.stringify(MOCK_EVENTS[2])}\n\nevent: run_complete\ndata: {"status":"COMPLETED"}\n\n`,
 		);
 		expect(events).toHaveLength(1);
-		expect(events[0]?.event_id).toBe("evt-pe-002");
+		expect(events[0]?.event_id).toBe("evt-test-002");
 	});
 
 	it("VaultEventStreamClient cleans up pending reconnect timers and existing EventSources across connect and disconnect", async () => {

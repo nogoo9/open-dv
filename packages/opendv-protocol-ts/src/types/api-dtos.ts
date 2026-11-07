@@ -3,7 +3,6 @@
  * Re-exported directly from OpenAPI 3.1 generated types (Issue #97).
  */
 
-import type { VaultObservabilityEventDTO } from "./observability-event";
 import type { components, paths } from "./openapi";
 
 export type { components, paths };
@@ -134,15 +133,6 @@ export interface ProjectDTO {
 	graph_a_sha256: string;
 	latest_run_id?: string | null | undefined;
 	created_at_utc: string;
-}
-
-export interface WorkbenchViewProjectionDTO {
-	run_id: string;
-	view_id?: string | undefined;
-	rbac_role?: string | undefined;
-	latest_event?: VaultObservabilityEventDTO | null | undefined;
-	events?: VaultObservabilityEventDTO[] | undefined;
-	[key: string]: unknown;
 }
 
 export interface HealthResponseDTO {
