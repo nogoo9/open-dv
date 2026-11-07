@@ -344,10 +344,11 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 					return new Response(
 						JSON.stringify({
 							run_id: "run_live_2026_11_04",
-							status: "COMPLETED",
-							overall_passed: true,
+							status: "RUNNING",
+							status_url: "/api/v1/runs/run_live_2026_11_04",
+							events_sse_url: "/api/v1/runs/run_live_2026_11_04/events",
 						}),
-						{ status: 201, headers: { "Content-Type": "application/json" } },
+						{ status: 202, headers: { "Content-Type": "application/json" } },
 					);
 				}
 				return new Response("{}", { status: 200 });
@@ -388,7 +389,7 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 			// Trigger pipeline run
 			await store.getState().triggerPipelineRun({ fetchImpl: mockFetch });
 			expect(store.getState().bundle.runId).toBe("run_live_2026_11_04");
-			expect(store.getState().runState).toBe("sealed");
+			expect(store.getState().runState).toBe("running");
 		});
 
 		it("serves deep-linked /stages/05 route from the Bun dev server", async () => {

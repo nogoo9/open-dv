@@ -193,8 +193,7 @@ describe("Task P9.3 (#117): Top Bar Run Selector, New Run Modal, Wave Filter & L
 			expect(html).toBe("");
 		});
 
-		it("performs pre-flight input validation and displays diagnostics scorecard", async () => {
-			let validated = false;
+		it("renders pre-flight validation scorecard and diagnostics in modal DOM", () => {
 			const mockReport: PipelineValidationReport = {
 				stage: "INPUT_VALIDATION",
 				passed: true,
@@ -203,37 +202,34 @@ describe("Task P9.3 (#117): Top Bar Run Selector, New Run Modal, Wave Filter & L
 					{
 						code: "SPEC_SYNTAX_VALID",
 						severity: "INFO",
-						message: "pipeline_input.yaml validated successfully with 4 waves.",
+						message: "YAML syntax and structure valid.",
 					},
 					{
-						code: "SCHEMA_PARITY_PASS",
+						code: "SOURCES_CONFORM",
 						severity: "INFO",
 						message: "Relational sources conform to schema requirements.",
 					},
 				],
 			};
 
-			const mockValidateFn = async (req: PipelineValidateRequest) => {
-				validated = true;
-				expect(req.input_spec_path).toContain("pipeline_input.yaml");
-				expect(req.steward_hold_policy).toBe("pause");
-				return mockReport;
-			};
+			const html = renderToStaticMarkup(
+				createElement(NewRunModal, {
+					isOpen: true,
+					onClose: () => {},
+					initialValidationReport: mockReport,
+				}),
+			);
 
-			const report = await mockValidateFn({
-				input_spec_path:
-					"examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml",
-				steward_hold_policy: "pause",
-			});
-
-			expect(validated).toBe(true);
-			expect(report.passed).toBe(true);
-			expect(report.checked_items_count).toBe(5);
-			expect(report.diagnostics).toHaveLength(2);
-			expect(report.diagnostics[0]?.code).toBe("SPEC_SYNTAX_VALID");
+			expect(html).toContain('data-testid="validation-diagnostics"');
+			expect(html).toContain('data-testid="validation-status"');
+			expect(html).toContain("VALID");
+			expect(html).toContain("5 items checked");
+			expect(html).toContain('data-testid="diagnostic-item"');
+			expect(html).toContain("SPEC_SYNTAX_VALID");
+			expect(html).toContain("YAML syntax and structure valid.");
 		});
 
-		it("displays ERROR diagnostics when pre-flight validation fails", async () => {
+		it("displays ERROR diagnostics in modal DOM when pre-flight validation fails", () => {
 			const errorReport: PipelineValidationReport = {
 				stage: "INPUT_VALIDATION",
 				passed: false,
@@ -248,16 +244,23 @@ describe("Task P9.3 (#117): Top Bar Run Selector, New Run Modal, Wave Filter & L
 				],
 			};
 
-			const mockValidateFn = async () => errorReport;
-			const report = await mockValidateFn();
+			const html = renderToStaticMarkup(
+				createElement(NewRunModal, {
+					isOpen: true,
+					onClose: () => {},
+					initialValidationReport: errorReport,
+				}),
+			);
 
-			expect(report.passed).toBe(false);
-			expect(report.diagnostics[0]?.severity).toBe("ERROR");
-			expect(report.diagnostics[0]?.message).toContain("File not found");
+			expect(html).toContain('data-testid="validation-diagnostics"');
+			expect(html).toContain('data-testid="validation-status"');
+			expect(html).toContain("INVALID");
+			expect(html).toContain('data-testid="diagnostic-item"');
+			expect(html).toContain("[ERROR] INPUT_SPEC_SCHEMA_INVALID");
+			expect(html).toContain("File not found: missing_spec.yaml");
 		});
 
-		it("initiates asynchronous pipeline run returning HTTP 202 handle (Decision D2)", async () => {
-			let created = false;
+		it("initiates asynchronous pipeline run returning HTTP 202 handle and renders created run banner (Decision D2)", () => {
 			const expectedHandle: PipelineRunHandle = {
 				run_id: "run-20261107-test202",
 				status: "RUNNING",
@@ -269,26 +272,18 @@ describe("Task P9.3 (#117): Top Bar Run Selector, New Run Modal, Wave Filter & L
 				lifecycle_stage: "COLD_START_N1",
 			};
 
-			const mockCreateRunFn = async (req: PipelineRunRequest) => {
-				created = true;
-				expect(req.dry_run).toBe(false);
-				expect(req.steward_hold_policy).toBe("auto_approve_top_candidate");
-				return expectedHandle;
-			};
-
-			const handle = await mockCreateRunFn({
-				dry_run: false,
-				input_spec_path:
-					"examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml",
-				steward_hold_policy: "auto_approve_top_candidate",
-			});
-
-			expect(created).toBe(true);
-			expect(handle.run_id).toBe("run-20261107-test202");
-			expect(handle.status).toBe("RUNNING");
-			expect(handle.events_sse_url).toBe(
-				"/api/v1/runs/run-20261107-test202/events",
+			const html = renderToStaticMarkup(
+				createElement(NewRunModal, {
+					isOpen: true,
+					onClose: () => {},
+					initialCreatedHandle: expectedHandle,
+				}),
 			);
+
+			expect(html).toContain('data-testid="run-created-banner"');
+			expect(html).toContain('data-testid="created-run-id"');
+			expect(html).toContain("run-20261107-test202");
+			expect(html).toContain("Status: RUNNING");
 		});
 	});
 

@@ -15,6 +15,7 @@ import type {
 } from "@opendv/protocol-ts";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import { ArtifactVisualizer } from "../src/explorer/ArtifactVisualizers";
 import { InspectorPanel } from "../src/explorer/InspectorPanel";
 import {
 	type ProblemDetails,
@@ -668,4 +669,43 @@ describe("Task P9.4 (#118): Interactive Steward Hold & Ontology Extension Viewer
 			expect(html).toContain("urn:ontology:entity:advisor");
 		});
 	});
+
+	// =========================================================================
+	// 6. ArtifactVisualizers Dynamic Ontology Dispatch Integration (Pillar 3 & REQ-MOCK-01)
+	// =========================================================================
+	describe("6. ArtifactVisualizer Dynamic Ontology Dispatch", () => {
+		it("dispatches to OntologyCoverageVisualizer for ontology_coverage artifacts", () => {
+			const html = renderToStaticMarkup(
+				createElement(ArtifactVisualizer, {
+					artifact: SAMPLE_ARTIFACTS.ontology_cov,
+				}),
+			);
+			expect(html).toContain('data-testid="ontology-coverage-visualizer"');
+			expect(html).toContain('data-testid="coverage-percentage-badge"');
+			expect(html).toContain("60.0%");
+		});
+
+		it("dispatches to OntologyProposalVisualizer for ontology_proposal artifacts", () => {
+			const html = renderToStaticMarkup(
+				createElement(ArtifactVisualizer, {
+					artifact: SAMPLE_ARTIFACTS.ontology_prop,
+				}),
+			);
+			expect(html).toContain('data-testid="ontology-proposal-visualizer"');
+			expect(html).toContain('data-testid="proposal-id-pill"');
+			expect(html).toContain("prop-gt06-001");
+		});
+
+		it("dispatches to OntologyDiffVisualizer for ontology_diff artifacts", () => {
+			const html = renderToStaticMarkup(
+				createElement(ArtifactVisualizer, {
+					artifact: SAMPLE_ARTIFACTS.ontology_diff_art,
+				}),
+			);
+			expect(html).toContain('data-testid="ontology-diff-visualizer"');
+			expect(html).toContain('data-testid="additive-guarantee-banner"');
+			expect(html).toContain("Strictly additive evolution");
+		});
+	});
 });
+
