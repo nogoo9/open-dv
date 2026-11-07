@@ -24,5 +24,7 @@ async def get_health(
 async def get_platform_capabilities(
     service: Annotated[OpenDVService, Depends(get_opendv_service)],
 ) -> dict[str, Any]:
-    """Return supported agent harnesses, 5-Tier RBAC roles, WB-00..WB-11 views, and gates."""
+    """Return supported agent harnesses, 5-Tier RBAC roles, Explorer views,
+    parity endpoints, and gates.
+    """
     return service.get_platform_capabilities()

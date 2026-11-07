@@ -448,9 +448,9 @@ def test_duckdb_shadow_sandbox_full_verification_and_telemetry(tmp_path: Path) -
         assert report.observability_event is not None
         ev_dict = report.observability_event.model_dump(mode="json", exclude_none=True)
         validated_ev = validate_observability_event(ev_dict)
-        assert validated_ev.viz_id == "VIZ-GATE-08"
-        assert report.observability_event.viz_id == "VIZ-GATE-08"
-        assert report.observability_event.workbench_view_id == "WB-10"
+        assert not hasattr(validated_ev, "viz_id")
+        assert not hasattr(report.observability_event, "viz_id")
+        assert not hasattr(report.observability_event, "workbench_view_id")
         assert report.observability_event.stage_id == "STAGE_06_AXI_DV_DYNAMIC_SANDBOX"
 
     persisted_events = emitter.read_all_events()

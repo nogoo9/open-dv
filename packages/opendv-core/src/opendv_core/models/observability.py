@@ -61,41 +61,6 @@ type GateIdLiteral = Literal[
     "G_AUD",
 ]
 
-type WorkbenchViewIdLiteral = Literal[
-    "WB-00",
-    "WB-01",
-    "WB-02",
-    "WB-03",
-    "WB-04",
-    "WB-05",
-    "WB-06",
-    "WB-07",
-    "WB-08",
-    "WB-09",
-    "WB-10",
-    "WB-11",
-]
-
-type VizIdLiteral = Literal[
-    "VIZ-PIPE-00",
-    "VIZ-STEP-01",
-    "VIZ-STEP-02",
-    "VIZ-STEP-03",
-    "VIZ-STEP-04",
-    "VIZ-STEP-05",
-    "VIZ-STEP-06",
-    "VIZ-STEP-07",
-    "VIZ-STEP-08",
-    "VIZ-GATE-01",
-    "VIZ-GATE-02",
-    "VIZ-GATE-03",
-    "VIZ-GATE-04",
-    "VIZ-GATE-05",
-    "VIZ-GATE-06",
-    "VIZ-GATE-07",
-    "VIZ-GATE-08",
-]
-
 type AgentPersonaLiteral = Literal[
     "vault-first-mate",
     "scout-source",
@@ -214,8 +179,6 @@ class VaultObservabilityEvent(StrictObservabilityModel):
     rule_code: str | None = Field(default=None, min_length=1)
     contract_version: Literal["5.0", "6.0"] | None = None
     confidence: float | None = Field(default=None, ge=0.0, le=1.0)
-    workbench_view_id: WorkbenchViewIdLiteral
-    viz_id: VizIdLiteral
     agent_persona: AgentPersonaLiteral
     status: EventStatusLiteral
     remediation: EventRemediation | None = None
@@ -283,6 +246,4 @@ __all__ = [
     "StepIdLiteral",
     "SummaryMetricValue",
     "VaultObservabilityEvent",
-    "VizIdLiteral",
-    "WorkbenchViewIdLiteral",
 ]

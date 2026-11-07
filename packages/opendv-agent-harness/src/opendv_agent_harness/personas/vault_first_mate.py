@@ -19,8 +19,6 @@ from opendv_agent_harness.models import (
     OutputT,
     PipelineStageId,
     SubagentSpec,
-    VizId,
-    WorkbenchViewId,
 )
 from opendv_agent_harness.personas.scout_source import build_scout_source_subagent_spec
 from opendv_agent_harness.personas.scout_unstructured import (
@@ -83,8 +81,6 @@ def build_vault_first_mate_task_spec(
     parent_span_id: str | None = None,
     task_id: str | None = None,
     stage_id: PipelineStageId = PipelineStageId.STAGE_00_ORCHESTRATION,
-    workbench_view_id: WorkbenchViewId = WorkbenchViewId.WB_00,
-    viz_id: VizId = VizId.VIZ_PIPE_00,
     model_tier: ModelTier = ModelTier.HIGH_REASONING,
     model_override: str | None = None,
     tools: Sequence[AgentToolDefinition[Any, Any]] | None = None,
@@ -111,8 +107,6 @@ def build_vault_first_mate_task_spec(
         "parent_span_id": parent_span_id,
         "persona": AgentPersona.VAULT_FIRST_MATE,
         "stage_id": stage_id,
-        "workbench_view_id": workbench_view_id,
-        "viz_id": viz_id,
         "prompt": prompt,
         "system_instructions": system_instructions,
         "model_tier": model_tier,

@@ -36,6 +36,7 @@ from opendv_agent_harness import (
     HarnessSetupConfig,
     ObservabilityVerdict,
     PipelineInputSpec,
+    PipelineStageId,
     create_agent_harness,
     get_harness_adapter,
     run_agentic_vault_pipeline,
@@ -495,8 +496,9 @@ def test_pipeline_providers_and_steward_hold_policies(tmp_path: Path) -> None:
     assert any(
         d["code"] == "WAVE_EXECUTION_REJECTED" for d in reject_rep.output_validation.diagnostics
     )
+    target_stage = PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED.value
     wb03_events = [
-        ev for ev in reject_rep.observability_events if ev["workbench_view_id"] == "WB-03"
+        ev for ev in reject_rep.observability_events if ev.get("stage_id") == target_stage
     ]
     assert len(wb03_events) == 2
     assert wb03_events[-1]["status"] == ObservabilityVerdict.REJECT_WITH_TRACE.value
@@ -1629,8 +1631,6 @@ def test_issue_33_wave3_crlf_unstructured_document_pipeline_e2e(tmp_path: Path) 
         AgentPersona,
         PipelineStageId,
         ToolExecutionContext,
-        VizId,
-        WorkbenchViewId,
     )
     from opendv_agent_harness.pipeline import PipelineUnstructuredDocInput
     from opendv_agent_harness.tools.base import ExtractPdfSpansInput
@@ -1721,8 +1721,6 @@ def test_issue_33_wave3_crlf_unstructured_document_pipeline_e2e(tmp_path: Path) 
         span_id="span-issue-33-crlf",
         persona=AgentPersona.SCOUT_UNSTRUCTURED,
         stage_id=PipelineStageId.STAGE_02_SCOUT_UNSTRUCTURED,
-        workbench_view_id=WorkbenchViewId.WB_03,
-        viz_id=VizId.VIZ_STEP_04,
         config=setup.to_harness_config(workspace_dir=work_dir),
     )
     tool_out = asyncio.run(

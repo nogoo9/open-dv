@@ -26,7 +26,6 @@ from opendv_agent_harness.models import (
     AgentToolDefinition,
     ObservabilityVerdict,
     ToolExecutionContext,
-    VizId,
 )
 from opendv_agent_harness.telemetry.translator import build_observability_event_dict
 from opendv_agent_harness.tools.base import (
@@ -1239,8 +1238,6 @@ async def _handle_emit_observability_event(
     """Validate and emit a VaultObservabilityEvent record into the active ToolExecutionContext."""
     event_id = f"evt-{uuid.uuid4().hex[:12]}"
     eff_stage = args.stage_id or ctx.stage_id
-    eff_view = args.workbench_view_id or ctx.workbench_view_id
-    eff_viz = args.viz_id or ctx.viz_id
 
     event_dict = build_observability_event_dict(
         event_id=event_id,
@@ -1249,8 +1246,6 @@ async def _handle_emit_observability_event(
         span_id=ctx.span_id,
         parent_span_id=ctx.parent_span_id,
         stage_id=eff_stage,
-        workbench_view_id=eff_view,
-        viz_id=eff_viz,
         agent_persona=ctx.persona,
         status=args.status,
         headline=args.headline,
@@ -1269,8 +1264,6 @@ async def _handle_emit_observability_event(
         event_id=event_id,
         status=args.status,
         stage_id=eff_stage,
-        workbench_view_id=eff_view,
-        viz_id=eff_viz,
         recorded=True,
     )
 
@@ -1290,8 +1283,6 @@ async def _handle_request_steward_decision(
         span_id=ctx.span_id,
         parent_span_id=ctx.parent_span_id,
         stage_id=ctx.stage_id,
-        workbench_view_id=ctx.workbench_view_id,
-        viz_id=VizId.VIZ_GATE_07,
         agent_persona=ctx.persona,
         status=ObservabilityVerdict.ASK_USER,
         headline=args.headline,
@@ -1332,7 +1323,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SCOUT_SOURCE, AgentPersona.VAULT_FIRST_MATE}),
             read_only=True,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_STEP_02,
         ),
         AgentToolDefinition(
             name="extract_pdf_spans",
@@ -1346,7 +1336,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SCOUT_UNSTRUCTURED}),
             read_only=True,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_STEP_04,
         ),
         AgentToolDefinition(
             name="compile_canonical_ir",
@@ -1360,7 +1349,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SHIP_VAULT, AgentPersona.VAULT_FIRST_MATE}),
             read_only=False,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_STEP_07,
         ),
         AgentToolDefinition(
             name="run_axi_dv_gates",
@@ -1374,7 +1362,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SHIP_VAULT, AgentPersona.VAULT_FIRST_MATE}),
             read_only=True,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_GATE_01,
         ),
         AgentToolDefinition(
             name="apply_ast_codemod",
@@ -1388,7 +1375,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SHIP_VAULT}),
             read_only=False,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_GATE_04,
         ),
         AgentToolDefinition(
             name="execute_duckdb_sandbox",
@@ -1402,7 +1388,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             allowed_personas=frozenset({AgentPersona.SHIP_VAULT, AgentPersona.VAULT_FIRST_MATE}),
             read_only=False,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_GATE_08,
         ),
         AgentToolDefinition(
             name="emit_observability_event",
@@ -1423,7 +1408,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             ),
             read_only=False,
             requires_steward_approval=False,
-            default_viz_id=VizId.VIZ_PIPE_00,
         ),
         AgentToolDefinition(
             name="request_steward_decision",
@@ -1443,7 +1427,6 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             ),
             read_only=False,
             requires_steward_approval=True,
-            default_viz_id=VizId.VIZ_GATE_07,
         ),
     ]
 

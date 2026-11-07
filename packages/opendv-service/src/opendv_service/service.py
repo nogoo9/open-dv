@@ -32,7 +32,6 @@ from opendv_contracts import (
 )
 from opendv_core import resolve_workspace_path
 from opendv_service.errors import ConflictError, NotFoundError, OpenDVError
-from opendv_service.legacy_demo import WORKBENCH_VIEW_TITLES
 from opendv_service.models import (
     ArtifactMetadataResponse,
     ArtifactUploadRequest,
@@ -48,7 +47,7 @@ from opendv_service.models import (
     RunStatus,
     SandboxExecutionResponse,
 )
-from opendv_service.rbac import RbacRole, normalize_rbac_role, redact_event_for_role
+from opendv_service.rbac import RbacRole
 from opendv_service.runs import RunExecutionEngine, subscribe_run_sse
 from opendv_service.seams import PipelineRunner, get_default_pipeline_runner
 from opendv_service.settings import OpenDVSettings
@@ -529,11 +528,6 @@ class OpenDVService:
                     "stage_id": (
                         rec.stage_id.value if hasattr(rec.stage_id, "value") else str(rec.stage_id)
                     ),
-                    "workbench_view_id": (
-                        rec.workbench_view_id.value
-                        if hasattr(rec.workbench_view_id, "value")
-                        else str(rec.workbench_view_id)
-                    ),
                     "status": rec.status,
                     "headline": rec.headline,
                 }
@@ -629,7 +623,9 @@ class OpenDVService:
         return res
 
     def get_platform_capabilities(self) -> dict[str, Any]:
-        """Return supported agent harnesses, 5-Tier RBAC roles, WB-00..WB-11 views, and gates."""
+        """Return supported agent harnesses, 5-Tier RBAC roles, Explorer views,
+        and parity endpoints.
+        """
         harnesses = ["agy", "agy-cli", "antigravity", "claude", "claude-cli", "claude-code"]
         roles = [r.value for r in RbacRole]
         gates = ["G0", "G1", "G2", "G3", "G4", "G5"]
@@ -643,61 +639,10 @@ class OpenDVService:
             "supported_rbac_roles": roles,
             "rbac_roles": roles,
             "security_classifications": classifications,
-            "workbench_views": [f"WB-{i:02d}" for i in range(12)],
-            "workbench_view_titles": list(WORKBENCH_VIEW_TITLES.values()),
+            "explorer_views": ["overview", "drilldown", "artifacts"],
+            "parity_endpoints": ["profile", "compile", "verify", "sandbox", "runs"],
             "verification_gates": gates,
             "gates": gates,
-        }
-
-    # 15. Workbench View Projections
-    def get_workbench_view_projection(
-        self,
-        run_id: str,
-        view_id: str,
-        *,
-        role: RbacRole = RbacRole.PUBLIC,
-    ) -> dict[str, Any]:
-        """Return RBAC-redacted 3-Layer workbench view state (`WB-00` through `WB-11`)."""
-        if run_id not in self.state.runs:
-            raise NotFoundError(f"Run '{run_id}' not found.")
-
-        view_lookup = {k.upper(): k for k in WORKBENCH_VIEW_TITLES}
-        for k, v in WORKBENCH_VIEW_TITLES.items():
-            view_lookup[v.upper()] = k
-
-        short_code = view_lookup.get(view_id.strip().upper())
-        if short_code is None:
-            valid_short = sorted(WORKBENCH_VIEW_TITLES.keys())
-            raise NotFoundError(
-                f"Unknown workbench view '{view_id}'. Expected one of {valid_short}."
-            )
-
-        canonical_title = WORKBENCH_VIEW_TITLES[short_code]
-        seen_ids: set[str] = set()
-        matched_events: list[dict[str, Any]] = []
-        eff_role = normalize_rbac_role(role, default=RbacRole.PUBLIC)
-        for source_list in (
-            self.state.run_events.get(run_id, []),
-            self.state.run_workbench_events.get(run_id, []),
-            self.state.run_events_by_view.get(run_id, {}).get(short_code, []),
-        ):
-            for evt in source_list:
-                evt_id = str(evt.get("event_id", ""))
-                evt_view = str(evt.get("workbench_view_id") or evt.get("workbench_view") or "")
-                if evt_view.startswith(short_code) and evt_id not in seen_ids:
-                    seen_ids.add(evt_id)
-                    matched_events.append(redact_event_for_role(evt, eff_role))
-
-        primary_event = matched_events[-1] if matched_events else None
-        return {
-            "run_id": run_id,
-            "view_id": short_code,
-            "canonical_view_name": canonical_title,
-            "role": eff_role.value if hasattr(eff_role, "value") else str(eff_role),
-            "event_count": len(matched_events),
-            "event": primary_event,
-            "primary_event": primary_event,
-            "events": matched_events,
         }
 
     # 16. 3-Level Explorer Bundle & Run-Isolated Artifacts (GAP-05, T6)

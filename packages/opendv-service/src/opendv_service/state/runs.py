@@ -59,8 +59,6 @@ class RunStateMixin:
         self.run_ledgers[run_id] = ledger
         self.hold_managers[run_id] = hold_mgr
         self.run_events[run_id] = []
-        self.run_workbench_events[run_id] = []
-        self.run_events_by_view[run_id] = {f"WB-{i:02d}": [] for i in range(12)}
 
         run_dto = ProjectRunDTO(
             run_id=run_id,
@@ -70,7 +68,6 @@ class RunStateMixin:
             started_at_utc=started_at_utc,
             completed_at_utc=None,
             current_stage_id="STAGE_00_ORCHESTRATION",
-            current_view_id="WB-00",
             event_count=0,
             gate_scorecard=GateScorecardSummary(
                 gate_0_profile_drift="PENDING",

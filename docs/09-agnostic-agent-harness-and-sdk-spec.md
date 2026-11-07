@@ -208,8 +208,6 @@ class ToolExecutionContext:
         parent_span_id: str | None,
         persona: AgentPersona,
         stage_id: PipelineStageId,
-        workbench_view_id: WorkbenchViewId,
-        viz_id: VizId,
         config: HarnessConfig,
     ) -> None:
         self.run_id = run_id
@@ -218,8 +216,6 @@ class ToolExecutionContext:
         self.parent_span_id = parent_span_id
         self.persona = persona
         self.stage_id = stage_id
-        self.workbench_view_id = workbench_view_id
-        self.viz_id = viz_id
         self.config = config
         self._session_state: dict[str, Any] = {}
         self.emitted_events: list[dict[str, Any]] = []
@@ -266,7 +262,6 @@ class AgentToolDefinition(Generic[InT, OutT]):
         allowed_personas: frozenset[AgentPersona],
         read_only: bool = True,
         requires_steward_approval: bool = False,
-        default_viz_id: VizId | None = None,
     ) -> None:
         if not name.isidentifier():
             raise ValueError(f"Tool name '{name}' must be a valid Python identifier.")
@@ -278,7 +273,6 @@ class AgentToolDefinition(Generic[InT, OutT]):
         self.allowed_personas = allowed_personas
         self.read_only = read_only
         self.requires_steward_approval = requires_steward_approval
-        self.default_viz_id = default_viz_id
 
     def json_schema(self) -> dict[str, Any]:
         return self.input_model.model_json_schema()
@@ -314,8 +308,6 @@ class AgentTaskSpec(BaseModel, Generic[OutputT]):
     parent_span_id: str | None = Field(default=None, pattern=r"^[0-9a-f]{16}$")
     persona: AgentPersona
     stage_id: PipelineStageId
-    workbench_view_id: WorkbenchViewId
-    viz_id: VizId
     prompt: str
     system_instructions: str
     model_tier: ModelTier = ModelTier.HIGH_REASONING
@@ -354,8 +346,6 @@ class HarnessStreamEvent(BaseModel):
     provider: str
     persona: AgentPersona
     stage_id: PipelineStageId
-    workbench_view_id: WorkbenchViewId
-    viz_id: VizId
     kind: HarnessEventKind
     delta_text: str | None = None
     tool_name: str | None = None
@@ -492,8 +482,6 @@ class BaseVaultAgentHarness(abc.ABC):
             provider=self.provider_name,
             persona=spec.persona,
             stage_id=spec.stage_id,
-            workbench_view_id=spec.workbench_view_id,
-            viz_id=spec.viz_id,
             **kwargs,
         )
 
@@ -505,8 +493,6 @@ class BaseVaultAgentHarness(abc.ABC):
             parent_span_id=spec.parent_span_id,
             persona=spec.persona,
             stage_id=spec.stage_id,
-            workbench_view_id=spec.workbench_view_id,
-            viz_id=spec.viz_id,
             config=self._config,
         )
 

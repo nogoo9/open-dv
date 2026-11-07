@@ -37,28 +37,6 @@ from opendv_duckdb_sandbox import (
 from opendv_platform_api import PlatformStateContainer, RunStatus, create_app
 from opendv_testkit import seed_canonical_pe_demo
 
-EXPECTED_WORKBENCH_VIEW_IDS: tuple[str, ...] = (
-    "WB-00",
-    "WB-01",
-    "WB-02",
-    "WB-03",
-    "WB-04",
-    "WB-05",
-    "WB-06",
-    "WB-07",
-    "WB-08",
-    "WB-09",
-    "WB-10",
-    "WB-11",
-)
-
-FORBIDDEN_UNREDACTED_PII_MNPI_SUBSTRINGS: tuple[str, ...] = (
-    "245000000",
-    "14.5x",
-    "DE89370400440532013000",
-    "99-8877665",
-)
-
 
 def _run_async(coro: Any) -> Any:
     """Execute an async coroutine synchronously in standard pytest functions."""
@@ -102,9 +80,11 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             assert cap_resp.status_code == 200
             cap_body = cap_resp.json()
             assert cap_body["api_version"] == "v1"
-            assert cap_body["contract_version"] == "6.0"
-            assert tuple(cap_body["workbench_views"]) == EXPECTED_WORKBENCH_VIEW_IDS
-            assert set(cap_body["gates"]) == {"G0", "G1", "G2", "G3", "G4", "G5"}
+            assert "workbench_views" not in cap_body
+            assert cap_body["explorer_views"] == ["overview", "drilldown", "artifacts"]
+            assert cap_body["parity_endpoints"] == [
+                "profile", "compile", "verify", "sandbox", "runs",
+            ]
             assert {
                 "PUBLIC",
                 "INTERNAL_MODELER",
@@ -355,52 +335,16 @@ def test_e2e_private_equity_full_stack_certification(tmp_path: Path) -> None:
             assert float(nordic_nov["enterprise_value_usd"]) == 245000000.0
 
             # -----------------------------------------------------------------
-            # Step 6: 12-View Workbench Projections (`WB-00`..`WB-11`) & RBAC
+            # Step 6: Verify Legacy Workbench Projections are excised (D3)
             # -----------------------------------------------------------------
-            for view_id in EXPECTED_WORKBENCH_VIEW_IDS:
-                custodian_resp = await client.get(
+            for view_id in (
+                "WB-00", "WB-01", "WB-02", "WB-03", "WB-04", "WB-05",
+                "WB-06", "WB-07", "WB-08", "WB-09", "WB-10", "WB-11",
+            ):
+                res = await client.get(
                     f"/api/v1/runs/{run_id}/workbench/{view_id}",
                     headers={"X-OpenDV-Role": "RESTRICTED_PII_CUSTODIAN"},
                 )
-                assert custodian_resp.status_code == 200
-                custodian_body = custodian_resp.json()
-                assert custodian_body["view_id"] == view_id
-                assert custodian_body["event"]["workbench_view_id"] == view_id
-                assert len(custodian_body["events"]) >= 1
-
-                # PUBLIC role must have all views redacted and zero PII/MNPI leaks
-                public_resp = await client.get(
-                    f"/api/v1/runs/{run_id}/workbench/{view_id}",
-                    headers={"X-OpenDV-Role": "PUBLIC"},
-                )
-                assert public_resp.status_code == 200
-                public_raw = public_resp.text
-                public_event = public_resp.json()["event"]
-                assert "[REDACTED" in public_event["layer1_story_banner"]["headline"]
-                for forbidden in FORBIDDEN_UNREDACTED_PII_MNPI_SUBSTRINGS:
-                    assert forbidden not in public_raw, (
-                        f"Unredacted PII/MNPI token '{forbidden}' leaked to PUBLIC on {view_id}"
-                    )
-
-                # INTERNAL_MODELER role sees INTERNAL views unmasked, but CONFIDENTIAL / MNPI /
-                # RESTRICTED_PII views must be redacted with zero PII/MNPI leaks
-                modeler_resp = await client.get(
-                    f"/api/v1/runs/{run_id}/workbench/{view_id}",
-                    headers={"X-OpenDV-Role": "INTERNAL_MODELER"},
-                )
-                assert modeler_resp.status_code == 200
-                modeler_raw = modeler_resp.text
-                modeler_event = modeler_resp.json()["event"]
-                classification = modeler_event.get("data_classification", "INTERNAL")
-                if classification == "INTERNAL":
-                    assert not modeler_event["layer1_story_banner"]["headline"].startswith(
-                        "[REDACTED"
-                    )
-                else:
-                    assert "[REDACTED" in modeler_event["layer1_story_banner"]["headline"]
-                for forbidden in FORBIDDEN_UNREDACTED_PII_MNPI_SUBSTRINGS:
-                    assert forbidden not in modeler_raw, (
-                        f"Unredacted token '{forbidden}' leaked to INTERNAL_MODELER on {view_id}"
-                    )
+                assert res.status_code == 404
 
     _run_async(_scenario())

@@ -707,8 +707,6 @@ def test_doc09_agent_harness_protocol_bridges_and_adapters(tmp_path: pathlib.Pat
         persona=agent_persona_cls.SCOUT_SOURCE,
         model_tier=model_tier_cls.FAST_TIER,
         stage_id="STAGE_01_SCOUT_SOURCE",
-        workbench_view_id="WB-02",
-        viz_id="VIZ-STEP-02",
         system_instructions="Profile Bronze tables.",
         prompt="Profile raw_lp_commitments.",
         tools=(tool_def,),

@@ -116,7 +116,7 @@ def seed_canonical_pe_demo(
             )
 
     # Initialize ledger and canonical PE events
-    canonical_9, all_workbench = build_pe_canonical_events(run_id=run_id)
+    canonical_9, _all_workbench = build_pe_canonical_events(run_id=run_id)
     ledger_path = container.ledger_dir / f"{run_id}.jsonl"
     ledger_path.unlink(missing_ok=True)
     ledger = VaultLedgerEmitter(ledger_path=ledger_path, cas_store=container.cas)
@@ -147,14 +147,6 @@ def seed_canonical_pe_demo(
     )
     container.hold_managers[run_id] = hold_mgr
     container.run_events[run_id] = canonical_9
-    container.run_workbench_events[run_id] = all_workbench
-
-    by_view: dict[str, list[dict[str, Any]]] = {f"WB-{i:02d}": [] for i in range(12)}
-    for evt in [*canonical_9, *all_workbench]:
-        vw = str(evt.get("workbench_view_id") or "").strip().upper()[:5]
-        if vw in by_view:
-            by_view[vw].append(evt)
-    container.run_events_by_view[run_id] = by_view
 
     run_dto = ProjectRunDTO(
         run_id=run_id,
@@ -164,7 +156,6 @@ def seed_canonical_pe_demo(
         started_at_utc="2026-10-30T09:00:00Z",
         completed_at_utc=None,
         current_stage_id="STAGE_07_DETERMINISTIC_COMPILER",
-        current_view_id="WB-11",
         event_count=len(canonical_9),
         gate_scorecard=GateScorecardSummary(
             gate_0_profile_drift="PASS",

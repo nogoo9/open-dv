@@ -15,10 +15,8 @@ from opendv_agent_harness import (
     HarnessStreamEvent,
     PipelineStepReport,
     StewardHoldManager,
-    build_observability_event_dict,
 )
 from opendv_core import resolve_workspace_path
-from opendv_service.legacy_demo import WORKBENCH_VIEW_TITLES
 from opendv_service.models import (
     ArtifactMetadataResponse,
     GateScorecardSummary,
@@ -201,47 +199,6 @@ class PipelineExecutionMixin:
 
         events_list = list(report.observability_events)
         self.run_events[report.run_id] = events_list
-        by_view: dict[str, list[dict[str, Any]]] = {f"WB-{i:02d}": [] for i in range(12)}
-        for evt in events_list:
-            vw = str(evt.get("workbench_view_id") or "").strip().upper()[:5]
-            if vw in by_view:
-                by_view[vw].append(evt)
-
-        workbench_events_list = list(events_list)
-        trace_id = (
-            str(events_list[0].get("trace_id"))
-            if events_list
-            else "4bf92f3577b34da6a3ce929d0e0e4736"
-        )
-        for idx in range(12):
-            vw_code = f"WB-{idx:02d}"
-            if not by_view[vw_code]:
-                synth_evt = build_observability_event_dict(
-                    event_id=f"evt-{report.run_id}-{vw_code.lower()}-synth",
-                    run_id=report.run_id,
-                    trace_id=trace_id,
-                    span_id=f"{idx + 100:016x}",
-                    parent_span_id=None,
-                    timestamp_utc=report.completed_at,
-                    stage_id="STAGE_00_ORCHESTRATION",
-                    workbench_view_id=vw_code,
-                    viz_id="VIZ-PIPE-00",
-                    agent_persona="vault-first-mate",
-                    status="PASS" if report.overall_passed else "REJECT-WITH-TRACE",
-                    headline=f"{WORKBENCH_VIEW_TITLES[vw_code]} projection ready.",
-                    business_impact=(
-                        f"Deterministic projection for {vw_code} in "
-                        f"pipeline '{report.pipeline_id}'."
-                    ),
-                    data_classification="INTERNAL",
-                    rule_ids_evaluated=["HR-01"],
-                    summary_metrics={"wave_count": len(report.wave_reports)},
-                )
-                by_view[vw_code].append(synth_evt)
-                workbench_events_list.append(synth_evt)
-
-        self.run_events_by_view[report.run_id] = by_view
-        self.run_workbench_events[report.run_id] = workbench_events_list
 
         ledger_file = self.ledger_dir / f"{report.run_id}.jsonl"
         ledger_file.unlink(missing_ok=True)
@@ -264,8 +221,6 @@ class PipelineExecutionMixin:
                 task_id=str(h.get("task_id") or f"task-{report.run_id}"),
                 session_id=str(h.get("session_id") or f"sess-{report.run_id}"),
                 stage_id=str(h.get("stage_id") or "STAGE_02_SCOUT_UNSTRUCTURED"),
-                workbench_view_id=str(h.get("workbench_view_id") or "WB-03"),
-                viz_id=str(h.get("viz_id") or "VIZ-GATE-07"),
                 persona=str(h.get("persona") or "vault-first-mate"),
                 decision_id=str(h.get("decision_id") or hid),
                 hold_id=hid,
@@ -284,8 +239,6 @@ class PipelineExecutionMixin:
                 task_id=str(h.get("task_id") or f"task-{report.run_id}"),
                 session_id=str(h.get("session_id") or f"sess-{report.run_id}"),
                 stage_id=str(h.get("stage_id") or "STAGE_02_SCOUT_UNSTRUCTURED"),
-                workbench_view_id=str(h.get("workbench_view_id") or "WB-03"),
-                viz_id=str(h.get("viz_id") or "VIZ-GATE-07"),
                 persona=str(h.get("persona") or "vault-first-mate"),
                 decision_id=str(h.get("decision_id") or hid),
                 hold_id=hid,
@@ -373,7 +326,6 @@ class PipelineExecutionMixin:
 
         run_status = RunStatus(report.status)
         last_step = report.step_reports[-1] if report.step_reports else None
-        last_evt = events_list[-1] if events_list else None
         has_initial_contract = getattr(report, "has_initial_contract", False) or bool(
             getattr(spec_obj, "initial_contract_path", None)
             or getattr(spec_obj, "initial_contract", None)
@@ -393,9 +345,6 @@ class PipelineExecutionMixin:
             started_at_utc=report.started_at,
             completed_at_utc=(None if run_status == RunStatus.PAUSED_HOLD else report.completed_at),
             current_stage_id=(last_step.stage_id if last_step else "STAGE_00_ORCHESTRATION"),
-            current_view_id=(
-                str(last_evt.get("workbench_view_id", "WB-00")) if last_evt else "WB-00"
-            ),
             event_count=len(events_list),
             gate_scorecard=scorecard,
             active_hold_ids=active_hold_ids,

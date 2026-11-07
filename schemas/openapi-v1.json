@@ -4551,12 +4551,6 @@
             "title": "Current Stage Id",
             "type": "string"
           },
-          "current_view_id": {
-            "default": "WB-00",
-            "description": "Current or terminal workbench view identifier",
-            "title": "Current View Id",
-            "type": "string"
-          },
           "decisions_url": {
             "description": "REST endpoint URL for Steward hold resolutions",
             "title": "Decisions Url",
@@ -6478,7 +6472,7 @@
     },
     "/api/v1/platform/capabilities": {
       "get": {
-        "description": "Return supported agent harnesses, 5-Tier RBAC roles, WB-00..WB-11 views, and gates.",
+        "description": "Return supported agent harnesses, 5-Tier RBAC roles, Explorer views,\nparity endpoints, and gates.",
         "operationId": "get_platform_capabilities_api_v1_platform_capabilities_get",
         "responses": {
           "200": {
@@ -7516,76 +7510,6 @@
         "summary": "Execute Run Sandbox Query",
         "tags": [
           "sandbox"
-        ]
-      }
-    },
-    "/api/v1/runs/{run_id}/workbench/{view_id}": {
-      "get": {
-        "description": "Return RBAC-redacted 3-Layer workbench view state (`WB-00` through `WB-11`).",
-        "operationId": "get_workbench_view_projection_api_v1_runs__run_id__workbench__view_id__get",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "run_id",
-            "required": true,
-            "schema": {
-              "title": "Run Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "path",
-            "name": "view_id",
-            "required": true,
-            "schema": {
-              "title": "View Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "X-OpenDV-Role",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "X-Opendv-Role"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "additionalProperties": true,
-                  "title": "Response Get Workbench View Projection Api V1 Runs  Run Id  Workbench  View Id  Get",
-                  "type": "object"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Get Workbench View Projection",
-        "tags": [
-          "workbench"
         ]
       }
     },
