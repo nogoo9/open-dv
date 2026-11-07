@@ -11,23 +11,31 @@ import type {
 	GateStatus,
 	HealthResponseDTO,
 	OpenDVClientOptions,
+	PipelineRunHandle,
+	PipelineRunRequest,
 	ProjectDTO,
 	ProjectRunDTO,
+	RunArtifactDTO,
 	SandboxExecutionResponse,
 	SandboxQueryRequest,
 } from "../types/api-dtos";
+import type { ExplorerBundleDTO } from "../types/workbench-explorer";
 
 export type {
 	CaptainHoldDecisionRequest,
 	CaptainHoldDecisionResponse,
 	CreateProjectRequest,
 	CreateRunRequest,
+	ExplorerBundleDTO,
 	GateScorecardSummaryDTO,
 	GateStatus,
 	HealthResponseDTO,
 	OpenDVClientOptions,
+	PipelineRunHandle,
+	PipelineRunRequest,
 	ProjectDTO,
 	ProjectRunDTO,
+	RunArtifactDTO,
 	SandboxExecutionResponse,
 	SandboxQueryRequest,
 };
@@ -38,7 +46,9 @@ export class OpenDVPlatformClient {
 	private readonly fetchImpl: typeof fetch;
 
 	constructor(options: OpenDVClientOptions) {
-		this.baseUrl = options.baseUrl.replace(/\/+$/, "");
+		this.baseUrl = options.baseUrl
+			.replace(/\/api\/v1\/?$/, "")
+			.replace(/\/+$/, "");
 		this.headers = {
 			"Content-Type": "application/json",
 			Accept: "application/json",
@@ -195,5 +205,56 @@ export class OpenDVPlatformClient {
 			);
 		}
 		return res.text();
+	}
+
+	async getExplorerBundle(
+		runId: string,
+		waveId?: string,
+	): Promise<ExplorerBundleDTO> {
+		const query = waveId ? `?wave_id=${encodeURIComponent(waveId)}` : "";
+		const res = await this.fetchImpl(
+			`${this.baseUrl}/api/v1/runs/${encodeURIComponent(runId)}/explorer${query}`,
+			{
+				headers: this.headers,
+			},
+		);
+		if (!res.ok) {
+			throw new Error(
+				`Failed to fetch explorer bundle for run ${runId}: HTTP ${res.status}`,
+			);
+		}
+		return (await res.json()) as ExplorerBundleDTO;
+	}
+
+	async getRunArtifact(
+		runId: string,
+		artifactId: string,
+	): Promise<RunArtifactDTO> {
+		const res = await this.fetchImpl(
+			`${this.baseUrl}/api/v1/runs/${encodeURIComponent(runId)}/artifacts/${encodeURIComponent(artifactId)}`,
+			{
+				headers: this.headers,
+			},
+		);
+		if (!res.ok) {
+			throw new Error(
+				`Failed to fetch artifact ${artifactId} for run ${runId}: HTTP ${res.status}`,
+			);
+		}
+		return (await res.json()) as RunArtifactDTO;
+	}
+
+	async createPipelineRun(
+		request: PipelineRunRequest,
+	): Promise<PipelineRunHandle> {
+		const res = await this.fetchImpl(`${this.baseUrl}/api/v1/pipelines/runs`, {
+			method: "POST",
+			headers: this.headers,
+			body: JSON.stringify(request),
+		});
+		if (!res.ok) {
+			throw new Error(`Failed to create pipeline run: HTTP ${res.status}`);
+		}
+		return (await res.json()) as PipelineRunHandle;
 	}
 }
