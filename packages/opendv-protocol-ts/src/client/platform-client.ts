@@ -9,13 +9,19 @@ import type {
 	CreateRunRequest,
 	GateScorecardSummaryDTO,
 	GateStatus,
+	HarnessConfigDTO,
 	HealthResponseDTO,
 	OpenDVClientOptions,
 	PipelineRunHandle,
 	PipelineRunRequest,
 	PipelineValidateRequest,
+	PlatformConfigResponse,
+	PlatformConfigUpdateRequest,
+	PlatformConfigValidateRequest,
+	PlatformConfigValidationResponse,
 	ProjectDTO,
 	ProjectRunDTO,
+	ProviderReadinessDTO,
 	RunArtifactDTO,
 	SandboxExecutionResponse,
 	SandboxQueryRequest,
@@ -30,13 +36,19 @@ export type {
 	ExplorerBundleDTO,
 	GateScorecardSummaryDTO,
 	GateStatus,
+	HarnessConfigDTO,
 	HealthResponseDTO,
 	OpenDVClientOptions,
 	PipelineRunHandle,
 	PipelineRunRequest,
 	PipelineValidateRequest,
+	PlatformConfigResponse,
+	PlatformConfigUpdateRequest,
+	PlatformConfigValidateRequest,
+	PlatformConfigValidationResponse,
 	ProjectDTO,
 	ProjectRunDTO,
+	ProviderReadinessDTO,
 	RunArtifactDTO,
 	SandboxExecutionResponse,
 	SandboxQueryRequest,
@@ -290,5 +302,68 @@ export class OpenDVPlatformClient {
 			};
 		}
 		return (await res.json()) as Record<string, unknown>;
+	}
+
+	async getPlatformConfig(): Promise<PlatformConfigResponse> {
+		const res = await this.fetchImpl(`${this.baseUrl}/api/v1/platform/config`, {
+			headers: this.headers,
+		});
+		if (!res.ok) {
+			throw new Error(`Failed to fetch platform config: HTTP ${res.status}`);
+		}
+		return (await res.json()) as PlatformConfigResponse;
+	}
+
+	async updatePlatformConfig(
+		request: PlatformConfigUpdateRequest,
+	): Promise<PlatformConfigResponse> {
+		const res = await this.fetchImpl(`${this.baseUrl}/api/v1/platform/config`, {
+			method: "PUT",
+			headers: this.headers,
+			body: JSON.stringify(request),
+		});
+		if (!res.ok) {
+			const errJson = (await res.json().catch(() => ({}))) as {
+				detail?: string;
+			};
+			throw new Error(
+				errJson.detail ??
+					`Failed to update platform config: HTTP ${res.status}`,
+			);
+		}
+		return (await res.json()) as PlatformConfigResponse;
+	}
+
+	async validatePlatformConfig(
+		request: PlatformConfigValidateRequest,
+	): Promise<PlatformConfigValidationResponse> {
+		const res = await this.fetchImpl(
+			`${this.baseUrl}/api/v1/platform/config/validate`,
+			{
+				method: "POST",
+				headers: this.headers,
+				body: JSON.stringify(request),
+			},
+		);
+		if (!res.ok) {
+			const errJson = (await res.json().catch(() => ({}))) as {
+				detail?: string;
+				error_code?: string;
+			};
+			return {
+				passed: false,
+				diagnostics: [
+					{
+						code: errJson.error_code ?? "VALIDATION_FAILED",
+						severity: "ERROR",
+						message:
+							errJson.detail ?? `HTTP ${res.status} config validation failure`,
+					},
+				],
+				resolved_persona_models: {},
+				providers: [],
+			};
+		}
+		return (await res.json()) as PlatformConfigValidationResponse;
 	}
 }

@@ -3,7 +3,8 @@ import { join, resolve } from "node:path";
 
 export const DEFAULT_DEV_SERVER_PORT = 5173;
 export const DEFAULT_DEV_SERVER_HOST = "127.0.0.1";
-export const DEFAULT_API_URL = process.env.OPENDV_API_URL ?? "";
+export const DEFAULT_API_URL =
+	process.env.OPENDV_API_URL ?? "http://127.0.0.1:8420";
 export const WORKBENCH_CSP =
 	"default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'";
 
@@ -122,10 +123,14 @@ export function createWorkbenchDevServer(
 				}
 			}
 
-			// 2. Serve index.html at /, /index.html, or deep-linked /stages/00..07 routes
+			// 2. Serve index.html at /, /index.html, /builder, /settings, or deep-linked /stages/00..07 routes
 			if (
 				url.pathname === "/" ||
 				url.pathname === "/index.html" ||
+				url.pathname === "/builder" ||
+				url.pathname === "/builder/" ||
+				url.pathname === "/settings" ||
+				url.pathname === "/settings/" ||
 				/^\/stages\/0?[0-7]\/?$/.test(url.pathname)
 			) {
 				const htmlPath = join(workbenchRoot, "index.html");

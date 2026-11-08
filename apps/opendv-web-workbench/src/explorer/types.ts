@@ -20,7 +20,7 @@ import type { StoreApi, UseBoundStore } from "zustand";
 import type { BlockingErrorState } from "./BlockingErrorBanner";
 import type { ExplorerDataSource } from "./data-source";
 
-export type ExplorerViewLevel = "pipeline" | "stage";
+export type ExplorerViewLevel = "pipeline" | "stage" | "builder" | "settings";
 export type ExplorerSelectionType = "artifact" | "step" | "component" | null;
 export type ArtifactFullTab = "viz" | "raw" | "split";
 export type ExplorerRunState = "sealed" | "running" | "hold" | "failed";
@@ -70,6 +70,8 @@ export interface ExplorerStoreState {
 
 	// Navigation & Selection Actions
 	goPipeline: () => void;
+	goBuilder: () => void;
+	goSettings: () => void;
 	openStage: (stageIdx: number) => void;
 	prevStage: () => void;
 	nextStage: () => void;

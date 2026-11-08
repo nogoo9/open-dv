@@ -17,6 +17,7 @@ import {
 	getStatusIndicator,
 	getStatusTagStyle,
 } from "../design-tokens";
+import type { ExplorerRunState } from "../types";
 
 export interface OverviewStagesTrackProps {
 	phases: readonly PhaseSpec[];
@@ -24,6 +25,8 @@ export interface OverviewStagesTrackProps {
 	artifacts: Readonly<Record<string, Artifact>>;
 	activeWave: WaveFilterId;
 	onOpenStage: (stageIdx: number) => void;
+	runState?: ExplorerRunState | undefined;
+	activeRunningStageIdx?: number | null | undefined;
 }
 
 export function OverviewStagesTrack({
@@ -32,6 +35,8 @@ export function OverviewStagesTrack({
 	artifacts,
 	activeWave,
 	onOpenStage,
+	runState,
+	activeRunningStageIdx = null,
 }: OverviewStagesTrackProps) {
 	return (
 		<section
@@ -187,35 +192,61 @@ export function OverviewStagesTrack({
 								);
 								const countsLabel = `${filteredIns.length} in · ${filteredOuts.length} out · ${stage.steps.length} steps`;
 
+								const isStageRunning =
+									runState === "running" && activeRunningStageIdx === idx;
+								const isStageCompleted =
+									(runState === "running" &&
+										activeRunningStageIdx !== null &&
+										idx < activeRunningStageIdx) ||
+									(runState === "sealed" &&
+										(stage.tag === "PASS" ||
+											stage.tag === "AUTO-FIX" ||
+											stage.tag === "AUTO_REPAIRED"));
+								const isStageQueued =
+									runState === "running" &&
+									activeRunningStageIdx !== null &&
+									idx > activeRunningStageIdx;
+								const runStatus = isStageRunning
+									? "running"
+									: isStageCompleted
+										? "completed"
+										: isStageQueued
+											? "queued"
+											: "idle";
+
 								return (
 									<div
 										key={stage.key}
 										data-testid={`stage-card-${numStr}`}
+										data-run-status={runStatus}
 										onClick={() => onOpenStage(idx)}
 										onKeyDown={(ev) => {
 											if (ev.key === "Enter" || ev.key === " ") {
 												ev.preventDefault();
 												onOpenStage(idx);
-											} else if (ev.key === "ArrowDown") {
+											} else if (
+												ev.key === "ArrowDown" ||
+												ev.key === "ArrowUp"
+											) {
 												ev.preventDefault();
+												const container =
+													ev.currentTarget.closest(
+														'section[aria-label="8-Stage Pipeline"]',
+													) ?? ev.currentTarget.parentElement;
+												if (!container) return;
 												const cards = Array.from(
-													document.querySelectorAll<HTMLElement>(
+													container.querySelectorAll<HTMLElement>(
 														'[data-testid^="stage-card-"]',
 													),
 												);
 												const currentIdx = cards.indexOf(ev.currentTarget);
-												if (currentIdx >= 0 && currentIdx < cards.length - 1) {
+												if (
+													ev.key === "ArrowDown" &&
+													currentIdx >= 0 &&
+													currentIdx < cards.length - 1
+												) {
 													cards[currentIdx + 1]?.focus();
-												}
-											} else if (ev.key === "ArrowUp") {
-												ev.preventDefault();
-												const cards = Array.from(
-													document.querySelectorAll<HTMLElement>(
-														'[data-testid^="stage-card-"]',
-													),
-												);
-												const currentIdx = cards.indexOf(ev.currentTarget);
-												if (currentIdx > 0) {
+												} else if (ev.key === "ArrowUp" && currentIdx > 0) {
 													cards[currentIdx - 1]?.focus();
 												}
 											}
@@ -228,6 +259,7 @@ export function OverviewStagesTrack({
 											gap: "12px",
 											alignItems: "stretch",
 											cursor: "pointer",
+											opacity: isStageQueued ? 0.78 : 1,
 										}}
 									>
 										<div
@@ -244,15 +276,17 @@ export function OverviewStagesTrack({
 													width: "30px",
 													height: "30px",
 													borderRadius: "999px",
-													background: "#FFFFFF",
-													border: "1.5px solid #16181D",
+													background: isStageRunning ? "#1D4ED8" : "#FFFFFF",
+													border: isStageRunning
+														? "2px solid #1D4ED8"
+														: "1.5px solid #16181D",
 													display: "flex",
 													alignItems: "center",
 													justifyContent: "center",
 													fontFamily: EXPLORER_FONTS.mono,
 													fontSize: "12px",
 													fontWeight: 600,
-													color: "#16181D",
+													color: isStageRunning ? "#FFFFFF" : "#16181D",
 													position: "relative",
 													zIndex: 1,
 												}}
@@ -265,7 +299,12 @@ export function OverviewStagesTrack({
 											style={{
 												flex: 1,
 												background: "#FFFFFF",
-												border: "1px solid #E3E5E8",
+												border: isStageRunning
+													? "2px solid #1D4ED8"
+													: "1px solid #E3E5E8",
+												boxShadow: isStageRunning
+													? "0 0 0 3px rgba(29, 78, 216, 0.12)"
+													: undefined,
 												borderRadius: "8px",
 												padding: "13px 16px",
 												display: "flex",
@@ -273,6 +312,29 @@ export function OverviewStagesTrack({
 												gap: "6px",
 											}}
 										>
+											{isStageRunning && (
+												<div
+													aria-hidden="true"
+													style={{
+														width: "100%",
+														height: "3px",
+														borderRadius: "999px",
+														background: "#DBEAFE",
+														overflow: "clip",
+														marginBottom: "2px",
+													}}
+												>
+													<div
+														style={{
+															width: "65%",
+															height: "100%",
+															borderRadius: "999px",
+															background: "#1D4ED8",
+														}}
+													/>
+												</div>
+											)}
+
 											<div
 												style={{
 													display: "flex",
@@ -284,7 +346,7 @@ export function OverviewStagesTrack({
 												<div
 													style={{
 														display: "flex",
-														alignItems: "baseline",
+														alignItems: "center",
 														gap: "8px",
 														minWidth: 0,
 													}}
@@ -298,6 +360,54 @@ export function OverviewStagesTrack({
 													>
 														{stage.name}
 													</span>
+													{isStageRunning && (
+														<span
+															data-testid={`stage-running-indicator-${numStr}`}
+															style={{
+																fontFamily: EXPLORER_FONTS.mono,
+																fontSize: "10px",
+																fontWeight: 600,
+																padding: "1.5px 7px",
+																borderRadius: "999px",
+																background: "#DBEAFE",
+																color: "#1D4ED8",
+															}}
+														>
+															● RUNNING
+														</span>
+													)}
+													{isStageCompleted && (
+														<span
+															data-testid={`stage-completed-indicator-${numStr}`}
+															style={{
+																fontFamily: EXPLORER_FONTS.mono,
+																fontSize: "10px",
+																fontWeight: 600,
+																padding: "1.5px 7px",
+																borderRadius: "999px",
+																background: "#DCFCE7",
+																color: "#15803D",
+															}}
+														>
+															✓ COMPLETED
+														</span>
+													)}
+													{isStageQueued && (
+														<span
+															data-testid={`stage-queued-indicator-${numStr}`}
+															style={{
+																fontFamily: EXPLORER_FONTS.mono,
+																fontSize: "10px",
+																fontWeight: 500,
+																padding: "1.5px 7px",
+																borderRadius: "999px",
+																background: "#F1F5F9",
+																color: "#64748B",
+															}}
+														>
+															◌ QUEUED
+														</span>
+													)}
 												</div>
 												<span
 													style={{

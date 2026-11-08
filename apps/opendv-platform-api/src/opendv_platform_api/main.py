@@ -28,11 +28,13 @@ from opendv_platform_api.routers import (
     gates,
     health,
     ontology,
+    platform_config,
     profile,
     projects,
     runs,
     sandbox,
     verify,
+    web_ui,
 )
 from opendv_service import OpenDVService, OpenDVSettings, PlatformStateContainer
 from opendv_service.errors import OpenDVError
@@ -150,7 +152,7 @@ def create_app(
         CORSMiddleware,
         allow_origins=active_settings.cors_origins,
         allow_credentials=False,
-        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "OPTIONS"],
         allow_headers=["Content-Type", "X-OpenDV-Role", "Last-Event-ID"],
     )
 
@@ -350,6 +352,7 @@ def create_app(
 
     api_prefix = "/api/v1"
     application.include_router(health.router, prefix=api_prefix)
+    application.include_router(platform_config.router, prefix=api_prefix)
     application.include_router(profile.router, prefix=api_prefix)
     application.include_router(compile.router, prefix=api_prefix)
     application.include_router(verify.router, prefix=api_prefix)
@@ -361,6 +364,7 @@ def create_app(
     application.include_router(decisions.router, prefix=api_prefix)
     application.include_router(artifacts.router, prefix=api_prefix)
     application.include_router(ontology.router, prefix=api_prefix)
+    application.include_router(web_ui.router)
 
     return application
 

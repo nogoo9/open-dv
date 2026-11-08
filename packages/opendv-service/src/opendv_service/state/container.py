@@ -11,11 +11,13 @@ from opendv_service.state.cas import ArtifactStateMixin, store_cas_artifact
 from opendv_service.state.holds import HoldStateMixin
 from opendv_service.state.pipeline import PipelineStateMixin
 from opendv_service.state.pipeline_execution import PipelineExecutionMixin
+from opendv_service.state.platform_config import PlatformConfigStateMixin
 from opendv_service.state.projects import ProjectStateMixin
 from opendv_service.state.runs import RunStateMixin
 
 
 class PlatformStateContainer(
+    PlatformConfigStateMixin,
     ProjectStateMixin,
     RunStateMixin,
     HoldStateMixin,

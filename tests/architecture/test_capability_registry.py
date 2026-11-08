@@ -35,7 +35,10 @@ def extract_api_capability_set(app: FastAPI) -> set[str]:
         if primary == "health":
             capabilities.add("health")
         elif primary == "platform":
-            capabilities.add("platform")
+            if len(segments) > 1 and segments[1] == "config":
+                capabilities.add("config")
+            else:
+                capabilities.add("platform")
         elif primary == "projects":
             capabilities.add("projects")
         elif primary == "artifacts":
@@ -94,13 +97,17 @@ def test_service_and_api_capability_routes_consistency() -> None:
     api_transport_exemptions = {"health", "events"}
     # Auxiliary entity storage / metadata routes
     api_storage_exemptions = {"platform", "projects", "artifacts", "workbench"}
+    # CLI standalone server launcher exemption (`opendv serve` starts the API server itself)
+    cli_launcher_exemptions = {"serve"}
     # Documented Phase P5 REST route parity additions (All closed in P5.1)
     p5_pending_api_gaps: set[str] = set()
 
     effective_api_capabilities = (
         api_capabilities - api_transport_exemptions - api_storage_exemptions
     )
-    expected_service_capabilities = service_capabilities - p5_pending_api_gaps
+    expected_service_capabilities = (
+        service_capabilities - p5_pending_api_gaps - cli_launcher_exemptions
+    )
 
     assert effective_api_capabilities == expected_service_capabilities, (
         f"API capability routes and Service capabilities diverge:\n"

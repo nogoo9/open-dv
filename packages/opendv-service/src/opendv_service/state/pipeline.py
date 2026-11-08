@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
+import yaml
 from pydantic import ValidationError
 
 from opendv_agent_harness import (
@@ -64,9 +65,16 @@ class PipelineStateMixin:
             else None
         )
 
-        if req.input_spec is None and input_spec_path is None:
+        input_spec_content = getattr(req, "input_spec_content", None)
+        input_spec_content_str = (
+            input_spec_content.strip()
+            if isinstance(input_spec_content, str) and input_spec_content.strip()
+            else None
+        )
+
+        if req.input_spec is None and input_spec_path is None and input_spec_content_str is None:
             raise ValueError(
-                "Either 'input_spec' or 'input_spec_path' must be provided "
+                "Either 'input_spec', 'input_spec_content', or 'input_spec_path' must be provided "
                 "(zero hardcoded sample paths)."
             )
 
@@ -76,10 +84,38 @@ class PipelineStateMixin:
                 raise FileNotFoundError(f"Pipeline input spec file not found: '{input_spec_path}'.")
             base_dir = resolved_spec_path.parent
             raw_spec = _load_structured_mapping(resolved_spec_path, "pipeline input spec")
+        elif input_spec_content_str is not None:
+            base_dir = self.repo_root
+            try:
+                loaded_spec = yaml.safe_load(input_spec_content_str)
+            except yaml.YAMLError as exc:
+                raise ValueError(
+                    f"Failed to parse inline input_spec_content YAML/JSON: {exc}"
+                ) from exc
+            if not isinstance(loaded_spec, dict):
+                raise ValueError(
+                    "Expected mapping object in 'input_spec_content', "
+                    f"got {type(loaded_spec).__name__}."
+                )
+            raw_spec = dict(loaded_spec)
+        elif isinstance(req.input_spec, str) and req.input_spec.strip():
+            base_dir = self.repo_root
+            try:
+                loaded_spec = yaml.safe_load(req.input_spec)
+            except yaml.YAMLError as exc:
+                raise ValueError(f"Failed to parse inline input_spec YAML/JSON: {exc}") from exc
+            if not isinstance(loaded_spec, dict):
+                raise ValueError(
+                    f"Expected mapping object in 'input_spec', got {type(loaded_spec).__name__}."
+                )
+            raw_spec = dict(loaded_spec)
         else:
-            assert req.input_spec is not None
+            assert isinstance(req.input_spec, dict)
             base_dir = self.repo_root
             raw_spec = dict(req.input_spec)
+
+        if getattr(req, "graph_a_source", None) is not None and not raw_spec.get("graph_a_source"):
+            raw_spec["graph_a_source"] = dict(req.graph_a_source)  # type: ignore[arg-type]
 
         if initial_contract_path is not None:
             resolved_init_path = resolve_workspace_path(
@@ -109,8 +145,17 @@ class PipelineStateMixin:
             raw_setup = _load_structured_mapping(resolved_cfg_path, "harness config")
         elif req.harness_config is not None:
             raw_setup = dict(req.harness_config)
+        elif hasattr(self, "get_active_harness_setup_dict"):
+            raw_setup = dict(self.get_active_harness_setup_dict())
         else:
             raw_setup = {}
+
+        if (
+            raw_spec.get("ontology_policy") in (None, "off")
+            and raw_setup.get("ontology_policy")
+            and raw_setup.get("ontology_policy") != "off"
+        ):
+            raw_setup["ontology_policy"] = str(raw_setup["ontology_policy"])
 
         if provider_override is not None:
             raw_setup["provider"] = provider_override
@@ -149,9 +194,15 @@ class PipelineStateMixin:
             if req.harness_config_path is not None and req.harness_config_path.strip()
             else None
         )
-        if req.input_spec is None and input_spec_path is None:
+        input_spec_content = getattr(req, "input_spec_content", None)
+        input_spec_content_str = (
+            input_spec_content.strip()
+            if isinstance(input_spec_content, str) and input_spec_content.strip()
+            else None
+        )
+        if req.input_spec is None and input_spec_path is None and input_spec_content_str is None:
             raise ValueError(
-                "Either 'input_spec' or 'input_spec_path' must be provided "
+                "Either 'input_spec', 'input_spec_content', or 'input_spec_path' must be provided "
                 "(zero hardcoded sample paths)."
             )
         if input_spec_path is not None:
@@ -202,11 +253,14 @@ class PipelineStateMixin:
         rep = dict(self.pipeline_reports[run_id])
         run_dto = self.runs.get(run_id)
         if run_dto is not None:
-            status_lit: Literal["COMPLETED", "PAUSED_HOLD", "FAILED"] = (
-                "COMPLETED"
-                if run_dto.status == RunStatus.COMPLETED
-                else ("PAUSED_HOLD" if run_dto.status == RunStatus.PAUSED_HOLD else "FAILED")
-            )
+            if run_dto.status == RunStatus.COMPLETED:
+                status_lit = "COMPLETED"
+            elif run_dto.status == RunStatus.PAUSED_HOLD:
+                status_lit = "PAUSED_HOLD"
+            elif run_dto.status == RunStatus.FAILED:
+                status_lit = "FAILED"
+            else:
+                status_lit = str(rep.get("status") or run_dto.status.value)
             rep["status"] = status_lit
             if run_dto.completed_at_utc:
                 rep["completed_at"] = run_dto.completed_at_utc

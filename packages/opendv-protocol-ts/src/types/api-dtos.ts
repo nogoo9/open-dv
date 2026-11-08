@@ -20,9 +20,13 @@ export type SandboxQueryResponse =
 export type RawExplorerBundleDTO = components["schemas"]["ExplorerBundleDTO"];
 export type RunArtifactDTO = components["schemas"]["RunArtifactDTO"];
 export type PipelineRunHandle = components["schemas"]["PipelineRunHandle"];
-export type PipelineRunRequest = components["schemas"]["PipelineRunRequest"];
 export type PipelineValidateRequest =
-	components["schemas"]["PipelineValidateRequest"];
+	components["schemas"]["PipelineValidateRequest"] & {
+		input_spec_content?: string | null | undefined;
+	};
+export type PipelineRunRequest = components["schemas"]["PipelineRunRequest"] & {
+	input_spec_content?: string | null | undefined;
+};
 export type CreateProjectRequest =
 	components["schemas"]["CreateProjectRequest"];
 export type CreateRunRequest = components["schemas"]["CreateRunRequest"];
@@ -185,4 +189,116 @@ export interface HealthResponseDTO {
 	status: string;
 	version: string;
 	[key: string]: unknown;
+}
+
+export type HarnessProviderId =
+	| "agy"
+	| "agy-cli"
+	| "antigravity"
+	| "claude"
+	| "claude-cli"
+	| "claude-code";
+
+export interface ProviderReadinessDTO {
+	provider: string;
+	execution_mode: "cli" | "sdk";
+	available: boolean;
+	binary_name?: string | null | undefined;
+	binary_found: boolean;
+	sdk_installed: boolean;
+	auth_mode: string;
+	api_key_env_var: string;
+	credentials_present: boolean;
+	default_reasoning_model: string;
+	default_fast_model: string;
+	status_message: string;
+}
+
+export interface HarnessAuthConfigDTO {
+	auth_mode: string;
+	mode?: string | undefined;
+	api_key_env_var?: string | null | undefined;
+	api_base_url?: string | null | undefined;
+	gcp_project?: string | null | undefined;
+	gcp_location?: string | null | undefined;
+	gcp_credentials_path?: string | null | undefined;
+	aws_region?: string | null | undefined;
+	aws_profile?: string | null | undefined;
+	require_credentials_present: boolean;
+	require_preflight?: boolean | undefined;
+}
+
+export interface HarnessBudgetConfigDTO {
+	max_turns: number;
+	max_input_tokens: number;
+	max_output_tokens: number;
+	timeout_seconds: number;
+	max_cost_usd: number;
+}
+
+export interface HarnessSandboxPolicyDTO {
+	read_only_workspace: boolean;
+	allow_shell_execution: boolean;
+	allow_network_access: boolean;
+	allowed_builtin_tools: string[];
+	denied_builtin_tools: string[];
+}
+
+export interface HarnessConfigDTO {
+	provider: HarnessProviderId;
+	model_overrides: Record<string, string>;
+	agent_models: Record<string, string>;
+	auth: HarnessAuthConfigDTO;
+	budget: HarnessBudgetConfigDTO;
+	sandbox: HarnessSandboxPolicyDTO;
+	steward_hold_policy:
+		| "pause"
+		| "auto_approve_top_candidate"
+		| "reject_on_hold";
+	ontology_policy: "off" | "recommend" | "auto_accept";
+	stage_output_policy: "llm_only" | "symbolic_completion";
+	allow_cli_schema_omission_retry: boolean;
+}
+
+export interface PlatformConfigResponse {
+	workspace_root: string;
+	state_dir: string;
+	cas_dir: string;
+	ledgers_dir: string;
+	server_host: string;
+	server_port: number;
+	max_inline_bytes: number;
+	cors_origins: string[];
+	config_file_path?: string | null | undefined;
+	persisted_config_path: string;
+	web_ui_bundled: boolean;
+	harness: HarnessConfigDTO;
+	resolved_persona_models: Record<string, string>;
+	providers: ProviderReadinessDTO[];
+}
+
+export interface PlatformConfigUpdateRequest {
+	harness?: HarnessConfigDTO | Record<string, unknown> | null | undefined;
+	max_inline_bytes?: number | null | undefined;
+	cors_origins?: string[] | null | undefined;
+	persist?: boolean | undefined;
+}
+
+export interface PlatformConfigValidateRequest {
+	harness: HarnessConfigDTO | Record<string, unknown>;
+}
+
+export interface ConfigValidationDiagnosticDTO {
+	code?: string | null | undefined;
+	severity: "ERROR" | "WARNING" | "INFO";
+	target?: string | null | undefined;
+	message: string;
+}
+
+export interface PlatformConfigValidationResponse {
+	passed: boolean;
+	diagnostics: ConfigValidationDiagnosticDTO[];
+	harness?: HarnessConfigDTO | null | undefined;
+	resolved_persona_models: Record<string, string>;
+	providers: ProviderReadinessDTO[];
 }

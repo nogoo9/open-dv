@@ -43,8 +43,8 @@ When autonomous LLM agents design or evolve Data Vault schemas without formal gu
    Orchestrates four specialized agent personas—`vault-first-mate` (read-only supervisor), `scout-source` (relational Bronze statistical profiler & drift detector), `scout-unstructured` (span-grounded NER & 3-Tier entity resolver), and `ship-vault` (3-Pass Chain-of-Thought contract modeller)—across an **8-stage pipeline (`STAGE_00`–`STAGE_07`)**. Supports semantic `reasoning` / `fast` model tiers and optional fine-grained per-agent `agent_models` overrides across four production harness adapters: `agy` (`agy` CLI), `claude-cli` (`claude` CLI), `antigravity` (Google Antigravity SDK), and `claude` (Claude Agent SDK).
 2. **Deterministic Symbolic Verifier & Compiler (`packages/opendv-core` + `packages/opendv-axi-verifier` + `packages/opendv-duckdb-sandbox`)**
    Agents emit **only** a declarative YAML/JSON contract ([`schemas/no-mistake-dv2-contract-v5.schema.json`](schemas/no-mistake-dv2-contract-v5.schema.json)). The symbolic **6-Gate `axi-dv` verifier** enforces **6 fundamental stability invariants (`INV-01..06`)**, **8 schema-evolution rules (`EVO-01..08`)**, **15 anti-pattern guards (`AP-01..15`)**, length-prefixed SHA-256 hashing (`Algorithm A.5`), `sqlglot` AST verification (`Algorithm A.6`), `networkx` bipartite DAG checks (`DV-STR-*` / `DV-COL-*`), and a **Gate 4 YAGNI write-amplification cost guard** ($W_{\text{amp}} \ge 50\text{ MB/day}$). Verified contracts are lowered into Canonical IR ([`schemas/dv2-canonical-ir.schema.json`](schemas/dv2-canonical-ir.schema.json)), compiled into **4-Zone DuckDB SQL**, and tested against **4 Adversarial Shadow Sandbox Batches** (`DV-DYN-001..015`) in an in-memory DuckDB instance, feeding compact `@toon_v1` error traces back to `ship-vault` for closed-loop self-healing.
-3. **Steward Governance & Explorer Web Workbench (`apps/opendv-platform-api` + `apps/opendv-web-workbench`)**
-   Provides a headless FastAPI REST + Server-Sent Events (SSE) backend with 5-Tier RBAC PII/MNPI redaction, Content-Addressable Store (CAS) artifact provenance, Steward Captain-Hold resolution (`Rule U1..U4` / `Tier-U3`), and an interactive **3-Level Explainability & Observability Explorer Web Workbench** featuring topology canvases, column lineage, hash-pill inspection, and live SSE telemetry.
+3. **Unified Single-App Platform Server, Steward Governance & Explorer Web Workbench (`apps/opendv-platform-api` + `apps/opendv-web-workbench`)**
+   Serves both the `/api/v1/*` FastAPI REST + Server-Sent Events (SSE) backend and the compiled **3-Level Explainability & Observability Explorer Web Workbench** on a single port (`http://127.0.0.1:8420`). Includes 5-Tier RBAC PII/MNPI redaction, Content-Addressable Store (CAS) artifact provenance, Steward Captain-Hold resolution (`Rule U1..U4` / `Tier-U3`), an **Interactive Pipeline Builder (`/builder`)** with a two-step Stage/Validate -> explicit `▶ Run Pipeline` execution flow, live run progress indicators (`PipelineRunProgressBar` across stages `00`–`07`), and a **Full-Page Settings View (`/settings`)** paired with `opendv config` / `opendvctl config`. (See [`docs/12-unified-platform-web-and-cli-setup.md`](docs/12-unified-platform-web-and-cli-setup.md).)
 
 ### Architecture Flow at a Glance
 
@@ -225,23 +225,25 @@ uv run opendv sandbox \
 
 ---
 
-### Step 5: Launch the Platform API & 3-Level Explorer Web Workbench
+### Step 5: Launch the Unified Platform Server & 3-Level Explorer Web Workbench (`:8420`)
 
-Start the headless FastAPI backend (`:8420`) and the React 19 + Bun 3-Level Explainability & Observability Explorer Web Workbench (`:5173`):
+`opendv-platform-api` serves both the `/api/v1/*` REST + SSE backend and the compiled static React 19 **3-Level Explainability & Observability Explorer Web Workbench** (`/`, `/builder`, `/settings`, `/stages/00..07`) as a single unified application on `http://127.0.0.1:8420`:
 
 ```bash
-# Terminal 1: Start the Headless Platform REST + SSE API Server on http://127.0.0.1:8420
-uv run --package opendv-platform-api uvicorn opendv_platform_api.main:app --reload --port 8420
-# (Or with moonrepo: moon run opendv-platform-api:dev)
+# 1. Build the static Web Explorer bundle into apps/opendv-web-workbench/dist/
+bun run --cwd apps/opendv-web-workbench build
 
-# Terminal 2: Start the Explorer Web Workbench on http://127.0.0.1:5173
-bun run --cwd apps/opendv-web-workbench dev
-# (Or with moonrepo: moon run opendv-web-workbench:dev)
+# 2. Launch the unified single-app Platform & Web Explorer Server on http://127.0.0.1:8420
+uv run opendv serve --host 127.0.0.1 --port 8420 --open
+# (Or via entrypoint: uv run opendv-platform --host 127.0.0.1 --port 8420)
 ```
 
-- **Explorer Web UI:** [http://127.0.0.1:5173](http://127.0.0.1:5173) (automatically proxies `/api/*` to `http://127.0.0.1:8420`)
-- **OpenAPI Swagger UI:** [http://127.0.0.1:8420/docs](http://127.0.0.1:8420/docs)
-- **Health Check:** [http://127.0.0.1:8420/api/v1/health](http://127.0.0.1:8420/api/v1/health)
+- **Unified Web Explorer UI (`/`):** [http://127.0.0.1:8420](http://127.0.0.1:8420) — 3-Level Explainability & Observability Explorer with live `PipelineRunProgressBar` (`00`–`07` stage stepper) and per-stage `RUNNING` / `COMPLETED` / `HOLD` / `QUEUED` badges.
+- **Interactive Pipeline Builder (`/builder`):** [http://127.0.0.1:8420/builder](http://127.0.0.1:8420/builder) — Visual multi-wave pipeline composer + YAML upload with deterministic pre-flight staging (`Validate & Stage`) and a mandatory separate click on **`▶ Run Pipeline`** to initiate execution.
+- **Full-Page Settings View (`/settings`):** [http://127.0.0.1:8420/settings](http://127.0.0.1:8420/settings) — Configure Agent Harness provider (`agy`, `agy-cli`, `antigravity`, `claude`, `claude-cli`, `claude-code`), `reasoning`/`fast` & per-persona model routing, auth env vars, budgets, sandbox policies, and Steward Hold / Ontology policies, or manage them via CLI (`opendvctl config show|set|validate` / `uv run opendv config show|set|validate`).
+- **OpenAPI Swagger UI & Health Check:** [http://127.0.0.1:8420/docs](http://127.0.0.1:8420/docs) | [http://127.0.0.1:8420/api/v1/health](http://127.0.0.1:8420/api/v1/health)
+
+See **[`docs/12-unified-platform-web-and-cli-setup.md`](docs/12-unified-platform-web-and-cli-setup.md)** for the complete unified setup and Web/CLI workflow guide. *(For frontend hot-reload development, you can still run `bun run --cwd apps/opendv-web-workbench dev` on `:5173`.)*
 
 ---
 
@@ -251,9 +253,9 @@ bun run --cwd apps/opendv-web-workbench dev
 
 `open-dv` provides two contract-identical CLIs generated from [`packages/opendv-contracts/schemas/cli-spec.json`](packages/opendv-contracts/schemas/cli-spec.json):
 - **`opendv` (`apps/opendv-cli`)**: Standalone in-process Python CLI executing directly against the shared core in `opendv_service` (zero HTTP server required; air-gapped, local CI/CD).
-- **`opendvctl` (`apps/opendvctl`)**: Bun-compiled standalone binary platform client connecting over HTTP/SSE to `opendv-platform-api` via `--api-url <url>` (default `http://localhost:8000`).
+- **`opendvctl` (`apps/opendvctl`)**: Bun-compiled standalone binary platform client connecting over HTTP/SSE to `opendv-platform-api` via `--api-url <url>` (default `http://127.0.0.1:8420`).
 
-Both CLIs share identical subcommands, options, exit codes, and RFC 8785 canonical JSON outputs:
+Both CLIs share identical subcommands, options, exit codes, and RFC 8785 canonical JSON outputs for all verification, compilation, pipeline, and configuration operations (`opendv serve` is standalone-only on `opendv` since it launches the server):
 
 | Command | Purpose & Key Flags |
 | :--- | :--- |
@@ -267,6 +269,8 @@ Both CLIs share identical subcommands, options, exit codes, and RFC 8785 canonic
 | `opendv run [list\|get\|create\|abort\|events]` | Manages verification runs and streams real-time W3C Server-Sent Events (`events --last-event-id <id>`). |
 | `opendv hold [list\|approve\|reject\|answer\|resolve]` | Lists or resolves Steward Captain-Holds (`Tier-U3` ambiguous entity resolution or `Gate 3/4` holds) via `--hold-id`, `--candidate`, and `--notes`. |
 | `opendv ontology [suggest\|validate-delta\|diff\|accept]` | Recommends ontology concepts from sources or deltas, validates proposals, diffs candidate models, and applies decision-gated mutations to Graph A. |
+| `opendv config [show\|set\|validate]` / `opendvctl config [show\|set\|validate]` | Inspects, updates (`--provider`, `--reasoning-model`, `--fast-model`, `--auth-mode`, `--hold-policy`, `--ontology-policy`, `--harness-config`), and pre-flight validates platform & agent harness settings and provider readiness. |
+| `opendv serve` *(standalone-only)* | Launches the unified Open-DV Platform Server (`:8420`) serving both `/api/v1/*` REST/SSE and the embedded static Web Explorer UI (`--host`, `--port`, `--config`, `--workspace`, `--open`). |
 
 ### Monorepo Directory Layout
 
@@ -325,6 +329,7 @@ open-dv/
 | **08 — Platform MVP Monorepo & Headless API Spec** | [`docs/08-platform-mvp-monorepo-and-api-spec.md`](docs/08-platform-mvp-monorepo-and-api-spec.md) | Read when modifying the polyglot monorepo (`proto` + `moon` + `uv` + `bun`), 5-Tier RBAC redaction, Content-Addressable Store (CAS), or `/api/v1/*` REST + SSE endpoints. |
 | **09 — Agnostic Agent Harness & Dual-SDK Adapter Spec** | [`docs/09-agnostic-agent-harness-and-sdk-spec.md`](docs/09-agnostic-agent-harness-and-sdk-spec.md) | Read when extending `VaultAgentHarness`, `ModelTier` / `agent_models` routing, domain tools, or the `agy`, `claude-cli`, `antigravity`, and `claude` adapters. |
 | **11 — Master Agent Worker Implementation & Dispatch Plan** | [`docs/11-agent-worker-implementation-plan.md`](docs/11-agent-worker-implementation-plan.md) | Read for the dependency-ordered Work Breakdown Structure (`WP-01`–`WP-12`), package ownership boundaries, and verification commands. |
+| **12 — Unified Platform Server, Static Web Explorer & CLI Configuration Guide** | [`docs/12-unified-platform-web-and-cli-setup.md`](docs/12-unified-platform-web-and-cli-setup.md) | **Read for unified `:8420` single-app deployment, Web Explorer & CLI configuration:** Building & serving the static Web Explorer on `:8420` (`opendv serve`), Interactive Pipeline Builder (`/builder`) + two-step execution flow, live run progress indicators, full-page Settings view (`/settings`), and `opendvctl config` / `opendv config`. |
 | **12 — Agentic Pipeline Inputs, Harness Config & Auth Reference** | [`docs/12-agentic-pipeline-inputs-and-harness-guide.md`](docs/12-agentic-pipeline-inputs-and-harness-guide.md) | **Read when configuring `harness_config.yaml` or `pipeline_input.yaml`**, setting up API keys / Vertex ADC / AWS Bedrock / CLI sessions, or running incremental `--initial-contract` waves. |
 | **13 — Real Agentic Pipeline Remediation Specification** | [`docs/13-real-agentic-pipeline-remediation-spec.md`](docs/13-real-agentic-pipeline-remediation-spec.md) | Read for the engineering specification of discovery-first agentic execution, real neuro-symbolic domain tool wiring, fail-closed harness adapters, and dynamic 4-Batch DuckDB sandbox verification. |
 | **14 — End-to-End Consistency Review, Scenarios Audit & Invariant Analysis** | [`docs/14-end-to-end-consistency-and-scenarios-audit.md`](docs/14-end-to-end-consistency-and-scenarios-audit.md) | Read for comprehensive 10-scenario audit, unmatched field ontology routing matrix, actual vs expected codebase behaviors, and bug remediation tracking. |

@@ -1661,6 +1661,305 @@
           ]
         }
       ]
+    },
+    {
+      "name": "config",
+      "description": "Inspect, update, and validate Open-DV platform and agnostic agent harness configuration",
+      "help": "Manage platform and agent harness configuration",
+      "aliases": [],
+      "availability": "both",
+      "subcommands": [
+        {
+          "name": "show",
+          "description": "Display active platform settings, default agent harness configuration, resolved persona models, and provider readiness",
+          "help": "Show active platform and agent harness configuration",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": null,
+          "response_dto": "PlatformConfigResponse",
+          "options": []
+        },
+        {
+          "name": "set",
+          "description": "Update and persist platform default agent harness provider, model routing, budgets, and governance policies",
+          "help": "Update platform and agent harness configuration",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "PlatformConfigUpdateRequest",
+          "response_dto": "PlatformConfigResponse",
+          "options": [
+            {
+              "name": "provider",
+              "flag": "--provider",
+              "short": "-p",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": [
+                "agy",
+                "agy-cli",
+                "antigravity",
+                "claude",
+                "claude-cli",
+                "claude-code"
+              ],
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Default agent harness provider"
+            },
+            {
+              "name": "reasoning_model",
+              "flag": "--reasoning-model",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Model override for HIGH_REASONING tier ('reasoning')"
+            },
+            {
+              "name": "fast_model",
+              "flag": "--fast-model",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Model override for FAST_TIER ('fast')"
+            },
+            {
+              "name": "auth_mode",
+              "flag": "--auth-mode",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": [
+                "none",
+                "cli_session",
+                "api_key",
+                "vertex_adc",
+                "aws_bedrock"
+              ],
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Authentication mode for the harness provider"
+            },
+            {
+              "name": "api_key_env_var",
+              "flag": "--api-key-env-var",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Environment variable name storing the provider API key"
+            },
+            {
+              "name": "hold_policy",
+              "flag": "--hold-policy",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": [
+                "pause",
+                "auto_approve_top_candidate",
+                "reject_on_hold"
+              ],
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Default Steward Hold policy"
+            },
+            {
+              "name": "ontology_policy",
+              "flag": "--ontology-policy",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": [
+                "off",
+                "recommend",
+                "auto_accept"
+              ],
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Default ontology evolution policy (off, recommend, auto_accept)"
+            },
+            {
+              "name": "stage_output_policy",
+              "flag": "--stage-output-policy",
+              "short": null,
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": [
+                "llm_only",
+                "symbolic_completion"
+              ],
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Default stage output synthesis policy"
+            },
+            {
+              "name": "max_turns",
+              "flag": "--max-turns",
+              "short": null,
+              "type": "integer",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Maximum agent turns per task"
+            },
+            {
+              "name": "timeout_seconds",
+              "flag": "--timeout-seconds",
+              "short": null,
+              "type": "integer",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Task execution timeout in seconds"
+            },
+            {
+              "name": "harness_config",
+              "flag": "--harness-config",
+              "short": "-c",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Optional path to a full harness_config.yaml file to import"
+            }
+          ]
+        },
+        {
+          "name": "validate",
+          "description": "Deterministically validate platform and agent harness configuration and probe provider readiness",
+          "help": "Validate platform and agent harness configuration",
+          "aliases": [],
+          "availability": "both",
+          "request_dto": "PlatformConfigValidateRequest",
+          "response_dto": "PlatformConfigValidationResponse",
+          "options": [
+            {
+              "name": "provider",
+              "flag": "--provider",
+              "short": "-p",
+              "type": "string",
+              "required": false,
+              "default": null,
+              "choices": [
+                "agy",
+                "agy-cli",
+                "antigravity",
+                "claude",
+                "claude-cli",
+                "claude-code"
+              ],
+              "env_var": null,
+              "inline_upload": false,
+              "help": "Candidate harness provider to validate"
+            },
+            {
+              "name": "harness_config",
+              "flag": "--harness-config",
+              "short": "-c",
+              "type": "path",
+              "required": false,
+              "default": null,
+              "choices": null,
+              "env_var": null,
+              "inline_upload": true,
+              "help": "Optional path to a candidate harness_config.yaml file to validate"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "serve",
+      "description": "Launch the unified Open-DV Platform Server serving both the REST/SSE API and the embedded static Web Explorer UI",
+      "help": "Start the unified Open-DV Platform & Web Explorer server",
+      "aliases": [],
+      "availability": "standalone_only",
+      "request_dto": null,
+      "response_dto": null,
+      "options": [
+        {
+          "name": "host",
+          "flag": "--host",
+          "short": null,
+          "type": "string",
+          "required": false,
+          "default": "127.0.0.1",
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Bind host address for the platform server"
+        },
+        {
+          "name": "port",
+          "flag": "--port",
+          "short": "-p",
+          "type": "integer",
+          "required": false,
+          "default": 8420,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Bind port for the platform server and Web Explorer UI"
+        },
+        {
+          "name": "config",
+          "flag": "--config",
+          "short": "-c",
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": "OPENDV_CONFIG",
+          "inline_upload": false,
+          "help": "Path to opendv.config.yaml configuration file"
+        },
+        {
+          "name": "workspace",
+          "flag": "--workspace",
+          "short": "-w",
+          "type": "path",
+          "required": false,
+          "default": null,
+          "choices": null,
+          "env_var": "OPENDV_WORKSPACE_ROOT",
+          "inline_upload": false,
+          "help": "Workspace root directory for path containment and state storage"
+        },
+        {
+          "name": "open_browser",
+          "flag": "--open",
+          "short": null,
+          "type": "boolean",
+          "required": false,
+          "default": false,
+          "choices": null,
+          "env_var": null,
+          "inline_upload": false,
+          "help": "Automatically open the Web Explorer UI in the default browser on startup"
+        }
+      ]
     }
   ],
   "error_map": [

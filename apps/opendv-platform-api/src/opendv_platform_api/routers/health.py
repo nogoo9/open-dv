@@ -9,6 +9,33 @@ from fastapi import APIRouter, Depends
 from opendv_platform_api.deps import get_opendv_service
 from opendv_service import OpenDVService
 
+WORKBENCH_CSP = (
+    "default-src 'self'; "
+    "script-src 'self' 'unsafe-inline'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data: blob:; "
+    "font-src 'self' data:; "
+    "connect-src 'self'; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'"
+)
+
+WORKBENCH_INDEX_HTML = """<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Open-DV Platform Workbench</title>
+  </head>
+  <body>
+    <div id="root" data-opendv-shell="fallback">
+      <h1>Open-DV Platform Workbench</h1>
+      <p>Unified Data Vault 2.0 Explorer, Pipeline Builder &amp; Harness Settings</p>
+    </div>
+  </body>
+</html>
+"""
+
 router = APIRouter(tags=["health"])
 
 

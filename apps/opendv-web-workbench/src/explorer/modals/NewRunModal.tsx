@@ -15,7 +15,8 @@ import type {
 	PipelineRunRequest,
 	PipelineValidateRequest,
 } from "@opendv/protocol-ts";
-import { type ChangeEvent } from "react";
+import type { ChangeEvent } from "react";
+import type { StagedPipelineSpec } from "../builder/specBuilderUtils";
 import { EXPLORER_COLORS, EXPLORER_FONTS } from "../design-tokens";
 import {
 	NewRunFormFields,
@@ -30,13 +31,15 @@ import {
 import { safeUseEffect, safeUseState } from "./safeHooks";
 import { executeSubmitRun, executeValidate } from "./useNewRunActions";
 
-export type { StewardHoldPolicyOption };
+export type { StewardHoldPolicyOption, StagedPipelineSpec };
 export type { PipelineValidationReport, ValidationDiagnostic };
 
 export interface NewRunModalProps {
 	isOpen: boolean;
 	onClose: () => void;
 	onRunStarted?: ((handle: PipelineRunHandle) => void) | undefined;
+	onOpenBuilderView?: (() => void) | undefined;
+	stagedSpec?: StagedPipelineSpec | null | undefined;
 	fetchImpl?: typeof fetch | undefined;
 	apiUrl?: string | undefined;
 	defaultSpecPath?: string | undefined;
@@ -58,6 +61,8 @@ export function NewRunModal({
 	isOpen,
 	onClose,
 	onRunStarted,
+	onOpenBuilderView,
+	stagedSpec,
 	fetchImpl,
 	apiUrl,
 	defaultSpecPath = "",
@@ -70,29 +75,36 @@ export function NewRunModal({
 	createRunFn,
 	validatePipelineFn,
 }: NewRunModalProps) {
-	const [specPath, setSpecPath] = safeUseState(defaultSpecPath);
+	const [specPath, setSpecPath] = safeUseState(
+		stagedSpec?.inputSpecPath ?? defaultSpecPath,
+	);
 	const [specFileName, setSpecFileName] = safeUseState<string | undefined>(
-		undefined,
+		stagedSpec?.fileName,
 	);
 	const [specFileContent, setSpecFileContent] = safeUseState<
 		string | undefined
-	>(undefined);
+	>(stagedSpec?.inputSpecContent);
 
-	const [contractPath, setContractPath] = safeUseState(defaultContractPath);
+	const [contractPath, setContractPath] = safeUseState(
+		stagedSpec?.initialContractPath ?? defaultContractPath,
+	);
 	const [contractFileName, setContractFileName] = safeUseState<
 		string | undefined
 	>(undefined);
 	const [contractFileContent, setContractFileContent] = safeUseState<
 		string | undefined
-	>(undefined);
+	>(stagedSpec?.initialContractContent);
 
-	const [waveId, setWaveId] = safeUseState(defaultWaveId);
-	const [holdPolicy, setHoldPolicy] =
-		safeUseState<StewardHoldPolicyOption>(defaultHoldPolicy);
+	const [waveId, setWaveId] = safeUseState(stagedSpec?.waveId ?? defaultWaveId);
+	const [holdPolicy, setHoldPolicy] = safeUseState<StewardHoldPolicyOption>(
+		stagedSpec?.stewardHoldPolicy ?? defaultHoldPolicy,
+	);
 
 	const [isValidating, setIsValidating] = safeUseState(false);
 	const [validationReport, setValidationReport] =
-		safeUseState<PipelineValidationReport | null>(initialValidationReport ?? null);
+		safeUseState<PipelineValidationReport | null>(
+			initialValidationReport ?? null,
+		);
 
 	const [isSubmitting, setIsSubmitting] = safeUseState(false);
 	const [createdHandle, setCreatedHandle] =
@@ -162,6 +174,7 @@ export function NewRunModal({
 				specPath,
 				specFileName,
 				specFileContent,
+				inputSpec: stagedSpec?.inputSpec,
 				contractPath,
 				contractFileContent,
 				waveId,
@@ -194,6 +207,8 @@ export function NewRunModal({
 		try {
 			const handle = await executeSubmitRun({
 				specPath,
+				specFileContent,
+				inputSpec: stagedSpec?.inputSpec,
 				contractPath,
 				contractFileContent,
 				waveId,
@@ -218,9 +233,6 @@ export function NewRunModal({
 			aria-labelledby="new-run-modal-title"
 			data-testid="new-run-modal"
 			onClick={onClose}
-			onKeyDown={(e) => {
-				if (e.key === "Escape") onClose();
-			}}
 			style={{
 				position: "fixed",
 				inset: 0,
@@ -297,7 +309,8 @@ export function NewRunModal({
 				</header>
 
 				{/* Modal Form Body */}
-				<div
+				<form
+					onSubmit={(e) => e.preventDefault()}
 					style={{
 						padding: "20px",
 						display: "flex",
@@ -305,6 +318,25 @@ export function NewRunModal({
 						gap: "16px",
 					}}
 				>
+					{stagedSpec && (
+						<div
+							data-testid="modal-staged-spec-banner"
+							style={{
+								padding: "8px 12px",
+								borderRadius: "6px",
+								backgroundColor: "#F0FDF4",
+								border: "1px solid #BBF7D0",
+								fontSize: "12px",
+								color: "#166534",
+								display: "flex",
+								justifyContent: "space-between",
+								alignItems: "center",
+							}}
+						>
+							<span>✓ Staged specification ready ({stagedSpec.mode} mode)</span>
+						</div>
+					)}
+
 					<NewRunFormFields
 						specPath={specPath}
 						onSpecPathChange={setSpecPath}
@@ -338,7 +370,7 @@ export function NewRunModal({
 						createdHandle={createdHandle}
 						submitError={submitError}
 					/>
-				</div>
+				</form>
 
 				{/* Modal Footer */}
 				<footer
@@ -346,44 +378,67 @@ export function NewRunModal({
 						padding: "14px 20px",
 						borderTop: `1px solid ${EXPLORER_COLORS.borderLine}`,
 						display: "flex",
-						justifyContent: "flex-end",
+						justifyContent: "space-between",
+						alignItems: "center",
 						gap: "10px",
 					}}
 				>
 					<button
 						type="button"
-						data-testid="btn-cancel-modal"
-						onClick={onClose}
+						data-testid="btn-modal-open-builder"
+						onClick={() => {
+							onClose();
+							onOpenBuilderView?.();
+						}}
 						style={{
 							padding: "6px 12px",
-							fontSize: "12.5px",
+							fontSize: "12px",
+							fontWeight: 500,
 							border: `1px solid ${EXPLORER_COLORS.borderLine}`,
 							borderRadius: "4px",
-							background: EXPLORER_COLORS.bgSurface,
-							color: EXPLORER_COLORS.inkMuted,
+							background: EXPLORER_COLORS.bgSubtle,
+							color: EXPLORER_COLORS.inkPrimary,
 							cursor: "pointer",
 						}}
 					>
-						Cancel
+						Interactive Builder
 					</button>
-					<button
-						type="button"
-						data-testid="btn-submit-run"
-						onClick={handleSubmitRun}
-						disabled={isSubmitting}
-						style={{
-							padding: "6px 14px",
-							fontSize: "12.5px",
-							fontWeight: 500,
-							border: "none",
-							borderRadius: "4px",
-							background: EXPLORER_COLORS.inkPrimary,
-							color: "#FFFFFF",
-							cursor: isSubmitting ? "wait" : "pointer",
-						}}
-					>
-						{isSubmitting ? "Starting Run..." : "Run Pipeline"}
-					</button>
+					<div style={{ display: "flex", gap: "10px" }}>
+						<button
+							type="button"
+							data-testid="btn-cancel-modal"
+							onClick={onClose}
+							style={{
+								padding: "6px 12px",
+								fontSize: "12.5px",
+								border: `1px solid ${EXPLORER_COLORS.borderLine}`,
+								borderRadius: "4px",
+								background: EXPLORER_COLORS.bgSurface,
+								color: EXPLORER_COLORS.inkMuted,
+								cursor: "pointer",
+							}}
+						>
+							Cancel
+						</button>
+						<button
+							type="button"
+							data-testid="btn-submit-run"
+							onClick={handleSubmitRun}
+							disabled={isSubmitting}
+							style={{
+								padding: "6px 14px",
+								fontSize: "12.5px",
+								fontWeight: 500,
+								border: "none",
+								borderRadius: "4px",
+								background: EXPLORER_COLORS.inkPrimary,
+								color: "#FFFFFF",
+								cursor: isSubmitting ? "wait" : "pointer",
+							}}
+						>
+							{isSubmitting ? "Starting Run..." : "Run Pipeline"}
+						</button>
+					</div>
 				</footer>
 			</div>
 		</div>

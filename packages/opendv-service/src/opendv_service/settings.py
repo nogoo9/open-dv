@@ -12,6 +12,15 @@ from pydantic import BaseModel, Field
 
 from opendv_contracts.errors import DEFAULT_MAX_INLINE_BYTES
 
+DEFAULT_SERVER_HOST = "127.0.0.1"
+DEFAULT_SERVER_PORT = 8420
+DEFAULT_CORS_ORIGINS: list[str] = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:8420",
+    "http://127.0.0.1:8420",
+]
+
 
 class ConfigurationError(ValueError):
     """Raised when required configuration is missing or invalid."""

@@ -91,6 +91,18 @@ from opendv_contracts.dtos.pipeline import (
     PipelineRunRequest,
     PipelineValidateRequest,
 )
+from opendv_contracts.dtos.platform_config import (
+    ConfigValidationDiagnosticDTO,
+    HarnessAuthConfigDTO,
+    HarnessBudgetConfigDTO,
+    HarnessConfigDTO,
+    HarnessSandboxPolicyDTO,
+    PlatformConfigResponse,
+    PlatformConfigUpdateRequest,
+    PlatformConfigValidateRequest,
+    PlatformConfigValidationResponse,
+    ProviderReadinessDTO,
+)
 from opendv_contracts.dtos.profile import ProfileRequest, ProfileResponse
 from opendv_contracts.dtos.project import CreateProjectRequest, ProjectResponse
 from opendv_contracts.dtos.runs import CreateRunRequest, ProjectRunDTO
@@ -207,4 +219,9 @@ __all__ = [  # noqa: RUF022
     "StageDTO",
     "StepDTO",
     "WaveMetadataSpecDTO",
+    # Platform & Agent Harness Config DTOs
+    "ConfigValidationDiagnosticDTO", "HarnessAuthConfigDTO", "HarnessBudgetConfigDTO",
+    "HarnessConfigDTO", "HarnessSandboxPolicyDTO", "PlatformConfigResponse",
+    "PlatformConfigUpdateRequest", "PlatformConfigValidateRequest",
+    "PlatformConfigValidationResponse", "ProviderReadinessDTO",
 ]

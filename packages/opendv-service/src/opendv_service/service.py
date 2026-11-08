@@ -22,6 +22,10 @@ from opendv_contracts import (
     OntologyValidationResult,
     PipelineEvent,
     PipelineRunHandle,
+    PlatformConfigResponse,
+    PlatformConfigUpdateRequest,
+    PlatformConfigValidateRequest,
+    PlatformConfigValidationResponse,
     ProfileRequest,
     ProfileResponse,
     RunArtifactDTO,
@@ -71,6 +75,11 @@ from opendv_service.use_cases.pipeline import (
     execute_pipeline_run_sync,
     stream_events,
     validate_pipeline,
+)
+from opendv_service.use_cases.platform_config import (
+    execute_get_platform_config,
+    execute_update_platform_config,
+    execute_validate_platform_config,
 )
 from opendv_service.use_cases.profile import profile_pipeline
 from opendv_service.use_cases.runs import (
@@ -149,6 +158,8 @@ class OpenDVService:
             "run",
             "hold",
             "ontology",
+            "config",
+            "serve",
         ]
 
     # 1. Profiling
@@ -647,6 +658,25 @@ class OpenDVService:
             "verification_gates": gates,
             "gates": gates,
         }
+
+    # 15. Platform & Agent Harness Configuration
+    def get_platform_config(self) -> PlatformConfigResponse:
+        """Retrieve active Platform & Agent Harness configuration and provider readiness."""
+        return execute_get_platform_config(self.state)
+
+    def update_platform_config(
+        self,
+        request: PlatformConfigUpdateRequest | dict[str, Any],
+    ) -> PlatformConfigResponse:
+        """Update and optionally persist Platform & Agent Harness configuration."""
+        return execute_update_platform_config(self.state, request)
+
+    def validate_platform_config(
+        self,
+        request: PlatformConfigValidateRequest | dict[str, Any],
+    ) -> PlatformConfigValidationResponse:
+        """Deterministically validate candidate Platform & Agent Harness configuration."""
+        return execute_validate_platform_config(self.state, request)
 
     # 16. 3-Level Explorer Bundle & Run-Isolated Artifacts (GAP-05, T6)
     def get_explorer_bundle(

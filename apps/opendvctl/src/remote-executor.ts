@@ -11,6 +11,7 @@
 
 import { OpenDVPlatformClient } from "@opendv/protocol-ts";
 import { CliDomainError, errorHandler } from "./error-handler";
+import { executeConfigCommand, parseHttpErrorResponse } from "./http-executor";
 import { processInlineUploads } from "./inline-uploader";
 import { type CliCommand, type CliOption, loadCliSpec } from "./spec";
 import { followEventStream } from "./sse-follower";
@@ -99,39 +100,7 @@ export class RemoteExecutor {
 	}
 
 	private async parseErrorResponse(res: Response): Promise<CliDomainError> {
-		let code = "INVALID_REQUEST";
-		let msg = `HTTP ${res.status}`;
-		try {
-			const text = await res.text();
-			if (text) {
-				try {
-					const errBody = JSON.parse(text) as Record<string, unknown>;
-					if (typeof errBody.error_code === "string") {
-						code = errBody.error_code;
-					} else if (typeof errBody.type === "string") {
-						const spec = loadCliSpec();
-						const match = spec.error_map.find(
-							(e) => e.problem_type_uri === errBody.type,
-						);
-						if (match) {
-							code = match.error_code;
-						}
-					}
-					if (typeof errBody.detail === "string") {
-						msg = errBody.detail;
-					} else if (typeof errBody.message === "string") {
-						msg = errBody.message;
-					} else if (typeof errBody.title === "string") {
-						msg = errBody.title;
-					}
-				} catch {
-					msg = text;
-				}
-			}
-		} catch {
-			// Body reading failed
-		}
-		return new CliDomainError(code, msg, res.status);
+		return parseHttpErrorResponse(res);
 	}
 
 	private async postJson(endpoint: string, payload: unknown): Promise<unknown> {
@@ -311,7 +280,9 @@ export class RemoteExecutor {
 							body.input_spec = enrichedOptions.input_spec_content;
 						} else if (typeof enrichedOptions.input_spec_content === "string") {
 							try {
-								body.input_spec = JSON.parse(enrichedOptions.input_spec_content);
+								body.input_spec = JSON.parse(
+									enrichedOptions.input_spec_content,
+								);
 							} catch {
 								// Non-JSON input spec (e.g. YAML) resolved via input_spec_path
 							}
@@ -338,7 +309,9 @@ export class RemoteExecutor {
 							body.input_spec = enrichedOptions.input_spec_content;
 						} else if (typeof enrichedOptions.input_spec_content === "string") {
 							try {
-								body.input_spec = JSON.parse(enrichedOptions.input_spec_content);
+								body.input_spec = JSON.parse(
+									enrichedOptions.input_spec_content,
+								);
 							} catch {
 								// Non-JSON input spec (e.g. YAML) resolved via input_spec_path
 							}
@@ -659,6 +632,16 @@ export class RemoteExecutor {
 				}
 				break;
 			}
+			case "config": {
+				const [cfgExitCode, cfgData] = await executeConfigCommand(
+					this.baseUrl,
+					subcommand,
+					enrichedOptions,
+					this.getHeaders(),
+					this.fetchImpl,
+				);
+				return { exitCode: cfgExitCode, payload: cfgData };
+			}
 			default:
 				throw new CliDomainError(
 					"INVALID_REQUEST",
@@ -667,7 +650,15 @@ export class RemoteExecutor {
 				);
 		}
 
-		const exitCode = errorHandler.resolvePayloadExitCode(payload);
+		let exitCode = errorHandler.resolvePayloadExitCode(payload);
+		if (
+			exitCode === 0 &&
+			typeof payload === "object" &&
+			payload !== null &&
+			(payload as Record<string, unknown>).passed === false
+		) {
+			exitCode = 1;
+		}
 		return { exitCode, payload };
 	}
 }

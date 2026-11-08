@@ -1438,6 +1438,57 @@
         "title": "CompileResponse",
         "type": "object"
       },
+      "ConfigValidationDiagnosticDTO": {
+        "additionalProperties": false,
+        "description": "Structured diagnostic item emitted during platform/harness configuration validation.",
+        "properties": {
+          "code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Diagnostic code",
+            "title": "Code"
+          },
+          "message": {
+            "description": "Human-readable diagnostic message",
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "default": "ERROR",
+            "description": "Diagnostic severity",
+            "enum": [
+              "ERROR",
+              "WARNING",
+              "INFO"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "target": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Target configuration field path",
+            "title": "Target"
+          }
+        },
+        "required": [
+          "message"
+        ],
+        "title": "ConfigValidationDiagnosticDTO",
+        "type": "object"
+      },
       "CreateProjectRequest": {
         "additionalProperties": false,
         "description": "Request payload to register a Data Vault 2.0 project (docs/08 \u00a75.2).",
@@ -2402,6 +2453,307 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HarnessAuthConfigDTO": {
+        "additionalProperties": false,
+        "description": "Declarative authentication and cloud provider routing configuration.",
+        "properties": {
+          "api_base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Custom API base URL override",
+            "title": "Api Base Url"
+          },
+          "api_key_env_var": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Environment variable name holding the API key (never the raw secret)",
+            "title": "Api Key Env Var"
+          },
+          "auth_mode": {
+            "default": "none",
+            "description": "Authentication mode (none, cli_session, api_key, vertex_adc, aws_bedrock)",
+            "title": "Auth Mode",
+            "type": "string"
+          },
+          "aws_profile": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "AWS CLI profile name",
+            "title": "Aws Profile"
+          },
+          "aws_region": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "AWS Bedrock region",
+            "title": "Aws Region"
+          },
+          "gcp_credentials_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional path to GCP ADC credentials JSON",
+            "title": "Gcp Credentials Path"
+          },
+          "gcp_location": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Google Cloud / Vertex AI region",
+            "title": "Gcp Location"
+          },
+          "gcp_project": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Google Cloud / Vertex AI project ID",
+            "title": "Gcp Project"
+          },
+          "mode": {
+            "default": "none",
+            "description": "Alias for auth_mode",
+            "title": "Mode",
+            "type": "string"
+          },
+          "require_credentials_present": {
+            "default": false,
+            "description": "Require pre-flight credential verification",
+            "title": "Require Credentials Present",
+            "type": "boolean"
+          },
+          "require_preflight": {
+            "default": false,
+            "description": "Alias for require_credentials_present",
+            "title": "Require Preflight",
+            "type": "boolean"
+          }
+        },
+        "title": "HarnessAuthConfigDTO",
+        "type": "object"
+      },
+      "HarnessBudgetConfigDTO": {
+        "additionalProperties": false,
+        "description": "Token, turn, timeout, and cost ceiling configuration for agent tasks.",
+        "properties": {
+          "max_cost_usd": {
+            "default": 5.0,
+            "description": "Maximum cost budget per task in USD",
+            "exclusiveMinimum": 0.0,
+            "maximum": 500.0,
+            "title": "Max Cost Usd",
+            "type": "number"
+          },
+          "max_input_tokens": {
+            "default": 200000,
+            "description": "Maximum input context tokens",
+            "maximum": 2000000.0,
+            "minimum": 1000.0,
+            "title": "Max Input Tokens",
+            "type": "integer"
+          },
+          "max_output_tokens": {
+            "default": 32000,
+            "description": "Maximum generated output tokens",
+            "maximum": 200000.0,
+            "minimum": 512.0,
+            "title": "Max Output Tokens",
+            "type": "integer"
+          },
+          "max_turns": {
+            "default": 30,
+            "description": "Maximum agent loop turns",
+            "maximum": 200.0,
+            "minimum": 1.0,
+            "title": "Max Turns",
+            "type": "integer"
+          },
+          "timeout_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "default": 300.0,
+            "description": "Task execution timeout in seconds",
+            "gt": 0.0,
+            "le": 3600.0,
+            "title": "Timeout Seconds"
+          }
+        },
+        "title": "HarnessBudgetConfigDTO",
+        "type": "object"
+      },
+      "HarnessConfigDTO": {
+        "additionalProperties": false,
+        "description": "Complete Agent Harness & Governance setup configuration.",
+        "properties": {
+          "agent_models": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional per-persona model overrides (vault-first-mate, scout-source, scout-unstructured, ship-vault)",
+            "title": "Agent Models",
+            "type": "object"
+          },
+          "allow_cli_schema_omission_retry": {
+            "default": false,
+            "description": "Permit CLI harness fallback retry without --json-schema when provider CLI rejects schema flag",
+            "title": "Allow Cli Schema Omission Retry",
+            "type": "boolean"
+          },
+          "auth": {
+            "$ref": "#/components/schemas/HarnessAuthConfigDTO",
+            "description": "Authentication and cloud routing settings"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/HarnessBudgetConfigDTO",
+            "description": "Turn, token, timeout, and cost budget limits"
+          },
+          "model_overrides": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Semantic model tier overrides keyed by 'reasoning' and 'fast'",
+            "title": "Model Overrides",
+            "type": "object"
+          },
+          "ontology_policy": {
+            "default": "off",
+            "description": "Default ontology evolution policy (off, recommend, auto_accept)",
+            "enum": [
+              "off",
+              "recommend",
+              "auto_accept"
+            ],
+            "title": "Ontology Policy",
+            "type": "string"
+          },
+          "provider": {
+            "default": "agy",
+            "description": "Default agent harness provider",
+            "enum": [
+              "agy",
+              "agy-cli",
+              "antigravity",
+              "claude",
+              "claude-cli",
+              "claude-code"
+            ],
+            "title": "Provider",
+            "type": "string"
+          },
+          "sandbox": {
+            "$ref": "#/components/schemas/HarnessSandboxPolicyDTO",
+            "description": "Sandbox isolation policy"
+          },
+          "stage_output_policy": {
+            "default": "llm_only",
+            "description": "Stage output synthesis policy",
+            "enum": [
+              "llm_only",
+              "symbolic_completion"
+            ],
+            "title": "Stage Output Policy",
+            "type": "string"
+          },
+          "steward_hold_policy": {
+            "default": "auto_approve_top_candidate",
+            "description": "Default Steward Hold policy for Tier-U3 / ontology escalations",
+            "enum": [
+              "pause",
+              "auto_approve_top_candidate",
+              "reject_on_hold"
+            ],
+            "title": "Steward Hold Policy",
+            "type": "string"
+          }
+        },
+        "title": "HarnessConfigDTO",
+        "type": "object"
+      },
+      "HarnessSandboxPolicyDTO": {
+        "additionalProperties": false,
+        "description": "Filesystem, shell, and network isolation policy for agent personas.",
+        "properties": {
+          "allow_network_access": {
+            "default": false,
+            "description": "Permit outbound network access from tools",
+            "title": "Allow Network Access",
+            "type": "boolean"
+          },
+          "allow_shell_execution": {
+            "default": false,
+            "description": "Permit arbitrary shell command execution",
+            "title": "Allow Shell Execution",
+            "type": "boolean"
+          },
+          "allowed_builtin_tools": {
+            "description": "Explicitly allowed host built-in tools",
+            "items": {
+              "type": "string"
+            },
+            "title": "Allowed Builtin Tools",
+            "type": "array"
+          },
+          "denied_builtin_tools": {
+            "description": "Explicitly denied host built-in tools",
+            "items": {
+              "type": "string"
+            },
+            "title": "Denied Builtin Tools",
+            "type": "array"
+          },
+          "read_only_workspace": {
+            "default": false,
+            "description": "Enforce read-only workspace access",
+            "title": "Read Only Workspace",
+            "type": "boolean"
+          }
+        },
+        "title": "HarnessSandboxPolicyDTO",
         "type": "object"
       },
       "OntologyConceptSpec": {
@@ -3978,6 +4330,19 @@
             "description": "Inline input specification (Decision D1)",
             "title": "Input Spec"
           },
+          "input_spec_content": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline YAML or JSON string for pipeline input specification",
+            "title": "Input Spec Content"
+          },
           "input_spec_path": {
             "anyOf": [
               {
@@ -4159,6 +4524,19 @@
             "description": "Inline input specification (Decision D1)",
             "title": "Input Spec"
           },
+          "input_spec_content": {
+            "anyOf": [
+              {
+                "maxLength": 1000000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Inline YAML or JSON string for pipeline input specification",
+            "title": "Input Spec Content"
+          },
           "input_spec_path": {
             "anyOf": [
               {
@@ -4209,6 +4587,232 @@
           }
         },
         "title": "PipelineValidateRequest",
+        "type": "object"
+      },
+      "PlatformConfigResponse": {
+        "additionalProperties": false,
+        "description": "Full Platform & Agent Harness configuration and readiness response.",
+        "properties": {
+          "cas_dir": {
+            "description": "Content-Addressable Store directory path",
+            "title": "Cas Dir",
+            "type": "string"
+          },
+          "config_file_path": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Active opendv.config.yaml path if loaded",
+            "title": "Config File Path"
+          },
+          "cors_origins": {
+            "description": "Configured allowed CORS origins",
+            "items": {
+              "type": "string"
+            },
+            "title": "Cors Origins",
+            "type": "array"
+          },
+          "harness": {
+            "$ref": "#/components/schemas/HarnessConfigDTO",
+            "description": "Active platform-default Agent Harness & Governance configuration"
+          },
+          "ledgers_dir": {
+            "description": "JSONL observability ledgers directory path",
+            "title": "Ledgers Dir",
+            "type": "string"
+          },
+          "max_inline_bytes": {
+            "default": 10485760,
+            "description": "Maximum allowed inline upload payload size in bytes",
+            "title": "Max Inline Bytes",
+            "type": "integer"
+          },
+          "persisted_config_path": {
+            "description": "Path where dynamic platform/harness config updates are persisted",
+            "title": "Persisted Config Path",
+            "type": "string"
+          },
+          "providers": {
+            "description": "Readiness and credential diagnostics for all registered providers",
+            "items": {
+              "$ref": "#/components/schemas/ProviderReadinessDTO"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "resolved_persona_models": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Effective resolved model IDs for each canonical agent persona",
+            "title": "Resolved Persona Models",
+            "type": "object"
+          },
+          "server_host": {
+            "default": "",
+            "description": "Platform API bind host",
+            "title": "Server Host",
+            "type": "string"
+          },
+          "server_port": {
+            "default": 8420,
+            "description": "Platform API bind port",
+            "title": "Server Port",
+            "type": "integer"
+          },
+          "state_dir": {
+            "description": "Resolved platform state directory path",
+            "title": "State Dir",
+            "type": "string"
+          },
+          "web_ui_bundled": {
+            "default": false,
+            "description": "True when the compiled static Web Explorer UI bundle is present",
+            "title": "Web Ui Bundled",
+            "type": "boolean"
+          },
+          "workspace_root": {
+            "description": "Resolved platform workspace root path",
+            "title": "Workspace Root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_root",
+          "state_dir",
+          "cas_dir",
+          "ledgers_dir",
+          "persisted_config_path",
+          "harness"
+        ],
+        "title": "PlatformConfigResponse",
+        "type": "object"
+      },
+      "PlatformConfigUpdateRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to update Platform & Agent Harness configuration.",
+        "properties": {
+          "cors_origins": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional updated list of allowed CORS origins",
+            "title": "Cors Origins"
+          },
+          "harness": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Full or partial HarnessSetupConfig dictionary to merge and validate",
+            "title": "Harness"
+          },
+          "max_inline_bytes": {
+            "anyOf": [
+              {
+                "maximum": 104857600.0,
+                "minimum": 1024.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional override for max inline upload bytes",
+            "title": "Max Inline Bytes"
+          },
+          "persist": {
+            "default": true,
+            "description": "Whether to persist updated configuration to state_dir/platform_config.json",
+            "title": "Persist",
+            "type": "boolean"
+          }
+        },
+        "title": "PlatformConfigUpdateRequest",
+        "type": "object"
+      },
+      "PlatformConfigValidateRequest": {
+        "additionalProperties": false,
+        "description": "Request DTO to deterministically validate candidate Harness & Platform settings.",
+        "properties": {
+          "harness": {
+            "additionalProperties": true,
+            "description": "Candidate HarnessSetupConfig dictionary to validate",
+            "title": "Harness",
+            "type": "object"
+          }
+        },
+        "title": "PlatformConfigValidateRequest",
+        "type": "object"
+      },
+      "PlatformConfigValidationResponse": {
+        "additionalProperties": false,
+        "description": "Deterministic validation result for candidate Platform & Harness settings.",
+        "properties": {
+          "diagnostics": {
+            "description": "List of validation diagnostics (code, severity, target, message)",
+            "items": {
+              "$ref": "#/components/schemas/ConfigValidationDiagnosticDTO"
+            },
+            "title": "Diagnostics",
+            "type": "array"
+          },
+          "harness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/HarnessConfigDTO"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Normalized HarnessConfigDTO when validation succeeds"
+          },
+          "passed": {
+            "description": "True when candidate configuration is schema- and policy-valid",
+            "title": "Passed",
+            "type": "boolean"
+          },
+          "providers": {
+            "description": "Readiness status for registered harness providers",
+            "items": {
+              "$ref": "#/components/schemas/ProviderReadinessDTO"
+            },
+            "title": "Providers",
+            "type": "array"
+          },
+          "resolved_persona_models": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Resolved model IDs for each agent persona under candidate settings",
+            "title": "Resolved Persona Models",
+            "type": "object"
+          }
+        },
+        "required": [
+          "passed"
+        ],
+        "title": "PlatformConfigValidationResponse",
         "type": "object"
       },
       "ProfileRequest": {
@@ -4664,6 +5268,98 @@
           "decisions_url"
         ],
         "title": "ProjectRunDTO",
+        "type": "object"
+      },
+      "ProviderReadinessDTO": {
+        "additionalProperties": false,
+        "description": "Readiness and credential status for a registered agent harness provider.",
+        "properties": {
+          "api_key_env_var": {
+            "default": "",
+            "description": "Environment variable name checked for API credentials",
+            "title": "Api Key Env Var",
+            "type": "string"
+          },
+          "auth_mode": {
+            "default": "none",
+            "description": "Configured or default authentication mode",
+            "title": "Auth Mode",
+            "type": "string"
+          },
+          "available": {
+            "description": "True when the binary or SDK is installed and ready for execution",
+            "title": "Available",
+            "type": "boolean"
+          },
+          "binary_found": {
+            "default": false,
+            "description": "True when the CLI binary is present on PATH",
+            "title": "Binary Found",
+            "type": "boolean"
+          },
+          "binary_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "CLI executable name if execution_mode is 'cli'",
+            "title": "Binary Name"
+          },
+          "credentials_present": {
+            "default": false,
+            "description": "True when credentials or CLI session are detected (never exposes raw secrets)",
+            "title": "Credentials Present",
+            "type": "boolean"
+          },
+          "default_fast_model": {
+            "description": "Default FAST_TIER model identifier for this provider",
+            "title": "Default Fast Model",
+            "type": "string"
+          },
+          "default_reasoning_model": {
+            "description": "Default HIGH_REASONING tier model identifier for this provider",
+            "title": "Default Reasoning Model",
+            "type": "string"
+          },
+          "execution_mode": {
+            "description": "Whether this provider executes via CLI subprocess or Python SDK",
+            "enum": [
+              "cli",
+              "sdk"
+            ],
+            "title": "Execution Mode",
+            "type": "string"
+          },
+          "provider": {
+            "description": "Registered provider identifier (e.g., agy, claude-cli)",
+            "title": "Provider",
+            "type": "string"
+          },
+          "sdk_installed": {
+            "default": false,
+            "description": "True when the backing Python SDK module is importable",
+            "title": "Sdk Installed",
+            "type": "boolean"
+          },
+          "status_message": {
+            "description": "Human-readable readiness summary",
+            "title": "Status Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider",
+          "execution_mode",
+          "available",
+          "default_reasoning_model",
+          "default_fast_model",
+          "status_message"
+        ],
+        "title": "ProviderReadinessDTO",
         "type": "object"
       },
       "RefineDefinitionOp": {
@@ -6465,6 +7161,156 @@
         "summary": "Get Platform Capabilities",
         "tags": [
           "health"
+        ]
+      }
+    },
+    "/api/v1/platform/config": {
+      "get": {
+        "description": "Return active Platform & Agent Harness configuration and provider readiness.",
+        "operationId": "get_platform_config_api_v1_platform_config_get",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Platform Config",
+        "tags": [
+          "platform-config"
+        ]
+      },
+      "put": {
+        "description": "Update Platform & Agent Harness configuration with RBAC enforcement.",
+        "operationId": "update_platform_config_api_v1_platform_config_put",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-OpenDV-Role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Role"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformConfigUpdateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformConfigResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Update Platform Config",
+        "tags": [
+          "platform-config"
+        ]
+      }
+    },
+    "/api/v1/platform/config/validate": {
+      "post": {
+        "description": "Deterministically validate candidate Platform & Agent Harness configuration.",
+        "operationId": "validate_platform_config_api_v1_platform_config_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlatformConfigValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlatformConfigValidationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Platform Config",
+        "tags": [
+          "platform-config"
         ]
       }
     },
