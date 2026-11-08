@@ -1,4 +1,4 @@
-"""Unified static Web UI and SPA fallback routes (`/`, `/builder`, `/settings`, `/stages/*`) for OpenDVService."""
+"""Unified static Web UI and SPA fallback routes for OpenDVService."""
 
 from __future__ import annotations
 
