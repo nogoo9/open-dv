@@ -53,10 +53,12 @@ async def update_platform_config(
         else RbacRole.INTERNAL_MODELER
     )
     if effective_role in {RbacRole.PUBLIC, RbacRole.AUDITOR_FINANCE}:
-        raise RolePermissionError(
+        err = RolePermissionError(
             f"Insufficient RBAC clearance: role '{effective_role.value}' is not authorized "
             "to modify platform configuration."
         )
+        err.http_status = 403
+        raise err
 
     try:
         resp = service.update_platform_config(req)
