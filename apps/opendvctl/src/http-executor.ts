@@ -8,7 +8,6 @@
  */
 
 import { CliDomainError } from "./error-handler";
-import { RemoteExecutor, type RemoteExecutorConfig } from "./remote-executor";
 import { loadCliSpec } from "./spec";
 
 type BunWithYaml = typeof Bun & {
@@ -350,11 +349,3 @@ export async function executeConfigCommand(
 		400,
 	);
 }
-
-export class HttpExecutor extends RemoteExecutor {
-	constructor(config: RemoteExecutorConfig = {}) {
-		super(config);
-	}
-}
-
-export { RemoteExecutor, type RemoteExecutorConfig };
