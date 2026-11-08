@@ -31,7 +31,6 @@ export function generateStaticIndexHtml(): string {
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
-    <!-- TODO(security): Enforce strict Content-Security-Policy header with script-src nonce and frame-ancestors 'self' at reverse proxy / FastAPI BFF layer -->
     <title>Open-DV Explorer</title>
     <link rel="stylesheet" href="/assets/workbench.css" />
   </head>

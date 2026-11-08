@@ -196,7 +196,7 @@ export function PlatformSettingsView({
 		return () => {
 			cancelled = true;
 		};
-	}, [initialConfig, apiUrl, fetchImpl]);
+	}, [initialConfig, apiUrl]);
 
 	const clearTransientBanners = () => {
 		setSaveSuccess(false);

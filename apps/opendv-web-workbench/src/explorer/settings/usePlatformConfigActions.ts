@@ -258,16 +258,16 @@ export function createDefaultPlatformConfig(): PlatformConfigResponse {
 	};
 
 	return {
-		workspace_root: "/workspace/open-dv",
-		state_dir: "/workspace/open-dv/.opendv",
-		cas_dir: "/workspace/open-dv/.opendv/cas",
-		ledgers_dir: "/workspace/open-dv/.opendv/ledgers",
-		server_host: "localhost",
-		server_port: 9000,
+		workspace_root: "",
+		state_dir: "",
+		cas_dir: "",
+		ledgers_dir: "",
+		server_host: "",
+		server_port: 0,
 		max_inline_bytes: 262144,
 		cors_origins: [],
 		config_file_path: null,
-		persisted_config_path: "/workspace/open-dv/.opendv/platform_config.json",
+		persisted_config_path: "",
 		web_ui_bundled: true,
 		harness,
 		resolved_persona_models: resolvePersonaModels(harness, providers),

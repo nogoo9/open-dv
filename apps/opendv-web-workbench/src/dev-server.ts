@@ -123,10 +123,14 @@ export function createWorkbenchDevServer(
 				}
 			}
 
-			// 2. Serve index.html at /, /index.html, or deep-linked /stages/00..07 routes
+			// 2. Serve index.html at /, /index.html, /builder, /settings, or deep-linked /stages/00..07 routes
 			if (
 				url.pathname === "/" ||
 				url.pathname === "/index.html" ||
+				url.pathname === "/builder" ||
+				url.pathname === "/builder/" ||
+				url.pathname === "/settings" ||
+				url.pathname === "/settings/" ||
 				/^\/stages\/0?[0-7]\/?$/.test(url.pathname)
 			) {
 				const htmlPath = join(workbenchRoot, "index.html");

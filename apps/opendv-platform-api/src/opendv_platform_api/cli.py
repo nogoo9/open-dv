@@ -86,7 +86,11 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.open:
-        browser_host = DEFAULT_SERVER_HOST if host in {"0.0.0.0", "::"} else host
+        browser_host = (
+            DEFAULT_SERVER_HOST
+            if host in {"0.0.0.0", "::", "::0", "0:0:0:0:0:0:0:0"}
+            else host
+        )
         url = f"http://{browser_host}:{port}"
         timer = threading.Timer(0.6, webbrowser.open, args=(url,))
         timer.daemon = True

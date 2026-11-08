@@ -88,7 +88,10 @@ describe("Track B3: Full-Page Platform & Agent Harness Settings View", () => {
 
 	describe("2. Full-Page PlatformSettingsView Rendering & Modern Web Guidance Compliance", () => {
 		it("renders full-page view with semantic form, 5 fieldsets, provider readiness cards, and resolved models table", () => {
-			const cfg = createDefaultPlatformConfig();
+			const cfg = {
+				...createDefaultPlatformConfig(),
+				persisted_config_path: "/mock/state/platform_config.json",
+			};
 			const html = renderToStaticMarkup(
 				createElement(PlatformSettingsView, {
 					initialConfig: cfg,
@@ -157,7 +160,7 @@ describe("Track B3: Full-Page Platform & Agent Harness Settings View", () => {
 				'data-testid="settings-checkbox-cli-schema-retry"',
 			);
 			expect(html).toContain('data-testid="settings-input-max-inline-bytes"');
-			expect(html).toContain("/workspace/open-dv/.opendv/platform_config.json");
+			expect(html).toContain("/mock/state/platform_config.json");
 
 			// Footer action buttons
 			expect(html).toContain('data-testid="btn-validate-settings"');

@@ -3,7 +3,7 @@
  *
  * Security & Decoupling Guarantees:
  * - Binds local development server strictly to `127.0.0.1` (`localhost`) on port `5173`.
- * - Proxies `/api` requests to the headless FastAPI Platform Server (`http://127.0.0.1:8000`).
+ * - Proxies `/api` requests to the headless FastAPI Platform Server (`http://127.0.0.1:8420`).
  * - Resolves `@opendv/protocol-ts` workspace SDK without any backend Python dependencies.
  */
 

@@ -103,9 +103,7 @@ def _deep_merge_harness_dict(base: dict[str, Any], override: dict[str, Any]) -> 
             and isinstance(val, dict)
             and isinstance(merged.get(key), dict)
         ):
-            nested = dict(merged[key])
-            nested.update(val)
-            merged[key] = nested
+            merged[key] = _deep_merge_harness_dict(merged[key], val)
         elif key in {"model_overrides", "agent_models"} and isinstance(val, dict):
             merged[key] = dict(val)
         else:

@@ -1,4 +1,4 @@
-"""Unified static Web UI and SPA fallback routes (`/`, `/builder`, `/settings`, `/stages/*`)."""
+"""Unified static Web UI and SPA fallback routes (`/`, `/builder`, `/settings`, `/stages/*`) for OpenDVService."""
 
 from __future__ import annotations
 
@@ -10,9 +10,7 @@ from fastapi import APIRouter, Response
 from fastapi.responses import HTMLResponse
 
 from opendv_contracts.errors import NotFoundError
-from opendv_platform_api.deps import get_opendv_service
 from opendv_platform_api.routers.health import WORKBENCH_CSP, WORKBENCH_INDEX_HTML
-from opendv_service import OpenDVService
 
 router = APIRouter(tags=["web-ui"], include_in_schema=False)
 
@@ -33,9 +31,8 @@ _MEDIA_TYPES: dict[str, str] = {
 }
 
 
-def resolve_static_dir(service: OpenDVService | None = None) -> Path:
+def resolve_static_dir() -> Path:
     """Resolve the compiled Web Workbench static asset directory."""
-    _ = (service, get_opendv_service)
     env_dir = os.environ.get("OPENDV_STATIC_DIR", "").strip()
     if env_dir:
         return Path(env_dir).resolve()

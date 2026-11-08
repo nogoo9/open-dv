@@ -107,6 +107,7 @@ export function createEmptyWaveDraft(waveIndex: number): InteractiveWaveDraft {
 }
 
 export function createDefaultPipelineDraft(): InteractivePipelineDraft {
+	draftItemCounter = 0;
 	return {
 		pipelineId: "global_commerce_vault_run",
 		projectId: "global_commerce_vault",

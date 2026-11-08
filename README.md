@@ -253,7 +253,7 @@ See **[`docs/12-unified-platform-web-and-cli-setup.md`](docs/12-unified-platform
 
 `open-dv` provides two contract-identical CLIs generated from [`packages/opendv-contracts/schemas/cli-spec.json`](packages/opendv-contracts/schemas/cli-spec.json):
 - **`opendv` (`apps/opendv-cli`)**: Standalone in-process Python CLI executing directly against the shared core in `opendv_service` (zero HTTP server required; air-gapped, local CI/CD).
-- **`opendvctl` (`apps/opendvctl`)**: Bun-compiled standalone binary platform client connecting over HTTP/SSE to `opendv-platform-api` via `--api-url <url>` (default `http://localhost:8000`).
+- **`opendvctl` (`apps/opendvctl`)**: Bun-compiled standalone binary platform client connecting over HTTP/SSE to `opendv-platform-api` via `--api-url <url>` (default `http://127.0.0.1:8420`).
 
 Both CLIs share identical subcommands, options, exit codes, and RFC 8785 canonical JSON outputs for all verification, compilation, pipeline, and configuration operations (`opendv serve` is standalone-only on `opendv` since it launches the server):
 
