@@ -15,6 +15,9 @@ if str(ROOT) not in sys.path:
 
 from scripts.run_opus_critique import (  # noqa: E402
     MAX_DIFF_CHARS,
+    REVIEW_RUBRIC,
+    SYSTEM_PROMPT,
+    USER_PROMPT_TEMPLATE,
     CritiqueResult,
     CritiqueSchemaModel,
     format_issue_comment_markdown,
@@ -399,3 +402,15 @@ def test_safe_which_rejects_planted_cwd_binary(
 
     monkeypatch.setenv("PATH", str(tmp_path))
     assert safe_which("claude.exe", reject_dirs=(tmp_path,)) is None
+
+
+def test_system_prompt_and_user_template_user_directive_alignment() -> None:
+    assert SYSTEM_PROMPT == REVIEW_RUBRIC
+    assert "PRIMARY REVIEW FOCUS (USER DIRECTIVE)" in SYSTEM_PROMPT
+    assert "Real Bugs" in SYSTEM_PROMPT
+    assert "Genuine Design Issues wrt the Master Design Doc" in SYSTEM_PROMPT
+    assert "STOP PEDANTIC DESIGN-DOC NITPICKING" in SYSTEM_PROMPT
+    assert "{system_prompt}" in USER_PROMPT_TEMPLATE
+    assert "{fence_nonce}" in USER_PROMPT_TEMPLATE
+    assert "{diff_text}" in USER_PROMPT_TEMPLATE
+
