@@ -34,15 +34,24 @@ def test_cli_spec_freshness_against_generator() -> None:
         "Run `python -m opendv_service.export_cli_spec` to synchronize."
     )
 
-    # 2. Canonical repo root schemas/v1/cli-spec.json
+    # 2. Canonical repo root schemas/cli-spec.json (runtime baseline)
     repo_root = pkg_schema_path.parent.parent.parent.parent
-    v1_schema_path = repo_root / "schemas" / "v1" / "cli-spec.json"
-    if v1_schema_path.is_file():
-        v1_content = v1_schema_path.read_text(encoding="utf-8")
-        assert v1_content == expected_content, (
-            "Committed schemas/v1/cli-spec.json is stale! "
+    root_schema_path = repo_root / "schemas" / "cli-spec.json"
+    if root_schema_path.is_file():
+        root_content = root_schema_path.read_text(encoding="utf-8")
+        assert root_content == expected_content, (
+            "Committed schemas/cli-spec.json is stale! "
             "Run `python -m opendv_service.export_cli_spec` to synchronize."
         )
+
+    # 3. Canonical forward studio schema schemas/v1/cli-spec.json (Feature 11)
+    v1_schema_path = repo_root / "schemas" / "v1" / "cli-spec.json"
+    if v1_schema_path.is_file():
+        v1_spec = json.loads(v1_schema_path.read_text(encoding="utf-8"))
+        validate_cli_spec(v1_spec)
+        v1_model = CliSpec.model_validate(v1_spec)
+        assert v1_model.spec_version == "1.0.0"
+        assert any(cmd.name == "ontology" for cmd in v1_model.commands)
 
 
 def test_cli_spec_typed_model_validation() -> None:

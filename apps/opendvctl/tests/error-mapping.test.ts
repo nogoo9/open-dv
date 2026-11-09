@@ -10,7 +10,7 @@ import { loadCliSpec } from "../src/spec";
 describe("error-mapping", () => {
 	const spec = loadCliSpec();
 
-	it("verifies all 22 domain error codes in cli-spec.json error_map", () => {
+	it("verifies all domain error codes in cli-spec.json error_map", () => {
 		expect(spec.error_map.length).toBeGreaterThanOrEqual(20);
 
 		for (const mapping of spec.error_map) {
@@ -21,7 +21,10 @@ describe("error-mapping", () => {
 				expect(mapping.exit_code).toBe(1);
 				expect(mapping.http_status).toBe(200);
 			} else {
-				expect(mapping.exit_code).toBe(2);
+				expect(mapping.exit_code).toBeGreaterThanOrEqual(1);
+				expect(mapping.exit_code).toBeLessThanOrEqual(7);
+				expect(mapping.http_status).toBeGreaterThanOrEqual(400);
+				expect(mapping.http_status).toBeLessThanOrEqual(599);
 			}
 		}
 	});

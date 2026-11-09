@@ -37,9 +37,25 @@ VALID_CATEGORIES = {
 VALID_EXIT_CODES = set(range(8))
 VALID_HTTP_STATUSES = {200, 201, 202, 400, 401, 403, 404, 409, 412, 413, 415, 422, 500, 503}
 
+DOC_ERROR_TERMS = (
+    "VIOLATION",
+    "NOT_FOUND",
+    "INVALID",
+    "FORBIDDEN",
+    "REQUIRED",
+    "CONFLICT",
+    "COLLISION",
+    "MISMATCH",
+)
+
 
 class ErrorCatalogValidator:
-    def __init__(self, catalog_path: Path, baselines_path: Path | None = None, repo_dir: Path | None = None):
+    def __init__(
+        self,
+        catalog_path: Path,
+        baselines_path: Path | None = None,
+        repo_dir: Path | None = None,
+    ):
         self.catalog_path = catalog_path
         self.baselines_path = baselines_path
         self.repo_dir = repo_dir or Path.cwd()
@@ -59,7 +75,9 @@ class ErrorCatalogValidator:
             self.errors.append(f"Malformed catalog JSON: {e}")
             return False
 
-        if "error_codes" not in self.catalog_data or not isinstance(self.catalog_data["error_codes"], list):
+        if "error_codes" not in self.catalog_data or not isinstance(
+            self.catalog_data["error_codes"], list
+        ):
             self.errors.append("Catalog missing 'error_codes' array")
             return False
 
@@ -67,7 +85,11 @@ class ErrorCatalogValidator:
         for idx, entry in enumerate(self.catalog_data["error_codes"]):
             prefix = f"Entry [{idx}]"
             code = entry.get("code")
-            if not code or not isinstance(code, str) or not re.fullmatch(r"^[A-Z][A-Z0-9_]{1,63}$", code):
+            if (
+                not code
+                or not isinstance(code, str)
+                or not re.fullmatch(r"^[A-Z][A-Z0-9_]{1,63}$", code)
+            ):
                 self.errors.append(f"{prefix}: Invalid or missing 'code': {code}")
                 continue
 
@@ -77,11 +99,16 @@ class ErrorCatalogValidator:
 
             cat = entry.get("category")
             if cat not in VALID_CATEGORIES:
-                self.errors.append(f"{prefix} '{code}': Invalid category '{cat}' (expected one of {sorted(VALID_CATEGORIES)})")
+                valid_cats = sorted(VALID_CATEGORIES)
+                self.errors.append(
+                    f"{prefix} '{code}': Invalid category '{cat}' (expected one of {valid_cats})"
+                )
 
             exit_code = entry.get("exit_code")
             if exit_code not in VALID_EXIT_CODES:
-                self.errors.append(f"{prefix} '{code}': Invalid exit_code '{exit_code}' (expected 0..7)")
+                self.errors.append(
+                    f"{prefix} '{code}': Invalid exit_code '{exit_code}' (expected 0..7)"
+                )
 
             http_status = entry.get("http_status")
             if http_status not in VALID_HTTP_STATUSES:
@@ -93,14 +120,21 @@ class ErrorCatalogValidator:
 
             uri = entry.get("problem_type_uri")
             if not uri or not isinstance(uri, str) or not uri.startswith("urn:opendv:"):
-                self.errors.append(f"{prefix} '{code}': Invalid problem_type_uri '{uri}' (must start with 'urn:opendv:')")
+                self.errors.append(
+                    f"{prefix} '{code}': Invalid problem_type_uri '{uri}' "
+                    "(must start with 'urn:opendv:')"
+                )
 
             desc = entry.get("description")
             if not desc or not isinstance(desc, str):
                 self.errors.append(f"{prefix} '{code}': Missing or non-string 'description'")
 
             waiv = entry.get("waivability")
-            if not isinstance(waiv, dict) or "is_waivable" not in waiv or "rationale_required" not in waiv:
+            if (
+                not isinstance(waiv, dict)
+                or "is_waivable" not in waiv
+                or "rationale_required" not in waiv
+            ):
                 self.errors.append(f"{prefix} '{code}': Missing or malformed 'waivability' object")
 
             self.codes_by_id[code] = entry
@@ -109,7 +143,9 @@ class ErrorCatalogValidator:
 
     def scan_python_ast(self) -> None:
         """Scan Python files for error code raises and assertions."""
-        py_files = list(self.repo_dir.glob("packages/**/*.py")) + list(self.repo_dir.glob("apps/**/*.py"))
+        py_files = list(self.repo_dir.glob("packages/**/*.py")) + list(
+            self.repo_dir.glob("apps/**/*.py")
+        )
         for p in py_files:
             if "site-packages" in p.parts or "__pycache__" in p.parts:
                 continue
@@ -130,9 +166,16 @@ class ErrorCatalogValidator:
                         first_arg = node.args[0]
                         if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
                             err_val = first_arg.value
-                            if err_val.isupper() and "_" in err_val:
-                                if err_val not in self.codes_by_id:
-                                    self.errors.append(f"{p.relative_to(self.repo_dir)}:{node.lineno}: Undocumented error code '{err_val}' raised in PydanticCustomError")
+                            if (
+                                err_val.isupper()
+                                and "_" in err_val
+                                and err_val not in self.codes_by_id
+                            ):
+                                rel_path = p.relative_to(self.repo_dir)
+                                self.errors.append(
+                                    f"{rel_path}:{node.lineno}: Undocumented error code "
+                                    f"'{err_val}' raised in PydanticCustomError"
+                                )
 
     def scan_docs(self) -> None:
         """Scan documentation markdown for error codes."""
@@ -142,14 +185,22 @@ class ErrorCatalogValidator:
             content = df.read_text(encoding="utf-8")
             for line_idx, line in enumerate(content.splitlines(), start=1):
                 # If line discusses exit codes, extract potential error codes
-                if any(k in line for k in ("exit ", "exit code", "HTTP 4", "HTTP 5", "fails", "reject")):
+                if any(
+                    k in line for k in ("exit ", "exit code", "HTTP 4", "HTTP 5", "fails", "reject")
+                ):
                     for match in code_regex.finditer(line):
                         token = match.group(1)
                         if token.endswith("_") or token.startswith("HTTP_"):
                             continue
-                        if any(term in token for term in ["VIOLATION", "NOT_FOUND", "INVALID", "FORBIDDEN", "REQUIRED", "CONFLICT", "COLLISION", "MISMATCH"]):
-                            if token not in self.codes_by_id:
-                                self.warnings.append(f"{df.relative_to(self.repo_dir)}:{line_idx}: Documented code '{token}' not found in error-codes catalog")
+                        if (
+                            any(term in token for term in DOC_ERROR_TERMS)
+                            and token not in self.codes_by_id
+                        ):
+                            rel_path = df.relative_to(self.repo_dir)
+                            self.warnings.append(
+                                f"{rel_path}:{line_idx}: Documented code '{token}' "
+                                "not found in error-codes catalog"
+                            )
 
     def validate_baselines(self) -> bool:
         """Verify baseline digests match bit-for-bit against filesystem artifacts."""
@@ -172,7 +223,10 @@ class ErrorCatalogValidator:
             expected_sha = meta.get("sha256")
             actual_sha = hashlib.sha256(schema_file.read_bytes()).hexdigest()
             if actual_sha != expected_sha:
-                self.errors.append(f"Schema baseline hash mismatch for {schema_rel}: expected {expected_sha}, got {actual_sha}")
+                self.errors.append(
+                    f"Schema baseline hash mismatch for {schema_rel}: "
+                    f"expected {expected_sha}, got {actual_sha}"
+                )
 
         return len(self.errors) == 0
 
@@ -182,7 +236,8 @@ class ErrorCatalogValidator:
             for e in self.errors:
                 print(f"  - {e}")
             return 1
-        print(f"✅ Error Code Catalog Validation PASSED ({len(self.codes_by_id)} error codes registered).")
+        count = len(self.codes_by_id)
+        print(f"✅ Error Code Catalog Validation PASSED ({count} error codes registered).")
         if self.warnings:
             print(f"⚠️ Warnings ({len(self.warnings)}):")
             for w in self.warnings:
@@ -191,12 +246,37 @@ class ErrorCatalogValidator:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Check closed error code catalog and baseline digests")
-    parser.add_argument("--catalog", type=Path, default=Path("schemas/v1/error-codes.json"), help="Path to error-codes.json")
-    parser.add_argument("--baselines", type=Path, default=Path("schemas/v1/baseline-digests.json"), help="Path to baseline-digests.json")
-    parser.add_argument("--repo-dir", type=Path, default=Path.cwd(), help="Path to repository root")
-    parser.add_argument("--check-docs", action="store_true", help="Cross-check documentation markdown files")
-    parser.add_argument("--check-ast", action="store_true", help="Cross-check Python AST for uncatalogued error codes")
+    parser = argparse.ArgumentParser(
+        description="Check closed error code catalog and baseline digests"
+    )
+    parser.add_argument(
+        "--catalog",
+        type=Path,
+        default=Path("schemas/v1/error-codes.json"),
+        help="Path to error-codes.json",
+    )
+    parser.add_argument(
+        "--baselines",
+        type=Path,
+        default=Path("schemas/v1/baseline-digests.json"),
+        help="Path to baseline-digests.json",
+    )
+    parser.add_argument(
+        "--repo-dir",
+        type=Path,
+        default=Path.cwd(),
+        help="Path to repository root",
+    )
+    parser.add_argument(
+        "--check-docs",
+        action="store_true",
+        help="Cross-check documentation markdown files",
+    )
+    parser.add_argument(
+        "--check-ast",
+        action="store_true",
+        help="Cross-check Python AST for uncatalogued error codes",
+    )
     args = parser.parse_args()
 
     validator = ErrorCatalogValidator(args.catalog, args.baselines, args.repo_dir)
