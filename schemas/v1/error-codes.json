@@ -1,0 +1,1922 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalog_version": "1.0.0",
+  "title": "Open-DV Ontology Construction Studio Closed Error Code Catalog",
+  "description": "Normative, authoritative machine-readable catalog of all closed error codes across CLI exit codes (0..7), HTTP status codes, categories, and waivability rules.",
+  "taxonomy_rules": {
+    "closed_enum_enforcement": true,
+    "strict_precedence": [
+      "0. CLI-Local Flag/Syntax Validation (exit 2)",
+      "1. AuthN Token Resolution (exit 7 / HTTP 401)",
+      "2. Precondition Syntax (exit 2 / HTTP 400)",
+      "3. RBAC & Actor Privileges (exit 7 / HTTP 403)",
+      "4. Body Parse & Field Uniqueness (exit 2 / HTTP 400 for syntax; exit 4 / HTTP 422 for location uniqueness)",
+      "5. Envelope Segregation (exit 4 / HTTP 422 for envelope; exit 7 for automated destructive)",
+      "6. Lifecycle & Lock State (exit 6 / HTTP 409)",
+      "7. Field Authorization (exit 7 before semantic waiver exit 4)",
+      "8. Semantic Waiver Validation (exit 4 / HTTP 422)",
+      "9. Optimistic Concurrency Control (exit 5 / HTTP 412; base mismatch exit 2)",
+      "10. Referential & ONT-EVO Governance (exit 4 / HTTP 422; no-op delta exit 1 / HTTP 400)"
+    ],
+    "exit_codes": {
+      "0": "Success (HTTP 200, 201, 202)",
+      "1": "System & Capability Failure / Missing Required Rationale (HTTP 400, 500, 503)",
+      "2": "Syntax & Precondition Failure (HTTP 400)",
+      "3": "Resource Not Found (HTTP 404)",
+      "4": "Domain & Referential Integrity Violation / ONT-EVO Governance (HTTP 422)",
+      "5": "Optimistic Concurrency Control (OCC) Conflict (HTTP 412)",
+      "6": "Lock & In-Progress Conflict (HTTP 409)",
+      "7": "Authentication & Authorization (RBAC) Violation (HTTP 401, 403)"
+    }
+  },
+  "total_error_codes": 111,
+  "error_codes": [
+    {
+      "code": "OK",
+      "category": "Execution",
+      "exit_code": 0,
+      "http_status": 200,
+      "problem_title": "OK",
+      "problem_type_uri": "urn:opendv:error:ok",
+      "description": "Operation completed successfully.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AGENT_UNAVAILABLE",
+      "category": "Execution",
+      "exit_code": 1,
+      "http_status": 503,
+      "problem_title": "LLM Agent Service Unavailable",
+      "problem_type_uri": "urn:opendv:error:agent-unavailable",
+      "description": "LLM agent backend or reasoning harness unreachable or exhausted.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "CONFLICTING_WORKSPACE_SEED_PARAMS",
+      "category": "Preconditions",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "Conflicting Workspace Seed Parameters",
+      "problem_type_uri": "urn:opendv:error:conflicting-workspace-seed-params",
+      "description": "Conflicting workspace seeding parameters provided during session initialization.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "CORRUPT_SESSION_RECORD",
+      "category": "Execution",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Corrupt Session Record",
+      "problem_type_uri": "urn:opendv:error:corrupt-session-record",
+      "description": "Session JSON or meta record corrupted, malformed, or unparseable.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "EXPORT_RATIONALE_REQUIRED",
+      "category": "Preconditions",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "Export Rationale Required",
+      "problem_type_uri": "urn:opendv:error:export-rationale-required",
+      "description": "Export rationale missing or blank when exporting confidential or tainted session bundle.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": true,
+        "waiver_flag": null,
+        "rationale_flag": "--export-rationale",
+        "min_rationale_chars": 1,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "HISTORICAL_CONTRACT_RATIONALE_REQUIRED",
+      "category": "Preconditions",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "Historical Contract Rationale Required",
+      "problem_type_uri": "urn:opendv:error:historical-contract-rationale-required",
+      "description": "Rationale missing or blank when acknowledging historical contract warnings.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": true,
+        "waiver_flag": null,
+        "rationale_flag": "--historical-contract-rationale",
+        "min_rationale_chars": 10,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_GROUNDING_RATIONALE_REQUIRED",
+      "category": "Preconditions",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "Import Grounding Rationale Required",
+      "problem_type_uri": "urn:opendv:error:import-grounding-rationale-required",
+      "description": "Acknowledgement rationale missing or blank when importing session with unverified grounding or self-accepted proposals.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": true,
+        "waiver_flag": null,
+        "rationale_flag": "--acknowledgement-rationale",
+        "min_rationale_chars": 10,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "INSECURE_STUDIO_ROOT_PERMISSIONS",
+      "category": "Execution",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Insecure Studio Root Permissions",
+      "problem_type_uri": "urn:opendv:error:insecure-studio-root-permissions",
+      "description": "Studio root or session directory permissions insecure (requires 0700/0600 DACL).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "JOB_ABANDONED_SERVER_CRASH",
+      "category": "Execution",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Background Job Abandoned Due to Server Crash",
+      "problem_type_uri": "urn:opendv:error:job-abandoned-server-crash",
+      "description": "Background job abandoned due to worker crash or unhandled server process termination.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "MATCHER_UNIDATA_VERSION_MISMATCH",
+      "category": "Execution",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Matcher Unicode Character Tables Version Mismatch",
+      "problem_type_uri": "urn:opendv:error:matcher-unidata-version-mismatch",
+      "description": "Runtime Unicode character tables or tokenization version diverge from pinned specification.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "NO_OP_DELTA",
+      "category": "Verification",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "No-Op Delta",
+      "problem_type_uri": "urn:opendv:error:no-op-delta",
+      "description": "Delta contains no semantic modifications or workspace promotion contains zero edits beyond seed root.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "OCR_UNAVAILABLE",
+      "category": "Execution",
+      "exit_code": 1,
+      "http_status": 503,
+      "problem_title": "OCR Engine Unavailable",
+      "problem_type_uri": "urn:opendv:error:ocr-unavailable",
+      "description": "Optical Character Recognition engine or dependency unavailable for complex document layout.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "OFFICE_CONVERSION_UNAVAILABLE",
+      "category": "Execution",
+      "exit_code": 1,
+      "http_status": 503,
+      "problem_title": "Office Document Conversion Unavailable",
+      "problem_type_uri": "urn:opendv:error:office-conversion-unavailable",
+      "description": "LibreOffice / soffice conversion engine unavailable for binary office document ingestion.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PROMOTION_RATIONALE_REQUIRED",
+      "category": "Preconditions",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "Promotion Rationale Required",
+      "problem_type_uri": "urn:opendv:error:promotion-rationale-required",
+      "description": "Promotion rationale is missing, blank, or empty when promoting session to workspace.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": true,
+        "waiver_flag": null,
+        "rationale_flag": "--rationale",
+        "min_rationale_chars": 10,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "REFERENCE_PACK_INTEGRITY_FAILURE",
+      "category": "Execution",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Reference Pack Integrity Failure",
+      "problem_type_uri": "urn:opendv:error:reference-pack-integrity-failure",
+      "description": "Reference ontology pack file corrupted or digest does not match registry entry.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "VERSION_COMMIT_IO_FAILURE",
+      "category": "Execution",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Version Commit IO Failure",
+      "problem_type_uri": "urn:opendv:error:version-commit-io-failure",
+      "description": "Disk IO failure or atomic replacement error while persisting committed version artifacts.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "INVALID_EVIDENCE_OFFSETS",
+      "category": "Step 0 Syntax",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Invalid Evidence Offsets",
+      "problem_type_uri": "urn:opendv:error:invalid-evidence-offsets",
+      "description": "Character start offset greater than or equal to end offset, or span length exceeds 1000 characters.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "INVALID_PRECONDITION_HEADER",
+      "category": "Preconditions",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Invalid Precondition Header",
+      "problem_type_uri": "urn:opendv:error:invalid-precondition-header",
+      "description": "Wildcard If-Match: * or weak ETag W/\"...\" supplied where strong exact SHA is required.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "INVALID_SESSION_IDENTIFIER",
+      "category": "Preconditions",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Invalid Session Identifier",
+      "problem_type_uri": "urn:opendv:error:invalid-session-identifier",
+      "description": "Session identifier invalid (must match ^[a-z0-9_-]{1,64}$, no reserved Windows device names or route keywords).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "INVALID_WORKSPACE_PATH",
+      "category": "Preconditions",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Invalid Workspace Path",
+      "problem_type_uri": "urn:opendv:error:invalid-workspace-path",
+      "description": "Workspace directory path does not resolve within OPENDV_WORKSPACE_ROOTS containment boundary.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "MISSING_AUTO_COMMIT_PRECONDITION",
+      "category": "Preconditions",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Missing Auto-Commit Precondition",
+      "problem_type_uri": "urn:opendv:error:missing-auto-commit-precondition",
+      "description": "Auto-commit construction request missing required base_version or base_sha256 pin.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "MISSING_PRECONDITION_HEADER",
+      "category": "Preconditions",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Missing Precondition Header",
+      "problem_type_uri": "urn:opendv:error:missing-precondition-header",
+      "description": "Required If-Match or X-OpenDV-Workspace-If-Match precondition header missing from request.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PRECONDITION_BASE_SHA_MISMATCH",
+      "category": "Preconditions",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Precondition Base SHA Mismatch",
+      "problem_type_uri": "urn:opendv:error:precondition-base-sha-mismatch",
+      "description": "If-Match header does not match body base_sha256, or proposal base_version does not match active_version.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "REMOTE_SERVER_PATH_FORBIDDEN",
+      "category": "Preconditions",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Remote Server Path Forbidden",
+      "problem_type_uri": "urn:opendv:error:remote-server-path-forbidden",
+      "description": "Server path flag specified across remote network client boundary (disallowed in client-server mode).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "SYNTAX_INVALID_ARGUMENT",
+      "category": "Step 0 Syntax",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Invalid Argument Syntax",
+      "problem_type_uri": "urn:opendv:error:syntax-invalid-argument",
+      "description": "Syntax validation failure, missing required CLI flag, malformed payload, or unknown field.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "VALIDATION_AMBIGUOUS_TARGET",
+      "category": "Step 0 Syntax",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Ambiguous Target Specifier",
+      "problem_type_uri": "urn:opendv:error:validation-ambiguous-target",
+      "description": "Ambiguous target specifier (e.g. relationship_uri mismatch with slug or conflicting target_kind/concept_uri).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "JOB_NOT_FOUND",
+      "category": "Resolution",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Job Not Found",
+      "problem_type_uri": "urn:opendv:error:job-not-found",
+      "description": "Specified background execution job identifier does not exist.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PROPOSAL_NOT_FOUND",
+      "category": "Resolution",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Proposal Not Found",
+      "problem_type_uri": "urn:opendv:error:proposal-not-found",
+      "description": "Specified proposal identifier does not exist in session.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "SESSION_NOT_FOUND",
+      "category": "Resolution",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Session Not Found",
+      "problem_type_uri": "urn:opendv:error:session-not-found",
+      "description": "Specified studio session identifier does not exist.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "SOURCE_NOT_FOUND",
+      "category": "Resolution",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Source Document Not Found",
+      "problem_type_uri": "urn:opendv:error:source-not-found",
+      "description": "Specified source document identifier does not exist in session inputs.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "VERSION_NOT_FOUND",
+      "category": "Resolution",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Version Not Found",
+      "problem_type_uri": "urn:opendv:error:version-not-found",
+      "description": "Specified ontology version does not exist in session history.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AGENT_UNRESOLVED_PSEUDONYM",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Agent Unresolved Pseudonym",
+      "problem_type_uri": "urn:opendv:error:agent-unresolved-pseudonym",
+      "description": "Agent proposal contains unresolved HMAC pseudonym token in URI, slug, or label.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AMBIGUOUS_EXTERNAL_MAPPING",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Ambiguous External Mapping",
+      "problem_type_uri": "urn:opendv:error:ambiguous-external-mapping",
+      "description": "Multiple external mappings match standard URI when mapping_type was omitted, or duplicate mapping tuple.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ARCHIVE_SECURITY_VIOLATION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Archive Security Violation",
+      "problem_type_uri": "urn:opendv:error:archive-security-violation",
+      "description": "Bundle archive violates security limits (path traversal, zip bomb, drive prefix, absolute paths, >250MB, >500 entries, symlinks).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ATTRIBUTE_NOT_FOUND",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Attribute Not Found",
+      "problem_type_uri": "urn:opendv:error:attribute-not-found",
+      "description": "Attribute name specified for removal does not exist on concept.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AUTOMATED_ATTRIBUTION_INVALID",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Automated Attribution",
+      "problem_type_uri": "urn:opendv:error:automated-attribution-invalid",
+      "description": "Automated actor attribution mismatch in delta record or direct mutation envelope.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "CANNOT_DELETE_PROMOTED_SESSION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Cannot Delete Promoted Session",
+      "problem_type_uri": "urn:opendv:error:cannot-delete-promoted-session",
+      "description": "Cannot delete a session that has been promoted to a live workspace.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "CANNOT_PRUNE_PROMOTED_SESSION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Cannot Prune Promoted Session",
+      "problem_type_uri": "urn:opendv:error:cannot-prune-promoted-session",
+      "description": "Cannot prune a session that has been promoted to a live workspace.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "CONCEPT_STILL_REFERENCED",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Concept Still Referenced",
+      "problem_type_uri": "urn:opendv:error:concept-still-referenced",
+      "description": "Cannot delete concept because it is still referenced as parent, relationship endpoint, or foreign key.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Confidential Source Export Unacknowledged",
+      "problem_type_uri": "urn:opendv:error:confidential-source-export-unacknowledged",
+      "description": "Session bundle export contains confidential sources and was not acknowledged by operator.",
+      "waivability": {
+        "is_waivable": true,
+        "rationale_required": true,
+        "waiver_flag": "--acknowledge-confidential-source-export",
+        "rationale_flag": "--export-rationale",
+        "min_rationale_chars": 1,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "DANGLING_ENUM_CODE_DESCRIPTION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Dangling Enumeration Code Description",
+      "problem_type_uri": "urn:opendv:error:dangling-enum-code-description",
+      "description": "Enumeration code_descriptions dictionary contains key not present in allowed_codes.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "DESCRIPTION_ALREADY_EXISTS",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Description Already Exists",
+      "problem_type_uri": "urn:opendv:error:description-already-exists",
+      "description": "Target entity already has a description; revision must use ReviseDescriptionOp instead of SetDescriptionOp.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "DUPLICATE_ATTRIBUTE_NAME",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Duplicate Attribute Name",
+      "problem_type_uri": "urn:opendv:error:duplicate-attribute-name",
+      "description": "Duplicate attribute name specified within concept attributes collection.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "DUPLICATE_ENUM_CODE",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Duplicate Enumeration Code",
+      "problem_type_uri": "urn:opendv:error:duplicate-enum-code",
+      "description": "Duplicate code specified within enumeration allowed_codes.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "DUPLICATE_RELATIONSHIP_NAME",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Duplicate Relationship Name",
+      "problem_type_uri": "urn:opendv:error:duplicate-relationship-name",
+      "description": "Relationship name collides with an existing relationship name.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "DUPLICATE_RELATIONSHIP_URI",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Duplicate Relationship URI",
+      "problem_type_uri": "urn:opendv:error:duplicate-relationship-uri",
+      "description": "Relationship URI collides with an existing relationship URI in ontology.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "DUPLICATE_SYNONYM",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Duplicate Synonym",
+      "problem_type_uri": "urn:opendv:error:duplicate-synonym",
+      "description": "Duplicate synonym string specified within concept synonyms collection.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ENUM_CODE_NOT_FOUND",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Enumeration Code Not Found",
+      "problem_type_uri": "urn:opendv:error:enum-code-not-found",
+      "description": "Enumeration code specified for removal does not exist in allowed_codes.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "EVIDENCE_OFFSET_OUT_OF_RANGE",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Evidence Offset Out of Range",
+      "problem_type_uri": "urn:opendv:error:evidence-offset-out-of-range",
+      "description": "Evidence character offsets exceed bounds of source document text.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "GENESIS_REQUIRES_CONCEPT",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Genesis Version Requires Concept",
+      "problem_type_uri": "urn:opendv:error:genesis-requires-concept",
+      "description": "Genesis draft transition from 0.0.0 to 1.0.0 requires at least one Canonical Business Concept.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "HIERARCHICAL_CYCLE_DETECTED",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Hierarchical Cycle Detected",
+      "problem_type_uri": "urn:opendv:error:hierarchical-cycle-detected",
+      "description": "Parent concept assignment introduces a directed cycle in taxonomy DAG.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Historical Contract Warning Unacknowledged",
+      "problem_type_uri": "urn:opendv:error:historical-contract-warning-unacknowledged",
+      "description": "Promotion rejected due to unacknowledged historical contract warnings on deployed artifacts.",
+      "waivability": {
+        "is_waivable": true,
+        "rationale_required": true,
+        "waiver_flag": "--acknowledge-historical-contract-warning",
+        "rationale_flag": "--historical-contract-rationale",
+        "min_rationale_chars": 10,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "HUB_BIJECTION_VIOLATION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Hub Bijection Violation",
+      "problem_type_uri": "urn:opendv:error:hub-bijection-violation",
+      "description": "Violation of 1:1 bijection between Canonical Business Concept and physical Hub table.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_ADMIN_OP_FORBIDDEN",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Admin Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:import-admin-op-forbidden",
+      "description": "Imported history contains admin operation or waiver claimed by non-human principal.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_AGENT_DESTRUCTIVE_OP_FORBIDDEN",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Agent Destructive Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:import-agent-destructive-op-forbidden",
+      "description": "Imported history contains destructive operation authored by automated agent actor.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_AUTOMATED_ATTRIBUTION_INVALID",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Invalid Automated Attribution",
+      "problem_type_uri": "urn:opendv:error:import-automated-attribution-invalid",
+      "description": "Imported history contains invalid automated actor attribution.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_CONFIDENCE_MISMATCH",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Confidence Mismatch",
+      "problem_type_uri": "urn:opendv:error:import-confidence-mismatch",
+      "description": "Imported external mapping confidence does not match verify-only BM25 score against reference pack.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_DELTA_REPLAY_HASH_MISMATCH",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Delta Replay Hash Mismatch",
+      "problem_type_uri": "urn:opendv:error:import-delta-replay-hash-mismatch",
+      "description": "Replaying delta on base version does not reproduce recorded target_sha256 or ontology.json bytes.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_ENVELOPE_VIOLATION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Envelope Violation",
+      "problem_type_uri": "urn:opendv:error:import-envelope-violation",
+      "description": "Imported delta history contains envelope violation or disallowed actor mutation.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_GROUNDING_VIOLATION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Grounding Violation",
+      "problem_type_uri": "urn:opendv:error:import-grounding-violation",
+      "description": "Imported session bundle contains low-confidence mappings or unverified grounding without operator acknowledgement.",
+      "waivability": {
+        "is_waivable": true,
+        "rationale_required": true,
+        "waiver_flag": "--acknowledge-unverified-import-attribution",
+        "rationale_flag": "--acknowledgement-rationale",
+        "min_rationale_chars": 10,
+        "admin_required": true
+      }
+    },
+    {
+      "code": "IMPORT_LINEAGE_BROKEN",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Lineage Broken",
+      "problem_type_uri": "urn:opendv:error:import-lineage-broken",
+      "description": "Imported version history contains broken parent_sha256 cryptographic lineage.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_MATCHER_VERSION_MISMATCH",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Matcher Version Mismatch",
+      "problem_type_uri": "urn:opendv:error:import-matcher-version-mismatch",
+      "description": "Matcher SHA-256 cited in imported version metadata is not registered on host system.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_PROVISIONAL_URI_FORBIDDEN",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Provisional URI Forbidden",
+      "problem_type_uri": "urn:opendv:error:import-provisional-uri-forbidden",
+      "description": "Imported ontology contains provisional URN token (urn:opendv:provisional:), forbidden in bundles.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_SELF_ACCEPTANCE_UNACKNOWLEDGED",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Self-Acceptance Unacknowledged",
+      "problem_type_uri": "urn:opendv:error:import-self-acceptance-unacknowledged",
+      "description": "Imported session bundle contains self-accepted proposal without required operator acknowledgement.",
+      "waivability": {
+        "is_waivable": true,
+        "rationale_required": true,
+        "waiver_flag": "--acknowledge-unverified-import-attribution",
+        "rationale_flag": "--acknowledgement-rationale",
+        "min_rationale_chars": 10,
+        "admin_required": true
+      }
+    },
+    {
+      "code": "IMPORT_SEMVER_BUMP_MISMATCH",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import SemVer Bump Mismatch",
+      "problem_type_uri": "urn:opendv:error:import-semver-bump-mismatch",
+      "description": "Recorded version bump in imported delta does not match SemVer rule calculation for operations.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "IMPORT_UNKNOWN_REFERENCE_PACK",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Unknown Reference Pack",
+      "problem_type_uri": "urn:opendv:error:import-unknown-reference-pack",
+      "description": "Pinned reference pack cited in imported external mapping is not registered on host system.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "INVALID_EVIDENCE_GROUNDING",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Evidence Grounding",
+      "problem_type_uri": "urn:opendv:error:invalid-evidence-grounding",
+      "description": "Evidence grounding approval snippet does not match CAS source blob byte-for-byte at specified offsets.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "INVALID_GROUNDING_WAIVER",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Grounding Waiver",
+      "problem_type_uri": "urn:opendv:error:invalid-grounding-waiver",
+      "description": "Grounding waiver syntax invalid, rationale length < 10 characters, or ungrounded concepts list inconsistent.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "INVALID_PHYSICAL_TABLE_NAME",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Physical Table Name",
+      "problem_type_uri": "urn:opendv:error:invalid-physical-table-name",
+      "description": "Derived or overridden physical table name exceeds 55/63 character limit or violates naming grammar.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "INVALID_PROPOSAL_STATE",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Proposal State",
+      "problem_type_uri": "urn:opendv:error:invalid-proposal-state",
+      "description": "Proposal state transition invalid (e.g. resolving a non-pending proposal).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "INVALID_WORKSPACE_ONTOLOGY",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Workspace Ontology",
+      "problem_type_uri": "urn:opendv:error:invalid-workspace-ontology",
+      "description": "Workspace ontology file fails GraphAOntology schema validation or non-SemVer version string.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "MAPPING_NOT_FOUND",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "External Mapping Not Found",
+      "problem_type_uri": "urn:opendv:error:mapping-not-found",
+      "description": "External mapping standard URI specified for removal or repinning does not exist on concept.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ONTOLOGY_REQUIRES_CONCEPT",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Ontology Requires Concept",
+      "problem_type_uri": "urn:opendv:error:ontology-requires-concept",
+      "description": "Cannot delete concept because ontology must contain at least one Canonical Business Concept.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ONT_EVO_CONTRACT_VIOLATION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Contract Violation",
+      "problem_type_uri": "urn:opendv:error:ont-evo-contract-violation",
+      "description": "Deployed contract violation: destructive mutation over deployed table or column, or attribution mismatch.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ONT_EVO_ENVELOPE_VIOLATION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Envelope Violation",
+      "problem_type_uri": "urn:opendv:error:ont-evo-envelope-violation",
+      "description": "Destructive operation in additive OntologyDeltaRequest or automated actor attempting revision.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ONT_EVO_FORGED_PROVENANCE",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Forged Provenance",
+      "problem_type_uri": "urn:opendv:error:ont-evo-forged-provenance",
+      "description": "Forged provenance detected: committed actor does not match authenticated principal or non-admin evidence approval.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ONT_EVO_GROUNDING_VIOLATION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Grounding Violation",
+      "problem_type_uri": "urn:opendv:error:ont-evo-grounding-violation",
+      "description": "Concept URI fails grammar, uses reserved provisional pattern, or references ungrounded reference ontology URI.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ONT_EVO_LOW_CONFIDENCE_GROUNDING",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Low Confidence Grounding",
+      "problem_type_uri": "urn:opendv:error:ont-evo-low-confidence-grounding",
+      "description": "Concept grounding score below 0.65 threshold without admin low-confidence grounding waiver.",
+      "waivability": {
+        "is_waivable": true,
+        "rationale_required": true,
+        "waiver_flag": "--low-confidence-waiver",
+        "rationale_flag": "--grounding-rationale",
+        "min_rationale_chars": 10,
+        "admin_required": true
+      }
+    },
+    {
+      "code": "ONT_EVO_PSEUDONYM_LEAK",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Pseudonym Leak",
+      "problem_type_uri": "urn:opendv:error:ont-evo-pseudonym-leak",
+      "description": "Confidential pseudonym token or HMAC leak detected in committed entity string field.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ONT_EVO_UNGROUNDED_CONCEPT",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Ungrounded Concept",
+      "problem_type_uri": "urn:opendv:error:ont-evo-ungrounded-concept",
+      "description": "Touched concept has zero reference mappings and zero evidence grounding snippets (strictly ungrounded, never waivable).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PARENT_ALREADY_EXISTS",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Parent Already Exists",
+      "problem_type_uri": "urn:opendv:error:parent-already-exists",
+      "description": "Concept already has a parent concept assigned; reassignment must use ReparentConceptOp.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PARENT_NOT_FOUND",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Parent Concept Not Found",
+      "problem_type_uri": "urn:opendv:error:parent-not-found",
+      "description": "Parent concept URI specified in SetParentConcept or ReparentConcept does not exist in ontology.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PHYSICAL_TABLE_NAME_COLLISION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Physical Table Name Collision",
+      "problem_type_uri": "urn:opendv:error:physical-table-name-collision",
+      "description": "Deterministic physical table slug collides with an existing physical table name.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "REDACTED_PLACEHOLDER_LEAK",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Redacted Placeholder Leak",
+      "problem_type_uri": "urn:opendv:error:redacted-placeholder-leak",
+      "description": "Redacted placeholder token ([REDACTED_ODV_*]) leaked into production ontology entity field.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "REFERENCED_CONCEPT_NOT_FOUND",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Referenced Concept Not Found",
+      "problem_type_uri": "urn:opendv:error:referenced-concept-not-found",
+      "description": "Target concept URI cited in relationship, parent, attribute, or mapping does not exist in ontology.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "RELATIONSHIP_NOT_FOUND",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Relationship Not Found",
+      "problem_type_uri": "urn:opendv:error:relationship-not-found",
+      "description": "Relationship URI specified for deletion does not exist in ontology.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "SOURCE_REFERENCED_BY_COMMITTED_VERSION",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Source Referenced by Committed Version",
+      "problem_type_uri": "urn:opendv:error:source-referenced-by-committed-version",
+      "description": "CAS GC cannot purge source file because it is cited as evidence in a committed ontology version.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "SOURCE_REFERENCED_BY_PENDING_PROPOSAL",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Source Referenced by Pending Proposal",
+      "problem_type_uri": "urn:opendv:error:source-referenced-by-pending-proposal",
+      "description": "CAS GC cannot purge source file because it is cited as evidence in a pending proposal.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "UNDEFINED_PHYSICAL_TABLE_MAPPING",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Undefined Physical Table Mapping",
+      "problem_type_uri": "urn:opendv:error:undefined-physical-table-mapping",
+      "description": "Physical table mapping undefined or unresolvable for concept or relationship.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "UNKNOWN_REFERENCE_PACK",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Unknown Reference Pack",
+      "problem_type_uri": "urn:opendv:error:unknown-reference-pack",
+      "description": "Pinned reference_pack_id and reference_pack_sha256 not found in reference ontology registry.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "VERSION_CONSISTENCY_MISMATCH",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Version Consistency Mismatch",
+      "problem_type_uri": "urn:opendv:error:version-consistency-mismatch",
+      "description": "Canonical ontology_version does not equal legacy alias version when both are provided.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "LINEAGE_ROOT_MISMATCH",
+      "category": "Resolution",
+      "exit_code": 5,
+      "http_status": 412,
+      "problem_title": "Lineage Root Mismatch",
+      "problem_type_uri": "urn:opendv:error:lineage-root-mismatch",
+      "description": "Promotion rejected because workspace SHA is not in session lineage history.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "ONT_EVO_CONCURRENT_MODIFICATION",
+      "category": "Resolution",
+      "exit_code": 5,
+      "http_status": 412,
+      "problem_title": "ONT-EVO Concurrent Modification",
+      "problem_type_uri": "urn:opendv:error:ont-evo-concurrent-modification",
+      "description": "Concurrency conflict: base_sha256 does not match current session head_sha256, or concurrent edit detected.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "JOB_COMMIT_IN_PROGRESS",
+      "category": "Resolution",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Job Commit In Progress",
+      "problem_type_uri": "urn:opendv:error:job-commit-in-progress",
+      "description": "Mutating operation rejected because background job commit or pipeline is currently in progress.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "LOCK_TIMEOUT",
+      "category": "Resolution",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Lock Acquisition Timeout",
+      "problem_type_uri": "urn:opendv:error:lock-timeout",
+      "description": "Failed to acquire session, workspace, or job lock within timeout deadline.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PRINCIPAL_ALREADY_EXISTS",
+      "category": "Resolution",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Principal Already Exists",
+      "problem_type_uri": "urn:opendv:error:principal-already-exists",
+      "description": "Principal identifier already registered in authorization store.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PRINCIPAL_RESERVED",
+      "category": "Resolution",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Principal Identifier Reserved",
+      "problem_type_uri": "urn:opendv:error:principal-reserved",
+      "description": "Principal identifier is reserved by system (e.g. human:local_admin).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PROPOSAL_ALREADY_RESOLVED",
+      "category": "Resolution",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Proposal Already Resolved",
+      "problem_type_uri": "urn:opendv:error:proposal-already-resolved",
+      "description": "Proposal has already been resolved (ACCEPTED or REJECTED) and cannot be accepted, rejected, or rebased.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "STUDIO_ALREADY_INITIALIZED",
+      "category": "Resolution",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Studio Already Initialized",
+      "problem_type_uri": "urn:opendv:error:studio-already-initialized",
+      "description": "Studio root or local token already initialized (.local_token exists).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AGENT_ADMIN_OP_FORBIDDEN",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Admin Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-admin-op-forbidden",
+      "description": "Automated agent actor attempted to grant waiver or invoke admin operation.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AGENT_DESTRUCTIVE_OP_FORBIDDEN",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Destructive Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-destructive-op-forbidden",
+      "description": "Automated agent actor emitted destructive mutation in proposal or construction output.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AGENT_METADATA_OVERWRITE_FORBIDDEN",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Metadata Overwrite Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-metadata-overwrite-forbidden",
+      "description": "Automated agent actor attempted to overwrite existing human-authored description or metadata.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AGENT_OPERATION_FORBIDDEN",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-operation-forbidden",
+      "description": "Automated actor attempted operation restricted strictly to human users (e.g. direct /delta apply).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AGENT_PROPOSAL_ACCEPT_FORBIDDEN",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Proposal Accept Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-proposal-accept-forbidden",
+      "description": "Automated agent actor attempted to accept proposal (proposals must be accepted by human stewards).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "CSRF_ORIGIN_MISMATCH",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "CSRF Origin Mismatch",
+      "problem_type_uri": "urn:opendv:error:csrf-origin-mismatch",
+      "description": "Cross-site request forgery check failed: Origin or Referer header does not match Host allowlist.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "FORBIDDEN_ADMIN_REQUIRED",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Forbidden: Admin Role Required",
+      "problem_type_uri": "urn:opendv:error:forbidden-admin-required",
+      "description": "Operation requires admin role privilege (e.g. revisions, waivers, self-acceptance override, promote).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Loopback Privilege Disabled in Remote Mode",
+      "problem_type_uri": "urn:opendv:error:loopback-privilege-disabled-in-remote-mode",
+      "description": "Loopback authentication or admin initialization disabled when server is running in remote mode.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Proposal Self-Acceptance Forbidden",
+      "problem_type_uri": "urn:opendv:error:proposal-self-acceptance-forbidden",
+      "description": "User who triggered proposal cannot accept it without admin override flag (--allow-self-accepted-proposals).",
+      "waivability": {
+        "is_waivable": true,
+        "rationale_required": false,
+        "waiver_flag": "--allow-self-accepted-proposals",
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": true
+      }
+    },
+    {
+      "code": "SERVER_OPERATION_FORBIDDEN",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Server Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:server-operation-forbidden",
+      "description": "Client attempted operation restricted strictly to server-internal execution (e.g. RescoreExternalMappingOp submission).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "UNAUTHENTICATED",
+      "category": "Resolution",
+      "exit_code": 7,
+      "http_status": 401,
+      "problem_title": "Unauthenticated Request",
+      "problem_type_uri": "urn:opendv:error:unauthenticated",
+      "description": "Authentication missing, invalid, expired, or failed token resolution.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "PAYLOAD_TOO_LARGE",
+      "category": "Preconditions",
+      "exit_code": 2,
+      "http_status": 413,
+      "problem_title": "Payload Too Large",
+      "problem_type_uri": "urn:opendv:payload-too-large",
+      "description": "Request entity, uploaded source file, or session archive exceeds size limits.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    }
+  ]
+}
