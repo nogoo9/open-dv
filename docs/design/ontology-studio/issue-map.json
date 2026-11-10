@@ -1,0 +1,376 @@
+{
+  "repo": "nogoo9/open-dv",
+  "createdAt": "2026-11-10T09:00:45Z",
+  "dryRun": false,
+  "epic": {
+    "id": 193,
+    "title": "[Tracker] Open-DV Ontology Construction Studio: Autonomous Multi-Phase Delivery Plan (Phases 0-6)",
+    "url": "https://github.com/nogoo9/open-dv/issues/193"
+  },
+  "phases": [
+    {
+      "key": "phase_4",
+      "id": 194,
+      "title": "[Phase 4] Wave 1 Foundation: Core Models, Ingestion, FIBO Vendor Pack & CAS Session Storage",
+      "url": "https://github.com/nogoo9/open-dv/issues/194"
+    },
+    {
+      "key": "phase_5",
+      "id": 195,
+      "title": "[Phase 5] Wave 2 Engine & UI: Dual-Mode Engine, Platform API, Dual CLI Parity & Web Workbench",
+      "url": "https://github.com/nogoo9/open-dv/issues/195"
+    },
+    {
+      "key": "phase_6",
+      "id": 196,
+      "title": "[Phase 6] Wave 3 Integration & Release: E2E Verification, CI Golden Evaluation, Docs & Release PR",
+      "url": "https://github.com/nogoo9/open-dv/issues/196"
+    }
+  ],
+  "tasks": [
+    {
+      "taskId": "4A.1",
+      "phaseKey": "phase_4",
+      "track": "4A",
+      "id": 197,
+      "title": "[Task 4A.1] GraphAOntology Model Extension & Optional Fields",
+      "url": "https://github.com/nogoo9/open-dv/issues/197"
+    },
+    {
+      "taskId": "4A.2",
+      "phaseKey": "phase_4",
+      "track": "4A",
+      "id": 198,
+      "title": "[Task 4A.2] Canonical JCS Hash Stability & Zero-Drift Invariance",
+      "url": "https://github.com/nogoo9/open-dv/issues/198"
+    },
+    {
+      "taskId": "4A.3",
+      "phaseKey": "phase_4",
+      "track": "4A",
+      "id": 199,
+      "title": "[Task 4A.3] Full 24-Op OntologyDelta Catalog, SPI Definitions & OCC Envelope",
+      "url": "https://github.com/nogoo9/open-dv/issues/199"
+    },
+    {
+      "taskId": "4A.4",
+      "phaseKey": "phase_4",
+      "track": "4A",
+      "id": 200,
+      "title": "[Task 4A.4] Pure State Applier, SemVer Calculus & ONT-EVO Governance Guards",
+      "url": "https://github.com/nogoo9/open-dv/issues/200"
+    },
+    {
+      "taskId": "4B.1",
+      "phaseKey": "phase_4",
+      "track": "4B",
+      "id": 201,
+      "title": "[Task 4B.1] DocumentAdapter SPI & Ingestion Service Framework",
+      "url": "https://github.com/nogoo9/open-dv/issues/201"
+    },
+    {
+      "taskId": "4B.2",
+      "phaseKey": "phase_4",
+      "track": "4B",
+      "id": 202,
+      "title": "[Task 4B.2] LiteParse 0.4.x Native PDF Adapter & Unicode Offset Mapping",
+      "url": "https://github.com/nogoo9/open-dv/issues/202"
+    },
+    {
+      "taskId": "4B.3",
+      "phaseKey": "phase_4",
+      "track": "4B",
+      "id": 203,
+      "title": "[Task 4B.3] Layout Complexity Evaluator & Tesseract OCR Routing",
+      "url": "https://github.com/nogoo9/open-dv/issues/203"
+    },
+    {
+      "taskId": "4B.4",
+      "phaseKey": "phase_4",
+      "track": "4B",
+      "id": 204,
+      "title": "[Task 4B.4] Multi-Format Ingestion Adapters (MD, CSV, Parquet, JSON, HTML, Office)",
+      "url": "https://github.com/nogoo9/open-dv/issues/204"
+    },
+    {
+      "taskId": "4C.1",
+      "phaseKey": "phase_4",
+      "track": "4C",
+      "id": 205,
+      "title": "[Task 4C.1] FIBO Compilation Script (scripts/vendor_fibo.py)",
+      "url": "https://github.com/nogoo9/open-dv/issues/205"
+    },
+    {
+      "taskId": "4C.2",
+      "phaseKey": "phase_4",
+      "track": "4C",
+      "id": 206,
+      "title": "[Task 4C.2] Reference Ontology SPI & Runtime rdflib Loader",
+      "url": "https://github.com/nogoo9/open-dv/issues/206"
+    },
+    {
+      "taskId": "4C.3",
+      "phaseKey": "phase_4",
+      "track": "4C",
+      "id": 207,
+      "title": "[Task 4C.3] Transitive subClassOf Closure Resolver & Grounding Guard",
+      "url": "https://github.com/nogoo9/open-dv/issues/207"
+    },
+    {
+      "taskId": "4D.1",
+      "phaseKey": "phase_4",
+      "track": "4D",
+      "id": 208,
+      "title": "[Task 4D.1] CAS Session Directory Structure, Workspace Secret & HKDF Key Hierarchy",
+      "url": "https://github.com/nogoo9/open-dv/issues/208"
+    },
+    {
+      "taskId": "4D.2",
+      "phaseKey": "phase_4",
+      "track": "4D",
+      "id": 209,
+      "title": "[Task 4D.2] Global 5-Level Lock Hierarchy & Deadlock Prevention",
+      "url": "https://github.com/nogoo9/open-dv/issues/209"
+    },
+    {
+      "taskId": "4D.3",
+      "phaseKey": "phase_4",
+      "track": "4D",
+      "id": 210,
+      "title": "[Task 4D.3] Multi-File Atomic Commit Protocol, Crash Recovery & SSE Engine",
+      "url": "https://github.com/nogoo9/open-dv/issues/210"
+    },
+    {
+      "taskId": "5A.1",
+      "phaseKey": "phase_5",
+      "track": "5A",
+      "id": 211,
+      "title": "[Task 5A.1] Okapi BM25 Concept Matcher & GroundingVerifier Binding",
+      "url": "https://github.com/nogoo9/open-dv/issues/211"
+    },
+    {
+      "taskId": "5A.2",
+      "phaseKey": "phase_5",
+      "track": "5A",
+      "id": 212,
+      "title": "[Task 5A.2] Deterministic Fallback Construction Engine",
+      "url": "https://github.com/nogoo9/open-dv/issues/212"
+    },
+    {
+      "taskId": "5A.3",
+      "phaseKey": "phase_5",
+      "track": "5A",
+      "id": 213,
+      "title": "[Task 5A.3] 3-Persona LLM Agent Reasoning Harness",
+      "url": "https://github.com/nogoo9/open-dv/issues/213"
+    },
+    {
+      "taskId": "5A.4",
+      "phaseKey": "phase_5",
+      "track": "5A",
+      "id": 214,
+      "title": "[Task 5A.4] Clarification Question Generation & Answer Harness",
+      "url": "https://github.com/nogoo9/open-dv/issues/214"
+    },
+    {
+      "taskId": "5B.1",
+      "phaseKey": "phase_5",
+      "track": "5B",
+      "id": 215,
+      "title": "[Task 5B.1] Studio Session & Source Management REST Endpoints (Routes 1-11)",
+      "url": "https://github.com/nogoo9/open-dv/issues/215"
+    },
+    {
+      "taskId": "5B.2",
+      "phaseKey": "phase_5",
+      "track": "5B",
+      "id": 216,
+      "title": "[Task 5B.2] Parse, Clarification, Construction & Job REST Endpoints (Routes 12-18)",
+      "url": "https://github.com/nogoo9/open-dv/issues/216"
+    },
+    {
+      "taskId": "5B.3",
+      "phaseKey": "phase_5",
+      "track": "5B",
+      "id": 217,
+      "title": "[Task 5B.3] Deltas, Proposals, Waiver Acceptance, Export & Promotion (Routes 19-27)",
+      "url": "https://github.com/nogoo9/open-dv/issues/217"
+    },
+    {
+      "taskId": "5B.4",
+      "phaseKey": "phase_5",
+      "track": "5B",
+      "id": 218,
+      "title": "[Task 5B.4] Dual Server Modes, Security Guards & 11-Step Error Precedence",
+      "url": "https://github.com/nogoo9/open-dv/issues/218"
+    },
+    {
+      "taskId": "5C.1",
+      "phaseKey": "phase_5",
+      "track": "5C",
+      "id": 219,
+      "title": "[Task 5C.1] Standalone opendv Studio Subcommands with Waiver Flag",
+      "url": "https://github.com/nogoo9/open-dv/issues/219"
+    },
+    {
+      "taskId": "5C.2",
+      "phaseKey": "phase_5",
+      "track": "5C",
+      "id": 220,
+      "title": "[Task 5C.2] Bun opendvctl Studio Subcommands with Waiver Flag",
+      "url": "https://github.com/nogoo9/open-dv/issues/220"
+    },
+    {
+      "taskId": "5C.3",
+      "phaseKey": "phase_5",
+      "track": "5C",
+      "id": 221,
+      "title": "[Task 5C.3] Dual-CLI Bit-for-Bit Parity Verification Harness",
+      "url": "https://github.com/nogoo9/open-dv/issues/221"
+    },
+    {
+      "taskId": "5D.1",
+      "phaseKey": "phase_5",
+      "track": "5D",
+      "id": 222,
+      "title": "[Task 5D.1] Web Workbench SPA Shell & State Store (/ontology)",
+      "url": "https://github.com/nogoo9/open-dv/issues/222"
+    },
+    {
+      "taskId": "5D.2",
+      "phaseKey": "phase_5",
+      "track": "5D",
+      "id": 223,
+      "title": "[Task 5D.2] Sources & Parse Management Panel",
+      "url": "https://github.com/nogoo9/open-dv/issues/223"
+    },
+    {
+      "taskId": "5D.3",
+      "phaseKey": "phase_5",
+      "track": "5D",
+      "id": 224,
+      "title": "[Task 5D.3] Clarification Q&A Panel & Answer Submissions",
+      "url": "https://github.com/nogoo9/open-dv/issues/224"
+    },
+    {
+      "taskId": "5D.4",
+      "phaseKey": "phase_5",
+      "track": "5D",
+      "id": 225,
+      "title": "[Task 5D.4] React Flow + elkjs Graph Canvas & Multi-Tier LOD",
+      "url": "https://github.com/nogoo9/open-dv/issues/225"
+    },
+    {
+      "taskId": "5D.5",
+      "phaseKey": "phase_5",
+      "track": "5D",
+      "id": 226,
+      "title": "[Task 5D.5] Visual Diff Overlay & Visual Editor Drawer",
+      "url": "https://github.com/nogoo9/open-dv/issues/226"
+    },
+    {
+      "taskId": "5D.6",
+      "phaseKey": "phase_5",
+      "track": "5D",
+      "id": 227,
+      "title": "[Task 5D.6] Quality Scorecard, Steward Feedback & Multi-Format Export/Promotion Modal",
+      "url": "https://github.com/nogoo9/open-dv/issues/227"
+    },
+    {
+      "taskId": "6A.1",
+      "phaseKey": "phase_6",
+      "track": "6A",
+      "id": 228,
+      "title": "[Task 6A.1] CI Golden Evaluation Harness & Benchmark Ground Truth",
+      "url": "https://github.com/nogoo9/open-dv/issues/228"
+    },
+    {
+      "taskId": "6A.2",
+      "phaseKey": "phase_6",
+      "track": "6A",
+      "id": 229,
+      "title": "[Task 6A.2] Dual-Mode Benchmark Validation (Deterministic vs Agent)",
+      "url": "https://github.com/nogoo9/open-dv/issues/229"
+    },
+    {
+      "taskId": "6B.1",
+      "phaseKey": "phase_6",
+      "track": "6B",
+      "id": 230,
+      "title": "[Task 6B.1] Tier 1 & Tier 2 E2E Tests: Canonical Journeys & Boundaries",
+      "url": "https://github.com/nogoo9/open-dv/issues/230"
+    },
+    {
+      "taskId": "6B.2",
+      "phaseKey": "phase_6",
+      "track": "6B",
+      "id": 231,
+      "title": "[Task 6B.2] Tier 3 & Tier 4 E2E Tests: Combinatorial & Workload Chaos",
+      "url": "https://github.com/nogoo9/open-dv/issues/231"
+    },
+    {
+      "taskId": "6B.3",
+      "phaseKey": "phase_6",
+      "track": "6B",
+      "id": 232,
+      "title": "[Task 6B.3] Tier 5 Adversarial Hardening (Waivers, Zip Security, Taint)",
+      "url": "https://github.com/nogoo9/open-dv/issues/232"
+    },
+    {
+      "taskId": "6C.1",
+      "phaseKey": "phase_6",
+      "track": "6C",
+      "id": 233,
+      "title": "[Task 6C.1] Author docs/22-ontology-studio-user-guide.md",
+      "url": "https://github.com/nogoo9/open-dv/issues/233"
+    },
+    {
+      "taskId": "6C.2",
+      "phaseKey": "phase_6",
+      "track": "6C",
+      "id": 234,
+      "title": "[Task 6C.2] Author docs/23-ontology-studio-extension-guide.md",
+      "url": "https://github.com/nogoo9/open-dv/issues/234"
+    },
+    {
+      "taskId": "6D.1",
+      "phaseKey": "phase_6",
+      "track": "6D",
+      "id": 235,
+      "title": "[Task 6D.1] Synchronize CLI Reference (docs/16-cli-reference.md) & README.md",
+      "url": "https://github.com/nogoo9/open-dv/issues/235"
+    },
+    {
+      "taskId": "6D.2",
+      "phaseKey": "phase_6",
+      "track": "6D",
+      "id": 236,
+      "title": "[Task 6D.2] OpenAPI & CLI Spec Drift Verification & TypeScript Re-generation",
+      "url": "https://github.com/nogoo9/open-dv/issues/236"
+    },
+    {
+      "taskId": "6E.1",
+      "phaseKey": "phase_6",
+      "track": "6E",
+      "id": 237,
+      "title": "[Task 6E.1] Full Monorepo CI Suite Verification & Baseline Stability",
+      "url": "https://github.com/nogoo9/open-dv/issues/237"
+    },
+    {
+      "taskId": "6E.2",
+      "phaseKey": "phase_6",
+      "track": "6E",
+      "id": 238,
+      "title": "[Task 6E.2] GitHub Issue Tracker Final Closeout Audit",
+      "url": "https://github.com/nogoo9/open-dv/issues/238"
+    },
+    {
+      "taskId": "6E.3",
+      "phaseKey": "phase_6",
+      "track": "6E",
+      "id": 239,
+      "title": "[Task 6E.3] Final Release PR: dev/ontology-studio to main",
+      "url": "https://github.com/nogoo9/open-dv/issues/239"
+    }
+  ]
+}
