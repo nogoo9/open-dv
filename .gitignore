@@ -13,3 +13,6 @@ dist/
 worktrees/
 .opendv/
 .agents/
+.env
+delta.json
+

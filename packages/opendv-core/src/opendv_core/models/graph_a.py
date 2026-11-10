@@ -7,15 +7,39 @@ reference enumerations.
 
 from __future__ import annotations
 
-from typing import Any
+import math
+from decimal import ROUND_HALF_EVEN, Decimal
+from typing import Any, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
 
 
 class StrictGraphAModel(BaseModel):
     """Base model forbidding undeclared properties (`additionalProperties: false`)."""
 
     model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
+def _validate_json_metadata(v: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
+    """Validate metadata dictionary contains only finite, JSON-representable values."""
+    if v is None:
+        return None
+
+    def _check_finite(val: Any) -> None:
+        if isinstance(val, float):
+            if math.isnan(val) or math.isinf(val):
+                raise ValueError(f"Non-finite float {val} is not representable in canonical JSON")
+        elif isinstance(val, dict):
+            for k, subv in val.items():
+                if not isinstance(k, str):
+                    raise ValueError("Metadata dictionary keys must be strings")
+                _check_finite(subv)
+        elif isinstance(val, list):
+            for item in val:
+                _check_finite(item)
+
+    _check_finite(v)
+    return v
 
 
 class KeyAuthorityTierSpec(StrictGraphAModel):
@@ -63,6 +87,176 @@ class GovernanceConstraints(StrictGraphAModel):
     required_extraction_satellite_split: str | None = None
 
 
+class ConceptAttribute(StrictGraphAModel):
+    """Normalized conceptual attribute associated with a Canonical Business Concept."""
+
+    attribute_name: str = Field(
+        pattern=r"^[a-z0-9_]{1,64}$",
+        description="Normalized conceptual attribute identifier (lowercase, 1..64 chars)",
+    )
+    data_type: str = Field(
+        default="string",
+        description=(
+            "Logical data type classification "
+            "(e.g. string, integer, decimal, boolean, date, timestamp, binary)"
+        ),
+    )
+    description: str | None = Field(
+        default=None,
+        description="Conceptual definition / description of the attribute",
+    )
+    is_optional: bool | None = Field(
+        default=None,
+        description="Whether the attribute is optional in Data Vault satellite storage",
+    )
+    example_values: list[str] | None = Field(
+        default=None,
+        description="Sample representative values extracted from source evidence",
+    )
+    deprecated: bool | None = Field(
+        default=None,
+        description="Deprecation flag under human edit governance",
+    )
+    metadata: dict[str, JsonValue] | None = Field(
+        default=None,
+        description="Arbitrary conceptual metadata key-values",
+    )
+    source_hints: list[str] | None = Field(
+        default=None,
+        description="Provenance hints identifying source data feeds or columns",
+    )
+
+    @property
+    def definition(self) -> str | None:
+        """Alias for description."""
+        return self.description
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_attribute(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "name" in d:
+                val = d.pop("name")
+                if "attribute_name" in d and d["attribute_name"] != val:
+                    msg = f"attribute_name '{d['attribute_name']}' != name '{val}'"
+                    raise ValueError(f"Conflicting attribute name: {msg}")
+                d.setdefault("attribute_name", val)
+            if "definition" in d:
+                val = d.pop("definition")
+                if "description" in d and d["description"] != val:
+                    msg = f"description '{d['description']}' != definition '{val}'"
+                    raise ValueError(f"Conflicting description: {msg}")
+                d.setdefault("description", val)
+            return d
+        return data
+
+    @field_validator("metadata")
+    @classmethod
+    def _validate_metadata(cls, v: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
+        return _validate_json_metadata(v)
+
+
+class ExternalMapping(StrictGraphAModel):
+    """Grounded external reference ontology mapping (e.g. FIBO, ISO 20022, Wikidata)."""
+
+    scheme: str = Field(
+        min_length=1,
+        description=(
+            "Registered standard/scheme name "
+            "(e.g. 'fibo', 'edmcouncil', 'iso20022', 'wikidata', 'custom')"
+        ),
+    )
+    target_uri: str = Field(
+        min_length=1,
+        description="Target reference ontology URI",
+    )
+    confidence: float | None = Field(
+        default=None,
+        ge=0.0,
+        le=1.0,
+        description="Confidence score from 0.0 to 1.0 (quantized to 4 decimal places)",
+    )
+    predicate: str | None = Field(
+        default=None,
+        description=(
+            "Mapping relation predicate "
+            "(e.g. 'skos:exactMatch', 'skos:closeMatch', 'skos:broadMatch', 'skos:relatedMatch')"
+        ),
+    )
+    pinned: bool | None = Field(
+        default=None,
+        description="Whether mapping is pinned against automated re-scoring overrides",
+    )
+    provenance: str | None = Field(
+        default=None,
+        description=(
+            "Actor or pipeline attribution that authored the mapping "
+            "(e.g. 'human', 'agent', 'deterministic')"
+        ),
+    )
+    reference_pack_id: str | None = Field(
+        default=None,
+        description="Registered reference ontology pack ID",
+    )
+    reference_pack_sha256: str | None = Field(
+        default=None,
+        pattern=r"^[0-9a-f]{64}$",
+        description="SHA-256 digest of reference ontology pack",
+    )
+
+    @property
+    def standard_name(self) -> str:
+        """Alias for scheme."""
+        return self.scheme
+
+    @property
+    def standard_uri(self) -> str:
+        """Alias for target_uri."""
+        return self.target_uri
+
+    @property
+    def mapping_type(self) -> str | None:
+        """Alias for predicate."""
+        return self.predicate
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_mapping(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            d = dict(data)
+            if "standard_name" in d:
+                val = d.pop("standard_name")
+                if "scheme" in d and d["scheme"] != val:
+                    raise ValueError(
+                        f"Conflicting alias: scheme '{d['scheme']}' != standard_name '{val}'"
+                    )
+                d.setdefault("scheme", val)
+            if "standard_uri" in d:
+                val = d.pop("standard_uri")
+                if "target_uri" in d and d["target_uri"] != val:
+                    raise ValueError(
+                        f"Conflicting alias: target_uri '{d['target_uri']}' != standard_uri '{val}'"
+                    )
+                d.setdefault("target_uri", val)
+            if "mapping_type" in d:
+                val = d.pop("mapping_type")
+                if "predicate" in d and d["predicate"] != val:
+                    raise ValueError(
+                        f"Conflicting alias: predicate '{d['predicate']}' != mapping_type '{val}'"
+                    )
+                d.setdefault("predicate", val)
+            return d
+        return data
+
+    @field_validator("confidence")
+    @classmethod
+    def _quantize_confidence(cls, v: float | None) -> float | None:
+        if v is None:
+            return None
+        return float(Decimal(str(v)).quantize(Decimal("0.0001"), rounding=ROUND_HALF_EVEN))
+
+
 class CanonicalBusinessConcept(StrictGraphAModel):
     """Core Business Concept (CBC) node in Graph A mapping to a Data Vault 2.0 Hub."""
 
@@ -78,6 +272,38 @@ class CanonicalBusinessConcept(StrictGraphAModel):
     taxonomy_class: str | None = None
     description: str | None = None
     authoritative_sor: list[str] | None = None
+
+    # Extension fields (strictly defaulting to None for backward compatibility)
+    parent_concept_uri: str | None = Field(
+        default=None,
+        pattern=r"^urn:(ontology:entity|opendv:concept):[a-z0-9_]+$",
+        description="Hierarchical parent concept URI within Graph A ontology",
+    )
+    attributes: list[ConceptAttribute] | None = Field(
+        default=None,
+        description="Associated conceptual attributes",
+    )
+    synonyms: list[str] | None = Field(
+        default=None,
+        max_length=50,
+        description="Discovered lexical synonyms (1..256 characters each)",
+    )
+    external_mappings: list[ExternalMapping] | None = Field(
+        default=None,
+        description="Grounded external ontology mappings (e.g. FIBO)",
+    )
+    deprecated: bool | None = Field(
+        default=None,
+        description="Deprecation flag under human edit governance",
+    )
+    metadata: dict[str, JsonValue] | None = Field(
+        default=None,
+        description="Arbitrary conceptual metadata key-values",
+    )
+    source_hints: list[str] | None = Field(
+        default=None,
+        description="Provenance hints identifying source data feeds",
+    )
 
     @model_validator(mode="before")
     @classmethod
@@ -101,6 +327,63 @@ class CanonicalBusinessConcept(StrictGraphAModel):
             return c_dict
         return data
 
+    @field_validator("synonyms")
+    @classmethod
+    def _validate_synonyms(cls, syns: list[str] | None) -> list[str] | None:
+        if syns is None:
+            return None
+        for s in syns:
+            cleaned = s.strip()
+            if not (1 <= len(cleaned) <= 256):
+                raise ValueError(
+                    f"Synonym must be between 1 and 256 characters (trimmed): '{s}'"
+                )
+        normalized = [s.strip().casefold() for s in syns]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("DUPLICATE_SYNONYM: synonyms list contains duplicate values")
+        return syns
+
+    @field_validator("attributes")
+    @classmethod
+    def _validate_attributes(
+        cls, attrs: list[ConceptAttribute] | None
+    ) -> list[ConceptAttribute] | None:
+        if attrs is None:
+            return None
+        names = [a.attribute_name for a in attrs]
+        if len(names) != len(set(names)):
+            raise ValueError(
+                "DUPLICATE_ATTRIBUTE_NAME: attributes list contains duplicate attribute names"
+            )
+        return attrs
+
+    @field_validator("external_mappings")
+    @classmethod
+    def _validate_external_mappings(
+        cls, mappings: list[ExternalMapping] | None
+    ) -> list[ExternalMapping] | None:
+        if mappings is None:
+            return None
+        seen: dict[str, set[str | None]] = {}
+        for m in mappings:
+            if m.target_uri not in seen:
+                seen[m.target_uri] = set()
+            if (
+                None in seen[m.target_uri]
+                or (m.predicate is None and len(seen[m.target_uri]) > 0)
+                or m.predicate in seen[m.target_uri]
+            ):
+                raise ValueError(
+                    f"AMBIGUOUS_EXTERNAL_MAPPING: duplicate mapping for '{m.target_uri}'"
+                )
+            seen[m.target_uri].add(m.predicate)
+        return mappings
+
+    @field_validator("metadata")
+    @classmethod
+    def _validate_metadata(cls, v: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
+        return _validate_json_metadata(v)
+
 
 class YagniCostGuardPolicy(StrictGraphAModel):
     """Gate 4 YAGNI cost guard thresholds attached to a canonical relationship."""
@@ -120,6 +403,13 @@ class CanonicalRelationship(StrictGraphAModel):
     yagni_cost_guard_policy: YagniCostGuardPolicy | None = None
     relationship_id: str | None = None
     label: str | None = None
+
+    # Extension fields (strictly defaulting to None for backward compatibility)
+    description: str | None = Field(default=None, description="Relationship description")
+    cardinality: str | None = Field(default=None, description="Relationship cardinality")
+    deprecated: bool | None = Field(default=None, description="Deprecation flag")
+    metadata: dict[str, JsonValue] | None = Field(default=None, description="Relationship metadata")
+    source_hints: list[str] | None = Field(default=None, description="Source provenance hints")
 
     @model_validator(mode="before")
     @classmethod
@@ -141,6 +431,11 @@ class CanonicalRelationship(StrictGraphAModel):
             return r_dict
         return data
 
+    @field_validator("metadata")
+    @classmethod
+    def _validate_metadata(cls, v: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
+        return _validate_json_metadata(v)
+
 
 class ReferenceEnumeration(StrictGraphAModel):
     """Reference enumeration specification in Graph A mapping to a `ref_*` table."""
@@ -148,6 +443,35 @@ class ReferenceEnumeration(StrictGraphAModel):
     enum_uri: str = Field(pattern=r"^urn:ontology:enum:[a-z0-9_]+$")
     target_reference_table: str = Field(pattern=r"^ref_[a-z0-9_]+$")
     allowed_codes: list[str] = Field(min_length=1)
+
+    # Extension fields (strictly defaulting to None for backward compatibility)
+    enumeration_name: str | None = Field(
+        default=None, description="Human-readable enumeration name"
+    )
+    description: str | None = Field(default=None, description="Enumeration description")
+    code_descriptions: dict[str, str] | None = Field(
+        default=None,
+        description="Descriptions for individual allowed codes",
+    )
+    deprecated: bool | None = Field(default=None, description="Deprecation flag")
+    metadata: dict[str, JsonValue] | None = Field(default=None, description="Enumeration metadata")
+
+    @model_validator(mode="after")
+    def _validate_enum_codes(self) -> Self:
+        if (
+            self.code_descriptions
+            and self.allowed_codes
+            and not set(self.code_descriptions.keys()).issubset(set(self.allowed_codes))
+        ):
+            raise ValueError(
+                "DANGLING_ENUM_CODE_DESCRIPTION: code_descriptions keys must be in allowed_codes"
+            )
+        return self
+
+    @field_validator("metadata")
+    @classmethod
+    def _validate_metadata(cls, v: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
+        return _validate_json_metadata(v)
 
 
 class GraphAOntology(StrictGraphAModel):
@@ -174,6 +498,12 @@ class GraphAOntology(StrictGraphAModel):
     ontology_id: str | None = None
     version: str | None = None
 
+    # Extension fields (strictly defaulting to None for backward compatibility)
+    description: str | None = Field(default=None, description="Ontology description")
+    metadata: dict[str, JsonValue] | None = Field(
+        default=None, description="Ontology-level metadata"
+    )
+
     @model_validator(mode="before")
     @classmethod
     def _normalize_ontology(cls, data: Any) -> Any:
@@ -196,6 +526,63 @@ class GraphAOntology(StrictGraphAModel):
             return o_dict
         return data
 
+    @model_validator(mode="after")
+    def _validate_version_consistency(self) -> Self:
+        if (
+            self.version is not None
+            and self.ontology_version
+            and self.version != self.ontology_version
+        ):
+            msg = f"version '{self.version}' != ontology_version '{self.ontology_version}'"
+            raise ValueError(f"VERSION_CONSISTENCY_MISMATCH: {msg}")
+        return self
+
+    @model_validator(mode="after")
+    def _validate_concept_hierarchy(self) -> Self:
+        if not self.canonical_business_concepts:
+            return self
+
+        concept_uris: set[str] = set()
+        for c in self.canonical_business_concepts:
+            if c.concept_uri in concept_uris:
+                raise ValueError(
+                    f"DUPLICATE_CONCEPT_URI: Duplicate concept URI '{c.concept_uri}' in ontology"
+                )
+            concept_uris.add(c.concept_uri)
+
+        parent_map: dict[str, str] = {}
+        for c in self.canonical_business_concepts:
+            if c.parent_concept_uri:
+                if c.parent_concept_uri == c.concept_uri:
+                    raise ValueError(
+                        f"SELF_REFERENTIAL_PARENT: '{c.concept_uri}' cannot be its own parent"
+                    )
+                if c.parent_concept_uri not in concept_uris:
+                    raise ValueError(
+                        f"DANGLING_PARENT_CONCEPT: Concept '{c.concept_uri}' references parent "
+                        f"'{c.parent_concept_uri}' which does not exist in ontology"
+                    )
+                parent_map[c.concept_uri] = c.parent_concept_uri
+
+        # Iterative cycle detection (protects against recursion limits)
+        for start_uri in parent_map:
+            visited_in_path: set[str] = {start_uri}
+            curr: str | None = parent_map.get(start_uri)
+            while curr:
+                if curr in visited_in_path:
+                    raise ValueError(
+                        f"CYCLIC_CONCEPT_HIERARCHY: Cycle detected in hierarchy at '{curr}'"
+                    )
+                visited_in_path.add(curr)
+                curr = parent_map.get(curr)
+
+        return self
+
+    @field_validator("metadata")
+    @classmethod
+    def _validate_metadata(cls, v: dict[str, JsonValue] | None) -> dict[str, JsonValue] | None:
+        return _validate_json_metadata(v)
+
 
 SemanticGraphA = GraphAOntology
 CBCNode = CanonicalBusinessConcept
@@ -204,6 +591,8 @@ __all__ = [
     "CBCNode",
     "CanonicalBusinessConcept",
     "CanonicalRelationship",
+    "ConceptAttribute",
+    "ExternalMapping",
     "GovernanceConstraints",
     "GraphAOntology",
     "KeyAuthorityTierSpec",

@@ -154,6 +154,153 @@ def dumps_jcs_bytes(obj: Any) -> bytes:
     return sink.getvalue()
 
 
+# Post-baseline optional extension field sets subject to scoped empty normalization
+# (Task 4A.2 / Issue #198). Per docs/21-ontology-studio-implementation-plan.md §3.1 and ADR-005:
+# Legacy fields (description, definition, enumeration_name, cardinality, etc.) are NOT extensions
+# and must never be pruned when empty.
+_CBC_EXT: frozenset[str] = frozenset(
+    {
+        "parent_concept_uri",
+        "attributes",
+        "synonyms",
+        "external_mappings",
+        "deprecated",
+        "metadata",
+        "source_hints",
+    }
+)
+_ATTR_OPT: frozenset[str] = frozenset(
+    {
+        "deprecated",
+        "metadata",
+        "source_hints",
+    }
+)
+_REL_EXT: frozenset[str] = frozenset(
+    {
+        "deprecated",
+        "metadata",
+    }
+)
+_ENUM_EXT: frozenset[str] = frozenset(
+    {
+        "deprecated",
+        "metadata",
+    }
+)
+_ONT_EXT: frozenset[str] = frozenset(
+    {
+        "metadata",
+    }
+)
+
+
+def _is_empty_value(v: Any) -> bool:
+    """Check if value is None, empty string, or empty collection/mapping."""
+    if v is None:
+        return True
+    return isinstance(v, (str, list, dict)) and len(v) == 0
+
+
+def _norm_empty(
+    obj: Any,
+    scope: set[str] | frozenset[str] | None = None,
+) -> Any:
+    """Scoped empty normalization for Graph A ontology serialization.
+
+    When `scope` is provided:
+        Prunes keys in `scope` if their value is empty (None, '', [], {}).
+        Recursively applies to nested dicts and lists.
+
+    When `scope` is None (hierarchical ontology mode):
+        Applies level-bounded extension scoping across the Graph A ontology hierarchy:
+        - Root ontology level: scoped by `_ONT_EXT` (metadata)
+        - Canonical Business Concept level: scoped by `_CBC_EXT` (extension fields & annotations)
+        - Concept Attribute level: scoped by `_ATTR_OPT` (optional extension annotations)
+        - Canonical Relationship level: scoped by `_REL_EXT` (optional extension annotations)
+        - Reference Enumeration level: scoped by `_ENUM_EXT` (optional extension annotations)
+
+    Crucial Invariant: DO NOT prune empty legacy collections that were present in baseline models
+    (e.g. `governance_constraints: []`, `key_authority_tiers: []`, `decision_refs: []`,
+    `standards_references: []`, `canonical_relationships: []`, `reference_enumerations: []`),
+    nor legacy scalar fields (e.g. `description: ""`, `definition: ""`, `enumeration_name: ""`).
+    """
+    if scope is not None:
+        if isinstance(obj, dict):
+            return {
+                k: _norm_empty(v, scope)
+                for k, v in obj.items()
+                if not (k in scope and _is_empty_value(v))
+            }
+        if isinstance(obj, list):
+            return [_norm_empty(elem, scope) for elem in obj]
+        return obj
+
+    # Level-bounded hierarchical scoped normalization when scope is None
+    if not isinstance(obj, dict):
+        return obj
+
+    # 1. Root ontology level: prune keys in _ONT_EXT if empty
+    doc: dict[str, Any] = {
+        k: v for k, v in obj.items() if not (k in _ONT_EXT and _is_empty_value(v))
+    }
+
+    # 2. Canonical Business Concepts: prune keys in _CBC_EXT and _ATTR_OPT
+    if "canonical_business_concepts" in doc and isinstance(
+        doc["canonical_business_concepts"], list
+    ):
+        normalized_cbcs: list[Any] = []
+        for cbc in doc["canonical_business_concepts"]:
+            if isinstance(cbc, dict):
+                c_dict: dict[str, Any] = {
+                    k: v for k, v in cbc.items() if not (k in _CBC_EXT and _is_empty_value(v))
+                }
+                if "attributes" in c_dict and isinstance(c_dict["attributes"], list):
+                    normalized_attrs: list[Any] = []
+                    for attr in c_dict["attributes"]:
+                        if isinstance(attr, dict):
+                            normalized_attrs.append(
+                                {
+                                    k: v
+                                    for k, v in attr.items()
+                                    if not (k in _ATTR_OPT and _is_empty_value(v))
+                                }
+                            )
+                        else:
+                            normalized_attrs.append(attr)
+                    c_dict["attributes"] = normalized_attrs
+                normalized_cbcs.append(c_dict)
+            else:
+                normalized_cbcs.append(cbc)
+        doc["canonical_business_concepts"] = normalized_cbcs
+
+    # 3. Canonical Relationships: prune keys in _REL_EXT
+    if "canonical_relationships" in doc and isinstance(doc["canonical_relationships"], list):
+        normalized_rels: list[Any] = []
+        for rel in doc["canonical_relationships"]:
+            if isinstance(rel, dict):
+                normalized_rels.append(
+                    {k: v for k, v in rel.items() if not (k in _REL_EXT and _is_empty_value(v))}
+                )
+            else:
+                normalized_rels.append(rel)
+        doc["canonical_relationships"] = normalized_rels
+
+    # 4. Reference Enumerations: prune keys in _ENUM_EXT
+    if "reference_enumerations" in doc and isinstance(doc["reference_enumerations"], list):
+        normalized_enums: list[Any] = []
+        for enum in doc["reference_enumerations"]:
+            if isinstance(enum, dict):
+                normalized_enums.append(
+                    {k: v for k, v in enum.items() if not (k in _ENUM_EXT and _is_empty_value(v))}
+                )
+            else:
+                normalized_enums.append(enum)
+        doc["reference_enumerations"] = normalized_enums
+
+    return doc
+
+
 def canonicalize_graph_a_dict(ontology: GraphAOntology | dict[str, Any]) -> dict[str, Any]:
     """Convert a GraphAOntology or dict to a deterministically sorted dictionary representation."""
     if isinstance(ontology, GraphAOntology):
@@ -166,23 +313,26 @@ def canonicalize_graph_a_dict(ontology: GraphAOntology | dict[str, Any]) -> dict
     else:
         doc = dict(ontology)
 
+    # Scoped empty normalization: prune emptied post-baseline extension fields
+    doc = _norm_empty(doc, scope=None)
+
     # Deterministically sort list properties by canonical URNs
     if "canonical_business_concepts" in doc and isinstance(
         doc["canonical_business_concepts"], list
     ):
         doc["canonical_business_concepts"] = sorted(
             doc["canonical_business_concepts"],
-            key=lambda c: c.get("concept_uri", ""),
+            key=lambda c: c.get("concept_uri", "") if isinstance(c, dict) else "",
         )
     if "canonical_relationships" in doc and isinstance(doc["canonical_relationships"], list):
         doc["canonical_relationships"] = sorted(
             doc["canonical_relationships"],
-            key=lambda r: r.get("relationship_uri", ""),
+            key=lambda r: r.get("relationship_uri", "") if isinstance(r, dict) else "",
         )
     if "reference_enumerations" in doc and isinstance(doc["reference_enumerations"], list):
         doc["reference_enumerations"] = sorted(
             doc["reference_enumerations"],
-            key=lambda e: e.get("enum_uri", ""),
+            key=lambda e: e.get("enum_uri", "") if isinstance(e, dict) else "",
         )
     if "standards_references" in doc and isinstance(doc["standards_references"], list):
         doc["standards_references"] = sorted(doc["standards_references"])

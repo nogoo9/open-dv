@@ -6,7 +6,12 @@ hashing, sample data redaction, plugin registry, policy engine, and pipeline ext
 
 from __future__ import annotations
 
-from opendv_service.ontology.applier import apply_ontology_delta
+from opendv_service.ontology.applier import (
+    apply,
+    apply_ontology_delta,
+    compute_next_semver,
+    parse_semver,
+)
 from opendv_service.ontology.coverage import compute_ontology_coverage
 from opendv_service.ontology.diff import ontology_diff
 from opendv_service.ontology.hashing import canonicalize_graph_a_dict, compute_ontology_sha256
@@ -35,21 +40,49 @@ from opendv_service.ontology.resolution import (
     OntologyResolutionResult,
     resolve_ontology_hold,
 )
-from opendv_service.ontology.validator import validate_ontology_delta
+from opendv_service.ontology.validator import (
+    ConcurrentModificationError,
+    ContractViolationError,
+    GovernanceValidationResult,
+    GovernanceValidator,
+    HierarchicalCycleError,
+    InvalidGroundingWaiverError,
+    OntologyGovernanceError,
+    ProvisionalTokenError,
+    SemVerCalculusError,
+    StructuralValidationResult,
+    StructuralValidator,
+    UngroundedConceptError,
+    validate_ontology_delta,
+)
 
 __all__ = [
     "ONTOLOGY_RECOMMENDER_ENTRY_POINT_GROUP",
     "BootstrapContext",
+    "ConcurrentModificationError",
+    "ContractViolationError",
     "GateViolationContext",
+    "GovernanceValidationResult",
+    "GovernanceValidator",
+    "HierarchicalCycleError",
+    "InvalidGroundingWaiverError",
+    "OntologyGovernanceError",
     "OntologyPolicy",
     "OntologyPolicyMode",
     "OntologyRecommenderRegistry",
     "OntologyResolutionResult",
     "PipelineExtensionHooks",
+    "ProvisionalTokenError",
+    "SemVerCalculusError",
+    "StructuralValidationResult",
+    "StructuralValidator",
+    "UngroundedConceptError",
     "UnresolvedMentionsContext",
     "WaveProfilingContext",
+    "apply",
     "apply_ontology_delta",
     "canonicalize_graph_a_dict",
+    "compute_next_semver",
     "compute_ontology_coverage",
     "compute_ontology_sha256",
     "get_ontology_recommender_registry",
@@ -57,6 +90,7 @@ __all__ = [
     "is_mnpi_key",
     "is_pii_key",
     "ontology_diff",
+    "parse_semver",
     "redact_sample_data",
     "redact_sample_value",
     "resolve_ontology_hold",

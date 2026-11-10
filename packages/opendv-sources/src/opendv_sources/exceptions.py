@@ -81,6 +81,59 @@ class DocumentExtractionError(SourceError):
     http_status: int = 422
 
 
+class OCRUnavailableError(DocumentExtractionError):
+    """Raised when an OCR engine is required (e.g. ocr_mode='force' on complex page)
+    but is unavailable.
+    """
+
+
+    error_code: str = "OCR_UNAVAILABLE"
+    exit_code: int = 1
+    http_status: int = 501
+
+    def __init__(
+        self,
+        message: str = "OCR_UNAVAILABLE",
+        *,
+        error_code: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            error_code=ErrorCode.SOURCE_LOAD_ERROR,
+            details=details,
+        )
+        self.error_code = error_code or "OCR_UNAVAILABLE"
+        self.exit_code = 1
+        self.http_status = 501
+
+
+class OfficeConversionUnavailableError(DocumentExtractionError):
+    """Raised when LibreOffice binary (`soffice`) is required for office document conversion
+    but is not available on the host system.
+    """
+
+    error_code: str = "OFFICE_CONVERSION_UNAVAILABLE"
+    exit_code: int = 1
+    http_status: int = 501
+
+    def __init__(
+        self,
+        message: str = "OFFICE_CONVERSION_UNAVAILABLE",
+        *,
+        error_code: str | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            error_code=ErrorCode.SOURCE_LOAD_ERROR,
+            details=details,
+        )
+        self.error_code = error_code or "OFFICE_CONVERSION_UNAVAILABLE"
+        self.exit_code = 1
+        self.http_status = 501
+
+
 class AuthenticationError(SourceError):
     """Raised when credential resolution fails or secret reference is missing."""
 
@@ -106,6 +159,8 @@ __all__ = [
     "AuthenticationError",
     "DocumentExtractionError",
     "FormatError",
+    "OCRUnavailableError",
+    "OfficeConversionUnavailableError",
     "PathContainmentError",
     "SourceEmptyError",
     "SourceError",
@@ -114,3 +169,4 @@ __all__ = [
     "SourceTableEmptyError",
     "UnsupportedFormatError",
 ]
+

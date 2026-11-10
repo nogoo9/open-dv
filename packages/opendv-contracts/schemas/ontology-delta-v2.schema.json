@@ -1,0 +1,2500 @@
+{
+  "$defs": {
+    "AddAttributeOp": {
+      "additionalProperties": false,
+      "description": "Additive operation to attach an attribute to a concept.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "add_attribute",
+          "default": "add_attribute",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "attribute_name": {
+          "default": "",
+          "description": "Attribute identifier",
+          "title": "Attribute Name",
+          "type": "string"
+        },
+        "data_type": {
+          "default": "string",
+          "description": "Logical data type classification",
+          "title": "Data Type",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Conceptual definition of attribute",
+          "title": "Description"
+        },
+        "is_optional": {
+          "default": true,
+          "description": "Whether attribute is optional in Data Vault satellite",
+          "title": "Is Optional",
+          "type": "boolean"
+        },
+        "example_values": {
+          "description": "Sample values extracted from evidence",
+          "items": {
+            "type": "string"
+          },
+          "title": "Example Values",
+          "type": "array"
+        },
+        "attribute": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional nested attribute specification",
+          "title": "Attribute"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Arbitrary attribute metadata",
+          "title": "Metadata"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "AddAttributeOp",
+      "type": "object"
+    },
+    "AddConceptOp": {
+      "additionalProperties": false,
+      "description": "Additive operation to introduce a Canonical Business Concept (CBC) / Hub.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "add_concept",
+          "default": "add_concept",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Unique canonical concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "concept_name": {
+          "default": "",
+          "description": "Human-readable concept name",
+          "title": "Concept Name",
+          "type": "string"
+        },
+        "elm_archetype": {
+          "default": "CORE_BUSINESS_CONCEPT",
+          "description": "ELM archetype",
+          "title": "Elm Archetype",
+          "type": "string"
+        },
+        "definition": {
+          "default": "",
+          "description": "Normative definition of concept",
+          "title": "Definition",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "description": "Alternative concept description",
+          "title": "Description",
+          "type": "string"
+        },
+        "target_hub": {
+          "anyOf": [
+            {
+              "pattern": "^(hub_[a-z0-9_]+)?$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target Data Vault 2.0 Hub table name",
+          "title": "Target Hub"
+        },
+        "attributes": {
+          "description": "Associated business attributes",
+          "items": {
+            "type": "string"
+          },
+          "title": "Attributes",
+          "type": "array"
+        },
+        "parent_concept_uri": {
+          "anyOf": [
+            {
+              "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Hierarchical parent concept URI within Graph A ontology",
+          "title": "Parent Concept Uri"
+        },
+        "synonyms": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Discovered lexical synonyms",
+          "title": "Synonyms"
+        },
+        "external_mappings": {
+          "anyOf": [
+            {
+              "items": {},
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Grounded external ontology mappings",
+          "title": "External Mappings"
+        },
+        "governance_constraints": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Governance, PII, and MNPI constraints",
+          "title": "Governance Constraints"
+        },
+        "key_authority_tiers": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "3-Tier Business Key Authority specification",
+          "title": "Key Authority Tiers"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Arbitrary conceptual metadata",
+          "title": "Metadata"
+        },
+        "source_hints": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Provenance hints identifying source data feeds",
+          "title": "Source Hints"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "AddConceptOp",
+      "type": "object"
+    },
+    "AddExternalMappingOp": {
+      "additionalProperties": false,
+      "description": "Patch operation attaching a reference ontology mapping (e.g. FIBO).",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "add_external_mapping",
+          "default": "add_external_mapping",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "scheme": {
+          "default": "",
+          "description": "Reference ontology standard scheme (e.g. 'FIBO')",
+          "title": "Scheme",
+          "type": "string"
+        },
+        "target_uri": {
+          "default": "",
+          "description": "Fully qualified reference ontology target URI",
+          "title": "Target Uri",
+          "type": "string"
+        },
+        "predicate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "SKOS mapping predicate classification",
+          "title": "Predicate"
+        },
+        "pinned": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pinned flag preventing automated re-scoring",
+          "title": "Pinned"
+        },
+        "mapping_confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Mapping confidence score",
+          "title": "Mapping Confidence"
+        },
+        "mapping": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional nested mapping specification",
+          "title": "Mapping"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "AddExternalMappingOp",
+      "type": "object"
+    },
+    "AddGovernanceConstraintOp": {
+      "additionalProperties": false,
+      "description": "Additive operation to attach PII / MNPI security and satellite split constraints.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "add_governance_constraint",
+          "default": "add_governance_constraint",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "constraint_id": {
+          "default": "",
+          "description": "Unique constraint identifier",
+          "title": "Constraint Id",
+          "type": "string"
+        },
+        "constraint_type": {
+          "default": "",
+          "description": "Constraint classification type",
+          "title": "Constraint Type",
+          "type": "string"
+        },
+        "pii_confidential_attributes": {
+          "description": "Attributes requiring PII confidentiality",
+          "items": {
+            "type": "string"
+          },
+          "title": "Pii Confidential Attributes",
+          "type": "array"
+        },
+        "mnpi_confidential_attributes": {
+          "description": "Attributes requiring MNPI confidentiality",
+          "items": {
+            "type": "string"
+          },
+          "title": "Mnpi Confidential Attributes",
+          "type": "array"
+        },
+        "required_satellite_split": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target security satellite split name",
+          "title": "Required Satellite Split"
+        },
+        "description": {
+          "default": "",
+          "description": "Constraint description",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "AddGovernanceConstraintOp",
+      "type": "object"
+    },
+    "AddKeyAuthorityPatternOp": {
+      "additionalProperties": false,
+      "description": "Additive operation to attach a Business Key Authority tier pattern.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "add_key_authority_pattern",
+          "default": "add_key_authority_pattern",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "authority_name": {
+          "default": "",
+          "description": "Name of the Business Key Authority",
+          "title": "Authority Name",
+          "type": "string"
+        },
+        "pattern_regex": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Regex pattern for authority",
+          "title": "Pattern Regex"
+        },
+        "tier": {
+          "default": "TIER_1_GLOBAL_STANDARD",
+          "description": "Authority tier classification",
+          "title": "Tier",
+          "type": "string"
+        },
+        "tier_spec": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Full tier specification",
+          "title": "Tier Spec"
+        },
+        "description": {
+          "default": "",
+          "description": "Authority description",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "AddKeyAuthorityPatternOp",
+      "type": "object"
+    },
+    "AddReferenceEnumCodeOp": {
+      "additionalProperties": false,
+      "description": "Patch operation appending an allowed code to a reference enumeration.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "add_reference_enum_code",
+          "default": "add_reference_enum_code",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "enumeration_name": {
+          "default": "",
+          "description": "Reference enumeration name",
+          "title": "Enumeration Name",
+          "type": "string"
+        },
+        "enum_uri": {
+          "default": "",
+          "description": "Reference enumeration URN",
+          "title": "Enum Uri",
+          "type": "string"
+        },
+        "code": {
+          "description": "Code value to append",
+          "minLength": 1,
+          "title": "Code",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Code value description",
+          "title": "Description"
+        }
+      },
+      "required": [
+        "op_id",
+        "code"
+      ],
+      "title": "AddReferenceEnumCodeOp",
+      "type": "object"
+    },
+    "AddReferenceEnumerationOp": {
+      "additionalProperties": false,
+      "description": "Additive operation to introduce a Reference Enumeration / ref_* table.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "add_reference_enumeration",
+          "default": "add_reference_enumeration",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "enum_uri": {
+          "default": "",
+          "description": "Unique reference enumeration URN",
+          "pattern": "^(urn:ontology:enum:[a-z0-9_]+)?$",
+          "title": "Enum Uri",
+          "type": "string"
+        },
+        "name": {
+          "default": "",
+          "description": "Enumeration name",
+          "title": "Name",
+          "type": "string"
+        },
+        "target_reference_table": {
+          "default": "",
+          "description": "Target reference table name",
+          "pattern": "^(ref_[a-z0-9_]+)?$",
+          "title": "Target Reference Table",
+          "type": "string"
+        },
+        "values": {
+          "description": "Allowed code values",
+          "items": {
+            "type": "string"
+          },
+          "title": "Values",
+          "type": "array"
+        },
+        "allowed_codes": {
+          "description": "Allowed code values",
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Codes",
+          "type": "array"
+        },
+        "description": {
+          "default": "",
+          "description": "Enumeration description",
+          "title": "Description",
+          "type": "string"
+        },
+        "code_descriptions": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Per-code descriptive text",
+          "title": "Code Descriptions"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Arbitrary enumeration metadata",
+          "title": "Metadata"
+        }
+      },
+      "required": [
+        "op_id"
+      ],
+      "title": "AddReferenceEnumerationOp",
+      "type": "object"
+    },
+    "AddRelationshipOp": {
+      "additionalProperties": false,
+      "description": "Additive operation to introduce a Unit-of-Work relationship / Link.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "add_relationship",
+          "default": "add_relationship",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "relationship_uri": {
+          "description": "Unique canonical relationship URN",
+          "pattern": "^urn:ontology:(provisional:)?(event|relationship):[a-z0-9_]+$",
+          "title": "Relationship Uri",
+          "type": "string"
+        },
+        "relationship_name": {
+          "default": "",
+          "description": "Human-readable relationship name",
+          "title": "Relationship Name",
+          "type": "string"
+        },
+        "target_link": {
+          "description": "Target Data Vault 2.0 Link table name",
+          "pattern": "^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$",
+          "title": "Target Link",
+          "type": "string"
+        },
+        "source_concept_uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source endpoint concept URN",
+          "title": "Source Concept Uri"
+        },
+        "target_concept_uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target endpoint concept URN",
+          "title": "Target Concept Uri"
+        },
+        "endpoints": {
+          "description": "List of participant concept URN endpoints",
+          "items": {
+            "type": "string"
+          },
+          "title": "Endpoints",
+          "type": "array"
+        },
+        "grain_semantics": {
+          "default": "",
+          "description": "Relationship grain semantics",
+          "title": "Grain Semantics",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "description": "Alternative relationship description",
+          "title": "Description",
+          "type": "string"
+        },
+        "cardinality": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Cardinality classification: one_to_one, one_to_many, many_to_many",
+          "title": "Cardinality"
+        },
+        "metadata": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Arbitrary relationship metadata",
+          "title": "Metadata"
+        },
+        "yagni_cost_guard_policy": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Attached Gate 4 YAGNI cost guard policy",
+          "title": "Yagni Cost Guard Policy"
+        }
+      },
+      "required": [
+        "op_id",
+        "relationship_uri",
+        "target_link"
+      ],
+      "title": "AddRelationshipOp",
+      "type": "object"
+    },
+    "AddSourceHintOp": {
+      "additionalProperties": false,
+      "description": "Additive operation to register a source mapping hint linking source data to a CBC.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "add_source_hint",
+          "default": "add_source_hint",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "default": "",
+          "description": "Target Canonical Business Concept URN",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Provenance or mapping hint",
+          "title": "Hint"
+        },
+        "source_name": {
+          "default": "",
+          "description": "Source system identifier",
+          "title": "Source Name",
+          "type": "string"
+        },
+        "source_system": {
+          "default": "",
+          "description": "Source system identifier",
+          "title": "Source System",
+          "type": "string"
+        },
+        "table_name": {
+          "default": "",
+          "description": "Source table or file name",
+          "title": "Table Name",
+          "type": "string"
+        },
+        "column_hint": {
+          "default": "",
+          "description": "Source column hint",
+          "title": "Column Hint",
+          "type": "string"
+        },
+        "column_name": {
+          "default": "",
+          "description": "Source column name",
+          "title": "Column Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op_id"
+      ],
+      "title": "AddSourceHintOp",
+      "type": "object"
+    },
+    "AddSynonymOp": {
+      "additionalProperties": false,
+      "description": "Patch operation attaching a discovered lexical synonym to a concept.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "add_synonym",
+          "default": "add_synonym",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "synonym": {
+          "description": "Discovered lexical synonym",
+          "maxLength": 256,
+          "minLength": 1,
+          "title": "Synonym",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri",
+        "synonym"
+      ],
+      "title": "AddSynonymOp",
+      "type": "object"
+    },
+    "AnnotateConceptMetadataOp": {
+      "additionalProperties": false,
+      "description": "Patch operation annotating arbitrary metadata key-values on a concept.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "annotate_concept_metadata",
+          "default": "annotate_concept_metadata",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "description": "Metadata dictionary",
+          "title": "Metadata",
+          "type": "object"
+        },
+        "metadata_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Single metadata key",
+          "title": "Metadata Key"
+        },
+        "metadata_value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Single metadata value",
+          "title": "Metadata Value"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "AnnotateConceptMetadataOp",
+      "type": "object"
+    },
+    "DeprecateConceptOp": {
+      "additionalProperties": false,
+      "description": "Minor operation marking a Canonical Business Concept as deprecated.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "deprecate_concept",
+          "default": "deprecate_concept",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deprecation rationale / reason",
+          "title": "Reason"
+        },
+        "superseded_by_concept_uri": {
+          "anyOf": [
+            {
+              "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional superseding concept URN",
+          "title": "Superseded By Concept Uri"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "DeprecateConceptOp",
+      "type": "object"
+    },
+    "DeprecateRelationshipOp": {
+      "additionalProperties": false,
+      "description": "Minor operation marking a relationship as deprecated.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "deprecate_relationship",
+          "default": "deprecate_relationship",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "relationship_name": {
+          "default": "",
+          "description": "Target relationship name",
+          "title": "Relationship Name",
+          "type": "string"
+        },
+        "relationship_uri": {
+          "default": "",
+          "description": "Target relationship URN",
+          "title": "Relationship Uri",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Deprecation rationale / reason",
+          "title": "Reason"
+        }
+      },
+      "required": [
+        "op_id"
+      ],
+      "title": "DeprecateRelationshipOp",
+      "type": "object"
+    },
+    "EvidenceRef": {
+      "additionalProperties": false,
+      "description": "Grounding evidence reference for an ontology delta operation.",
+      "properties": {
+        "evidence_type": {
+          "description": "Classification of evidence, e.g. column_profile, sample_values, document_span, standard_reference, existing_concept",
+          "title": "Evidence Type",
+          "type": "string"
+        },
+        "reference_uri": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target reference pointer or URI",
+          "title": "Reference Uri"
+        },
+        "snippet": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Text snippet, excerpt, or sample value grounding the proposal",
+          "title": "Snippet"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Confidence score between 0.0 and 1.0",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "doc_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source document SHA-256",
+          "title": "Doc Sha256"
+        },
+        "char_start": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Starting character offset",
+          "title": "Char Start"
+        },
+        "char_end": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ending character offset",
+          "title": "Char End"
+        },
+        "bronze_table": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source bronze table name",
+          "title": "Bronze Table"
+        },
+        "column_name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Source column name",
+          "title": "Column Name"
+        }
+      },
+      "required": [
+        "evidence_type"
+      ],
+      "title": "EvidenceRef",
+      "type": "object"
+    },
+    "RefineDefinitionOp": {
+      "additionalProperties": false,
+      "description": "Additive operation to refine the textual definition or attributes of a concept.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "refine_definition",
+          "default": "refine_definition",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "target_uri": {
+          "default": "",
+          "description": "Target concept or relationship URN",
+          "title": "Target Uri",
+          "type": "string"
+        },
+        "concept_uri": {
+          "default": "",
+          "description": "Target concept URN",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "refined_description": {
+          "default": "",
+          "description": "Refined definition or description",
+          "title": "Refined Description",
+          "type": "string"
+        },
+        "additional_attributes": {
+          "description": "Additional attributes to append",
+          "items": {
+            "type": "string"
+          },
+          "title": "Additional Attributes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "op_id"
+      ],
+      "title": "RefineDefinitionOp",
+      "type": "object"
+    },
+    "RemoveAttributeOp": {
+      "additionalProperties": false,
+      "description": "Major breaking operation removing an attribute from a concept.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "remove_attribute",
+          "default": "remove_attribute",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "attribute_name": {
+          "description": "Target attribute name to remove",
+          "minLength": 1,
+          "title": "Attribute Name",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Removal rationale / reason",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri",
+        "attribute_name"
+      ],
+      "title": "RemoveAttributeOp",
+      "type": "object"
+    },
+    "RemoveConceptOp": {
+      "additionalProperties": false,
+      "description": "Major breaking operation removing a Canonical Business Concept / Hub.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "remove_concept",
+          "default": "remove_concept",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Removal rationale / reason",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "RemoveConceptOp",
+      "type": "object"
+    },
+    "RemoveExternalMappingOp": {
+      "additionalProperties": false,
+      "description": "Patch operation removing an external reference mapping from a concept.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "remove_external_mapping",
+          "default": "remove_external_mapping",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "scheme": {
+          "default": "",
+          "description": "Reference ontology standard scheme",
+          "title": "Scheme",
+          "type": "string"
+        },
+        "target_uri": {
+          "default": "",
+          "description": "Target reference ontology URI",
+          "title": "Target Uri",
+          "type": "string"
+        },
+        "mapping_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional mapping type filter",
+          "title": "Mapping Type"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "RemoveExternalMappingOp",
+      "type": "object"
+    },
+    "RemoveRelationshipOp": {
+      "additionalProperties": false,
+      "description": "Major breaking operation removing a Unit-of-Work relationship / Link.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "remove_relationship",
+          "default": "remove_relationship",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "relationship_name": {
+          "default": "",
+          "description": "Target relationship name",
+          "title": "Relationship Name",
+          "type": "string"
+        },
+        "relationship_uri": {
+          "default": "",
+          "description": "Target relationship URN",
+          "title": "Relationship Uri",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Removal rationale / reason",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op_id"
+      ],
+      "title": "RemoveRelationshipOp",
+      "type": "object"
+    },
+    "RepinExternalMappingOp": {
+      "additionalProperties": false,
+      "description": "Patch operation updating pinned state or target pack for external mapping.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "repin_external_mapping",
+          "default": "repin_external_mapping",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "scheme": {
+          "default": "",
+          "description": "Reference ontology standard scheme",
+          "title": "Scheme",
+          "type": "string"
+        },
+        "target_uri": {
+          "default": "",
+          "description": "Target reference ontology URI",
+          "title": "Target Uri",
+          "type": "string"
+        },
+        "pinned": {
+          "default": true,
+          "description": "Pinned status flag",
+          "title": "Pinned",
+          "type": "boolean"
+        },
+        "new_reference_pack_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target pack ID",
+          "title": "New Reference Pack Id"
+        },
+        "new_reference_pack_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Target pack SHA-256",
+          "title": "New Reference Pack Sha256"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "RepinExternalMappingOp",
+      "type": "object"
+    },
+    "RescoreExternalMappingOp": {
+      "additionalProperties": false,
+      "description": "Patch operation updating match confidence score for an external mapping.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "rescore_external_mapping",
+          "default": "rescore_external_mapping",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "scheme": {
+          "default": "",
+          "description": "Reference ontology standard scheme",
+          "title": "Scheme",
+          "type": "string"
+        },
+        "target_uri": {
+          "default": "",
+          "description": "Target reference ontology URI",
+          "title": "Target Uri",
+          "type": "string"
+        },
+        "new_confidence": {
+          "description": "New confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "New Confidence",
+          "type": "number"
+        },
+        "previous_confidence": {
+          "anyOf": [
+            {
+              "maximum": 1.0,
+              "minimum": 0.0,
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Previous confidence score",
+          "title": "Previous Confidence"
+        },
+        "matcher_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Matcher identifier",
+          "title": "Matcher Id"
+        },
+        "matcher_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Matcher version",
+          "title": "Matcher Version"
+        },
+        "matcher_sha256": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Matcher digest",
+          "title": "Matcher Sha256"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri",
+        "new_confidence"
+      ],
+      "title": "RescoreExternalMappingOp",
+      "type": "object"
+    },
+    "ReviseDescriptionOp": {
+      "additionalProperties": false,
+      "description": "Patch operation revising textual description of a concept.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "revise_description",
+          "default": "revise_description",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "default": "",
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^(urn:ontology:(provisional:)?entity:[a-z0-9_]+)?$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "description": {
+          "default": "",
+          "description": "Revised concept description",
+          "title": "Description",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op_id"
+      ],
+      "title": "ReviseDescriptionOp",
+      "type": "object"
+    },
+    "SetConceptElmArchetypeOp": {
+      "additionalProperties": false,
+      "description": "Minor (or Major on overwrite) operation to set ELM archetype.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "set_concept_elm_archetype",
+          "default": "set_concept_elm_archetype",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "elm_archetype": {
+          "description": "Target ELM archetype classification",
+          "minLength": 1,
+          "title": "Elm Archetype",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri",
+        "elm_archetype"
+      ],
+      "title": "SetConceptElmArchetypeOp",
+      "type": "object"
+    },
+    "SetParentConceptOp": {
+      "additionalProperties": false,
+      "description": "Minor (or Major on overwrite/unset) operation to set or unset parent concept hierarchy.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "set_parent_concept",
+          "default": "set_parent_concept",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "concept_uri": {
+          "description": "Target Canonical Business Concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Concept Uri",
+          "type": "string"
+        },
+        "parent_concept_uri": {
+          "anyOf": [
+            {
+              "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Parent concept URN within Graph A hierarchy",
+          "title": "Parent Concept Uri"
+        }
+      },
+      "required": [
+        "op_id",
+        "concept_uri"
+      ],
+      "title": "SetParentConceptOp",
+      "type": "object"
+    },
+    "UpdateConceptUrnOp": {
+      "additionalProperties": false,
+      "description": "Major breaking operation renaming a Canonical Business Concept URN identity.",
+      "properties": {
+        "op_id": {
+          "description": "Unique operation identifier",
+          "minLength": 1,
+          "title": "Op Id",
+          "type": "string"
+        },
+        "op_type": {
+          "const": "update_concept_urn",
+          "default": "update_concept_urn",
+          "title": "Op Type",
+          "type": "string"
+        },
+        "rationale": {
+          "default": "",
+          "description": "Business justification for the operation",
+          "title": "Rationale",
+          "type": "string"
+        },
+        "confidence": {
+          "default": 1.0,
+          "description": "Operation confidence score",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Confidence",
+          "type": "number"
+        },
+        "evidence_refs": {
+          "description": "Grounding evidence references",
+          "items": {
+            "$ref": "#/$defs/EvidenceRef"
+          },
+          "title": "Evidence Refs",
+          "type": "array"
+        },
+        "old_concept_uri": {
+          "description": "Original concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "Old Concept Uri",
+          "type": "string"
+        },
+        "new_concept_uri": {
+          "description": "New concept URN",
+          "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+          "title": "New Concept Uri",
+          "type": "string"
+        },
+        "reason": {
+          "default": "",
+          "description": "Identity update rationale / reason",
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "op_id",
+        "old_concept_uri",
+        "new_concept_uri"
+      ],
+      "title": "UpdateConceptUrnOp",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Ordered collection of additive and structural operations evolving Graph A to vN+1.",
+  "properties": {
+    "delta_id": {
+      "description": "Unique delta identifier",
+      "minLength": 1,
+      "title": "Delta Id",
+      "type": "string"
+    },
+    "parent_sha256": {
+      "anyOf": [
+        {
+          "pattern": "^([a-f0-9]{64}|)$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Parent Graph A CAS digest precondition",
+      "title": "Parent Sha256"
+    },
+    "domain_namespace": {
+      "anyOf": [
+        {
+          "pattern": "^([a-z][a-z0-9_]*)?$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Domain namespace matching base Graph A",
+      "title": "Domain Namespace"
+    },
+    "base_ontology_version": {
+      "default": "1.0.0",
+      "description": "Base ontology version precondition",
+      "pattern": "^([0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?)$",
+      "title": "Base Ontology Version",
+      "type": "string"
+    },
+    "target_ontology_version": {
+      "anyOf": [
+        {
+          "pattern": "^([0-9]+\\.[0-9]+\\.[0-9]+(-[a-zA-Z0-9.]+)?(\\+[a-zA-Z0-9.]+)?)$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": "1.1.0",
+      "description": "Target ontology version after delta application",
+      "title": "Target Ontology Version"
+    },
+    "operations": {
+      "description": "Ordered sequence of ontology operations",
+      "items": {
+        "discriminator": {
+          "mapping": {
+            "add_attribute": "#/$defs/AddAttributeOp",
+            "add_concept": "#/$defs/AddConceptOp",
+            "add_external_mapping": "#/$defs/AddExternalMappingOp",
+            "add_governance_constraint": "#/$defs/AddGovernanceConstraintOp",
+            "add_key_authority_pattern": "#/$defs/AddKeyAuthorityPatternOp",
+            "add_reference_enum_code": "#/$defs/AddReferenceEnumCodeOp",
+            "add_reference_enumeration": "#/$defs/AddReferenceEnumerationOp",
+            "add_relationship": "#/$defs/AddRelationshipOp",
+            "add_source_hint": "#/$defs/AddSourceHintOp",
+            "add_synonym": "#/$defs/AddSynonymOp",
+            "annotate_concept_metadata": "#/$defs/AnnotateConceptMetadataOp",
+            "deprecate_concept": "#/$defs/DeprecateConceptOp",
+            "deprecate_relationship": "#/$defs/DeprecateRelationshipOp",
+            "refine_definition": "#/$defs/RefineDefinitionOp",
+            "remove_attribute": "#/$defs/RemoveAttributeOp",
+            "remove_concept": "#/$defs/RemoveConceptOp",
+            "remove_external_mapping": "#/$defs/RemoveExternalMappingOp",
+            "remove_relationship": "#/$defs/RemoveRelationshipOp",
+            "repin_external_mapping": "#/$defs/RepinExternalMappingOp",
+            "rescore_external_mapping": "#/$defs/RescoreExternalMappingOp",
+            "revise_description": "#/$defs/ReviseDescriptionOp",
+            "set_concept_elm_archetype": "#/$defs/SetConceptElmArchetypeOp",
+            "set_parent_concept": "#/$defs/SetParentConceptOp",
+            "update_concept_urn": "#/$defs/UpdateConceptUrnOp"
+          },
+          "propertyName": "op_type"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/$defs/RemoveConceptOp"
+          },
+          {
+            "$ref": "#/$defs/RemoveRelationshipOp"
+          },
+          {
+            "$ref": "#/$defs/RemoveAttributeOp"
+          },
+          {
+            "$ref": "#/$defs/UpdateConceptUrnOp"
+          },
+          {
+            "$ref": "#/$defs/AddConceptOp"
+          },
+          {
+            "$ref": "#/$defs/AddRelationshipOp"
+          },
+          {
+            "$ref": "#/$defs/AddAttributeOp"
+          },
+          {
+            "$ref": "#/$defs/SetParentConceptOp"
+          },
+          {
+            "$ref": "#/$defs/SetConceptElmArchetypeOp"
+          },
+          {
+            "$ref": "#/$defs/AddReferenceEnumerationOp"
+          },
+          {
+            "$ref": "#/$defs/AddKeyAuthorityPatternOp"
+          },
+          {
+            "$ref": "#/$defs/AddGovernanceConstraintOp"
+          },
+          {
+            "$ref": "#/$defs/DeprecateConceptOp"
+          },
+          {
+            "$ref": "#/$defs/DeprecateRelationshipOp"
+          },
+          {
+            "$ref": "#/$defs/AddSynonymOp"
+          },
+          {
+            "$ref": "#/$defs/AddExternalMappingOp"
+          },
+          {
+            "$ref": "#/$defs/ReviseDescriptionOp"
+          },
+          {
+            "$ref": "#/$defs/RescoreExternalMappingOp"
+          },
+          {
+            "$ref": "#/$defs/AddReferenceEnumCodeOp"
+          },
+          {
+            "$ref": "#/$defs/RepinExternalMappingOp"
+          },
+          {
+            "$ref": "#/$defs/RefineDefinitionOp"
+          },
+          {
+            "$ref": "#/$defs/AddSourceHintOp"
+          },
+          {
+            "$ref": "#/$defs/AnnotateConceptMetadataOp"
+          },
+          {
+            "$ref": "#/$defs/RemoveExternalMappingOp"
+          }
+        ]
+      },
+      "title": "Operations",
+      "type": "array"
+    },
+    "created_at": {
+      "anyOf": [
+        {
+          "format": "date-time",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "UTC creation timestamp",
+      "title": "Created At"
+    },
+    "author": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Author or agent identity that created the delta",
+      "title": "Author"
+    },
+    "rationale": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "Overall business rationale for delta",
+      "title": "Rationale"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "description": "Arbitrary authoring provenance metadata",
+      "title": "Metadata",
+      "type": "object"
+    }
+  },
+  "required": [
+    "delta_id"
+  ],
+  "title": "OntologyDelta",
+  "type": "object"
+}

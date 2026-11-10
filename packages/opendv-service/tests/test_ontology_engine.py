@@ -489,3 +489,34 @@ def test_gt06_golden_vector_integrity() -> None:
     diff = ontology_diff(base, accepted)
     expected_diff = json.loads((gt06_dir / "ontology_diff.json").read_text(encoding="utf-8"))
     assert diff.model_dump(mode="json", exclude_none=True) == expected_diff
+
+
+def test_apply_ontology_delta_bootstrap_mode(base_ontology: GraphAOntology) -> None:
+    """Verify applying a BOOTSTRAP delta with base 1.0.0 and target 1.0.0 succeeds."""
+    base_sha = compute_ontology_sha256(base_ontology)
+    boot_delta = OntologyDelta(
+        delta_id="delta-boot-apply-01",
+        parent_sha256=base_sha,
+        domain_namespace="logistics",
+        base_ontology_version="1.0.0",
+        target_ontology_version="1.0.0",
+        operations=[
+            AddConceptOp(
+                op_id="op-boot-1",
+                concept_uri="urn:ontology:entity:driver",
+                concept_name="Driver",
+                elm_archetype="CORE_BUSINESS_CONCEPT",
+                definition="A certified fleet driver.",
+                target_hub="hub_driver",
+            ),
+        ],
+        metadata={"mode": "BOOTSTRAP"},
+    )
+    result = apply_ontology_delta(base_ontology, boot_delta)
+    assert result.ontology_version == "1.0.0"
+    assert any(
+        c.concept_uri == "urn:ontology:entity:driver"
+        for c in result.canonical_business_concepts
+    )
+
+
