@@ -69,57 +69,71 @@ def _create_synthetic_pdf_bytes(
         content_stream.set_data(stream_data)
         page[pypdf.generic.NameObject("/Contents")] = writer._add_object(content_stream)
 
-        font_dict = pypdf.generic.DictionaryObject({
-            pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/Font"),
-            pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Type1"),
-            pypdf.generic.NameObject("/BaseFont"): pypdf.generic.NameObject("/Helvetica"),
-        })
+        font_dict = pypdf.generic.DictionaryObject(
+            {
+                pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/Font"),
+                pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Type1"),
+                pypdf.generic.NameObject("/BaseFont"): pypdf.generic.NameObject("/Helvetica"),
+            }
+        )
         resources_dict: dict[Any, Any] = {
-            pypdf.generic.NameObject("/Font"): pypdf.generic.DictionaryObject({
-                pypdf.generic.NameObject("/Helvetica"): writer._add_object(font_dict)
-            })
+            pypdf.generic.NameObject("/Font"): pypdf.generic.DictionaryObject(
+                {pypdf.generic.NameObject("/Helvetica"): writer._add_object(font_dict)}
+            )
         }
 
         if with_image:
             img_stream = pypdf.generic.DecodedStreamObject()
             img_stream.set_data(b"\x00" * 100)
-            img_stream.update({
-                pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/XObject"),
-                pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Image"),
-                pypdf.generic.NameObject("/Width"): pypdf.generic.NumberObject(100),
-                pypdf.generic.NameObject("/Height"): pypdf.generic.NumberObject(100),
-                pypdf.generic.NameObject("/ColorSpace"): pypdf.generic.NameObject("/DeviceGray"),
-                pypdf.generic.NameObject("/BitsPerComponent"): pypdf.generic.NumberObject(8),
-            })
-            resources_dict[pypdf.generic.NameObject("/XObject")] = pypdf.generic.DictionaryObject({
-                pypdf.generic.NameObject("/Im1"): writer._add_object(img_stream)
-            })
+            img_stream.update(
+                {
+                    pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/XObject"),
+                    pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Image"),
+                    pypdf.generic.NameObject("/Width"): pypdf.generic.NumberObject(100),
+                    pypdf.generic.NameObject("/Height"): pypdf.generic.NumberObject(100),
+                    pypdf.generic.NameObject("/ColorSpace"): pypdf.generic.NameObject(
+                        "/DeviceGray"
+                    ),
+                    pypdf.generic.NameObject("/BitsPerComponent"): pypdf.generic.NumberObject(8),
+                }
+            )
+            resources_dict[pypdf.generic.NameObject("/XObject")] = pypdf.generic.DictionaryObject(
+                {pypdf.generic.NameObject("/Im1"): writer._add_object(img_stream)}
+            )
 
         if with_form_image:
             img_stream = pypdf.generic.DecodedStreamObject()
             img_stream.set_data(b"\x00" * 100)
-            img_stream.update({
-                pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/XObject"),
-                pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Image"),
-                pypdf.generic.NameObject("/Width"): pypdf.generic.NumberObject(100),
-                pypdf.generic.NameObject("/Height"): pypdf.generic.NumberObject(100),
-                pypdf.generic.NameObject("/ColorSpace"): pypdf.generic.NameObject("/DeviceGray"),
-                pypdf.generic.NameObject("/BitsPerComponent"): pypdf.generic.NumberObject(8),
-            })
+            img_stream.update(
+                {
+                    pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/XObject"),
+                    pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Image"),
+                    pypdf.generic.NameObject("/Width"): pypdf.generic.NumberObject(100),
+                    pypdf.generic.NameObject("/Height"): pypdf.generic.NumberObject(100),
+                    pypdf.generic.NameObject("/ColorSpace"): pypdf.generic.NameObject(
+                        "/DeviceGray"
+                    ),
+                    pypdf.generic.NameObject("/BitsPerComponent"): pypdf.generic.NumberObject(8),
+                }
+            )
             form_stream = pypdf.generic.DecodedStreamObject()
             form_stream.set_data(b"/Im1 Do")
-            form_stream.update({
-                pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/XObject"),
-                pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Form"),
-                pypdf.generic.NameObject("/Resources"): pypdf.generic.DictionaryObject({
-                    pypdf.generic.NameObject("/XObject"): pypdf.generic.DictionaryObject({
-                        pypdf.generic.NameObject("/Im1"): writer._add_object(img_stream)
-                    })
-                }),
-            })
-            resources_dict[pypdf.generic.NameObject("/XObject")] = pypdf.generic.DictionaryObject({
-                pypdf.generic.NameObject("/Fm1"): writer._add_object(form_stream)
-            })
+            form_stream.update(
+                {
+                    pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/XObject"),
+                    pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Form"),
+                    pypdf.generic.NameObject("/Resources"): pypdf.generic.DictionaryObject(
+                        {
+                            pypdf.generic.NameObject("/XObject"): pypdf.generic.DictionaryObject(
+                                {pypdf.generic.NameObject("/Im1"): writer._add_object(img_stream)}
+                            )
+                        }
+                    ),
+                }
+            )
+            resources_dict[pypdf.generic.NameObject("/XObject")] = pypdf.generic.DictionaryObject(
+                {pypdf.generic.NameObject("/Fm1"): writer._add_object(form_stream)}
+            )
 
         page[pypdf.generic.NameObject("/Resources")] = pypdf.generic.DictionaryObject(
             resources_dict
@@ -294,7 +308,7 @@ class TestSyntheticPDFOffsets:
         """Verify UTF-16 code unit offset calculation handles surrogate pairs (> 0xFFFF)."""
         adapter = LiteParseDocumentAdapter(force_fallback=True)
         # Directly test via _build_ingestion_result to avoid synthetic font encoding limits
-        non_bmp_text = "Emoji: \U0001F600 Rocket: \U0001F680 End."
+        non_bmp_text = "Emoji: \U0001f600 Rocket: \U0001f680 End."
         result = adapter._build_ingestion_result(
             page_texts=[non_bmp_text],
             page_bboxes=[(0.0, 0.0, 612.0, 792.0)],
@@ -578,11 +592,7 @@ class TestTableExtraction:
 
     def test_disable_table_extraction_flag(self) -> None:
         """Verify extract_tables=False suppresses table extraction."""
-        table_page = (
-            "| Entity | Code |\n"
-            "|---|---|\n"
-            "| Acme | ACM |\n"
-        )
+        table_page = "| Entity | Code |\n|---|---|\n| Acme | ACM |\n"
         pdf_bytes = _create_synthetic_pdf_bytes([table_page])
 
         adapter = LiteParseDocumentAdapter(extract_tables=False, force_fallback=True)

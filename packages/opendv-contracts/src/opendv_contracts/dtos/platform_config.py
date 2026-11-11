@@ -161,9 +161,7 @@ class HarnessConfigDTO(BaseContractModel):
         default_factory=HarnessSandboxPolicyDTO,
         description="Sandbox isolation policy",
     )
-    steward_hold_policy: Literal[
-        "pause", "auto_approve_top_candidate", "reject_on_hold"
-    ] = Field(
+    steward_hold_policy: Literal["pause", "auto_approve_top_candidate", "reject_on_hold"] = Field(
         default="auto_approve_top_candidate",
         description="Default Steward Hold policy for Tier-U3 / ontology escalations",
     )
@@ -234,9 +232,7 @@ class PlatformConfigResponse(BaseContractModel):
                     "state_dir": ".opendv/state",
                     "cas_dir": ".opendv/state/cas",
                     "ledgers_dir": ".opendv/state/ledgers",
-                    "config_file_path": (
-                        "opendv.config.yaml" if self.config_file_path else None
-                    ),
+                    "config_file_path": ("opendv.config.yaml" if self.config_file_path else None),
                     "persisted_config_path": ".opendv/state/platform_config.json",
                     "harness": redacted_harness,
                 }

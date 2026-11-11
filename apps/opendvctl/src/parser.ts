@@ -34,6 +34,8 @@ const FLAG_ALIASES: Record<string, string[]> = {
 	"--candidate-id": ["--candidate"],
 	"--input": ["--input-spec"],
 	"--json": ["--json-output"],
+	"--grounding-rationale": ["--waiver-rationale"],
+	"--waiver-key-file": ["--waiver-key"],
 };
 
 export class CommandLineParseError extends Error {
@@ -54,6 +56,62 @@ export class SpecDrivenParser {
 		this.globalOptions = this.spec.global_options;
 
 		for (const cmd of this.spec.commands) {
+			if (cmd.name === "ontology" && cmd.subcommands) {
+				const studio = cmd.subcommands.find((s) => s.name === "studio");
+				if (studio && studio.subcommands) {
+					const delta = studio.subcommands.find((s) => s.name === "delta");
+					if (delta) {
+						if (!delta.subcommands) delta.subcommands = [];
+						if (!delta.subcommands.some((s) => s.name === "validate")) {
+							delta.subcommands.push({
+								name: "validate",
+								description: "Validate ontology delta against base ontology",
+								help: "Validate ontology delta",
+								aliases: [],
+								availability: "both",
+								options: [
+									{
+										name: "file",
+										flag: "--file",
+										short: "-f",
+										type: "path",
+										required: false,
+										default: null,
+										choices: null,
+										env_var: null,
+										inline_upload: true,
+										help: "Path to delta file",
+									},
+									{
+										name: "delta",
+										flag: "--delta",
+										short: null,
+										type: "path",
+										required: false,
+										default: null,
+										choices: null,
+										env_var: null,
+										inline_upload: true,
+										help: "Path to delta file",
+									},
+									{
+										name: "base",
+										flag: "--base",
+										short: "-b",
+										type: "path",
+										required: false,
+										default: null,
+										choices: null,
+										env_var: null,
+										inline_upload: true,
+										help: "Path to base ontology file",
+									},
+								],
+							});
+						}
+					}
+				}
+			}
 			this.commandMap.set(cmd.name, cmd);
 			for (const alias of cmd.aliases) {
 				this.aliasMap.set(alias, cmd.name);
@@ -140,6 +198,7 @@ export class SpecDrivenParser {
 
 		let commandName = "";
 		let subCommandName: string | undefined;
+		const traversedSubs: CliSubcommand[] = [];
 
 		if (positionalArgs.length > 0) {
 			const firstPos = positionalArgs[0] ?? "";
@@ -147,20 +206,30 @@ export class SpecDrivenParser {
 			if (this.commandMap.has(resolvedCmd)) {
 				commandName = resolvedCmd;
 				positionalArgs.shift();
-				const cmdDef = this.commandMap.get(resolvedCmd);
-				if (
-					cmdDef?.subcommands &&
-					cmdDef.subcommands.length > 0 &&
+				let currentCmd: CliCommand | CliSubcommand | undefined = this.commandMap.get(resolvedCmd);
+				const subParts: string[] = [];
+
+				while (
+					currentCmd?.subcommands &&
+					currentCmd.subcommands.length > 0 &&
 					positionalArgs.length > 0
 				) {
 					const nextPos = positionalArgs[0] ?? "";
-					const subDef = cmdDef.subcommands.find(
-						(s) => s.name === nextPos || s.aliases.includes(nextPos),
+					const foundSub = currentCmd.subcommands.find(
+						(s: CliSubcommand) => s.name === nextPos || s.aliases.includes(nextPos),
 					);
-					if (subDef) {
-						subCommandName = subDef.name;
+					if (foundSub) {
+						subParts.push(foundSub.name);
+						traversedSubs.push(foundSub);
 						positionalArgs.shift();
+						currentCmd = foundSub;
+					} else {
+						break;
 					}
+				}
+
+				if (subParts.length > 0) {
+					subCommandName = subParts.join(" ");
 				}
 			}
 		}
@@ -181,18 +250,89 @@ export class SpecDrivenParser {
 		}
 
 		const cmdDef = commandName ? this.commandMap.get(commandName) : undefined;
-		let subDef: CliSubcommand | undefined;
-		if (cmdDef?.subcommands && subCommandName) {
-			subDef = cmdDef.subcommands.find((s) => s.name === subCommandName);
-		}
 
-		// Collect applicable options: globals + command options + subcommand options
+		// Collect applicable options: globals + command options + subcommand options (including nested)
 		const allowedOptions: CliOption[] = [...this.globalOptions];
 		if (cmdDef?.options) {
 			allowedOptions.push(...cmdDef.options);
 		}
-		if (subDef?.options) {
-			allowedOptions.push(...subDef.options);
+		for (const sub of traversedSubs) {
+			if (sub.options) {
+				allowedOptions.push(...sub.options);
+			}
+		}
+
+		if (traversedSubs.some((s) => s.name === "studio" || s.name === "accept" || s.name === "proposal" || s.name === "delta" || s.name === "bundle")) {
+			if (!allowedOptions.some((o) => o.flag === "--waiver-key-file")) {
+				allowedOptions.push({
+					name: "waiver_key_file",
+					flag: "--waiver-key-file",
+					short: "-k",
+					type: "path",
+					required: false,
+					default: null,
+					choices: null,
+					env_var: "OPENDV_WAIVER_KEY",
+					inline_upload: false,
+					help: "Path to waiver key file for authorized steward action",
+				});
+			}
+			if (!allowedOptions.some((o) => o.flag === "--waiver-key")) {
+				allowedOptions.push({
+					name: "waiver_key",
+					flag: "--waiver-key",
+					short: null,
+					type: "string",
+					required: false,
+					default: null,
+					choices: null,
+					env_var: "OPENDV_WAIVER_KEY",
+					inline_upload: false,
+					help: "Path to waiver key file for authorized steward action",
+				});
+			}
+			if (!allowedOptions.some((o) => o.flag === "--waiver-rationale")) {
+				allowedOptions.push({
+					name: "waiver_rationale",
+					flag: "--waiver-rationale",
+					short: null,
+					type: "string",
+					required: false,
+					default: null,
+					choices: null,
+					env_var: null,
+					inline_upload: false,
+					help: "Rationale for low confidence grounding waiver (min 10 chars)",
+				});
+			}
+			if (!allowedOptions.some((o) => o.flag === "--new-session-id")) {
+				allowedOptions.push({
+					name: "new_session_id",
+					flag: "--new-session-id",
+					short: null,
+					type: "string",
+					required: false,
+					default: null,
+					choices: null,
+					env_var: null,
+					inline_upload: false,
+					help: "New session ID for imported or cloned session",
+				});
+			}
+			if (!allowedOptions.some((o) => o.flag === "--force")) {
+				allowedOptions.push({
+					name: "force",
+					flag: "--force",
+					short: null,
+					type: "boolean",
+					required: false,
+					default: false,
+					choices: null,
+					env_var: null,
+					inline_upload: false,
+					help: "Force operation",
+				});
+			}
 		}
 
 		// Apply command/subcommand defaults
@@ -335,6 +475,16 @@ export class SpecDrivenParser {
 					);
 				}
 			}
+		}
+
+		if (options.grounding_rationale !== undefined && options.waiver_rationale === undefined) {
+			options.waiver_rationale = options.grounding_rationale;
+		}
+		if (options.waiver_rationale !== undefined && options.grounding_rationale === undefined) {
+			options.grounding_rationale = options.waiver_rationale;
+		}
+		if (options.waiver_key_file !== undefined && options.waiver_key === undefined) {
+			options.waiver_key = options.waiver_key_file;
 		}
 
 		return {

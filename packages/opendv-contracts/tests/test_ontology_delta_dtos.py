@@ -1247,8 +1247,6 @@ def test_semver_bump_enforcement() -> None:
         )
 
 
-
-
 def test_to_v1_schema_dict_populated_extensions_rejected() -> None:
     """Verify to_v1_schema_dict rejects deltas where extension fields would be silently dropped."""
     op = AddConceptOp(op_id="1", concept_uri="urn:ontology:entity:c1", concept_name="C1")

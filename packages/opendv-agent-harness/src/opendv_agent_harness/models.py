@@ -31,6 +31,10 @@ class AgentPersona(StrEnum):
     SHIP_VAULT = "ship-vault"
     AXI_DV = "axi-dv"
     DETERMINISTIC_COMPILER = "deterministic-compiler"
+    # Ontology Studio personas
+    TERM_SCOUT = "term-scout"
+    DOMAIN_CLARIFIER = "domain-clarifier"
+    ONTOLOGY_ARCHITECT = "ontology-architect"
 
 
 class PipelineStageId(StrEnum):

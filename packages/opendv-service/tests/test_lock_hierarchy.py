@@ -523,9 +523,7 @@ def test_foreign_session_early_release_exception_intent_less_than_curr(
     l5_intent = StudioLock.session(
         tmp_path / "session_01", session_id="session_01", is_foreign=True
     )
-    l5_curr = StudioLock.session(
-        tmp_path / "session_02", session_id="session_02", is_foreign=False
-    )
+    l5_curr = StudioLock.session(tmp_path / "session_02", session_id="session_02", is_foreign=False)
 
     l4.acquire()
     l5_intent.acquire()
@@ -557,9 +555,7 @@ def test_foreign_session_early_release_exception_curr_less_than_intent(
     # 2. L5(s_curr, is_foreign=False)
     # 3. L5(s_intent, is_foreign=True)
     l4 = StudioLock.workspace(tmp_path)
-    l5_curr = StudioLock.session(
-        tmp_path / "session_01", session_id="session_01", is_foreign=False
-    )
+    l5_curr = StudioLock.session(tmp_path / "session_01", session_id="session_01", is_foreign=False)
     l5_intent = StudioLock.session(
         tmp_path / "session_02", session_id="session_02", is_foreign=True
     )

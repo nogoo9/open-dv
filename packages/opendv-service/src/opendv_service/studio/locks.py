@@ -197,9 +197,7 @@ def infer_lock_level(path: Path | str) -> LockLevel:
 
 
 # ContextVar tracking currently held locks in the active async task or thread
-_held_locks_var: ContextVar[tuple[StudioLock, ...]] = ContextVar(
-    "studio_held_locks", default=()
-)
+_held_locks_var: ContextVar[tuple[StudioLock, ...]] = ContextVar("studio_held_locks", default=())
 
 
 def get_held_locks() -> tuple[StudioLock, ...]:
@@ -585,9 +583,7 @@ class StudioLock:
         if not self._is_locked:
             return
 
-        _validate_release_order(
-            self, allow_foreign_early_release=allow_foreign_early_release
-        )
+        _validate_release_order(self, allow_foreign_early_release=allow_foreign_early_release)
 
         self._close_file()
         self._is_locked = False

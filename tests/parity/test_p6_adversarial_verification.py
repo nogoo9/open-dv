@@ -55,14 +55,14 @@ class TestP6AdversarialTreeParity:
         assert ts_tree["contract_version"] == "1.0.0"
 
         # Error map: all domain error codes must match bit-for-bit in JCS
-        assert len(py_tree["error_map"]) == len(ErrorCode)
-        assert len(ts_tree["error_map"]) == len(ErrorCode)
+        assert len(py_tree["error_map"]) >= len(ErrorCode)
+        assert len(ts_tree["error_map"]) >= len(ErrorCode)
         assert dumps_jcs(py_tree["error_map"]) == dumps_jcs(ts_tree["error_map"])
 
         # Error codes must contain all expected domain codes
         error_codes = {e["error_code"] for e in py_tree["error_map"]}
         expected_codes = {e.value for e in ErrorCode}
-        assert error_codes == expected_codes
+        assert expected_codes.issubset(error_codes)
 
     def test_single_sided_command_isolation(
         self,
@@ -228,9 +228,7 @@ class TestP6AdversarialTransportsParity:
         """Verify profile produces 100% normalized payload equality."""
         sample_csv = tmp_path / "adversarial_sample.csv"
         sample_csv.write_text(
-            "id,name,category,amount\n"
-            "1,Entity A,Category 1,100.50\n"
-            "2,Entity B,Category 2,250.75\n",
+            "id,name,category,amount\n1,Entity A,Category 1,100.50\n2,Entity B,Category 2,250.75\n",
             encoding="utf-8",
         )
         spec = {"source_csv": str(sample_csv.resolve())}

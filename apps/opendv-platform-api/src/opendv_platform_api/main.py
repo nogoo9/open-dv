@@ -28,6 +28,7 @@ from opendv_platform_api.routers import (
     gates,
     health,
     ontology,
+    ontology_studio,
     platform_config,
     profile,
     projects,
@@ -35,6 +36,10 @@ from opendv_platform_api.routers import (
     sandbox,
     verify,
     web_ui,
+)
+from opendv_platform_api.security.error_catalog import (
+    StudioAPIError,
+    build_studio_problem_response,
 )
 from opendv_service import OpenDVService, OpenDVSettings, PlatformStateContainer
 from opendv_service.errors import OpenDVError
@@ -334,6 +339,20 @@ def create_app(
             instance=str(request.url.path),
         )
 
+    @application.exception_handler(StudioAPIError)
+    async def handle_studio_api_error(
+        request: Request,
+        exc: StudioAPIError,
+    ) -> JSONResponse:
+        return build_studio_problem_response(
+            code=exc.code,
+            detail=exc.detail,
+            status_code=exc.status_code,
+            instance=exc.instance or str(request.url.path),
+            invalid_params=exc.invalid_params,
+            extensions=exc.extensions,
+        )
+
     @application.exception_handler(Exception)
     async def handle_unexpected_exception(
         request: Request,
@@ -364,6 +383,7 @@ def create_app(
     application.include_router(decisions.router, prefix=api_prefix)
     application.include_router(artifacts.router, prefix=api_prefix)
     application.include_router(ontology.router, prefix=api_prefix)
+    application.include_router(ontology_studio.router, prefix=api_prefix)
     application.include_router(web_ui.router)
 
     return application

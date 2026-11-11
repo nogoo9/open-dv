@@ -31,7 +31,7 @@ from typing import Any, Final, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
-from opendv_core.models.graph_a import GraphAOntology
+from opendv_core.models.graph_a import CanonicalBusinessConcept, GraphAOntology
 from opendv_core.ontology_hashing import compute_ontology_sha256, dumps_jcs_bytes
 from opendv_service.studio.cas_storage import ContentAddressableStorage
 from opendv_service.studio.workspace_security import (
@@ -486,6 +486,51 @@ class StudioSessionManager:
         else:
             head_sha256 = GENESIS_DRAFT_SHA256
             head_version = GENESIS_VERSION
+            version_dir = (versions_dir / f"v{head_version}").resolve()
+            version_dir.mkdir(parents=True, exist_ok=True)
+            set_owner_only_permissions(version_dir)
+
+            clean_ns = re.sub(r"[^a-z0-9_]+", "_", domain_namespace.lower()).strip("_")
+            if not clean_ns or not clean_ns[0].isalpha():
+                clean_ns = f"d_{clean_ns}" if clean_ns else "default"
+            domain_name = domain_namespace.replace("_", " ").replace(".", " ").title()
+            genesis_ont = GraphAOntology(
+                ontology_version=head_version,
+                domain_namespace=clean_ns,
+                enterprise_owner=enterprise_owner,
+                canonical_business_concepts=[
+                    CanonicalBusinessConcept(
+                        concept_uri=f"urn:ontology:entity:{clean_ns}_genesis",
+                        concept_name=f"{domain_name} Genesis",
+                        definition="Genesis baseline root entity.",
+                        target_hub=f"hub_{clean_ns}_genesis",
+                    )
+                ],
+                canonical_relationships=[],
+            )
+            ont_dict = genesis_ont.model_dump(mode="json", exclude_none=True)
+            canonical_jcs = dumps_jcs_bytes(ont_dict)
+            ont_json_file = version_dir / "ontology.json"
+            ont_json_file.write_bytes(canonical_jcs)
+            set_owner_only_permissions(ont_json_file)
+
+            yaml_content = yaml.safe_dump(ont_dict, sort_keys=False)
+            ont_yaml_file = version_dir / "ontology.yaml"
+            ont_yaml_file.write_text(yaml_content, encoding="utf-8")
+            set_owner_only_permissions(ont_yaml_file)
+
+            meta_record = {
+                "target_sha256": head_sha256,
+                "parent_sha256": None,
+                "commit_timestamp": now_iso,
+                "author": "system:genesis",
+                "mode": "genesis",
+                "domain_namespace": domain_namespace,
+                "enterprise_owner": enterprise_owner,
+            }
+            meta_file = version_dir / "metadata.json"
+            meta_file.write_text(json.dumps(meta_record, indent=2), encoding="utf-8")
+            set_owner_only_permissions(meta_file)
 
         # MIN-01: Audit entry hashing using RFC 8785 JCS
         genesis_audit_entry: dict[str, Any] = {
@@ -774,9 +819,7 @@ class StudioSessionManager:
             if prev_sha != expected_prev_sha:
                 return False
 
-            recon = {
-                k: v for k, v in record.items() if k not in ("audit_sha256", "hmac_signature")
-            }
+            recon = {k: v for k, v in record.items() if k not in ("audit_sha256", "hmac_signature")}
             canonical_bytes = dumps_jcs_bytes(recon)
             computed_sha = hashlib.sha256(canonical_bytes).hexdigest().lower()
             if computed_sha != actual_sha:

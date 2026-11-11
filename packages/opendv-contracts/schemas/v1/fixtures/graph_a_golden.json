@@ -1,0 +1,66 @@
+{
+  "description": "Cross-language RFC 8785 Graph A canonicalization golden test vector (Task 5D / MAJ-01)",
+  "raw_model": {
+    "ontology_version": "1.0.0",
+    "domain_namespace": "wealth",
+    "enterprise_owner": "Asset Management Division",
+    "canonical_business_concepts": [
+      {
+        "concept_uri": "urn:ontology:entity:portfolio",
+        "concept_name": "Portfolio",
+        "elm_archetype": "CORE_CONCEPT",
+        "definition": "Investment portfolio container",
+        "target_hub": "hub_portfolio",
+        "attributes": [
+          {
+            "attribute_name": "portfolio_id",
+            "data_type": "string",
+            "description": "Identifier"
+          },
+          {
+            "attribute_name": "inception_date",
+            "data_type": "date",
+            "description": "Start date"
+          }
+        ],
+        "synonyms": [
+          "fund_portfolio"
+        ],
+        "external_mappings": [
+          {
+            "scheme": "FIBO",
+            "target_uri": "https://spec.edmcouncil.org/fibo/ontology/SEC/Portfolio",
+            "confidence": 0.95
+          }
+        ]
+      },
+      {
+        "concept_uri": "urn:ontology:entity:asset",
+        "concept_name": "Asset",
+        "elm_archetype": "CORE_CONCEPT",
+        "definition": "Financial asset",
+        "target_hub": "hub_asset",
+        "attributes": [
+          {
+            "attribute_name": "asset_id",
+            "data_type": "string"
+          }
+        ],
+        "synonyms": [],
+        "external_mappings": [
+          {
+            "scheme": "FIBO",
+            "target_uri": "https://spec.edmcouncil.org/fibo/ontology/SEC/Asset",
+            "confidence": 0.9
+          }
+        ]
+      }
+    ],
+    "canonical_relationships": [],
+    "reference_enumerations": [],
+    "standards_references": [],
+    "decision_refs": []
+  },
+  "canonical_jcs": "{\"canonical_business_concepts\":[{\"attributes\":[{\"attribute_name\":\"asset_id\",\"data_type\":\"string\"}],\"concept_name\":\"Asset\",\"concept_uri\":\"urn:ontology:entity:asset\",\"definition\":\"Financial asset\",\"elm_archetype\":\"CORE_CONCEPT\",\"external_mappings\":[{\"confidence\":0.9,\"scheme\":\"FIBO\",\"target_uri\":\"https://spec.edmcouncil.org/fibo/ontology/SEC/Asset\"}],\"target_hub\":\"hub_asset\"},{\"attributes\":[{\"attribute_name\":\"portfolio_id\",\"data_type\":\"string\",\"description\":\"Identifier\"},{\"attribute_name\":\"inception_date\",\"data_type\":\"date\",\"description\":\"Start date\"}],\"concept_name\":\"Portfolio\",\"concept_uri\":\"urn:ontology:entity:portfolio\",\"definition\":\"Investment portfolio container\",\"elm_archetype\":\"CORE_CONCEPT\",\"external_mappings\":[{\"confidence\":0.95,\"scheme\":\"FIBO\",\"target_uri\":\"https://spec.edmcouncil.org/fibo/ontology/SEC/Portfolio\"}],\"synonyms\":[\"fund_portfolio\"],\"target_hub\":\"hub_portfolio\"}],\"canonical_relationships\":[],\"decision_refs\":[],\"domain_namespace\":\"wealth\",\"enterprise_owner\":\"Asset Management Division\",\"ontology_version\":\"1.0.0\",\"reference_enumerations\":[],\"standards_references\":[]}",
+  "sha256": "dec92838dddee6d823b866e2b66d66c91cc7cd57c9b355e27901ca863916c8fe"
+}

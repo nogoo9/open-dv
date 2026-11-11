@@ -513,6 +513,7 @@ class TestIngestionServiceE2E:
 
     def test_mocked_custom_adapter_integration(self) -> None:
         """Verify custom adapter parsing tabular structures through IngestionService."""
+
         class MockCsvAdapter(BaseDocumentAdapter):
             adapter_name = "mock_csv_custom"
             supported_mime_types = ("text/csv",)
@@ -548,9 +549,7 @@ class TestIngestionServiceE2E:
         service.register_adapter(MockCsvAdapter(), priority=True)
 
         csv_content = (
-            b"Concept,Definition\n"
-            b"Company,Legal corporate entity\n"
-            b"Security,Financial asset\n"
+            b"Concept,Definition\nCompany,Legal corporate entity\nSecurity,Financial asset\n"
         )
         result = service.ingest_bytes(csv_content, filename="concepts.csv", mime_type="text/csv")
 
@@ -563,6 +562,7 @@ class TestIngestionServiceE2E:
 
     def test_non_normalizing_adapter_remapping_crlf_and_chunks(self) -> None:
         """Verify service remaps page_map and adapter-supplied chunks when adapter text has CRLF."""
+
         class NonNormalizingAdapter(BaseDocumentAdapter):
             adapter_name = "non_norm_custom"
             supported_mime_types = ("text/x-raw",)
@@ -662,6 +662,7 @@ class TestIngestionServiceE2E:
 
     def test_taint_propagation_override_adapter_downgrade(self) -> None:
         """Verify caller-specified taint is strictly enforced and not downgraded."""
+
         class IgnoringTaintAdapter(BaseDocumentAdapter):
             adapter_name = "ignoring_taint"
             supported_mime_types = ("text/plain",)
@@ -732,9 +733,7 @@ class TestIngestionServiceE2E:
             IngestionService(default_chunk_size=100, default_chunk_overlap=60)
 
         service = IngestionService(default_chunk_size=500, default_chunk_overlap=50)
-        with pytest.raises(
-            ValueError, match=r"chunk_overlap .* must not exceed chunk_size // 2"
-        ):
+        with pytest.raises(ValueError, match=r"chunk_overlap .* must not exceed chunk_size // 2"):
             service.chunk_text("Sample text", document_id="doc_1", chunk_size=50, chunk_overlap=30)
 
     def test_max_taint_high_water_mark(self) -> None:
@@ -812,6 +811,7 @@ class TestIngestionServiceE2E:
 
     def test_adapter_out_of_bounds_chunk_raises(self) -> None:
         """Verify adapter producing out-of-bounds chunk offsets raises descriptive ValueError."""
+
         class BadAdapter(PlainTextDocumentAdapter):
             def parse_bytes(self, data: bytes, filename: str, **kwargs: Any) -> IngestionResult:
                 res = super().parse_bytes(data, filename, **kwargs)
@@ -832,6 +832,7 @@ class TestIngestionServiceE2E:
 
     def test_adapter_chunks_document_id_enforced(self) -> None:
         """Verify remapped chunks have document_id matching the IngestionResult."""
+
         class ForeignIdAdapter(PlainTextDocumentAdapter):
             def parse_bytes(self, data: bytes, filename: str, **kwargs: Any) -> IngestionResult:
                 res = super().parse_bytes(data, filename, **kwargs)
@@ -999,6 +1000,7 @@ class TestIngestionServiceE2E:
 
     def test_adapter_chunks_raise_document_taint_high_water_mark(self) -> None:
         """Verify document taint is raised when an adapter chunk has higher taint (MAJ-02)."""
+
         class TaintUpgradeAdapter(BaseDocumentAdapter):
             adapter_name = "taint_upgrade"
             supported_mime_types = ("text/x-taint",)
@@ -1067,6 +1069,7 @@ class TestIngestionServiceE2E:
     def test_dropped_chunks_metadata_no_in_place_mutation(self) -> None:
         """Verify dropped_chunks does not mutate adapter metadata in place (MIN-06)."""
         orig_meta = {"source": "adapter", "dropped_chunks": ("pre_existing_dropped",)}
+
         class DroppingAdapter(BaseDocumentAdapter):
             adapter_name = "dropping_adapter"
             supported_mime_types = ("text/x-drop",)
@@ -1106,6 +1109,7 @@ class TestIngestionServiceE2E:
 
         # Hash must match raw disk bytes exactly
         import hashlib
+
         expected_hash = hashlib.sha256(content).hexdigest()
         assert result.source_sha256 == expected_hash
 

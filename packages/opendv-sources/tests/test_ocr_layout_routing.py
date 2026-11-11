@@ -80,31 +80,37 @@ def _create_test_pdf_bytes(
         page[pypdf.generic.NameObject("/Contents")] = writer._add_object(content_stream)
 
         # Add font and image resources
-        font_dict = pypdf.generic.DictionaryObject({
-            pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/Font"),
-            pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Type1"),
-            pypdf.generic.NameObject("/BaseFont"): pypdf.generic.NameObject("/Helvetica"),
-        })
+        font_dict = pypdf.generic.DictionaryObject(
+            {
+                pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/Font"),
+                pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Type1"),
+                pypdf.generic.NameObject("/BaseFont"): pypdf.generic.NameObject("/Helvetica"),
+            }
+        )
         resources_dict: dict[Any, Any] = {
-            pypdf.generic.NameObject("/Font"): pypdf.generic.DictionaryObject({
-                pypdf.generic.NameObject("/Helvetica"): writer._add_object(font_dict)
-            })
+            pypdf.generic.NameObject("/Font"): pypdf.generic.DictionaryObject(
+                {pypdf.generic.NameObject("/Helvetica"): writer._add_object(font_dict)}
+            )
         }
 
         if with_image_xobject:
             img_stream = pypdf.generic.DecodedStreamObject()
             img_stream.set_data(b"\x00" * 100)
-            img_stream.update({
-                pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/XObject"),
-                pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Image"),
-                pypdf.generic.NameObject("/Width"): pypdf.generic.NumberObject(100),
-                pypdf.generic.NameObject("/Height"): pypdf.generic.NumberObject(100),
-                pypdf.generic.NameObject("/ColorSpace"): pypdf.generic.NameObject("/DeviceGray"),
-                pypdf.generic.NameObject("/BitsPerComponent"): pypdf.generic.NumberObject(8),
-            })
-            resources_dict[pypdf.generic.NameObject("/XObject")] = pypdf.generic.DictionaryObject({
-                pypdf.generic.NameObject("/Im1"): writer._add_object(img_stream)
-            })
+            img_stream.update(
+                {
+                    pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/XObject"),
+                    pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Image"),
+                    pypdf.generic.NameObject("/Width"): pypdf.generic.NumberObject(100),
+                    pypdf.generic.NameObject("/Height"): pypdf.generic.NumberObject(100),
+                    pypdf.generic.NameObject("/ColorSpace"): pypdf.generic.NameObject(
+                        "/DeviceGray"
+                    ),
+                    pypdf.generic.NameObject("/BitsPerComponent"): pypdf.generic.NumberObject(8),
+                }
+            )
+            resources_dict[pypdf.generic.NameObject("/XObject")] = pypdf.generic.DictionaryObject(
+                {pypdf.generic.NameObject("/Im1"): writer._add_object(img_stream)}
+            )
 
         page[pypdf.generic.NameObject("/Resources")] = pypdf.generic.DictionaryObject(
             resources_dict
@@ -115,7 +121,6 @@ def _create_test_pdf_bytes(
     out = io.BytesIO()
     writer.write(out)
     return out.getvalue()
-
 
 
 # =============================================================================
@@ -273,7 +278,6 @@ class TestLayoutComplexityEvaluator:
 
 class TestCalculatePageRasterRatio:
     """Tests calculating raster ratio via affine CTM tracking without pixel decoding."""
-
 
     def test_raster_ratio_on_synthetic_large_image(self) -> None:
         """Verify PDF with image scaled to 70% of page area computes raster_ratio > 0.40."""
@@ -489,7 +493,6 @@ class TestTesseractOCRRouter:
 
         assert exc_info.value.exit_code == 1
         assert exc_info.value.http_status == 501
-
 
 
 # =============================================================================

@@ -86,7 +86,6 @@ class OCRUnavailableError(DocumentExtractionError):
     but is unavailable.
     """
 
-
     error_code: str = "OCR_UNAVAILABLE"
     exit_code: int = 1
     http_status: int = 501
@@ -169,4 +168,3 @@ __all__ = [
     "SourceTableEmptyError",
     "UnsupportedFormatError",
 ]
-

@@ -78,7 +78,11 @@ def _wants_json(raw_args: list[str]) -> bool:
 
 def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
     """Construct the spec-driven ArgumentParser for `opendv` or `axi-dv`."""
-    return build_argument_parser(prog=prog)
+    parser = build_argument_parser(prog=prog)
+    from opendv_cli.commands.ontology_studio import register_studio_subparsers
+
+    register_studio_subparsers(parser)
+    return parser
 
 
 def _dispatch(
@@ -92,7 +96,7 @@ def _dispatch(
         if getattr(args, "dump_cli_tree", False):
             sys.stdout.write(dump_cli_tree(prog=prog, mode="standalone") + "\n")
             return 0
-        if getattr(args, "version", False):
+        if getattr(args, "subcommand", None) is None and getattr(args, "version", False):
             from opendv_contracts.spec import load_cli_spec
 
             spec = load_cli_spec()

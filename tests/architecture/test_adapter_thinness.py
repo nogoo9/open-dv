@@ -51,6 +51,4 @@ def test_router_adapter_thinness() -> None:
             f"Router '{r_file.name}' does not inject or reference OpenDVService"
         )
 
-    assert not violations, (
-        "Adapter thinness violations detected:\n" + "\n".join(violations)
-    )
+    assert not violations, "Adapter thinness violations detected:\n" + "\n".join(violations)

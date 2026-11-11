@@ -567,18 +567,12 @@ def test_cas_mark_and_sweep_purges_unreferenced_blobs(test_env: dict[str, Any]) 
     sha_orphan = cas.put(b"unreferenced orphan blob")
 
     # 1. Register sha1 in inputs/manifest.json
-    manifest_data = {
-        "sources": [{"source_id": "src-1", "sha256": sha1, "tombstoned": False}]
-    }
-    (sdir / "inputs" / "manifest.json").write_text(
-        json.dumps(manifest_data), encoding="utf-8"
-    )
+    manifest_data = {"sources": [{"source_id": "src-1", "sha256": sha1, "tombstoned": False}]}
+    (sdir / "inputs" / "manifest.json").write_text(json.dumps(manifest_data), encoding="utf-8")
 
     # 2. Register sha2 in evidence/chunks.jsonl
     chunk_data = {"chunk_id": "chk-1", "source_id": "src-2", "blob_sha256": sha2}
-    (sdir / "evidence" / "chunks.jsonl").write_text(
-        json.dumps(chunk_data) + "\n", encoding="utf-8"
-    )
+    (sdir / "evidence" / "chunks.jsonl").write_text(json.dumps(chunk_data) + "\n", encoding="utf-8")
 
     # Execute mark-and-sweep
     purged = mark_and_sweep_cas(sdir)
@@ -601,9 +595,7 @@ def test_delete_source_safety_guards(test_env: dict[str, Any]) -> None:
     manifest_data = {
         "sources": [{"source_id": "src-protected", "sha256": "a" * 64, "tombstoned": False}]
     }
-    (sdir / "inputs" / "manifest.json").write_text(
-        json.dumps(manifest_data), encoding="utf-8"
-    )
+    (sdir / "inputs" / "manifest.json").write_text(json.dumps(manifest_data), encoding="utf-8")
 
     # 1. Guard against pending proposal citation
     (sdir / "proposals" / "prop-1.json").write_text(

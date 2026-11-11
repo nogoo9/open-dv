@@ -113,9 +113,7 @@ def test_validate_platform_config_valid_and_invalid(tmp_path: Path) -> None:
     assert valid_res.resolved_persona_models["scout-source"] == "claude-haiku-4-5"
 
     # 2. Invalid provider
-    bad_provider = service.validate_platform_config(
-        {"harness": {"provider": "unknown-provider"}}
-    )
+    bad_provider = service.validate_platform_config({"harness": {"provider": "unknown-provider"}})
     assert bad_provider.passed is False
     assert len(bad_provider.diagnostics) >= 1
     assert bad_provider.diagnostics[0].code == "HARNESS_CONFIG_INVALID"

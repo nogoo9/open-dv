@@ -363,9 +363,7 @@ def test_create_session_greenfield_genesis(tmp_path: Path) -> None:
 
     # Verify HMAC signature on audit record using RFC 8785 JCS (MIN-01)
     reconstructed_dict = {
-        k: v
-        for k, v in genesis_audit.items()
-        if k not in ("audit_sha256", "hmac_signature")
+        k: v for k, v in genesis_audit.items() if k not in ("audit_sha256", "hmac_signature")
     }
     reconstructed_bytes = dumps_jcs_bytes(reconstructed_dict)
     expected_hmac = mgr.security_manager.sign_audit_entry(reconstructed_bytes)
@@ -638,9 +636,7 @@ def test_append_audit_entry_missing_session_does_not_create_dir(tmp_path: Path) 
 
 def test_genesis_draft_sha256_matches_baseline_catalog() -> None:
     """MIN-02: Genesis draft hash must match baseline-digests.json catalog."""
-    schema_path = (
-        Path(__file__).resolve().parents[3] / "schemas" / "v1" / "baseline-digests.json"
-    )
+    schema_path = Path(__file__).resolve().parents[3] / "schemas" / "v1" / "baseline-digests.json"
     assert schema_path.is_file(), f"Catalog not found at {schema_path}"
     catalog = json.loads(schema_path.read_text(encoding="utf-8"))
     catalog_genesis_sha = catalog["genesis_draft"]["canonical_sha256"]

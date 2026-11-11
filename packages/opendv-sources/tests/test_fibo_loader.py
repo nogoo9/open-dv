@@ -49,18 +49,10 @@ FND_CAPITAL_SURPLUS = (
 FBC_BANKRUPTCY = (
     "https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/CreditEvents/Bankruptcy"
 )
-SEC_AUTO_ABS = (
-    "https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/AssetBackedSecurities/AutoAssetBackedSecurity"
-)
-LOAN_BORROWER_INCOME = (
-    "https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/LoanApplications/AllBorrowersMonthlyIncome"
-)
-IND_DAILY_EARNINGS = (
-    "https://spec.edmcouncil.org/fibo/ontology/IND/EconomicIndicators/EconomicIndicators/AverageDailyEarnings"
-)
-FND_HAS_AMOUNT = (
-    "https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/CurrencyAmount/hasAmount"
-)
+SEC_AUTO_ABS = "https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/AssetBackedSecurities/AutoAssetBackedSecurity"
+LOAN_BORROWER_INCOME = "https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/LoanApplications/AllBorrowersMonthlyIncome"
+IND_DAILY_EARNINGS = "https://spec.edmcouncil.org/fibo/ontology/IND/EconomicIndicators/EconomicIndicators/AverageDailyEarnings"
+FND_HAS_AMOUNT = "https://spec.edmcouncil.org/fibo/ontology/FND/Accounting/CurrencyAmount/hasAmount"
 BE_HAS_INCORP_DATE = (
     "https://spec.edmcouncil.org/fibo/ontology/BE/Corporations/Corporations/hasDateOfIncorporation"
 )
@@ -728,12 +720,12 @@ def test_baseline_upstream_commit_matches_canonical_constant() -> None:
     data = json.loads(baseline_path.read_text(encoding="utf-8"))
     fibo_core_spec = data["reference_packs"]["fibo_core"]
 
-    assert (
-        fibo_core_spec["upstream_commit"] == loader_module.CANONICAL_FIBO_CORE_UPSTREAM_COMMIT
-    ), "CANONICAL_FIBO_CORE_UPSTREAM_COMMIT out of sync with baseline-digests.json"
-    assert (
-        fibo_core_spec["upstream_tag"] == loader_module.CANONICAL_FIBO_CORE_UPSTREAM_TAG
-    ), "CANONICAL_FIBO_CORE_UPSTREAM_TAG out of sync with baseline-digests.json"
+    assert fibo_core_spec["upstream_commit"] == loader_module.CANONICAL_FIBO_CORE_UPSTREAM_COMMIT, (
+        "CANONICAL_FIBO_CORE_UPSTREAM_COMMIT out of sync with baseline-digests.json"
+    )
+    assert fibo_core_spec["upstream_tag"] == loader_module.CANONICAL_FIBO_CORE_UPSTREAM_TAG, (
+        "CANONICAL_FIBO_CORE_UPSTREAM_TAG out of sync with baseline-digests.json"
+    )
 
 
 def test_untrusted_pack_cannot_override_baseline_from_parent_dir(tmp_path: Path) -> None:
@@ -786,14 +778,14 @@ def test_canonical_pack_artifact_integrity_and_packaging() -> None:
     assert alias_file.is_file(), f"Vendored alias missing at {alias_file}"
 
     canonical_bytes = canonical_file.read_bytes()
-    assert (
-        len(canonical_bytes) <= MAX_DISK_SIZE_BYTES
-    ), f"Pack size {len(canonical_bytes)} exceeds budget {MAX_DISK_SIZE_BYTES}"
+    assert len(canonical_bytes) <= MAX_DISK_SIZE_BYTES, (
+        f"Pack size {len(canonical_bytes)} exceeds budget {MAX_DISK_SIZE_BYTES}"
+    )
 
     computed_sha = hashlib.sha256(canonical_bytes).hexdigest()
-    assert (
-        computed_sha == CANONICAL_FIBO_CORE_SHA256
-    ), f"Pack SHA-256 mismatch: {computed_sha} != {CANONICAL_FIBO_CORE_SHA256}"
+    assert computed_sha == CANONICAL_FIBO_CORE_SHA256, (
+        f"Pack SHA-256 mismatch: {computed_sha} != {CANONICAL_FIBO_CORE_SHA256}"
+    )
 
     alias_bytes = alias_file.read_bytes()
     alias_sha = hashlib.sha256(alias_bytes).hexdigest()
@@ -869,5 +861,3 @@ def test_cache_invalidates_on_baseline_digests_change(
     loader = get_default_fibo_loader()
     assert loader is not None
     assert loader.class_count > 0
-
-

@@ -142,12 +142,16 @@ def test_gt02_private_equity_baseline(
     # 1. verify.json (with three-transport parity check)
     verify_cli = cli_transport.verify(contract=pe_contract, graph_a=graph_a, graph_b=graph_b)
     verify_rest = rest_transport.verify(contract=pe_contract, graph_a=graph_a, graph_b=graph_b)
-    verify_client = client_cli_transport.verify(contract=pe_contract, graph_a=graph_a, graph_b=graph_b)
+    verify_client = client_cli_transport.verify(
+        contract=pe_contract, graph_a=graph_a, graph_b=graph_b
+    )
     norm_cli = normalize_for_parity(verify_cli, path_root=str(REPO_ROOT))
     norm_rest = normalize_for_parity(verify_rest, path_root=str(REPO_ROOT))
     norm_client = normalize_for_parity(verify_client, path_root=str(REPO_ROOT))
     assert norm_cli == norm_rest, "Cross-surface parity mismatch on GT-02 verify (CLI vs REST)"
-    assert norm_cli == norm_client, "Cross-surface parity mismatch on GT-02 verify (CLI vs opendvctl)"
+    assert norm_cli == norm_client, (
+        "Cross-surface parity mismatch on GT-02 verify (CLI vs opendvctl)"
+    )
     verify_bytes = (json.dumps(norm_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
     golden_manager.assert_golden_byte_equality(
         golden_id="GT-02",
@@ -191,8 +195,12 @@ def test_gt02_private_equity_baseline(
     norm_b_cli = normalize_for_parity(batches_cli, path_root=str(REPO_ROOT))
     norm_b_rest = normalize_for_parity(batches_rest, path_root=str(REPO_ROOT))
     norm_b_client = normalize_for_parity(batches_client, path_root=str(REPO_ROOT))
-    assert norm_b_cli == norm_b_rest, "Cross-surface parity mismatch on GT-02 sandbox batches (CLI vs REST)"
-    assert norm_b_cli == norm_b_client, "Cross-surface parity mismatch on GT-02 sandbox batches (CLI vs opendvctl)"
+    assert norm_b_cli == norm_b_rest, (
+        "Cross-surface parity mismatch on GT-02 sandbox batches (CLI vs REST)"
+    )
+    assert norm_b_cli == norm_b_client, (
+        "Cross-surface parity mismatch on GT-02 sandbox batches (CLI vs opendvctl)"
+    )
     batches_bytes = (json.dumps(norm_b_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
     golden_manager.assert_golden_byte_equality(
         golden_id="GT-02",
@@ -223,8 +231,12 @@ def test_gt02_private_equity_baseline(
     norm_d10_cli = normalize_for_parity(d10_cli, path_root=str(REPO_ROOT))
     norm_d10_rest = normalize_for_parity(d10_rest, path_root=str(REPO_ROOT))
     norm_d10_client = normalize_for_parity(d10_client, path_root=str(REPO_ROOT))
-    assert norm_d10_cli == norm_d10_rest, "Cross-surface parity mismatch on GT-02 D.10 PIT (CLI vs REST)"
-    assert norm_d10_cli == norm_d10_client, "Cross-surface parity mismatch on GT-02 D.10 PIT (CLI vs opendvctl)"
+    assert norm_d10_cli == norm_d10_rest, (
+        "Cross-surface parity mismatch on GT-02 D.10 PIT (CLI vs REST)"
+    )
+    assert norm_d10_cli == norm_d10_client, (
+        "Cross-surface parity mismatch on GT-02 D.10 PIT (CLI vs opendvctl)"
+    )
     d10_bytes = (json.dumps(norm_d10_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
     golden_manager.assert_golden_byte_equality(
         golden_id="GT-02",
@@ -255,8 +267,12 @@ def test_gt02_private_equity_baseline(
     norm_d10b_cli = normalize_for_parity(d10b_cli, path_root=str(REPO_ROOT))
     norm_d10b_rest = normalize_for_parity(d10b_rest, path_root=str(REPO_ROOT))
     norm_d10b_client = normalize_for_parity(d10b_client, path_root=str(REPO_ROOT))
-    assert norm_d10b_cli == norm_d10b_rest, "Cross-surface parity mismatch on GT-02 D.10b valuation (CLI vs REST)"
-    assert norm_d10b_cli == norm_d10b_client, "Cross-surface parity mismatch on GT-02 D.10b valuation (CLI vs opendvctl)"
+    assert norm_d10b_cli == norm_d10b_rest, (
+        "Cross-surface parity mismatch on GT-02 D.10b valuation (CLI vs REST)"
+    )
+    assert norm_d10b_cli == norm_d10b_client, (
+        "Cross-surface parity mismatch on GT-02 D.10b valuation (CLI vs opendvctl)"
+    )
     d10b_bytes = (json.dumps(norm_d10b_cli, indent=2, sort_keys=True) + "\n").encode("utf-8")
     golden_manager.assert_golden_byte_equality(
         golden_id="GT-02",
@@ -463,4 +479,3 @@ def test_gt06_ontology_delta_application(
         actual_bytes=diff_bytes,
         generated_from="PAR-ONT-HOLD: ontology_diff",
     )
-

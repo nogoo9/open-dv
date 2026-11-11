@@ -218,9 +218,7 @@ def calculate_page_raster_ratio(
 
             for operands, operator in operations:
                 op_name = (
-                    operator.decode("latin-1")
-                    if isinstance(operator, bytes)
-                    else str(operator)
+                    operator.decode("latin-1") if isinstance(operator, bytes) else str(operator)
                 )
                 if op_name == "q":
                     stack.append(list(ctm))
@@ -261,11 +259,10 @@ def calculate_page_raster_ratio(
                         if isinstance(res, dict) or hasattr(res, "get"):
                             w = float(res.get("/Width", 0))
                             h = float(res.get("/Height", 0))
-                            total_image_area += (w * h)
+                            total_image_area += w * h
 
     ratio = total_image_area / page_area
     return min(1.0, max(0.0, float(ratio)))
-
 
 
 def evaluate_page_complexity(
@@ -602,8 +599,6 @@ class TesseractOCRRouter:
                 img = image_data
 
             return str(pytesseract.image_to_string(img) or "")
-
-
 
         except Exception as exc:
             if self.ocr_mode == "force":

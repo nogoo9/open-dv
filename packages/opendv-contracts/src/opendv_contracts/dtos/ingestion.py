@@ -76,10 +76,7 @@ class EvidenceChunk(BaseContractModel):
 
     @model_validator(mode="after")
     def _validate_offsets(self) -> EvidenceChunk:
-        if (
-            self.start_char is not None
-            and self.end_char is not None
-        ):
+        if self.start_char is not None and self.end_char is not None:
             if self.start_char > self.end_char:
                 raise ValueError(
                     f"start_char ({self.start_char}) must be <= end_char ({self.end_char})"
@@ -203,6 +200,17 @@ class TableStructure(BaseContractModel):
     bounding_box: tuple[float, float, float, float] | None = Field(
         default=None, description="Bounding box of table on page"
     )
+    taint: TaintClassification | None = Field(
+        default=None,
+        validation_alias=AliasChoices("taint", "taint_classification"),
+        description="Confidentiality taint classification level",
+    )
+    metadata: dict[str, Any] | None = Field(default=None, description="Arbitrary table metadata")
+
+    @property
+    def taint_classification(self) -> TaintClassification | None:
+        """Alias for taint."""
+        return self.taint
 
     @property
     def row_count(self) -> int:

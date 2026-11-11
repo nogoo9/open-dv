@@ -14,6 +14,7 @@ from opendv_contracts.jcs import dumps_jcs
 SemVerClass = Literal["MAJOR", "MINOR", "PATCH"]
 
 CONCEPT_URN_REGEX = r"^urn:ontology:(provisional:)?entity:[a-z0-9_]+$"
+ENUM_URN_REGEX = r"^(urn:ontology:(provisional:)?enum:[a-z0-9_]+)?$"
 
 SEMVER_RANKS: dict[SemVerClass, int] = {
     "MAJOR": 3,
@@ -429,7 +430,7 @@ class AddReferenceEnumerationOp(BaseOntologyDeltaOp):
     op_type: Literal["add_reference_enumeration"] = "add_reference_enumeration"
     enum_uri: str = Field(
         default="",
-        pattern=r"^(urn:ontology:enum:[a-z0-9_]+)?$",
+        pattern=ENUM_URN_REGEX,
         description="Unique reference enumeration URN",
     )
     name: str = Field(

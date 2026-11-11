@@ -8,6 +8,14 @@ from opendv_contracts.dtos.artifacts import (
     get_known_artifact_kinds,
     is_known_artifact_kind,
 )
+from opendv_contracts.dtos.clarification import (
+    ClarificationAnswerItem,
+    ClarificationAnswerRequest,
+    ClarificationAnswerResponse,
+    ClarificationOption,
+    ClarificationQuestion,
+    ClarifyRequest,
+)
 from opendv_contracts.dtos.common import (
     BaseContractModel,
     ContractVersion,
@@ -55,6 +63,10 @@ from opendv_contracts.dtos.hold import (
     HoldRequest,
     HoldResponse,
     HoldStatus,
+)
+from opendv_contracts.dtos.matching import (
+    ReferenceConcept,
+    ScoredConceptMatch,
 )
 from opendv_contracts.dtos.ontology import (
     AcceptOntologyDeltaOption,
@@ -120,6 +132,7 @@ from opendv_contracts.dtos.verify import (
     VerifyResponse,
 )
 
+# fmt: off
 __all__ = [  # noqa: RUF022
     # Requests and responses
     "CompileRequest",
@@ -141,6 +154,13 @@ __all__ = [  # noqa: RUF022
     "HoldResponse",
     "HoldDecisionRequest",
     "HoldDecisionResponse",
+    # Clarification DTOs
+    "ClarificationOption",
+    "ClarificationQuestion",
+    "ClarificationAnswerItem",
+    "ClarificationAnswerRequest",
+    "ClarificationAnswerResponse",
+    "ClarifyRequest",
     # Enums and value types
     "ContractVersion",
     "EventType",
@@ -176,8 +196,10 @@ __all__ = [  # noqa: RUF022
     "OntologySuggestionRequest",
     "OntologyValidateDeltaRequest",
     "OntologyValidationResult",
+    "ReferenceConcept",
     "RefineDefinitionOp",
     "RejectOntologyDeltaOption",
+    "ScoredConceptMatch",
     "StewardHoldOption",
     "ValidationResult",
     # Evaluation, event, and artifact DTOs
@@ -225,3 +247,4 @@ __all__ = [  # noqa: RUF022
     "PlatformConfigUpdateRequest", "PlatformConfigValidateRequest",
     "PlatformConfigValidationResponse", "ProviderReadinessDTO",
 ]
+# fmt: on

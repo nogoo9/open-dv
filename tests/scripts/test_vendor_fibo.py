@@ -80,24 +80,12 @@ def test_cli_help(capsys: pytest.CaptureFixture[str]) -> None:
 
 def test_get_fibo_module_resolution() -> None:
     """Verify correct classification of URIs into the 6 core modules and rejection of non-FIBO."""
-    fnd_uri = (
-        "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement"
-    )
-    be_uri = (
-        "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity"
-    )
-    fbc_uri = (
-        "https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/Security"
-    )
-    sec_uri = (
-        "https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/EquityInstruments/Share"
-    )
-    loan_uri = (
-        "https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/Loans/Loan"
-    )
-    ind_uri = (
-        "https://spec.edmcouncil.org/fibo/ontology/IND/Indicators/Indicators/FinancialIndex"
-    )
+    fnd_uri = "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Agreements/Agreement"
+    be_uri = "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity"
+    fbc_uri = "https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/Security"
+    sec_uri = "https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/EquityInstruments/Share"
+    loan_uri = "https://spec.edmcouncil.org/fibo/ontology/LOAN/LoansGeneral/Loans/Loan"
+    ind_uri = "https://spec.edmcouncil.org/fibo/ontology/IND/Indicators/Indicators/FinancialIndex"
 
     assert get_fibo_module(fnd_uri) == "FND"
     assert get_fibo_module(be_uri) == "BE"
@@ -185,9 +173,7 @@ def test_determinism_across_runs(sample_ontology_graph: rdflib.Graph) -> None:
     assert hash1 == hash2
 
 
-def test_budget_verification_success(
-    tmp_path: Path, sample_ontology_graph: rdflib.Graph
-) -> None:
+def test_budget_verification_success(tmp_path: Path, sample_ontology_graph: rdflib.Graph) -> None:
     """Verify budget verification passes for a well-formed compiled pack."""
     classes, properties = extract_fibo_graph(sample_ontology_graph)
     raw_bytes, _, _, sha256_8 = compile_fibo_pack(classes, properties)
@@ -258,18 +244,20 @@ def test_budget_verification_missing_module(
     """Verify verify_pack fails if a core module is missing from classes."""
     classes, properties = extract_fibo_graph(sample_ontology_graph)
     classes_no_ind = {k: v for k, v in classes.items() if v["module"] != "IND"}
-    raw_bytes = dumps_jcs_bytes({
-        "classes": classes_no_ind,
-        "metadata": {
-            "compiled_at": DEFAULT_COMPILED_AT,
-            "modules": sorted(list(CORE_MODULES)),
-            "pack_id": "fibo-core",
-            "upstream_commit": UPSTREAM_COMMIT,
-            "upstream_tag": UPSTREAM_TAG,
-            "version": "1.0.0",
-        },
-        "properties": properties,
-    })
+    raw_bytes = dumps_jcs_bytes(
+        {
+            "classes": classes_no_ind,
+            "metadata": {
+                "compiled_at": DEFAULT_COMPILED_AT,
+                "modules": sorted(list(CORE_MODULES)),
+                "pack_id": "fibo-core",
+                "upstream_commit": UPSTREAM_COMMIT,
+                "upstream_tag": UPSTREAM_TAG,
+                "version": "1.0.0",
+            },
+            "properties": properties,
+        }
+    )
     pack_path = tmp_path / "fibo-core-pack.json"
     pack_path.write_bytes(raw_bytes)
 
@@ -467,9 +455,7 @@ def test_real_pack_verification_if_present() -> None:
 
     assert len(pack_candidates) == 1, f"Expected 1 real pack, found: {pack_candidates}"
     target_pack = pack_candidates[0]
-    result = verify_pack(
-        target_pack, allow_fixture=False, require_production_counts=True
-    )
+    result = verify_pack(target_pack, allow_fixture=False, require_production_counts=True)
     assert result.is_valid is True, f"Real pack validation failed: {result.error_message}"
     assert result.disk_size_bytes < MAX_DISK_SIZE_BYTES
     assert result.memory_peak_bytes < MAX_MEMORY_BYTES
@@ -801,14 +787,16 @@ def test_main_compile_offline_archive_non_production(tmp_path: Path) -> None:
     out_dir = tmp_path / "non_prod_out"
     cache_dir = tmp_path / "cache"
 
-    ret = main([
-        "--offline-archive",
-        str(tar_path),
-        "--output-dir",
-        str(out_dir),
-        "--cache-dir",
-        str(cache_dir),
-    ])
+    ret = main(
+        [
+            "--offline-archive",
+            str(tar_path),
+            "--output-dir",
+            str(out_dir),
+            "--cache-dir",
+            str(cache_dir),
+        ]
+    )
     assert ret == 0
 
     packs = list(out_dir.glob("fibo-core-*.json"))
@@ -839,9 +827,16 @@ def test_archive_uncompressed_bytes_limit_exceeded(tmp_path: Path) -> None:
         pass
 
     with patch("tarfile.TarFile.getmembers") as mock_members:
-        fake_member = MagicMock(issym=lambda: False, islnk=lambda: False, isdev=lambda: False,
-                                ischr=lambda: False, isblk=lambda: False, isfifo=lambda: False,
-                                size=MAX_ARCHIVE_UNCOMPRESSED_BYTES + 1, name="huge.bin")
+        fake_member = MagicMock(
+            issym=lambda: False,
+            islnk=lambda: False,
+            isdev=lambda: False,
+            ischr=lambda: False,
+            isblk=lambda: False,
+            isfifo=lambda: False,
+            size=MAX_ARCHIVE_UNCOMPRESSED_BYTES + 1,
+            name="huge.bin",
+        )
         mock_members.return_value = [fake_member]
         with pytest.raises(ValueError, match="Archive uncompressed size exceeds limit"):
             safe_extract_archive(tar_path, tmp_path / "out")
@@ -894,6 +889,3 @@ def test_cached_git_repo_url_mismatch_reclones(tmp_path: Path) -> None:
         source, commit = ensure_fibo_source(cache_dir=cache)
         assert source == git_cache
         assert commit == UPSTREAM_COMMIT
-
-
-

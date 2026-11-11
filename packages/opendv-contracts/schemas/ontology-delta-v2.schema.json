@@ -744,7 +744,7 @@
         "enum_uri": {
           "default": "",
           "description": "Unique reference enumeration URN",
-          "pattern": "^(urn:ontology:enum:[a-z0-9_]+)?$",
+          "pattern": "^(urn:ontology:(provisional:)?enum:[a-z0-9_]+)?$",
           "title": "Enum Uri",
           "type": "string"
         },

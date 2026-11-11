@@ -209,7 +209,9 @@ def detect_cross_modal_discrepancy(
     )
 
 
-def _collect_all_17_spans_for_parametrization() -> list[tuple[str, str, int, int, str, str, float, float | None]]:
+def _collect_all_17_spans_for_parametrization() -> list[
+    tuple[str, str, int, int, str, str, float, float | None]
+]:
     with PE_PROFILE_PATH.open(encoding="utf-8") as f:
         profile = json.load(f)
     s3_src = next(
@@ -247,7 +249,9 @@ def test_pdf_corpus_lengths_and_row_chunk_spans(
     pe_profile: dict[str, Any],
 ) -> None:
     """Verify exact byte/char lengths and row-level chunk spans across both PE PDFs."""
-    assert len(ALL_17_PDF_SPANS) == 17, f"Expected exactly 17 PDF spans, found {len(ALL_17_PDF_SPANS)}"
+    assert len(ALL_17_PDF_SPANS) == 17, (
+        f"Expected exactly 17 PDF spans, found {len(ALL_17_PDF_SPANS)}"
+    )
 
     doc1_uri = "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf"
     doc2_uri = "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf"
@@ -273,7 +277,16 @@ def test_pdf_corpus_lengths_and_row_chunk_spans(
     r2_start, r2_end = 108, 1151
     assert doc2_text[r2_start:r2_end].startswith("VALUATION EFFECTIVE DATE: September 30, 2026")
     assert doc2_text[r2_start:r2_end].endswith("combined debt-free operating holding.")
-    for sub_start, sub_end in [(134, 152), (186, 206), (226, 246), (259, 271), (599, 624), (915, 932), (1033, 1051), (1076, 1105)]:
+    for sub_start, sub_end in [
+        (134, 152),
+        (186, 206),
+        (226, 246),
+        (259, 271),
+        (599, 624),
+        (915, 932),
+        (1033, 1051),
+        (1076, 1105),
+    ]:
         assert r2_start <= sub_start and sub_end <= r2_end
 
 
@@ -843,9 +856,7 @@ def test_artifact3_4zone_duckdb_warehouse_tables_zero_keys_ghosts_and_zero_orpha
 
         # Also verify -2 (ffff...ffff) Error Ghost Record seeding compatibility on every Satellite
         cols = [r[0] for r in con.execute(f"DESCRIBE {sat}").fetchall()]
-        select_exprs = [
-            f"'{ZERO_KEY_ERROR}'" if c in (pk, "hash_diff") else c for c in cols
-        ]
+        select_exprs = [f"'{ZERO_KEY_ERROR}'" if c in (pk, "hash_diff") else c for c in cols]
         con.execute(
             f"INSERT INTO {sat} SELECT {', '.join(select_exprs)} FROM {sat} "
             f"WHERE {pk} = '{ZERO_KEY_UNKNOWN}' "
@@ -861,28 +872,113 @@ def test_artifact3_4zone_duckdb_warehouse_tables_zero_keys_ghosts_and_zero_orpha
     # Verify 0 orphans across all 23 FK relationships in Raw Vault & Business Vault
     fk_relationships = [
         ("raw_vault.lnk_lp_commitment", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-        ("raw_vault.lnk_lp_commitment", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+        (
+            "raw_vault.lnk_lp_commitment",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
         ("raw_vault.lnk_lp_commitment_co_invest", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-        ("raw_vault.lnk_lp_commitment_co_invest", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
-        ("raw_vault.lnk_lp_commitment_co_invest", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company"),
-        ("raw_vault.sal_limited_partner", "hk_limited_partner_master", "raw_vault.hub_limited_partner", "hk_limited_partner"),
-        ("raw_vault.sal_limited_partner", "hk_limited_partner_duplicate", "raw_vault.hub_limited_partner", "hk_limited_partner"),
-        ("raw_vault.lnk_document_lp_commitment", "hk_document", "raw_vault.hub_document", "hk_document"),
+        (
+            "raw_vault.lnk_lp_commitment_co_invest",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
+        (
+            "raw_vault.lnk_lp_commitment_co_invest",
+            "hk_portfolio_company",
+            "raw_vault.hub_portfolio_company",
+            "hk_portfolio_company",
+        ),
+        (
+            "raw_vault.sal_limited_partner",
+            "hk_limited_partner_master",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
+        (
+            "raw_vault.sal_limited_partner",
+            "hk_limited_partner_duplicate",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
+        (
+            "raw_vault.lnk_document_lp_commitment",
+            "hk_document",
+            "raw_vault.hub_document",
+            "hk_document",
+        ),
         ("raw_vault.lnk_document_lp_commitment", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-        ("raw_vault.lnk_document_lp_commitment", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
-        ("raw_vault.lnk_document_portfolio_company", "hk_document", "raw_vault.hub_document", "hk_document"),
-        ("raw_vault.lnk_document_portfolio_company", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company"),
+        (
+            "raw_vault.lnk_document_lp_commitment",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
+        (
+            "raw_vault.lnk_document_portfolio_company",
+            "hk_document",
+            "raw_vault.hub_document",
+            "hk_document",
+        ),
+        (
+            "raw_vault.lnk_document_portfolio_company",
+            "hk_portfolio_company",
+            "raw_vault.hub_portfolio_company",
+            "hk_portfolio_company",
+        ),
         ("raw_vault.sat_fund_investran", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
         ("raw_vault.sat_fund_investran_esg", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-        ("raw_vault.sat_limited_partner_investran", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
-        ("raw_vault.sat_limited_partner_pii", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
-        ("raw_vault.sat_lp_commitment_investran", "hk_lnk_lp_commitment", "raw_vault.lnk_lp_commitment", "hk_lnk_lp_commitment"),
-        ("raw_vault.sat_portfolio_company_dealcloud", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company"),
-        ("raw_vault.sat_portco_valuation_mnpi", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company"),
-        ("raw_vault.sat_limited_partner_legacy", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+        (
+            "raw_vault.sat_limited_partner_investran",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
+        (
+            "raw_vault.sat_limited_partner_pii",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
+        (
+            "raw_vault.sat_lp_commitment_investran",
+            "hk_lnk_lp_commitment",
+            "raw_vault.lnk_lp_commitment",
+            "hk_lnk_lp_commitment",
+        ),
+        (
+            "raw_vault.sat_portfolio_company_dealcloud",
+            "hk_portfolio_company",
+            "raw_vault.hub_portfolio_company",
+            "hk_portfolio_company",
+        ),
+        (
+            "raw_vault.sat_portco_valuation_mnpi",
+            "hk_portfolio_company",
+            "raw_vault.hub_portfolio_company",
+            "hk_portfolio_company",
+        ),
+        (
+            "raw_vault.sat_limited_partner_legacy",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
         ("raw_vault.sat_document_manifest", "hk_document", "raw_vault.hub_document", "hk_document"),
-        ("business_vault.sat_lp_side_letter_llm_ext", "hk_lnk_document_lp_commitment", "raw_vault.lnk_document_lp_commitment", "hk_lnk_document_lp_commitment"),
-        ("business_vault.sat_lnk_doc_portco_ai_provenance", "hk_lnk_document_portfolio_company", "raw_vault.lnk_document_portfolio_company", "hk_lnk_document_portfolio_company"),
+        (
+            "business_vault.sat_lp_side_letter_llm_ext",
+            "hk_lnk_document_lp_commitment",
+            "raw_vault.lnk_document_lp_commitment",
+            "hk_lnk_document_lp_commitment",
+        ),
+        (
+            "business_vault.sat_lnk_doc_portco_ai_provenance",
+            "hk_lnk_document_portfolio_company",
+            "raw_vault.lnk_document_portfolio_company",
+            "hk_lnk_document_portfolio_company",
+        ),
     ]
     assert len(fk_relationships) >= 20
     for child_tbl, fk_col, parent_tbl, pk_col in fk_relationships:
@@ -908,34 +1004,126 @@ def test_all_15_dynamic_verification_rules_dv_dyn_001_to_015(
     hubs = [
         ("raw_vault.hub_fund", "hk_fund", "bkcc || '||' || fund_code"),
         ("raw_vault.hub_limited_partner", "hk_limited_partner", "bkcc || '||' || lp_natural_key"),
-        ("raw_vault.hub_portfolio_company", "hk_portfolio_company", "bkcc || '||' || portco_natural_key"),
+        (
+            "raw_vault.hub_portfolio_company",
+            "hk_portfolio_company",
+            "bkcc || '||' || portco_natural_key",
+        ),
         ("raw_vault.hub_document", "hk_document", "bkcc || '||' || doc_uri"),
     ]
     links = [
-        ("raw_vault.lnk_lp_commitment", "hk_lnk_lp_commitment", "hk_fund || '||' || hk_limited_partner || '||' || commitment_id"),
-        ("raw_vault.lnk_lp_commitment_co_invest", "hk_lnk_lp_commitment_co_invest", "hk_fund || '||' || hk_limited_partner || '||' || hk_portfolio_company || '||' || commitment_id"),
-        ("raw_vault.sal_limited_partner", "hk_sal_limited_partner", "hk_limited_partner_master || '||' || hk_limited_partner_duplicate"),
-        ("raw_vault.lnk_document_lp_commitment", "hk_lnk_document_lp_commitment", "hk_document || '||' || hk_fund || '||' || hk_limited_partner"),
-        ("raw_vault.lnk_document_portfolio_company", "hk_lnk_document_portfolio_company", "hk_document || '||' || hk_portfolio_company"),
+        (
+            "raw_vault.lnk_lp_commitment",
+            "hk_lnk_lp_commitment",
+            "hk_fund || '||' || hk_limited_partner || '||' || commitment_id",
+        ),
+        (
+            "raw_vault.lnk_lp_commitment_co_invest",
+            "hk_lnk_lp_commitment_co_invest",
+            "hk_fund || '||' || hk_limited_partner || '||' || hk_portfolio_company || '||' || commitment_id",
+        ),
+        (
+            "raw_vault.sal_limited_partner",
+            "hk_sal_limited_partner",
+            "hk_limited_partner_master || '||' || hk_limited_partner_duplicate",
+        ),
+        (
+            "raw_vault.lnk_document_lp_commitment",
+            "hk_lnk_document_lp_commitment",
+            "hk_document || '||' || hk_fund || '||' || hk_limited_partner",
+        ),
+        (
+            "raw_vault.lnk_document_portfolio_company",
+            "hk_lnk_document_portfolio_company",
+            "hk_document || '||' || hk_portfolio_company",
+        ),
     ]
     sats = [
-        ("raw_vault.sat_fund_investran", "hk_fund", "raw_vault.hub_fund", "staging.stg_investran_src_pe_funds", "hash_diff_sat_fund_investran"),
-        ("raw_vault.sat_fund_investran_esg", "hk_fund", "raw_vault.hub_fund", "staging.stg_investran_src_pe_funds", "hash_diff_sat_fund_investran_esg"),
-        ("raw_vault.sat_limited_partner_investran", "hk_limited_partner", "raw_vault.hub_limited_partner", "staging.stg_investran_src_lp_investors", "hash_diff_sat_limited_partner_investran"),
-        ("raw_vault.sat_limited_partner_pii", "hk_limited_partner", "raw_vault.hub_limited_partner", "staging.stg_investran_src_lp_investors", "hash_diff_sat_limited_partner_pii"),
-        ("raw_vault.sat_lp_commitment_investran", "hk_lnk_lp_commitment", "raw_vault.lnk_lp_commitment", "staging.stg_investran_src_lp_commitments_and_calls", "hash_diff_sat_lp_commitment_investran"),
-        ("raw_vault.sat_portfolio_company_dealcloud", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "staging.stg_dealcloud_src_portfolio_companies", "hash_diff_sat_portfolio_company_dealcloud"),
-        ("raw_vault.sat_portco_valuation_mnpi", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "staging.stg_dealcloud_src_portfolio_companies", "hash_diff_sat_portco_valuation_mnpi"),
-        ("raw_vault.sat_limited_partner_legacy", "hk_limited_partner", "raw_vault.hub_limited_partner", "staging.stg_legacy_gp_src_legacy_lp_roster", "hash_diff_sat_limited_partner_legacy"),
-        ("raw_vault.sat_document_manifest", "hk_document", "raw_vault.hub_document", "staging.stg_dms_documents", "hash_diff_sat_document_manifest"),
-        ("business_vault.sat_lp_side_letter_llm_ext", "hk_lnk_document_lp_commitment", "raw_vault.lnk_document_lp_commitment", "staging.stg_dms_src_side_letter_extractions", "hash_diff_sat_lp_side_letter_llm_ext"),
-        ("business_vault.sat_lnk_doc_portco_ai_provenance", "hk_lnk_document_portfolio_company", "raw_vault.lnk_document_portfolio_company", "staging.stg_dms_src_ic_memo_extractions", "hash_diff_sat_lnk_doc_portco_ai_provenance"),
+        (
+            "raw_vault.sat_fund_investran",
+            "hk_fund",
+            "raw_vault.hub_fund",
+            "staging.stg_investran_src_pe_funds",
+            "hash_diff_sat_fund_investran",
+        ),
+        (
+            "raw_vault.sat_fund_investran_esg",
+            "hk_fund",
+            "raw_vault.hub_fund",
+            "staging.stg_investran_src_pe_funds",
+            "hash_diff_sat_fund_investran_esg",
+        ),
+        (
+            "raw_vault.sat_limited_partner_investran",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "staging.stg_investran_src_lp_investors",
+            "hash_diff_sat_limited_partner_investran",
+        ),
+        (
+            "raw_vault.sat_limited_partner_pii",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "staging.stg_investran_src_lp_investors",
+            "hash_diff_sat_limited_partner_pii",
+        ),
+        (
+            "raw_vault.sat_lp_commitment_investran",
+            "hk_lnk_lp_commitment",
+            "raw_vault.lnk_lp_commitment",
+            "staging.stg_investran_src_lp_commitments_and_calls",
+            "hash_diff_sat_lp_commitment_investran",
+        ),
+        (
+            "raw_vault.sat_portfolio_company_dealcloud",
+            "hk_portfolio_company",
+            "raw_vault.hub_portfolio_company",
+            "staging.stg_dealcloud_src_portfolio_companies",
+            "hash_diff_sat_portfolio_company_dealcloud",
+        ),
+        (
+            "raw_vault.sat_portco_valuation_mnpi",
+            "hk_portfolio_company",
+            "raw_vault.hub_portfolio_company",
+            "staging.stg_dealcloud_src_portfolio_companies",
+            "hash_diff_sat_portco_valuation_mnpi",
+        ),
+        (
+            "raw_vault.sat_limited_partner_legacy",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "staging.stg_legacy_gp_src_legacy_lp_roster",
+            "hash_diff_sat_limited_partner_legacy",
+        ),
+        (
+            "raw_vault.sat_document_manifest",
+            "hk_document",
+            "raw_vault.hub_document",
+            "staging.stg_dms_documents",
+            "hash_diff_sat_document_manifest",
+        ),
+        (
+            "business_vault.sat_lp_side_letter_llm_ext",
+            "hk_lnk_document_lp_commitment",
+            "raw_vault.lnk_document_lp_commitment",
+            "staging.stg_dms_src_side_letter_extractions",
+            "hash_diff_sat_lp_side_letter_llm_ext",
+        ),
+        (
+            "business_vault.sat_lnk_doc_portco_ai_provenance",
+            "hk_lnk_document_portfolio_company",
+            "raw_vault.lnk_document_portfolio_company",
+            "staging.stg_dms_src_ic_memo_extractions",
+            "hash_diff_sat_lnk_doc_portco_ai_provenance",
+        ),
     ]
 
     # DV-DYN-001: Hub HK & Composite BK Uniqueness
     for tbl, hk, bk_expr in hubs:
         dup_hk = con.execute(f"SELECT COUNT(*) - COUNT(DISTINCT {hk}) FROM {tbl}").fetchone()[0]
-        dup_bk = con.execute(f"SELECT COUNT(*) - COUNT(DISTINCT ({bk_expr})) FROM {tbl}").fetchone()[0]
+        dup_bk = con.execute(
+            f"SELECT COUNT(*) - COUNT(DISTINCT ({bk_expr})) FROM {tbl}"
+        ).fetchone()[0]
         assert dup_hk == 0 and dup_bk == 0, f"DV-DYN-001 failed on {tbl}"
 
     # DV-DYN-002: Hub & Link Cryptographic / Concatenation Hash Collision Bijection
@@ -948,7 +1136,9 @@ def test_all_15_dynamic_verification_rules_dv_dyn_001_to_015(
     # DV-DYN-003: Link HK & FK-Tuple Grain Uniqueness
     for tbl, hk, fk_expr in links:
         dup_hk = con.execute(f"SELECT COUNT(*) - COUNT(DISTINCT {hk}) FROM {tbl}").fetchone()[0]
-        dup_fk = con.execute(f"SELECT COUNT(*) - COUNT(DISTINCT ({fk_expr})) FROM {tbl}").fetchone()[0]
+        dup_fk = con.execute(
+            f"SELECT COUNT(*) - COUNT(DISTINCT ({fk_expr})) FROM {tbl}"
+        ).fetchone()[0]
         assert dup_hk == 0 and dup_fk == 0, f"DV-DYN-003 failed on {tbl}"
 
     # DV-DYN-004: Standard Satellite (hk, load_dts) Grain Uniqueness
@@ -986,17 +1176,62 @@ def test_all_15_dynamic_verification_rules_dv_dyn_001_to_015(
     # DV-DYN-007: Link-to-Hub Foreign Key Referential Integrity
     link_fk_checks = [
         ("raw_vault.lnk_lp_commitment", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-        ("raw_vault.lnk_lp_commitment", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
+        (
+            "raw_vault.lnk_lp_commitment",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
         ("raw_vault.lnk_lp_commitment_co_invest", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-        ("raw_vault.lnk_lp_commitment_co_invest", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
-        ("raw_vault.lnk_lp_commitment_co_invest", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company"),
-        ("raw_vault.sal_limited_partner", "hk_limited_partner_master", "raw_vault.hub_limited_partner", "hk_limited_partner"),
-        ("raw_vault.sal_limited_partner", "hk_limited_partner_duplicate", "raw_vault.hub_limited_partner", "hk_limited_partner"),
-        ("raw_vault.lnk_document_lp_commitment", "hk_document", "raw_vault.hub_document", "hk_document"),
+        (
+            "raw_vault.lnk_lp_commitment_co_invest",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
+        (
+            "raw_vault.lnk_lp_commitment_co_invest",
+            "hk_portfolio_company",
+            "raw_vault.hub_portfolio_company",
+            "hk_portfolio_company",
+        ),
+        (
+            "raw_vault.sal_limited_partner",
+            "hk_limited_partner_master",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
+        (
+            "raw_vault.sal_limited_partner",
+            "hk_limited_partner_duplicate",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
+        (
+            "raw_vault.lnk_document_lp_commitment",
+            "hk_document",
+            "raw_vault.hub_document",
+            "hk_document",
+        ),
         ("raw_vault.lnk_document_lp_commitment", "hk_fund", "raw_vault.hub_fund", "hk_fund"),
-        ("raw_vault.lnk_document_lp_commitment", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner"),
-        ("raw_vault.lnk_document_portfolio_company", "hk_document", "raw_vault.hub_document", "hk_document"),
-        ("raw_vault.lnk_document_portfolio_company", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company"),
+        (
+            "raw_vault.lnk_document_lp_commitment",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+        ),
+        (
+            "raw_vault.lnk_document_portfolio_company",
+            "hk_document",
+            "raw_vault.hub_document",
+            "hk_document",
+        ),
+        (
+            "raw_vault.lnk_document_portfolio_company",
+            "hk_portfolio_company",
+            "raw_vault.hub_portfolio_company",
+            "hk_portfolio_company",
+        ),
     ]
     for lnk_tbl, fk_col, hub_tbl, pk_col in link_fk_checks:
         orphans = con.execute(
@@ -1034,15 +1269,69 @@ def test_all_15_dynamic_verification_rules_dv_dyn_001_to_015(
     # DV-DYN-010: Staging-to-Hub & Staging-to-Link Completeness Reconciliation
     stg_to_target = [
         ("staging.stg_investran_src_pe_funds", "hk_fund", "raw_vault.hub_fund", "hk_fund", "1=1"),
-        ("staging.stg_investran_src_lp_investors", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner", "1=1"),
-        ("staging.stg_legacy_gp_src_legacy_lp_roster", "hk_limited_partner", "raw_vault.hub_limited_partner", "hk_limited_partner", "1=1"),
-        ("staging.stg_dealcloud_src_portfolio_companies", "hk_portfolio_company", "raw_vault.hub_portfolio_company", "hk_portfolio_company", "1=1"),
-        ("staging.stg_dms_documents", "hk_document", "raw_vault.hub_document", "hk_document", "1=1"),
-        ("staging.stg_investran_src_lp_commitments_and_calls", "hk_lnk_lp_commitment", "raw_vault.lnk_lp_commitment", "hk_lnk_lp_commitment", "1=1"),
-        ("staging.stg_investran_src_lp_commitments_and_calls", "hk_lnk_lp_commitment_co_invest", "raw_vault.lnk_lp_commitment_co_invest", "hk_lnk_lp_commitment_co_invest", "co_invest_portco_lei IS NOT NULL"),
-        ("staging.stg_mdm_src_lp_steward_crosswalk", "hk_sal_limited_partner", "raw_vault.sal_limited_partner", "hk_sal_limited_partner", "1=1"),
-        ("staging.stg_dms_src_side_letter_extractions", "hk_lnk_document_lp_commitment", "raw_vault.lnk_document_lp_commitment", "hk_lnk_document_lp_commitment", "1=1"),
-        ("staging.stg_dms_src_ic_memo_extractions", "hk_lnk_document_portfolio_company", "raw_vault.lnk_document_portfolio_company", "hk_lnk_document_portfolio_company", "1=1"),
+        (
+            "staging.stg_investran_src_lp_investors",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+            "1=1",
+        ),
+        (
+            "staging.stg_legacy_gp_src_legacy_lp_roster",
+            "hk_limited_partner",
+            "raw_vault.hub_limited_partner",
+            "hk_limited_partner",
+            "1=1",
+        ),
+        (
+            "staging.stg_dealcloud_src_portfolio_companies",
+            "hk_portfolio_company",
+            "raw_vault.hub_portfolio_company",
+            "hk_portfolio_company",
+            "1=1",
+        ),
+        (
+            "staging.stg_dms_documents",
+            "hk_document",
+            "raw_vault.hub_document",
+            "hk_document",
+            "1=1",
+        ),
+        (
+            "staging.stg_investran_src_lp_commitments_and_calls",
+            "hk_lnk_lp_commitment",
+            "raw_vault.lnk_lp_commitment",
+            "hk_lnk_lp_commitment",
+            "1=1",
+        ),
+        (
+            "staging.stg_investran_src_lp_commitments_and_calls",
+            "hk_lnk_lp_commitment_co_invest",
+            "raw_vault.lnk_lp_commitment_co_invest",
+            "hk_lnk_lp_commitment_co_invest",
+            "co_invest_portco_lei IS NOT NULL",
+        ),
+        (
+            "staging.stg_mdm_src_lp_steward_crosswalk",
+            "hk_sal_limited_partner",
+            "raw_vault.sal_limited_partner",
+            "hk_sal_limited_partner",
+            "1=1",
+        ),
+        (
+            "staging.stg_dms_src_side_letter_extractions",
+            "hk_lnk_document_lp_commitment",
+            "raw_vault.lnk_document_lp_commitment",
+            "hk_lnk_document_lp_commitment",
+            "1=1",
+        ),
+        (
+            "staging.stg_dms_src_ic_memo_extractions",
+            "hk_lnk_document_portfolio_company",
+            "raw_vault.lnk_document_portfolio_company",
+            "hk_lnk_document_portfolio_company",
+            "1=1",
+        ),
     ]
     for stg_tbl, stg_hk, tgt_tbl, tgt_hk, cond in stg_to_target:
         missing = con.execute(
@@ -1073,8 +1362,7 @@ def test_all_15_dynamic_verification_rules_dv_dyn_001_to_015(
 
     # DV-DYN-012: Two-Run Replay Idempotency Check (Validated in full 4-Batch test below as well)
     pre_counts = {
-        tbl: con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
-        for tbl, _, _ in hubs + links
+        tbl: con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0] for tbl, _, _ in hubs + links
     }
     con.execute("SET VARIABLE load_dts = '2026-11-15 09:00:00';")
     con.execute(
@@ -1086,7 +1374,10 @@ def test_all_15_dynamic_verification_rules_dv_dyn_001_to_015(
         WHERE tgt.hk_fund IS NULL;
         """
     )
-    assert con.execute("SELECT COUNT(*) FROM raw_vault.hub_fund").fetchone()[0] == pre_counts["raw_vault.hub_fund"]
+    assert (
+        con.execute("SELECT COUNT(*) FROM raw_vault.hub_fund").fetchone()[0]
+        == pre_counts["raw_vault.hub_fund"]
+    )
 
     # DV-DYN-013: Effectivity Satellite Single Active Relationship per Driving Key
     con.execute(
@@ -1130,7 +1421,9 @@ def test_all_15_dynamic_verification_rules_dv_dyn_001_to_015(
     assert all(r[0] not in ("-1", "-2") for r in d10b_rows)
 
     # DV-DYN-015: PIT Table Completeness & Non-Null Pointer Integrity
-    pit_total = con.execute("SELECT COUNT(*) FROM business_vault.pit_portfolio_company").fetchone()[0]
+    pit_total = con.execute("SELECT COUNT(*) FROM business_vault.pit_portfolio_company").fetchone()[
+        0
+    ]
     # 5 hub_portfolio_company rows (3 business + 2 system zero keys) * 3 snapshot dates = 15 rows
     assert pit_total == 15
     broken_pit_pointers = con.execute(
@@ -1262,8 +1555,12 @@ def test_four_adversarial_shadow_sandbox_batches_and_bitemporal_queries(
     # --- BATCH 1 ASSERTIONS (Baseline Load) ---
     b1_hubs, b1_links, b1_sats, b1_map = get_business_counts()
     assert b1_hubs == 12  # 3 funds + 4 LPs + 3 PortCos + 2 Docs
-    assert b1_links == 10  # 7 commitments + 2 co-invest + 0 SAL + 1 side-letter doc link + 0 IC memo link
-    assert b1_sats == 27  # 3 fund + 0 ESG + 4 LP + 4 PII + 7 comm + 3 PortCo DC + 3 PortCo MNPI + 0 legacy + 2 doc + 1 side-letter AI + 0 IC memo AI
+    assert (
+        b1_links == 10
+    )  # 7 commitments + 2 co-invest + 0 SAL + 1 side-letter doc link + 0 IC memo link
+    assert (
+        b1_sats == 27
+    )  # 3 fund + 0 ESG + 4 LP + 4 PII + 7 comm + 3 PortCo DC + 3 PortCo MNPI + 0 legacy + 2 doc + 1 side-letter AI + 0 IC memo AI
 
     # --- BATCH 2 ASSERTIONS (Exact Duplicate Replay at t1 = '2026-10-06 09:00:00') ---
     con.execute("SET VARIABLE load_dts = '2026-10-06 09:00:00';")
@@ -1295,10 +1592,18 @@ def test_four_adversarial_shadow_sandbox_batches_and_bitemporal_queries(
     b3_hubs, b3_links, b3_sats, b3_map = get_business_counts()
     assert (b3_hubs - b2_hubs) == 0, "Batch 3 mutation must not insert new Hub rows"
     assert (b3_links - b2_links) == 0, "Batch 3 mutation must not insert new Link rows"
-    assert (b3_sats - b2_sats) == 5, f"Expected +5 Satellite rows in Batch 3, got {b3_sats - b2_sats}"
-    assert b3_map["raw_vault.sat_lp_commitment_investran"] - b2_map["raw_vault.sat_lp_commitment_investran"] == 1
+    assert (b3_sats - b2_sats) == 5, (
+        f"Expected +5 Satellite rows in Batch 3, got {b3_sats - b2_sats}"
+    )
+    assert (
+        b3_map["raw_vault.sat_lp_commitment_investran"]
+        - b2_map["raw_vault.sat_lp_commitment_investran"]
+        == 1
+    )
     assert b3_map["raw_vault.sat_fund_investran"] - b2_map["raw_vault.sat_fund_investran"] == 1
-    assert b3_map["raw_vault.sat_fund_investran_esg"] - b2_map["raw_vault.sat_fund_investran_esg"] == 3
+    assert (
+        b3_map["raw_vault.sat_fund_investran_esg"] - b2_map["raw_vault.sat_fund_investran_esg"] == 3
+    )
 
     # --- BATCH 4 ASSERTIONS (Multi-Source BKCC Collision & SAL at t3 = '2026-10-12 09:00:00') ---
     con.execute("SET VARIABLE load_dts = '2026-10-12 09:00:00';")
@@ -1344,7 +1649,9 @@ def test_four_adversarial_shadow_sandbox_batches_and_bitemporal_queries(
     # --- LATE-ARRIVING IC MEMO (2026-11-14 16:30:00, effective_date = 2026-09-30) ---
     con.execute(late_arrival_part)
     late_hubs, late_links, late_sats, late_map = get_business_counts()
-    assert (late_hubs - b4_hubs) == 0  # Passive integration onto existing hub_document & hub_portfolio_company!
+    assert (
+        late_hubs - b4_hubs
+    ) == 0  # Passive integration onto existing hub_document & hub_portfolio_company!
     assert (late_links - b4_links) == 1  # +1 lnk_document_portfolio_company
     assert (late_sats - b4_sats) == 1  # +1 sat_lnk_doc_portco_ai_provenance
 
@@ -1370,7 +1677,10 @@ def test_four_adversarial_shadow_sandbox_batches_and_bitemporal_queries(
     assert odin_post[1] == Decimal("14.50")
     assert odin_post[2] == Decimal("245000000.00")  # $245.00M restated valuation
     assert odin_post[3] == "OBJECT_STORE_S3"
-    assert odin_post[4].lower() == "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf"
+    assert (
+        odin_post[4].lower()
+        == "s3://apex-pe-vault-bronze/ic-memos/2026-q3/ic_q3_valuation_nordic_cloud.pdf"
+    )
     assert odin_post[5] == "[108:1151]"
     assert "EV/EBITDA = 14.5x" in odin_post[6]
     assert "Fair_Value_USD = 245000000.00" in odin_post[6]
@@ -1414,9 +1724,15 @@ def test_portco_valuation_and_stage_mutation_and_investran_vs_legacy_portal_bkcc
     con = populated_pe_duckdb
 
     hub_before = con.execute("SELECT COUNT(*) FROM raw_vault.hub_portfolio_company").fetchone()[0]
-    lnk_before = con.execute("SELECT COUNT(*) FROM raw_vault.lnk_lp_commitment_co_invest").fetchone()[0]
-    dc_sat_before = con.execute("SELECT COUNT(*) FROM raw_vault.sat_portfolio_company_dealcloud").fetchone()[0]
-    val_sat_before = con.execute("SELECT COUNT(*) FROM raw_vault.sat_portco_valuation_mnpi").fetchone()[0]
+    lnk_before = con.execute(
+        "SELECT COUNT(*) FROM raw_vault.lnk_lp_commitment_co_invest"
+    ).fetchone()[0]
+    dc_sat_before = con.execute(
+        "SELECT COUNT(*) FROM raw_vault.sat_portfolio_company_dealcloud"
+    ).fetchone()[0]
+    val_sat_before = con.execute(
+        "SELECT COUNT(*) FROM raw_vault.sat_portco_valuation_mnpi"
+    ).fetchone()[0]
 
     # Mutate PortCo valuation and stage/profile for Project Odin / Nordic Cloud SaaS AB
     con.execute("SET VARIABLE load_dts = '2026-10-11 09:00:00';")
@@ -1431,14 +1747,24 @@ def test_portco_valuation_and_stage_mutation_and_investran_vs_legacy_portal_bkcc
     con.execute(core_dml_part)
 
     hub_after = con.execute("SELECT COUNT(*) FROM raw_vault.hub_portfolio_company").fetchone()[0]
-    lnk_after = con.execute("SELECT COUNT(*) FROM raw_vault.lnk_lp_commitment_co_invest").fetchone()[0]
-    dc_sat_after = con.execute("SELECT COUNT(*) FROM raw_vault.sat_portfolio_company_dealcloud").fetchone()[0]
-    val_sat_after = con.execute("SELECT COUNT(*) FROM raw_vault.sat_portco_valuation_mnpi").fetchone()[0]
+    lnk_after = con.execute(
+        "SELECT COUNT(*) FROM raw_vault.lnk_lp_commitment_co_invest"
+    ).fetchone()[0]
+    dc_sat_after = con.execute(
+        "SELECT COUNT(*) FROM raw_vault.sat_portfolio_company_dealcloud"
+    ).fetchone()[0]
+    val_sat_after = con.execute(
+        "SELECT COUNT(*) FROM raw_vault.sat_portco_valuation_mnpi"
+    ).fetchone()[0]
 
     assert hub_after == hub_before, "PortCo attribute mutation must not alter Hub count"
     assert lnk_after == lnk_before, "PortCo attribute mutation must not alter Link count"
-    assert dc_sat_after == dc_sat_before + 1, "Expected +1 version row in sat_portfolio_company_dealcloud"
-    assert val_sat_after == val_sat_before + 1, "Expected +1 version row in sat_portco_valuation_mnpi"
+    assert dc_sat_after == dc_sat_before + 1, (
+        "Expected +1 version row in sat_portfolio_company_dealcloud"
+    )
+    assert val_sat_after == val_sat_before + 1, (
+        "Expected +1 version row in sat_portco_valuation_mnpi"
+    )
 
     # Test explicit INVESTRAN vs LEGACY_PORTAL bk_collision_code separation & SAL resolution
     hk_investran = dv2_sha256(["INVESTRAN", "LP-101"])
@@ -1532,7 +1858,9 @@ def test_dv_dyn_negative_fault_injection_detection(
     # Inject fault
     con.execute(fault_sql)
     # After fault injection: >0 violations detected
-    assert con.execute(detection_sql).fetchone()[0] > 0, f"{rule_id} failed to detect injected fault"
+    assert con.execute(detection_sql).fetchone()[0] > 0, (
+        f"{rule_id} failed to detect injected fault"
+    )
 
 
 def test_issue_32_scenario_s8_uf5_unstructured_link_steward_gate_e2e() -> None:

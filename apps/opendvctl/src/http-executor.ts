@@ -7,6 +7,7 @@
  * - `opendvctl config validate` -> `POST ${baseUrl}/api/v1/platform/config/validate`
  */
 
+import rawErrorCodes from "../../../schemas/v1/error-codes.json" with { type: "json" };
 import { CliDomainError } from "./error-handler";
 import { loadCliSpec } from "./spec";
 
@@ -261,6 +262,14 @@ export async function parseHttpErrorResponse(
 					);
 					if (match) {
 						code = match.error_code;
+					} else {
+						const catalog = (rawErrorCodes as {
+							error_codes?: Array<{ code: string; problem_type_uri: string }>;
+						}).error_codes ?? [];
+						const catMatch = catalog.find((e) => e.problem_type_uri === errBody.type);
+						if (catMatch) {
+							code = catMatch.code;
+						}
 					}
 				}
 				if (typeof errBody.detail === "string") {

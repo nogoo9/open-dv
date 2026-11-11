@@ -177,7 +177,15 @@ NORMATIVE_PE_SHA256_TEST_VECTORS = [
     ),
     pytest.param(
         "V09_LNK_LP_COMMITMENT_CO_INVEST_CALPERS_NORDIC_CLOUD",
-        ["GLOBAL", "APEX_CO_I", "GLOBAL", "LP-101", "GLOBAL", "529900T8BM49AURSDO55", "COMM-2026-005"],
+        [
+            "GLOBAL",
+            "APEX_CO_I",
+            "GLOBAL",
+            "LP-101",
+            "GLOBAL",
+            "529900T8BM49AURSDO55",
+            "COMM-2026-005",
+        ],
         True,
         "6:GLOBAL||9:APEX_CO_I||6:GLOBAL||6:LP-101||6:GLOBAL||20:529900T8BM49AURSDO55||13:COMM-2026-005",
         "4889CABE373F2931BB620F519EFAD4A6219A3145CB8A340A15AC1B63F7610255",
@@ -193,7 +201,10 @@ NORMATIVE_PE_SHA256_TEST_VECTORS = [
     ),
     pytest.param(
         "V11_HUB_DOCUMENT_CALPERS_SIDE_LETTER_PDF",
-        ["GLOBAL", "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf"],
+        [
+            "GLOBAL",
+            "s3://apex-pe-vault-bronze/legal/side-letters/calpers_side_letter_fund_iv_2026.pdf",
+        ],
         True,
         "6:GLOBAL||81:S3://APEX-PE-VAULT-BRONZE/LEGAL/SIDE-LETTERS/CALPERS_SIDE_LETTER_FUND_IV_2026.PDF",
         "864D5083723B9FD7FE69085C2C31B646BD5E3DEAEF61B64C08D545EDE502EE6B",
@@ -243,7 +254,9 @@ def test_sat_lp_commitment_investran_hash_diff_mutation_detection() -> None:
 def test_tier3_bkcc_prevents_calpers_bavarian_collision() -> None:
     """Verify `GLOBAL:LP-101` (CalPERS) and `LEGACY_GP_ADMIN:LP-101` (Bavarian) never collide."""
     hk_calpers = compute_dv2_length_prefixed_sha256(["GLOBAL", "LP-101"], is_business_key=True)
-    hk_bavarian = compute_dv2_length_prefixed_sha256(["LEGACY_GP_ADMIN", "LP-101"], is_business_key=True)
+    hk_bavarian = compute_dv2_length_prefixed_sha256(
+        ["LEGACY_GP_ADMIN", "LP-101"], is_business_key=True
+    )
     assert hk_calpers != hk_bavarian
     assert hk_calpers.startswith("5D15EB10") and hk_calpers.endswith("4B820AE4")
     assert hk_bavarian.startswith("6B7C7180") and hk_bavarian.endswith("3EC5D8B9")
@@ -310,7 +323,9 @@ def test_business_key_trim_and_uppercase_normalization() -> None:
 def test_satellite_payload_preserves_case_but_trims_whitespace() -> None:
     """Satellite `hash_diff` (`is_business_key=False`) must preserve case while trimming outer whitespace."""
     h_mixed = compute_dv2_length_prefixed_sha256(["Nordic Cloud SaaS AB"], is_business_key=False)
-    h_padded = compute_dv2_length_prefixed_sha256(["  Nordic Cloud SaaS AB \t"], is_business_key=False)
+    h_padded = compute_dv2_length_prefixed_sha256(
+        ["  Nordic Cloud SaaS AB \t"], is_business_key=False
+    )
     h_lower = compute_dv2_length_prefixed_sha256(["nordic cloud saas ab"], is_business_key=False)
     assert h_mixed == h_padded
     assert h_mixed != h_lower

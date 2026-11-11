@@ -392,7 +392,7 @@ class GoldenManager:
         if not target_path.exists():
             raise FileNotFoundError(
                 f"Golden file '{target_path}' does not exist. Run with --update-golden "
-                f"--golden-justification=\"[#ISSUE] reason\" to generate."
+                f'--golden-justification="[#ISSUE] reason" to generate.'
             )
 
         committed_bytes = self.normalize_line_endings_lf(target_path.read_bytes())
@@ -404,7 +404,7 @@ class GoldenManager:
                 f"  Actual SHA-256:    {actual_sha256}\n"
                 f"  Committed SHA-256: {committed_sha256}\n"
                 f"If this behavioral change is intended and approved, regenerate with:\n"
-                f"  uv run pytest -m golden --update-golden --golden-justification=\"[#ISSUE] ...\""
+                f'  uv run pytest -m golden --update-golden --golden-justification="[#ISSUE] ..."'
             )
 
     def verify_three_way_agreement(self) -> None:
@@ -433,9 +433,11 @@ class GoldenManager:
         for entry in manifest_entries:
             file_rel = entry["file"]
             file_path = self.golden_root / file_rel
-            computed_sha = hashlib.sha256(
-                self.normalize_line_endings_lf(file_path.read_bytes())
-            ).hexdigest().lower()
+            computed_sha = (
+                hashlib.sha256(self.normalize_line_endings_lf(file_path.read_bytes()))
+                .hexdigest()
+                .lower()
+            )
             assert computed_sha == entry["sha256"], (
                 f"MANIFEST sha256 mismatch for '{file_rel}': "
                 f"computed {computed_sha} != manifest {entry['sha256']}"

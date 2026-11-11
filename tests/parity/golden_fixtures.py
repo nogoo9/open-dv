@@ -119,28 +119,34 @@ def render_explorer_text_snapshot(bundle: dict[str, Any]) -> str:
         for s in bundle.get("stages", [])
     )
     if is_hold:
-        lines.extend([
-            "------------------------------------------------------------",
-            "⚠️ STEWARD HOLD ACTIVE: Unstructured extraction requires review",
-            "------------------------------------------------------------",
-        ])
+        lines.extend(
+            [
+                "------------------------------------------------------------",
+                "⚠️ STEWARD HOLD ACTIVE: Unstructured extraction requires review",
+                "------------------------------------------------------------",
+            ]
+        )
 
-    lines.extend([
-        "------------------------------------------------------------",
-        "STAGES",
-        "------------------------------------------------------------",
-    ])
+    lines.extend(
+        [
+            "------------------------------------------------------------",
+            "STAGES",
+            "------------------------------------------------------------",
+        ]
+    )
     for s in bundle.get("stages", []):
         stag = s.get("tag") or s.get("status_tag") or s.get("statusTag") or "PENDING"
         key = s.get("key") or ""
         name = s.get("name") or ""
         lines.append(f"[{stag:14}] {key:20} {name}")
 
-    lines.extend([
-        "------------------------------------------------------------",
-        "ARTIFACTS INDEX",
-        "------------------------------------------------------------",
-    ])
+    lines.extend(
+        [
+            "------------------------------------------------------------",
+            "ARTIFACTS INDEX",
+            "------------------------------------------------------------",
+        ]
+    )
     artifacts = bundle.get("artifacts", {})
     for art_id in sorted(artifacts.keys()):
         art = artifacts[art_id]
@@ -162,6 +168,7 @@ def run_gt01_lifecycle_waves(
 
     Returns the Wave 3 Explorer bundle dictionary for GT-05 snapshot rendering.
     """
+
     def shim_runner(*args: Any, **kwargs: Any) -> Any:
         return run_agentic_vault_pipeline(
             *args,
@@ -362,7 +369,9 @@ def capture_gt03_rejections(
             contract=c4, graph_a=graph_a, graph_b=graph_b, compiled_sql_models=sql4
         )
         norm_client_4 = normalize_for_parity(res_client_4, path_root=str(repo_root))
-        assert norm_cli_4 == norm_client_4, "Client CLI parity mismatch on GT-03/04_satellite_group_by"
+        assert norm_cli_4 == norm_client_4, (
+            "Client CLI parity mismatch on GT-03/04_satellite_group_by"
+        )
 
     verdict_4_bytes = (json.dumps(norm_cli_4, indent=2, sort_keys=True) + "\n").encode("utf-8")
     golden_manager.assert_golden_byte_equality(

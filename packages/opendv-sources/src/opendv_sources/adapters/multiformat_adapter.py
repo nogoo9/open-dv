@@ -555,9 +555,7 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
         "application/parquet",
         "application/x-parquet",
     )
-    supported_extensions: Sequence[str] = (
-        ".parquet",
-    )
+    supported_extensions: Sequence[str] = (".parquet",)
 
     def __init__(self, *, preview_rows: int = 50) -> None:
         """Initialize PyArrowTabularAdapter.
@@ -857,17 +855,13 @@ class StructuredDataDocumentAdapter(BaseDocumentAdapter):
             try:
                 payload = yaml.safe_load(raw_text)
             except yaml.YAMLError as err:
-                raise InvalidDocumentError(
-                    f"Invalid YAML payload in '{filename}': {err}"
-                ) from err
+                raise InvalidDocumentError(f"Invalid YAML payload in '{filename}': {err}") from err
             resolved_mime = mime_type or "application/x-yaml"
         else:
             try:
                 payload = json.loads(raw_text)
             except json.JSONDecodeError as err:
-                raise InvalidDocumentError(
-                    f"Invalid JSON payload in '{filename}': {err}"
-                ) from err
+                raise InvalidDocumentError(f"Invalid JSON payload in '{filename}': {err}") from err
             resolved_mime = mime_type or "application/json"
 
         # Check recursion depth and unnest jsonpaths

@@ -515,8 +515,5 @@ def test_apply_ontology_delta_bootstrap_mode(base_ontology: GraphAOntology) -> N
     result = apply_ontology_delta(base_ontology, boot_delta)
     assert result.ontology_version == "1.0.0"
     assert any(
-        c.concept_uri == "urn:ontology:entity:driver"
-        for c in result.canonical_business_concepts
+        c.concept_uri == "urn:ontology:entity:driver" for c in result.canonical_business_concepts
     )
-
-

@@ -1,0 +1,28 @@
+{
+  "$id": "https://open-dv.dev/schemas/v1/matchers/bm25_fibo_v1.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "matcher_id": "bm25_fibo_v1",
+  "version": "1.0.0",
+  "description": "Multi-field Okapi BM25 concept matcher specification calibrated against EDM Council FIBO core pack.",
+  "parameters": {
+    "k1": "1.5",
+    "b": "0.75",
+    "weights": {
+      "name": "2.5",
+      "synonyms": "2.0",
+      "definition": "1.0"
+    },
+    "precision": 28,
+    "quantization_decimals": 4,
+    "quantization_rounding": "ROUND_HALF_EVEN",
+    "grounding_threshold": 0.6500,
+    "definition_only_cap": 0.6400,
+    "tokenization_steps": 7,
+    "unidata_version": "14.0.0"
+  },
+  "reference_pack": {
+    "pack_id": "fibo-core",
+    "canonical_sha256": "bebd6ae87dfa4eaee523fdeac730f0fe652761004f24e5d15ab36d5225a0acb5",
+    "modules": ["FND", "BE", "FBC", "SEC", "LOAN", "IND"]
+  }
+}

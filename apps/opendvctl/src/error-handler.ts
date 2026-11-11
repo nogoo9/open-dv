@@ -7,6 +7,7 @@
  * - Exit code 2: Input validation, not found, contract mismatch, API unreachable, or internal errors.
  */
 
+import rawErrorCodes from "../../../schemas/v1/error-codes.json" with { type: "json" };
 import { dumpsJcs } from "./jcs";
 import { type ErrorMapping, loadCliSpec } from "./spec";
 
@@ -36,6 +37,32 @@ export class ErrorHandler {
 	private readonly httpStatusMap = new Map<number, ErrorMapping>();
 
 	constructor(customMappings?: ErrorMapping[]) {
+		// 1. Authoritative normative mapping to 0..7 from schemas/v1/error-codes.json (Issue #220)
+		const catalog = (rawErrorCodes as {
+			error_codes?: Array<{
+				code: string;
+				exit_code: number;
+				http_status: number;
+				problem_title: string;
+				problem_type_uri: string;
+			}>;
+		}).error_codes ?? [];
+
+		for (const item of catalog) {
+			const mapping: ErrorMapping = {
+				error_code: item.code,
+				exit_code: item.exit_code,
+				http_status: item.http_status,
+				problem_title: item.problem_title,
+				problem_type_uri: item.problem_type_uri,
+			};
+			this.errorMap.set(mapping.error_code, mapping);
+			if (!this.httpStatusMap.has(mapping.http_status)) {
+				this.httpStatusMap.set(mapping.http_status, mapping);
+			}
+		}
+
+		// 2. Overlay / supplement with cli-spec.json mappings
 		const mappings = customMappings ?? loadCliSpec().error_map;
 		for (const mapping of mappings) {
 			this.errorMap.set(mapping.error_code, mapping);

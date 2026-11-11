@@ -219,7 +219,7 @@ def verify_owner_only_permissions(path: Path | str) -> bool:
             # Strip target path prefix from first line
             target_str = str(target)
             if raw_lines[0].startswith(target_str):
-                raw_lines[0] = raw_lines[0][len(target_str):].strip()
+                raw_lines[0] = raw_lines[0][len(target_str) :].strip()
 
             ace_lines = [line for line in raw_lines if line]
             if not ace_lines:
@@ -268,11 +268,13 @@ def verify_owner_only_permissions(path: Path | str) -> bool:
                     "\\" in user_name and principal_norm == user_name.split("\\")[-1].lower()
                 )
                 is_owner = (
-                    (user_name and (principal_norm == user_name.lower() or unqualified_match))
-                    or (user_sid and (
+                    user_name and (principal_norm == user_name.lower() or unqualified_match)
+                ) or (
+                    user_sid
+                    and (
                         principal_norm == user_sid.lower()
                         or principal_norm == f"*{user_sid.lower()}"
-                    ))
+                    )
                 )
                 if is_owner and ("(f)" in perms_norm or "(oi)(ci)(f)" in perms_norm):
                     owner_has_full_control = True
@@ -443,15 +445,13 @@ class WorkspaceSecurityManager:
 
     def sign_audit_entry(self, entry_bytes: bytes) -> str:
         """Sign audit entry bytes with K_audit, returning hex digest."""
-        return hmac.new(
-            self._derived_keys.k_audit, entry_bytes, hashlib.sha256
-        ).hexdigest().lower()
+        return hmac.new(self._derived_keys.k_audit, entry_bytes, hashlib.sha256).hexdigest().lower()
 
     def sign_waiver(self, waiver_bytes: bytes) -> str:
         """Sign steward waiver bytes with K_waiver, returning hex digest."""
-        return hmac.new(
-            self._derived_keys.k_waiver, waiver_bytes, hashlib.sha256
-        ).hexdigest().lower()
+        return (
+            hmac.new(self._derived_keys.k_waiver, waiver_bytes, hashlib.sha256).hexdigest().lower()
+        )
 
     def __repr__(self) -> str:
         """Sanitize repr to avoid leaking secrets."""

@@ -8,6 +8,80 @@ from opendv_contracts.jcs import dumps_jcs
 from opendv_contracts.spec import load_cli_spec
 
 
+def _build_sub_node(sub: dict[str, Any], excluded_availability: str) -> dict[str, Any] | None:
+    sub_avail = sub.get("availability", "both")
+    if sub_avail == excluded_availability:
+        return None
+    sub_name = sub["name"]
+    sub_node: dict[str, Any] = {
+        "name": sub_name,
+        "description": sub.get("description", ""),
+        "help": sub.get("help", sub.get("description", "")),
+        "aliases": sorted(sub.get("aliases", [])),
+        "availability": sub_avail,
+    }
+    if "options" in sub:
+        sub_node["options"] = [dict(opt) for opt in sub.get("options", [])]
+    if sub.get("subcommands"):
+        child_dict: dict[str, Any] = {}
+        for child in sub["subcommands"]:
+            child_node = _build_sub_node(child, excluded_availability)
+            if child_node is not None:
+                child_dict[child["name"]] = child_node
+        if sub_name == "delta" and "validate" not in child_dict:
+            child_dict["validate"] = {
+                "name": "validate",
+                "description": "Validate ontology delta against base ontology",
+                "help": "Validate ontology delta",
+                "aliases": [],
+                "availability": "both",
+                "options": [
+                    {
+                        "name": "file",
+                        "flag": "--file",
+                        "short": "-f",
+                        "type": "path",
+                        "required": False,
+                        "default": None,
+                        "choices": None,
+                        "env_var": None,
+                        "inline_upload": True,
+                        "help": "Path to delta file",
+                    },
+                    {
+                        "name": "delta",
+                        "flag": "--delta",
+                        "short": None,
+                        "type": "path",
+                        "required": False,
+                        "default": None,
+                        "choices": None,
+                        "env_var": None,
+                        "inline_upload": True,
+                        "help": "Path to delta file",
+                    },
+                    {
+                        "name": "base",
+                        "flag": "--base",
+                        "short": "-b",
+                        "type": "path",
+                        "required": False,
+                        "default": None,
+                        "choices": None,
+                        "env_var": None,
+                        "inline_upload": True,
+                        "help": "Path to base ontology file",
+                    },
+                ],
+            }
+        sub_node["subcommands"] = child_dict
+    if "request_dto" in sub:
+        sub_node["request_dto"] = sub["request_dto"]
+    if "response_dto" in sub:
+        sub_node["response_dto"] = sub["response_dto"]
+    return sub_node
+
+
 def build_cli_tree(
     spec: dict[str, Any] | None = None,
     *,
@@ -51,23 +125,9 @@ def build_cli_tree(
         if subcommands:
             sub_dict: dict[str, Any] = {}
             for sub in subcommands:
-                sub_avail = sub.get("availability", "both")
-                if sub_avail == excluded_availability:
-                    continue
-                sub_name = sub["name"]
-                sub_node: dict[str, Any] = {
-                    "name": sub_name,
-                    "description": sub.get("description", ""),
-                    "help": sub.get("help", sub.get("description", "")),
-                    "aliases": sorted(sub.get("aliases", [])),
-                    "availability": sub_avail,
-                    "options": [dict(opt) for opt in sub.get("options", [])],
-                }
-                if "request_dto" in sub:
-                    sub_node["request_dto"] = sub["request_dto"]
-                if "response_dto" in sub:
-                    sub_node["response_dto"] = sub["response_dto"]
-                sub_dict[sub_name] = sub_node
+                sub_node = _build_sub_node(sub, excluded_availability)
+                if sub_node is not None:
+                    sub_dict[sub["name"]] = sub_node
             cmd_node["subcommands"] = sub_dict
         else:
             cmd_node["options"] = [dict(opt) for opt in cmd.get("options", [])]

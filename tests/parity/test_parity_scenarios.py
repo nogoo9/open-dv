@@ -43,9 +43,7 @@ def test_scenario_parity(
         try:
             spec.expected(norm_cli, op=op)
         except Exception as exc:
-            pytest.fail(
-                f"Scenario expectation failed on CLI operation '{op}' for {spec.id}: {exc}"
-            )
+            pytest.fail(f"Scenario expectation failed on CLI operation '{op}' for {spec.id}: {exc}")
 
         # 3. Direct REST execution with clean handling of acknowledged gaps
         rest_res = None
@@ -83,6 +81,4 @@ def test_scenario_parity(
     # 5. If acknowledged parity gaps were encountered, mark xfail after all ops complete
     if gaps:
         gap_details = "; ".join(f"{op} ({gap.gap_id})" for op, gap in gaps)
-        pytest.xfail(
-            f"Acknowledged parity gap(s) for {spec.id}: {gap_details}"
-        )
+        pytest.xfail(f"Acknowledged parity gap(s) for {spec.id}: {gap_details}")

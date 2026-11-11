@@ -87,10 +87,12 @@ def verify_algorithm_a1_elm_folding_and_grain(
     for hub in contract.get("hubs", []):
         hub_name = hub["name"]
         # Explicit mutable columns leaked into Hub definition
-        if hub.get("mutable_columns") or hub.get("extra_columns") or hub.get("descriptive_attributes"):
-            violations.append(
-                f"DV-G2-002:Trap 1 mutable attribute leaked into Hub '{hub_name}'"
-            )
+        if (
+            hub.get("mutable_columns")
+            or hub.get("extra_columns")
+            or hub.get("descriptive_attributes")
+        ):
+            violations.append(f"DV-G2-002:Trap 1 mutable attribute leaked into Hub '{hub_name}'")
         for bk_src in hub.get("business_key_sources", []):
             b_table = bk_src["bronze_table"]
             for k_col in bk_src.get("key_columns", []):
@@ -105,15 +107,16 @@ def verify_algorithm_a1_elm_folding_and_grain(
     # Also inspect column_triage_ledger for mutable columns routed to a Hub
     hub_names = {h["name"] for h in contract.get("hubs", [])}
     for entry in contract.get("column_triage_ledger", []):
-        if entry.get("target_dv_entity") in hub_names and entry.get("elm_classification") != "BUSINESS_KEY":
+        if (
+            entry.get("target_dv_entity") in hub_names
+            and entry.get("elm_classification") != "BUSINESS_KEY"
+        ):
             violations.append(
                 f"DV-G2-002:Column '{entry['bronze_table']}.{entry['column_name']}' with role '{entry['elm_classification']}' routed to Hub '{entry['target_dv_entity']}'"
             )
 
     # 2. Check Link grain alignment against Graph A relationships & Graph B optional FKs (Trap 2 -> DV-G2-001 / AP-06)
-    rel_by_uri = {
-        r["relationship_uri"]: r for r in graph_a.get("canonical_relationships", [])
-    }
+    rel_by_uri = {r["relationship_uri"]: r for r in graph_a.get("canonical_relationships", [])}
     links_by_name = {lnk["name"]: lnk for lnk in contract.get("links", [])}
 
     for lnk in contract.get("links", []):
@@ -199,11 +202,15 @@ def verify_gate3_networkx_topology(
     # 2. Inspect Link edges (DV-G3-002: < 2 Hubs; DV-G3-004: Link-to-Link reference)
     for lnk in model.get("links", []):
         l_name = lnk["name"]
-        raw_refs = lnk.get("hub_references") if "hub_references" in lnk else lnk.get("parent_hubs", [])
+        raw_refs = (
+            lnk.get("hub_references") if "hub_references" in lnk else lnk.get("parent_hubs", [])
+        )
         targets: list[str] = []
         for ref in raw_refs:
-            t_name = ref["target_hub"] if isinstance(ref, dict) and "target_hub" in ref else (
-                ref["hub_name"] if isinstance(ref, dict) and "hub_name" in ref else str(ref)
+            t_name = (
+                ref["target_hub"]
+                if isinstance(ref, dict) and "target_hub" in ref
+                else (ref["hub_name"] if isinstance(ref, dict) and "hub_name" in ref else str(ref))
             )
             targets.append(t_name)
             G.add_edge(l_name, t_name, edge_type="LINK_PARENT")
@@ -233,7 +240,9 @@ def verify_gate3_networkx_topology(
     valid_parents = hub_names | link_names
     for sat in model.get("satellites", []):
         s_name = sat["name"]
-        primary_parent = sat.get("parent_entity") if "parent_entity" in sat else sat.get("parent_table")
+        primary_parent = (
+            sat.get("parent_entity") if "parent_entity" in sat else sat.get("parent_table")
+        )
         parents: list[str] = []
         if isinstance(primary_parent, list):
             parents.extend(primary_parent)
@@ -409,18 +418,30 @@ def verify_algorithm_a6_sqlglot_ast_linter(
 
         if isinstance(stmt, exp.Merge):
             stmt_sql_upper = stmt.sql(dialect=dialect).upper()
-            if "WHEN MATCHED" in stmt_sql_upper and ("UPDATE" in stmt_sql_upper or "DELETE" in stmt_sql_upper):
+            if "WHEN MATCHED" in stmt_sql_upper and (
+                "UPDATE" in stmt_sql_upper or "DELETE" in stmt_sql_upper
+            ):
                 violations.append("DV-G6-002:Forbidden MERGE WHEN MATCHED UPDATE/DELETE")
 
         # 2. Check nondeterministic functions (DV-G6-001)
         for node in stmt.walk():
             if isinstance(node, NONDETERMINISTIC_EXP_TYPES):
-                violations.append(f"DV-G6-001:Nondeterministic expression '{node.sql(dialect=dialect)}'")
+                violations.append(
+                    f"DV-G6-001:Nondeterministic expression '{node.sql(dialect=dialect)}'"
+                )
             elif isinstance(node, exp.Anonymous) and node.name.upper() in NONDETERMINISTIC_FN_NAMES:
                 violations.append(f"DV-G6-001:Nondeterministic function '{node.name.upper()}()'")
-            elif isinstance(node, exp.Func) and node.sql_name().upper() in NONDETERMINISTIC_FN_NAMES:
-                violations.append(f"DV-G6-001:Nondeterministic function '{node.sql_name().upper()}()'")
-            elif isinstance(node, exp.Column) and node.name.upper() == "CURRENT_TIMESTAMP" and not node.table:
+            elif (
+                isinstance(node, exp.Func) and node.sql_name().upper() in NONDETERMINISTIC_FN_NAMES
+            ):
+                violations.append(
+                    f"DV-G6-001:Nondeterministic function '{node.sql_name().upper()}()'"
+                )
+            elif (
+                isinstance(node, exp.Column)
+                and node.name.upper() == "CURRENT_TIMESTAMP"
+                and not node.table
+            ):
                 violations.append("DV-G6-001:Nondeterministic token 'CURRENT_TIMESTAMP'")
 
         # 3. Check SELECT * wildcard projections (DV-G6-003)
@@ -429,7 +450,9 @@ def verify_algorithm_a6_sqlglot_ast_linter(
                 if isinstance(proj, exp.Star) or (
                     isinstance(proj, exp.Column) and isinstance(proj.this, exp.Star)
                 ):
-                    violations.append("DV-G6-003:Wildcard 'SELECT *' is forbidden in Staging and Vault SQL")
+                    violations.append(
+                        "DV-G6-003:Wildcard 'SELECT *' is forbidden in Staging and Vault SQL"
+                    )
 
         # 4. Check Satellite INSERT ... SELECT has hash_diff change comparison (DV-G6-004)
         #    and Raw Vault purity against GROUP BY / HAVING aggregations (DV-G6-005)
@@ -479,7 +502,10 @@ def verify_algorithm_a6_sqlglot_ast_linter(
                     )
             if is_sat_target and isinstance(select_query, exp.Select):
                 # Exempt static 1-row SYSTEM_GHOST seed inserts that have no FROM table
-                has_from_clause = select_query.args.get("from") is not None or select_query.args.get("from_") is not None
+                has_from_clause = (
+                    select_query.args.get("from") is not None
+                    or select_query.args.get("from_") is not None
+                )
                 if has_from_clause:
                     where_node = select_query.args.get("where")
                     where_sql = where_node.sql(dialect=dialect).lower() if where_node else ""
@@ -537,7 +563,9 @@ def codemod_1_extract_hub_mutable_attributes(
             clean_keys: list[str] = []
             for k_col in bk_src.get("key_columns", []):
                 col_meta = col_profile_map.get((b_table, k_col), {})
-                role = col_meta.get("candidate_role") or col_meta.get("column_role", "MUTABLE_STATUS")
+                role = col_meta.get("candidate_role") or col_meta.get(
+                    "column_role", "MUTABLE_STATUS"
+                )
                 drift = col_meta.get("drift_rate_lambda", 0.0)
                 if role in IMMUTABLE_BK_ROLES and drift == 0.0:
                     clean_keys.append(k_col)
@@ -575,7 +603,10 @@ def codemod_1_extract_hub_mutable_attributes(
                     existing_payload.append(col_name)
                 # Update column_triage_ledger
                 for entry in repaired.get("column_triage_ledger", []):
-                    if entry.get("column_name") == col_name and entry.get("target_dv_entity") == hub_name:
+                    if (
+                        entry.get("column_name") == col_name
+                        and entry.get("target_dv_entity") == hub_name
+                    ):
                         entry["elm_classification"] = "DESCRIPTIVE_PAYLOAD"
                         entry["target_dv_entity"] = target_sat["name"]
 
@@ -746,9 +777,7 @@ def test_algorithm_a1_negative_trap1_mutable_deal_stage_in_hub(
         }
     )
 
-    violations = verify_algorithm_a1_elm_folding_and_grain(
-        graph_a, corrupted_b, corrupted_contract
-    )
+    violations = verify_algorithm_a1_elm_folding_and_grain(graph_a, corrupted_b, corrupted_contract)
     assert any("DV-G2-002" in v and "deal_stage" in v for v in violations)
 
 
@@ -765,9 +794,7 @@ def test_algorithm_a1_negative_trap2_two_way_link_for_three_way_co_invest_grain(
     )
     co_invest_lnk["hub_references"] = co_invest_lnk["hub_references"][:2]
 
-    violations = verify_algorithm_a1_elm_folding_and_grain(
-        graph_a, graph_b, corrupted_contract
-    )
+    violations = verify_algorithm_a1_elm_folding_and_grain(graph_a, graph_b, corrupted_contract)
     assert any("DV-G2-001" in v and "AP-06" in v for v in violations)
 
     wrong_target_contract = copy.deepcopy(pe_contract)
@@ -816,7 +843,10 @@ def test_gate3_positive_pe_canonical_ir_and_6h_4l_9s_benchmark(
         "links": [
             {
                 "name": "lnk_lp_commitment",
-                "hub_references": [{"target_hub": "hub_fund"}, {"target_hub": "hub_limited_partner"}],
+                "hub_references": [
+                    {"target_hub": "hub_fund"},
+                    {"target_hub": "hub_limited_partner"},
+                ],
             },
             {
                 "name": "lnk_lp_commitment_co_invest",
@@ -937,9 +967,7 @@ def test_algorithm_a4_positive_67_of_67_column_triage_completeness(
 ) -> None:
     """Verify all 67/67 Graph B source columns are accounted for in `dv_pe_model_contract.yaml`."""
     total_graph_b_cols = sum(
-        len(tbl["columns"])
-        for ss in graph_b["source_systems"]
-        for tbl in ss.get("tables", [])
+        len(tbl["columns"]) for ss in graph_b["source_systems"] for tbl in ss.get("tables", [])
     )
     assert total_graph_b_cols == 67
     assert len(pe_contract["column_triage_ledger"]) == 67
@@ -973,9 +1001,7 @@ def test_algorithm_a4_negative_unaccounted_source_column_triggers_dv_g4_002(
     mutated = copy.deepcopy(pe_contract)
     removed_entry = mutated["column_triage_ledger"].pop()
     violations = verify_algorithm_a4_yagni_and_column_triage(graph_b, mutated)
-    assert any(
-        "DV-G4-002" in v and removed_entry["column_name"] in v for v in violations
-    )
+    assert any("DV-G4-002" in v and removed_entry["column_name"] in v for v in violations)
 
 
 def test_algorithm_a4_negative_mixed_pii_and_mixed_cadence_satellite_triggers_split_required(
@@ -1242,9 +1268,7 @@ def test_codemod_2_split_satellite_by_classification_and_cadence_idempotence_and
         corrupted_contract, graph_b
     )
     # Run Codemod 2 twice (idempotence check)
-    repaired_twice = codemod_2_split_satellite_by_cadence_and_classification(
-        repaired_once, graph_b
-    )
+    repaired_twice = codemod_2_split_satellite_by_cadence_and_classification(repaired_once, graph_b)
     assert repaired_once == repaired_twice
 
     # Verify sat_limited_partner_pii was split out with sorted PII columns
@@ -1329,8 +1353,16 @@ def test_doc05_reference_algorithms_a1_through_a8_direct_execution(
                 "name": "lnk_fund_currency",
                 "source_bronze_table": "investran.src_pe_funds",
                 "hub_references": [
-                    {"target_hub": "hub_fund", "role_alias": "fund", "source_fk_columns": ["fund_code"]},
-                    {"target_hub": "hub_currency", "role_alias": "currency", "source_fk_columns": ["iso_currency_code"]},
+                    {
+                        "target_hub": "hub_fund",
+                        "role_alias": "fund",
+                        "source_fk_columns": ["fund_code"],
+                    },
+                    {
+                        "target_hub": "hub_currency",
+                        "role_alias": "currency",
+                        "source_fk_columns": ["iso_currency_code"],
+                    },
                 ],
             }
         ],
@@ -1353,7 +1385,9 @@ def test_doc05_reference_algorithms_a1_through_a8_direct_execution(
         },
         bronze_profile={
             "investran.src_pe_funds": {"fund_code": {"distinct_count": 500, "key_growth_30d": 0.1}},
-            "investran.src_currencies": {"iso_currency_code": {"distinct_count": 8, "key_growth_30d": 0.0}},
+            "investran.src_currencies": {
+                "iso_currency_code": {"distinct_count": 8, "key_growth_30d": 0.0}
+            },
         },
     )
     assert [h["name"] for h in demoted_res["hubs"]] == ["hub_fund"]
@@ -1371,7 +1405,11 @@ def test_doc05_reference_algorithms_a1_through_a8_direct_execution(
                 "source_bronze_table": "investran.src_lp_advisor",
                 "hub_references": [
                     {"target_hub": "hub_lp", "role_alias": "lp", "source_fk_columns": ["lp_id"]},
-                    {"target_hub": "hub_fund", "role_alias": "fund", "source_fk_columns": ["fund_code"]},
+                    {
+                        "target_hub": "hub_fund",
+                        "role_alias": "fund",
+                        "source_fk_columns": ["fund_code"],
+                    },
                 ],
             }
         ],
@@ -1411,9 +1449,17 @@ def test_doc05_reference_algorithms_a1_through_a8_direct_execution(
                 "ontology_concept_uri": "urn:ontology:relationship:lp_commitment",
                 "source_bronze_table": "investran.src_lp_commitments",
                 "hub_references": [
-                    {"target_hub": "hub_fund", "role_alias": "fund", "source_fk_columns": ["fund_code"]},
+                    {
+                        "target_hub": "hub_fund",
+                        "role_alias": "fund",
+                        "source_fk_columns": ["fund_code"],
+                    },
                     {"target_hub": "hub_lp", "role_alias": "lp", "source_fk_columns": ["lp_id"]},
-                    {"target_hub": "hub_portfolio_company", "role_alias": "co_invest", "source_fk_columns": ["co_invest_portco_id"]},
+                    {
+                        "target_hub": "hub_portfolio_company",
+                        "role_alias": "co_invest",
+                        "source_fk_columns": ["co_invest_portco_id"],
+                    },
                 ],
             }
         ],
@@ -1421,9 +1467,7 @@ def test_doc05_reference_algorithms_a1_through_a8_direct_execution(
     }
     cold_res = cold_fn(
         copy.deepcopy(cold_contract),
-        ontology_graph={
-            "urn:ontology:entity:limited_partner": {"authoritative_sor": []}
-        },
+        ontology_graph={"urn:ontology:entity:limited_partner": {"authoritative_sor": []}},
         bronze_profile={
             "investran.src_limited_partners": {"lp_id": {"pattern_class": "MONOTONIC_INT"}},
             "investran.src_lp_commitments": {

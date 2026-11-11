@@ -335,9 +335,7 @@ class CanonicalBusinessConcept(StrictGraphAModel):
         for s in syns:
             cleaned = s.strip()
             if not (1 <= len(cleaned) <= 256):
-                raise ValueError(
-                    f"Synonym must be between 1 and 256 characters (trimmed): '{s}'"
-                )
+                raise ValueError(f"Synonym must be between 1 and 256 characters (trimmed): '{s}'")
         normalized = [s.strip().casefold() for s in syns]
         if len(normalized) != len(set(normalized)):
             raise ValueError("DUPLICATE_SYNONYM: synonyms list contains duplicate values")

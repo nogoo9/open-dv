@@ -67,7 +67,9 @@ class TestCanonicalPESHA256Empirical:
             ont = validate_graph_a(fpath)
             actual_sha = compute_ontology_sha256(ont)
             expected_sha = spec["canonical_sha256"]
-            assert actual_sha == expected_sha, f"Mismatch for {name}: {actual_sha} != {expected_sha}"
+            assert actual_sha == expected_sha, (
+                f"Mismatch for {name}: {actual_sha} != {expected_sha}"
+            )
 
     def test_genesis_draft_digest_registered(self) -> None:
         """Verify Genesis Draft digest in baseline-digests.json."""

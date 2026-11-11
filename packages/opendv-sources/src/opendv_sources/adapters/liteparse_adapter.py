@@ -178,8 +178,7 @@ def extract_tables_with_spans(
                 if headers and (data_rows or has_divider):
                     col_count = len(headers)
                     normalized_rows = [
-                        row[:col_count] + [""] * max(0, col_count - len(row))
-                        for row in data_rows
+                        row[:col_count] + [""] * max(0, col_count - len(row)) for row in data_rows
                     ]
                     raw_md = "\n".join(pipe_block)
                     span_start = line_starts[start_line_idx]
@@ -210,22 +209,21 @@ def extract_tables_with_spans(
             tab_block: list[str] = []
             col_target = len(line.split("\t"))
             while (
-                idx < n_lines
-                and "\t" in lines[idx]
-                and len(lines[idx].split("\t")) == col_target
+                idx < n_lines and "\t" in lines[idx] and len(lines[idx].split("\t")) == col_target
             ):
                 tab_block.append(lines[idx])
                 idx += 1
 
             if len(tab_block) >= 2:
                 headers = [c.strip() for c in tab_block[0].split("\t")]
-                data_rows = [
-                    [c.strip() for c in r.split("\t")]
-                    for r in tab_block[1:]
-                ]
+                data_rows = [[c.strip() for c in r.split("\t")] for r in tab_block[1:]]
                 raw_md = (
-                    "| " + " | ".join(headers) + " |\n"
-                    + "| " + " | ".join(["---"] * len(headers)) + " |\n"
+                    "| "
+                    + " | ".join(headers)
+                    + " |\n"
+                    + "| "
+                    + " | ".join(["---"] * len(headers))
+                    + " |\n"
                     + "\n".join("| " + " | ".join(r) + " |" for r in data_rows)
                 )
                 span_start = line_starts[start_line_idx]
@@ -260,9 +258,7 @@ def extract_tables_with_spans(
             while curr < n_lines:
                 next_line = lines[curr]
                 next_cells = [
-                    c.strip()
-                    for c in re.split(r"\s{2,}", next_line.strip())
-                    if c.strip()
+                    c.strip() for c in re.split(r"\s{2,}", next_line.strip()) if c.strip()
                 ]
                 if len(next_cells) == col_target and all(len(c) <= 80 for c in next_cells):
                     space_block.append(next_line)
@@ -283,9 +279,7 @@ def extract_tables_with_spans(
                 is_aligned = True
                 for col_idx in range(1, col_target):
                     col_positions = [
-                        starts[col_idx]
-                        for starts in col_starts_per_line
-                        if len(starts) > col_idx
+                        starts[col_idx] for starts in col_starts_per_line if len(starts) > col_idx
                     ]
                     if (
                         len(col_positions) != len(space_block)
@@ -303,8 +297,12 @@ def extract_tables_with_spans(
                         for r in space_block[1:]
                     ]
                     raw_md = (
-                        "| " + " | ".join(headers) + " |\n"
-                        + "| " + " | ".join(["---"] * len(headers)) + " |\n"
+                        "| "
+                        + " | ".join(headers)
+                        + " |\n"
+                        + "| "
+                        + " | ".join(["---"] * len(headers))
+                        + " |\n"
                         + "\n".join("| " + " | ".join(r) + " |" for r in data_rows)
                     )
                     span_start = line_starts[start_line_idx]
@@ -348,9 +346,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
         "application/pdf",
         "application/x-pdf",
     )
-    supported_extensions: Sequence[str] = (
-        ".pdf",
-    )
+    supported_extensions: Sequence[str] = (".pdf",)
 
     def __init__(
         self,
@@ -390,7 +386,6 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
             sparse_threshold=DEFAULT_SPARSE_TEXT_THRESHOLD,
             raster_threshold=DEFAULT_RASTER_RATIO_THRESHOLD,
         )
-
 
     @property
     def adapter_name(self) -> str:
@@ -466,11 +461,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
                 f"Invalid ocr_mode '{effective_ocr_mode}'; must be one of {sorted(VALID_OCR_MODES)}"
             )
 
-        use_liteparse = (
-            HAS_LITEPARSE
-            and not self.force_fallback
-            and not force_fallback_kwarg
-        )
+        use_liteparse = HAS_LITEPARSE and not self.force_fallback and not force_fallback_kwarg
 
         if use_liteparse:
             try:
@@ -513,7 +504,6 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
             ocr_mode=effective_ocr_mode,
             **kwargs,
         )
-
 
     def _parse_with_liteparse(
         self,
@@ -607,9 +597,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
             )
             page_scanned_flags.append(p_is_scanned)
             page_ocr_applied_flags.append(p_ocr if isinstance(p_ocr, bool) else None)
-            page_conf_overrides.append(
-                float(p_conf) if isinstance(p_conf, (int, float)) else None
-            )
+            page_conf_overrides.append(float(p_conf) if isinstance(p_conf, (int, float)) else None)
 
         return self._build_ingestion_result(
             page_texts=page_texts,
@@ -714,13 +702,12 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
                     TypeError,
                     OSError,
                 ):
+
                     def _check_xobjects_for_image(xobjects_dict: Any, depth: int = 0) -> bool:
                         if depth > 3 or not isinstance(xobjects_dict, dict):
                             return False
                         for _, xobj in xobjects_dict.items():
-                            resolved = (
-                                xobj.get_object() if hasattr(xobj, "get_object") else xobj
-                            )
+                            resolved = xobj.get_object() if hasattr(xobj, "get_object") else xobj
                             if not isinstance(resolved, dict):
                                 continue
                             subtype = resolved.get("/Subtype")
@@ -781,7 +768,6 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
             **kwargs,
         )
 
-
     def _build_ingestion_result(
         self,
         page_texts: list[str],
@@ -817,9 +803,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
         if should_extract_tables:
             for p_idx, (p_text, p_bbox) in enumerate(zip(page_texts, page_bboxes, strict=True)):
                 page_num = p_idx + 1
-                detected = extract_tables_with_spans(
-                    p_text, page_number=page_num, page_bbox=p_bbox
-                )
+                detected = extract_tables_with_spans(p_text, page_number=page_num, page_bbox=p_bbox)
                 if detected:
                     page_detected_tables[page_num] = detected
                     all_tables.extend([d.table for d in detected])
@@ -844,9 +828,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
             page_specs.append((page_num, p_text, start_off, end_off, p_bbox, p_is_scanned))
 
         # Compute UTF-16 code unit translation index across all boundary points
-        utf16_points = compute_utf16_offsets_for_points(
-            full_normalized_text, list(boundary_points)
-        )
+        utf16_points = compute_utf16_offsets_for_points(full_normalized_text, list(boundary_points))
 
         # Construct immutable PageMapEntry instances directly with precomputed UTF-16 offsets
         page_map: list[PageMapEntry] = []
@@ -930,7 +912,6 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
             metadata["fallback_reason"] = fallback_reason
         if engine == "pypdf" and effective_mode == "force":
             metadata["ocr_requested_but_unavailable"] = True
-
 
         return IngestionResult(
             document_id=doc_id,

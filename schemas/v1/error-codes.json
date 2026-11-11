@@ -29,7 +29,7 @@
       "7": "Authentication & Authorization (RBAC) Violation (HTTP 401, 403)"
     }
   },
-  "total_error_codes": 111,
+  "total_error_codes": 119,
   "error_codes": [
     {
       "code": "OK",
@@ -1909,6 +1909,142 @@
       "problem_title": "Payload Too Large",
       "problem_type_uri": "urn:opendv:payload-too-large",
       "description": "Request entity, uploaded source file, or session archive exceeds size limits.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "SESSION_ALREADY_EXISTS",
+      "category": "Lifecycle",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Session Already Exists",
+      "problem_type_uri": "urn:opendv:error:session-already-exists",
+      "description": "Studio session directory already exists.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "CORRUPT_SOURCE_BLOB",
+      "category": "Verification",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Corrupt Source Blob",
+      "problem_type_uri": "urn:opendv:error:corrupt-source-blob",
+      "description": "Uploaded source document payload is corrupted or failed hash integrity validation.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "LAUNCH_NONCE_EXPIRED",
+      "category": "Authentication",
+      "exit_code": 7,
+      "http_status": 401,
+      "problem_title": "Launch Nonce Expired",
+      "problem_type_uri": "urn:opendv:error:launch-nonce-expired",
+      "description": "Single-use launch nonce has expired.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "AUTHENTICATION_CONFIG_ERROR",
+      "category": "Authentication",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Authentication Configuration Error",
+      "problem_type_uri": "urn:opendv:error:authentication-config-error",
+      "description": "Server authentication or server mode configuration is missing, invalid, or corrupted.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "EXECUTION_FAILURE",
+      "category": "Execution",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Execution Failure",
+      "problem_type_uri": "urn:opendv:error:execution-failure",
+      "description": "Internal job or pipeline execution encountered an unhandled error.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "JOB_ALREADY_TERMINAL",
+      "category": "Lifecycle",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Job Already Terminal",
+      "problem_type_uri": "urn:opendv:error:job-already-terminal",
+      "description": "Background job has already reached a terminal state (COMPLETED, FAILED, CANCELLED).",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "STATIC_TOKEN_CONFIGURED",
+      "category": "Authentication",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Static Token Configured",
+      "problem_type_uri": "urn:opendv:error:static-token-configured",
+      "description": "Static local token configured in invalid mode.",
+      "waivability": {
+        "is_waivable": false,
+        "rationale_required": false,
+        "waiver_flag": null,
+        "rationale_flag": null,
+        "min_rationale_chars": null,
+        "admin_required": false
+      }
+    },
+    {
+      "code": "UNSUPPORTED_FORMAT",
+      "category": "Preconditions",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Unsupported Format",
+      "problem_type_uri": "urn:opendv:error:unsupported-format",
+      "description": "Requested export or serialization format is not supported.",
       "waivability": {
         "is_waivable": false,
         "rationale_required": false,

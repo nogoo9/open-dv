@@ -413,4 +413,3 @@ def test_system_prompt_and_user_template_user_directive_alignment() -> None:
     assert "{system_prompt}" in USER_PROMPT_TEMPLATE
     assert "{fence_nonce}" in USER_PROMPT_TEMPLATE
     assert "{diff_text}" in USER_PROMPT_TEMPLATE
-

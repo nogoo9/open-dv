@@ -628,6 +628,20 @@ opendv ontology reject --help
 opendvctl ontology reject --api-url $OPENDV_API_URL --json
 ```
 
+##### `ontology studio` *(Both CLIs)*
+
+Interactive Ontology Construction Studio (FIBO, LiteParse, dual-mode engine, CAS sessions)
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio --help
+
+# Client execution
+opendvctl ontology studio --api-url $OPENDV_API_URL --json
+```
+
 ### `opendv config` / `opendvctl config`
 
 **Availability:** *(Both CLIs)*  
@@ -763,6 +777,115 @@ Both CLIs adhere to normative exit code standards across all failure scenarios:
 | `INTERNAL_ERROR` | `2` | `500` | Internal Server Error | `urn:opendv:internal-error` |
 | `API_UNREACHABLE` | `2` | `503` | API Service Unreachable | `urn:opendv:api-unreachable` |
 | `PROVIDER_UNAVAILABLE` | `2` | `503` | Harness Provider Unavailable | `urn:opendv:provider-unavailable` |
+| `AGENT_UNAVAILABLE` | `1` | `503` | LLM Agent Service Unavailable | `urn:opendv:error:agent-unavailable` |
+| `CONFLICTING_WORKSPACE_SEED_PARAMS` | `1` | `400` | Conflicting Workspace Seed Parameters | `urn:opendv:error:conflicting-workspace-seed-params` |
+| `CORRUPT_SESSION_RECORD` | `1` | `500` | Corrupt Session Record | `urn:opendv:error:corrupt-session-record` |
+| `EXPORT_RATIONALE_REQUIRED` | `1` | `400` | Export Rationale Required | `urn:opendv:error:export-rationale-required` |
+| `HISTORICAL_CONTRACT_RATIONALE_REQUIRED` | `1` | `400` | Historical Contract Rationale Required | `urn:opendv:error:historical-contract-rationale-required` |
+| `IMPORT_GROUNDING_RATIONALE_REQUIRED` | `1` | `400` | Import Grounding Rationale Required | `urn:opendv:error:import-grounding-rationale-required` |
+| `INSECURE_STUDIO_ROOT_PERMISSIONS` | `1` | `500` | Insecure Studio Root Permissions | `urn:opendv:error:insecure-studio-root-permissions` |
+| `JOB_ABANDONED_SERVER_CRASH` | `1` | `500` | Background Job Abandoned Due to Server Crash | `urn:opendv:error:job-abandoned-server-crash` |
+| `MATCHER_UNIDATA_VERSION_MISMATCH` | `1` | `500` | Matcher Unicode Character Tables Version Mismatch | `urn:opendv:error:matcher-unidata-version-mismatch` |
+| `NO_OP_DELTA` | `1` | `400` | No-Op Delta | `urn:opendv:error:no-op-delta` |
+| `OCR_UNAVAILABLE` | `1` | `503` | OCR Engine Unavailable | `urn:opendv:error:ocr-unavailable` |
+| `OFFICE_CONVERSION_UNAVAILABLE` | `1` | `503` | Office Document Conversion Unavailable | `urn:opendv:error:office-conversion-unavailable` |
+| `PROMOTION_RATIONALE_REQUIRED` | `1` | `400` | Promotion Rationale Required | `urn:opendv:error:promotion-rationale-required` |
+| `REFERENCE_PACK_INTEGRITY_FAILURE` | `1` | `500` | Reference Pack Integrity Failure | `urn:opendv:error:reference-pack-integrity-failure` |
+| `VERSION_COMMIT_IO_FAILURE` | `1` | `500` | Version Commit IO Failure | `urn:opendv:error:version-commit-io-failure` |
+| `INVALID_EVIDENCE_OFFSETS` | `2` | `400` | Invalid Evidence Offsets | `urn:opendv:error:invalid-evidence-offsets` |
+| `INVALID_PRECONDITION_HEADER` | `2` | `400` | Invalid Precondition Header | `urn:opendv:error:invalid-precondition-header` |
+| `INVALID_SESSION_IDENTIFIER` | `2` | `400` | Invalid Session Identifier | `urn:opendv:error:invalid-session-identifier` |
+| `INVALID_WORKSPACE_PATH` | `2` | `400` | Invalid Workspace Path | `urn:opendv:error:invalid-workspace-path` |
+| `MISSING_AUTO_COMMIT_PRECONDITION` | `2` | `400` | Missing Auto-Commit Precondition | `urn:opendv:error:missing-auto-commit-precondition` |
+| `MISSING_PRECONDITION_HEADER` | `2` | `400` | Missing Precondition Header | `urn:opendv:error:missing-precondition-header` |
+| `PRECONDITION_BASE_SHA_MISMATCH` | `2` | `400` | Precondition Base SHA Mismatch | `urn:opendv:error:precondition-base-sha-mismatch` |
+| `REMOTE_SERVER_PATH_FORBIDDEN` | `2` | `400` | Remote Server Path Forbidden | `urn:opendv:error:remote-server-path-forbidden` |
+| `SYNTAX_INVALID_ARGUMENT` | `2` | `400` | Invalid Argument Syntax | `urn:opendv:error:syntax-invalid-argument` |
+| `VALIDATION_AMBIGUOUS_TARGET` | `2` | `400` | Ambiguous Target Specifier | `urn:opendv:error:validation-ambiguous-target` |
+| `JOB_NOT_FOUND` | `3` | `404` | Job Not Found | `urn:opendv:error:job-not-found` |
+| `PROPOSAL_NOT_FOUND` | `3` | `404` | Proposal Not Found | `urn:opendv:error:proposal-not-found` |
+| `SESSION_NOT_FOUND` | `3` | `404` | Session Not Found | `urn:opendv:error:session-not-found` |
+| `SOURCE_NOT_FOUND` | `3` | `404` | Source Document Not Found | `urn:opendv:error:source-not-found` |
+| `VERSION_NOT_FOUND` | `3` | `404` | Version Not Found | `urn:opendv:error:version-not-found` |
+| `AGENT_UNRESOLVED_PSEUDONYM` | `4` | `422` | Agent Unresolved Pseudonym | `urn:opendv:error:agent-unresolved-pseudonym` |
+| `AMBIGUOUS_EXTERNAL_MAPPING` | `4` | `422` | Ambiguous External Mapping | `urn:opendv:error:ambiguous-external-mapping` |
+| `ARCHIVE_SECURITY_VIOLATION` | `4` | `422` | Archive Security Violation | `urn:opendv:error:archive-security-violation` |
+| `ATTRIBUTE_NOT_FOUND` | `4` | `422` | Attribute Not Found | `urn:opendv:error:attribute-not-found` |
+| `AUTOMATED_ATTRIBUTION_INVALID` | `4` | `422` | Invalid Automated Attribution | `urn:opendv:error:automated-attribution-invalid` |
+| `CANNOT_DELETE_PROMOTED_SESSION` | `4` | `422` | Cannot Delete Promoted Session | `urn:opendv:error:cannot-delete-promoted-session` |
+| `CANNOT_PRUNE_PROMOTED_SESSION` | `4` | `422` | Cannot Prune Promoted Session | `urn:opendv:error:cannot-prune-promoted-session` |
+| `CONCEPT_STILL_REFERENCED` | `4` | `422` | Concept Still Referenced | `urn:opendv:error:concept-still-referenced` |
+| `CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED` | `4` | `422` | Confidential Source Export Unacknowledged | `urn:opendv:error:confidential-source-export-unacknowledged` |
+| `DANGLING_ENUM_CODE_DESCRIPTION` | `4` | `422` | Dangling Enumeration Code Description | `urn:opendv:error:dangling-enum-code-description` |
+| `DESCRIPTION_ALREADY_EXISTS` | `4` | `422` | Description Already Exists | `urn:opendv:error:description-already-exists` |
+| `DUPLICATE_ATTRIBUTE_NAME` | `4` | `422` | Duplicate Attribute Name | `urn:opendv:error:duplicate-attribute-name` |
+| `DUPLICATE_ENUM_CODE` | `4` | `422` | Duplicate Enumeration Code | `urn:opendv:error:duplicate-enum-code` |
+| `DUPLICATE_RELATIONSHIP_NAME` | `4` | `422` | Duplicate Relationship Name | `urn:opendv:error:duplicate-relationship-name` |
+| `DUPLICATE_RELATIONSHIP_URI` | `4` | `422` | Duplicate Relationship URI | `urn:opendv:error:duplicate-relationship-uri` |
+| `DUPLICATE_SYNONYM` | `4` | `422` | Duplicate Synonym | `urn:opendv:error:duplicate-synonym` |
+| `ENUM_CODE_NOT_FOUND` | `4` | `422` | Enumeration Code Not Found | `urn:opendv:error:enum-code-not-found` |
+| `EVIDENCE_OFFSET_OUT_OF_RANGE` | `4` | `422` | Evidence Offset Out of Range | `urn:opendv:error:evidence-offset-out-of-range` |
+| `GENESIS_REQUIRES_CONCEPT` | `4` | `422` | Genesis Version Requires Concept | `urn:opendv:error:genesis-requires-concept` |
+| `HIERARCHICAL_CYCLE_DETECTED` | `4` | `422` | Hierarchical Cycle Detected | `urn:opendv:error:hierarchical-cycle-detected` |
+| `HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED` | `4` | `422` | Historical Contract Warning Unacknowledged | `urn:opendv:error:historical-contract-warning-unacknowledged` |
+| `HUB_BIJECTION_VIOLATION` | `4` | `422` | Hub Bijection Violation | `urn:opendv:error:hub-bijection-violation` |
+| `IMPORT_ADMIN_OP_FORBIDDEN` | `4` | `422` | Import Admin Operation Forbidden | `urn:opendv:error:import-admin-op-forbidden` |
+| `IMPORT_AGENT_DESTRUCTIVE_OP_FORBIDDEN` | `4` | `422` | Import Agent Destructive Operation Forbidden | `urn:opendv:error:import-agent-destructive-op-forbidden` |
+| `IMPORT_AUTOMATED_ATTRIBUTION_INVALID` | `4` | `422` | Import Invalid Automated Attribution | `urn:opendv:error:import-automated-attribution-invalid` |
+| `IMPORT_CONFIDENCE_MISMATCH` | `4` | `422` | Import Confidence Mismatch | `urn:opendv:error:import-confidence-mismatch` |
+| `IMPORT_DELTA_REPLAY_HASH_MISMATCH` | `4` | `422` | Import Delta Replay Hash Mismatch | `urn:opendv:error:import-delta-replay-hash-mismatch` |
+| `IMPORT_ENVELOPE_VIOLATION` | `4` | `422` | Import Envelope Violation | `urn:opendv:error:import-envelope-violation` |
+| `IMPORT_GROUNDING_VIOLATION` | `4` | `422` | Import Grounding Violation | `urn:opendv:error:import-grounding-violation` |
+| `IMPORT_LINEAGE_BROKEN` | `4` | `422` | Import Lineage Broken | `urn:opendv:error:import-lineage-broken` |
+| `IMPORT_MATCHER_VERSION_MISMATCH` | `4` | `422` | Import Matcher Version Mismatch | `urn:opendv:error:import-matcher-version-mismatch` |
+| `IMPORT_PROVISIONAL_URI_FORBIDDEN` | `4` | `422` | Import Provisional URI Forbidden | `urn:opendv:error:import-provisional-uri-forbidden` |
+| `IMPORT_SELF_ACCEPTANCE_UNACKNOWLEDGED` | `4` | `422` | Import Self-Acceptance Unacknowledged | `urn:opendv:error:import-self-acceptance-unacknowledged` |
+| `IMPORT_SEMVER_BUMP_MISMATCH` | `4` | `422` | Import SemVer Bump Mismatch | `urn:opendv:error:import-semver-bump-mismatch` |
+| `IMPORT_UNKNOWN_REFERENCE_PACK` | `4` | `422` | Import Unknown Reference Pack | `urn:opendv:error:import-unknown-reference-pack` |
+| `INVALID_EVIDENCE_GROUNDING` | `4` | `422` | Invalid Evidence Grounding | `urn:opendv:error:invalid-evidence-grounding` |
+| `INVALID_GROUNDING_WAIVER` | `4` | `422` | Invalid Grounding Waiver | `urn:opendv:error:invalid-grounding-waiver` |
+| `INVALID_PHYSICAL_TABLE_NAME` | `4` | `422` | Invalid Physical Table Name | `urn:opendv:error:invalid-physical-table-name` |
+| `INVALID_PROPOSAL_STATE` | `4` | `422` | Invalid Proposal State | `urn:opendv:error:invalid-proposal-state` |
+| `INVALID_WORKSPACE_ONTOLOGY` | `4` | `422` | Invalid Workspace Ontology | `urn:opendv:error:invalid-workspace-ontology` |
+| `MAPPING_NOT_FOUND` | `4` | `422` | External Mapping Not Found | `urn:opendv:error:mapping-not-found` |
+| `ONTOLOGY_REQUIRES_CONCEPT` | `4` | `422` | Ontology Requires Concept | `urn:opendv:error:ontology-requires-concept` |
+| `ONT_EVO_CONTRACT_VIOLATION` | `4` | `422` | ONT-EVO Contract Violation | `urn:opendv:error:ont-evo-contract-violation` |
+| `ONT_EVO_ENVELOPE_VIOLATION` | `4` | `422` | ONT-EVO Envelope Violation | `urn:opendv:error:ont-evo-envelope-violation` |
+| `ONT_EVO_FORGED_PROVENANCE` | `4` | `422` | ONT-EVO Forged Provenance | `urn:opendv:error:ont-evo-forged-provenance` |
+| `ONT_EVO_GROUNDING_VIOLATION` | `4` | `422` | ONT-EVO Grounding Violation | `urn:opendv:error:ont-evo-grounding-violation` |
+| `ONT_EVO_LOW_CONFIDENCE_GROUNDING` | `4` | `422` | ONT-EVO Low Confidence Grounding | `urn:opendv:error:ont-evo-low-confidence-grounding` |
+| `ONT_EVO_PSEUDONYM_LEAK` | `4` | `422` | ONT-EVO Pseudonym Leak | `urn:opendv:error:ont-evo-pseudonym-leak` |
+| `ONT_EVO_UNGROUNDED_CONCEPT` | `4` | `422` | ONT-EVO Ungrounded Concept | `urn:opendv:error:ont-evo-ungrounded-concept` |
+| `PARENT_ALREADY_EXISTS` | `4` | `422` | Parent Already Exists | `urn:opendv:error:parent-already-exists` |
+| `PARENT_NOT_FOUND` | `4` | `422` | Parent Concept Not Found | `urn:opendv:error:parent-not-found` |
+| `PHYSICAL_TABLE_NAME_COLLISION` | `4` | `422` | Physical Table Name Collision | `urn:opendv:error:physical-table-name-collision` |
+| `REDACTED_PLACEHOLDER_LEAK` | `4` | `422` | Redacted Placeholder Leak | `urn:opendv:error:redacted-placeholder-leak` |
+| `REFERENCED_CONCEPT_NOT_FOUND` | `4` | `422` | Referenced Concept Not Found | `urn:opendv:error:referenced-concept-not-found` |
+| `RELATIONSHIP_NOT_FOUND` | `4` | `422` | Relationship Not Found | `urn:opendv:error:relationship-not-found` |
+| `SOURCE_REFERENCED_BY_COMMITTED_VERSION` | `4` | `422` | Source Referenced by Committed Version | `urn:opendv:error:source-referenced-by-committed-version` |
+| `SOURCE_REFERENCED_BY_PENDING_PROPOSAL` | `4` | `422` | Source Referenced by Pending Proposal | `urn:opendv:error:source-referenced-by-pending-proposal` |
+| `UNDEFINED_PHYSICAL_TABLE_MAPPING` | `4` | `422` | Undefined Physical Table Mapping | `urn:opendv:error:undefined-physical-table-mapping` |
+| `UNKNOWN_REFERENCE_PACK` | `4` | `422` | Unknown Reference Pack | `urn:opendv:error:unknown-reference-pack` |
+| `VERSION_CONSISTENCY_MISMATCH` | `4` | `422` | Version Consistency Mismatch | `urn:opendv:error:version-consistency-mismatch` |
+| `LINEAGE_ROOT_MISMATCH` | `5` | `412` | Lineage Root Mismatch | `urn:opendv:error:lineage-root-mismatch` |
+| `ONT_EVO_CONCURRENT_MODIFICATION` | `5` | `412` | ONT-EVO Concurrent Modification | `urn:opendv:error:ont-evo-concurrent-modification` |
+| `JOB_COMMIT_IN_PROGRESS` | `6` | `409` | Job Commit In Progress | `urn:opendv:error:job-commit-in-progress` |
+| `LOCK_TIMEOUT` | `6` | `409` | Lock Acquisition Timeout | `urn:opendv:error:lock-timeout` |
+| `PRINCIPAL_ALREADY_EXISTS` | `6` | `409` | Principal Already Exists | `urn:opendv:error:principal-already-exists` |
+| `PRINCIPAL_RESERVED` | `6` | `409` | Principal Identifier Reserved | `urn:opendv:error:principal-reserved` |
+| `PROPOSAL_ALREADY_RESOLVED` | `6` | `409` | Proposal Already Resolved | `urn:opendv:error:proposal-already-resolved` |
+| `STUDIO_ALREADY_INITIALIZED` | `6` | `409` | Studio Already Initialized | `urn:opendv:error:studio-already-initialized` |
+| `AGENT_ADMIN_OP_FORBIDDEN` | `7` | `403` | Agent Admin Operation Forbidden | `urn:opendv:error:agent-admin-op-forbidden` |
+| `AGENT_DESTRUCTIVE_OP_FORBIDDEN` | `7` | `403` | Agent Destructive Operation Forbidden | `urn:opendv:error:agent-destructive-op-forbidden` |
+| `AGENT_METADATA_OVERWRITE_FORBIDDEN` | `7` | `403` | Agent Metadata Overwrite Forbidden | `urn:opendv:error:agent-metadata-overwrite-forbidden` |
+| `AGENT_OPERATION_FORBIDDEN` | `7` | `403` | Agent Operation Forbidden | `urn:opendv:error:agent-operation-forbidden` |
+| `AGENT_PROPOSAL_ACCEPT_FORBIDDEN` | `7` | `403` | Agent Proposal Accept Forbidden | `urn:opendv:error:agent-proposal-accept-forbidden` |
+| `CSRF_ORIGIN_MISMATCH` | `7` | `403` | CSRF Origin Mismatch | `urn:opendv:error:csrf-origin-mismatch` |
+| `FORBIDDEN_ADMIN_REQUIRED` | `7` | `403` | Forbidden: Admin Role Required | `urn:opendv:error:forbidden-admin-required` |
+| `LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE` | `7` | `403` | Loopback Privilege Disabled in Remote Mode | `urn:opendv:error:loopback-privilege-disabled-in-remote-mode` |
+| `PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN` | `7` | `403` | Proposal Self-Acceptance Forbidden | `urn:opendv:error:proposal-self-acceptance-forbidden` |
+| `SERVER_OPERATION_FORBIDDEN` | `7` | `403` | Server Operation Forbidden | `urn:opendv:error:server-operation-forbidden` |
+| `UNAUTHENTICATED` | `7` | `401` | Unauthenticated Request | `urn:opendv:error:unauthenticated` |
 
 ---
 

@@ -54,15 +54,11 @@ STOCK_CORPORATION = (
 BUSINESS_ENTITY = (
     "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/BusinessEntity"
 )
-FORMAL_ORGANIZATION = (
-    "https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/FormalOrganizations/FormalOrganization"
-)
+FORMAL_ORGANIZATION = "https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/FormalOrganizations/FormalOrganization"
 ORGANIZATION = (
     "https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/Organization"
 )
-BANKRUPTCY = (
-    "https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/CreditEvents/Bankruptcy"
-)
+BANKRUPTCY = "https://spec.edmcouncil.org/fibo/ontology/FBC/DebtAndEquities/CreditEvents/Bankruptcy"
 
 
 class SyntheticOntologyAdapter:
@@ -379,10 +375,12 @@ def test_self_loop_strict_error() -> None:
 
 def test_two_node_cycle_graceful_termination() -> None:
     """Verify 2-node circular inheritance (A -> B -> A) terminates cleanly."""
-    adapter = SyntheticOntologyAdapter({
-        "urn:test:A": ["urn:test:B"],
-        "urn:test:B": ["urn:test:A"],
-    })
+    adapter = SyntheticOntologyAdapter(
+        {
+            "urn:test:A": ["urn:test:B"],
+            "urn:test:B": ["urn:test:A"],
+        }
+    )
     matches = resolve_subclass_closure(
         adapter,
         "urn:test:A",
@@ -397,11 +395,13 @@ def test_two_node_cycle_graceful_termination() -> None:
 
 def test_three_node_cycle_strict_error() -> None:
     """Verify 3-node cycle (A -> B -> C -> A) raises TaxonomyCycleError under strict flag."""
-    adapter = SyntheticOntologyAdapter({
-        "urn:test:A": ["urn:test:B"],
-        "urn:test:B": ["urn:test:C"],
-        "urn:test:C": ["urn:test:A"],
-    })
+    adapter = SyntheticOntologyAdapter(
+        {
+            "urn:test:A": ["urn:test:B"],
+            "urn:test:B": ["urn:test:C"],
+            "urn:test:C": ["urn:test:A"],
+        }
+    )
     with pytest.raises(TaxonomyCycleError) as exc_info:
         resolve_subclass_closure(
             adapter,
@@ -415,12 +415,14 @@ def test_three_node_cycle_strict_error() -> None:
 
 def test_indirect_sub_cycle_graceful_termination() -> None:
     """Verify cycle not including seed concept (A -> B -> C -> B) terminates cleanly."""
-    adapter = SyntheticOntologyAdapter({
-        "urn:test:A": ["urn:test:B"],
-        "urn:test:B": ["urn:test:C"],
-        "urn:test:C": ["urn:test:B", "urn:test:D"],
-        "urn:test:D": [],
-    })
+    adapter = SyntheticOntologyAdapter(
+        {
+            "urn:test:A": ["urn:test:B"],
+            "urn:test:B": ["urn:test:C"],
+            "urn:test:C": ["urn:test:B", "urn:test:D"],
+            "urn:test:D": [],
+        }
+    )
     matches = resolve_subclass_closure(
         adapter,
         "urn:test:A",
@@ -442,13 +444,15 @@ def test_symmetric_diamond_inheritance() -> None:
     # B -> [D]
     # C -> [D]
     # D -> [E]
-    adapter = SyntheticOntologyAdapter({
-        "urn:test:A": ["urn:test:B", "urn:test:C"],
-        "urn:test:B": ["urn:test:D"],
-        "urn:test:C": ["urn:test:D"],
-        "urn:test:D": ["urn:test:E"],
-        "urn:test:E": [],
-    })
+    adapter = SyntheticOntologyAdapter(
+        {
+            "urn:test:A": ["urn:test:B", "urn:test:C"],
+            "urn:test:B": ["urn:test:D"],
+            "urn:test:C": ["urn:test:D"],
+            "urn:test:D": ["urn:test:E"],
+            "urn:test:E": [],
+        }
+    )
 
     matches = resolve_subclass_closure(adapter, "urn:test:A", direct_seed_score=0.80)
     match_dict = {m.uri: m for m in matches}
@@ -465,12 +469,14 @@ def test_asymmetric_shortcut_diamond_retains_shortest_depth() -> None:
     # A -> [B, D] (direct parent of D)
     # B -> [D] (grandparent of D via B)
     # D -> [E]
-    adapter = SyntheticOntologyAdapter({
-        "urn:test:A": ["urn:test:B", "urn:test:D"],
-        "urn:test:B": ["urn:test:D"],
-        "urn:test:D": ["urn:test:E"],
-        "urn:test:E": [],
-    })
+    adapter = SyntheticOntologyAdapter(
+        {
+            "urn:test:A": ["urn:test:B", "urn:test:D"],
+            "urn:test:B": ["urn:test:D"],
+            "urn:test:D": ["urn:test:E"],
+            "urn:test:E": [],
+        }
+    )
 
     matches = resolve_subclass_closure(adapter, "urn:test:A", direct_seed_score=0.80)
     match_dict = {m.uri: m for m in matches}
@@ -488,13 +494,15 @@ def test_asymmetric_shortcut_diamond_retains_shortest_depth() -> None:
 def test_max_depth_truncation() -> None:
     """Verify that traversal stops at max_depth."""
     # Chain: A -> B -> C -> D -> E
-    adapter = SyntheticOntologyAdapter({
-        "urn:test:A": ["urn:test:B"],
-        "urn:test:B": ["urn:test:C"],
-        "urn:test:C": ["urn:test:D"],
-        "urn:test:D": ["urn:test:E"],
-        "urn:test:E": [],
-    })
+    adapter = SyntheticOntologyAdapter(
+        {
+            "urn:test:A": ["urn:test:B"],
+            "urn:test:B": ["urn:test:C"],
+            "urn:test:C": ["urn:test:D"],
+            "urn:test:D": ["urn:test:E"],
+            "urn:test:E": [],
+        }
+    )
 
     # max_depth = 1: only B
     m1 = resolve_subclass_closure(adapter, "urn:test:A", direct_seed_score=0.75, max_depth=1)
@@ -688,4 +696,3 @@ def test_only_pack_concepts_filter(default_loader: FiboReferenceOntologyLoader) 
     party_uri = "https://www.omg.org/spec/Commons/PartiesAndSituations/Party"
     assert any(m.uri == party_uri for m in matches_all)
     assert not any(m.uri == party_uri for m in matches_pack_only)
-

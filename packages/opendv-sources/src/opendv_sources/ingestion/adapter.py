@@ -113,10 +113,7 @@ class BaseDocumentAdapter(DocumentAdapter):
         normalized = mime_type.lower().strip()
         # Handle parameters like 'text/plain; charset=utf-8'
         base_mime = normalized.split(";")[0].strip()
-        return any(
-            base_mime == decl.lower().strip()
-            for decl in self.supported_mime_types
-        )
+        return any(base_mime == decl.lower().strip() for decl in self.supported_mime_types)
 
     def supports_extension(self, extension: str) -> bool:
         """Match against declared supported_extensions case-insensitively."""

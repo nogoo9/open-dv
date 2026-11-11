@@ -1,0 +1,340 @@
+{
+  "verdict": "PASS",
+  "summary": "I reviewed Partition 3 of Track 5D: the app shell, the export/promotion modal, the diff overlay, the ELK layout adapter with its fallback, the static build pipeline, the types, and the tests. I found no CRITICAL or MAJOR issues. Nothing in this partition touches the Python core models or how Graph A is serialized, so the SHA-256 / RFC 8785 invariant is unaffected. There are no production mocks or stubs in `src/`. `elkInstance` is an optional dependency-injection seam, not a stub. Layering stays inside the workbench app, and no CLI surface changes, so dual-CLI parity doesn't apply.\n\nThe MAJ-01 duplicate-modal fix is correct: `ExportPromoteModal` is mounted once, conditionally. The ELK timeout race is now safe: the timer is cleared in `finally` and the late ELK rejection is swallowed. The fallback layout's timeout test is deterministic, and the path-traversal and SHA regex guards are in place. The two OCC fields (`workspace_sha256` and `head_sha256`) are kept separate, with no fallback from one to the other.\n\nThe remaining findings are MINOR:\n- When the session switches, the export can briefly request the wrong version.\n- The modal lets you export historical versions, but I couldn't confirm from this partition that the store actually exports that version's content.\n- Two tests claim to check behaviour that only runs in effects, and `renderToStaticMarkup` never runs effects.\n- The promotion UI doesn't check grounding or waivers on the client before submitting.\n- A few small hygiene items.\n\nI did not run the test suites; this is a static review of the diff only.",
+  "critical_count": 0,
+  "major_count": 0,
+  "minor_count": 7,
+  "suggestion_count": 3,
+  "findings": [
+    {
+      "id": "MIN-01",
+      "severity": "MINOR",
+      "category": "Logic / State Sync",
+      "file": "apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx",
+      "line": null,
+      "title": "Export preview can fetch the previous session's version after a session switch",
+      "description": "The effect that copies the session's version into `selectedVersion` and the export-preview effect run in the same commit. The preview effect therefore calls `exportOntology(selectedFormat, selectedVersion)` once with the old session's version before the re-render cancels it. Worse, if the new session has no `active_version`, the sync effect skips the update and keeps the stale version. The modal then keeps requesting and offering to download an export labelled with a version from a different session.",
+      "recommendation": "Work out the effective version from what is currently available, for example `versions.includes(selectedVersion) ? selectedVersion : activeVersion ?? ''`. Alternatively, reset `selectedVersion` to `''` unconditionally whenever `sessionId` changes, and skip the export while the selected version isn't in that session's version set."
+    },
+    {
+      "id": "MIN-02",
+      "severity": "MINOR",
+      "category": "Data Integrity (verify cross-partition)",
+      "file": "apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx",
+      "line": null,
+      "title": "Historical version selector depends on the store actually exporting that snapshot",
+      "description": "The Version Snapshot selector lists every committed version, and the downloaded file is named `...-v${selectedVersion}`. But `generateLocalExport(format, version, nodes, edges, session)` receives the current head `nodes`/`edges`. If the store's `exportOntology` doesn't load the historical snapshot (in local_standalone mode especially), users would download head content labelled as an older version. The store is outside this partition, so I couldn't confirm either way.",
+      "recommendation": "Confirm that `exportOntology` resolves each version to its own snapshot, and add a test that exports a non-head version and checks the content differs. If the store can't do that, limit the selector to the head version."
+    },
+    {
+      "id": "MIN-03",
+      "severity": "MINOR",
+      "category": "Test Validity",
+      "file": "apps/opendv-web-workbench/tests/export-promotion-modal.test.tsx",
+      "line": null,
+      "title": "The session-switch reset test never runs the reset effect",
+      "description": "The test 'resets workspace target path and expected SHA when active session switches (MAJ-01)' renders two separate component trees with `renderToStaticMarkup`, which never runs `useEffect`. It passes because the `useState` initializer runs fresh on each mount. The reset effect keyed on `[isOpen, sessionId, ...]` is never exercised, so a regression in that effect would go unnoticed.",
+      "recommendation": "Use a client renderer that runs effects (react-dom/client with happy-dom, or `act()`). Switch the session on the same mounted instance and check that the input value and SHA field have been reset."
+    },
+    {
+      "id": "MIN-04",
+      "severity": "MINOR",
+      "category": "Test Validity",
+      "file": "apps/opendv-web-workbench/tests/export-promotion-modal.test.tsx",
+      "line": null,
+      "title": "The MIN-03 test title says it checks an error banner, but it can't, and its string match is brittle",
+      "description": "The test title says the error banner is displayed when export fails, but the error is only set inside an effect, which SSR doesn't run, and the test never checks for `export-error-banner`. It also matches the literal `'disabled=\"\" data-testid=\"copy-export-btn\"'`, so reordering the JSX attributes would break it.",
+      "recommendation": "Rename the test to describe what it actually checks, or add an effect-capable render that checks for the banner. Locate the button by testid first, then check for the `disabled` attribute separately so attribute order doesn't matter."
+    },
+    {
+      "id": "MIN-05",
+      "severity": "MINOR",
+      "category": "ONT-EVO-002 (defense in depth)",
+      "file": "apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx",
+      "line": null,
+      "title": "The promotion form doesn't check grounding or waivers on the client",
+      "description": "The modal checks the rationale, unsaved changes, the path, and both SHAs, but never looks at `qualityScorecard` or UNGROUNDED/LOW_CONFIDENCE nodes. Server-side enforcement should stay the authority, but in `local_standalone` mode the UI lets you promote ungrounded concepts without any warning or waiver hint.",
+      "recommendation": "Show a blocking or warning banner when ungrounded concepts are present and no waiver has been applied (`qualityScorecard.waiver_applied`). Make sure the store or service path enforces ONT-EVO-002 in standalone mode too."
+    },
+    {
+      "id": "MIN-06",
+      "severity": "MINOR",
+      "category": "Input Validation",
+      "file": "apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx",
+      "line": null,
+      "title": "The traversal check rejects valid names and is only enforced on the client",
+      "description": "`trimmedPath.includes(\"..\")` also rejects legitimate segments such as `ws..v2`. Nothing in this diff shows the matching server-side check, and the client check alone is not a security boundary.",
+      "recommendation": "Split on `/` and `\\` and reject only segments that are exactly `..`. Make sure the platform API checks that the resolved workspace path stays inside the allowed workspace root."
+    },
+    {
+      "id": "MIN-07",
+      "severity": "MINOR",
+      "category": "Code Hygiene",
+      "file": "apps/opendv-web-workbench/src/ontology/OntologyStudioApp.tsx",
+      "line": null,
+      "title": "Unused store selectors, and the shell writes to the store directly",
+      "description": "`isPromoting` is selected from the store but never used. The modal keeps its own local `isPromoting`, so there are two sources of truth. The Re-layout button calls `studioStore.setState` directly instead of going through a store action, which skips the store's action layer. The session `<select>` can also have a `value` that matches no option when sessions exist but none is active.",
+      "recommendation": "Remove the unused selector, or use the store's `isPromoting` in the modal. Add a `triggerRelayout()` store action. When no session is active, render a placeholder option for the empty value."
+    },
+    {
+      "id": "SUG-01",
+      "severity": "SUGGESTION",
+      "category": "Layout Performance",
+      "file": "apps/opendv-web-workbench/src/ontology/components/graph-layout.ts",
+      "line": null,
+      "title": "The ELK timeout can't stop the bundled synchronous computation",
+      "description": "`elk.bundled.js` without a worker runs on the main thread. When the timeout wins, the layout keeps using CPU, and a long synchronous layout can stop the timer from firing on time. The docstring already says the budget is best-effort.",
+      "recommendation": "For large graphs, consider `elk-worker` with a `workerUrl` so slow layouts can be terminated and the UI stays responsive."
+    },
+    {
+      "id": "SUG-02",
+      "severity": "SUGGESTION",
+      "category": "Robustness",
+      "file": "apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx",
+      "line": null,
+      "title": "Revoking the download's object URL right after `click()`",
+      "description": "Some browsers can cancel the download if `URL.revokeObjectURL` runs synchronously right after `a.click()`.",
+      "recommendation": "Defer the revoke, e.g. `setTimeout(() => URL.revokeObjectURL(url), 0)`."
+    },
+    {
+      "id": "SUG-03",
+      "severity": "SUGGESTION",
+      "category": "Build Pipeline",
+      "file": "apps/opendv-web-workbench/src/build-static.ts",
+      "line": null,
+      "title": "Only the entry-point JS artifact is embedded",
+      "description": "If the workbench entry ever imports CSS or other assets, both `Bun.build` and the CLI fallback produce extra outputs. Those are silently dropped (and deleted with the temp dir). Separately, the cast `(o as unknown as { kind?: string })` isn't needed, because `BuildArtifact.kind` is already typed.",
+      "recommendation": "Fail the build when non-entry artifacts appear, or collect and embed them. Remove the unneeded cast."
+    }
+  ],
+  "positive_highlights": [
+    "The MAJ-01 fix is correct: `ExportPromoteModal` is mounted once and only conditionally, and a test checks for exactly 1 instance when open and 0 when closed.",
+    "The ELK timeout race is handled safely: `clearTimeout` runs in `finally`, and a `.catch` on the ELK promise swallows late rejections.",
+    "The timeout test is deterministic: an injected ELK that never resolves forces the fallback, and the test checks exact coordinates (x=50 and x=390).",
+    "The fallback layout tracks next-layer membership with a Set, drops dangling edges, and handles cycles and isolated nodes.",
+    "The two OCC hashes, `workspace_sha256` and `head_sha256`, are checked separately with a 64-hex regex, with no fallback from one to the other.",
+    "The static build's CLI fallback uses `mkdtempSync(os.tmpdir())` with a guaranteed `rmSync` cleanup, and its error messages include both the programmatic and the CLI failure.",
+    "The export version selector builds its options from session data with no hardcoded version, and export is blocked when no version is available.",
+    "Nothing in this partition touches the Python core models, so the Graph A SHA-256 stability invariant is unaffected.",
+    "The explorer handoff test now covers SPA deep links and trailing-slash paths for the /ontology, /builder, /settings and /stages routes."
+  ],
+  "model": "claude-opus-5-5",
+  "timestamp": "2026-11-11T08:36:12Z",
+  "raw_claude_output": {
+    "duration_api_ms": 73415,
+    "stop_reason": "tool_use",
+    "session_id": "bfae009a-affa-474e-b3f2-809f938948bd",
+    "total_cost_usd": 0.611867,
+    "usage": {
+      "input_tokens": 2,
+      "cache_creation_input_tokens": 57278,
+      "cache_read_input_tokens": 1575,
+      "output_tokens": 7666,
+      "output_tokens_details": {
+        "thinking_tokens": 3691
+      },
+      "server_tool_use": {
+        "web_search_requests": 0,
+        "web_fetch_requests": 0
+      },
+      "service_tier": "standard",
+      "cache_creation": {
+        "ephemeral_1h_input_tokens": 57278,
+        "ephemeral_5m_input_tokens": 0
+      },
+      "inference_geo": "global",
+      "iterations": [
+        {
+          "input_tokens": 2,
+          "output_tokens": 7666,
+          "cache_read_input_tokens": 1575,
+          "cache_creation_input_tokens": 57278,
+          "cache_creation": {
+            "ephemeral_5m_input_tokens": 0,
+            "ephemeral_1h_input_tokens": 57278
+          },
+          "type": "message"
+        }
+      ],
+      "speed": "standard",
+      "fallback_credit": null
+    },
+    "modelUsage": {
+      "claude-opus-5-5": {
+        "inputTokens": 2,
+        "outputTokens": 7666,
+        "cacheReadInputTokens": 1575,
+        "cacheCreationInputTokens": 57278,
+        "webSearchRequests": 0,
+        "costUSD": 0.611867,
+        "contextWindow": 1000000,
+        "maxOutputTokens": 128000,
+        "thinkingTokens": 3691,
+        "cacheCreationEphemeral5mInputTokens": 0,
+        "cacheCreationEphemeral1hInputTokens": 57278,
+        "canonicalModel": "claude-opus-5-5",
+        "provider": "firstParty",
+        "costBasis": "list"
+      }
+    },
+    "permission_denials": [],
+    "terminal_reason": "completed",
+    "fast_mode_state": "off",
+    "fast_mode_disabled_reason": "sdk_opt_in_required",
+    "subagent_stats": {
+      "spawned": 0,
+      "requested": {
+        "background": 0,
+        "foreground": 0,
+        "unset": 0
+      },
+      "started_in_background": 0,
+      "max_depth": 0,
+      "spawned_by_subagents": 0,
+      "completed": 0,
+      "failed": 0,
+      "killed": {
+        "parent": 0,
+        "user": 0,
+        "system": 0
+      },
+      "refused": {
+        "depth_limit": 0,
+        "concurrency_limit": 0,
+        "budget": 0
+      },
+      "by_type": {}
+    },
+    "safety_stops": 0,
+    "is_error": false,
+    "num_turns": 2,
+    "subtype": "success",
+    "api_error_status": null,
+    "result": "{\"verdict\":\"PASS\",\"summary\":\"I reviewed Partition 3 of Track 5D: the app shell, the export/promotion modal, the diff overlay, the ELK layout adapter with its fallback, the static build pipeline, the types, and the tests. I found no CRITICAL or MAJOR issues. Nothing in this partition touches the Python core models or how Graph A is serialized, so the SHA-256 / RFC 8785 invariant is unaffected. There are no production mocks or stubs in `src/`. `elkInstance` is an optional dependency-injection seam, not a stub. Layering stays inside the workbench app, and no CLI surface changes, so dual-CLI parity doesn't apply.\\n\\nThe MAJ-01 duplicate-modal fix is correct: `ExportPromoteModal` is mounted once, conditionally. The ELK timeout race is now safe: the timer is cleared in `finally` and the late ELK rejection is swallowed. The fallback layout's timeout test is deterministic, and the path-traversal and SHA regex guards are in place. The two OCC fields (`workspace_sha256` and `head_sha256`) are kept separate, with no fallback from one to the other.\\n\\nThe remaining findings are MINOR:\\n- When the session switches, the export can briefly request the wrong version.\\n- The modal lets you export historical versions, but I couldn't confirm from this partition that the store actually exports that version's content.\\n- Two tests claim to check behaviour that only runs in effects, and `renderToStaticMarkup` never runs effects.\\n- The promotion UI doesn't check grounding or waivers on the client before submitting.\\n- A few small hygiene items.\\n\\nI did not run the test suites; this is a static review of the diff only.\",\"counts\":{\"critical\":0,\"major\":0,\"minor\":7,\"suggestion\":3},\"findings\":[{\"id\":\"MIN-01\",\"severity\":\"MINOR\",\"category\":\"Logic / State Sync\",\"title\":\"Export preview can fetch the previous session's version after a session switch\",\"file\":\"apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx\",\"description\":\"The effect that copies the session's version into `selectedVersion` and the export-preview effect run in the same commit. The preview effect therefore calls `exportOntology(selectedFormat, selectedVersion)` once with the old session's version before the re-render cancels it. Worse, if the new session has no `active_version`, the sync effect skips the update and keeps the stale version. The modal then keeps requesting and offering to download an export labelled with a version from a different session.\",\"recommendation\":\"Work out the effective version from what is currently available, for example `versions.includes(selectedVersion) ? selectedVersion : activeVersion ?? ''`. Alternatively, reset `selectedVersion` to `''` unconditionally whenever `sessionId` changes, and skip the export while the selected version isn't in that session's version set.\"},{\"id\":\"MIN-02\",\"severity\":\"MINOR\",\"category\":\"Data Integrity (verify cross-partition)\",\"title\":\"Historical version selector depends on the store actually exporting that snapshot\",\"file\":\"apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx\",\"description\":\"The Version Snapshot selector lists every committed version, and the downloaded file is named `...-v${selectedVersion}`. But `generateLocalExport(format, version, nodes, edges, session)` receives the current head `nodes`/`edges`. If the store's `exportOntology` doesn't load the historical snapshot (in local_standalone mode especially), users would download head content labelled as an older version. The store is outside this partition, so I couldn't confirm either way.\",\"recommendation\":\"Confirm that `exportOntology` resolves each version to its own snapshot, and add a test that exports a non-head version and checks the content differs. If the store can't do that, limit the selector to the head version.\"},{\"id\":\"MIN-03\",\"severity\":\"MINOR\",\"category\":\"Test Validity\",\"title\":\"The session-switch reset test never runs the reset effect\",\"file\":\"apps/opendv-web-workbench/tests/export-promotion-modal.test.tsx\",\"description\":\"The test 'resets workspace target path and expected SHA when active session switches (MAJ-01)' renders two separate component trees with `renderToStaticMarkup`, which never runs `useEffect`. It passes because the `useState` initializer runs fresh on each mount. The reset effect keyed on `[isOpen, sessionId, ...]` is never exercised, so a regression in that effect would go unnoticed.\",\"recommendation\":\"Use a client renderer that runs effects (react-dom/client with happy-dom, or `act()`). Switch the session on the same mounted instance and check that the input value and SHA field have been reset.\"},{\"id\":\"MIN-04\",\"severity\":\"MINOR\",\"category\":\"Test Validity\",\"title\":\"The MIN-03 test title says it checks an error banner, but it can't, and its string match is brittle\",\"file\":\"apps/opendv-web-workbench/tests/export-promotion-modal.test.tsx\",\"description\":\"The test title says the error banner is displayed when export fails, but the error is only set inside an effect, which SSR doesn't run, and the test never checks for `export-error-banner`. It also matches the literal `'disabled=\\\"\\\" data-testid=\\\"copy-export-btn\\\"'`, so reordering the JSX attributes would break it.\",\"recommendation\":\"Rename the test to describe what it actually checks, or add an effect-capable render that checks for the banner. Locate the button by testid first, then check for the `disabled` attribute separately so attribute order doesn't matter.\"},{\"id\":\"MIN-05\",\"severity\":\"MINOR\",\"category\":\"ONT-EVO-002 (defense in depth)\",\"title\":\"The promotion form doesn't check grounding or waivers on the client\",\"file\":\"apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx\",\"description\":\"The modal checks the rationale, unsaved changes, the path, and both SHAs, but never looks at `qualityScorecard` or UNGROUNDED/LOW_CONFIDENCE nodes. Server-side enforcement should stay the authority, but in `local_standalone` mode the UI lets you promote ungrounded concepts without any warning or waiver hint.\",\"recommendation\":\"Show a blocking or warning banner when ungrounded concepts are present and no waiver has been applied (`qualityScorecard.waiver_applied`). Make sure the store or service path enforces ONT-EVO-002 in standalone mode too.\"},{\"id\":\"MIN-06\",\"severity\":\"MINOR\",\"category\":\"Input Validation\",\"title\":\"The traversal check rejects valid names and is only enforced on the client\",\"file\":\"apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx\",\"description\":\"`trimmedPath.includes(\\\"..\\\")` also rejects legitimate segments such as `ws..v2`. Nothing in this diff shows the matching server-side check, and the client check alone is not a security boundary.\",\"recommendation\":\"Split on `/` and `\\\\` and reject only segments that are exactly `..`. Make sure the platform API checks that the resolved workspace path stays inside the allowed workspace root.\"},{\"id\":\"MIN-07\",\"severity\":\"MINOR\",\"category\":\"Code Hygiene\",\"title\":\"Unused store selectors, and the shell writes to the store directly\",\"file\":\"apps/opendv-web-workbench/src/ontology/OntologyStudioApp.tsx\",\"description\":\"`isPromoting` is selected from the store but never used. The modal keeps its own local `isPromoting`, so there are two sources of truth. The Re-layout button calls `studioStore.setState` directly instead of going through a store action, which skips the store's action layer. The session `<select>` can also have a `value` that matches no option when sessions exist but none is active.\",\"recommendation\":\"Remove the unused selector, or use the store's `isPromoting` in the modal. Add a `triggerRelayout()` store action. When no session is active, render a placeholder option for the empty value.\"},{\"id\":\"SUG-01\",\"severity\":\"SUGGESTION\",\"category\":\"Layout Performance\",\"title\":\"The ELK timeout can't stop the bundled synchronous computation\",\"file\":\"apps/opendv-web-workbench/src/ontology/components/graph-layout.ts\",\"description\":\"`elk.bundled.js` without a worker runs on the main thread. When the timeout wins, the layout keeps using CPU, and a long synchronous layout can stop the timer from firing on time. The docstring already says the budget is best-effort.\",\"recommendation\":\"For large graphs, consider `elk-worker` with a `workerUrl` so slow layouts can be terminated and the UI stays responsive.\"},{\"id\":\"SUG-02\",\"severity\":\"SUGGESTION\",\"category\":\"Robustness\",\"title\":\"Revoking the download's object URL right after `click()`\",\"file\":\"apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx\",\"description\":\"Some browsers can cancel the download if `URL.revokeObjectURL` runs synchronously right after `a.click()`.\",\"recommendation\":\"Defer the revoke, e.g. `setTimeout(() => URL.revokeObjectURL(url), 0)`.\"},{\"id\":\"SUG-03\",\"severity\":\"SUGGESTION\",\"category\":\"Build Pipeline\",\"title\":\"Only the entry-point JS artifact is embedded\",\"file\":\"apps/opendv-web-workbench/src/build-static.ts\",\"description\":\"If the workbench entry ever imports CSS or other assets, both `Bun.build` and the CLI fallback produce extra outputs. Those are silently dropped (and deleted with the temp dir). Separately, the cast `(o as unknown as { kind?: string })` isn't needed, because `BuildArtifact.kind` is already typed.\",\"recommendation\":\"Fail the build when non-entry artifacts appear, or collect and embed them. Remove the unneeded cast.\"}],\"positive_highlights\":[\"The MAJ-01 fix is correct: `ExportPromoteModal` is mounted once and only conditionally, and a test checks for exactly 1 instance when open and 0 when closed.\",\"The ELK timeout race is handled safely: `clearTimeout` runs in `finally`, and a `.catch` on the ELK promise swallows late rejections.\",\"The timeout test is deterministic: an injected ELK that never resolves forces the fallback, and the test checks exact coordinates (x=50 and x=390).\",\"The fallback layout tracks next-layer membership with a Set, drops dangling edges, and handles cycles and isolated nodes.\",\"The two OCC hashes, `workspace_sha256` and `head_sha256`, are checked separately with a 64-hex regex, with no fallback from one to the other.\",\"The static build's CLI fallback uses `mkdtempSync(os.tmpdir())` with a guaranteed `rmSync` cleanup, and its error messages include both the programmatic and the CLI failure.\",\"The export version selector builds its options from session data with no hardcoded version, and export is blocked when no version is available.\",\"Nothing in this partition touches the Python core models, so the Graph A SHA-256 stability invariant is unaffected.\",\"The explorer handoff test now covers SPA deep links and trailing-slash paths for the /ontology, /builder, /settings and /stages routes.\"]}",
+    "structured_output": {
+      "verdict": "PASS",
+      "summary": "I reviewed Partition 3 of Track 5D: the app shell, the export/promotion modal, the diff overlay, the ELK layout adapter with its fallback, the static build pipeline, the types, and the tests. I found no CRITICAL or MAJOR issues. Nothing in this partition touches the Python core models or how Graph A is serialized, so the SHA-256 / RFC 8785 invariant is unaffected. There are no production mocks or stubs in `src/`. `elkInstance` is an optional dependency-injection seam, not a stub. Layering stays inside the workbench app, and no CLI surface changes, so dual-CLI parity doesn't apply.\n\nThe MAJ-01 duplicate-modal fix is correct: `ExportPromoteModal` is mounted once, conditionally. The ELK timeout race is now safe: the timer is cleared in `finally` and the late ELK rejection is swallowed. The fallback layout's timeout test is deterministic, and the path-traversal and SHA regex guards are in place. The two OCC fields (`workspace_sha256` and `head_sha256`) are kept separate, with no fallback from one to the other.\n\nThe remaining findings are MINOR:\n- When the session switches, the export can briefly request the wrong version.\n- The modal lets you export historical versions, but I couldn't confirm from this partition that the store actually exports that version's content.\n- Two tests claim to check behaviour that only runs in effects, and `renderToStaticMarkup` never runs effects.\n- The promotion UI doesn't check grounding or waivers on the client before submitting.\n- A few small hygiene items.\n\nI did not run the test suites; this is a static review of the diff only.",
+      "counts": {
+        "critical": 0,
+        "major": 0,
+        "minor": 7,
+        "suggestion": 3
+      },
+      "findings": [
+        {
+          "id": "MIN-01",
+          "severity": "MINOR",
+          "category": "Logic / State Sync",
+          "title": "Export preview can fetch the previous session's version after a session switch",
+          "file": "apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx",
+          "description": "The effect that copies the session's version into `selectedVersion` and the export-preview effect run in the same commit. The preview effect therefore calls `exportOntology(selectedFormat, selectedVersion)` once with the old session's version before the re-render cancels it. Worse, if the new session has no `active_version`, the sync effect skips the update and keeps the stale version. The modal then keeps requesting and offering to download an export labelled with a version from a different session.",
+          "recommendation": "Work out the effective version from what is currently available, for example `versions.includes(selectedVersion) ? selectedVersion : activeVersion ?? ''`. Alternatively, reset `selectedVersion` to `''` unconditionally whenever `sessionId` changes, and skip the export while the selected version isn't in that session's version set."
+        },
+        {
+          "id": "MIN-02",
+          "severity": "MINOR",
+          "category": "Data Integrity (verify cross-partition)",
+          "title": "Historical version selector depends on the store actually exporting that snapshot",
+          "file": "apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx",
+          "description": "The Version Snapshot selector lists every committed version, and the downloaded file is named `...-v${selectedVersion}`. But `generateLocalExport(format, version, nodes, edges, session)` receives the current head `nodes`/`edges`. If the store's `exportOntology` doesn't load the historical snapshot (in local_standalone mode especially), users would download head content labelled as an older version. The store is outside this partition, so I couldn't confirm either way.",
+          "recommendation": "Confirm that `exportOntology` resolves each version to its own snapshot, and add a test that exports a non-head version and checks the content differs. If the store can't do that, limit the selector to the head version."
+        },
+        {
+          "id": "MIN-03",
+          "severity": "MINOR",
+          "category": "Test Validity",
+          "title": "The session-switch reset test never runs the reset effect",
+          "file": "apps/opendv-web-workbench/tests/export-promotion-modal.test.tsx",
+          "description": "The test 'resets workspace target path and expected SHA when active session switches (MAJ-01)' renders two separate component trees with `renderToStaticMarkup`, which never runs `useEffect`. It passes because the `useState` initializer runs fresh on each mount. The reset effect keyed on `[isOpen, sessionId, ...]` is never exercised, so a regression in that effect would go unnoticed.",
+          "recommendation": "Use a client renderer that runs effects (react-dom/client with happy-dom, or `act()`). Switch the session on the same mounted instance and check that the input value and SHA field have been reset."
+        },
+        {
+          "id": "MIN-04",
+          "severity": "MINOR",
+          "category": "Test Validity",
+          "title": "The MIN-03 test title says it checks an error banner, but it can't, and its string match is brittle",
+          "file": "apps/opendv-web-workbench/tests/export-promotion-modal.test.tsx",
+          "description": "The test title says the error banner is displayed when export fails, but the error is only set inside an effect, which SSR doesn't run, and the test never checks for `export-error-banner`. It also matches the literal `'disabled=\"\" data-testid=\"copy-export-btn\"'`, so reordering the JSX attributes would break it.",
+          "recommendation": "Rename the test to describe what it actually checks, or add an effect-capable render that checks for the banner. Locate the button by testid first, then check for the `disabled` attribute separately so attribute order doesn't matter."
+        },
+        {
+          "id": "MIN-05",
+          "severity": "MINOR",
+          "category": "ONT-EVO-002 (defense in depth)",
+          "title": "The promotion form doesn't check grounding or waivers on the client",
+          "file": "apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx",
+          "description": "The modal checks the rationale, unsaved changes, the path, and both SHAs, but never looks at `qualityScorecard` or UNGROUNDED/LOW_CONFIDENCE nodes. Server-side enforcement should stay the authority, but in `local_standalone` mode the UI lets you promote ungrounded concepts without any warning or waiver hint.",
+          "recommendation": "Show a blocking or warning banner when ungrounded concepts are present and no waiver has been applied (`qualityScorecard.waiver_applied`). Make sure the store or service path enforces ONT-EVO-002 in standalone mode too."
+        },
+        {
+          "id": "MIN-06",
+          "severity": "MINOR",
+          "category": "Input Validation",
+          "title": "The traversal check rejects valid names and is only enforced on the client",
+          "file": "apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx",
+          "description": "`trimmedPath.includes(\"..\")` also rejects legitimate segments such as `ws..v2`. Nothing in this diff shows the matching server-side check, and the client check alone is not a security boundary.",
+          "recommendation": "Split on `/` and `\\` and reject only segments that are exactly `..`. Make sure the platform API checks that the resolved workspace path stays inside the allowed workspace root."
+        },
+        {
+          "id": "MIN-07",
+          "severity": "MINOR",
+          "category": "Code Hygiene",
+          "title": "Unused store selectors, and the shell writes to the store directly",
+          "file": "apps/opendv-web-workbench/src/ontology/OntologyStudioApp.tsx",
+          "description": "`isPromoting` is selected from the store but never used. The modal keeps its own local `isPromoting`, so there are two sources of truth. The Re-layout button calls `studioStore.setState` directly instead of going through a store action, which skips the store's action layer. The session `<select>` can also have a `value` that matches no option when sessions exist but none is active.",
+          "recommendation": "Remove the unused selector, or use the store's `isPromoting` in the modal. Add a `triggerRelayout()` store action. When no session is active, render a placeholder option for the empty value."
+        },
+        {
+          "id": "SUG-01",
+          "severity": "SUGGESTION",
+          "category": "Layout Performance",
+          "title": "The ELK timeout can't stop the bundled synchronous computation",
+          "file": "apps/opendv-web-workbench/src/ontology/components/graph-layout.ts",
+          "description": "`elk.bundled.js` without a worker runs on the main thread. When the timeout wins, the layout keeps using CPU, and a long synchronous layout can stop the timer from firing on time. The docstring already says the budget is best-effort.",
+          "recommendation": "For large graphs, consider `elk-worker` with a `workerUrl` so slow layouts can be terminated and the UI stays responsive."
+        },
+        {
+          "id": "SUG-02",
+          "severity": "SUGGESTION",
+          "category": "Robustness",
+          "title": "Revoking the download's object URL right after `click()`",
+          "file": "apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx",
+          "description": "Some browsers can cancel the download if `URL.revokeObjectURL` runs synchronously right after `a.click()`.",
+          "recommendation": "Defer the revoke, e.g. `setTimeout(() => URL.revokeObjectURL(url), 0)`."
+        },
+        {
+          "id": "SUG-03",
+          "severity": "SUGGESTION",
+          "category": "Build Pipeline",
+          "title": "Only the entry-point JS artifact is embedded",
+          "file": "apps/opendv-web-workbench/src/build-static.ts",
+          "description": "If the workbench entry ever imports CSS or other assets, both `Bun.build` and the CLI fallback produce extra outputs. Those are silently dropped (and deleted with the temp dir). Separately, the cast `(o as unknown as { kind?: string })` isn't needed, because `BuildArtifact.kind` is already typed.",
+          "recommendation": "Fail the build when non-entry artifacts appear, or collect and embed them. Remove the unneeded cast."
+        }
+      ],
+      "positive_highlights": [
+        "The MAJ-01 fix is correct: `ExportPromoteModal` is mounted once and only conditionally, and a test checks for exactly 1 instance when open and 0 when closed.",
+        "The ELK timeout race is handled safely: `clearTimeout` runs in `finally`, and a `.catch` on the ELK promise swallows late rejections.",
+        "The timeout test is deterministic: an injected ELK that never resolves forces the fallback, and the test checks exact coordinates (x=50 and x=390).",
+        "The fallback layout tracks next-layer membership with a Set, drops dangling edges, and handles cycles and isolated nodes.",
+        "The two OCC hashes, `workspace_sha256` and `head_sha256`, are checked separately with a 64-hex regex, with no fallback from one to the other.",
+        "The static build's CLI fallback uses `mkdtempSync(os.tmpdir())` with a guaranteed `rmSync` cleanup, and its error messages include both the programmatic and the CLI failure.",
+        "The export version selector builds its options from session data with no hardcoded version, and export is blocked when no version is available.",
+        "Nothing in this partition touches the Python core models, so the Graph A SHA-256 stability invariant is unaffected.",
+        "The explorer handoff test now covers SPA deep links and trailing-slash paths for the /ontology, /builder, /settings and /stages routes."
+      ]
+    },
+    "ttft_ms": 40186,
+    "type": "result",
+    "duration_ms": 73607,
+    "uuid": "6071f9a8-74f5-4a57-9778-56dee6fae875",
+    "ttft_stream_ms": 2365,
+    "time_to_request_ms": 192,
+    "first_content_frame_ms": 2366,
+    "queued_turn_count": 0,
+    "result_index": 0,
+    "credential_expires_at": "2026-12-03T00:24:54.110Z"
+  },
+  "is_dry_run": false,
+  "is_execution_error": false
+}

@@ -483,7 +483,6 @@ class IngestionService:
         if "ocr_mode" not in adapter_kwargs:
             adapter_kwargs["ocr_mode"] = effective_ocr_mode
 
-
         raw_result = adapter.parse_bytes(
             data,
             filename=filename,
@@ -502,10 +501,7 @@ class IngestionService:
 
         # Check normalization necessity: fast path skips offset map allocation
         raw_adapter_text = raw_result.normalized_text or ""
-        if (
-            unicodedata.is_normalized("NFC", raw_adapter_text)
-            and "\r" not in raw_adapter_text
-        ):
+        if unicodedata.is_normalized("NFC", raw_adapter_text) and "\r" not in raw_adapter_text:
             norm_text = raw_adapter_text
             text_was_remapped = False
             offset_map = None
@@ -666,9 +662,7 @@ class IngestionService:
                 u_c_end = utf16_points[c_end] if c_end is not None else None
                 # Grounding verification: recompute page number when offsets present (MIN-04)
                 if c_start is not None and c_end is not None and updated_page_map:
-                    resolved_page = self._resolve_page_number(
-                        c_start, c_end, updated_page_map
-                    )
+                    resolved_page = self._resolve_page_number(c_start, c_end, updated_page_map)
                     c_page = resolved_page if resolved_page is not None else chk.page_number
                 else:
                     c_page = chk.page_number
@@ -831,9 +825,7 @@ class IngestionService:
             raise
 
         if len(data) > self.max_bytes:
-            raise ValueError(
-                f"File exceeds maximum allowed size ({self.max_bytes} bytes)"
-            )
+            raise ValueError(f"File exceeds maximum allowed size ({self.max_bytes} bytes)")
         return self.ingest_bytes(
             data,
             filename=path.name,
@@ -900,4 +892,3 @@ __all__ = [
     "IngestionService",
     "max_taint",
 ]
-

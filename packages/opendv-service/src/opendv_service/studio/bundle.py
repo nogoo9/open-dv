@@ -69,6 +69,38 @@ class ArchiveSecurityViolationError(ValueError):
         self.exit_code = exit_code
 
 
+class ImportGroundingViolationError(ArchiveSecurityViolationError):
+    """Raised when imported bundle has unverified attribution without explicit waiver."""
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str = "IMPORT_GROUNDING_VIOLATION",
+        status_code: int = 422,
+        exit_code: int = 4,
+    ) -> None:
+        super().__init__(
+            message, error_code=error_code, status_code=status_code, exit_code=exit_code
+        )
+
+
+class ImportGroundingRationaleRequiredError(ValueError):
+    """Raised when attribution acknowledgement rationale is missing or < 10 characters."""
+
+    def __init__(
+        self,
+        message: str = "Acknowledgement rationale must be at least 10 characters.",
+        error_code: str = "IMPORT_GROUNDING_RATIONALE_REQUIRED",
+        status_code: int = 400,
+        exit_code: int = 2,
+    ) -> None:
+        super().__init__(message)
+        self.message = message
+        self.error_code = error_code
+        self.status_code = status_code
+        self.exit_code = exit_code
+
+
 def validate_archive_member(
     info: zipfile.ZipInfo,
     seen_normalized_names: set[str],
@@ -294,6 +326,10 @@ def import_bundle(
     target_dir: Path | str,
     security_manager: WorkspaceSecurityManager,
     new_session_id: str | None = None,
+    acknowledge_unverified_import_attribution: bool = False,
+    acknowledgement_rationale: str | None = None,
+    imported_by: str | None = None,
+    force: bool = False,
 ) -> SessionMetadata:
     """Import and verify a portable .odvstudio.zip archive into a target session directory.
 
@@ -302,29 +338,35 @@ def import_bundle(
     - Streaming decompression guards (<= 250 MB total, <= 500 entries, <= 100:1 ratio on > 1 MB).
     - Local workspace secret initialization.
     - Audit ledger internal hash-chain verification.
+    - Attribution verification and administrative acknowledgement guards.
 
     Args:
         zip_path: Path to the .odvstudio.zip archive file.
         target_dir: Destination session directory (<studio_root>/<session_id>).
         security_manager: Workspace security manager for key derivation.
         new_session_id: Optional new session identifier override.
+        acknowledge_unverified_import_attribution: Whether unverified attribution is acknowledged.
+        acknowledgement_rationale: Rationale required when acknowledging unverified attribution.
+        imported_by: Principal identifier importing the bundle.
+        force: Overwrite existing session directory if True.
 
     Returns:
         The validated SessionMetadata.
 
     Raises:
         ArchiveSecurityViolationError: If archive fails security or decompression checks.
+        ImportGroundingViolationError: If unverified attribution is unacknowledged.
+        ImportGroundingRationaleRequiredError: If rationale is missing or < 10 chars.
+        FileExistsError: If target session directory already exists and force is False.
     """
     zpath = Path(zip_path).resolve()
     if not zpath.exists() or not zpath.is_file():
         raise FileNotFoundError(f"Bundle archive '{zpath}' not found")
 
-    dest_dir = Path(target_dir).resolve()
-    target_sid = new_session_id or dest_dir.name
-    validate_session_id(target_sid)
-
+    base_dest = Path(target_dir).resolve()
+    scratch_root = base_dest if base_dest.is_dir() else base_dest.parent
     # Staging directory for zero-trust extraction
-    staging_dir = dest_dir.parent / f".staging-import-{secrets.token_hex(6)}"
+    staging_dir = scratch_root / f".staging-import-{secrets.token_hex(6)}"
     staging_dir.mkdir(parents=True, exist_ok=True)
     set_owner_only_permissions(staging_dir)
 
@@ -407,6 +449,13 @@ def import_bundle(
             session_json_path.write_text(session_meta.model_dump_json(indent=2), encoding="utf-8")
             set_owner_only_permissions(session_json_path)
 
+        target_sid = new_session_id or session_meta.session_id
+        validate_session_id(target_sid)
+        dest_dir = base_dest if base_dest.name == target_sid else base_dest / target_sid
+
+        if dest_dir.exists() and not force:
+            raise FileExistsError(f"Session '{target_sid}' already exists.")
+
         # Generate fresh local .session_secret for imported session
         session_secret_path = staging_dir / ".session_secret"
         session_secret_path.write_bytes(secrets.token_bytes(32))
@@ -425,6 +474,57 @@ def import_bundle(
                         session_json_path.write_text(
                             session_meta.model_dump_json(indent=2), encoding="utf-8"
                         )
+
+        # Verify attribution and governance waiver (MAJ-03)
+        has_unverified_attribution = False
+        bundle_json_path = staging_dir / "bundle.json"
+        if bundle_json_path.exists():
+            try:
+                b_meta = json.loads(bundle_json_path.read_text(encoding="utf-8"))
+                if (
+                    b_meta.get("unverified_attribution") is True
+                    or b_meta.get("attribution_verified") is False
+                ):
+                    has_unverified_attribution = True
+            except (OSError, json.JSONDecodeError):
+                pass
+
+        if not has_unverified_attribution:
+            proposals_dir = staging_dir / "proposals"
+            if proposals_dir.is_dir():
+                for pf in proposals_dir.glob("*.json"):
+                    try:
+                        pdata = json.loads(pf.read_text(encoding="utf-8"))
+                        if (
+                            pdata.get("unverified_attribution") is True
+                            or pdata.get("attribution_verified") is False
+                            or pdata.get("proposer") in (None, "", "unknown", "agent:unknown")
+                        ):
+                            has_unverified_attribution = True
+                            break
+                    except (OSError, json.JSONDecodeError):
+                        pass
+
+        if has_unverified_attribution:
+            if not acknowledge_unverified_import_attribution:
+                raise ImportGroundingViolationError(
+                    "Bundle archive contains unverified proposer or steward attribution. "
+                    "Explicit acknowledgement required: "
+                    "acknowledge_unverified_import_attribution=true."
+                )
+            if not acknowledgement_rationale or len(acknowledgement_rationale.strip()) < 10:
+                raise ImportGroundingRationaleRequiredError(
+                    "Attribution acknowledgement rationale must be at least 10 characters."
+                )
+            audit_file = staging_dir / "audit.jsonl"
+            ack_rec = {
+                "action": "IMPORT_ATTRIBUTION_ACKNOWLEDGED",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "actor": imported_by or "admin",
+                "rationale": acknowledgement_rationale.strip(),
+            }
+            with audit_file.open("a", encoding="utf-8") as af:
+                af.write(json.dumps(ack_rec) + "\n")
 
         # Atomic replacement into destination directory
         if dest_dir.exists():

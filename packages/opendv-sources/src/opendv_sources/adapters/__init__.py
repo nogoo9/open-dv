@@ -75,4 +75,3 @@ __all__ = [
     "get_default_document_adapters",
     "register_default_source_adapters",
 ]
-

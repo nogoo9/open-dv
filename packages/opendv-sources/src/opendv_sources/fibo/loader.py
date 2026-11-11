@@ -32,9 +32,7 @@ MAX_MEMORY_BYTES: int = 18 * 1024 * 1024  # < 18.0 MB
 MAX_LOAD_LATENCY_MS: float = 70.0  # < 70.0 ms
 
 # Authoritative Pinned Reference Standards (schemas/v1/baseline-digests.json)
-CANONICAL_FIBO_CORE_SHA256: str = (
-    "bebd6ae87dfa4eaee523fdeac730f0fe652761004f24e5d15ab36d5225a0acb5"
-)
+CANONICAL_FIBO_CORE_SHA256: str = "bebd6ae87dfa4eaee523fdeac730f0fe652761004f24e5d15ab36d5225a0acb5"
 CANONICAL_FIBO_CORE_PREFIX: str = CANONICAL_FIBO_CORE_SHA256[:8]
 CANONICAL_FIBO_CORE_UPSTREAM_COMMIT: str = "69dbbe7a6a4e32049ba3f3988b48877bc954f061"
 CANONICAL_FIBO_CORE_UPSTREAM_TAG: str = "master_2024Q4"

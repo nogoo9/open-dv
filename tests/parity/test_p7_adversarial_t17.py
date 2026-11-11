@@ -813,7 +813,10 @@ def test_p7_critique_remediation_adversarial_suite(
     # 6. F2: Invariant locks on deployed contract rebinding
     deployed_with_ref = dict(deployed_contract)
     deployed_with_ref["reference_tables"] = [
-        {"name": "ref_investment_stage", "ontology_concept_uri": "urn:ontology:enum:investment_stage"}
+        {
+            "name": "ref_investment_stage",
+            "ontology_concept_uri": "urn:ontology:enum:investment_stage",
+        }
     ]
     rebind_dep_enum_delta = OntologyDelta(
         delta_id="delta-dep-rebind",

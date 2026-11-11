@@ -59,6 +59,7 @@ from opendv_service.studio.cas_storage import ContentAddressableStorage
 from opendv_service.studio.locks import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
     L5_SESSION,
+    get_held_locks,
     studio_lock,
 )
 from opendv_service.studio.session_manager import (
@@ -255,7 +256,6 @@ def replace_with_retry(
             delay = min(delay * 2.0, max_delay)
 
 
-
 class AtomicCommitService:
     """Service implementing 6-step multi-file atomic commit, crash recovery, and CAS GC."""
 
@@ -298,8 +298,16 @@ class AtomicCommitService:
 
         lock_path = session_dir / ".session.lock"
 
-        # Step 1: Acquire L5 session lock
-        with studio_lock(lock_path, level=L5_SESSION, session_id=session_id, timeout=timeout_sec):
+        # Step 1: Acquire L5 session lock (reentrant if caller holds lock)
+        already_locked = any(h.path.resolve() == lock_path.resolve() for h in get_held_locks())
+        lock_ctx = (
+            contextlib.nullcontext()
+            if already_locked
+            else studio_lock(
+                lock_path, level=L5_SESSION, session_id=session_id, timeout=timeout_sec
+            )
+        )
+        with lock_ctx:
             # Execute per-operation startup / crash recovery under L5 before mutation
             self.reconcile_and_recover_session(session_id)
 
@@ -332,6 +340,21 @@ class AtomicCommitService:
                         f"'{session.head_sha256}'"
                     )
 
+            # Proposal resolution concurrency check (MAJ-01)
+            if proposal_id:
+                prop_file = session_dir / "proposals" / f"{proposal_id}.json"
+                if prop_file.exists():
+                    try:
+                        curr_prop = json.loads(prop_file.read_text(encoding="utf-8"))
+                        if curr_prop.get("status") in ("ACCEPTED", "REJECTED"):
+                            err_msg = (
+                                f"Proposal '{proposal_id}' has already been resolved "
+                                f"({curr_prop.get('status')})"
+                            )
+                            raise ConcurrentModificationError(err_msg)
+                    except (OSError, json.JSONDecodeError):
+                        pass
+
             # Determine base ontology and target version
             try:
                 if session.head_version == GENESIS_VERSION:
@@ -351,9 +374,7 @@ class AtomicCommitService:
                         or first_op.description
                         or f"Canonical business concept: {c_name}."
                     )
-                    effective_ns = (
-                        delta.domain_namespace or session.domain_namespace or "general"
-                    )
+                    effective_ns = delta.domain_namespace or session.domain_namespace or "general"
                     temp_base = GraphAOntology(
                         ontology_version="0.0.0",
                         domain_namespace=effective_ns,
@@ -474,9 +495,7 @@ class AtomicCommitService:
 
                 # 4.5 Write evaluation.json
                 eval_json_path = staging_dir / "evaluation.json"
-                eval_json_path.write_text(
-                    json.dumps(evaluation or {}, indent=2), encoding="utf-8"
-                )
+                eval_json_path.write_text(json.dumps(evaluation or {}, indent=2), encoding="utf-8")
                 set_owner_only_permissions(eval_json_path)
 
                 # Flush and fsync all staged files
@@ -511,10 +530,11 @@ class AtomicCommitService:
                         prop_data = json.loads(prop_file.read_text(encoding="utf-8"))
                         prop_data["status"] = "ACCEPTED"
                         prop_data["updated_at"] = now_iso
+                        prop_data["resolved_at"] = now_iso
+                        if evaluation and "waiver" in evaluation:
+                            prop_data["waiver"] = evaluation["waiver"]
                         tmp_prop = (
-                            session_dir
-                            / "proposals"
-                            / f".{proposal_id}.{secrets.token_hex(4)}.tmp"
+                            session_dir / "proposals" / f".{proposal_id}.{secrets.token_hex(4)}.tmp"
                         )
                         tmp_prop.write_text(json.dumps(prop_data, indent=2), encoding="utf-8")
                         set_owner_only_permissions(tmp_prop)
@@ -830,17 +850,13 @@ class AtomicCommitService:
                     session.audit_chain_head_sha256 = abort_entry["audit_sha256"]
                     self._write_session_json(session_dir, session)
 
-    def _verify_audit_chain_or_raise(
-        self, session_id: str, session: SessionMetadata
-    ) -> str:
+    def _verify_audit_chain_or_raise(self, session_id: str, session: SessionMetadata) -> str:
         """Verify the full HMAC and hash chaining of audit.jsonl, raising error if corrupt."""
         session_dir = self.session_manager.get_session_dir(session_id)
         audit_file = session_dir / "audit.jsonl"
 
         if not audit_file.exists():
-            raise TamperEvidentChainCorruptError(
-                f"Audit ledger missing for session '{session_id}'"
-            )
+            raise TamperEvidentChainCorruptError(f"Audit ledger missing for session '{session_id}'")
 
         raw_bytes = audit_file.read_bytes()
         if not raw_bytes:
@@ -887,9 +903,7 @@ class AtomicCommitService:
                     f"got '{prev_sha}'"
                 )
 
-            recon = {
-                k: v for k, v in record.items() if k not in ("audit_sha256", "hmac_signature")
-            }
+            recon = {k: v for k, v in record.items() if k not in ("audit_sha256", "hmac_signature")}
             canonical_bytes = dumps_jcs_bytes(recon)
             computed_sha = hashlib.sha256(canonical_bytes).hexdigest().lower()
             if computed_sha != actual_sha:
@@ -1173,6 +1187,12 @@ def delete_source(
                             src["tombstoned"] = True
                 elif isinstance(sources, dict) and source_id in sources:
                     sources[source_id]["tombstoned"] = True
+
+                files = m_data.get("files", [])
+                if isinstance(files, list):
+                    for f in files:
+                        if f.get("source_id") == source_id or f.get("id") == source_id:
+                            f["tombstoned"] = True
 
                 tmp_man = sdir / "inputs" / f".manifest.{secrets.token_hex(4)}.tmp"
                 tmp_man.write_text(json.dumps(m_data, indent=2), encoding="utf-8")

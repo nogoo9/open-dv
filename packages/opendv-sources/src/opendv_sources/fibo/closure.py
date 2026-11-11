@@ -214,8 +214,7 @@ def validate_closure_grounding_eligibility(matches: Sequence[SubclassClosureMatc
     for match in matches:
         if match.predicate != BROAD_MATCH_PREDICATE:
             msg = (
-                f"Invalid closure predicate '{match.predicate}': must be "
-                f"'{BROAD_MATCH_PREDICATE}'"
+                f"Invalid closure predicate '{match.predicate}': must be '{BROAD_MATCH_PREDICATE}'"
             )
             raise ValueError(msg)
         if match.satisfies_path_a:
@@ -331,9 +330,7 @@ class SubclassClosureResolver:
 
         # Clean pack sha256 to exactly 64-char hex if valid, else None
         valid_pack_sha = (
-            pack_sha256
-            if isinstance(pack_sha256, str) and len(pack_sha256) == 64
-            else None
+            pack_sha256 if isinstance(pack_sha256, str) and len(pack_sha256) == 64 else None
         )
 
         return SubclassClosureMatch(
@@ -388,9 +385,7 @@ class SubclassClosureResolver:
             raise ValueError(msg)
         clean_uri = concept_uri.strip()
 
-        effective_max_depth = (
-            max_depth if max_depth is not None else self._default_max_depth
-        )
+        effective_max_depth = max_depth if max_depth is not None else self._default_max_depth
         if effective_max_depth < 1:
             msg = f"max_depth must be at least 1, got {effective_max_depth}"
             raise ValueError(msg)
@@ -538,9 +533,7 @@ class SubclassClosureResolver:
                         shortest_path[p_uri] = new_path
                         existing = matches_by_uri.get(p_uri)
                         if existing is not None:
-                            matches_by_uri[p_uri] = existing.model_copy(
-                                update={"path": new_path}
-                            )
+                            matches_by_uri[p_uri] = existing.model_copy(update={"path": new_path})
 
         # Deterministic sorting: by depth ascending, then by URI ascending
         results = list(matches_by_uri.values())

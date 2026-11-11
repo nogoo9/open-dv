@@ -51,6 +51,7 @@ def _load_platform_server_main() -> Any | None:
                 return None
     return None
 
+
 for _attr_name, _attr_val in (
     ("HarnessAuthConfigDTO", HarnessAuthConfigDTO),
     ("HarnessBudgetConfigDTO", HarnessBudgetConfigDTO),
@@ -506,6 +507,11 @@ class LocalExecutor(CommandExecutor):
             }
 
         action_norm = action.lower()
+
+        if action_norm == "studio":
+            from opendv_cli.commands.ontology_studio import run_ontology_studio_command
+
+            return run_ontology_studio_command(args, executor=self)
 
         if action_norm == "suggest":
             req = OntologySuggestionRequest(

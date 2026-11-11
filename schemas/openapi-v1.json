@@ -977,7 +977,7 @@
           "enum_uri": {
             "default": "",
             "description": "Unique reference enumeration URN",
-            "pattern": "^(urn:ontology:enum:[a-z0-9_]+)?$",
+            "pattern": "^(urn:ontology:(provisional:)?enum:[a-z0-9_]+)?$",
             "title": "Enum Uri",
             "type": "string"
           },
@@ -1875,6 +1875,72 @@
         "title": "ArtifactUploadRequest",
         "type": "object"
       },
+      "Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post": {
+        "properties": {
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post",
+        "type": "object"
+      },
+      "Body_upload_source_api_v1_ontology_studio_sessions__session_id__sources_post": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "do_not_send_to_agent": {
+            "default": false,
+            "title": "Do Not Send To Agent",
+            "type": "boolean"
+          },
+          "file": {
+            "contentMediaType": "application/octet-stream",
+            "title": "File",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file"
+        ],
+        "title": "Body_upload_source_api_v1_ontology_studio_sessions__session_id__sources_post",
+        "type": "object"
+      },
+      "BundleExportRequest": {
+        "properties": {
+          "acknowledge_confidential_source_export": {
+            "default": false,
+            "title": "Acknowledge Confidential Source Export",
+            "type": "boolean"
+          },
+          "export_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Export Rationale"
+          }
+        },
+        "title": "BundleExportRequest",
+        "type": "object"
+      },
       "CaptainHoldDecisionRequest": {
         "additionalProperties": false,
         "description": "Human-in-the-loop Steward decision resolving a Tier U3/G3/G4 hold (docs/08 \u00a75.2).",
@@ -2065,6 +2131,228 @@
           "resolved_at_utc"
         ],
         "title": "CaptainHoldDecisionResponse",
+        "type": "object"
+      },
+      "ClarificationAnswerItem": {
+        "additionalProperties": false,
+        "description": "Steward response to a single clarification question.",
+        "properties": {
+          "answered_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "ISO-8601 UTC timestamp of response",
+            "title": "Answered At"
+          },
+          "answered_by": {
+            "default": "human:steward",
+            "description": "Identity or role of the responding user",
+            "title": "Answered By",
+            "type": "string"
+          },
+          "question_id": {
+            "description": "Identifier of the answered question",
+            "title": "Question Id",
+            "type": "string"
+          },
+          "selected_options": {
+            "description": "List of selected option_ids",
+            "items": {
+              "type": "string"
+            },
+            "title": "Selected Options",
+            "type": "array"
+          },
+          "user_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional free-form steward guidance or custom definition",
+            "title": "User Text"
+          }
+        },
+        "required": [
+          "question_id"
+        ],
+        "title": "ClarificationAnswerItem",
+        "type": "object"
+      },
+      "ClarificationAnswerResponse": {
+        "additionalProperties": false,
+        "description": "Response returned upon successfully persisting clarification answers.",
+        "properties": {
+          "answers_sha256": {
+            "description": "Canonical JCS SHA-256 digest of stored answers",
+            "title": "Answers Sha256",
+            "type": "string"
+          },
+          "saved_count": {
+            "description": "Count of successfully saved answer items",
+            "title": "Saved Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "saved_count",
+          "answers_sha256"
+        ],
+        "title": "ClarificationAnswerResponse",
+        "type": "object"
+      },
+      "ClarificationOption": {
+        "additionalProperties": false,
+        "description": "Multiple-choice option presented to human steward for resolving ambiguity.",
+        "properties": {
+          "fibo_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional FIBO concept URI associated with option",
+            "title": "Fibo Uri"
+          },
+          "label": {
+            "description": "Human-readable concept or resolution label",
+            "title": "Label",
+            "type": "string"
+          },
+          "option_id": {
+            "description": "Unique option identifier within question",
+            "title": "Option Id",
+            "type": "string"
+          },
+          "rationale": {
+            "description": "Semantic explanation of how this option models the concept",
+            "title": "Rationale",
+            "type": "string"
+          }
+        },
+        "required": [
+          "option_id",
+          "label",
+          "rationale"
+        ],
+        "title": "ClarificationOption",
+        "type": "object"
+      },
+      "ClarificationQuestion": {
+        "additionalProperties": false,
+        "description": "Structured question generated to resolve domain or mapping ambiguity.",
+        "properties": {
+          "allow_custom_text": {
+            "default": true,
+            "description": "Whether human steward may provide custom input",
+            "title": "Allow Custom Text",
+            "type": "boolean"
+          },
+          "evidence_citations": {
+            "description": "Citations to evidence chunks prompting question",
+            "items": {
+              "$ref": "#/components/schemas/EvidenceRef"
+            },
+            "title": "Evidence Citations",
+            "type": "array"
+          },
+          "focus_concept": {
+            "description": "Candidate entity or concept requiring clarification",
+            "title": "Focus Concept",
+            "type": "string"
+          },
+          "matched_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Polysemic catalog key if matched",
+            "title": "Matched Key"
+          },
+          "options": {
+            "description": "Candidate resolution choices",
+            "items": {
+              "$ref": "#/components/schemas/ClarificationOption"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "question_id": {
+            "description": "Unique question identifier",
+            "title": "Question Id",
+            "type": "string"
+          },
+          "question_text": {
+            "description": "Natural language question for steward",
+            "title": "Question Text",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question_id",
+          "focus_concept",
+          "question_text"
+        ],
+        "title": "ClarificationQuestion",
+        "type": "object"
+      },
+      "ClarifyRequest": {
+        "additionalProperties": false,
+        "description": "Request payload to trigger clarification question generation.",
+        "properties": {
+          "max_questions": {
+            "default": 5,
+            "description": "Maximum number of questions to generate",
+            "maximum": 50.0,
+            "minimum": 1.0,
+            "title": "Max Questions",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "auto",
+            "description": "Generation mode ('auto', 'agent', 'deterministic')",
+            "enum": [
+              "auto",
+              "agent",
+              "deterministic"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "title": "ClarifyRequest",
+        "type": "object"
+      },
+      "CloneSessionRequest": {
+        "properties": {
+          "new_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Session Id"
+          }
+        },
+        "title": "CloneSessionRequest",
         "type": "object"
       },
       "CompileRequest": {
@@ -2331,6 +2619,51 @@
           "message"
         ],
         "title": "ConfigValidationDiagnosticDTO",
+        "type": "object"
+      },
+      "ConstructRequest": {
+        "properties": {
+          "auto_commit": {
+            "default": false,
+            "title": "Auto Commit",
+            "type": "boolean"
+          },
+          "base_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Sha256"
+          },
+          "base_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Version"
+          },
+          "fibo_modules": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Fibo Modules",
+            "type": "array"
+          },
+          "mode": {
+            "default": "auto",
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "title": "ConstructRequest",
         "type": "object"
       },
       "CreateProjectRequest": {
@@ -2614,6 +2947,55 @@
         "title": "CreateRunRequest",
         "type": "object"
       },
+      "CreateSessionRequest": {
+        "properties": {
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "domain_namespace": {
+            "default": "default",
+            "title": "Domain Namespace",
+            "type": "string"
+          },
+          "enterprise_owner": {
+            "default": "Enterprise",
+            "title": "Enterprise Owner",
+            "type": "string"
+          },
+          "from_workspace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "From Workspace"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "title": "CreateSessionRequest",
+        "type": "object"
+      },
       "CustomOntologyDeltaOption": {
         "additionalProperties": false,
         "description": "Steward option providing a custom authoring delta.",
@@ -2651,6 +3033,49 @@
           "custom_delta"
         ],
         "title": "CustomOntologyDeltaOption",
+        "type": "object"
+      },
+      "DeltaCommitResponse": {
+        "properties": {
+          "applied_operations_count": {
+            "title": "Applied Operations Count",
+            "type": "integer"
+          },
+          "bump_type": {
+            "title": "Bump Type",
+            "type": "string"
+          },
+          "delta_id": {
+            "title": "Delta Id",
+            "type": "string"
+          },
+          "parent_sha256": {
+            "title": "Parent Sha256",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "target_sha256": {
+            "title": "Target Sha256",
+            "type": "string"
+          },
+          "target_version": {
+            "title": "Target Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "target_version",
+          "target_sha256",
+          "parent_sha256",
+          "delta_id",
+          "bump_type",
+          "applied_operations_count"
+        ],
+        "title": "DeltaCommitResponse",
         "type": "object"
       },
       "DeprecateConceptOp": {
@@ -3746,6 +4171,245 @@
         "title": "HarnessSandboxPolicyDTO",
         "type": "object"
       },
+      "InitStudioRequest": {
+        "properties": {
+          "domain_namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Namespace"
+          },
+          "enterprise_owner": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Enterprise Owner"
+          },
+          "force": {
+            "default": false,
+            "title": "Force",
+            "type": "boolean"
+          }
+        },
+        "title": "InitStudioRequest",
+        "type": "object"
+      },
+      "InitStudioResponse": {
+        "properties": {
+          "domain_namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Namespace"
+          },
+          "local_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Local Token"
+          },
+          "principal": {
+            "title": "Principal",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "token_path": {
+            "title": "Token Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "token_path",
+          "principal"
+        ],
+        "title": "InitStudioResponse",
+        "type": "object"
+      },
+      "JobHandleDTO": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_type": {
+            "title": "Job Type",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "session_id",
+          "job_type",
+          "status",
+          "created_at"
+        ],
+        "title": "JobHandleDTO",
+        "type": "object"
+      },
+      "JobStatusDTO": {
+        "properties": {
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At"
+          },
+          "job_id": {
+            "title": "Job Id",
+            "type": "string"
+          },
+          "job_type": {
+            "title": "Job Type",
+            "type": "string"
+          },
+          "pct_complete": {
+            "title": "Pct Complete",
+            "type": "integer"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "stage": {
+            "title": "Stage",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "job_id",
+          "session_id",
+          "job_type",
+          "status",
+          "stage",
+          "pct_complete",
+          "created_at"
+        ],
+        "title": "JobStatusDTO",
+        "type": "object"
+      },
+      "LaunchNonceResponse": {
+        "properties": {
+          "expires_in": {
+            "default": 60,
+            "title": "Expires In",
+            "type": "integer"
+          },
+          "launch_nonce": {
+            "title": "Launch Nonce",
+            "type": "string"
+          },
+          "nonce": {
+            "title": "Nonce",
+            "type": "string"
+          }
+        },
+        "required": [
+          "launch_nonce",
+          "nonce"
+        ],
+        "title": "LaunchNonceResponse",
+        "type": "object"
+      },
+      "ManifestDTO": {
+        "properties": {
+          "files": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Files",
+            "type": "array"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "total_bytes": {
+            "title": "Total Bytes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "files",
+          "total_bytes"
+        ],
+        "title": "ManifestDTO",
+        "type": "object"
+      },
       "OntologyConceptSpec": {
         "additionalProperties": false,
         "description": "Specification of a Graph A business ontology concept.",
@@ -4622,6 +5286,65 @@
         "title": "OntologyDelta",
         "type": "object"
       },
+      "OntologyDeltaRequest": {
+        "properties": {
+          "author": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Author"
+          },
+          "base_version": {
+            "title": "Base Version",
+            "type": "string"
+          },
+          "delta_id": {
+            "title": "Delta Id",
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "parent_sha256": {
+            "title": "Parent Sha256",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "target_version": {
+            "title": "Target Version",
+            "type": "string"
+          }
+        },
+        "required": [
+          "delta_id",
+          "parent_sha256",
+          "base_version",
+          "target_version",
+          "operations"
+        ],
+        "title": "OntologyDeltaRequest",
+        "type": "object"
+      },
       "OntologyDiff": {
         "additionalProperties": false,
         "description": "Structural delta between two Graph A ontology instances.",
@@ -5381,6 +6104,31 @@
           }
         },
         "title": "OntologyVizDTO",
+        "type": "object"
+      },
+      "ParseRequest": {
+        "properties": {
+          "ocr_mode": {
+            "default": "auto",
+            "title": "Ocr Mode",
+            "type": "string"
+          },
+          "source_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Ids"
+          }
+        },
+        "title": "ParseRequest",
         "type": "object"
       },
       "PhaseSpecDTO": {
@@ -6591,6 +7339,283 @@
         "title": "ProjectRunDTO",
         "type": "object"
       },
+      "PromoteRequest": {
+        "properties": {
+          "acknowledge_historical_contract_warning": {
+            "default": false,
+            "title": "Acknowledge Historical Contract Warning",
+            "type": "boolean"
+          },
+          "head_sha256": {
+            "title": "Head Sha256",
+            "type": "string"
+          },
+          "historical_contract_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Historical Contract Rationale"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "workspace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace"
+          },
+          "workspace_sha256": {
+            "title": "Workspace Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspace_sha256",
+          "head_sha256",
+          "rationale"
+        ],
+        "title": "PromoteRequest",
+        "type": "object"
+      },
+      "PromoteResponse": {
+        "properties": {
+          "head_sha256": {
+            "title": "Head Sha256",
+            "type": "string"
+          },
+          "promoted_at": {
+            "title": "Promoted At",
+            "type": "string"
+          },
+          "promoted_version": {
+            "title": "Promoted Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "target_contract_path": {
+            "title": "Target Contract Path",
+            "type": "string"
+          },
+          "workspace_sha256": {
+            "title": "Workspace Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "promoted_version",
+          "head_sha256",
+          "workspace_sha256",
+          "promoted_at",
+          "target_contract_path"
+        ],
+        "title": "PromoteResponse",
+        "type": "object"
+      },
+      "ProposalAcceptRequest": {
+        "properties": {
+          "base_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Sha256"
+          },
+          "evidence_grounding_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Grounding File"
+          },
+          "grounding_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grounding Rationale"
+          },
+          "low_confidence_waiver": {
+            "default": false,
+            "title": "Low Confidence Waiver",
+            "type": "boolean"
+          },
+          "self_acceptance_override": {
+            "default": false,
+            "title": "Self Acceptance Override",
+            "type": "boolean"
+          },
+          "ungrounded_concept": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ungrounded Concept"
+          }
+        },
+        "title": "ProposalAcceptRequest",
+        "type": "object"
+      },
+      "ProposalCreateRequest": {
+        "properties": {
+          "base_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Sha256"
+          },
+          "base_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Version"
+          },
+          "operations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          }
+        },
+        "required": [
+          "operations"
+        ],
+        "title": "ProposalCreateRequest",
+        "type": "object"
+      },
+      "ProposalRebaseRequest": {
+        "properties": {
+          "base_sha256": {
+            "title": "Base Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_sha256"
+        ],
+        "title": "ProposalRebaseRequest",
+        "type": "object"
+      },
+      "ProposalRecordDTO": {
+        "properties": {
+          "base_sha256": {
+            "title": "Base Sha256",
+            "type": "string"
+          },
+          "base_version": {
+            "title": "Base Version",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "operations": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Operations",
+            "type": "array"
+          },
+          "proposal_id": {
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "proposer": {
+            "title": "Proposer",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "session_id",
+          "base_version",
+          "base_sha256",
+          "status",
+          "operations",
+          "proposer",
+          "created_at"
+        ],
+        "title": "ProposalRecordDTO",
+        "type": "object"
+      },
       "ProviderReadinessDTO": {
         "additionalProperties": false,
         "description": "Readiness and credential status for a registered agent harness provider.",
@@ -6788,6 +7813,23 @@
           "reason"
         ],
         "title": "RejectOntologyDeltaOption",
+        "type": "object"
+      },
+      "RejectProposalRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "title": "RejectProposalRequest",
         "type": "object"
       },
       "RemoveAttributeOp": {
@@ -8095,6 +9137,107 @@
         "title": "SetParentConceptOp",
         "type": "object"
       },
+      "SourceDocumentDTO": {
+        "properties": {
+          "byte_count": {
+            "default": 0,
+            "title": "Byte Count",
+            "type": "integer"
+          },
+          "do_not_send_to_agent": {
+            "title": "Do Not Send To Agent",
+            "type": "boolean"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "filename": {
+            "default": "",
+            "title": "Filename",
+            "type": "string"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "title": "Source Sha256",
+            "type": "string"
+          },
+          "tombstoned": {
+            "default": false,
+            "title": "Tombstoned",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_sha256",
+          "file_name",
+          "size_bytes",
+          "mime_type",
+          "do_not_send_to_agent"
+        ],
+        "title": "SourceDocumentDTO",
+        "type": "object"
+      },
+      "SourceUploadResponse": {
+        "properties": {
+          "byte_count": {
+            "default": 0,
+            "title": "Byte Count",
+            "type": "integer"
+          },
+          "do_not_send_to_agent": {
+            "title": "Do Not Send To Agent",
+            "type": "boolean"
+          },
+          "file_name": {
+            "title": "File Name",
+            "type": "string"
+          },
+          "filename": {
+            "default": "",
+            "title": "Filename",
+            "type": "string"
+          },
+          "mime_type": {
+            "title": "Mime Type",
+            "type": "string"
+          },
+          "size_bytes": {
+            "title": "Size Bytes",
+            "type": "integer"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          },
+          "source_sha256": {
+            "title": "Source Sha256",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "source_sha256",
+          "file_name",
+          "size_bytes",
+          "mime_type",
+          "do_not_send_to_agent"
+        ],
+        "title": "SourceUploadResponse",
+        "type": "object"
+      },
       "StageDTO": {
         "additionalProperties": false,
         "description": "Ordered pipeline stage definition (strictly STAGE_00..STAGE_07).",
@@ -8293,6 +9436,386 @@
           "desc"
         ],
         "title": "StepDTO",
+        "type": "object"
+      },
+      "StewardWaiverRecord": {
+        "additionalProperties": false,
+        "description": "Cryptographically verifiable administrative waiver for ungrounded concept evolution.",
+        "properties": {
+          "authorized_by": {
+            "description": "Identity of approving administrator or steward",
+            "minLength": 1,
+            "title": "Authorized By",
+            "type": "string"
+          },
+          "authorized_role": {
+            "description": "Role authorization tier for waiver approval",
+            "enum": [
+              "admin",
+              "steward"
+            ],
+            "title": "Authorized Role",
+            "type": "string"
+          },
+          "base_sha256": {
+            "description": "SHA-256 digest of base ontology precondition",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Base Sha256",
+            "type": "string"
+          },
+          "created_at": {
+            "description": "UTC timestamp of authorization",
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional expiration timestamp for time-bounded waiver",
+            "title": "Expires At"
+          },
+          "proposal_delta_sha256": {
+            "description": "SHA-256 digest of proposed delta",
+            "pattern": "^[a-f0-9]{64}$",
+            "title": "Proposal Delta Sha256",
+            "type": "string"
+          },
+          "proposal_id": {
+            "description": "Referenced ontology proposal identifier",
+            "format": "uuid4",
+            "title": "Proposal Id",
+            "type": "string"
+          },
+          "rationale": {
+            "description": "Business and architectural justification for waiver (>= 10 chars)",
+            "minLength": 10,
+            "title": "Rationale",
+            "type": "string"
+          },
+          "signature_or_token": {
+            "description": "Cryptographic signature or authorization token",
+            "minLength": 1,
+            "title": "Signature Or Token",
+            "type": "string"
+          },
+          "target_concept_uris": {
+            "description": "Target concept URIs exempted from grounding check",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Target Concept Uris",
+            "type": "array"
+          },
+          "waiver_id": {
+            "description": "Unique waiver identifier",
+            "format": "uuid4",
+            "title": "Waiver Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "proposal_id",
+          "proposal_delta_sha256",
+          "target_concept_uris",
+          "base_sha256",
+          "rationale",
+          "authorized_by",
+          "authorized_role",
+          "signature_or_token"
+        ],
+        "title": "StewardWaiverRecord",
+        "type": "object"
+      },
+      "StudioClarificationAnswerRequest": {
+        "properties": {
+          "answers": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ClarificationAnswerItem"
+                },
+                "type": "array"
+              },
+              {
+                "additionalProperties": true,
+                "type": "object"
+              }
+            ],
+            "title": "Answers"
+          },
+          "expected_answers_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Answers Sha256"
+          }
+        },
+        "title": "StudioClarificationAnswerRequest",
+        "type": "object"
+      },
+      "StudioSessionDTO": {
+        "properties": {
+          "active_version": {
+            "title": "Active Version",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "domain_namespace": {
+            "title": "Domain Namespace",
+            "type": "string"
+          },
+          "enterprise_owner": {
+            "title": "Enterprise Owner",
+            "type": "string"
+          },
+          "head_sha256": {
+            "title": "Head Sha256",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "domain_namespace",
+          "enterprise_owner",
+          "status",
+          "active_version",
+          "head_sha256",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "StudioSessionDTO",
+        "type": "object"
+      },
+      "StudioSessionDetailDTO": {
+        "properties": {
+          "active_version": {
+            "title": "Active Version",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "domain_namespace": {
+            "title": "Domain Namespace",
+            "type": "string"
+          },
+          "enterprise_owner": {
+            "title": "Enterprise Owner",
+            "type": "string"
+          },
+          "grandfathered_concept_uris": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Grandfathered Concept Uris",
+            "type": "array"
+          },
+          "head_sha256": {
+            "title": "Head Sha256",
+            "type": "string"
+          },
+          "proposals_count": {
+            "title": "Proposals Count",
+            "type": "integer"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "sources_count": {
+            "title": "Sources Count",
+            "type": "integer"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          },
+          "versions_count": {
+            "title": "Versions Count",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "session_id",
+          "domain_namespace",
+          "enterprise_owner",
+          "status",
+          "active_version",
+          "head_sha256",
+          "created_at",
+          "updated_at",
+          "sources_count",
+          "proposals_count",
+          "versions_count"
+        ],
+        "title": "StudioSessionDetailDTO",
+        "type": "object"
+      },
+      "StudioSessionStatusDTO": {
+        "properties": {
+          "active_jobs": {
+            "default": 0,
+            "title": "Active Jobs",
+            "type": "integer"
+          },
+          "active_version": {
+            "title": "Active Version",
+            "type": "string"
+          },
+          "head_sha256": {
+            "title": "Head Sha256",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "status",
+          "active_version",
+          "head_sha256"
+        ],
+        "title": "StudioSessionStatusDTO",
+        "type": "object"
+      },
+      "StudioSessionSummaryDTO": {
+        "properties": {
+          "active_version": {
+            "title": "Active Version",
+            "type": "string"
+          },
+          "created_at": {
+            "title": "Created At",
+            "type": "string"
+          },
+          "domain_namespace": {
+            "title": "Domain Namespace",
+            "type": "string"
+          },
+          "enterprise_owner": {
+            "title": "Enterprise Owner",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "updated_at": {
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "domain_namespace",
+          "enterprise_owner",
+          "status",
+          "active_version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "StudioSessionSummaryDTO",
+        "type": "object"
+      },
+      "TokenExchangeRequest": {
+        "properties": {
+          "launch_nonce": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Launch Nonce"
+          },
+          "nonce": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Nonce"
+          }
+        },
+        "title": "TokenExchangeRequest",
+        "type": "object"
+      },
+      "TokenExchangeResponse": {
+        "properties": {
+          "access_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Token"
+          },
+          "principal": {
+            "title": "Principal",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "principal"
+        ],
+        "title": "TokenExchangeResponse",
         "type": "object"
       },
       "UpdateConceptUrnOp": {
@@ -9014,6 +10537,2403 @@
         "summary": "Diff Ontology",
         "tags": [
           "ontology"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/auth/launch-nonce": {
+      "post": {
+        "description": "Mint single-use browser launch nonce (256-bit, 60s TTL) for local Web Workbench bootstrap.",
+        "operationId": "mint_launch_nonce_endpoint_api_v1_ontology_studio_auth_launch_nonce_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LaunchNonceResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Mint Launch Nonce Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/auth/token": {
+      "post": {
+        "description": "Exchange single-use browser launch nonce for HttpOnly session cookie.",
+        "operationId": "exchange_launch_nonce_endpoint_api_v1_ontology_studio_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenExchangeRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenExchangeResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Exchange Launch Nonce Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/init": {
+      "post": {
+        "description": "Initialize local workbench loopback token (.local_token) for human:local_admin.",
+        "operationId": "init_studio_api_v1_ontology_studio_init_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/InitStudioRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InitStudioResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Init Studio",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/jobs/{job_id}": {
+      "get": {
+        "description": "Get background job status, stage, pct_complete, and error/result.",
+        "operationId": "get_job_status_endpoint_api_v1_ontology_studio_jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job Status Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/jobs/{job_id}/cancel": {
+      "post": {
+        "description": "Cooperatively abort a running background job, releasing L2 lease.",
+        "operationId": "cancel_job_endpoint_api_v1_ontology_studio_jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Job Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/jobs/{job_id}/events": {
+      "get": {
+        "description": "Stream W3C Server-Sent Events with monotonic Last-Event-ID cursor replay\nand 15s keepalive.",
+        "operationId": "get_job_events_stream_api_v1_ontology_studio_jobs__job_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job Events Stream",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions": {
+      "get": {
+        "description": "List studio sessions with pagination and status filtering.",
+        "operationId": "list_sessions_api_v1_ontology_studio_sessions_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 500,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "status",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/StudioSessionSummaryDTO"
+                  },
+                  "title": "Response List Sessions Api V1 Ontology Studio Sessions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Sessions",
+        "tags": [
+          "ontology-studio"
+        ]
+      },
+      "post": {
+        "description": "Create a new studio session (genesis 0.0.0 or seeded from workspace).",
+        "operationId": "create_session_api_v1_ontology_studio_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioSessionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Session",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/bundle/import": {
+      "post": {
+        "description": "Streaming import of .odvstudio.zip archive with attribution governance.",
+        "operationId": "import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "acknowledge_unverified_import_attribution",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Acknowledge Unverified Import Attribution",
+              "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "acknowledgement_rationale",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Acknowledgement Rationale"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioSessionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Import Bundle Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}": {
+      "delete": {
+        "description": "Tombstone and remove session directory (admin required).",
+        "operationId": "delete_session_api_v1_ontology_studio_sessions__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Session",
+        "tags": [
+          "ontology-studio"
+        ]
+      },
+      "get": {
+        "description": "Retrieve studio session details and counts.",
+        "operationId": "get_session_api_v1_ontology_studio_sessions__session_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioSessionDetailDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/answers": {
+      "get": {
+        "description": "Read persisted clarification answers from session clarifications/answers.json.",
+        "operationId": "get_clarification_answers_api_v1_ontology_studio_sessions__session_id__answers_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  "title": "Response Get Clarification Answers Api V1 Ontology Studio Sessions  Session Id  Answers Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Clarification Answers",
+        "tags": [
+          "ontology-studio"
+        ]
+      },
+      "post": {
+        "description": "Persist human clarification answers with mandatory OCC expected_answers_sha256 check.",
+        "operationId": "submit_clarification_answers_api_v1_ontology_studio_sessions__session_id__answers_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StudioClarificationAnswerRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClarificationAnswerResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Clarification Answers",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/bundle": {
+      "post": {
+        "description": "Export full session into portable archive .odvstudio.zip.",
+        "operationId": "export_bundle_endpoint_api_v1_ontology_studio_sessions__session_id__bundle_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BundleExportRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Bundle Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/bundle/clone": {
+      "post": {
+        "description": "Clone session into an isolated new session with new session ID under L5 lock.",
+        "operationId": "clone_session_endpoint_api_v1_ontology_studio_sessions__session_id__bundle_clone_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/CloneSessionRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioSessionDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clone Session Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/clarifications": {
+      "get": {
+        "description": "Read generated ambiguity questions from session clarifications/questions.json.",
+        "operationId": "get_clarification_questions_api_v1_ontology_studio_sessions__session_id__clarifications_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ClarificationQuestion"
+                  },
+                  "title": "Response Get Clarification Questions Api V1 Ontology Studio Sessions  Session Id  Clarifications Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Clarification Questions",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/clarify": {
+      "post": {
+        "description": "Dispatch background clarification question generation.",
+        "operationId": "trigger_clarification_api_v1_ontology_studio_sessions__session_id__clarify_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ClarifyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobHandleDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Trigger Clarification",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/construct": {
+      "post": {
+        "description": "Trigger background construction job (offline deterministic pipeline).",
+        "operationId": "trigger_construction_api_v1_ontology_studio_sessions__session_id__construct_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConstructRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobHandleDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Trigger Construction",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/delta": {
+      "post": {
+        "description": "Direct delta commit with strict OCC If-Match precondition.",
+        "operationId": "apply_delta_endpoint_api_v1_ontology_studio_sessions__session_id__delta_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyDeltaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeltaCommitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Delta Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/deltas/apply": {
+      "post": {
+        "description": "Direct delta commit with strict OCC If-Match precondition.",
+        "operationId": "apply_delta_endpoint_api_v1_ontology_studio_sessions__session_id__deltas_apply_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyDeltaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeltaCommitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Apply Delta Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/deltas/validate": {
+      "post": {
+        "description": "Dry-run two-phase structural and governance validation on an OntologyDelta.",
+        "operationId": "validate_delta_endpoint_api_v1_ontology_studio_sessions__session_id__deltas_validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyDeltaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyValidationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Delta Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/export": {
+      "get": {
+        "description": "Multi-format export of active or historical ontology snapshot.",
+        "operationId": "export_ontology_endpoint_api_v1_ontology_studio_sessions__session_id__export_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "export_format",
+            "required": false,
+            "schema": {
+              "default": "yaml",
+              "title": "Export Format",
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "version",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Version"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Export Ontology Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}": {
+      "get": {
+        "description": "Get background job status, stage, pct_complete, and error/result.",
+        "operationId": "get_job_status_endpoint_api_v1_ontology_studio_sessions__session_id__jobs__job_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job Status Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}/cancel": {
+      "post": {
+        "description": "Cooperatively abort a running background job, releasing L2 lease.",
+        "operationId": "cancel_job_endpoint_api_v1_ontology_studio_sessions__session_id__jobs__job_id__cancel_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "additionalProperties": true,
+                    "type": "object"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobStatusDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Cancel Job Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}/events": {
+      "get": {
+        "description": "Stream W3C Server-Sent Events with monotonic Last-Event-ID cursor replay\nand 15s keepalive.",
+        "operationId": "get_job_events_stream_api_v1_ontology_studio_sessions__session_id__jobs__job_id__events_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "job_id",
+            "required": true,
+            "schema": {
+              "title": "Job Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Session Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Last-Event-Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Job Events Stream",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/manifest": {
+      "get": {
+        "description": "Inspect CAS manifest listing all registered sources.",
+        "operationId": "get_manifest_api_v1_ontology_studio_sessions__session_id__manifest_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManifestDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Manifest",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/parse": {
+      "post": {
+        "description": "Trigger background document layout extraction and OCR parsing job.",
+        "operationId": "parse_sources_api_v1_ontology_studio_sessions__session_id__parse_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ParseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JobHandleDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Parse Sources",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/promote": {
+      "post": {
+        "description": "Two-phase atomic promotion of head ontology into workspace under L4 + L5 locks.",
+        "operationId": "promote_session_api_v1_ontology_studio_sessions__session_id__promote_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-OpenDV-Workspace-If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Opendv-Workspace-If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PromoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoteResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Promote Session",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/proposals": {
+      "get": {
+        "description": "List all candidate proposals with current status.",
+        "operationId": "list_proposals_api_v1_ontology_studio_sessions__session_id__proposals_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ProposalRecordDTO"
+                  },
+                  "title": "Response List Proposals Api V1 Ontology Studio Sessions  Session Id  Proposals Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Proposals",
+        "tags": [
+          "ontology-studio"
+        ]
+      },
+      "post": {
+        "description": "Submit a candidate proposal without committing.",
+        "operationId": "create_proposal_api_v1_ontology_studio_sessions__session_id__proposals_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalCreateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalRecordDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Create Proposal",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}": {
+      "get": {
+        "description": "Fetch proposal record and conflict status.",
+        "operationId": "get_proposal_detail_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalRecordDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Proposal Detail",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/accept": {
+      "post": {
+        "description": "Accept pending proposal with OCC If-Match, role check, and waiver validation.",
+        "operationId": "accept_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__accept_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalAcceptRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeltaCommitResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Accept Proposal",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/rebase": {
+      "post": {
+        "description": "Rebase proposal onto new session head SHA-256.",
+        "operationId": "rebase_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__rebase_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "If-Match"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProposalRebaseRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalRecordDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Rebase Proposal",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/reject": {
+      "post": {
+        "description": "Mark proposal REJECTED while preserving in CAS for audit trace.",
+        "operationId": "reject_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__reject_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "proposal_id",
+            "required": true,
+            "schema": {
+              "title": "Proposal Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/RejectProposalRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProposalRecordDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Reject Proposal",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/questions": {
+      "get": {
+        "description": "Read generated ambiguity questions from session clarifications/questions.json.",
+        "operationId": "get_clarification_questions_api_v1_ontology_studio_sessions__session_id__questions_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/ClarificationQuestion"
+                  },
+                  "title": "Response Get Clarification Questions Api V1 Ontology Studio Sessions  Session Id  Questions Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Clarification Questions",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/sources": {
+      "get": {
+        "description": "List all ingested source documents registered in session manifest.",
+        "operationId": "list_sources_api_v1_ontology_studio_sessions__session_id__sources_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/SourceDocumentDTO"
+                  },
+                  "title": "Response List Sources Api V1 Ontology Studio Sessions  Session Id  Sources Get",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "List Sources",
+        "tags": [
+          "ontology-studio"
+        ]
+      },
+      "post": {
+        "description": "Upload document to CAS blob store and register in inputs/manifest.json.",
+        "operationId": "upload_source_api_v1_ontology_studio_sessions__session_id__sources_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_source_api_v1_ontology_studio_sessions__session_id__sources_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceUploadResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Upload Source",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/sources/{source_id}": {
+      "delete": {
+        "operationId": "delete_source_endpoint_api_v1_ontology_studio_sessions__session_id__sources__source_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Source Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      },
+      "get": {
+        "description": "Retrieve metadata for an ingested source document.",
+        "operationId": "get_source_detail_api_v1_ontology_studio_sessions__session_id__sources__source_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SourceDocumentDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Source Detail",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/sources/{source_id}/content": {
+      "get": {
+        "description": "Preview or download raw source content bytes from CAS (MAJ-06 security headers).",
+        "operationId": "get_source_content_api_v1_ontology_studio_sessions__session_id__sources__source_id__content_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "source_id",
+            "required": true,
+            "schema": {
+              "title": "Source Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Source Content",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/status": {
+      "get": {
+        "description": "Lightweight status check returning version state and active jobs.",
+        "operationId": "get_session_status_api_v1_ontology_studio_sessions__session_id__status_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StudioSessionStatusDTO"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Session Status",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/waiver": {
+      "post": {
+        "description": "Authorize administrative steward waiver with rationale >= 10 chars.",
+        "operationId": "submit_waiver_api_v1_ontology_studio_sessions__session_id__waiver_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StewardWaiverRecord"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Submit Waiver Api V1 Ontology Studio Sessions  Session Id  Waiver Post",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Waiver",
+        "tags": [
+          "ontology-studio"
         ]
       }
     },

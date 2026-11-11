@@ -627,9 +627,7 @@ class TestLibreOfficeDocumentAdapter:
     def test_conversion_failure_raises_extraction_error(self) -> None:
         adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
 
-        def mock_failed_run(
-            cmd: list[str], **kwargs: Any
-        ) -> subprocess.CompletedProcess[bytes]:
+        def mock_failed_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
             return subprocess.CompletedProcess(
                 args=cmd, returncode=1, stdout=b"", stderr=b"Error: corrupt document"
             )
