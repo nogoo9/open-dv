@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from opendv_contracts.errors import ERROR_MAPPINGS, ErrorCode, VALID_EXIT_CODES
+from opendv_contracts.errors import ERROR_MAPPINGS, VALID_EXIT_CODES, ErrorCode
 from opendv_contracts.spec import (
     CliSpec,
     load_cli_spec,
@@ -161,17 +161,21 @@ def test_error_codes_normative_catalog_conformance() -> None:
         )
         mapping = ERROR_MAPPINGS[ErrorCode[code_str]]
         assert mapping.exit_code == entry["exit_code"], (
-            f"Exit code mismatch for {code_str}: py={mapping.exit_code} vs catalog={entry['exit_code']}"
+            f"Exit code mismatch for {code_str}: "
+            f"py={mapping.exit_code} vs catalog={entry['exit_code']}"
         )
         assert mapping.problem_title == entry["problem_title"], (
-            f"Title mismatch for {code_str}: py={mapping.problem_title} vs catalog={entry['problem_title']}"
+            f"Title mismatch for {code_str}: "
+            f"py={mapping.problem_title} vs catalog={entry['problem_title']}"
         )
         if code_str not in {"OK", "UNSUPPORTED_FORMAT"}:
             assert mapping.problem_type_uri == entry["problem_type_uri"], (
-                f"URI mismatch for {code_str}: py={mapping.problem_type_uri} vs catalog={entry['problem_type_uri']}"
+                f"URI mismatch for {code_str}: "
+                f"py={mapping.problem_type_uri} vs catalog={entry['problem_type_uri']}"
             )
             assert mapping.http_status == entry["http_status"], (
-                f"HTTP status mismatch for {code_str}: py={mapping.http_status} vs catalog={entry['http_status']}"
+                f"HTTP status mismatch for {code_str}: "
+                f"py={mapping.http_status} vs catalog={entry['http_status']}"
             )
 
     # Verify only documented 20 Wave 1 legacy codes are not in error-codes.json

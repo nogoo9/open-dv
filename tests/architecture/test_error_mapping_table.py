@@ -10,6 +10,7 @@ from opendv_contracts.errors import (
     ErrorCode,
     ErrorMappingEntry,
     ProblemDetail,
+    VALID_EXIT_CODES,
     create_problem_detail,
     get_error_entry,
     get_error_mapping,
@@ -21,7 +22,7 @@ def test_every_error_code_has_normative_mapping_entry() -> None:
     """Assert that every defined ErrorCode has an authoritative mapping entry."""
     for code in ErrorCode:
         exit_code, http_status = get_error_mapping(code)
-        assert exit_code in (0, 1, 2), f"Invalid exit code {exit_code} for {code}"
+        assert exit_code in VALID_EXIT_CODES, f"Invalid exit code {exit_code} for {code}"
         assert 200 <= http_status <= 599, f"Invalid HTTP status {http_status} for {code}"
 
         entry = get_error_entry(code)

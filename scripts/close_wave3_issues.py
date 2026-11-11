@@ -8,12 +8,14 @@ and validates that Phase 6 tracker #196 and Epic #193 closeout is gated on child
 from __future__ import annotations
 
 import argparse
+import contextlib
 import json
 import subprocess
 import sys
 import tempfile
 import time
 from pathlib import Path
+
 
 # Subprocess helper factoring out repeated gh CLI calls (SUG-02)
 def run_gh(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -35,7 +37,8 @@ ISSUES: dict[int, dict[str, str]] = {
         "body": """### Milestone M6 Task 6A.1 Completion Summary
 
 <!-- opendv-closeout:228 -->
-<!-- opendv-verdict: {"issue": 228, "task": "6A.1", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 228, "task": "6A.1",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Track**: Track 6A (CI Golden Evaluation Harness & Ground Truth)
@@ -44,9 +47,12 @@ ISSUES: dict[int, dict[str, str]] = {
 #### Delivered Features
 1. **Wealth Management (WM) Ground Truth Ontology (`wm_graph_a_ontology.yaml`)**:
    - Canonical Graph A ground truth model (`domain_namespace: "wealth_mgmt"`).
-   - 6 Canonical Business Concepts: `Party`, `Customer`, `Portfolio`, `FinancialInstrument`, `CustodianBank`, `AdvisoryAccount`.
-   - 5 Canonical Relationships: `PartyGuarantor`, `CustomerAccount`, `AccountPortfolio`, `PortfolioHolding`, `CustodianSettlement`.
-   - 2 Reference Enumerations: `customer_status` (`ACTIVE`, `SUSPENDED`, `CLOSED`), `risk_profile` (`CONSERVATIVE`, `MODERATE`, `AGGRESSIVE`).
+   - 6 Canonical Business Concepts: `Party`, `Customer`, `Portfolio`,
+     `FinancialInstrument`, `CustodianBank`, `AdvisoryAccount`.
+   - 5 Canonical Relationships: `PartyGuarantor`, `CustomerAccount`,
+     `AccountPortfolio`, `PortfolioHolding`, `CustodianSettlement`.
+   - 2 Reference Enumerations: `customer_status` (`ACTIVE`, `SUSPENDED`, `CLOSED`),
+     `risk_profile` (`CONSERVATIVE`, `MODERATE`, `AGGRESSIVE`).
    - Structural and schema validation verified via `opendv_core.validate_graph_a()`.
 2. **20 Formal Competency Questions (`golden_cqs.json`)**:
    - 10 Private Equity CQs (`CQ-PE-01` through `CQ-PE-10`).
@@ -59,7 +65,8 @@ ISSUES: dict[int, dict[str, str]] = {
 #### Verification
 - `uv run pytest tests/golden/ontology_studio/test_golden_evaluation.py -vv`: 6 passed in 1.33s.
 - Mathematical precision >= 85%, recall >= 80%, CQ coverage >= 90% verified on PE and WM models.
-- Canonical PE Graph A SHA-256 invariant verified: `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`.
+- Canonical PE Graph A SHA-256 invariant verified:
+  `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`.
 - Claude Opus 5.5 Critique Gate: 0 CRITICAL / 0 MAJOR findings verified.""",
     },
     229: {
@@ -67,7 +74,8 @@ ISSUES: dict[int, dict[str, str]] = {
         "body": """### Milestone M6 Task 6A.2 Completion Summary
 
 <!-- opendv-closeout:229 -->
-<!-- opendv-verdict: {"issue": 229, "task": "6A.2", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 229, "task": "6A.2",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Track**: Track 6A (CI Golden Evaluation Harness & Ground Truth)
@@ -77,9 +85,12 @@ ISSUES: dict[int, dict[str, str]] = {
 1. **Dual-Mode Benchmark Suite (`test_golden_modes.py`)**:
    - Evaluated both Deterministic Fallback Mode and Agent Mode against PE and WM benchmark tables.
    - Deterministic Mode runtime < 2.5s execution, 0 API keys required, exit code 0.
-   - Agent Mode validates 3 specialized personas (`@term-scout`, `@domain-clarifier`, `@ontology-architect`), HMAC-SHA256 pseudonymization under `K_pseudo`, absence of sensitive leaks, and additive-only deltas.
+   - Agent Mode validates 3 specialized personas (`@term-scout`, `@domain-clarifier`,
+     `@ontology-architect`), HMAC-SHA256 pseudonymization under `K_pseudo`,
+     absence of sensitive leaks, and additive-only deltas.
 2. **Mode Concordance Verification**:
-   - Asserts concept concordance between Deterministic Mode and Agent Mode is >= 80% (measured: 100%).
+   - Asserts concept concordance between Deterministic Mode and Agent Mode is >= 80%
+     (measured: 100%).
    - Verified zero-API-key offline execution isolation.
 
 #### Verification
@@ -92,7 +103,8 @@ ISSUES: dict[int, dict[str, str]] = {
         "body": """### Milestone M6 Task 6B.1 Completion Summary
 
 <!-- opendv-closeout:230 -->
-<!-- opendv-verdict: {"issue": 230, "task": "6B.1", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 230, "task": "6B.1",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Track**: Track 6B (E2E Integration Testing Tiers 1-5)
@@ -100,10 +112,12 @@ ISSUES: dict[int, dict[str, str]] = {
 
 #### Delivered Features
 1. **Tier 1: Canonical E2E User Journeys (`test_tier1_journeys.py`)**:
-   - Greenfield Genesis journey (Draft 0.0.0 invariant `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e`).
+   - Greenfield Genesis journey (Draft 0.0.0 invariant
+     `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e`).
    - FIBO Grounding journey (5 classes, 2 properties grounded, 0 ungrounded concepts).
    - Evolution Delta journey (v1.0.0 -> v1.1.0, 5 additive deltas, monotonic SemVer).
-   - Workspace Promotion Lock journey (promoted status blocks further mutations with `WORKSPACE_LOCKED`).
+   - Workspace Promotion Lock journey (promoted status blocks further mutations
+     with `WORKSPACE_LOCKED`).
    - Administrative Waiver journey (forged waiver rejected, valid HMAC waiver accepted).
 2. **Tier 2: Extreme Scale & Boundary Edge Cases (`test_tier2_boundaries.py`)**:
    - Empty 0-byte document rejection with `INVALID_SOURCE_DOCUMENT`.
@@ -113,7 +127,8 @@ ISSUES: dict[int, dict[str, str]] = {
    - Unicode NFC multibyte encoding normalization.
 
 #### Verification
-- `uv run pytest tests/e2e/ontology_studio/test_tier1_journeys.py tests/e2e/ontology_studio/test_tier2_boundaries.py -vv`: 11 passed in 13.81s.
+- `uv run pytest tests/e2e/ontology_studio/test_tier1_journeys.py \
+  tests/e2e/ontology_studio/test_tier2_boundaries.py -vv`: 11 passed in 13.81s.
 - Claude Opus 5.5 Critique Gate: 0 CRITICAL / 0 MAJOR findings verified.""",
     },
     231: {
@@ -121,7 +136,8 @@ ISSUES: dict[int, dict[str, str]] = {
         "body": """### Milestone M6 Task 6B.2 Completion Summary
 
 <!-- opendv-closeout:231 -->
-<!-- opendv-verdict: {"issue": 231, "task": "6B.2", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 231, "task": "6B.2",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Track**: Track 6B (E2E Integration Testing Tiers 1-5)
@@ -133,7 +149,8 @@ ISSUES: dict[int, dict[str, str]] = {
    - 3 construction engine modes: Deterministic, Agent, Mock/Hybrid.
    - 3 transports: Python API, REST HTTP, CLI.
    - All 24 `OntologyDelta` operations evaluated in evolution delta.
-   - Multi-format export isomorphism across YAML, JCS JSON, Turtle, JSON-LD, NTriples using `rdflib.compare.isomorphic`.
+   - Multi-format export isomorphism across YAML, JCS JSON, Turtle, JSON-LD,
+     NTriples using `rdflib.compare.isomorphic`.
 2. **Tier 4: Workload Chaos, Concurrency & Recovery (`test_tier4_chaos.py`)**:
    - 10 concurrent active sessions under high write contention.
    - Atomic multi-file commit crash recovery simulating unbuffered process death.
@@ -142,7 +159,8 @@ ISSUES: dict[int, dict[str, str]] = {
    - Stale session lease expiration and recovery.
 
 #### Verification
-- `uv run pytest tests/e2e/ontology_studio/test_tier3_combinatorial.py tests/e2e/ontology_studio/test_tier4_chaos.py -vv`: 12 passed in 34.07s.
+- `uv run pytest tests/e2e/ontology_studio/test_tier3_combinatorial.py \
+  tests/e2e/ontology_studio/test_tier4_chaos.py -vv`: 12 passed in 34.07s.
 - Claude Opus 5.5 Critique Gate: 0 CRITICAL / 0 MAJOR findings verified.""",
     },
     232: {
@@ -150,7 +168,8 @@ ISSUES: dict[int, dict[str, str]] = {
         "body": """### Milestone M6 Task 6B.3 Completion Summary
 
 <!-- opendv-closeout:232 -->
-<!-- opendv-verdict: {"issue": 232, "task": "6B.3", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 232, "task": "6B.3",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Track**: Track 6B (E2E Integration Testing Tiers 1-5)
@@ -160,14 +179,18 @@ ISSUES: dict[int, dict[str, str]] = {
 1. **Tier 5: White-Box Adversarial Security (`test_tier5_adversarial.py`)**:
    - Zip bomb decompression ratio > 100:1 / 500 entries / 250 MB limits enforced.
    - Symlink mode bit `0o120000` and character/block device node rejection.
-   - Path traversal (`..`, `C:\\`, UNC, NTFS ADS, Windows reserved names `CON`, `PRN`, `NUL`) rejected.
+   - Path traversal (`..`, `C:\\`, UNC, NTFS ADS, Windows reserved names
+     `CON`, `PRN`, `NUL`) rejected.
    - Session identifier uppercase and reserved keywords (`bundle`, `init`) rejected.
-   - RFC 5869 HKDF purpose key isolation (`K_pseudo`, `K_audit`, `K_waiver`) and fail-closed corrupt secret.
+   - RFC 5869 HKDF purpose key isolation (`K_pseudo`, `K_audit`, `K_waiver`)
+     and fail-closed corrupt secret.
    - CLI argv secret hygiene: raw credentials on argv rejected.
    - Forged/unauthorized/short-rationale administrative waivers rejected.
-   - Client-supplied inflated mapping score `0.9999` recalculation and rejection with `ONT_EVO_UNGROUNDED_CONCEPT`.
+   - Client-supplied inflated mapping score `0.9999` recalculation and rejection
+     with `ONT_EVO_UNGROUNDED_CONCEPT`.
    - PII placeholder leak and unresolved HMAC pseudonym scans.
-   - Remote platform mode loopback privilege spoofing rejected with `LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE`.
+   - Remote platform mode loopback privilege spoofing rejected with
+     `LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE`.
 
 #### Verification
 - `uv run pytest tests/e2e/ontology_studio/test_tier5_adversarial.py -vv`: 10 passed in 3.34s.
@@ -179,7 +202,8 @@ ISSUES: dict[int, dict[str, str]] = {
         "body": """### Milestone M6 Task 6C.1 Completion Summary
 
 <!-- opendv-closeout:233 -->
-<!-- opendv-verdict: {"issue": 233, "task": "6C.1", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 233, "task": "6C.1",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Track**: Track 6C (Documentation & Developer Guides)
@@ -190,7 +214,8 @@ ISSUES: dict[int, dict[str, str]] = {
    - 596 lines of user documentation covering:
      * Overview & Architecture (Deterministic offline fallback + 3-persona Agent).
      * Quickstart: Genesis to Published Ontology in 5 Minutes.
-     * Web Workbench User Guide (/ontology SPA, sessions, parsing, Q&A, React Flow canvas, visual diff, export).
+     * Web Workbench User Guide (/ontology SPA, sessions, parsing, Q&A,
+       React Flow canvas, visual diff, export).
      * Standalone CLI User Guide (opendv and opendvctl commands, parity, flags).
      * Evolution & Governance Workflows (Delta operations, SemVer, waivers).
      * Enterprise Deployment & Security (CAS layout, HKDF keys, session locks).
@@ -206,7 +231,8 @@ ISSUES: dict[int, dict[str, str]] = {
         "body": """### Milestone M6 Task 6C.2 Completion Summary
 
 <!-- opendv-closeout:234 -->
-<!-- opendv-verdict: {"issue": 234, "task": "6C.2", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 234, "task": "6C.2",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Track**: Track 6C (Documentation & Developer Guides)
@@ -219,10 +245,12 @@ ISSUES: dict[int, dict[str, str]] = {
      * Adding New Reference Ontologies via `ReferenceOntologySPI` and `ReferenceOntologyRegistry`.
      * Implementing Custom Ingestion Adapters via `DocumentAdapter` SPI.
      * Extending Agent Personas & LLM Reasoning via `PersonaPort` and privacy boundaries.
-     * Extending CLI Specifications & Codegen (`CommandDef`, `export_cli_spec`, protocol TS codegen).
+     * Extending CLI Specifications & Codegen (`CommandDef`, `export_cli_spec`,
+       protocol TS codegen).
      * Testing & Quality Assurance Guidelines (Import contracts, mock guards, invariant testing).
 2. **Automated Snippet Verification**:
-   - Validates all SPI interfaces and code snippets compile and run under CPython 3.11 / Python 3.11+.
+   - Validates all SPI interfaces and code snippets compile and run under
+     CPython 3.11 / Python 3.11+.
 
 #### Verification
 - `uv run pytest tests/docs/test_doc_code_snippets.py -k docs_23 -vv`: 4 passed in 0.94s.
@@ -234,7 +262,8 @@ ISSUES: dict[int, dict[str, str]] = {
         "body": """### Milestone M6 Task 6D.1 Completion Summary
 
 <!-- opendv-closeout:235 -->
-<!-- opendv-verdict: {"issue": 235, "task": "6D.1", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 235, "task": "6D.1",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Track**: Track 6D (Developer Reference & Schema Sync)
@@ -244,9 +273,11 @@ ISSUES: dict[int, dict[str, str]] = {
 1. **Recursive Subcommand Generator (`docs_generator.py`)**:
    - Implemented `_format_subcommand` recursion supporting deeply nested CLI command trees.
 2. **CLI Reference Synchronization (`docs/16-cli-reference.md`)**:
-   - Fully documented all 14 studio subcommand groups (21 leaf commands) with options, DTOs, and examples (+477 lines).
+   - Fully documented all 14 studio subcommand groups (21 leaf commands) with
+     options, DTOs, and examples (+477 lines).
 3. **README.md Synchronization**:
-   - Synchronized root project documentation with Wave 3 Ontology Construction Studio capabilities, quickstart, and architecture.
+   - Synchronized root project documentation with Wave 3 Ontology Construction Studio
+     capabilities, quickstart, and architecture.
 
 #### Verification
 - `uv run python scripts/generate_cli_reference.py` executed cleanly.
@@ -258,7 +289,8 @@ ISSUES: dict[int, dict[str, str]] = {
         "body": """### Milestone M6 Task 6D.2 Completion Summary
 
 <!-- opendv-closeout:236 -->
-<!-- opendv-verdict: {"issue": 236, "task": "6D.2", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 236, "task": "6D.2",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Track**: Track 6D (Developer Reference & Schema Sync)
@@ -266,11 +298,13 @@ ISSUES: dict[int, dict[str, str]] = {
 
 #### Delivered Features
 1. **Declarative CLI Spec Wiring (`studio_commands.py`)**:
-   - Implemented declarative `STUDIO_COMMAND` tree in `packages/opendv-service/src/opendv_service/cli_spec/studio_commands.py`.
+   - Implemented declarative `STUDIO_COMMAND` tree in
+     `packages/opendv-service/src/opendv_service/cli_spec/studio_commands.py`.
    - Wired into `ONTOLOGY_COMMAND` in `definitions.py`.
    - Synchronized `schemas/v1/cli-spec.json` and `packages/opendv-contracts/schemas/cli-spec.json`.
 2. **OpenAPI & TypeScript Protocol Sync**:
-   - Synchronized `schemas/v1/openapi.json` and `schemas/openapi-v1.json` with `$ref: "#/components/schemas/OntologyDelta-Output"` alias.
+   - Synchronized `schemas/v1/openapi.json` and `schemas/openapi-v1.json` with
+     `$ref: "#/components/schemas/OntologyDelta-Output"` alias.
    - Re-generated TypeScript types in `packages/opendv-protocol-ts/src/types/openapi.ts`.
 3. **Architectural Drift Guard (`tests/architecture/test_schema_sync.py`)**:
    - Added automated regression tests guarding against CLI spec, docs, and schema divergence.
@@ -285,7 +319,8 @@ ISSUES: dict[int, dict[str, str]] = {
         "body": """### Milestone M6 Task 6E.1 Completion Summary
 
 <!-- opendv-closeout:237 -->
-<!-- opendv-verdict: {"issue": 237, "task": "6E.1", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 237, "task": "6E.1",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Track**: Track 6E (Final Release Verification, PR & Victory Audit)
@@ -299,9 +334,12 @@ ISSUES: dict[int, dict[str, str]] = {
      * `apps/opendvctl`: 90 passed.
      * `apps/opendv-web-workbench`: 274 passed, tsc clean.
 2. **Cryptographic Invariance**:
-   - Canonical PE Graph A SHA-256 invariant bit-for-bit verified: `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`.
-   - FIBO Reference Pack verified: `bebd6ae87dfa4eaee523fdeac730f0fe652761004f24e5d15ab36d5225a0acb5`.
-   - Genesis draft 0.0.0 invariant verified: `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e`.
+   - Canonical PE Graph A SHA-256 invariant bit-for-bit verified:
+     `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`.
+   - FIBO Reference Pack verified:
+     `bebd6ae87dfa4eaee523fdeac730f0fe652761004f24e5d15ab36d5225a0acb5`.
+   - Genesis draft 0.0.0 invariant verified:
+     `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e`.
 3. **Linting & Code Quality**:
    - `uv run ruff check packages/*/src apps/*/src`: All checks passed!
 
@@ -361,10 +399,8 @@ def post_comment_with_tempfile(issue_number: int, body: str, repo: str) -> bool:
         print(f"[+] Comment posted to #{issue_number}: {res.stdout.strip()}")
         return True
     finally:
-        try:
+        with contextlib.suppress(OSError):
             Path(temp_path).unlink(missing_ok=True)
-        except OSError:
-            pass
 
 
 def update_and_close_issue(
@@ -408,9 +444,10 @@ def update_and_close_issue(
         print(f"[i] Issue #{issue_number} is already CLOSED with verified marker. Skipping.\n")
         return True
 
-    if not has_marker or force:
-        if not post_comment_with_tempfile(issue_number, data["body"], repo):
-            return False
+    if (not has_marker or force) and not post_comment_with_tempfile(
+        issue_number, data["body"], repo
+    ):
+        return False
 
     if state != "CLOSED":
         close_res = run_gh([
@@ -448,7 +485,7 @@ def load_issue_hierarchy(
     if not issue_map_path.is_file():
         return list(range(228, 240)), [194, 195, 196]
     try:
-        with open(issue_map_path, "r", encoding="utf-8") as f:
+        with open(issue_map_path, encoding="utf-8") as f:
             data = json.load(f)
         phase_6_children = [
             task["id"]
@@ -465,7 +502,7 @@ def load_issue_hierarchy(
         if not phase_trackers:
             phase_trackers = [194, 195, 196]
         return phase_6_children, phase_trackers
-    except Exception:
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
         return list(range(228, 240)), [194, 195, 196]
 
 
@@ -506,7 +543,11 @@ def close_phase_6_tracker(
             comments = cdata.get("comments", [])
             child_marker = f"<!-- opendv-closeout:{child_num} -->"
             has_marker = any(child_marker in c.get("body", "") for c in comments)
-            if state != "CLOSED" or state_reason not in ("COMPLETED", "completed") or not has_marker:
+            if (
+                state != "CLOSED"
+                or state_reason not in ("COMPLETED", "completed")
+                or not has_marker
+            ):
                 open_children.append(child_num)
         except json.JSONDecodeError as exc:
             print(
@@ -546,35 +587,38 @@ def close_phase_6_tracker(
         print(f"[!] Malformed JSON viewing Phase 6 Tracker #{issue_number}: {exc}. Failing closed.")
         return False
 
-    if state == "CLOSED" and not force:
-        if has_marker:
-            print(f"[i] Phase 6 Tracker #{issue_number} already verified & closed. Skipping.\n")
-            return True
+    if state == "CLOSED" and not force and has_marker:
+        print(f"[i] Phase 6 Tracker #{issue_number} already verified & closed. Skipping.\n")
+        return True
 
     if dry_run:
         print(
-            f"[DRY-RUN] All child tasks verified. Would post comment and close Phase 6 Tracker #{issue_number}.\n"
+            f"[DRY-RUN] All child tasks verified. "
+            f"Would post comment and close Phase 6 Tracker #{issue_number}.\n"
         )
         return True
 
     body = """### [Phase 6] Wave 3 Integration & Release Complete
 
 <!-- opendv-closeout:196 -->
-<!-- opendv-verdict: {"issue": 196, "task": "PHASE_6", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 196, "task": "PHASE_6",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: COMPLETED & VERIFIED
 **Milestone**: M6 (Phase 6: Wave 3 Integration & Release)
 **Branch**: `dev/ontology-studio`
 
 #### Delivered Tracks & Verification Summary
-- **Track 6A (Golden Evaluation Set & Competency Questions)**: Issues #228, #229 completed and closed.
+- **Track 6A (Golden Evaluation Set & Competency Questions)**:
+  Issues #228, #229 completed and closed.
 - **Track 6B (E2E Integration Testing Tiers 1-5)**: Issues #230, #231, #232 completed and closed.
 - **Track 6C (User Guide & Extension Guide)**: Issues #233, #234 completed and closed.
 - **Track 6D (Developer Reference & Schema Sync)**: Issues #235, #236 completed and closed.
 - **Track 6E (Full Monorepo CI & Release PR)**: Issues #237, #238, #239 completed and closed.
 
 #### Quality Gate Status
-- Multi-Agent Quality Gate Iteration 2: **PASSED** (Reviewers APPROVE, Challengers APPROVE, Forensic Auditor CLEAN).
+- Multi-Agent Quality Gate Iteration 2: **PASSED**
+  (Reviewers APPROVE, Challengers APPROVE, Forensic Auditor CLEAN).
 - Claude Opus 5.5 Critique Gate: **0 CRITICAL / 0 MAJOR findings** across all tracks."""
 
     # Partial-failure recovery: skip duplicate comment if marker already present (MIN-04)
@@ -583,7 +627,8 @@ def close_phase_6_tracker(
             return False
     else:
         print(
-            f"[i] Phase 6 Tracker #{issue_number} already has closeout marker. Skipping duplicate comment.\n"
+            f"[i] Phase 6 Tracker #{issue_number} already has closeout marker. "
+            "Skipping duplicate comment.\n"
         )
 
     if state != "CLOSED":
@@ -645,7 +690,11 @@ def update_epic_tracker(
             comments = pdata.get("comments", [])
             p_marker = f"<!-- opendv-closeout:{phase_num} -->"
             has_marker = any(p_marker in c.get("body", "") for c in comments)
-            if state != "CLOSED" or state_reason not in ("COMPLETED", "completed") or not has_marker:
+            if (
+                state != "CLOSED"
+                or state_reason not in ("COMPLETED", "completed")
+                or not has_marker
+            ):
                 open_phases.append(phase_num)
         except json.JSONDecodeError as exc:
             print(
@@ -685,16 +734,23 @@ def update_epic_tracker(
             data = json.loads(res.stdout)
             comments = data.get("comments", [])
             if any(marker in c.get("body", "") for c in comments):
-                print(f"[i] Epic Tracker #{issue_number} already contains verified completion. Skipping.\n")
+                print(
+                    f"[i] Epic Tracker #{issue_number} already contains verified "
+                    "completion. Skipping.\n"
+                )
                 return True
         except json.JSONDecodeError as exc:
-            print(f"[!] Malformed JSON viewing Epic Tracker #{issue_number} comments: {exc}. Failing closed.")
+            print(
+                f"[!] Malformed JSON viewing Epic Tracker #{issue_number} comments: {exc}. "
+                "Failing closed."
+            )
             return False
 
     body = """### 🚀 Milestone M6 (Phase 6: Wave 3 Integration & Release) Complete
 
 <!-- opendv-closeout:193 -->
-<!-- opendv-verdict: {"issue": 193, "task": "EPIC", "critical": 0, "major": 0, "status": "COMPLETED"} -->
+<!-- opendv-verdict: {"issue": 193, "task": "EPIC",
+  "critical": 0, "major": 0, "status": "COMPLETED"} -->
 
 **Status**: ALL PHASES 0-6 COMPLETED
 **Milestone**: M6 (Phase 6: Wave 3 Integration & Release)
@@ -703,14 +759,22 @@ def update_epic_tracker(
 
 #### Delivery Milestones Summary
 - **Phase 0-3**: Project setup, master architecture, design ADRs, foundation models.
-- **Phase 4 (Wave 1 Foundation, Issues #197-#210)**: Core models, Ingestion adapters, FIBO reference pack, CAS sessions, atomic commits.
-- **Phase 5 (Wave 2 Engine & UI, Issues #211-#227)**: Okapi BM25 matcher, deterministic pipeline, 3-persona agent harness, REST API (27 routes), Bun opendvctl CLI (21 subcommands), React 19 Web Workbench (/ontology).
-- **Phase 6 (Wave 3 Integration & Release, Issues #228-#239)**: Golden evaluations & 20 CQs, 5-tier E2E suites (33 tests), User Guide (`docs/22`), Extension Guide (`docs/23`), CLI reference (`docs/16`) & schema sync, monorepo CI verification, issue closeout audit, release PR to `main`.
+- **Phase 4 (Wave 1 Foundation, Issues #197-#210)**: Core models, Ingestion adapters,
+  FIBO reference pack, CAS sessions, atomic commits.
+- **Phase 5 (Wave 2 Engine & UI, Issues #211-#227)**: Okapi BM25 matcher, deterministic
+  pipeline, 3-persona agent harness, REST API (27 routes), Bun opendvctl CLI (21 subcommands),
+  React 19 Web Workbench (/ontology).
+- **Phase 6 (Wave 3 Integration & Release, Issues #228-#239)**: Golden evaluations & 20 CQs,
+  5-tier E2E suites (33 tests), User Guide (`docs/22`), Extension Guide (`docs/23`),
+  CLI reference (`docs/16`) & schema sync, monorepo CI verification, issue closeout audit,
+  release PR to `main`.
 
 #### Final Verification Invariants
-- Canonical PE Graph A SHA-256: `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81` (Bit-for-bit verified).
+- Canonical PE Graph A SHA-256:
+  `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81` (Bit-for-bit verified).
 - Monorepo Tests: 100% passing across Python and TypeScript.
-- Quality Gate: Multi-Agent Gate PASSED (Reviewers APPROVE, Challengers APPROVE, Forensic Auditor CLEAN).
+- Quality Gate: Multi-Agent Gate PASSED (Reviewers APPROVE, Challengers APPROVE,
+  Forensic Auditor CLEAN).
 - Claude Opus 5.5 Critique: 0 CRITICAL / 0 MAJOR findings verified across all waves."""
 
     if not post_comment_with_tempfile(issue_number, body, repo):

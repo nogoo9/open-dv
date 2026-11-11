@@ -1363,6 +1363,13 @@ Both CLIs adhere to normative exit code standards across all failure scenarios:
 | `PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN` | `7` | `403` | Proposal Self-Acceptance Forbidden | `urn:opendv:error:proposal-self-acceptance-forbidden` |
 | `SERVER_OPERATION_FORBIDDEN` | `7` | `403` | Server Operation Forbidden | `urn:opendv:error:server-operation-forbidden` |
 | `UNAUTHENTICATED` | `7` | `401` | Unauthenticated Request | `urn:opendv:error:unauthenticated` |
+| `SESSION_ALREADY_EXISTS` | `6` | `409` | Session Already Exists | `urn:opendv:error:session-already-exists` |
+| `CORRUPT_SOURCE_BLOB` | `4` | `422` | Corrupt Source Blob | `urn:opendv:error:corrupt-source-blob` |
+| `LAUNCH_NONCE_EXPIRED` | `7` | `401` | Launch Nonce Expired | `urn:opendv:error:launch-nonce-expired` |
+| `AUTHENTICATION_CONFIG_ERROR` | `1` | `500` | Authentication Configuration Error | `urn:opendv:error:authentication-config-error` |
+| `EXECUTION_FAILURE` | `1` | `500` | Execution Failure | `urn:opendv:error:execution-failure` |
+| `JOB_ALREADY_TERMINAL` | `6` | `409` | Job Already Terminal | `urn:opendv:error:job-already-terminal` |
+| `STATIC_TOKEN_CONFIGURED` | `1` | `500` | Static Token Configured | `urn:opendv:error:static-token-configured` |
 
 ---
 
