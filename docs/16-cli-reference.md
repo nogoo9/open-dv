@@ -642,6 +642,483 @@ opendv ontology studio --help
 opendvctl ontology studio --api-url $OPENDV_API_URL --json
 ```
 
+###### Subcommands of `ontology studio`
+
+###### `ontology studio init` *(Both CLIs)*
+
+Initialize local workbench loopback token and DACL permissions
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--force` | — | `boolean` | No | `False` | No | Force overwrite existing local token if authorized |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio init --help
+
+# Client execution
+opendvctl ontology studio init --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio create` *(Both CLIs)*
+
+Create a new ontology construction studio session
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | No | — | No | Optional explicit studio session identifier |
+| `--domain-namespace` | `-n` | `string` | No | `default` | No | Domain namespace matching base Graph A |
+| `--enterprise-owner` | `-o` | `string` | No | `Enterprise` | No | Enterprise owner organization or domain |
+| `--ontology-id` | — | `string` | No | — | No | Custom ontology identifier |
+| `--description` | `-d` | `string` | No | — | No | Session description or business purpose |
+| `--from-workspace` | `-w` | `path` | No | — | No | Path to workspace Data Vault project to seed from |
+| `--session-label` | `-l` | `string` | No | — | No | Human-readable label for session identification |
+
+- **Request DTO:** `CreateSessionRequest`
+- **Response DTO:** `StudioSessionDTO`
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio create --help
+
+# Client execution
+opendvctl ontology studio create --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio list` *(Both CLIs)*
+
+List active ontology construction studio sessions
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--limit` | `-l` | `integer` | No | `50` | No | Maximum number of sessions to display |
+| `--offset` | — | `integer` | No | `0` | No | Pagination offset |
+| `--status` | `-s` | `string` | No | — | No | Filter sessions by status |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio list --help
+
+# Client execution
+opendvctl ontology studio list --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio status` *(Both CLIs)*
+
+Show status, active version, head SHA-256, sources, and jobs for a studio session
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio status --help
+
+# Client execution
+opendvctl ontology studio status --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio upload` *(Both CLIs)*
+
+Upload candidate source documents (PDF, CSV, TSV, Parquet, MD, etc.) to session CAS
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--file` | `-f` | `path` | Yes | — | Yes | Path to document file to upload |
+| `--do-not-send-to-agent` | — | `boolean` | No | `False` | No | Mark source confidential to suppress raw text transmission to external LLMs |
+| `--description` | `-d` | `string` | No | — | No | Optional description of source dataset |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio upload --help
+
+# Client execution
+opendvctl ontology studio upload --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio parse` *(Both CLIs)*
+
+Trigger document ingestion and layout parsing job
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--source-id` | — | `string` | No | — | No | Specific source document ID to parse (defaults to all pending) |
+| `--ocr-mode` | — | `string` | No | `auto` | No | OCR routing mode for scanned pages |
+| `--stream` | — | `boolean` | No | `False` | No | Follow live SSE event stream until job completes |
+| `--wait` | — | `boolean` | No | `False` | No | Block until job completes and return terminal status |
+| `--source-ids` | — | `string` | No | — | No | Comma-separated list of source document IDs to parse |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio parse --help
+
+# Client execution
+opendvctl ontology studio parse --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio clarify` *(Both CLIs)*
+
+Generate domain clarification questions from candidate terms
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--focus-concept` | — | `string` | No | — | No | Optional focus concept URI to target clarification |
+| `--max-questions` | — | `integer` | No | `5` | No | Maximum number of questions to generate |
+| `--stream` | — | `boolean` | No | `False` | No | Follow live SSE event stream |
+| `--wait` | — | `boolean` | No | `False` | No | Block until clarify job completes |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio clarify --help
+
+# Client execution
+opendvctl ontology studio clarify --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio answer` *(Both CLIs)*
+
+Submit human answers to clarification questions
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--file` | `-f` | `path` | Yes | — | Yes | Path to JSON file containing clarification answers |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio answer --help
+
+# Client execution
+opendvctl ontology studio answer --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio construct` *(Both CLIs)*
+
+Trigger dual-mode ontology construction pipeline (deterministic or agent)
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--base-version` | — | `string` | No | — | No | Base SemVer version string |
+| `--base-sha256` | — | `string` | No | — | No | 64-character hex SHA-256 digest of base ontology |
+| `--mode` | `-m` | `string` | No | `auto` | No | Construction execution mode |
+| `--auto-commit` | — | `boolean` | No | `False` | No | Automatically commit constructed delta without proposal staging (requires pinned base) |
+| `--stream` | — | `boolean` | No | `False` | No | Follow live SSE event stream |
+| `--wait` | — | `boolean` | No | `False` | No | Block until construct completes |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio construct --help
+
+# Client execution
+opendvctl ontology studio construct --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio delta` *(Both CLIs)*
+
+Apply human additive delta operations or steward revisions
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio delta --help
+
+# Client execution
+opendvctl ontology studio delta --api-url $OPENDV_API_URL --json
+```
+
+###### Subcommands of `ontology studio delta`
+
+###### `ontology studio delta apply` *(Both CLIs)*
+
+Apply delta operations from file to active session
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--file` | `-f` | `path` | Yes | — | Yes | Path to JSON file containing delta operations |
+| `--base-version` | — | `string` | Yes | — | No | Base SemVer version |
+| `--base-sha256` | — | `string` | Yes | — | No | Base SHA-256 hash |
+| `--rationale` | `-r` | `string` | No | `` | No | Business rationale for mutation |
+| `--low-confidence-waiver` | — | `boolean` | No | `False` | No | Admin waiver for concepts with low confidence grounding |
+| `--grounding-rationale` | — | `string` | No | — | No | Admin rationale for grounding waiver (min 10 chars) |
+| `--ungrounded-concept` | — | `array` | No | — | No | Explicit list of concept URIs covered by grounding waiver |
+| `--evidence-grounding-file` | — | `path` | No | — | Yes | Path to admin evidence grounding approval JSON |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio delta apply --help
+
+# Client execution
+opendvctl ontology studio delta apply --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio proposal` *(Both CLIs)*
+
+Manage candidate ontology proposals (list, show, accept, reject, rebase)
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio proposal --help
+
+# Client execution
+opendvctl ontology studio proposal --api-url $OPENDV_API_URL --json
+```
+
+###### Subcommands of `ontology studio proposal`
+
+###### `ontology studio proposal list` *(Both CLIs)*
+
+List proposals for a studio session
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio proposal list --help
+
+# Client execution
+opendvctl ontology studio proposal list --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio proposal show` *(Both CLIs)*
+
+Display detailed proposal operations and grounding
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--proposal-id` | `-p` | `string` | Yes | — | No | Proposal identifier |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio proposal show --help
+
+# Client execution
+opendvctl ontology studio proposal show --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio proposal accept` *(Both CLIs)*
+
+Accept pending proposal and apply its delta to roll head forward
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--proposal-id` | `-p` | `string` | Yes | — | No | Proposal identifier |
+| `--base-sha256` | — | `string` | Yes | — | No | Expected base SHA-256 for optimistic concurrency check |
+| `--allow-self-accepted-proposals` | — | `boolean` | No | `False` | No | Admin override allowing acceptance of own proposal (requires local admin) |
+| `--low-confidence-waiver` | — | `boolean` | No | `False` | No | Admin waiver for low-confidence external mappings |
+| `--grounding-rationale` | — | `string` | No | — | No | Rationale for grounding waiver (min 10 chars) |
+| `--ungrounded-concept` | — | `array` | No | — | No | Concept URIs covered by waiver |
+| `--evidence-grounding-file` | — | `path` | No | — | Yes | Path to admin evidence grounding approval JSON |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio proposal accept --help
+
+# Client execution
+opendvctl ontology studio proposal accept --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio proposal reject` *(Both CLIs)*
+
+Reject a pending proposal
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--proposal-id` | `-p` | `string` | Yes | — | No | Proposal identifier |
+| `--reason` | `-r` | `string` | No | — | No | Rejection rationale |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio proposal reject --help
+
+# Client execution
+opendvctl ontology studio proposal reject --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio proposal rebase` *(Both CLIs)*
+
+Rebase proposal operations onto latest active session head
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--proposal-id` | `-p` | `string` | Yes | — | No | Proposal identifier |
+| `--base-sha256` | — | `string` | Yes | — | No | Target base SHA-256 for rebase |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio proposal rebase --help
+
+# Client execution
+opendvctl ontology studio proposal rebase --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio export` *(Both CLIs)*
+
+Export constructed Graph A ontology to YAML, JSON, OWL 2/Turtle, or JSON-LD
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--export-format` | `-e` | `string` | No | `yaml` | No | Serialization format |
+| `--version` | `-v` | `string` | No | — | No | Target ontology version (defaults to active head) |
+| `--out` | `-o` | `path` | No | — | No | Output file path (client_file_download) |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio export --help
+
+# Client execution
+opendvctl ontology studio export --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio promote` *(Both CLIs)*
+
+Promote active session ontology to production workspace pipeline under graph_a.lock
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--workspace` | `-w` | `path` | No | — | No | Destination workspace Data Vault project path |
+| `--workspace-sha256` | — | `string` | Yes | — | No | Expected current workspace SHA-256 (64 zeros for greenfield) |
+| `--head-sha256` | — | `string` | Yes | — | No | Expected session head SHA-256 digest |
+| `--rationale` | `-r` | `string` | Yes | — | No | Required promotion rationale (min 10 characters) |
+| `--acknowledge-historical-contract-warning` | — | `boolean` | No | `False` | No | Acknowledge historical deployed contract warning |
+| `--historical-contract-rationale` | — | `string` | No | — | No | Rationale acknowledging historical contract warning |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio promote --help
+
+# Client execution
+opendvctl ontology studio promote --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio bundle` *(Both CLIs)*
+
+Manage portable session archives (.odvstudio.zip export, import, clone)
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio bundle --help
+
+# Client execution
+opendvctl ontology studio bundle --api-url $OPENDV_API_URL --json
+```
+
+###### Subcommands of `ontology studio bundle`
+
+###### `ontology studio bundle export` *(Both CLIs)*
+
+Export session into portable .odvstudio.zip archive
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
+| `--out` | `-o` | `path` | Yes | — | No | Destination file path (.odvstudio.zip) |
+| `--acknowledge-confidential-source-export` | — | `boolean` | No | `False` | No | Acknowledge export of confidential/tainted sources |
+| `--export-rationale` | — | `string` | No | — | No | Rationale for exporting confidential session archive |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio bundle export --help
+
+# Client execution
+opendvctl ontology studio bundle export --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio bundle import` *(Both CLIs)*
+
+Import and re-validate portable .odvstudio.zip archive
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--file` | `-f` | `path` | Yes | — | Yes | Path to .odvstudio.zip archive to import |
+| `--acknowledge-unverified-import-attribution` | — | `boolean` | No | `False` | No | Admin acknowledgement for unverified imported attribution or waivers |
+| `--acknowledgement-rationale` | — | `string` | No | — | No | Rationale acknowledging unverified import attribution |
+| `--acknowledge-historical-contract-warning` | — | `boolean` | No | `False` | No | Acknowledge historical contract warning in imported session |
+| `--historical-contract-rationale` | — | `string` | No | — | No | Rationale acknowledging historical contract warning |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio bundle import --help
+
+# Client execution
+opendvctl ontology studio bundle import --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio bundle clone` *(Both CLIs)*
+
+Clone an existing studio session into a new isolated session identifier
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Source studio session identifier to clone |
+| `--session-label` | `-l` | `string` | No | — | No | Label for the newly cloned session |
+| `--new-session-id` | — | `string` | No | — | No | Explicit target session identifier for the newly cloned session |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio bundle clone --help
+
+# Client execution
+opendvctl ontology studio bundle clone --api-url $OPENDV_API_URL --json
+```
+
 ### `opendv config` / `opendvctl config`
 
 **Availability:** *(Both CLIs)*  

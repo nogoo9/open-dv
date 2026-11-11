@@ -4852,6 +4852,10 @@
         "title": "OntologyDecisionResponse",
         "type": "object"
       },
+      "OntologyDelta": {
+        "$ref": "#/components/schemas/OntologyDelta-Output",
+        "description": "Ordered collection of additive and structural operations evolving Graph A to vN+1."
+      },
       "OntologyDelta-Input": {
         "additionalProperties": false,
         "description": "Ordered collection of additive and structural operations evolving Graph A to vN+1.",

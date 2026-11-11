@@ -13,6 +13,7 @@
   - [Step 3: Validate Inputs & Run the End-to-End Agentic Pipeline (`opendv pipeline`)](#step-3-validate-inputs--run-the-end-to-end-agentic-pipeline-opendv-pipeline)
   - [Step 4: Run Standalone Symbolic Verification, Compilation & DuckDB Sandbox](#step-4-run-standalone-symbolic-verification-compilation--duckdb-sandbox)
   - [Step 5: Launch the Platform API & 3-Level Explorer Web Workbench](#step-5-launch-the-platform-api--3-level-explorer-web-workbench)
+  - [Step 6: Launch the Ontology Construction Studio Web Workbench (`/ontology`)](#step-6-launch-the-ontology-construction-studio-web-workbench-ontology)
 - [3. CLI Command Reference & Monorepo Structure](#3-cli-command-reference--monorepo-structure)
 - [4. Documentation & Specification Map](#4-documentation--specification-map)
 - [Appendix: Deep-Dive Technical Reference & Specifications](#appendix-deep-dive-technical-reference--specifications)
@@ -37,7 +38,7 @@ When autonomous LLM agents design or evolve Data Vault schemas without formal gu
 > - **Primary Downstream Deliverables (Target-Agnostic):** The core product of `open-dv` for your enterprise data platform is the verified declarative model contract (**`final_contract.yaml`**) and lowered Canonical Intermediate Representation (**`final_canonical_ir.json`**). These artifacts are 100% vendor-neutral and feed any downstream warehouse compiler or metadata framework (**dbt / AutomateDV / datavault4dbt, Snowflake, BigQuery, Databricks, SQLMesh**, etc.).
 > - **Role of the 4-Zone DuckDB SQL Bundle (`final_four_zone.sql`):** The included 4-Zone DuckDB compiler serves as **(1) `open-dv`'s internal Stage 06 dynamic verification harness** (proving grain uniqueness, zero hash collisions, bi-temporal PIT accuracy, and replay idempotency across 4 Adversarial Shadow Sandbox Batches before sealing a contract) and **(2) an executable golden reference implementation**. Running DuckDB in production is **never** required to adopt `open-dv`. (See [`docs/16-human-and-agent-usage-guide.md`](docs/16-human-and-agent-usage-guide.md) for full integration playbooks.)
 
-`open-dv` prevents these failure modes through **three core pillars**:
+`open-dv` prevents these failure modes through **four core pillars**:
 
 1. **Multi-Agent Pipeline (`opendv pipeline` / `packages/opendv-agent-harness`)**
    Orchestrates four specialized agent personas—`vault-first-mate` (read-only supervisor), `scout-source` (relational Bronze statistical profiler & drift detector), `scout-unstructured` (span-grounded NER & 3-Tier entity resolver), and `ship-vault` (3-Pass Chain-of-Thought contract modeller)—across an **8-stage pipeline (`STAGE_00`–`STAGE_07`)**. Supports semantic `reasoning` / `fast` model tiers and optional fine-grained per-agent `agent_models` overrides across four production harness adapters: `agy` (`agy` CLI), `claude-cli` (`claude` CLI), `antigravity` (Google Antigravity SDK), and `claude` (Claude Agent SDK).
@@ -45,6 +46,8 @@ When autonomous LLM agents design or evolve Data Vault schemas without formal gu
    Agents emit **only** a declarative YAML/JSON contract ([`schemas/no-mistake-dv2-contract-v5.schema.json`](schemas/no-mistake-dv2-contract-v5.schema.json)). The symbolic **6-Gate `axi-dv` verifier** enforces **6 fundamental stability invariants (`INV-01..06`)**, **8 schema-evolution rules (`EVO-01..08`)**, **15 anti-pattern guards (`AP-01..15`)**, length-prefixed SHA-256 hashing (`Algorithm A.5`), `sqlglot` AST verification (`Algorithm A.6`), `networkx` bipartite DAG checks (`DV-STR-*` / `DV-COL-*`), and a **Gate 4 YAGNI write-amplification cost guard** ($W_{\text{amp}} \ge 50\text{ MB/day}$). Verified contracts are lowered into Canonical IR ([`schemas/dv2-canonical-ir.schema.json`](schemas/dv2-canonical-ir.schema.json)), compiled into **4-Zone DuckDB SQL**, and tested against **4 Adversarial Shadow Sandbox Batches** (`DV-DYN-001..015`) in an in-memory DuckDB instance, feeding compact `@toon_v1` error traces back to `ship-vault` for closed-loop self-healing.
 3. **Unified Single-App Platform Server, Steward Governance & Explorer Web Workbench (`apps/opendv-platform-api` + `apps/opendv-web-workbench`)**
    Serves both the `/api/v1/*` FastAPI REST + Server-Sent Events (SSE) backend and the compiled **3-Level Explainability & Observability Explorer Web Workbench** on a single port (`http://127.0.0.1:8420`). Includes 5-Tier RBAC PII/MNPI redaction, Content-Addressable Store (CAS) artifact provenance, Steward Captain-Hold resolution (`Rule U1..U4` / `Tier-U3`), an **Interactive Pipeline Builder (`/builder`)** with a two-step Stage/Validate -> explicit `▶ Run Pipeline` execution flow, live run progress indicators (`PipelineRunProgressBar` across stages `00`–`07`), and a **Full-Page Settings View (`/settings`)** paired with `opendv config` / `opendvctl config`. (See [`docs/12-unified-platform-web-and-cli-setup.md`](docs/12-unified-platform-web-and-cli-setup.md).)
+4. **Interactive Ontology Construction Studio & Grounding Workbench (`packages/opendv-service` + `packages/opendv-sources` + `apps/opendv-web-workbench`)**
+   Delivers interactive, human-in-the-loop and air-gapped enterprise ontology construction and evolution (Graph A). Grounded against **EDM Council FIBO** (Financial Industry Business Ontology) reference standards via `fibo-core-pack.json` and pluggable document adapters (LiteParse for PDF/images, CSV, Markdown, text). Features an **Okapi BM25 concept matcher** with Robertson BM25 scoring and field weights, a **zero-API-key deterministic fallback (<2.5s SLA)**, and a **3-persona agent reasoning engine** (`@term-scout`, `@domain-clarifier`, `@ontology-architect`). Provides Content-Addressable Storage (CAS) sessions in `.opendv/ontology_studio/`, OCC concurrency (`If-Match`), Steward administrative waivers, and promotion into workspace Data Vault pipelines under `graph_a.lock`. (See [`docs/19-ontology-studio-architecture.md`](docs/19-ontology-studio-architecture.md) and [`docs/20-ontology-studio-spec.md`](docs/20-ontology-studio-spec.md).)
 
 ### Architecture Flow at a Glance
 
@@ -247,6 +250,30 @@ See **[`docs/12-unified-platform-web-and-cli-setup.md`](docs/12-unified-platform
 
 ---
 
+### Step 6: Launch the Ontology Construction Studio Web Workbench (`/ontology`)
+
+Open-DV provides an interactive graphical studio for constructing, clarifying, editing, and evolving business ontologies (Graph A) with visual React Flow (`@xyflow/react`) + `elkjs` graphs, diff overlays, and FIBO grounding:
+
+```bash
+# 1. Initialize local studio permissions & loopback token (standalone mode)
+uv run opendv ontology studio init
+
+# 2. Launch the Platform Server & Web Workbench
+uv run opendv serve --port 8420 --open
+
+# 3. Navigate directly to the Ontology Studio Workbench:
+# http://127.0.0.1:8420/ontology
+```
+
+**Studio Web Workbench Capabilities (`/ontology`):**
+- **Sources & Ingestion:** Drag-and-drop PDF, regulatory filings, text, or tabular schemas with instant text extraction and complexity scoring.
+- **Interactive Clarification Q&A:** Answer targeted domain disambiguation questions with instant CAS persistence.
+- **React Flow + elkjs Graph Explorer:** Hierarchical DAG layout (<300ms SLA) with 3-tier Level-of-Detail (LOD) zoom, visual diff overlay (green additions, amber modifications, red removals), and side-drawer property editor.
+- **Quality Scorecard & Steward Waivers:** Real-time semantic audit, ONT-EVO contract guard validation, and steward waiver signing.
+- **Export & Pipeline Promotion:** Export to Graph A YAML/JSON (RFC 8785 JCS), OWL 2/Turtle, JSON-LD, or promote directly into `graph_a.lock` for the downstream 8-stage pipeline.
+
+---
+
 ## 3. CLI Command Reference & Monorepo Structure
 
 ### Two-CLI Architecture & Command Reference
@@ -268,7 +295,8 @@ Both CLIs share identical subcommands, options, exit codes, and RFC 8785 canonic
 | `opendv sandbox` | Executes the 4-Batch Adversarial DuckDB Shadow Sandbox (`--query-type ADVERSARIAL_BATCHES_1_TO_4`) and bi-temporal PIT queries (`QUERY_D10_PIT`, `QUERY_D10B_VALUATION`) at `--cutoff <timestamp>`. |
 | `opendv run [list\|get\|create\|abort\|events]` | Manages verification runs and streams real-time W3C Server-Sent Events (`events --last-event-id <id>`). |
 | `opendv hold [list\|approve\|reject\|answer\|resolve]` | Lists or resolves Steward Captain-Holds (`Tier-U3` ambiguous entity resolution or `Gate 3/4` holds) via `--hold-id`, `--candidate`, and `--notes`. |
-| `opendv ontology [suggest\|validate-delta\|diff\|accept]` | Recommends ontology concepts from sources or deltas, validates proposals, diffs candidate models, and applies decision-gated mutations to Graph A. |
+| `opendv ontology [suggest\|validate-delta\|diff\|accept\|reject]` / `opendvctl ontology ...` | Recommends ontology concepts from sources or deltas, validates proposals, diffs candidate models, and applies decision-gated mutations to Graph A. |
+| `opendv ontology studio [init\|create\|list\|status\|upload\|parse\|clarify\|answer\|construct\|delta\|proposal\|export\|promote\|bundle]` / `opendvctl ontology studio ...` | Interactive Ontology Construction Studio (14 subcommand groups / 21 leaf commands) managing CAS sessions, document ingestion (LiteParse), BM25/agent construction, proposals, diffs, waivers, exports (YAML, JSON, Turtle, JSON-LD), and workspace promotion under `graph_a.lock`. |
 | `opendv config [show\|set\|validate]` / `opendvctl config [show\|set\|validate]` | Inspects, updates (`--provider`, `--reasoning-model`, `--fast-model`, `--auth-mode`, `--hold-policy`, `--ontology-policy`, `--harness-config`), and pre-flight validates platform & agent harness settings and provider readiness. |
 | `opendv serve` *(standalone-only)* | Launches the unified Open-DV Platform Server (`:8420`) serving both `/api/v1/*` REST/SSE and the embedded static Web Explorer UI (`--host`, `--port`, `--config`, `--workspace`, `--open`). |
 
@@ -280,8 +308,8 @@ open-dv/
 │   ├── opendv-core/            # Pydantic v2 contracts, Canonical IR, ELM calculus & Alg A.5 SHA-256 hashing
 │   ├── opendv-contracts/       # Pydantic DTOs, schemas, errors & canonical CLI specification (cli-spec.json)
 │   ├── opendv-cli-common/      # Spec-driven argument parser builder, JCS canonical printer & terminal presenters
-│   ├── opendv-service/         # Shared application core use cases (Verify, Compile, Sandbox, Pipeline, Ontology)
-│   ├── opendv-sources/         # Pluggable source adapters (file, inline, duckdb_attach, text, pdf)
+│   ├── opendv-service/         # Shared application core use cases (Verify, Compile, Sandbox, Pipeline, Ontology Studio & CAS)
+│   ├── opendv-sources/         # Pluggable source & document adapters (file, inline, duckdb_attach, text, pdf/LiteParse, FIBO loader)
 │   ├── opendv-telemetry/       # JSONL ledger emitter, CAS store, 5-tier RBAC redactor, PII detector & Hash Pills
 │   ├── opendv-axi-verifier/    # 6-Gate axi-dv orchestrator (Alg A.8), AST codemods (A.1..A.9b) & @toon_v1 codec
 │   ├── opendv-duckdb-sandbox/  # GraphBProfiler, IR lowerer, 4-Zone SQL compiler & 4-Batch DuckDB Shadow Sandbox
@@ -340,6 +368,12 @@ open-dv/
 | **Canonical IR JSON Schema** | [`schemas/dv2-canonical-ir.schema.json`](schemas/dv2-canonical-ir.schema.json) | Draft 2020-12 JSON Schema for the low-level `CanonicalIR` contract between semantic modelling agents and the deterministic 4-Zone SQL compiler. |
 | **Observability Telemetry Event JSON Schema** | [`schemas/vault-observability-event.schema.json`](schemas/vault-observability-event.schema.json) | Draft 2020-12 JSON Schema for `VaultObservabilityEvent` records emitted over `state/vault-ledger.jsonl`. |
 | **Headless Platform OpenAPI 3.1.0 Schema** | [`schemas/openapi-v1.json`](schemas/openapi-v1.json) | Deterministic OpenAPI 3.1.0 specification for all `/api/v1` REST and SSE endpoints (`moon run opendv-platform-api:export-openapi`). |
+| **16 — CLI Reference (`opendv` & `opendvctl`)** | [`docs/16-cli-reference.md`](docs/16-cli-reference.md) | **Canonical CLI reference documentation:** complete options, defaults, choices, types, DTOs, and example invocations for all 10 core command groups and 14 `ontology studio` subcommand groups. |
+| **19 — Ontology Construction Studio Architecture** | [`docs/19-ontology-studio-architecture.md`](docs/19-ontology-studio-architecture.md) | **Read for Studio architecture:** Dual-mode engine (Agent vs deterministic fallback), CAS session storage, EDM Council FIBO grounding, OCC concurrency, and React Flow + elkjs workbench. |
+| **20 — Ontology Construction Studio Specification** | [`docs/20-ontology-studio-spec.md`](docs/20-ontology-studio-spec.md) | **Read for normative Studio spec:** 4 core user journeys, 14 REST endpoints, SSE jobs, 5-stage ingestion pipeline, BM25 matching calculus, steward waivers, and export formats. |
+| **21 — Ontology Construction Studio Implementation Plan** | [`docs/21-ontology-studio-implementation-plan.md`](docs/21-ontology-studio-implementation-plan.md) | **Read for engineering delivery plan:** 6 phases (Phases 0–6), multi-track work breakdown (Tracks 4A–4D, 5A–5D, 6A–6E), and GitHub issue mapping. |
+| **22 — Ontology Construction Studio User Guide** | [`docs/22-ontology-studio-user-guide.md`](docs/22-ontology-studio-user-guide.md) | **Read for end-to-end Studio user workflows:** Web Workbench (`/ontology`) walkthrough, local vs remote deployment, CLI recipes (all 14 subcommand groups), and error catalog. |
+| **23 — Ontology Construction Studio Extension Guide** | [`docs/23-ontology-studio-extension-guide.md`](docs/23-ontology-studio-extension-guide.md) | **Read when extending Studio:** Custom document adapters (`DocumentAdapter` SPI), reference ontologies (`ReferenceOntologyAdapter` SPI), custom concept matchers/tokenizers, agent personas, and custom export serializers. |
 
 ---
 ---

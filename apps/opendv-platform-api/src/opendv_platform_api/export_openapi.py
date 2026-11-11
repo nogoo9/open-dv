@@ -22,6 +22,16 @@ def generate_openapi_spec() -> dict[str, Any]:
     raw_spec["$schema"] = DRAFT_2020_12_URI
     raw_spec["$id"] = "https://open-dv.dev/schemas/openapi-v1.json"
     raw_spec["jsonSchemaDialect"] = DRAFT_2020_12_URI
+
+    if "components" in raw_spec and "schemas" in raw_spec["components"]:
+        raw_spec["components"]["schemas"]["OntologyDelta"] = {
+            "$ref": "#/components/schemas/OntologyDelta-Output",
+            "description": (
+                "Ordered collection of additive and structural operations "
+                "evolving Graph A to vN+1."
+            ),
+        }
+
     Draft202012Validator.check_schema(raw_spec)
     return raw_spec
 
@@ -39,6 +49,10 @@ def export_openapi_to_file(out_path: Path | None = None) -> Path:
     rendered = render_openapi_spec()
     with open(target, "w", encoding="utf-8", newline="\n") as f:
         f.write(rendered)
+    v1_target = target.parent / "v1" / "openapi.json"
+    if v1_target.parent.exists():
+        with open(v1_target, "w", encoding="utf-8", newline="\n") as f:
+            f.write(rendered)
     return target
 
 

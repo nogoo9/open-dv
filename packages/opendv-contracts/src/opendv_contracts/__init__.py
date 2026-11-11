@@ -100,6 +100,7 @@ from opendv_contracts.dtos import (
 from opendv_contracts.errors import (
     ERROR_MAP,
     ERROR_MAPPINGS,
+    VALID_EXIT_CODES,
     ErrorCode,
     ErrorDetail,
     ErrorMappingEntry,
@@ -154,6 +155,7 @@ __all__ = [
     "ERROR_MAPPINGS",
     "FALLBACK_REGISTRY",
     "SPEC_VERSION",
+    "VALID_EXIT_CODES",
     "AcceptOntologyDeltaOption",
     "AddConceptOp",
     "AddGovernanceConstraintOp",

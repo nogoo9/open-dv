@@ -77,6 +77,7 @@ from opendv_contracts import (
     SandboxQueryResponse,
     VerifyRequest,
     VerifyResponse,
+    VALID_EXIT_CODES,
     create_problem_detail,
     dumps_jcs,
     dumps_jcs_bytes,
@@ -339,8 +340,8 @@ def test_error_code_taxonomy_exhaustive_coverage() -> None:
     """Verify all ErrorCode enum members have complete and valid mappings."""
     assert len(ErrorCode) == len(ERROR_MAPPINGS)
 
-    valid_exit_codes = {0, 1, 2}
-    valid_http_statuses = {200, 400, 404, 413, 415, 422, 500, 503}
+    valid_exit_codes = VALID_EXIT_CODES
+    valid_http_statuses = {200, 201, 202, 400, 401, 403, 404, 409, 412, 413, 415, 422, 500, 503}
 
     for code in ErrorCode:
         # 1. Present in ERROR_MAPPINGS

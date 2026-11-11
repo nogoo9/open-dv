@@ -1,0 +1,227 @@
+{
+  "version": "1.0.0",
+  "catalog_name": "Open-DV Ontology Construction Studio Golden Competency Questions",
+  "domains": ["private_equity", "wealth_mgmt"],
+  "competency_questions": [
+    {
+      "cq_id": "CQ-PE-01",
+      "domain": "private_equity",
+      "question": "What Funds does an institutional Limited Partner commit capital to?",
+      "required_concepts": ["Fund", "LimitedPartner"],
+      "required_relationships": ["LPCommitment"],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Evaluates capital commitment agreements between institutional investors and private equity fund vehicles."
+    },
+    {
+      "cq_id": "CQ-PE-02",
+      "domain": "private_equity",
+      "question": "Which Portfolio Companies are managed by a private equity Fund vehicle?",
+      "required_concepts": ["Fund", "PortfolioCompany"],
+      "required_relationships": ["LPCommitmentCoInvestTarget"],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Evaluates direct deal target investments and co-investment syndication allocations."
+    },
+    {
+      "cq_id": "CQ-PE-03",
+      "domain": "private_equity",
+      "question": "What legal agreements or Side Letters are bound to an LP's commitment?",
+      "required_concepts": ["Document", "LimitedPartner"],
+      "required_relationships": ["SideLetterProvenance"],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Binds unstructured LP Side Letter legal documents to the governed fund and beneficiary limited partner."
+    },
+    {
+      "cq_id": "CQ-PE-04",
+      "domain": "private_equity",
+      "question": "Which Investment Committee valuation memoranda evaluate a specific Portfolio Company?",
+      "required_concepts": ["Document", "PortfolioCompany"],
+      "required_relationships": ["ICValuationMemoMention"],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Links unstructured Investment Committee valuation memoranda to the target operating portfolio company."
+    },
+    {
+      "cq_id": "CQ-PE-05",
+      "domain": "private_equity",
+      "question": "How are legacy regional LP account keys resolved to canonical LP identities?",
+      "required_concepts": ["LimitedPartner"],
+      "required_relationships": ["SameAsLimitedPartner"],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Resolves Tier-3 BKCC legacy investor account keys to canonical Tier-1/Tier-2 master limited partner identities."
+    },
+    {
+      "cq_id": "CQ-PE-06",
+      "domain": "private_equity",
+      "question": "What investment strategies are permitted for a Fund vehicle?",
+      "required_concepts": ["Fund"],
+      "required_relationships": [],
+      "required_attributes": [],
+      "required_enums": ["ref_fund_strategy"],
+      "required_mappings": [],
+      "description": "Validates reference enumeration for fund investment strategies (Buyout, Co-Invest, Growth Equity, Secondaries)."
+    },
+    {
+      "cq_id": "CQ-PE-07",
+      "domain": "private_equity",
+      "question": "Which industry sectors are targeted by a Portfolio Company?",
+      "required_concepts": ["PortfolioCompany"],
+      "required_relationships": [],
+      "required_attributes": [],
+      "required_enums": ["ref_industry_sector"],
+      "required_mappings": [],
+      "description": "Validates reference enumeration for target portfolio company industry sectors."
+    },
+    {
+      "cq_id": "CQ-PE-08",
+      "domain": "private_equity",
+      "question": "Which regulated depository bank acts as custodian for Fund escrow accounts?",
+      "required_concepts": ["Fund", "CustodianBank"],
+      "required_relationships": [],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Identifies regulated custodian banks holding escrow and wire settlement accounts for funds."
+    },
+    {
+      "cq_id": "CQ-PE-09",
+      "domain": "private_equity",
+      "question": "What are the confidential PII attributes governing an institutional investor?",
+      "required_concepts": ["LimitedPartner"],
+      "required_relationships": [],
+      "required_attributes": ["wire_iban", "tax_id"],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Ensures governance isolation and satellite segregation for sensitive PII investor attributes."
+    },
+    {
+      "cq_id": "CQ-PE-10",
+      "domain": "private_equity",
+      "question": "What are the MNPI valuation attributes governing a portfolio asset?",
+      "required_concepts": ["PortfolioCompany"],
+      "required_relationships": [],
+      "required_attributes": ["fair_value_usd", "entry_ebitda_usd"],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Ensures governance isolation and satellite segregation for material non-public valuation metrics."
+    },
+    {
+      "cq_id": "CQ-WM-01",
+      "domain": "wealth_mgmt",
+      "question": "Which customer accounts are associated with a legal party?",
+      "required_concepts": ["Party", "Customer"],
+      "required_relationships": ["CustomerAccount"],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Maps legal parties to customer entities and their advisory wealth accounts."
+    },
+    {
+      "cq_id": "CQ-WM-02",
+      "domain": "wealth_mgmt",
+      "question": "What portfolios are held under a wealth advisory customer account?",
+      "required_concepts": ["Customer", "Portfolio"],
+      "required_relationships": ["AccountPortfolio"],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Determines investment portfolios managed under an advisory account mandate."
+    },
+    {
+      "cq_id": "CQ-WM-03",
+      "domain": "wealth_mgmt",
+      "question": "What financial instruments are held within an investment portfolio?",
+      "required_concepts": ["Portfolio", "FinancialInstrument"],
+      "required_relationships": ["PortfolioHolding"],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Identifies position holdings of negotiable financial instruments across investment portfolios."
+    },
+    {
+      "cq_id": "CQ-WM-04",
+      "domain": "wealth_mgmt",
+      "question": "Which party acts as credit guarantor for a customer account?",
+      "required_concepts": ["Party", "Customer"],
+      "required_relationships": ["PartyGuarantor"],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Validates third-party credit guarantee and collateral commitments backing customer accounts."
+    },
+    {
+      "cq_id": "CQ-WM-05",
+      "domain": "wealth_mgmt",
+      "question": "Which depository custodian bank settles portfolio transactions?",
+      "required_concepts": ["Portfolio", "CustodianBank"],
+      "required_relationships": ["CustodianSettlement"],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Determines clearing and depository custodian bank relationships settling portfolio trades."
+    },
+    {
+      "cq_id": "CQ-WM-06",
+      "domain": "wealth_mgmt",
+      "question": "What is the operational lifecycle status of a customer account?",
+      "required_concepts": ["Customer"],
+      "required_relationships": [],
+      "required_attributes": [],
+      "required_enums": ["ref_customer_status"],
+      "required_mappings": [],
+      "description": "Validates customer lifecycle status reference enumeration (ACTIVE, SUSPENDED, CLOSED)."
+    },
+    {
+      "cq_id": "CQ-WM-07",
+      "domain": "wealth_mgmt",
+      "question": "What is the assigned risk tolerance profile for an investment portfolio?",
+      "required_concepts": ["Portfolio"],
+      "required_relationships": [],
+      "required_attributes": [],
+      "required_enums": ["ref_risk_profile"],
+      "required_mappings": [],
+      "description": "Validates investment portfolio risk tolerance profile enumeration (CONSERVATIVE, MODERATE, AGGRESSIVE)."
+    },
+    {
+      "cq_id": "CQ-WM-08",
+      "domain": "wealth_mgmt",
+      "question": "What total financial exposure is calculated across a party's relationships?",
+      "required_concepts": ["Party"],
+      "required_relationships": [],
+      "required_attributes": ["total_exposure"],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Computes aggregated credit and balance sheet exposure across all accounts associated with a party."
+    },
+    {
+      "cq_id": "CQ-WM-09",
+      "domain": "wealth_mgmt",
+      "question": "What is the maximum credit limit assigned to a customer entity?",
+      "required_concepts": ["Customer"],
+      "required_relationships": [],
+      "required_attributes": ["credit_limit"],
+      "required_enums": [],
+      "required_mappings": [],
+      "description": "Evaluates maximum credit or overdraft ceiling established for a customer entity."
+    },
+    {
+      "cq_id": "CQ-WM-10",
+      "domain": "wealth_mgmt",
+      "question": "Which external FIBO classification grounds the legal party concept?",
+      "required_concepts": ["Party"],
+      "required_relationships": [],
+      "required_attributes": [],
+      "required_enums": [],
+      "required_mappings": ["LegalEntity"],
+      "description": "Verifies FIBO reference ontology semantic alignment for the party concept to FIBO LegalEntity."
+    }
+  ]
+}

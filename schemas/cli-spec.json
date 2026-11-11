@@ -1,90 +1,4 @@
 {
-  "spec_version": "1.0.0",
-  "contract_version": "1.0.0",
-  "global_options": [
-    {
-      "name": "format",
-      "flag": "--format",
-      "short": "-f",
-      "type": "string",
-      "required": false,
-      "default": "toon",
-      "choices": [
-        "toon",
-        "json",
-        "text"
-      ],
-      "env_var": null,
-      "inline_upload": false,
-      "help": "Output formatting style (diagnostic TOON, machine RFC 8785 JSON, or human table)"
-    },
-    {
-      "name": "verbose",
-      "flag": "--verbose",
-      "short": "-v",
-      "type": "boolean",
-      "required": false,
-      "default": false,
-      "choices": null,
-      "env_var": null,
-      "inline_upload": false,
-      "help": "Enable verbose diagnostic logs"
-    },
-    {
-      "name": "version",
-      "flag": "--version",
-      "short": null,
-      "type": "boolean",
-      "required": false,
-      "default": false,
-      "choices": null,
-      "env_var": null,
-      "inline_upload": false,
-      "help": "Show OpenDV CLI version"
-    },
-    {
-      "name": "json",
-      "flag": "--json",
-      "short": null,
-      "type": "boolean",
-      "required": false,
-      "default": false,
-      "choices": null,
-      "env_var": null,
-      "inline_upload": false,
-      "help": "Format command output as deterministic RFC 8785 canonical JSON"
-    },
-    {
-      "name": "toon",
-      "flag": "--toon",
-      "short": null,
-      "type": "boolean",
-      "required": false,
-      "default": false,
-      "choices": null,
-      "env_var": null,
-      "inline_upload": false,
-      "help": "Print compact diagnostic @toon_v1 trace output"
-    },
-    {
-      "name": "role",
-      "flag": "--role",
-      "short": null,
-      "type": "string",
-      "required": false,
-      "default": "INTERNAL_MODELER",
-      "choices": [
-        "PUBLIC",
-        "INTERNAL_MODELER",
-        "DATA_STEWARD",
-        "AUDITOR_FINANCE",
-        "RESTRICTED_PII_CUSTODIAN"
-      ],
-      "env_var": "OPENDV_ROLE",
-      "inline_upload": false,
-      "help": "5-Tier RBAC role clearance context"
-    }
-  ],
   "commands": [
     {
       "name": "profile",
@@ -1659,6 +1573,1295 @@
               "help": "Steward rejection rationale notes"
             }
           ]
+        },
+        {
+          "name": "studio",
+          "description": "Interactive Ontology Construction Studio (FIBO, LiteParse, dual-mode engine, CAS sessions)",
+          "help": "Manage interactive Ontology Construction Studio sessions, ingestion, and promotion",
+          "aliases": [],
+          "availability": "both",
+          "subcommands": [
+            {
+              "name": "init",
+              "description": "Initialize local workbench loopback token and DACL permissions",
+              "help": "Initialize local workbench loopback token",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "force",
+                  "flag": "--force",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Force overwrite existing local token if authorized"
+                }
+              ]
+            },
+            {
+              "name": "create",
+              "description": "Create a new ontology construction studio session",
+              "help": "Create a new studio session",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": "CreateSessionRequest",
+              "response_dto": "StudioSessionDTO",
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Optional explicit studio session identifier"
+                },
+                {
+                  "name": "domain_namespace",
+                  "flag": "--domain-namespace",
+                  "short": "-n",
+                  "type": "string",
+                  "required": false,
+                  "default": "default",
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Domain namespace matching base Graph A"
+                },
+                {
+                  "name": "enterprise_owner",
+                  "flag": "--enterprise-owner",
+                  "short": "-o",
+                  "type": "string",
+                  "required": false,
+                  "default": "Enterprise",
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Enterprise owner organization or domain"
+                },
+                {
+                  "name": "ontology_id",
+                  "flag": "--ontology-id",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Custom ontology identifier"
+                },
+                {
+                  "name": "description",
+                  "flag": "--description",
+                  "short": "-d",
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Session description or business purpose"
+                },
+                {
+                  "name": "from_workspace",
+                  "flag": "--from-workspace",
+                  "short": "-w",
+                  "type": "path",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Path to workspace Data Vault project to seed from"
+                },
+                {
+                  "name": "session_label",
+                  "flag": "--session-label",
+                  "short": "-l",
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Human-readable label for session identification"
+                }
+              ]
+            },
+            {
+              "name": "list",
+              "description": "List active ontology construction studio sessions",
+              "help": "List active studio sessions",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "limit",
+                  "flag": "--limit",
+                  "short": "-l",
+                  "type": "integer",
+                  "required": false,
+                  "default": 50,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Maximum number of sessions to display"
+                },
+                {
+                  "name": "offset",
+                  "flag": "--offset",
+                  "short": null,
+                  "type": "integer",
+                  "required": false,
+                  "default": 0,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Pagination offset"
+                },
+                {
+                  "name": "status",
+                  "flag": "--status",
+                  "short": "-s",
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Filter sessions by status"
+                }
+              ]
+            },
+            {
+              "name": "status",
+              "description": "Show status, active version, head SHA-256, sources, and jobs for a studio session",
+              "help": "Show studio session details",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Studio session identifier"
+                }
+              ]
+            },
+            {
+              "name": "upload",
+              "description": "Upload candidate source documents (PDF, CSV, TSV, Parquet, MD, etc.) to session CAS",
+              "help": "Upload source documents to session",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Studio session identifier"
+                },
+                {
+                  "name": "file",
+                  "flag": "--file",
+                  "short": "-f",
+                  "type": "path",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": true,
+                  "help": "Path to document file to upload"
+                },
+                {
+                  "name": "do_not_send_to_agent",
+                  "flag": "--do-not-send-to-agent",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Mark source confidential to suppress raw text transmission to external LLMs"
+                },
+                {
+                  "name": "description",
+                  "flag": "--description",
+                  "short": "-d",
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Optional description of source dataset"
+                }
+              ]
+            },
+            {
+              "name": "parse",
+              "description": "Trigger document ingestion and layout parsing job",
+              "help": "Trigger document ingestion and parsing",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Studio session identifier"
+                },
+                {
+                  "name": "source_id",
+                  "flag": "--source-id",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Specific source document ID to parse (defaults to all pending)"
+                },
+                {
+                  "name": "ocr_mode",
+                  "flag": "--ocr-mode",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": "auto",
+                  "choices": [
+                    "auto",
+                    "force",
+                    "off"
+                  ],
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "OCR routing mode for scanned pages"
+                },
+                {
+                  "name": "stream",
+                  "flag": "--stream",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Follow live SSE event stream until job completes"
+                },
+                {
+                  "name": "wait",
+                  "flag": "--wait",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Block until job completes and return terminal status"
+                },
+                {
+                  "name": "source_ids",
+                  "flag": "--source-ids",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Comma-separated list of source document IDs to parse"
+                }
+              ]
+            },
+            {
+              "name": "clarify",
+              "description": "Generate domain clarification questions from candidate terms",
+              "help": "Generate domain clarification questions",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Studio session identifier"
+                },
+                {
+                  "name": "focus_concept",
+                  "flag": "--focus-concept",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Optional focus concept URI to target clarification"
+                },
+                {
+                  "name": "max_questions",
+                  "flag": "--max-questions",
+                  "short": null,
+                  "type": "integer",
+                  "required": false,
+                  "default": 5,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Maximum number of questions to generate"
+                },
+                {
+                  "name": "stream",
+                  "flag": "--stream",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Follow live SSE event stream"
+                },
+                {
+                  "name": "wait",
+                  "flag": "--wait",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Block until clarify job completes"
+                }
+              ]
+            },
+            {
+              "name": "answer",
+              "description": "Submit human answers to clarification questions",
+              "help": "Submit clarification answers",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Studio session identifier"
+                },
+                {
+                  "name": "file",
+                  "flag": "--file",
+                  "short": "-f",
+                  "type": "path",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": true,
+                  "help": "Path to JSON file containing clarification answers"
+                }
+              ]
+            },
+            {
+              "name": "construct",
+              "description": "Trigger dual-mode ontology construction pipeline (deterministic or agent)",
+              "help": "Construct Graph A ontology",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Studio session identifier"
+                },
+                {
+                  "name": "base_version",
+                  "flag": "--base-version",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Base SemVer version string"
+                },
+                {
+                  "name": "base_sha256",
+                  "flag": "--base-sha256",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "64-character hex SHA-256 digest of base ontology"
+                },
+                {
+                  "name": "mode",
+                  "flag": "--mode",
+                  "short": "-m",
+                  "type": "string",
+                  "required": false,
+                  "default": "auto",
+                  "choices": [
+                    "auto",
+                    "agent",
+                    "deterministic"
+                  ],
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Construction execution mode"
+                },
+                {
+                  "name": "auto_commit",
+                  "flag": "--auto-commit",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Automatically commit constructed delta without proposal staging (requires pinned base)"
+                },
+                {
+                  "name": "stream",
+                  "flag": "--stream",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Follow live SSE event stream"
+                },
+                {
+                  "name": "wait",
+                  "flag": "--wait",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Block until construct completes"
+                }
+              ]
+            },
+            {
+              "name": "delta",
+              "description": "Apply human additive delta operations or steward revisions",
+              "help": "Apply ontology delta operations",
+              "aliases": [],
+              "availability": "both",
+              "subcommands": [
+                {
+                  "name": "apply",
+                  "description": "Apply delta operations from file to active session",
+                  "help": "Apply delta operations",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": null,
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Studio session identifier"
+                    },
+                    {
+                      "name": "file",
+                      "flag": "--file",
+                      "short": "-f",
+                      "type": "path",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": true,
+                      "help": "Path to JSON file containing delta operations"
+                    },
+                    {
+                      "name": "base_version",
+                      "flag": "--base-version",
+                      "short": null,
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Base SemVer version"
+                    },
+                    {
+                      "name": "base_sha256",
+                      "flag": "--base-sha256",
+                      "short": null,
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Base SHA-256 hash"
+                    },
+                    {
+                      "name": "rationale",
+                      "flag": "--rationale",
+                      "short": "-r",
+                      "type": "string",
+                      "required": false,
+                      "default": "",
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Business rationale for mutation"
+                    },
+                    {
+                      "name": "low_confidence_waiver",
+                      "flag": "--low-confidence-waiver",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Admin waiver for concepts with low confidence grounding"
+                    },
+                    {
+                      "name": "grounding_rationale",
+                      "flag": "--grounding-rationale",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Admin rationale for grounding waiver (min 10 chars)"
+                    },
+                    {
+                      "name": "ungrounded_concept",
+                      "flag": "--ungrounded-concept",
+                      "short": null,
+                      "type": "array",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Explicit list of concept URIs covered by grounding waiver"
+                    },
+                    {
+                      "name": "evidence_grounding_file",
+                      "flag": "--evidence-grounding-file",
+                      "short": null,
+                      "type": "path",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": true,
+                      "help": "Path to admin evidence grounding approval JSON"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "proposal",
+              "description": "Manage candidate ontology proposals (list, show, accept, reject, rebase)",
+              "help": "Manage ontology proposals",
+              "aliases": [],
+              "availability": "both",
+              "subcommands": [
+                {
+                  "name": "list",
+                  "description": "List proposals for a studio session",
+                  "help": "List proposals",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": null,
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Studio session identifier"
+                    }
+                  ]
+                },
+                {
+                  "name": "show",
+                  "description": "Display detailed proposal operations and grounding",
+                  "help": "Show proposal details",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": null,
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Studio session identifier"
+                    },
+                    {
+                      "name": "proposal_id",
+                      "flag": "--proposal-id",
+                      "short": "-p",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Proposal identifier"
+                    }
+                  ]
+                },
+                {
+                  "name": "accept",
+                  "description": "Accept pending proposal and apply its delta to roll head forward",
+                  "help": "Accept proposal",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": null,
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Studio session identifier"
+                    },
+                    {
+                      "name": "proposal_id",
+                      "flag": "--proposal-id",
+                      "short": "-p",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Proposal identifier"
+                    },
+                    {
+                      "name": "base_sha256",
+                      "flag": "--base-sha256",
+                      "short": null,
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Expected base SHA-256 for optimistic concurrency check"
+                    },
+                    {
+                      "name": "allow_self_accepted_proposals",
+                      "flag": "--allow-self-accepted-proposals",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Admin override allowing acceptance of own proposal (requires local admin)"
+                    },
+                    {
+                      "name": "low_confidence_waiver",
+                      "flag": "--low-confidence-waiver",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Admin waiver for low-confidence external mappings"
+                    },
+                    {
+                      "name": "grounding_rationale",
+                      "flag": "--grounding-rationale",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Rationale for grounding waiver (min 10 chars)"
+                    },
+                    {
+                      "name": "ungrounded_concept",
+                      "flag": "--ungrounded-concept",
+                      "short": null,
+                      "type": "array",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Concept URIs covered by waiver"
+                    },
+                    {
+                      "name": "evidence_grounding_file",
+                      "flag": "--evidence-grounding-file",
+                      "short": null,
+                      "type": "path",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": true,
+                      "help": "Path to admin evidence grounding approval JSON"
+                    }
+                  ]
+                },
+                {
+                  "name": "reject",
+                  "description": "Reject a pending proposal",
+                  "help": "Reject proposal",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": null,
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Studio session identifier"
+                    },
+                    {
+                      "name": "proposal_id",
+                      "flag": "--proposal-id",
+                      "short": "-p",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Proposal identifier"
+                    },
+                    {
+                      "name": "reason",
+                      "flag": "--reason",
+                      "short": "-r",
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Rejection rationale"
+                    }
+                  ]
+                },
+                {
+                  "name": "rebase",
+                  "description": "Rebase proposal operations onto latest active session head",
+                  "help": "Rebase proposal",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": null,
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Studio session identifier"
+                    },
+                    {
+                      "name": "proposal_id",
+                      "flag": "--proposal-id",
+                      "short": "-p",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Proposal identifier"
+                    },
+                    {
+                      "name": "base_sha256",
+                      "flag": "--base-sha256",
+                      "short": null,
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Target base SHA-256 for rebase"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "name": "export",
+              "description": "Export constructed Graph A ontology to YAML, JSON, OWL 2/Turtle, or JSON-LD",
+              "help": "Export constructed ontology",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Studio session identifier"
+                },
+                {
+                  "name": "export_format",
+                  "flag": "--export-format",
+                  "short": "-e",
+                  "type": "string",
+                  "required": false,
+                  "default": "yaml",
+                  "choices": [
+                    "yaml",
+                    "json",
+                    "turtle",
+                    "jsonld"
+                  ],
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Serialization format"
+                },
+                {
+                  "name": "version",
+                  "flag": "--version",
+                  "short": "-v",
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Target ontology version (defaults to active head)"
+                },
+                {
+                  "name": "out",
+                  "flag": "--out",
+                  "short": "-o",
+                  "type": "path",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Output file path (client_file_download)"
+                }
+              ]
+            },
+            {
+              "name": "promote",
+              "description": "Promote active session ontology to production workspace pipeline under graph_a.lock",
+              "help": "Promote ontology to workspace",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Studio session identifier"
+                },
+                {
+                  "name": "workspace",
+                  "flag": "--workspace",
+                  "short": "-w",
+                  "type": "path",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Destination workspace Data Vault project path"
+                },
+                {
+                  "name": "workspace_sha256",
+                  "flag": "--workspace-sha256",
+                  "short": null,
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Expected current workspace SHA-256 (64 zeros for greenfield)"
+                },
+                {
+                  "name": "head_sha256",
+                  "flag": "--head-sha256",
+                  "short": null,
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Expected session head SHA-256 digest"
+                },
+                {
+                  "name": "rationale",
+                  "flag": "--rationale",
+                  "short": "-r",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Required promotion rationale (min 10 characters)"
+                },
+                {
+                  "name": "acknowledge_historical_contract_warning",
+                  "flag": "--acknowledge-historical-contract-warning",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Acknowledge historical deployed contract warning"
+                },
+                {
+                  "name": "historical_contract_rationale",
+                  "flag": "--historical-contract-rationale",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Rationale acknowledging historical contract warning"
+                }
+              ]
+            },
+            {
+              "name": "bundle",
+              "description": "Manage portable session archives (.odvstudio.zip export, import, clone)",
+              "help": "Manage session bundles",
+              "aliases": [],
+              "availability": "both",
+              "subcommands": [
+                {
+                  "name": "export",
+                  "description": "Export session into portable .odvstudio.zip archive",
+                  "help": "Export session bundle",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": null,
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Studio session identifier"
+                    },
+                    {
+                      "name": "out",
+                      "flag": "--out",
+                      "short": "-o",
+                      "type": "path",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Destination file path (.odvstudio.zip)"
+                    },
+                    {
+                      "name": "acknowledge_confidential_source_export",
+                      "flag": "--acknowledge-confidential-source-export",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Acknowledge export of confidential/tainted sources"
+                    },
+                    {
+                      "name": "export_rationale",
+                      "flag": "--export-rationale",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Rationale for exporting confidential session archive"
+                    }
+                  ]
+                },
+                {
+                  "name": "import",
+                  "description": "Import and re-validate portable .odvstudio.zip archive",
+                  "help": "Import session bundle",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": null,
+                  "options": [
+                    {
+                      "name": "file",
+                      "flag": "--file",
+                      "short": "-f",
+                      "type": "path",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": true,
+                      "help": "Path to .odvstudio.zip archive to import"
+                    },
+                    {
+                      "name": "acknowledge_unverified_import_attribution",
+                      "flag": "--acknowledge-unverified-import-attribution",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Admin acknowledgement for unverified imported attribution or waivers"
+                    },
+                    {
+                      "name": "acknowledgement_rationale",
+                      "flag": "--acknowledgement-rationale",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Rationale acknowledging unverified import attribution"
+                    },
+                    {
+                      "name": "acknowledge_historical_contract_warning",
+                      "flag": "--acknowledge-historical-contract-warning",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Acknowledge historical contract warning in imported session"
+                    },
+                    {
+                      "name": "historical_contract_rationale",
+                      "flag": "--historical-contract-rationale",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Rationale acknowledging historical contract warning"
+                    }
+                  ]
+                },
+                {
+                  "name": "clone",
+                  "description": "Clone an existing studio session into a new isolated session identifier",
+                  "help": "Clone studio session",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": null,
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": true,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Source studio session identifier to clone"
+                    },
+                    {
+                      "name": "session_label",
+                      "flag": "--session-label",
+                      "short": "-l",
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Label for the newly cloned session"
+                    },
+                    {
+                      "name": "new_session_id",
+                      "flag": "--new-session-id",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Explicit target session identifier for the newly cloned session"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
         }
       ]
     },
@@ -1962,6 +3165,7 @@
       ]
     }
   ],
+  "contract_version": "1.0.0",
   "error_map": [
     {
       "error_code": "OK",
@@ -2123,6 +3327,903 @@
       "http_status": 503,
       "problem_title": "Harness Provider Unavailable",
       "problem_type_uri": "urn:opendv:provider-unavailable"
+    },
+    {
+      "error_code": "AGENT_UNAVAILABLE",
+      "exit_code": 1,
+      "http_status": 503,
+      "problem_title": "LLM Agent Service Unavailable",
+      "problem_type_uri": "urn:opendv:error:agent-unavailable"
+    },
+    {
+      "error_code": "CONFLICTING_WORKSPACE_SEED_PARAMS",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "Conflicting Workspace Seed Parameters",
+      "problem_type_uri": "urn:opendv:error:conflicting-workspace-seed-params"
+    },
+    {
+      "error_code": "CORRUPT_SESSION_RECORD",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Corrupt Session Record",
+      "problem_type_uri": "urn:opendv:error:corrupt-session-record"
+    },
+    {
+      "error_code": "EXPORT_RATIONALE_REQUIRED",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "Export Rationale Required",
+      "problem_type_uri": "urn:opendv:error:export-rationale-required"
+    },
+    {
+      "error_code": "HISTORICAL_CONTRACT_RATIONALE_REQUIRED",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "Historical Contract Rationale Required",
+      "problem_type_uri": "urn:opendv:error:historical-contract-rationale-required"
+    },
+    {
+      "error_code": "IMPORT_GROUNDING_RATIONALE_REQUIRED",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "Import Grounding Rationale Required",
+      "problem_type_uri": "urn:opendv:error:import-grounding-rationale-required"
+    },
+    {
+      "error_code": "INSECURE_STUDIO_ROOT_PERMISSIONS",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Insecure Studio Root Permissions",
+      "problem_type_uri": "urn:opendv:error:insecure-studio-root-permissions"
+    },
+    {
+      "error_code": "JOB_ABANDONED_SERVER_CRASH",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Background Job Abandoned Due to Server Crash",
+      "problem_type_uri": "urn:opendv:error:job-abandoned-server-crash"
+    },
+    {
+      "error_code": "MATCHER_UNIDATA_VERSION_MISMATCH",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Matcher Unicode Character Tables Version Mismatch",
+      "problem_type_uri": "urn:opendv:error:matcher-unidata-version-mismatch"
+    },
+    {
+      "error_code": "NO_OP_DELTA",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "No-Op Delta",
+      "problem_type_uri": "urn:opendv:error:no-op-delta"
+    },
+    {
+      "error_code": "OCR_UNAVAILABLE",
+      "exit_code": 1,
+      "http_status": 503,
+      "problem_title": "OCR Engine Unavailable",
+      "problem_type_uri": "urn:opendv:error:ocr-unavailable"
+    },
+    {
+      "error_code": "OFFICE_CONVERSION_UNAVAILABLE",
+      "exit_code": 1,
+      "http_status": 503,
+      "problem_title": "Office Document Conversion Unavailable",
+      "problem_type_uri": "urn:opendv:error:office-conversion-unavailable"
+    },
+    {
+      "error_code": "PROMOTION_RATIONALE_REQUIRED",
+      "exit_code": 1,
+      "http_status": 400,
+      "problem_title": "Promotion Rationale Required",
+      "problem_type_uri": "urn:opendv:error:promotion-rationale-required"
+    },
+    {
+      "error_code": "REFERENCE_PACK_INTEGRITY_FAILURE",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Reference Pack Integrity Failure",
+      "problem_type_uri": "urn:opendv:error:reference-pack-integrity-failure"
+    },
+    {
+      "error_code": "VERSION_COMMIT_IO_FAILURE",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Version Commit IO Failure",
+      "problem_type_uri": "urn:opendv:error:version-commit-io-failure"
+    },
+    {
+      "error_code": "INVALID_EVIDENCE_OFFSETS",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Invalid Evidence Offsets",
+      "problem_type_uri": "urn:opendv:error:invalid-evidence-offsets"
+    },
+    {
+      "error_code": "INVALID_PRECONDITION_HEADER",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Invalid Precondition Header",
+      "problem_type_uri": "urn:opendv:error:invalid-precondition-header"
+    },
+    {
+      "error_code": "INVALID_SESSION_IDENTIFIER",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Invalid Session Identifier",
+      "problem_type_uri": "urn:opendv:error:invalid-session-identifier"
+    },
+    {
+      "error_code": "INVALID_WORKSPACE_PATH",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Invalid Workspace Path",
+      "problem_type_uri": "urn:opendv:error:invalid-workspace-path"
+    },
+    {
+      "error_code": "MISSING_AUTO_COMMIT_PRECONDITION",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Missing Auto-Commit Precondition",
+      "problem_type_uri": "urn:opendv:error:missing-auto-commit-precondition"
+    },
+    {
+      "error_code": "MISSING_PRECONDITION_HEADER",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Missing Precondition Header",
+      "problem_type_uri": "urn:opendv:error:missing-precondition-header"
+    },
+    {
+      "error_code": "PRECONDITION_BASE_SHA_MISMATCH",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Precondition Base SHA Mismatch",
+      "problem_type_uri": "urn:opendv:error:precondition-base-sha-mismatch"
+    },
+    {
+      "error_code": "REMOTE_SERVER_PATH_FORBIDDEN",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Remote Server Path Forbidden",
+      "problem_type_uri": "urn:opendv:error:remote-server-path-forbidden"
+    },
+    {
+      "error_code": "SYNTAX_INVALID_ARGUMENT",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Invalid Argument Syntax",
+      "problem_type_uri": "urn:opendv:error:syntax-invalid-argument"
+    },
+    {
+      "error_code": "VALIDATION_AMBIGUOUS_TARGET",
+      "exit_code": 2,
+      "http_status": 400,
+      "problem_title": "Ambiguous Target Specifier",
+      "problem_type_uri": "urn:opendv:error:validation-ambiguous-target"
+    },
+    {
+      "error_code": "JOB_NOT_FOUND",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Job Not Found",
+      "problem_type_uri": "urn:opendv:error:job-not-found"
+    },
+    {
+      "error_code": "PROPOSAL_NOT_FOUND",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Proposal Not Found",
+      "problem_type_uri": "urn:opendv:error:proposal-not-found"
+    },
+    {
+      "error_code": "SESSION_NOT_FOUND",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Session Not Found",
+      "problem_type_uri": "urn:opendv:error:session-not-found"
+    },
+    {
+      "error_code": "SOURCE_NOT_FOUND",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Source Document Not Found",
+      "problem_type_uri": "urn:opendv:error:source-not-found"
+    },
+    {
+      "error_code": "VERSION_NOT_FOUND",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Version Not Found",
+      "problem_type_uri": "urn:opendv:error:version-not-found"
+    },
+    {
+      "error_code": "AGENT_UNRESOLVED_PSEUDONYM",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Agent Unresolved Pseudonym",
+      "problem_type_uri": "urn:opendv:error:agent-unresolved-pseudonym"
+    },
+    {
+      "error_code": "AMBIGUOUS_EXTERNAL_MAPPING",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Ambiguous External Mapping",
+      "problem_type_uri": "urn:opendv:error:ambiguous-external-mapping"
+    },
+    {
+      "error_code": "ARCHIVE_SECURITY_VIOLATION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Archive Security Violation",
+      "problem_type_uri": "urn:opendv:error:archive-security-violation"
+    },
+    {
+      "error_code": "ATTRIBUTE_NOT_FOUND",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Attribute Not Found",
+      "problem_type_uri": "urn:opendv:error:attribute-not-found"
+    },
+    {
+      "error_code": "AUTOMATED_ATTRIBUTION_INVALID",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Automated Attribution",
+      "problem_type_uri": "urn:opendv:error:automated-attribution-invalid"
+    },
+    {
+      "error_code": "CANNOT_DELETE_PROMOTED_SESSION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Cannot Delete Promoted Session",
+      "problem_type_uri": "urn:opendv:error:cannot-delete-promoted-session"
+    },
+    {
+      "error_code": "CANNOT_PRUNE_PROMOTED_SESSION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Cannot Prune Promoted Session",
+      "problem_type_uri": "urn:opendv:error:cannot-prune-promoted-session"
+    },
+    {
+      "error_code": "CONCEPT_STILL_REFERENCED",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Concept Still Referenced",
+      "problem_type_uri": "urn:opendv:error:concept-still-referenced"
+    },
+    {
+      "error_code": "CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Confidential Source Export Unacknowledged",
+      "problem_type_uri": "urn:opendv:error:confidential-source-export-unacknowledged"
+    },
+    {
+      "error_code": "DANGLING_ENUM_CODE_DESCRIPTION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Dangling Enumeration Code Description",
+      "problem_type_uri": "urn:opendv:error:dangling-enum-code-description"
+    },
+    {
+      "error_code": "DESCRIPTION_ALREADY_EXISTS",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Description Already Exists",
+      "problem_type_uri": "urn:opendv:error:description-already-exists"
+    },
+    {
+      "error_code": "DUPLICATE_ATTRIBUTE_NAME",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Duplicate Attribute Name",
+      "problem_type_uri": "urn:opendv:error:duplicate-attribute-name"
+    },
+    {
+      "error_code": "DUPLICATE_ENUM_CODE",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Duplicate Enumeration Code",
+      "problem_type_uri": "urn:opendv:error:duplicate-enum-code"
+    },
+    {
+      "error_code": "DUPLICATE_RELATIONSHIP_NAME",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Duplicate Relationship Name",
+      "problem_type_uri": "urn:opendv:error:duplicate-relationship-name"
+    },
+    {
+      "error_code": "DUPLICATE_RELATIONSHIP_URI",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Duplicate Relationship URI",
+      "problem_type_uri": "urn:opendv:error:duplicate-relationship-uri"
+    },
+    {
+      "error_code": "DUPLICATE_SYNONYM",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Duplicate Synonym",
+      "problem_type_uri": "urn:opendv:error:duplicate-synonym"
+    },
+    {
+      "error_code": "ENUM_CODE_NOT_FOUND",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Enumeration Code Not Found",
+      "problem_type_uri": "urn:opendv:error:enum-code-not-found"
+    },
+    {
+      "error_code": "EVIDENCE_OFFSET_OUT_OF_RANGE",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Evidence Offset Out of Range",
+      "problem_type_uri": "urn:opendv:error:evidence-offset-out-of-range"
+    },
+    {
+      "error_code": "GENESIS_REQUIRES_CONCEPT",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Genesis Version Requires Concept",
+      "problem_type_uri": "urn:opendv:error:genesis-requires-concept"
+    },
+    {
+      "error_code": "HIERARCHICAL_CYCLE_DETECTED",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Hierarchical Cycle Detected",
+      "problem_type_uri": "urn:opendv:error:hierarchical-cycle-detected"
+    },
+    {
+      "error_code": "HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Historical Contract Warning Unacknowledged",
+      "problem_type_uri": "urn:opendv:error:historical-contract-warning-unacknowledged"
+    },
+    {
+      "error_code": "HUB_BIJECTION_VIOLATION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Hub Bijection Violation",
+      "problem_type_uri": "urn:opendv:error:hub-bijection-violation"
+    },
+    {
+      "error_code": "IMPORT_ADMIN_OP_FORBIDDEN",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Admin Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:import-admin-op-forbidden"
+    },
+    {
+      "error_code": "IMPORT_AGENT_DESTRUCTIVE_OP_FORBIDDEN",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Agent Destructive Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:import-agent-destructive-op-forbidden"
+    },
+    {
+      "error_code": "IMPORT_AUTOMATED_ATTRIBUTION_INVALID",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Invalid Automated Attribution",
+      "problem_type_uri": "urn:opendv:error:import-automated-attribution-invalid"
+    },
+    {
+      "error_code": "IMPORT_CONFIDENCE_MISMATCH",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Confidence Mismatch",
+      "problem_type_uri": "urn:opendv:error:import-confidence-mismatch"
+    },
+    {
+      "error_code": "IMPORT_DELTA_REPLAY_HASH_MISMATCH",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Delta Replay Hash Mismatch",
+      "problem_type_uri": "urn:opendv:error:import-delta-replay-hash-mismatch"
+    },
+    {
+      "error_code": "IMPORT_ENVELOPE_VIOLATION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Envelope Violation",
+      "problem_type_uri": "urn:opendv:error:import-envelope-violation"
+    },
+    {
+      "error_code": "IMPORT_GROUNDING_VIOLATION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Grounding Violation",
+      "problem_type_uri": "urn:opendv:error:import-grounding-violation"
+    },
+    {
+      "error_code": "IMPORT_LINEAGE_BROKEN",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Lineage Broken",
+      "problem_type_uri": "urn:opendv:error:import-lineage-broken"
+    },
+    {
+      "error_code": "IMPORT_MATCHER_VERSION_MISMATCH",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Matcher Version Mismatch",
+      "problem_type_uri": "urn:opendv:error:import-matcher-version-mismatch"
+    },
+    {
+      "error_code": "IMPORT_PROVISIONAL_URI_FORBIDDEN",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Provisional URI Forbidden",
+      "problem_type_uri": "urn:opendv:error:import-provisional-uri-forbidden"
+    },
+    {
+      "error_code": "IMPORT_SELF_ACCEPTANCE_UNACKNOWLEDGED",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Self-Acceptance Unacknowledged",
+      "problem_type_uri": "urn:opendv:error:import-self-acceptance-unacknowledged"
+    },
+    {
+      "error_code": "IMPORT_SEMVER_BUMP_MISMATCH",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import SemVer Bump Mismatch",
+      "problem_type_uri": "urn:opendv:error:import-semver-bump-mismatch"
+    },
+    {
+      "error_code": "IMPORT_UNKNOWN_REFERENCE_PACK",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Import Unknown Reference Pack",
+      "problem_type_uri": "urn:opendv:error:import-unknown-reference-pack"
+    },
+    {
+      "error_code": "INVALID_EVIDENCE_GROUNDING",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Evidence Grounding",
+      "problem_type_uri": "urn:opendv:error:invalid-evidence-grounding"
+    },
+    {
+      "error_code": "INVALID_GROUNDING_WAIVER",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Grounding Waiver",
+      "problem_type_uri": "urn:opendv:error:invalid-grounding-waiver"
+    },
+    {
+      "error_code": "INVALID_PHYSICAL_TABLE_NAME",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Physical Table Name",
+      "problem_type_uri": "urn:opendv:error:invalid-physical-table-name"
+    },
+    {
+      "error_code": "INVALID_PROPOSAL_STATE",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Proposal State",
+      "problem_type_uri": "urn:opendv:error:invalid-proposal-state"
+    },
+    {
+      "error_code": "INVALID_WORKSPACE_ONTOLOGY",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Invalid Workspace Ontology",
+      "problem_type_uri": "urn:opendv:error:invalid-workspace-ontology"
+    },
+    {
+      "error_code": "MAPPING_NOT_FOUND",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "External Mapping Not Found",
+      "problem_type_uri": "urn:opendv:error:mapping-not-found"
+    },
+    {
+      "error_code": "ONTOLOGY_REQUIRES_CONCEPT",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Ontology Requires Concept",
+      "problem_type_uri": "urn:opendv:error:ontology-requires-concept"
+    },
+    {
+      "error_code": "ONT_EVO_CONTRACT_VIOLATION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Contract Violation",
+      "problem_type_uri": "urn:opendv:error:ont-evo-contract-violation"
+    },
+    {
+      "error_code": "ONT_EVO_ENVELOPE_VIOLATION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Envelope Violation",
+      "problem_type_uri": "urn:opendv:error:ont-evo-envelope-violation"
+    },
+    {
+      "error_code": "ONT_EVO_FORGED_PROVENANCE",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Forged Provenance",
+      "problem_type_uri": "urn:opendv:error:ont-evo-forged-provenance"
+    },
+    {
+      "error_code": "ONT_EVO_GROUNDING_VIOLATION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Grounding Violation",
+      "problem_type_uri": "urn:opendv:error:ont-evo-grounding-violation"
+    },
+    {
+      "error_code": "ONT_EVO_LOW_CONFIDENCE_GROUNDING",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Low Confidence Grounding",
+      "problem_type_uri": "urn:opendv:error:ont-evo-low-confidence-grounding"
+    },
+    {
+      "error_code": "ONT_EVO_PSEUDONYM_LEAK",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Pseudonym Leak",
+      "problem_type_uri": "urn:opendv:error:ont-evo-pseudonym-leak"
+    },
+    {
+      "error_code": "ONT_EVO_UNGROUNDED_CONCEPT",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "ONT-EVO Ungrounded Concept",
+      "problem_type_uri": "urn:opendv:error:ont-evo-ungrounded-concept"
+    },
+    {
+      "error_code": "PARENT_ALREADY_EXISTS",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Parent Already Exists",
+      "problem_type_uri": "urn:opendv:error:parent-already-exists"
+    },
+    {
+      "error_code": "PARENT_NOT_FOUND",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Parent Concept Not Found",
+      "problem_type_uri": "urn:opendv:error:parent-not-found"
+    },
+    {
+      "error_code": "PHYSICAL_TABLE_NAME_COLLISION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Physical Table Name Collision",
+      "problem_type_uri": "urn:opendv:error:physical-table-name-collision"
+    },
+    {
+      "error_code": "REDACTED_PLACEHOLDER_LEAK",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Redacted Placeholder Leak",
+      "problem_type_uri": "urn:opendv:error:redacted-placeholder-leak"
+    },
+    {
+      "error_code": "REFERENCED_CONCEPT_NOT_FOUND",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Referenced Concept Not Found",
+      "problem_type_uri": "urn:opendv:error:referenced-concept-not-found"
+    },
+    {
+      "error_code": "RELATIONSHIP_NOT_FOUND",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Relationship Not Found",
+      "problem_type_uri": "urn:opendv:error:relationship-not-found"
+    },
+    {
+      "error_code": "SOURCE_REFERENCED_BY_COMMITTED_VERSION",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Source Referenced by Committed Version",
+      "problem_type_uri": "urn:opendv:error:source-referenced-by-committed-version"
+    },
+    {
+      "error_code": "SOURCE_REFERENCED_BY_PENDING_PROPOSAL",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Source Referenced by Pending Proposal",
+      "problem_type_uri": "urn:opendv:error:source-referenced-by-pending-proposal"
+    },
+    {
+      "error_code": "UNDEFINED_PHYSICAL_TABLE_MAPPING",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Undefined Physical Table Mapping",
+      "problem_type_uri": "urn:opendv:error:undefined-physical-table-mapping"
+    },
+    {
+      "error_code": "UNKNOWN_REFERENCE_PACK",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Unknown Reference Pack",
+      "problem_type_uri": "urn:opendv:error:unknown-reference-pack"
+    },
+    {
+      "error_code": "VERSION_CONSISTENCY_MISMATCH",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Version Consistency Mismatch",
+      "problem_type_uri": "urn:opendv:error:version-consistency-mismatch"
+    },
+    {
+      "error_code": "LINEAGE_ROOT_MISMATCH",
+      "exit_code": 5,
+      "http_status": 412,
+      "problem_title": "Lineage Root Mismatch",
+      "problem_type_uri": "urn:opendv:error:lineage-root-mismatch"
+    },
+    {
+      "error_code": "ONT_EVO_CONCURRENT_MODIFICATION",
+      "exit_code": 5,
+      "http_status": 412,
+      "problem_title": "ONT-EVO Concurrent Modification",
+      "problem_type_uri": "urn:opendv:error:ont-evo-concurrent-modification"
+    },
+    {
+      "error_code": "JOB_COMMIT_IN_PROGRESS",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Job Commit In Progress",
+      "problem_type_uri": "urn:opendv:error:job-commit-in-progress"
+    },
+    {
+      "error_code": "LOCK_TIMEOUT",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Lock Acquisition Timeout",
+      "problem_type_uri": "urn:opendv:error:lock-timeout"
+    },
+    {
+      "error_code": "PRINCIPAL_ALREADY_EXISTS",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Principal Already Exists",
+      "problem_type_uri": "urn:opendv:error:principal-already-exists"
+    },
+    {
+      "error_code": "PRINCIPAL_RESERVED",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Principal Identifier Reserved",
+      "problem_type_uri": "urn:opendv:error:principal-reserved"
+    },
+    {
+      "error_code": "PROPOSAL_ALREADY_RESOLVED",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Proposal Already Resolved",
+      "problem_type_uri": "urn:opendv:error:proposal-already-resolved"
+    },
+    {
+      "error_code": "STUDIO_ALREADY_INITIALIZED",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Studio Already Initialized",
+      "problem_type_uri": "urn:opendv:error:studio-already-initialized"
+    },
+    {
+      "error_code": "AGENT_ADMIN_OP_FORBIDDEN",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Admin Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-admin-op-forbidden"
+    },
+    {
+      "error_code": "AGENT_DESTRUCTIVE_OP_FORBIDDEN",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Destructive Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-destructive-op-forbidden"
+    },
+    {
+      "error_code": "AGENT_METADATA_OVERWRITE_FORBIDDEN",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Metadata Overwrite Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-metadata-overwrite-forbidden"
+    },
+    {
+      "error_code": "AGENT_OPERATION_FORBIDDEN",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-operation-forbidden"
+    },
+    {
+      "error_code": "AGENT_PROPOSAL_ACCEPT_FORBIDDEN",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Proposal Accept Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-proposal-accept-forbidden"
+    },
+    {
+      "error_code": "CSRF_ORIGIN_MISMATCH",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "CSRF Origin Mismatch",
+      "problem_type_uri": "urn:opendv:error:csrf-origin-mismatch"
+    },
+    {
+      "error_code": "FORBIDDEN_ADMIN_REQUIRED",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Forbidden: Admin Role Required",
+      "problem_type_uri": "urn:opendv:error:forbidden-admin-required"
+    },
+    {
+      "error_code": "LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Loopback Privilege Disabled in Remote Mode",
+      "problem_type_uri": "urn:opendv:error:loopback-privilege-disabled-in-remote-mode"
+    },
+    {
+      "error_code": "PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Proposal Self-Acceptance Forbidden",
+      "problem_type_uri": "urn:opendv:error:proposal-self-acceptance-forbidden"
+    },
+    {
+      "error_code": "SERVER_OPERATION_FORBIDDEN",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Server Operation Forbidden",
+      "problem_type_uri": "urn:opendv:error:server-operation-forbidden"
+    },
+    {
+      "error_code": "UNAUTHENTICATED",
+      "exit_code": 7,
+      "http_status": 401,
+      "problem_title": "Unauthenticated Request",
+      "problem_type_uri": "urn:opendv:error:unauthenticated"
+    },
+    {
+      "error_code": "SESSION_ALREADY_EXISTS",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Session Already Exists",
+      "problem_type_uri": "urn:opendv:error:session-already-exists"
+    },
+    {
+      "error_code": "CORRUPT_SOURCE_BLOB",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Corrupt Source Blob",
+      "problem_type_uri": "urn:opendv:error:corrupt-source-blob"
+    },
+    {
+      "error_code": "LAUNCH_NONCE_EXPIRED",
+      "exit_code": 7,
+      "http_status": 401,
+      "problem_title": "Launch Nonce Expired",
+      "problem_type_uri": "urn:opendv:error:launch-nonce-expired"
+    },
+    {
+      "error_code": "AUTHENTICATION_CONFIG_ERROR",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Authentication Configuration Error",
+      "problem_type_uri": "urn:opendv:error:authentication-config-error"
+    },
+    {
+      "error_code": "EXECUTION_FAILURE",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Execution Failure",
+      "problem_type_uri": "urn:opendv:error:execution-failure"
+    },
+    {
+      "error_code": "JOB_ALREADY_TERMINAL",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Job Already Terminal",
+      "problem_type_uri": "urn:opendv:error:job-already-terminal"
+    },
+    {
+      "error_code": "STATIC_TOKEN_CONFIGURED",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Static Token Configured",
+      "problem_type_uri": "urn:opendv:error:static-token-configured"
     }
-  ]
+  ],
+  "global_options": [
+    {
+      "name": "format",
+      "flag": "--format",
+      "short": "-f",
+      "type": "string",
+      "required": false,
+      "default": "toon",
+      "choices": [
+        "toon",
+        "json",
+        "text"
+      ],
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Output formatting style (diagnostic TOON, machine RFC 8785 JSON, or human table)"
+    },
+    {
+      "name": "verbose",
+      "flag": "--verbose",
+      "short": "-v",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "choices": null,
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Enable verbose diagnostic logs"
+    },
+    {
+      "name": "version",
+      "flag": "--version",
+      "short": null,
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "choices": null,
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Show OpenDV CLI version"
+    },
+    {
+      "name": "json",
+      "flag": "--json",
+      "short": null,
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "choices": null,
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Format command output as deterministic RFC 8785 canonical JSON"
+    },
+    {
+      "name": "toon",
+      "flag": "--toon",
+      "short": null,
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "choices": null,
+      "env_var": null,
+      "inline_upload": false,
+      "help": "Print compact diagnostic @toon_v1 trace output"
+    },
+    {
+      "name": "role",
+      "flag": "--role",
+      "short": null,
+      "type": "string",
+      "required": false,
+      "default": "INTERNAL_MODELER",
+      "choices": [
+        "PUBLIC",
+        "INTERNAL_MODELER",
+        "DATA_STEWARD",
+        "AUDITOR_FINANCE",
+        "RESTRICTED_PII_CUSTODIAN"
+      ],
+      "env_var": "OPENDV_ROLE",
+      "inline_upload": false,
+      "help": "5-Tier RBAC role clearance context"
+    }
+  ],
+  "spec_version": "1.0.0"
 }

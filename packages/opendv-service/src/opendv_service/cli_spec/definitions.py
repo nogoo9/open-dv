@@ -967,6 +967,8 @@ HOLD_COMMAND = CommandDef(
 
 
 # --- 8. ontology (Phase P7) ---
+from opendv_service.cli_spec.studio_commands import STUDIO_COMMAND  # noqa: E402
+
 ONTOLOGY_COMMAND = CommandDef(
     name="ontology",
     description=(
@@ -1233,6 +1235,7 @@ ONTOLOGY_COMMAND = CommandDef(
                 ),
             ],
         ),
+        STUDIO_COMMAND,
     ],
 )
 

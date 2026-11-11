@@ -1,0 +1,229 @@
+# Enterprise Canonical Business Concept (CBC) Ontology (Graph A)
+# Domain: Private Wealth Management & Fiduciary Advisory Services
+# Standards Alignment: ISO 17442 (LEI), ISO 6166 (ISIN), ISO 9362 (BIC), EDM Council FIBO
+
+ontology_version: "1.0.0"
+domain_namespace: "wealth_mgmt"
+enterprise_owner: "Global Wealth Architecture Committee"
+standards_references:
+  - "ISO 17442 Global Legal Entity Identifier (LEI)"
+  - "ISO 6166 International Securities Identification Number (ISIN)"
+  - "ISO 9362 Business Identifier Code (BIC)"
+  - "EDM Council Financial Industry Business Ontology (FIBO)"
+
+canonical_business_concepts:
+  - concept_uri: "urn:ontology:entity:party"
+    concept_name: "Party"
+    elm_archetype: "WHO_LEGAL_ENTITY"
+    definition: "A natural person or legal organization participating in wealth management relationships or financial transactions."
+    target_hub: "hub_party"
+    synonyms: ["Entity", "Legal Person", "Legal Entity"]
+    attributes:
+      - attribute_name: "party_name"
+        data_type: "string"
+        description: "Legal name of the party."
+      - attribute_name: "total_exposure"
+        data_type: "decimal"
+        description: "Total aggregated financial exposure across accounts."
+    external_mappings:
+      - scheme: "fibo"
+        target_uri: "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity"
+        predicate: "skos:exactMatch"
+        confidence: 0.9500
+    key_authority_tiers:
+      tier_1_global_standard:
+        authority_name: "ISO 17442 Legal Entity Identifier (LEI)"
+        column_patterns: ["lei", "party_lei"]
+        regex_pattern: "^[A-Z0-9]{20}$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+      tier_2_enterprise_sor:
+        authority_name: "Wealth Management Master Party Key"
+        column_patterns: ["party_id", "master_party_id"]
+        regex_pattern: "^WP-[0-9]{5,8}$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+      tier_3_local_scoped:
+        authority_name: "Local Core Banking Client Number"
+        column_patterns: ["local_party_num"]
+        bkcc_policy: "SOURCE_SYSTEM_PREFIX_REQUIRED"
+        require_src_qualifier: true
+
+  - concept_uri: "urn:ontology:entity:customer"
+    concept_name: "Customer"
+    elm_archetype: "WHO_CLIENT_CUSTOMER"
+    definition: "A party that maintains an active wealth advisory relationship and holds accounts."
+    target_hub: "hub_customer"
+    parent_concept_uri: "urn:ontology:entity:party"
+    synonyms: ["Client"]
+    attributes:
+      - attribute_name: "credit_limit"
+        data_type: "decimal"
+        description: "Maximum allowable credit or overdraft limit."
+    external_mappings:
+      - scheme: "fibo"
+        target_uri: "https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer"
+        predicate: "skos:exactMatch"
+        confidence: 0.9500
+    key_authority_tiers:
+      tier_2_enterprise_sor:
+        authority_name: "Wealth Advisory CIF Code"
+        column_patterns: ["cif_no", "customer_id"]
+        regex_pattern: "^CIF-[0-9]{6,10}$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+
+  - concept_uri: "urn:ontology:entity:advisory_account"
+    concept_name: "AdvisoryAccount"
+    elm_archetype: "WHAT_FINANCIAL_ACCOUNT"
+    definition: "A segregated fiduciary wealth advisory account maintained by a client."
+    target_hub: "hub_account"
+    synonyms: ["Account", "Wealth Account"]
+    attributes:
+      - attribute_name: "account_number"
+        data_type: "string"
+        description: "Advisory account identification number."
+      - attribute_name: "opened_date"
+        data_type: "date"
+        description: "Date account was opened."
+    key_authority_tiers:
+      tier_2_enterprise_sor:
+        authority_name: "Core Account Number"
+        column_patterns: ["account_number", "account_id"]
+        regex_pattern: "^ACC-[0-9]{6,12}$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+
+  - concept_uri: "urn:ontology:entity:portfolio"
+    concept_name: "Portfolio"
+    elm_archetype: "WHAT_INVESTMENT_PORTFOLIO"
+    definition: "A discretionary or non-discretionary collection of financial investments managed under an advisory account."
+    target_hub: "hub_portfolio"
+    synonyms: ["Investment Portfolio", "Mandate"]
+    attributes:
+      - attribute_name: "portfolio_name"
+        data_type: "string"
+        description: "Name of the portfolio."
+      - attribute_name: "base_currency"
+        data_type: "string"
+        description: "ISO 4217 reporting currency."
+    key_authority_tiers:
+      tier_2_enterprise_sor:
+        authority_name: "Portfolio Master ID"
+        column_patterns: ["portfolio_id", "mandate_id"]
+        regex_pattern: "^PORT-[0-9]{4,8}$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+
+  - concept_uri: "urn:ontology:entity:financial_instrument"
+    concept_name: "FinancialInstrument"
+    elm_archetype: "WHAT_FINANCIAL_INSTRUMENT"
+    definition: "A negotiable asset or contract such as equity, bond, ETF, or structured product held in a portfolio."
+    target_hub: "hub_instrument"
+    synonyms: ["Security", "Asset", "Instrument"]
+    attributes:
+      - attribute_name: "instrument_id"
+        data_type: "string"
+        description: "Unique financial instrument identifier."
+      - attribute_name: "isin"
+        data_type: "string"
+        description: "ISO 6166 International Securities Identification Number."
+      - attribute_name: "ticker"
+        data_type: "string"
+        description: "Exchange ticker symbol."
+    external_mappings:
+      - scheme: "fibo"
+        target_uri: "https://spec.edmcouncil.org/fibo/ontology/FBC/FinancialInstruments/FinancialInstruments/FinancialInstrument"
+        predicate: "skos:exactMatch"
+        confidence: 0.9500
+    key_authority_tiers:
+      tier_1_global_standard:
+        authority_name: "ISO 6166 ISIN"
+        column_patterns: ["isin", "instrument_isin"]
+        regex_pattern: "^[A-Z]{2}[A-Z0-9]{9}[0-9]$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+      tier_2_enterprise_sor:
+        authority_name: "Security Master ID"
+        column_patterns: ["instrument_id", "security_id"]
+        regex_pattern: "^SEC-[0-9]{6,10}$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+
+  - concept_uri: "urn:ontology:entity:custodian_bank"
+    concept_name: "CustodianBank"
+    elm_archetype: "WHO_COUNTERPARTY_CUSTODIAN"
+    definition: "A specialized financial institution responsible for safeguarding a firm's or individual's financial assets."
+    target_hub: "hub_custodian"
+    synonyms: ["Depository Bank", "Custodian"]
+    attributes:
+      - attribute_name: "custodian_name"
+        data_type: "string"
+        description: "Legal name of custodian bank."
+      - attribute_name: "bic_swift"
+        data_type: "string"
+        description: "SWIFT/BIC routing code."
+    external_mappings:
+      - scheme: "fibo"
+        target_uri: "https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/EquityInstruments/Custodian"
+        predicate: "skos:exactMatch"
+        confidence: 0.9500
+    key_authority_tiers:
+      tier_1_global_standard:
+        authority_name: "ISO 9362 Business Identifier Code (BIC)"
+        column_patterns: ["bic", "swift"]
+        regex_pattern: "^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$"
+        bkcc_policy: "GLOBAL"
+        require_src_qualifier: false
+
+canonical_relationships:
+  - relationship_uri: "urn:ontology:relationship:party_guarantor"
+    relationship_name: "PartyGuarantor"
+    target_link: "lnk_party_guarantor"
+    endpoints: ["hub_party", "hub_customer"]
+    grain_semantics: "A legal party provides credit guarantee or collateral support for a customer account."
+
+  - relationship_uri: "urn:ontology:relationship:customer_account"
+    relationship_name: "CustomerAccount"
+    target_link: "lnk_customer_account"
+    endpoints: ["hub_customer", "hub_account"]
+    grain_semantics: "Binding between a customer and their designated advisory wealth accounts."
+
+  - relationship_uri: "urn:ontology:relationship:account_portfolio"
+    relationship_name: "AccountPortfolio"
+    target_link: "lnk_account_portfolio"
+    endpoints: ["hub_account", "hub_portfolio"]
+    grain_semantics: "One or more investment portfolios held under an advisory account mandate."
+
+  - relationship_uri: "urn:ontology:relationship:portfolio_holding"
+    relationship_name: "PortfolioHolding"
+    target_link: "lnk_portfolio_holding"
+    endpoints: ["hub_portfolio", "hub_instrument"]
+    grain_semantics: "Holding positions of financial instruments within a managed portfolio."
+
+  - relationship_uri: "urn:ontology:relationship:custodian_settlement"
+    relationship_name: "CustodianSettlement"
+    target_link: "lnk_custodian_settlement"
+    endpoints: ["hub_portfolio", "hub_custodian"]
+    grain_semantics: "Depository custodian bank responsible for clearing and safekeeping portfolio assets."
+
+reference_enumerations:
+  - enum_uri: "urn:ontology:enum:customer_status"
+    target_reference_table: "ref_customer_status"
+    allowed_codes: ["ACTIVE", "SUSPENDED", "CLOSED"]
+    enumeration_name: "CustomerStatus"
+    description: "Operational lifecycle status of a customer."
+    code_descriptions:
+      ACTIVE: "Operational customer with active accounts"
+      SUSPENDED: "Temporarily locked or restricted customer"
+      CLOSED: "Terminated client relationship"
+
+  - enum_uri: "urn:ontology:enum:risk_profile"
+    target_reference_table: "ref_risk_profile"
+    allowed_codes: ["CONSERVATIVE", "MODERATE", "AGGRESSIVE"]
+    enumeration_name: "RiskProfile"
+    description: "Risk tolerance profile for investment portfolios."
+    code_descriptions:
+      CONSERVATIVE: "Capital preservation focus with low risk tolerance"
+      MODERATE: "Balanced growth and income with moderate volatility"
+      AGGRESSIVE: "Capital appreciation focus accepting high volatility"

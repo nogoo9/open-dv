@@ -53,6 +53,29 @@ def test_golden_three_way_agreement(golden_manager: GoldenManager) -> None:
     golden_manager.verify_three_way_agreement()
 
 
+def test_golden_manager_include_prefixes_filtering(tmp_path: Path) -> None:
+    """Verify GoldenManager scans only files matching configured include_prefixes."""
+    fake_golden_root = tmp_path / "golden"
+    fake_golden_root.mkdir(parents=True)
+    fake_docs17 = tmp_path / "docs17.md"
+    fake_docs17.write_text("### G.3 Golden Manifest Table\n", encoding="utf-8")
+
+    (fake_golden_root / "GT-01").mkdir()
+    (fake_golden_root / "GT-01" / "file.txt").write_text("gt1", encoding="utf-8")
+    (fake_golden_root / "other_dir").mkdir()
+    (fake_golden_root / "other_dir" / "file.txt").write_text("other", encoding="utf-8")
+    (fake_golden_root / "__pycache__").mkdir()
+    (fake_golden_root / "__pycache__" / "cached.pyc").write_text("cache", encoding="utf-8")
+
+    gm_default = GoldenManager(fake_golden_root, fake_docs17)
+    scanned_default = gm_default.scan_committed_golden_files()
+    assert scanned_default == ["GT-01/file.txt"]
+
+    gm_all = GoldenManager(fake_golden_root, fake_docs17, include_prefixes=())
+    scanned_all = gm_all.scan_committed_golden_files()
+    assert sorted(scanned_all) == ["GT-01/file.txt", "other_dir/file.txt"]
+
+
 def test_golden_update_without_justification_fails(tmp_path: Path) -> None:
     """Verify --update-golden without a justification or with < 10 characters raises ValueError."""
     fake_golden_root = tmp_path / "golden"
