@@ -28,6 +28,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -37,7 +38,7 @@ import tracemalloc
 import zipfile
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Any
 
 import rdflib
@@ -69,6 +70,7 @@ except ImportError:
         from opendv_contracts.jcs import dumps_jcs_bytes
     else:
         raise
+
 
 def _load_baseline_fibo_config() -> tuple[str, str, str | None]:
     """Load upstream_commit, upstream_tag, and archive_sha256 from baseline (MIN-03, MIN-05)."""
@@ -116,8 +118,8 @@ DEFAULT_CACHE_DIR = REPO_ROOT / ".opendv" / "cache" / "fibo"
 
 # Resource Budget Invariants (ADR-003 & docs/21 §3.3)
 MAX_DISK_SIZE_BYTES = 4 * 1024 * 1024  # < 4.0 MB
-MAX_MEMORY_BYTES = 18 * 1024 * 1024    # < 18.0 MB
-MAX_LOAD_LATENCY_MS = 70.0              # < 70 ms
+MAX_MEMORY_BYTES = 18 * 1024 * 1024  # < 18.0 MB
+MAX_LOAD_LATENCY_MS = 70.0  # < 70 ms
 
 # Minimum counts for real production vendored pack (MAJ-03)
 MIN_PRODUCTION_CLASSES = 2000
@@ -204,9 +206,7 @@ def _pick_best_literal(literals: list[rdflib.Literal]) -> str:
     return sorted([str(lit).strip() for lit in valid])[0]
 
 
-def _extract_annotations(
-    g: rdflib.Graph, node: rdflib.URIRef
-) -> tuple[str, str, list[str]]:
+def _extract_annotations(g: rdflib.Graph, node: rdflib.URIRef) -> tuple[str, str, list[str]]:
     """Extract (label, definition, synonyms) for an RDF node with language preference (MIN-04)."""
     raw_labels = [lit for lit in g.objects(node, RDFS.label) if isinstance(lit, rdflib.Literal)]
     label = _pick_best_literal(raw_labels)
@@ -590,8 +590,7 @@ def verify_pack(
             )
         if len(properties) < MIN_PRODUCTION_PROPERTIES:
             err = (
-                f"Property count {len(properties)} below production min "
-                f"{MIN_PRODUCTION_PROPERTIES}"
+                f"Property count {len(properties)} below production min {MIN_PRODUCTION_PROPERTIES}"
             )
             return _fail_result(
                 err,
@@ -655,9 +654,7 @@ def verify_pack(
             )
 
     # Verify at least one class exists per core module
-    represented = {
-        item.get("module") for item in classes.values() if isinstance(item, dict)
-    }
+    represented = {item.get("module") for item in classes.values() if isinstance(item, dict)}
     for m in CORE_MODULES:
         if m not in represented:
             return _fail_result(
@@ -866,13 +863,20 @@ def create_mock_fibo_graph() -> rdflib.Graph:
 
 MAX_ARCHIVE_MEMBERS: int = 10_000
 MAX_ARCHIVE_UNCOMPRESSED_BYTES: int = 200 * 1024 * 1024  # 200 MB
+FILE_ATTRIBUTE_REPARSE_POINT: int = 0x400
+_ARCHIVE_STREAM_CHUNK_BYTES: int = 65_536
+
+
+class ArchiveSecurityError(ValueError):
+    """Raised when an archive violates traversal, symlink/reparse, or decompression budgets."""
 
 
 def safe_extract_archive(archive_path: Path, target_dir: Path) -> Path:
     """Safely extract tar or zip archives, preventing traversal vulnerabilities (MIN-01, SUG-02).
 
-    Enforces path resolution with is_relative_to, rejects symlinks and hardlinks outright,
-    enforces uncompressed member count and byte limits, and extracts into temporary staging.
+    Enforces path resolution with is_relative_to, rejects symlinks, reparse points, and hardlinks
+    outright, enforces streaming uncompressed member count and byte limits, and extracts into
+    temporary staging.
     """
     target_dir.parent.mkdir(parents=True, exist_ok=True)
 
@@ -888,14 +892,21 @@ def safe_extract_archive(archive_path: Path, target_dir: Path) -> Path:
                         f"Archive member count ({len(members)}) exceeds limit: "
                         f"{MAX_ARCHIVE_MEMBERS}"
                     )
-                    raise ValueError(msg)
+                    raise ArchiveSecurityError(msg)
                 total_bytes = 0
                 for member in members:
                     # 1. Path traversal check on member name using is_relative_to
-                    dest_path = (staging_dir / member.name).resolve()
+                    member_name = str(member.name)
+                    if (
+                        member_name.startswith(("/", "\\"))
+                        or PureWindowsPath(member_name).is_absolute()
+                    ):
+                        msg = f"Path traversal attempt detected in tar archive: {member_name}"
+                        raise ArchiveSecurityError(msg)
+                    dest_path = (staging_dir / member_name).resolve()
                     if not dest_path.is_relative_to(staging_dir):
-                        msg = f"Path traversal attempt detected in tar archive: {member.name}"
-                        raise ValueError(msg)
+                        msg = f"Path traversal attempt detected in tar archive: {member_name}"
+                        raise ArchiveSecurityError(msg)
 
                     # 2. Outright rejection of symlinks, hardlinks, devices, and FIFOs (MIN-01)
                     if (
@@ -907,15 +918,15 @@ def safe_extract_archive(archive_path: Path, target_dir: Path) -> Path:
                         or member.isfifo()
                     ):
                         msg = f"Links and special files prohibited in FIBO archive: {member.name}"
-                        raise ValueError(msg)
+                        raise ArchiveSecurityError(msg)
 
-                    total_bytes += member.size
+                    total_bytes += max(0, member.size)
                     if total_bytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
                         msg = (
                             f"Archive uncompressed size exceeds limit "
                             f"({MAX_ARCHIVE_UNCOMPRESSED_BYTES} bytes)"
                         )
-                        raise ValueError(msg)
+                        raise ArchiveSecurityError(msg)
 
                 if hasattr(tarfile, "data_filter"):
                     tar.extractall(staging_dir, filter="data")
@@ -930,21 +941,61 @@ def safe_extract_archive(archive_path: Path, target_dir: Path) -> Path:
                         f"Archive member count ({len(infolist)}) exceeds limit: "
                         f"{MAX_ARCHIVE_MEMBERS}"
                     )
-                    raise ValueError(msg)
-                total_bytes = 0
+                    raise ArchiveSecurityError(msg)
+                header_total_bytes = 0
+                streamed_total_bytes = 0
                 for info in infolist:
+                    if (
+                        info.filename.startswith(("/", "\\"))
+                        or PureWindowsPath(info.filename).is_absolute()
+                    ):
+                        msg = f"Path traversal attempt detected in zip archive: {info.filename}"
+                        raise ArchiveSecurityError(msg)
                     dest_path = (staging_dir / info.filename).resolve()
                     if not dest_path.is_relative_to(staging_dir):
                         msg = f"Path traversal attempt detected in zip archive: {info.filename}"
-                        raise ValueError(msg)
-                    total_bytes += info.file_size
-                    if total_bytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+                        raise ArchiveSecurityError(msg)
+
+                    mode = info.external_attr >> 16
+                    dos_attrs = info.external_attr & 0xFFFF
+                    if (
+                        stat.S_ISLNK(mode)
+                        or stat.S_ISFIFO(mode)
+                        or stat.S_ISCHR(mode)
+                        or stat.S_ISBLK(mode)
+                        or stat.S_ISSOCK(mode)
+                        or bool(dos_attrs & FILE_ATTRIBUTE_REPARSE_POINT)
+                    ):
+                        msg = f"Links and special files prohibited in FIBO archive: {info.filename}"
+                        raise ArchiveSecurityError(msg)
+
+                    header_total_bytes += max(0, info.file_size)
+                    if header_total_bytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
                         msg = (
                             f"Archive uncompressed size exceeds limit "
                             f"({MAX_ARCHIVE_UNCOMPRESSED_BYTES} bytes)"
                         )
-                        raise ValueError(msg)
-                zf.extractall(staging_dir)
+                        raise ArchiveSecurityError(msg)
+
+                    if info.is_dir():
+                        dest_path.mkdir(parents=True, exist_ok=True)
+                        continue
+
+                    dest_path.parent.mkdir(parents=True, exist_ok=True)
+                    try:
+                        with zf.open(info, "r") as src, dest_path.open("wb") as dst:
+                            while chunk := src.read(_ARCHIVE_STREAM_CHUNK_BYTES):
+                                streamed_total_bytes += len(chunk)
+                                if streamed_total_bytes > MAX_ARCHIVE_UNCOMPRESSED_BYTES:
+                                    msg = (
+                                        f"Archive uncompressed size exceeds limit "
+                                        f"({MAX_ARCHIVE_UNCOMPRESSED_BYTES} bytes)"
+                                    )
+                                    raise ArchiveSecurityError(msg)
+                                dst.write(chunk)
+                    except zipfile.BadZipFile as exc:
+                        msg = f"Corrupt or tampered zip archive entry {info.filename}: {exc}"
+                        raise ArchiveSecurityError(msg) from exc
         else:
             msg = f"Unsupported archive format for {archive_path}; expected .tar.gz, .tgz, or .zip"
             raise ValueError(msg)
@@ -1096,12 +1147,14 @@ def ensure_fibo_source(
             print(f"Extracting offline archive {offline_archive} to {extract_dir}...")
             safe_extract_archive(offline_archive, extract_dir)
             archive_manifest.write_text(
-                json.dumps({
-                    "archive_sha256": actual_archive_sha,
-                    "created_by": "opendv-vendor-fibo",
-                    "extracted_at": datetime.now(UTC).isoformat(),
-                    "source_archive": offline_archive.name,
-                }),
+                json.dumps(
+                    {
+                        "archive_sha256": actual_archive_sha,
+                        "created_by": "opendv-vendor-fibo",
+                        "extracted_at": datetime.now(UTC).isoformat(),
+                        "source_archive": offline_archive.name,
+                    }
+                ),
                 encoding="utf-8",
             )
 
@@ -1198,12 +1251,14 @@ def ensure_fibo_source(
             raise RuntimeError(msg)
 
         git_manifest.write_text(
-            json.dumps({
-                "cached_at": datetime.now(UTC).isoformat(),
-                "commit": actual_head,
-                "created_by": "opendv-vendor-fibo",
-                "tag": tag,
-            }),
+            json.dumps(
+                {
+                    "cached_at": datetime.now(UTC).isoformat(),
+                    "commit": actual_head,
+                    "created_by": "opendv-vendor-fibo",
+                    "tag": tag,
+                }
+            ),
             encoding="utf-8",
         )
         return git_cache_dir, actual_head
@@ -1255,13 +1310,15 @@ def ensure_fibo_source(
         shutil.move(str(staging_clone_dir), str(git_cache_dir))
 
         git_manifest.write_text(
-            json.dumps({
-                "cached_at": datetime.now(UTC).isoformat(),
-                "commit": verified_head,
-                "created_by": "opendv-vendor-fibo",
-                "head": verified_head,
-                "tag": tag,
-            }),
+            json.dumps(
+                {
+                    "cached_at": datetime.now(UTC).isoformat(),
+                    "commit": verified_head,
+                    "created_by": "opendv-vendor-fibo",
+                    "head": verified_head,
+                    "tag": tag,
+                }
+            ),
             encoding="utf-8",
         )
 

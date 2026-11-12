@@ -47,7 +47,10 @@ def _serve_spa_index() -> HTMLResponse:
     return HTMLResponse(
         content=html,
         status_code=200,
-        headers={"Content-Security-Policy": WORKBENCH_CSP},
+        headers={
+            "Content-Security-Policy": WORKBENCH_CSP,
+            "Referrer-Policy": "no-referrer",
+        },
     )
 
 
@@ -79,6 +82,19 @@ async def get_settings_route() -> HTMLResponse:
 async def get_stage_route(stage_num: str) -> HTMLResponse:
     """Serve SPA shell for `/stages/{stage_num}` client route."""
     _ = stage_num
+    return _serve_spa_index()
+
+
+@router.get("/ontology", include_in_schema=False)
+async def get_ontology_studio_route() -> HTMLResponse:
+    """Serve SPA shell for `/ontology` Ontology Studio workbench route."""
+    return _serve_spa_index()
+
+
+@router.get("/ontology/{subpath:path}", include_in_schema=False)
+async def get_ontology_studio_subroute(subpath: str) -> HTMLResponse:
+    """Serve SPA shell for `/ontology/{subpath}` Ontology Studio client subroutes."""
+    _ = subpath
     return _serve_spa_index()
 
 

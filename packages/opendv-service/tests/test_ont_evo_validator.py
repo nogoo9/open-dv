@@ -550,8 +550,8 @@ def test_ont_evo_002_valid_steward_waiver_passes() -> None:
         base_sha256="bb" * 32,
         target_concept_uris=["urn:ontology:entity:collateral"],
         rationale="Proprietary synthetic derivative not modeled in FIBO standard.",
-        authorized_by="steward-alice",
-        authorized_role="steward",
+        authorized_by="admin-alice",
+        authorized_role="admin",
         signature_or_token="token-valid",
     )
 
@@ -575,14 +575,15 @@ def test_ont_evo_002_waiver_short_rationale_raises() -> None:
     target = apply(base, delta)
 
     verifier = StubGroundingVerifier(default_score=0.40)
-    gov = GovernanceValidator(grounding_verifier=verifier)
+    gov = GovernanceValidator(grounding_verifier=verifier, waiver_verifier=StubWaiverVerifier())
 
     waiver = StewardWaiverRecord.model_construct(
         waiver_id=uuid4(),
         target_concept_uris=["urn:ontology:entity:collateral"],
         rationale="Too short",  # < 10 characters
-        authorized_by="steward-alice",
-        authorized_role="steward",
+        authorized_by="admin-alice",
+        authorized_role="admin",
+        signature_or_token="token-valid",
     )
 
     with pytest.raises(InvalidGroundingWaiverError) as exc_info:
@@ -608,20 +609,37 @@ def test_ont_evo_002_waiver_unauthorized_role_raises() -> None:
     target = apply(base, delta)
 
     verifier = StubGroundingVerifier(default_score=0.40)
-    gov = GovernanceValidator(grounding_verifier=verifier)
+    gov = GovernanceValidator(grounding_verifier=verifier, waiver_verifier=StubWaiverVerifier())
 
-    waiver = StewardWaiverRecord.model_construct(
-        waiver_id=uuid4(),
+    for bad_role in ("viewer", "steward"):
+        waiver = StewardWaiverRecord.model_construct(
+            waiver_id=uuid4(),
+            target_concept_uris=["urn:ontology:entity:collateral"],
+            rationale="Sufficient rationale for synthetic contract, but invalid role.",
+            authorized_by="non-admin-bob",
+            authorized_role=bad_role,
+            signature_or_token="token-valid",
+        )
+        with pytest.raises(InvalidGroundingWaiverError) as exc_info:
+            gov.validate_grounding(base, delta, target, waivers=[waiver])
+        assert exc_info.value.error_code == "INVALID_GROUNDING_WAIVER"
+        assert "admin" in exc_info.value.message
+
+    # P05::MAJ-04: waiver_verifier=None must also fail closed even with admin role
+    admin_waiver = StewardWaiverRecord(
+        proposal_id=uuid4(),
+        proposal_delta_sha256="aa" * 32,
+        base_sha256="bb" * 32,
         target_concept_uris=["urn:ontology:entity:collateral"],
-        rationale="Sufficient rationale for synthetic contract, but invalid role.",
-        authorized_by="viewer-bob",
-        authorized_role="viewer",  # invalid role
+        rationale="Sufficient rationale for synthetic contract.",
+        authorized_by="admin-alice",
+        authorized_role="admin",
+        signature_or_token="token-valid",
     )
-
-    with pytest.raises(InvalidGroundingWaiverError) as exc_info:
-        gov.validate_grounding(base, delta, target, waivers=[waiver])
-    assert exc_info.value.error_code == "INVALID_GROUNDING_WAIVER"
-    assert "authorized_role must be admin or steward" in exc_info.value.message
+    gov_no_wv = GovernanceValidator(grounding_verifier=verifier, waiver_verifier=None)
+    with pytest.raises(InvalidGroundingWaiverError) as exc_info2:
+        gov_no_wv.validate_grounding(base, delta, target, waivers=[admin_waiver])
+    assert exc_info2.value.error_code == "INVALID_GROUNDING_WAIVER"
 
 
 def test_ont_evo_002_waiver_verification_failure_raises() -> None:
@@ -650,8 +668,8 @@ def test_ont_evo_002_waiver_verification_failure_raises() -> None:
         base_sha256="bb" * 32,
         target_concept_uris=["urn:ontology:entity:collateral"],
         rationale="Proprietary synthetic derivative not modeled in FIBO standard.",
-        authorized_by="steward-alice",
-        authorized_role="steward",
+        authorized_by="admin-alice",
+        authorized_role="admin",
         signature_or_token="token-valid",
     )
 
@@ -752,6 +770,7 @@ def test_semver_greenfield_genesis_0_0_0_to_1_0_0() -> None:
         delta_id="d1",
         domain_namespace="finance",
         base_ontology_version="0.0.0",
+        target_ontology_version="1.0.0",
         operations=[
             AddConceptOp(
                 op_id="op-1",
@@ -1231,3 +1250,469 @@ def test_apply_ontology_delta_backward_compat() -> None:
     assert "Holder" in (c.synonyms or [])
     assert "Subject" not in (c.synonyms or [])
     assert "DEC-4001" in target.decision_refs
+
+
+# ---------------------------------------------------------------------------
+# Wave R2-A Regression Suite: P05::MAJ-01..04, P05::MAJ-08, CRIT-03, MAJ-03..04, MIN-03
+# ---------------------------------------------------------------------------
+
+
+def test_is_concept_mutated_exhaustive_18_ops_and_relationship_endpoints() -> None:
+    """P05::MAJ-01 & CRIT-03: Verify is_concept_mutated across all 18 concept-mutating ops
+    plus remove_relationship/deprecate_relationship endpoints, while AddRelationshipOp
+    leaves untouched existing endpoints unmutated.
+    """
+    from opendv_contracts.dtos.ontology import CONCEPT_MUTATING_OP_TYPES
+    from opendv_service.ontology import is_concept_mutated
+
+    base = make_sample_ontology()
+    # Attach a relationship so remove_relationship / deprecate_relationship resolve endpoints
+    base_with_rel = base.model_copy(
+        update={
+            "canonical_relationships": [
+                CanonicalRelationship(
+                    relationship_uri="urn:ontology:relationship:party_account",
+                    relationship_name="PartyAccount",
+                    target_link="lnk_party_account",
+                    endpoints=["urn:ontology:entity:party", "urn:ontology:entity:account"],
+                )
+            ]
+        }
+    )
+
+    sample_ops = [
+        AddConceptOp(op_id="1", concept_uri="urn:ontology:entity:party", concept_name="Party"),
+        AddAttributeOp(op_id="2", concept_uri="urn:ontology:entity:party", attribute_name="lei"),
+        AddGovernanceConstraintOp(
+            op_id="3",
+            concept_uri="urn:ontology:entity:party",
+            constraint_id="c1",
+            constraint_type="PII",
+        ),
+        AddKeyAuthorityPatternOp(
+            op_id="4",
+            concept_uri="urn:ontology:entity:party",
+            authority_name="GLEIF",
+        ),
+        SetParentConceptOp(
+            op_id="5",
+            concept_uri="urn:ontology:entity:party",
+            parent_concept_uri="urn:ontology:entity:account",
+        ),
+        SetConceptElmArchetypeOp(
+            op_id="6",
+            concept_uri="urn:ontology:entity:party",
+            elm_archetype="EVENT",
+        ),
+        DeprecateConceptOp(op_id="7", concept_uri="urn:ontology:entity:party", reason="obsolete"),
+        AddSynonymOp(op_id="8", concept_uri="urn:ontology:entity:party", synonym="Counterparty"),
+        AddExternalMappingOp(
+            op_id="9",
+            concept_uri="urn:ontology:entity:party",
+            scheme="FIBO",
+            target_uri="https://spec.edmcouncil.org/fibo/Agent",
+            predicate="skos:exactMatch",
+            mapping_confidence=0.9,
+        ),
+        RemoveExternalMappingOp(
+            op_id="10",
+            concept_uri="urn:ontology:entity:party",
+            target_uri="https://spec.edmcouncil.org/fibo/Agent",
+        ),
+        RescoreExternalMappingOp(
+            op_id="11",
+            concept_uri="urn:ontology:entity:party",
+            target_uri="https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/Agents/Agent",
+            mapping_confidence=0.40,
+        ),
+        RepinExternalMappingOp(
+            op_id="12",
+            concept_uri="urn:ontology:entity:party",
+            target_uri="https://spec.edmcouncil.org/fibo/Agent",
+            pinned=True,
+        ),
+        ReviseDescriptionOp(
+            op_id="13",
+            target_uri="urn:ontology:entity:party",
+            description="Updated party description",
+        ),
+        RefineDefinitionOp(
+            op_id="14",
+            target_uri="urn:ontology:entity:party",
+            refined_description="Refined party definition",
+        ),
+        AddSourceHintOp(
+            op_id="15",
+            concept_uri="urn:ontology:entity:party",
+            source_system="crm",
+            table_name="tbl_party",
+        ),
+        AnnotateConceptMetadataOp(
+            op_id="16",
+            concept_uri="urn:ontology:entity:party",
+            metadata={"owner": "risk"},
+        ),
+        RemoveConceptOp(op_id="17", concept_uri="urn:ontology:entity:party", reason="drop"),
+        RemoveAttributeOp(
+            op_id="18",
+            concept_uri="urn:ontology:entity:party",
+            attribute_name="name",
+        ),
+        UpdateConceptUrnOp(
+            op_id="19",
+            old_concept_uri="urn:ontology:entity:party",
+            new_concept_uri="urn:ontology:entity:legal_party",
+        ),
+    ]
+    covered_types = {op.op_type for op in sample_ops}
+    assert covered_types >= CONCEPT_MUTATING_OP_TYPES
+
+    for op in sample_ops:
+        d = OntologyDelta.model_construct(
+            delta_id="d-mut",
+            base_ontology_version="1.0.0",
+            target_ontology_version="2.0.0",
+            operations=[op],
+        )
+        assert is_concept_mutated(base_with_rel, d, "urn:ontology:entity:party") is True, op.op_type
+
+    # AddRelationshipOp does NOT mutate existing untouched endpoint concepts
+    d_add_rel = OntologyDelta(
+        delta_id="d-add-rel",
+        base_ontology_version="1.0.0",
+        target_ontology_version="1.1.0",
+        operations=[
+            AddRelationshipOp(
+                op_id="rel-1",
+                relationship_uri="urn:ontology:relationship:party_holds_account",
+                target_link="lnk_party_holds_account",
+                source_concept_uri="urn:ontology:entity:party",
+                target_concept_uri="urn:ontology:entity:account",
+            )
+        ],
+    )
+    assert is_concept_mutated(base_with_rel, d_add_rel, "urn:ontology:entity:party") is False
+
+    # RemoveRelationshipOp and DeprecateRelationshipOp DO touch endpoint concepts in base
+    for rel_op in (
+        RemoveRelationshipOp(op_id="rm-rel", relationship_name="PartyAccount"),
+        DeprecateRelationshipOp(op_id="dep-rel", relationship_name="PartyAccount"),
+    ):
+        d_rel = OntologyDelta.model_construct(
+            delta_id="d-rel-mut",
+            base_ontology_version="1.0.0",
+            target_ontology_version="2.0.0",
+            operations=[rel_op],
+        )
+        assert is_concept_mutated(base_with_rel, d_rel, "urn:ontology:entity:party") is True
+        assert is_concept_mutated(base_with_rel, d_rel, "urn:ontology:entity:account") is True
+
+
+def test_default_governance_validator_fails_closed_via_vendored_fibo_verifier() -> None:
+    """P05::MAJ-02: GovernanceValidator() with grounding_verifier=None uses vendored FIBO verifier
+    and rejects fabricated FIBO URIs or broadMatch predicates.
+    """
+    base = make_sample_ontology()
+    delta = OntologyDelta(
+        delta_id="d-fake-fibo",
+        domain_namespace="finance",
+        base_ontology_version="1.0.0",
+        operations=[
+            AddConceptOp(
+                op_id="op-fake",
+                concept_uri="urn:ontology:entity:widget_gadget",
+                concept_name="Widget Gadget",
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="FIBO",
+                        target_uri="https://spec.edmcouncil.org/fibo/ontology/FAKE/NonExistentClass",
+                        predicate="skos:exactMatch",
+                        confidence=0.99,
+                    )
+                ],
+            )
+        ],
+    )
+    target = apply(base, delta)
+    gov = GovernanceValidator()  # grounding_verifier=None -> get_default_grounding_verifier()
+    with pytest.raises(UngroundedConceptError):
+        gov.validate_grounding(base, delta, target)
+
+
+def test_deployed_contract_immutability_blocks_all_breaking_ops_by_table_and_rel_name() -> None:
+    """P05::MAJ-08 & MAJ-04: Verify _is_concept_deployed enforces immutability when physical
+    tables (hub_party, lnk_party_account) are deployed across all destructive/MAJOR ops.
+    """
+    base = make_sample_ontology().model_copy(
+        update={
+            "canonical_business_concepts": [
+                make_sample_ontology()
+                .canonical_business_concepts[0]
+                .model_copy(update={"parent_concept_uri": "urn:ontology:entity:account"}),
+                make_sample_ontology().canonical_business_concepts[1],
+            ],
+            "canonical_relationships": [
+                CanonicalRelationship(
+                    relationship_uri="urn:ontology:relationship:party_account",
+                    relationship_name="PartyAccount",
+                    target_link="lnk_party_account",
+                    endpoints=["urn:ontology:entity:party", "urn:ontology:entity:account"],
+                )
+            ],
+        }
+    )
+    provider = StubDeploymentProvider(deployed_tables={"hub_party", "lnk_party_account"})
+    gov = GovernanceValidator(deployment_provider=provider)
+
+    breaking_ops = [
+        UpdateConceptUrnOp(
+            op_id="b1",
+            old_concept_uri="urn:ontology:entity:party",
+            new_concept_uri="urn:ontology:entity:legal_party",
+        ),
+        RemoveAttributeOp(
+            op_id="b2",
+            concept_uri="urn:ontology:entity:party",
+            attribute_name="name",
+        ),
+        AddAttributeOp(
+            op_id="b3",
+            concept_uri="urn:ontology:entity:party",
+            attribute_name="mandatory_tax_id",
+            is_optional=False,
+        ),
+        SetParentConceptOp(
+            op_id="b4",
+            concept_uri="urn:ontology:entity:party",
+            parent_concept_uri=None,
+        ),
+        SetConceptElmArchetypeOp(
+            op_id="b5",
+            concept_uri="urn:ontology:entity:party",
+            elm_archetype="EVENT",
+        ),
+        RemoveRelationshipOp(
+            op_id="b6",
+            relationship_name="PartyAccount",
+        ),
+    ]
+    for op in breaking_ops:
+        d = OntologyDelta.model_construct(
+            delta_id="d-break",
+            base_ontology_version="1.0.0",
+            target_ontology_version="2.0.0",
+            operations=[op],
+        )
+        with pytest.raises(ContractViolationError):
+            gov.validate_deployed_contracts(base, d)
+
+
+def test_occ_rejects_weak_wildcard_and_malformed_if_match_and_checks_0_0_0_sha() -> None:
+    """MIN-03: Reject weak ETag W/"...", *, comma lists, or non-64-hex If-Match with
+    ErrorCode.INVALID_PRECONDITION_HEADER (HTTP 400, exit 2), and enforce 0.0.0 head SHA.
+    """
+    from opendv_contracts.errors import ErrorCode, OpenDVError
+
+    gov = GovernanceValidator()
+    delta = OntologyDelta(
+        delta_id="d-occ",
+        base_ontology_version="1.0.0",
+        base_sha256="aa" * 32,
+        operations=[],
+    )
+    for bad_header in (
+        f'W/"{"aa" * 32}"',
+        "*",
+        f'"{"aa" * 32}", "{"bb" * 32}"',
+        '"not-a-sha256-digest"',
+        "12345",
+    ):
+        with pytest.raises(OpenDVError) as exc_info:
+            gov.validate_occ(delta, if_match=bad_header)
+        assert exc_info.value.error_code == ErrorCode.INVALID_PRECONDITION_HEADER
+        assert exc_info.value.http_status == 400
+        assert exc_info.value.exit_code == 2
+
+    delta_genesis = OntologyDelta(
+        delta_id="d-occ-0",
+        base_ontology_version="0.0.0",
+        target_ontology_version="0.1.0",
+        base_sha256="11" * 32,
+        operations=[],
+    )
+    with pytest.raises(ConcurrentModificationError):
+        gov.validate_occ(delta_genesis, session_head_sha256="22" * 32)
+
+
+def test_structural_validator_enforces_55_char_slug_budget_and_table_collisions() -> None:
+    """MAJ-03: Physical table names exceeding 55-char slug budget or colliding across types fail."""
+    from opendv_contracts.errors import ErrorCode, OpenDVError
+
+    sv = StructuralValidator()
+    long_slug = "a" * 56
+    bad_ont = GraphAOntology(
+        ontology_version="1.0.0",
+        canonical_business_concepts=[
+            CanonicalBusinessConcept(
+                concept_uri=f"urn:ontology:entity:{long_slug}",
+                concept_name="Too Long",
+                target_hub=f"hub_{long_slug}",
+            )
+        ],
+    )
+    with pytest.raises(OpenDVError) as exc_info:
+        sv.validate(bad_ont)
+    assert exc_info.value.error_code == ErrorCode.INVALID_PHYSICAL_TABLE_NAME
+
+
+def test_r3_rescore_always_mutates_and_strict_verifier_initialized() -> None:
+    """S2-CRIT-01: RescoreExternalMappingOp unconditionally triggers is_concept_mutated even
+    when new_confidence >= 0.65, GovernanceValidator() initializes grounding_verifier eagerly,
+    and non-FIBO scheme mappings cannot spoof Path A grounding via target_uri substring.
+    """
+    from opendv_service.ontology.validator import is_concept_mutated
+
+    gov_strict = GovernanceValidator()
+    assert gov_strict.grounding_verifier is not None
+    gov_non_strict = GovernanceValidator(strict_verifier_required=False)
+    assert gov_non_strict.grounding_verifier is None
+
+    base = GraphAOntology(
+        ontology_version="1.0.0",
+        domain_namespace="finance",
+        canonical_business_concepts=[
+            CanonicalBusinessConcept(
+                concept_uri="urn:ontology:entity:spoofed",
+                concept_name="Spoofed Concept",
+                target_hub="hub_spoofed",
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="CUSTOM_INTERNAL",
+                        target_uri="https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity",
+                        predicate="skos:exactMatch",
+                        confidence=0.70,
+                    )
+                ],
+            )
+        ],
+    )
+    delta_rescore = OntologyDelta(
+        delta_id="d-rescore-high",
+        domain_namespace="finance",
+        base_ontology_version="1.0.0",
+        operations=[
+            RescoreExternalMappingOp(
+                op_id="op-rescore-high",
+                concept_uri="urn:ontology:entity:spoofed",
+                scheme="CUSTOM_INTERNAL",
+                target_uri="https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity",
+                new_confidence=0.92,
+            )
+        ],
+    )
+    assert is_concept_mutated(base, delta_rescore, "urn:ontology:entity:spoofed") is True
+    target = apply(base, delta_rescore)
+    with pytest.raises(UngroundedConceptError):
+        gov_non_strict.validate_grounding(
+            base,
+            delta_rescore,
+            target,
+            grandfathered_concept_uris={"urn:ontology:entity:spoofed"},
+        )
+
+
+def test_r3_occ_actual_base_version_and_empty_genesis_sha_bypass_closed() -> None:
+    """P05a CRIT-01: validate_occ enforces actual_base_version and blocks client-supplied
+    base_version='0.0.0', base_sha256='' OCC bypass on non-genesis session heads.
+    """
+    from opendv_service.ontology.validator import DEFAULT_GENESIS_SHA256
+
+    gov = GovernanceValidator(strict_verifier_required=False)
+    spoof_delta = OntologyDelta(
+        delta_id="d-occ-spoof",
+        base_ontology_version="0.0.0",
+        target_ontology_version="0.1.0",
+        base_sha256="",
+        operations=[],
+    )
+    # 1. Explicit actual_base_version mismatch ("1.0.0" vs "0.0.0") fails closed
+    with pytest.raises(ConcurrentModificationError):
+        gov.validate_occ(
+            spoof_delta,
+            session_head_sha256="cc" * 32,
+            actual_base_version="1.0.0",
+        )
+
+    # 2. Without actual_base_version, empty base_sha256 on non-default session head fails closed
+    with pytest.raises(ConcurrentModificationError):
+        gov.validate_occ(
+            spoof_delta,
+            session_head_sha256="cc" * 32,
+        )
+
+    # 3. Genuine 0.0.0 genesis (actual_base_version='0.0.0' or DEFAULT_GENESIS_SHA256) succeeds
+    gov.validate_occ(
+        spoof_delta,
+        session_head_sha256="dd" * 32,
+        actual_base_version="0.0.0",
+    )
+    gov.validate_occ(
+        spoof_delta,
+        session_head_sha256=DEFAULT_GENESIS_SHA256,
+    )
+
+    # 4. Non-empty wrong base_sha256 still fails even when actual_base_version == '0.0.0'
+    bad_genesis_sha = OntologyDelta(
+        delta_id="d-occ-bad-gen",
+        base_ontology_version="0.0.0",
+        target_ontology_version="0.1.0",
+        base_sha256="11" * 32,
+        operations=[],
+    )
+    with pytest.raises(ConcurrentModificationError):
+        gov.validate_occ(
+            bad_genesis_sha,
+            session_head_sha256="22" * 32,
+            actual_base_version="0.0.0",
+        )
+
+
+def test_r3_validate_ontology_delta_ignores_staged_candidates_provisional_uris() -> None:
+    """P05a MAJ-04: Segregated provisional URIs inside metadata.staged_candidates do not
+    trigger ONT-EVO-002 violations in validate_ontology_delta, whereas leaked ones still do.
+    """
+    from opendv_service.ontology.validator import validate_ontology_delta
+
+    base = make_sample_ontology()
+    delta_staged = OntologyDelta(
+        delta_id="d-staged-ok",
+        domain_namespace="finance",
+        base_ontology_version="1.0.0",
+        target_ontology_version="1.0.0",
+        operations=[],
+        metadata={
+            "staged_candidates": [
+                {
+                    "candidate_id": "staged-1",
+                    "provisional_uri": "urn:opendv:provisional:entity:ungrounded_widget",
+                    "op_type": "add_concept",
+                    "reason_held_back": "ONT_EVO_UNGROUNDED_CONCEPT",
+                }
+            ]
+        },
+    )
+    res_ok = validate_ontology_delta(base, delta_staged)
+    assert res_ok.valid is True
+    assert res_ok.violations == []
+
+    delta_leaked = OntologyDelta(
+        delta_id="d-leaked-prov",
+        domain_namespace="finance",
+        base_ontology_version="1.0.0",
+        target_ontology_version="1.0.0",
+        operations=[],
+        metadata={"other_meta": "urn:opendv:provisional:entity:leaked_widget"},
+    )
+    res_bad = validate_ontology_delta(base, delta_leaked)
+    assert res_bad.valid is False
+    assert any("ONT-EVO-002" in v for v in res_bad.violations)

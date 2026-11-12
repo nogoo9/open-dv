@@ -1,8 +1,12 @@
-"""Workspace security and HKDF-SHA256 key derivation for Open-DV Ontology Studio.
+"""Workspace security, containment, and HKDF-SHA256 key derivation for Open-DV Ontology Studio.
 
 Implements Task 4D.1 / Issue #208 and ADR-009 / ADR-016:
 - Persists 256-bit CSPRNG root workspace secret in `.odv_workspace_secret`.
-- Configures owner-only permissions (0600 on POSIX, owner-only DACL on Windows).
+- Configures owner-only permissions (0600/0700 on POSIX, atomic locale-independent
+  protected DACL via Win32 advapi32 on Windows).
+- Enforces ADR-016 §2 workspace path containment (`OPENDV_WORKSPACE_ROOTS`,
+  `realpath` + `normcase` + `commonpath`, UNC/ADS/reserved-device rejection,
+  and remote `server_path` prohibition).
 - Derives purpose-isolated 256-bit keys via RFC 5869 HKDF-SHA256:
     * K_pseudo: LLM prompt scrub and HMAC pseudonymization
     * K_audit: Write-ahead audit ledger forward HMAC chaining
@@ -13,18 +17,27 @@ from __future__ import annotations
 
 import contextlib
 import csv
+import ctypes
+import functools
 import hashlib
 import hmac
 import io
 import math
 import os
+import random
+import re
 import secrets
 import subprocess
+import sys
+import threading
 import time
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final
+from typing import Any, Final
+
+from opendv_contracts.errors import ErrorCode, OpenDVError
 
 WORKSPACE_SECRET_FILENAME: Final[str] = ".odv_workspace_secret"
 DEFAULT_STUDIO_DIR: Final[str] = ".opendv/ontology_studio"
@@ -35,54 +48,211 @@ INFO_PSEUDONYMIZATION: Final[bytes] = b"opendv-ontology-studio-pseudonymization-
 INFO_AUDIT_CHAIN: Final[bytes] = b"opendv-ontology-studio-audit-chain-v1"
 INFO_STEWARD_WAIVER: Final[bytes] = b"opendv-ontology-studio-steward-waiver-v1"
 
+WINDOWS_RESERVED_DEVICES: Final[frozenset[str]] = frozenset(
+    {
+        "con",
+        "prn",
+        "aux",
+        "nul",
+        "com1",
+        "com2",
+        "com3",
+        "com4",
+        "com5",
+        "com6",
+        "com7",
+        "com8",
+        "com9",
+        "lpt1",
+        "lpt2",
+        "lpt3",
+        "lpt4",
+        "lpt5",
+        "lpt6",
+        "lpt7",
+        "lpt8",
+        "lpt9",
+    }
+)
+_WINDOWS_RESERVED_DEVICES = WINDOWS_RESERVED_DEVICES
 
-class InsecurePermissionsError(RuntimeError):
+MAX_ACTIVE_NONCES: Final[int] = 256
+MAX_ACTIVE_SESSIONS: Final[int] = 256
+_AUTH_LOCK = threading.Lock()
+_LAUNCH_NONCES: dict[str, tuple[str, str, float]] = {}
+_ACTIVE_SESSIONS: dict[str, dict[str, Any]] = {}
+
+
+def _evict_overflow_locked() -> None:
+    """Evict earliest-expiring entries when maps exceed MAX_ACTIVE_* bounds."""
+    while len(_LAUNCH_NONCES) > MAX_ACTIVE_NONCES:
+        oldest_nonce = min(_LAUNCH_NONCES.items(), key=lambda kv: kv[1][2])[0]
+        _LAUNCH_NONCES.pop(oldest_nonce, None)
+
+    while len(_ACTIVE_SESSIONS) > MAX_ACTIVE_SESSIONS:
+        oldest_tok = min(_ACTIVE_SESSIONS.items(), key=lambda kv: float(kv[1]["expires_at"]))[0]
+        _ACTIVE_SESSIONS.pop(oldest_tok, None)
+
+
+def _cleanup_expired_nonces_and_sessions(grace_period: float = 300.0) -> None:
+    """Purge expired nonces and sessions and enforce capacity bounds in a thread-safe manner."""
+    now = time.time()
+    with _AUTH_LOCK:
+        expired_nonces = [k for k, v in list(_LAUNCH_NONCES.items()) if now > v[2] + grace_period]
+        for k in expired_nonces:
+            _LAUNCH_NONCES.pop(k, None)
+
+        expired_sessions = [k for k, v in list(_ACTIVE_SESSIONS.items()) if now > v["expires_at"]]
+        for k in expired_sessions:
+            _ACTIVE_SESSIONS.pop(k, None)
+
+        _evict_overflow_locked()
+
+
+def mint_launch_nonce(
+    principal: str = "human:local_admin",
+    role: str = "admin",
+    ttl: float = 60.0,
+) -> str:
+    """Generate a single-use 256-bit launch nonce with 60s TTL and bounded map size."""
+    _cleanup_expired_nonces_and_sessions()
+    nonce = secrets.token_hex(32)
+    with _AUTH_LOCK:
+        _LAUNCH_NONCES[nonce] = (principal, role, time.time() + ttl)
+        _evict_overflow_locked()
+    return nonce
+
+
+class InsecurePermissionsError(OpenDVError, RuntimeError):
     """Raised when studio root or secret file permissions fail security checks."""
 
-    def __init__(self, message: str, error_code: str = "INSECURE_STUDIO_ROOT_PERMISSIONS") -> None:
-        super().__init__(message)
-        self.error_code = error_code
-        self.status_code = 500
-        self.exit_code = 1
+    error_code = ErrorCode.INSECURE_STUDIO_ROOT_PERMISSIONS
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str | ErrorCode = ErrorCode.INSECURE_STUDIO_ROOT_PERMISSIONS,
+    ) -> None:
+        code_enum = (
+            error_code
+            if isinstance(error_code, ErrorCode)
+            else ErrorCode(error_code)
+            if error_code in ErrorCode._value2member_map_
+            else ErrorCode.INSECURE_STUDIO_ROOT_PERMISSIONS
+        )
+        OpenDVError.__init__(self, message, error_code=code_enum)
+        self.error_code = code_enum
+        self.status_code = self.http_status
 
 
-class WorkspaceSecretCorruptError(RuntimeError):
+class WorkspaceSecretCorruptError(OpenDVError, RuntimeError):
     """Raised when .odv_workspace_secret is corrupted or truncated (fails closed)."""
 
-    def __init__(self, message: str, error_code: str = "WORKSPACE_SECRET_CORRUPT") -> None:
-        super().__init__(message)
-        self.error_code = error_code
+    error_code = ErrorCode.CORRUPT_SESSION_RECORD
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str | ErrorCode = ErrorCode.CORRUPT_SESSION_RECORD,
+    ) -> None:
+        RuntimeError.__init__(self, message)
+        code_enum = (
+            error_code
+            if isinstance(error_code, ErrorCode)
+            else ErrorCode(error_code)
+            if error_code in ErrorCode._value2member_map_
+            else ErrorCode.CORRUPT_SESSION_RECORD
+        )
+        OpenDVError.__init__(self, message, error_code=code_enum)
+        self.error_code = code_enum
         self.status_code = 500
+        self.http_status = 500
         self.exit_code = 1
+
+
+class InvalidWorkspacePathError(OpenDVError, ValueError):
+    """Raised when a workspace path fails containment or syntax checks (HTTP 400 / exit 2)."""
+
+    error_code = ErrorCode.INVALID_WORKSPACE_PATH
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str | ErrorCode = ErrorCode.INVALID_WORKSPACE_PATH,
+        status_code: int = 400,
+        exit_code: int = 2,
+    ) -> None:
+        code_enum = (
+            error_code if isinstance(error_code, ErrorCode) else ErrorCode.INVALID_WORKSPACE_PATH
+        )
+        OpenDVError.__init__(self, message, error_code=code_enum)
+        self.status_code = status_code
+        self.http_status = status_code
+        self.exit_code = exit_code
+
+
+class RemoteServerPathForbiddenError(OpenDVError, PermissionError):
+    """Raised when a remote caller supplies a server-side filesystem path (HTTP 400 / exit 2)."""
+
+    error_code = ErrorCode.REMOTE_SERVER_PATH_FORBIDDEN
+
+    def __init__(
+        self,
+        message: str = "Server filesystem paths are forbidden on remote requests.",
+        error_code: str | ErrorCode = ErrorCode.REMOTE_SERVER_PATH_FORBIDDEN,
+        status_code: int = 400,
+        exit_code: int = 2,
+    ) -> None:
+        code_enum = (
+            error_code
+            if isinstance(error_code, ErrorCode)
+            else ErrorCode.REMOTE_SERVER_PATH_FORBIDDEN
+        )
+        OpenDVError.__init__(self, message, error_code=code_enum)
+        self.status_code = status_code
+        self.http_status = status_code
+        self.exit_code = exit_code
+
+
+def replace_with_retry(
+    src: Path,
+    dst: Path,
+    max_timeout: float = 5.0,
+    initial_delay: float = 0.010,
+    max_delay: float = 0.250,
+) -> None:
+    """Atomically replace dst with src, retrying transient Windows sharing violations.
+
+    On Windows, concurrent indexing, antivirus, or file handles can raise WinError 32
+    (ERROR_SHARING_VIOLATION) or WinError 5 (ERROR_ACCESS_DENIED).
+    Implements truncated exponential backoff with jitter between 10ms and 250ms.
+    """
+    start_time = time.monotonic()
+    delay = initial_delay
+
+    while True:
+        try:
+            os.replace(src, dst)
+            return
+        except OSError as exc:
+            winerror = getattr(exc, "winerror", None)
+            is_transient = sys.platform == "win32" and winerror in (32, 5)
+            if not is_transient or (time.monotonic() - start_time >= max_timeout):
+                raise
+            jitter = random.uniform(0.005, 0.020)
+            time.sleep(delay + jitter)
+            delay = min(delay * 2.0, max_delay)
 
 
 def hkdf_extract(salt: bytes | None, ikm: bytes) -> bytes:
-    """RFC 5869 HKDF-Extract using HMAC-SHA256.
-
-    Args:
-        salt: Optional salt value (a non-secret random value). If not provided,
-            defaults to a string of HashLen (32) zeros.
-        ikm: Input keying material.
-
-    Returns:
-        32-byte pseudorandom key (PRK).
-    """
+    """RFC 5869 HKDF-Extract using HMAC-SHA256."""
     if not salt:
         salt = bytes(32)
     return hmac.new(salt, ikm, hashlib.sha256).digest()
 
 
 def hkdf_expand(prk: bytes, info: bytes, length: int = 32) -> bytes:
-    """RFC 5869 HKDF-Expand using HMAC-SHA256.
-
-    Args:
-        prk: Pseudorandom key of at least HashLen (32) octets (usually from hkdf_extract).
-        info: Optional context and application specific information.
-        length: Length of output keying material in octets (<= 255 * HashLen).
-
-    Returns:
-        Output keying material (OKM) of requested length.
-    """
+    """RFC 5869 HKDF-Expand using HMAC-SHA256."""
     hash_len = 32
     if length > 255 * hash_len:
         raise ValueError(f"Cannot expand to {length} bytes: exceeds 255 * {hash_len}")
@@ -102,16 +272,180 @@ def hkdf_sha256(ikm: bytes, salt: bytes | None, info: bytes, length: int = 32) -
     return hkdf_expand(prk, info, length)
 
 
-def _get_current_identity() -> tuple[str, str]:
-    """Resolve current user's (domain_qualified_name, sid) on Windows or POSIX.
+if sys.platform == "win32":
+    from ctypes import wintypes
 
-    Uses `whoami /user /fo csv /nh` on Windows to read identity directly from the process token.
-    Returns:
-        (domain_username, sid) on Windows, or (user, "") on POSIX.
-    """
+    _SE_FILE_OBJECT: Final[int] = 1
+    _DACL_SECURITY_INFORMATION: Final[int] = 0x00000004
+    _PROTECTED_DACL_SECURITY_INFORMATION: Final[int] = 0x80000000
+    _SE_DACL_PROTECTED: Final[int] = 0x1000
+    _ACL_REVISION: Final[int] = 2
+    _ACCESS_ALLOWED_ACE_TYPE: Final[int] = 0
+    _INHERITED_ACE: Final[int] = 0x10
+    _OBJECT_INHERIT_ACE: Final[int] = 0x01
+    _CONTAINER_INHERIT_ACE: Final[int] = 0x02
+    _FILE_ALL_ACCESS: Final[int] = 0x001F01FF
+    _GENERIC_ALL: Final[int] = 0x10000000
+    _TOKEN_QUERY: Final[int] = 0x0008
+    _TOKEN_USER_CLASS: Final[int] = 1
+
+    class _AclStruct(ctypes.Structure):
+        _fields_ = [
+            ("AclRevision", wintypes.BYTE),
+            ("Sbz1", wintypes.BYTE),
+            ("AclSize", wintypes.WORD),
+            ("AceCount", wintypes.WORD),
+            ("Sbz2", wintypes.WORD),
+        ]
+
+    class _AceHeader(ctypes.Structure):
+        _fields_ = [
+            ("AceType", wintypes.BYTE),
+            ("AceFlags", wintypes.BYTE),
+            ("AceSize", wintypes.WORD),
+        ]
+
+    _kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    _advapi32 = ctypes.WinDLL("advapi32", use_last_error=True)
+
+    _kernel32.GetCurrentProcess.argtypes = []
+    _kernel32.GetCurrentProcess.restype = wintypes.HANDLE
+    _kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    _kernel32.CloseHandle.restype = wintypes.BOOL
+    _kernel32.LocalFree.argtypes = [wintypes.HLOCAL]
+    _kernel32.LocalFree.restype = wintypes.HLOCAL
+
+    _advapi32.OpenProcessToken.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.HANDLE),
+    ]
+    _advapi32.OpenProcessToken.restype = wintypes.BOOL
+
+    _advapi32.GetTokenInformation.argtypes = [
+        wintypes.HANDLE,
+        ctypes.c_int,
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    _advapi32.GetTokenInformation.restype = wintypes.BOOL
+
+    _advapi32.ConvertSidToStringSidW.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    _advapi32.ConvertSidToStringSidW.restype = wintypes.BOOL
+
+    _advapi32.ConvertStringSidToSidW.argtypes = [
+        wintypes.LPCWSTR,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    _advapi32.ConvertStringSidToSidW.restype = wintypes.BOOL
+
+    _advapi32.GetLengthSid.argtypes = [ctypes.c_void_p]
+    _advapi32.GetLengthSid.restype = wintypes.DWORD
+
+    _advapi32.InitializeAcl.argtypes = [ctypes.c_void_p, wintypes.DWORD, wintypes.DWORD]
+    _advapi32.InitializeAcl.restype = wintypes.BOOL
+
+    _advapi32.AddAccessAllowedAceEx.argtypes = [
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+    ]
+    _advapi32.AddAccessAllowedAceEx.restype = wintypes.BOOL
+
+    _advapi32.SetNamedSecurityInfoW.argtypes = [
+        wintypes.LPWSTR,
+        ctypes.c_int,
+        wintypes.DWORD,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+        ctypes.c_void_p,
+    ]
+    _advapi32.SetNamedSecurityInfoW.restype = wintypes.DWORD
+
+    _advapi32.GetNamedSecurityInfoW.argtypes = [
+        wintypes.LPCWSTR,
+        ctypes.c_int,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p),
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    _advapi32.GetNamedSecurityInfoW.restype = wintypes.DWORD
+
+    _advapi32.GetSecurityDescriptorControl.argtypes = [
+        ctypes.c_void_p,
+        ctypes.POINTER(wintypes.WORD),
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    _advapi32.GetSecurityDescriptorControl.restype = wintypes.BOOL
+
+    _advapi32.GetAce.argtypes = [
+        ctypes.c_void_p,
+        wintypes.DWORD,
+        ctypes.POINTER(ctypes.c_void_p),
+    ]
+    _advapi32.GetAce.restype = wintypes.BOOL
+
+    def _psid_to_string(psid: ctypes.c_void_p | int) -> str | None:
+        str_ptr = ctypes.c_void_p()
+        if not _advapi32.ConvertSidToStringSidW(psid, ctypes.byref(str_ptr)):
+            return None
+        try:
+            return ctypes.wstring_at(str_ptr.value) if str_ptr.value else None
+        finally:
+            if str_ptr.value:
+                _kernel32.LocalFree(str_ptr)
+
+    def _get_win32_process_user_sid() -> str:
+        tok = wintypes.HANDLE()
+        if not _advapi32.OpenProcessToken(
+            _kernel32.GetCurrentProcess(), _TOKEN_QUERY, ctypes.byref(tok)
+        ):
+            return ""
+        try:
+            needed = wintypes.DWORD(0)
+            _advapi32.GetTokenInformation(tok, _TOKEN_USER_CLASS, None, 0, ctypes.byref(needed))
+            if needed.value == 0:
+                return ""
+            buf = ctypes.create_string_buffer(needed.value)
+            if not _advapi32.GetTokenInformation(
+                tok, _TOKEN_USER_CLASS, buf, needed.value, ctypes.byref(needed)
+            ):
+                return ""
+            # TOKEN_USER starts with SID_AND_ATTRIBUTES { PSID Sid; DWORD Attributes; }
+            psid = ctypes.cast(buf, ctypes.POINTER(ctypes.c_void_p))[0]
+            if not psid:
+                return ""
+            return _psid_to_string(psid) or ""
+        finally:
+            _kernel32.CloseHandle(tok)
+
+
+@functools.lru_cache(maxsize=1)
+def _get_current_identity() -> tuple[str, str]:
+    """Resolve current user's (domain_qualified_name, sid) on Windows or POSIX (cached)."""
     if os.name != "nt":
         user = os.environ.get("USER") or os.environ.get("USERNAME") or ""
         return user, ""
+
+    user = os.environ.get("USERNAME") or ""
+    domain = os.environ.get("USERDOMAIN") or ""
+    qualified = f"{domain}\\{user}" if domain and user else user
+
+    if sys.platform == "win32":
+        sid = _get_win32_process_user_sid()
+        if sid:
+            return qualified, sid
+
     try:
         proc = subprocess.run(
             ["whoami", "/user", "/fo", "csv", "/nh"],
@@ -126,15 +460,16 @@ def _get_current_identity() -> tuple[str, str]:
                 return row[0].strip(), row[1].strip()
     except OSError:
         pass
-    user = os.environ.get("USERNAME") or ""
-    return user, ""
+    return qualified, ""
 
 
 def set_owner_only_permissions(path: Path | str) -> None:
     """Set strict owner-only permissions on a file or directory.
 
-    On Windows: Purges explicit ACEs with /reset, disables inheritance with /inheritance:r,
-    and grants Full Control exclusively to the current user's SID (or username).
+    On Windows: Atomically sets a protected DACL via Win32 SetNamedSecurityInfoW
+    (disabling inheritance without any transient /reset window and granting Full
+    Control solely to the current token user SID, SYSTEM S-1-5-18, and
+    Administrators S-1-5-32-544).
     On POSIX: Uses chmod (0700 for directories, 0600 for files).
 
     Raises:
@@ -144,33 +479,62 @@ def set_owner_only_permissions(path: Path | str) -> None:
     if not target.exists():
         return
 
-    if os.name == "nt":
-        user_name, user_sid = _get_current_identity()
-        if not user_name and not user_sid:
-            raise InsecurePermissionsError(
-                f"Cannot resolve current user identity for '{target.name}'"
-            )
+    if sys.platform == "win32":
+        _, user_sid = _get_current_identity()
+        if not user_sid:
+            raise InsecurePermissionsError(f"Cannot resolve current user SID for '{target.name}'")
 
-        # 1. Reset explicit permissions first so any foreign explicit ACEs are purged
-        subprocess.run(["icacls", str(target), "/reset"], capture_output=True, check=False)
-
-        # 2. Enforce inheritance removal and grant Full Control only to owner SID (or username)
-        principal = f"*{user_sid}" if user_sid else user_name
-        grant_spec = f"{principal}:(OI)(CI)(F)" if target.is_dir() else f"{principal}:(F)"
-        cmd = ["icacls", str(target), "/inheritance:r", "/grant:r", grant_spec]
+        sid_strings = [user_sid, "S-1-5-18", "S-1-5-32-544"]
+        psids: list[ctypes.c_void_p] = []
         try:
-            proc = subprocess.run(cmd, check=False, capture_output=True, text=True)
-            if proc.returncode != 0:
-                err = proc.stderr or proc.stdout
+            total_sid_bytes = 0
+            for sid_str in sid_strings:
+                psid = ctypes.c_void_p()
+                if not _advapi32.ConvertStringSidToSidW(sid_str, ctypes.byref(psid)):
+                    err_code = ctypes.get_last_error()
+                    raise InsecurePermissionsError(
+                        f"ConvertStringSidToSidW failed for '{sid_str}' (winerror={err_code})"
+                    )
+                psids.append(psid)
+                total_sid_bytes += int(_advapi32.GetLengthSid(psid))
+
+            # ACL header (8 bytes) + 3 * ACCESS_ALLOWED_ACE overhead (12 bytes each) + padding
+            acl_size = ((8 + len(psids) * 16 + total_sid_bytes + 31) // 4) * 4
+            acl_buf = ctypes.create_string_buffer(acl_size)
+            if not _advapi32.InitializeAcl(acl_buf, acl_size, _ACL_REVISION):
+                err_code = ctypes.get_last_error()
                 raise InsecurePermissionsError(
-                    f"Failed to set owner-only permissions on '{target.name}': {err}"
+                    f"InitializeAcl failed on '{target.name}' (winerror={err_code})"
                 )
-        except OSError as e:
-            raise InsecurePermissionsError(
-                f"Failed to invoke icacls on '{target.name}': {e}"
-            ) from e
+
+            ace_flags = (_OBJECT_INHERIT_ACE | _CONTAINER_INHERIT_ACE) if target.is_dir() else 0
+            for psid in psids:
+                if not _advapi32.AddAccessAllowedAceEx(
+                    acl_buf, _ACL_REVISION, ace_flags, _FILE_ALL_ACCESS, psid
+                ):
+                    err_code = ctypes.get_last_error()
+                    raise InsecurePermissionsError(
+                        f"AddAccessAllowedAceEx failed on '{target.name}' (winerror={err_code})"
+                    )
+
+            rc = _advapi32.SetNamedSecurityInfoW(
+                str(target),
+                _SE_FILE_OBJECT,
+                _DACL_SECURITY_INFORMATION | _PROTECTED_DACL_SECURITY_INFORMATION,
+                None,
+                None,
+                ctypes.cast(acl_buf, ctypes.c_void_p),
+                None,
+            )
+            if rc != 0:
+                raise InsecurePermissionsError(
+                    f"SetNamedSecurityInfoW failed on '{target.name}' (rc={rc})"
+                )
+        finally:
+            for psid in psids:
+                if psid.value:
+                    _kernel32.LocalFree(psid)
     else:
-        # POSIX: 0700 for directories, 0600 for files
         mode = 0o700 if target.is_dir() else 0o600
         try:
             os.chmod(target, mode)
@@ -181,115 +545,199 @@ def set_owner_only_permissions(path: Path | str) -> None:
 
 
 def verify_owner_only_permissions(path: Path | str) -> bool:
-    """Verify that a path is accessible only by the current owner.
+    """Verify that a path is accessible only by the current owner (and OS system/admin).
 
     On POSIX: Asserts that group and others have no read/write/execute bits (0o077 == 0).
-    On Windows: Uses an allow-list approach on parsed icacls entries:
-      1. Inheritance must be disabled (no '(I)' flag anywhere).
-      2. Every listed principal must be strictly within the allowed owner/system set.
-      3. The current owner must have Full Control '(F)' or '(OI)(CI)(F)'.
+    On Windows: Locale-independently inspects the security descriptor DACL via Win32 advapi32:
+      1. DACL must be non-null and SE_DACL_PROTECTED must be set (inheritance disabled).
+      2. No ACE may carry INHERITED_ACE.
+      3. Every ACE SID must belong to {current_user_sid, S-1-5-18, S-1-5-32-544}.
+      4. The current user SID must hold Full Control (FILE_ALL_ACCESS or GENERIC_ALL).
     """
     target = Path(path)
     if not target.exists():
         return False
 
-    if os.name == "nt":
-        user_name, user_sid = _get_current_identity()
-        if not user_name and not user_sid:
+    if sys.platform == "win32":
+        _, user_sid = _get_current_identity()
+        if not user_sid:
+            return False
+
+        p_dacl = ctypes.c_void_p()
+        p_sd = ctypes.c_void_p()
+        rc = _advapi32.GetNamedSecurityInfoW(
+            str(target),
+            _SE_FILE_OBJECT,
+            _DACL_SECURITY_INFORMATION,
+            None,
+            None,
+            ctypes.byref(p_dacl),
+            None,
+            ctypes.byref(p_sd),
+        )
+        if rc != 0 or not p_sd.value:
             return False
 
         try:
-            proc = subprocess.run(
-                ["icacls", str(target)], capture_output=True, text=True, check=False
-            )
-            if proc.returncode != 0:
+            if not p_dacl.value:
+                # NULL DACL grants unrestricted access to Everyone
                 return False
 
-            raw_lines = [
-                line.strip()
-                for line in proc.stdout.splitlines()
-                if line.strip()
-                and not line.startswith("Successfully processed")
-                and not line.startswith("Failed processing")
-                and not line.startswith("processed file:")
-            ]
-            if not raw_lines:
+            control = wintypes.WORD(0)
+            revision = wintypes.DWORD(0)
+            if not _advapi32.GetSecurityDescriptorControl(
+                p_sd, ctypes.byref(control), ctypes.byref(revision)
+            ):
                 return False
 
-            # Strip target path prefix from first line
-            target_str = str(target)
-            if raw_lines[0].startswith(target_str):
-                raw_lines[0] = raw_lines[0][len(target_str) :].strip()
-
-            ace_lines = [line for line in raw_lines if line]
-            if not ace_lines:
+            if (control.value & _SE_DACL_PROTECTED) == 0:
                 return False
 
-            # 1. No inherited ACEs permitted anywhere
-            full_text = " ".join(ace_lines)
-            if "(I)" in full_text or "(i)" in full_text:
-                return False
-
-            # Allow-listed principals (lowercased)
-            allowed_principals: set[str] = {
-                "nt authority\\system",
-                "system",
-                "s-1-5-18",
-                "builtin\\administrators",
-                "administrators",
-                "s-1-5-32-544",
-            }
-            if user_name:
-                u_norm = user_name.lower()
-                allowed_principals.add(u_norm)
-                if "\\" in u_norm:
-                    allowed_principals.add(u_norm.split("\\")[-1])
-            if user_sid:
-                s_norm = user_sid.lower()
-                allowed_principals.add(s_norm)
-                allowed_principals.add(f"*{s_norm}")
-
+            acl_hdr = _AclStruct.from_address(p_dacl.value)
+            allowed_sids = {user_sid.upper(), "S-1-5-18", "S-1-5-32-544"}
             owner_has_full_control = False
 
-            # Parse each ACE
-            for ace_line in ace_lines:
-                if ":" not in ace_line:
-                    continue
-                principal_str, perms_str = ace_line.split(":", 1)
-                principal_norm = principal_str.strip().lower()
-                perms_norm = perms_str.strip().lower()
-
-                # Check allow-list: principal MUST be in allowed_principals
-                if principal_norm not in allowed_principals:
+            for idx in range(acl_hdr.AceCount):
+                p_ace = ctypes.c_void_p()
+                if not _advapi32.GetAce(p_dacl, idx, ctypes.byref(p_ace)) or not p_ace.value:
                     return False
 
-                # Check if this principal is the owner and has full control
-                unqualified_match = (
-                    "\\" in user_name and principal_norm == user_name.split("\\")[-1].lower()
-                )
-                is_owner = (
-                    user_name and (principal_norm == user_name.lower() or unqualified_match)
-                ) or (
-                    user_sid
-                    and (
-                        principal_norm == user_sid.lower()
-                        or principal_norm == f"*{user_sid.lower()}"
-                    )
-                )
-                if is_owner and ("(f)" in perms_norm or "(oi)(ci)(f)" in perms_norm):
+                ace_hdr = _AceHeader.from_address(p_ace.value)
+                if ace_hdr.AceFlags & _INHERITED_ACE:
+                    return False
+
+                if ace_hdr.AceType != _ACCESS_ALLOWED_ACE_TYPE:
+                    return False
+
+                # ACCESS_ALLOWED_ACE layout: ACE_HEADER (4 bytes) + ACCESS_MASK (4 bytes) + SidStart
+                mask = wintypes.DWORD.from_address(p_ace.value + 4).value
+                psid_addr = ctypes.c_void_p(p_ace.value + 8)
+                sid_str = _psid_to_string(psid_addr)
+                if not sid_str:
+                    return False
+
+                sid_upper = sid_str.upper()
+                if sid_upper not in allowed_sids:
+                    return False
+
+                if sid_upper == user_sid.upper() and (
+                    (mask & _FILE_ALL_ACCESS) == _FILE_ALL_ACCESS or (mask & _GENERIC_ALL) != 0
+                ):
                     owner_has_full_control = True
 
             return owner_has_full_control
-        except OSError:
-            return False
+        finally:
+            _kernel32.LocalFree(p_sd)
 
-    # POSIX permission check
     try:
         mode = target.stat().st_mode
-        # Disallow group (0o070) and other (0o007) access
         return (mode & 0o077) == 0
     except OSError:
         return False
+
+
+def validate_workspace_containment(
+    workspace_path: Path | str,
+    allowed_roots: Sequence[Path | str] | None = None,
+    *,
+    is_remote_request: bool = False,
+) -> Path:
+    """Validate and resolve a workspace path under ADR-016 §2 containment boundaries.
+
+    Enforces:
+    1. Rejects server-side filesystem paths on remote requests (`REMOTE_SERVER_PATH_FORBIDDEN`).
+    2. Rejects empty paths, null/control characters, UNC shares (`\\\\` / `//`), NTFS
+       Alternate Data Streams (`:` beyond Windows drive designator), and Windows reserved
+       device names (`INVALID_WORKSPACE_PATH`).
+    3. Resolves symlinks/junctions via `os.path.realpath` and verifies containment inside
+       `allowed_roots` (defaulting to `OPENDV_WORKSPACE_ROOTS` split by `os.pathsep`, or
+       current working directory when unset) using `os.path.normcase` + `os.path.commonpath`.
+    """
+    if is_remote_request:
+        raise RemoteServerPathForbiddenError(
+            "Supplying server_path / workspace filesystem paths is forbidden on remote requests."
+        )
+
+    if not isinstance(workspace_path, (str, Path)):
+        raise InvalidWorkspacePathError("Workspace path must be a string or Path.")
+
+    raw = str(workspace_path)
+    if not raw or not raw.strip():
+        raise InvalidWorkspacePathError("Workspace path cannot be empty.")
+
+    if "\x00" in raw or any(ord(ch) < 32 or ord(ch) == 127 for ch in raw):
+        raise InvalidWorkspacePathError("Workspace path contains forbidden control or null bytes.")
+
+    # Reject UNC network paths (\\server\share or //server/share)
+    if raw.startswith(("\\\\", "//")):
+        raise InvalidWorkspacePathError(f"UNC workspace paths are forbidden: '{raw}'")
+
+    # Reject NTFS Alternate Data Streams (':' anywhere after optional drive letter 'C:')
+    remainder = raw[2:] if re.match(r"^[A-Za-z]:", raw) else raw
+    if ":" in remainder:
+        raise InvalidWorkspacePathError(
+            f"Workspace path contains forbidden NTFS Alternate Data Stream token ':': '{raw}'"
+        )
+
+    # Reject Windows reserved device names in any path segment
+    normalized_slashes = remainder.replace("\\", "/")
+    for seg in normalized_slashes.split("/"):
+        if not seg:
+            continue
+        stem = seg.split(".")[0].lower()
+        if seg.lower() in _WINDOWS_RESERVED_DEVICES or stem in _WINDOWS_RESERVED_DEVICES:
+            raise InvalidWorkspacePathError(
+                f"Workspace path targets forbidden Windows reserved device '{seg}'."
+            )
+
+    try:
+        resolved_str = os.path.realpath(raw)
+    except (OSError, ValueError) as exc:
+        raise InvalidWorkspacePathError(f"Invalid workspace path '{raw}': {exc}") from exc
+
+    if resolved_str.startswith("\\\\?\\UNC\\") or (
+        resolved_str.startswith(("\\\\", "//")) and not resolved_str.startswith("\\\\?\\")
+    ):
+        raise InvalidWorkspacePathError(
+            f"Resolved workspace path targets forbidden UNC share: '{resolved_str}'"
+        )
+
+    resolved = Path(resolved_str)
+
+    # Resolve allowed workspace roots
+    effective_roots: list[Path] = []
+    if allowed_roots is not None:
+        for r in allowed_roots:
+            r_str = str(r).strip()
+            if r_str:
+                effective_roots.append(Path(os.path.realpath(r_str)))
+    else:
+        env_val = os.environ.get("OPENDV_WORKSPACE_ROOTS", "").strip()
+        if env_val:
+            for item in env_val.split(os.pathsep):
+                cleaned = item.strip()
+                if cleaned:
+                    effective_roots.append(Path(os.path.realpath(cleaned)))
+        else:
+            effective_roots.append(Path(os.path.realpath(os.getcwd())))
+
+    if not effective_roots:
+        raise InvalidWorkspacePathError("No allowed workspace roots configured.")
+
+    cand_norm = os.path.normcase(str(resolved))
+    for root in effective_roots:
+        root_norm = os.path.normcase(str(root))
+        try:
+            common = os.path.commonpath([cand_norm, root_norm])
+        except ValueError:
+            # Different drives on Windows
+            continue
+        if common == root_norm:
+            return resolved
+
+    raise InvalidWorkspacePathError(
+        f"Workspace path '{workspace_path}' escapes configured OPENDV_WORKSPACE_ROOTS boundary."
+    )
 
 
 @dataclass(frozen=True)
@@ -349,7 +797,6 @@ class WorkspaceSecurityManager:
         max_retries = 10
         for attempt in range(max_retries):
             if self.secret_path.exists():
-                # Check permissions
                 if not verify_owner_only_permissions(self.secret_path):
                     set_owner_only_permissions(self.secret_path)
                     if not verify_owner_only_permissions(self.secret_path):
@@ -361,18 +808,15 @@ class WorkspaceSecurityManager:
                 if len(secret) == 32:
                     return secret
 
-                # MIN-02: If file is momentarily short during concurrent start, wait briefly
                 if attempt < max_retries - 1:
                     time.sleep(0.01)
                     continue
 
-                # MAJ-02: Fail closed! Never silently regenerate an existing secret.
                 raise WorkspaceSecretCorruptError(
                     f"Workspace secret file '{self.secret_path.name}' is corrupted "
                     f"(expected 32 bytes, got {len(secret)} bytes). Refusing to regenerate."
                 )
 
-            # MIN-02: Write to temp file first, fsync, then publish atomically via os.link
             candidate = secrets.token_bytes(32)
             temp_path = self.studio_root / f".secret.tmp.{uuid.uuid4().hex}"
             flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_BINARY", 0)
@@ -385,7 +829,6 @@ class WorkspaceSecurityManager:
                     os.close(fd)
                 set_owner_only_permissions(temp_path)
 
-                # Atomically link into place (fails if secret_path already exists)
                 try:
                     os.link(str(temp_path), str(self.secret_path))
                     set_owner_only_permissions(self.secret_path)
@@ -393,7 +836,6 @@ class WorkspaceSecurityManager:
                 except (FileExistsError, OSError):
                     if self.secret_path.exists():
                         continue
-                    # Fallback for systems where link is not permitted: atomic exclusive create
                     fd2 = os.open(str(self.secret_path), flags, 0o600)
                     try:
                         os.write(fd2, candidate)
@@ -408,7 +850,6 @@ class WorkspaceSecurityManager:
                 with contextlib.suppress(OSError):
                     temp_path.unlink()
 
-        # If loop exited without return, final read
         secret = self.secret_path.read_bytes()
         if len(secret) != 32:
             raise WorkspaceSecretCorruptError(
@@ -425,10 +866,7 @@ class WorkspaceSecurityManager:
         return DerivedKeys(k_pseudo=k_pseudo, k_audit=k_audit, k_waiver=k_waiver)
 
     def get_keys(self) -> DerivedKeys:
-        """Return derived purpose-isolated keys.
-
-        Never exposes the raw root secret to client callers.
-        """
+        """Return derived purpose-isolated keys without exposing raw root secret."""
         return self._derived_keys
 
     def get_pseudo_key(self) -> bytes:
@@ -447,11 +885,21 @@ class WorkspaceSecurityManager:
         """Sign audit entry bytes with K_audit, returning hex digest."""
         return hmac.new(self._derived_keys.k_audit, entry_bytes, hashlib.sha256).hexdigest().lower()
 
+    def verify_audit_signature(self, entry_bytes: bytes, signature: str) -> bool:
+        """Constant-time verification of an audit entry HMAC signature under K_audit."""
+        expected = self.sign_audit_entry(entry_bytes)
+        return hmac.compare_digest((signature or "").lower(), expected)
+
     def sign_waiver(self, waiver_bytes: bytes) -> str:
         """Sign steward waiver bytes with K_waiver, returning hex digest."""
         return (
             hmac.new(self._derived_keys.k_waiver, waiver_bytes, hashlib.sha256).hexdigest().lower()
         )
+
+    def verify_waiver_signature(self, waiver_bytes: bytes, signature: str) -> bool:
+        """Constant-time verification of a steward waiver HMAC signature under K_waiver."""
+        expected = self.sign_waiver(waiver_bytes)
+        return hmac.compare_digest((signature or "").lower(), expected)
 
     def __repr__(self) -> str:
         """Sanitize repr to avoid leaking secrets."""

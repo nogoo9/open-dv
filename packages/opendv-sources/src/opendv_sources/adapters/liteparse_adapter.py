@@ -29,7 +29,12 @@ from opendv_contracts.dtos.ingestion import (
     TableStructure,
     TaintClassification,
 )
-from opendv_sources.exceptions import DocumentExtractionError, OCRUnavailableError
+from opendv_sources.exceptions import (
+    DocumentExtractionError,
+    InvalidDocumentError,
+    OCRExecutionError,
+    OCRUnavailableError,
+)
 from opendv_sources.ingestion.adapter import BaseDocumentAdapter
 from opendv_sources.ingestion.layout_evaluator import (
     DEFAULT_RASTER_RATIO_THRESHOLD,
@@ -81,9 +86,9 @@ else:
 
 VALID_OCR_MODES = frozenset({"auto", "force", "off"})
 
-
-class InvalidDocumentError(DocumentExtractionError):
-    """Raised when a document is corrupt, malformed, or cannot be parsed."""
+_DIVIDER_CELL_RE: re.Pattern[str] = re.compile(r"^:?-+:?$")
+_SPACE_SPLIT_RE: re.Pattern[str] = re.compile(r"\s{2,}")
+_SPACE_COL_START_RE: re.Pattern[str] = re.compile(r"\s{2,}(\S)")
 
 
 @dataclass(frozen=True)
@@ -109,7 +114,7 @@ def _is_table_divider_row(cells: list[str]) -> bool:
     """Check if all cells in a row look like markdown divider syntax (e.g. '---', ':---:')."""
     if not cells:
         return False
-    return all(bool(re.match(r"^:?-+:?$", cell)) for cell in cells)
+    return all(bool(_DIVIDER_CELL_RE.match(cell)) for cell in cells)
 
 
 def extract_tables_with_spans(
@@ -146,6 +151,31 @@ def extract_tables_with_spans(
     for line in lines:
         line_starts.append(offset)
         offset += len(line) + 1  # accounts for '\n' separator
+
+    # Lazily cache space-separated cells and column start positions per line to guarantee
+    # O(n) worst-case scanning even on adversarial misaligned 2-column inputs (P04::MAJ-03)
+    space_row_cache: list[tuple[list[str], list[int]] | None] = [None] * n_lines
+    space_row_computed = bytearray(n_lines)
+
+    def _get_space_row(line_idx: int) -> tuple[list[str], list[int]] | None:
+        if space_row_computed[line_idx]:
+            return space_row_cache[line_idx]
+        space_row_computed[line_idx] = 1
+        raw_line = lines[line_idx]
+        stripped_line = raw_line.strip()
+        if not stripped_line:
+            return None
+        cells = [c.strip() for c in _SPACE_SPLIT_RE.split(stripped_line) if c.strip()]
+        if len(cells) < 2 or not all(len(c) <= 80 for c in cells):
+            return None
+        starts = [0]
+        for m in _SPACE_COL_START_RE.finditer(raw_line):
+            starts.append(m.start(1))
+        if len(starts) < len(cells):
+            return None
+        row_entry = (cells, starts)
+        space_row_cache[line_idx] = row_entry
+        return row_entry
 
     while idx < n_lines:
         line = lines[idx]
@@ -249,81 +279,84 @@ def extract_tables_with_spans(
         # ---------------------------------------------------------------------
         # 3. Space-aligned multi-column tables (>= 2 columns, >= 3 lines with vertical alignment)
         # ---------------------------------------------------------------------
-        space_cells = [c.strip() for c in re.split(r"\s{2,}", line.strip()) if c.strip()]
-        if len(space_cells) >= 2 and all(len(c) <= 80 for c in space_cells):
+        base_row = _get_space_row(idx)
+        if base_row is not None:
+            space_cells, base_starts = base_row
             start_line_idx = idx
-            space_block: list[str] = [line]
             col_target = len(space_cells)
+            min_pos = list(base_starts[:col_target])
+            max_pos = list(base_starts[:col_target])
+            row_cells_block: list[list[str]] = [space_cells]
+
             curr = idx + 1
             while curr < n_lines:
                 next_line = lines[curr]
-                next_cells = [
-                    c.strip() for c in re.split(r"\s{2,}", next_line.strip()) if c.strip()
-                ]
-                if len(next_cells) == col_target and all(len(c) <= 80 for c in next_cells):
-                    space_block.append(next_line)
-                    curr += 1
-                else:
+                if ("|" in next_line and next_line.count("|") >= 2) or (
+                    "\t" in next_line and len(next_line.split("\t")) >= 2
+                ):
+                    break
+                next_row = _get_space_row(curr)
+                if next_row is None:
+                    break
+                next_cells, next_starts = next_row
+                if len(next_cells) != col_target or len(next_starts) < col_target:
                     break
 
-            if len(space_block) >= 3:
-                # Check column start alignment across rows to avoid misclassifying
-                # justified prose with accidental double spaces (MIN-07)
-                col_starts_per_line: list[list[int]] = []
-                for blk_line in space_block:
-                    starts = [0]
-                    for m in re.finditer(r"\s{2,}(\S)", blk_line):
-                        starts.append(m.start(1))
-                    col_starts_per_line.append(starts)
-
-                is_aligned = True
+                # Enforce column start alignment incrementally so rejected prefixes
+                # stop within <= 2 comparisons (strict O(n) worst-case, P04::MAJ-03)
+                aligned_step = True
                 for col_idx in range(1, col_target):
-                    col_positions = [
-                        starts[col_idx] for starts in col_starts_per_line if len(starts) > col_idx
-                    ]
-                    if (
-                        len(col_positions) != len(space_block)
-                        or (max(col_positions) - min(col_positions)) > 4
-                    ):
-                        is_aligned = False
+                    cand_min = min(min_pos[col_idx], next_starts[col_idx])
+                    cand_max = max(max_pos[col_idx], next_starts[col_idx])
+                    if (cand_max - cand_min) > 4:
+                        aligned_step = False
                         break
+                if not aligned_step:
+                    break
 
-                if is_aligned:
-                    idx = curr
-                    first_cells = re.split(r"\s{2,}", space_block[0].strip())
-                    headers = [c.strip() for c in first_cells if c.strip()]
-                    data_rows = [
-                        [c.strip() for c in re.split(r"\s{2,}", r.strip()) if c.strip()]
-                        for r in space_block[1:]
-                    ]
-                    raw_md = (
-                        "| "
-                        + " | ".join(headers)
-                        + " |\n"
-                        + "| "
-                        + " | ".join(["---"] * len(headers))
-                        + " |\n"
-                        + "\n".join("| " + " | ".join(r) + " |" for r in data_rows)
+                for col_idx in range(1, col_target):
+                    if next_starts[col_idx] < min_pos[col_idx]:
+                        min_pos[col_idx] = next_starts[col_idx]
+                    if next_starts[col_idx] > max_pos[col_idx]:
+                        max_pos[col_idx] = next_starts[col_idx]
+                row_cells_block.append(next_cells)
+                curr += 1
+
+            if len(row_cells_block) >= 3:
+                idx = curr
+                headers = row_cells_block[0]
+                data_rows = row_cells_block[1:]
+                raw_md = (
+                    "| "
+                    + " | ".join(headers)
+                    + " |\n"
+                    + "| "
+                    + " | ".join(["---"] * len(headers))
+                    + " |\n"
+                    + "\n".join("| " + " | ".join(r) + " |" for r in data_rows)
+                )
+                span_start = line_starts[start_line_idx]
+                span_end = line_starts[idx - 1] + len(lines[idx - 1])
+                tbl = TableStructure(
+                    table_id=f"tbl_p{page_number}_{table_counter}",
+                    page_number=page_number,
+                    headers=headers,
+                    rows=data_rows,
+                    raw_html_or_md=raw_md,
+                    bounding_box=None,
+                )
+                detected.append(
+                    DetectedTable(
+                        table=tbl,
+                        start_in_page=span_start,
+                        end_in_page=span_end,
                     )
-                    span_start = line_starts[start_line_idx]
-                    span_end = line_starts[idx - 1] + len(lines[idx - 1])
-                    tbl = TableStructure(
-                        table_id=f"tbl_p{page_number}_{table_counter}",
-                        page_number=page_number,
-                        headers=headers,
-                        rows=data_rows,
-                        raw_html_or_md=raw_md,
-                        bounding_box=None,
-                    )
-                    detected.append(
-                        DetectedTable(
-                            table=tbl,
-                            start_in_page=span_start,
-                            end_in_page=span_end,
-                        )
-                    )
-                    table_counter += 1
-                    continue
+                )
+                table_counter += 1
+                continue
+
+            idx = curr
+            continue
 
         idx += 1
 
@@ -512,21 +545,29 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
         mime_type: str | None = None,
         source_sha256: str | None = None,
         taint: TaintClassification = TaintClassification.INTERNAL,
+        ocr_mode: str | None = None,
         **kwargs: Any,
     ) -> IngestionResult:
         """Execute native parsing via Google PDFium / liteparse 0.4.x."""
         if liteparse is None:
             raise ImportError("liteparse library is not installed")
 
+        effective_mode = ocr_mode or self.ocr_mode
+        if effective_mode == "force" and self.ocr_router._availability_override is False:
+            raise OCRUnavailableError(
+                "OCR_UNAVAILABLE",
+                details={"ocr_mode": effective_mode, "filename": filename},
+            )
+
         # Parse via LiteParse class or module parse function
         parser_cls = getattr(liteparse, "LiteParse", None)
-        # In both 'auto' and 'force' modes, OCR is enabled for native liteparse (MAJ-01)
-        ocr_enabled = self.ocr_mode != "off"
+        # Honor per-call effective_mode for both ocr_enabled and parser construction (P04::MAJ-02)
+        ocr_enabled = effective_mode != "off"
         if parser_cls is not None:
             try:
                 parser = parser_cls(
                     ocr_enabled=ocr_enabled,
-                    ocr_mode=self.ocr_mode,
+                    ocr_mode=effective_mode,
                 )
             except TypeError:
                 try:
@@ -611,8 +652,56 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
             taint=taint,
             page_ocr_applied_flags=page_ocr_applied_flags,
             page_conf_overrides=page_conf_overrides,
+            ocr_mode=effective_mode,
             **kwargs,
         )
+
+    @staticmethod
+    def _extract_page_image_payloads(page: Any) -> list[Any]:
+        """Extract raw image bytes or PIL images from a pypdf PageObject for OCR."""
+        payloads: list[Any] = []
+        with contextlib.suppress(Exception):
+            for img_obj in getattr(page, "images", []) or []:
+                raw_bytes = getattr(img_obj, "data", None)
+                if raw_bytes:
+                    payloads.append(raw_bytes)
+        if payloads:
+            return payloads
+
+        def _collect_from_xobjects(xobjects_dict: Any, depth: int = 0) -> None:
+            is_mapping = isinstance(xobjects_dict, dict) or hasattr(xobjects_dict, "items")
+            if depth > 3 or not is_mapping:
+                return
+            for _, xobj in xobjects_dict.items():
+                resolved = xobj.get_object() if hasattr(xobj, "get_object") else xobj
+                if not (isinstance(resolved, dict) or hasattr(resolved, "get")):
+                    continue
+                subtype = resolved.get("/Subtype")
+                if subtype == "/Image":
+                    if hasattr(resolved, "get_data"):
+                        with contextlib.suppress(Exception):
+                            raw_data = resolved.get_data()
+                            if raw_data:
+                                payloads.append(raw_data)
+                elif subtype == "/Form":
+                    sub_res = resolved.get("/Resources")
+                    sub_res_obj = (
+                        sub_res.get_object() if hasattr(sub_res, "get_object") else sub_res
+                    )
+                    if isinstance(sub_res_obj, dict) or hasattr(sub_res_obj, "get"):
+                        sub_x = sub_res_obj.get("/XObject")
+                        sub_x_obj = sub_x.get_object() if hasattr(sub_x, "get_object") else sub_x
+                        _collect_from_xobjects(sub_x_obj, depth + 1)
+
+        with contextlib.suppress(Exception):
+            resources = getattr(page, "get", lambda k: None)("/Resources")
+            res_obj = resources.get_object() if hasattr(resources, "get_object") else resources
+            if isinstance(res_obj, dict) or hasattr(res_obj, "get"):
+                xobjs = res_obj.get("/XObject")
+                xobjs_obj = xobjs.get_object() if hasattr(xobjs, "get_object") else xobjs
+                _collect_from_xobjects(xobjs_obj, 0)
+
+        return payloads
 
     def _parse_with_pypdf(
         self,
@@ -630,6 +719,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
         if effective_mode != self.ocr_mode:
             router = TesseractOCRRouter(
                 ocr_mode=effective_mode,
+                tesseract_cmd=self.ocr_router.tesseract_cmd,
                 sparse_threshold=self.ocr_router.sparse_threshold,
                 raster_threshold=self.ocr_router.raster_threshold,
             )
@@ -669,6 +759,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
             page_texts: list[str] = []
             page_bboxes: list[tuple[float, float, float, float] | None] = []
             page_scanned_flags: list[bool] = []
+            page_ocr_applied_flags: list[bool | None] = []
 
             # Wrap whole page access and extraction loop inside try/except (MIN-02)
             for p_idx in range(len(pages)):
@@ -677,7 +768,6 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
                 norm_page = normalize_text(raw_text)
                 if norm_page and not norm_page.endswith("\n"):
                     norm_page += "\n"
-                page_texts.append(norm_page)
 
                 # Extract bounding box from MediaBox
                 bbox: tuple[float, float, float, float] | None = None
@@ -723,8 +813,12 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
                         return False
 
                     resources = getattr(page, "get", lambda k: None)("/Resources")
+                    if hasattr(resources, "get_object"):
+                        resources = resources.get_object()
                     if resources:
                         xobjects = resources.get("/XObject")
+                        if hasattr(xobjects, "get_object"):
+                            xobjects = xobjects.get_object()
                         if xobjects:
                             has_images = _check_xobjects_for_image(xobjects, 0)
 
@@ -740,11 +834,53 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
                     or complexity.raster_ratio > self.ocr_router.raster_threshold
                     or (has_images and complexity.is_complex)
                 )
-                if is_scanned or complexity.is_complex:
-                    # Route complex/scanned page via TesseractOCRRouter
-                    router.route_page(complexity, page_number=p_idx + 1)
 
+                # Always route via TesseractOCRRouter so ocr_mode='force' enforces availability
+                # even on non-complex pages, and complex pages execute OCR when available (MAJ-02)
+                decision = router.route_page(complexity, page_number=p_idx + 1)
+                ocr_applied: bool | None = None
+                force_hybrid_ocr = has_images and (decision.should_ocr or effective_mode == "force")
+                if is_scanned or force_hybrid_ocr:
+                    if decision.should_ocr or force_hybrid_ocr:
+                        image_payloads = self._extract_page_image_payloads(page)
+                        if image_payloads:
+                            ocr_parts: list[str] = []
+                            ocr_failed = False
+                            for img_payload in image_payloads:
+                                try:
+                                    extracted_part = router.execute_ocr(
+                                        img_payload,
+                                        page_number=p_idx + 1,
+                                    )
+                                    if extracted_part:
+                                        ocr_parts.append(extracted_part)
+                                except OCRExecutionError:
+                                    ocr_failed = True
+                                    break
+                            if ocr_failed:
+                                # Preserve native extracted text and record ocr_skipped=True
+                                ocr_applied = False
+                            else:
+                                ocr_applied = True
+                                ocr_norm = normalize_text("\n".join(ocr_parts))
+                                if ocr_norm.strip():
+                                    if not norm_page.strip():
+                                        norm_page = (
+                                            ocr_norm if ocr_norm.endswith("\n") else f"{ocr_norm}\n"
+                                        )
+                                    elif ocr_norm.strip() not in norm_page:
+                                        suffix = (
+                                            ocr_norm if ocr_norm.endswith("\n") else f"{ocr_norm}\n"
+                                        )
+                                        norm_page = f"{norm_page}{suffix}"
+                        else:
+                            ocr_applied = False
+                    else:
+                        ocr_applied = False
+
+                page_texts.append(norm_page)
                 page_scanned_flags.append(is_scanned)
+                page_ocr_applied_flags.append(ocr_applied)
 
         except (InvalidDocumentError, OCRUnavailableError):
             raise
@@ -764,6 +900,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
             fallback_reason=fallback_reason,
             source_sha256=source_sha256,
             taint=taint,
+            page_ocr_applied_flags=page_ocr_applied_flags,
             ocr_mode=effective_mode,
             **kwargs,
         )
@@ -846,21 +983,20 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
                 else None
             )
 
-            # OCR skipped / confidence logic relative to engine and ocr_mode (MAJ-01, MAJ-03)
+            # OCR skipped / confidence logic relative to engine & ocr_mode (MAJ-01..03)
             if p_is_scanned:
-                if engine == "pypdf" or effective_mode == "off":
-                    # OCR did not run: pypdf cannot OCR, and ocr_mode='off' disables it
+                if effective_mode == "off":
                     ocr_skipped = True
                     confidence = 0.8
-
+                elif p_ocr is not None:
+                    ocr_skipped = not p_ocr
+                    confidence = 1.0 if p_ocr else 0.8
+                elif engine == "pypdf":
+                    ocr_skipped = True
+                    confidence = 0.8
                 else:
-                    # Native liteparse with OCR enabled (auto or force mode)
-                    if p_ocr is not None:
-                        ocr_skipped = not p_ocr
-                        confidence = 1.0 if p_ocr else 0.8
-                    else:
-                        ocr_skipped = False
-                        confidence = 1.0
+                    ocr_skipped = False
+                    confidence = 1.0
             else:
                 ocr_skipped = False
                 confidence = 1.0
@@ -901,6 +1037,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
         metadata.update(
             {
                 "engine": engine,
+                "ocr_mode": effective_mode,
                 "has_liteparse": HAS_LITEPARSE,
                 "total_pages": len(page_texts),
                 "total_characters": total_chars,
@@ -910,8 +1047,6 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
         )
         if fallback_reason:
             metadata["fallback_reason"] = fallback_reason
-        if engine == "pypdf" and effective_mode == "force":
-            metadata["ocr_requested_but_unavailable"] = True
 
         return IngestionResult(
             document_id=doc_id,
@@ -923,7 +1058,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
             page_map=page_map,
             tables=all_tables,
             taint=taint,
-            source_sha256=source_sha256,
+            source_sha256=actual_sha256,
             normalized_text=full_normalized_text,
             metadata=metadata,
         )

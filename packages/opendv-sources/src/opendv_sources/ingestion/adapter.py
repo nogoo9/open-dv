@@ -19,8 +19,10 @@ from opendv_contracts.dtos.ingestion import (
     PageMapEntry,
     TaintClassification,
 )
-from opendv_sources.exceptions import UnsupportedFormatError
+from opendv_sources.exceptions import InvalidDocumentError, UnsupportedFormatError
 from opendv_sources.ingestion.normalization import normalize_text
+
+DEFAULT_MAX_TEXT_BYTES: int = 50 * 1024 * 1024
 
 
 class DocumentAdapter(ABC):
@@ -184,6 +186,9 @@ class PlainTextDocumentAdapter(BaseDocumentAdapter):
         ".htm": "text/html",
     }
 
+    def __init__(self, *, max_bytes: int | None = DEFAULT_MAX_TEXT_BYTES) -> None:
+        self.max_bytes = max_bytes
+
     def parse_bytes(
         self,
         data: bytes,
@@ -192,6 +197,11 @@ class PlainTextDocumentAdapter(BaseDocumentAdapter):
         **kwargs: Any,
     ) -> IngestionResult:
         """Decode and normalize plain text bytes."""
+        if self.max_bytes is not None and len(data) > self.max_bytes:
+            raise InvalidDocumentError(
+                f"Text document '{filename}' exceeds maximum allowed size "
+                f"({len(data)} > {self.max_bytes} bytes)"
+            )
         # BOM detection and robust decoding (UTF-32 checked before UTF-16)
         has_explicit_bom = True
         if data.startswith(b"\xef\xbb\xbf"):

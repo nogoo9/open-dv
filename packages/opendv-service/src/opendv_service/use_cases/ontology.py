@@ -7,13 +7,16 @@ import datetime
 import hashlib
 import uuid
 from pathlib import Path
+from typing import Any
 
 import yaml
 
 from opendv_contracts.dtos.ontology import (
+    LEGACY_WAVE1_V1_OP_TYPES,
     OntologyDecision,
     OntologyDecisionRequest,
     OntologyDecisionResponse,
+    OntologyDelta,
     OntologyDiff,
     OntologyDiffRequest,
     OntologyProposal,
@@ -30,6 +33,7 @@ from opendv_service.errors import InputValidationError
 from opendv_service.ontology.applier import apply_ontology_delta
 from opendv_service.ontology.diff import ontology_diff
 from opendv_service.ontology.loader import (
+    _resolve_candidate_file_path,
     load_base_ontology,
     load_deployed_contract,
     load_ontology_delta,
@@ -141,6 +145,92 @@ def execute_ontology_diff(
     return ontology_diff(base, target)
 
 
+def _is_legacy_ip1_cold_bootstrap_delta(delta: OntologyDelta) -> bool:
+    """Return True iff `delta` strictly matches Wave-1 IP-1 cold-start bootstrap shape."""
+    return bool(
+        not delta.parent_sha256
+        and delta.base_ontology_version == "1.0.0"
+        and delta.target_ontology_version == "1.0.0"
+        and isinstance(delta.metadata, dict)
+        and delta.metadata.get("mode") == "BOOTSTRAP"
+        and delta.author is None
+        and delta.created_at is None
+        and delta.rationale is None
+        and all(op.op_type in LEGACY_WAVE1_V1_OP_TYPES for op in delta.operations)
+        and delta.highest_semver_class() != "MAJOR"
+    )
+
+
+def _is_legacy_ip1_cold_bootstrap_source(
+    delta_source: Any,
+    *,
+    workspace_root: Path | None = None,
+) -> bool:
+    """Inspect raw `delta_source` before `load_ontology_delta` for legacy IP-1 bootstrap."""
+    if isinstance(delta_source, OntologyDelta):
+        return _is_legacy_ip1_cold_bootstrap_delta(delta_source)
+
+    raw_dict: Any = None
+    if isinstance(delta_source, dict):
+        raw_dict = delta_source
+    elif isinstance(delta_source, (str, Path)):
+        raw_str = str(delta_source).strip()
+        try:
+            candidate_path = _resolve_candidate_file_path(raw_str, workspace_root=workspace_root)
+            content = (
+                candidate_path.read_text(encoding="utf-8")
+                if candidate_path and candidate_path.is_file()
+                else raw_str
+            )
+            raw_dict = yaml.safe_load(content)
+        except (OSError, UnicodeDecodeError, ValueError, yaml.YAMLError):
+            return False
+
+    if not isinstance(raw_dict, dict):
+        return False
+    if "delta" in raw_dict and ("proposal_id" in raw_dict or "recommender_id" in raw_dict):
+        raw_dict = raw_dict["delta"]
+    if not isinstance(raw_dict, dict):
+        return False
+
+    base_ver = (
+        raw_dict.get("base_ontology_version")
+        if raw_dict.get("base_ontology_version") is not None
+        else raw_dict.get("base_version")
+    )
+    target_ver = (
+        raw_dict.get("target_ontology_version")
+        if raw_dict.get("target_ontology_version") is not None
+        else raw_dict.get("target_version")
+    )
+    meta = raw_dict.get("metadata")
+    ops = raw_dict.get("operations", [])
+    if not (
+        not raw_dict.get("parent_sha256")
+        and not raw_dict.get("base_sha256")
+        and base_ver == "1.0.0"
+        and target_ver == "1.0.0"
+        and isinstance(meta, dict)
+        and meta.get("mode") == "BOOTSTRAP"
+        and raw_dict.get("author") is None
+        and raw_dict.get("created_at") is None
+        and raw_dict.get("rationale") is None
+        and isinstance(ops, (list, tuple))
+    ):
+        return False
+
+    for op in ops:
+        if hasattr(op, "op_type"):
+            op_type = op.op_type
+        elif isinstance(op, dict):
+            op_type = op.get("op_type")
+        else:
+            op_type = None
+        if op_type not in LEGACY_WAVE1_V1_OP_TYPES:
+            return False
+    return True
+
+
 def execute_ontology_decision(
     state: StateStore,
     req: OntologyDecisionRequest,
@@ -199,7 +289,14 @@ def execute_ontology_decision(
     contract_source = req.deployed_contract or req.contract_content or req.contract_path
     contract = load_deployed_contract(contract_source, workspace_root=workspace_root)
 
-    delta = load_ontology_delta(delta_source, workspace_root=workspace_root)
+    raw_is_cold_bootstrap = _is_legacy_ip1_cold_bootstrap_source(
+        delta_source, workspace_root=workspace_root
+    )
+    delta = load_ontology_delta(
+        delta_source,
+        workspace_root=workspace_root,
+        allow_bootstrap=raw_is_cold_bootstrap,
+    )
 
     if req.proposal_id:
         decision_id = req.proposal_id.replace("prop-", "dec-")
@@ -223,11 +320,13 @@ def execute_ontology_decision(
         accepted_ops = [op.op_id for op in delta.operations]
 
     # 3. Apply delta deterministically
+    is_cold_bootstrap = raw_is_cold_bootstrap and _is_legacy_ip1_cold_bootstrap_delta(delta)
     resulting = apply_ontology_delta(
         base,
         delta,
         accepted_op_ids=accepted_ops,
         decision_id=decision_id,
+        allow_legacy_ip1_bootstrap=is_cold_bootstrap,
     )
 
     resulting_sha = compute_ontology_sha256(resulting)

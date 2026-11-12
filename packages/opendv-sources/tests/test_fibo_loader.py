@@ -19,6 +19,7 @@ from pathlib import Path
 import pytest
 
 import opendv_sources.fibo.loader as loader_module
+from opendv_contracts.errors import ErrorCode, get_error_mapping
 from opendv_contracts.spi.reference_ontology import ReferenceOntologyAdapter
 from opendv_sources.exceptions import SourceNotFoundError
 from opendv_sources.fibo import (
@@ -428,6 +429,23 @@ def test_missing_env_override_baseline_digests_path_raises_not_found(
     assert "OPENDV_BASELINE_DIGESTS_PATH not found" in str(exc_info.value)
 
 
+def _assert_corrupt_error_taxonomy(err: ReferenceOntologyCorruptError) -> None:
+    """Assert ReferenceOntologyCorruptError aligns with canonical ErrorCode mapping."""
+    expected_code = getattr(
+        ErrorCode,
+        "REFERENCE_ONTOLOGY_CORRUPT",
+        ErrorCode.REFERENCE_PACK_INTEGRITY_FAILURE,
+    )
+    expected_exit, expected_http = get_error_mapping(expected_code)
+    assert err.error_code == expected_code
+    assert err.exit_code == expected_exit
+    assert err.http_status == expected_http
+    assert err.error_code_symbol == "REFERENCE_ONTOLOGY_CORRUPT"
+    problem = err.to_problem_detail()
+    assert problem.error_code == expected_code
+    assert problem.status == expected_http
+
+
 def test_invalid_json_pack_raises_corrupt_error(tmp_path: Path) -> None:
     """Verify loading non-JSON content raises ReferenceOntologyCorruptError."""
     bad_json_file = tmp_path / "fibo-core-bad.json"
@@ -436,10 +454,7 @@ def test_invalid_json_pack_raises_corrupt_error(tmp_path: Path) -> None:
     with pytest.raises(ReferenceOntologyCorruptError) as exc_info:
         FiboReferenceOntologyLoader(pack_path=bad_json_file, verify_integrity=False)
 
-    err = exc_info.value
-    assert err.exit_code == 4
-    assert err.http_status == 422
-    assert err.error_code_symbol == "REFERENCE_ONTOLOGY_CORRUPT"
+    _assert_corrupt_error_taxonomy(exc_info.value)
 
 
 def test_non_dict_json_root_raises_corrupt_error(tmp_path: Path) -> None:
@@ -449,7 +464,7 @@ def test_non_dict_json_root_raises_corrupt_error(tmp_path: Path) -> None:
 
     with pytest.raises(ReferenceOntologyCorruptError) as exc_info:
         FiboReferenceOntologyLoader(pack_path=list_json_file, verify_integrity=False)
-    assert exc_info.value.exit_code == 4
+    _assert_corrupt_error_taxonomy(exc_info.value)
     assert "Pack root must be a JSON object" in str(exc_info.value)
 
 
@@ -462,7 +477,7 @@ def test_missing_required_sections_raises_corrupt_error(tmp_path: Path) -> None:
 
     with pytest.raises(ReferenceOntologyCorruptError) as exc_info:
         FiboReferenceOntologyLoader(pack_path=incomplete_file, verify_integrity=False)
-    assert exc_info.value.exit_code == 4
+    _assert_corrupt_error_taxonomy(exc_info.value)
 
 
 def test_missing_metadata_version_raises_corrupt_error(tmp_path: Path) -> None:
@@ -536,7 +551,7 @@ def test_filename_hash_prefix_mismatch_raises_corrupt_error(
 
     with pytest.raises(ReferenceOntologyCorruptError) as exc_info:
         FiboReferenceOntologyLoader(pack_path=mismatched_file, verify_integrity=True)
-    assert exc_info.value.exit_code == 4
+    _assert_corrupt_error_taxonomy(exc_info.value)
     assert "prefix 'deadbeef' does not match" in str(exc_info.value)
 
 
@@ -549,21 +564,21 @@ def test_explicit_expected_sha256_mismatch_raises_corrupt_error(
             pack_path=default_loader.pack_path,
             expected_sha256="0" * 64,
         )
-    assert exc_info.value.exit_code == 4
+    _assert_corrupt_error_taxonomy(exc_info.value)
 
     with pytest.raises(ReferenceOntologyCorruptError) as exc_info:
         FiboReferenceOntologyLoader(
             pack_path=default_loader.pack_path,
             expected_sha256="ffffffff",
         )
-    assert exc_info.value.exit_code == 4
+    _assert_corrupt_error_taxonomy(exc_info.value)
 
     with pytest.raises(ReferenceOntologyCorruptError) as exc_info:
         FiboReferenceOntologyLoader(
             pack_path=default_loader.pack_path,
             expected_sha256="1234567890ab",
         )
-    assert exc_info.value.exit_code == 4
+    _assert_corrupt_error_taxonomy(exc_info.value)
 
 
 def test_pack_size_budget_guard(tmp_path: Path) -> None:
@@ -573,7 +588,7 @@ def test_pack_size_budget_guard(tmp_path: Path) -> None:
 
     with pytest.raises(ReferenceOntologyCorruptError) as exc_info:
         FiboReferenceOntologyLoader(pack_path=oversized_file, verify_integrity=False)
-    assert exc_info.value.exit_code == 4
+    _assert_corrupt_error_taxonomy(exc_info.value)
     assert "exceeds budget" in str(exc_info.value)
 
 
@@ -765,7 +780,7 @@ def test_untrusted_pack_cannot_override_baseline_from_parent_dir(tmp_path: Path)
     # and enforces CANONICAL_FIBO_CORE_SHA256
     with pytest.raises(ReferenceOntologyCorruptError) as exc_info:
         FiboReferenceOntologyLoader(pack_path=fake_pack_path, verify_integrity=True)
-    assert exc_info.value.exit_code == 4
+    _assert_corrupt_error_taxonomy(exc_info.value)
 
 
 def test_canonical_pack_artifact_integrity_and_packaging() -> None:
@@ -827,7 +842,7 @@ def test_pack_matching_8char_prefix_but_failing_full_digest_rejected(tmp_path: P
             expected_sha256=forged_prefix,
             verify_integrity=True,
         )
-    assert exc_info.value.exit_code == 4
+    _assert_corrupt_error_taxonomy(exc_info.value)
     assert "authoritative canonical FIBO digest" in str(exc_info.value)
 
 

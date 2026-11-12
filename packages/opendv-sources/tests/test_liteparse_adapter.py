@@ -13,7 +13,9 @@ Validates:
 
 from __future__ import annotations
 
+import hashlib
 import io
+import time
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -33,7 +35,8 @@ from opendv_sources.adapters.liteparse_adapter import (
     LiteParseDocumentAdapter,
     extract_tables_from_text,
 )
-from opendv_sources.exceptions import DocumentExtractionError
+from opendv_sources.exceptions import DocumentExtractionError, OCRUnavailableError
+from opendv_sources.ingestion.layout_evaluator import TesseractOCRRouter
 from opendv_sources.ingestion.service import IngestionService
 
 FIXTURES_DIR = Path(__file__).parent / "fixtures"
@@ -746,11 +749,81 @@ class TestScannedPageDetection:
             mock_liteparse_mod.LiteParse.assert_called_once_with(ocr_enabled=False, ocr_mode="off")
 
     def test_pypdf_records_ocr_unavailable_when_forced(self) -> None:
-        """Verify pypdf records ocr_requested_but_unavailable when ocr_mode='force' (SUG-03)."""
+        """Verify pypdf raises OCRUnavailableError (501) when ocr_mode='force' & unavailable."""
         data = MSA_PDF_PATH.read_bytes()
         adapter = LiteParseDocumentAdapter(ocr_mode="force", force_fallback=True)
-        result = adapter.parse_bytes(data, filename="sample.pdf")
-        assert result.metadata.get("ocr_requested_but_unavailable") is True
+        adapter.ocr_router.set_availability_override(False)
+        with pytest.raises(OCRUnavailableError) as exc_info:
+            adapter.parse_bytes(data, filename="sample.pdf")
+        assert exc_info.value.exit_code == 1
+        assert exc_info.value.http_status == 501
+
+    def test_liteparse_honors_per_call_ocr_mode_override(self) -> None:
+        """Regression P04::MAJ-02: _parse_with_liteparse honors per-call ocr_mode override."""
+        data = MSA_PDF_PATH.read_bytes()
+        mock_page = SimpleNamespace(
+            text="Scanned content",
+            bounding_box=(0.0, 0.0, 612.0, 792.0),
+            is_scanned=True,
+        )
+        mock_parsed = SimpleNamespace(pages=[mock_page])
+        mock_liteparse_mod = MagicMock()
+        mock_parser = MagicMock()
+        mock_parser.parse.return_value = mock_parsed
+        mock_liteparse_mod.LiteParse.return_value = mock_parser
+
+        with (
+            patch("opendv_sources.adapters.liteparse_adapter.HAS_LITEPARSE", True),
+            patch("opendv_sources.adapters.liteparse_adapter.liteparse", mock_liteparse_mod),
+        ):
+            # Instance default 'auto' overridden per-call to 'off'
+            adapter_auto = LiteParseDocumentAdapter(ocr_mode="auto", force_fallback=False)
+            res_off = adapter_auto.parse_bytes(data, filename="override_off.pdf", ocr_mode="off")
+            mock_liteparse_mod.LiteParse.assert_called_with(ocr_enabled=False, ocr_mode="off")
+            assert res_off.metadata["ocr_mode"] == "off"
+            assert res_off.page_map[0].ocr_skipped is True
+
+            mock_liteparse_mod.LiteParse.reset_mock()
+
+            # Instance default 'off' overridden per-call to 'force'
+            adapter_off = LiteParseDocumentAdapter(ocr_mode="off", force_fallback=False)
+            res_force = adapter_off.parse_bytes(
+                data, filename="override_force.pdf", ocr_mode="force"
+            )
+            mock_liteparse_mod.LiteParse.assert_called_with(ocr_enabled=True, ocr_mode="force")
+            assert res_force.metadata["ocr_mode"] == "force"
+            assert res_force.page_map[0].ocr_skipped is False
+
+    def test_pypdf_executes_ocr_on_scanned_page_when_available(self) -> None:
+        """Regression 040b4599::MAJ-02: pypdf engine executes OCR via LayoutEvaluator/OCRRouter."""
+        pdf_bytes = _create_synthetic_pdf_bytes([""], with_image=True)
+        adapter = LiteParseDocumentAdapter(ocr_mode="auto", force_fallback=True)
+        adapter.ocr_router.set_availability_override(True)
+
+        with (
+            patch.object(
+                LiteParseDocumentAdapter,
+                "_extract_page_image_payloads",
+                return_value=[b"fake_raster_payload"],
+            ),
+            patch.object(
+                TesseractOCRRouter,
+                "execute_ocr",
+                return_value="Scanned Contract Section 4.2 Governing Law",
+            ) as mock_exec,
+        ):
+            result = adapter.parse_bytes(pdf_bytes, filename="scanned_with_ocr.pdf")
+
+        mock_exec.assert_called_once()
+        assert len(result.page_map) == 1
+        page = result.page_map[0]
+        assert page.is_scanned is True
+        assert page.ocr_skipped is False
+        assert page.confidence == 1.0
+        assert "Scanned Contract Section 4.2 Governing Law" in page.text
+        assert "Scanned Contract Section 4.2 Governing Law" in result.normalized_text
+        assert len(result.chunks) == 1
+        assert "Scanned Contract Section 4.2 Governing Law" in result.chunks[0].text
 
 
 # =============================================================================
@@ -888,3 +961,36 @@ class TestStreamAndServiceIntegration:
             assert chk.end_char is not None
             assert chk.end_char - chk.start_char == len(chk.text)
             assert result.normalized_text[chk.start_char : chk.end_char] == chk.text
+
+    def test_parse_bytes_populates_source_sha256_by_default(self) -> None:
+        """Regression 040b4599::MIN-02: parse_bytes stamps actual_sha256 on result & chunks."""
+        data = MSA_PDF_PATH.read_bytes()
+        expected_sha = hashlib.sha256(data).hexdigest()
+        adapter = LiteParseDocumentAdapter(force_fallback=True)
+
+        result = adapter.parse_bytes(data, filename="msa.pdf")
+        assert result.source_sha256 == expected_sha
+        assert len(result.chunks) > 0
+        assert all(chk.source_sha256 == expected_sha for chk in result.chunks)
+
+    def test_extract_tables_from_text_linear_time_on_misaligned_lines(self) -> None:
+        """Regression P04::MAJ-03: 20,000 misaligned 2-column lines complete in < 0.5s."""
+        misaligned = "\n".join(f"{'x' * ((i * 13) % 29 + 1)}  value_{i}" for i in range(20_000))
+        t0 = time.perf_counter()
+        tables = extract_tables_from_text(misaligned, page_number=1)
+        elapsed = time.perf_counter() - t0
+
+        assert tables == []
+        assert elapsed < 0.5, f"Quadratic regression: took {elapsed:.3f}s (>= 0.5s)"
+
+        # Also verify a valid aligned table immediately following a misaligned 2-col line is found
+        mixed = (
+            "ragged_prefix_line  not_aligned_at_col_10\n"
+            "Name      Amount\n"
+            "Alice     100\n"
+            "Bob       200"
+        )
+        extracted = extract_tables_from_text(mixed, page_number=1)
+        assert len(extracted) == 1
+        assert extracted[0].headers == ["Name", "Amount"]
+        assert extracted[0].rows == [["Alice", "100"], ["Bob", "200"]]

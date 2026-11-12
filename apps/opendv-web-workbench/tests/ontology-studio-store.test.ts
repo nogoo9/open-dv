@@ -57,17 +57,28 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				elm_archetype: "CORE_CONCEPT",
 				definition: "Investment fund entity.",
 				grounding_status: "GROUNDED",
-				attributes: [{ attribute_name: "fund_id", data_type: "string", is_optional: false }],
+				attributes: [
+					{
+						attribute_name: "fund_id",
+						data_type: "string",
+						is_optional: false,
+					},
+				],
 				synonyms: [],
 				external_mappings: [
 					{
 						scheme: "fibo",
 						target_uri: "fibo:Fund",
+						predicate: "skos:exactMatch",
 						confidence: 0.95,
 					},
 				],
 			};
-			const scComputed = computeQualityScorecard([sampleNode], [], ["urn:ontology:entity:fund"]);
+			const scComputed = computeQualityScorecard(
+				[sampleNode],
+				[],
+				["urn:ontology:entity:fund"],
+			);
 			expect(scComputed.grounding_score).toBe(1.0);
 			expect(scComputed.deployed_contracts_ok).toBe(true);
 			expect(scComputed.dag_acyclic).toBe(true);
@@ -101,12 +112,21 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 		it("validates supported source file MIME types and extensions", () => {
 			expect(isSupportedSourceFile("report.pdf", "application/pdf")).toBe(true);
-			expect(isSupportedSourceFile("deal.docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")).toBe(true);
-			expect(isSupportedSourceFile("model.json", "application/json")).toBe(true);
+			expect(
+				isSupportedSourceFile(
+					"deal.docx",
+					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+				),
+			).toBe(true);
+			expect(isSupportedSourceFile("model.json", "application/json")).toBe(
+				true,
+			);
 			expect(isSupportedSourceFile("data.csv", "text/csv")).toBe(true);
 			expect(isSupportedSourceFile("notes.md", "text/markdown")).toBe(true);
 			expect(isSupportedSourceFile("data.xlsx", "")).toBe(true);
-			expect(isSupportedSourceFile("virus.exe", "application/x-msdownload")).toBe(false);
+			expect(
+				isSupportedSourceFile("virus.exe", "application/x-msdownload"),
+			).toBe(false);
 			expect(isSupportedSourceFile("script.sh", "text/x-sh")).toBe(false);
 		});
 	});
@@ -159,10 +179,12 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			};
 
 			const store = createStudioStore();
-			const result = await store.getState().createSession(
-				{ session_id: "pe-new", domain_namespace: "private_equity" },
-				mockFetch as unknown as typeof fetch,
-			);
+			const result = await store
+				.getState()
+				.createSession(
+					{ session_id: "pe-new", domain_namespace: "private_equity" },
+					mockFetch as unknown as typeof fetch,
+				);
 
 			expect(result).not.toBeNull();
 			expect(result?.session_id).toBe("pe-new");
@@ -241,7 +263,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 		it("manages parse lifecycle and progress tracking", async () => {
 			const mockFetch = async () => {
-				return new Response(JSON.stringify({ job_id: "job-p1" }), { status: 202 });
+				return new Response(JSON.stringify({ job_id: "job-p1" }), {
+					status: 202,
+				});
 			};
 
 			const store = createStudioStore({
@@ -256,7 +280,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				},
 			});
 
-			const jobId = await store.getState().startParse("auto", mockFetch as unknown as typeof fetch);
+			const jobId = await store
+				.getState()
+				.startParse("auto", mockFetch as unknown as typeof fetch);
 			expect(jobId).toBe("job-p1");
 			expect(store.getState().parsingState.status).toBe("parsing");
 			expect(store.getState().parsingState.progress_pct).toBe(35);
@@ -279,7 +305,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 			expect(store.getState().parsingState.status).toBe("completed");
 			expect(store.getState().parsingState.evidence_chunks.length).toBe(1);
-			expect(store.getState().parsingState.evidence_chunks[0]?.layout_complexity).toBe("TABULAR");
+			expect(
+				store.getState().parsingState.evidence_chunks[0]?.layout_complexity,
+			).toBe("TABULAR");
 		});
 	});
 
@@ -307,14 +335,27 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 					{
 						question_id: "q-101",
 						concept_name: "Fund Advisor",
-						question_text: "Does Fund Advisor map to InvestmentAdvisor or FundManager?",
+						question_text:
+							"Does Fund Advisor map to InvestmentAdvisor or FundManager?",
 						certainty: "HIGH",
 						rationale_options: [
-							{ id: "opt-1", label: "InvestmentAdvisor", description: "SEC Registered RIA" },
-							{ id: "opt-2", label: "FundManager", description: "Operational Manager" },
+							{
+								id: "opt-1",
+								label: "InvestmentAdvisor",
+								description: "SEC Registered RIA",
+							},
+							{
+								id: "opt-2",
+								label: "FundManager",
+								description: "Operational Manager",
+							},
 						],
 						evidence_citations: [
-							{ source_file: "prospectus.pdf", chunk_id: "chk-01", excerpt: "advisor operates..." },
+							{
+								source_file: "prospectus.pdf",
+								chunk_id: "chk-01",
+								excerpt: "advisor operates...",
+							},
 						],
 						status: "PENDING",
 					},
@@ -335,7 +376,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			const updatedQ = store.getState().clarifications[0];
 			expect(updatedQ?.status).toBe("ANSWERED");
 			expect(updatedQ?.selected_option_ids).toEqual(["opt-1"]);
-			expect(store.getState().answers["q-101"]?.custom_answer_text).toBe("Registered under SEC Rule 203");
+			expect(store.getState().answers["q-101"]?.custom_answer_text).toBe(
+				"Registered under SEC Rule 203",
+			);
 		});
 	});
 
@@ -349,10 +392,19 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						elm_archetype: "CORE_CONCEPT",
 						definition: "Investment fund entity.",
 						attributes: [
-							{ attribute_name: "fund_id", data_type: "string", is_optional: false },
+							{
+								attribute_name: "fund_id",
+								data_type: "string",
+								is_optional: false,
+							},
 						],
 						external_mappings: [
-							{ scheme: "fibo", target_uri: "fibo-fbc:Fund", confidence: 0.92 },
+							{
+								scheme: "fibo",
+								target_uri: "fibo-fbc:Fund",
+								predicate: "skos:exactMatch",
+								confidence: 0.92,
+							},
 						],
 					},
 					{
@@ -393,7 +445,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				},
 			});
 
-			await store.getState().loadGraph("1.0.0", mockFetch as unknown as typeof fetch);
+			await store
+				.getState()
+				.loadGraph("1.0.0", mockFetch as unknown as typeof fetch);
 
 			expect(store.getState().nodes.length).toBe(2);
 			expect(store.getState().edges.length).toBe(1);
@@ -453,7 +507,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:Fund", confidence: 0.95 }],
+				external_mappings: [
+					{ scheme: "fibo", target_uri: "fibo:Fund", confidence: 0.95 },
+				],
 			};
 			store.getState().addConcept(node);
 			expect(store.getState().nodes.length).toBe(1);
@@ -479,7 +535,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						grounding_status: "GROUNDED",
 						attributes: [],
 						synonyms: [],
-						external_mappings: [{ scheme: "fibo", target_uri: "fibo:Deal", confidence: 0.95 }],
+						external_mappings: [
+							{ scheme: "fibo", target_uri: "fibo:Deal", confidence: 0.95 },
+						],
 					},
 				],
 			});
@@ -498,7 +556,8 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 		});
 
 		it("enforces waiver rationale >= 10 characters", async () => {
-			const validHeadSha = "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81";
+			const validHeadSha =
+				"1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81";
 			const store = createStudioStore({
 				initialSession: {
 					session_id: "s1",
@@ -533,14 +592,20 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			}) as typeof fetch;
 
 			// 1. Short rationale rejected before fetch
-			const failRes = await store.getState().submitWaiver("too short", "wk-123", spyFetch);
+			const failRes = await store
+				.getState()
+				.submitWaiver("too short", "wk-123", spyFetch);
 			expect(failRes).toBe(false);
 			expect(store.getState().toasts[0]?.code).toBe("INVALID_GROUNDING_WAIVER");
 
 			// 2. Empty credential rejected before fetch (MIN-02)
-			const failKey = await store.getState().submitWaiver("Legitimate rationale for audit", "", spyFetch);
+			const failKey = await store
+				.getState()
+				.submitWaiver("Legitimate rationale for audit", "", spyFetch);
 			expect(failKey).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("MISSING_WAIVER_CREDENTIAL");
+			expect(store.getState().toasts[0]?.code).toBe(
+				"MISSING_WAIVER_CREDENTIAL",
+			);
 
 			// 3. Server 403 authorization rejection (MIN-02)
 			const rejectFetch = async () =>
@@ -551,11 +616,13 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 					}),
 					{ status: 403 },
 				);
-			const rejected = await store.getState().submitWaiver(
-				"Validated via corporate compliance audit report",
-				"invalid-credential",
-				rejectFetch as unknown as typeof fetch,
-			);
+			const rejected = await store
+				.getState()
+				.submitWaiver(
+					"Validated via corporate compliance audit report",
+					"invalid-credential",
+					rejectFetch as unknown as typeof fetch,
+				);
 			expect(rejected).toBe(false);
 			expect(store.getState().qualityScorecard.waiver_applied).toBe(false);
 
@@ -570,23 +637,34 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 					}),
 					{ status: 200 },
 				);
-			const okRes = await store.getState().submitWaiver(
-				"Validated via corporate compliance audit report",
-				"steward-confidential-credential-secret-42",
-				mockFetch as unknown as typeof fetch,
-			);
+			const okRes = await store
+				.getState()
+				.submitWaiver(
+					"Validated via corporate compliance audit report",
+					"steward-confidential-credential-secret-42",
+					mockFetch as unknown as typeof fetch,
+				);
 			expect(okRes).toBe(true);
 			expect(store.getState().qualityScorecard.waiver_applied).toBe(true);
-			expect(store.getState().sessionWaivers["s1"]?.waived_base_sha256).toBe(validHeadSha);
-			expect(store.getState().sessionWaivers["s1"]?.waived_concept_uris).toEqual(["urn:provisional:entity"]);
+			expect(store.getState().sessionWaivers["s1"]?.waived_base_sha256).toBe(
+				validHeadSha,
+			);
+			expect(
+				store.getState().sessionWaivers["s1"]?.waived_concept_uris,
+			).toEqual(["urn:provisional:entity"]);
 
 			// 5. Security invariant: credential must NEVER leak into store state
-			expect(JSON.stringify(store.getState().qualityScorecard)).not.toContain("steward-confidential-credential-secret-42");
-			expect(JSON.stringify(store.getState().sessionWaivers)).not.toContain("steward-confidential-credential-secret-42");
+			expect(JSON.stringify(store.getState().qualityScorecard)).not.toContain(
+				"steward-confidential-credential-secret-42",
+			);
+			expect(JSON.stringify(store.getState().sessionWaivers)).not.toContain(
+				"steward-confidential-credential-secret-42",
+			);
 		});
 
 		it("rejects 200 response when server denies waiver with waiver_applied=false (MIN-02)", async () => {
-			const validHeadSha = "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81";
+			const validHeadSha =
+				"1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81";
 			const store = createStudioStore({
 				initialSession: {
 					session_id: "s-denied",
@@ -626,11 +704,13 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 					{ status: 200 },
 				);
 
-			const ok = await store.getState().submitWaiver(
-				"Legitimate rationale but denied by policy",
-				"steward-token",
-				deniedFetch as unknown as typeof fetch,
-			);
+			const ok = await store
+				.getState()
+				.submitWaiver(
+					"Legitimate rationale but denied by policy",
+					"steward-token",
+					deniedFetch as unknown as typeof fetch,
+				);
 			expect(ok).toBe(false);
 			expect(store.getState().qualityScorecard.waiver_applied).toBe(false);
 			expect(store.getState().sessionWaivers["s-denied"]).toBeUndefined();
@@ -638,8 +718,10 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 		});
 
 		it("enforces promotion rationale >= 10 characters and OCC verification (MIN-06, MIN-07)", async () => {
-			const validHeadSha = "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81";
-			const validWorkspaceSha = "99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e";
+			const validHeadSha =
+				"1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81";
+			const validWorkspaceSha =
+				"1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9";
 			const store = createStudioStore({
 				initialSession: {
 					session_id: "s1",
@@ -667,7 +749,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				spyFetch,
 			);
 			expect(failRes).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("PROMOTION_RATIONALE_REQUIRED");
+			expect(store.getState().toasts[0]?.code).toBe(
+				"PROMOTION_RATIONALE_REQUIRED",
+			);
 
 			// 2. Malformed SHA rejected before fetch (MIN-07)
 			const failSha = await store.getState().promoteWorkspace(
@@ -688,11 +772,17 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				body?: { rationale: string; head_sha256: string };
 			} = {};
 
-			const mockFetch: typeof fetch = (async (url: string, init?: RequestInit) => {
+			const mockFetch: typeof fetch = (async (
+				url: string,
+				init?: RequestInit,
+			) => {
 				captured.url = url;
 				captured.headers = (init?.headers as Record<string, string>) || {};
 				captured.body = JSON.parse(init?.body as string);
-				return new Response(JSON.stringify({ status: "promoted", head_sha256: validHeadSha }), { status: 200 });
+				return new Response(
+					JSON.stringify({ status: "promoted", head_sha256: validHeadSha }),
+					{ status: 200 },
+				);
 			}) as typeof fetch;
 
 			const okRes = await store.getState().promoteWorkspace(
@@ -704,10 +794,16 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				mockFetch,
 			);
 			expect(okRes).toBe(true);
-			expect(captured.url).toContain("/api/v1/ontology/studio/sessions/s1/promote");
+			expect(captured.url).toContain(
+				"/api/v1/ontology/studio/sessions/s1/promote",
+			);
 			expect(captured.headers?.["If-Match"]).toBe(`"${validHeadSha}"`);
-			expect(captured.headers?.["X-OpenDV-Workspace-If-Match"]).toBe(`"${validWorkspaceSha}"`);
-			expect(captured.body?.rationale).toContain("Enterprise private equity ontology release");
+			expect(captured.headers?.["X-OpenDV-Workspace-If-Match"]).toBe(
+				`"${validWorkspaceSha}"`,
+			);
+			expect(captured.body?.rationale).toContain(
+				"Enterprise private equity ontology release",
+			);
 		});
 
 		it("manages toast notifications adding and dismissing by ID", () => {
@@ -791,7 +887,13 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 										concept_uri: "urn:b",
 										concept_name: "B",
 										elm_archetype: "CORE_BUSINESS_CONCEPT",
-										external_mappings: [{ scheme: "fibo", target_uri: "fibo:B", confidence: 0.95 }],
+										external_mappings: [
+											{
+												scheme: "fibo",
+												target_uri: "fibo:B",
+												confidence: 0.95,
+											},
+										],
 									},
 								],
 								canonical_relationships: [],
@@ -867,7 +969,10 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 		it("reloads clarifications on HTTP 409/412 concurrent modification during submitAnswer", async () => {
 			let reloadCalled = false;
-			const mockFetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+			const mockFetch = async (
+				input: RequestInfo | URL,
+				init?: RequestInit,
+			) => {
 				const url = String(input);
 				if (
 					init?.method === "POST" &&
@@ -899,11 +1004,13 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				},
 			});
 
-			const success = await store.getState().submitAnswer(
-				{ question_id: "q1", selected_option_ids: ["opt1"] },
-				undefined,
-				mockFetch as unknown as typeof fetch,
-			);
+			const success = await store
+				.getState()
+				.submitAnswer(
+					{ question_id: "q1", selected_option_ids: ["opt1"] },
+					undefined,
+					mockFetch as unknown as typeof fetch,
+				);
 			expect(success).toBe(false);
 			expect(reloadCalled).toBe(true);
 		});
@@ -951,7 +1058,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						grounding_status: "GROUNDED",
 						attributes: [],
 						synonyms: [],
-						external_mappings: [{ scheme: "fibo", target_uri: "fibo:Fund", confidence: 0.95 }],
+						external_mappings: [
+							{
+								scheme: "fibo",
+								target_uri: "fibo:Fund",
+								predicate: "skos:exactMatch",
+								confidence: 0.95,
+							},
+						],
 					},
 				],
 			});
@@ -1070,7 +1184,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						grounding_status: "GROUNDED" as const,
 						attributes: [{ attribute_name: "a1", data_type: "str" }],
 						synonyms: [],
-						external_mappings: [{ scheme: "fibo", target_uri: "fibo:Fund", confidence: 0.95 }],
+						external_mappings: [
+							{
+								scheme: "fibo",
+								target_uri: "fibo:Fund",
+								predicate: "skos:exactMatch",
+								confidence: 0.95,
+							},
+						],
 					},
 					{
 						id: "c2",
@@ -1081,7 +1202,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						grounding_status: "GROUNDED" as const,
 						attributes: [],
 						synonyms: [],
-						external_mappings: [{ scheme: "fibo", target_uri: "fibo:Removed", confidence: 0.95 }],
+						external_mappings: [
+							{ scheme: "fibo", target_uri: "fibo:Removed", confidence: 0.95 },
+						],
 					},
 				],
 				edges: [
@@ -1110,7 +1233,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 							{ attribute_name: "a2", data_type: "int" },
 						],
 						synonyms: [],
-						external_mappings: [{ scheme: "fibo", target_uri: "fibo:Fund", confidence: 0.95 }],
+						external_mappings: [
+							{
+								scheme: "fibo",
+								target_uri: "fibo:Fund",
+								predicate: "skos:exactMatch",
+								confidence: 0.95,
+							},
+						],
 					},
 					{
 						id: "c3",
@@ -1121,7 +1251,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						grounding_status: "GROUNDED" as const,
 						attributes: [],
 						synonyms: [],
-						external_mappings: [{ scheme: "fibo", target_uri: "fibo:Added", confidence: 0.95 }],
+						external_mappings: [
+							{ scheme: "fibo", target_uri: "fibo:Added", confidence: 0.95 },
+						],
 					},
 				],
 				edges: [
@@ -1170,7 +1302,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [{ attribute_name: "isin", data_type: "string" }],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:Instrument", confidence: 0.9 }],
+				external_mappings: [
+					{
+						scheme: "fibo",
+						target_uri: "fibo:Instrument",
+						predicate: "skos:exactMatch",
+						confidence: 0.9,
+					},
+				],
 			};
 
 			store.setState({
@@ -1191,6 +1330,7 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 								scheme: "FIBO",
 								target_uri:
 									"https://spec.edmcouncil.org/fibo/ontology/SEC/Debt/DebtInstruments/FinancialInstrument",
+								predicate: "skos:exactMatch",
 								confidence: 0.95,
 							},
 						],
@@ -1207,7 +1347,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						grounding_status: "GROUNDED",
 						attributes: [{ attribute_name: "lei", data_type: "string" }],
 						synonyms: [],
-						external_mappings: [{ scheme: "fibo", target_uri: "fibo:Party", confidence: 0.95 }],
+						external_mappings: [
+							{
+								scheme: "fibo",
+								target_uri: "fibo:Party",
+								predicate: "skos:exactMatch",
+								confidence: 0.95,
+							},
+						],
 					},
 				],
 				edges: [
@@ -1283,7 +1430,11 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			expect(opTypes).toContain("add_external_mapping");
 			expect(opTypes).toContain("add_relationship");
 			// Assert client-side grounding_status is not sent in delta operations (SUG-02)
-			expect((captured.body?.operations || []).every((o) => !("grounding_status" in o))).toBe(true);
+			expect(
+				(captured.body?.operations || []).every(
+					(o) => !("grounding_status" in o),
+				),
+			).toBe(true);
 
 			const state = store.getState();
 			expect(state.hasUnsavedChanges).toBe(false);
@@ -1332,7 +1483,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						grounding_status: "GROUNDED",
 						attributes: [],
 						synonyms: [],
-						external_mappings: [{ scheme: "fibo", target_uri: "fibo:TestC1", confidence: 0.95 }],
+						external_mappings: [
+							{
+								scheme: "fibo",
+								target_uri: "fibo:TestC1",
+								predicate: "skos:exactMatch",
+								confidence: 0.95,
+							},
+						],
 						x: 0,
 						y: 0,
 					},
@@ -1364,7 +1522,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "FIBO", target_uri: "https://example.com/b", confidence: 0.9 }],
+				external_mappings: [
+					{
+						scheme: "FIBO",
+						target_uri: "https://example.com/b",
+						predicate: "skos:exactMatch",
+						confidence: 0.9,
+					},
+				],
 			};
 			store.setState({
 				activeSession: sessionB,
@@ -1394,7 +1559,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			expect(store.getState().hasUnsavedChanges).toBe(true);
 
 			// Session A's new head and version must be recorded in the sessions list (MIN-04)
-			const sessionAInList = store.getState().sessions.find((s) => s.session_id === "sess-A");
+			const sessionAInList = store
+				.getState()
+				.sessions.find((s) => s.session_id === "sess-A");
 			expect(sessionAInList?.head_sha256).toBe("c".repeat(64));
 			expect(sessionAInList?.active_version).toBe("1.1.0");
 
@@ -1438,7 +1605,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			const promoResult = await promotePromise;
 			expect(promoResult).toBe(false);
 			expect(store.getState().activeSession?.session_id).toBe("sess-B");
-			const updatedSessionA = store.getState().sessions.find((s) => s.session_id === "sess-A");
+			const updatedSessionA = store
+				.getState()
+				.sessions.find((s) => s.session_id === "sess-A");
 			expect(updatedSessionA?.head_sha256).toBe("d".repeat(64));
 			expect(updatedSessionA?.active_version).toBe("2.0.0");
 		});
@@ -1499,7 +1668,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 			// Alpha alone is covered by the waiver: waiver is active and ONT-EVO-002 passes
 			expect(store.getState().qualityScorecard.waiver_applied).toBe(true);
-			const evoCheck1 = store.getState().qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
+			const evoCheck1 = store
+				.getState()
+				.qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
 			expect(evoCheck1?.status).toBe("PASS");
 
 			// Now add a SECOND ungrounded concept without a waiver for it
@@ -1529,12 +1700,18 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			expect(evoCheck2?.details).toContain("violates ONT-EVO-002");
 
 			// Direct pure function verification of concept-level scoping
-			const scBoth = computeQualityScorecard([ungroundedNode1, ungroundedNode2], [], {
-				grandfatheredUris: [],
-				waiverApplied: true,
-				waivedUris: ["urn:ontology:entity:custom_alpha"],
-			});
-			expect(scBoth.checks.find((c) => c.rule_id === "ONT-EVO-002")?.status).toBe("FAIL");
+			const scBoth = computeQualityScorecard(
+				[ungroundedNode1, ungroundedNode2],
+				[],
+				{
+					grandfatheredUris: [],
+					waiverApplied: true,
+					waivedUris: ["urn:ontology:entity:custom_alpha"],
+				},
+			);
+			expect(
+				scBoth.checks.find((c) => c.rule_id === "ONT-EVO-002")?.status,
+			).toBe("FAIL");
 		});
 
 		it("blocks commitChanges when operations list is empty (MAJ-04)", async () => {
@@ -1562,7 +1739,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:C1", confidence: 0.95 }],
+				external_mappings: [
+					{
+						scheme: "fibo",
+						target_uri: "fibo:C1",
+						predicate: "skos:exactMatch",
+						confidence: 0.95,
+					},
+				],
 				x: 0,
 				y: 0,
 			};
@@ -1581,7 +1765,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				return new Response(JSON.stringify({ ok: true }));
 			}) as typeof fetch;
 
-			const result = await store.getState().commitChanges("Nothing changed", mockFetch);
+			const result = await store
+				.getState()
+				.commitChanges("Nothing changed", mockFetch);
 			expect(result).toBe(false);
 			expect(fetchCalled).toBe(false);
 			expect(store.getState().toasts[0]?.code).toBe("NO_OPERATIONS");
@@ -1618,7 +1804,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 					},
 				],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:C1", confidence: 0.95 }],
+				external_mappings: [
+					{ scheme: "fibo", target_uri: "fibo:C1", confidence: 0.95 },
+				],
 				x: 0,
 				y: 0,
 			};
@@ -1635,10 +1823,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				nodes: [],
 				committedNodes: [committedConcept],
 			});
-			const res1 = await store.getState().commitChanges("Deleted concept", spyFetch);
+			const res1 = await store
+				.getState()
+				.commitChanges("Deleted concept", spyFetch);
 			expect(res1).toBe(false);
 			expect(spyFetchCalled).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("ONT_EVO_NON_ADDITIVE_CHANGE");
+			expect(store.getState().toasts[0]?.code).toBe(
+				"ONT_EVO_NON_ADDITIVE_CHANGE",
+			);
 
 			// Case 2: Attribute removed
 			store.setState({
@@ -1647,10 +1839,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				committedNodes: [committedConcept],
 				toasts: [],
 			});
-			const res2 = await store.getState().commitChanges("Removed attribute", spyFetch);
+			const res2 = await store
+				.getState()
+				.commitChanges("Removed attribute", spyFetch);
 			expect(res2).toBe(false);
 			expect(spyFetchCalled).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("ONT_EVO_NON_ADDITIVE_CHANGE");
+			expect(store.getState().toasts[0]?.code).toBe(
+				"ONT_EVO_NON_ADDITIVE_CHANGE",
+			);
 
 			// Case 3: Attribute data type altered
 			store.setState({
@@ -1670,10 +1866,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				committedNodes: [committedConcept],
 				toasts: [],
 			});
-			const res3 = await store.getState().commitChanges("Altered data type", spyFetch);
+			const res3 = await store
+				.getState()
+				.commitChanges("Altered data type", spyFetch);
 			expect(res3).toBe(false);
 			expect(spyFetchCalled).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("ONT_EVO_NON_ADDITIVE_CHANGE");
+			expect(store.getState().toasts[0]?.code).toBe(
+				"ONT_EVO_NON_ADDITIVE_CHANGE",
+			);
 
 			// Case 4: Relationship removed (MIN-08)
 			const committedRel: RelationshipEdge = {
@@ -1692,10 +1892,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				committedEdges: [committedRel],
 				toasts: [],
 			});
-			const res4 = await store.getState().commitChanges("Removed relationship", spyFetch);
+			const res4 = await store
+				.getState()
+				.commitChanges("Removed relationship", spyFetch);
 			expect(res4).toBe(false);
 			expect(spyFetchCalled).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("ONT_EVO_NON_ADDITIVE_CHANGE");
+			expect(store.getState().toasts[0]?.code).toBe(
+				"ONT_EVO_NON_ADDITIVE_CHANGE",
+			);
 
 			// Case 5: External mapping removed (MIN-08)
 			store.setState({
@@ -1706,10 +1910,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				committedEdges: [],
 				toasts: [],
 			});
-			const res5 = await store.getState().commitChanges("Removed external mapping", spyFetch);
+			const res5 = await store
+				.getState()
+				.commitChanges("Removed external mapping", spyFetch);
 			expect(res5).toBe(false);
 			expect(spyFetchCalled).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("ONT_EVO_NON_ADDITIVE_CHANGE");
+			expect(store.getState().toasts[0]?.code).toBe(
+				"ONT_EVO_NON_ADDITIVE_CHANGE",
+			);
 		});
 
 		it("re-derives grounding status when updateConcept removes or adds external mappings (MAJ-03)", () => {
@@ -1739,7 +1947,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				external_mappings: [
 					{
 						scheme: "FIBO",
-						target_uri: "https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/Stock",
+						target_uri:
+							"https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/Stock",
+						predicate: "skos:exactMatch",
 						confidence: 0.95,
 					},
 				],
@@ -1780,7 +1990,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:c1", confidence: 0.95 }],
+				external_mappings: [
+					{
+						scheme: "fibo",
+						target_uri: "fibo:c1",
+						predicate: "skos:exactMatch",
+						confidence: 0.95,
+					},
+				],
 				x: 0,
 				y: 0,
 			};
@@ -1806,12 +2023,17 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			}
 			const captured: { body?: DeltaPayload } = {};
 
-			const slowFetch: typeof fetch = (async (_url: string, init?: RequestInit) => {
+			const slowFetch: typeof fetch = (async (
+				_url: string,
+				init?: RequestInit,
+			) => {
 				captured.body = JSON.parse(init?.body as string) as DeltaPayload;
 				return commitDeferred;
 			}) as typeof fetch;
 
-			const commitPromise = store.getState().commitChanges("Commit C1", slowFetch);
+			const commitPromise = store
+				.getState()
+				.commitChanges("Commit C1", slowFetch);
 
 			// User adds C2 through store action while commit is in-flight (MIN-05)
 			const c2: ConceptNode = {
@@ -1826,7 +2048,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:c2", confidence: 0.95 }],
+				external_mappings: [
+					{
+						scheme: "fibo",
+						target_uri: "fibo:c2",
+						predicate: "skos:exactMatch",
+						confidence: 0.95,
+					},
+				],
 				x: 100,
 				y: 100,
 			};
@@ -1848,7 +2077,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 			// Sent delta must contain only C1, proving in-flight C2 was not prematurely committed (MIN-05)
 			expect(captured.body).toBeDefined();
-			const committedUris = (captured.body?.operations || []).map((o) => o.concept_uri);
+			const committedUris = (captured.body?.operations || []).map(
+				(o) => o.concept_uri,
+			);
 			expect(committedUris).toContain("urn:c1");
 			expect(committedUris).not.toContain("urn:c2");
 
@@ -1872,6 +2103,30 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				updated_at: new Date().toISOString(),
 			};
 
+			const c0: ConceptNode = {
+				id: "c0",
+				concept_uri: "urn:c0",
+				concept_name: "C0",
+				elm_archetype: "CORE_BUSINESS_CONCEPT",
+				definition: "Existing concept on 0.1.2",
+				target_hub: null,
+				parent_concept_uri: null,
+				confidence: 0.95,
+				grounding_status: "GROUNDED",
+				attributes: [],
+				synonyms: [],
+				external_mappings: [
+					{
+						scheme: "fibo",
+						target_uri: "fibo:c0",
+						predicate: "skos:exactMatch",
+						confidence: 0.95,
+					},
+				],
+				x: 0,
+				y: 0,
+			};
+
 			const c1: ConceptNode = {
 				id: "c1",
 				concept_uri: "urn:c1",
@@ -1884,15 +2139,22 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:c1", confidence: 0.95 }],
+				external_mappings: [
+					{
+						scheme: "fibo",
+						target_uri: "fibo:c1",
+						predicate: "skos:exactMatch",
+						confidence: 0.95,
+					},
+				],
 				x: 0,
 				y: 0,
 			};
 
 			store.setState({
 				activeSession: session,
-				nodes: [c1],
-				committedNodes: [],
+				nodes: [c0, c1],
+				committedNodes: [c0],
 			});
 
 			interface DeltaBodyPayload {
@@ -1901,7 +2163,10 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				operations?: unknown[];
 			}
 			const captured: { body?: DeltaBodyPayload } = {};
-			const mockFetch: typeof fetch = (async (_url: string, init?: RequestInit) => {
+			const mockFetch: typeof fetch = (async (
+				_url: string,
+				init?: RequestInit,
+			) => {
 				captured.body = JSON.parse(init?.body as string) as DeltaBodyPayload;
 				return new Response(
 					JSON.stringify({
@@ -1952,7 +2217,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			);
 			expect(res1).toBe(false);
 			expect(spyFetchCalled).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("PROMOTION_UNSAVED_CHANGES");
+			expect(store.getState().toasts[0]?.code).toBe(
+				"PROMOTION_UNSAVED_CHANGES",
+			);
 
 			// Case 2: Stale session head (OCC Precondition Failed)
 			store.setState({
@@ -1990,7 +2257,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				external_mappings: [], // No mappings provided
 			});
 
-			const addedNode = store.getState().nodes.find((n) => n.concept_uri === "urn:c-spoofed");
+			const addedNode = store
+				.getState()
+				.nodes.find((n) => n.concept_uri === "urn:c-spoofed");
 			expect(addedNode?.grounding_status).toBe("UNGROUNDED");
 
 			// 2. updateConcept attempting to set GROUNDED on a concept with no mappings
@@ -1998,11 +2267,15 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 			});
 
-			const updatedNode = store.getState().nodes.find((n) => n.concept_uri === "urn:c-spoofed");
+			const updatedNode = store
+				.getState()
+				.nodes.find((n) => n.concept_uri === "urn:c-spoofed");
 			expect(updatedNode?.grounding_status).toBe("UNGROUNDED");
 
 			// 3. Pre-commit gate ONT-EVO-002 must correctly catch this ungrounded concept
-			const evoCheck = store.getState().qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
+			const evoCheck = store
+				.getState()
+				.qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
 			expect(evoCheck?.status).toBe("FAIL");
 		});
 
@@ -2085,7 +2358,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						grounding_status: "GROUNDED",
 						attributes: [],
 						synonyms: [],
-						external_mappings: [{ scheme: "fibo", target_uri: "fibo:c1", confidence: 0.95 }],
+						external_mappings: [
+							{ scheme: "fibo", target_uri: "fibo:c1", confidence: 0.95 },
+						],
 					},
 				],
 			});
@@ -2160,10 +2435,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				edges: [],
 			});
 
-			let res = await store.getState().commitChanges("Mutate is_optional", spyFetch);
+			let res = await store
+				.getState()
+				.commitChanges("Mutate is_optional", spyFetch);
 			expect(res).toBe(false);
 			expect(spyFetchCalled).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("ONT_EVO_NON_ADDITIVE_CHANGE");
+			expect(store.getState().toasts[0]?.code).toBe(
+				"ONT_EVO_NON_ADDITIVE_CHANGE",
+			);
 
 			// Case 2: mutating mapping confidence or pinned state
 			store.setState({
@@ -2185,10 +2464,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				edges: [],
 			});
 
-			res = await store.getState().commitChanges("Mutate mapping confidence", spyFetch);
+			res = await store
+				.getState()
+				.commitChanges("Mutate mapping confidence", spyFetch);
 			expect(res).toBe(false);
 			expect(spyFetchCalled).toBe(false);
-			expect(store.getState().toasts[0]?.code).toBe("ONT_EVO_NON_ADDITIVE_CHANGE");
+			expect(store.getState().toasts[0]?.code).toBe(
+				"ONT_EVO_NON_ADDITIVE_CHANGE",
+			);
 		});
 
 		it("preserves waivers in sessionWaivers across commits/reloads and clears on reset (MAJ-02, MIN-07)", async () => {
@@ -2223,12 +2506,20 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				],
 			});
 
-			// Submit waiver with realistic admin credential token (SUG-01)
+			// Submit waiver with realistic admin credential token (SUG-01, P14b::MAJ-02)
 			let capturedWaiverUrl = "";
+			let capturedWaiverHeaders: Record<string, string> = {};
 			let capturedWaiverBody: Record<string, unknown> | null = null;
-			const mockFetch: typeof fetch = (async (url: string, init?: RequestInit) => {
+			const mockFetch: typeof fetch = (async (
+				url: string,
+				init?: RequestInit,
+			) => {
 				capturedWaiverUrl = url;
-				capturedWaiverBody = JSON.parse(init?.body as string) as Record<string, unknown>;
+				capturedWaiverHeaders = (init?.headers as Record<string, string>) || {};
+				capturedWaiverBody = JSON.parse(init?.body as string) as Record<
+					string,
+					unknown
+				>;
 				return new Response(
 					JSON.stringify({
 						waiver_applied: true,
@@ -2241,15 +2532,23 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			}) as typeof fetch;
 
 			const waiverToken = "admin-waiver-secret-token-12345";
-			const ok = await store.getState().submitWaiver("Approved regulator delay", waiverToken, mockFetch);
+			const ok = await store
+				.getState()
+				.submitWaiver("Approved regulator delay", waiverToken, mockFetch);
 			expect(ok).toBe(true);
 			expect(store.getState().qualityScorecard.waiver_applied).toBe(true);
-			expect(store.getState().sessionWaivers["sess-waiver-persist"]?.waiver_applied).toBe(true);
-			expect(store.getState().sessionWaivers["sess-waiver-persist"]?.waived_base_sha256).toBe("a".repeat(64));
+			expect(
+				store.getState().sessionWaivers["sess-waiver-persist"]?.waiver_applied,
+			).toBe(true);
+			expect(
+				store.getState().sessionWaivers["sess-waiver-persist"]
+					?.waived_base_sha256,
+			).toBe("a".repeat(64));
 
-			// Credential protection: verify token sent in POST body but NEVER in URL query (SUG-01)
+			// Credential protection: verify token sent in X-OpenDV-Waiver-Key header and NEVER in URL query or JSON body (P14b::MAJ-02)
 			expect(capturedWaiverUrl).not.toContain(waiverToken);
-			expect(capturedWaiverBody?.waiver_key).toBe(waiverToken);
+			expect(capturedWaiverHeaders["X-OpenDV-Waiver-Key"]).toBe(waiverToken);
+			expect(capturedWaiverBody?.waiver_key).toBeUndefined();
 
 			// Verify token credential is NEVER stored in store state or serialized state
 			const serializedState = JSON.stringify(store.getState());
@@ -2295,21 +2594,29 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			const forbiddenFetch: typeof fetch = (async () => {
 				return new Response(
 					JSON.stringify({
-						detail: "Provided administrative waiver token is invalid or unauthorized",
+						detail:
+							"Provided administrative waiver token is invalid or unauthorized",
 						code: "UNAUTHORIZED_WAIVER_KEY",
 					}),
-					{ status: 403, headers: { "Content-Type": "application/problem+json" } },
+					{
+						status: 403,
+						headers: { "Content-Type": "application/problem+json" },
+					},
 				);
 			}) as typeof fetch;
 
-			const ok = await store.getState().submitWaiver(
-				"Approved regulator delay",
-				"invalid-bogus-token",
-				forbiddenFetch,
-			);
+			const ok = await store
+				.getState()
+				.submitWaiver(
+					"Approved regulator delay",
+					"invalid-bogus-token",
+					forbiddenFetch,
+				);
 			expect(ok).toBe(false);
 			expect(store.getState().qualityScorecard.waiver_applied).toBe(false);
-			expect(store.getState().sessionWaivers["sess-waiver-403"]).toBeUndefined();
+			expect(
+				store.getState().sessionWaivers["sess-waiver-403"],
+			).toBeUndefined();
 			expect(store.getState().toasts[0]?.status).toBe(403);
 			expect(store.getState().toasts[0]?.code).toBe("UNAUTHORIZED_WAIVER_KEY");
 		});
@@ -2353,9 +2660,15 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 					return new Response(JSON.stringify([]), { status: 200 });
 				}
 				if (url.includes("/export")) {
-					return new Response(JSON.stringify({ canonical_business_concepts: [], canonical_relationships: [] }), {
-						status: 200,
-					});
+					return new Response(
+						JSON.stringify({
+							canonical_business_concepts: [],
+							canonical_relationships: [],
+						}),
+						{
+							status: 200,
+						},
+					);
 				}
 				return new Response(JSON.stringify(sessionA), { status: 200 });
 			}) as typeof fetch;
@@ -2385,23 +2698,41 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				updated_at: new Date().toISOString(),
 				active_waiver: {
 					waiver_applied: true,
-					waiver_rationale: "Enterprise board authorized grandfathered exemption",
+					waiver_rationale:
+						"Enterprise board authorized grandfathered exemption",
 					waived_concept_uris: ["urn:concept:grandfathered"],
 					waived_base_sha256: "f".repeat(64),
 				},
 			};
 
 			const mockFetch: typeof fetch = (async (url: string) => {
-				if (url.includes("/sources")) return new Response(JSON.stringify([]), { status: 200 });
-				if (url.includes("/questions")) return new Response(JSON.stringify([]), { status: 200 });
-				if (url.includes("/export")) return new Response(JSON.stringify({ canonical_business_concepts: [], canonical_relationships: [] }), { status: 200 });
-				return new Response(JSON.stringify(sessionWithServerWaiver), { status: 200 });
+				if (url.includes("/sources"))
+					return new Response(JSON.stringify([]), { status: 200 });
+				if (url.includes("/questions"))
+					return new Response(JSON.stringify([]), { status: 200 });
+				if (url.includes("/export"))
+					return new Response(
+						JSON.stringify({
+							canonical_business_concepts: [],
+							canonical_relationships: [],
+						}),
+						{ status: 200 },
+					);
+				return new Response(JSON.stringify(sessionWithServerWaiver), {
+					status: 200,
+				});
 			}) as typeof fetch;
 
-			await store.getState().selectSession("sess-server-waiver", mockFetch, true);
+			await store
+				.getState()
+				.selectSession("sess-server-waiver", mockFetch, true);
 			expect(store.getState().qualityScorecard.waiver_applied).toBe(true);
-			expect(store.getState().qualityScorecard.waived_concept_uris).toContain("urn:concept:grandfathered");
-			expect(store.getState().sessionWaivers["sess-server-waiver"]?.waiver_applied).toBe(true);
+			expect(store.getState().qualityScorecard.waived_concept_uris).toContain(
+				"urn:concept:grandfathered",
+			);
+			expect(
+				store.getState().sessionWaivers["sess-server-waiver"]?.waiver_applied,
+			).toBe(true);
 		});
 
 		it("rejects restored server waiver when waived_base_sha256 does not match session head (MAJ-02)", async () => {
@@ -2437,8 +2768,10 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			};
 
 			const mockFetch: typeof fetch = (async (url: string) => {
-				if (url.includes("/sources")) return new Response(JSON.stringify([]), { status: 200 });
-				if (url.includes("/questions")) return new Response(JSON.stringify([]), { status: 200 });
+				if (url.includes("/sources"))
+					return new Response(JSON.stringify([]), { status: 200 });
+				if (url.includes("/questions"))
+					return new Response(JSON.stringify([]), { status: 200 });
 				if (url.includes("/export")) {
 					return new Response(
 						JSON.stringify({
@@ -2458,13 +2791,19 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 						{ status: 200 },
 					);
 				}
-				return new Response(JSON.stringify(staleServerWaiverSession), { status: 200 });
+				return new Response(JSON.stringify(staleServerWaiverSession), {
+					status: 200,
+				});
 			}) as typeof fetch;
 
-			await store.getState().selectSession("sess-stale-server-waiver", mockFetch, true);
+			await store
+				.getState()
+				.selectSession("sess-stale-server-waiver", mockFetch, true);
 			// Scorecard must reject the stale waiver because head_sha256 !== waived_base_sha256
 			expect(store.getState().qualityScorecard.waiver_applied).toBe(false);
-			const evoCheck = store.getState().qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
+			const evoCheck = store
+				.getState()
+				.qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
 			expect(evoCheck?.status).toBe("FAIL");
 		});
 
@@ -2518,11 +2857,16 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				),
 			});
 			expect(store.getState().qualityScorecard.waiver_applied).toBe(true);
-			let evoCheck = store.getState().qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
+			let evoCheck = store
+				.getState()
+				.qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
 			expect(evoCheck?.status).toBe("PASS");
 
 			// Mock commit moving head to 'b'
-			const commitFetch: typeof fetch = (async (_url: string, init?: RequestInit) => {
+			const commitFetch: typeof fetch = (async (
+				_url: string,
+				init?: RequestInit,
+			) => {
 				const body = JSON.parse(init?.body as string);
 				return new Response(
 					JSON.stringify({
@@ -2536,7 +2880,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				);
 			}) as typeof fetch;
 
-			const success = await store.getState().commitChanges("Commit ungrounded C1 under waiver", commitFetch);
+			const success = await store
+				.getState()
+				.commitChanges("Commit ungrounded C1 under waiver", commitFetch);
 			expect(success).toBe(true);
 			expect(store.getState().activeSession?.head_sha256).toBe("b".repeat(64));
 
@@ -2557,7 +2903,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 			store.getState().addConcept(ungroundedC2);
 			expect(store.getState().qualityScorecard.waiver_applied).toBe(false);
-			evoCheck = store.getState().qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
+			evoCheck = store
+				.getState()
+				.qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
 			expect(evoCheck?.status).toBe("FAIL");
 		});
 	});
@@ -2585,8 +2933,16 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			confidence: 0.95,
 			grounding_status: "GROUNDED",
 			attributes: [
-				{ attribute_name: "portfolio_id", data_type: "string", description: "Identifier" },
-				{ attribute_name: "inception_date", data_type: "date", description: "Start date" },
+				{
+					attribute_name: "portfolio_id",
+					data_type: "string",
+					description: "Identifier",
+				},
+				{
+					attribute_name: "inception_date",
+					data_type: "date",
+					description: "Start date",
+				},
 			],
 			synonyms: ["fund_portfolio"],
 			external_mappings: [
@@ -2610,9 +2966,7 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			parent_concept_uri: null,
 			confidence: 0.9,
 			grounding_status: "GROUNDED",
-			attributes: [
-				{ attribute_name: "asset_id", data_type: "string" },
-			],
+			attributes: [{ attribute_name: "asset_id", data_type: "string" }],
 			synonyms: [],
 			external_mappings: [
 				{
@@ -2649,7 +3003,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			// '\uD83D\uDE00' (lead surrogate 0xD83D = 55357),
 			// '\uE000' (0xE000 = 57344)
 			const jcs = dumpsJcs(rawDict);
-			expect(jcs).toBe('{"A":4,"_":5,"a":2,"z":1,"\u00e9":3,"\uD83D\uDE00":7,"\uE000":6}');
+			expect(jcs).toBe(
+				'{"A":4,"_":5,"a":2,"z":1,"\u00e9":3,"\uD83D\uDE00":7,"\uE000":6}',
+			);
 		});
 
 		it("verifies RFC 8785 IEEE 754 number formatting, negative zero, and non-finite rejection (MAJ-01, MAJ-02)", () => {
@@ -2664,7 +3020,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			// Exact IEEE 754 floating point representation
 			expect(dumpsJcs({ val: 0.1 + 0.2 })).toBe('{"val":0.30000000000000004}');
 			// Strings with control characters
-			expect(dumpsJcs({ text: 'hello\nworld\t"escaped"\\' })).toBe('{"text":"hello\\nworld\\t\\"escaped\\"\\\\"}');
+			expect(dumpsJcs({ text: 'hello\nworld\t"escaped"\\' })).toBe(
+				'{"text":"hello\\nworld\\t\\"escaped\\"\\\\"}',
+			);
 			// RFC 8785 rejects NaN and Infinity
 			expect(() => dumpsJcs({ val: Number.NaN })).toThrow();
 			expect(() => dumpsJcs({ val: Number.POSITIVE_INFINITY })).toThrow();
@@ -2681,9 +3039,18 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				target_hub: null,
 				parent_concept_uri: null,
-				attributes: [{ attribute_name: "a", data_type: "string", description: null as unknown as string }, { attribute_name: "b", data_type: "int" }],
+				attributes: [
+					{
+						attribute_name: "a",
+						data_type: "string",
+						description: null as unknown as string,
+					},
+					{ attribute_name: "b", data_type: "int" },
+				],
 				synonyms: ["syn1"],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:c1", confidence: 0.9 }],
+				external_mappings: [
+					{ scheme: "fibo", target_uri: "fibo:c1", confidence: 0.9 },
+				],
 				x: 100,
 				y: 200,
 			};
@@ -2693,8 +3060,13 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				elm_archetype: "CORE_BUSINESS_CONCEPT",
 				concept_name: "C1",
 				id: "different_layout_id",
-				attributes: [{ data_type: "string", attribute_name: "a" }, { data_type: "int", attribute_name: "b" }],
-				external_mappings: [{ target_uri: "fibo:c1", scheme: "fibo", confidence: 0.9 }],
+				attributes: [
+					{ data_type: "string", attribute_name: "a" },
+					{ data_type: "int", attribute_name: "b" },
+				],
+				external_mappings: [
+					{ target_uri: "fibo:c1", scheme: "fibo", confidence: 0.9 },
+				],
 				synonyms: ["syn1"],
 				concept_uri: "urn:c1",
 				grounding_status: "GROUNDED",
@@ -2702,8 +3074,20 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				y: 888,
 			};
 
-			const jcs1 = generateLocalExport("rfc8785", "1.0.0", [nodeScrambled1], [], sessionFixture);
-			const jcs2 = generateLocalExport("rfc8785", "1.0.0", [nodeScrambled2], [], sessionFixture);
+			const jcs1 = generateLocalExport(
+				"rfc8785",
+				"1.0.0",
+				[nodeScrambled1],
+				[],
+				sessionFixture,
+			);
+			const jcs2 = generateLocalExport(
+				"rfc8785",
+				"1.0.0",
+				[nodeScrambled2],
+				[],
+				sessionFixture,
+			);
 
 			expect(jcs1).toBe(jcs2);
 			// Pruned client-only layout coords and IDs
@@ -2715,18 +3099,19 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 		it("matches exact Python hashlib.sha256 JCS golden digest parity for Graph A via production export (MAJ-01)", async () => {
 			// Build genuine ConceptNodes from golden fixture inputs
-			const concepts: ConceptNode[] = goldenFixture.raw_model.canonical_business_concepts.map((c: any) => ({
-				id: c.concept_uri,
-				concept_uri: c.concept_uri,
-				concept_name: c.concept_name,
-				elm_archetype: c.elm_archetype,
-				definition: c.definition,
-				target_hub: c.target_hub,
-				attributes: c.attributes,
-				synonyms: c.synonyms,
-				external_mappings: c.external_mappings,
-				grounding_status: "GROUNDED",
-			}));
+			const concepts: ConceptNode[] =
+				goldenFixture.raw_model.canonical_business_concepts.map((c: any) => ({
+					id: c.concept_uri,
+					concept_uri: c.concept_uri,
+					concept_name: c.concept_name,
+					elm_archetype: c.elm_archetype,
+					definition: c.definition,
+					target_hub: c.target_hub,
+					attributes: c.attributes,
+					synonyms: c.synonyms,
+					external_mappings: c.external_mappings,
+					grounding_status: "GROUNDED",
+				}));
 
 			const session: StudioSessionSummary = {
 				session_id: "sess-golden",
@@ -2740,10 +3125,19 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			};
 
 			// Run through production generateLocalExport
-			const jcsOutput = generateLocalExport("rfc8785", session.active_version, concepts, [], session);
+			const jcsOutput = generateLocalExport(
+				"rfc8785",
+				session.active_version,
+				concepts,
+				[],
+				session,
+			);
 			expect(jcsOutput).toBe(goldenFixture.canonical_jcs);
 
-			const digestBuf = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(jcsOutput));
+			const digestBuf = await crypto.subtle.digest(
+				"SHA-256",
+				new TextEncoder().encode(jcsOutput),
+			);
 			const hex = Array.from(new Uint8Array(digestBuf))
 				.map((b) => b.toString(16).padStart(2, "0"))
 				.join("");
@@ -2751,8 +3145,21 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 		});
 
 		it("round-trips RFC 8785 export through JSON.parse and concept reconstruction preserving exact digest (MAJ-01)", async () => {
-			const initialJcs = generateLocalExport("rfc8785", "1.0.0", [nodeFixture1, nodeFixture2], [edgeFixture], sessionFixture);
-			const initialDigest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(initialJcs))))
+			const initialJcs = generateLocalExport(
+				"rfc8785",
+				"1.0.0",
+				[nodeFixture1, nodeFixture2],
+				[edgeFixture],
+				sessionFixture,
+			);
+			const initialDigest = Array.from(
+				new Uint8Array(
+					await crypto.subtle.digest(
+						"SHA-256",
+						new TextEncoder().encode(initialJcs),
+					),
+				),
+			)
 				.map((b) => b.toString(16).padStart(2, "0"))
 				.join("");
 
@@ -2760,29 +3167,33 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			const parsed = JSON.parse(initialJcs);
 
 			// Map back to ConceptNode[] and RelationshipEdge[]
-			const reconstructedNodes: ConceptNode[] = parsed.canonical_business_concepts.map((cbc: any) => ({
-				id: cbc.concept_uri,
-				concept_uri: cbc.concept_uri,
-				concept_name: cbc.concept_name,
-				elm_archetype: cbc.elm_archetype,
-				definition: cbc.definition,
-				target_hub: cbc.target_hub,
-				attributes: cbc.attributes || [],
-				synonyms: cbc.synonyms || [],
-				external_mappings: cbc.external_mappings || [],
-				grounding_status: "GROUNDED",
-			}));
+			const reconstructedNodes: ConceptNode[] =
+				parsed.canonical_business_concepts.map((cbc: any) => ({
+					id: cbc.concept_uri,
+					concept_uri: cbc.concept_uri,
+					concept_name: cbc.concept_name,
+					elm_archetype: cbc.elm_archetype,
+					definition: cbc.definition,
+					target_hub: cbc.target_hub,
+					attributes: cbc.attributes || [],
+					synonyms: cbc.synonyms || [],
+					external_mappings: cbc.external_mappings || [],
+					grounding_status: "GROUNDED",
+				}));
 
-			const reconstructedEdges: RelationshipEdge[] = parsed.canonical_relationships.map((rel: any) => ({
-				id: rel.relationship_uri,
-				relationship_uri: rel.relationship_uri,
-				relationship_name: rel.relationship_name,
-				target_link: rel.target_link,
-				source_concept_uri: rel.source_concept_uri || (rel.endpoints ? rel.endpoints[0] : ""),
-				target_concept_uri: rel.target_concept_uri || (rel.endpoints ? rel.endpoints[1] : ""),
-				cardinality: rel.cardinality,
-				description: rel.description,
-			}));
+			const reconstructedEdges: RelationshipEdge[] =
+				parsed.canonical_relationships.map((rel: any) => ({
+					id: rel.relationship_uri,
+					relationship_uri: rel.relationship_uri,
+					relationship_name: rel.relationship_name,
+					target_link: rel.target_link,
+					source_concept_uri:
+						rel.source_concept_uri || (rel.endpoints ? rel.endpoints[0] : ""),
+					target_concept_uri:
+						rel.target_concept_uri || (rel.endpoints ? rel.endpoints[1] : ""),
+					cardinality: rel.cardinality,
+					description: rel.description,
+				}));
 
 			const reconstructedSession: StudioSessionSummary = {
 				...sessionFixture,
@@ -2792,18 +3203,43 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			};
 
 			// Re-export and verify byte-for-byte and digest identity
-			const reExportedJcs = generateLocalExport("rfc8785", reconstructedSession.active_version, reconstructedNodes, reconstructedEdges, reconstructedSession);
+			const reExportedJcs = generateLocalExport(
+				"rfc8785",
+				reconstructedSession.active_version,
+				reconstructedNodes,
+				reconstructedEdges,
+				reconstructedSession,
+			);
 			expect(reExportedJcs).toBe(initialJcs);
 
-			const reExportDigest = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(reExportedJcs))))
+			const reExportDigest = Array.from(
+				new Uint8Array(
+					await crypto.subtle.digest(
+						"SHA-256",
+						new TextEncoder().encode(reExportedJcs),
+					),
+				),
+			)
 				.map((b) => b.toString(16).padStart(2, "0"))
 				.join("");
 			expect(reExportDigest).toBe(initialDigest);
 		});
 
 		it("produces byte-stable deterministic JSON schema envelope output with shuffled input order (MIN-03)", () => {
-			const json1 = generateLocalExport("json", "1.0.0", [nodeFixture1, nodeFixture2], [edgeFixture], sessionFixture);
-			const json2 = generateLocalExport("json", "1.0.0", [nodeFixture2, nodeFixture1], [edgeFixture], sessionFixture);
+			const json1 = generateLocalExport(
+				"json",
+				"1.0.0",
+				[nodeFixture1, nodeFixture2],
+				[edgeFixture],
+				sessionFixture,
+			);
+			const json2 = generateLocalExport(
+				"json",
+				"1.0.0",
+				[nodeFixture2, nodeFixture1],
+				[edgeFixture],
+				sessionFixture,
+			);
 
 			expect(json1).toBe(json2);
 			const parsed = JSON.parse(json1);
@@ -2815,44 +3251,95 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 		});
 
 		it("produces byte-stable deterministic RFC 8785 JCS output with shuffled input order (MIN-03)", () => {
-			const rfc1 = generateLocalExport("rfc8785", "1.0.0", [nodeFixture1, nodeFixture2], [edgeFixture], sessionFixture);
-			const rfc2 = generateLocalExport("rfc8785", "1.0.0", [nodeFixture2, nodeFixture1], [edgeFixture], sessionFixture);
+			const rfc1 = generateLocalExport(
+				"rfc8785",
+				"1.0.0",
+				[nodeFixture1, nodeFixture2],
+				[edgeFixture],
+				sessionFixture,
+			);
+			const rfc2 = generateLocalExport(
+				"rfc8785",
+				"1.0.0",
+				[nodeFixture2, nodeFixture1],
+				[edgeFixture],
+				sessionFixture,
+			);
 			expect(rfc1).toBe(rfc2);
 		});
 
 		it("generates valid Graph A YAML with schema version, concepts and relationships (MAJ-02)", () => {
-			const yaml = generateLocalExport("yaml", "1.0.0", [nodeFixture1, nodeFixture2], [edgeFixture], sessionFixture);
+			const yaml = generateLocalExport(
+				"yaml",
+				"1.0.0",
+				[nodeFixture1, nodeFixture2],
+				[edgeFixture],
+				sessionFixture,
+			);
 			expect(yaml).toContain('ontology_version: "1.0.0"');
 			expect(yaml).toContain('domain_namespace: "finance"');
 			expect(yaml).toContain('concept_uri: "urn:ontology:entity:portfolio"');
-			expect(yaml).toContain('relationship_uri: "urn:ontology:rel:holds_asset"');
+			expect(yaml).toContain(
+				'relationship_uri: "urn:ontology:rel:holds_asset"',
+			);
 		});
 
 		it("generates valid W3C Turtle (.ttl) with OWL ontology and class declarations (MAJ-02)", () => {
-			const turtle = generateLocalExport("turtle", "1.0.0", [nodeFixture1, nodeFixture2], [edgeFixture], sessionFixture);
-			expect(turtle).toContain("@prefix owl: <http://www.w3.org/2002/07/owl#> .");
-			expect(turtle).toContain("@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .");
+			const turtle = generateLocalExport(
+				"turtle",
+				"1.0.0",
+				[nodeFixture1, nodeFixture2],
+				[edgeFixture],
+				sessionFixture,
+			);
+			expect(turtle).toContain(
+				"@prefix owl: <http://www.w3.org/2002/07/owl#> .",
+			);
+			expect(turtle).toContain(
+				"@prefix rdfs: <http://www.w3.org/2000/01/rdf-schema#> .",
+			);
 			expect(turtle).toContain("a owl:Ontology ;");
 			expect(turtle).toContain("<urn:ontology:entity:portfolio> a owl:Class ;");
-			expect(turtle).toContain("<urn:ontology:rel:holds_asset> a owl:ObjectProperty ;");
+			expect(turtle).toContain(
+				"<urn:ontology:rel:holds_asset> a owl:ObjectProperty ;",
+			);
 		});
 
 		it("generates valid JSON-LD graph representation (MAJ-02)", () => {
-			const jsonld = generateLocalExport("jsonld", "1.0.0", [nodeFixture1, nodeFixture2], [edgeFixture], sessionFixture);
+			const jsonld = generateLocalExport(
+				"jsonld",
+				"1.0.0",
+				[nodeFixture1, nodeFixture2],
+				[edgeFixture],
+				sessionFixture,
+			);
 			const parsed = JSON.parse(jsonld);
 			expect(parsed["@context"]).toBeDefined();
 			expect(Array.isArray(parsed["@graph"])).toBe(true);
-			const portfolioClass = parsed["@graph"].find((item: { "@id": string }) => item["@id"] === "urn:ontology:entity:portfolio");
+			const portfolioClass = parsed["@graph"].find(
+				(item: { "@id": string }) =>
+					item["@id"] === "urn:ontology:entity:portfolio",
+			);
 			expect(portfolioClass).toBeDefined();
 			expect(portfolioClass["@type"]).toBe("owl:Class");
 		});
 
 		it("generates valid RDF/XML serialization (MAJ-02)", () => {
-			const rdfxml = generateLocalExport("rdf", "1.0.0", [nodeFixture1, nodeFixture2], [edgeFixture], sessionFixture);
+			const rdfxml = generateLocalExport(
+				"rdf",
+				"1.0.0",
+				[nodeFixture1, nodeFixture2],
+				[edgeFixture],
+				sessionFixture,
+			);
 			expect(rdfxml).toContain('<?xml version="1.0" encoding="utf-8"?>');
 			expect(rdfxml).toContain("<rdf:RDF");
-			expect(rdfxml).toContain('<owl:Class rdf:about="urn:ontology:entity:portfolio">');
-			expect(rdfxml).toContain('<owl:ObjectProperty rdf:about="urn:ontology:rel:holds_asset">');
+			expect(rdfxml).toContain(
+				'<owl:Class rdf:about="urn:ontology:entity:portfolio">',
+			);
+			expect(rdfxml).toContain(
+				'<owl:ObjectProperty rdf:about="urn:ontology:rel:holds_asset">',
+			);
 		});
 	});
 
@@ -2868,7 +3355,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:A", confidence: 0.95 }],
+				external_mappings: [
+					{ scheme: "fibo", target_uri: "fibo:A", confidence: 0.95 },
+				],
 			};
 			const cyclicNodeB: ConceptNode = {
 				id: "cB",
@@ -2880,12 +3369,16 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:B", confidence: 0.95 }],
+				external_mappings: [
+					{ scheme: "fibo", target_uri: "fibo:B", confidence: 0.95 },
+				],
 			};
 
 			const scorecard = computeQualityScorecard([cyclicNodeA, cyclicNodeB], []);
 			expect(scorecard.dag_acyclic).toBe(false);
-			const dagCheck = scorecard.checks.find((c) => c.rule_id === "ONT-DAG-001");
+			const dagCheck = scorecard.checks.find(
+				(c) => c.rule_id === "ONT-DAG-001",
+			);
 			expect(dagCheck?.status).toBe("FAIL");
 		});
 
@@ -2900,7 +3393,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:Root", confidence: 0.95 }],
+				external_mappings: [
+					{ scheme: "fibo", target_uri: "fibo:Root", confidence: 0.95 },
+				],
 			};
 			const childNode: ConceptNode = {
 				id: "cChild",
@@ -2912,12 +3407,16 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:Child", confidence: 0.95 }],
+				external_mappings: [
+					{ scheme: "fibo", target_uri: "fibo:Child", confidence: 0.95 },
+				],
 			};
 
 			const scorecard = computeQualityScorecard([rootNode, childNode], []);
 			expect(scorecard.dag_acyclic).toBe(true);
-			const dagCheck = scorecard.checks.find((c) => c.rule_id === "ONT-DAG-001");
+			const dagCheck = scorecard.checks.find(
+				(c) => c.rule_id === "ONT-DAG-001",
+			);
 			expect(dagCheck?.status).toBe("PASS");
 		});
 	});
@@ -2952,17 +3451,22 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				},
 			});
 
-			const binaryPayload = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d]).buffer; // %PDF-
+			const binaryPayload = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0x2d])
+				.buffer; // %PDF-
 			let capturedFormData: FormData | null = null;
 
-			const mockFetch: typeof fetch = (async (_url: string, init?: RequestInit) => {
+			const mockFetch: typeof fetch = (async (
+				_url: string,
+				init?: RequestInit,
+			) => {
 				capturedFormData = init?.body as FormData;
 				return new Response(
 					JSON.stringify({
 						source_id: "src-cas-001",
 						file_name: "regulatory_policy.pdf",
 						mime_type: "application/pdf",
-						source_sha256: "38523c087796e5d5dd1cf9bad1fb026781a838dd9dd2cf8af58b9f6502a46778",
+						source_sha256:
+							"38523c087796e5d5dd1cf9bad1fb026781a838dd9dd2cf8af58b9f6502a46778",
 						size_bytes: 5,
 						uploaded_at: new Date().toISOString(),
 						status: "UPLOADED",
@@ -2984,12 +3488,18 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 			expect(uploaded).not.toBeNull();
 			expect(uploaded?.source_id).toBe("src-cas-001");
-			expect(uploaded?.source_sha256).toBe("38523c087796e5d5dd1cf9bad1fb026781a838dd9dd2cf8af58b9f6502a46778");
+			expect(uploaded?.source_sha256).toBe(
+				"38523c087796e5d5dd1cf9bad1fb026781a838dd9dd2cf8af58b9f6502a46778",
+			);
 			expect(uploaded?.size_bytes).toBe(5);
 			expect(capturedFormData).not.toBeNull();
 			expect(store.getState().sources).toHaveLength(1);
-			expect(store.getState().sources[0]?.file_name).toBe("regulatory_policy.pdf");
-			expect(store.getState().sources[0]?.source_sha256).toBe("38523c087796e5d5dd1cf9bad1fb026781a838dd9dd2cf8af58b9f6502a46778");
+			expect(store.getState().sources[0]?.file_name).toBe(
+				"regulatory_policy.pdf",
+			);
+			expect(store.getState().sources[0]?.source_sha256).toBe(
+				"38523c087796e5d5dd1cf9bad1fb026781a838dd9dd2cf8af58b9f6502a46778",
+			);
 			expect(store.getState().sources[0]?.size_bytes).toBe(5);
 
 			// Verify binary ArrayBuffer CAS integrity in FormData payload (MIN-01)
@@ -3005,7 +3515,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			const computedSha = Array.from(new Uint8Array(computedShaBuf))
 				.map((b) => b.toString(16).padStart(2, "0"))
 				.join("");
-			expect(computedSha).toBe("38523c087796e5d5dd1cf9bad1fb026781a838dd9dd2cf8af58b9f6502a46778");
+			expect(computedSha).toBe(
+				"38523c087796e5d5dd1cf9bad1fb026781a838dd9dd2cf8af58b9f6502a46778",
+			);
 		});
 	});
 
@@ -3055,28 +3567,42 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			// 1. Filter by name
 			store.getState().setSearchTerm("Fund");
 			expect(store.getState().layout.searchTerm).toBe("Fund");
-			const matchedByName = selectFilteredNodes(store.getState().nodes, store.getState().layout.searchTerm);
+			const matchedByName = selectFilteredNodes(
+				store.getState().nodes,
+				store.getState().layout.searchTerm,
+			);
 			expect(matchedByName).toHaveLength(1);
 			expect(matchedByName[0]?.concept_name).toBe("Fund");
 
 			// 2. Filter by synonym
-			const matchedBySyn = selectFilteredNodes(store.getState().nodes, "mutual");
+			const matchedBySyn = selectFilteredNodes(
+				store.getState().nodes,
+				"mutual",
+			);
 			expect(matchedBySyn).toHaveLength(1);
 			expect(matchedBySyn[0]?.concept_name).toBe("Fund");
 
 			// 3. Filter by URI
-			const matchedByUri = selectFilteredNodes(store.getState().nodes, "urn:concept:security");
+			const matchedByUri = selectFilteredNodes(
+				store.getState().nodes,
+				"urn:concept:security",
+			);
 			expect(matchedByUri).toHaveLength(1);
 			expect(matchedByUri[0]?.concept_name).toBe("Security");
 
 			// 4. Filter by definition
-			const matchedByDef = selectFilteredNodes(store.getState().nodes, "equity");
+			const matchedByDef = selectFilteredNodes(
+				store.getState().nodes,
+				"equity",
+			);
 			expect(matchedByDef).toHaveLength(1);
 			expect(matchedByDef[0]?.concept_name).toBe("Security");
 
 			// 5. Empty or whitespace search term returns all nodes
 			expect(selectFilteredNodes(store.getState().nodes, "")).toHaveLength(2);
-			expect(selectFilteredNodes(store.getState().nodes, "   ")).toHaveLength(2);
+			expect(selectFilteredNodes(store.getState().nodes, "   ")).toHaveLength(
+				2,
+			);
 
 			// Clear query
 			store.getState().setSearchTerm("");
@@ -3115,30 +3641,45 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			let capturedUrl = "";
 			let capturedMethod = "";
 			let capturedBody: any = null;
-			const mockFetch: typeof fetch = (async (url: string, init?: RequestInit) => {
+			const mockFetch: typeof fetch = (async (
+				url: string,
+				init?: RequestInit,
+			) => {
 				capturedUrl = url;
 				capturedMethod = init?.method || "GET";
 				capturedBody = init?.body ? JSON.parse(init.body as string) : null;
-				return new Response(JSON.stringify({ status: "recorded", written_to: "feedback.jsonl" }), { status: 200 });
+				return new Response(
+					JSON.stringify({ status: "recorded", written_to: "feedback.jsonl" }),
+					{ status: 200 },
+				);
 			}) as typeof fetch;
 
-			const ok = await store.getState().submitFeedback(
-				5,
-				"Excellent enterprise domain coverage and grounding accuracy",
-				mockFetch,
-			);
+			const ok = await store
+				.getState()
+				.submitFeedback(
+					5,
+					"Excellent enterprise domain coverage and grounding accuracy",
+					mockFetch,
+				);
 
 			expect(ok).toBe(true);
-			expect(capturedUrl).toContain("/api/v1/ontology/studio/sessions/sess-feedback/feedback");
+			expect(capturedUrl).toContain(
+				"/api/v1/ontology/studio/sessions/sess-feedback/feedback",
+			);
 			expect(capturedMethod).toBe("POST");
-			expect(capturedBody.session_id).toBe("sess-feedback");
 			expect(capturedBody.rating).toBe(5);
-			expect(capturedBody.comment).toBe("Excellent enterprise domain coverage and grounding accuracy");
-			expect(capturedBody.submitted_at).toBeDefined();
+			expect(capturedBody.comment).toBe(
+				"Excellent enterprise domain coverage and grounding accuracy",
+			);
+			expect(capturedBody.concept_uri).toBeNull();
 			expect(store.getState().qualityScorecard.feedback_submitted).toBe(true);
 			expect(store.getState().qualityScorecard.feedback_rating).toBe(5);
-			expect(store.getState().qualityScorecard.feedback_comment).toContain("Excellent enterprise");
-			expect(store.getState().toasts.some((t) => t.title === "Feedback Recorded")).toBe(true);
+			expect(store.getState().qualityScorecard.feedback_comment).toContain(
+				"Excellent enterprise",
+			);
+			expect(
+				store.getState().toasts.some((t) => t.title === "Feedback Recorded"),
+			).toBe(true);
 		});
 
 		it("rejects invalid feedback ratings (0, 6, 3.5, NaN) with code INVALID_FEEDBACK_RATING without calling fetch (SUG-02)", async () => {
@@ -3163,28 +3704,36 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			}) as typeof fetch;
 
 			// Rating 0 (< 1)
-			const res0 = await store.getState().submitFeedback(0, "Rating 0 test", spyFetch);
+			const res0 = await store
+				.getState()
+				.submitFeedback(0, "Rating 0 test", spyFetch);
 			expect(res0).toBe(false);
 			expect(spyFetchCalled).toBe(false);
 			expect(store.getState().toasts[0]?.code).toBe("INVALID_FEEDBACK_RATING");
 
 			// Rating 6 (> 5)
 			store.setState({ toasts: [] });
-			const res6 = await store.getState().submitFeedback(6, "Rating 6 test", spyFetch);
+			const res6 = await store
+				.getState()
+				.submitFeedback(6, "Rating 6 test", spyFetch);
 			expect(res6).toBe(false);
 			expect(spyFetchCalled).toBe(false);
 			expect(store.getState().toasts[0]?.code).toBe("INVALID_FEEDBACK_RATING");
 
 			// Non-integer rating 3.5
 			store.setState({ toasts: [] });
-			const resFloat = await store.getState().submitFeedback(3.5, "Non-integer rating", spyFetch);
+			const resFloat = await store
+				.getState()
+				.submitFeedback(3.5, "Non-integer rating", spyFetch);
 			expect(resFloat).toBe(false);
 			expect(spyFetchCalled).toBe(false);
 			expect(store.getState().toasts[0]?.code).toBe("INVALID_FEEDBACK_RATING");
 
 			// NaN rating
 			store.setState({ toasts: [] });
-			const resNan = await store.getState().submitFeedback(Number.NaN, "NaN rating", spyFetch);
+			const resNan = await store
+				.getState()
+				.submitFeedback(Number.NaN, "NaN rating", spyFetch);
 			expect(resNan).toBe(false);
 			expect(spyFetchCalled).toBe(false);
 			expect(store.getState().toasts[0]?.code).toBe("INVALID_FEEDBACK_RATING");
@@ -3212,7 +3761,14 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				grounding_status: "GROUNDED",
 				attributes: [],
 				synonyms: [],
-				external_mappings: [{ scheme: "fibo", target_uri: "fibo:c1", confidence: 0.95 }],
+				external_mappings: [
+					{
+						scheme: "fibo",
+						target_uri: "fibo:c1",
+						predicate: "skos:exactMatch",
+						confidence: 0.95,
+					},
+				],
 			};
 
 			store.setState({
@@ -3225,20 +3781,690 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			const conflictFetch: typeof fetch = (async () => {
 				return new Response(
 					JSON.stringify({
-						detail: "Head SHA mismatch: server commit detected concurrent update",
+						detail:
+							"Head SHA mismatch: server commit detected concurrent update",
 						code: "CONCURRENT_MODIFICATION",
 					}),
-					{ status: 412, headers: { "Content-Type": "application/problem+json" } },
+					{
+						status: 412,
+						headers: { "Content-Type": "application/problem+json" },
+					},
 				);
 			}) as typeof fetch;
 
-			const success = await store.getState().commitChanges("Commit with stale head", conflictFetch);
+			const success = await store
+				.getState()
+				.commitChanges("Commit with stale head", conflictFetch);
 			expect(success).toBe(false);
 			// Invariants preserved under 412 conflict
 			expect(store.getState().hasUnsavedChanges).toBe(true);
 			expect(store.getState().activeSession?.head_sha256).toBe("a".repeat(64));
 			expect(store.getState().committedNodes).toHaveLength(0);
-			expect(store.getState().toasts.some((t) => t.status === 412 || t.code === "CONCURRENT_MODIFICATION")).toBe(true);
+			expect(
+				store
+					.getState()
+					.toasts.some(
+						(t) => t.status === 412 || t.code === "CONCURRENT_MODIFICATION",
+					),
+			).toBe(true);
+		});
+	});
+
+	describe("Round-3 Audit Remediations (S6-CRIT-01..02, S6-MAJ-01, P14c..P14e)", () => {
+		it("enforces exact canonicalizeGraphADict JCS hash parity without fabricating fields and sorts external_mappings by (target_uri, predicate ?? '', scheme) (P14c::MAJ-02)", async () => {
+			const sha256Hex = async (text: string): Promise<string> => {
+				const buf = await crypto.subtle.digest(
+					"SHA-256",
+					new TextEncoder().encode(text),
+				);
+				return Array.from(new Uint8Array(buf))
+					.map((b) => b.toString(16).padStart(2, "0"))
+					.join("");
+			};
+
+			// 1. Default genesis 0.0.0 ("general" / "Enterprise Architecture") matches 1916a5c6...
+			const defaultGenesisJcs = generateLocalExport(
+				"rfc8785",
+				"0.0.0",
+				[],
+				[],
+				{
+					session_id: "sess-default",
+					domain_namespace: "general",
+					enterprise_owner: "Enterprise Architecture",
+					status: "ACTIVE",
+					active_version: "0.0.0",
+					head_sha256:
+						"1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9",
+					created_at: "2026-11-12",
+					updated_at: "2026-11-12",
+				},
+			);
+			expect(await sha256Hex(defaultGenesisJcs)).toBe(
+				"1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9",
+			);
+
+			// 2. Custom namespace ("wealth_mgmt" / "Global Wealth Advisory") matches Python ontology_hashing.py
+			const customGenesisJcs = generateLocalExport("rfc8785", "0.0.0", [], [], {
+				session_id: "sess-pe",
+				domain_namespace: "wealth_mgmt",
+				enterprise_owner: "Global Wealth Advisory",
+				status: "ACTIVE",
+				active_version: "0.0.0",
+				head_sha256:
+					"9897c2a95f2987821979eeec92a96a14eb64af37b06222b993adbc717aff1142",
+				created_at: "2026-11-12",
+				updated_at: "2026-11-12",
+			});
+			expect(await sha256Hex(customGenesisJcs)).toBe(
+				"9897c2a95f2987821979eeec92a96a14eb64af37b06222b993adbc717aff1142",
+			);
+
+			// 3. No fabricated grain_semantics, preserves empty concept description vs pruning _ATTR_OPT / _REL_EXT,
+			//    preserves reference_pack_id/sha256, and sorts external_mappings by (target_uri, predicate ?? "", scheme)
+			const node: ConceptNode = {
+				id: "urn:ontology:entity:fund",
+				concept_uri: "urn:ontology:entity:fund",
+				concept_name: "Fund",
+				elm_archetype: "CORE_BUSINESS_CONCEPT",
+				definition: "Fund entity",
+				description: "",
+				grounding_status: "GROUNDED",
+				attributes: [
+					{
+						attribute_name: "fund_id",
+						data_type: "string",
+						is_optional: false,
+						description: "",
+						source_hints: ["lpa_sec_1"],
+					},
+				],
+				synonyms: [],
+				external_mappings: [
+					{
+						scheme: "ISO20022",
+						target_uri: "urn:ext:a",
+						predicate: "skos:exactMatch",
+						confidence: 0.9,
+					},
+					{
+						scheme: "FIBO",
+						target_uri: "urn:ext:a",
+						predicate: "skos:closeMatch",
+						confidence: 0.85,
+						reference_pack_id: "fibo-core-bebd6ae8",
+						reference_pack_sha256: "bebd6ae8".repeat(8),
+					},
+					{
+						scheme: "BIAN",
+						target_uri: "urn:ext:a",
+						confidence: 0.7,
+					},
+				],
+			};
+			const edgeWithoutGrain: RelationshipEdge = {
+				id: "urn:ontology:relationship:fund_has_lp",
+				relationship_uri: "urn:ontology:relationship:fund_has_lp",
+				relationship_name: "fund_has_lp",
+				target_link: "lnk_fund_has_lp",
+				source_concept_uri: "urn:ontology:entity:fund",
+				target_concept_uri: "urn:ontology:entity:fund",
+				description: "",
+				cardinality: "",
+			};
+			const canonical = canonicalizeGraphADict([node], [edgeWithoutGrain], {
+				session_id: "s-canon",
+				domain_namespace: "wealth_mgmt",
+				enterprise_owner: "Owner",
+				status: "ACTIVE",
+				active_version: "1.0.0",
+				head_sha256: "a".repeat(64),
+				created_at: "2026-11-12",
+				updated_at: "2026-11-12",
+			});
+			const relOut = (
+				canonical.canonical_relationships as Array<Record<string, unknown>>
+			)[0]!;
+			expect("grain_semantics" in relOut).toBe(false);
+			expect("description" in relOut).toBe(false);
+			expect("cardinality" in relOut).toBe(false);
+
+			const cbcOut = (
+				canonical.canonical_business_concepts as Array<Record<string, unknown>>
+			)[0]!;
+			expect(cbcOut.description).toBe("");
+			const attrOut = (cbcOut.attributes as Array<Record<string, unknown>>)[0]!;
+			expect("description" in attrOut).toBe(false);
+			expect(attrOut.source_hints).toEqual(["lpa_sec_1"]);
+
+			const mappingsOut = cbcOut.external_mappings as Array<
+				Record<string, unknown>
+			>;
+			// Sorted by (target_uri="urn:ext:a", predicate ?? "" -> "", "skos:closeMatch", "skos:exactMatch")
+			expect(mappingsOut.map((m) => m.scheme)).toEqual([
+				"BIAN",
+				"FIBO",
+				"ISO20022",
+			]);
+			expect(mappingsOut[1]?.reference_pack_id).toBe("fibo-core-bebd6ae8");
+		});
+
+		it("handles all 9 named SSE events, bypasses EventSource when Bearer authToken is set, and resets flags on polling failure/timeout (S6-CRIT-01, P14c::MAJ-01)", async () => {
+			// Part A: Named SSE events (job_started, stage, chunk_parsed, job_completed, JOB_ABANDONED_SERVER_CRASH)
+			const prevEs = (globalThis as Record<string, unknown>).EventSource;
+			const createdEsInstances: Array<{
+				url: string;
+				emitNamed: (name: string, data: unknown) => Promise<void>;
+			}> = [];
+			class MockNamedEventSource {
+				url: string;
+				listeners = new Map<string, Array<(ev: MessageEvent) => void>>();
+				onmessage: ((ev: MessageEvent) => void) | null = null;
+				onerror: (() => void) | null = null;
+				constructor(url: string) {
+					this.url = url;
+					createdEsInstances.push(this);
+				}
+				addEventListener(name: string, cb: (ev: MessageEvent) => void) {
+					const arr = this.listeners.get(name) || [];
+					arr.push(cb);
+					this.listeners.set(name, arr);
+				}
+				async emitNamed(name: string, data: unknown) {
+					const str = typeof data === "string" ? data : JSON.stringify(data);
+					for (const cb of this.listeners.get(name) || []) {
+						cb({ data: str } as MessageEvent);
+					}
+					await new Promise((r) => setTimeout(r, 10));
+				}
+				close() {}
+			}
+			(globalThis as Record<string, unknown>).EventSource =
+				MockNamedEventSource;
+			try {
+				const sseStore = createStudioStore({
+					initialSession: {
+						session_id: "s-sse",
+						domain_namespace: "pe",
+						enterprise_owner: "Owner",
+						status: "ACTIVE",
+						active_version: "0.0.0",
+						head_sha256: "1".repeat(64),
+						created_at: "2026-11-12",
+						updated_at: "2026-11-12",
+					},
+				});
+				const parseFetch: typeof fetch = (async () =>
+					new Response(
+						JSON.stringify({
+							job_id: "job-sse-named",
+							status: "RUNNING",
+							pct_complete: 5,
+						}),
+						{ status: 202 },
+					)) as typeof fetch;
+
+				await sseStore.getState().startParse("auto", parseFetch);
+				expect(createdEsInstances).toHaveLength(1);
+				expect(sseStore.getState().parsingState.progress_pct).toBe(5);
+
+				const es = createdEsInstances[0]!;
+				await es.emitNamed("job_started", { pct_complete: 12 });
+				await es.emitNamed("stage", { stage: "chunking", pct_complete: 40 });
+				await es.emitNamed("chunk_parsed", { pct_complete: 65 });
+				expect(sseStore.getState().parsingState.progress_pct).toBe(65);
+				expect(sseStore.getState().parsingState.chunks_count).toBe(1);
+
+				await es.emitNamed("job_completed", {
+					pct_complete: 100,
+					chunks_count: 7,
+				});
+				expect(sseStore.getState().parsingState.status).toBe("completed");
+				expect(sseStore.getState().parsingState.chunks_count).toBe(7);
+
+				// Named crash event resets isClarifying and emits toast
+				const crashFetch: typeof fetch = (async () =>
+					new Response(
+						JSON.stringify({ job_id: "job-crash-1", status: "RUNNING" }),
+						{ status: 202 },
+					)) as typeof fetch;
+				await sseStore.getState().startClarify({}, crashFetch);
+				expect(sseStore.getState().isClarifying).toBe(true);
+				const crashEs = createdEsInstances[1]!;
+				await crashEs.emitNamed("JOB_ABANDONED_SERVER_CRASH", {
+					detail: "Worker crashed during restart",
+				});
+				expect(sseStore.getState().isClarifying).toBe(false);
+				expect(
+					sseStore
+						.getState()
+						.toasts.some((t) => t.code === "JOB_ABANDONED_SERVER_CRASH"),
+				).toBe(true);
+
+				// Part B: Explicit Bearer authToken bypasses EventSource directly to polling
+				createdEsInstances.length = 0;
+				const bearerStore = createStudioStore({
+					initialSession: {
+						session_id: "s-bearer",
+						domain_namespace: "pe",
+						enterprise_owner: "Owner",
+						status: "ACTIVE",
+						active_version: "0.0.0",
+						head_sha256: "2".repeat(64),
+						created_at: "2026-11-12",
+						updated_at: "2026-11-12",
+					},
+					initialPollIntervalMs: 15,
+					maxPollAttempts: 2,
+					maxPollErrorRetries: 1,
+				});
+				bearerStore.getState().setAuthToken("remote-jwt-token");
+				let pollCalls = 0;
+				const timeoutPollFetch: typeof fetch = (async (url) => {
+					if (String(url).endsWith("/construct")) {
+						return new Response(
+							JSON.stringify({ job_id: "job-poll-timeout", status: "RUNNING" }),
+							{ status: 202 },
+						);
+					}
+					pollCalls += 1;
+					return new Response(
+						JSON.stringify({ status: "RUNNING", pct_complete: 50 }),
+						{ status: 200 },
+					);
+				}) as typeof fetch;
+
+				await bearerStore.getState().startConstruct({}, timeoutPollFetch);
+				expect(createdEsInstances).toHaveLength(0); // Bypassed EventSource!
+				await new Promise((r) => setTimeout(r, 120));
+				expect(pollCalls).toBe(2);
+				expect(bearerStore.getState().isConstructing).toBe(false);
+				expect(
+					bearerStore
+						.getState()
+						.toasts.some((t) => t.code === "JOB_POLL_TIMEOUT"),
+				).toBe(true);
+			} finally {
+				(globalThis as Record<string, unknown>).EventSource = prevEs;
+			}
+		});
+
+		it("loads proposals in selectSession and attaches If-Match + base_sha256 on startConstruct({ auto_commit: true }) (S6-CRIT-02)", async () => {
+			const headA = "a".repeat(64);
+			const headB = "b".repeat(64);
+			const store = createStudioStore({
+				initialSession: {
+					session_id: "s-crit02",
+					domain_namespace: "pe",
+					enterprise_owner: "Owner",
+					status: "ACTIVE",
+					active_version: "0.0.0",
+					head_sha256: headA,
+					created_at: "2026-11-12",
+					updated_at: "2026-11-12",
+				},
+			});
+
+			let constructHeaders: Record<string, string> = {};
+			let constructBody: Record<string, unknown> | null = null;
+			let sessionReloadedAfterAutoCommit = false;
+
+			const mockFetch: typeof fetch = (async (url, init) => {
+				const u = String(url);
+				const method = (init?.method || "GET").toUpperCase();
+				if (method === "POST" && u.endsWith("/construct")) {
+					constructHeaders = (init?.headers || {}) as Record<string, string>;
+					constructBody = JSON.parse(String(init?.body));
+					return new Response(
+						JSON.stringify({
+							job_id: "job-autocommit",
+							status: "COMPLETED",
+						}),
+						{ status: 200 },
+					);
+				}
+				if (method === "GET" && u.endsWith("/sessions/s-crit02")) {
+					if (constructBody) sessionReloadedAfterAutoCommit = true;
+					return new Response(
+						JSON.stringify({
+							session_id: "s-crit02",
+							domain_namespace: "pe",
+							enterprise_owner: "Owner",
+							status: "ACTIVE",
+							active_version: constructBody ? "1.0.0" : "0.0.0",
+							head_sha256: constructBody ? headB : headA,
+							created_at: "2026-11-12",
+							updated_at: "2026-11-12",
+						}),
+						{ status: 200 },
+					);
+				}
+				if (method === "GET" && u.endsWith("/proposals")) {
+					return new Response(
+						JSON.stringify({
+							proposals: [
+								{
+									proposal_id: "prop-pending-1",
+									status: "PENDING",
+									base_sha256: headA,
+									target_version: "1.0.0",
+									ops_count: 3,
+									created_at: "2026-11-12",
+								},
+							],
+						}),
+						{ status: 200 },
+					);
+				}
+				if (u.includes("/graph") || u.includes("/export")) {
+					return new Response(
+						JSON.stringify({
+							canonical_business_concepts: [],
+							canonical_relationships: [],
+						}),
+						{ status: 200 },
+					);
+				}
+				if (
+					u.endsWith("/questions") ||
+					u.endsWith("/answers") ||
+					u.endsWith("/sources")
+				) {
+					return new Response(JSON.stringify([]), { status: 200 });
+				}
+				return new Response("{}", { status: 200 });
+			}) as typeof fetch;
+
+			await store.getState().selectSession("s-crit02", mockFetch);
+			expect(store.getState().proposals).toHaveLength(1);
+			expect(store.getState().proposals[0]?.proposal_id).toBe("prop-pending-1");
+
+			await store
+				.getState()
+				.startConstruct({ auto_commit: true }, mockFetch);
+			expect(constructHeaders["If-Match"]).toBe(`"${headA}"`);
+			expect(constructBody?.mode).toBe("deterministic");
+			expect(constructBody?.base_sha256).toBe(headA);
+			expect(sessionReloadedAfterAutoCommit).toBe(true);
+			expect(store.getState().activeSession?.head_sha256).toBe(headB);
+		});
+
+		it("syncs OCC baseline in loadSessions when clean, pins head_sha256 when dirty, blocks acceptProposal when dirty, and detects structural edge changes in deleteConcept (P14d::MAJ-01..03)", async () => {
+			const sha1 = "1".repeat(64);
+			const sha2 = "2".repeat(64);
+			const sha3 = "3".repeat(64);
+			const store = createStudioStore({
+				initialSession: {
+					session_id: "s-occ",
+					domain_namespace: "pe",
+					enterprise_owner: "Owner",
+					status: "ACTIVE",
+					active_version: "1.0.0",
+					head_sha256: sha1,
+					created_at: "2026-11-12",
+					updated_at: "2026-11-12",
+				},
+			});
+
+			let serverHead = sha2;
+			let serverConceptName = "Server Concept V2";
+			const mockOccFetch: typeof fetch = (async (url) => {
+				const u = String(url);
+				if (u.endsWith("/sessions")) {
+					return new Response(
+						JSON.stringify([
+							{
+								session_id: "s-occ",
+								domain_namespace: "pe",
+								enterprise_owner: "Owner",
+								status: "ACTIVE",
+								active_version: serverHead === sha2 ? "1.1.0" : "1.2.0",
+								head_sha256: serverHead,
+								created_at: "2026-11-12",
+								updated_at: "2026-11-12",
+							},
+						]),
+						{ status: 200 },
+					);
+				}
+				if (u.endsWith("/sessions/s-occ")) {
+					return new Response(
+						JSON.stringify({
+							session_id: "s-occ",
+							domain_namespace: "pe",
+							enterprise_owner: "Owner",
+							status: "ACTIVE",
+							active_version: serverHead === sha2 ? "1.1.0" : "1.2.0",
+							head_sha256: serverHead,
+							created_at: "2026-11-12",
+							updated_at: "2026-11-12",
+						}),
+						{ status: 200 },
+					);
+				}
+				if (u.includes("/graph") || u.includes("/export")) {
+					return new Response(
+						JSON.stringify({
+							canonical_business_concepts: [
+								{
+									concept_uri: "urn:ontology:entity:fund",
+									concept_name: serverConceptName,
+									elm_archetype: "CORE_BUSINESS_CONCEPT",
+									definition: "Fund",
+									external_mappings: [
+										{
+											scheme: "FIBO",
+											target_uri: "fibo:Fund",
+											predicate: "skos:exactMatch",
+											confidence: 0.95,
+										},
+									],
+								},
+								{
+									concept_uri: "urn:ontology:entity:lp",
+									concept_name: "LP",
+									elm_archetype: "PARTY",
+									definition: "LP",
+									external_mappings: [
+										{
+											scheme: "FIBO",
+											target_uri: "fibo:LP",
+											predicate: "skos:exactMatch",
+											confidence: 0.95,
+										},
+									],
+								},
+							],
+							canonical_relationships: [
+								{
+									relationship_uri: "urn:ontology:relationship:fund_has_lp_v1",
+									relationship_name: "has",
+									target_link: "lnk_fund_has_lp_v1",
+									endpoints: [
+										"urn:ontology:entity:fund",
+										"urn:ontology:entity:lp",
+									],
+								},
+							],
+						}),
+						{ status: 200 },
+					);
+				}
+				return new Response(JSON.stringify([]), { status: 200 });
+			}) as typeof fetch;
+
+			// 1. Clean state: loadSessions detects sha1 -> sha2 and advances both head_sha256 and committedNodes!
+			await store.getState().loadSessions(mockOccFetch);
+			expect(store.getState().activeSession?.head_sha256).toBe(sha2);
+			expect(store.getState().committedNodes[0]?.concept_name).toBe(
+				"Server Concept V2",
+			);
+			expect(store.getState().committedEdges).toHaveLength(1);
+
+			// 2. P14d::MAJ-03: Replace committed edge with a different edge (same count = 1), add temp concept, then delete temp concept
+			store
+				.getState()
+				.deleteRelationship("urn:ontology:relationship:fund_has_lp_v1");
+			store.getState().addRelationship({
+				id: "urn:ontology:relationship:fund_owns_lp_v2",
+				relationship_uri: "urn:ontology:relationship:fund_owns_lp_v2",
+				relationship_name: "owns",
+				target_link: "lnk_fund_owns_lp_v2",
+				source_concept_uri: "urn:ontology:entity:fund",
+				target_concept_uri: "urn:ontology:entity:lp",
+			});
+			store.getState().addConcept({
+				id: "urn:ontology:entity:temp",
+				concept_uri: "urn:ontology:entity:temp",
+				concept_name: "Temp",
+				elm_archetype: "CORE_BUSINESS_CONCEPT",
+				definition: "Temp",
+				grounding_status: "UNGROUNDED",
+				attributes: [],
+				synonyms: [],
+				external_mappings: [],
+			});
+			store.getState().deleteConcept("urn:ontology:entity:temp");
+			// Edge count matches committedEdges.length (1 === 1), yet edge URI changed -> MUST remain dirty!
+			expect(store.getState().edges).toHaveLength(1);
+			expect(store.getState().committedEdges).toHaveLength(1);
+			expect(store.getState().hasUnsavedChanges).toBe(true);
+
+			// 3. P14d::MAJ-01 (dirty branch): Server advances to sha3 while canvas is dirty -> activeSession stays pinned to sha2!
+			serverHead = sha3;
+			await store.getState().loadSessions(mockOccFetch);
+			expect(store.getState().activeSession?.head_sha256).toBe(sha2);
+			expect(store.getState().sessions[0]?.head_sha256).toBe(sha3);
+
+			// 4. P14d::MAJ-02: acceptProposal refuses to clobber dirty canvas edits unless { force: true }
+			let acceptNetworkCalled = false;
+			const spyAcceptFetch: typeof fetch = (async () => {
+				acceptNetworkCalled = true;
+				return new Response("{}", { status: 200 });
+			}) as typeof fetch;
+			const accepted = await store
+				.getState()
+				.acceptProposal("prop-1", "Try accept while dirty", spyAcceptFetch);
+			expect(accepted).toBe(false);
+			expect(acceptNetworkCalled).toBe(false);
+			expect(store.getState().toasts[0]?.code).toBe("UNSAVED_CHANGES");
+		});
+
+		it("allows candidate user_asserted FIBO Path A mappings through commitChanges to server GroundingVerifier and classifies SemVer bumps accurately (S6-MAJ-01, P14e::MAJ-01)", async () => {
+			const baseSession: StudioSessionSummary = {
+				session_id: "s-semver",
+				domain_namespace: "pe",
+				enterprise_owner: "Owner",
+				status: "ACTIVE",
+				active_version: "1.0.0",
+				head_sha256: "a".repeat(64),
+				created_at: "2026-11-12",
+				updated_at: "2026-11-12",
+			};
+
+			// Part A: S6-MAJ-01 — New concept with user_asserted FIBO skos:exactMatch proceeds to POST /delta with confidence stripped
+			const s6Store = createStudioStore({ initialSession: baseSession });
+			s6Store.getState().addConcept({
+				id: "urn:ontology:entity:commitment",
+				concept_uri: "urn:ontology:entity:commitment",
+				concept_name: "Capital Commitment",
+				elm_archetype: "AGREEMENT",
+				definition: "LP commitment",
+				grounding_status: "UNGROUNDED",
+				attributes: [],
+				synonyms: [],
+				external_mappings: [
+					{
+						scheme: "fibo",
+						target_uri:
+							"https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/ContractualCommitment",
+						predicate: "skos:exactMatch",
+						confidence: 0.85,
+						provenance: "user_asserted",
+					},
+				],
+			});
+			let postedDelta: Record<string, unknown> | null = null;
+			const mockDeltaFetch: typeof fetch = (async (_url, init) => {
+				postedDelta = JSON.parse(String(init?.body));
+				return new Response(
+					JSON.stringify({
+						target_version: "1.1.0",
+						target_sha256: "b".repeat(64),
+					}),
+					{ status: 200 },
+				);
+			}) as typeof fetch;
+
+			const committedS6 = await s6Store
+				.getState()
+				.commitChanges("Add user-asserted FIBO concept", mockDeltaFetch);
+			expect(committedS6).toBe(true);
+			expect(postedDelta).not.toBeNull();
+			expect(postedDelta?.target_version).toBe("1.1.0");
+			const addOp = (
+				postedDelta?.operations as Array<Record<string, unknown>>
+			)[0]!;
+			const sentMapping = (
+				addOp.external_mappings as Array<Record<string, unknown>>
+			)[0]!;
+			expect("confidence" in sentMapping).toBe(false);
+			expect(s6Store.getState().nodes[0]?.grounding_status).toBe("GROUNDED");
+
+			// Part B: P14e::MAJ-01 — refine_definition -> MINOR (1.1.0), remove_external_mapping -> MAJOR (2.0.0)
+			const baseConcept: ConceptNode = {
+				id: "urn:ontology:entity:fund",
+				concept_uri: "urn:ontology:entity:fund",
+				concept_name: "Fund",
+				elm_archetype: "CORE_BUSINESS_CONCEPT",
+				definition: "Initial definition",
+				grounding_status: "GROUNDED",
+				attributes: [],
+				synonyms: [],
+				external_mappings: [
+					{
+						scheme: "FIBO",
+						target_uri: "fibo:FundPrimary",
+						predicate: "skos:exactMatch",
+						confidence: 0.95,
+					},
+					{
+						scheme: "ISO20022",
+						target_uri: "iso:Secondary",
+						predicate: "skos:closeMatch",
+						confidence: 0.8,
+					},
+				],
+			};
+			const semverStore = createStudioStore({
+				initialSession: baseSession,
+				userRole: "admin",
+			});
+			semverStore.setState({
+				committedNodes: [baseConcept],
+				nodes: [{ ...baseConcept, definition: "Refined steward definition" }],
+				hasUnsavedChanges: true,
+			});
+			await semverStore
+				.getState()
+				.commitChanges("Refine definition", mockDeltaFetch);
+			expect(postedDelta?.target_version).toBe("1.1.0");
+
+			// Now remove iso:Secondary mapping from 1.1.0 -> remove_external_mapping MUST bump MAJOR -> 2.0.0!
+			const v11Concept = semverStore.getState().committedNodes[0]!;
+			semverStore.setState({
+				nodes: [
+					{
+						...v11Concept,
+						external_mappings: v11Concept.external_mappings.slice(0, 1),
+					},
+				],
+				hasUnsavedChanges: true,
+			});
+			await semverStore
+				.getState()
+				.commitChanges("Remove secondary mapping", mockDeltaFetch);
+			expect(postedDelta?.target_version).toBe("2.0.0");
 		});
 	});
 });

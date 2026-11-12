@@ -399,15 +399,15 @@ class TestOptimisticConcurrencyControlCollisionStress:
             headers=auth_headers,
         )
 
-        # Assert status code 409
-        assert resp.status_code == 409
+        # Assert status code 412
+        assert resp.status_code == 412
         ctype = resp.headers.get("content-type", "")
         assert "application/problem+json" in ctype or "application/json" in ctype
 
         # Assert strict RFC 9457 ProblemDetail attributes
         body = resp.json()
         assert body["error_code"] == "ONT_EVO_CONCURRENT_MODIFICATION"
-        assert body["status"] == 409
+        assert body["status"] == 412
         assert body["type"] == "urn:opendv:error:ont-evo-concurrent-modification"
         assert f"expected '{bad_hash}'" in body["detail"]
         assert f"current stored answers digest is '{EMPTY_ANSWERS_SHA256}'" in body["detail"]
@@ -694,15 +694,18 @@ class TestLockHierarchyStress:
             barrier.wait()
             try:
                 for k in range(3):
-                    current_head = session_mgr.get_session(session_id).head_sha256
-                    is_genesis = k == 0 and worker_id == 0
-                    base_ver = "0.0.0" if is_genesis else "1.0.0"
-                    parent_sha = "" if is_genesis else current_head
+                    snap = session_mgr.get_session(session_id)
+                    current_head = snap.head_sha256
+                    base_ver = snap.head_version.lstrip("v")
+                    target_ver = (
+                        "1.0.0" if base_ver == "0.0.0" else f"1.{int(base_ver.split('.')[1]) + 1}.0"
+                    )
+                    parent_sha = "" if base_ver == "0.0.0" else current_head
                     delta = OntologyDelta(
                         delta_id=f"delta-{worker_id}-{k}",
                         parent_sha256=parent_sha,
                         base_version=base_ver,
-                        target_version="1.0.0",
+                        target_version=target_ver,
                         operations=[
                             AddConceptOp(
                                 op_id=f"op-{worker_id}-{k}-{time.time_ns()}",
@@ -715,7 +718,10 @@ class TestLockHierarchyStress:
                     )
                     with contextlib.suppress(Exception):
                         atomic_svc.commit_delta(
-                            session_id=session_id, delta=delta, if_match=current_head
+                            session_id=session_id,
+                            delta=delta,
+                            if_match=current_head,
+                            enforce_governance=False,
                         )
                     time.sleep(0.01)
             except (OSError, RuntimeError, ValueError) as e:
@@ -760,13 +766,13 @@ class TestServiceContractMismatchFindings:
     ) -> None:
         """VERIFICATION: POST /sessions/{id}/deltas/apply succeeds without signature mismatch."""
         session_id = "s-delta-apply-bug"
-        client.post(
+        create_resp = client.post(
             "/api/v1/ontology/studio/sessions",
             json={"session_id": session_id, "domain_namespace": "wealth_mgmt"},
             headers=auth_headers,
         )
 
-        head_sha = "99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e"
+        head_sha = create_resp.json()["head_sha256"]
         resp = client.post(
             f"/api/v1/ontology/studio/sessions/{session_id}/deltas/apply",
             json={
@@ -783,13 +789,15 @@ class TestServiceContractMismatchFindings:
                     }
                 ],
                 "rationale": "Apply delta test",
+                "low_confidence_waiver": True,
+                "grounding_rationale": "Approved concept for signature verification test.",
             },
             headers={
                 **auth_headers,
                 "If-Match": f'"{head_sha}"',
             },
         )
-        assert resp.status_code == 200
+        assert resp.status_code == 200, resp.text
         body = resp.json()
         assert body["target_version"] in ("1.0.0", "v1.0.0")
         assert body["session_id"] == session_id

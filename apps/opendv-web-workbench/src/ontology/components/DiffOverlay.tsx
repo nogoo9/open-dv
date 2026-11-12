@@ -36,13 +36,29 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 	className = "",
 	onClose,
 }) => {
+	const activeSession = useStudioStore((s) => s.activeSession);
 	const diffState = useStudioStore((s) => s.diffState);
 	const setDiffMode = useStudioStore((s) => s.setDiffMode);
+	const loadAndComputeDiff = useStudioStore((s) => s.loadAndComputeDiff);
 
 	const { records, summary, base_version, target_version, mode } = diffState;
 	if (mode === "off" || !diffState.active) {
 		return null;
 	}
+
+	const availableVersions = Array.from(
+		new Set(
+			[
+				"0.0.0",
+				...(activeSession?.commits || []).map((c) => c.version),
+				...(activeSession?.active_version
+					? [activeSession.active_version]
+					: []),
+				base_version,
+				target_version,
+			].filter(Boolean),
+		),
+	);
 
 	const isStrictlyAdditive =
 		summary.breaking_count === 0 &&
@@ -70,6 +86,44 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 					)}
 				</div>
 
+				<div
+					className="diff-version-selectors"
+					data-testid="diff-version-selectors"
+				>
+					<label>
+						Baseline:{" "}
+						<select
+							value={base_version}
+							onChange={(e) =>
+								void loadAndComputeDiff(e.target.value, target_version)
+							}
+							data-testid="diff-base-version-select"
+						>
+							{availableVersions.map((ver) => (
+								<option key={`base-${ver}`} value={ver}>
+									v{ver}
+								</option>
+							))}
+						</select>
+					</label>
+					<label>
+						Target:{" "}
+						<select
+							value={target_version}
+							onChange={(e) =>
+								void loadAndComputeDiff(base_version, e.target.value)
+							}
+							data-testid="diff-target-version-select"
+						>
+							{availableVersions.map((ver) => (
+								<option key={`target-${ver}`} value={ver}>
+									v{ver}
+								</option>
+							))}
+						</select>
+					</label>
+				</div>
+
 				{/* Strictly Additive Guarantee Banner */}
 				{isStrictlyAdditive ? (
 					<div
@@ -95,7 +149,8 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 							<strong>CONTRACT MODIFICATION DETECTED</strong>
 							<p>
 								This diff contains {summary.breaking_count} breaking changes and{" "}
-								{summary.deleted_count} deletions requiring steward/admin waiver.
+								{summary.deleted_count} deletions requiring steward/admin
+								waiver.
 							</p>
 						</div>
 					</div>
@@ -209,7 +264,9 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 									(r) =>
 										r.change_type === "added" || r.change_type === "modified",
 								).length === 0 && (
-									<li className="side-empty">Zero target items added or modified.</li>
+									<li className="side-empty">
+										Zero target items added or modified.
+									</li>
 								)}
 							</ul>
 						</div>

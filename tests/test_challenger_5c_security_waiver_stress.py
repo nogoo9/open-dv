@@ -115,8 +115,10 @@ def test_waiver_argv_raw_secret_strictly_rejected(studio_env: tuple[Path, Path])
             "--json",
         ]
     )
-    # Prefix matches --waiver-key-file, tries to load file 'super-secret-raw-key', fails with exit 7
-    assert exit_code_1 == 7, "Passing raw secret to --waiver-key must fail securely with exit 7"
+    # Disabling argparse prefix abbreviation strictly rejects --waiver-key on argv with exit 2
+    assert exit_code_1 == 2, (
+        "Passing raw secret to --waiver-key must be rejected by parser (exit 2)"
+    )
 
     # 2. Attempt to pass --secret on argv
     exit_code_2 = app_main(
@@ -160,7 +162,7 @@ def test_waiver_argv_raw_secret_strictly_rejected(studio_env: tuple[Path, Path])
 
 
 def test_waiver_key_file_non_existent(studio_env: tuple[Path, Path]) -> None:
-    """Verify non-existent waiver key file triggers exit 7 (FORBIDDEN_ADMIN_REQUIRED)."""
+    """Verify non-existent waiver key file triggers exit 3 (FILE_NOT_FOUND)."""
     ws, studio_root = studio_env
     sid, head_sha = _setup_session_with_pending_proposal(ws, studio_root)
 
@@ -187,7 +189,7 @@ def test_waiver_key_file_non_existent(studio_env: tuple[Path, Path]) -> None:
             "--json",
         ]
     )
-    assert code == 7, "Non-existent waiver key file must fail with exit 7"
+    assert code == 3, "Non-existent waiver key file must fail with exit 3 (FILE_NOT_FOUND)"
 
 
 def test_waiver_key_file_empty_and_whitespace(studio_env: tuple[Path, Path]) -> None:
@@ -402,8 +404,8 @@ def test_waiver_key_file_precedence_over_env(
             "--json",
         ]
     )
-    assert code == 7, (
-        "Invalid --waiver-key-file must fail with exit 7 even if OPENDV_WAIVER_KEY is valid"
+    assert code == 3, (
+        "Non-existent --waiver-key-file must fail with exit 3 even if OPENDV_WAIVER_KEY is valid"
     )
 
 

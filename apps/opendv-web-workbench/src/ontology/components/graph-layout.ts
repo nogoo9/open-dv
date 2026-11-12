@@ -75,8 +75,7 @@ export function computeFallbackLayeredLayout(
 			adj[srcId]?.push(tgtId);
 		}
 		if (inDegree[tgtId] !== undefined) {
-			inDegree[tgtId] =
-				(inDegree[tgtId] || 0) + 1;
+			inDegree[tgtId] = (inDegree[tgtId] || 0) + 1;
 		}
 	}
 
@@ -287,7 +286,10 @@ export async function layoutGraph(
 			durationMs,
 		};
 	} catch (err) {
-		console.warn("ELK layout failed, falling back to deterministic layout:", err);
+		console.warn(
+			"ELK layout failed, falling back to deterministic layout:",
+			err,
+		);
 		const fallback = computeFallbackLayeredLayout(nodes, edges, options);
 		return {
 			...fallback,

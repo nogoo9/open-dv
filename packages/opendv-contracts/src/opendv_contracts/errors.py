@@ -14,9 +14,9 @@ class ErrorCode(StrEnum):
     Normative Exit Code Taxonomy (conforming to schemas/v1/error-codes.json):
     - Exit 0: Success (HTTP 200, 201, 202)
     - Exit 1: Capability & Subsystem Failure / Missing Rationale / Verification Rejection
-      (HTTP 200, 400, 500, 503)
-    - Exit 2: Command Syntax, Precondition, Payload, or Legacy Subprocess Failure
-      (HTTP 400, 413, 415, 500, 503)
+      (HTTP 200, 400, 500, 501, 503)
+    - Exit 2: Command Syntax, Precondition, Payload, or Frozen Wave-1 Legacy Contract Failure
+      (HTTP 400, 404, 413, 422, 500, 503)
     - Exit 3: Resource Not Found (HTTP 404)
     - Exit 4: Domain, Referential Integrity Violation & ONT-EVO Governance (HTTP 422)
     - Exit 5: Optimistic Concurrency Control (OCC) Precondition Failure (HTTP 412)
@@ -24,35 +24,27 @@ class ErrorCode(StrEnum):
     - Exit 7: Authentication & RBAC Authorization Violation (HTTP 401, 403)
 
     Historical Parity Note:
-    Legacy Wave 1 error codes (e.g. API_UNREACHABLE, PROVIDER_UNAVAILABLE) retain normative (2, 503)
-    mappings per frozen contract baseline in schemas/cli-spec.json, while forward Studio
-    capabilities (e.g. AGENT_UNAVAILABLE) map to (1, 503).
+    - The 18 pre-existing Wave-1 error codes (e.g. API_UNREACHABLE, PROVIDER_UNAVAILABLE,
+      RESOURCE_NOT_FOUND, INPUT_VALIDATION_ERROR) retain `exit_code=2` for frozen Wave-1 CLI
+      baseline compatibility per `schemas/cli-spec.json`, while Ontology Studio error codes
+      follow strict HTTP-status exit tiers (1/3/4/5/6/7).
+    - `UNSUPPORTED_FORMAT` maps normatively to `(2, 400, "urn:opendv:error:unsupported-format")`
+      per `docs/20-ontology-studio-spec.md` §3.1 and `schemas/cli-spec.json`.
+    - Forward Studio runtime capabilities (e.g. AGENT_UNAVAILABLE) map to `(1, 503)` and missing
+      host capabilities (`OCR_UNAVAILABLE`, `OFFICE_CONVERSION_UNAVAILABLE`) map to `(1, 501)`.
     """
 
-    # 0 Exit / 200 HTTP
     OK = "OK"
-
-    # 1 Exit / 200 HTTP (Domain verification result)
     VERIFICATION_FAILED = "VERIFICATION_FAILED"
-
-    # 2 Exit / 400 Bad Request
     PATH_CONTAINMENT_ERROR = "PATH_CONTAINMENT_ERROR"
     INVALID_REQUEST = "INVALID_REQUEST"
-
-    # 2 Exit / 404 Not Found
     RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND"
     RUN_NOT_FOUND = "RUN_NOT_FOUND"
     PROJECT_NOT_FOUND = "PROJECT_NOT_FOUND"
     HOLD_NOT_FOUND = "HOLD_NOT_FOUND"
     ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
-
-    # 2 Exit / 413 Payload Too Large
     PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
-
-    # 2 Exit / 415 Unsupported Media Type
     UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
-
-    # 2 Exit / 422 Unprocessable Entity
     INPUT_VALIDATION_ERROR = "INPUT_VALIDATION_ERROR"
     SCHEMA_VALIDATION_ERROR = "SCHEMA_VALIDATION_ERROR"
     SOURCE_LOAD_ERROR = "SOURCE_LOAD_ERROR"
@@ -61,15 +53,10 @@ class ErrorCode(StrEnum):
     DETERMINISTIC_PROVIDER_REJECTED = "DETERMINISTIC_PROVIDER_REJECTED"
     CONTRACT_VERSION_MISMATCH = "CONTRACT_VERSION_MISMATCH"
     ONTOLOGY_RECOMMENDER_UNAVAILABLE = "ONTOLOGY_RECOMMENDER_UNAVAILABLE"
-
-    # 2 Exit / 500 Internal Error
     CAS_INTEGRITY_FAILURE = "CAS_INTEGRITY_FAILURE"
     INTERNAL_ERROR = "INTERNAL_ERROR"
-
-    # 2 Exit / 503 Service Unavailable
     API_UNREACHABLE = "API_UNREACHABLE"
     PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
-    # Studio & Extended Error Taxonomy Codes (Phase 6 Track 6E)
     AGENT_UNAVAILABLE = "AGENT_UNAVAILABLE"
     CONFLICTING_WORKSPACE_SEED_PARAMS = "CONFLICTING_WORKSPACE_SEED_PARAMS"
     CORRUPT_SESSION_RECORD = "CORRUPT_SESSION_RECORD"
@@ -186,6 +173,24 @@ class ErrorCode(StrEnum):
     EXECUTION_FAILURE = "EXECUTION_FAILURE"
     JOB_ALREADY_TERMINAL = "JOB_ALREADY_TERMINAL"
     STATIC_TOKEN_CONFIGURED = "STATIC_TOKEN_CONFIGURED"
+    FILE_NOT_FOUND = "FILE_NOT_FOUND"
+    INSECURE_TRANSPORT_REFUSED = "INSECURE_TRANSPORT_REFUSED"
+    CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN = "CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN"
+    REFERENCE_ONTOLOGY_CORRUPT = "REFERENCE_ONTOLOGY_CORRUPT"
+    UNGROUNDED_SEED_MAPPING = "UNGROUNDED_SEED_MAPPING"
+    TAXONOMY_CYCLE_DETECTED = "TAXONOMY_CYCLE_DETECTED"
+    QUESTION_NOT_FOUND = "QUESTION_NOT_FOUND"
+    TAMPER_EVIDENT_CHAIN_CORRUPT = "TAMPER_EVIDENT_CHAIN_CORRUPT"
+    CSRF_ORIGIN_DENIED = "CSRF_ORIGIN_DENIED"
+    TOKEN_EXPIRED = "TOKEN_EXPIRED"
+    JOB_CANNOT_BE_CANCELLED = "JOB_CANNOT_BE_CANCELLED"
+    CORRUPT_SESSION_STATE = "CORRUPT_SESSION_STATE"
+    CONCURRENCY_CONFLICT = "CONCURRENCY_CONFLICT"
+    LOW_CONFIDENCE_GROUNDING = "LOW_CONFIDENCE_GROUNDING"
+    PROPOSAL_STALE_REBASE_REQUIRED = "PROPOSAL_STALE_REBASE_REQUIRED"
+    INTERNAL_CLONE_ERROR = "INTERNAL_CLONE_ERROR"
+    AGENT_LAUNCH_NONCE_FORBIDDEN = "AGENT_LAUNCH_NONCE_FORBIDDEN"
+    HARNESS_CONFIG_INVALID = "HARNESS_CONFIG_INVALID"
 
 
 class ErrorDetail(BaseContractModel):
@@ -299,9 +304,9 @@ ERROR_MAPPINGS: dict[ErrorCode, ErrorMappingEntry] = {
     ErrorCode.UNSUPPORTED_FORMAT: ErrorMappingEntry(
         error_code=ErrorCode.UNSUPPORTED_FORMAT,
         exit_code=2,
-        http_status=415,
+        http_status=400,
         problem_title="Unsupported Format",
-        problem_type_uri="urn:opendv:unsupported-format",
+        problem_type_uri="urn:opendv:error:unsupported-format",
     ),
     ErrorCode.INPUT_VALIDATION_ERROR: ErrorMappingEntry(
         error_code=ErrorCode.INPUT_VALIDATION_ERROR,
@@ -387,7 +392,6 @@ ERROR_MAPPINGS: dict[ErrorCode, ErrorMappingEntry] = {
         problem_title="Harness Provider Unavailable",
         problem_type_uri="urn:opendv:provider-unavailable",
     ),
-    # Studio & Extended Error Taxonomy Entries (Phase 6 Track 6E)
     ErrorCode.AGENT_UNAVAILABLE: ErrorMappingEntry(
         error_code=ErrorCode.AGENT_UNAVAILABLE,
         exit_code=1,
@@ -461,14 +465,14 @@ ERROR_MAPPINGS: dict[ErrorCode, ErrorMappingEntry] = {
     ErrorCode.OCR_UNAVAILABLE: ErrorMappingEntry(
         error_code=ErrorCode.OCR_UNAVAILABLE,
         exit_code=1,
-        http_status=503,
+        http_status=501,
         problem_title="OCR Engine Unavailable",
         problem_type_uri="urn:opendv:error:ocr-unavailable",
     ),
     ErrorCode.OFFICE_CONVERSION_UNAVAILABLE: ErrorMappingEntry(
         error_code=ErrorCode.OFFICE_CONVERSION_UNAVAILABLE,
         exit_code=1,
-        http_status=503,
+        http_status=501,
         problem_title="Office Document Conversion Unavailable",
         problem_type_uri="urn:opendv:error:office-conversion-unavailable",
     ),
@@ -635,8 +639,8 @@ ERROR_MAPPINGS: dict[ErrorCode, ErrorMappingEntry] = {
     ),
     ErrorCode.CANNOT_DELETE_PROMOTED_SESSION: ErrorMappingEntry(
         error_code=ErrorCode.CANNOT_DELETE_PROMOTED_SESSION,
-        exit_code=4,
-        http_status=422,
+        exit_code=6,
+        http_status=409,
         problem_title="Cannot Delete Promoted Session",
         problem_type_uri="urn:opendv:error:cannot-delete-promoted-session",
     ),
@@ -1200,6 +1204,132 @@ ERROR_MAPPINGS: dict[ErrorCode, ErrorMappingEntry] = {
         problem_title="Static Token Configured",
         problem_type_uri="urn:opendv:error:static-token-configured",
     ),
+    ErrorCode.FILE_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.FILE_NOT_FOUND,
+        exit_code=3,
+        http_status=404,
+        problem_title="File Not Found",
+        problem_type_uri="urn:opendv:error:file-not-found",
+    ),
+    ErrorCode.INSECURE_TRANSPORT_REFUSED: ErrorMappingEntry(
+        error_code=ErrorCode.INSECURE_TRANSPORT_REFUSED,
+        exit_code=7,
+        http_status=403,
+        problem_title="Insecure Transport Refused",
+        problem_type_uri="urn:opendv:error:insecure-transport-refused",
+    ),
+    ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Confidential Source Agent Access Forbidden",
+        problem_type_uri="urn:opendv:error:confidential-source-agent-access-forbidden",
+    ),
+    ErrorCode.REFERENCE_ONTOLOGY_CORRUPT: ErrorMappingEntry(
+        error_code=ErrorCode.REFERENCE_ONTOLOGY_CORRUPT,
+        exit_code=1,
+        http_status=500,
+        problem_title="Reference Ontology Pack Corrupt",
+        problem_type_uri="urn:opendv:error:reference-ontology-corrupt",
+    ),
+    ErrorCode.UNGROUNDED_SEED_MAPPING: ErrorMappingEntry(
+        error_code=ErrorCode.UNGROUNDED_SEED_MAPPING,
+        exit_code=4,
+        http_status=422,
+        problem_title="Ungrounded Seed Mapping",
+        problem_type_uri="urn:opendv:error:ungrounded-seed-mapping",
+    ),
+    ErrorCode.TAXONOMY_CYCLE_DETECTED: ErrorMappingEntry(
+        error_code=ErrorCode.TAXONOMY_CYCLE_DETECTED,
+        exit_code=4,
+        http_status=422,
+        problem_title="Taxonomy Cycle Detected",
+        problem_type_uri="urn:opendv:error:taxonomy-cycle-detected",
+    ),
+    ErrorCode.QUESTION_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.QUESTION_NOT_FOUND,
+        exit_code=3,
+        http_status=404,
+        problem_title="Clarification Question Not Found",
+        problem_type_uri="urn:opendv:error:question-not-found",
+    ),
+    ErrorCode.TAMPER_EVIDENT_CHAIN_CORRUPT: ErrorMappingEntry(
+        error_code=ErrorCode.TAMPER_EVIDENT_CHAIN_CORRUPT,
+        exit_code=4,
+        http_status=422,
+        problem_title="Tamper-Evident Audit Chain Corrupt",
+        problem_type_uri="urn:opendv:error:tamper-evident-chain-corrupt",
+    ),
+    ErrorCode.CSRF_ORIGIN_DENIED: ErrorMappingEntry(
+        error_code=ErrorCode.CSRF_ORIGIN_DENIED,
+        exit_code=7,
+        http_status=403,
+        problem_title="CSRF Origin Denied",
+        problem_type_uri="urn:opendv:error:csrf-origin-denied",
+    ),
+    ErrorCode.TOKEN_EXPIRED: ErrorMappingEntry(
+        error_code=ErrorCode.TOKEN_EXPIRED,
+        exit_code=7,
+        http_status=401,
+        problem_title="Authentication Token Expired",
+        problem_type_uri="urn:opendv:error:token-expired",
+    ),
+    ErrorCode.JOB_CANNOT_BE_CANCELLED: ErrorMappingEntry(
+        error_code=ErrorCode.JOB_CANNOT_BE_CANCELLED,
+        exit_code=6,
+        http_status=409,
+        problem_title="Job Cannot Be Cancelled",
+        problem_type_uri="urn:opendv:error:job-cannot-be-cancelled",
+    ),
+    ErrorCode.CORRUPT_SESSION_STATE: ErrorMappingEntry(
+        error_code=ErrorCode.CORRUPT_SESSION_STATE,
+        exit_code=1,
+        http_status=500,
+        problem_title="Corrupt Session State",
+        problem_type_uri="urn:opendv:error:corrupt-session-state",
+    ),
+    ErrorCode.CONCURRENCY_CONFLICT: ErrorMappingEntry(
+        error_code=ErrorCode.CONCURRENCY_CONFLICT,
+        exit_code=5,
+        http_status=412,
+        problem_title="Concurrency Conflict",
+        problem_type_uri="urn:opendv:error:concurrency-conflict",
+    ),
+    ErrorCode.LOW_CONFIDENCE_GROUNDING: ErrorMappingEntry(
+        error_code=ErrorCode.LOW_CONFIDENCE_GROUNDING,
+        exit_code=4,
+        http_status=422,
+        problem_title="Low Confidence Grounding",
+        problem_type_uri="urn:opendv:error:low-confidence-grounding",
+    ),
+    ErrorCode.PROPOSAL_STALE_REBASE_REQUIRED: ErrorMappingEntry(
+        error_code=ErrorCode.PROPOSAL_STALE_REBASE_REQUIRED,
+        exit_code=6,
+        http_status=409,
+        problem_title="Proposal Stale Rebase Required",
+        problem_type_uri="urn:opendv:error:proposal-stale-rebase-required",
+    ),
+    ErrorCode.INTERNAL_CLONE_ERROR: ErrorMappingEntry(
+        error_code=ErrorCode.INTERNAL_CLONE_ERROR,
+        exit_code=1,
+        http_status=500,
+        problem_title="Internal Clone Error",
+        problem_type_uri="urn:opendv:error:internal-clone-error",
+    ),
+    ErrorCode.AGENT_LAUNCH_NONCE_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.AGENT_LAUNCH_NONCE_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Agent Launch Nonce Forbidden",
+        problem_type_uri="urn:opendv:error:agent-launch-nonce-forbidden",
+    ),
+    ErrorCode.HARNESS_CONFIG_INVALID: ErrorMappingEntry(
+        error_code=ErrorCode.HARNESS_CONFIG_INVALID,
+        exit_code=4,
+        http_status=422,
+        problem_title="Harness Configuration Invalid",
+        problem_type_uri="urn:opendv:error:harness-config-invalid",
+    ),
 }
 
 ERROR_MAP = ERROR_MAPPINGS
@@ -1273,12 +1403,15 @@ class OpenDVError(Exception):
 
     def to_problem_detail(self, *, instance: str | None = None) -> ProblemDetail:
         """Convert exception to an RFC 9457 ProblemDetail DTO."""
-        return create_problem_detail(
+        problem = create_problem_detail(
             code=self.error_code,
             detail=self.message,
             instance=instance,
             extensions=self.details,
         )
+        if problem.status != self.http_status:
+            return problem.model_copy(update={"status": self.http_status})
+        return problem
 
 
 class InputValidationError(OpenDVError):

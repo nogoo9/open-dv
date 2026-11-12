@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
 from pydantic import Field
@@ -31,6 +32,8 @@ class GroundingVerifier(Protocol):
         self,
         concept_uri: str,
         candidates: list[Any],
+        concept_name: str = "",
+        synonyms: Sequence[str] = (),
         **kwargs: Any,
     ) -> GroundingVerificationResult:
         """Verify whether concept_uri satisfies grounding threshold against reference candidates."""

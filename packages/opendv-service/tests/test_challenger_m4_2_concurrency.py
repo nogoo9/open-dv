@@ -237,7 +237,7 @@ class TestCrashRecoveryAndAuditHMAC:
             json.dumps({"target_sha256": "orphan_sha"}), encoding="utf-8"
         )
 
-        commit_svc.reconcile_and_recover_session(sid)
+        commit_svc.reconcile_and_recover_session(sid, staging_grace_seconds=0.0)
         assert not abandoned.exists()
 
     def test_interrupted_commit_forward_reconciliation(self, tmp_path: Path) -> None:
@@ -249,7 +249,7 @@ class TestCrashRecoveryAndAuditHMAC:
         commit_svc = AtomicCommitService(session_manager=sess_mgr, security_manager=sec_mgr)
 
         sid = "recovery-interrupted-test"
-        sess_mgr.create_session(session_id=sid, domain_namespace="test.rec")
+        init_meta = sess_mgr.create_session(session_id=sid, domain_namespace="test.rec")
         s_dir = sess_mgr.get_session_dir(sid)
 
         ont_100 = GraphAOntology(
@@ -267,7 +267,7 @@ class TestCrashRecoveryAndAuditHMAC:
                 {
                     "version": "1.0.0",
                     "target_sha256": sha_100,
-                    "parent_sha256": GENESIS_DRAFT_SHA256,
+                    "parent_sha256": init_meta.head_sha256,
                     "proposal_id": None,
                 }
             ),
@@ -461,10 +461,10 @@ class TestCASSessionSecurityAndHKDF:
         secret_file.write_bytes(b"x" * 16)
         with pytest.raises(WorkspaceSecretCorruptError) as exc_info:
             WorkspaceSecurityManager(studio_root=tmp_path)
-        assert exc_info.value.error_code == "WORKSPACE_SECRET_CORRUPT"
+        assert exc_info.value.error_code == "CORRUPT_SESSION_RECORD"
 
         # Empty secret (0 bytes) -> fails closed on init
         secret_file.write_bytes(b"")
         with pytest.raises(WorkspaceSecretCorruptError) as exc_info:
             WorkspaceSecurityManager(studio_root=tmp_path)
-        assert exc_info.value.error_code == "WORKSPACE_SECRET_CORRUPT"
+        assert exc_info.value.error_code == "CORRUPT_SESSION_RECORD"

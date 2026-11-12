@@ -47,7 +47,7 @@
   },
   "description": "Cryptographic SHA-256 baseline digests anchoring certified ontologies, genesis templates, reference packs, matchers, and contract schemas.",
   "genesis_draft": {
-    "canonical_sha256": "99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e",
+    "canonical_sha256": "1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9",
     "default_domain_namespace": "general",
     "default_enterprise_owner": "Enterprise Architecture",
     "description": "Greenfield genesis seed state baseline.",
@@ -78,6 +78,7 @@
   },
   "reference_packs": {
     "fibo_core": {
+      "canonical_sha256": "bebd6ae87dfa4eaee523fdeac730f0fe652761004f24e5d15ab36d5225a0acb5",
       "description": "Curated 6-module FIBO core reference ontology pack.",
       "modules": [
         "FND",
@@ -89,7 +90,8 @@
       ],
       "pack_file_pattern": "fibo-core-<sha256_8>.json",
       "pack_id": "fibo-core",
-      "registry_path": "reference/registry.json",
+      "pack_path": "packages/opendv-sources/src/opendv_sources/fibo/fibo-core-bebd6ae8.json",
+      "registry_path": "packages/opendv-sources/src/opendv_sources/fibo/fibo-core-bebd6ae8.json",
       "upstream_commit": "69dbbe7a6a4e32049ba3f3988b48877bc954f061",
       "upstream_tag": "master_2024Q4",
       "version": "1.0.0"
@@ -98,7 +100,7 @@
   "schema_baselines": {
     "schemas/cli-spec.json": {
       "description": "Root CLI specification schema",
-      "sha256": "b1c7dcb0e4099e4874ae992c9b89fe931a8224d9b9892812bd63aef37393146e"
+      "sha256": "3974bc378f4e063f7d7aed38316320175fdc2264f2dc3f8f35f46f26d2eeeb3f"
     },
     "schemas/dv2-canonical-ir.schema.json": {
       "description": "Data Vault 2.0 Canonical Intermediate Representation schema",
@@ -110,15 +112,23 @@
     },
     "schemas/openapi-v1.json": {
       "description": "OpenDV Platform API OpenAPI v1 specification",
-      "sha256": "f27fc40b57dbd3f18cb6995fbfe5a5299503b401f4f01ed0ffb464472f7f4cd0"
+      "sha256": "d2646e3d43c2269737349b40865e3777cc0f81cc35cc9e1f9b87dfa817f4d6e5"
     },
     "schemas/v1/cli-spec.json": {
       "description": "v1 CLI specification schema",
-      "sha256": "c542bb3f45b63f094d290fb4ad1aab6d2155a1f95244ae6fd9d98372185c0251"
+      "sha256": "3974bc378f4e063f7d7aed38316320175fdc2264f2dc3f8f35f46f26d2eeeb3f"
+    },
+    "schemas/v1/error-codes.json": {
+      "description": "v1 Closed Error Code Catalog schema",
+      "sha256": "1f0dc102a4fd3e993abb426371eaae533792d21328674512271083e46882beff"
     },
     "schemas/v1/ontology-coverage.schema.json": {
       "description": "v1 Ontology Coverage validation schema",
       "sha256": "5d7f4ce0753f694fdf155b4fd71836b21c4241ec32a9d554e108f23fed9a2c1e"
+    },
+    "schemas/v1/ontology-delta-v2.schema.json": {
+      "description": "v1 OntologyDelta v2 JSON Schema (Draft 2020-12)",
+      "sha256": "49ac7bc249b0ac3fef55c3000da2b1d91b336f8a801c6103d0cdca64f22b887d"
     },
     "schemas/v1/ontology-delta.schema.json": {
       "description": "v1 OntologyDelta JSON Schema (Draft 2020-12)",
@@ -126,7 +136,7 @@
     },
     "schemas/v1/openapi.json": {
       "description": "v1 OpenAPI specification",
-      "sha256": "ab696971865330655807ad08e49d5f7e67631f140ec2ae863394afb849f6b905"
+      "sha256": "d2646e3d43c2269737349b40865e3777cc0f81cc35cc9e1f9b87dfa817f4d6e5"
     },
     "schemas/v1/steward-hold-option.schema.json": {
       "description": "v1 Steward Hold Option schema",

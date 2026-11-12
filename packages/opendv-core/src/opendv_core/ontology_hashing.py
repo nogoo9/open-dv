@@ -13,7 +13,7 @@ import re
 from collections.abc import Mapping
 from typing import Any
 
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from opendv_core.models.graph_a import GraphAOntology
 
@@ -155,9 +155,10 @@ def dumps_jcs_bytes(obj: Any) -> bytes:
 
 
 # Post-baseline optional extension field sets subject to scoped empty normalization
-# (Task 4A.2 / Issue #198). Per docs/21-ontology-studio-implementation-plan.md §3.1 and ADR-005:
-# Legacy fields (description, definition, enumeration_name, cardinality, etc.) are NOT extensions
-# and must never be pruned when empty.
+# (Task 4A.2 / Issue #198 & ADR-005). Legacy mandatory collections (decision_refs,
+# standards_references, canonical_relationships, reference_enumerations, etc.) and
+# CBC scalar fields (definition) are preserved when empty so all certified baseline
+# SHA-256 digests remain bit-for-bit invariant.
 _CBC_EXT: frozenset[str] = frozenset(
     {
         "parent_concept_uri",
@@ -171,6 +172,8 @@ _CBC_EXT: frozenset[str] = frozenset(
 )
 _ATTR_OPT: frozenset[str] = frozenset(
     {
+        "description",
+        "example_values",
         "deprecated",
         "metadata",
         "source_hints",
@@ -178,18 +181,25 @@ _ATTR_OPT: frozenset[str] = frozenset(
 )
 _REL_EXT: frozenset[str] = frozenset(
     {
+        "description",
+        "cardinality",
         "deprecated",
         "metadata",
+        "source_hints",
     }
 )
 _ENUM_EXT: frozenset[str] = frozenset(
     {
+        "enumeration_name",
+        "description",
+        "code_descriptions",
         "deprecated",
         "metadata",
     }
 )
 _ONT_EXT: frozenset[str] = frozenset(
     {
+        "description",
         "metadata",
     }
 )
@@ -301,15 +311,16 @@ def _norm_empty(
     return doc
 
 
-def canonicalize_graph_a_dict(ontology: GraphAOntology | dict[str, Any]) -> dict[str, Any]:
-    """Convert a GraphAOntology or dict to a deterministically sorted dictionary representation."""
-    if isinstance(ontology, GraphAOntology):
+def canonicalize_graph_a_dict(ontology: BaseModel | Mapping[str, Any]) -> dict[str, Any]:
+    """Convert a GraphAOntology, GenesisDraft, or dict to a deterministically sorted dict."""
+    if isinstance(ontology, BaseModel):
         doc = ontology.model_dump(mode="json", exclude_none=True)
-    elif isinstance(ontology, dict):
+    elif isinstance(ontology, Mapping):
+        raw_dict = dict(ontology)
         try:
-            doc = GraphAOntology.model_validate(ontology).model_dump(mode="json", exclude_none=True)
+            doc = GraphAOntology.model_validate(raw_dict).model_dump(mode="json", exclude_none=True)
         except (ValidationError, TypeError, ValueError):
-            doc = dict(ontology)
+            doc = raw_dict
     else:
         doc = dict(ontology)
 
@@ -317,13 +328,34 @@ def canonicalize_graph_a_dict(ontology: GraphAOntology | dict[str, Any]) -> dict
     doc = _norm_empty(doc, scope=None)
 
     # Deterministically sort list properties by canonical URNs
+    # Note: Do NOT sort concept `attributes` in place, as attribute declaration order is
+    # preserved in certified golden vectors (`graph_a_golden.json`).
     if "canonical_business_concepts" in doc and isinstance(
         doc["canonical_business_concepts"], list
     ):
-        doc["canonical_business_concepts"] = sorted(
+        sorted_cbcs: list[Any] = []
+        for cbc in sorted(
             doc["canonical_business_concepts"],
             key=lambda c: c.get("concept_uri", "") if isinstance(c, dict) else "",
-        )
+        ):
+            if isinstance(cbc, dict) and isinstance(cbc.get("external_mappings"), list):
+                c_copy = dict(cbc)
+                c_copy["external_mappings"] = sorted(
+                    c_copy["external_mappings"],
+                    key=lambda m: (
+                        (
+                            m.get("target_uri", ""),
+                            m.get("predicate") or "",
+                            m.get("scheme", ""),
+                        )
+                        if isinstance(m, dict)
+                        else ("", "", "")
+                    ),
+                )
+                sorted_cbcs.append(c_copy)
+            else:
+                sorted_cbcs.append(cbc)
+        doc["canonical_business_concepts"] = sorted_cbcs
     if "canonical_relationships" in doc and isinstance(doc["canonical_relationships"], list):
         doc["canonical_relationships"] = sorted(
             doc["canonical_relationships"],
@@ -342,8 +374,8 @@ def canonicalize_graph_a_dict(ontology: GraphAOntology | dict[str, Any]) -> dict
     return doc
 
 
-def compute_ontology_sha256(ontology: GraphAOntology | dict[str, Any]) -> str:
-    """Compute RFC 8785 JCS canonical SHA-256 hex digest of a GraphAOntology."""
+def compute_ontology_sha256(ontology: BaseModel | Mapping[str, Any]) -> str:
+    """Compute RFC 8785 JCS canonical SHA-256 hex digest of a GraphAOntology or GenesisDraft."""
     canonical_dict = canonicalize_graph_a_dict(ontology)
     jcs_bytes = dumps_jcs_bytes(canonical_dict)
     return hashlib.sha256(jcs_bytes).hexdigest().lower()

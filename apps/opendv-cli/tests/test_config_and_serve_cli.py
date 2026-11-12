@@ -327,3 +327,127 @@ def test_opendv_serve_invokes_platform_cli_or_uvicorn(
     assert out["status"] == "OK"
     assert out["port"] == 9420
     assert out["url"] == "http://0.0.0.0:9420"
+    assert "studio_launch_url" not in out
+
+
+def test_opendv_serve_loopback_launch_nonce_url(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Verify `opendv serve` on loopback in local_standalone emits Studio Launch URL."""
+    fb_svc = _FallbackOnlyService(tmp_path)
+    executor = LocalExecutor(service=fb_svc, workspace_root=tmp_path)  # type: ignore[arg-type]
+
+    import opendv_cli.executor as cli_executor
+
+    monkeypatch.setattr(cli_executor, "_load_platform_server_main", lambda: lambda argv=None: 0)
+    monkeypatch.delenv("OPENDV_SERVER_MODE", raising=False)
+
+    rc = app_main(
+        ["serve", "--host", "127.0.0.1", "--port", "8420", "--workspace", str(tmp_path), "--json"],
+        executor=executor,
+    )
+    assert rc == 0
+    captured = capsys.readouterr()
+    out = json.loads(captured.out)
+    assert "studio_launch_url" in out
+    assert out["studio_launch_url"].startswith("http://127.0.0.1:8420/ontology#token=")
+    assert "Ontology Studio Launch URL: http://127.0.0.1:8420/ontology#token=" in captured.err
+
+    # Remote platform mode must omit launch nonce URL
+    monkeypatch.setenv("OPENDV_SERVER_MODE", "remote_platform")
+    rc_rem = app_main(
+        ["serve", "--host", "127.0.0.1", "--port", "8420", "--workspace", str(tmp_path), "--json"],
+        executor=executor,
+    )
+    assert rc_rem == 0
+    out_rem = json.loads(capsys.readouterr().out)
+    assert "studio_launch_url" not in out_rem
+
+
+def test_opendv_serve_launch_nonce_honors_explicit_role_and_env_p13_maj04(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """P13 MAJ-04: `opendv serve` mints launch nonce with resolved (principal, role)."""
+    fb_svc = _FallbackOnlyService(tmp_path)
+    executor = LocalExecutor(service=fb_svc, workspace_root=tmp_path)  # type: ignore[arg-type]
+
+    import opendv_cli.executor as cli_executor
+
+    monkeypatch.setattr(cli_executor, "_load_platform_server_main", lambda: lambda argv=None: 0)
+    monkeypatch.delenv("OPENDV_SERVER_MODE", raising=False)
+    monkeypatch.delenv("OPENDV_ROLE", raising=False)
+
+    minted_calls: list[tuple[str, str]] = []
+
+    def _spy_mint(*, principal: str, role: str, ttl: float = 60.0) -> str:
+        minted_calls.append((principal, role))
+        return f"nonce-{role}"
+
+    monkeypatch.setattr(cli_executor, "mint_launch_nonce", _spy_mint)
+
+    # 1. Default invocation -> ("human:local_admin", "admin")
+    assert (
+        app_main(
+            [
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8420",
+                "--workspace",
+                str(tmp_path),
+                "--json",
+            ],
+            executor=executor,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert minted_calls[-1] == ("human:local_admin", "admin")
+
+    # 2. Explicit --role VIEWER -> ("human:local_viewer", "viewer")
+    assert (
+        app_main(
+            [
+                "--role",
+                "VIEWER",
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8420",
+                "--workspace",
+                str(tmp_path),
+                "--json",
+            ],
+            executor=executor,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert minted_calls[-1] == ("human:local_viewer", "viewer")
+
+    # 3. OPENDV_ROLE=STEWARD -> ("human:local_editor", "editor")
+    monkeypatch.setenv("OPENDV_ROLE", "STEWARD")
+    assert (
+        app_main(
+            [
+                "serve",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8420",
+                "--workspace",
+                str(tmp_path),
+                "--json",
+            ],
+            executor=executor,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert minted_calls[-1] == ("human:local_editor", "editor")

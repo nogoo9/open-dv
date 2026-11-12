@@ -28,6 +28,7 @@ from opendv_contracts.dtos.clarification import (
 from opendv_contracts.dtos.common import BaseContractModel
 from opendv_contracts.dtos.ingestion import EvidenceChunk, TableStructure
 from opendv_contracts.dtos.ontology import EvidenceRef
+from opendv_contracts.errors import ErrorCode, OpenDVError
 from opendv_contracts.jcs import dumps_jcs
 from opendv_service.construction.utils import atomic_write_text
 from opendv_service.studio.cas_storage import ContentAddressableStorage
@@ -38,55 +39,43 @@ logger = logging.getLogger(__name__)
 EMPTY_ANSWERS_SHA256: Final[str] = hashlib.sha256(dumps_jcs([]).encode("utf-8")).hexdigest()
 
 
-class QuestionNotFoundError(KeyError):
+class QuestionNotFoundError(OpenDVError, KeyError):
     """Raised when an answered question ID does not exist in questions.json."""
 
-    exit_code: int = 3
-    http_status: int = 404
-    error_code: str = "QUESTION_NOT_FOUND"
+    error_code: ErrorCode = ErrorCode.QUESTION_NOT_FOUND
 
     def __init__(self, message: str) -> None:
-        super().__init__(message)
-        self.message = message
+        OpenDVError.__init__(self, message, error_code=ErrorCode.QUESTION_NOT_FOUND)
 
     def __str__(self) -> str:
         return self.message
 
 
-class InvalidClarificationOptionError(ValueError):
+class InvalidClarificationOptionError(OpenDVError, ValueError):
     """Raised when an answered option ID is not valid for the question."""
 
-    exit_code: int = 2
-    http_status: int = 422
-    error_code: str = "INVALID_OPTION"
+    error_code: ErrorCode = ErrorCode.SYNTAX_INVALID_ARGUMENT
 
     def __init__(self, message: str) -> None:
-        super().__init__(message)
-        self.message = message
+        OpenDVError.__init__(self, message, error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT)
 
 
-class InvalidClarificationAnswerError(ValueError):
+class InvalidClarificationAnswerError(OpenDVError, ValueError):
     """Raised when an answer item in request fails validation constraints."""
 
-    exit_code: int = 2
-    http_status: int = 422
-    error_code: str = "INVALID_ANSWER"
+    error_code: ErrorCode = ErrorCode.SYNTAX_INVALID_ARGUMENT
 
     def __init__(self, message: str) -> None:
-        super().__init__(message)
-        self.message = message
+        OpenDVError.__init__(self, message, error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT)
 
 
-class ClarificationConflictError(RuntimeError):
+class ClarificationConflictError(OpenDVError):
     """Raised when an OCC precondition check fails due to concurrent modification (ONT-EVO-003)."""
 
-    exit_code: int = 1
-    http_status: int = 409
-    error_code: str = "OCC_PRECONDITION_FAILED"
+    error_code: ErrorCode = ErrorCode.ONT_EVO_CONCURRENT_MODIFICATION
 
     def __init__(self, message: str) -> None:
-        super().__init__(message)
-        self.message = message
+        OpenDVError.__init__(self, message, error_code=ErrorCode.ONT_EVO_CONCURRENT_MODIFICATION)
 
 
 def concept_to_slug(term: str) -> str:
@@ -219,13 +208,37 @@ class ClarificationHarness:
                 if not term_str:
                     continue
                 term_lower = term_str.lower().strip()
-                term_tokens = set(tokenize_concept(term_str))
+                term_slug = concept_to_slug(term_str)
+                term_word_list = tokenize_concept(term_str)
+                term_tokens = set(term_word_list)
 
                 matched_key = None
+                # 1. Exact slug match first (supports multi-token keys)
                 for poly_key in KNOWN_POLYSEMIC_DEFINITIONS:
-                    if poly_key in term_tokens:
+                    if concept_to_slug(poly_key) == term_slug:
                         matched_key = poly_key
                         break
+                # 2. Multi-token contiguous phrase match, then single-token word match
+                if matched_key is None:
+                    for poly_key in sorted(
+                        KNOWN_POLYSEMIC_DEFINITIONS.keys(),
+                        key=lambda k: len(tokenize_concept(k)),
+                        reverse=True,
+                    ):
+                        poly_words = tokenize_concept(poly_key)
+                        if not poly_words:
+                            continue
+                        if len(poly_words) >= 2:
+                            n = len(poly_words)
+                            if any(
+                                term_word_list[i : i + n] == poly_words
+                                for i in range(len(term_word_list) - n + 1)
+                            ):
+                                matched_key = poly_key
+                                break
+                        elif poly_words[0] in term_tokens:
+                            matched_key = poly_key
+                            break
 
                 if not matched_key:
                     continue

@@ -1,0 +1,39 @@
+# Ontology Studio & Platform Hardening Guardrails
+
+Mandatory engineering checklist distilled from building and dual-model auditing (`docs/24-ontology-studio-engineering-learnings.md`) the `open-dv` Ontology Construction Studio. Apply these invariants whenever modifying CAS/hashing, locks, FastAPI/SSE, CLIs, Web Workbench, or documentation.
+
+## 1. Cryptographic Digests & RFC 8785 JCS
+- **No Placeholder Digests:** Never invent hex digests in specs, ADRs, fixtures, or tests. Compute digests from real RFC 8785 JCS preimages (`compute_ontology_sha256` / `dumps_jcs_bytes`; genesis `0.0.0` Graph A = `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9`; certified PE baseline = `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`).
+- **Disk Byte == Digest Preimage:** Always write `dumps_jcs_bytes(canonicalize_graph_a_dict(ont))` to CAS so `sha256(disk_bytes) == target_sha256`.
+- **Preserve Certified Baselines:** Scope empty-field pruning (`_norm_empty`) strictly to post-baseline extension fields; never re-sort concept `attributes` or prune legacy root lists (`canonical_relationships`, `reference_enumerations`, `standards_references`, `decision_refs`).
+- **No Lossy Client Exports:** When an active server session exists, fetch canonical exports from `/export` and surface server errors loudly rather than substituting lossy client-side Graph A reconstructions.
+
+## 2. Windows / POSIX Locks, ACLs & Processes
+- **Single Lock Protocol (`L1 -> L5`) & Task-Scoped Reentrancy:** Never mix lock implementations or write lock metadata over locked `msvcrt.locking` byte ranges (`WinError 33`). Key `ContextVar` lock reentrancy on `(thread_id, task_id, is_locked)` so `asyncio.create_task` / `to_thread` children never inherit false reentrancy, and roll back multi-lock acquisition on `BaseException` (`CancelledError`).
+- **Parent-Directory Lifecycle Locks on Windows:** Place coordination locks in the parent directory (`<studio_root>/.session_<id>.lock`), never inside a directory being renamed via `os.replace` or deleted via `shutil.rmtree`.
+- **Locale-Safe Windows ACLs:** Enforce/verify owner-only permissions on Windows via Win32 `advapi32` binary SIDs (`S-1-5-18`, `S-1-5-32-544`, process token owner SID)—never parse localized `icacls.exe` text output.
+- **Transactional `force=True` Swaps:** Stage into `<target>.staging.<nonce>`, move existing `<target>` to `<target>.tombstone.<nonce>`, swap staging into place, and restore tombstone on failure.
+- **Process-Tree Cleanup & Local Binding:** Kill full process trees on subprocess timeouts (`taskkill /F /T` / `os.killpg`), quote `.cmd` variables (`set "VAR=val"`), and bind local dev servers to `127.0.0.1`.
+
+## 3. Thread-Safe Async & Gapless W3C SSE
+- **No Cross-Thread `asyncio.Queue` Calls:** From worker threads, publish events exclusively via `loop.call_soon_threadsafe(...)` on a bound `(loop, queue)` pair.
+- **Subscribe Before Replay:** Register the live queue subscriber *before* reading `events.jsonl` from disk, then deduplicate live events with `seq <= last_replayed_seq` for gapless, duplicate-free SSE streams.
+- **Client Job Tracking:** Every `202 Accepted` async job (`parse`, `clarify`, `construct`) must connect to `/jobs/{job_id}/events` (with polling fallback) and close cleanly on terminal state or session switch.
+
+## 4. Cross-Surface Contract Parity (`extra="forbid"`)
+- **Single Source of Truth & Compiled Binaries:** Register CLI flags in `schemas/v1/cli-spec.json` with `allow_abbrev=False` on Python `ArgumentParser` (so prefix matching never masks rejected flags like `--waiver-key`), rebuild `apps/opendvctl/dist/release/opendvctl-windows-x64.exe` whenever `cli-spec.json` or `apps/opendvctl/src` changes (`ClientCliTransport` executes that binary when present), keep `set(ErrorCode) == set(error-codes.json)`, and keep governance constants unified across backend, CLIs, SPA, and docs.
+- **Exact Wire Payloads & Security Headers:**
+  - Route all Web Workbench requests through `studioFetch` (`credentials: "include"`, `X-OpenDV-Workbench: 1` on `POST`/`PUT`/`PATCH`/`DELETE`, `Authorization: Bearer` when token-authenticated).
+  - Pass `OPENDV_WAIVER_KEY` via `X-OpenDV-Waiver-Key` header—never in JSON request bodies.
+  - Match `extra="forbid"` DTOs: `do_not_send_to_agent` on source uploads; `op_id` on every delta op; `mapping_confidence` (no `provenance`) on `add_external_mapping`; `selected_options` + `user_text` + `expected_answers_sha256` (`If-Match`) on `/answers`; `0.0.0 -> 1.0.0` when `add_concept` is present on genesis commits.
+  - **Client OCC Baseline Pinning:** CLI and SPA clients must never auto-fetch current server `head_sha256` to populate `If-Match` over a stale local delta or dirty working canvas; keep `If-Match` / `base_sha256` pinned to the baseline revision the local edits forked from.
+- **Untrusted Ontology Text in Exporters & Docs:** Treat LLM/PDF labels, URIs, and descriptions as untrusted input—validate identifiers, sanitize quotes and comment delimiters, and test doc snippets in `tests/docs/test_doc_code_snippets.py`.
+
+## 5. Fail-Closed Governance, Sticky Privacy & Audit Chains
+- **Strict `ONT-EVO-002` Path A Grounding:** Grounded iff a server-verified `FIBO` mapping uses `skos:exactMatch` or `skos:closeMatch` (`skos:broadMatch` excluded!) with numeric `confidence >= 0.6500` (score `concept_name + synonyms`, never URI slugs or assumed defaults). Revoke grandfather and per-concept waiver exemptions whenever a concept is mutated.
+- **Trusted Server Context Overrides Only:** Internal privilege or migration flags (`allow_bootstrap`, `allow_legacy_ip1_bootstrap`) must be set exclusively by trusted server call sites—never auto-enabled from caller-controlled request payloads or metadata.
+- **`snake_case`-Safe Redaction & Sticky Taint:** Use `(?<![A-Za-z0-9])...(?![A-Za-z0-9])` (never `\b`) in pseudonymizers so `snake_case` SQL/DV2 identifiers are redacted; keep `do_not_send_to_agent` taint monotonic across re-uploads, GC, and bundles.
+- **Signed Portable Audit Ledgers:** Never append unsigned lines to `audit.jsonl`; replay CAS/delta hashes on bundle import and re-anchor foreign HMAC chains under the local workspace `K_audit`.
+
+## 6. Multi-Agent Repository Hygiene
+- Never commit subagent context notes, critique JSON/MD dumps, or one-off issue scripts into `scripts/`, `reports/`, or the repo root. Keep scratch files in harness scratch storage or `.critique/`, and verify `git status --short` before finishing.

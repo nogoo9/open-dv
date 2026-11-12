@@ -1586,7 +1586,7 @@
               "description": "Initialize local workbench loopback token and DACL permissions",
               "help": "Initialize local workbench loopback token",
               "aliases": [],
-              "availability": "both",
+              "availability": "standalone_only",
               "request_dto": null,
               "response_dto": null,
               "options": [
@@ -1601,6 +1601,18 @@
                   "env_var": null,
                   "inline_upload": false,
                   "help": "Force overwrite existing local token if authorized"
+                },
+                {
+                  "name": "show_token",
+                  "flag": "--show-token",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Display local authentication token in output"
                 }
               ]
             },
@@ -1696,6 +1708,41 @@
                   "env_var": null,
                   "inline_upload": false,
                   "help": "Human-readable label for session identification"
+                }
+              ]
+            },
+            {
+              "name": "delete",
+              "description": "Delete an ontology construction studio session and sweep unreferenced CAS",
+              "help": "Delete a studio session",
+              "aliases": [],
+              "availability": "both",
+              "request_dto": null,
+              "response_dto": null,
+              "options": [
+                {
+                  "name": "session",
+                  "flag": "--session",
+                  "short": "-s",
+                  "type": "string",
+                  "required": true,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Studio session identifier to delete"
+                },
+                {
+                  "name": "force",
+                  "flag": "--force",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Force deletion even if session has active state"
                 }
               ]
             },
@@ -1799,7 +1846,7 @@
                   "default": null,
                   "choices": null,
                   "env_var": null,
-                  "inline_upload": true,
+                  "inline_upload": false,
                   "help": "Path to document file to upload"
                 },
                 {
@@ -1813,6 +1860,18 @@
                   "env_var": null,
                   "inline_upload": false,
                   "help": "Mark source confidential to suppress raw text transmission to external LLMs"
+                },
+                {
+                  "name": "confidential",
+                  "flag": "--confidential",
+                  "short": null,
+                  "type": "boolean",
+                  "required": false,
+                  "default": false,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Alias for --do-not-send-to-agent (mark source confidential)"
                 },
                 {
                   "name": "description",
@@ -1862,6 +1921,18 @@
                   "help": "Specific source document ID to parse (defaults to all pending)"
                 },
                 {
+                  "name": "source_ids",
+                  "flag": "--source-ids",
+                  "short": null,
+                  "type": "array",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "List of source document IDs to parse (repeatable or comma-separated)"
+                },
+                {
                   "name": "ocr_mode",
                   "flag": "--ocr-mode",
                   "short": null,
@@ -1900,18 +1971,6 @@
                   "env_var": null,
                   "inline_upload": false,
                   "help": "Block until job completes and return terminal status"
-                },
-                {
-                  "name": "source_ids",
-                  "flag": "--source-ids",
-                  "short": null,
-                  "type": "string",
-                  "required": false,
-                  "default": null,
-                  "choices": null,
-                  "env_var": null,
-                  "inline_upload": false,
-                  "help": "Comma-separated list of source document IDs to parse"
                 }
               ]
             },
@@ -1954,11 +2013,27 @@
                   "short": null,
                   "type": "integer",
                   "required": false,
-                  "default": 5,
+                  "default": 10,
                   "choices": null,
                   "env_var": null,
                   "inline_upload": false,
                   "help": "Maximum number of questions to generate"
+                },
+                {
+                  "name": "mode",
+                  "flag": "--mode",
+                  "short": "-m",
+                  "type": "string",
+                  "required": false,
+                  "default": "auto",
+                  "choices": [
+                    "auto",
+                    "agent",
+                    "deterministic"
+                  ],
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Clarification execution mode"
                 },
                 {
                   "name": "stream",
@@ -2012,12 +2087,60 @@
                   "flag": "--file",
                   "short": "-f",
                   "type": "path",
-                  "required": true,
+                  "required": false,
                   "default": null,
                   "choices": null,
                   "env_var": null,
                   "inline_upload": true,
                   "help": "Path to JSON file containing clarification answers"
+                },
+                {
+                  "name": "question_id",
+                  "flag": "--question-id",
+                  "short": "-q",
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Clarification question identifier for single-answer submission"
+                },
+                {
+                  "name": "option",
+                  "flag": "--option",
+                  "short": "-o",
+                  "type": "array",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Selected clarification option key(s)"
+                },
+                {
+                  "name": "text",
+                  "flag": "--text",
+                  "short": "-t",
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Free-text clarification response"
+                },
+                {
+                  "name": "expected_answers_sha256",
+                  "flag": "--expected-answers-sha256",
+                  "short": null,
+                  "type": "string",
+                  "required": false,
+                  "default": null,
+                  "choices": null,
+                  "env_var": null,
+                  "inline_upload": false,
+                  "help": "Expected SHA-256 digest of current answers state for OCC"
                 }
               ]
             },
@@ -2122,11 +2245,154 @@
             },
             {
               "name": "delta",
-              "description": "Apply human additive delta operations or steward revisions",
-              "help": "Apply ontology delta operations",
+              "description": "Validate or apply human ontology delta operations and steward revisions",
+              "help": "Validate or apply ontology delta operations",
               "aliases": [],
               "availability": "both",
               "subcommands": [
+                {
+                  "name": "validate",
+                  "description": "Validate ontology delta operations against session head or base",
+                  "help": "Validate ontology delta",
+                  "aliases": [],
+                  "availability": "both",
+                  "request_dto": null,
+                  "response_dto": null,
+                  "options": [
+                    {
+                      "name": "session",
+                      "flag": "--session",
+                      "short": "-s",
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Studio session identifier"
+                    },
+                    {
+                      "name": "file",
+                      "flag": "--file",
+                      "short": "-f",
+                      "type": "path",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": true,
+                      "help": "Path to JSON/YAML file containing delta operations"
+                    },
+                    {
+                      "name": "delta",
+                      "flag": "--delta",
+                      "short": null,
+                      "type": "path",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": true,
+                      "help": "Alias path to JSON/YAML file containing delta operations"
+                    },
+                    {
+                      "name": "base",
+                      "flag": "--base",
+                      "short": "-b",
+                      "type": "path",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": true,
+                      "help": "Path to base Graph A ontology file (when validating outside session)"
+                    },
+                    {
+                      "name": "base_version",
+                      "flag": "--base-version",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Expected base SemVer version"
+                    },
+                    {
+                      "name": "base_sha256",
+                      "flag": "--base-sha256",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Expected base SHA-256 digest"
+                    },
+                    {
+                      "name": "verify_grounding",
+                      "flag": "--verify-grounding",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Verify external concept grounding URIs against knowledge pack"
+                    },
+                    {
+                      "name": "low_confidence_waiver",
+                      "flag": "--low-confidence-waiver",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Include admin waiver for low-confidence grounding during validation"
+                    },
+                    {
+                      "name": "grounding_rationale",
+                      "flag": "--grounding-rationale",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Admin rationale for grounding waiver (min 10 chars)"
+                    },
+                    {
+                      "name": "waiver_rationale",
+                      "flag": "--waiver-rationale",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Alias for --grounding-rationale"
+                    },
+                    {
+                      "name": "waiver_key_file",
+                      "flag": "--waiver-key-file",
+                      "short": "-k",
+                      "type": "path",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Path to steward waiver secret key file"
+                    }
+                  ]
+                },
                 {
                   "name": "apply",
                   "description": "Apply delta operations from file to active session",
@@ -2153,7 +2419,7 @@
                       "flag": "--file",
                       "short": "-f",
                       "type": "path",
-                      "required": true,
+                      "required": false,
                       "default": null,
                       "choices": null,
                       "env_var": null,
@@ -2161,28 +2427,40 @@
                       "help": "Path to JSON file containing delta operations"
                     },
                     {
+                      "name": "delta",
+                      "flag": "--delta",
+                      "short": null,
+                      "type": "path",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": true,
+                      "help": "Alias path to JSON file containing delta operations"
+                    },
+                    {
                       "name": "base_version",
                       "flag": "--base-version",
                       "short": null,
                       "type": "string",
-                      "required": true,
+                      "required": false,
                       "default": null,
                       "choices": null,
                       "env_var": null,
                       "inline_upload": false,
-                      "help": "Base SemVer version"
+                      "help": "Base SemVer version (optional; defaults to session head version)"
                     },
                     {
                       "name": "base_sha256",
                       "flag": "--base-sha256",
                       "short": null,
                       "type": "string",
-                      "required": true,
+                      "required": false,
                       "default": null,
                       "choices": null,
                       "env_var": null,
                       "inline_upload": false,
-                      "help": "Base SHA-256 hash"
+                      "help": "Base SHA-256 hash (optional on genesis; checked via OCC)"
                     },
                     {
                       "name": "rationale",
@@ -2221,6 +2499,30 @@
                       "help": "Admin rationale for grounding waiver (min 10 chars)"
                     },
                     {
+                      "name": "waiver_rationale",
+                      "flag": "--waiver-rationale",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Alias for --grounding-rationale"
+                    },
+                    {
+                      "name": "waiver_key_file",
+                      "flag": "--waiver-key-file",
+                      "short": "-k",
+                      "type": "path",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Path to steward waiver secret key file"
+                    },
+                    {
                       "name": "ungrounded_concept",
                       "flag": "--ungrounded-concept",
                       "short": null,
@@ -2243,6 +2545,30 @@
                       "env_var": null,
                       "inline_upload": true,
                       "help": "Path to admin evidence grounding approval JSON"
+                    },
+                    {
+                      "name": "authorized_by",
+                      "flag": "--authorized-by",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Steward identity authorizing grounding waiver"
+                    },
+                    {
+                      "name": "authorized_role",
+                      "flag": "--authorized-role",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Steward role authorizing grounding waiver (must match admin role)"
                     }
                   ]
                 }
@@ -2368,7 +2694,7 @@
                       "choices": null,
                       "env_var": null,
                       "inline_upload": false,
-                      "help": "Admin override allowing acceptance of own proposal (requires local admin)"
+                      "help": "Admin override allowing acceptance of own proposal (requires admin role)"
                     },
                     {
                       "name": "low_confidence_waiver",
@@ -2395,6 +2721,30 @@
                       "help": "Rationale for grounding waiver (min 10 chars)"
                     },
                     {
+                      "name": "waiver_rationale",
+                      "flag": "--waiver-rationale",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Alias for --grounding-rationale"
+                    },
+                    {
+                      "name": "waiver_key_file",
+                      "flag": "--waiver-key-file",
+                      "short": "-k",
+                      "type": "path",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Path to steward waiver secret key file"
+                    },
+                    {
                       "name": "ungrounded_concept",
                       "flag": "--ungrounded-concept",
                       "short": null,
@@ -2417,6 +2767,30 @@
                       "env_var": null,
                       "inline_upload": true,
                       "help": "Path to admin evidence grounding approval JSON"
+                    },
+                    {
+                      "name": "authorized_by",
+                      "flag": "--authorized-by",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Steward identity authorizing grounding waiver"
+                    },
+                    {
+                      "name": "authorized_role",
+                      "flag": "--authorized-role",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Steward role authorizing grounding waiver (must match admin role)"
                     }
                   ]
                 },
@@ -2505,12 +2879,24 @@
                       "flag": "--base-sha256",
                       "short": null,
                       "type": "string",
-                      "required": true,
+                      "required": false,
                       "default": null,
                       "choices": null,
                       "env_var": null,
                       "inline_upload": false,
-                      "help": "Target base SHA-256 for rebase"
+                      "help": "Target base SHA-256 for rebase (defaults to current session head)"
+                    },
+                    {
+                      "name": "head_sha256",
+                      "flag": "--head-sha256",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Alias for target session head SHA-256"
                     }
                   ]
                 }
@@ -2759,8 +3145,32 @@
                       "default": null,
                       "choices": null,
                       "env_var": null,
-                      "inline_upload": true,
+                      "inline_upload": false,
                       "help": "Path to .odvstudio.zip archive to import"
+                    },
+                    {
+                      "name": "new_session_id",
+                      "flag": "--new-session-id",
+                      "short": null,
+                      "type": "string",
+                      "required": false,
+                      "default": null,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Optional explicit session identifier for imported session"
+                    },
+                    {
+                      "name": "force",
+                      "flag": "--force",
+                      "short": null,
+                      "type": "boolean",
+                      "required": false,
+                      "default": false,
+                      "choices": null,
+                      "env_var": null,
+                      "inline_upload": false,
+                      "help": "Force overwrite if target session identifier already exists"
                     },
                     {
                       "name": "acknowledge_unverified_import_attribution",
@@ -3240,9 +3650,9 @@
     {
       "error_code": "UNSUPPORTED_FORMAT",
       "exit_code": 2,
-      "http_status": 415,
+      "http_status": 400,
       "problem_title": "Unsupported Format",
-      "problem_type_uri": "urn:opendv:unsupported-format"
+      "problem_type_uri": "urn:opendv:error:unsupported-format"
     },
     {
       "error_code": "INPUT_VALIDATION_ERROR",
@@ -3401,14 +3811,14 @@
     {
       "error_code": "OCR_UNAVAILABLE",
       "exit_code": 1,
-      "http_status": 503,
+      "http_status": 501,
       "problem_title": "OCR Engine Unavailable",
       "problem_type_uri": "urn:opendv:error:ocr-unavailable"
     },
     {
       "error_code": "OFFICE_CONVERSION_UNAVAILABLE",
       "exit_code": 1,
-      "http_status": 503,
+      "http_status": 501,
       "problem_title": "Office Document Conversion Unavailable",
       "problem_type_uri": "urn:opendv:error:office-conversion-unavailable"
     },
@@ -3575,8 +3985,8 @@
     },
     {
       "error_code": "CANNOT_DELETE_PROMOTED_SESSION",
-      "exit_code": 4,
-      "http_status": 422,
+      "exit_code": 6,
+      "http_status": 409,
       "problem_title": "Cannot Delete Promoted Session",
       "problem_type_uri": "urn:opendv:error:cannot-delete-promoted-session"
     },
@@ -4139,6 +4549,132 @@
       "http_status": 500,
       "problem_title": "Static Token Configured",
       "problem_type_uri": "urn:opendv:error:static-token-configured"
+    },
+    {
+      "error_code": "FILE_NOT_FOUND",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "File Not Found",
+      "problem_type_uri": "urn:opendv:error:file-not-found"
+    },
+    {
+      "error_code": "INSECURE_TRANSPORT_REFUSED",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Insecure Transport Refused",
+      "problem_type_uri": "urn:opendv:error:insecure-transport-refused"
+    },
+    {
+      "error_code": "CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Confidential Source Agent Access Forbidden",
+      "problem_type_uri": "urn:opendv:error:confidential-source-agent-access-forbidden"
+    },
+    {
+      "error_code": "REFERENCE_ONTOLOGY_CORRUPT",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Reference Ontology Pack Corrupt",
+      "problem_type_uri": "urn:opendv:error:reference-ontology-corrupt"
+    },
+    {
+      "error_code": "UNGROUNDED_SEED_MAPPING",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Ungrounded Seed Mapping",
+      "problem_type_uri": "urn:opendv:error:ungrounded-seed-mapping"
+    },
+    {
+      "error_code": "TAXONOMY_CYCLE_DETECTED",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Taxonomy Cycle Detected",
+      "problem_type_uri": "urn:opendv:error:taxonomy-cycle-detected"
+    },
+    {
+      "error_code": "QUESTION_NOT_FOUND",
+      "exit_code": 3,
+      "http_status": 404,
+      "problem_title": "Clarification Question Not Found",
+      "problem_type_uri": "urn:opendv:error:question-not-found"
+    },
+    {
+      "error_code": "TAMPER_EVIDENT_CHAIN_CORRUPT",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Tamper-Evident Audit Chain Corrupt",
+      "problem_type_uri": "urn:opendv:error:tamper-evident-chain-corrupt"
+    },
+    {
+      "error_code": "CSRF_ORIGIN_DENIED",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "CSRF Origin Denied",
+      "problem_type_uri": "urn:opendv:error:csrf-origin-denied"
+    },
+    {
+      "error_code": "TOKEN_EXPIRED",
+      "exit_code": 7,
+      "http_status": 401,
+      "problem_title": "Authentication Token Expired",
+      "problem_type_uri": "urn:opendv:error:token-expired"
+    },
+    {
+      "error_code": "JOB_CANNOT_BE_CANCELLED",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Job Cannot Be Cancelled",
+      "problem_type_uri": "urn:opendv:error:job-cannot-be-cancelled"
+    },
+    {
+      "error_code": "CORRUPT_SESSION_STATE",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Corrupt Session State",
+      "problem_type_uri": "urn:opendv:error:corrupt-session-state"
+    },
+    {
+      "error_code": "CONCURRENCY_CONFLICT",
+      "exit_code": 5,
+      "http_status": 412,
+      "problem_title": "Concurrency Conflict",
+      "problem_type_uri": "urn:opendv:error:concurrency-conflict"
+    },
+    {
+      "error_code": "LOW_CONFIDENCE_GROUNDING",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Low Confidence Grounding",
+      "problem_type_uri": "urn:opendv:error:low-confidence-grounding"
+    },
+    {
+      "error_code": "PROPOSAL_STALE_REBASE_REQUIRED",
+      "exit_code": 6,
+      "http_status": 409,
+      "problem_title": "Proposal Stale Rebase Required",
+      "problem_type_uri": "urn:opendv:error:proposal-stale-rebase-required"
+    },
+    {
+      "error_code": "INTERNAL_CLONE_ERROR",
+      "exit_code": 1,
+      "http_status": 500,
+      "problem_title": "Internal Clone Error",
+      "problem_type_uri": "urn:opendv:error:internal-clone-error"
+    },
+    {
+      "error_code": "AGENT_LAUNCH_NONCE_FORBIDDEN",
+      "exit_code": 7,
+      "http_status": 403,
+      "problem_title": "Agent Launch Nonce Forbidden",
+      "problem_type_uri": "urn:opendv:error:agent-launch-nonce-forbidden"
+    },
+    {
+      "error_code": "HARNESS_CONFIG_INVALID",
+      "exit_code": 4,
+      "http_status": 422,
+      "problem_title": "Harness Configuration Invalid",
+      "problem_type_uri": "urn:opendv:error:harness-config-invalid"
     }
   ],
   "global_options": [
@@ -4218,7 +4754,15 @@
         "INTERNAL_MODELER",
         "DATA_STEWARD",
         "AUDITOR_FINANCE",
-        "RESTRICTED_PII_CUSTODIAN"
+        "RESTRICTED_PII_CUSTODIAN",
+        "ADMIN",
+        "EDITOR",
+        "VIEWER",
+        "AUTOMATED",
+        "admin",
+        "editor",
+        "viewer",
+        "automated"
       ],
       "env_var": "OPENDV_ROLE",
       "inline_upload": false,

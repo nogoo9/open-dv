@@ -72,7 +72,12 @@ describe("Empirical Challenger 5D: Adversarial Security & OCC Concurrency Suite"
 		],
 		synonyms: ["fund_portfolio"],
 		external_mappings: [
-			{ scheme: "FIBO", target_uri: "https://spec.edmcouncil.org/fibo/ontology/SEC/Portfolio", confidence: 0.95 },
+			{
+				scheme: "FIBO",
+				target_uri: "https://spec.edmcouncil.org/fibo/ontology/SEC/Portfolio",
+				predicate: "skos:exactMatch",
+				confidence: 0.95,
+			},
 		],
 		...overrides,
 	});
@@ -373,7 +378,7 @@ describe("Empirical Challenger 5D: Adversarial Security & OCC Concurrency Suite"
 			let loadClarificationsCalled = false;
 			const mockFetch409 = (async (url: string | URL | Request, init?: RequestInit) => {
 				const urlStr = String(url);
-				if (urlStr.includes("/answers")) {
+				if (urlStr.includes("/answers") && init?.method === "POST") {
 					// Verify If-Match header was sent
 					const headers = init?.headers as Record<string, string>;
 					expect(headers["If-Match"]).toBe('"stale_hash_1111111111111111111111111111111111111111111111111111111111111111"');
@@ -385,6 +390,15 @@ describe("Empirical Challenger 5D: Adversarial Security & OCC Concurrency Suite"
 							code: "CONCURRENT_MODIFICATION",
 						}),
 						{ status: 409, headers: { "Content-Type": "application/json" } },
+					);
+				}
+				if (urlStr.includes("/answers") && (!init?.method || init.method === "GET")) {
+					return new Response(
+						JSON.stringify({
+							answers: [],
+							answers_sha256: "fresh_hash_2222222222222222222222222222222222222222222222222222222222222222",
+						}),
+						{ status: 200, headers: { "Content-Type": "application/json" } },
 					);
 				}
 				if (urlStr.includes("/questions")) {

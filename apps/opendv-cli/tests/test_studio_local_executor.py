@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -265,7 +266,33 @@ def test_studio_proposal_accept_waiver_matrix(studio_env: tuple[Path, Path]) -> 
     )
     assert code_occ == 5
 
-    # 3. Waiver rationale too short (< 10 chars) raises exit 4 (INVALID_GROUNDING_WAIVER)
+    sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
+    waiver_key = sec_mgr.get_waiver_key().hex()
+    key_file = ws / "steward_waiver.key"
+    key_file.write_text(waiver_key, encoding="utf-8")
+
+    # 3. Waiver without credentials checks auth/role FIRST (exit 7) BEFORE rationale length (MAJ-03)
+    code_no_key_first = app_main(
+        [
+            "ontology",
+            "studio",
+            "proposal",
+            "accept",
+            "-s",
+            "s1",
+            "-p",
+            prop_id,
+            "--base-sha256",
+            genesis_sha,
+            "--low-confidence-waiver",
+            "--waiver-rationale",
+            "too short",
+            "--json",
+        ]
+    )
+    assert code_no_key_first == 7
+
+    # 3b. Valid waiver key with short rationale (< 10 chars) -> exit 4 (INVALID_GROUNDING_WAIVER)
     code_short = app_main(
         [
             "ontology",
@@ -281,6 +308,8 @@ def test_studio_proposal_accept_waiver_matrix(studio_env: tuple[Path, Path]) -> 
             "--low-confidence-waiver",
             "--waiver-rationale",
             "too short",
+            "--waiver-key-file",
+            str(key_file),
             "--json",
         ]
     )
@@ -311,10 +340,6 @@ def test_studio_proposal_accept_waiver_matrix(studio_env: tuple[Path, Path]) -> 
     assert code_no_cred == 7
 
     # 5. Low-confidence waiver with --waiver-key-file succeeds (exit 0)
-    sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
-    waiver_key = sec_mgr.get_waiver_key().hex()
-    key_file = ws / "steward_waiver.key"
-    key_file.write_text(waiver_key, encoding="utf-8")
 
     code_success = app_main(
         [
@@ -382,10 +407,21 @@ def test_studio_export_promote_bundle(studio_env: tuple[Path, Path]) -> None:
     meta = json.loads((studio_root / "s1" / "session.json").read_text(encoding="utf-8"))
     head_sha = meta["head_sha256"]
 
-    # Target workspace contract setup
-    target_contract = ws / "pe_graph_a_ontology.yaml"
-    target_contract.write_text("ontology_version: 0.0.0\nconcepts: []\n", encoding="utf-8")
-    ws_sha = compute_ontology_sha256(yaml.safe_load(target_contract.read_text(encoding="utf-8")))
+    # Target workspace contract setup (valid GraphAOntology contract)
+    from opendv_core.genesis import create_genesis_ontology
+    from opendv_core.models.graph_a import GraphAOntology
+
+    target_contract = ws / "graph_a_ontology.yaml"
+    genesis_ws_ont = create_genesis_ontology(
+        domain_namespace="general", enterprise_owner="Enterprise Architecture"
+    )
+    target_contract.write_text(
+        yaml.safe_dump(genesis_ws_ont.model_dump(mode="json", exclude_none=True)),
+        encoding="utf-8",
+    )
+    ws_sha = compute_ontology_sha256(
+        GraphAOntology.model_validate(yaml.safe_load(target_contract.read_text(encoding="utf-8")))
+    )
 
     # 1. Attempt to promote uncommitted genesis draft (version 0.0.0) -> exit 4
     # Expected error code: INVALID_PROPOSAL_STATE
@@ -418,11 +454,13 @@ def test_studio_export_promote_bundle(studio_env: tuple[Path, Path]) -> None:
                     {
                         "op_id": "op-init",
                         "op_type": "add_concept",
+                        "concept_name": "Account",
                         "concept_uri": "urn:ontology:entity:promoted_entity",
                         "external_mappings": [
                             {
                                 "scheme": "fibo",
-                                "target_uri": "urn:fibo:promoted_entity",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account",
+                                "predicate": "skos:exactMatch",
                                 "confidence": 0.95,
                             }
                         ],
@@ -487,11 +525,11 @@ def test_studio_export_promote_bundle(studio_env: tuple[Path, Path]) -> None:
 
     # 4b. Test historical contract downgrade enforcement (MAJ-01)
     # Simulate an existing higher-version workspace contract (v2.0.0)
-    target_contract = ws / "pe_graph_a_ontology.yaml"
+    target_contract = ws / "graph_a_ontology.yaml"
     contract_data = yaml.safe_load(target_contract.read_text(encoding="utf-8"))
     contract_data["ontology_version"] = "2.0.0"
     target_contract.write_text(yaml.safe_dump(contract_data), encoding="utf-8")
-    ws_sha_v2 = compute_ontology_sha256(contract_data)
+    ws_sha_v2 = compute_ontology_sha256(GraphAOntology.model_validate(contract_data))
 
     # Promoting s1 (v1.0.0) without acknowledge flag fails with exit 4
     # (HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED)
@@ -628,11 +666,13 @@ def test_studio_stale_proposal_and_occ_conflict(studio_env: tuple[Path, Path]) -
                     {
                         "op_id": "op-init",
                         "op_type": "add_concept",
+                        "concept_name": "Account",
                         "concept_uri": "urn:ontology:entity:initial_entity",
                         "external_mappings": [
                             {
                                 "scheme": "fibo",
-                                "target_uri": "urn:fibo:initial_entity",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account",
+                                "predicate": "skos:exactMatch",
                                 "confidence": 0.95,
                             }
                         ],
@@ -667,11 +707,13 @@ def test_studio_stale_proposal_and_occ_conflict(studio_env: tuple[Path, Path]) -
                     {
                         "op_id": "op-adv",
                         "op_type": "add_concept",
+                        "concept_name": "Customer",
                         "concept_uri": "urn:ontology:entity:advanced_entity",
                         "external_mappings": [
                             {
                                 "scheme": "fibo",
-                                "target_uri": "urn:fibo:advanced_entity",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer",
+                                "predicate": "skos:exactMatch",
                                 "confidence": 0.95,
                             }
                         ],
@@ -916,11 +958,13 @@ def test_studio_delta_apply_mandatory_base_sha(studio_env: tuple[Path, Path]) ->
                     {
                         "op_id": "op-1",
                         "op_type": "add_concept",
+                        "concept_name": "Account",
                         "concept_uri": "urn:ontology:entity:entity_1",
                         "external_mappings": [
                             {
                                 "scheme": "fibo",
-                                "target_uri": "urn:fibo:entity_1",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account",
+                                "predicate": "skos:exactMatch",
                                 "confidence": 0.95,
                             }
                         ],
@@ -954,11 +998,13 @@ def test_studio_delta_apply_mandatory_base_sha(studio_env: tuple[Path, Path]) ->
                     {
                         "op_id": "op-2",
                         "op_type": "add_concept",
+                        "concept_name": "Customer",
                         "concept_uri": "urn:ontology:entity:entity_2",
                         "external_mappings": [
                             {
                                 "scheme": "fibo",
-                                "target_uri": "urn:fibo:entity_2",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer",
+                                "predicate": "skos:exactMatch",
                                 "confidence": 0.95,
                             }
                         ],
@@ -1003,12 +1049,12 @@ def test_studio_delta_apply_mandatory_base_sha(studio_env: tuple[Path, Path]) ->
 
 
 def test_studio_clarification_answer_merge_and_flags(studio_env: tuple[Path, Path]) -> None:
-    """Verify clarification answer merge, CLI flag updates, and dict consumption (MAJ-04)."""
+    """Verify clarification answer merge, CLI flags, and wrapper consumption (CRIT-01)."""
     ws, studio_root = studio_env
     app_main(["ontology", "studio", "init"])
     app_main(["ontology", "studio", "create", "-s", "clarify-sess", "--json"])
 
-    # 1. Non-existent file returns exit 2 and does not create/wipe answers
+    # 1. Non-existent file returns exit 3 (FILE_NOT_FOUND) and does not create/wipe answers
     code_bad_file = app_main(
         [
             "ontology",
@@ -1021,7 +1067,7 @@ def test_studio_clarification_answer_merge_and_flags(studio_env: tuple[Path, Pat
             "--json",
         ]
     )
-    assert code_bad_file == 2
+    assert code_bad_file == 3
 
     # 2. Record answer via CLI flags (-q, -o, -t)
     code_flag_ans = app_main(
@@ -1045,10 +1091,64 @@ def test_studio_clarification_answer_merge_and_flags(studio_env: tuple[Path, Pat
     ans_file = studio_root / "clarify-sess" / "clarifications" / "answers.json"
     assert ans_file.is_file()
     ans_data = json.loads(ans_file.read_text(encoding="utf-8"))
-    assert "q_cardinality_1" in ans_data
-    assert ans_data["q_cardinality_1"]["free_text"] == "User clarified 1-to-many relationship"
+    assert isinstance(ans_data, list)
+    assert len(ans_data) == 1
+    assert ans_data[0]["question_id"] == "q_cardinality_1"
+    assert ans_data[0]["selected_options"] == ["opt_1_to_n"]
+    assert ans_data[0]["user_text"] == "User clarified 1-to-many relationship"
 
-    # 3. Construct consumes answers dict properly
+    # 2b. File payload with {"answers": [...]} object wrapper merges cleanly & OCC checks sha
+    wrapped_file = ws / "wrapped_answers.json"
+    wrapped_file.write_text(
+        json.dumps(
+            {
+                "answers": [
+                    {
+                        "question_id": "q_grain_2",
+                        "selected_options": ["opt_daily"],
+                        "user_text": "Daily grain confirmed",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "answer",
+                "-s",
+                "clarify-sess",
+                "-f",
+                str(wrapped_file),
+                "--expected-answers-sha256",
+                "stale_sha_mismatch",
+                "--json",
+            ]
+        )
+        == 5
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "answer",
+                "-s",
+                "clarify-sess",
+                "-f",
+                str(wrapped_file),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    merged_ans = json.loads(ans_file.read_text(encoding="utf-8"))
+    assert [item["question_id"] for item in merged_ans] == ["q_cardinality_1", "q_grain_2"]
+
+    # 3. Construct consumes canonical answers list properly
     code_construct = app_main(
         [
             "ontology",
@@ -1280,17 +1380,21 @@ def test_studio_grounding_edge_cases_and_waiver_scope(studio_env: tuple[Path, Pa
     assert code_full == 0
 
 
-def test_studio_delta_validate_genesis_session(studio_env: tuple[Path, Path]) -> None:
-    """Verify `delta validate` on a genesis session without --base does not crash (MAJ-01)."""
+def test_studio_delta_validate_genesis_session(
+    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify `delta validate` on a genesis session enforces ONT-EVO-002 grounding (P12::MAJ-01)."""
     ws, _studio_root = studio_env
     app_main(["ontology", "studio", "init"])
     app_main(["ontology", "studio", "create", "-s", "genesis-val-sess", "-n", "wm"])
+    capsys.readouterr()
 
-    delta_file = ws / "genesis_delta.json"
-    delta_file.write_text(
+    # 1. Ungrounded concept fails validation with exit 4 (ONT_EVO_UNGROUNDED_CONCEPT)
+    ungrounded_file = ws / "genesis_ungrounded.json"
+    ungrounded_file.write_text(
         json.dumps(
             {
-                "delta_id": "delta-genesis-val",
+                "delta_id": "delta-genesis-ungrounded",
                 "parent_sha256": "",
                 "base_version": "0.0.0",
                 "target_version": "1.0.0",
@@ -1308,7 +1412,55 @@ def test_studio_delta_validate_genesis_session(studio_env: tuple[Path, Path]) ->
         ),
         encoding="utf-8",
     )
+    code_ungrounded = app_main(
+        [
+            "ontology",
+            "studio",
+            "delta",
+            "validate",
+            "-s",
+            "genesis-val-sess",
+            "-f",
+            str(ungrounded_file),
+            "--json",
+        ]
+    )
+    out_ungrounded = capsys.readouterr()
+    assert code_ungrounded == 4
+    err_payload = json.loads(out_ungrounded.err or out_ungrounded.out)
+    assert err_payload["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
 
+    # 2. Grounded concept (skos:exactMatch >= 0.65) passes with exit 0
+    grounded_file = ws / "genesis_delta.json"
+    grounded_file.write_text(
+        json.dumps(
+            {
+                "delta_id": "delta-genesis-val",
+                "parent_sha256": "",
+                "base_version": "0.0.0",
+                "target_version": "1.0.0",
+                "operations": [
+                    {
+                        "op_type": "add_concept",
+                        "concept_name": "Account",
+                        "concept_uri": "urn:ontology:entity:account",
+                        "definition": "A financial account",
+                        "external_mappings": [
+                            {
+                                "scheme": "fibo",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account",
+                                "predicate": "skos:exactMatch",
+                                "confidence": 0.85,
+                            }
+                        ],
+                    }
+                ],
+                "author": "validator",
+                "rationale": "Initial genesis concepts",
+            }
+        ),
+        encoding="utf-8",
+    )
     code = app_main(
         [
             "ontology",
@@ -1318,8 +1470,1679 @@ def test_studio_delta_validate_genesis_session(studio_env: tuple[Path, Path]) ->
             "-s",
             "genesis-val-sess",
             "-f",
-            str(delta_file),
+            str(grounded_file),
             "--json",
         ]
     )
     assert code == 0
+
+
+def _read_cli_json(capsys: pytest.CaptureFixture[str]) -> dict[str, Any]:
+    """Read and parse the last JSON object emitted to stdout or stderr."""
+    captured = capsys.readouterr()
+    raw = (captured.out or captured.err).strip()
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip().startswith("{")]
+    return json.loads(lines[-1] if lines else raw)
+
+
+def test_studio_grounding_threshold_065_and_predicates_p12_maj01(
+    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify PATH_A_GROUNDING_THRESHOLD = 0.65 and ALLOWED_PATH_A_PREDICATES (P12::MAJ-01)."""
+    ws, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+    app_main(["ontology", "studio", "create", "-s", "thresh-sess", "--json"])
+    capsys.readouterr()
+
+    def _write_delta(
+        name: str,
+        mappings: list[dict[str, object]],
+        uri_slug: str,
+        concept_name: str | None = None,
+    ) -> Path:
+        p = ws / f"{name}.json"
+        p.write_text(
+            json.dumps(
+                {
+                    "operations": [
+                        {
+                            "op_type": "add_concept",
+                            "concept_uri": f"urn:ontology:entity:{uri_slug}",
+                            "concept_name": concept_name or uri_slug.title(),
+                            "external_mappings": mappings,
+                        }
+                    ]
+                }
+            ),
+            encoding="utf-8",
+        )
+        return p
+
+    # 1. Confidence 0.6499 with skos:exactMatch -> exit 4 ONT_EVO_UNGROUNDED_CONCEPT
+    p_below = _write_delta(
+        "below_065",
+        [
+            {
+                "scheme": "fibo",
+                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account",
+                "predicate": "skos:exactMatch",
+                "confidence": 0.6499,
+            }
+        ],
+        "c_below",
+        concept_name="Account",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "thresh-sess",
+                "-f",
+                str(p_below),
+                "--json",
+            ]
+        )
+        == 4
+    )
+    err_below = _read_cli_json(capsys)
+    assert err_below["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
+
+    # 2. Confidence 0.99 with skos:broadMatch -> exit 4 ONT_EVO_UNGROUNDED_CONCEPT
+    p_broad = _write_delta(
+        "broad_099",
+        [
+            {
+                "scheme": "fibo",
+                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account",
+                "predicate": "skos:broadMatch",
+                "confidence": 0.99,
+            }
+        ],
+        "c_broad",
+        concept_name="Account",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "thresh-sess",
+                "-f",
+                str(p_broad),
+                "--json",
+            ]
+        )
+        == 4
+    )
+    err_broad = _read_cli_json(capsys)
+    assert err_broad["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
+
+    # 3. Exact boundary 0.65 with skos:exactMatch -> exit 0!
+    p_exact_065 = _write_delta(
+        "exact_065",
+        [
+            {
+                "scheme": "fibo",
+                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account",
+                "predicate": "skos:exactMatch",
+                "confidence": 0.65,
+            }
+        ],
+        "c_exact_065",
+        concept_name="Account",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "thresh-sess",
+                "-f",
+                str(p_exact_065),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    # 4. Dual mapping [skos:exactMatch@0.70, skos:broadMatch@0.30] -> exit 0!
+    meta = json.loads((studio_root / "thresh-sess" / "session.json").read_text(encoding="utf-8"))
+    p_dual = _write_delta(
+        "dual_mappings",
+        [
+            {
+                "scheme": "fibo",
+                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer",
+                "predicate": "skos:exactMatch",
+                "confidence": 0.70,
+            },
+            {
+                "scheme": "fibo",
+                "target_uri": "urn:fibo:secondary_broad",
+                "predicate": "skos:broadMatch",
+                "confidence": 0.30,
+            },
+        ],
+        "c_dual",
+        concept_name="Customer",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "thresh-sess",
+                "-f",
+                str(p_dual),
+                "--base-sha256",
+                meta["head_sha256"],
+                "--json",
+            ]
+        )
+        == 0
+    )
+
+
+def test_studio_18_plus_2_concept_mutating_ops_and_deployed_contracts_p12_maj02(
+    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify 18+2 concept-mutating ops grounding & ONT-EVO-001 deployed contracts (P12::MAJ-02)."""
+    from opendv_core.genesis import create_genesis_ontology
+    from opendv_core.models.graph_a import CanonicalBusinessConcept, ExternalMapping
+
+    ws, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+
+    # Seed workspace ontology with 1 grandfathered ungrounded concept + 1 grounded deployed concept
+    seed_ont = create_genesis_ontology(
+        domain_namespace="wealth",
+        enterprise_owner="WealthEnterprise",
+    ).model_copy(
+        update={
+            "ontology_version": "1.0.0",
+            "canonical_business_concepts": [
+                CanonicalBusinessConcept(
+                    concept_uri="urn:ontology:entity:legacy_ungrounded",
+                    concept_name="LegacyUngrounded",
+                    definition="Grandfathered ungrounded concept",
+                    target_hub="hub_legacy_ungrounded",
+                ),
+                CanonicalBusinessConcept(
+                    concept_uri="urn:ontology:entity:account",
+                    concept_name="Account",
+                    definition="Deployed financial account",
+                    target_hub="hub_account",
+                    external_mappings=[
+                        ExternalMapping(
+                            scheme="fibo",
+                            target_uri="urn:fibo:account",
+                            predicate="skos:exactMatch",
+                            confidence=0.90,
+                        )
+                    ],
+                ),
+            ],
+        }
+    )
+    ws_ont_path = ws / "graph_a_ontology.yaml"
+    ws_ont_path.write_text(
+        yaml.safe_dump(seed_ont.model_dump(mode="json", exclude_none=True)),
+        encoding="utf-8",
+    )
+
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "create",
+                "-s",
+                "gov-sess",
+                "--from-workspace",
+                str(ws),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    head_sha = json.loads((studio_root / "gov-sess" / "session.json").read_text(encoding="utf-8"))[
+        "head_sha256"
+    ]
+
+    # 1. Touching grandfathered ungrounded concept with `refine_definition` triggers ONT-EVO-002!
+    p_refine = ws / "refine_legacy.json"
+    p_refine.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "refine_definition",
+                        "concept_uri": "urn:ontology:entity:legacy_ungrounded",
+                        "refined_description": "Updated definition touches ungrounded concept",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "gov-sess",
+                "-f",
+                str(p_refine),
+                "--base-sha256",
+                head_sha,
+                "--json",
+            ]
+        )
+        == 4
+    )
+    err_refine = _read_cli_json(capsys)
+    assert err_refine["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
+
+    # 2. Stripping sole skos:exactMatch mapping via `remove_external_mapping` triggers ONT-EVO-002!
+    p_strip = ws / "strip_mapping.json"
+    p_strip.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "remove_external_mapping",
+                        "concept_uri": "urn:ontology:entity:account",
+                        "scheme": "fibo",
+                        "target_uri": "urn:fibo:account",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "gov-sess",
+                "-f",
+                str(p_strip),
+                "--base-sha256",
+                head_sha,
+                "--json",
+            ]
+        )
+        == 4
+    )
+    err_strip = _read_cli_json(capsys)
+    assert err_strip["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
+
+    # 3. Write deployed DV contract in workspace; `remove_concept` on deployed concept -> exit 4!
+    dv_contract = ws / "dv_contract.yaml"
+    dv_contract.write_text(
+        yaml.safe_dump(
+            {
+                "hubs": [
+                    {
+                        "name": "hub_account",
+                        "ontology_concept_uri": "urn:ontology:entity:account",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    p_remove_deployed = ws / "remove_deployed.json"
+    p_remove_deployed.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "remove_concept",
+                        "concept_uri": "urn:ontology:entity:account",
+                        "reason": "Attempt destructive drop of deployed Hub concept",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "gov-sess",
+                "-f",
+                str(p_remove_deployed),
+                "--base-sha256",
+                head_sha,
+                "--json",
+            ]
+        )
+        == 4
+    )
+    err_deployed = _read_cli_json(capsys)
+    assert err_deployed["error_code"] == "ONT_EVO_CONTRACT_VIOLATION"
+
+
+def test_studio_sticky_taint_on_reupload_p12_maj03(
+    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify sticky `do_not_send_to_agent`, `src-` prefix, description, and taint_index."""
+    ws, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+    app_main(["ontology", "studio", "create", "-s", "taint-sess", "--json"])
+    capsys.readouterr()
+
+    doc = ws / "secret_spec.md"
+    doc.write_text("# Confidential Architecture\nAccount has Customer.\n", encoding="utf-8")
+
+    # 1. Initial upload with --confidential and description
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "upload",
+                "-s",
+                "taint-sess",
+                "-f",
+                str(doc),
+                "--confidential",
+                "-d",
+                "Confidential board architecture spec",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    up1 = json.loads(capsys.readouterr().out)
+    src_id = up1["source_id"]
+    assert src_id.startswith("src-")
+    assert up1["do_not_send_to_agent"] is True
+    assert up1["description"] == "Confidential board architecture spec"
+
+    sess_json = json.loads(
+        (studio_root / "taint-sess" / "session.json").read_text(encoding="utf-8")
+    )
+    assert sess_json["taint_classification"] == "TAINTED"
+    taint_idx = json.loads(
+        (studio_root / "taint-sess" / "taint_index.json").read_text(encoding="utf-8")
+    )
+    assert src_id in taint_idx["tainted_source_ids"]
+
+    # 2. Re-upload identical content WITHOUT --confidential -> sticky True preserved!
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "upload",
+                "-s",
+                "taint-sess",
+                "-f",
+                str(doc),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    up2 = json.loads(capsys.readouterr().out)
+    assert up2["source_id"] == src_id
+    assert up2["do_not_send_to_agent"] is True
+    assert up2["description"] == "Confidential board architecture spec"
+
+    sess_json_after = json.loads(
+        (studio_root / "taint-sess" / "session.json").read_text(encoding="utf-8")
+    )
+    assert sess_json_after["taint_classification"] == "TAINTED"
+
+
+def test_studio_rbac_self_acceptance_and_waiver_key_errors_p12_maj04_p13_maj01(
+    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify RBAC tiers, self-acceptance guard, missing key FILE_NOT_FOUND, and auth precedence."""
+    ws, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+    app_main(["ontology", "studio", "create", "-s", "rbac-sess", "--json"])
+    capsys.readouterr()
+
+    # 1. Viewer role (`PUBLIC`) blocked from mutating operations -> exit 7
+    assert (
+        app_main(
+            [
+                "--role",
+                "PUBLIC",
+                "ontology",
+                "studio",
+                "create",
+                "-s",
+                "blocked-sess",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    capsys.readouterr()
+
+    doc = ws / "sample.md"
+    doc.write_text("# Sample\n", encoding="utf-8")
+    assert (
+        app_main(
+            [
+                "--role",
+                "PUBLIC",
+                "ontology",
+                "studio",
+                "upload",
+                "-s",
+                "rbac-sess",
+                "-f",
+                str(doc),
+                "--json",
+            ]
+        )
+        == 7
+    )
+    capsys.readouterr()
+
+    # 2. Missing --waiver-key-file reports exit 3 FILE_NOT_FOUND (not exit 7)
+    p_ungrounded = ws / "ungrounded.json"
+    p_ungrounded.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "add_concept",
+                        "concept_uri": "urn:ontology:entity:ungrounded_x",
+                        "concept_name": "UngroundedX",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "rbac-sess",
+                "-f",
+                str(p_ungrounded),
+                "--low-confidence-waiver",
+                "--grounding-rationale",
+                "Valid rationale exceeding ten chars",
+                "--waiver-key-file",
+                str(ws / "does_not_exist.key"),
+                "--json",
+            ]
+        )
+        == 3
+    )
+    err_missing_key = _read_cli_json(capsys)
+    assert err_missing_key["error_code"] == "FILE_NOT_FOUND"
+
+    # 3. Non-admin (`EDITOR`) waiver with short rationale fails with exit 7 BEFORE rationale exit 4!
+    assert (
+        app_main(
+            [
+                "--role",
+                "EDITOR",
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "rbac-sess",
+                "-f",
+                str(p_ungrounded),
+                "--low-confidence-waiver",
+                "--grounding-rationale",
+                "short",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    err_role_first = _read_cli_json(capsys)
+    assert err_role_first["error_code"] == "FORBIDDEN_ADMIN_REQUIRED"
+
+    # 4. Automated role (`INTERNAL_MODELER`) blocked from `proposal accept` -> exit 7
+    sdir = studio_root / "rbac-sess"
+    head_sha = json.loads((sdir / "session.json").read_text(encoding="utf-8"))["head_sha256"]
+    prop_path = sdir / "proposals" / "prop-self-1.json"
+    prop_path.parent.mkdir(parents=True, exist_ok=True)
+    prop_path.write_text(
+        json.dumps(
+            {
+                "proposal_id": "prop-self-1",
+                "status": "PENDING",
+                "proposer": "human:local_admin",
+                "base_version": "0.0.0",
+                "base_sha256": head_sha,
+                "operations": [
+                    {
+                        "op_type": "add_concept",
+                        "concept_uri": "urn:ontology:entity:party",
+                        "concept_name": "Organization",
+                        "external_mappings": [
+                            {
+                                "scheme": "fibo",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FND/Organizations/Organizations/Organization",
+                                "predicate": "skos:exactMatch",
+                                "confidence": 0.90,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        app_main(
+            [
+                "--role",
+                "INTERNAL_MODELER",
+                "ontology",
+                "studio",
+                "proposal",
+                "accept",
+                "-s",
+                "rbac-sess",
+                "-p",
+                "prop-self-1",
+                "--base-sha256",
+                head_sha,
+                "--json",
+            ]
+        )
+        == 7
+    )
+    err_agent_accept = _read_cli_json(capsys)
+    assert err_agent_accept["error_code"] == "AGENT_PROPOSAL_ACCEPT_FORBIDDEN"
+
+    # 5. Self-acceptance blocked by default (`PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN`, exit 7)
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "proposal",
+                "accept",
+                "-s",
+                "rbac-sess",
+                "-p",
+                "prop-self-1",
+                "--base-sha256",
+                head_sha,
+                "--json",
+            ]
+        )
+        == 7
+    )
+    err_self = _read_cli_json(capsys)
+    assert err_self["error_code"] == "PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN"
+
+    # 6. `--role EDITOR --allow-self-accepted-proposals` fails with exit 7 (admin-only override)
+    assert (
+        app_main(
+            [
+                "--role",
+                "EDITOR",
+                "ontology",
+                "studio",
+                "proposal",
+                "accept",
+                "-s",
+                "rbac-sess",
+                "-p",
+                "prop-self-1",
+                "--base-sha256",
+                head_sha,
+                "--allow-self-accepted-proposals",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    capsys.readouterr()
+
+    # 7. Admin with `--allow-self-accepted-proposals` succeeds with exit 0!
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "proposal",
+                "accept",
+                "-s",
+                "rbac-sess",
+                "-p",
+                "prop-self-1",
+                "--base-sha256",
+                head_sha,
+                "--allow-self-accepted-proposals",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    # 8. Destructive MAJOR delta (`remove_concept`) blocked for `EDITOR` role -> exit 7
+    new_head_sha = json.loads((sdir / "session.json").read_text(encoding="utf-8"))["head_sha256"]
+    p_drop = ws / "drop_party.json"
+    p_drop.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "remove_concept",
+                        "concept_uri": "urn:ontology:entity:party",
+                        "reason": "Destructive drop test",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "--role",
+                "EDITOR",
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "rbac-sess",
+                "-f",
+                str(p_drop),
+                "--base-sha256",
+                new_head_sha,
+                "--json",
+            ]
+        )
+        == 7
+    )
+
+
+def test_studio_24op_rebase_conflicts_and_corrupt_head_fail_closed_p12_maj05(
+    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify 24-op `check_rebase_conflicts` and fail-closed missing head check (P12::MAJ-05)."""
+    ws, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+    app_main(["ontology", "studio", "create", "-s", "rebase-sess", "--json"])
+
+    # 1. Create v1.0.0 with grounded concept c1
+    p_v1 = ws / "v1.json"
+    p_v1.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "add_concept",
+                        "concept_uri": "urn:ontology:entity:c1",
+                        "concept_name": "Contract",
+                        "definition": "Initial definition",
+                        "external_mappings": [
+                            {
+                                "scheme": "fibo",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/Contract",
+                                "predicate": "skos:exactMatch",
+                                "confidence": 0.88,
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            ["ontology", "studio", "delta", "apply", "-s", "rebase-sess", "-f", str(p_v1), "--json"]
+        )
+        == 0
+    )
+    sdir = studio_root / "rebase-sess"
+    meta_v1 = json.loads((sdir / "session.json").read_text(encoding="utf-8"))
+    v1_sha = meta_v1["head_sha256"]
+    v1_ver = meta_v1["head_version"]
+
+    # Seed proposal against v1 touching `urn:ontology:entity:c1` with `refine_definition`
+    prop_file = sdir / "proposals" / "prop-conflict.json"
+    prop_file.parent.mkdir(parents=True, exist_ok=True)
+    prop_file.write_text(
+        json.dumps(
+            {
+                "proposal_id": "prop-conflict",
+                "status": "PENDING",
+                "proposer": "agent:modeler",
+                "base_version": v1_ver,
+                "base_sha256": v1_sha,
+                "operations": [
+                    {
+                        "op_type": "refine_definition",
+                        "concept_uri": "urn:ontology:entity:c1",
+                        "refined_description": "Proposal refined description",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # 2. Advance head with `deprecate_concept` on `urn:ontology:entity:c1` (v1.1.0)
+    p_dep = ws / "deprecate_c1.json"
+    p_dep.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "deprecate_concept",
+                        "concept_uri": "urn:ontology:entity:c1",
+                        "reason": "Deprecated in intervening commit",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "rebase-sess",
+                "-f",
+                str(p_dep),
+                "--base-sha256",
+                v1_sha,
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    # 3. `proposal rebase` detects 24-op conflict against `deprecate_concept` -> exit 6!
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "proposal",
+                "rebase",
+                "-s",
+                "rebase-sess",
+                "-p",
+                "prop-conflict",
+                "--json",
+            ]
+        )
+        == 6
+    )
+    err_rebase = _read_cli_json(capsys)
+    assert err_rebase["error_code"] == "PROPOSAL_STALE_REBASE_REQUIRED"
+    assert len(err_rebase["conflicts"]) >= 1
+
+    # 4. Delete head ontology artifact -> `proposal rebase` fails closed with exit 1!
+    meta_head = json.loads((sdir / "session.json").read_text(encoding="utf-8"))
+    head_vdir = sdir / "versions" / f"v{meta_head['head_version'].lstrip('v')}"
+    for fname in ("ontology.json", "ontology.yaml"):
+        f = head_vdir / fname
+        if f.exists():
+            f.unlink()
+
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "proposal",
+                "rebase",
+                "-s",
+                "rebase-sess",
+                "-p",
+                "prop-conflict",
+                "--json",
+            ]
+        )
+        == 1
+    )
+    err_corrupt = _read_cli_json(capsys)
+    assert err_corrupt["error_code"] == "CORRUPT_SESSION_RECORD"
+
+
+def test_studio_construct_modes_delete_and_greenfield_promote(
+    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Verify `construct --mode agent`, `NOOP_CONSTRUCT`, greenfield promote, and `delete`."""
+    ws, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+    app_main(["ontology", "studio", "create", "-s", "lifecycle-sess", "-n", "retail", "--json"])
+    capsys.readouterr()
+
+    sdir = studio_root / "lifecycle-sess"
+    genesis_sha = json.loads((sdir / "session.json").read_text(encoding="utf-8"))["head_sha256"]
+
+    # 1. `construct --mode agent` without agent harness fails closed (exit 1 AGENT_UNAVAILABLE)
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "construct",
+                "-s",
+                "lifecycle-sess",
+                "--mode",
+                "agent",
+                "--json",
+            ]
+        )
+        == 1
+    )
+    err_agent = _read_cli_json(capsys)
+    assert err_agent["error_code"] == "AGENT_UNAVAILABLE"
+
+    # 2. Empty-evidence `construct --auto-commit` returns exit 0 `NOOP_CONSTRUCT` (does not fail!)
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "construct",
+                "-s",
+                "lifecycle-sess",
+                "--mode",
+                "deterministic",
+                "--auto-commit",
+                "--base-version",
+                "0.0.0",
+                "--base-sha256",
+                genesis_sha,
+                "--json",
+            ]
+        )
+        == 0
+    )
+    noop_out = json.loads(capsys.readouterr().out)
+    assert noop_out["status"] == "NOOP_CONSTRUCT"
+
+    # Advance session to v0.1.0 so we can promote a non-genesis head to greenfield workspace
+    p_add = ws / "add_order.json"
+    p_add.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "add_concept",
+                        "concept_uri": "urn:ontology:entity:order",
+                        "concept_name": "Merchant",
+                        "external_mappings": [
+                            {
+                                "scheme": "fibo",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/BE/FunctionalEntities/FunctionalEntities/Merchant",
+                                "predicate": "skos:exactMatch",
+                                "confidence": 0.91,
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "lifecycle-sess",
+                "-f",
+                str(p_add),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    head_sha = json.loads((sdir / "session.json").read_text(encoding="utf-8"))["head_sha256"]
+
+    # 3. Greenfield `promote` rejects non-zero `--workspace-sha256` (5) and accepts `"0"*64` (0)
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "promote",
+                "-s",
+                "lifecycle-sess",
+                "--workspace-sha256",
+                "f" * 64,
+                "--head-sha256",
+                head_sha,
+                "-r",
+                "Promote retail ontology to greenfield workspace",
+                "--json",
+            ]
+        )
+        == 5
+    )
+    capsys.readouterr()
+
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "promote",
+                "-s",
+                "lifecycle-sess",
+                "--workspace-sha256",
+                "0" * 64,
+                "--head-sha256",
+                head_sha,
+                "-r",
+                "Promote retail ontology to greenfield workspace",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    # 4. `delete` on promoted session fails with exit 6 without `--force`, and 0 with `--force`!
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delete",
+                "-s",
+                "lifecycle-sess",
+                "--json",
+            ]
+        )
+        == 6
+    )
+    err_del = _read_cli_json(capsys)
+    assert err_del["error_code"] == "CANNOT_DELETE_PROMOTED_SESSION"
+
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delete",
+                "-s",
+                "lifecycle-sess",
+                "--force",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert not sdir.exists()
+
+
+def test_r3_s5_crit01_offline_fibo_grounding_verifier(
+    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """S5-CRIT-01: Fabricated FIBO URIs fail offline FiboPackGroundingVerifier with exit 4."""
+    ws, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+    app_main(["ontology", "studio", "create", "-s", "fibo-verify-sess", "--json"])
+    capsys.readouterr()
+
+    fake_fibo_delta = ws / "fake_fibo.json"
+    fake_fibo_delta.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "add_concept",
+                        "concept_uri": "urn:ontology:entity:fake_account",
+                        "concept_name": "Account",
+                        "external_mappings": [
+                            {
+                                "scheme": "fibo",
+                                "target_uri": "urn:fibo:fabricated_nonexistent_concept",
+                                "predicate": "skos:exactMatch",
+                                "confidence": 0.99,
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # 1. delta validate fails with valid=False and ONT_EVO_UNGROUNDED_CONCEPT (exit 4)
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "validate",
+                "-s",
+                "fibo-verify-sess",
+                "-f",
+                str(fake_fibo_delta),
+                "--json",
+            ]
+        )
+        == 4
+    )
+    val_out = _read_cli_json(capsys)
+    assert val_out["valid"] is False
+    assert val_out["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
+    assert len(val_out["violations"]) >= 1
+
+    # 2. delta apply fails with exit 4 ONT_EVO_UNGROUNDED_CONCEPT
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "fibo-verify-sess",
+                "-f",
+                str(fake_fibo_delta),
+                "--json",
+            ]
+        )
+        == 4
+    )
+    apply_out = _read_cli_json(capsys)
+    assert apply_out["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
+
+    # 3. proposal accept fails with exit 4 ONT_EVO_UNGROUNDED_CONCEPT
+    sdir = studio_root / "fibo-verify-sess"
+    head_sha = json.loads((sdir / "session.json").read_text(encoding="utf-8"))["head_sha256"]
+    prop_path = sdir / "proposals" / "prop-fake-fibo.json"
+    prop_path.parent.mkdir(parents=True, exist_ok=True)
+    prop_path.write_text(
+        json.dumps(
+            {
+                "proposal_id": "prop-fake-fibo",
+                "status": "PENDING",
+                "proposer": "agent:internal_modeler",
+                "base_version": "0.0.0",
+                "base_sha256": head_sha,
+                "operations": json.loads(fake_fibo_delta.read_text(encoding="utf-8"))["operations"],
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "proposal",
+                "accept",
+                "-s",
+                "fibo-verify-sess",
+                "-p",
+                "prop-fake-fibo",
+                "--base-sha256",
+                head_sha,
+                "--json",
+            ]
+        )
+        == 4
+    )
+    prop_out = _read_cli_json(capsys)
+    assert prop_out["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
+
+
+def test_r3_p12a_maj01_and_maj03_role_resolution_and_normative_genesis_sha(
+    studio_env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """P12a MAJ-01 & MAJ-03: Role resolution precedence + normative genesis 0.0.0 SHA."""
+    import argparse
+
+    from opendv_cli.commands.ontology_studio import resolve_studio_principal
+
+    _ws, _studio_root = studio_env
+    monkeypatch.delenv("OPENDV_ROLE", raising=False)
+
+    # 1. Default invocation with argparse default role="INTERNAL_MODELER" & _explicit_role=None
+    ns_default = argparse.Namespace(role="INTERNAL_MODELER", _explicit_role=None)
+    assert resolve_studio_principal(ns_default) == ("human:local_admin", "admin")
+
+    # 2. Explicit CLI --role INTERNAL_MODELER resolves strictly to automated agent
+    ns_explicit_agent = argparse.Namespace(
+        role="INTERNAL_MODELER", _explicit_role="INTERNAL_MODELER"
+    )
+    assert resolve_studio_principal(ns_explicit_agent) == ("agent:internal_modeler", "automated")
+
+    # 3. Explicit STEWARD -> editor, VIEWER -> viewer
+    assert resolve_studio_principal(
+        argparse.Namespace(role="STEWARD", _explicit_role="STEWARD")
+    ) == ("human:local_editor", "editor")
+    assert resolve_studio_principal(argparse.Namespace(role="VIEWER", _explicit_role="VIEWER")) == (
+        "human:local_viewer",
+        "viewer",
+    )
+
+    # 4. OPENDV_ROLE env var is NEVER shadowed by unpassed argparse default 'INTERNAL_MODELER'
+    monkeypatch.setenv("OPENDV_ROLE", "VIEWER")
+    assert resolve_studio_principal(ns_default) == ("human:local_viewer", "viewer")
+    monkeypatch.setenv("OPENDV_ROLE", "INTERNAL_MODELER")
+    assert resolve_studio_principal(ns_default) == ("agent:internal_modeler", "automated")
+    monkeypatch.delenv("OPENDV_ROLE", raising=False)
+
+    # 5. Direct unit test Namespace(role="viewer") without _explicit_role honored
+    assert resolve_studio_principal(argparse.Namespace(role="viewer")) == (
+        "human:local_viewer",
+        "viewer",
+    )
+
+    # 6. P12a MAJ-03: Normative genesis 0.0.0 SHA-256
+    app_main(["ontology", "studio", "init"])
+    capsys.readouterr()
+    assert app_main(["ontology", "studio", "create", "-s", "normative-gen", "--json"]) == 0
+    gen_out = json.loads(capsys.readouterr().out)
+    assert gen_out["domain_namespace"] == "general"
+    assert gen_out["enterprise_owner"] == "Enterprise Architecture"
+    assert (
+        gen_out["head_sha256"] == "1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9"
+    )
+
+
+def test_r3_p12a_maj02_recursive_deployment_provider_and_fail_closed_parse(
+    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """P12a MAJ-02: Recursive contract scan (including 'ontology' filenames) & fail-closed parse."""
+    from opendv_core.genesis import create_genesis_ontology
+    from opendv_core.models.graph_a import CanonicalBusinessConcept, ExternalMapping
+
+    ws, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+
+    seed_ont = create_genesis_ontology().model_copy(
+        update={
+            "ontology_version": "1.0.0",
+            "canonical_business_concepts": [
+                CanonicalBusinessConcept(
+                    concept_uri="urn:ontology:entity:account",
+                    concept_name="Account",
+                    definition="Deployed financial account",
+                    target_hub="hub_account",
+                    external_mappings=[
+                        ExternalMapping(
+                            scheme="fibo",
+                            target_uri="https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account",
+                            predicate="skos:exactMatch",
+                            confidence=0.95,
+                        )
+                    ],
+                )
+            ],
+        }
+    )
+    (ws / "graph_a_ontology.yaml").write_text(
+        yaml.safe_dump(seed_ont.model_dump(mode="json", exclude_none=True)),
+        encoding="utf-8",
+    )
+
+    # Nested DV contract whose filename contains "ontology"
+    nested_contract = ws / "contracts" / "sub" / "core_ontology_dv.yaml"
+    nested_contract.parent.mkdir(parents=True, exist_ok=True)
+    nested_contract.write_text(
+        yaml.safe_dump({"contract_version": "1.0.0", "hubs": [{"name": "hub_account"}]}),
+        encoding="utf-8",
+    )
+
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "create",
+                "-s",
+                "dep-scan-sess",
+                "--from-workspace",
+                str(ws),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    head_sha = json.loads((studio_root / "dep-scan-sess" / "session.json").read_text("utf-8"))[
+        "head_sha256"
+    ]
+
+    drop_delta = ws / "drop_deployed.json"
+    drop_delta.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "remove_concept",
+                        "concept_uri": "urn:ontology:entity:account",
+                        "reason": "Attempt drop of deployed hub",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "dep-scan-sess",
+                "-f",
+                str(drop_delta),
+                "--base-sha256",
+                head_sha,
+                "--json",
+            ]
+        )
+        == 4
+    )
+    assert _read_cli_json(capsys)["error_code"] == "ONT_EVO_CONTRACT_VIOLATION"
+
+    # Malformed YAML inside contracts/ MUST fail closed (exit 4 INVALID_WORKSPACE_ONTOLOGY)
+    bad_contract = ws / "contracts" / "corrupt_contract.yaml"
+    bad_contract.write_text("hubs: [unterminated\n", encoding="utf-8")
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "dep-scan-sess",
+                "-f",
+                str(drop_delta),
+                "--base-sha256",
+                head_sha,
+                "--json",
+            ]
+        )
+        == 4
+    )
+    assert _read_cli_json(capsys)["error_code"] == "INVALID_WORKSPACE_ONTOLOGY"
+
+
+def test_r3_p12b_maj01_maj02_s5_maj02_out_containment_and_promote_isolation(
+    studio_env: tuple[Path, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """P12b MAJ-01..02 & S5-MAJ-02: --out containment + promote namespace/lineage/noop guards."""
+    from opendv_core.genesis import create_genesis_ontology
+    from opendv_core.models.graph_a import GraphAOntology
+
+    ws, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+    app_main(["ontology", "studio", "create", "-s", "prom-iso", "--json"])
+    capsys.readouterr()
+
+    # 1. Relative `..` path traversal escaping workspace_root rejected (exit 2)
+    monkeypatch.chdir(ws)
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "export",
+                "-s",
+                "prom-iso",
+                "-o",
+                "../escaped_export.yaml",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert _read_cli_json(capsys)["error_code"] == "PATH_CONTAINMENT_ERROR"
+
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "bundle",
+                "export",
+                "-s",
+                "prom-iso",
+                "-o",
+                "../escaped_bundle.zip",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert _read_cli_json(capsys)["error_code"] == "PATH_CONTAINMENT_ERROR"
+
+    # 2. OPENDV_WORKSPACE_ROOTS strict containment on absolute --out
+    monkeypatch.setenv("OPENDV_WORKSPACE_ROOTS", str(ws))
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "export",
+                "-s",
+                "prom-iso",
+                "-o",
+                str(ws.parent / "outside_root.yaml"),
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert _read_cli_json(capsys)["error_code"] == "PATH_CONTAINMENT_ERROR"
+    monkeypatch.delenv("OPENDV_WORKSPACE_ROOTS", raising=False)
+
+    # 3. Seed an unrelated `pe_graph_a_ontology.yaml` — `general` session MUST NOT touch it!
+    pe_file = ws / "pe_graph_a_ontology.yaml"
+    pe_ont = create_genesis_ontology(domain_namespace="private_equity", enterprise_owner="PE")
+    pe_raw = yaml.safe_dump(pe_ont.model_dump(mode="json", exclude_none=True))
+    pe_file.write_text(pe_raw, encoding="utf-8")
+
+    p_add = ws / "add_acct.json"
+    p_add.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "add_concept",
+                        "concept_uri": "urn:ontology:entity:account",
+                        "concept_name": "Account",
+                        "external_mappings": [
+                            {
+                                "scheme": "fibo",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account",
+                                "predicate": "skos:exactMatch",
+                                "confidence": 0.95,
+                            }
+                        ],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            ["ontology", "studio", "delta", "apply", "-s", "prom-iso", "-f", str(p_add), "--json"]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    head_sha = json.loads((studio_root / "prom-iso" / "session.json").read_text("utf-8"))[
+        "head_sha256"
+    ]
+
+    # Greenfield promote writes `general_graph_a_ontology.yaml`, leaving PE contract untouched
+    gen_contract = ws / "general_graph_a_ontology.yaml"
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "promote",
+                "-s",
+                "prom-iso",
+                "-w",
+                str(ws),
+                "--workspace-sha256",
+                "0" * 64,
+                "--head-sha256",
+                head_sha,
+                "-r",
+                "Initial greenfield promotion of general ontology",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert pe_file.read_text(encoding="utf-8") == pe_raw
+    assert gen_contract.is_file()
+
+    # Session status is now PROMOTED
+    assert app_main(["ontology", "studio", "status", "-s", "prom-iso", "--json"]) == 0
+    st_out = json.loads(capsys.readouterr().out)
+    assert st_out["status"] == "PROMOTED"
+
+    # Re-promoting identical ontology fails with exit 1 NO_OP_DELTA
+    ws_sha = compute_ontology_sha256(
+        GraphAOntology.model_validate(yaml.safe_load(gen_contract.read_text("utf-8")))
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "promote",
+                "-s",
+                "prom-iso",
+                "-w",
+                str(ws),
+                "--workspace-sha256",
+                ws_sha,
+                "--head-sha256",
+                head_sha,
+                "-r",
+                "Duplicate identical promotion attempt",
+                "--json",
+            ]
+        )
+        == 1
+    )
+    assert _read_cli_json(capsys)["error_code"] == "NO_OP_DELTA"
+
+    # Lineage root mismatch (unrelated workspace contract) fails with exit 5 LINEAGE_ROOT_MISMATCH
+    unrelated_ont = create_genesis_ontology(
+        domain_namespace="unrelated_lineage", enterprise_owner="Other"
+    ).model_copy(update={"ontology_version": "0.1.0"})
+    gen_contract.write_text(
+        yaml.safe_dump(unrelated_ont.model_dump(mode="json", exclude_none=True)),
+        encoding="utf-8",
+    )
+    unrelated_sha = compute_ontology_sha256(unrelated_ont)
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "promote",
+                "-s",
+                "prom-iso",
+                "-w",
+                str(ws),
+                "--workspace-sha256",
+                unrelated_sha,
+                "--head-sha256",
+                head_sha,
+                "-r",
+                "Attempt promote across mismatched lineage root",
+                "--json",
+            ]
+        )
+        == 5
+    )
+    assert _read_cli_json(capsys)["error_code"] == "LINEAGE_ROOT_MISMATCH"
+
+
+def test_r3_s5_maj03_canonical_error_codes_and_exit_parity(
+    studio_env: tuple[Path, Path], capsys: pytest.CaptureFixture[str]
+) -> None:
+    """S5-MAJ-03: Every error code in ontology_studio.py is in ErrorCode + exit code parity."""
+    import ast
+
+    import opendv_cli.commands.ontology_studio as studio_mod
+    from opendv_contracts.errors import ErrorCode
+
+    registered = {e.value for e in ErrorCode}
+    src = Path(studio_mod.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+
+    found_codes: list[str] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "_err"
+            and len(node.args) >= 2
+            and isinstance(node.args[1], ast.Constant)
+            and isinstance(node.args[1].value, str)
+        ):
+            found_codes.append(node.args[1].value)
+        elif isinstance(node, ast.Dict):
+            for k, v in zip(node.keys, node.values, strict=False):
+                if (
+                    isinstance(k, ast.Constant)
+                    and k.value == "error_code"
+                    and isinstance(v, ast.Constant)
+                    and isinstance(v.value, str)
+                ):
+                    found_codes.append(v.value)
+
+    assert len(found_codes) >= 25
+    unregistered = sorted({c for c in found_codes if c not in registered})
+    assert unregistered == [], f"Unregistered error codes in ontology_studio.py: {unregistered}"
+
+    ws, _studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+    app_main(["ontology", "studio", "create", "-s", "parity-sess", "--json"])
+    capsys.readouterr()
+
+    # Empty delta apply -> exit 1 NO_OP_DELTA
+    empty_delta = ws / "empty_delta.json"
+    empty_delta.write_text(json.dumps({"operations": []}), encoding="utf-8")
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "parity-sess",
+                "-f",
+                str(empty_delta),
+                "--json",
+            ]
+        )
+        == 1
+    )
+    assert _read_cli_json(capsys)["error_code"] == "NO_OP_DELTA"
+
+    # Missing upload --file -> exit 3 FILE_NOT_FOUND
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "upload",
+                "-s",
+                "parity-sess",
+                "-f",
+                str(ws / "missing_doc.pdf"),
+                "--json",
+            ]
+        )
+        == 3
+    )
+    assert _read_cli_json(capsys)["error_code"] == "FILE_NOT_FOUND"
+
+    # Missing bundle import --file -> exit 3 FILE_NOT_FOUND
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "bundle",
+                "import",
+                "-f",
+                str(ws / "missing_bundle.zip"),
+                "--json",
+            ]
+        )
+        == 3
+    )
+    assert _read_cli_json(capsys)["error_code"] == "FILE_NOT_FOUND"
+
+    # S3-R4-MAJ-02: bundle import --force with editor role -> exit 7 FORBIDDEN_ADMIN_REQUIRED
+    dummy_zip = ws / "dummy.odvstudio.zip"
+    dummy_zip.write_bytes(b"PK\x05\x06" + b"\x00" * 18)
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "bundle",
+                "import",
+                "-f",
+                str(dummy_zip),
+                "--force",
+                "--role",
+                "editor",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    assert _read_cli_json(capsys)["error_code"] == "FORBIDDEN_ADMIN_REQUIRED"

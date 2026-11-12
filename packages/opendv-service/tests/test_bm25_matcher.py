@@ -299,15 +299,16 @@ def test_fibo_grounding_verifier_real_pack() -> None:
     assert result.score >= 0.6500
     assert result.matched_uri == legal_entity_uri
 
-    # 2. Test query fallback when no candidate list given
+    # 2. Zero-mapping candidate list MUST return is_grounded=False (CRIT-01 / P05::MAJ-03)
     result_query = verifier.verify_grounding(
         concept_uri="urn:ontology:entity:board_agreement",
         candidates=[],
         concept_name="Board Agreement",
     )
-    assert result_query.is_grounded is True
-    assert result_query.score >= 0.6500
-    assert "BoardAgreement" in (result_query.matched_uri or "")
+    assert result_query.is_grounded is False
+    assert result_query.score == 0.0
+    assert result_query.matched_uri is None
+    assert any("BoardAgreement" in d for d in result_query.diagnostics)
 
     # 3. Test ungrounded concept
     result_unmatched = verifier.verify_grounding(
@@ -328,9 +329,9 @@ def test_fibo_grounding_verifier_real_pack() -> None:
     assert result_broad.is_grounded is False
 
 
-def test_fibo_verifier_tampered_pack_raises_exit_4(tmp_path: Path) -> None:
+def test_fibo_verifier_tampered_pack_raises_exit_1_500(tmp_path: Path) -> None:
     """Verify that a corrupted pack digest raises ReferenceOntologyCorruptError
-    (exit 4 / HTTP 422).
+    (exit 1 / HTTP 500 per authoritative error catalog).
     """
     corrupt_pack = tmp_path / "fibo-core-bebd6ae8.json"
     corrupt_pack.write_text(
@@ -352,8 +353,8 @@ def test_fibo_verifier_tampered_pack_raises_exit_4(tmp_path: Path) -> None:
     with pytest.raises(ReferenceOntologyCorruptError) as exc_info:
         FiboPackGroundingVerifier(loader=loader)
 
-    assert exc_info.value.exit_code == 4
-    assert exc_info.value.http_status == 422
+    assert exc_info.value.exit_code == 1
+    assert exc_info.value.http_status == 500
     assert exc_info.value.error_code_symbol == "REFERENCE_ONTOLOGY_CORRUPT"
 
 
@@ -639,3 +640,46 @@ def test_bm25_test_vectors_json() -> None:
             assert scored.normalized_score <= vec["expected_max_score"]
         if "is_grounded" in vec:
             assert (scored.normalized_score >= float(GROUNDING_THRESHOLD)) == vec["is_grounded"]
+
+
+def test_fibo_verifier_uses_concept_name_and_synonyms_not_uri_slug() -> None:
+    """CRIT-02: Verify verifier scores canonical concept_name + synonyms rather than URI slug."""
+    from opendv_service.ontology import get_default_grounding_verifier
+
+    verifier = get_default_grounding_verifier()
+    assert get_default_grounding_verifier() is verifier
+    legal_entity_uri = (
+        "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity"
+    )
+
+    # Misleading URI slug matching LegalEntity MUST NOT ground an unrelated concept_name
+    spoofed = verifier.verify_grounding(
+        concept_uri="urn:ontology:entity:legal_entity",
+        concept_name="Quantum Toaster",
+        synonyms=(),
+        candidates=[
+            {
+                "target_uri": legal_entity_uri,
+                "predicate": "skos:exactMatch",
+                "mapping_confidence": 0.99,
+            }
+        ],
+    )
+    assert spoofed.is_grounded is False
+
+    # Opaque URI slug WITH valid synonym 'Legal Entity' MUST ground cleanly
+    via_synonym = verifier.verify_grounding(
+        concept_uri="urn:ontology:entity:ent_001",
+        concept_name="Institutional Counterparty",
+        synonyms=["Legal Entity"],
+        candidates=[
+            {
+                "target_uri": legal_entity_uri,
+                "predicate": "skos:closeMatch",
+                "mapping_confidence": 0.90,
+            }
+        ],
+    )
+    assert via_synonym.is_grounded is True
+    assert via_synonym.score >= 0.6500
+    assert via_synonym.matched_uri == legal_entity_uri

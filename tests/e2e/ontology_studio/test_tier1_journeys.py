@@ -17,9 +17,10 @@ from typing import Any
 from starlette.testclient import TestClient
 
 from opendv_cli.main import app_main
+from opendv_core.genesis import create_genesis_ontology
+from opendv_core.ontology_hashing import compute_ontology_sha256
 from opendv_service.construction.clarification_harness import EMPTY_ANSWERS_SHA256
 from opendv_service.studio.session_manager import (
-    GENESIS_DRAFT_SHA256,
     GENESIS_VERSION,
     StudioSessionManager,
 )
@@ -43,9 +44,15 @@ def test_journey_1_greenfield_genesis(
     )
     assert create_resp.status_code == 201, create_resp.text
     session_data = create_resp.json()
+    expected_genesis_sha = compute_ontology_sha256(
+        create_genesis_ontology(
+            domain_namespace="private_equity",
+            enterprise_owner=session_data["enterprise_owner"],
+        )
+    )
     assert session_data["session_id"] == session_id
     assert session_data["active_version"] == GENESIS_VERSION
-    assert session_data["head_sha256"] == GENESIS_DRAFT_SHA256
+    assert session_data["head_sha256"] == expected_genesis_sha
 
     # 2. Upload Sources (tabular funds and portfolio companies)
     with pe_source_fixtures["funds"].open("rb") as f:
@@ -133,12 +140,14 @@ def test_journey_1_greenfield_genesis(
                 ],
             },
         ],
+        "low_confidence_waiver": True,
+        "grounding_rationale": "Approved PE genesis concepts for Journey 1 lifecycle verification.",
     }
 
     commit_resp = studio_client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/delta",
         json=delta_payload,
-        headers={**auth_headers, "If-Match": f'"{GENESIS_DRAFT_SHA256}"'},
+        headers={**auth_headers, "If-Match": f'"{expected_genesis_sha}"'},
     )
     assert commit_resp.status_code == 200, commit_resp.text
     commit_data = commit_resp.json()
@@ -179,11 +188,12 @@ def test_journey_2_fibo_grounding(
     """Journey 2: FIBO grounding verification with confidence >= 0.6500 passes without waiver."""
     session_id = "journey-fibo-02"
 
-    studio_client.post(
+    create_resp = studio_client.post(
         "/api/v1/ontology/studio/sessions",
         json={"session_id": session_id, "domain_namespace": "wealth_mgmt"},
         headers=auth_headers,
     )
+    genesis_sha = create_resp.json()["head_sha256"]
 
     # Ingest Banking Table
     with wm_source_fixtures["parties"].open("rb") as f:
@@ -207,13 +217,19 @@ def test_journey_2_fibo_grounding(
                 "op_id": "op-add-party",
                 "op_type": "add_concept",
                 "concept_uri": "urn:ontology:entity:party",
-                "concept_name": "Party",
-                "definition": "An autonomous legal or natural person.",
+                "concept_name": "ContractParty",
+                "definition": (
+                    "A legally competent party that has entered into a binding agreement."
+                ),
                 "target_hub": "hub_party",
                 "external_mappings": [
                     {
                         "scheme": "fibo",
-                        "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/Agents/AutonomousAgent",
+                        "predicate": "skos:exactMatch",
+                        "target_uri": (
+                            "https://spec.edmcouncil.org/fibo/ontology/FND/"
+                            "Agreements/Contracts/ContractParty"
+                        ),
                         "confidence": 0.8850,
                     }
                 ],
@@ -228,6 +244,7 @@ def test_journey_2_fibo_grounding(
                 "external_mappings": [
                     {
                         "scheme": "fibo",
+                        "predicate": "skos:exactMatch",
                         "target_uri": (
                             "https://spec.edmcouncil.org/fibo/ontology/FBC/"
                             "FinancialInstruments/FinancialInstruments/FinancialInstrument"
@@ -242,7 +259,7 @@ def test_journey_2_fibo_grounding(
     resp = studio_client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/delta",
         json=delta_payload,
-        headers={**auth_headers, "If-Match": f'"{GENESIS_DRAFT_SHA256}"'},
+        headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
     )
     assert resp.status_code == 200, resp.text
     result = resp.json()
@@ -257,11 +274,12 @@ def test_journey_3_multiversion_evolution(
     """Journey 3: Multi-version evolution: v1.0.0 -> Minor v1.1.0 -> Patch v1.1.1 with lineage."""
     session_id = "journey-evolution-03"
 
-    studio_client.post(
+    create_resp = studio_client.post(
         "/api/v1/ontology/studio/sessions",
         json={"session_id": session_id, "domain_namespace": "wealth_mgmt"},
         headers=auth_headers,
     )
+    genesis_sha = create_resp.json()["head_sha256"]
 
     # 1. Commit v1.0.0
     v1_delta = {
@@ -288,11 +306,13 @@ def test_journey_3_multiversion_evolution(
                 ],
             }
         ],
+        "low_confidence_waiver": True,
+        "grounding_rationale": "Approved customer concept for Journey 3 evolution test.",
     }
     r1 = studio_client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/delta",
         json=v1_delta,
-        headers={**auth_headers, "If-Match": f'"{GENESIS_DRAFT_SHA256}"'},
+        headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
     )
     assert r1.status_code == 200, r1.text
     sha_v1 = r1.json()["target_sha256"]
@@ -315,6 +335,8 @@ def test_journey_3_multiversion_evolution(
                 "description": "Standard bureau credit score",
             }
         ],
+        "low_confidence_waiver": True,
+        "grounding_rationale": "Approved attribute addition on customer concept.",
     }
     r2 = studio_client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/delta",
@@ -341,6 +363,8 @@ def test_journey_3_multiversion_evolution(
                 "synonym": "Client",
             }
         ],
+        "low_confidence_waiver": True,
+        "grounding_rationale": "Approved synonym addition on customer concept.",
     }
     r3 = studio_client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/delta",
@@ -407,12 +431,15 @@ def test_journey_4_workspace_promotion(
                 ],
             }
         ],
+        "low_confidence_waiver": True,
+        "grounding_rationale": "Approved portfolio concept for Journey 4 promotion test.",
     }
     commit_resp = studio_client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/delta",
         json=delta_payload,
         headers={**auth_headers, "If-Match": f'"{head_sha}"'},
     )
+    assert commit_resp.status_code == 200, commit_resp.text
     v1_sha256 = commit_resp.json()["target_sha256"]
 
     # Execute Promotion to Workspace
@@ -441,16 +468,16 @@ def test_journey_4_workspace_promotion(
     assert promoted_file.is_file()
     assert len(promoted_file.read_bytes()) > 0
 
-    # Verify session directory contains promotion.json
-    session_dir = studio_root / session_id
-    assert (session_dir / "promotion.json").is_file()
+    # Verify session metadata records promoted version
+    session_mgr_check = StudioSessionManager(studio_root=studio_root)
+    assert "v1.0.0" in session_mgr_check.get_session(session_id).promoted_versions
 
-    # Verify deleting promoted session without force is rejected
+    # Verify deleting promoted session without force is rejected with 409
     del_fail = studio_client.delete(
         f"/api/v1/ontology/studio/sessions/{session_id}",
         headers=auth_headers,
     )
-    assert del_fail.status_code == 422
+    assert del_fail.status_code == 409
     assert del_fail.json()["error_code"] == "CANNOT_DELETE_PROMOTED_SESSION"
 
 

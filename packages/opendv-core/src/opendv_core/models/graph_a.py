@@ -260,7 +260,7 @@ class ExternalMapping(StrictGraphAModel):
 class CanonicalBusinessConcept(StrictGraphAModel):
     """Core Business Concept (CBC) node in Graph A mapping to a Data Vault 2.0 Hub."""
 
-    concept_uri: str = Field(pattern=r"^urn:ontology:entity:[a-z0-9_]+$")
+    concept_uri: str = Field(pattern=r"^urn:(ontology:entity|opendv:concept):[a-z0-9_]+$")
     concept_name: str = Field(default="")
     elm_archetype: str = Field(default="CORE_CONCEPT")
     definition: str = Field(default="Canonical business concept.")
@@ -393,7 +393,9 @@ class YagniCostGuardPolicy(StrictGraphAModel):
 class CanonicalRelationship(StrictGraphAModel):
     """Unit-of-Work Relationship / Event edge in Graph A mapping to a Data Vault 2.0 Link."""
 
-    relationship_uri: str = Field(pattern=r"^urn:ontology:(event|relationship):[a-z0-9_]+$")
+    relationship_uri: str = Field(
+        pattern=r"^urn:(ontology:(event|relationship)|opendv:(event|relationship)):[a-z0-9_]+$"
+    )
     relationship_name: str = Field(default="")
     target_link: str = Field(pattern=r"^(lnk|t_lnk|nh_lnk|sal|hal|x_lnk)_[a-z0-9_]+$")
     endpoints: list[str] = Field(min_length=2)
@@ -438,7 +440,7 @@ class CanonicalRelationship(StrictGraphAModel):
 class ReferenceEnumeration(StrictGraphAModel):
     """Reference enumeration specification in Graph A mapping to a `ref_*` table."""
 
-    enum_uri: str = Field(pattern=r"^urn:ontology:enum:[a-z0-9_]+$")
+    enum_uri: str = Field(pattern=r"^urn:(ontology|opendv):enum:[a-z0-9_]+$")
     target_reference_table: str = Field(pattern=r"^ref_[a-z0-9_]+$")
     allowed_codes: list[str] = Field(min_length=1)
 
@@ -490,7 +492,7 @@ class GraphAOntology(StrictGraphAModel):
     domain_namespace: str = Field(default="general", pattern=r"^[a-z][a-z0-9_]*$")
     enterprise_owner: str = Field(default="Enterprise Architecture", min_length=2)
     standards_references: list[str] = Field(default_factory=list)
-    canonical_business_concepts: list[CanonicalBusinessConcept] = Field(min_length=1)
+    canonical_business_concepts: list[CanonicalBusinessConcept] = Field(default_factory=list)
     canonical_relationships: list[CanonicalRelationship] = Field(default_factory=list)
     reference_enumerations: list[ReferenceEnumeration] = Field(default_factory=list)
     ontology_id: str | None = None
@@ -533,7 +535,20 @@ class GraphAOntology(StrictGraphAModel):
         ):
             msg = f"version '{self.version}' != ontology_version '{self.ontology_version}'"
             raise ValueError(f"VERSION_CONSISTENCY_MISMATCH: {msg}")
+        major = int(self.ontology_version.split(".", 1)[0])
+        if major >= 1 and len(self.canonical_business_concepts) < 1:
+            raise ValueError(
+                "ONTOLOGY_REQUIRES_CONCEPT: canonical_business_concepts must contain at least "
+                f"1 concept for ontology_version '{self.ontology_version}' (>= 1.0.0)"
+            )
         return self
+
+    def get_concept(self, concept_uri: str) -> CanonicalBusinessConcept | None:
+        """Look up a Canonical Business Concept by its canonical URN."""
+        for concept in self.canonical_business_concepts:
+            if concept.concept_uri == concept_uri:
+                return concept
+        return None
 
     @model_validator(mode="after")
     def _validate_concept_hierarchy(self) -> Self:

@@ -12,10 +12,12 @@ Tests:
 
 from __future__ import annotations
 
+import csv
 import hashlib
 import io
 import json
 import subprocess
+import time
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -25,6 +27,7 @@ import pyarrow.parquet as pq
 import pytest
 
 from opendv_contracts.dtos.ingestion import (
+    EvidenceChunk,
     IngestionResult,
     PageMapEntry,
     TaintClassification,
@@ -173,6 +176,25 @@ class TestMarkdownDocumentAdapter:
         with pytest.raises(DocumentExtractionError, match="does not match computed digest"):
             adapter.parse_bytes(content, filename="test.md", source_sha256="0" * 64)
 
+    def test_max_bytes_guard_raises_invalid_document_error(self) -> None:
+        """Regression P04::MAJ-03: Enforce payload byte limit on Markdown ingestion."""
+        adapter = MarkdownDocumentAdapter(max_bytes=64)
+        with pytest.raises(InvalidDocumentError, match="exceeds maximum allowed size"):
+            adapter.parse_bytes(b"# Heading\n\n" + b"x" * 100, filename="oversized.md")
+
+    def test_markdown_linear_time_on_misaligned_double_spaced_lines(self) -> None:
+        """Regression P04::MAJ-03: 20,000 misaligned 2-column lines parse in < 0.5s."""
+        lines = "\n".join(f"{'k' * ((i * 13) % 29 + 1)}  val_{i}" for i in range(20_000))
+        payload = f"# Log Output\n\n{lines}\n".encode()
+        adapter = MarkdownDocumentAdapter()
+
+        t0 = time.perf_counter()
+        result = adapter.parse_bytes(payload, filename="logs.md")
+        elapsed = time.perf_counter() - t0
+
+        assert result.tables == []
+        assert elapsed < 0.5, f"Markdown table scan quadratic regression: {elapsed:.3f}s"
+
 
 # =============================================================================
 # 2. DelimitedTabularAdapter Tests (CSV / TSV)
@@ -244,6 +266,25 @@ class TestDelimitedTabularAdapter:
         with pytest.raises(InvalidDocumentError, match="is empty"):
             adapter.parse_bytes(b"", filename="empty.csv")
 
+    def test_malformed_csv_raising_csv_error_wrapped_in_invalid_document_error(self) -> None:
+        """Regression 040b4599::MAJ-07: csv.Error is translated to typed InvalidDocumentError."""
+        adapter = DelimitedTabularAdapter()
+        # Trigger real _csv.Error ("field larger than field limit") in C csv.reader
+        orig_limit = csv.field_size_limit(64)
+        try:
+            oversized_csv = b"id,name\n1," + (b"A" * 128) + b"\n"
+            with pytest.raises(InvalidDocumentError, match=r"Malformed CSV/TSV payload"):
+                adapter.parse_bytes(oversized_csv, filename="oversized_field.csv")
+        finally:
+            csv.field_size_limit(orig_limit)
+
+        # Also verify unclosed quote / strict dialect csv.Error translation
+        with (
+            patch("csv.reader", side_effect=csv.Error("unexpected end of data")),
+            pytest.raises(InvalidDocumentError, match="unexpected end of data"),
+        ):
+            adapter.parse_bytes(b'col1,col2\n"unclosed,val2\n', filename="bad_quote.csv")
+
 
 # =============================================================================
 # 3. PyArrowTabularAdapter Tests (Parquet)
@@ -311,6 +352,85 @@ class TestPyArrowTabularAdapter:
             adapter = PyArrowTabularAdapter()
             with pytest.raises(UnsupportedFormatError, match="PyArrow library is not installed"):
                 adapter.parse_bytes(sample_parquet_bytes, filename="test.parquet")
+
+    def test_parquet_iter_batches_bounds_preview_rows_and_cell_sizes(self) -> None:
+        """Regression P04::MAJ-01: Stream bounded preview batch via iter_batches without read()."""
+        table = pa.Table.from_pydict(
+            {
+                "id": list(range(5_000)),
+                "payload": ["Z" * 2_000 for _ in range(5_000)],
+            }
+        )
+        sink = io.BytesIO()
+        pq.write_table(table, sink, use_dictionary=True)
+        parquet_bytes = sink.getvalue()
+
+        adapter = PyArrowTabularAdapter(preview_rows=20, max_preview_cell_chars=128)
+        with (
+            patch.object(
+                pq.ParquetFile,
+                "read_row_group",
+                side_effect=AssertionError("read_row_group must not be called"),
+            ),
+            patch.object(
+                pq.ParquetFile,
+                "read",
+                side_effect=AssertionError("ParquetFile.read must not be called"),
+            ),
+        ):
+            result = adapter.parse_bytes(parquet_bytes, filename="dict_encoded.parquet")
+
+        assert result.metadata["num_rows"] == 5_000
+        assert len(result.tables) == 1
+        assert len(result.tables[0].rows) == 20
+        cell_val = result.tables[0].rows[0][1]
+        assert cell_val.endswith("…[TRUNCATED]")
+        assert len(cell_val) == 128 + len("…[TRUNCATED]")
+
+    def test_parquet_input_size_and_compression_bomb_guards(
+        self, sample_parquet_bytes: bytes
+    ) -> None:
+        """Regression P04::MAJ-01: Reject oversized Parquet inputs and RLE/dictionary bombs."""
+        from opendv_contracts.errors import PayloadTooLargeError
+
+        tiny_limit_adapter = PyArrowTabularAdapter(max_input_bytes=32)
+        with pytest.raises(PayloadTooLargeError) as exc_info:
+            tiny_limit_adapter.parse_bytes(sample_parquet_bytes, filename="too_big.parquet")
+        assert isinstance(exc_info.value, InvalidDocumentError)
+        assert exc_info.value.http_status == 413
+
+        # Uncompressed row-group byte bomb (gzip-compressed repetitive pages)
+        bomb_table = pa.Table.from_pydict({"blob": ["X" * 1_024 for _ in range(2_000)]})
+        bomb_sink = io.BytesIO()
+        pq.write_table(bomb_table, bomb_sink, use_dictionary=False, compression="gzip")
+        bomb_bytes = bomb_sink.getvalue()
+
+        strict_bomb_adapter = PyArrowTabularAdapter(max_uncompressed_bytes=64 * 1024)
+        with pytest.raises(PayloadTooLargeError, match="uncompressed row-group size exceeds"):
+            strict_bomb_adapter.parse_bytes(bomb_bytes, filename="gzip_bomb.parquet")
+
+        # Dictionary/RLE extreme row-count metadata bomb
+        rle_sink = io.BytesIO()
+        pq.write_table(bomb_table, rle_sink, use_dictionary=True)
+        row_cap_adapter = PyArrowTabularAdapter(max_metadata_rows=500)
+        with pytest.raises(PayloadTooLargeError, match="exceeding maximum allowed row count"):
+            row_cap_adapter.parse_bytes(rle_sink.getvalue(), filename="rle_bomb.parquet")
+
+        # MemoryError / RecursionError during iter_batches translated cleanly
+        adapter = PyArrowTabularAdapter()
+        with (
+            patch.object(pq.ParquetFile, "iter_batches", side_effect=MemoryError("arrow oom")),
+            pytest.raises(PayloadTooLargeError, match="exhausted memory"),
+        ):
+            adapter.parse_bytes(sample_parquet_bytes, filename="oom.parquet")
+
+        with (
+            patch.object(
+                pq.ParquetFile, "iter_batches", side_effect=RecursionError("nested struct")
+            ),
+            pytest.raises(InvalidDocumentError, match="recursion limits"),
+        ):
+            adapter.parse_bytes(sample_parquet_bytes, filename="deep_parquet.parquet")
 
 
 # =============================================================================
@@ -414,6 +534,60 @@ class TestStructuredDataDocumentAdapter:
         adapter = StructuredDataDocumentAdapter()
         with pytest.raises(InvalidDocumentError, match="Invalid YAML payload"):
             adapter.parse_bytes(b"key: [unclosed flow\nother: {bad", filename="bad.yaml")
+
+    def test_yaml_billion_laughs_exponential_dag_rejected(self) -> None:
+        """Regression P04::MAJ-04 & 040b4599::MAJ-07: YAML billion-laughs bomb fails fast."""
+        bomb_lines = ['a0: &a0 ["x", "x", "x", "x", "x", "x", "x", "x", "x", "x"]']
+        for level in range(1, 9):
+            prev = f"*a{level - 1}"
+            bomb_lines.append(f"a{level}: &a{level} [{', '.join([prev] * 10)}]")
+        yaml_bomb = ("\n".join(bomb_lines) + "\n").encode("utf-8")
+
+        adapter = StructuredDataDocumentAdapter()
+        t0 = time.perf_counter()
+        with pytest.raises(InvalidDocumentError, match="maximum expanded node count"):
+            adapter.parse_bytes(yaml_bomb, filename="billion_laughs.yaml")
+        elapsed = time.perf_counter() - t0
+        assert elapsed < 0.5, f"YAML bomb defense took too long: {elapsed:.3f}s"
+
+    def test_yaml_cyclic_anchor_and_alias_flood_rejected(self) -> None:
+        """Regression 040b4599::MAJ-07: Reject cyclic YAML anchors and excessive alias counts."""
+        adapter = StructuredDataDocumentAdapter()
+
+        # 1. Cyclic anchor graph
+        cyclic_yaml = b"node: &self\n  child: *self\n"
+        with pytest.raises(InvalidDocumentError, match="Cyclic reference detected"):
+            adapter.parse_bytes(cyclic_yaml, filename="cycle.yaml")
+
+        # 2. Alias count exceeding _BoundedSafeLoader.max_aliases (1000)
+        alias_flood = ("base: &b 1\nitems: [" + ", ".join(["*b"] * 1050) + "]\n").encode("utf-8")
+        with pytest.raises(InvalidDocumentError, match="alias expansion count exceeds maximum"):
+            adapter.parse_bytes(alias_flood, filename="alias_flood.yaml")
+
+    def test_deep_json_and_yaml_brackets_raise_invalid_document_error_fast(self) -> None:
+        """Regression P04::MAJ-02: Pre-parse guard blocks '[' * 5000 without RecursionError."""
+        adapter = StructuredDataDocumentAdapter(max_depth=32)
+
+        for fname, deep_payload in (
+            ("deep_closed.json", b"[" * 5000 + b"]" * 5000),
+            ("deep_unclosed.json", b"[" * 5000),
+            ("deep_line.jsonl", b"[" * 5000 + b"]" * 5000 + b"\n"),
+            ("deep_flow.yaml", b"[" * 5000 + b"]" * 5000),
+            (
+                "deep_block.yaml",
+                "".join(f"{'  ' * d}k{d}:\n" for d in range(80)).encode("utf-8")
+                + ("  " * 80 + "leaf: 1\n").encode("utf-8"),
+            ),
+        ):
+            t0 = time.perf_counter()
+            with pytest.raises(InvalidDocumentError, match="exceeds maximum recursion depth"):
+                adapter.parse_bytes(deep_payload, filename=fname)
+            assert time.perf_counter() - t0 < 0.25
+
+        # Quoted brackets inside strings must NOT trigger false-positive rejection
+        quoted_brackets = json.dumps({"pattern": "[" * 5000}).encode("utf-8")
+        res = adapter.parse_bytes(quoted_brackets, filename="quoted_safe.json")
+        assert res.metadata["max_depth"] == 2
 
 
 # =============================================================================
@@ -553,19 +727,44 @@ class TestLibreOfficeDocumentAdapter:
                 b"some docx bytes", filename="spec.docx", source_sha256="bad" + "0" * 61
             )
 
-    def test_mock_successful_conversion_delegates_to_liteparse(self, tmp_path: Path) -> None:
+    def test_mock_successful_conversion_delegates_to_liteparse(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         office_bytes = b"fake docx binary content for testing"
         expected_sha = hashlib.sha256(office_bytes).hexdigest()
+        mock_pdf_payload = b"%PDF-1.5 mock pdf payload"
+        expected_pdf_sha = hashlib.sha256(mock_pdf_payload).hexdigest()
 
-        # Create a mock LiteParse adapter that returns a valid IngestionResult
+        # Create a mock LiteParse adapter returning chunks stamped with intermediate PDF SHA-256
         mock_pdf_adapter = MagicMock(spec=LiteParseDocumentAdapter)
         mock_pdf_adapter.parse_bytes.return_value = IngestionResult(
             document_id="doc_converted_1",
             filename="document.pdf",
             mime_type="application/pdf",
             total_pages=2,
-            total_characters=150,
-            chunks=[],
+            total_characters=45,
+            chunks=[
+                EvidenceChunk(
+                    chunk_id="chk_1",
+                    document_id="doc_converted_1",
+                    text="Page 1 converted text.",
+                    page_number=1,
+                    start_char=0,
+                    end_char=22,
+                    taint=TaintClassification.INTERNAL,
+                    source_sha256="intermediate_pdf_sha",
+                ),
+                EvidenceChunk(
+                    chunk_id="chk_2",
+                    document_id="doc_converted_1",
+                    text="Page 2 converted text.",
+                    page_number=2,
+                    start_char=23,
+                    end_char=45,
+                    taint=TaintClassification.INTERNAL,
+                    source_sha256="intermediate_pdf_sha",
+                ),
+            ],
             page_map=[
                 PageMapEntry(
                     page_number=1,
@@ -576,8 +775,8 @@ class TestLibreOfficeDocumentAdapter:
                 PageMapEntry(
                     page_number=2,
                     text="Page 2 converted text.",
-                    start_offset=22,
-                    end_offset=44,
+                    start_offset=23,
+                    end_offset=45,
                 ),
             ],
             tables=[],
@@ -591,23 +790,32 @@ class TestLibreOfficeDocumentAdapter:
             soffice_path="mock_soffice", pdf_adapter=mock_pdf_adapter
         )
 
-        def mock_subprocess_run(
-            cmd: list[str], **kwargs: Any
-        ) -> subprocess.CompletedProcess[bytes]:
-            # Simulate soffice creating a PDF in the output dir
+        # Inject fake secrets into os.environ to verify sanitized subprocess environment
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-secret-do-not-leak")
+        monkeypatch.setenv("DATABASE_URL", "postgresql://secret")
+
+        captured_popen: dict[str, Any] = {}
+
+        def mock_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_popen["cmd"] = cmd
+            captured_popen["kwargs"] = kwargs
             out_dir_str = cmd[cmd.index("--outdir") + 1]
             out_dir = Path(out_dir_str)
             input_file = Path(cmd[-1])
             pdf_path = out_dir / f"{input_file.stem}.pdf"
-            pdf_path.write_bytes(b"%PDF-1.5 mock pdf payload")
-            return subprocess.CompletedProcess(args=cmd, returncode=0, stdout=b"", stderr=b"")
+            pdf_path.write_bytes(mock_pdf_payload)
+
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate.return_value = (b"", b"")
+            return proc
 
         with (
             patch(
                 "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
                 return_value="mock_soffice",
             ),
-            patch("subprocess.run", side_effect=mock_subprocess_run),
+            patch("subprocess.Popen", side_effect=mock_popen),
         ):
             result = adapter.parse_bytes(
                 office_bytes,
@@ -621,23 +829,47 @@ class TestLibreOfficeDocumentAdapter:
             assert result.metadata["office_converted"] is True
             assert result.metadata["conversion_engine"] == "libreoffice"
             assert result.metadata["original_filename"] == "business_requirements.docx"
+            assert result.metadata["intermediate_pdf_sha256"] == expected_pdf_sha
             assert result.total_pages == 2
             mock_pdf_adapter.parse_bytes.assert_called_once()
+
+            # P04::MAJ-01: Every EvidenceChunk must carry original Office SHA-256 & doc_id & taint!
+            assert len(result.chunks) == 2
+            for chunk in result.chunks:
+                assert chunk.source_sha256 == expected_sha
+                assert chunk.source_sha256 != "intermediate_pdf_sha"
+                assert chunk.document_id == result.document_id
+                assert chunk.taint == TaintClassification.CONFIDENTIAL
+
+            # 040b4599::MAJ-08: Verify hardened flags and sanitized environment
+            cmd_used = captured_popen["cmd"]
+            for required_flag in (
+                "--headless",
+                "--norestore",
+                "--nolockcheck",
+                "--nodefault",
+                "--nofirststartwizard",
+            ):
+                assert required_flag in cmd_used
+            child_env = captured_popen["kwargs"]["env"]
+            assert "OPENAI_API_KEY" not in child_env
+            assert "DATABASE_URL" not in child_env
 
     def test_conversion_failure_raises_extraction_error(self) -> None:
         adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
 
-        def mock_failed_run(cmd: list[str], **kwargs: Any) -> subprocess.CompletedProcess[bytes]:
-            return subprocess.CompletedProcess(
-                args=cmd, returncode=1, stdout=b"", stderr=b"Error: corrupt document"
-            )
+        def mock_failed_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+            proc = MagicMock()
+            proc.returncode = 1
+            proc.communicate.return_value = (b"", b"Error: corrupt document")
+            return proc
 
         with (
             patch(
                 "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
                 return_value="mock_soffice",
             ),
-            patch("subprocess.run", side_effect=mock_failed_run),
+            patch("subprocess.Popen", side_effect=mock_failed_popen),
             pytest.raises(
                 DocumentExtractionError,
                 match=r"failed on 'broken\.odt' with exit code 1",
@@ -645,11 +877,237 @@ class TestLibreOfficeDocumentAdapter:
         ):
             adapter.parse_bytes(b"corrupt", filename="broken.odt")
 
+    def test_conversion_timeout_terminates_process_tree(self) -> None:
+        """Regression 040b4599::MAJ-08: Timeout kills soffice process tree cleanly."""
+        adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice", timeout_seconds=1)
+        mock_proc = MagicMock()
+        mock_proc.pid = 42424
+        mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd="soffice", timeout=1)
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen", return_value=mock_proc),
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter._terminate_process_tree"
+            ) as mock_kill_tree,
+            pytest.raises(DocumentExtractionError, match="timed out after 1s"),
+        ):
+            adapter.parse_bytes(b"slow docx payload", filename="hang.docx")
+
+        mock_kill_tree.assert_called_once_with(mock_proc)
+
     def test_find_soffice_binary_custom_path(self, tmp_path: Path) -> None:
         fake_bin = tmp_path / "soffice.exe"
         fake_bin.write_bytes(b"fake exe")
         found = find_soffice_binary(str(fake_bin))
         assert found == str(fake_bin.resolve())
+
+    def test_libreoffice_zip_bomb_and_max_input_bytes_hardening(self) -> None:
+        """Regression P04::MAJ-03: Enforce max_input_bytes and reject >200 MB / >100:1 ZIP bombs."""
+        import zipfile
+
+        from opendv_contracts.errors import ErrorCode, PayloadTooLargeError
+
+        small_cap_adapter = LibreOfficeDocumentAdapter(max_input_bytes=64)
+        with pytest.raises(PayloadTooLargeError) as exc_size:
+            small_cap_adapter.parse_bytes(b"X" * 128, filename="oversized.docx")
+        assert isinstance(exc_size.value, InvalidDocumentError)
+        assert exc_size.value.http_status == 413
+
+        # High compression ratio (>100:1) ZIP bomb
+        bomb_buf = io.BytesIO()
+        with zipfile.ZipFile(bomb_buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr("word/document.xml", b"0" * 500_000)
+        bomb_bytes = bomb_buf.getvalue()
+        assert len(bomb_bytes) < 2_000
+
+        adapter = LibreOfficeDocumentAdapter()
+        with pytest.raises(InvalidDocumentError, match="ZIP bomb") as exc_bomb:
+            adapter.parse_bytes(bomb_bytes, filename="ratio_bomb.docx")
+        assert exc_bomb.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+
+        # Uncompressed byte cap (> max_uncompressed_bytes) with low compression ratio
+        uncomp_buf = io.BytesIO()
+        with zipfile.ZipFile(uncomp_buf, mode="w", compression=zipfile.ZIP_STORED) as zf:
+            zf.writestr("media/blob.bin", b"A" * 40_000)
+        capped_adapter = LibreOfficeDocumentAdapter(max_uncompressed_bytes=20_000)
+        with pytest.raises(PayloadTooLargeError, match="uncompressed size exceeds"):
+            capped_adapter.parse_bytes(uncomp_buf.getvalue(), filename="huge_uncompressed.docx")
+
+    def test_libreoffice_blocks_external_links_and_writes_hardened_xcu(self) -> None:
+        """Regression P04::MAJ-03: Block external image/OLE/DDE/WEBSERVICE; allow https links."""
+        import zipfile
+
+        from opendv_contracts.errors import ErrorCode
+
+        def _build_zip(entries: dict[str, str]) -> bytes:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for name, xml_text in entries.items():
+                    zf.writestr(name, xml_text.encode("utf-8"))
+            return buf.getvalue()
+
+        adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
+        pkg_rels_ns = "http://schemas.openxmlformats.org/package/2006/relationships"
+        off_rels_base = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+        w_ns = "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+
+        rels_open = f'<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="{pkg_rels_ns}">'
+
+        # 1. Unsafe external relationships, file:// links, field codes, WEBSERVICE, ODF section
+        unsafe_archives: list[tuple[str, dict[str, str]]] = [
+            (
+                "ext_img.docx",
+                {
+                    "word/_rels/document.xml.rels": (
+                        f"{rels_open}"
+                        f'<Relationship Id="rId1" Type="{off_rels_base}/image" '
+                        'Target="https://evil.example/beacon.png" TargetMode="External"/>'
+                        "</Relationships>"
+                    )
+                },
+            ),
+            (
+                "ext_ole.docx",
+                {
+                    "word/_rels/document.xml.rels": (
+                        f"{rels_open}"
+                        f'<Relationship Id="rId1" Type="{off_rels_base}/oleObject" '
+                        'Target="https://evil.example/obj.bin" TargetMode="External"/>'
+                        "</Relationships>"
+                    )
+                },
+            ),
+            (
+                "file_link.docx",
+                {
+                    "word/_rels/document.xml.rels": (
+                        f"{rels_open}"
+                        f'<Relationship Id="rId1" Type="{off_rels_base}/hyperlink" '
+                        'Target="file:///etc/passwd" TargetMode="External"/>'
+                        "</Relationships>"
+                    )
+                },
+            ),
+            (
+                "dde_field.docx",
+                {
+                    "word/document.xml": (
+                        f'<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="{w_ns}">'
+                        "<w:body><w:p><w:r>"
+                        r"<w:instrText>DDEAUTO c:\\windows\\system32\\cmd.exe</w:instrText>"
+                        "</w:r></w:p></w:body></w:document>"
+                    )
+                },
+            ),
+            (
+                "webservice.xlsx",
+                {
+                    "xl/worksheets/sheet1.xml": (
+                        '<?xml version="1.0" encoding="UTF-8"?>'
+                        '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
+                        '<sheetData><row r="1"><c r="A1">'
+                        '<f>WEBSERVICE("http://169.254.169.254/latest/meta-data/")</f>'
+                        "</c></row></sheetData></worksheet>"
+                    )
+                },
+            ),
+            (
+                "linked_section.odt",
+                {
+                    "content.xml": (
+                        '<?xml version="1.0" encoding="UTF-8"?>'
+                        "<office:document-content "
+                        'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+                        'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+                        'xmlns:xlink="http://www.w3.org/1999/xlink">'
+                        '<office:body><office:text><text:section text:name="Sec1">'
+                        '<text:section-source xlink:href="file:///etc/hosts"/>'
+                        "</text:section></office:text></office:body></office:document-content>"
+                    )
+                },
+            ),
+        ]
+
+        for bad_name, bad_entries in unsafe_archives:
+            with pytest.raises(InvalidDocumentError) as exc_sec:
+                adapter.parse_bytes(_build_zip(bad_entries), filename=bad_name)
+            assert exc_sec.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+
+        # 2. Normal .docx with passive https:// hyperlink & prose mentioning "DDE" MUST pass,
+        # and hardened user/registrymodifications.xcu MUST be written prior to soffice Popen!
+        safe_docx = _build_zip(
+            {
+                "word/_rels/document.xml.rels": (
+                    f"{rels_open}"
+                    f'<Relationship Id="rId1" Type="{off_rels_base}/hyperlink" '
+                    'Target="https://example.com/policy" TargetMode="External"/>'
+                    "</Relationships>"
+                ),
+                "word/document.xml": (
+                    f'<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="{w_ns}">'
+                    "<w:body><w:p><w:r>"
+                    "<w:t>Legacy DDE protocols are retired; see policy link.</w:t>"
+                    "</w:r></w:p></w:body></w:document>"
+                ),
+            }
+        )
+
+        mock_pdf_adapter = MagicMock(spec=LiteParseDocumentAdapter)
+        mock_pdf_adapter.parse_bytes.return_value = IngestionResult(
+            document_id="doc_safe",
+            filename="safe.pdf",
+            mime_type="application/pdf",
+            total_pages=1,
+            total_characters=10,
+            chunks=[],
+            page_map=[],
+            tables=[],
+            taint=TaintClassification.INTERNAL,
+            source_sha256="intermediate",
+            normalized_text="Safe text.",
+            metadata={},
+        )
+        safe_adapter = LibreOfficeDocumentAdapter(
+            soffice_path="mock_soffice", pdf_adapter=mock_pdf_adapter
+        )
+        captured_xcu: list[str] = []
+
+        def mock_safe_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+            user_inst_arg = next(a for a in cmd if a.startswith("-env:UserInstallation="))
+            from urllib.request import url2pathname
+
+            uri_val = user_inst_arg.split("=", 1)[1]
+            profile_path = Path(url2pathname(uri_val.removeprefix("file:")))
+            xcu_file = profile_path / "user" / "registrymodifications.xcu"
+            assert xcu_file.is_file()
+            captured_xcu.append(xcu_file.read_text(encoding="utf-8"))
+
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            (out_dir / f"{Path(cmd[-1]).stem}.pdf").write_bytes(b"%PDF-1.5 mock")
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate.return_value = (b"", b"")
+            return proc
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen", side_effect=mock_safe_popen),
+        ):
+            res = safe_adapter.parse_bytes(safe_docx, filename="safe_policy.docx")
+
+        assert res.filename == "safe_policy.docx"
+        assert len(captured_xcu) == 1
+        assert "MacroSecurityLevel" in captured_xcu[0]
+        assert "<value>3</value>" in captured_xcu[0]
+        assert "UpdateMode" in captured_xcu[0]
+        assert "<value>1</value>" in captured_xcu[0]
 
 
 # =============================================================================

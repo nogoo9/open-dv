@@ -162,9 +162,7 @@ console.log(JSON.stringify({ ttl, rdf, jsonld, yamlStr, jcs }));
     assert (portfolio_uri, rdflib.RDF.type, rdflib.OWL.Class) in g_ttl, (
         "Portfolio class missing in Turtle"
     )
-    assert (asset_uri, rdflib.RDF.type, rdflib.OWL.Class) in g_ttl, (
-        "Asset class missing in Turtle"
-    )
+    assert (asset_uri, rdflib.RDF.type, rdflib.OWL.Class) in g_ttl, "Asset class missing in Turtle"
 
     # 2. Test RDF/XML with rdflib
     g_rdf = rdflib.Graph()
@@ -173,9 +171,7 @@ console.log(JSON.stringify({ ttl, rdf, jsonld, yamlStr, jcs }));
     assert (portfolio_uri, rdflib.RDF.type, rdflib.OWL.Class) in g_rdf, (
         "Portfolio class missing in RDF/XML"
     )
-    assert (asset_uri, rdflib.RDF.type, rdflib.OWL.Class) in g_rdf, (
-        "Asset class missing in RDF/XML"
-    )
+    assert (asset_uri, rdflib.RDF.type, rdflib.OWL.Class) in g_rdf, "Asset class missing in RDF/XML"
 
     # 3. Test JSON-LD with rdflib
     g_jsonld = rdflib.Graph()

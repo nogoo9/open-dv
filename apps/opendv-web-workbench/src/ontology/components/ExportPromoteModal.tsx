@@ -3,7 +3,7 @@
  * (apps/opendv-web-workbench/src/ontology/components/ExportPromoteModal.tsx)
  *
  * Implements:
- * - Multi-format export: YAML, JSON Schema Representation (.json) (schema-aligned, non-canonical), Turtle (.ttl), JSON-LD, RDF/XML
+ * - Multi-format export: Graph A YAML (.yaml), Canonical JSON / RFC 8785 JCS (.json), W3C Turtle (.ttl), JSON-LD (.jsonld), N-Triples (.nt)
  * - Version snapshot selector
  * - Copy to clipboard & file download
  * - Workspace pipeline promotion modal with OCC hash check and rationale >= 10 chars
@@ -31,7 +31,7 @@ const EXPORT_FORMATS = [
 	},
 	{
 		id: "json",
-		label: "JSON Schema Representation (.json)",
+		label: "Canonical JSON / RFC 8785 JCS (.json)",
 		ext: "json",
 		mime: "application/json",
 	},
@@ -43,10 +43,10 @@ const EXPORT_FORMATS = [
 		mime: "application/ld+json",
 	},
 	{
-		id: "rdf",
-		label: "RDF/XML (.rdf)",
-		ext: "rdf",
-		mime: "application/rdf+xml",
+		id: "ntriples",
+		label: "N-Triples (.nt)",
+		ext: "nt",
+		mime: "application/n-triples",
 	},
 ] as const;
 
@@ -272,9 +272,7 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 			!activeSession?.head_sha256 ||
 			!SHA256_REGEX.test(activeSession.head_sha256)
 		) {
-			setPromoteError(
-				"Active session has no valid 64-character head SHA-256.",
-			);
+			setPromoteError("Active session has no valid 64-character head SHA-256.");
 			return;
 		}
 
@@ -400,8 +398,11 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 									{(() => {
 										const versions = Array.from(
 											new Set([
-												...(activeSession?.active_version ? [activeSession.active_version] : []),
-												...(activeSession?.commits?.map((c) => c.version) || []),
+												...(activeSession?.active_version
+													? [activeSession.active_version]
+													: []),
+												...(activeSession?.commits?.map((c) => c.version) ||
+													[]),
 											]),
 										);
 										if (versions.length === 0) {
@@ -435,7 +436,9 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 										type="button"
 										className="btn-secondary btn-sm"
 										onClick={handleCopy}
-										disabled={!exportPreview || isLoadingExport || Boolean(exportError)}
+										disabled={
+											!exportPreview || isLoadingExport || Boolean(exportError)
+										}
 										data-testid="copy-export-btn"
 									>
 										{copySuccess ? "✓ Copied" : "Copy"}
@@ -473,7 +476,9 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 								type="button"
 								className="btn-primary"
 								onClick={handleDownload}
-								disabled={!exportPreview || isLoadingExport || Boolean(exportError)}
+								disabled={
+									!exportPreview || isLoadingExport || Boolean(exportError)
+								}
 								data-testid="download-export-btn"
 							>
 								Download File

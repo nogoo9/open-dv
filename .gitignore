@@ -12,7 +12,10 @@ dist/
 *.tsbuildinfo
 worktrees/
 .opendv/
-.agents/
+.agents/*
+!.agents/rules/
+!.agents/rules/**
 .env
-delta.json
+.critique/
+reports/*.json
 

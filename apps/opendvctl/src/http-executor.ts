@@ -243,10 +243,21 @@ export async function buildConfigValidateRequest(
 	};
 }
 
+function defaultCodeForHttpStatus(status: number): string {
+	if (status === 401) return "AUTH_UNAUTHORIZED";
+	if (status === 403) return "FORBIDDEN_ADMIN_REQUIRED";
+	if (status === 404) return "RESOURCE_NOT_FOUND";
+	if (status === 409) return "SESSION_ALREADY_EXISTS";
+	if (status === 412) return "ONT_EVO_CONCURRENT_MODIFICATION";
+	if (status === 422) return "VALIDATION_FAILED";
+	if (status >= 500) return "INTERNAL_ERROR";
+	return "INVALID_REQUEST";
+}
+
 export async function parseHttpErrorResponse(
 	res: Response,
 ): Promise<CliDomainError> {
-	let code = "INVALID_REQUEST";
+	let code = defaultCodeForHttpStatus(res.status);
 	let msg = `HTTP ${res.status}`;
 	try {
 		const text = await res.text();

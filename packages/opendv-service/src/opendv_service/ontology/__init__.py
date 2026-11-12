@@ -23,7 +23,16 @@ from opendv_service.ontology.hooks import (
     WaveProfilingContext,
     get_pipeline_extension_hooks,
 )
+from opendv_service.ontology.matching.verifier import (
+    get_default_grounding_verifier,
+    is_allowed_path_a_predicate,
+)
 from opendv_service.ontology.policy import OntologyPolicy, OntologyPolicyMode
+from opendv_service.ontology.rebase import (
+    RebaseCheckResult,
+    RebaseConflict,
+    check_rebase_conflicts,
+)
 from opendv_service.ontology.redaction import (
     is_mnpi_key,
     is_pii_key,
@@ -53,6 +62,8 @@ from opendv_service.ontology.validator import (
     StructuralValidationResult,
     StructuralValidator,
     UngroundedConceptError,
+    build_deployment_provider_from_contract,
+    is_concept_mutated,
     validate_ontology_delta,
 )
 
@@ -73,6 +84,8 @@ __all__ = [
     "OntologyResolutionResult",
     "PipelineExtensionHooks",
     "ProvisionalTokenError",
+    "RebaseCheckResult",
+    "RebaseConflict",
     "SemVerCalculusError",
     "StructuralValidationResult",
     "StructuralValidator",
@@ -81,12 +94,17 @@ __all__ = [
     "WaveProfilingContext",
     "apply",
     "apply_ontology_delta",
+    "build_deployment_provider_from_contract",
     "canonicalize_graph_a_dict",
+    "check_rebase_conflicts",
     "compute_next_semver",
     "compute_ontology_coverage",
     "compute_ontology_sha256",
+    "get_default_grounding_verifier",
     "get_ontology_recommender_registry",
     "get_pipeline_extension_hooks",
+    "is_allowed_path_a_predicate",
+    "is_concept_mutated",
     "is_mnpi_key",
     "is_pii_key",
     "ontology_diff",

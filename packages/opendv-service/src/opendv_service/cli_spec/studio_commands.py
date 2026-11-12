@@ -7,8 +7,7 @@ from opendv_service.cli_spec.definitions import CommandDef, OptionDef
 STUDIO_COMMAND = CommandDef(
     name="studio",
     description=(
-        "Interactive Ontology Construction Studio (FIBO, LiteParse, dual-"
-        "mode engine, CAS sessions)"
+        "Interactive Ontology Construction Studio (FIBO, LiteParse, dual-mode engine, CAS sessions)"
     ),
     help="Manage interactive Ontology Construction Studio sessions, ingestion, and promotion",
     subcommands=[
@@ -16,6 +15,7 @@ STUDIO_COMMAND = CommandDef(
             name="init",
             description="Initialize local workbench loopback token and DACL permissions",
             help="Initialize local workbench loopback token",
+            availability="standalone_only",
             options=[
                 OptionDef(
                     name="force",
@@ -23,6 +23,13 @@ STUDIO_COMMAND = CommandDef(
                     type="boolean",
                     default=False,
                     help="Force overwrite existing local token if authorized",
+                ),
+                OptionDef(
+                    name="show_token",
+                    flag="--show-token",
+                    type="boolean",
+                    default=False,
+                    help="Display local authentication token in output",
                 ),
             ],
         ),
@@ -82,6 +89,28 @@ STUDIO_COMMAND = CommandDef(
                     short="-l",
                     type="string",
                     help="Human-readable label for session identification",
+                ),
+            ],
+        ),
+        CommandDef(
+            name="delete",
+            description="Delete an ontology construction studio session and sweep unreferenced CAS",
+            help="Delete a studio session",
+            options=[
+                OptionDef(
+                    name="session",
+                    flag="--session",
+                    short="-s",
+                    type="string",
+                    required=True,
+                    help="Studio session identifier to delete",
+                ),
+                OptionDef(
+                    name="force",
+                    flag="--force",
+                    type="boolean",
+                    default=False,
+                    help="Force deletion even if session has active state",
                 ),
             ],
         ),
@@ -153,7 +182,7 @@ STUDIO_COMMAND = CommandDef(
                     short="-f",
                     type="path",
                     required=True,
-                    inline_upload=True,
+                    inline_upload=False,
                     help="Path to document file to upload",
                 ),
                 OptionDef(
@@ -165,6 +194,13 @@ STUDIO_COMMAND = CommandDef(
                         "Mark source confidential to suppress raw text transmission to "
                         "external LLMs"
                     ),
+                ),
+                OptionDef(
+                    name="confidential",
+                    flag="--confidential",
+                    type="boolean",
+                    default=False,
+                    help="Alias for --do-not-send-to-agent (mark source confidential)",
                 ),
                 OptionDef(
                     name="description",
@@ -195,6 +231,12 @@ STUDIO_COMMAND = CommandDef(
                     help="Specific source document ID to parse (defaults to all pending)",
                 ),
                 OptionDef(
+                    name="source_ids",
+                    flag="--source-ids",
+                    type="array",
+                    help="List of source document IDs to parse (repeatable or comma-separated)",
+                ),
+                OptionDef(
                     name="ocr_mode",
                     flag="--ocr-mode",
                     type="string",
@@ -215,12 +257,6 @@ STUDIO_COMMAND = CommandDef(
                     type="boolean",
                     default=False,
                     help="Block until job completes and return terminal status",
-                ),
-                OptionDef(
-                    name="source_ids",
-                    flag="--source-ids",
-                    type="string",
-                    help="Comma-separated list of source document IDs to parse",
                 ),
             ],
         ),
@@ -247,8 +283,17 @@ STUDIO_COMMAND = CommandDef(
                     name="max_questions",
                     flag="--max-questions",
                     type="integer",
-                    default=5,
+                    default=10,
                     help="Maximum number of questions to generate",
+                ),
+                OptionDef(
+                    name="mode",
+                    flag="--mode",
+                    short="-m",
+                    type="string",
+                    default="auto",
+                    choices=["auto", "agent", "deterministic"],
+                    help="Clarification execution mode",
                 ),
                 OptionDef(
                     name="stream",
@@ -284,9 +329,36 @@ STUDIO_COMMAND = CommandDef(
                     flag="--file",
                     short="-f",
                     type="path",
-                    required=True,
+                    required=False,
                     inline_upload=True,
                     help="Path to JSON file containing clarification answers",
+                ),
+                OptionDef(
+                    name="question_id",
+                    flag="--question-id",
+                    short="-q",
+                    type="string",
+                    help="Clarification question identifier for single-answer submission",
+                ),
+                OptionDef(
+                    name="option",
+                    flag="--option",
+                    short="-o",
+                    type="array",
+                    help="Selected clarification option key(s)",
+                ),
+                OptionDef(
+                    name="text",
+                    flag="--text",
+                    short="-t",
+                    type="string",
+                    help="Free-text clarification response",
+                ),
+                OptionDef(
+                    name="expected_answers_sha256",
+                    flag="--expected-answers-sha256",
+                    type="string",
+                    help="Expected SHA-256 digest of current answers state for OCC",
                 ),
             ],
         ),
@@ -354,9 +426,106 @@ STUDIO_COMMAND = CommandDef(
         ),
         CommandDef(
             name="delta",
-            description="Apply human additive delta operations or steward revisions",
-            help="Apply ontology delta operations",
+            description="Validate or apply human ontology delta operations and steward revisions",
+            help="Validate or apply ontology delta operations",
             subcommands=[
+                CommandDef(
+                    name="validate",
+                    description="Validate ontology delta operations against session head or base",
+                    help="Validate ontology delta",
+                    options=[
+                        OptionDef(
+                            name="session",
+                            flag="--session",
+                            short="-s",
+                            type="string",
+                            required=False,
+                            help="Studio session identifier",
+                        ),
+                        OptionDef(
+                            name="file",
+                            flag="--file",
+                            short="-f",
+                            type="path",
+                            required=False,
+                            inline_upload=True,
+                            help="Path to JSON/YAML file containing delta operations",
+                        ),
+                        OptionDef(
+                            name="delta",
+                            flag="--delta",
+                            type="path",
+                            required=False,
+                            inline_upload=True,
+                            help="Alias path to JSON/YAML file containing delta operations",
+                        ),
+                        OptionDef(
+                            name="base",
+                            flag="--base",
+                            short="-b",
+                            type="path",
+                            required=False,
+                            inline_upload=True,
+                            help=(
+                                "Path to base Graph A ontology file "
+                                "(when validating outside session)"
+                            ),
+                        ),
+                        OptionDef(
+                            name="base_version",
+                            flag="--base-version",
+                            type="string",
+                            required=False,
+                            help="Expected base SemVer version",
+                        ),
+                        OptionDef(
+                            name="base_sha256",
+                            flag="--base-sha256",
+                            type="string",
+                            required=False,
+                            help="Expected base SHA-256 digest",
+                        ),
+                        OptionDef(
+                            name="verify_grounding",
+                            flag="--verify-grounding",
+                            type="boolean",
+                            default=False,
+                            help="Verify external concept grounding URIs against knowledge pack",
+                        ),
+                        OptionDef(
+                            name="low_confidence_waiver",
+                            flag="--low-confidence-waiver",
+                            type="boolean",
+                            default=False,
+                            help=(
+                                "Include admin waiver for low-confidence grounding "
+                                "during validation"
+                            ),
+                        ),
+                        OptionDef(
+                            name="grounding_rationale",
+                            flag="--grounding-rationale",
+                            type="string",
+                            help="Admin rationale for grounding waiver (min 10 chars)",
+                        ),
+                        OptionDef(
+                            name="waiver_rationale",
+                            flag="--waiver-rationale",
+                            type="string",
+                            help="Alias for --grounding-rationale",
+                        ),
+                        OptionDef(
+                            name="waiver_key_file",
+                            flag="--waiver-key-file",
+                            short="-k",
+                            type="path",
+                            required=False,
+                            env_var=None,
+                            inline_upload=False,
+                            help="Path to steward waiver secret key file",
+                        ),
+                    ],
+                ),
                 CommandDef(
                     name="apply",
                     description="Apply delta operations from file to active session",
@@ -375,23 +544,31 @@ STUDIO_COMMAND = CommandDef(
                             flag="--file",
                             short="-f",
                             type="path",
-                            required=True,
+                            required=False,
                             inline_upload=True,
                             help="Path to JSON file containing delta operations",
+                        ),
+                        OptionDef(
+                            name="delta",
+                            flag="--delta",
+                            type="path",
+                            required=False,
+                            inline_upload=True,
+                            help="Alias path to JSON file containing delta operations",
                         ),
                         OptionDef(
                             name="base_version",
                             flag="--base-version",
                             type="string",
-                            required=True,
-                            help="Base SemVer version",
+                            required=False,
+                            help="Base SemVer version (optional; defaults to session head version)",
                         ),
                         OptionDef(
                             name="base_sha256",
                             flag="--base-sha256",
                             type="string",
-                            required=True,
-                            help="Base SHA-256 hash",
+                            required=False,
+                            help="Base SHA-256 hash (optional on genesis; checked via OCC)",
                         ),
                         OptionDef(
                             name="rationale",
@@ -415,6 +592,22 @@ STUDIO_COMMAND = CommandDef(
                             help="Admin rationale for grounding waiver (min 10 chars)",
                         ),
                         OptionDef(
+                            name="waiver_rationale",
+                            flag="--waiver-rationale",
+                            type="string",
+                            help="Alias for --grounding-rationale",
+                        ),
+                        OptionDef(
+                            name="waiver_key_file",
+                            flag="--waiver-key-file",
+                            short="-k",
+                            type="path",
+                            required=False,
+                            env_var=None,
+                            inline_upload=False,
+                            help="Path to steward waiver secret key file",
+                        ),
+                        OptionDef(
                             name="ungrounded_concept",
                             flag="--ungrounded-concept",
                             type="array",
@@ -426,6 +619,20 @@ STUDIO_COMMAND = CommandDef(
                             type="path",
                             inline_upload=True,
                             help="Path to admin evidence grounding approval JSON",
+                        ),
+                        OptionDef(
+                            name="authorized_by",
+                            flag="--authorized-by",
+                            type="string",
+                            help="Steward identity authorizing grounding waiver",
+                        ),
+                        OptionDef(
+                            name="authorized_role",
+                            flag="--authorized-role",
+                            type="string",
+                            help=(
+                                "Steward role authorizing grounding waiver (must match admin role)"
+                            ),
                         ),
                     ],
                 ),
@@ -513,7 +720,7 @@ STUDIO_COMMAND = CommandDef(
                             default=False,
                             help=(
                                 "Admin override allowing acceptance of own proposal (requires "
-                                "local admin)"
+                                "admin role)"
                             ),
                         ),
                         OptionDef(
@@ -530,6 +737,22 @@ STUDIO_COMMAND = CommandDef(
                             help="Rationale for grounding waiver (min 10 chars)",
                         ),
                         OptionDef(
+                            name="waiver_rationale",
+                            flag="--waiver-rationale",
+                            type="string",
+                            help="Alias for --grounding-rationale",
+                        ),
+                        OptionDef(
+                            name="waiver_key_file",
+                            flag="--waiver-key-file",
+                            short="-k",
+                            type="path",
+                            required=False,
+                            env_var=None,
+                            inline_upload=False,
+                            help="Path to steward waiver secret key file",
+                        ),
+                        OptionDef(
                             name="ungrounded_concept",
                             flag="--ungrounded-concept",
                             type="array",
@@ -541,6 +764,20 @@ STUDIO_COMMAND = CommandDef(
                             type="path",
                             inline_upload=True,
                             help="Path to admin evidence grounding approval JSON",
+                        ),
+                        OptionDef(
+                            name="authorized_by",
+                            flag="--authorized-by",
+                            type="string",
+                            help="Steward identity authorizing grounding waiver",
+                        ),
+                        OptionDef(
+                            name="authorized_role",
+                            flag="--authorized-role",
+                            type="string",
+                            help=(
+                                "Steward role authorizing grounding waiver (must match admin role)"
+                            ),
                         ),
                     ],
                 ),
@@ -599,8 +836,17 @@ STUDIO_COMMAND = CommandDef(
                             name="base_sha256",
                             flag="--base-sha256",
                             type="string",
-                            required=True,
-                            help="Target base SHA-256 for rebase",
+                            required=False,
+                            help=(
+                                "Target base SHA-256 for rebase (defaults to current session head)"
+                            ),
+                        ),
+                        OptionDef(
+                            name="head_sha256",
+                            flag="--head-sha256",
+                            type="string",
+                            required=False,
+                            help="Alias for target session head SHA-256",
                         ),
                     ],
                 ),
@@ -708,7 +954,7 @@ STUDIO_COMMAND = CommandDef(
         ),
         CommandDef(
             name="bundle",
-            description=("Manage portable session archives (.odvstudio.zip export, import, clone)"),
+            description="Manage portable session archives (.odvstudio.zip export, import, clone)",
             help="Manage session bundles",
             subcommands=[
                 CommandDef(
@@ -758,8 +1004,21 @@ STUDIO_COMMAND = CommandDef(
                             short="-f",
                             type="path",
                             required=True,
-                            inline_upload=True,
+                            inline_upload=False,
                             help="Path to .odvstudio.zip archive to import",
+                        ),
+                        OptionDef(
+                            name="new_session_id",
+                            flag="--new-session-id",
+                            type="string",
+                            help="Optional explicit session identifier for imported session",
+                        ),
+                        OptionDef(
+                            name="force",
+                            flag="--force",
+                            type="boolean",
+                            default=False,
+                            help="Force overwrite if target session identifier already exists",
                         ),
                         OptionDef(
                             name="acknowledge_unverified_import_attribution",

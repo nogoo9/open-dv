@@ -34,7 +34,7 @@ Whether deployed as an embedded local developer tool or a multi-tenant platform 
 |                                       │                                      │                     |
 |                                       ▼                                      ▼                     |
 |  [ Additive Evolution ] ───────────────────────────────────► [ Multi-Format Export & Promotion ]   |
-|  - 24-Op Delta Calculus                                      - W3C Turtle (.ttl), JSON-LD, JCS JSON|
+|  - 24-Op Delta Calculus                                      - YAML, JCS JSON, Turtle, JSON-LD, NT |
 |  - ONT-EVO Governance                                        - Atomic Workspace Promotion          |
 |  - Concurrency Control (OCC)                                 - Two-Phase Lock (L4/L5)              |
 +----------------------------------------------------------------------------------------------------+
@@ -53,9 +53,9 @@ The Studio features a dual-mode construction architecture that gracefully balanc
 
 2. **Deterministic Fallback Mode (Zero-Credential CI)**:
    - Runs in fully air-gapped environments without external LLM API keys or network dependencies.
-   - Utilizes Okapi BM25 semantic alignment against bundled FIBO reference packs (`fibo-core-pack.json`).
+   - Utilizes Okapi BM25 candidate retrieval (`bm25_fibo_v1`) against bundled FIBO reference packs (`fibo-core-pack.json`) paired with strict Path A `ONT-EVO-002` verification (`skos:exactMatch` or `skos:closeMatch` with confidence $\ge 0.6500$; `skos:broadMatch` closure excluded).
    - Guarantees complete execution in $< 2.5$ seconds with deterministic, byte-for-byte reproducible outputs.
-   - Non-waivable concepts failing the $\ge 0.6500$ grounding threshold are automatically routed to a staged candidate holding area, preventing ungrounded pollution.
+   - Candidates lacking a verified Path A FIBO `skos:exactMatch` / `skos:closeMatch` mapping at confidence $\ge 0.6500$ (and touched grandfathered concepts whose exemption was revoked by mutation) are automatically routed to `evidence/staged_candidates.json`, preventing ungrounded pollution.
 
 ### 1.2 Content-Addressable Storage (CAS) Lifecycle
 
@@ -75,18 +75,20 @@ Every Studio session resides in an isolated directory structure under `.opendv/o
 │   └── <proposal_id>.json            # Pending candidate proposals with delta operations
 └── versions/
     ├── v0.0.0/                       # Genesis baseline draft
-    │   └── ontology.yaml             # Canonical hash: 99d4aa051a49f40596c53210592853fde09ee...
+    │   └── ontology.json             # Default general namespace hash: 1916a5c6d501015984b8...
     └── v1.0.0/                       # First committed release
-        ├── ontology.yaml             # Canonical hash: 1c100409cbbe12051f7211d2d6d6838670982...
+        ├── ontology.json             # Certified PE baseline hash: 1c100409cbbe12051f7211d2...
         └── delta.json                # Additive operations applied from genesis
 ```
 
+> **Genesis `0.0.0` SHA-256 & Custom Namespaces:** `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9` is the canonical RFC 8785 JCS SHA-256 digest of the default `0.0.0` `GenesisDraft` (`domain_namespace: "general"`, `enterprise_owner: "Enterprise Architecture"`). Custom greenfield namespaces (such as `--domain-namespace wealth_mgmt --enterprise-owner "Global Wealth Advisory"`, which deterministically evaluates to `9897c2a95f2987821979eeec92a96a14eb64af37b06222b993adbc717aff1142`) serialize their own namespace headers into `versions/v0.0.0/ontology.json`—always capture the authoritative `head_sha256` returned by `opendv ontology studio create` or `opendv ontology studio status` rather than hardcoding the default namespace digest.
+
 ### 1.3 Additive Deltas & ONT-EVO Contract Protection
 
-Ontology versioning is governed by the 24-operation delta calculus and ONT-EVO rules:
-- **ONT-EVO-001 (Immutable Releases)**: Once a version (e.g. `v1.0.0`) is committed, its directory and canonical SHA-256 hash are cryptographically locked.
-- **ONT-EVO-002 (Strictly Additive Evolution)**: Normal editing operations (`AddConcept`, `AddAttribute`, `AddRelationship`, `AddSynonym`, `AddExternalMapping`) never delete or rename deployed structures.
-- **ONT-EVO-003 (Grounding Integrity)**: Discovered concepts must align to reference ontologies with BM25 score $\ge 0.6500$, or receive an explicit administrative waiver with documented business rationale.
+Ontology versioning is governed by the closed 24-operation delta calculus and the three normative `ONT-EVO` invariants (`docs/20-ontology-studio-spec.md` §7.3):
+- **ONT-EVO-001 (Immutability & Additive Delta Evolution / Deployed Table Guard)**: Committed ontology snapshots (`versions/vX.Y.Z/`) and their canonical RFC 8785 JCS SHA-256 digests are cryptographically immutable. Standard modeling evolves strictly via additive `OntologyDelta` operations (`MINOR`/`PATCH` SemVer bumps); destructive structural revisions (`remove_concept`, `remove_relationship`, `remove_attribute`, `update_concept_urn`, or overwriting an existing `elm_archetype` / `parent_concept_uri`) require `admin` privileges, trigger a `MAJOR` SemVer bump, and are unconditionally blocked (`ONT_EVO_CONTRACT_VIOLATION`, exit code `4`) whenever targeting deployed Data Vault physical tables.
+- **ONT-EVO-002 (Path A FIBO Grounding & Waiver Integrity)**: Every newly added or mutated concept must either (a) carry at least one server-verified `FIBO` external mapping with predicate `skos:exactMatch` or `skos:closeMatch` (`skos:broadMatch` closure is strictly excluded) and numeric confidence $\ge 0.6500$, or (b) be covered by an explicit per-concept administrative waiver (`OPENDV_WAIVER_KEY`) with a $\ge 10$-character business rationale. Workspace-seeded concepts recorded in `grandfathered_concept_uris` are exempt while untouched, and immediately lose their grandfather exemption if touched by any of the 17 existing-concept-mutating operations (`18` total in `CONCEPT_MUTATING_OP_TYPES`, comprising `add_concept` plus `17` existing-concept-mutating ops including `update_relationship_endpoint`).
+- **ONT-EVO-003 (Optimistic Concurrency Control, 24-Op Rebase & Lock Hierarchy)**: Every state-mutating request enforces cryptographic OCC preconditions (`If-Match` / `base_sha256`), supports deterministic proposal rebasing across the 24-operation conflict matrix, and acquires filesystem locks strictly in canonical order (`L1 .local_token.lock -> L2 .job_<id>.lock -> L3 .journal_<id>.lock -> L4 graph_a.lock -> L5 .session.lock`).
 
 ---
 
@@ -94,12 +96,12 @@ Ontology versioning is governed by the 24-operation delta calculus and ONT-EVO r
 
 ### 2.1 Deployment Modes
 
-The Studio operates in two primary modes:
+The Studio operates in two primary modes configured via `OPENDV_SERVER_MODE`:
 
-| Mode | Target User | Authentication | Network Binding | Storage |
+| Mode (`OPENDV_SERVER_MODE`) | Target User | Authentication | Network Binding | Storage |
 |---|---|---|---|---|
-| **Local Standalone** (`local_standalone`) | Individual modeler / data architect | Auto-generated `.local_token` (DACL 0600) | Loopback only (`127.0.0.1`) | Local filesystem |
-| **Remote Platform** (`remote_platform`) | Enterprise teams / centralized CI/CD | OAuth2 / Bearer Token / mTLS | External interface (`0.0.0.0`) | Managed server volume |
+| **Local Standalone** (`local_standalone`) | Individual modeler / data architect | `OPENDV_TOKEN` or auto-generated `.local_token` (DACL 0600) | Loopback only (`127.0.0.1`) | Local filesystem |
+| **Remote Platform** (`remote_platform`) | Enterprise teams / centralized CI/CD | RS256 JWT / Bearer Token (`OPENDV_TOKEN`) / mTLS | External interface (`0.0.0.0`) | Managed server volume |
 
 ### 2.2 Launching the Web Workbench
 
@@ -117,14 +119,19 @@ http://127.0.0.1:8420/ontology
 
 ### 2.3 Dual CLI Configuration
 
-Open-DV provides 100% operational parity between the standalone Python CLI (`opendv`) and the Bun-compiled remote platform client (`opendvctl`):
+Open-DV provides operational parity between the standalone Python CLI (`opendv`) and the Bun-compiled remote platform client (`opendvctl`):
 
 ```bash
 # In-process Python CLI execution
 opendv ontology studio list
 
-# Remote platform client execution with API URL and Token
-opendvctl ontology studio list --api-url http://127.0.0.1:8420 --token $OPENDV_TOKEN
+# Loopback client execution (resolves OPENDV_STUDIO_TOKEN -> OPENDV_TOKEN -> .local_token)
+export OPENDV_TOKEN="<your-loopback-or-platform-token>"
+opendvctl ontology studio list --api-url http://127.0.0.1:8420
+
+# Remote platform execution (non-loopback URLs ONLY read OPENDV_TOKEN to prevent leaking local tokens)
+export OPENDV_TOKEN="<your-platform-jwt-or-bearer-token>"
+opendvctl ontology studio list --api-url https://studio.enterprise.example
 ```
 
 ---
@@ -139,7 +146,7 @@ In this journey, a Financial Data Steward creates a brand-new Wealth Management 
 +───────────────────────────────────────────────────────────────────────────────────────────+
 | Journey 1 Workflow: Regulatory Ingestion -> Clarification -> v1.0.0 Commit                 |
 +───────────────────────────────────────────────────────────────────────────────────────────+
-| 1. Create Session (Genesis v0.0.0: hash 99d4aa05...)                                      |
+| 1. Create Session (wealth_mgmt v0.0.0 -> capture HEAD_SHA = 9897c2a9...)                  |
 | 2. Upload Document (annual_report_2024.pdf) -> CAS Evidence Store                         |
 | 3. Parse Layout -> Codepoint offset extraction & table detection                          |
 | 4. Ambiguity Detection -> "Investment Advisor" vs "Fund Manager"                          |
@@ -149,8 +156,8 @@ In this journey, a Financial Data Steward creates a brand-new Wealth Management 
 +───────────────────────────────────────────────────────────────────────────────────────────+
 ```
 
-#### Step 1: Initialize Session
-Create a new greenfield studio session initialized at genesis state `v0.0.0` (canonical hash `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e`):
+#### Step 1: Initialize Session & Capture Genesis `head_sha256`
+Create a greenfield studio session initialized at `v0.0.0` and capture its deterministic RFC 8785 JCS `head_sha256` (for `wealth_mgmt` / `"Global Wealth Advisory"`, `head_sha256` evaluates to `9897c2a95f2987821979eeec92a96a14eb64af37b06222b993adbc717aff1142`; for default `general` / `"Enterprise Architecture"`, it evaluates to `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9`):
 
 ```bash
 opendv ontology studio create \
@@ -158,6 +165,8 @@ opendv ontology studio create \
   --domain-namespace wealth_mgmt \
   --enterprise-owner "Global Wealth Advisory" \
   --description "SEC 10-K wealth management baseline model"
+
+HEAD_SHA=$(opendv ontology studio status --session wealth-sec-2024 --json | jq -r .head_sha256)
 ```
 
 #### Step 2: Upload Source Document
@@ -181,17 +190,18 @@ opendv ontology studio parse \
 ```
 
 #### Step 4: Resolve Clarifications
-The `@domain-clarifier` detects that *"Fund Advisor"* could align to either `fibo-fbc-fct-fse:InvestmentAdvisor` or `fibo-be-oac-cctl:FundManager`. In the Web Workbench or CLI, answer the question:
+The `@domain-clarifier` detects that *"Fund Advisor"* could align to either `fibo-fbc-fct-fse:InvestmentAdvisor` or `fibo-be-oac-cctl:FundManager`. In the Web Workbench or CLI, answer the question using `ClarificationAnswerRequest` (`selected_options`, `user_text`, and `expected_answers_sha256` OCC precondition):
 
 ```json
 {
   "answers": [
     {
       "question_id": "q-advisor-align-01",
-      "selected_choice": "InvestmentAdvisor",
-      "business_rationale": "Acts as registered investment advisor under SEC regulations."
+      "selected_options": ["opt-investment-advisor"],
+      "user_text": "Acts as registered investment advisor under SEC regulations."
     }
-  ]
+  ],
+  "expected_answers_sha256": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
 }
 ```
 
@@ -204,25 +214,25 @@ opendv ontology studio answer \
 ```
 
 #### Step 5: Construct Ontology Proposal
-Invoke the construction engine to synthesize conceptual hubs and links:
+Invoke the construction engine against the session's `HEAD_SHA` (`9897c2a95f2987821979eeec92a96a14eb64af37b06222b993adbc717aff1142`, transmitted as `If-Match: "$HEAD_SHA"` and `"base_sha256": "$HEAD_SHA"` over REST):
 
 ```bash
 opendv ontology studio construct \
   --session wealth-sec-2024 \
   --base-version 0.0.0 \
-  --base-sha256 99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e \
+  --base-sha256 "$HEAD_SHA" \
   --mode agent \
   --wait
 ```
 
 #### Step 6: Accept Proposal & Commit v1.0.0
-Review the generated proposal (`prop-8821`) and accept it to perform the genesis commit:
+Review the generated proposal (`prop-8821`) and accept it against `HEAD_SHA` (`If-Match: "$HEAD_SHA"` / `"parent_sha256": "$HEAD_SHA"`) to perform the genesis commit:
 
 ```bash
 opendv ontology studio proposal accept \
   --session wealth-sec-2024 \
   --proposal-id prop-8821 \
-  --base-sha256 99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e
+  --base-sha256 "$HEAD_SHA"
 ```
 
 The session transitions from `v0.0.0` to `v1.0.0`.
@@ -244,34 +254,50 @@ opendv ontology studio create \
   --session-label "PE Limited Partner Additions"
 ```
 
-The session automatically loads `v1.0.0` with baseline canonical hash `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`. Existing URIs are registered as grandfathered concepts.
+The session automatically loads `v1.0.0` with baseline canonical hash `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`. Existing URIs are registered in `grandfathered_concept_uris` and remain exempt from `ONT-EVO-002` re-grounding unless mutated by one of the 17 existing-concept-mutating delta operations (`18` total in `CONCEPT_MUTATING_OP_TYPES`).
 
 #### Step 2: Upload Contract Addendum & Apply Delta
-Upload the partnership agreement addendum and apply an additive delta:
+Upload the partnership agreement addendum and apply an additive `lp_delta.json` linking the new concept to the existing `urn:ontology:entity:fund` concept:
 
 ```json
 {
   "operations": [
     {
-      "op": "AddConcept",
+      "op_id": "op-lp-add-concept-01",
+      "op_type": "add_concept",
       "concept_uri": "urn:ontology:entity:limited_partner_commitment",
       "concept_name": "Limited Partner Commitment",
       "definition": "Capital commitment pledged by a limited partner to a private equity fund.",
       "target_hub": "hub_lp_commitment",
-      "elm_archetype": "State"
+      "elm_archetype": "CORE_BUSINESS_CONCEPT"
     },
     {
-      "op": "AddAttribute",
+      "op_id": "op-lp-add-attr-02",
+      "op_type": "add_attribute",
       "concept_uri": "urn:ontology:entity:limited_partner_commitment",
       "attribute_name": "commitment_amount",
       "data_type": "decimal"
     },
     {
-      "op": "AddExternalMapping",
+      "op_id": "op-lp-add-rel-03",
+      "op_type": "add_relationship",
+      "relationship_uri": "urn:ontology:relationship:fund_has_lp_commitment",
+      "relationship_name": "Fund Has LP Commitment",
+      "target_link": "lnk_fund_lp_commitment",
+      "endpoints": [
+        "urn:ontology:entity:fund",
+        "urn:ontology:entity:limited_partner_commitment"
+      ],
+      "grain_semantics": "One commitment record per Limited Partner subscription in a Fund."
+    },
+    {
+      "op_id": "op-lp-add-map-04",
+      "op_type": "add_external_mapping",
       "concept_uri": "urn:ontology:entity:limited_partner_commitment",
-      "target_uri": "https://spec.edmcouncil.org/fibo/ontology/SEC/Equities/EquityInstruments/CapitalCommitment",
+      "scheme": "FIBO",
+      "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/ContractualCommitment",
       "predicate": "skos:exactMatch",
-      "confidence": 0.8200
+      "mapping_confidence": 0.8200
     }
   ]
 }
@@ -333,13 +359,15 @@ opendv ontology studio construct \
 
 ### 3.4 Journey 4: Human-in-the-Loop Clarification & Administrative Waivers
 
-When a domain concept cannot achieve the mandatory $\ge 0.6500$ FIBO alignment score (for example, proprietary internal instruments), an Enterprise Architect can sign an administrative grounding waiver.
+When a domain concept cannot satisfy `ONT-EVO-002` Path A FIBO grounding (`skos:exactMatch` or `skos:closeMatch` with confidence $\ge 0.6500$; `skos:broadMatch` is excluded—for example, proprietary internal instruments), an Enterprise Architect can sign a per-concept administrative grounding waiver using `OPENDV_WAIVER_KEY`:
 
 ```bash
+export OPENDV_WAIVER_KEY="<admin-waiver-secret>"
+HEAD_SHA=$(opendv ontology studio status --session wealth-sec-2024 --json | jq -r .head_sha256)
 opendv ontology studio proposal accept \
   --session wealth-sec-2024 \
   --proposal-id prop-9902 \
-  --base-sha256 1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81 \
+  --base-sha256 "$HEAD_SHA" \
   --low-confidence-waiver \
   --grounding-rationale "Proprietary bespoke investment vehicle authorized under Board Resolution 2026-B" \
   --ungrounded-concept "urn:ontology:entity:bespoke_mezzanine_fund"
@@ -348,8 +376,8 @@ opendv ontology studio proposal accept \
 Administrative waivers require:
 1. `low_confidence_waiver=True`
 2. `grounding_rationale` of at least 10 characters detailing the governance reason.
-3. Explicit list of ungrounded concept URIs.
-4. Caller possesses the `admin` role (non-admin callers are denied with exit code `7`).
+3. Explicit per-concept list of `ungrounded-concept` URIs covered by the waiver (subsequent mutations to any waived or grandfathered concept revoke its exemption).
+4. Authenticated `OPENDV_WAIVER_KEY` credential and `admin` role authorization (missing/invalid credentials or non-admin callers are denied with exit code `7` `FORBIDDEN_ADMIN_REQUIRED`).
 
 ---
 
@@ -423,18 +451,18 @@ The Open-DV Web Workbench provides a visual, reactive single-page application at
 ### 4.7 Quality Scorecard & Export Modal
 - Validates 100% of ONT-EVO rules in real time.
 - Displays grounding confidence score meters against the $0.6500$ threshold.
-- One-click export modal to W3C Turtle, JSON-LD, JCS JSON, or Graph A YAML.
+- One-click export modal to Graph A YAML (`.yaml`), Canonical RFC 8785 JCS JSON (`.json`), W3C Turtle (`.ttl`), JSON-LD (`.jsonld`), or N-Triples (`.nt`).
 - Two-phase promotion trigger with lock status verification.
 
 ---
 
 ## 5. Dual-CLI Command Recipes
 
-Open-DV provides 20 distinct leaf commands under the `ontology studio` namespace. Below are working invocations for every command:
+Open-DV provides **21** shared dual-CLI leaf commands across `opendv` and `opendvctl` (plus the standalone-only local bootstrap command `init`, 22 leaf commands total in `schemas/v1/cli-spec.json`) under the `ontology studio` namespace. Below are working invocations for every command:
 
 ### 5.1 Session Lifecycle Commands
 
-#### `init`
+#### `init` (standalone-only)
 Initialize the local studio loopback token and permissions:
 
 ```bash
@@ -465,6 +493,13 @@ opendv ontology studio create \
   --session session-pe \
   --from-workspace examples/private_equity \
   --session-label "PE Evolution"
+```
+
+#### `delete`
+Delete a studio session and sweep unreferenced CAS blobs:
+
+```bash
+opendv ontology studio delete --session session-alpha --force
 ```
 
 #### `list`
@@ -568,6 +603,18 @@ opendv ontology studio construct \
 
 ### 5.3 Deltas & Proposals Commands
 
+#### `delta validate`
+Dry-run validate delta operations and `ONT-EVO` governance rules without mutating session state:
+
+```bash
+opendv ontology studio delta validate \
+  --session session-pe \
+  --file additions.json \
+  --base-version 1.0.0 \
+  --base-sha256 1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81 \
+  --verify-grounding
+```
+
 #### `delta apply`
 Apply explicit additive delta operations from file:
 
@@ -647,6 +694,15 @@ opendv ontology studio export \
   --session session-pe \
   --export-format json \
   --out pe_ontology.json
+```
+
+Export to W3C N-Triples (`.nt`):
+
+```bash
+opendv ontology studio export \
+  --session session-pe \
+  --export-format ntriples \
+  --out pe_ontology.nt
 ```
 
 #### `promote`
@@ -752,12 +808,12 @@ All Studio REST API errors return standard RFC 9457 `application/problem+json` p
   "type": "urn:opendv:error:ont-evo-ungrounded-concept",
   "title": "Ont Evo Ungrounded Concept",
   "status": 422,
-  "detail": "Concept 'urn:ontology:entity:bespoke_asset' BM25 score 0.4800 is below the 0.6500 grounding threshold.",
+  "detail": "Concept 'urn:ontology:entity:bespoke_asset' lacks a verified FIBO skos:exactMatch or skos:closeMatch mapping with confidence >= 0.6500 (observed 0.4800; skos:broadMatch excluded).",
   "error_code": "ONT_EVO_UNGROUNDED_CONCEPT",
-  "instance": "/api/v1/ontology/studio/wealth-sec-2024/proposals/prop-8821/accept",
+  "instance": "/api/v1/ontology/studio/sessions/wealth-sec-2024/proposals/prop-8821/accept",
   "extensions": {
     "concept_uri": "urn:ontology:entity:bespoke_asset",
-    "score": 0.4800,
+    "confidence": 0.4800,
     "grounding_threshold": 0.6500
   }
 }
@@ -766,12 +822,12 @@ All Studio REST API errors return standard RFC 9457 `application/problem+json` p
 ### 6.4 Common Issues & Solutions
 
 1. **`PRECONDITION_BASE_SHA_MISMATCH` (Exit Code 2 / 5)**:
-   - *Cause*: The session head has advanced since you retrieved the base SHA-256 hash.
-   - *Fix*: Run `opendv ontology studio status -s <session_id>` to view the latest `head_sha256`, or rebase your proposal via `proposal rebase`.
+   - *Cause*: The session head has advanced since you retrieved the base SHA-256 hash (`ONT-EVO-003` OCC guard).
+   - *Fix*: Run `opendv ontology studio status --session <session_id>` to view the latest `head_sha256`, or rebase your proposal via `proposal rebase`.
 
 2. **`ONT_EVO_UNGROUNDED_CONCEPT` (Exit Code 4)**:
-   - *Cause*: A candidate concept achieved $< 0.6500$ BM25 alignment against reference ontologies.
-   - *Fix*: Provide explicit alignment via clarification Q&A, or request an administrative waiver with `--low-confidence-waiver` and `--grounding-rationale`.
+   - *Cause*: A newly added concept (or a workspace-seeded grandfathered concept whose exemption was revoked by one of the 17 existing-concept-mutating operations—`18` total in `CONCEPT_MUTATING_OP_TYPES`) lacks a server-verified `FIBO` `skos:exactMatch` or `skos:closeMatch` mapping with confidence $\ge 0.6500$ (`skos:broadMatch` does not satisfy Path A).
+   - *Fix*: Select a verified `skos:exactMatch` / `skos:closeMatch` FIBO alignment via clarification Q&A, or authorize a per-concept administrative waiver (`OPENDV_WAIVER_KEY`) with `--low-confidence-waiver`, `--ungrounded-concept <uri>`, and `--grounding-rationale`.
 
 3. **`LOCK_TIMEOUT` (Exit Code 6)**:
    - *Cause*: A background parsing or construction job is currently running on the session.

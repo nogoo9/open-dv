@@ -54,13 +54,14 @@ def test_stress_cli_tree_deep_structure_and_options_parity(
     ts_tree = json.loads(stdout_ts.strip())
 
     py_studio = py_tree["commands"]["ontology"]["subcommands"]["studio"]
-    ts_ont = next(c for c in ts_tree["commands"] if c["name"] == "ontology")
-    ts_studio = next(s for s in ts_ont["subcommands"] if s["name"] == "studio")
+    ts_ont = ts_tree["commands"]["ontology"]
+    ts_studio = ts_ont["subcommands"]["studio"]
 
-    # Verify all 14 groups
+    # Verify all 15 standalone groups (`init` is standalone_only -> 14 client groups)
     expected_groups = {
         "init",
         "create",
+        "delete",
         "list",
         "status",
         "upload",
@@ -74,19 +75,21 @@ def test_stress_cli_tree_deep_structure_and_options_parity(
         "promote",
         "bundle",
     }
+    expected_shared_groups = expected_groups - {"init"}
     py_groups = py_studio.get("subcommands", {})
-    ts_groups = {s["name"]: s for s in ts_studio.get("subcommands", [])}
+    ts_groups = ts_studio.get("subcommands", {})
 
     assert set(py_groups.keys()) == expected_groups
-    assert set(ts_groups.keys()) == expected_groups
+    assert py_groups["init"]["availability"] == "standalone_only"
+    assert set(ts_groups.keys()) == expected_shared_groups
 
-    leaf_counts = {"py": 0, "ts": 0}
-    for grp in sorted(expected_groups):
+    leaf_counts = {"py": 1, "ts": 0}
+    for grp in sorted(expected_shared_groups):
         p_grp = py_groups[grp]
         t_grp = ts_groups[grp]
 
         p_subs = p_grp.get("subcommands", {})
-        t_subs = {s["name"]: s for s in t_grp.get("subcommands", [])}
+        t_subs = t_grp.get("subcommands", {})
 
         assert set(p_subs.keys()) == set(t_subs.keys())
 
@@ -108,7 +111,7 @@ def test_stress_cli_tree_deep_structure_and_options_parity(
                     f"Mismatch in leaf '{grp} {sub_name}': py={p_flags} ts={t_flags}"
                 )
 
-    assert leaf_counts["py"] == 21
+    assert leaf_counts["py"] == 22
     assert leaf_counts["ts"] == 21
 
     # 2. Adversarial flag: --dump-spec (unrecognized) must exit 2 across both
@@ -274,7 +277,12 @@ def test_stress_exit_code_matrix_edge_cases(
     ]
     for nf_cmd in not_found_commands:
         code_py_3, out_py_3, err_py_3 = cli_transport.invoke_raw([*nf_cmd, "--json"])
-        code_ts_3, out_ts_3, err_ts_3 = client_cli_transport.invoke_raw([*nf_cmd, "--json"])
+        old_role_3 = client_cli_transport.role
+        try:
+            client_cli_transport.role = "DATA_STEWARD"
+            code_ts_3, out_ts_3, err_ts_3 = client_cli_transport.invoke_raw([*nf_cmd, "--json"])
+        finally:
+            client_cli_transport.role = old_role_3
         assert code_py_3 == 3, f"Expected exit 3 for opendv on {nf_cmd}, got {code_py_3}"
         assert code_ts_3 == 3, f"Expected exit 3 for opendvctl on {nf_cmd}, got {code_ts_3}"
         assert _extract_error_code(out_py_3, err_py_3) == "SESSION_NOT_FOUND"
@@ -318,7 +326,12 @@ def test_stress_exit_code_matrix_edge_cases(
         "--json",
     ]
     code_py_4, out_py_4, err_py_4 = cli_transport.invoke_raw(waiver_args_py)
-    code_ts_4, out_ts_4, err_ts_4 = client_cli_transport.invoke_raw(waiver_args_ts)
+    old_role_4 = client_cli_transport.role
+    try:
+        client_cli_transport.role = "DATA_STEWARD"
+        code_ts_4, out_ts_4, err_ts_4 = client_cli_transport.invoke_raw(waiver_args_ts)
+    finally:
+        client_cli_transport.role = old_role_4
     assert code_py_4 == 4
     assert code_ts_4 == 4
     assert _extract_error_code(out_py_4, err_py_4) == "INVALID_GROUNDING_WAIVER"

@@ -2,7 +2,9 @@
 
 Conforms to docs/19 §8.2, docs/20 §3.1, ADR-016:
 - Dual server modes: local_standalone vs remote_platform
-- 60s launch nonce (single-use) exchanged for HttpOnly session cookie
+- 4-tier RBAC: admin, editor, viewer, automated
+- 60s launch nonce (single-use) exchanged for HttpOnly session cookie (local_standalone only)
+- Bounded in-memory capacity (max 256 active nonces / 256 active cookie sessions)
 - L1 lock (.local_token.lock) protected .local_token with permissions 0600
 - RS256 JWT validation allowlist in remote mode via PyJWT
 """
@@ -14,32 +16,38 @@ import ipaddress
 import os
 import re
 import secrets
-import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Final, Literal
+from typing import Final, Literal
 from urllib.parse import urlparse
 
 import jwt
 from fastapi import Request
 
+from opendv_platform_api.security.csrf import is_loopback_host
 from opendv_platform_api.security.error_catalog import StudioAPIError
 from opendv_service.studio.locks import L1_LOCAL_TOKEN, studio_lock
-from opendv_service.studio.workspace_security import set_owner_only_permissions
+from opendv_service.studio.workspace_security import (
+    _ACTIVE_SESSIONS,
+    _AUTH_LOCK,
+    _LAUNCH_NONCES,
+    MAX_ACTIVE_NONCES,
+    MAX_ACTIVE_SESSIONS,
+    _cleanup_expired_nonces_and_sessions,
+    _evict_overflow_locked,
+    mint_launch_nonce,
+    set_owner_only_permissions,
+)
 
 SERVER_MODE_LOCAL: Final[str] = "local_standalone"
 SERVER_MODE_REMOTE: Final[str] = "remote_platform"
 
-Role = Literal["admin", "editor", "viewer"]
+Role = Literal["admin", "editor", "viewer", "automated"]
 
 _PRINCIPAL_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"^(human|agent|system|user):[a-zA-Z0-9_.\-]+$"
 )
-
-_AUTH_LOCK = threading.Lock()
-_LAUNCH_NONCES: dict[str, tuple[str, str, float]] = {}  # nonce -> (principal, role, expires_at)
-_ACTIVE_SESSIONS: dict[str, dict[str, Any]] = {}  # token -> {principal, role, expires_at}
 
 
 def get_jwt_verification_key() -> str:
@@ -59,38 +67,35 @@ def get_jwt_verification_key() -> str:
         raise StudioAPIError(
             "AUTHENTICATION_CONFIG_ERROR",
             f"Configured OPENDV_JWT_PUBLIC_KEY_PATH file does not exist: {key_path_str}",
-            status_code=500,
         )
     raise StudioAPIError(
         "AUTHENTICATION_CONFIG_ERROR",
         "Remote platform mode requires OPENDV_JWT_PUBLIC_KEY or OPENDV_JWT_PUBLIC_KEY_PATH.",
-        status_code=500,
     )
-
-
-def _cleanup_expired_nonces_and_sessions(grace_period: float = 300.0) -> None:
-    """Purge expired nonces and sessions from memory in a thread-safe manner."""
-    now = time.time()
-    with _AUTH_LOCK:
-        expired_nonces = [k for k, v in list(_LAUNCH_NONCES.items()) if now > v[2] + grace_period]
-        for k in expired_nonces:
-            _LAUNCH_NONCES.pop(k, None)
-
-        expired_sessions = [k for k, v in list(_ACTIVE_SESSIONS.items()) if now > v["expires_at"]]
-        for k in expired_sessions:
-            _ACTIVE_SESSIONS.pop(k, None)
 
 
 @dataclass(frozen=True)
 class StudioPrincipal:
-    """Authenticated caller identity and role context."""
+    """Authenticated caller identity and 4-tier RBAC role context."""
 
     principal: str
     role: str
     is_admin: bool
     auth_method: str
 
+    @property
+    def is_automated(self) -> bool:
+        """Return True for `automated` role or `agent:*` principal identities."""
+        return self.role == "automated" or self.principal.startswith("agent:")
+
+    @property
+    def is_agent_identity(self) -> bool:
+        """Return True strictly when principal string carries an `agent:` prefix."""
+        return self.principal.startswith("agent:")
+
     def can_perform(self, required_role: str) -> bool:
+        if self.is_automated:
+            return required_role == "viewer"
         if self.role == "admin":
             return True
         if self.role == "editor" and required_role in ("editor", "viewer"):
@@ -109,7 +114,6 @@ def get_server_mode(request: Request | None = None) -> str:
             "AUTHENTICATION_CONFIG_ERROR",
             f"Invalid OPENDV_SERVER_MODE '{mode_raw}'. "
             f"Must be '{SERVER_MODE_LOCAL}' or '{SERVER_MODE_REMOTE}'.",
-            status_code=500,
         )
 
     if request is not None:
@@ -124,42 +128,90 @@ def get_server_mode(request: Request | None = None) -> str:
                     "AUTHENTICATION_CONFIG_ERROR",
                     f"Invalid settings.server_mode '{cfg_mode}'. "
                     f"Must be '{SERVER_MODE_LOCAL}' or '{SERVER_MODE_REMOTE}'.",
-                    status_code=500,
                 )
 
     return SERVER_MODE_LOCAL
 
 
+def _resolve_expected_loopback_port(request: Request) -> int | None:
+    """Determine expected listening port for loopback Host header verification."""
+    env_port = os.environ.get("OPENDV_SERVER_PORT", "").strip()
+    if env_port.isdigit():
+        return int(env_port)
+
+    server_tuple = request.scope.get("server")
+    if isinstance(server_tuple, (tuple, list)) and len(server_tuple) >= 2 and server_tuple[1]:
+        return int(server_tuple[1])
+
+    settings = getattr(getattr(request, "app", None), "state", None)
+    cfg = getattr(settings, "settings", None) if settings is not None else None
+    cfg_port = getattr(cfg, "server_port", None) if cfg is not None else None
+    if cfg_port is not None:
+        return int(cfg_port)
+    return None
+
+
 def is_loopback_client(request: Request) -> bool:
-    """Assert caller connects from a loopback address and validate Host/Origin against rebinding."""
+    """Verify caller connects from loopback and validate Host/Origin/Fetch-Metadata."""
+    sec_fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if sec_fetch_site == "cross-site":
+        raise StudioAPIError(
+            "CSRF_ORIGIN_MISMATCH",
+            "Cross-site request rejected on loopback bootstrap endpoint.",
+            instance=str(request.url.path),
+        )
+
+    origin = request.headers.get("origin")
+    if origin is not None and origin.strip().lower() == "null":
+        raise StudioAPIError(
+            "CSRF_ORIGIN_MISMATCH",
+            "Opaque Origin 'null' rejected on loopback bootstrap endpoint.",
+            instance=str(request.url.path),
+        )
+
     if not request.client or not request.client.host:
         return False
     try:
-        if not ipaddress.ip_address(request.client.host).is_loopback:
+        client_ip = ipaddress.ip_address(request.client.host)
+        if not client_ip.is_loopback:
             return False
     except (ValueError, AttributeError):
         return False
 
-    loopback_name = "local" + "host"
     host = request.headers.get("host")
-    if host:
-        host_hostname = urlparse(f"//{host}").hostname or host
-        if host_hostname != loopback_name:
-            try:
-                if not ipaddress.ip_address(host_hostname).is_loopback:
-                    return False
-            except ValueError:
-                return False
+    if not host:
+        return False
+    parsed_host = urlparse(f"//{host.strip()}")
+    host_hostname = parsed_host.hostname
+    if not is_loopback_host(host_hostname):
+        return False
 
-    origin = request.headers.get("origin")
-    if origin and origin.strip().lower() != "null":
-        origin_hostname = urlparse(origin).hostname or origin
-        if origin_hostname != loopback_name:
-            try:
-                if not ipaddress.ip_address(origin_hostname).is_loopback:
-                    return False
-            except ValueError:
-                return False
+    expected_port = _resolve_expected_loopback_port(request)
+    if (
+        parsed_host.port is not None
+        and expected_port is not None
+        and parsed_host.port != expected_port
+    ):
+        return False
+
+    if origin:
+        parsed_origin = urlparse(origin.strip())
+        origin_hostname = parsed_origin.hostname
+        if not is_loopback_host(origin_hostname):
+            raise StudioAPIError(
+                "CSRF_ORIGIN_MISMATCH",
+                f"Cross-origin request to loopback bootstrap rejected: Origin '{origin}'.",
+                instance=str(request.url.path),
+            )
+        scheme = request.url.scheme or "http"
+        host_port = parsed_host.port or expected_port or (443 if scheme == "https" else 80)
+        origin_port = parsed_origin.port or (443 if parsed_origin.scheme == "https" else 80)
+        if origin_port != host_port:
+            raise StudioAPIError(
+                "CSRF_ORIGIN_MISMATCH",
+                f"Cross-port loopback Origin '{origin}' does not match Host '{host}'.",
+                instance=str(request.url.path),
+            )
 
     return True
 
@@ -200,7 +252,6 @@ def initialize_local_token(
         raise StudioAPIError(
             "LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE",
             "Studio initialization (/init) is forbidden in remote_platform mode.",
-            status_code=403,
         )
 
     if os.environ.get("OPENDV_TOKEN"):
@@ -208,7 +259,6 @@ def initialize_local_token(
             "STATIC_TOKEN_CONFIGURED",
             "Token is statically configured via OPENDV_TOKEN environment variable "
             "and cannot be initialized or rotated.",
-            status_code=400,
         )
 
     token_path = get_local_token_path(studio_root)
@@ -222,7 +272,6 @@ def initialize_local_token(
             raise StudioAPIError(
                 "STUDIO_ALREADY_INITIALIZED",
                 "Studio has already been initialized. Pass force=true to rotate the token.",
-                status_code=409,
             )
 
         if (
@@ -239,7 +288,6 @@ def initialize_local_token(
                 "UNAUTHENTICATED",
                 "Rotating an initialized token requires valid existing token "
                 "in Authorization header.",
-                status_code=401,
             )
 
         new_token = secrets.token_hex(32)
@@ -258,25 +306,11 @@ def initialize_local_token(
             raise
 
         if force:
-            # Invalidate active nonces and session cookies upon token rotation (MIN-08, SUG-02)
             with _AUTH_LOCK:
                 _LAUNCH_NONCES.clear()
                 _ACTIVE_SESSIONS.clear()
 
     return new_token, token_path
-
-
-def mint_launch_nonce(
-    principal: str = "human:local_admin",
-    role: str = "admin",
-    ttl: float = 60.0,
-) -> str:
-    """Generate a single-use 256-bit launch nonce with 60s TTL."""
-    _cleanup_expired_nonces_and_sessions()
-    nonce = secrets.token_hex(32)
-    with _AUTH_LOCK:
-        _LAUNCH_NONCES[nonce] = (principal, role, time.time() + ttl)
-    return nonce
 
 
 def exchange_launch_nonce(nonce: str) -> tuple[str, str]:
@@ -289,7 +323,6 @@ def exchange_launch_nonce(nonce: str) -> tuple[str, str]:
         raise StudioAPIError(
             "UNAUTHENTICATED",
             "Launch nonce is invalid or has already been used.",
-            status_code=401,
         )
 
     with _AUTH_LOCK:
@@ -301,7 +334,6 @@ def exchange_launch_nonce(nonce: str) -> tuple[str, str]:
         raise StudioAPIError(
             "UNAUTHENTICATED",
             "Launch nonce is invalid or has already been used.",
-            status_code=401,
         )
 
     principal, role, expires_at = entry
@@ -309,7 +341,6 @@ def exchange_launch_nonce(nonce: str) -> tuple[str, str]:
         raise StudioAPIError(
             "LAUNCH_NONCE_EXPIRED",
             "Launch nonce has expired.",
-            status_code=401,
         )
 
     session_token = secrets.token_hex(32)
@@ -319,7 +350,23 @@ def exchange_launch_nonce(nonce: str) -> tuple[str, str]:
             "role": role,
             "expires_at": time.time() + 86400,
         }
+        _evict_overflow_locked()
     return session_token, principal
+
+
+def _normalize_studio_role(raw_role: str, *, allow_legacy_aliases: bool = True) -> str | None:
+    role = raw_role.lower().strip()
+    if role == "admin" or (
+        allow_legacy_aliases and role in ("data_steward", "restricted_pii_custodian")
+    ):
+        return "admin"
+    if role == "editor":
+        return "editor"
+    if role == "automated" or (allow_legacy_aliases and role == "internal_modeler"):
+        return "automated"
+    if role == "viewer" or (allow_legacy_aliases and role in ("public", "auditor_finance")):
+        return "viewer"
+    return None
 
 
 def authenticate_studio_request(
@@ -341,17 +388,14 @@ def authenticate_studio_request(
     if auth_header and auth_header.strip().lower().startswith("bearer "):
         token = auth_header.strip()[7:].strip()
         if server_mode == SERVER_MODE_REMOTE:
-            # Remote mode: cryptographic RS256 signature verification via PyJWT
             try:
                 pub_key = get_jwt_verification_key()
-                # Verify header algorithm explicitly
                 unverified_header = jwt.get_unverified_header(token)
                 if unverified_header.get("alg") != "RS256":
                     raise StudioAPIError(
                         "UNAUTHENTICATED",
                         f"Algorithm '{unverified_header.get('alg')}' forbidden in remote mode; "
                         "only RS256 is permitted.",
-                        status_code=401,
                     )
 
                 expected_issuer = os.environ.get("OPENDV_JWT_ISSUER", "opendv-platform")
@@ -371,31 +415,29 @@ def authenticate_studio_request(
                         "UNAUTHENTICATED",
                         f"JWT sub claim '{principal}' does not match pattern "
                         "^(human|agent|system|user):[a-zA-Z0-9_.-]+$ or exceeds 128 characters.",
-                        status_code=401,
                     )
-                raw_jwt_role = str(claims.get("role") or "viewer").lower().strip()
-                if raw_jwt_role not in ("admin", "editor", "viewer"):
+                raw_jwt_role = str(claims.get("role") or "viewer")
+                normalized_role = _normalize_studio_role(raw_jwt_role, allow_legacy_aliases=True)
+                if normalized_role is None:
                     raise StudioAPIError(
                         "UNAUTHENTICATED",
                         f"JWT role claim '{raw_jwt_role}' is not a valid role "
-                        "(admin, editor, viewer).",
-                        status_code=401,
+                        "(admin, editor, viewer, automated).",
                     )
+                if principal.startswith("agent:"):
+                    normalized_role = "automated"
 
                 principal_obj = StudioPrincipal(
                     principal=principal,
-                    role=raw_jwt_role,
-                    is_admin=(raw_jwt_role == "admin"),
+                    role=normalized_role,
+                    is_admin=(normalized_role == "admin"),
                     auth_method="jwt",
                 )
             except jwt.PyJWTError as exc:
-                raise StudioAPIError(
-                    "UNAUTHENTICATED", f"JWT validation failed: {exc}", status_code=401
-                ) from exc
+                raise StudioAPIError("UNAUTHENTICATED", f"JWT validation failed: {exc}") from exc
             except StudioAPIError:
                 raise
         else:
-            # Local standalone mode: check against .local_token
             local_token = resolve_local_token(studio_root)
             if local_token:
                 try:
@@ -403,20 +445,15 @@ def authenticate_studio_request(
                 except (TypeError, UnicodeEncodeError):
                     match = False
                 if match:
-                    raw_role = (role_header or "admin").lower().strip()
-                    if raw_role in ("data_steward", "restricted_pii_custodian", "admin"):
-                        raw_role = "admin"
-                    elif raw_role in ("internal_modeler", "editor"):
-                        raw_role = "editor"
-                    elif raw_role in ("public", "auditor_finance", "viewer"):
-                        raw_role = "viewer"
-                    else:
+                    normalized_role = _normalize_studio_role(
+                        role_header or "admin", allow_legacy_aliases=True
+                    )
+                    if normalized_role is None:
                         raise StudioAPIError(
                             "SYNTAX_INVALID_ARGUMENT",
                             f"Invalid X-OpenDV-Role '{role_header}'; "
-                            "permitted roles are admin, editor, viewer, DATA_STEWARD, "
+                            "permitted roles are admin, editor, viewer, automated, DATA_STEWARD, "
                             "RESTRICTED_PII_CUSTODIAN, INTERNAL_MODELER, AUDITOR_FINANCE, PUBLIC.",
-                            status_code=400,
                         )
                     raw_principal = request.headers.get("X-OpenDV-Principal")
                     if raw_principal:
@@ -430,65 +467,80 @@ def authenticate_studio_request(
                                 f"Invalid X-OpenDV-Principal '{raw_principal}'; "
                                 "must match pattern ^(human|agent|system|user):[a-zA-Z0-9_.-]+$ "
                                 "and not exceed 128 characters.",
-                                status_code=400,
                             )
                         principal_str = clean_principal
+                    elif normalized_role == "automated":
+                        principal_str = "system:automated_runner"
                     else:
                         principal_str = "human:local_admin"
 
+                    if principal_str.startswith("agent:"):
+                        normalized_role = "automated"
+
                     principal_obj = StudioPrincipal(
                         principal=principal_str,
-                        role=raw_role,
-                        is_admin=(raw_role == "admin"),
+                        role=normalized_role,
+                        is_admin=(normalized_role == "admin"),
                         auth_method="local_token",
                     )
                 else:
-                    raise StudioAPIError(
-                        "UNAUTHENTICATED", "Invalid local bearer token.", status_code=401
-                    )
+                    raise StudioAPIError("UNAUTHENTICATED", "Invalid local bearer token.")
             else:
-                raise StudioAPIError(
-                    "UNAUTHENTICATED", "Local token not initialized.", status_code=401
-                )
+                raise StudioAPIError("UNAUTHENTICATED", "Local token not initialized.")
 
     elif session_cookie:
+        if server_mode == SERVER_MODE_REMOTE:
+            raise StudioAPIError(
+                "UNAUTHENTICATED",
+                "Session cookies are disabled in remote_platform mode; RS256 Bearer JWT required.",
+            )
         with _AUTH_LOCK:
             session_data = _ACTIVE_SESSIONS.get(session_cookie)
         if session_data and time.time() <= session_data["expires_at"]:
-            role = session_data["role"]
+            role = str(session_data["role"])
+            principal_str = str(session_data["principal"])
+            if principal_str.startswith("agent:"):
+                role = "automated"
             principal_obj = StudioPrincipal(
-                principal=session_data["principal"],
+                principal=principal_str,
                 role=role,
                 is_admin=(role == "admin"),
                 auth_method="cookie",
             )
         else:
-            raise StudioAPIError(
-                "UNAUTHENTICATED", "Session cookie expired or invalid.", status_code=401
-            )
+            raise StudioAPIError("UNAUTHENTICATED", "Session cookie expired or invalid.")
 
     if principal_obj is None:
-        raise StudioAPIError(
-            "UNAUTHENTICATED", "Authentication credentials required.", status_code=401
-        )
+        raise StudioAPIError("UNAUTHENTICATED", "Authentication credentials required.")
 
     if required_role and not principal_obj.can_perform(required_role):
+        if principal_obj.is_automated:
+            code = (
+                "AGENT_ADMIN_OP_FORBIDDEN"
+                if required_role == "admin"
+                else "AGENT_OPERATION_FORBIDDEN"
+            )
+            raise StudioAPIError(
+                code,
+                f"Automated principal '{principal_obj.principal}' is forbidden from "
+                f"performing '{required_role}' operations.",
+            )
         if required_role == "admin":
             raise StudioAPIError(
                 "FORBIDDEN_ADMIN_REQUIRED",
                 "Administrator role required for this studio operation.",
-                status_code=403,
             )
         raise StudioAPIError(
             "SERVER_OPERATION_FORBIDDEN",
             f"Role '{principal_obj.role}' insufficient for required role '{required_role}'.",
-            status_code=403,
         )
 
     return principal_obj
 
 
 __all__ = [
+    "MAX_ACTIVE_NONCES",
+    "MAX_ACTIVE_SESSIONS",
     "SERVER_MODE_LOCAL",
     "SERVER_MODE_REMOTE",
     "StudioPrincipal",

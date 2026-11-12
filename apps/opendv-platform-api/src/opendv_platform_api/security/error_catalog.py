@@ -1,7 +1,7 @@
 """Canonical closed error catalog and RFC 9457 ProblemDetail helpers (Task 5B.4 / Issue #218).
 
-Maps directly to schemas/v1/error-codes.json containing 119 closed error codes
-across exit codes 0..7.
+Maps directly to `opendv_contracts.errors.ERROR_MAPPINGS` (157 closed `ErrorCode` values
+across exit codes 0..7), overlaying `schemas/v1/error-codes.json` metadata when present.
 """
 
 from __future__ import annotations
@@ -12,22 +12,52 @@ from typing import Any
 
 from fastapi.responses import JSONResponse
 
+from opendv_contracts.errors import ERROR_MAPPINGS, ErrorCode
+
 _ERROR_CATALOG: dict[str, dict[str, Any]] = {}
+_CATALOG_LOADED: bool = False
 
 
 def _find_catalog_path() -> Path | None:
-    curr = Path.cwd().resolve()
-    for p in [curr, curr.parent, curr.parent.parent]:
-        candidate = p / "schemas" / "v1" / "error-codes.json"
+    module_path = Path(__file__).resolve()
+    search_roots: list[Path] = list(module_path.parents)
+    try:
+        cwd = Path.cwd().resolve()
+        for p in (cwd, *cwd.parents):
+            if p not in search_roots:
+                search_roots.append(p)
+    except OSError:
+        pass
+
+    for root in search_roots:
+        candidate = root / "schemas" / "v1" / "error-codes.json"
         if candidate.is_file():
             return candidate
     return None
 
 
+def _build_baseline_catalog() -> dict[str, dict[str, Any]]:
+    """Construct the authoritative in-package catalog baseline from `ERROR_MAPPINGS`."""
+    baseline: dict[str, dict[str, Any]] = {}
+    for err_code in ErrorCode:
+        mapping = ERROR_MAPPINGS.get(err_code)
+        if mapping is not None:
+            code_str = err_code.value
+            baseline[code_str] = {
+                "code": code_str,
+                "exit_code": mapping.exit_code,
+                "http_status": mapping.http_status,
+                "problem_title": mapping.problem_title,
+                "problem_type_uri": mapping.problem_type_uri,
+            }
+    return baseline
+
+
 def get_error_catalog() -> dict[str, dict[str, Any]]:
-    """Return dictionary of code -> error code entry from schemas/v1/error-codes.json."""
-    global _ERROR_CATALOG
-    if not _ERROR_CATALOG:
+    """Return dictionary of code -> error code entry for all closed ErrorCode values."""
+    global _CATALOG_LOADED
+    if not _CATALOG_LOADED or not _ERROR_CATALOG:
+        merged = _build_baseline_catalog()
         catalog_path = _find_catalog_path()
         if catalog_path and catalog_path.is_file():
             try:
@@ -35,9 +65,15 @@ def get_error_catalog() -> dict[str, dict[str, Any]]:
                 for entry in data.get("error_codes", []):
                     code = entry.get("code")
                     if code:
-                        _ERROR_CATALOG[code] = entry
+                        if code in merged:
+                            merged[code] = {**merged[code], **entry}
+                        else:
+                            merged[code] = entry
             except (OSError, json.JSONDecodeError):
                 pass
+        _ERROR_CATALOG.clear()
+        _ERROR_CATALOG.update(merged)
+        _CATALOG_LOADED = True
     return _ERROR_CATALOG
 
 
@@ -106,6 +142,7 @@ def build_studio_problem_response(
         "title": resolved_title,
         "status": resolved_status,
         "detail": detail,
+        "code": code,
         "error_code": code,
     }
     if instance:

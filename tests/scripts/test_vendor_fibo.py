@@ -43,6 +43,7 @@ from scripts.vendor_fibo import (  # noqa: E402
     MAX_MEMORY_BYTES,
     UPSTREAM_COMMIT,
     UPSTREAM_TAG,
+    ArchiveSecurityError,
     _extract_annotations,
     _hash_file_sha256,
     _load_baseline_fibo_config,
@@ -889,3 +890,70 @@ def test_cached_git_repo_url_mismatch_reclones(tmp_path: Path) -> None:
         source, commit = ensure_fibo_source(cache_dir=cache)
         assert source == git_cache
         assert commit == UPSTREAM_COMMIT
+
+
+def test_zip_rejects_unix_symlink_and_windows_reparse_point(tmp_path: Path) -> None:
+    """Regression 040b4599::MAJ-06: Reject Unix symlinks & Windows reparse points in .zip."""
+    # 1. Unix symlink entry (S_IFLNK = 0o120000 in upper 16 bits of external_attr)
+    unix_sym_zip = tmp_path / "unix_symlink.zip"
+    with zipfile.ZipFile(unix_sym_zip, "w") as zf:
+        zi = zipfile.ZipInfo("FND/evil_link.ttl")
+        zi.create_system = 3  # Unix
+        zi.external_attr = (0o120777) << 16
+        zf.writestr(zi, "/etc/passwd")
+
+    with pytest.raises(ArchiveSecurityError, match="Links and special files prohibited"):
+        safe_extract_archive(unix_sym_zip, tmp_path / "out_unix")
+
+    # 2. Windows FILE_ATTRIBUTE_REPARSE_POINT (0x400 in lower 16 bits of external_attr)
+    win_reparse_zip = tmp_path / "win_reparse.zip"
+    with zipfile.ZipFile(win_reparse_zip, "w") as zf:
+        zi = zipfile.ZipInfo("FND/junction.ttl")
+        zi.create_system = 0  # Windows / FAT
+        zi.external_attr = 0x0400
+        zf.writestr(zi, "junction target")
+
+    with pytest.raises(ArchiveSecurityError, match="Links and special files prohibited"):
+        safe_extract_archive(win_reparse_zip, tmp_path / "out_win")
+
+
+def test_zip_rejects_zip_slip_and_streaming_decompression_bomb(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Regression 040b4599::MAJ-06: Zip-slip rejection & streaming uncompressed byte limit."""
+    # 1. Zip-slip relative and drive-prefixed paths
+    for bad_name in ("../../escape.ttl", "C:/Windows/win.ini", "/etc/shadow"):
+        slip_zip = tmp_path / f"slip_{abs(hash(bad_name))}.zip"
+        with zipfile.ZipFile(slip_zip, "w") as zf:
+            zf.writestr(bad_name, "malicious")
+        with pytest.raises(ArchiveSecurityError):
+            safe_extract_archive(slip_zip, tmp_path / "out_slip")
+
+    # 2. Streaming decompression bomb: header file_size lies (10 bytes), stream yields 8192 bytes
+    bomb_zip = tmp_path / "streaming_bomb.zip"
+    with zipfile.ZipFile(bomb_zip, "w", compression=zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr("FND/huge.ttl", b"A" * 8192)
+
+    monkeypatch.setattr("scripts.vendor_fibo.MAX_ARCHIVE_UNCOMPRESSED_BYTES", 1024)
+    orig_infolist = zipfile.ZipFile.infolist
+
+    def spoofed_infolist(self: zipfile.ZipFile) -> list[zipfile.ZipInfo]:
+        infos = orig_infolist(self)
+        for item in infos:
+            item.file_size = 10
+        return infos
+
+    # 2a. Real ZipExtFile CRC/size mismatch under spoofed header is caught as ArchiveSecurityError
+    with (
+        patch.object(zipfile.ZipFile, "infolist", spoofed_infolist),
+        pytest.raises(ArchiveSecurityError),
+    ):
+        safe_extract_archive(bomb_zip, tmp_path / "out_bomb_crc")
+
+    # 2b. Stream returning >1024 decompressed bytes directly hits streaming byte cap
+    with (
+        patch.object(zipfile.ZipFile, "infolist", spoofed_infolist),
+        patch.object(zipfile.ZipFile, "open", return_value=io.BytesIO(b"A" * 8192)),
+        pytest.raises(ArchiveSecurityError, match="Archive uncompressed size exceeds limit"),
+    ):
+        safe_extract_archive(bomb_zip, tmp_path / "out_bomb_stream")

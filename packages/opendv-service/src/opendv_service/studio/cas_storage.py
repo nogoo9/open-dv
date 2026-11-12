@@ -3,6 +3,7 @@
 Implements Task 4D.1 / Issue #208:
 - Stores content under `<storage_root>/cas/<sha256[:2]>/<sha256[2:]>`.
 - Provides content deduplication: identical bytes write to identical path.
+- Enforces owner-only permissions (0700/0600), fsync durability, and retry-safe atomic replace.
 - Verifies bit-for-bit SHA-256 cryptographic integrity upon retrieval.
 """
 
@@ -10,10 +11,16 @@ from __future__ import annotations
 
 import contextlib
 import hashlib
+import os
 import re
 import secrets
 from pathlib import Path
 from typing import Final
+
+from opendv_service.studio.workspace_security import (
+    replace_with_retry,
+    set_owner_only_permissions,
+)
 
 _SHA256_PATTERN: Final[re.Pattern[str]] = re.compile(r"\A[0-9a-f]{64}\Z")
 
@@ -25,6 +32,7 @@ class CASIntegrityError(ValueError):
         super().__init__(message)
         self.error_code = error_code
         self.status_code = 422
+        self.http_status = 422
         self.exit_code = 4
 
 
@@ -35,6 +43,7 @@ class CASNotFoundError(FileNotFoundError):
         super().__init__(message)
         self.error_code = error_code
         self.status_code = 404
+        self.http_status = 404
         self.exit_code = 3
 
 
@@ -46,7 +55,7 @@ class ContentAddressableStorage:
         self.cas_dir = self.root_dir / "cas"
 
     def put(self, data: bytes) -> str:
-        """Store bytes in CAS with SHA-256 addressing and deduplication.
+        """Store bytes in CAS with SHA-256 addressing, fsync durability, and owner-only ACLs.
 
         Args:
             data: Raw content bytes to store.
@@ -61,7 +70,7 @@ class ContentAddressableStorage:
         shard_dir = self.cas_dir / shard
         blob_path = shard_dir / rest
 
-        # MIN-06: Deduplication check with integrity verification
+        # Deduplication check with integrity verification
         if blob_path.exists():
             try:
                 existing_bytes = blob_path.read_bytes()
@@ -71,12 +80,30 @@ class ContentAddressableStorage:
                 pass
             # If existing blob was corrupted or unreadable, overwrite it atomically below
 
-        # Write atomically using a temporary file in the same shard directory
+        cas_existed = self.cas_dir.exists()
+        shard_existed = shard_dir.exists()
         shard_dir.mkdir(parents=True, exist_ok=True)
+        if not cas_existed:
+            set_owner_only_permissions(self.cas_dir)
+        if not shard_existed:
+            set_owner_only_permissions(shard_dir)
+
         temp_file = shard_dir / f".{rest}.{secrets.token_hex(4)}.tmp"
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
         try:
-            temp_file.write_bytes(data)
-            temp_file.replace(blob_path)
+            fd = os.open(str(temp_file), flags, 0o600)
+            try:
+                view = memoryview(data)
+                written = 0
+                total = len(data)
+                while written < total:
+                    written += os.write(fd, view[written:])
+                os.fsync(fd)
+            finally:
+                os.close(fd)
+            set_owner_only_permissions(temp_file)
+            replace_with_retry(temp_file, blob_path)
+            set_owner_only_permissions(blob_path)
         finally:
             if temp_file.exists():
                 with contextlib.suppress(OSError):
@@ -95,12 +122,10 @@ class ContentAddressableStorage:
         if not _SHA256_PATTERN.fullmatch(digest):
             raise ValueError(f"Invalid SHA-256 hex digest: '{sha256}'")
 
-        # Primary: sharded layout cas/<sha256[:2]>/<sha256[2:]>
         sharded_path = self.cas_dir / digest[:2] / digest[2:]
         if sharded_path.exists():
             return sharded_path
 
-        # Fallback: flat layout cas/<sha256>
         flat_path = self.cas_dir / digest
         if flat_path.exists():
             return flat_path
@@ -108,22 +133,10 @@ class ContentAddressableStorage:
         return None
 
     def get(self, sha256: str) -> bytes:
-        """Retrieve bytes from CAS by SHA-256 digest with integrity verification.
-
-        Args:
-            sha256: 64-character SHA-256 hex digest.
-
-        Returns:
-            Verified raw content bytes.
-
-        Raises:
-            CASNotFoundError: If blob does not exist in CAS.
-            CASIntegrityError: If retrieved bytes fail SHA-256 verification.
-        """
+        """Retrieve bytes from CAS by SHA-256 digest with integrity verification."""
         digest = sha256.strip().lower()
         blob_path = self._resolve_path(digest)
         if blob_path is None:
-            # MIN-07: Avoid leaking absolute paths in error messages
             raise CASNotFoundError(f"Blob '{digest}' not found in CAS")
 
         data = blob_path.read_bytes()
@@ -136,12 +149,7 @@ class ContentAddressableStorage:
         return data
 
     def get_path(self, sha256: str, verify: bool = True) -> Path:
-        """Get the filesystem path of a CAS blob, optionally verifying integrity.
-
-        Raises:
-            CASNotFoundError: If blob does not exist.
-            CASIntegrityError: If verify=True and content hash does not match.
-        """
+        """Get the filesystem path of a CAS blob, optionally verifying integrity."""
         digest = sha256.strip().lower()
         blob_path = self._resolve_path(digest)
         if blob_path is None:
@@ -165,11 +173,7 @@ class ContentAddressableStorage:
             return False
 
     def delete(self, sha256: str) -> bool:
-        """Delete a blob from CAS (used for mark-and-sweep GC).
-
-        Returns:
-            True if deleted, False if not found.
-        """
+        """Delete a blob from CAS (used for mark-and-sweep GC)."""
         digest = sha256.strip().lower()
         blob_path = self._resolve_path(digest)
         if blob_path is None:
@@ -177,7 +181,6 @@ class ContentAddressableStorage:
 
         try:
             blob_path.unlink()
-            # Clean up empty shard directory if applicable
             parent = blob_path.parent
             if parent != self.cas_dir and not any(parent.iterdir()):
                 with contextlib.suppress(OSError):

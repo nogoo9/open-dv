@@ -83,9 +83,9 @@ class TestP6AdversarialTreeParity:
 
         # 2. Pipeline report isolation in dumped trees
         py_cmds = py_tree["commands"]
-        ts_cmds = {c["name"]: c for c in ts_tree["commands"]}
+        ts_cmds = ts_tree["commands"]
         py_pipe_subs = py_cmds["pipeline"]["subcommands"]
-        ts_pipe_subs = {s["name"]: s for s in ts_cmds["pipeline"]["subcommands"]}
+        ts_pipe_subs = ts_cmds["pipeline"]["subcommands"]
 
         assert "report" in py_pipe_subs
         assert py_pipe_subs["report"]["availability"] == "standalone_only"
@@ -113,7 +113,7 @@ class TestP6AdversarialTreeParity:
         ts_tree = json.loads(stdout_ts.strip())
 
         py_cmds = py_tree["commands"]
-        ts_cmds = {c["name"]: c for c in ts_tree["commands"]}
+        ts_cmds = ts_tree["commands"]
 
         # Shared leaf commands
         for leaf in ["profile", "compile", "verify", "sandbox"]:
@@ -121,19 +121,19 @@ class TestP6AdversarialTreeParity:
 
         # Shared pipeline subcommands
         py_pipe_subs = py_cmds["pipeline"]["subcommands"]
-        ts_pipe_subs = {s["name"]: s for s in ts_cmds["pipeline"]["subcommands"]}
+        ts_pipe_subs = ts_cmds["pipeline"]["subcommands"]
         for sub in ["validate", "run"]:
             assert dumps_jcs(py_pipe_subs[sub]) == dumps_jcs(ts_pipe_subs[sub])
 
         # Shared run subcommands
         py_run_subs = py_cmds["run"]["subcommands"]
-        ts_run_subs = {s["name"]: s for s in ts_cmds["run"]["subcommands"]}
+        ts_run_subs = ts_cmds["run"]["subcommands"]
         for sub in ["list", "get", "create", "abort", "events", "explorer", "artifact"]:
             assert dumps_jcs(py_run_subs[sub]) == dumps_jcs(ts_run_subs[sub])
 
         # Shared hold subcommands
         py_hold_subs = py_cmds["hold"]["subcommands"]
-        ts_hold_subs = {s["name"]: s for s in ts_cmds["hold"]["subcommands"]}
+        ts_hold_subs = ts_cmds["hold"]["subcommands"]
         for sub in ["list", "approve", "reject", "answer"]:
             assert dumps_jcs(py_hold_subs[sub]) == dumps_jcs(ts_hold_subs[sub])
 

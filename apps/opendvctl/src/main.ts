@@ -3,11 +3,26 @@
  */
 
 import { errorHandler } from "./error-handler";
-import { SpecDrivenParser } from "./parser";
+import { CliSyntaxError, CommandLineParseError, SpecDrivenParser } from "./parser";
 import { presentResult } from "./presenter";
 import { RemoteExecutor } from "./remote-executor";
 import { loadCliSpec } from "./spec";
 import { dumpCliTree } from "./tree";
+
+export { CliSyntaxError, CommandLineParseError };
+
+function argvWantsJson(argv: string[]): boolean {
+	for (let i = 0; i < argv.length; i++) {
+		const tok = argv[i];
+		if (tok === "--json" || tok === "--json-output" || tok === "--format=json") {
+			return true;
+		}
+		if (tok === "--format" && argv[i + 1] === "json") {
+			return true;
+		}
+	}
+	return false;
+}
 
 export async function runCli(
 	argv: string[],
@@ -22,11 +37,12 @@ export async function runCli(
 		return 0;
 	}
 
-	let isJson = false;
+	let isJson = argvWantsJson(argv);
 
 	try {
 		const parsed = parser.parse(argv);
-		isJson = parsed.options.json === true || parsed.options.format === "json";
+		isJson =
+			isJson || parsed.options.json === true || parsed.options.format === "json";
 
 		if (parsed.isDumpCliTree) {
 			writer(dumpCliTree());
@@ -53,7 +69,9 @@ export async function runCli(
 		const executor = new RemoteExecutor({
 			baseUrl: parsed.options.api_url as string | undefined,
 			role: parsed.options.role as string | undefined,
+			explicitRole: parsed.explicitRole,
 			writer,
+			errWriter,
 		});
 
 		const { exitCode, payload } = await executor.execute(

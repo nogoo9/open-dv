@@ -75,12 +75,8 @@ from tests.golden.ontology_studio.test_golden_modes import (
     wm_evidence_tables as get_wm_evidence_tables,
 )
 
-EXPECTED_PE_CANONICAL_SHA256 = (
-    "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81"
-)
-EXPECTED_WM_CANONICAL_SHA256 = (
-    "ca2fe09c9baa0a3d16200ae214b7cde99ab1788b224a370852f2a4db837f3c0c"
-)
+EXPECTED_PE_CANONICAL_SHA256 = "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81"
+EXPECTED_WM_CANONICAL_SHA256 = "ca2fe09c9baa0a3d16200ae214b7cde99ab1788b224a370852f2a4db837f3c0c"
 
 
 @pytest.fixture(scope="module")
@@ -266,11 +262,12 @@ class TestScoringEngineDegradedModelSensitivity:
             delta=OntologyDelta(
                 delta_id="d-prov",
                 base_version="0.0.0",
+                target_version="1.0.0",
                 author="agent:ontology-architect",
                 operations=[
                     AddConceptOp(
                         op_id="op-01",
-                        concept_uri="urn:ontology:provisional:entity:fund",
+                        concept_uri="urn:opendv:provisional:entity:fund",
                         concept_name="Fund",
                         target_hub="hub_fund",
                     )
@@ -410,7 +407,7 @@ class TestDualModeRuntimeSLAAndConcordanceEmpirical:
     ) -> None:
         """Assert concept Jaccard concordance between modes is >= 80% (measured 100%)."""
         pipeline = DeterministicConstructionPipeline()
-        architect = OntologyArchitect()
+        architect = OntologyArchitect(matcher=pipeline.matcher)
         base_ont = GraphAOntology(
             ontology_version="1.0.0",
             domain_namespace="pe_asset_management",
@@ -423,6 +420,18 @@ class TestDualModeRuntimeSLAAndConcordanceEmpirical:
             ],
         )
 
+        def _agent_concepts(prop: OntologyProposal) -> set[str]:
+            out = {
+                _slugify(op.concept_name or op.concept_uri)
+                for op in prop.delta.operations
+                if isinstance(op, AddConceptOp)
+            }
+            for sc in prop.delta.metadata.get("staged_candidates", []):
+                op_d = sc.get("operation", {})
+                if op_d.get("op_type") == "add_concept":
+                    out.add(_slugify(op_d.get("concept_name") or op_d.get("concept_uri") or ""))
+            return out
+
         # PE concordance
         det_pe = pipeline.construct_proposal(base_ontology=base_ont, tables=pe_tables)
         agent_pe = architect.propose_delta(base_ontology=base_ont, evidence=pe_tables)
@@ -431,11 +440,7 @@ class TestDualModeRuntimeSLAAndConcordanceEmpirical:
             for op in det_pe.delta.operations
             if isinstance(op, AddConceptOp)
         }
-        pe_agent_c = {
-            _slugify(op.concept_name or op.concept_uri)
-            for op in agent_pe.delta.operations
-            if isinstance(op, AddConceptOp)
-        }
+        pe_agent_c = _agent_concepts(agent_pe)
         pe_concordance = len(pe_det_c & pe_agent_c) / len(pe_det_c | pe_agent_c)
         assert pe_concordance >= 0.8000
         assert pe_concordance == 1.0000
@@ -448,11 +453,7 @@ class TestDualModeRuntimeSLAAndConcordanceEmpirical:
             for op in det_wm.delta.operations
             if isinstance(op, AddConceptOp)
         }
-        wm_agent_c = {
-            _slugify(op.concept_name or op.concept_uri)
-            for op in agent_wm.delta.operations
-            if isinstance(op, AddConceptOp)
-        }
+        wm_agent_c = _agent_concepts(agent_wm)
         wm_concordance = len(wm_det_c & wm_agent_c) / len(wm_det_c | wm_agent_c)
         assert wm_concordance >= 0.8000
         assert wm_concordance == 1.0000

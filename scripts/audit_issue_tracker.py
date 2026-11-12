@@ -331,15 +331,17 @@ def run_audit(
 
         gh_issue = repo_issues.get(issue_num)
         if not gh_issue:
-            results.append({
-                "taskId": task_id,
-                "issueNumber": issue_num,
-                "title": expected_title,
-                "state": "MISSING",
-                "reviewStatus": "NOT_FOUND",
-                "verdict": "FAIL",
-                "reason": "Issue does not exist in repo",
-            })
+            results.append(
+                {
+                    "taskId": task_id,
+                    "issueNumber": issue_num,
+                    "title": expected_title,
+                    "state": "MISSING",
+                    "reviewStatus": "NOT_FOUND",
+                    "verdict": "FAIL",
+                    "reason": "Issue does not exist in repo",
+                }
+            )
             task_verdicts[issue_num] = "FAIL"
             continue
 
@@ -364,14 +366,16 @@ def run_audit(
                 status_desc = f"CLOSED ({review_detail})"
 
         task_verdicts[issue_num] = verdict
-        results.append({
-            "taskId": task_id,
-            "issueNumber": issue_num,
-            "title": gh_issue.get("title", expected_title),
-            "state": state,
-            "reviewStatus": status_desc,
-            "verdict": verdict,
-        })
+        results.append(
+            {
+                "taskId": task_id,
+                "issueNumber": issue_num,
+                "title": gh_issue.get("title", expected_title),
+                "state": state,
+                "reviewStatus": status_desc,
+                "verdict": verdict,
+            }
+        )
 
     # Group tasks dynamically by phaseKey from issue-map.json (MIN-03)
     tasks_by_phase: dict[str, list[int]] = {}
@@ -389,22 +393,25 @@ def run_audit(
 
         gh_issue = repo_issues.get(issue_num)
         if not gh_issue:
-            results.append({
-                "taskId": phase_key.upper(),
-                "issueNumber": issue_num,
-                "title": phase.get("title", ""),
-                "state": "MISSING",
-                "reviewStatus": "NOT_FOUND",
-                "verdict": "FAIL",
-                "reason": "Phase tracker issue missing",
-            })
+            results.append(
+                {
+                    "taskId": phase_key.upper(),
+                    "issueNumber": issue_num,
+                    "title": phase.get("title", ""),
+                    "state": "MISSING",
+                    "reviewStatus": "NOT_FOUND",
+                    "verdict": "FAIL",
+                    "reason": "Phase tracker issue missing",
+                }
+            )
             phase_verdicts[phase_key] = "FAIL"
             continue
 
         state = gh_issue.get("state", "UNKNOWN")
         child_task_nums = tasks_by_phase.get(phase_key, [])
         failed_children = [
-            num for num in child_task_nums
+            num
+            for num in child_task_nums
             if task_verdicts.get(num) != "PASS" and num not in allow_open
         ]
 
@@ -429,28 +436,32 @@ def run_audit(
             status_desc = f"CLOSED (All {len(child_task_nums)} child tasks verified)"
 
         phase_verdicts[phase_key] = verdict
-        results.append({
-            "taskId": phase_key.upper(),
-            "issueNumber": issue_num,
-            "title": gh_issue.get("title", phase.get("title", "")),
-            "state": state,
-            "reviewStatus": status_desc,
-            "verdict": verdict,
-        })
+        results.append(
+            {
+                "taskId": phase_key.upper(),
+                "issueNumber": issue_num,
+                "title": gh_issue.get("title", phase.get("title", "")),
+                "state": state,
+                "reviewStatus": status_desc,
+                "verdict": verdict,
+            }
+        )
 
     # 3. Audit Epic Tracker
     epic_num = epic.get("id")
     if epic_num:
         gh_issue = repo_issues.get(epic_num)
         if not gh_issue:
-            results.append({
-                "taskId": "EPIC",
-                "issueNumber": epic_num,
-                "title": epic.get("title", ""),
-                "state": "MISSING",
-                "reviewStatus": "NOT_FOUND",
-                "verdict": "FAIL",
-            })
+            results.append(
+                {
+                    "taskId": "EPIC",
+                    "issueNumber": epic_num,
+                    "title": epic.get("title", ""),
+                    "state": "MISSING",
+                    "reviewStatus": "NOT_FOUND",
+                    "verdict": "FAIL",
+                }
+            )
         else:
             comments = gh_issue.get("comments", [])
             verified_epic, epic_review_detail = verify_review_summary(
@@ -476,14 +487,16 @@ def run_audit(
                 status_desc = "Updated with Wave 3 & Phase Trackers Verified"
                 verdict = "PASS"
 
-            results.append({
-                "taskId": "EPIC",
-                "issueNumber": epic_num,
-                "title": gh_issue.get("title", epic.get("title", "")),
-                "state": gh_issue.get("state", "UNKNOWN"),
-                "reviewStatus": status_desc,
-                "verdict": verdict,
-            })
+            results.append(
+                {
+                    "taskId": "EPIC",
+                    "issueNumber": epic_num,
+                    "title": gh_issue.get("title", epic.get("title", "")),
+                    "state": gh_issue.get("state", "UNKNOWN"),
+                    "reviewStatus": status_desc,
+                    "verdict": verdict,
+                }
+            )
 
     # Total violations computed directly from FAIL verdicts (MIN-01)
     total_violations = sum(1 for r in results if r["verdict"] == "FAIL")

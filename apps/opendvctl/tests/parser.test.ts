@@ -1,5 +1,10 @@
 import { describe, expect, it } from "bun:test";
-import { CommandLineParseError, SpecDrivenParser } from "../src/parser";
+import { runCli } from "../src/main";
+import {
+	CliSyntaxError,
+	CommandLineParseError,
+	SpecDrivenParser,
+} from "../src/parser";
 
 describe("SpecDrivenParser", () => {
 	const parser = new SpecDrivenParser();
@@ -88,5 +93,66 @@ describe("SpecDrivenParser", () => {
 		const subHelp = parser.formatHelp("pipeline", "run");
 		expect(subHelp).toContain("Usage: opendvctl pipeline run");
 		expect(subHelp).toContain("--input");
+	});
+
+	it("S5-MAJ-01: rejects unknown commands, unknown subcommands, missing subcommands, and stray positional args with CliSyntaxError (exit 2)", async () => {
+		expect(() => parser.parse(["bogus-cmd"])).toThrow(CliSyntaxError);
+		expect(() => parser.parse(["ontology", "bogus-sub"])).toThrow(CliSyntaxError);
+		expect(() => parser.parse(["ontology", "studio", "bogus-leaf"])).toThrow(
+			CliSyntaxError,
+		);
+		expect(() => parser.parse(["ontology"])).toThrow(CliSyntaxError);
+		expect(() => parser.parse(["ontology", "studio"])).toThrow(CliSyntaxError);
+		expect(() =>
+			parser.parse(["ontology", "studio", "list", "stray-positional"]),
+		).toThrow(CliSyntaxError);
+		expect(() =>
+			parser.parse(["compile", "-c", "contract.yaml", "extra-arg"]),
+		).toThrow(CliSyntaxError);
+
+		const errs: string[] = [];
+		const code = await runCli(
+			["bogus-cmd", "--json"],
+			() => {},
+			(msg) => errs.push(msg),
+		);
+		expect(code).toBe(2);
+		const parsedErr = JSON.parse(errs.join("\n"));
+		expect(parsedErr.error_code).toBe("SYNTAX_INVALID_ARGUMENT");
+	});
+
+	it("S5-MAJ-01 & P12a MAJ-03: consumes multi-token array options (--source-ids s1 s2) and applies normative create defaults", () => {
+		const multi = parser.parse([
+			"ontology",
+			"studio",
+			"parse",
+			"--session",
+			"s1",
+			"--source-ids",
+			"src-1",
+			"src-2",
+			"--wait",
+		]);
+		expect(multi.command).toBe("ontology");
+		expect(multi.subcommand).toBe("studio parse");
+		expect(multi.options.source_ids).toEqual(["src-1", "src-2"]);
+		expect(multi.options.wait).toBe(true);
+
+		const repeated = parser.parse([
+			"ontology",
+			"studio",
+			"parse",
+			"--session",
+			"s1",
+			"--source-ids",
+			"src-a",
+			"--source-ids",
+			"src-b",
+		]);
+		expect(repeated.options.source_ids).toEqual(["src-a", "src-b"]);
+
+		const created = parser.parse(["ontology", "studio", "create", "-s", "s1"]);
+		expect(created.options.domain_namespace).toBe("general");
+		expect(created.options.enterprise_owner).toBe("Enterprise Architecture");
 	});
 });

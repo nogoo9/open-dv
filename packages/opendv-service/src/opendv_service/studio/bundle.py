@@ -1,7 +1,7 @@
 """Portable session bundle (.odvstudio.zip) export, import and security validation.
 
-Implements Task 4D.3 / Issue #210, ADR-016, and docs/20 §7.3:
-- Portable .odvstudio.zip bundle packaging and extraction.
+Implements Task 4D.3 / Issue #210, ADR-014, ADR-016, and docs/20 §7.3:
+- Portable .odvstudio.zip bundle packaging and extraction under L5 session lock.
 - Zero-Trust Windows Normalized Extraction Security:
     Rejects with ArchiveSecurityViolationError (HTTP 422 / exit 4):
     1. Path traversal attempts ('..').
@@ -10,21 +10,24 @@ Implements Task 4D.3 / Issue #210, ADR-016, and docs/20 §7.3:
     4. UNC paths ('\\\\host\\share', '//host/share').
     5. NTFS Alternate Data Streams (ADS) containing ':'.
     6. Windows reserved device names (CON, PRN, AUX, NUL, COM1..9, LPT1..9).
-    7. Symlink, hardlink, FIFO, or special device entries (mode bits 0o120000).
+    7. Symlink, Windows reparse point (0x0400), hardlink, FIFO, or special device entries.
     8. Control characters, null bytes, empty segments, or single dot segments.
     9. Canonical collisions under Unicode NFC and casefold normalization.
 - Streaming Decompression Guards:
     - Max uncompressed size: <= 250.0 MB.
     - Max entries: <= 500.
-    - Max compression ratio: <= 100:1 on entries > 1.0 MB (zip bomb guard).
-- Session Secret Isolation:
-    - Workspace / session secret (.session_secret) and lock files (*.lock) are excluded.
-    - Fresh .session_secret is generated locally on import.
+    - Max compression ratio: <= 100:1 on entries > 1.0 MB (with central-directory compress_size
+      clamped to physical archive byte size).
+- Full Delta Replay & Canonical JCS Digest Verification (IMPORT_DELTA_REPLAY_HASH_MISMATCH).
+- Cross-Workspace Audit Chain Verification & Local K_audit Re-Anchoring (ADR-014).
+- Effective Taint Propagation (T_effective = T_manifest U T_imported) & Confidentiality Gates.
 """
 
 from __future__ import annotations
 
 import contextlib
+import hashlib
+import hmac
 import json
 import os
 import re
@@ -37,45 +40,87 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
+from pydantic import ValidationError
+
+from opendv_contracts.dtos.ontology import OntologyDelta, StewardWaiverRecord
+from opendv_contracts.errors import ErrorCode, OpenDVError
+from opendv_core.genesis import GENESIS_VERSION, create_genesis_ontology
+from opendv_core.models.graph_a import GraphAOntology
+from opendv_core.ontology_hashing import compute_ontology_sha256, dumps_jcs_bytes
+from opendv_service.ontology.applier import apply as apply_delta
+from opendv_service.ontology.matching.verifier import get_default_grounding_verifier
+from opendv_service.ontology.validator import (
+    InvalidGroundingWaiverError,
+    StructuralValidator,
+    UngroundedConceptError,
+)
+from opendv_service.studio.atomic_commit import (
+    ForbiddenAdminRequiredError,
+    TamperEvidentChainCorruptError,
+    collect_touched_concept_uris,
+    fsync_directory_best_effort,
+    parse_semver_tuple,
+    verify_ont_evo_002_post_state_grounding,
+)
+from opendv_service.studio.locks import L5_SESSION, reentrant_session_lock, studio_lock
 from opendv_service.studio.session_manager import (
     _WINDOWS_RESERVED_DEVICES,
+    SessionAlreadyExistsError,
     SessionMetadata,
-    set_owner_only_permissions,
+    _atomic_write_session_json,
+    append_signed_audit_record,
+    normalize_version_tag,
+    sanitize_domain_namespace,
     validate_session_id,
 )
-from opendv_service.studio.workspace_security import WorkspaceSecurityManager
+from opendv_service.studio.workspace_security import (
+    InvalidWorkspacePathError,
+    WorkspaceSecurityManager,
+    replace_with_retry,
+    set_owner_only_permissions,
+    validate_workspace_containment,
+)
 
 MAX_BUNDLE_UNCOMPRESSED_BYTES: Final[int] = 250 * 1024 * 1024  # 250.0 MB
 MAX_BUNDLE_ENTRIES: Final[int] = 500
 MAX_COMPRESSION_RATIO: Final[float] = 100.0
 RATIO_CHECK_THRESHOLD_BYTES: Final[int] = 1024 * 1024  # 1.0 MB
 CHUNK_SIZE: Final[int] = 64 * 1024  # 64 KB
+_WIN_FILE_ATTRIBUTE_REPARSE_POINT: Final[int] = 0x0400
 
 
-class ArchiveSecurityViolationError(ValueError):
+class ArchiveSecurityViolationError(OpenDVError, ValueError):
     """Raised when an archive member violates normalized security rules (HTTP 422 / exit 4)."""
+
+    error_code = ErrorCode.ARCHIVE_SECURITY_VIOLATION
 
     def __init__(
         self,
         message: str,
-        error_code: str = "ARCHIVE_SECURITY_VIOLATION",
+        error_code: str | ErrorCode = ErrorCode.ARCHIVE_SECURITY_VIOLATION,
         status_code: int = 422,
         exit_code: int = 4,
     ) -> None:
-        super().__init__(message)
-        self.message = message
-        self.error_code = error_code
-        self.status_code = status_code
-        self.exit_code = exit_code
+        resolved = (
+            error_code
+            if isinstance(error_code, ErrorCode)
+            else ErrorCode._value2member_map_.get(error_code, ErrorCode.ARCHIVE_SECURITY_VIOLATION)
+        )
+        OpenDVError.__init__(self, message, error_code=resolved)
+        ValueError.__init__(self, message)
+        self.error_code = resolved
+        self.status_code, self.http_status, self.exit_code = status_code, status_code, exit_code
 
 
-class ImportGroundingViolationError(ArchiveSecurityViolationError):
-    """Raised when imported bundle has unverified attribution without explicit waiver."""
+class ImportLineageBrokenError(ArchiveSecurityViolationError):
+    """Raised when imported bundle version lineage is broken or missing delta.json (422 / 4)."""
+
+    error_code = ErrorCode.IMPORT_LINEAGE_BROKEN
 
     def __init__(
         self,
         message: str,
-        error_code: str = "IMPORT_GROUNDING_VIOLATION",
+        error_code: str | ErrorCode = ErrorCode.IMPORT_LINEAGE_BROKEN,
         status_code: int = 422,
         exit_code: int = 4,
     ) -> None:
@@ -84,32 +129,237 @@ class ImportGroundingViolationError(ArchiveSecurityViolationError):
         )
 
 
-class ImportGroundingRationaleRequiredError(ValueError):
-    """Raised when attribution acknowledgement rationale is missing or < 10 characters."""
+class ImportProvisionalUriForbiddenError(ArchiveSecurityViolationError):
+    """Raised when imported bundle ontology contains provisional URIs (422 / exit 4)."""
+
+    error_code = ErrorCode.IMPORT_PROVISIONAL_URI_FORBIDDEN
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str | ErrorCode = ErrorCode.IMPORT_PROVISIONAL_URI_FORBIDDEN,
+        status_code: int = 422,
+        exit_code: int = 4,
+    ) -> None:
+        super().__init__(
+            message, error_code=error_code, status_code=status_code, exit_code=exit_code
+        )
+
+
+class BundleAuditChainCorruptError(ArchiveSecurityViolationError, TamperEvidentChainCorruptError):
+    """Raised when an imported bundle's audit.jsonl hash-chain is tampered (HTTP 422 / exit 4)."""
+
+    error_code = ErrorCode.TAMPER_EVIDENT_CHAIN_CORRUPT
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str | ErrorCode = ErrorCode.TAMPER_EVIDENT_CHAIN_CORRUPT,
+        status_code: int = 422,
+        exit_code: int = 4,
+    ) -> None:
+        ArchiveSecurityViolationError.__init__(
+            self,
+            message,
+            error_code=error_code,
+            status_code=status_code,
+            exit_code=exit_code,
+        )
+
+
+class ImportDeltaReplayHashMismatchError(ArchiveSecurityViolationError):
+    """Raised when imported version ontology or delta replay SHA-256 mismatches (422 / exit 4)."""
+
+    error_code = ErrorCode.IMPORT_DELTA_REPLAY_HASH_MISMATCH
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str | ErrorCode = ErrorCode.IMPORT_DELTA_REPLAY_HASH_MISMATCH,
+        status_code: int = 422,
+        exit_code: int = 4,
+    ) -> None:
+        super().__init__(
+            message, error_code=error_code, status_code=status_code, exit_code=exit_code
+        )
+
+
+class ImportGroundingViolationError(ArchiveSecurityViolationError):
+    """Raised when imported bundle has unverified attribution or foreign waiver without ack."""
+
+    error_code = ErrorCode.IMPORT_GROUNDING_VIOLATION
+
+    def __init__(
+        self,
+        message: str,
+        error_code: str | ErrorCode = ErrorCode.IMPORT_GROUNDING_VIOLATION,
+        status_code: int = 422,
+        exit_code: int = 4,
+    ) -> None:
+        super().__init__(
+            message, error_code=error_code, status_code=status_code, exit_code=exit_code
+        )
+
+
+class ImportGroundingRationaleRequiredError(OpenDVError, ValueError):
+    """Raised when attribution acknowledgement rationale is missing or < 10 chars (400 / exit 1)."""
+
+    error_code = ErrorCode.IMPORT_GROUNDING_RATIONALE_REQUIRED
 
     def __init__(
         self,
         message: str = "Acknowledgement rationale must be at least 10 characters.",
-        error_code: str = "IMPORT_GROUNDING_RATIONALE_REQUIRED",
+        error_code: str | ErrorCode = ErrorCode.IMPORT_GROUNDING_RATIONALE_REQUIRED,
         status_code: int = 400,
-        exit_code: int = 2,
+        exit_code: int = 1,
     ) -> None:
-        super().__init__(message)
+        ValueError.__init__(self, message)
         self.message = message
-        self.error_code = error_code
+        self.error_code = (  # type: ignore[assignment]
+            error_code
+            if isinstance(error_code, ErrorCode)
+            else ErrorCode.IMPORT_GROUNDING_RATIONALE_REQUIRED
+        )
         self.status_code = status_code
+        self.http_status = status_code
         self.exit_code = exit_code
+        self.details = {}
+
+
+class ConfidentialSourceExportUnacknowledgedError(ArchiveSecurityViolationError):
+    """Raised when exporting a tainted session without confidentiality acknowledgement (422 / 4)."""
+
+    error_code = ErrorCode.CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED
+
+    def __init__(
+        self,
+        message: str = (
+            "Exporting tainted session requires explicit acknowledgement: "
+            "'--acknowledge-confidential-source-export'"
+        ),
+        error_code: str | ErrorCode = ErrorCode.CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED,
+        status_code: int = 422,
+        exit_code: int = 4,
+    ) -> None:
+        super().__init__(
+            message, error_code=error_code, status_code=status_code, exit_code=exit_code
+        )
+
+
+class ExportRationaleRequiredError(OpenDVError, ValueError):
+    """Raised when exporting a tainted session without a >= 10 char rationale (400 / exit 1)."""
+
+    error_code = ErrorCode.EXPORT_RATIONALE_REQUIRED
+
+    def __init__(
+        self,
+        message: str = "Export rationale must be at least 10 characters for tainted sessions.",
+        error_code: str | ErrorCode = ErrorCode.EXPORT_RATIONALE_REQUIRED,
+        status_code: int = 400,
+        exit_code: int = 1,
+    ) -> None:
+        ValueError.__init__(self, message)
+        self.message = message
+        self.error_code = (  # type: ignore[assignment]
+            error_code if isinstance(error_code, ErrorCode) else ErrorCode.EXPORT_RATIONALE_REQUIRED
+        )
+        self.status_code = status_code
+        self.http_status = status_code
+        self.exit_code = exit_code
+        self.details = {}
+
+
+class AdminRoleRequiredError(ForbiddenAdminRequiredError):
+    """Raised when non-admin principal attempts confidential bundle export (403 / exit 7)."""
+
+
+def compute_effective_session_taint(
+    session_dir: Path | str,
+    session_data: dict[str, Any] | None = None,
+    bundle_meta: dict[str, Any] | None = None,
+) -> bool:
+    """Compute effective confidentiality taint T_effective = T_manifest U T_imported.
+
+    Inspects:
+    1. `session_data` / `session.json` (`taint_classification == "TAINTED"`).
+    2. `bundle_meta` / `bundle.json` (`is_tainted is True` or `taint_classification == "TAINTED"`).
+    3. `taint_index.json` (`is_tainted` / `tainted` or non-empty tainted source sets).
+    4. `inputs/manifest.json` (`sources` + `files` for `do_not_send_to_agent`, `tainted`,
+       `confidential`, or `CONFIDENTIAL`/`RESTRICTED` taint classifications on active entries).
+    """
+    sdir = Path(session_dir)
+
+    if session_data is None:
+        sjson = sdir / "session.json"
+        if sjson.is_file():
+            with contextlib.suppress(OSError, json.JSONDecodeError):
+                loaded = json.loads(sjson.read_text(encoding="utf-8"))
+                if isinstance(loaded, dict):
+                    session_data = loaded
+
+    if isinstance(session_data, dict) and session_data.get("taint_classification") == "TAINTED":
+        return True
+
+    if bundle_meta is None:
+        bjson = sdir / "bundle.json"
+        if bjson.is_file():
+            with contextlib.suppress(OSError, json.JSONDecodeError):
+                loaded_b = json.loads(bjson.read_text(encoding="utf-8"))
+                if isinstance(loaded_b, dict):
+                    bundle_meta = loaded_b
+
+    if isinstance(bundle_meta, dict) and (
+        bundle_meta.get("is_tainted") is True
+        or bundle_meta.get("taint_classification") == "TAINTED"
+    ):
+        return True
+
+    taint_idx_path = sdir / "taint_index.json"
+    if taint_idx_path.is_file():
+        with contextlib.suppress(OSError, json.JSONDecodeError):
+            tdata = json.loads(taint_idx_path.read_text(encoding="utf-8"))
+            if isinstance(tdata, dict):
+                if tdata.get("is_tainted") is True or tdata.get("tainted") is True:
+                    return True
+                for key in ("tainted_sources", "confidential_sources", "sources"):
+                    coll = tdata.get(key)
+                    if isinstance(coll, (list, dict)) and len(coll) > 0:
+                        return True
+
+    manifest_path = sdir / "inputs" / "manifest.json"
+    if manifest_path.is_file():
+        with contextlib.suppress(OSError, json.JSONDecodeError):
+            mdata = json.loads(manifest_path.read_text(encoding="utf-8"))
+            if isinstance(mdata, dict):
+                entries: list[Any] = []
+                for key in ("sources", "files"):
+                    coll = mdata.get(key)
+                    if isinstance(coll, dict):
+                        entries.extend(coll.values())
+                    elif isinstance(coll, list):
+                        entries.extend(coll)
+                for item in entries:
+                    if not isinstance(item, dict):
+                        continue
+                    if item.get("tombstoned") or item.get("deleted"):
+                        continue
+                    if (
+                        item.get("do_not_send_to_agent") is True
+                        or item.get("tainted") is True
+                        or item.get("confidential") is True
+                        or str(item.get("taint_classification") or "").upper()
+                        in ("TAINTED", "CONFIDENTIAL", "RESTRICTED")
+                    ):
+                        return True
+
+    return False
 
 
 def validate_archive_member(
     info: zipfile.ZipInfo,
     seen_normalized_names: set[str],
 ) -> None:
-    """Validate a single ZIP archive member against zero-trust normalized security rules.
-
-    Raises:
-        ArchiveSecurityViolationError: If any security constraint is violated.
-    """
+    """Validate a single ZIP archive member against zero-trust normalized security rules."""
     raw_name = getattr(info, "orig_filename", None) or info.filename
 
     if not raw_name:
@@ -151,11 +401,14 @@ def validate_archive_member(
             f"Archive member path '{raw_name}' contains forbidden control or null characters"
         )
 
-    # 7. Symlink, FIFO, socket, or special device check
+    # 7. Symlink, Windows reparse point (0x0400), FIFO, socket, or special device check
     mode = info.external_attr >> 16
-    if stat.S_ISLNK(mode) or (hasattr(info, "is_symlink") and info.is_symlink()):
+    is_win_reparse = info.create_system == 0 and bool(
+        info.external_attr & _WIN_FILE_ATTRIBUTE_REPARSE_POINT
+    )
+    if stat.S_ISLNK(mode) or is_win_reparse or (hasattr(info, "is_symlink") and info.is_symlink()):
         raise ArchiveSecurityViolationError(
-            f"Archive member '{raw_name}' is a forbidden symlink or link entry"
+            f"Archive member '{raw_name}' is a forbidden symlink, reparse point, or link entry"
         )
     if stat.S_ISCHR(mode) or stat.S_ISBLK(mode) or stat.S_ISFIFO(mode) or stat.S_ISSOCK(mode):
         raise ArchiveSecurityViolationError(
@@ -198,34 +451,19 @@ def export_bundle(
     admin: bool = True,
     acknowledge_confidential: bool = False,
     export_rationale: str | None = None,
+    *,
+    security_manager: WorkspaceSecurityManager | None = None,
+    actor: str = "admin",
 ) -> Path:
-    """Export a studio session CAS directory into a portable .odvstudio.zip archive.
+    """Export a studio session CAS directory into a portable .odvstudio.zip archive under L5 lock.
 
     Excludes:
     - .session_secret
     - *.lock (active lock files)
-    - .staging-*
-    - .quarantine
+    - .staging and .staging-*
+    - .quarantine*
     - .trash-*
     - *.tmp
-
-    Enforces export limits:
-    - Max uncompressed size <= 250 MB
-    - Max entries <= 500
-
-    Args:
-        session_dir: Path to studio session directory.
-        output_zip_path: Destination .odvstudio.zip file path.
-        admin: Whether caller possesses admin clearance.
-        acknowledge_confidential: Required acknowledgement flag for tainted sessions.
-        export_rationale: Required business rationale if tainted session.
-
-    Returns:
-        Resolved Path to created .odvstudio.zip archive.
-
-    Raises:
-        ArchiveSecurityViolationError: If limits are exceeded.
-        FileNotFoundError: If session directory does not exist.
     """
     sdir = Path(session_dir).resolve()
     if not sdir.exists() or not (sdir / "session.json").exists():
@@ -234,91 +472,919 @@ def export_bundle(
     out_path = Path(output_zip_path).resolve()
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
-    # Read session metadata
-    session_data = json.loads((sdir / "session.json").read_text(encoding="utf-8"))
-    is_tainted = session_data.get("taint_classification") == "TAINTED"
+    lock_file = sdir / ".session.lock"
+    with reentrant_session_lock(lock_file, session_id=sdir.name):
+        session_data = json.loads((sdir / "session.json").read_text(encoding="utf-8"))
+        is_tainted = compute_effective_session_taint(sdir, session_data=session_data)
 
-    if is_tainted and not acknowledge_confidential:
-        raise ArchiveSecurityViolationError(
-            "Exporting tainted session requires explicit acknowledgement: "
-            "'--acknowledge-confidential-source-export'"
-        )
+        if is_tainted:
+            if not admin:
+                raise AdminRoleRequiredError(
+                    "Exporting a confidential/tainted session requires administrator role."
+                )
+            if not acknowledge_confidential:
+                raise ConfidentialSourceExportUnacknowledgedError(
+                    "Exporting tainted session requires explicit acknowledgement: "
+                    "'--acknowledge-confidential-source-export'"
+                )
+            if not export_rationale or len(export_rationale.strip()) < 10:
+                raise ExportRationaleRequiredError(
+                    "Exporting a tainted session requires export_rationale >= 10 characters."
+                )
 
-    # Collect files to archive
-    files_to_pack: list[tuple[Path, str]] = []
-    total_uncompressed_bytes = 0
+            if security_manager is not None or (sdir.parent / ".odv_workspace_secret").is_file():
+                append_signed_audit_record(
+                    session_dir=sdir,
+                    action="CONFIDENTIAL_BUNDLE_EXPORTED",
+                    actor=actor,
+                    details={
+                        "export_rationale": export_rationale.strip(),
+                        "archive_name": out_path.name,
+                    },
+                    security_manager=security_manager,
+                )
+                session_data = json.loads((sdir / "session.json").read_text(encoding="utf-8"))
 
-    for root, dirs, files in os.walk(sdir):
-        # Exclude temporary or private subdirectories
-        dirs[:] = [
-            d
-            for d in dirs
-            if not any(d.startswith(p) for p in (".staging-", ".quarantine", ".trash-"))
-        ]
+        files_to_pack: list[tuple[Path, str]] = []
+        total_uncompressed_bytes = 0
 
-        for file_name in files:
-            if file_name.endswith((".lock", ".tmp")):
-                continue
-            if file_name in (".session_secret", ".session.lock", ".local_token.lock"):
-                continue
+        for root, dirs, files in os.walk(sdir):
+            dirs[:] = [
+                d
+                for d in dirs
+                if d != ".staging"
+                and not any(d.startswith(p) for p in (".staging-", ".quarantine", ".trash-"))
+            ]
 
-            full_path = Path(root) / file_name
-            rel_path = full_path.relative_to(sdir).as_posix()
+            for file_name in sorted(files):
+                if file_name.endswith((".lock", ".tmp")):
+                    continue
+                if file_name in (".session_secret", ".session.lock", ".local_token.lock"):
+                    continue
 
-            try:
-                fsize = full_path.stat().st_size
-            except OSError:
-                continue
+                full_path = Path(root) / file_name
+                rel_path = full_path.relative_to(sdir).as_posix()
+                if rel_path == "bundle.json":
+                    continue
 
-            total_uncompressed_bytes += fsize
-            files_to_pack.append((full_path, rel_path))
+                try:
+                    fsize = full_path.stat().st_size
+                except OSError:
+                    continue
 
-    # Add manifest entry for bundle.json
-    bundle_manifest: dict[str, Any] = {
-        "format": "odvstudio_v1",
-        "session_id": session_data.get("session_id", sdir.name),
-        "exported_at": datetime.now(UTC).isoformat(),
-        "head_version": session_data.get("head_version", "0.0.0"),
-        "head_sha256": session_data.get("head_sha256", ""),
-        "audit_chain_head_sha256": session_data.get("audit_chain_head_sha256", ""),
-        "entry_count": len(files_to_pack) + 1,
-        "uncompressed_bytes": total_uncompressed_bytes,
-        "is_tainted": is_tainted,
-        "export_rationale": export_rationale,
-    }
-    manifest_bytes = json.dumps(bundle_manifest, indent=2).encode("utf-8")
-    total_uncompressed_bytes += len(manifest_bytes)
+                total_uncompressed_bytes += fsize
+                files_to_pack.append((full_path, rel_path))
 
-    # Pre-check export limits
-    if len(files_to_pack) + 1 > MAX_BUNDLE_ENTRIES:
-        raise ArchiveSecurityViolationError(
-            f"Export exceeds entry limit: {len(files_to_pack) + 1} > {MAX_BUNDLE_ENTRIES}"
-        )
-    if total_uncompressed_bytes > MAX_BUNDLE_UNCOMPRESSED_BYTES:
-        raise ArchiveSecurityViolationError(
-            f"Export exceeds size limit: "
-            f"{total_uncompressed_bytes} > {MAX_BUNDLE_UNCOMPRESSED_BYTES} bytes"
-        )
+        bundle_manifest: dict[str, Any] = {
+            "format": "odvstudio_v1",
+            "session_id": session_data.get("session_id", sdir.name),
+            "exported_at": datetime.now(UTC).isoformat(),
+            "head_version": session_data.get("head_version", "0.0.0"),
+            "head_sha256": session_data.get("head_sha256", ""),
+            "audit_chain_head_sha256": session_data.get("audit_chain_head_sha256", ""),
+            "entry_count": len(files_to_pack) + 1,
+            "uncompressed_bytes": total_uncompressed_bytes,
+            "is_tainted": is_tainted,
+            "export_rationale": export_rationale.strip() if export_rationale else None,
+        }
+        manifest_bytes = json.dumps(bundle_manifest, indent=2).encode("utf-8")
+        total_uncompressed_bytes += len(manifest_bytes)
 
-    # Write zip file atomically via a temporary file
-    tmp_zip_path = out_path.parent / f".bundle.{secrets.token_hex(4)}.tmp"
-    try:
-        with zipfile.ZipFile(tmp_zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
-            # Write bundle manifest
-            zf.writestr("bundle.json", manifest_bytes)
-            # Write session files
-            for full_p, rel_p in files_to_pack:
-                zf.write(full_p, arcname=rel_p)
+        if len(files_to_pack) + 1 > MAX_BUNDLE_ENTRIES:
+            raise ArchiveSecurityViolationError(
+                f"Export exceeds entry limit: {len(files_to_pack) + 1} > {MAX_BUNDLE_ENTRIES}"
+            )
+        if total_uncompressed_bytes > MAX_BUNDLE_UNCOMPRESSED_BYTES:
+            raise ArchiveSecurityViolationError(
+                f"Export exceeds size limit: "
+                f"{total_uncompressed_bytes} > {MAX_BUNDLE_UNCOMPRESSED_BYTES} bytes"
+            )
 
-        set_owner_only_permissions(tmp_zip_path)
-        tmp_zip_path.replace(out_path)
-        set_owner_only_permissions(out_path)
-    finally:
-        if tmp_zip_path.exists():
-            with contextlib.suppress(OSError):
-                tmp_zip_path.unlink()
+        tmp_zip_path = out_path.parent / f".bundle.{secrets.token_hex(4)}.tmp"
+        try:
+            with zipfile.ZipFile(tmp_zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                zf.writestr("bundle.json", manifest_bytes)
+                for full_p, rel_p in files_to_pack:
+                    zf.write(full_p, arcname=rel_p)
+
+            with tmp_zip_path.open("r+b") as fp:
+                fp.flush()
+                os.fsync(fp.fileno())
+            set_owner_only_permissions(tmp_zip_path)
+            replace_with_retry(tmp_zip_path, out_path)
+            set_owner_only_permissions(out_path)
+        finally:
+            if tmp_zip_path.exists():
+                with contextlib.suppress(OSError):
+                    tmp_zip_path.unlink()
 
     return out_path
+
+
+def _extract_version_waivers(
+    vdir: Path,
+    delta: OntologyDelta,
+    expected_parent_sha: str,
+) -> list[StewardWaiverRecord]:
+    """Extract and structurally validate StewardWaiverRecords attached to an imported version."""
+    raw_items: list[Any] = []
+    for fname in ("waivers.json", "meta.json", "metadata.json", "evaluation.json"):
+        fpath = vdir / fname
+        if not fpath.is_file():
+            continue
+        try:
+            vdata = json.loads(fpath.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise ImportGroundingViolationError(
+                f"Corrupt waiver metadata file '{fname}' in '{vdir.name}': {exc}"
+            ) from exc
+        if isinstance(vdata, list):
+            raw_items.extend(vdata)
+        elif isinstance(vdata, dict):
+            if isinstance(vdata.get("waivers"), list):
+                raw_items.extend(vdata["waivers"])
+            if isinstance(vdata.get("waiver"), dict):
+                raw_items.append(vdata["waiver"])
+
+    if not raw_items:
+        return []
+
+    probe_no_target = delta.model_copy(update={"target_ontology_version": None})
+    probe_no_target.__pydantic_fields_set__.discard("target_ontology_version")
+    allowed_delta_shas = {delta.canonical_sha256(), probe_no_target.canonical_sha256()}
+    if not (delta.parent_sha256 or "").strip() and expected_parent_sha:
+        with_parent = delta.model_copy(update={"parent_sha256": expected_parent_sha})
+        allowed_delta_shas.add(with_parent.canonical_sha256())
+
+    seen_keys: set[tuple[str, tuple[str, ...], str]] = set()
+    validated: list[StewardWaiverRecord] = []
+    for item in raw_items:
+        if not isinstance(item, dict):
+            raise ImportGroundingViolationError(
+                f"Malformed non-object steward waiver entry in '{vdir.name}'."
+            )
+        try:
+            w = StewardWaiverRecord.model_validate(item)
+        except (ValidationError, ValueError, TypeError) as exc:
+            raise ImportGroundingViolationError(
+                f"Invalid StewardWaiverRecord in '{vdir.name}': {exc}"
+            ) from exc
+
+        dedup_key = (
+            str(w.proposal_id),
+            tuple(sorted(w.target_concept_uris)),
+            w.signature_or_token,
+        )
+        if dedup_key in seen_keys:
+            continue
+        seen_keys.add(dedup_key)
+
+        if w.authorized_role != "admin":
+            raise ImportGroundingViolationError(
+                f"Waiver in '{vdir.name}' requires authorized_role='admin', "
+                f"got '{w.authorized_role}'."
+            )
+        if not w.rationale or len(w.rationale.strip()) < 10:
+            raise ImportGroundingViolationError(
+                f"Waiver rationale in '{vdir.name}' must be at least 10 characters."
+            )
+        if not (w.signature_or_token or "").strip():
+            raise ImportGroundingViolationError(
+                f"Waiver in '{vdir.name}' is missing cryptographic signature_or_token."
+            )
+        if w.proposal_delta_sha256 not in allowed_delta_shas:
+            raise ImportGroundingViolationError(
+                f"Waiver proposal_delta_sha256 '{w.proposal_delta_sha256}' does not match "
+                f"delta digest in '{vdir.name}'."
+            )
+        if expected_parent_sha and w.base_sha256 and w.base_sha256 != expected_parent_sha:
+            raise ImportGroundingViolationError(
+                f"Waiver base_sha256 '{w.base_sha256}' does not match parent ontology SHA-256 "
+                f"'{expected_parent_sha}' in '{vdir.name}'."
+            )
+        if w.expires_at is not None and w.expires_at <= datetime.now(UTC):
+            raise ImportGroundingViolationError(
+                f"Waiver '{w.waiver_id}' in '{vdir.name}' has expired ({w.expires_at.isoformat()})."
+            )
+        validated.append(w)
+
+    return validated
+
+
+def _scan_ontology_for_provisional_uris(
+    ont: GraphAOntology,
+    raw_ont_text: str,
+    version_label: str,
+) -> None:
+    """Reject any provisional URNs in imported ontology snapshots."""
+    for forbidden_prefix in ("urn:ontology:provisional:", "urn:opendv:provisional:"):
+        if forbidden_prefix in raw_ont_text:
+            raise ImportProvisionalUriForbiddenError(
+                f"Imported ontology in '{version_label}' contains forbidden provisional URI "
+                f"prefix '{forbidden_prefix}'."
+            )
+    sv = StructuralValidator()
+    scan_fn = getattr(sv, "scan_provisional_tokens", None)
+    if callable(scan_fn):
+        try:
+            scan_fn(ont)
+        except Exception as exc:
+            raise ImportProvisionalUriForbiddenError(
+                f"Imported ontology in '{version_label}' failed provisional URI scan: {exc}"
+            ) from exc
+
+
+def _verify_versions_and_replay_deltas(
+    staging_dir: Path,
+    session_meta: SessionMetadata,
+) -> None:
+    """Verify canonical JCS ontology digests, provisional URIs, delta lineage, and grounding."""
+    versions_dir = staging_dir / "versions"
+    head_ver_clean = session_meta.head_version.lstrip("v")
+    head_ver_tag = normalize_version_tag(head_ver_clean)
+    head_ont_path = versions_dir / head_ver_tag / "ontology.json"
+
+    if not versions_dir.is_dir() or not head_ont_path.is_file():
+        raise ImportDeltaReplayHashMismatchError(
+            f"Bundle is missing authoritative ontology.json for head version '{head_ver_tag}'."
+        )
+
+    ver_records: list[
+        tuple[tuple[int, int, int], str, Path, GraphAOntology, str, dict[str, Any]]
+    ] = []
+
+    for vdir in sorted(versions_dir.iterdir()):
+        if not vdir.is_dir():
+            continue
+        v_clean = vdir.name.lstrip("v")
+        try:
+            v_tuple = parse_semver_tuple(v_clean)
+        except ValueError as exc:
+            raise ArchiveSecurityViolationError(
+                f"Invalid version directory name '{vdir.name}' in bundle."
+            ) from exc
+
+        ont_path = vdir / "ontology.json"
+        if not ont_path.is_file():
+            raise ImportDeltaReplayHashMismatchError(
+                f"Version directory '{vdir.name}' is missing ontology.json."
+            )
+
+        try:
+            raw_ont_bytes = ont_path.read_bytes()
+            raw_ont_text = raw_ont_bytes.decode("utf-8")
+        except (OSError, UnicodeDecodeError) as exc:
+            raise ImportDeltaReplayHashMismatchError(
+                f"Corrupt ontology.json in '{vdir.name}': {exc}"
+            ) from exc
+
+        if "urn:ontology:provisional:" in raw_ont_text or "urn:opendv:provisional:" in raw_ont_text:
+            raise ImportProvisionalUriForbiddenError(
+                f"Imported ontology in '{vdir.name}' contains forbidden provisional URIs."
+            )
+
+        try:
+            ont = GraphAOntology.model_validate_json(raw_ont_text)
+        except (ValidationError, ValueError) as exc:
+            if "provisional" in str(exc).lower():
+                raise ImportProvisionalUriForbiddenError(
+                    f"Imported ontology in '{vdir.name}' contains forbidden provisional URI: {exc}"
+                ) from exc
+            raise ImportDeltaReplayHashMismatchError(
+                f"Corrupt ontology.json in '{vdir.name}': {exc}"
+            ) from exc
+
+        _scan_ontology_for_provisional_uris(ont, raw_ont_text, vdir.name)
+        computed_sha = compute_ontology_sha256(ont)
+
+        meta_dict: dict[str, Any] = {}
+        for mname in ("meta.json", "metadata.json"):
+            mpath = vdir / mname
+            if mpath.is_file():
+                try:
+                    loaded_m = json.loads(mpath.read_text(encoding="utf-8"))
+                    if isinstance(loaded_m, dict):
+                        meta_dict = loaded_m
+                        break
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise ImportDeltaReplayHashMismatchError(
+                        f"Corrupt {mname} in '{vdir.name}': {exc}"
+                    ) from exc
+
+        recorded_sha = meta_dict.get("target_sha256")
+        if recorded_sha is not None and recorded_sha != computed_sha:
+            raise ImportDeltaReplayHashMismatchError(
+                f"Version '{vdir.name}' ontology SHA-256 '{computed_sha}' mismatches "
+                f"meta.json target_sha256 '{recorded_sha}'."
+            )
+
+        ver_records.append((v_tuple, v_clean, vdir, ont, computed_sha, meta_dict))
+
+    ver_records.sort(key=lambda item: item[0])
+
+    head_matches = [sha for _, vc, _, _, sha, _ in ver_records if vc == head_ver_clean]
+    if not head_matches or head_matches[0] != session_meta.head_sha256:
+        actual_head = head_matches[0] if head_matches else "missing"
+        raise ImportDeltaReplayHashMismatchError(
+            f"Head version '{head_ver_tag}' ontology SHA-256 '{actual_head}' does not match "
+            f"session.json head_sha256 '{session_meta.head_sha256}'."
+        )
+
+    # Synthesize fallback genesis ontology for 0.0.0 parent resolution if v0.0.0 dir wasn't packed
+    clean_ns = sanitize_domain_namespace(session_meta.domain_namespace)
+    genesis_fallback = create_genesis_ontology(
+        domain_namespace=clean_ns,
+        enterprise_owner=session_meta.enterprise_owner or "Enterprise Architecture",
+    )
+    genesis_fallback_sha = compute_ontology_sha256(genesis_fallback)
+
+    verified_ont_by_sha: dict[str, GraphAOntology] = {}
+    active_grandfathered: set[str] = set()
+    active_waived_uris: set[str] = set()
+    grounding_verifier = get_default_grounding_verifier()
+
+    root_ont = genesis_fallback
+    root_sha256 = genesis_fallback_sha
+    root_came_from_v0_dir = False
+    start_replay_idx = 0
+
+    if ver_records:
+        _, first_vc, first_vdir, first_ont, first_sha, first_meta = ver_records[0]
+        first_delta_file = first_vdir / "delta.json"
+        first_mode = str(first_meta.get("mode") or "").strip().lower()
+
+        if first_vc == GENESIS_VERSION:
+            root_ont = first_ont
+            root_sha256 = first_sha
+            root_came_from_v0_dir = True
+            verified_ont_by_sha[first_sha] = first_ont
+            start_replay_idx = 1
+
+            if first_delta_file.is_file():
+                try:
+                    delta0 = OntologyDelta.model_validate_json(
+                        first_delta_file.read_text(encoding="utf-8")
+                    )
+                except (OSError, ValidationError, ValueError) as exc:
+                    raise ImportDeltaReplayHashMismatchError(
+                        f"Invalid delta.json in '{first_vdir.name}': {exc}"
+                    ) from exc
+                d0_parent = (delta0.parent_sha256 or "").strip().lower()
+                if d0_parent and d0_parent != root_sha256:
+                    raise ImportDeltaReplayHashMismatchError(
+                        f"Genesis 0.0.0 delta.parent_sha256 '{d0_parent}' does not match "
+                        f"root ontology SHA-256 '{root_sha256}'."
+                    )
+                if delta0.operations:
+                    raise ImportDeltaReplayHashMismatchError(
+                        "Genesis version 'v0.0.0' cannot carry non-empty delta operations."
+                    )
+        elif not first_delta_file.is_file() and first_mode in ("seed", "genesis"):
+            root_ont = first_ont
+            root_sha256 = first_sha
+            root_came_from_v0_dir = True
+            verified_ont_by_sha[first_sha] = first_ont
+            start_replay_idx = 1
+            if first_mode == "seed":
+                root_cbcs = {c.concept_uri for c in first_ont.canonical_business_concepts}
+                raw_gf = first_meta.get("grandfathered_concept_uris")
+                if isinstance(raw_gf, list):
+                    active_grandfathered = {str(u) for u in raw_gf if str(u) in root_cbcs}
+                else:
+                    active_grandfathered = set(root_cbcs)
+        elif not first_delta_file.is_file():
+            raise ImportLineageBrokenError(
+                f"Initial version '{first_vdir.name}' is missing required delta.json and is not "
+                "a valid genesis or workspace-seeded root."
+            )
+        else:
+            verified_ont_by_sha[genesis_fallback_sha] = genesis_fallback
+
+    for idx in range(start_replay_idx, len(ver_records)):
+        _, v_clean, vdir, _, actual_sha, meta_dict = ver_records[idx]
+        v_mode = str(meta_dict.get("mode") or "").strip().lower()
+
+        if v_clean == GENESIS_VERSION or v_mode in ("seed", "genesis"):
+            raise ImportLineageBrokenError(
+                f"Non-root version '{vdir.name}' illegally declares mode='{v_mode}' or "
+                "genesis version; only the single initial root version may skip delta replay."
+            )
+
+        delta_path = vdir / "delta.json"
+        if not delta_path.is_file():
+            raise ImportLineageBrokenError(
+                f"Non-root version '{vdir.name}' is missing required delta.json for replay."
+            )
+
+        try:
+            delta = OntologyDelta.model_validate_json(delta_path.read_text(encoding="utf-8"))
+        except (OSError, ValidationError, ValueError) as exc:
+            raise ImportDeltaReplayHashMismatchError(
+                f"Invalid delta.json in '{vdir.name}': {exc}"
+            ) from exc
+
+        raw_delta_parent = (delta.parent_sha256 or "").strip().lower()
+        raw_meta_parent = str(meta_dict.get("parent_sha256") or "").strip().lower()
+        if raw_delta_parent and raw_meta_parent and raw_delta_parent != raw_meta_parent:
+            raise ImportDeltaReplayHashMismatchError(
+                f"Delta parent_sha256 '{raw_delta_parent}' disagrees with meta.json "
+                f"parent_sha256 '{raw_meta_parent}' in '{vdir.name}'."
+            )
+
+        # First child of root (idx == start_replay_idx) with non-empty parent_sha256 MUST match root
+        if (
+            idx == start_replay_idx
+            and root_came_from_v0_dir
+            and raw_delta_parent
+            and raw_delta_parent != root_sha256
+        ):
+            raise ImportDeltaReplayHashMismatchError(
+                f"First child delta '{vdir.name}' parent_sha256 '{raw_delta_parent}' does not "
+                f"match root ontology SHA-256 '{root_sha256}'."
+            )
+
+        effective_parent_lookup = raw_delta_parent or raw_meta_parent
+        parent_ont = (
+            verified_ont_by_sha.get(effective_parent_lookup) if effective_parent_lookup else None
+        )
+        if (
+            parent_ont is None
+            and not effective_parent_lookup
+            and (delta.base_ontology_version or "").lstrip("v") == GENESIS_VERSION
+        ):
+            parent_ont = root_ont
+
+        if parent_ont is None:
+            raise ImportDeltaReplayHashMismatchError(
+                f"Cannot resolve verified parent ontology "
+                f"(parent_sha256='{effective_parent_lookup}') for '{vdir.name}'."
+            )
+
+        expected_parent_sha = compute_ontology_sha256(parent_ont)
+        if raw_delta_parent and raw_delta_parent != expected_parent_sha:
+            raise ImportDeltaReplayHashMismatchError(
+                f"Delta parent_sha256 '{raw_delta_parent}' in '{vdir.name}' does not match "
+                f"verified parent ontology SHA-256 '{expected_parent_sha}'."
+            )
+        if raw_meta_parent and raw_meta_parent != expected_parent_sha:
+            raise ImportDeltaReplayHashMismatchError(
+                f"Metadata parent_sha256 '{raw_meta_parent}' in '{vdir.name}' does not match "
+                f"verified parent ontology SHA-256 '{expected_parent_sha}'."
+            )
+
+        apply_base_ont = parent_ont
+        if delta.domain_namespace and parent_ont.ontology_version == GENESIS_VERSION:
+            c_ns = sanitize_domain_namespace(delta.domain_namespace)
+            if c_ns != parent_ont.domain_namespace:
+                apply_base_ont = parent_ont.model_copy(update={"domain_namespace": c_ns})
+
+        try:
+            apply_base_sha = compute_ontology_sha256(apply_base_ont)
+            replay_delta = (
+                delta
+                if delta.parent_sha256 == apply_base_sha
+                else delta.model_copy(update={"parent_sha256": apply_base_sha})
+            )
+            replayed_ont = apply_delta(apply_base_ont, replay_delta, validate_structural=True)
+            replayed_ont.parent_sha256 = expected_parent_sha
+            replayed_sha = compute_ontology_sha256(replayed_ont)
+        except Exception as exc:
+            raise ImportDeltaReplayHashMismatchError(
+                f"Delta replay failed on version '{vdir.name}': {exc}"
+            ) from exc
+
+        if replayed_sha != actual_sha:
+            raise ImportDeltaReplayHashMismatchError(
+                f"IMPORT_DELTA_REPLAY_HASH_MISMATCH on '{vdir.name}': replayed delta digest "
+                f"'{replayed_sha}' != stored ontology digest '{actual_sha}'."
+            )
+
+        # Enforce ONT-EVO-002 grounding on replayed post-root version
+        touched_uris = collect_touched_concept_uris(apply_base_ont, delta)
+        active_grandfathered -= touched_uris
+        active_waived_uris -= touched_uris
+
+        version_waivers = _extract_version_waivers(vdir, delta, expected_parent_sha)
+        for w in version_waivers:
+            active_waived_uris.update(w.target_concept_uris)
+
+        non_exempt_uris = {
+            c.concept_uri
+            for c in replayed_ont.canonical_business_concepts
+            if c.concept_uri not in active_grandfathered and c.concept_uri not in active_waived_uris
+        }
+        uris_to_verify = touched_uris | non_exempt_uris
+        if uris_to_verify:
+            try:
+                verify_ont_evo_002_post_state_grounding(
+                    apply_base_ont,
+                    delta,
+                    replayed_ont,
+                    waivers=version_waivers,
+                    security_manager=None,
+                    grounding_verifier=grounding_verifier,
+                    explicit_touched_uris=uris_to_verify,
+                )
+            except (UngroundedConceptError, InvalidGroundingWaiverError) as exc:
+                raise ImportGroundingViolationError(
+                    f"IMPORT_GROUNDING_VIOLATION on version '{vdir.name}': {exc}"
+                ) from exc
+
+        verified_ont_by_sha[actual_sha] = replayed_ont
+
+
+def _verify_and_reanchor_audit_chain(
+    staging_dir: Path,
+    session_meta: SessionMetadata,
+    original_session_id: str,
+    target_session_id: str,
+    bundle_meta: dict[str, Any] | None,
+    security_manager: WorkspaceSecurityManager,
+    imported_by: str,
+) -> SessionMetadata:
+    """Verify imported audit.jsonl hash-chain and re-anchor under local K_audit if needed."""
+    audit_file = staging_dir / "audit.jsonl"
+    if not audit_file.is_file():
+        raise BundleAuditChainCorruptError("Bundle archive is missing authoritative 'audit.jsonl'.")
+
+    raw_lines = audit_file.read_text(encoding="utf-8").splitlines()
+    valid_lines = [line.strip() for line in raw_lines if line.strip()]
+    if not valid_lines:
+        raise BundleAuditChainCorruptError("Bundle archive 'audit.jsonl' is empty.")
+
+    expected_prev: str | None = None
+    all_local_hmacs_valid = True
+
+    for idx, line in enumerate(valid_lines):
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise BundleAuditChainCorruptError(
+                f"Corrupt JSON on line {idx + 1} of imported audit.jsonl: {exc}"
+            ) from exc
+
+        if not isinstance(rec, dict):
+            raise BundleAuditChainCorruptError(
+                f"Non-object JSON on line {idx + 1} of imported audit.jsonl."
+            )
+
+        actual_sha = rec.get("audit_sha256")
+        prev_sha = rec.get("prev_audit_sha256")
+        actual_sig = str(rec.get("hmac_signature") or "")
+
+        if not isinstance(actual_sha, str) or len(actual_sha) != 64:
+            raise BundleAuditChainCorruptError(
+                f"Missing or invalid audit_sha256 on line {idx + 1} of imported audit.jsonl."
+            )
+        if prev_sha != expected_prev:
+            raise BundleAuditChainCorruptError(
+                f"Audit hash-chain break on line {idx + 1}: expected prev '{expected_prev}', "
+                f"got '{prev_sha}'."
+            )
+
+        recon = {k: v for k, v in rec.items() if k not in ("audit_sha256", "hmac_signature")}
+        canonical_bytes = dumps_jcs_bytes(recon)
+        computed_sha = hashlib.sha256(canonical_bytes).hexdigest().lower()
+        if computed_sha != actual_sha:
+            raise BundleAuditChainCorruptError(
+                f"Audit entry JCS SHA-256 mismatch on line {idx + 1} of imported audit.jsonl."
+            )
+
+        expected_local_sig = security_manager.sign_audit_entry(canonical_bytes)
+        if not hmac.compare_digest(actual_sig, expected_local_sig):
+            all_local_hmacs_valid = False
+
+        expected_prev = actual_sha
+
+    assert expected_prev is not None
+    imported_tail_sha = expected_prev
+
+    expected_declared_tail = session_meta.audit_chain_head_sha256
+    if isinstance(bundle_meta, dict) and bundle_meta.get("audit_chain_head_sha256"):
+        expected_declared_tail = str(bundle_meta["audit_chain_head_sha256"])
+    if (
+        expected_declared_tail
+        and expected_declared_tail != "0" * 64
+        and imported_tail_sha != expected_declared_tail
+    ):
+        raise BundleAuditChainCorruptError(
+            f"Imported audit.jsonl tail '{imported_tail_sha}' does not match declared "
+            f"audit_chain_head_sha256 '{expected_declared_tail}' (tail truncation detected)."
+        )
+
+    now_iso = datetime.now(UTC).isoformat()
+    if not all_local_hmacs_valid or target_session_id != original_session_id:
+        archived_audit = staging_dir / f"audit.imported.{imported_tail_sha[:8]}.jsonl"
+        replace_with_retry(audit_file, archived_audit)
+        set_owner_only_permissions(archived_audit)
+
+        genesis_import_entry: dict[str, Any] = {
+            "timestamp": now_iso,
+            "session_id": target_session_id,
+            "actor": imported_by,
+            "action": "SESSION_IMPORTED",
+            "target_version": session_meta.head_version,
+            "head_sha256": session_meta.head_sha256,
+            "details": {
+                "original_session_id": original_session_id,
+                "imported_audit_tail_sha256": imported_tail_sha,
+                "archived_audit_file": archived_audit.name,
+                "reanchored": True,
+            },
+            "prev_audit_sha256": None,
+        }
+        canon_bytes = dumps_jcs_bytes(genesis_import_entry)
+        anchor_sha = hashlib.sha256(canon_bytes).hexdigest().lower()
+        genesis_import_entry["audit_sha256"] = anchor_sha
+        genesis_import_entry["hmac_signature"] = security_manager.sign_audit_entry(canon_bytes)
+
+        with audit_file.open("w", encoding="utf-8") as fp:
+            fp.write(json.dumps(genesis_import_entry) + "\n")
+            fp.flush()
+            os.fsync(fp.fileno())
+        set_owner_only_permissions(audit_file)
+
+        session_meta = session_meta.model_copy(
+            update={
+                "session_id": target_session_id,
+                "updated_at": now_iso,
+                "audit_chain_head_sha256": anchor_sha,
+                "imported_audit_anchor_sha256": anchor_sha,
+            }
+        )
+        _atomic_write_session_json(staging_dir, session_meta)
+        return session_meta
+
+    # Same workspace & same session_id: append locally signed SESSION_IMPORTED entry
+    session_meta = session_meta.model_copy(
+        update={
+            "session_id": target_session_id,
+            "audit_chain_head_sha256": imported_tail_sha,
+        }
+    )
+    _atomic_write_session_json(staging_dir, session_meta)
+    append_signed_audit_record(
+        session_dir=staging_dir,
+        action="SESSION_IMPORTED",
+        actor=imported_by,
+        details={
+            "original_session_id": original_session_id,
+            "imported_audit_tail_sha256": imported_tail_sha,
+            "reanchored": False,
+        },
+        security_manager=security_manager,
+    )
+    return SessionMetadata.model_validate_json(
+        (staging_dir / "session.json").read_text(encoding="utf-8")
+    )
+
+
+def _has_unverified_attribution_or_foreign_waiver(
+    staging_dir: Path,
+    bundle_meta: dict[str, Any] | None,
+    security_manager: WorkspaceSecurityManager,
+) -> bool:
+    """Detect unverified attribution, self-acceptance, seeded CBCs, or foreign waivers."""
+    if isinstance(bundle_meta, dict) and (
+        bundle_meta.get("unverified_attribution") is True
+        or bundle_meta.get("attribution_verified") is False
+    ):
+        return True
+
+    proposals_dir = staging_dir / "proposals"
+    if proposals_dir.is_dir():
+        for pf in proposals_dir.glob("*.json"):
+            try:
+                pdata = json.loads(pf.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                return True
+            if not isinstance(pdata, dict):
+                continue
+            proposer = pdata.get("proposer")
+            accepted_by = pdata.get("accepted_by") or pdata.get("resolved_by")
+            if (
+                pdata.get("unverified_attribution") is True
+                or pdata.get("attribution_verified") is False
+                or ("proposer" in pdata and proposer in (None, "", "unknown", "agent:unknown"))
+                or (
+                    isinstance(proposer, str)
+                    and proposer
+                    and isinstance(accepted_by, str)
+                    and proposer == accepted_by
+                )
+            ):
+                return True
+
+    versions_dir = staging_dir / "versions"
+    if versions_dir.is_dir():
+        sorted_vdirs: list[tuple[tuple[int, int, int], str, Path]] = []
+        for vdir in versions_dir.iterdir():
+            if not vdir.is_dir():
+                continue
+            vc = vdir.name.lstrip("v")
+            with contextlib.suppress(ValueError):
+                sorted_vdirs.append((parse_semver_tuple(vc), vc, vdir))
+        sorted_vdirs.sort(key=lambda item: item[0])
+
+        for v_idx, (_, vc, vdir) in enumerate(sorted_vdirs):
+            v_mode = ""
+            for fname in ("meta.json", "metadata.json", "evaluation.json", "waivers.json"):
+                fpath = vdir / fname
+                if not fpath.is_file():
+                    continue
+                try:
+                    vdata = json.loads(fpath.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    return True
+
+                if isinstance(vdata, dict):
+                    gf_uris = vdata.get("grandfathered_concept_uris")
+                    if isinstance(gf_uris, list) and len(gf_uris) > 0:
+                        return True
+                    if fname in ("meta.json", "metadata.json") and not v_mode:
+                        v_mode = str(vdata.get("mode") or "").strip().lower()
+
+                raw_waivers: list[Any] = []
+                if isinstance(vdata, list):
+                    raw_waivers.extend(vdata)
+                elif isinstance(vdata, dict):
+                    if isinstance(vdata.get("waivers"), list):
+                        raw_waivers.extend(vdata["waivers"])
+                    if isinstance(vdata.get("waiver"), dict):
+                        raw_waivers.append(vdata["waiver"])
+                    if vdata.get("low_confidence_grounding_waiver") is True and not raw_waivers:
+                        return True
+                else:
+                    continue
+
+                for w_raw in raw_waivers:
+                    if not isinstance(w_raw, dict):
+                        return True
+                    try:
+                        waiver = StewardWaiverRecord.model_validate(w_raw)
+                        if waiver.expires_at is not None and waiver.expires_at <= datetime.now(UTC):
+                            return True
+                        payload_bytes = waiver.signing_payload().encode("utf-8")
+                        if not security_manager.verify_waiver_signature(
+                            payload_bytes, waiver.signature_or_token
+                        ):
+                            return True
+                    except (ValidationError, ValueError, TypeError):
+                        return True
+
+            if v_idx == 0 and (
+                v_mode == "seed"
+                or (not (vdir / "delta.json").is_file() and vc != GENESIS_VERSION)
+                or vc == GENESIS_VERSION
+            ):
+                ont_path = vdir / "ontology.json"
+                if ont_path.is_file():
+                    with contextlib.suppress(OSError, ValidationError, ValueError):
+                        root_ont = GraphAOntology.model_validate_json(
+                            ont_path.read_text(encoding="utf-8")
+                        )
+                        if len(root_ont.canonical_business_concepts) > 0:
+                            return True
+
+    return False
+
+
+def _validate_import_target_containment(
+    target_path: Path | str,
+    security_manager: WorkspaceSecurityManager,
+) -> Path:
+    """Validate that `target_path` is not a symlink and stays within workspace/studio roots."""
+    raw_target = Path(target_path)
+    if ".." in raw_target.parts:
+        raise InvalidWorkspacePathError(
+            f"Import target directory '{target_path}' must not contain '..' traversal segments."
+        )
+    if raw_target.is_symlink():
+        raise InvalidWorkspacePathError(
+            f"Import target directory '{raw_target.name}' must not be a symlink."
+        )
+
+    sec_root = security_manager.studio_root
+    if sec_root.is_symlink():
+        raise InvalidWorkspacePathError(f"Studio root '{sec_root.name}' must not be a symlink.")
+
+    env_roots = os.environ.get("OPENDV_WORKSPACE_ROOTS", "").strip()
+    if env_roots:
+        allowed_roots: list[Path | str] | None = None
+    else:
+        ws_parent = sec_root.parent.parent if sec_root.parent.name == ".opendv" else sec_root.parent
+        allowed_roots = [os.getcwd(), sec_root, ws_parent]
+
+    resolved = validate_workspace_containment(target_path, allowed_roots=allowed_roots)
+    if resolved.is_symlink():
+        raise InvalidWorkspacePathError(
+            f"Resolved import target '{resolved.name}' must not be a symlink."
+        )
+    return resolved
+
+
+def _resign_acknowledged_version_waivers(
+    staging_dir: Path,
+    security_manager: WorkspaceSecurityManager,
+) -> None:
+    """Re-sign validated non-expired steward waivers in `staging_dir` under local `K_waiver`."""
+    versions_dir = staging_dir / "versions"
+    if not versions_dir.is_dir():
+        return
+
+    now_utc = datetime.now(UTC)
+    for vdir in sorted(versions_dir.iterdir()):
+        if not vdir.is_dir():
+            continue
+
+        resigned_by_key: dict[tuple[str, tuple[str, ...]], StewardWaiverRecord] = {}
+        for fname in ("meta.json", "metadata.json", "evaluation.json", "waivers.json"):
+            fpath = vdir / fname
+            if not fpath.is_file():
+                continue
+            try:
+                vdata = json.loads(fpath.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+
+            changed = False
+            if isinstance(vdata, list):
+                new_list: list[Any] = []
+                for item in vdata:
+                    if isinstance(item, dict):
+                        with contextlib.suppress(ValidationError, ValueError, TypeError):
+                            w = StewardWaiverRecord.model_validate(item)
+                            if w.expires_at is None or w.expires_at > now_utc:
+                                sig = security_manager.sign_waiver(
+                                    w.signing_payload().encode("utf-8")
+                                )
+                                w = w.model_copy(update={"signature_or_token": sig})
+                                dkey = (str(w.proposal_id), tuple(sorted(w.target_concept_uris)))
+                                resigned_by_key[dkey] = w
+                                item = w.model_dump(mode="json")
+                                changed = True
+                    new_list.append(item)
+                vdata = new_list
+            elif isinstance(vdata, dict):
+                if isinstance(vdata.get("waivers"), list):
+                    new_waivers: list[Any] = []
+                    for item in vdata["waivers"]:
+                        if isinstance(item, dict):
+                            with contextlib.suppress(ValidationError, ValueError, TypeError):
+                                w = StewardWaiverRecord.model_validate(item)
+                                if w.expires_at is None or w.expires_at > now_utc:
+                                    sig = security_manager.sign_waiver(
+                                        w.signing_payload().encode("utf-8")
+                                    )
+                                    w = w.model_copy(update={"signature_or_token": sig})
+                                    dkey = (
+                                        str(w.proposal_id),
+                                        tuple(sorted(w.target_concept_uris)),
+                                    )
+                                    resigned_by_key[dkey] = w
+                                    item = w.model_dump(mode="json")
+                                    changed = True
+                        new_waivers.append(item)
+                    vdata["waivers"] = new_waivers
+                if isinstance(vdata.get("waiver"), dict):
+                    with contextlib.suppress(ValidationError, ValueError, TypeError):
+                        w = StewardWaiverRecord.model_validate(vdata["waiver"])
+                        if w.expires_at is None or w.expires_at > now_utc:
+                            sig = security_manager.sign_waiver(w.signing_payload().encode("utf-8"))
+                            w = w.model_copy(update={"signature_or_token": sig})
+                            dkey = (str(w.proposal_id), tuple(sorted(w.target_concept_uris)))
+                            resigned_by_key[dkey] = w
+                            vdata["waiver"] = w.model_dump(mode="json")
+                            changed = True
+
+            if changed:
+                fpath.write_text(json.dumps(vdata, indent=2), encoding="utf-8")
+                set_owner_only_permissions(fpath)
+
+        if resigned_by_key:
+            wjson_path = vdir / "waivers.json"
+            wjson_payload = [w.model_dump(mode="json") for w in resigned_by_key.values()]
+            wjson_path.write_text(json.dumps(wjson_payload, indent=2), encoding="utf-8")
+            set_owner_only_permissions(wjson_path)
+
+
+def _resolve_studio_root_for_staging(
+    base_dest: Path,
+    security_manager: WorkspaceSecurityManager,
+    new_session_id: str | None = None,
+) -> Path:
+    """Resolve the studio root so staging_dir is ALWAYS a sibling of dest_dir, never inside it."""
+    sec_root = security_manager.studio_root.resolve()
+    if base_dest == sec_root:
+        return base_dest
+    if (
+        (base_dest / "session.json").exists()
+        or base_dest.parent == sec_root
+        or not base_dest.is_dir()
+        or (new_session_id is not None and base_dest.name == new_session_id)
+    ):
+        return base_dest.parent
+    return base_dest
 
 
 def import_bundle(
@@ -330,45 +1396,46 @@ def import_bundle(
     acknowledgement_rationale: str | None = None,
     imported_by: str | None = None,
     force: bool = False,
+    *,
+    import_rationale: str | None = None,
+    actor_role: str | None = None,
 ) -> SessionMetadata:
-    """Import and verify a portable .odvstudio.zip archive into a target session directory.
+    """Import and verify a portable .odvstudio.zip archive into a target session directory."""
+    if (
+        actor_role is not None
+        and actor_role.strip().lower() != "admin"
+        and (acknowledge_unverified_import_attribution or force)
+    ):
+        raise ForbiddenAdminRequiredError(
+            "Importing with force=True or acknowledge_unverified_import_attribution=True "
+            "requires the 'admin' role."
+        )
 
-    Enforces:
-    - Zero-trust normalized member security validation.
-    - Streaming decompression guards (<= 250 MB total, <= 500 entries, <= 100:1 ratio on > 1 MB).
-    - Local workspace secret initialization.
-    - Audit ledger internal hash-chain verification.
-    - Attribution verification and administrative acknowledgement guards.
-
-    Args:
-        zip_path: Path to the .odvstudio.zip archive file.
-        target_dir: Destination session directory (<studio_root>/<session_id>).
-        security_manager: Workspace security manager for key derivation.
-        new_session_id: Optional new session identifier override.
-        acknowledge_unverified_import_attribution: Whether unverified attribution is acknowledged.
-        acknowledgement_rationale: Rationale required when acknowledging unverified attribution.
-        imported_by: Principal identifier importing the bundle.
-        force: Overwrite existing session directory if True.
-
-    Returns:
-        The validated SessionMetadata.
-
-    Raises:
-        ArchiveSecurityViolationError: If archive fails security or decompression checks.
-        ImportGroundingViolationError: If unverified attribution is unacknowledged.
-        ImportGroundingRationaleRequiredError: If rationale is missing or < 10 chars.
-        FileExistsError: If target session directory already exists and force is False.
-    """
     zpath = Path(zip_path).resolve()
     if not zpath.exists() or not zpath.is_file():
         raise FileNotFoundError(f"Bundle archive '{zpath}' not found")
 
-    base_dest = Path(target_dir).resolve()
-    scratch_root = base_dest if base_dest.is_dir() else base_dest.parent
-    # Staging directory for zero-trust extraction
-    staging_dir = scratch_root / f".staging-import-{secrets.token_hex(6)}"
+    raw_target = Path(target_dir)
+    base_dest = _validate_import_target_containment(target_dir, security_manager)
+    zpath_stat_size = zpath.stat().st_size
+    studio_root = _resolve_studio_root_for_staging(
+        base_dest, security_manager, new_session_id=new_session_id
+    )
+    if studio_root.is_symlink():
+        raise InvalidWorkspacePathError(
+            f"Import parent directory '{studio_root.name}' must not be a symlink."
+        )
+    studio_root.mkdir(parents=True, exist_ok=True)
+
+    # Always stage in studio_root as a sibling, NEVER inside an existing session directory!
+    staging_dir = studio_root / f".staging-import-{secrets.token_hex(6)}"
     staging_dir.mkdir(parents=True, exist_ok=True)
     set_owner_only_permissions(staging_dir)
+
+    actor = imported_by or "admin"
+    effective_rationale = (
+        acknowledgement_rationale if acknowledgement_rationale is not None else import_rationale
+    )
 
     try:
         with zipfile.ZipFile(zpath, mode="r") as zf:
@@ -382,11 +1449,11 @@ def import_bundle(
             seen_normalized: set[str] = set()
             total_uncompressed = 0
 
-            # 1. First pass: Pre-validate all member names
+            # 1. Pre-validate all member names
             for info in infolist:
                 validate_archive_member(info, seen_normalized)
 
-            # 2. Second pass: Streaming decompression with ratio checks
+            # 2. Streaming decompression with clamped ratio checks
             for info in infolist:
                 if info.is_dir() or info.filename.endswith("/"):
                     out_entry = staging_dir / info.filename
@@ -395,7 +1462,6 @@ def import_bundle(
                     continue
 
                 target_file = staging_dir / info.filename
-                # Path containment check
                 try:
                     target_file.resolve().relative_to(staging_dir.resolve())
                 except ValueError:
@@ -405,9 +1471,8 @@ def import_bundle(
 
                 target_file.parent.mkdir(parents=True, exist_ok=True)
 
-                # Stream extraction with ratio checks
                 entry_decompressed = 0
-                compressed_size = max(info.compress_size, 1)
+                compressed_size = max(min(info.compress_size, zpath_stat_size), 1)
 
                 with zf.open(info) as src, target_file.open("wb") as dst:
                     while chunk := src.read(CHUNK_SIZE):
@@ -432,106 +1497,163 @@ def import_bundle(
 
                 set_owner_only_permissions(target_file)
 
-        # Verify session structure in staging
+        # 3. Validate session.json
         session_json_path = staging_dir / "session.json"
         if not session_json_path.exists():
             raise ArchiveSecurityViolationError(
                 "Bundle archive is missing authoritative 'session.json'"
             )
 
-        session_meta = SessionMetadata.model_validate_json(
-            session_json_path.read_text(encoding="utf-8")
-        )
+        try:
+            session_meta = SessionMetadata.model_validate_json(
+                session_json_path.read_text(encoding="utf-8")
+            )
+        except (ValidationError, ValueError) as exc:
+            raise ArchiveSecurityViolationError(
+                f"Bundle archive contains invalid 'session.json': {exc}"
+            ) from exc
 
-        # Update session_id if overridden
-        if new_session_id and session_meta.session_id != new_session_id:
-            session_meta.session_id = new_session_id
-            session_json_path.write_text(session_meta.model_dump_json(indent=2), encoding="utf-8")
-            set_owner_only_permissions(session_json_path)
+        original_sid = session_meta.session_id
+        target_sid = validate_session_id(new_session_id or original_sid)
 
-        target_sid = new_session_id or session_meta.session_id
-        validate_session_id(target_sid)
-        dest_dir = base_dest if base_dest.name == target_sid else base_dest / target_sid
+        if raw_target.name == target_sid or base_dest.name == target_sid:
+            dest_dir = base_dest
+        elif base_dest == studio_root or (
+            new_session_id and base_dest.parent == studio_root and base_dest.name != target_sid
+        ):
+            dest_dir = studio_root / target_sid
+        else:
+            dest_dir = base_dest / target_sid
+
+        if dest_dir.is_symlink() or dest_dir.parent.is_symlink():
+            raise InvalidWorkspacePathError(
+                f"Import destination '{dest_dir.name}' must not be a symlink."
+            )
+        dest_dir = _validate_import_target_containment(dest_dir, security_manager)
 
         if dest_dir.exists() and not force:
-            raise FileExistsError(f"Session '{target_sid}' already exists.")
+            raise SessionAlreadyExistsError(f"Session '{target_sid}' already exists.")
 
-        # Generate fresh local .session_secret for imported session
+        bundle_meta: dict[str, Any] | None = None
+        bundle_json_path = staging_dir / "bundle.json"
+        if bundle_json_path.is_file():
+            try:
+                loaded_b = json.loads(bundle_json_path.read_text(encoding="utf-8"))
+                if isinstance(loaded_b, dict):
+                    bundle_meta = loaded_b
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ArchiveSecurityViolationError(f"Corrupt bundle.json: {exc}") from exc
+
+        # 4. Full delta replay, provisional URI scan & canonical JCS SHA-256 + grounding checks
+        _verify_versions_and_replay_deltas(staging_dir, session_meta)
+
+        # 5. Effective taint propagation (T_effective = T_manifest U T_imported)
+        is_tainted = compute_effective_session_taint(
+            staging_dir,
+            session_data=session_meta.model_dump(mode="json"),
+            bundle_meta=bundle_meta,
+        )
+        if is_tainted:
+            session_meta = session_meta.model_copy(update={"taint_classification": "TAINTED"})
+            taint_idx_path = staging_dir / "taint_index.json"
+            existing_taint_idx: dict[str, Any] = {}
+            if taint_idx_path.is_file():
+                with contextlib.suppress(OSError, json.JSONDecodeError):
+                    raw_ti = json.loads(taint_idx_path.read_text(encoding="utf-8"))
+                    if isinstance(raw_ti, dict):
+                        existing_taint_idx = raw_ti
+            existing_taint_idx["is_tainted"] = True
+            taint_idx_path.write_text(json.dumps(existing_taint_idx, indent=2), encoding="utf-8")
+            set_owner_only_permissions(taint_idx_path)
+
+        # Normalize committed_versions tags consistently
+        norm_committed = [normalize_version_tag(v) for v in session_meta.committed_versions]
+        session_meta = session_meta.model_copy(
+            update={
+                "session_id": target_sid,
+                "committed_versions": norm_committed,
+            }
+        )
+
+        # 6. Generate fresh local .session_secret
         session_secret_path = staging_dir / ".session_secret"
         session_secret_path.write_bytes(secrets.token_bytes(32))
         set_owner_only_permissions(session_secret_path)
 
-        # Verify internal audit chain integrity if audit.jsonl exists
-        audit_file = staging_dir / "audit.jsonl"
-        if audit_file.exists():
-            raw_lines = audit_file.read_text(encoding="utf-8").splitlines()
-            valid_lines = [line.strip() for line in raw_lines if line.strip()]
-            if valid_lines:
-                with contextlib.suppress(json.JSONDecodeError, KeyError):
-                    last_rec = json.loads(valid_lines[-1])
-                    if "audit_sha256" in last_rec:
-                        session_meta.audit_chain_head_sha256 = last_rec["audit_sha256"]
-                        session_json_path.write_text(
-                            session_meta.model_dump_json(indent=2), encoding="utf-8"
-                        )
+        # 7. Verify imported audit.jsonl hash-chain and re-anchor under local K_audit
+        session_meta = _verify_and_reanchor_audit_chain(
+            staging_dir=staging_dir,
+            session_meta=session_meta,
+            original_session_id=original_sid,
+            target_session_id=target_sid,
+            bundle_meta=bundle_meta,
+            security_manager=security_manager,
+            imported_by=actor,
+        )
 
-        # Verify attribution and governance waiver (MAJ-03)
-        has_unverified_attribution = False
-        bundle_json_path = staging_dir / "bundle.json"
-        if bundle_json_path.exists():
-            try:
-                b_meta = json.loads(bundle_json_path.read_text(encoding="utf-8"))
-                if (
-                    b_meta.get("unverified_attribution") is True
-                    or b_meta.get("attribution_verified") is False
-                ):
-                    has_unverified_attribution = True
-            except (OSError, json.JSONDecodeError):
-                pass
-
-        if not has_unverified_attribution:
-            proposals_dir = staging_dir / "proposals"
-            if proposals_dir.is_dir():
-                for pf in proposals_dir.glob("*.json"):
-                    try:
-                        pdata = json.loads(pf.read_text(encoding="utf-8"))
-                        if (
-                            pdata.get("unverified_attribution") is True
-                            or pdata.get("attribution_verified") is False
-                            or pdata.get("proposer") in (None, "", "unknown", "agent:unknown")
-                        ):
-                            has_unverified_attribution = True
-                            break
-                    except (OSError, json.JSONDecodeError):
-                        pass
-
-        if has_unverified_attribution:
+        # 8. Attribution, seeded/grandfathered CBCs & foreign waiver verification
+        if _has_unverified_attribution_or_foreign_waiver(
+            staging_dir, bundle_meta, security_manager
+        ):
             if not acknowledge_unverified_import_attribution:
                 raise ImportGroundingViolationError(
-                    "Bundle archive contains unverified proposer or steward attribution. "
-                    "Explicit acknowledgement required: "
+                    "Bundle archive contains unverified proposer attribution, seeded/grandfathered "
+                    "concepts, or foreign steward waivers. Explicit acknowledgement required: "
                     "acknowledge_unverified_import_attribution=true."
                 )
-            if not acknowledgement_rationale or len(acknowledgement_rationale.strip()) < 10:
+            if not effective_rationale or len(effective_rationale.strip()) < 10:
                 raise ImportGroundingRationaleRequiredError(
                     "Attribution acknowledgement rationale must be at least 10 characters."
                 )
-            audit_file = staging_dir / "audit.jsonl"
-            ack_rec = {
-                "action": "IMPORT_ATTRIBUTION_ACKNOWLEDGED",
-                "timestamp": datetime.now(UTC).isoformat(),
-                "actor": imported_by or "admin",
-                "rationale": acknowledgement_rationale.strip(),
-            }
-            with audit_file.open("a", encoding="utf-8") as af:
-                af.write(json.dumps(ack_rec) + "\n")
+            _resign_acknowledged_version_waivers(staging_dir, security_manager)
+            append_signed_audit_record(
+                session_dir=staging_dir,
+                action="IMPORT_ATTRIBUTION_ACKNOWLEDGED",
+                actor=actor,
+                details={"rationale": effective_rationale.strip()},
+                security_manager=security_manager,
+            )
+            session_meta = SessionMetadata.model_validate_json(
+                (staging_dir / "session.json").read_text(encoding="utf-8")
+            )
 
-        # Atomic replacement into destination directory
-        if dest_dir.exists():
-            shutil.rmtree(dest_dir, ignore_errors=True)
+        # 9. Atomic destination swap under parent-level L5 lifecycle + session locks
+        dest_dir.parent.mkdir(parents=True, exist_ok=True)
+        parent_lock_path = dest_dir.parent / f".lifecycle_{target_sid}.lock"
+        with studio_lock(
+            parent_lock_path,
+            level=L5_SESSION,
+            session_id=target_sid,
+            remove_on_release=True,
+        ):
+            if dest_dir.is_symlink():
+                raise InvalidWorkspacePathError(
+                    f"Import destination '{dest_dir.name}' must not be a symlink."
+                )
+            if dest_dir.exists():
+                if not force:
+                    raise SessionAlreadyExistsError(f"Session '{target_sid}' already exists.")
+                with reentrant_session_lock(dest_dir / ".session.lock", session_id=target_sid):
+                    existing_sjson = dest_dir / "session.json"
+                    if not existing_sjson.is_file() or existing_sjson.is_symlink():
+                        raise InvalidWorkspacePathError(
+                            f"Refusing force=True overwrite of non-session directory "
+                            f"'{dest_dir.name}' (missing authoritative session.json)."
+                        )
+                backup_dir = dest_dir.parent / f".trash-import-{target_sid}-{secrets.token_hex(4)}"
+                replace_with_retry(dest_dir, backup_dir)
+                try:
+                    replace_with_retry(staging_dir, dest_dir)
+                except BaseException:
+                    with contextlib.suppress(OSError):
+                        replace_with_retry(backup_dir, dest_dir)
+                    raise
+                shutil.rmtree(backup_dir, ignore_errors=True)
+            else:
+                replace_with_retry(staging_dir, dest_dir)
 
-        staging_dir.replace(dest_dir)
         set_owner_only_permissions(dest_dir)
+        fsync_directory_best_effort(dest_dir.parent)
         return session_meta
     finally:
         if staging_dir.exists():

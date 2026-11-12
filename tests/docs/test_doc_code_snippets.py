@@ -69,10 +69,18 @@ def _extract_command_tree(cli_spec: dict[str, Any]) -> dict[tuple[str, ...], set
             if opt.get("short"):
                 opts.add(opt["short"])
         # Standard global/client options
-        opts.update({
-            "--help", "-h", "--json", "--api-url", "--token",
-            "--verbose", "-v", "--quiet", "-q",
-        })
+        opts.update(
+            {
+                "--help",
+                "-h",
+                "--json",
+                "--api-url",
+                "--verbose",
+                "-v",
+                "--quiet",
+                "-q",
+            }
+        )
 
         subs = node.get("subcommands", [])
         if subs:
@@ -170,17 +178,15 @@ def test_docs_22_cli_snippets() -> None:
 
             path_tuple = tuple(path_tokens)
             cmd_str = " ".join(path_tokens)
-            assert (
-                path_tuple in cmd_tree
-            ), f"Command '{cmd_str}' in line '{line}' not recognized in cli-spec.json."
+            assert path_tuple in cmd_tree, (
+                f"Command '{cmd_str}' in line '{line}' not recognized in cli-spec.json."
+            )
 
             allowed_flags = cmd_tree[path_tuple]
             for flag in flag_tokens:
                 if flag.startswith("-"):
                     flag_clean = flag.split("=")[0]
-                    assert (
-                        flag_clean in allowed_flags
-                    ), (
+                    assert flag_clean in allowed_flags, (
                         f"Flag '{flag_clean}' in line '{line}' not recognized for command "
                         f"{cmd_str}. Allowed: {sorted(allowed_flags)}"
                     )
@@ -242,7 +248,7 @@ def test_docs_22_content_coverage() -> None:
     # Architecture & Core Concepts
     assert "Dual-Mode Engine" in text or "dual-mode" in text
     assert "Content-Addressable Storage" in text or "CAS" in text
-    assert "99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e" in text
+    assert "1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9" in text
     assert "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81" in text
 
     # 4 User Journeys
@@ -306,33 +312,33 @@ def test_docs_23_python_spi_implementations() -> None:
     # Extension Point 1: Custom DocumentAdapter subclass
     assert hasattr(mod, "XmlSchemaDocumentAdapter"), "Expected XmlSchemaDocumentAdapter in docs/23."
     xml_adapter_cls = mod.XmlSchemaDocumentAdapter
-    assert issubclass(
-        xml_adapter_cls, DocumentAdapter
-    ), "XmlSchemaDocumentAdapter must subclass DocumentAdapter."
+    assert issubclass(xml_adapter_cls, DocumentAdapter), (
+        "XmlSchemaDocumentAdapter must subclass DocumentAdapter."
+    )
     xml_adapter = xml_adapter_cls()
     assert xml_adapter.supports_extension(".xsd")
     assert xml_adapter.supports_mime_type("application/xml")
 
     # Extension Point 2: Custom ReferenceOntologyAdapter implementation
-    assert hasattr(
-        mod, "HealthcareReferenceOntologyLoader"
-    ), "Expected HealthcareReferenceOntologyLoader in docs/23."
+    assert hasattr(mod, "HealthcareReferenceOntologyLoader"), (
+        "Expected HealthcareReferenceOntologyLoader in docs/23."
+    )
     hc_loader_cls = mod.HealthcareReferenceOntologyLoader
     hc_loader = hc_loader_cls()
-    assert isinstance(
-        hc_loader, ReferenceOntologyAdapter
-    ), "HealthcareReferenceOntologyLoader must implement ReferenceOntologyAdapter SPI."
+    assert isinstance(hc_loader, ReferenceOntologyAdapter), (
+        "HealthcareReferenceOntologyLoader must implement ReferenceOntologyAdapter SPI."
+    )
     assert hasattr(hc_loader, "lookup_by_uri")
     assert hasattr(hc_loader, "search_candidates")
 
     # Extension Point 3: Custom ConceptMatcher subclass
-    assert hasattr(
-        mod, "DomainAwareConceptMatcher"
-    ), "Expected DomainAwareConceptMatcher in docs/23."
+    assert hasattr(mod, "DomainAwareConceptMatcher"), (
+        "Expected DomainAwareConceptMatcher in docs/23."
+    )
     matcher_cls = mod.DomainAwareConceptMatcher
-    assert issubclass(
-        matcher_cls, ConceptMatcher
-    ), "DomainAwareConceptMatcher must subclass ConceptMatcher SPI."
+    assert issubclass(matcher_cls, ConceptMatcher), (
+        "DomainAwareConceptMatcher must subclass ConceptMatcher SPI."
+    )
     matcher = matcher_cls()
     assert hasattr(matcher, "index_concepts")
     assert hasattr(matcher, "lookup_concept")
@@ -340,9 +346,9 @@ def test_docs_23_python_spi_implementations() -> None:
     assert hasattr(matcher, "score")
 
     # Extension Point 4: Custom Persona & Agent Harness Spec Builder
-    assert hasattr(
-        mod, "build_compliance_scout_task_spec"
-    ), "Expected build_compliance_scout_task_spec in docs/23."
+    assert hasattr(mod, "build_compliance_scout_task_spec"), (
+        "Expected build_compliance_scout_task_spec in docs/23."
+    )
     build_persona_fn = mod.build_compliance_scout_task_spec
     task_spec = build_persona_fn(focus_domains=["GDPR", "HIPAA"])
     assert task_spec.task_id.startswith("task-compliance-")
@@ -385,3 +391,87 @@ def test_docs_23_structural_coverage() -> None:
     assert "ConceptMatcher" in text
     assert "BasePersona" in text or "AgentPersona" in text or "persona" in text
     assert "RDFExporter" in text or "export" in text
+
+
+def test_docs_23_cypher_exporter_injection_guard() -> None:
+    """Verify CypherDDLExporter in docs/23 neutralizes newline/comment/identifier injection."""
+    blocks = _extract_fenced_blocks(DOCS_23_PATH, "python")
+    mod = types.ModuleType("doc23_cypher_injection_guard")
+    sys.modules[mod.__name__] = mod
+    for idx, block in enumerate(blocks, 1):
+        exec(compile(block, f"docs_23_cypher_{idx}.py", "exec"), mod.__dict__)
+
+    exporter = mod.CypherDDLExporter()
+
+    # 1. Multi-line description & grain_semantics attempting '//' comment breakout and '*/' closure
+    malicious_comment_ontology = {
+        "ontology_version": "1.0.0",
+        "domain_namespace": "wealth_mgmt",
+        "enterprise_owner": "Security Audit",
+        "description": "Legit header\r\nMATCH (n) DETACH DELETE n; */\nCREATE (:Pwned)",
+        "canonical_business_concepts": [
+            {
+                "concept_uri": "urn:ontology:entity:fund",
+                "concept_name": "Fund",
+                "definition": "Investment fund.",
+                "target_hub": "hub_fund",
+                "elm_archetype": "CORE_BUSINESS_CONCEPT",
+                "attributes": [
+                    {
+                        "attribute_name": "fund_code",
+                        "data_type": "string",
+                    }
+                ],
+            },
+            {
+                "concept_uri": "urn:ontology:entity:investor",
+                "concept_name": "Investor",
+                "definition": "Limited partner investor.",
+                "target_hub": "hub_investor",
+                "elm_archetype": "CORE_BUSINESS_CONCEPT",
+            },
+        ],
+        "canonical_relationships": [
+            {
+                "relationship_uri": "urn:ontology:relationship:fund_investor",
+                "relationship_name": "Fund Investor",
+                "target_link": "lnk_fund_investor",
+                "endpoints": [
+                    "urn:ontology:entity:fund",
+                    "urn:ontology:entity:investor",
+                ],
+                "grain_semantics": "1:N\nMATCH (x) DETACH DELETE x; */",
+            }
+        ],
+    }
+
+    ddl = exporter.export_cypher(malicious_comment_ontology)
+    assert "*/" not in ddl, "Unescaped block-comment terminator must be sanitized."
+    executable_lines = [
+        line.strip()
+        for line in ddl.splitlines()
+        if line.strip() and not line.strip().startswith("//")
+    ]
+    assert len(executable_lines) == 2
+    for stmt in executable_lines:
+        assert stmt.startswith("CREATE CONSTRAINT IF NOT EXISTS FOR (n:`hub_")
+        assert "DETACH DELETE" not in stmt
+        assert "Pwned" not in stmt
+
+    # 2. Malicious identifier injection in concept_name (without target_hub) fails closed
+    malicious_ident_ontology = {
+        "ontology_version": "1.0.0",
+        "domain_namespace": "wealth_mgmt",
+        "enterprise_owner": "Security Audit",
+        "canonical_business_concepts": [
+            {
+                "concept_uri": "urn:ontology:entity:bad_actor",
+                "concept_name": "Bad`) CREATE (:Injected) //",
+                "definition": "Attempted label breakout.",
+                "elm_archetype": "CORE_BUSINESS_CONCEPT",
+            }
+        ],
+        "canonical_relationships": [],
+    }
+    with pytest.raises(ValueError, match="Unsafe Cypher"):
+        exporter.export_cypher(malicious_ident_ontology)

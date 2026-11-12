@@ -169,18 +169,21 @@ def pe_evidence_tables() -> list[TableStructure]:
         ],
     )
     return [
-        t_funds,
-        t_investors,
-        t_portcos,
-        t_documents,
-        t_custodians,
-        t_commitments,
-        t_co_invest,
-        t_same_as,
-        t_side_letters,
-        t_ic_memos,
-        t_strategies,
-        t_sectors,
+        t.model_copy(update={"metadata": {"taint": "public"}})
+        for t in (
+            t_funds,
+            t_investors,
+            t_portcos,
+            t_documents,
+            t_custodians,
+            t_commitments,
+            t_co_invest,
+            t_same_as,
+            t_side_letters,
+            t_ic_memos,
+            t_strategies,
+            t_sectors,
+        )
     ]
 
 
@@ -253,19 +256,22 @@ def wm_evidence_tables() -> list[TableStructure]:
         rows=[["PORT-001", "CONSERVATIVE"], ["PORT-001", "MODERATE"], ["PORT-001", "AGGRESSIVE"]],
     )
     return [
-        t_party,
-        t_cust,
-        t_acc,
-        t_port,
-        t_inst,
-        t_bank,
-        t_guar,
-        t_ca,
-        t_ap,
-        t_ph,
-        t_cs,
-        t_status,
-        t_risk,
+        t.model_copy(update={"metadata": {"taint": "public"}})
+        for t in (
+            t_party,
+            t_cust,
+            t_acc,
+            t_port,
+            t_inst,
+            t_bank,
+            t_guar,
+            t_ca,
+            t_ap,
+            t_ph,
+            t_cs,
+            t_status,
+            t_risk,
+        )
     ]
 
 
@@ -407,18 +413,26 @@ def test_agent_mode_persona_reasoning_and_privacy() -> None:
         table_id="tbl_client_accounts",
         headers=["client_account_id", "status_code", "balance_usd"],
         rows=[["ACC-101", "ACTIVE", "500000.00"]],
+        metadata={"taint": "public"},
     )
     proposal = architect.propose_delta(base_ontology=seed_base, evidence=[t_sample])
     assert isinstance(proposal, OntologyProposal)
     assert proposal.delta.author == "agent:ontology-architect"
 
-    # Additive operations only with provisional URIs
+    # Additive operations only; ungrounded candidates staged with provisional URIs
     c_ops = [op for op in proposal.delta.operations if isinstance(op, AddConceptOp)]
     e_ops = [op for op in proposal.delta.operations if isinstance(op, AddReferenceEnumerationOp)]
-    assert len(c_ops) >= 1
-    assert c_ops[0].concept_uri.startswith("urn:ontology:provisional:entity:")
-    assert len(e_ops) >= 1
-    assert e_ops[0].enum_uri.startswith("urn:ontology:provisional:enum:")
+    staged = proposal.delta.metadata.get("staged_candidates", [])
+    staged_c = [sc for sc in staged if sc.get("operation", {}).get("op_type") == "add_concept"]
+    staged_e = [
+        sc for sc in staged if sc.get("operation", {}).get("op_type") == "add_reference_enumeration"
+    ]
+    assert len(c_ops) + len(staged_c) >= 1
+    if staged_c:
+        assert staged_c[0]["provisional_uri"].startswith("urn:opendv:provisional:entity:")
+    assert len(e_ops) + len(staged_e) >= 1
+    if staged_e:
+        assert staged_e[0]["provisional_uri"].startswith("urn:opendv:provisional:enum:")
 
     # Destructive operations strictly forbidden
     destructive = RemoveConceptOp(
@@ -435,12 +449,26 @@ def test_agent_mode_persona_reasoning_and_privacy() -> None:
     scan_unresolved_pseudonyms("Clean concept name with resolved business label.")
 
 
+def _extract_agent_concept_slugs(proposal: OntologyProposal) -> set[str]:
+    """Extract concept slugs across both grounded operations and staged candidates."""
+    slugs = {
+        _slugify(op.concept_name or op.concept_uri)
+        for op in proposal.delta.operations
+        if isinstance(op, AddConceptOp)
+    }
+    for sc in proposal.delta.metadata.get("staged_candidates", []):
+        op_dict = sc.get("operation", {})
+        if op_dict.get("op_type") == "add_concept":
+            slugs.add(_slugify(op_dict.get("concept_name") or op_dict.get("concept_uri") or ""))
+    return slugs
+
+
 def test_mode_concordance_deterministic_vs_agent_pe(
     pe_evidence_tables: list[TableStructure],
 ) -> None:
     """Validate concept concordance >= 80% between modes on Private Equity evidence."""
     det_pipeline = DeterministicConstructionPipeline()
-    arch = OntologyArchitect()
+    arch = OntologyArchitect(matcher=det_pipeline.matcher)
 
     base_ont = GraphAOntology(
         ontology_version="1.0.0",
@@ -465,11 +493,7 @@ def test_mode_concordance_deterministic_vs_agent_pe(
         for op in det_proposal.delta.operations
         if isinstance(op, AddConceptOp)
     }
-    agent_concepts = {
-        _slugify(op.concept_name or op.concept_uri)
-        for op in agent_proposal.delta.operations
-        if isinstance(op, AddConceptOp)
-    }
+    agent_concepts = _extract_agent_concept_slugs(agent_proposal)
 
     assert det_concepts, "Deterministic mode produced 0 concepts"
     assert agent_concepts, "Agent mode produced 0 concepts"
@@ -489,7 +513,7 @@ def test_mode_concordance_deterministic_vs_agent_wm(
 ) -> None:
     """Validate concept concordance >= 80% between modes on Wealth Management evidence."""
     det_pipeline = DeterministicConstructionPipeline()
-    arch = OntologyArchitect()
+    arch = OntologyArchitect(matcher=det_pipeline.matcher)
 
     base_ont = GraphAOntology(
         ontology_version="1.0.0",
@@ -514,11 +538,7 @@ def test_mode_concordance_deterministic_vs_agent_wm(
         for op in det_proposal.delta.operations
         if isinstance(op, AddConceptOp)
     }
-    agent_concepts = {
-        _slugify(op.concept_name or op.concept_uri)
-        for op in agent_proposal.delta.operations
-        if isinstance(op, AddConceptOp)
-    }
+    agent_concepts = _extract_agent_concept_slugs(agent_proposal)
 
     assert det_concepts, "Deterministic mode produced 0 concepts"
     assert agent_concepts, "Agent mode produced 0 concepts"

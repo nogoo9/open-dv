@@ -41,9 +41,13 @@ CANONICAL_FIBO_CORE_UPSTREAM_TAG: str = "master_2024Q4"
 class ReferenceOntologyCorruptError(SourceLoadError, ValueError):
     """Raised when a reference ontology pack digest mismatches baseline or is corrupted."""
 
-    error_code = ErrorCode.SOURCE_LOAD_ERROR
-    exit_code = 4
-    http_status = 422
+    error_code: ErrorCode = getattr(
+        ErrorCode,
+        "REFERENCE_ONTOLOGY_CORRUPT",
+        ErrorCode.REFERENCE_PACK_INTEGRITY_FAILURE,
+    )
+    exit_code: int = 1
+    http_status: int = 500
 
     def __init__(
         self,
@@ -54,6 +58,11 @@ class ReferenceOntologyCorruptError(SourceLoadError, ValueError):
         computed_sha256: str | None = None,
         details: dict[str, Any] | None = None,
     ) -> None:
+        resolved_code: ErrorCode = getattr(
+            ErrorCode,
+            "REFERENCE_ONTOLOGY_CORRUPT",
+            ErrorCode.REFERENCE_PACK_INTEGRITY_FAILURE,
+        )
         merged_details = dict(details or {})
         if pack_path is not None:
             merged_details["pack_path"] = str(pack_path)
@@ -62,9 +71,11 @@ class ReferenceOntologyCorruptError(SourceLoadError, ValueError):
         if computed_sha256 is not None:
             merged_details["computed_sha256"] = computed_sha256
         merged_details["error_code_symbol"] = "REFERENCE_ONTOLOGY_CORRUPT"
-        super().__init__(message, details=merged_details)
-        self.exit_code = 4
-        self.http_status = 422
+        super().__init__(
+            message,
+            error_code=resolved_code,
+            details=merged_details,
+        )
         self.error_code_symbol = "REFERENCE_ONTOLOGY_CORRUPT"
 
 

@@ -63,6 +63,9 @@ def mint_test_jwt(
 @pytest.fixture(autouse=True)
 def reset_studio_environment(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """Isolate each test in a fresh temporary directory."""
+    from opendv_core.schema_registry import get_default_schema_registry
+
+    get_default_schema_registry()
     studio_root = tmp_path / "opendv_studio"
     studio_root.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("OPENDV_STUDIO_ROOT", str(studio_root))
@@ -314,7 +317,7 @@ def test_clarifications_and_answers_occ(client: TestClient, auth_headers: dict[s
     clarifications = get_clarifications.json()
     assert isinstance(clarifications, list)
 
-    # Submit answers with wrong expected_answers_sha256 triggers 409 Conflict
+    # Submit answers with wrong expected_answers_sha256 triggers 412 Precondition Failed
     bad_occ_resp = client.post(
         "/api/v1/ontology/studio/sessions/clarify-session/answers",
         json={
@@ -323,7 +326,7 @@ def test_clarifications_and_answers_occ(client: TestClient, auth_headers: dict[s
         },
         headers=auth_headers,
     )
-    assert bad_occ_resp.status_code == 409
+    assert bad_occ_resp.status_code == 412
     assert bad_occ_resp.json()["error_code"] == "ONT_EVO_CONCURRENT_MODIFICATION"
 
 
@@ -447,15 +450,57 @@ def test_promote_session_with_occ(client: TestClient, auth_headers: dict[str, st
         json={"session_id": "promo-session", "domain_namespace": "wealth_mgmt"},
         headers=auth_headers,
     )
-    head_sha256 = create_resp.json()["head_sha256"]
+    genesis_sha = create_resp.json()["head_sha256"]
 
-    # Promote with valid If-Match
+    # Promoting empty greenfield GenesisDraft (v0.0.0) fails with 422 ONTOLOGY_REQUIRES_CONCEPT
+    empty_promo = client.post(
+        "/api/v1/ontology/studio/sessions/promo-session/promote",
+        json={
+            "head_sha256": genesis_sha,
+            "workspace_sha256": "0" * 64,
+            "rationale": "Attempted promotion of empty genesis ontology.",
+        },
+        headers={
+            **auth_headers,
+            "If-Match": f'"{genesis_sha}"',
+            "X-OpenDV-Workspace-If-Match": f'"{"0" * 64}"',
+        },
+    )
+    assert empty_promo.status_code == 422
+    assert empty_promo.json()["error_code"] == "ONTOLOGY_REQUIRES_CONCEPT"
+
+    # Commit v1.0.0 with a canonical business concept
+    commit1 = client.post(
+        "/api/v1/ontology/studio/sessions/promo-session/deltas/apply",
+        json={
+            "delta_id": "d-promo-1",
+            "parent_sha256": "",
+            "base_version": "0.0.0",
+            "target_version": "1.0.0",
+            "operations": [
+                {
+                    "op_type": "add_concept",
+                    "op_id": "op-p1",
+                    "concept_uri": "urn:ontology:entity:portfolio",
+                    "concept_name": "Portfolio",
+                    "definition": "Managed investment portfolio.",
+                }
+            ],
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved portfolio concept for promotion test.",
+        },
+        headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
+    )
+    assert commit1.status_code == 200, commit1.text
+    head_sha256 = commit1.json()["target_sha256"]
+
+    # Promote v1.0.0 with valid If-Match
     promote_resp = client.post(
         "/api/v1/ontology/studio/sessions/promo-session/promote",
         json={
             "head_sha256": head_sha256,
             "workspace_sha256": "0" * 64,
-            "rationale": "Initial genesis production release of Wealth Management ontology.",
+            "rationale": "Initial production release of Wealth Management ontology.",
         },
         headers={
             **auth_headers,
@@ -465,16 +510,16 @@ def test_promote_session_with_occ(client: TestClient, auth_headers: dict[str, st
     )
     assert promote_resp.status_code == 200, promote_resp.text
     promo_data = promote_resp.json()
-    assert promo_data["promoted_version"] == "0.0.0"
+    assert promo_data["promoted_version"] == "1.0.0"
     ws_sha = promo_data["workspace_sha256"]
 
-    # Sequential promotion with new workspace_sha256 succeeds without OCC error (MAJ-01)
-    promote2 = client.post(
+    # Re-promoting identical v1.0.0 head returns 400 NO_OP_DELTA
+    noop_promo = client.post(
         "/api/v1/ontology/studio/sessions/promo-session/promote",
         json={
             "head_sha256": head_sha256,
             "workspace_sha256": ws_sha,
-            "rationale": "Second release verification of Wealth Management ontology.",
+            "rationale": "Duplicate promotion check for Wealth Management ontology.",
         },
         headers={
             **auth_headers,
@@ -482,14 +527,56 @@ def test_promote_session_with_occ(client: TestClient, auth_headers: dict[str, st
             "X-OpenDV-Workspace-If-Match": f'"{ws_sha}"',
         },
     )
-    assert promote2.status_code == 200, promote2.text
+    assert noop_promo.status_code == 400
+    assert noop_promo.json()["error_code"] == "NO_OP_DELTA"
 
-    # Verify deleting a promoted session is rejected with 422
+    # Commit v1.1.0 and promote sequentially with new workspace_sha256
+    commit2 = client.post(
+        "/api/v1/ontology/studio/sessions/promo-session/deltas/apply",
+        json={
+            "delta_id": "d-promo-2",
+            "parent_sha256": head_sha256,
+            "base_version": "1.0.0",
+            "target_version": "1.1.0",
+            "operations": [
+                {
+                    "op_type": "add_concept",
+                    "op_id": "op-p2",
+                    "concept_uri": "urn:ontology:entity:account",
+                    "concept_name": "Account",
+                    "definition": "Client investment account.",
+                }
+            ],
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved account concept for v1.1.0 promotion test.",
+        },
+        headers={**auth_headers, "If-Match": f'"{head_sha256}"'},
+    )
+    assert commit2.status_code == 200, commit2.text
+    head_1_1_sha = commit2.json()["target_sha256"]
+
+    promote2 = client.post(
+        "/api/v1/ontology/studio/sessions/promo-session/promote",
+        json={
+            "head_sha256": head_1_1_sha,
+            "workspace_sha256": ws_sha,
+            "rationale": "Second release verification of Wealth Management ontology.",
+        },
+        headers={
+            **auth_headers,
+            "If-Match": f'"{head_1_1_sha}"',
+            "X-OpenDV-Workspace-If-Match": f'"{ws_sha}"',
+        },
+    )
+    assert promote2.status_code == 200, promote2.text
+    assert promote2.json()["promoted_version"] == "1.1.0"
+
+    # Verify deleting a promoted session is rejected with 409 CANNOT_DELETE_PROMOTED_SESSION
     del_resp = client.delete(
         "/api/v1/ontology/studio/sessions/promo-session",
         headers=auth_headers,
     )
-    assert del_resp.status_code == 422
+    assert del_resp.status_code == 409
     assert del_resp.json()["error_code"] == "CANNOT_DELETE_PROMOTED_SESSION"
 
 
@@ -522,10 +609,22 @@ def test_bundle_export_and_confidential_guard(
     assert fail_bundle.status_code == 422
     assert fail_bundle.json()["error_code"] == "CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED"
 
-    # Export with acknowledgment succeeds
-    ok_bundle = client.post(
+    # Export with acknowledgment but missing rationale fails with 400 EXPORT_RATIONALE_REQUIRED
+    missing_rat_bundle = client.post(
         "/api/v1/ontology/studio/sessions/bundle-session/bundle",
         json={"acknowledge_confidential_source_export": True},
+        headers=auth_headers,
+    )
+    assert missing_rat_bundle.status_code == 400
+    assert missing_rat_bundle.json()["error_code"] == "EXPORT_RATIONALE_REQUIRED"
+
+    # Export with acknowledgment and rationale succeeds
+    ok_bundle = client.post(
+        "/api/v1/ontology/studio/sessions/bundle-session/bundle",
+        json={
+            "acknowledge_confidential_source_export": True,
+            "export_rationale": "Approved confidential archive export for audit review.",
+        },
         headers=auth_headers,
     )
     assert ok_bundle.status_code == 200
@@ -776,14 +875,14 @@ def test_token_rotation_and_lifecycle(
     new_token = resp_rotated.json()["local_token"]
     assert new_token != auth_headers["Authorization"].split()[1]
 
-    # 4. When OPENDV_TOKEN is statically configured, initialization and rotation return 400
+    # 4. When OPENDV_TOKEN is statically configured, initialization and rotation return 500
     monkeypatch.setenv("OPENDV_TOKEN", "statically-pinned-token")
     resp_static = client.post(
         "/api/v1/ontology/studio/init",
         json={"domain_namespace": "wealth_mgmt", "force": True},
         headers={"Authorization": f"Bearer {new_token}"},
     )
-    assert resp_static.status_code == 400
+    assert resp_static.status_code == 500
     assert resp_static.json()["error_code"] == "STATIC_TOKEN_CONFIGURED"
 
 
@@ -1049,6 +1148,8 @@ def test_direct_delta_application_endpoint(
                 }
             ],
             "rationale": "Direct genesis delta application",
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved portfolio concept for direct delta test.",
         },
         headers={
             **auth_headers,
@@ -1147,7 +1248,12 @@ def test_proposal_acceptance_governance_and_security(
     # 4. Admin successfully accepts the proposal
     resp_accept = client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/proposals/{prop_id}/accept",
-        json={"base_sha256": head_sha, "self_acceptance_override": True},
+        json={
+            "base_sha256": head_sha,
+            "self_acceptance_override": True,
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved holding concept for governance test.",
+        },
         headers={
             **auth_headers,
             "X-OpenDV-Role": "admin",
@@ -1202,7 +1308,12 @@ def test_proposal_rebase_already_resolved_rejection(
     # 2. Accept the proposal
     accept_resp = client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/proposals/{prop_id}/accept",
-        json={"base_sha256": head_sha, "self_acceptance_override": True},
+        json={
+            "base_sha256": head_sha,
+            "self_acceptance_override": True,
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved asset concept for rebase test.",
+        },
         headers={**auth_headers, "If-Match": f'"{head_sha}"'},
     )
     assert accept_resp.status_code == 200
@@ -1292,7 +1403,7 @@ def test_cancel_vs_commit_lock_concurrency(
             headers=auth_headers,
         )
         assert resp.status_code == 409
-        assert resp.json()["error_code"] == "JOB_CANNOT_BE_CANCELLED"
+        assert resp.json()["error_code"] == "JOB_COMMIT_IN_PROGRESS"
     finally:
         with supervisor._lock:
             supervisor._jobs.pop(job_id, None)
@@ -1318,7 +1429,7 @@ def test_job_lookup_on_nonexistent_session_does_not_create_directory(
 def test_auto_commit_construct_governance_rejections(
     client: TestClient, auth_headers: dict[str, str]
 ) -> None:
-    """Test auto-commit construct governance: agent and non-admin callers are strictly rejected."""
+    """Test auto-commit construct governance: agent, viewer, and agent-mode auto-commit rejected."""
     session_id = "s-autocommit-gov"
     client.post(
         "/api/v1/ontology/studio/sessions",
@@ -1331,10 +1442,10 @@ def test_auto_commit_construct_governance_rejections(
     ).json()
     head_sha = sess_meta["head_sha256"]
 
-    # 1. Agent caller is rejected with 403 AGENT_PROPOSAL_ACCEPT_FORBIDDEN
+    # 1. Agent caller in challenger mode is rejected with 403 AGENT_PROPOSAL_ACCEPT_FORBIDDEN
     resp_agent = client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/construct",
-        json={"auto_commit": True},
+        json={"auto_commit": True, "mode": "challenger"},
         headers={
             **auth_headers,
             "X-OpenDV-Principal": "agent:builder_bot",
@@ -1344,10 +1455,24 @@ def test_auto_commit_construct_governance_rejections(
     assert resp_agent.status_code == 403
     assert resp_agent.json()["error_code"] == "AGENT_PROPOSAL_ACCEPT_FORBIDDEN"
 
-    # 2. Non-admin editor is rejected with 403 FORBIDDEN_ADMIN_REQUIRED
-    resp_editor = client.post(
+    # 2. Viewer is rejected with 403 SERVER_OPERATION_FORBIDDEN
+    resp_viewer = client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/construct",
-        json={"auto_commit": True},
+        json={"auto_commit": True, "mode": "deterministic"},
+        headers={
+            **auth_headers,
+            "X-OpenDV-Role": "viewer",
+            "X-OpenDV-Principal": "user:viewer_jane",
+            "If-Match": f'"{head_sha}"',
+        },
+    )
+    assert resp_viewer.status_code == 403
+    assert resp_viewer.json()["error_code"] == "SERVER_OPERATION_FORBIDDEN"
+
+    # 3. mode=agent with auto_commit=True is rejected with 400 SYNTAX_INVALID_ARGUMENT
+    resp_agent_mode = client.post(
+        f"/api/v1/ontology/studio/sessions/{session_id}/construct",
+        json={"auto_commit": True, "mode": "agent"},
         headers={
             **auth_headers,
             "X-OpenDV-Role": "editor",
@@ -1355,8 +1480,8 @@ def test_auto_commit_construct_governance_rejections(
             "If-Match": f'"{head_sha}"',
         },
     )
-    assert resp_editor.status_code == 403
-    assert resp_editor.json()["error_code"] == "FORBIDDEN_ADMIN_REQUIRED"
+    assert resp_agent_mode.status_code == 400
+    assert resp_agent_mode.json()["error_code"] == "SYNTAX_INVALID_ARGUMENT"
 
 
 def test_csrf_loopback_port_mismatch_rejected(
@@ -1505,7 +1630,7 @@ def test_cancel_job_committing_stage_rejected_and_on_disk_marker(
             headers=auth_headers,
         )
         assert cancel_resp.status_code == 409
-        assert cancel_resp.json()["error_code"] == "JOB_CANNOT_BE_CANCELLED"
+        assert cancel_resp.json()["error_code"] == "JOB_COMMIT_IN_PROGRESS"
 
     # Now simulate a running job in 'extracting' stage
     job_id_2 = "job-running-02"
@@ -1524,13 +1649,23 @@ def test_cancel_job_committing_stage_rejected_and_on_disk_marker(
     }
     (jobs_dir / f"{job_id_2}.json").write_text(json.dumps(job_data_2), encoding="utf-8")
 
+    # Active worker holding L2_JOB lock on disk rejects cross-process fallback with 409
     with hold_worker_lock(jobs_dir / f".job_{job_id_2}.lock", session_id):
-        cancel_resp_2 = client.post(
+        cancel_resp_locked = client.post(
             f"/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id_2}/cancel",
             headers=auth_headers,
         )
-        assert cancel_resp_2.status_code == 200
-        assert (jobs_dir / f".{job_id_2}.cancel").is_file()
+        assert cancel_resp_locked.status_code == 409
+        assert cancel_resp_locked.json()["error_code"] == "JOB_COMMIT_IN_PROGRESS"
+
+    # Once L2_JOB lock is free, on-disk cancel acquires L2_JOB, writes .cancel & appends event
+    cancel_resp_2 = client.post(
+        f"/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id_2}/cancel",
+        headers=auth_headers,
+    )
+    assert cancel_resp_2.status_code == 200
+    assert (jobs_dir / f".{job_id_2}.cancel").is_file()
+    assert (jobs_dir / f"{job_id_2}.events.jsonl").is_file()
 
 
 def test_agent_launch_nonce_and_direct_delta_forbidden(
@@ -1541,7 +1676,7 @@ def test_agent_launch_nonce_and_direct_delta_forbidden(
     agent_headers = {**auth_headers, "X-OpenDV-Principal": "agent:bot_1"}
     resp_nonce = client.post("/api/v1/ontology/studio/auth/launch-nonce", headers=agent_headers)
     assert resp_nonce.status_code == 403
-    assert resp_nonce.json()["error_code"] == "AGENT_LAUNCH_NONCE_FORBIDDEN"
+    assert resp_nonce.json()["error_code"] == "AGENT_OPERATION_FORBIDDEN"
 
     # 2. Agent calling direct delta apply returns 403
     session_id = "s-agent-delta"
@@ -1563,7 +1698,7 @@ def test_agent_launch_nonce_and_direct_delta_forbidden(
         headers={**agent_headers, "If-Match": f'"{meta["head_sha256"]}"'},
     )
     assert resp_delta.status_code == 403
-    assert resp_delta.json()["error_code"] == "AGENT_PROPOSAL_ACCEPT_FORBIDDEN"
+    assert resp_delta.json()["error_code"] == "AGENT_OPERATION_FORBIDDEN"
 
 
 def test_proposal_traversal_and_stale_rebase_required(
@@ -1628,6 +1763,8 @@ def test_proposal_traversal_and_stale_rebase_required(
                     "definition": "A client account.",
                 }
             ],
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved account concept for stale rebase test.",
         },
         headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
     )
@@ -1657,28 +1794,60 @@ def test_domain_namespace_validation_and_non_admin_delta_rejected(
     assert bad_domain_resp.status_code == 400
     assert bad_domain_resp.json()["error_code"] == "SYNTAX_INVALID_ARGUMENT"
 
-    # 2. Non-admin human direct delta rejected with 403
+    # 2. Non-admin human destructive direct delta rejected with 403 FORBIDDEN_ADMIN_REQUIRED
     session_id = "s-nonadmin-delta"
     client.post(
         "/api/v1/ontology/studio/sessions",
         json={"session_id": session_id, "domain_namespace": "wealth_mgmt"},
         headers=auth_headers,
     )
-    meta = client.get(f"/api/v1/ontology/studio/sessions/{session_id}", headers=auth_headers).json()
+    genesis_sha = client.get(
+        f"/api/v1/ontology/studio/sessions/{session_id}", headers=auth_headers
+    ).json()["head_sha256"]
+    seed_resp = client.post(
+        f"/api/v1/ontology/studio/sessions/{session_id}/deltas/apply",
+        json={
+            "delta_id": "d-seed-01",
+            "parent_sha256": "",
+            "base_version": "0.0.0",
+            "target_version": "1.0.0",
+            "operations": [
+                {
+                    "op_type": "add_concept",
+                    "op_id": "op-seed-1",
+                    "concept_uri": "urn:ontology:entity:account",
+                    "concept_name": "Account",
+                    "definition": "Client account.",
+                }
+            ],
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved seed concept for destructive delta RBAC test.",
+        },
+        headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
+    )
+    assert seed_resp.status_code == 200
+    head_1_sha = seed_resp.json()["target_sha256"]
     editor_headers = {
         **auth_headers,
         "X-OpenDV-Role": "editor",
         "X-OpenDV-Principal": "user:charlie",
-        "If-Match": f'"{meta["head_sha256"]}"',
+        "If-Match": f'"{head_1_sha}"',
     }
     resp_delta = client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/deltas/apply",
         json={
             "delta_id": "d-editor-01",
-            "parent_sha256": "",
-            "base_version": "0.0.0",
-            "target_version": "1.0.0",
-            "operations": [],
+            "parent_sha256": head_1_sha,
+            "base_version": "1.0.0",
+            "target_version": "2.0.0",
+            "operations": [
+                {
+                    "op_type": "remove_concept",
+                    "op_id": "op-del-1",
+                    "concept_uri": "urn:ontology:entity:account",
+                    "reason": "Destructive removal requires admin role.",
+                }
+            ],
         },
         headers=editor_headers,
     )
@@ -1773,6 +1942,8 @@ def test_rebase_semantic_conflict_and_success(
                     "definition": "An investment portfolio.",
                 }
             ],
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved portfolio concept for rebase conflict test.",
         },
         headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
     )
@@ -1801,14 +1972,14 @@ def test_rebase_semantic_conflict_and_success(
     assert prop_resp.status_code == 201
     prop_conflict_id = prop_resp.json()["proposal_id"]
 
-    # 3. Attempt rebase onto head_1_sha -> 409 ONT_EVO_CONTRACT_VIOLATION due to conflict
+    # 3. Attempt rebase onto head_1_sha -> 409 PROPOSAL_STALE_REBASE_REQUIRED due to conflict
     rebase_fail = client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/proposals/{prop_conflict_id}/rebase",
         json={"base_sha256": head_1_sha},
         headers={**auth_headers, "If-Match": f'"{head_1_sha}"'},
     )
     assert rebase_fail.status_code == 409
-    assert rebase_fail.json()["error_code"] == "ONT_EVO_CONTRACT_VIOLATION"
+    assert rebase_fail.json()["error_code"] == "PROPOSAL_STALE_REBASE_REQUIRED"
 
     # 4. Create proposal targeting old genesis base with non-conflicting concept B
     prop_ok_resp = client.post(
@@ -1845,14 +2016,33 @@ def test_rebase_semantic_conflict_and_success(
 def test_promote_downgrade_prevention_and_acknowledgement(
     client: TestClient, auth_headers: dict[str, str], tmp_path: Path
 ) -> None:
-    """Verify promote rejects version downgrade (422) unless historical warning acknowledged."""
+    """Verify promote rejects downgrade (422) unless historical warning and rationale provided."""
+    import hashlib
+
+    import yaml
+
+    from opendv_core.genesis import create_genesis_ontology
+    from opendv_core.models.graph_a import CanonicalBusinessConcept
+
     ws = tmp_path / "workspace"
     ws.mkdir(parents=True, exist_ok=True)
     existing_contract = ws / "wealth_mgmt_graph_a_ontology.yaml"
-    existing_contract.write_text(
-        "ontology_version: 2.0.0\ndomain_namespace: wealth_mgmt\n", encoding="utf-8"
+    ws_ont = create_genesis_ontology(domain_namespace="wealth_mgmt").model_copy(
+        update={
+            "ontology_version": "2.0.0",
+            "canonical_business_concepts": [
+                CanonicalBusinessConcept(
+                    concept_uri="urn:ontology:entity:asset",
+                    concept_name="Asset",
+                    target_hub="hub_asset",
+                )
+            ],
+        }
     )
-    import hashlib
+    existing_contract.write_text(
+        yaml.safe_dump(ws_ont.model_dump(mode="json"), sort_keys=True),
+        encoding="utf-8",
+    )
 
     ws_sha = hashlib.sha256(existing_contract.read_bytes()).hexdigest()
 
@@ -1883,13 +2073,15 @@ def test_promote_downgrade_prevention_and_acknowledgement(
                     "definition": "An economic resource.",
                 }
             ],
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved asset concept for downgrade promotion test.",
         },
         headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
     )
     assert apply_resp.status_code == 200
     head_sha = apply_resp.json()["target_sha256"]
 
-    # Attempt promotion without acknowledge flag -> 422 ONT_EVO_CONTRACT_VIOLATION
+    # Attempt promotion without acknowledge flag -> 422 HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED
     fail_promo = client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/promote",
         json={
@@ -1906,10 +2098,10 @@ def test_promote_downgrade_prevention_and_acknowledgement(
         },
     )
     assert fail_promo.status_code == 422
-    assert fail_promo.json()["error_code"] == "ONT_EVO_CONTRACT_VIOLATION"
+    assert fail_promo.json()["error_code"] == "HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED"
 
-    # Attempt promotion with acknowledge flag -> 200 OK
-    ok_promo = client.post(
+    # Attempt promotion with acknowledge flag but missing historical_contract_rationale -> 400
+    missing_hist_rat = client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/promote",
         json={
             "workspace_sha256": ws_sha,
@@ -1924,7 +2116,27 @@ def test_promote_downgrade_prevention_and_acknowledgement(
             "X-OpenDV-Workspace-If-Match": f'"{ws_sha}"',
         },
     )
-    assert ok_promo.status_code == 200
+    assert missing_hist_rat.status_code == 400
+    assert missing_hist_rat.json()["error_code"] == "HISTORICAL_CONTRACT_RATIONALE_REQUIRED"
+
+    # Attempt promotion with acknowledge flag + historical_contract_rationale -> 200 OK
+    ok_promo = client.post(
+        f"/api/v1/ontology/studio/sessions/{session_id}/promote",
+        json={
+            "workspace_sha256": ws_sha,
+            "head_sha256": head_sha,
+            "rationale": "Downgrade acknowledged for rollback",
+            "workspace": str(ws),
+            "acknowledge_historical_contract_warning": True,
+            "historical_contract_rationale": "Approved historical contract rollback to 1.0.0.",
+        },
+        headers={
+            **auth_headers,
+            "If-Match": f'"{head_sha}"',
+            "X-OpenDV-Workspace-If-Match": f'"{ws_sha}"',
+        },
+    )
+    assert ok_promo.status_code == 200, ok_promo.text
     assert ok_promo.json()["promoted_version"] == "1.0.0"
 
 
@@ -1993,6 +2205,8 @@ def test_validate_delta_preconditions_and_conflicts(
                     "definition": "A formal request for coverage.",
                 }
             ],
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved claim concept for validation test.",
         },
         headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
     )
@@ -2038,7 +2252,32 @@ def test_validate_delta_preconditions_and_conflicts(
     assert val_conflict.status_code == 200
     assert val_conflict.json()["valid"] is False
 
-    # 4. Validate clean delta -> valid=True
+    # 4a. Validate ungrounded delta without waiver -> valid=False (ONT-EVO-002 / P10b MAJ-01)
+    val_ungrounded = client.post(
+        f"/api/v1/ontology/studio/sessions/{session_id}/deltas/validate",
+        json={
+            "delta_id": "d-ungrounded",
+            "parent_sha256": head_1_sha,
+            "base_version": "1.0.0",
+            "target_version": "1.1.0",
+            "operations": [
+                {
+                    "op_type": "add_concept",
+                    "op_id": "op-c2",
+                    "concept_uri": "urn:ontology:entity:policy",
+                    "concept_name": "Policy",
+                    "definition": "Insurance policy.",
+                }
+            ],
+        },
+        headers=auth_headers,
+    )
+    assert val_ungrounded.status_code == 200
+    assert val_ungrounded.json()["valid"] is False
+    assert val_ungrounded.json()["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
+    assert len(val_ungrounded.json()["violations"]) > 0
+
+    # 4b. Validate clean delta with dry-run admin waiver -> valid=True
     val_clean = client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/deltas/validate",
         json={
@@ -2055,6 +2294,8 @@ def test_validate_delta_preconditions_and_conflicts(
                     "definition": "Insurance policy.",
                 }
             ],
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Approved dry-run grounding waiver for policy concept.",
         },
         headers=auth_headers,
     )

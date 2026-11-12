@@ -6,15 +6,34 @@ from datetime import UTC, datetime
 from typing import Annotated, Any, ClassVar, Literal
 from uuid import uuid4
 
-from pydantic import UUID4, AliasChoices, AwareDatetime, Field, model_validator
+from pydantic import (
+    UUID4,
+    AliasChoices,
+    AwareDatetime,
+    Field,
+    ValidationInfo,
+    ValidatorFunctionWrapHandler,
+    field_validator,
+    model_validator,
+)
 
 from opendv_contracts.dtos.common import BaseContractModel
 from opendv_contracts.jcs import dumps_jcs
 
 SemVerClass = Literal["MAJOR", "MINOR", "PATCH"]
 
-CONCEPT_URN_REGEX = r"^urn:ontology:(provisional:)?entity:[a-z0-9_]+$"
-ENUM_URN_REGEX = r"^(urn:ontology:(provisional:)?enum:[a-z0-9_]+)?$"
+CONCEPT_URN_REGEX = (
+    r"^urn:(?:ontology:(?:provisional:)?entity|"
+    r"opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$"
+)
+RELATIONSHIP_URN_REGEX = (
+    r"^urn:(?:ontology:(?:provisional:)?(?:event|relationship)|"
+    r"opendv:(?:provisional(?::(?:event|relationship))?|event|relationship)):[a-z0-9_]+$"
+)
+ENUM_URN_REGEX = (
+    r"^(urn:(?:ontology:(?:provisional:)?enum|"
+    r"opendv:(?:provisional(?::enum)?|enum)):[a-z0-9_]+)?$"
+)
 
 SEMVER_RANKS: dict[SemVerClass, int] = {
     "MAJOR": 3,
@@ -60,33 +79,51 @@ def _check_name_and_uri_compatibility(
 
 
 def _lookup_concept_attr(base_ontology: Any, concept_uri: str, attr_name: str) -> Any:
-    """Safely look up attribute value of a concept in dict or object base ontology."""
+    """Safely look up attribute value of a concept in GraphAOntology, dict, or legacy object."""
     if base_ontology is None:
         return None
     if isinstance(base_ontology, dict):
-        concepts = base_ontology.get("concepts", {})
-        if isinstance(concepts, dict):
-            c_obj = concepts.get(concept_uri)
+        for key in ("canonical_business_concepts", "concepts"):
+            concepts = base_ontology.get(key)
+            if concepts is None:
+                continue
+            if isinstance(concepts, dict):
+                c_obj = concepts.get(concept_uri)
+                if c_obj is not None:
+                    if isinstance(c_obj, dict):
+                        return c_obj.get(attr_name)
+                    return getattr(c_obj, attr_name, None)
+            elif isinstance(concepts, (list, tuple)):
+                for c in concepts:
+                    if isinstance(c, dict) and c.get("concept_uri") == concept_uri:
+                        return c.get(attr_name)
+                    if getattr(c, "concept_uri", None) == concept_uri:
+                        return getattr(c, attr_name, None)
+        return None
+
+    get_concept_fn = getattr(base_ontology, "get_concept", None)
+    if callable(get_concept_fn):
+        c_obj = get_concept_fn(concept_uri)
+        if c_obj is not None:
             if isinstance(c_obj, dict):
                 return c_obj.get(attr_name)
             return getattr(c_obj, attr_name, None)
-        if isinstance(concepts, (list, tuple)):
-            for c in concepts:
-                if isinstance(c, dict) and c.get("concept_uri") == concept_uri:
-                    return c.get(attr_name)
-                if getattr(c, "concept_uri", None) == concept_uri:
-                    return getattr(c, attr_name, None)
-    elif hasattr(base_ontology, "concepts"):
-        concepts = base_ontology.concepts
-        if isinstance(concepts, dict):
-            c_obj = concepts.get(concept_uri)
-            if isinstance(c_obj, dict):
-                return c_obj.get(attr_name)
-            return getattr(c_obj, attr_name, None)
-        if isinstance(concepts, (list, tuple)):
-            for c in concepts:
-                if getattr(c, "concept_uri", None) == concept_uri:
-                    return getattr(c, attr_name, None)
+
+    for attr_collection in ("canonical_business_concepts", "concepts"):
+        if hasattr(base_ontology, attr_collection):
+            concepts = getattr(base_ontology, attr_collection)
+            if isinstance(concepts, dict):
+                c_obj = concepts.get(concept_uri)
+                if c_obj is not None:
+                    if isinstance(c_obj, dict):
+                        return c_obj.get(attr_name)
+                    return getattr(c_obj, attr_name, None)
+            elif isinstance(concepts, (list, tuple)):
+                for c in concepts:
+                    if isinstance(c, dict) and c.get("concept_uri") == concept_uri:
+                        return c.get(attr_name)
+                    if getattr(c, "concept_uri", None) == concept_uri:
+                        return getattr(c, attr_name, None)
     return None
 
 
@@ -273,7 +310,7 @@ class AddRelationshipOp(BaseOntologyDeltaOp):
     op_type: Literal["add_relationship"] = "add_relationship"
     relationship_uri: str = Field(
         ...,
-        pattern=r"^urn:ontology:(provisional:)?(event|relationship):[a-z0-9_]+$",
+        pattern=RELATIONSHIP_URN_REGEX,
         description="Unique canonical relationship URN",
     )
     relationship_name: str = Field(default="", description="Human-readable relationship name")
@@ -630,9 +667,9 @@ class AddExternalMappingOp(BaseOntologyDeltaOp):
             _check_and_sync_alias_pair(data, "target_uri", "standard_uri")
             _check_and_sync_alias_pair(data, "predicate", "mapping_type")
 
+            data = dict(data)
             mapping = data.get("mapping")
             if isinstance(mapping, dict):
-                data = dict(data)
                 has_scheme = data.get("scheme") or data.get("standard_name")
                 if not has_scheme and "standard_name" in mapping:
                     data["scheme"] = mapping["standard_name"]
@@ -646,6 +683,16 @@ class AddExternalMappingOp(BaseOntologyDeltaOp):
                     data["predicate"] = mapping["mapping_type"]
                 if data.get("pinned") is None and "pinned" in mapping:
                     data["pinned"] = mapping["pinned"]
+
+            # Synchronize confidence <-> mapping_confidence when only one is supplied
+            has_explicit_conf = "confidence" in data and data["confidence"] is not None
+            has_explicit_map_conf = (
+                "mapping_confidence" in data and data["mapping_confidence"] is not None
+            )
+            if has_explicit_conf and not has_explicit_map_conf:
+                data["mapping_confidence"] = data["confidence"]
+            elif has_explicit_map_conf and not has_explicit_conf:
+                data["confidence"] = data["mapping_confidence"]
 
         return data
 
@@ -663,7 +710,7 @@ class ReviseDescriptionOp(BaseOntologyDeltaOp):
     op_type: Literal["revise_description"] = "revise_description"
     concept_uri: str = Field(
         default="",
-        pattern=r"^(urn:ontology:(provisional:)?entity:[a-z0-9_]+)?$",
+        pattern=f"^({CONCEPT_URN_REGEX[1:-1]})?$",
         validation_alias=AliasChoices("concept_uri", "target_uri"),
         description="Target Canonical Business Concept URN",
     )
@@ -731,6 +778,19 @@ class RescoreExternalMappingOp(BaseOntologyDeltaOp):
         if isinstance(data, dict):
             _assert_no_alias_conflict(data, "target_uri", "standard_uri")
             _assert_no_alias_conflict(data, "new_confidence", "mapping_confidence")
+            has_new = ("new_confidence" in data and data["new_confidence"] is not None) or (
+                "mapping_confidence" in data and data["mapping_confidence"] is not None
+            )
+            has_conf = "confidence" in data and data["confidence"] is not None
+            if has_conf and not has_new:
+                data = dict(data)
+                data["new_confidence"] = data["confidence"]
+            elif has_new and not has_conf:
+                data = dict(data)
+                val = data.get("new_confidence")
+                if val is None:
+                    val = data.get("mapping_confidence")
+                data["confidence"] = val
         return data
 
     @model_validator(mode="after")
@@ -952,8 +1012,67 @@ OntologyOperation = Annotated[
     Field(discriminator="op_type"),
 ]
 
-# Backward-compatibility alias
+# Backward-compatibility aliases
 OntologyDeltaItem = OntologyOperation
+OntologyDeltaOp = OntologyOperation
+
+# ---------------------------------------------------------------------------
+# Authoritative Governance & ONT-EVO-001 / ONT-EVO-002 Constants
+# ---------------------------------------------------------------------------
+
+EXISTING_CONCEPT_MUTATING_OP_TYPES: frozenset[str] = frozenset(
+    {
+        "update_concept_urn",
+        "set_parent_concept",
+        "set_concept_elm_archetype",
+        "deprecate_concept",
+        "add_attribute",
+        "remove_attribute",
+        "add_key_authority_pattern",
+        "add_governance_constraint",
+        "add_synonym",
+        "add_external_mapping",
+        "revise_description",
+        "refine_definition",
+        "rescore_external_mapping",
+        "repin_external_mapping",
+        "remove_external_mapping",
+        "add_source_hint",
+        "annotate_concept_metadata",
+    }
+)
+
+CONCEPT_MUTATING_OP_TYPES: frozenset[str] = EXISTING_CONCEPT_MUTATING_OP_TYPES | frozenset(
+    {"add_concept"}
+)
+CONCEPT_MUTATING_OPS: frozenset[str] = CONCEPT_MUTATING_OP_TYPES
+
+RELATIONSHIP_ENDPOINT_MUTATING_OP_TYPES: frozenset[str] = frozenset(
+    {
+        "remove_relationship",
+        "deprecate_relationship",
+    }
+)
+
+DESTRUCTIVE_OP_TYPES: frozenset[str] = frozenset(
+    {
+        "remove_concept",
+        "remove_relationship",
+        "remove_attribute",
+        "update_concept_urn",
+    }
+)
+
+ALLOWED_PATH_A_PREDICATES: frozenset[str] = frozenset(
+    {
+        "skos:exactMatch",
+        "skos:closeMatch",
+        "http://www.w3.org/2004/02/skos/core#exactMatch",
+        "http://www.w3.org/2004/02/skos/core#closeMatch",
+    }
+)
+
+PATH_A_GROUNDING_THRESHOLD: float = 0.65
 
 
 class OntologyDelta(BaseContractModel):
@@ -1019,23 +1138,38 @@ class OntologyDelta(BaseContractModel):
 
     @model_validator(mode="after")
     def _validate_occ_preconditions(self) -> OntologyDelta:
-        if self.base_ontology_version == "0.0.0":
-            if self.parent_sha256:
-                raise ValueError(
-                    "parent_sha256 must be empty for genesis delta (base_ontology_version '0.0.0')"
-                )
-        else:
-            is_v2_envelope = bool(self.author or self.created_at or self.rationale)
-            if (is_v2_envelope or self.parent_sha256 is not None) and not self.parent_sha256:
-                raise ValueError(
-                    f"base_sha256 must be a 64-character hex string when base_version "
-                    f"is '{self.base_ontology_version}' (empty base_sha256 is only allowed when "
-                    "base_version is '0.0.0')"
-                )
+        base_ver = self.base_ontology_version or "0.0.0"
+        base_match = re.match(r"^(\d+)\.(\d+)\.(\d+)", base_ver)
+        b_maj = int(base_match.group(1)) if base_match else 1
+
+        if b_maj == 0:
+            # On 0.x.y genesis/pre-CBC drafts, parent_sha256 may be None, empty "",
+            # or a valid 64-character lowercase hex SHA-256 (validated by field pattern).
+            return self
+
+        is_v2_envelope = bool(self.author or self.created_at or self.rationale)
+        if (is_v2_envelope or self.parent_sha256 is not None) and not self.parent_sha256:
+            raise ValueError(
+                f"base_sha256 must be a 64-character hex string when base_version "
+                f"is '{self.base_ontology_version}' (empty base_sha256 is only allowed when "
+                "base_version major is 0, e.g. '0.0.0')"
+            )
         return self
 
     @model_validator(mode="after")
-    def _validate_semver_bump(self) -> OntologyDelta:
+    def _validate_semver_bump(self, info: ValidationInfo) -> OntologyDelta:
+        """Enforce monotonic SemVer bump invariants between base and target ontology versions.
+
+        Note on Legacy Wave-1 IP-1 Cold-Start Bootstrap:
+            DTO deserialization permits narrowly scoped legacy IP-1 v1 cold-start proposals
+            (`1.0.0 -> 1.0.0`, unanchored `parent_sha256`, `metadata.mode == "BOOTSTRAP"`,
+            no Studio v2 envelope fields, and only the 7 additive Wave-1 v1 operations) to
+            cross the wire on `OntologyProposal` and `OntologyDecisionRequest` for
+            `execute_ontology_decision` via trusted `context={"allow_bootstrap": True}`.
+            Studio runtime commit/apply (`GovernanceValidator`, `apply()`,
+            `AtomicCommitService`) strictly rejects `1.0.0 -> 1.0.0` deltas unless
+            `allow_legacy_ip1_bootstrap=True` is passed by trusted legacy IP-1 server code.
+        """
         base_ver = self.base_ontology_version or "0.0.0"
         req = self.highest_semver_class()
 
@@ -1058,31 +1192,62 @@ class OntologyDelta(BaseContractModel):
                 b_maj, b_min, b_pat = map(int, base_match.groups())
                 t_maj, t_min, t_pat = map(int, target_match.groups())
 
-                meta = self.metadata or {}
-                mode_val = meta.get("mode")
-                action_val = meta.get("action")
-                is_bootstrap = (
-                    mode_val == "BOOTSTRAP"
-                    or action_val == "BOOTSTRAP"
-                    or (
-                        self.base_ontology_version == "1.0.0"
-                        and self.target_ontology_version == "1.0.0"
-                        and mode_val in ("BOOTSTRAP", None)
-                    )
+                # Trusted server-side context override only (never caller payload metadata)
+                allow_bootstrap = bool(
+                    isinstance(info.context, dict) and info.context.get("allow_bootstrap") is True
                 )
                 if (
-                    is_bootstrap
+                    allow_bootstrap
                     and self.base_ontology_version == "1.0.0"
                     and self.target_ontology_version == "1.0.0"
                     and req != "MAJOR"
                 ):
                     return self
 
-                if self.base_ontology_version == "0.0.0":
-                    if (t_maj, t_min, t_pat) <= (0, 0, 0):
+                if not self.operations:
+                    if (t_maj, t_min, t_pat) < (b_maj, b_min, b_pat):
                         raise ValueError(
-                            "target_ontology_version must be greater than base '0.0.0'"
+                            f"Target version '{self.target_ontology_version}' cannot be less than "
+                            f"base '{self.base_ontology_version}'."
                         )
+                    return self
+
+                if b_maj == 0:
+                    if (t_maj, t_min, t_pat) <= (b_maj, b_min, b_pat):
+                        if self.base_ontology_version == "0.0.0":
+                            raise ValueError(
+                                "target_ontology_version must be greater than base '0.0.0'"
+                            )
+                        raise ValueError(
+                            f"Target version '{self.target_ontology_version}' must be strictly "
+                            f"greater than base '{self.base_ontology_version}'."
+                        )
+                    has_add_concept = any(isinstance(op, AddConceptOp) for op in self.operations)
+                    if has_add_concept:
+                        if (
+                            t_maj > 1
+                            or (t_maj == 1 and (t_min, t_pat) != (0, 0))
+                            or (t_maj == 0 and t_min <= b_min)
+                        ):
+                            raise ValueError(
+                                f"Target version '{self.target_ontology_version}' is invalid for "
+                                f"pre-release base '{self.base_ontology_version}' introducing "
+                                f"concepts. Expected initial release '1.0.0' or draft minor bump "
+                                f"'0.{b_min + 1}.0'."
+                            )
+                    else:
+                        if t_maj != 0:
+                            raise ValueError(
+                                f"Target version '{self.target_ontology_version}' is invalid for "
+                                f"pre-CBC draft base '{self.base_ontology_version}' without "
+                                "AddConceptOp. Expected 0.y.z draft version."
+                            )
+                        if req in ("MAJOR", "MINOR") and t_min <= b_min:
+                            raise ValueError(
+                                f"Target version '{self.target_ontology_version}' is invalid for "
+                                f"draft base '{self.base_ontology_version}' with {req} operations. "
+                                f"Expected draft minor bump (>= 0.{b_min + 1}.0)."
+                            )
                 elif req == "MAJOR":
                     if t_maj <= b_maj:
                         raise ValueError(
@@ -1422,6 +1587,102 @@ class StewardWaiverRecord(BaseContractModel):
         return hashlib.sha256(self.signing_payload().encode("utf-8")).hexdigest()
 
 
+LEGACY_WAVE1_V1_OP_TYPES: frozenset[str] = frozenset(
+    {
+        "add_concept",
+        "add_relationship",
+        "add_reference_enumeration",
+        "add_key_authority_pattern",
+        "add_governance_constraint",
+        "refine_definition",
+        "add_source_hint",
+    }
+)
+
+
+def _extract_raw_op_type(op: Any) -> str | None:
+    """Extract `op_type` from a raw operation dict or `BaseOntologyDeltaOp` instance."""
+    if isinstance(op, BaseOntologyDeltaOp):
+        return op.op_type
+    if isinstance(op, dict):
+        op_type = op.get("op_type")
+        return op_type if isinstance(op_type, str) else None
+    return None
+
+
+def _try_validate_bootstrap_delta_field(v: Any) -> OntologyDelta | None:
+    """Validate narrow Wave-1 legacy IP-1 cold-start BOOTSTRAP 1.0.0->1.0.0 deltas.
+
+    Applies exclusively to `OntologyProposal` and `OntologyDecisionRequest` for
+    `PAR-ONT-BOOTSTRAP` backward compatibility when all of the following hold:
+    1. `parent_sha256` (and `base_sha256`) is falsy, `base_ontology_version == "1.0.0"`,
+       `target_ontology_version == "1.0.0"`, and `metadata.mode == "BOOTSTRAP"`.
+    2. None of the Studio v2 envelope fields (`author`, `created_at`, `rationale`) are
+       populated.
+    3. Every operation's `op_type` belongs to the 7 legacy Wave-1 additive v1 op types
+       (`LEGACY_WAVE1_V1_OP_TYPES`) and none is `MAJOR`.
+
+    DTO deserialization permits these legacy IP-1 v1 cold-start proposals to cross the wire
+    for `execute_ontology_decision`, while Studio runtime commit/apply
+    (`GovernanceValidator`, `apply()`, `AtomicCommitService`) strictly rejects
+    `1.0.0 -> 1.0.0` deltas unless `allow_legacy_ip1_bootstrap=True` is passed by trusted
+    legacy IP-1 server code.
+    """
+    if v is None:
+        return None
+    raw_dict: dict[str, Any] | None = None
+    if isinstance(v, OntologyDelta):
+        if (
+            not v.parent_sha256
+            and v.base_ontology_version == "1.0.0"
+            and v.target_ontology_version == "1.0.0"
+            and isinstance(v.metadata, dict)
+            and v.metadata.get("mode") == "BOOTSTRAP"
+            and v.author is None
+            and v.created_at is None
+            and v.rationale is None
+            and all(op.op_type in LEGACY_WAVE1_V1_OP_TYPES for op in v.operations)
+            and v.highest_semver_class() != "MAJOR"
+        ):
+            raw_dict = v.model_dump(mode="python")
+    elif isinstance(v, dict):
+        base_ver = (
+            v.get("base_ontology_version")
+            if v.get("base_ontology_version") is not None
+            else v.get("base_version")
+        )
+        target_ver = (
+            v.get("target_ontology_version")
+            if v.get("target_ontology_version") is not None
+            else v.get("target_version")
+        )
+        meta = v.get("metadata")
+        ops = v.get("operations", [])
+        if (
+            not v.get("parent_sha256")
+            and not v.get("base_sha256")
+            and base_ver == "1.0.0"
+            and target_ver == "1.0.0"
+            and isinstance(meta, dict)
+            and meta.get("mode") == "BOOTSTRAP"
+            and v.get("author") is None
+            and v.get("created_at") is None
+            and v.get("rationale") is None
+            and isinstance(ops, (list, tuple))
+            and all(_extract_raw_op_type(op) in LEGACY_WAVE1_V1_OP_TYPES for op in ops)
+        ):
+            raw_dict = v
+
+    if raw_dict is not None:
+        validated = OntologyDelta.model_validate(raw_dict, context={"allow_bootstrap": True})
+        if (
+            all(op.op_type in LEGACY_WAVE1_V1_OP_TYPES for op in validated.operations)
+            and validated.highest_semver_class() != "MAJOR"
+        ):
+            return validated
+    return None
+
+
 class OntologyProposal(BaseContractModel):
     """Advisory or blocking proposal emitted by an Ontology Recommender."""
 
@@ -1445,6 +1706,21 @@ class OntologyProposal(BaseContractModel):
     coverage_after: float | None = Field(default=None, description="Projected coverage ratio after")
     diagnostics: list[str] = Field(default_factory=list, description="Advisory diagnostic messages")
     created_at_utc: str = Field(default="", description="UTC ISO-8601 creation timestamp")
+
+    @field_validator("delta", mode="wrap")
+    @classmethod
+    def _coerce_bootstrap_proposal_delta(cls, v: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+        boot = _try_validate_bootstrap_delta_field(v)
+        if boot is not None:
+            return boot
+        if (
+            isinstance(v, OntologyDelta)
+            and v.base_ontology_version == "1.0.0"
+            and v.target_ontology_version == "1.0.0"
+            and v.operations
+        ):
+            return handler(v.model_dump(mode="python"))
+        return handler(v)
 
 
 class OntologyDecision(BaseContractModel):
@@ -1654,6 +1930,21 @@ class OntologyDecisionRequest(BaseContractModel):
         default=None, description="Steward hold identifier if resolving hold"
     )
 
+    @field_validator("delta", mode="wrap")
+    @classmethod
+    def _coerce_bootstrap_decision_delta(cls, v: Any, handler: ValidatorFunctionWrapHandler) -> Any:
+        boot = _try_validate_bootstrap_delta_field(v)
+        if boot is not None:
+            return boot
+        if (
+            isinstance(v, OntologyDelta)
+            and v.base_ontology_version == "1.0.0"
+            and v.target_ontology_version == "1.0.0"
+            and v.operations
+        ):
+            return handler(v.model_dump(mode="python"))
+        return handler(v)
+
 
 class OntologyDecisionResponse(BaseContractModel):
     """Response DTO for an ontology decision action."""
@@ -1731,3 +2022,8 @@ OntologyDeltaOption = Annotated[
     AcceptOntologyDeltaOption | RejectOntologyDeltaOption | CustomOntologyDeltaOption,
     Field(discriminator="kind"),
 ]
+
+
+def is_destructive_delta(delta: OntologyDelta, base_ontology: Any = None) -> bool:
+    """Return True iff `delta` requires a MAJOR SemVer bump against `base_ontology`."""
+    return delta.highest_semver_class(base_ontology) == "MAJOR"

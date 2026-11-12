@@ -23,7 +23,11 @@ from opendv_contracts.dtos.ontology import (
     AddConceptOp,
     OntologyDelta,
 )
-from opendv_core.models.graph_a import CanonicalBusinessConcept, GraphAOntology
+from opendv_core.models.graph_a import (
+    CanonicalBusinessConcept,
+    ExternalMapping,
+    GraphAOntology,
+)
 from opendv_core.ontology_hashing import compute_ontology_sha256
 from opendv_platform_api.job_supervisor import JobSupervisor
 from opendv_service.studio.atomic_commit import AtomicCommitService
@@ -34,7 +38,6 @@ from opendv_service.studio.locks import (
     studio_lock,
 )
 from opendv_service.studio.session_manager import (
-    GENESIS_DRAFT_SHA256,
     StudioSessionManager,
 )
 from opendv_service.studio.sse_journal import (
@@ -89,7 +92,7 @@ def test_chaos_crash_before_atomic_commit_step5(tmp_path: Path) -> None:
     """Chaos 2: Crash before Step 5 of atomic commit (staging cleanup, intact base version)."""
     session_mgr = StudioSessionManager(studio_root=tmp_path)
     session_id = "chaos-crash-step4"
-    session_mgr.create_session(session_id=session_id, domain_namespace="wealth_mgmt")
+    meta_init = session_mgr.create_session(session_id=session_id, domain_namespace="wealth_mgmt")
 
     session_dir = session_mgr.get_session_dir(session_id)
     atomic_svc = AtomicCommitService(session_manager=session_mgr)
@@ -109,6 +112,14 @@ def test_chaos_crash_before_atomic_commit_step5(tmp_path: Path) -> None:
                 concept_name="Customer",
                 definition="A wealth management client.",
                 target_hub="hub_customer",
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="FIBO",
+                        target_uri="https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer",
+                        predicate="skos:exactMatch",
+                        confidence=0.95,
+                    )
+                ],
             )
         ],
     )
@@ -116,7 +127,7 @@ def test_chaos_crash_before_atomic_commit_step5(tmp_path: Path) -> None:
         session_id=session_id,
         delta=init_delta,
         author="human:architect",
-        if_match=GENESIS_DRAFT_SHA256,
+        if_match=meta_init.head_sha256,
     )
     assert res_1.version in ("1.0.0", "v1.0.0")
 
@@ -133,6 +144,11 @@ def test_chaos_crash_before_atomic_commit_step5(tmp_path: Path) -> None:
     }
     (staging_dir / "meta.json").write_text(json.dumps(meta_staging), encoding="utf-8")
     (staging_dir / "ontology.json").write_text('{"fake": "uncommitted"}', encoding="utf-8")
+    import os
+    import time as _time
+
+    stale_ts = _time.time() - 3600.0
+    os.utime(staging_dir, (stale_ts, stale_ts))
 
     assert staging_dir.is_dir()
 
@@ -152,7 +168,7 @@ def test_chaos_crash_after_atomic_commit_step5(tmp_path: Path) -> None:
     """Chaos 3: Crash after Step 5 (supervisor auto-reconciliation, proposal ACCEPTED)."""
     session_mgr = StudioSessionManager(studio_root=tmp_path)
     session_id = "chaos-crash-after-step5"
-    session_mgr.create_session(session_id=session_id, domain_namespace="wealth_mgmt")
+    meta_init = session_mgr.create_session(session_id=session_id, domain_namespace="wealth_mgmt")
 
     session_dir = session_mgr.get_session_dir(session_id)
     atomic_svc = AtomicCommitService(session_manager=session_mgr)
@@ -172,6 +188,14 @@ def test_chaos_crash_after_atomic_commit_step5(tmp_path: Path) -> None:
                 concept_name="Customer",
                 definition="A wealth management client.",
                 target_hub="hub_customer",
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="FIBO",
+                        target_uri="https://spec.edmcouncil.org/fibo/ontology/FND/ProductsAndServices/ProductsAndServices/Customer",
+                        predicate="skos:exactMatch",
+                        confidence=0.95,
+                    )
+                ],
             )
         ],
     )
@@ -179,7 +203,7 @@ def test_chaos_crash_after_atomic_commit_step5(tmp_path: Path) -> None:
         session_id=session_id,
         delta=init_delta,
         author="human:architect",
-        if_match=GENESIS_DRAFT_SHA256,
+        if_match=meta_init.head_sha256,
     )
     base_head_sha = res_1.target_sha256
 
@@ -206,9 +230,7 @@ def test_chaos_crash_after_atomic_commit_step5(tmp_path: Path) -> None:
         ],
     )
     target_sha256 = compute_ontology_sha256(ont_v110)
-    (v110_dir / "ontology.json").write_text(
-        ont_v110.model_dump_json(indent=2), encoding="utf-8"
-    )
+    (v110_dir / "ontology.json").write_text(ont_v110.model_dump_json(indent=2), encoding="utf-8")
 
     prop_id = "prop-interrupted-01"
     meta_payload = {

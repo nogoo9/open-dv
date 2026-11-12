@@ -5,12 +5,16 @@
  */
 
 import { PROTOCOL_VERSION } from "@opendv/protocol-ts";
-import { createElement } from "react";
+import { Suspense, createElement, lazy } from "react";
 import { type Root, createRoot } from "react-dom/client";
 import { OpenDVWorkbenchExplorer } from "./explorer/OpenDVWorkbenchExplorer";
-import { OntologyStudioApp } from "./ontology/OntologyStudioApp";
-
 import { isOntologyRoute } from "./ontology/route-utils";
+
+const LazyOntologyStudioApp = lazy(() =>
+	import("./ontology/OntologyStudioApp").then((mod) => ({
+		default: mod.OntologyStudioApp,
+	})),
+);
 
 export { isOntologyRoute };
 
@@ -32,7 +36,11 @@ export function mountWorkbenchApp(container?: HTMLElement | null): Root | null {
 	}
 	const root = createRoot(target);
 	const element = isOntologyRoute()
-		? createElement(OntologyStudioApp)
+		? createElement(
+				Suspense,
+				{ fallback: createElement("div", { className: "studio-loading" }, "Loading Ontology Studio...") },
+				createElement(LazyOntologyStudioApp),
+			)
 		: createElement(OpenDVWorkbenchExplorer);
 	root.render(element);
 	return root;

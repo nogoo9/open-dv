@@ -26,9 +26,10 @@ import re
 import shutil
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from pathlib import Path
 from typing import Any
 
-from opendv_sources.exceptions import OCRUnavailableError
+from opendv_sources.exceptions import OCRExecutionError, OCRUnavailableError
 
 logger = logging.getLogger(__name__)
 
@@ -180,9 +181,13 @@ def calculate_page_raster_ratio(
     resources = getattr(page, "get", lambda k: None)("/Resources")
     if resources is None and hasattr(page, "resources"):
         resources = page.resources
+    if hasattr(resources, "get_object"):
+        resources = resources.get_object()
 
     if resources is not None and (isinstance(resources, dict) or hasattr(resources, "get")):
         xobjs = resources.get("/XObject")
+        if hasattr(xobjs, "get_object"):
+            xobjs = xobjs.get_object()
         if xobjs and (isinstance(xobjs, dict) or hasattr(xobjs, "items")):
             for name, xobj in xobjs.items():
                 resolved = xobj.get_object() if hasattr(xobj, "get_object") else xobj
@@ -206,7 +211,7 @@ def calculate_page_raster_ratio(
     # 3. Parse content streams to trace displayed image area via CTM tracking
     total_image_area = 0.0
     contents = getattr(page, "get_contents", lambda: None)()
-    if contents is not None and image_names:
+    if contents is not None:
         with contextlib.suppress(Exception):
             from pypdf.generic import ContentStream
 
@@ -238,29 +243,45 @@ def calculate_page_raster_ratio(
                             area = abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])
                             total_image_area += area
                         elif target in form_xobjects:
-                            # Form XObject may contain images; estimate from CTM determinant
-                            area = abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])
-                            total_image_area += area
-                elif op_name in ("BI", "ID"):
+                            # Form XObject containing raster images; estimate from CTM determinant
+                            form_res = form_xobjects[target].get("/Resources")
+                            form_res_obj = (
+                                form_res.get_object()
+                                if hasattr(form_res, "get_object")
+                                else form_res
+                            )
+                            has_nested_image = False
+                            if isinstance(form_res_obj, dict) or hasattr(form_res_obj, "get"):
+                                sub_xobjs = form_res_obj.get("/XObject")
+                                sub_xobjs_obj = (
+                                    sub_xobjs.get_object()
+                                    if hasattr(sub_xobjs, "get_object")
+                                    else sub_xobjs
+                                )
+                                if isinstance(sub_xobjs_obj, dict) or hasattr(
+                                    sub_xobjs_obj, "items"
+                                ):
+                                    for _, sub_x in sub_xobjs_obj.items():
+                                        sub_r = (
+                                            sub_x.get_object()
+                                            if hasattr(sub_x, "get_object")
+                                            else sub_x
+                                        )
+                                        if (
+                                            isinstance(sub_r, dict) or hasattr(sub_r, "get")
+                                        ) and sub_r.get("/Subtype") == "/Image":
+                                            has_nested_image = True
+                                            break
+                            if has_nested_image:
+                                area = abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])
+                                total_image_area += area
+                elif op_name == "BI":
                     # Inline image rendered under current CTM
                     area = abs(ctm[0] * ctm[3] - ctm[1] * ctm[2])
                     total_image_area += area
 
-    # Fallback heuristic: if image XObjects exist but no content stream Do parsed,
-    # estimate from image XObject dimensions without decoding pixel raster
-    if total_image_area <= 0.0 and image_names and resources is not None:
-        with contextlib.suppress(Exception):
-            xobjs = resources.get("/XObject")
-            if xobjs:
-                for img_name in image_names:
-                    xobj = xobjs.get(img_name)
-                    if xobj:
-                        res = xobj.get_object() if hasattr(xobj, "get_object") else xobj
-                        if isinstance(res, dict) or hasattr(res, "get"):
-                            w = float(res.get("/Width", 0))
-                            h = float(res.get("/Height", 0))
-                            total_image_area += w * h
-
+    # Never mix raw pixel dimensions (/Width * /Height) with PDF user-space point area:
+    # shared /Resources image XObjects not invoked via `Do` on this page have 0 displayed area.
     ratio = total_image_area / page_area
     return min(1.0, max(0.0, float(ratio)))
 
@@ -359,6 +380,48 @@ def evaluate_page_complexity(
     )
 
 
+def resolve_tesseract_cmd(tesseract_cmd: str | None = None) -> str | None:
+    """Resolve the executable path for the Tesseract OCR binary if available.
+
+    Checks explicit ``tesseract_cmd``, ``OPENDV_TESSERACT_CMD``, ``TESSERACT_CMD``,
+    system ``PATH`` (``tesseract``), and ``pytesseract.pytesseract.tesseract_cmd``.
+    If an explicit command or environment variable is configured and cannot be
+    located, returns ``None`` rather than silently falling back to a different binary.
+    """
+    configured = (
+        tesseract_cmd or os.environ.get("OPENDV_TESSERACT_CMD") or os.environ.get("TESSERACT_CMD")
+    )
+    if configured:
+        found = shutil.which(configured)
+        if found is not None:
+            return found
+        candidate = Path(configured)
+        if candidate.is_file():
+            return str(candidate)
+        return None
+
+    default_found = shutil.which("tesseract")
+    if default_found is not None:
+        return default_found
+
+    with contextlib.suppress(Exception):
+        import pytesseract  # type: ignore[import-untyped]
+
+        inner = getattr(pytesseract, "pytesseract", None)
+        pyt_cmd = getattr(inner, "tesseract_cmd", None) or getattr(
+            pytesseract, "tesseract_cmd", "tesseract"
+        )
+        if isinstance(pyt_cmd, str) and pyt_cmd:
+            found_pyt = shutil.which(pyt_cmd)
+            if found_pyt is not None:
+                return found_pyt
+            pyt_path = Path(pyt_cmd)
+            if pyt_path.is_file():
+                return str(pyt_path)
+
+    return None
+
+
 def is_tesseract_available(tesseract_cmd: str | None = None) -> bool:
     """Check whether Tesseract OCR binary or engine is available on the system.
 
@@ -370,24 +433,7 @@ def is_tesseract_available(tesseract_cmd: str | None = None) -> bool:
     Returns:
         True if tesseract binary is located on PATH or valid executable path.
     """
-    cmd = (
-        tesseract_cmd
-        or os.environ.get("OPENDV_TESSERACT_CMD")
-        or os.environ.get("TESSERACT_CMD")
-        or "tesseract"
-    )
-    if shutil.which(cmd) is not None:
-        return True
-
-    # Check pytesseract discovery if installed
-    with contextlib.suppress(Exception):
-        import pytesseract  # type: ignore[import-untyped]
-
-        pyt_cmd = getattr(pytesseract, "tesseract_cmd", "tesseract")
-        if shutil.which(pyt_cmd) is not None:
-            return True
-
-    return False
+    return resolve_tesseract_cmd(tesseract_cmd) is not None
 
 
 class TesseractOCRRouter:
@@ -397,8 +443,9 @@ class TesseractOCRRouter:
     - 'off': Disable OCR unconditionally. Marks complex pages as ocr_skipped=True.
     - 'auto': If page is complex, attempt OCR if available. If missing or fails,
       log warning, mark ocr_skipped=True in PageMapEntry, and fall back to native parsing.
-    - 'force': If page is complex, require OCR. If missing, fail loudly by raising
-      typed OCRUnavailableError("OCR_UNAVAILABLE") (HTTP 501 / exit code 1).
+    - 'force': Require OCR engine availability (raising typed
+      OCRUnavailableError("OCR_UNAVAILABLE") HTTP 501 / exit code 1 when missing)
+      and route complex pages to OCR.
     """
 
     def __init__(
@@ -426,6 +473,7 @@ class TesseractOCRRouter:
             )
         self.ocr_mode = ocr_mode
         self.tesseract_cmd = tesseract_cmd
+        self._resolved_tesseract_cmd: str | None = resolve_tesseract_cmd(tesseract_cmd)
         self.sparse_threshold = sparse_threshold
         self.raster_threshold = raster_threshold
         self._availability_override: bool | None = None
@@ -434,11 +482,30 @@ class TesseractOCRRouter:
         """Override OCR availability detection for testing without environment modification."""
         self._availability_override = available
 
+    def resolve_command(self) -> str | None:
+        """Resolve the effective Tesseract executable command for execution."""
+        resolved = resolve_tesseract_cmd(self.tesseract_cmd)
+        if resolved is not None:
+            self._resolved_tesseract_cmd = resolved
+            return resolved
+        if self._resolved_tesseract_cmd is not None:
+            return self._resolved_tesseract_cmd
+        configured = (
+            self.tesseract_cmd
+            or os.environ.get("OPENDV_TESSERACT_CMD")
+            or os.environ.get("TESSERACT_CMD")
+        )
+        return configured
+
     def is_available(self) -> bool:
         """Return whether Tesseract OCR is currently available."""
         if self._availability_override is not None:
             return self._availability_override
-        return is_tesseract_available(self.tesseract_cmd)
+        resolved = resolve_tesseract_cmd(self.tesseract_cmd)
+        if resolved is not None:
+            self._resolved_tesseract_cmd = resolved
+            return True
+        return False
 
     def route_page(
         self,
@@ -455,9 +522,26 @@ class TesseractOCRRouter:
             OCRRouteDecision indicating whether to OCR, skip, or fall back.
 
         Raises:
-            OCRUnavailableError: If page is complex, ocr_mode='force', and OCR is missing.
+            OCRUnavailableError: If ocr_mode='force' and OCR engine is missing.
         """
-        # Non-complex pages always use clean native vector text extraction
+        # Forced OCR requires engine availability regardless of page complexity (MAJ-02)
+        if self.ocr_mode == "force" and not self.is_available():
+            logger.error(
+                "Tesseract OCR required by ocr_mode='force' but engine is unavailable "
+                "for page %d (%s)",
+                page_number,
+                ", ".join(complexity.reasons) if complexity.reasons else "clean_page",
+            )
+            raise OCRUnavailableError(
+                "OCR_UNAVAILABLE",
+                details={
+                    "page_number": page_number,
+                    "reasons": complexity.reasons,
+                    "ocr_mode": self.ocr_mode,
+                },
+            )
+
+        # Non-complex pages use clean native vector text extraction
         if not complexity.is_complex:
             return OCRRouteDecision(
                 should_ocr=False,
@@ -479,23 +563,8 @@ class TesseractOCRRouter:
                 complexity=complexity,
             )
 
-        # Complex page with forced OCR: fail loudly if engine is missing
+        # Complex page with forced OCR (availability already verified above)
         if self.ocr_mode == "force":
-            if not self.is_available():
-                logger.error(
-                    "Tesseract OCR required by ocr_mode='force' but engine is unavailable "
-                    "for complex page %d (%s)",
-                    page_number,
-                    ", ".join(complexity.reasons),
-                )
-                raise OCRUnavailableError(
-                    "OCR_UNAVAILABLE",
-                    details={
-                        "page_number": page_number,
-                        "reasons": complexity.reasons,
-                        "ocr_mode": self.ocr_mode,
-                    },
-                )
             return OCRRouteDecision(
                 should_ocr=True,
                 ocr_skipped=False,
@@ -573,15 +642,31 @@ class TesseractOCRRouter:
 
         Raises:
             OCRUnavailableError: If OCR fails or is unavailable in 'force' mode.
+            OCRExecutionError: If OCR fails or is unavailable in non-force mode so callers
+                preserve native extracted text and record ocr_skipped=True.
         """
         if not self.is_available():
             if self.ocr_mode == "force":
                 raise OCRUnavailableError("OCR_UNAVAILABLE")
-            logger.warning("OCR engine unavailable for page %d; returning empty text", page_number)
-            return ""
+            logger.warning(
+                "OCR engine unavailable for page %d; signaling fallback to native text",
+                page_number,
+            )
+            raise OCRExecutionError(
+                f"OCR engine unavailable for page {page_number}",
+                details={"page_number": page_number, "ocr_mode": self.ocr_mode},
+            )
 
         try:
             import pytesseract  # type: ignore[import-untyped]
+
+            cmd = self.resolve_command()
+            if cmd:
+                inner = getattr(pytesseract, "pytesseract", None)
+                if inner is not None:
+                    inner.tesseract_cmd = cmd
+                else:
+                    pytesseract.tesseract_cmd = cmd  # type: ignore[attr-defined]
 
             try:
                 from PIL import Image as PilImage  # type: ignore[import-untyped]
@@ -600,6 +685,8 @@ class TesseractOCRRouter:
 
             return str(pytesseract.image_to_string(img) or "")
 
+        except OCRUnavailableError:
+            raise
         except Exception as exc:
             if self.ocr_mode == "force":
                 raise OCRUnavailableError(
@@ -612,7 +699,10 @@ class TesseractOCRRouter:
                 exc,
                 exc_info=True,
             )
-            return ""
+            raise OCRExecutionError(
+                f"OCR extraction failed on page {page_number}: {exc}",
+                details={"page_number": page_number, "error": str(exc)},
+            ) from exc
 
 
 __all__ = [
@@ -620,6 +710,7 @@ __all__ = [
     "DEFAULT_SPARSE_TEXT_THRESHOLD",
     "VALID_OCR_MODES",
     "LayoutComplexityResult",
+    "OCRExecutionError",
     "OCRRouteDecision",
     "OCRUnavailableError",
     "TesseractOCRRouter",
@@ -627,4 +718,5 @@ __all__ = [
     "count_unmapped_glyphs",
     "evaluate_page_complexity",
     "is_tesseract_available",
+    "resolve_tesseract_cmd",
 ]

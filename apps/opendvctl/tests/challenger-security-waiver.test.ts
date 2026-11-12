@@ -94,7 +94,7 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 		}
 	});
 
-	it("Vector 1: Raw secrets on CLI argv are never accepted by opendvctl", async () => {
+	it("Vector 1: Raw secrets on CLI argv (--waiver-key) are strictly rejected by parser with exit 2", async () => {
 		const outLines: string[] = [];
 		const errLines: string[] = [];
 		const code = await runCli(
@@ -122,12 +122,12 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 			(msg) => errLines.push(msg),
 		);
 
-		expect(code).toBe(7);
+		expect(code).toBe(2);
 		const err = JSON.parse(errLines.join("\n"));
-		expect(err.error_code).toBe("FORBIDDEN_ADMIN_REQUIRED");
+		expect(err.error_code).toBe("SYNTAX_INVALID_ARGUMENT");
 	});
 
-	it("Vector 1: Non-existent waiver key file fails with exit 7", async () => {
+	it("Vector 1: Non-existent waiver key file fails with exit 3 (FILE_NOT_FOUND), not FORBIDDEN_ADMIN_REQUIRED", async () => {
 		const nonExistentPath = path.join(tempDir, "does_not_exist.key");
 		const outLines: string[] = [];
 		const errLines: string[] = [];
@@ -156,9 +156,9 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 			(msg) => errLines.push(msg),
 		);
 
-		expect(code).toBe(7);
+		expect(code).toBe(3);
 		const err = JSON.parse(errLines.join("\n"));
-		expect(err.error_code).toBe("FORBIDDEN_ADMIN_REQUIRED");
+		expect(err.error_code).toBe("FILE_NOT_FOUND");
 	});
 
 	it("Vector 1: Empty waiver key file fails with exit 7", async () => {
@@ -197,7 +197,7 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 		expect(err.error_code).toBe("FORBIDDEN_ADMIN_REQUIRED");
 	});
 
-	it("Vector 1: OPENDV_WAIVER_KEY in RemoteExecutor vs opendvctl parser divergence", async () => {
+	it("Vector 1: OPENDV_WAIVER_KEY works identically as raw secret in both RemoteExecutor and runCli (P13::MAJ-01)", async () => {
 		// A. Direct RemoteExecutor: OPENDV_WAIVER_KEY as raw secret succeeds
 		process.env.OPENDV_WAIVER_KEY = "valid-steward-secret-key";
 		const directExec = new RemoteExecutor({
@@ -214,8 +214,8 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 		expect(directRes.exitCode).toBe(0);
 		expect(lastHeaders["x-opendv-waiver-key"]).toBe("valid-steward-secret-key");
 
-		// B. Via runCli: Because parser.ts line 275 binds env_var OPENDV_WAIVER_KEY to waiver_key_file,
-		// passing raw secret in env var fails because it tries to read raw secret as file path:
+		// B. Via runCli: OPENDV_WAIVER_KEY is NOT bound as env_var on --waiver-key-file,
+		// so passing raw secret in OPENDV_WAIVER_KEY succeeds end-to-end!
 		const outLines: string[] = [];
 		const errLines: string[] = [];
 		const codeRawEnv = await runCli(
@@ -240,19 +240,17 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 			(msg) => outLines.push(msg),
 			(msg) => errLines.push(msg),
 		);
-		// Empirically observes exit 7 due to "Waiver key file could not be read"
-		expect(codeRawEnv).toBe(7);
-		const err = JSON.parse(errLines.join("\n"));
-		expect(err.error_code).toBe("FORBIDDEN_ADMIN_REQUIRED");
+		expect(codeRawEnv).toBe(0);
+		expect(lastHeaders["x-opendv-waiver-key"]).toBe("valid-steward-secret-key");
 
-		// C. If OPENDV_WAIVER_KEY is a file path, runCli succeeds:
+		// C. Explicit --waiver-key-file (-k) overrides OPENDV_WAIVER_KEY cleanly:
+		process.env.OPENDV_WAIVER_KEY = "unused-fallback-secret";
 		const envKeyFile = path.join(tempDir, "env_steward.key");
-		await fs.writeFile(envKeyFile, "valid-steward-secret-key", "utf-8");
-		process.env.OPENDV_WAIVER_KEY = envKeyFile;
+		await fs.writeFile(envKeyFile, "valid-steward-secret-key\n", "utf-8");
 
 		const outLines2: string[] = [];
 		const errLines2: string[] = [];
-		const codeFilePathEnv = await runCli(
+		const codeFilePath = await runCli(
 			[
 				"ontology",
 				"studio",
@@ -267,6 +265,8 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 				"--low-confidence-waiver",
 				"--waiver-rationale",
 				"Adequate rationale for security compliance test.",
+				"-k",
+				envKeyFile,
 				"--api-url",
 				serverUrl,
 				"--json",
@@ -274,8 +274,104 @@ describe("Challenger 5C Security & Waiver Empirical Tests (opendvctl)", () => {
 			(msg) => outLines2.push(msg),
 			(msg) => errLines2.push(msg),
 		);
-		expect(codeFilePathEnv).toBe(0);
+		expect(codeFilePath).toBe(0);
 		expect(lastHeaders["x-opendv-waiver-key"]).toBe("valid-steward-secret-key");
+	});
+
+	it("Vector 1: Waiver checks admin role (exit 7) BEFORE rationale length (exit 4) and allows Bearer token without local key file (MAJ-03)", async () => {
+		// 1. Non-admin role (PUBLIC) with short rationale fails with exit 7 (NOT exit 4!)
+		const outLines: string[] = [];
+		const errLines: string[] = [];
+		const codeRoleFirst = await runCli(
+			[
+				"ontology",
+				"studio",
+				"proposal",
+				"accept",
+				"--role",
+				"PUBLIC",
+				"-s",
+				"sec-sess-01",
+				"-p",
+				"prop-01",
+				"--base-sha256",
+				"1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81",
+				"--low-confidence-waiver",
+				"--waiver-rationale",
+				"short",
+				"--api-url",
+				serverUrl,
+				"--json",
+			],
+			(msg) => outLines.push(msg),
+			(msg) => errLines.push(msg),
+		);
+		expect(codeRoleFirst).toBe(7);
+		expect(JSON.parse(errLines.join("\n")).error_code).toBe("FORBIDDEN_ADMIN_REQUIRED");
+
+		// 2a. Loopback workstation call WITH OPENDV_STUDIO_TOKEN still requires explicit waiver key (exit 7 parity)
+		process.env.OPENDV_STUDIO_TOKEN = "valid-admin-bearer";
+		const outLinesLoopback: string[] = [];
+		const errLinesLoopback: string[] = [];
+		const codeLoopbackBlocked = await runCli(
+			[
+				"ontology",
+				"studio",
+				"proposal",
+				"accept",
+				"-s",
+				"sec-sess-01",
+				"-p",
+				"prop-01",
+				"--base-sha256",
+				"1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81",
+				"--low-confidence-waiver",
+				"--waiver-rationale",
+				"Adequate rationale for loopback admin test.",
+				"--api-url",
+				serverUrl,
+				"--json",
+			],
+			(msg) => outLinesLoopback.push(msg),
+			(msg) => errLinesLoopback.push(msg),
+		);
+		expect(codeLoopbackBlocked).toBe(7);
+		expect(JSON.parse(errLinesLoopback.join("\n")).error_code).toBe("FORBIDDEN_ADMIN_REQUIRED");
+
+		// 2b. Non-loopback remote admin with RS256 Bearer token (OPENDV_TOKEN) is not blocked client-side when lacking local waiver key file
+		process.env.OPENDV_TOKEN = "valid-remote-admin-jwt";
+		let remoteHeaders: Record<string, string> = {};
+		const remoteExec = new RemoteExecutor({
+			baseUrl: "https://remote.opendv.example",
+			role: "DATA_STEWARD",
+			fetchImpl: (async (input: RequestInfo | URL, init?: RequestInit) => {
+				const urlStr = typeof input === "string" ? input : input.toString();
+				if (urlStr.endsWith("/api/v1/health")) {
+					return Response.json({
+						status: "HEALTHY",
+						version: "0.1.0",
+						contract_version: spec.contract_version,
+						mode: "PLATFORM_API",
+					});
+				}
+				const hdrs = new Headers(init?.headers);
+				remoteHeaders = Object.fromEntries(hdrs.entries());
+				return Response.json({
+					status: "ACCEPTED",
+					proposal_id: "prop-01",
+					target_sha256: "0000000000000000000000000000000000000000000000000000000000000000",
+				});
+			}) as typeof fetch,
+		});
+		const remoteRes = await remoteExec.execute("ontology", "studio proposal accept", {
+			session: "sec-sess-01",
+			proposal_id: "prop-01",
+			base_sha256: "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81",
+			low_confidence_waiver: true,
+			waiver_rationale: "Adequate rationale for bearer-authenticated remote admin.",
+		});
+		expect(remoteRes.exitCode).toBe(0);
+		expect(remoteHeaders["authorization"]).toBe("Bearer valid-remote-admin-jwt");
 	});
 
 	it("Vector 1: Mismatched waiver key sent to server returns exit 7", async () => {

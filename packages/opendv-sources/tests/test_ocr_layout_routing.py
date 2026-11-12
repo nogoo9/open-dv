@@ -28,7 +28,11 @@ import pypdf
 import pytest
 
 from opendv_sources.adapters.liteparse_adapter import LiteParseDocumentAdapter
-from opendv_sources.exceptions import DocumentExtractionError, OCRUnavailableError
+from opendv_sources.exceptions import (
+    DocumentExtractionError,
+    OCRExecutionError,
+    OCRUnavailableError,
+)
 from opendv_sources.ingestion.layout_evaluator import (
     LayoutComplexityResult,
     OCRRouteDecision,
@@ -36,6 +40,7 @@ from opendv_sources.ingestion.layout_evaluator import (
     calculate_page_raster_ratio,
     count_unmapped_glyphs,
     evaluate_page_complexity,
+    resolve_tesseract_cmd,
 )
 from opendv_sources.ingestion.service import IngestionService
 
@@ -320,6 +325,84 @@ class TestCalculatePageRasterRatio:
         assert ratio < 0.40
         assert ratio < 0.02
 
+    def test_shared_resources_unused_image_xobject_has_zero_raster_ratio(self) -> None:
+        """Regression P03b::MAJ-01: Shared /Resources image not drawn via Do yields 0.0 ratio."""
+        writer = pypdf.PdfWriter()
+
+        # Shared 300-DPI US-Letter image XObject (2550 x 3300 pixels)
+        img_stream = pypdf.generic.DecodedStreamObject()
+        img_stream.set_data(b"\x00" * 128)
+        img_stream.update(
+            {
+                pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/XObject"),
+                pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Image"),
+                pypdf.generic.NameObject("/Width"): pypdf.generic.NumberObject(2550),
+                pypdf.generic.NameObject("/Height"): pypdf.generic.NumberObject(3300),
+                pypdf.generic.NameObject("/ColorSpace"): pypdf.generic.NameObject("/DeviceGray"),
+                pypdf.generic.NameObject("/BitsPerComponent"): pypdf.generic.NumberObject(8),
+            }
+        )
+        font_dict = pypdf.generic.DictionaryObject(
+            {
+                pypdf.generic.NameObject("/Type"): pypdf.generic.NameObject("/Font"),
+                pypdf.generic.NameObject("/Subtype"): pypdf.generic.NameObject("/Type1"),
+                pypdf.generic.NameObject("/BaseFont"): pypdf.generic.NameObject("/Helvetica"),
+            }
+        )
+        shared_resources = writer._add_object(
+            pypdf.generic.DictionaryObject(
+                {
+                    pypdf.generic.NameObject("/Font"): pypdf.generic.DictionaryObject(
+                        {pypdf.generic.NameObject("/Helvetica"): writer._add_object(font_dict)}
+                    ),
+                    pypdf.generic.NameObject("/XObject"): pypdf.generic.DictionaryObject(
+                        {pypdf.generic.NameObject("/ImShared"): writer._add_object(img_stream)}
+                    ),
+                }
+            )
+        )
+
+        # Page 1 draws /ImShared across most of the page
+        page1 = writer.add_blank_page(width=612.0, height=792.0)
+        cs1 = pypdf.generic.DecodedStreamObject()
+        cs1.set_data(b"q 500 0 0 600 50 50 cm /ImShared Do Q")
+        page1[pypdf.generic.NameObject("/Contents")] = writer._add_object(cs1)
+        page1[pypdf.generic.NameObject("/Resources")] = shared_resources
+
+        # Page 2 inherits shared /Resources but draws ONLY vector text (no Do operator!)
+        page2 = writer.add_blank_page(width=612.0, height=792.0)
+        dense_line = (
+            "Pure vector legal text on page two exceeding fifty characters with no raster images."
+        )
+        cs2 = pypdf.generic.DecodedStreamObject()
+        cs2.set_data(f"BT\n/Helvetica 12 Tf\n50 720 Td\n({dense_line}) Tj\nET".encode("latin-1"))
+        page2[pypdf.generic.NameObject("/Contents")] = writer._add_object(cs2)
+        page2[pypdf.generic.NameObject("/Resources")] = shared_resources
+
+        buf = io.BytesIO()
+        writer.write(buf)
+        reader = pypdf.PdfReader(io.BytesIO(buf.getvalue()))
+
+        assert calculate_page_raster_ratio(reader.pages[0]) > 0.40
+        assert calculate_page_raster_ratio(reader.pages[1]) == 0.0
+        p2_complexity = evaluate_page_complexity(reader.pages[1], text=dense_line)
+        assert p2_complexity.raster_ratio == 0.0
+        assert p2_complexity.is_complex is False
+
+    def test_broken_content_stream_does_not_divide_pixels_by_points(self) -> None:
+        """Regression P03b::MAJ-01: Never divide raw pixel dimensions by PDF point area."""
+        pdf_bytes = _create_test_pdf_bytes(
+            ["Dense vector text exceeding fifty characters on a standard page."],
+            width=612.0,
+            height=792.0,
+            with_image_xobject=True,
+        )
+        reader = pypdf.PdfReader(io.BytesIO(pdf_bytes))
+        page = reader.pages[0]
+
+        with patch("pypdf.generic.ContentStream", side_effect=RuntimeError("corrupt stream")):
+            assert calculate_page_raster_ratio(page) == 0.0
+
 
 # =============================================================================
 # 3. Tesseract OCR Router Logic Tests
@@ -335,7 +418,7 @@ class TestTesseractOCRRouter:
             TesseractOCRRouter(ocr_mode="invalid")
 
     def test_non_complex_page_always_routes_to_native(self) -> None:
-        """Verify clean non-complex pages route to native parsing across all modes."""
+        """Verify clean non-complex pages route to native (and force checks engine availability)."""
         complexity = LayoutComplexityResult(
             is_complex=False,
             raster_ratio=0.02,
@@ -343,7 +426,7 @@ class TestTesseractOCRRouter:
             unmapped_glyphs=0,
             reasons=[],
         )
-        for mode in ("off", "auto", "force"):
+        for mode in ("off", "auto"):
             router = TesseractOCRRouter(ocr_mode=mode)
             router.set_availability_override(False)
             decision = router.route_page(complexity, page_number=1)
@@ -353,6 +436,23 @@ class TestTesseractOCRRouter:
             assert decision.ocr_skipped is False
             assert decision.action == "native"
             assert decision.confidence == 1.0
+
+        # In 'force' mode, clean pages route to native when OCR engine is available,
+        # and fail fast with OCRUnavailableError if Tesseract is missing (040b4599::MAJ-02).
+        force_available = TesseractOCRRouter(ocr_mode="force")
+        force_available.set_availability_override(True)
+        force_decision = force_available.route_page(complexity, page_number=1)
+        assert force_decision.should_ocr is False
+        assert force_decision.ocr_skipped is False
+        assert force_decision.action == "native"
+        assert force_decision.confidence == 1.0
+
+        force_missing = TesseractOCRRouter(ocr_mode="force")
+        force_missing.set_availability_override(False)
+        with pytest.raises(OCRUnavailableError) as exc_info:
+            force_missing.route_page(complexity, page_number=1)
+        assert exc_info.value.http_status == 501
+        assert exc_info.value.exit_code == 1
 
     def test_ocr_mode_off_skips_ocr_unconditionally(self) -> None:
         """Verify ocr_mode='off' skips OCR on complex pages with ocr_skipped=True and conf=0.8."""
@@ -464,17 +564,61 @@ class TestTesseractOCRRouter:
         assert decision.action == "skipped"
         assert decision.ocr_skipped is True
 
-    def test_execute_ocr_mocked(self) -> None:
-        """Verify execute_ocr extracts text via mocked pytesseract when available."""
+    def test_execute_ocr_mocked(self, tmp_path: Path) -> None:
+        """Verify execute_ocr sets pytesseract.tesseract_cmd and extracts text (P03b::MAJ-02)."""
+        fake_bin = tmp_path / "custom_tesseract.exe"
+        fake_bin.write_bytes(b"fake binary")
+
+        router = TesseractOCRRouter(ocr_mode="auto", tesseract_cmd=str(fake_bin))
+
+        mock_pyt = MagicMock()
+        mock_pyt.pytesseract = MagicMock()
+        mock_pyt.image_to_string.return_value = "Recognized OCR text"
+        with patch.dict("sys.modules", {"pytesseract": mock_pyt}):
+            assert router.is_available() is True
+            mock_img = MagicMock()
+            extracted = router.execute_ocr(mock_img, page_number=1)
+            assert extracted == "Recognized OCR text"
+            assert mock_pyt.pytesseract.tesseract_cmd == str(fake_bin.resolve())
+
+    def test_resolve_tesseract_cmd_checks_nested_pytesseract_and_env(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Regression P03b::MAJ-02: resolve_tesseract_cmd checks env & pytesseract.pytesseract."""
+        fake_bin = tmp_path / "env_tesseract.exe"
+        fake_bin.write_bytes(b"fake binary")
+
+        mock_pyt = MagicMock()
+        mock_pyt.pytesseract = MagicMock()
+        mock_pyt.pytesseract.tesseract_cmd = str(fake_bin)
+        # Top-level pytesseract module does NOT expose tesseract_cmd in real pytesseract!
+        del mock_pyt.tesseract_cmd
+
+        monkeypatch.delenv("OPENDV_TESSERACT_CMD", raising=False)
+        monkeypatch.delenv("TESSERACT_CMD", raising=False)
+        with (
+            patch.dict("sys.modules", {"pytesseract": mock_pyt}),
+            patch("shutil.which", return_value=None),
+        ):
+            assert resolve_tesseract_cmd() == str(fake_bin.resolve())
+
+        # Explicit nonexistent OPENDV_TESSERACT_CMD must fail closed (return None)
+        monkeypatch.setenv("OPENDV_TESSERACT_CMD", str(tmp_path / "missing_tesseract"))
+        with patch.dict("sys.modules", {"pytesseract": mock_pyt}):
+            assert resolve_tesseract_cmd() is None
+
+    def test_execute_ocr_auto_mode_failure_raises_ocr_execution_error(self) -> None:
+        """Regression P03b::MAJ-02: auto OCR runtime failure raises OCRExecutionError."""
         router = TesseractOCRRouter(ocr_mode="auto")
         router.set_availability_override(True)
 
         mock_pyt = MagicMock()
-        mock_pyt.image_to_string.return_value = "Recognized OCR text"
-        with patch.dict("sys.modules", {"pytesseract": mock_pyt}):
-            mock_img = MagicMock()
-            extracted = router.execute_ocr(mock_img, page_number=1)
-            assert extracted == "Recognized OCR text"
+        mock_pyt.image_to_string.side_effect = RuntimeError("Tesseract crashed")
+        with (
+            patch.dict("sys.modules", {"pytesseract": mock_pyt}),
+            pytest.raises(OCRExecutionError, match="Tesseract crashed"),
+        ):
+            router.execute_ocr(MagicMock(), page_number=1)
 
     def test_execute_ocr_force_mode_failure_raises_ocr_unavailable(self) -> None:
         """Verify execute_ocr in force mode raises OCRUnavailableError when engine fails."""
@@ -552,11 +696,12 @@ class TestLiteParseAdapterOCRIntegration:
         assert err.error_code == "OCR_UNAVAILABLE"
 
     def test_vector_pdf_with_ocr_mode_force_does_not_fail(self) -> None:
-        """Verify clean vector PDF under ocr_mode='force' does not raise on non-complex pages."""
-
+        """Verify clean vector PDF under ocr_mode='force' succeeds when engine is available
+        and fails fast with OCRUnavailableError when engine is missing (040b4599::MAJ-02).
+        """
         data = MSA_PDF_PATH.read_bytes()
         adapter = LiteParseDocumentAdapter(ocr_mode="force", force_fallback=True)
-        adapter.ocr_router.set_availability_override(False)
+        adapter.ocr_router.set_availability_override(True)
 
         result = adapter.parse_bytes(data, filename="clean_msa.pdf")
         assert len(result.page_map) == 2
@@ -564,6 +709,80 @@ class TestLiteParseAdapterOCRIntegration:
             assert p.is_scanned is False
             assert p.ocr_skipped is False
             assert p.confidence == 1.0
+
+        adapter_missing = LiteParseDocumentAdapter(ocr_mode="force", force_fallback=True)
+        adapter_missing.ocr_router.set_availability_override(False)
+        with pytest.raises(OCRUnavailableError) as exc_info:
+            adapter_missing.parse_bytes(data, filename="clean_msa.pdf")
+        assert exc_info.value.http_status == 501
+
+    def test_auto_mode_ocr_runtime_failure_preserves_native_text_and_marks_skipped(self) -> None:
+        """Regression P03b::MAJ-02: auto OCR runtime failure preserves native text & ocr_skipped."""
+        partial_native_text = "Clause 1: Liability Cap $5M."
+        pdf_bytes = _create_test_pdf_bytes(
+            [partial_native_text],
+            image_cm=[500.0, 0.0, 0.0, 600.0, 50.0, 50.0],
+            with_image_xobject=True,
+        )
+
+        adapter = LiteParseDocumentAdapter(ocr_mode="auto", force_fallback=True)
+        adapter.ocr_router.set_availability_override(True)
+
+        with (
+            patch.object(
+                LiteParseDocumentAdapter,
+                "_extract_page_image_payloads",
+                return_value=[b"fake_image_bytes"],
+            ),
+            patch.object(
+                TesseractOCRRouter,
+                "execute_ocr",
+                side_effect=OCRExecutionError("tesseract exited 1"),
+            ),
+        ):
+            result = adapter.parse_bytes(pdf_bytes, filename="hybrid_scan.pdf")
+
+        assert len(result.page_map) == 1
+        page = result.page_map[0]
+        assert partial_native_text in page.text
+        assert page.ocr_skipped is True
+        assert page.confidence == 0.8
+
+    def test_hybrid_pdf_page_with_ocr_mode_force_executes_xobject_ocr(self) -> None:
+        """Regression S1::R3-MIN-02: Hybrid page (is_scanned=False) runs XObject OCR on force."""
+        native_text = (
+            "Section 4.2: Canonical Reference Architecture Diagram and System Context Overview."
+        )
+        pdf_bytes = _create_test_pdf_bytes(
+            [native_text],
+            image_cm=[100.0, 0.0, 0.0, 100.0, 50.0, 50.0],
+            with_image_xobject=True,
+        )
+
+        adapter = LiteParseDocumentAdapter(ocr_mode="force", force_fallback=True)
+        adapter.ocr_router.set_availability_override(True)
+
+        with (
+            patch.object(
+                LiteParseDocumentAdapter,
+                "_extract_page_image_payloads",
+                return_value=[b"fake_diagram_xobject_bytes"],
+            ) as mock_extract_imgs,
+            patch.object(
+                TesseractOCRRouter,
+                "execute_ocr",
+                return_value="Diagram Box: Counterparty Hub",
+            ) as mock_exec_ocr,
+        ):
+            result = adapter.parse_bytes(pdf_bytes, filename="hybrid_diagram.pdf")
+
+        assert len(result.page_map) == 1
+        page = result.page_map[0]
+        assert page.is_scanned is False
+        assert native_text in page.text
+        assert "Diagram Box: Counterparty Hub" in page.text
+        mock_extract_imgs.assert_called_once()
+        mock_exec_ocr.assert_called_once()
 
 
 # =============================================================================

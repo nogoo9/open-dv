@@ -13,7 +13,7 @@
  */
 
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { isSupportedSourceFile, useStudioStore } from "../store/studio-store";
 import type { EvidenceChunk, SourceDocument } from "../store/types";
 
@@ -68,16 +68,33 @@ export const SourcesPanel: React.FC<SourcesPanelProps> = ({
 	const addToast = useStudioStore((s) => s.addToast);
 
 	const [isDragging, setIsDragging] = useState(false);
+	const dragCounterRef = useRef(0);
 	const [confidential, setConfidential] = useState(false);
 	const [ocrMode, setOcrMode] = useState<"auto" | "force" | "off">("auto");
 	const [validationError, setValidationError] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (typeof window === "undefined") return;
+		const resetDrag = () => {
+			dragCounterRef.current = 0;
+			setIsDragging(false);
+		};
+		window.addEventListener("dragend", resetDrag);
+		window.addEventListener("drop", resetDrag);
+		return () => {
+			window.removeEventListener("dragend", resetDrag);
+			window.removeEventListener("drop", resetDrag);
+		};
+	}, []);
 
 	const handleFiles = async (fileList: FileList | null) => {
 		if (!fileList || fileList.length === 0) return;
 		setValidationError(null);
 
 		if (!activeSession) {
-			setValidationError("An active studio session is required to upload sources.");
+			setValidationError(
+				"An active studio session is required to upload sources.",
+			);
 			return;
 		}
 
@@ -157,17 +174,27 @@ export const SourcesPanel: React.FC<SourcesPanelProps> = ({
 		}
 	};
 
+	const handleDragEnter = (e: React.DragEvent) => {
+		e.preventDefault();
+		dragCounterRef.current += 1;
+		setIsDragging(true);
+	};
+
 	const handleDragOver = (e: React.DragEvent) => {
 		e.preventDefault();
 		setIsDragging(true);
 	};
 
 	const handleDragLeave = () => {
-		setIsDragging(false);
+		dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+		if (dragCounterRef.current === 0) {
+			setIsDragging(false);
+		}
 	};
 
 	const handleDrop = async (e: React.DragEvent) => {
 		e.preventDefault();
+		dragCounterRef.current = 0;
 		setIsDragging(false);
 		await handleFiles(e.dataTransfer.files);
 	};
@@ -181,7 +208,9 @@ export const SourcesPanel: React.FC<SourcesPanelProps> = ({
 
 	const handleStartParse = async () => {
 		if (!activeSession) {
-			setValidationError("An active studio session is required to trigger parsing.");
+			setValidationError(
+				"An active studio session is required to trigger parsing.",
+			);
 			return;
 		}
 		try {
@@ -216,6 +245,7 @@ export const SourcesPanel: React.FC<SourcesPanelProps> = ({
 			{/* Drag & Drop Upload Zone */}
 			<div
 				className={`dropzone ${isDragging ? "dropzone-dragging" : ""}`}
+				onDragEnter={handleDragEnter}
 				onDragOver={handleDragOver}
 				onDragLeave={handleDragLeave}
 				onDrop={handleDrop}
@@ -348,8 +378,11 @@ export const SourcesPanel: React.FC<SourcesPanelProps> = ({
 						className="parse-success-badge"
 						data-testid="parse-success-badge"
 					>
-						✓ Parsing complete ({parsingState.evidence_chunks.length} chunks
-						extracted)
+						✓ Parsing complete (
+						{parsingState.evidence_chunks.length ||
+							parsingState.chunks_count ||
+							0}{" "}
+						chunks extracted)
 					</div>
 				)}
 
@@ -406,7 +439,7 @@ export const SourcesPanel: React.FC<SourcesPanelProps> = ({
 											</code>
 										</td>
 										<td className="privacy-cell">
-											{src.do_not_send_to_agent ? (
+											{src.do_not_send_to_agent || src.confidential ? (
 												<span
 													className="badge badge-confidential"
 													title="Confidential: Never sent to external LLMs"

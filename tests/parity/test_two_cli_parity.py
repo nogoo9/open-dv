@@ -66,7 +66,7 @@ def test_dump_cli_tree_canonical_equality(
 
     # 6. Shared commands: leaf commands match bit-for-bit in JCS; standalone_only excluded in ts
     py_cmds: dict[str, Any] = py_tree["commands"]
-    ts_cmds: dict[str, Any] = {c["name"]: c for c in ts_tree["commands"]}
+    ts_cmds: dict[str, Any] = ts_tree["commands"]
     assert "serve" in py_cmds
     assert py_cmds["serve"]["availability"] == "standalone_only"
     assert "serve" not in ts_cmds
@@ -82,7 +82,7 @@ def test_dump_cli_tree_canonical_equality(
 
     # 7. Pipeline subcommands: report is standalone_only; validate and run match
     py_pipe_subs = py_cmds["pipeline"]["subcommands"]
-    ts_pipe_subs = {s["name"]: s for s in ts_cmds["pipeline"]["subcommands"]}
+    ts_pipe_subs = ts_cmds["pipeline"]["subcommands"]
 
     assert "report" in py_pipe_subs
     assert py_pipe_subs["report"]["availability"] == "standalone_only"
@@ -96,7 +96,7 @@ def test_dump_cli_tree_canonical_equality(
     # 8. Run, Hold, and Config subcommands match bit-for-bit
     for parent in ["run", "hold", "config"]:
         py_subs = py_cmds[parent]["subcommands"]
-        ts_subs = {s["name"]: s for s in ts_cmds[parent]["subcommands"]}
+        ts_subs = ts_cmds[parent]["subcommands"]
         assert set(py_subs.keys()) == set(ts_subs.keys())
         for sub_name in py_subs:
             assert dumps_jcs(py_subs[sub_name]) == dumps_jcs(ts_subs[sub_name]), (

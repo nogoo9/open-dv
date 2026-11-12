@@ -135,7 +135,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Mint Launch Nonce Endpoint
-		 * @description Mint single-use browser launch nonce (256-bit, 60s TTL) for local Web Workbench bootstrap.
+		 * @description Mint single-use browser launch nonce (256-bit, 60s TTL) preserving caller RBAC role.
 		 */
 		post: operations["mint_launch_nonce_endpoint_api_v1_ontology_studio_auth_launch_nonce_post"];
 		delete?: never;
@@ -233,8 +233,7 @@ export interface paths {
 		};
 		/**
 		 * Get Job Events Stream
-		 * @description Stream W3C Server-Sent Events with monotonic Last-Event-ID cursor replay
-		 *     and 15s keepalive.
+		 * @description Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and 15s keepalive.
 		 */
 		get: operations["get_job_events_stream_api_v1_ontology_studio_jobs__job_id__events_get"];
 		put?: never;
@@ -280,7 +279,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Import Bundle Endpoint
-		 * @description Streaming import of .odvstudio.zip archive with attribution governance.
+		 * @description Streaming import of .odvstudio.zip archive (editor allowed; admin required for ack).
 		 */
 		post: operations["import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post"];
 		delete?: never;
@@ -348,7 +347,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Export Bundle Endpoint
-		 * @description Export full session into portable archive .odvstudio.zip.
+		 * @description Export full session into portable archive .odvstudio.zip enforcing taint gates.
 		 */
 		post: operations["export_bundle_endpoint_api_v1_ontology_studio_sessions__session_id__bundle_post"];
 		delete?: never;
@@ -368,7 +367,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Clone Session Endpoint
-		 * @description Clone session into an isolated new session with new session ID under L5 lock.
+		 * @description Clone session into an isolated session with re-anchored local audit chain under L5 lock.
 		 */
 		post: operations["clone_session_endpoint_api_v1_ontology_studio_sessions__session_id__bundle_clone_post"];
 		delete?: never;
@@ -408,7 +407,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Trigger Clarification
-		 * @description Dispatch background clarification question generation.
+		 * @description Dispatch background clarification question generation (human editor/admin required).
 		 */
 		post: operations["trigger_clarification_api_v1_ontology_studio_sessions__session_id__clarify_post"];
 		delete?: never;
@@ -428,7 +427,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Trigger Construction
-		 * @description Trigger background construction job (offline deterministic pipeline).
+		 * @description Trigger background construction job (deterministic or agent-first).
 		 */
 		post: operations["trigger_construction_api_v1_ontology_studio_sessions__session_id__construct_post"];
 		delete?: never;
@@ -448,49 +447,9 @@ export interface paths {
 		put?: never;
 		/**
 		 * Apply Delta Endpoint
-		 * @description Direct delta commit with strict OCC If-Match precondition.
+		 * @description Direct governed delta commit with strict OCC If-Match precondition.
 		 */
 		post: operations["apply_delta_endpoint_api_v1_ontology_studio_sessions__session_id__delta_post"];
-		delete?: never;
-		options?: never;
-		head?: never;
-		patch?: never;
-		trace?: never;
-	};
-	"/api/v1/ontology/studio/sessions/{session_id}/deltas/apply": {
-		parameters: {
-			query?: never;
-			header?: never;
-			path?: never;
-			cookie?: never;
-		};
-		get?: never;
-		put?: never;
-		/**
-		 * Apply Delta Endpoint
-		 * @description Direct delta commit with strict OCC If-Match precondition.
-		 */
-		post: operations["apply_delta_endpoint_api_v1_ontology_studio_sessions__session_id__deltas_apply_post"];
-		delete?: never;
-		options?: never;
-		head?: never;
-		patch?: never;
-		trace?: never;
-	};
-	"/api/v1/ontology/studio/sessions/{session_id}/deltas/validate": {
-		parameters: {
-			query?: never;
-			header?: never;
-			path?: never;
-			cookie?: never;
-		};
-		get?: never;
-		put?: never;
-		/**
-		 * Validate Delta Endpoint
-		 * @description Dry-run two-phase structural and governance validation on an OntologyDelta.
-		 */
-		post: operations["validate_delta_endpoint_api_v1_ontology_studio_sessions__session_id__deltas_validate_post"];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -511,6 +470,26 @@ export interface paths {
 		get: operations["export_ontology_endpoint_api_v1_ontology_studio_sessions__session_id__export_get"];
 		put?: never;
 		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/feedback": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Submit Feedback
+		 * @description Persist steward/user feedback record to feedback.jsonl under L5 session lock.
+		 */
+		post: operations["submit_feedback_api_v1_ontology_studio_sessions__session_id__feedback_post"];
 		delete?: never;
 		options?: never;
 		head?: never;
@@ -566,8 +545,7 @@ export interface paths {
 		};
 		/**
 		 * Get Job Events Stream
-		 * @description Stream W3C Server-Sent Events with monotonic Last-Event-ID cursor replay
-		 *     and 15s keepalive.
+		 * @description Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and 15s keepalive.
 		 */
 		get: operations["get_job_events_stream_api_v1_ontology_studio_sessions__session_id__jobs__job_id__events_get"];
 		put?: never;
@@ -653,7 +631,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Create Proposal
-		 * @description Submit a candidate proposal without committing.
+		 * @description Submit candidate proposal without committing (automated restricted to additive ops).
 		 */
 		post: operations["create_proposal_api_v1_ontology_studio_sessions__session_id__proposals_post"];
 		delete?: never;
@@ -693,7 +671,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Accept Proposal
-		 * @description Accept pending proposal with OCC If-Match, role check, and waiver validation.
+		 * @description Accept pending proposal enforcing 11-step precedence, RBAC, strong ETag OCC, and ONT-EVO.
 		 */
 		post: operations["accept_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__accept_post"];
 		delete?: never;
@@ -713,7 +691,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Rebase Proposal
-		 * @description Rebase proposal onto new session head SHA-256.
+		 * @description Rebase proposal onto new session head via 24-op conflict matrix (P10::MAJ-04, MAJOR-06).
 		 */
 		post: operations["rebase_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__rebase_post"];
 		delete?: never;
@@ -733,7 +711,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Reject Proposal
-		 * @description Mark proposal REJECTED while preserving in CAS for audit trace.
+		 * @description Mark proposal REJECTED while preserving in CAS for audit trace (human editor/admin).
 		 */
 		post: operations["reject_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__reject_post"];
 		delete?: never;
@@ -777,7 +755,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Upload Source
-		 * @description Upload document to CAS blob store and register in inputs/manifest.json.
+		 * @description Stream document to CAS blob store and register in inputs/manifest.json.
 		 */
 		post: operations["upload_source_api_v1_ontology_studio_sessions__session_id__sources_post"];
 		delete?: never;
@@ -800,7 +778,10 @@ export interface paths {
 		get: operations["get_source_detail_api_v1_ontology_studio_sessions__session_id__sources__source_id__get"];
 		put?: never;
 		post?: never;
-		/** Delete Source Endpoint */
+		/**
+		 * Delete Source Endpoint
+		 * @description Tombstone and purge unreferenced source document (human editor/admin required).
+		 */
 		delete: operations["delete_source_endpoint_api_v1_ontology_studio_sessions__session_id__sources__source_id__delete"];
 		options?: never;
 		head?: never;
@@ -816,7 +797,7 @@ export interface paths {
 		};
 		/**
 		 * Get Source Content
-		 * @description Preview or download raw source content bytes from CAS (MAJ-06 security headers).
+		 * @description Preview or download raw source content bytes from CAS enforcing taint perimeter.
 		 */
 		get: operations["get_source_content_api_v1_ontology_studio_sessions__session_id__sources__source_id__content_get"];
 		put?: never;
@@ -847,6 +828,26 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/studio/sessions/{session_id}/validate": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Validate Delta Endpoint
+		 * @description Dry-run two-phase structural and governance validation on an OntologyDelta.
+		 */
+		post: operations["validate_delta_endpoint_api_v1_ontology_studio_sessions__session_id__validate_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/ontology/studio/sessions/{session_id}/waiver": {
 		parameters: {
 			query?: never;
@@ -858,7 +859,7 @@ export interface paths {
 		put?: never;
 		/**
 		 * Submit Waiver
-		 * @description Authorize administrative steward waiver with rationale >= 10 chars.
+		 * @description Authorize K_waiver-signed steward waiver and append signed audit record (CRITICAL-05).
 		 */
 		post: operations["submit_waiver_api_v1_ontology_studio_sessions__session_id__waiver_post"];
 		delete?: never;
@@ -2532,8 +2533,16 @@ export interface components {
 		};
 		/** Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post */
 		Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post: {
+			/** Acknowledge Unverified Import Attribution */
+			acknowledge_unverified_import_attribution?: boolean | null;
+			/** Acknowledgement Rationale */
+			acknowledgement_rationale?: string | null;
 			/** File */
 			file: string;
+			/** Force */
+			force?: boolean | null;
+			/** New Session Id */
+			new_session_id?: string | null;
 		};
 		/** Body_upload_source_api_v1_ontology_studio_sessions__session_id__sources_post */
 		Body_upload_source_api_v1_ontology_studio_sessions__session_id__sources_post: {
@@ -2752,9 +2761,19 @@ export interface components {
 		 */
 		ClarifyRequest: {
 			/**
+			 * Focus Concept
+			 * @description Optional single focus concept (normalized into focus_concepts)
+			 */
+			focus_concept?: string | null;
+			/**
+			 * Focus Concepts
+			 * @description Optional list of concept URIs or names to focus clarification on
+			 */
+			focus_concepts?: string[] | null;
+			/**
 			 * Max Questions
 			 * @description Maximum number of questions to generate
-			 * @default 5
+			 * @default 10
 			 */
 			max_questions: number;
 			/**
@@ -3561,6 +3580,35 @@ export interface components {
 			 */
 			wavesCount: number;
 		};
+		/** FeedbackSubmissionRequest */
+		FeedbackSubmissionRequest: {
+			/** Comment */
+			comment?: string | null;
+			/** Concept Uri */
+			concept_uri?: string | null;
+			/** Proposal Id */
+			proposal_id?: string | null;
+			/**
+			 * Rating
+			 * @description Feedback rating ('up', 'down', or numeric score)
+			 */
+			rating: string | number;
+		};
+		/** FeedbackSubmissionResponse */
+		FeedbackSubmissionResponse: {
+			/** Active Version */
+			active_version: string;
+			/** Feedback Id */
+			feedback_id: string;
+			/** Head Sha256 */
+			head_sha256: string;
+			/** Session Id */
+			session_id: string;
+			/** Status */
+			status: string;
+			/** Timestamp */
+			timestamp: string;
+		};
 		/**
 		 * GateScorecardSummary
 		 * @description 6-Gate verification scorecard summary.
@@ -4347,20 +4395,33 @@ export interface components {
 		OntologyDeltaRequest: {
 			/** Author */
 			author?: string | null;
+			/** Base Sha256 */
+			base_sha256?: string | null;
 			/** Base Version */
-			base_version: string;
+			base_version?: string | null;
 			/** Delta Id */
-			delta_id: string;
+			delta_id?: string | null;
+			/** Evidence Grounding File */
+			evidence_grounding_file?: string | null;
+			/** Grounding Rationale */
+			grounding_rationale?: string | null;
+			/**
+			 * Low Confidence Waiver
+			 * @default false
+			 */
+			low_confidence_waiver: boolean;
 			/** Operations */
 			operations: {
 				[key: string]: unknown;
 			}[];
 			/** Parent Sha256 */
-			parent_sha256: string;
+			parent_sha256?: string | null;
 			/** Rationale */
 			rationale?: string | null;
 			/** Target Version */
-			target_version: string;
+			target_version?: string | null;
+			/** Ungrounded Concept */
+			ungrounded_concept?: string[] | string | null;
 		};
 		/**
 		 * OntologyDiff
@@ -5463,15 +5524,18 @@ export interface components {
 			 */
 			acknowledge_historical_contract_warning: boolean;
 			/** Head Sha256 */
-			head_sha256: string;
+			head_sha256?: string | null;
 			/** Historical Contract Rationale */
 			historical_contract_rationale?: string | null;
-			/** Rationale */
+			/**
+			 * Rationale
+			 * @default
+			 */
 			rationale: string;
 			/** Workspace */
 			workspace?: string | null;
 			/** Workspace Sha256 */
-			workspace_sha256: string;
+			workspace_sha256?: string | null;
 		};
 		/** PromoteResponse */
 		PromoteResponse: {
@@ -5507,7 +5571,7 @@ export interface components {
 			 */
 			self_acceptance_override: boolean;
 			/** Ungrounded Concept */
-			ungrounded_concept?: string[] | null;
+			ungrounded_concept?: string[] | string | null;
 		};
 		/** ProposalCreateRequest */
 		ProposalCreateRequest: {
@@ -5519,13 +5583,15 @@ export interface components {
 			operations: {
 				[key: string]: unknown;
 			}[];
+			/** Proposal Id */
+			proposal_id?: string | null;
 			/** Rationale */
 			rationale?: string | null;
 		};
 		/** ProposalRebaseRequest */
 		ProposalRebaseRequest: {
 			/** Base Sha256 */
-			base_sha256: string;
+			base_sha256?: string | null;
 		};
 		/** ProposalRecordDTO */
 		ProposalRecordDTO: {
@@ -6761,71 +6827,6 @@ export interface components {
 			 */
 			writes?: string[];
 		};
-		/**
-		 * StewardWaiverRecord
-		 * @description Cryptographically verifiable administrative waiver for ungrounded concept evolution.
-		 */
-		StewardWaiverRecord: {
-			/**
-			 * Authorized By
-			 * @description Identity of approving administrator or steward
-			 */
-			authorized_by: string;
-			/**
-			 * Authorized Role
-			 * @description Role authorization tier for waiver approval
-			 * @enum {string}
-			 */
-			authorized_role: "admin" | "steward";
-			/**
-			 * Base Sha256
-			 * @description SHA-256 digest of base ontology precondition
-			 */
-			base_sha256: string;
-			/**
-			 * Created At
-			 * Format: date-time
-			 * @description UTC timestamp of authorization
-			 */
-			created_at?: string;
-			/**
-			 * Expires At
-			 * @description Optional expiration timestamp for time-bounded waiver
-			 */
-			expires_at?: string | null;
-			/**
-			 * Proposal Delta Sha256
-			 * @description SHA-256 digest of proposed delta
-			 */
-			proposal_delta_sha256: string;
-			/**
-			 * Proposal Id
-			 * Format: uuid4
-			 * @description Referenced ontology proposal identifier
-			 */
-			proposal_id: string;
-			/**
-			 * Rationale
-			 * @description Business and architectural justification for waiver (>= 10 chars)
-			 */
-			rationale: string;
-			/**
-			 * Signature Or Token
-			 * @description Cryptographic signature or authorization token
-			 */
-			signature_or_token: string;
-			/**
-			 * Target Concept Uris
-			 * @description Target concept URIs exempted from grounding check
-			 */
-			target_concept_uris: string[];
-			/**
-			 * Waiver Id
-			 * Format: uuid4
-			 * @description Unique waiver identifier
-			 */
-			waiver_id?: string;
-		};
 		/** StudioClarificationAnswerRequest */
 		StudioClarificationAnswerRequest: {
 			/** Answers */
@@ -6898,6 +6899,11 @@ export interface components {
 			session_id: string;
 			/** Status */
 			status: string;
+			/**
+			 * Taint Classification
+			 * @default UNTAINTED
+			 */
+			taint_classification: string;
 		};
 		/** StudioSessionSummaryDTO */
 		StudioSessionSummaryDTO: {
@@ -7157,6 +7163,44 @@ export interface components {
 			toon_text?: string | null;
 			/** @description Overall synthesized gate verdict */
 			verdict: components["schemas"]["GateVerdict"];
+		};
+		/** WaiverSubmissionRequest */
+		WaiverSubmissionRequest: {
+			/** Authorized By */
+			authorized_by?: string | null;
+			/** Authorized Role */
+			authorized_role?: string | null;
+			/** Base Sha256 */
+			base_sha256?: string | null;
+			/** Concept Uri */
+			concept_uri?: string | null;
+			/** Concept Uris */
+			concept_uris?: string[] | null;
+			/** Created At */
+			created_at?: string | null;
+			/** Expires At */
+			expires_at?: string | null;
+			/** Proposal Delta Sha256 */
+			proposal_delta_sha256?: string | null;
+			/** Proposal Id */
+			proposal_id?: string | null;
+			/**
+			 * Rationale
+			 * @default
+			 */
+			rationale: string;
+			/** Signature Or Token */
+			signature_or_token?: string | null;
+			/** Steward */
+			steward?: string | null;
+			/** Target Concept Uris */
+			target_concept_uris?: string[] | null;
+			/** Ungrounded Concepts */
+			ungrounded_concepts?: string[] | null;
+			/** Waiver Id */
+			waiver_id?: string | null;
+		} & {
+			[key: string]: unknown;
 		};
 		/**
 		 * WaveMetadataSpecDTO
@@ -7641,6 +7685,8 @@ export interface operations {
 			query?: {
 				acknowledge_unverified_import_attribution?: boolean;
 				acknowledgement_rationale?: string | null;
+				new_session_id?: string | null;
+				force?: boolean;
 			};
 			header?: never;
 			path?: never;
@@ -8012,78 +8058,6 @@ export interface operations {
 			};
 		};
 	};
-	apply_delta_endpoint_api_v1_ontology_studio_sessions__session_id__deltas_apply_post: {
-		parameters: {
-			query?: never;
-			header?: {
-				"If-Match"?: string | null;
-			};
-			path: {
-				session_id: string;
-			};
-			cookie?: never;
-		};
-		requestBody: {
-			content: {
-				"application/json": components["schemas"]["OntologyDeltaRequest"];
-			};
-		};
-		responses: {
-			/** @description Successful Response */
-			200: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					"application/json": components["schemas"]["DeltaCommitResponse"];
-				};
-			};
-			/** @description Validation Error */
-			422: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					"application/json": components["schemas"]["HTTPValidationError"];
-				};
-			};
-		};
-	};
-	validate_delta_endpoint_api_v1_ontology_studio_sessions__session_id__deltas_validate_post: {
-		parameters: {
-			query?: never;
-			header?: never;
-			path: {
-				session_id: string;
-			};
-			cookie?: never;
-		};
-		requestBody: {
-			content: {
-				"application/json": components["schemas"]["OntologyDeltaRequest"];
-			};
-		};
-		responses: {
-			/** @description Successful Response */
-			200: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					"application/json": components["schemas"]["OntologyValidationResult"];
-				};
-			};
-			/** @description Validation Error */
-			422: {
-				headers: {
-					[name: string]: unknown;
-				};
-				content: {
-					"application/json": components["schemas"]["HTTPValidationError"];
-				};
-			};
-		};
-	};
 	export_ontology_endpoint_api_v1_ontology_studio_sessions__session_id__export_get: {
 		parameters: {
 			query?: {
@@ -8105,6 +8079,41 @@ export interface operations {
 				};
 				content: {
 					"application/json": unknown;
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	submit_feedback_api_v1_ontology_studio_sessions__session_id__feedback_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["FeedbackSubmissionRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["FeedbackSubmissionResponse"];
 				};
 			};
 			/** @description Validation Error */
@@ -8760,6 +8769,41 @@ export interface operations {
 			};
 		};
 	};
+	validate_delta_endpoint_api_v1_ontology_studio_sessions__session_id__validate_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologyDeltaRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OntologyValidationResult"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
 	submit_waiver_api_v1_ontology_studio_sessions__session_id__waiver_post: {
 		parameters: {
 			query?: never;
@@ -8771,7 +8815,7 @@ export interface operations {
 		};
 		requestBody: {
 			content: {
-				"application/json": components["schemas"]["StewardWaiverRecord"];
+				"application/json": components["schemas"]["WaiverSubmissionRequest"];
 			};
 		};
 		responses: {

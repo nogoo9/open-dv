@@ -25,9 +25,7 @@ SCHEMAS_V1_CLI_SPEC = REPO_ROOT / "schemas" / "v1" / "cli-spec.json"
 SCHEMAS_OPENAPI_V1 = REPO_ROOT / "schemas" / "openapi-v1.json"
 SCHEMAS_V1_OPENAPI = REPO_ROOT / "schemas" / "v1" / "openapi.json"
 DOCS_16_CLI_REF = REPO_ROOT / "docs" / "16-cli-reference.md"
-TS_OPENAPI_TYPES = (
-    REPO_ROOT / "packages" / "opendv-protocol-ts" / "src" / "types" / "openapi.ts"
-)
+TS_OPENAPI_TYPES = REPO_ROOT / "packages" / "opendv-protocol-ts" / "src" / "types" / "openapi.ts"
 
 
 @pytest.mark.architecture
@@ -51,18 +49,14 @@ def test_cli_spec_matches_definitions() -> None:
         assert spec_cmd["description"].strip() == def_cmd.description.strip(), (
             f"{cmd_path}: description mismatch"
         )
-        assert spec_cmd["help"].strip() == def_cmd.help.strip(), (
-            f"{cmd_path}: help mismatch"
-        )
+        assert spec_cmd["help"].strip() == def_cmd.help.strip(), f"{cmd_path}: help mismatch"
         assert spec_cmd.get("availability", "both") == def_cmd.availability, (
             f"{cmd_path}: availability mismatch"
         )
 
         # Check options
         spec_opts = {opt["name"]: opt for opt in spec_cmd.get("options", [])}
-        def_opts = {
-            opt.name: opt for opt in def_cmd.options if isinstance(opt, OptionDef)
-        }
+        def_opts = {opt.name: opt for opt in def_cmd.options if isinstance(opt, OptionDef)}
         assert set(spec_opts.keys()) == set(def_opts.keys()), (
             f"{cmd_path}: options mismatch: {set(spec_opts.keys()) ^ set(def_opts.keys())}"
         )
@@ -93,12 +87,11 @@ def test_cli_spec_matches_definitions() -> None:
 
     # 3. Explicit check for all 14 studio subcommand groups
     studio_cmd = spec_commands["ontology"]
-    studio_subs = next(
-        s for s in studio_cmd.get("subcommands", []) if s["name"] == "studio"
-    )
+    studio_subs = next(s for s in studio_cmd.get("subcommands", []) if s["name"] == "studio")
     expected_studio_groups = {
         "init",
         "create",
+        "delete",
         "list",
         "status",
         "upload",
@@ -164,9 +157,7 @@ def test_openapi_specs_sync_with_fastapi_app() -> None:
         )
 
     # Specifically assert presence of Studio endpoints
-    studio_paths = [
-        p for p in v1_openapi["paths"] if p.startswith("/api/v1/ontology/studio")
-    ]
+    studio_paths = [p for p in v1_openapi["paths"] if p.startswith("/api/v1/ontology/studio")]
     assert len(studio_paths) >= 12, (
         f"Expected at least 12 Studio endpoints, found {len(studio_paths)}: {studio_paths}"
     )
@@ -187,7 +178,5 @@ def test_typescript_protocol_types_sync() -> None:
     assert '"/api/v1/ontology/studio/jobs/{job_id}":' in ts_content
     assert "StudioSessionDTO:" in ts_content
     assert "CreateSessionRequest:" in ts_content
-    assert (
-        'OntologyDelta: components["schemas"]["OntologyDelta-Output"];' in ts_content
-    )
+    assert 'OntologyDelta: components["schemas"]["OntologyDelta-Output"];' in ts_content
     assert "OntologyDelta: unknown;" not in ts_content

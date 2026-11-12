@@ -214,11 +214,14 @@ def test_grounding_guard_rejects_sub_threshold(
     err = exc_info.value
     assert err.exit_code == 4
     assert err.http_status == 422
-    assert err.error_code == ErrorCode.SOURCE_LOAD_ERROR
+    assert err.error_code == ErrorCode.ONT_EVO_UNGROUNDED_CONCEPT
     assert err.details.get("error_code_symbol") == "ONT_EVO_UNGROUNDED_CONCEPT"
     assert err.details.get("concept_uri") == JOINT_STOCK_COMPANY
     assert err.details.get("direct_seed_score") == 0.6499
     assert err.details.get("grounding_threshold") == 0.65
+    problem = err.to_problem_detail()
+    assert problem.error_code == ErrorCode.ONT_EVO_UNGROUNDED_CONCEPT
+    assert problem.status == 422
 
 
 def test_grounding_guard_rejects_zero_score(
@@ -249,15 +252,39 @@ def test_grounding_guard_raise_on_ungrounded_false(
 def test_score_rounding_quantization(
     default_loader: FiboReferenceOntologyLoader,
 ) -> None:
-    """Verify that confidence score is quantized to 4 decimal places with round half-up."""
-    # 0.64995 rounds up to 0.6500, satisfying threshold
+    """Verify confidence score is quantized to 4 decimal places with ROUND_HALF_EVEN."""
+    # 0.64995: digit before 5 is 9 (odd) -> rounds to even 0.6500, satisfying threshold
     matches = resolve_subclass_closure(
         default_loader,
         JOINT_STOCK_COMPANY,
-        direct_seed_score=0.64995,
+        direct_seed_score=Decimal("0.64995"),
     )
     assert len(matches) > 0
     assert matches[0].confidence == 0.6500
+
+    # 0.64985: digit before 5 is 8 (even) -> rounds to even 0.6498, failing threshold
+    with pytest.raises(UngroundedSeedMappingError):
+        resolve_subclass_closure(
+            default_loader,
+            JOINT_STOCK_COMPANY,
+            direct_seed_score=Decimal("0.64985"),
+        )
+
+    # 0.65005: digit before 5 is 0 (even) -> banker's rounding rounds down to 0.6500 (NOT 0.6501)
+    m_even_down = resolve_subclass_closure(
+        default_loader,
+        JOINT_STOCK_COMPANY,
+        direct_seed_score=Decimal("0.65005"),
+    )
+    assert m_even_down[0].confidence == 0.6500
+
+    # 0.65015: digit before 5 is 1 (odd) -> banker's rounding rounds up to 0.6502
+    m_even_up = resolve_subclass_closure(
+        default_loader,
+        JOINT_STOCK_COMPANY,
+        direct_seed_score=Decimal("0.65015"),
+    )
+    assert m_even_up[0].confidence == 0.6502
 
     # 0.64994 rounds down to 0.6499, failing threshold
     with pytest.raises(UngroundedSeedMappingError):
@@ -371,6 +398,8 @@ def test_self_loop_strict_error() -> None:
         )
     assert exc_info.value.exit_code == 4
     assert exc_info.value.http_status == 422
+    assert exc_info.value.error_code == ErrorCode.HIERARCHICAL_CYCLE_DETECTED
+    assert exc_info.value.to_problem_detail().error_code == ErrorCode.HIERARCHICAL_CYCLE_DETECTED
 
 
 def test_two_node_cycle_graceful_termination() -> None:

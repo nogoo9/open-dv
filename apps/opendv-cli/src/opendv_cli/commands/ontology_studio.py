@@ -1,7 +1,7 @@
 """`opendv ontology studio` command handlers (Track 5C / Task 5C.1 / Issue #219).
 
-In-process local executor for the 14 Ontology Construction Studio subcommand groups
-(21 leaf commands) operating directly against `opendv-service` with zero network overhead.
+In-process local executor for the Ontology Construction Studio subcommand groups
+operating directly against `opendv-service` with zero network overhead.
 Adheres strictly to AST isolation: zero imports from `opendv_platform_api` or web frameworks.
 """
 
@@ -25,63 +25,109 @@ from typing import TYPE_CHECKING, Any
 import yaml
 from pydantic import TypeAdapter, ValidationError
 
-from opendv_contracts.dtos.ingestion import EvidenceChunk, TableStructure
+from opendv_contracts.dtos.clarification import ClarificationAnswerItem
 from opendv_contracts.dtos.ontology import (
     BaseOntologyDeltaOp,
     OntologyDelta,
     OntologyOperation,
     StewardWaiverRecord,
+    is_destructive_delta,
 )
+from opendv_contracts.errors import ErrorCode, OpenDVError
+from opendv_contracts.jcs import dumps_jcs
+from opendv_contracts.spi.deployment import DeploymentStateProvider
+from opendv_core.genesis import create_genesis_ontology
 from opendv_core.models.graph_a import GraphAOntology
-from opendv_core.ontology_hashing import compute_ontology_sha256, dumps_jcs_bytes
-from opendv_service.construction.clarification_harness import ClarificationHarness
-from opendv_service.construction.deterministic_pipeline import (
-    DeterministicConstructionPipeline,
-)
-from opendv_service.construction.models import ConstructOptions
+from opendv_core.ontology_hashing import compute_ontology_sha256
+from opendv_service.construction.clarification_harness import EMPTY_ANSWERS_SHA256
 from opendv_service.export.rdf_exporter import export_ontology
-from opendv_service.ontology.applier import compute_next_semver, parse_semver
-from opendv_service.ontology.validator import SemVerCalculusError
+from opendv_service.ontology.applier import (
+    apply as apply_delta,
+)
+from opendv_service.ontology.applier import (
+    compute_next_semver,
+    parse_semver,
+)
+from opendv_service.ontology.matching.verifier import get_default_grounding_verifier
+from opendv_service.ontology.rebase import check_rebase_conflicts
+from opendv_service.ontology.validator import (
+    GovernanceValidator,
+    OntologyGovernanceError,
+    SemVerCalculusError,
+    build_deployment_provider_from_contract,
+)
 from opendv_service.studio.atomic_commit import (
     AtomicCommitService,
+    CommitValidationError,
     ConcurrentModificationError,
+    ForbiddenAdminRequiredError,
+    HistoricalContractRationaleRequiredError,
+    HistoricalContractWarningUnacknowledgedError,
+    InvalidPreconditionHeaderError,
+    LineageRootMismatchError,
+    NoOpPromotionError,
+    PromotionRationaleRequiredError,
+    _load_grandfathered_concept_uris,
+    _LocalWaiverVerifier,
+    collect_touched_concept_uris,
+    parse_semver_tuple,
+    verify_ont_evo_002_post_state_grounding,
 )
 from opendv_service.studio.bundle import (
+    AdminRoleRequiredError,
     ArchiveSecurityViolationError,
+    ConfidentialSourceExportUnacknowledgedError,
+    ExportRationaleRequiredError,
+    compute_effective_session_taint,
     export_bundle,
     import_bundle,
 )
+from opendv_service.studio.job_runners import (
+    OCRUnavailableError,
+    OfficeConversionUnavailableError,
+    UnsupportedFormatError,
+    run_clarify_session,
+    run_construct_session,
+    run_parse_session_sources,
+)
 from opendv_service.studio.locks import (
-    L4_WORKSPACE,
     L5_SESSION,
-    StudioLock,
-    multi_studio_lock,
     studio_lock,
 )
 from opendv_service.studio.session_manager import (
+    CannotDeletePromotedSessionError,
     InvalidSessionIdentifierError,
     SessionAlreadyExistsError,
     SessionNotFoundError,
     StudioSessionManager,
+    append_signed_audit_record,
+    sanitize_domain_namespace,
     set_owner_only_permissions,
     validate_session_id,
 )
 from opendv_service.studio.workspace_security import (
     DEFAULT_STUDIO_DIR,
     WorkspaceSecurityManager,
+    validate_workspace_containment,
 )
-from opendv_sources.adapters.multiformat_adapter import (
-    DelimitedTabularAdapter,
-    MarkdownDocumentAdapter,
-    MarkupDocumentAdapter,
-    PyArrowTabularAdapter,
-    StructuredDataDocumentAdapter,
-)
-from opendv_sources.ingestion import PlainTextDocumentAdapter
-from opendv_sources.ingestion.service import IngestionService
 
 if TYPE_CHECKING:
     from opendv_cli.executor import LocalExecutor
+
+
+class StudioLocalError(OpenDVError):
+    """Typed local Studio execution error mapped to canonical `ErrorCode`."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: ErrorCode = ErrorCode.INTERNAL_ERROR,
+        exit_code: int | None = None,
+    ) -> None:
+        super().__init__(message, error_code=error_code)
+        if exit_code is not None:
+            self.exit_code = exit_code
 
 
 _PROPOSAL_ID_PATTERN: re.Pattern[str] = re.compile(r"^[a-zA-Z0-9_-]{1,64}$")
@@ -89,6 +135,14 @@ _VERSION_PATTERN: re.Pattern[str] = re.compile(
     r"^(?:v)?[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9_.-]+)?$"
 )
 _OP_TYPE_ADAPTER: TypeAdapter[OntologyOperation] = TypeAdapter(OntologyOperation)
+
+_ADMIN_ROLES: frozenset[str] = frozenset({"ADMIN", "DATA_STEWARD", "RESTRICTED_PII_CUSTODIAN"})
+_EDITOR_ROLES: frozenset[str] = frozenset({"EDITOR", "STEWARD"})
+_AUTOMATED_ROLES: frozenset[str] = frozenset({"AUTOMATED", "INTERNAL_MODELER"})
+_VIEWER_ROLES: frozenset[str] = frozenset({"VIEWER", "PUBLIC", "AUDITOR_FINANCE"})
+_SKIP_SCAN_DIRS: frozenset[str] = frozenset(
+    {".opendv", ".git", "node_modules", ".venv", "dist", "__pycache__"}
+)
 
 
 def _get_studio_root(executor: LocalExecutor | None = None) -> Path:
@@ -106,6 +160,203 @@ def _get_session_manager(executor: LocalExecutor | None = None) -> StudioSession
     return StudioSessionManager(studio_root=root)
 
 
+def _err(code: int, error_code: str, detail: str) -> tuple[int, dict[str, str]]:
+    """Construct standard error envelope tuple."""
+    return code, {
+        "status": "ERROR",
+        "error_code": error_code,
+        "detail": detail,
+    }
+
+
+def _err_from_opendv_error(exc: OpenDVError) -> tuple[int, dict[str, Any]]:
+    """Convert a typed OpenDVError into a standard CLI `(exit_code, payload)` tuple."""
+    code = int(getattr(exc, "exit_code", 1) or 1)
+    err_code_raw = getattr(exc, "error_code", ErrorCode.INTERNAL_ERROR)
+    err_code = err_code_raw.value if hasattr(err_code_raw, "value") else str(err_code_raw)
+    payload: dict[str, Any] = {
+        "status": "ERROR",
+        "error_code": err_code,
+        "detail": str(exc),
+    }
+    if getattr(exc, "details", None):
+        payload["details"] = exc.details
+    return code, payload
+
+
+def resolve_studio_principal(
+    args: argparse.Namespace,
+) -> tuple[int, dict[str, str]] | tuple[str, str]:
+    """Resolve `(principal, role_tier)` from CLI `--role` / `OPENDV_ROLE` or standalone default.
+
+    Precedence (P12a::MAJ-01, P13::MAJ-04):
+    1. Explicit CLI `--role` (`args._explicit_role`).
+    2. Non-empty `OPENDV_ROLE` environment variable (never shadowed by argparse defaults).
+    3. Direct `args.role` when set to something other than the default `'INTERNAL_MODELER'`
+       (and `_explicit_role` was not explicitly `False`).
+    4. Local workstation default `("human:local_admin", "admin")`.
+    """
+    explicit_flag = getattr(args, "_explicit_role", None)
+    env_role = (os.environ.get("OPENDV_ROLE") or "").strip()
+    raw_role = getattr(args, "role", None)
+
+    role_token: str | None = None
+    if isinstance(explicit_flag, str) and explicit_flag.strip():
+        role_token = explicit_flag.strip()
+    elif explicit_flag is True and raw_role is not None and str(raw_role).strip():
+        role_token = str(raw_role).strip()
+    elif env_role:
+        role_token = env_role
+    elif (
+        explicit_flag is not False
+        and raw_role is not None
+        and str(raw_role).strip()
+        and str(raw_role).strip().upper() != "INTERNAL_MODELER"
+    ):
+        role_token = str(raw_role).strip()
+
+    if not role_token:
+        return "human:local_admin", "admin"
+
+    upper = role_token.upper()
+    if upper in _ADMIN_ROLES:
+        return "human:local_admin", "admin"
+    if upper in _EDITOR_ROLES:
+        return "human:local_editor", "editor"
+    if upper in _AUTOMATED_ROLES:
+        return "agent:internal_modeler", "automated"
+    if upper in _VIEWER_ROLES:
+        return "human:local_viewer", "viewer"
+    return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Unsupported --role value: '{role_token}'")
+
+
+_resolve_studio_principal = resolve_studio_principal
+
+
+def _derive_session_status(sdir: Path, meta: Any) -> str:
+    """Return `'PROMOTED'` when session has active promotion metadata, else `meta.status`."""
+    if getattr(meta, "status", "") == "ACTIVE" and (
+        (sdir / "promotion.json").is_file() or bool(getattr(meta, "promoted_versions", None))
+    ):
+        return "PROMOTED"
+    return str(getattr(meta, "status", "ACTIVE"))
+
+
+def _is_reparse_or_symlink(path: Path) -> bool:
+    """Return True when `path` is a symlink or Windows NTFS junction/reparse point."""
+    with contextlib.suppress(OSError):
+        if path.is_symlink():
+            return True
+        is_junc = getattr(path, "is_junction", None)
+        if callable(is_junc) and bool(is_junc()):
+            return True
+    return False
+
+
+def _resolve_configured_workspace_roots(base_ws: Path) -> list[Path] | None:
+    """Return explicitly configured `OPENDV_WORKSPACE_ROOTS` paths, or `None` if unset."""
+    env_roots = os.environ.get("OPENDV_WORKSPACE_ROOTS", "").strip()
+    if not env_roots:
+        return None
+    roots: list[Path] = []
+    for item in env_roots.split(os.pathsep):
+        cleaned = item.strip()
+        if cleaned:
+            p = Path(cleaned)
+            roots.append(p.resolve() if p.is_absolute() else (base_ws / p).resolve())
+    return roots or None
+
+
+def _validate_out_path(
+    raw_out: str, executor: LocalExecutor | None = None
+) -> tuple[int, dict[str, str]] | Path:
+    """Enforce symlink/reparse rejection and workspace containment on `--out` paths."""
+    raw_str = str(raw_out)
+    if not raw_str or not raw_str.strip():
+        return _err(2, "PATH_CONTAINMENT_ERROR", "Output path cannot be empty.")
+    if "\x00" in raw_str or any(ord(ch) < 32 or ord(ch) == 127 for ch in raw_str):
+        return _err(2, "PATH_CONTAINMENT_ERROR", "Output path contains invalid control bytes.")
+
+    base_ws = (executor.workspace_root if executor else Path.cwd()).resolve()
+    base_real = Path(os.path.realpath(str(base_ws)))
+    raw_p = Path(raw_str)
+    candidate_unres = raw_p if raw_p.is_absolute() else (base_ws / raw_p)
+
+    # Reject symlinks/reparse points on target and non-base parent components
+    base_ancestors = {base_ws, *base_ws.parents, base_real, *base_real.parents}
+    for anc in (candidate_unres, *candidate_unres.parents):
+        if anc in base_ancestors:
+            break
+        if _is_reparse_or_symlink(anc):
+            return _err(
+                2,
+                "PATH_CONTAINMENT_ERROR",
+                f"Output path '{raw_out}' traverses a symlink or reparse point.",
+            )
+
+    if _is_reparse_or_symlink(candidate_unres):
+        return _err(
+            2,
+            "PATH_CONTAINMENT_ERROR",
+            f"Output path '{raw_out}' cannot target a symlink or reparse point.",
+        )
+
+    configured_roots = _resolve_configured_workspace_roots(base_ws)
+    try:
+        out_p = Path(os.path.realpath(str(candidate_unres)))
+    except (OSError, ValueError) as exc:
+        return _err(2, "PATH_CONTAINMENT_ERROR", f"Invalid output path '{raw_out}': {exc}")
+
+    # Relative `--out` must never escape `base_ws` via `..`
+    if not raw_p.is_absolute() and not out_p.is_relative_to(base_real):
+        return _err(
+            2,
+            "PATH_CONTAINMENT_ERROR",
+            f"Relative output path '{raw_out}' escapes workspace root.",
+        )
+
+    # Explicit `..` in absolute paths must remain inside allowed roots (or `base_ws`)
+    if ".." in raw_p.parts:
+        allowed_for_dotdot = configured_roots if configured_roots is not None else [base_real]
+        if not any(
+            out_p.is_relative_to(Path(os.path.realpath(str(r)))) for r in allowed_for_dotdot
+        ):
+            return _err(
+                2,
+                "PATH_CONTAINMENT_ERROR",
+                f"Path traversal '..' in output path '{raw_out}' escapes allowed workspace roots.",
+            )
+
+    try:
+        if configured_roots is not None:
+            return validate_workspace_containment(
+                candidate_unres,
+                allowed_roots=configured_roots,
+                is_remote_request=False,
+            )
+        return validate_workspace_containment(
+            candidate_unres,
+            allowed_roots=[out_p.parent],
+            is_remote_request=False,
+        )
+    except OpenDVError as exc:
+        return _err(2, "PATH_CONTAINMENT_ERROR", str(exc))
+
+
+def _atomic_write_text(target_path: Path, text: str) -> None:
+    """Atomically write UTF-8 text via temp file + `os.replace`."""
+    target_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = target_path.parent / f".{target_path.name}.{secrets.token_hex(4)}.tmp"
+    try:
+        tmp_path.write_text(text, encoding="utf-8")
+        os.replace(tmp_path, target_path)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            if tmp_path.exists():
+                tmp_path.unlink()
+        raise
+
+
 def _validate_session(sid: str | None) -> tuple[int, Any] | None:
     """Validate session identifier presence and structure."""
     if not sid:
@@ -115,15 +366,6 @@ def _validate_session(sid: str | None) -> tuple[int, Any] | None:
     except InvalidSessionIdentifierError as exc:
         return _err(2, "INVALID_SESSION_IDENTIFIER", str(exc))
     return None
-
-
-def _err(code: int, error_code: str, detail: str) -> tuple[int, dict[str, str]]:
-    """Construct standard error envelope tuple (SUG-01)."""
-    return code, {
-        "status": "ERROR",
-        "error_code": error_code,
-        "detail": detail,
-    }
 
 
 def _resolve_proposal_path(sdir: Path, proposal_id: str | None) -> tuple[int, Any] | Path:
@@ -142,7 +384,7 @@ def _resolve_proposal_path(sdir: Path, proposal_id: str | None) -> tuple[int, An
 
 
 def _atomic_write_json(target_path: Path, data: Any, indent: int = 2) -> None:
-    """Atomically write JSON data with 0600 permissions using temp-file and replace (SUG-01)."""
+    """Atomically write JSON data with 0600 permissions using temp-file and replace."""
     target_path.parent.mkdir(parents=True, exist_ok=True)
     tmp_path = target_path.parent / f".{target_path.name}.{secrets.token_hex(4)}.tmp"
     tmp_path.write_text(json.dumps(data, indent=indent), encoding="utf-8")
@@ -152,7 +394,7 @@ def _atomic_write_json(target_path: Path, data: Any, indent: int = 2) -> None:
 
 
 def _require_session(session_mgr: StudioSessionManager, sid: str) -> tuple[int, Any] | Any:
-    """Retrieve session metadata or return exit 3 error tuple (SUG-01)."""
+    """Retrieve session metadata or return exit 3 error tuple."""
     try:
         return session_mgr.get_session(sid)
     except SessionNotFoundError:
@@ -162,7 +404,7 @@ def _require_session(session_mgr: StudioSessionManager, sid: str) -> tuple[int, 
 def _require_session_context(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, dict[str, str]] | tuple[StudioSessionManager, Any, Path, str]:
-    """Validate session ID and return (session_mgr, meta, sdir, sid) or error tuple."""
+    """Validate session ID and return `(session_mgr, meta, sdir, sid)` or error tuple."""
     sid = getattr(args, "session", None)
     err = _validate_session(sid)
     if err:
@@ -202,7 +444,7 @@ def _normalize_external_mapping(m: dict[str, Any] | Any) -> Any:
     if conf is None:
         conf = norm.pop("confidence_score", None)
     if conf is None:
-        conf = norm.get("mapping_confidence")
+        conf = norm.pop("mapping_confidence", None)
     if conf is not None:
         with contextlib.suppress(ValueError, TypeError):
             norm["confidence"] = float(conf)
@@ -213,12 +455,12 @@ def _normalize_external_mapping(m: dict[str, Any] | Any) -> Any:
     return norm
 
 
-def _normalize_delta_operation(op: dict[str, Any] | Any) -> Any:
-    """Instantiate typed delta operation from JSON dictionary (MIN-08, MAJ-01)."""
+def _normalize_delta_operation(op: dict[str, Any] | Any) -> OntologyOperation:
+    """Instantiate typed `OntologyOperation` from JSON dictionary."""
     if isinstance(op, BaseOntologyDeltaOp):
-        return op
+        return _OP_TYPE_ADAPTER.validate_python(op)
     if not isinstance(op, dict):
-        return op
+        return _OP_TYPE_ADAPTER.validate_python(op)
     op_copy = dict(op)
     raw_type = (
         op_copy.pop("op_type", None) or op_copy.pop("op", None) or op_copy.pop("operation", None)
@@ -262,73 +504,186 @@ def _normalize_delta_operation(op: dict[str, Any] | Any) -> Any:
         return _OP_TYPE_ADAPTER.validate_python(op_copy)
 
     op_copy["op_type"] = op_type
-    try:
-        return _OP_TYPE_ADAPTER.validate_python(op_copy)
-    except (ValidationError, ValueError, TypeError):
-        return op_copy
+    return _OP_TYPE_ADAPTER.validate_python(op_copy)
 
 
-def _extract_mapping_confidence(m: Any) -> float | None:
-    """Extract numeric confidence score from typed mapping or dictionary, or None (MAJ-01)."""
-    val = getattr(m, "confidence", None)
-    if val is None and isinstance(m, dict):
-        val = m.get("confidence")
-        if val is None:
-            val = m.get("confidence_score")
-        if val is None:
-            val = m.get("mapping_confidence")
-    elif val is None and hasattr(m, "mapping_confidence"):
-        val = m.mapping_confidence
-    if val is None:
+class _MergedDeploymentProvider:
+    """In-memory `DeploymentStateProvider` merging workspace contract states."""
+
+    def __init__(
+        self,
+        concepts: set[str],
+        tables: set[str],
+        entities: set[str],
+    ) -> None:
+        self._concepts = frozenset(concepts)
+        self._tables = frozenset(tables)
+        self._entities = frozenset(entities)
+
+    def get_deployed_concepts(self) -> frozenset[str]:
+        return self._concepts
+
+    def get_deployed_tables(self) -> frozenset[str]:
+        return self._tables
+
+    def get_deployed_entities(self) -> frozenset[str]:
+        return self._entities
+
+
+def _build_workspace_deployment_provider(
+    executor: LocalExecutor | None,
+) -> DeploymentStateProvider | None:
+    """Recursively inspect active workspace for deployed Data Vault contracts (ONT-EVO-001)."""
+    ws_root = (executor.workspace_root if executor else Path.cwd()).resolve()
+    if not ws_root.is_dir():
         return None
-    try:
-        return float(val)
-    except (ValueError, TypeError):
-        return None
 
+    merged_concepts: set[str] = set()
+    merged_tables: set[str] = set()
+    merged_entities: set[str] = set()
+    found_any = False
 
-def _is_mapping_low_confidence(m: Any, threshold: float = 0.70) -> bool:
-    """A mapping is low-confidence if score is missing (None) or strictly below threshold."""
-    conf = _extract_mapping_confidence(m)
-    return conf is None or conf < threshold
-
-
-def _collect_ungrounded_concepts(ops: list[Any], threshold: float = 0.70) -> set[str]:
-    """Identify concept URIs across operations that have missing or low-confidence mappings."""
-    ungrounded: set[str] = set()
-    for op in ops:
-        uri = getattr(op, "concept_uri", None) or (
-            op.get("concept_uri") if isinstance(op, dict) else None
+    candidates: list[Path] = []
+    for root_str, dirnames, filenames in os.walk(ws_root, topdown=True, followlinks=False):
+        root_p = Path(root_str)
+        dirnames[:] = sorted(
+            d
+            for d in dirnames
+            if d not in _SKIP_SCAN_DIRS and not _is_reparse_or_symlink(root_p / d)
         )
-        op_type = getattr(op, "op_type", None) or (
-            op.get("op_type") if isinstance(op, dict) else None
-        )
-        if op_type in ("add_concept", "AddConcept", "AddConceptOp"):
-            ext_mappings = getattr(op, "external_mappings", None) or (
-                op.get("external_mappings") if isinstance(op, dict) else None
+        for fname in sorted(filenames):
+            if not fname.lower().endswith((".yaml", ".yml", ".json")):
+                continue
+            fpath = root_p / fname
+            if _is_reparse_or_symlink(fpath) or not fpath.is_file():
+                continue
+            candidates.append(fpath)
+
+    for cand in candidates:
+        rel_parts = cand.relative_to(ws_root).parts
+        in_contracts_dir = any(part.lower() == "contracts" for part in rel_parts[:-1])
+        is_contract_file = in_contracts_dir or ("contract" in cand.name.lower())
+
+        try:
+            raw_text = cand.read_text(encoding="utf-8")
+            data = (
+                json.loads(raw_text) if cand.suffix.lower() == ".json" else yaml.safe_load(raw_text)
             )
-            if not ext_mappings:
-                if uri:
-                    ungrounded.add(str(uri))
-            else:
-                for m in ext_mappings:
-                    if _is_mapping_low_confidence(m, threshold=threshold):
-                        if uri:
-                            ungrounded.add(str(uri))
-                        break
-        elif (
-            op_type in ("add_external_mapping", "rescore_external_mapping")
-            and _is_mapping_low_confidence(op, threshold=threshold)
-            and uri
-        ):
-            ungrounded.add(str(uri))
-    return ungrounded
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
+            if is_contract_file:
+                raise StudioLocalError(
+                    f"Failed to parse workspace contract '{cand.relative_to(ws_root)}': {exc}",
+                    error_code=ErrorCode.INVALID_WORKSPACE_ONTOLOGY,
+                    exit_code=4,
+                ) from exc
+            continue
+
+        if not isinstance(data, dict):
+            if is_contract_file:
+                rel_p = cand.relative_to(ws_root)
+                raise StudioLocalError(
+                    f"Workspace contract '{rel_p}' must be a YAML/JSON mapping.",
+                    error_code=ErrorCode.INVALID_WORKSPACE_ONTOLOGY,
+                    exit_code=4,
+                )
+            continue
+
+        is_dv_contract = any(
+            k in data
+            for k in (
+                "tables",
+                "hubs",
+                "links",
+                "satellites",
+                "reference_tables",
+                "deployed_tables",
+                "deployed_concepts",
+                "deployed_entities",
+            )
+        ) or ("contract_version" in data and "canonical_business_concepts" not in data)
+        if not is_dv_contract:
+            continue
+
+        try:
+            prov = build_deployment_provider_from_contract(data)
+        except (ValueError, TypeError, KeyError) as exc:
+            if is_contract_file:
+                rel_p = cand.relative_to(ws_root)
+                raise StudioLocalError(
+                    f"Invalid Data Vault contract structure in '{rel_p}': {exc}",
+                    error_code=ErrorCode.INVALID_WORKSPACE_ONTOLOGY,
+                    exit_code=4,
+                ) from exc
+            continue
+
+        if prov is None:
+            continue
+        merged_concepts.update(prov.get_deployed_concepts())
+        merged_tables.update(prov.get_deployed_tables())
+        merged_entities.update(prov.get_deployed_entities())
+        found_any = True
+
+    if not found_any:
+        return None
+    return _MergedDeploymentProvider(
+        concepts=merged_concepts,
+        tables=merged_tables,
+        entities=merged_entities,
+    )
+
+
+def _build_governance_validator(
+    executor: LocalExecutor | None,
+    sec_mgr: WorkspaceSecurityManager,
+    *,
+    verify_grounding: bool = True,
+) -> GovernanceValidator:
+    """Build service-layer `GovernanceValidator` enforcing ONT-EVO-001 & ONT-EVO-002."""
+    dep_prov = _build_workspace_deployment_provider(executor)
+    grounding_ver = get_default_grounding_verifier() if verify_grounding else None
+    return GovernanceValidator(
+        deployment_provider=dep_prov,
+        grounding_verifier=grounding_ver,
+        waiver_verifier=_LocalWaiverVerifier(sec_mgr),
+        strict_verifier_required=verify_grounding,
+    )
 
 
 def _load_and_verify_waiver_credentials(
-    args: argparse.Namespace, executor: LocalExecutor | None, studio_root: Path
-) -> tuple[int, Any] | str:
-    """Load waiver key from --waiver-key-file or OPENDV_WAIVER_KEY and verify key."""
+    args: argparse.Namespace,
+    executor: LocalExecutor | None,
+    sec_mgr: WorkspaceSecurityManager,
+    *,
+    role_tier: str,
+) -> tuple[int, Any] | None:
+    """Verify admin role, optional `--authorized-role`, and cryptographic waiver key.
+
+    Precedence (P13::MAJ-01, MAJ-03, P12::MAJ-04):
+    1. Authenticated role MUST be `admin` -> exit 7 `FORBIDDEN_ADMIN_REQUIRED` (before rationale).
+    2. If `--authorized-role` is passed, it MUST bind to `admin` -> exit 7.
+    3. If `--waiver-key-file` is passed and missing -> exit 3 `FILE_NOT_FOUND` (not 403/7!).
+    4. Waiver key (`--waiver-key-file` or `OPENDV_WAIVER_KEY`) MUST match workspace K_waiver
+       -> exit 7 `FORBIDDEN_ADMIN_REQUIRED`.
+    """
+    if role_tier != "admin":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Administrative grounding waivers strictly require the 'admin' role.",
+        )
+
+    raw_auth_role = getattr(args, "authorized_role", None)
+    if (
+        raw_auth_role is not None
+        and str(raw_auth_role).strip()
+        and str(raw_auth_role).strip().upper() not in _ADMIN_ROLES
+    ):
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            f"Waiver --authorized-role '{raw_auth_role}' is not authorized; 'admin' required.",
+        )
+
     waiver_key = ""
     waiver_key_file = getattr(args, "waiver_key_file", None)
     waiver_key_env = os.environ.get("OPENDV_WAIVER_KEY")
@@ -338,13 +693,17 @@ def _load_and_verify_waiver_credentials(
             key_path = (executor.workspace_root / key_path).resolve()
         if not key_path.is_file():
             return _err(
-                7, "FORBIDDEN_ADMIN_REQUIRED", f"Waiver key file not found: {waiver_key_file}"
+                3,
+                "FILE_NOT_FOUND",
+                f"Waiver key file not found: {waiver_key_file}",
             )
         try:
             waiver_key = key_path.read_text(encoding="utf-8").strip()
-        except OSError:
+        except OSError as exc:
             return _err(
-                7, "FORBIDDEN_ADMIN_REQUIRED", f"Cannot read waiver key file: {waiver_key_file}"
+                2,
+                "SYNTAX_INVALID_ARGUMENT",
+                f"Cannot read waiver key file '{waiver_key_file}': {exc}",
             )
     elif waiver_key_env:
         waiver_key = waiver_key_env.strip()
@@ -356,7 +715,16 @@ def _load_and_verify_waiver_credentials(
             "Administrative waivers strictly require authenticated waiver credentials.",
         )
 
-    sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
+    rationale = getattr(args, "waiver_rationale", None) or getattr(
+        args, "grounding_rationale", None
+    )
+    if not rationale or len(str(rationale).strip()) < 10:
+        return _err(
+            4,
+            "INVALID_GROUNDING_WAIVER",
+            "Low-confidence grounding waiver requires a rationale of at least 10 characters.",
+        )
+
     expected_waiver_bytes = sec_mgr.get_waiver_key()
     expected_waiver_hex = expected_waiver_bytes.hex().lower()
     key_clean = waiver_key.strip().lower()
@@ -371,33 +739,29 @@ def _load_and_verify_waiver_credentials(
     )
     if not is_valid_key:
         return _err(7, "FORBIDDEN_ADMIN_REQUIRED", "Invalid steward waiver credentials.")
-    return waiver_key
+    return None
 
 
-def _verify_grounding_and_waiver(
-    norm_ops: list[Any],
+def _build_signed_waiver_record(
+    *,
     args: argparse.Namespace,
-    head_sha256: str,
+    delta_obj: OntologyDelta,
+    base_ontology: GraphAOntology,
+    base_sha256: str,
     proposal_id: str | None,
+    principal: str,
+    role_tier: str,
     executor: LocalExecutor | None,
-    studio_root: Path,
+    sec_mgr: WorkspaceSecurityManager,
 ) -> tuple[int, Any] | StewardWaiverRecord | None:
-    """Validate ONT-EVO-002 grounding gate and waiver authorization across operations."""
-    ungrounded_in_ops = _collect_ungrounded_concepts(norm_ops)
-    low_conf_waiver = bool(getattr(args, "low_confidence_waiver", False))
-
-    if ungrounded_in_ops and not low_conf_waiver:
-        return _err(
-            4,
-            "ONT_EVO_LOW_CONFIDENCE_GROUNDING",
-            f"Operations contain low-confidence mappings for concepts: {sorted(ungrounded_in_ops)} "
-            "and require an administrative waiver.",
-        )
-
-    if not low_conf_waiver:
+    """Construct and HMAC-sign a `StewardWaiverRecord` when `--low-confidence-waiver` is set."""
+    if not bool(getattr(args, "low_confidence_waiver", False)):
         return None
 
-    # Low-confidence waiver requested: validate rationale and credentials
+    cred_err = _load_and_verify_waiver_credentials(args, executor, sec_mgr, role_tier=role_tier)
+    if cred_err is not None:
+        return cred_err
+
     waiver_rationale = getattr(args, "waiver_rationale", None) or getattr(
         args, "grounding_rationale", None
     )
@@ -408,37 +772,14 @@ def _verify_grounding_and_waiver(
             "Administrative grounding waiver requires a rationale of at least 10 characters.",
         )
 
-    key_res = _load_and_verify_waiver_credentials(args, executor, studio_root)
-    if isinstance(key_res, tuple):
-        return key_res
-    waiver_key = key_res
-
-    # Enforce waiver scope: if user specifies --ungrounded-concept, verify all ungrounded ops
+    touched_uris = collect_touched_concept_uris(base_ontology, delta_obj)
     specified_scope = getattr(args, "ungrounded_concept", None) or []
     if specified_scope:
-        waived_set = set(specified_scope)
-        uncovered = ungrounded_in_ops - waived_set
-        if uncovered:
-            return _err(
-                4,
-                "ONT_EVO_UNGROUNDED_CONCEPT",
-                "Low-confidence waiver scope does not cover ungrounded concepts: "
-                f"{sorted(uncovered)}",
-            )
-        target_concept_uris = sorted(waived_set)
+        target_concept_uris = sorted({str(u) for u in specified_scope if str(u).strip()})
+    elif touched_uris:
+        target_concept_uris = sorted(touched_uris)
     else:
-        # Default to ungrounded concept URIs, or concept URIs in operations if none ungrounded
-        if ungrounded_in_ops:
-            target_concept_uris = sorted(ungrounded_in_ops)
-        else:
-            all_uris = [
-                getattr(op, "concept_uri", None)
-                or (op.get("concept_uri") if isinstance(op, dict) else None)
-                for op in norm_ops
-            ]
-            target_concept_uris = sorted({str(u) for u in all_uris if u}) or [
-                "urn:ontology:entity:exempted_concept"
-            ]
+        target_concept_uris = ["urn:ontology:entity:exempted_concept"]
 
     if proposal_id:
         try:
@@ -447,93 +788,105 @@ def _verify_grounding_and_waiver(
                 p_uuid
                 if p_uuid.version == 4
                 else uuid.UUID(
-                    bytes=hashlib.sha256(str(proposal_id).encode("utf-8")).digest()[:16], version=4
+                    bytes=hashlib.sha256(str(proposal_id).encode("utf-8")).digest()[:16],
+                    version=4,
                 )
             )
         except (ValueError, TypeError):
             prop_uuid = uuid.UUID(
-                bytes=hashlib.sha256(str(proposal_id).encode("utf-8")).digest()[:16], version=4
+                bytes=hashlib.sha256(str(proposal_id).encode("utf-8")).digest()[:16],
+                version=4,
             )
     else:
         prop_uuid = uuid.uuid4()
 
-    delta_canon_bytes = dumps_jcs_bytes(
-        [
-            (
-                op.model_dump(mode="json", exclude_none=True)
-                if hasattr(op, "model_dump")
-                else dict(op)
-                if isinstance(op, dict)
-                else op
-            )
-            for op in norm_ops
-        ]
-    )
-    delta_hash = hashlib.sha256(delta_canon_bytes).hexdigest()
-
-    auth_by = getattr(args, "authorized_by", None) or "data-steward"
-    auth_role = getattr(args, "authorized_role", None) or "steward"
-    auth_role_tier = "admin" if str(auth_role).lower() == "admin" else "steward"
-
-    waiver_id = uuid.uuid4()
-    sig_payload = (
-        f"{waiver_id}:{prop_uuid}:{delta_hash}:"
-        f"{head_sha256}:{','.join(sorted(target_concept_uris))}:"
-        f"{waiver_rationale.strip()}"
-    )
-    if isinstance(waiver_key, bytes):
-        key_bytes = waiver_key
-    else:
-        clean_key = str(waiver_key).strip()
-        try:
-            key_bytes = bytes.fromhex(clean_key)
-        except ValueError:
-            key_bytes = clean_key.encode("utf-8")
-    sig = hmac.new(key_bytes, sig_payload.encode("utf-8"), hashlib.sha256).hexdigest()
-
-    waiver_rec = StewardWaiverRecord(
-        waiver_id=waiver_id,
+    auth_by = str(getattr(args, "authorized_by", None) or principal)
+    waiver_draft = StewardWaiverRecord(
+        waiver_id=uuid.uuid4(),
         proposal_id=prop_uuid,
-        proposal_delta_sha256=delta_hash,
+        proposal_delta_sha256=delta_obj.canonical_sha256(),
         target_concept_uris=target_concept_uris,
-        base_sha256=head_sha256,
+        base_sha256=base_sha256,
         rationale=waiver_rationale.strip(),
-        authorized_by=str(auth_by),
-        authorized_role=auth_role_tier,
-        signature_or_token=sig,
+        authorized_by=auth_by,
+        authorized_role="admin",
+        signature_or_token="pending",
         created_at=datetime.now(UTC),
     )
+    sig = sec_mgr.sign_waiver(waiver_draft.signing_payload().encode("utf-8"))
+    return waiver_draft.model_copy(update={"signature_or_token": sig})
 
-    return waiver_rec
+
+def _load_session_version_ontology(
+    sdir: Path,
+    version_str: str | None,
+    *,
+    domain_namespace: str = "general",
+    enterprise_owner: str = "Enterprise Architecture",
+) -> GraphAOntology | None:
+    """Load `GraphAOntology` for a session version (including `0.0.0` genesis)."""
+    clean_ver = (version_str or "0.0.0").lstrip("v")
+    vdir = sdir / "versions" / f"v{clean_ver}"
+    for fname in ("ontology.json", "ontology.yaml"):
+        ont_f = vdir / fname
+        if ont_f.is_file():
+            raw_text = ont_f.read_text(encoding="utf-8")
+            if ont_f.suffix == ".json":
+                return GraphAOntology.model_validate_json(raw_text)
+            return GraphAOntology.model_validate(yaml.safe_load(raw_text))
+    if clean_ver == "0.0.0":
+        return create_genesis_ontology(
+            domain_namespace=domain_namespace,
+            enterprise_owner=enterprise_owner,
+        )
+    return None
 
 
-def _load_session_base_ontology(sdir: Path, head_version: str | None) -> GraphAOntology | None:
-    """Load base GraphAOntology artifact for a session's head version if not genesis."""
-    if not head_version or head_version in ("0.0.0", ""):
-        return None
-    hver = head_version.lstrip("v")
-    vdir = sdir / "versions" / f"v{hver}"
-    ont_f = vdir / "ontology.json"
-    if not ont_f.is_file():
-        ont_f = vdir / "ontology.yaml"
-    if not ont_f.is_file():
-        return None
-    try:
-        raw_text = ont_f.read_text(encoding="utf-8")
-        if ont_f.suffix == ".json":
-            return GraphAOntology.model_validate_json(raw_text)
-        return GraphAOntology.model_validate(yaml.safe_load(raw_text))
-    except (OSError, ValueError, TypeError, yaml.YAMLError, ValidationError):
-        return None
+def _extract_proposal_operations(prop_data: dict[str, Any]) -> list[Any]:
+    """Extract raw operations from flat `operations` or nested `delta.operations`."""
+    if isinstance(prop_data.get("operations"), list):
+        return list(prop_data["operations"])
+    delta_block = prop_data.get("delta")
+    if isinstance(delta_block, dict) and isinstance(delta_block.get("operations"), list):
+        return list(delta_block["operations"])
+    return []
+
+
+def _extract_proposal_base_sha256(prop_data: dict[str, Any]) -> str:
+    """Extract base SHA-256 from flat or `OntologyProposal` nested fields."""
+    for key in ("base_sha256", "base_ontology_sha256"):
+        val = prop_data.get(key)
+        if isinstance(val, str):
+            return val
+    delta_block = prop_data.get("delta")
+    if isinstance(delta_block, dict) and isinstance(delta_block.get("parent_sha256"), str):
+        return str(delta_block["parent_sha256"])
+    return ""
+
+
+def _extract_proposal_proposer(prop_data: dict[str, Any]) -> str:
+    """Extract proposer attribution from flat `proposer` or `OntologyProposal.proposed_by`."""
+    return str(prop_data.get("proposer") or prop_data.get("proposed_by") or "unknown")
 
 
 # ---------------------------------------------------------------------------
-# Command Handlers (14 subcommand groups / 21 leaf commands)
+# Command Handlers
 # ---------------------------------------------------------------------------
 
 
 def handle_init(args: argparse.Namespace, executor: LocalExecutor | None = None) -> tuple[int, Any]:
-    """1. `opendv ontology studio init [--force]`."""
+    """1. `opendv ontology studio init [--force] [--show-token]`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    _, role_tier = auth_res  # type: ignore[misc]
+    if role_tier != "admin":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Initializing or rotating local Studio secrets requires the 'admin' role.",
+        )
+
     studio_root = _get_studio_root(executor)
     secret_file = studio_root / ".odv_workspace_secret"
     token_file = studio_root / ".local_token"
@@ -556,7 +909,6 @@ def handle_init(args: argparse.Namespace, executor: LocalExecutor | None = None)
 
     WorkspaceSecurityManager(studio_root=studio_root)
 
-    # Initialize local loopback token with 0600 mode from start (MIN-01)
     token = secrets.token_hex(32)
     tmp_token = studio_root / f".token.{uuid.uuid4().hex[:8]}.tmp"
     flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_BINARY", 0)
@@ -585,11 +937,38 @@ def handle_create(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
     """2. `opendv ontology studio create`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    _principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Read-only viewer role is not permitted to create Studio sessions.",
+        )
+
     sid = getattr(args, "session", None)
     if sid:
         err = _validate_session(sid)
         if err:
             return err
+
+    raw_ns = getattr(args, "domain_namespace", None)
+    if not raw_ns or (
+        getattr(args, "_explicit_domain_namespace", None) is not True and raw_ns == "default"
+    ):
+        domain_ns = "general"
+    else:
+        domain_ns = str(raw_ns)
+
+    raw_owner = getattr(args, "enterprise_owner", None)
+    if not raw_owner or (
+        getattr(args, "_explicit_enterprise_owner", None) is not True and raw_owner == "Enterprise"
+    ):
+        owner = "Enterprise Architecture"
+    else:
+        owner = str(raw_owner)
 
     from_ws = getattr(args, "from_workspace", None)
     initial_ontology: GraphAOntology | None = None
@@ -602,23 +981,28 @@ def handle_create(
         if not ws_path.exists():
             return _err(2, "INVALID_WORKSPACE_PATH", f"Workspace directory not found: {from_ws}")
 
-        # Search for Graph A ontology file in workspace (MIN-13)
         found_yaml: Path | None = None
-        for candidate in [
-            ws_path / "pe_graph_a_ontology.yaml",
-            ws_path / "graph_a_ontology.yaml",
-            ws_path / "ontology.yaml",
-        ]:
-            if candidate.is_file():
-                found_yaml = candidate
-                break
+        if ws_path.is_file():
+            found_yaml = ws_path
+        else:
+            ns_slug = sanitize_domain_namespace(domain_ns)
+            for candidate in [
+                ws_path / f"{ns_slug}_graph_a_ontology.yaml",
+                ws_path / "graph_a_ontology.yaml",
+                ws_path / "ontology.yaml",
+                ws_path / "pe_graph_a_ontology.yaml",
+                *sorted(ws_path.glob("*_graph_a_ontology.yaml")),
+            ]:
+                if candidate.is_file():
+                    found_yaml = candidate
+                    break
 
         if not found_yaml:
             return _err(
                 4,
                 "INVALID_WORKSPACE_ONTOLOGY",
                 f"No Graph A ontology contract found in '{from_ws}' "
-                "(expected graph_a_ontology.yaml or pe_graph_a_ontology.yaml)",
+                "(expected graph_a_ontology.yaml or *_graph_a_ontology.yaml)",
             )
 
         try:
@@ -632,8 +1016,6 @@ def handle_create(
             )
 
     session_mgr = _get_session_manager(executor)
-    domain_ns = getattr(args, "domain_namespace", None) or "default"
-    owner = getattr(args, "enterprise_owner", None) or "Enterprise"
 
     try:
         meta = session_mgr.create_session(
@@ -647,11 +1029,12 @@ def handle_create(
     except InvalidSessionIdentifierError as err_id:
         return _err(2, "INVALID_SESSION_IDENTIFIER", str(err_id))
 
+    sdir = session_mgr.get_session_dir(meta.session_id)
     return 0, {
         "session_id": meta.session_id,
         "domain_namespace": meta.domain_namespace,
         "enterprise_owner": meta.enterprise_owner,
-        "status": meta.status,
+        "status": _derive_session_status(sdir, meta),
         "active_version": meta.head_version,
         "head_sha256": meta.head_sha256,
         "created_at": meta.created_at,
@@ -659,46 +1042,101 @@ def handle_create(
     }
 
 
+def handle_delete(
+    args: argparse.Namespace, executor: LocalExecutor | None = None
+) -> tuple[int, Any]:
+    """3. `opendv ontology studio delete -s <session> [--force]`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    _, role_tier = auth_res  # type: ignore[misc]
+    if role_tier != "admin":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Deleting Studio sessions requires the 'admin' role.",
+        )
+
+    sid = getattr(args, "session", None)
+    err = _validate_session(sid)
+    if err:
+        return err
+
+    force = bool(getattr(args, "force", False))
+    session_mgr = _get_session_manager(executor)
+    try:
+        session_mgr.delete_session(str(sid), force=force)
+    except SessionNotFoundError:
+        return _err(3, "SESSION_NOT_FOUND", f"Session '{sid}' not found")
+    except CannotDeletePromotedSessionError as exc:
+        return _err(6, "CANNOT_DELETE_PROMOTED_SESSION", str(exc))
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
+
+    return 0, {
+        "session_id": str(sid),
+        "status": "DELETED",
+        "deleted": True,
+    }
+
+
 def handle_list(args: argparse.Namespace, executor: LocalExecutor | None = None) -> tuple[int, Any]:
-    """3. `opendv ontology studio list`."""
+    """4. `opendv ontology studio list`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+
     session_mgr = _get_session_manager(executor)
     sessions = session_mgr.list_sessions()
+    enriched = [
+        (s, _derive_session_status(session_mgr.get_session_dir(s.session_id), s)) for s in sessions
+    ]
     status_filter = getattr(args, "status", None)
     if status_filter:
-        sessions = [s for s in sessions if s.status.upper() == status_filter.upper()]
+        target_st = str(status_filter).upper()
+        enriched = [
+            (s, eff_st)
+            for s, eff_st in enriched
+            if eff_st.upper() == target_st or s.status.upper() == target_st
+        ]
 
     offset = getattr(args, "offset", 0) or 0
     limit = getattr(args, "limit", 50) or 50
-    paged = sessions[offset : offset + limit]
+    paged = enriched[offset : offset + limit]
 
     return 0, [
         {
             "session_id": s.session_id,
             "domain_namespace": s.domain_namespace,
             "enterprise_owner": s.enterprise_owner,
-            "status": s.status,
+            "status": eff_st,
             "active_version": s.head_version,
             "created_at": s.created_at,
             "updated_at": s.updated_at,
         }
-        for s in paged
+        for s, eff_st in paged
     ]
 
 
 def handle_status(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """4. `opendv ontology studio status -s <session>`."""
+    """5. `opendv ontology studio status -s <session>`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    _, meta, _, _ = ctx
+        return ctx  # type: ignore[return-value]
+    _, meta, sdir, _ = ctx  # type: ignore[misc]
 
     return 0, {
         "session_id": meta.session_id,
-        "status": meta.status,
+        "status": _derive_session_status(sdir, meta),
         "active_version": meta.head_version,
         "head_sha256": meta.head_sha256,
+        "taint_classification": meta.taint_classification,
         "active_jobs": 0,
     }
 
@@ -706,38 +1144,49 @@ def handle_status(
 def handle_upload(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """5. `opendv ontology studio upload -s <session> -f <file>`."""
+    """6. `opendv ontology studio upload -s <session> -f <file>` (P12::MAJ-03 sticky taint)."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    _, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Read-only viewer role is not permitted to upload sources.",
+        )
+
     fpath_raw = getattr(args, "file", None)
     if not fpath_raw:
         return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing required --file argument")
 
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    session_mgr, _, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    session_mgr, _, sdir, sid = ctx  # type: ignore[misc]
 
     fpath = Path(fpath_raw)
     if not fpath.is_absolute() and executor:
         fpath = (executor.workspace_root / fpath).resolve()
     if not fpath.is_file():
-        return _err(2, "SYNTAX_INVALID_ARGUMENT", f"File not found: {fpath_raw}")
+        return _err(3, "FILE_NOT_FOUND", f"File not found: {fpath_raw}")
 
     try:
         content = fpath.read_bytes()
-    except OSError as e:
-        return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Failed to read file: {e}")
+    except OSError as exc:
+        return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Failed to read file: {exc}")
 
     if not content:
         return _err(4, "CORRUPT_SOURCE_BLOB", f"Source file '{fpath.name}' is empty or corrupt.")
 
     sha256_hex = hashlib.sha256(content).hexdigest()
-    sdir = session_mgr.get_session_dir(sid)
     cas = session_mgr.get_cas(sid)
     cas.put(content)
 
-    do_not_send = bool(
+    requested_do_not_send = bool(
         getattr(args, "do_not_send_to_agent", False) or getattr(args, "confidential", False)
     )
+    raw_description = getattr(args, "description", None)
 
     lock_file = sdir / ".session.lock"
     with studio_lock(lock_file, level=L5_SESSION, session_id=sid):
@@ -748,13 +1197,49 @@ def handle_upload(
                 manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
             except (json.JSONDecodeError, OSError) as err_man:
                 return _err(
-                    4, "CORRUPT_SESSION_STATE", f"Failed to parse inputs manifest.json: {err_man}"
+                    1, "CORRUPT_SESSION_STATE", f"Failed to parse inputs manifest.json: {err_man}"
                 )
 
         existing = manifest.get("files", []) or manifest.get("sources", [])
-        files = [f for f in existing if f.get("sha256") != sha256_hex]
-        source_entry = {
-            "source_id": sha256_hex,
+        prev_entry = next(
+            (
+                item
+                for item in existing
+                if isinstance(item, dict)
+                and (item.get("sha256") == sha256_hex or item.get("source_sha256") == sha256_hex)
+            ),
+            None,
+        )
+
+        # Sticky taint: re-uploading without --confidential MUST NEVER downgrade prior taint!
+        prev_taint = bool(
+            prev_entry
+            and (
+                prev_entry.get("do_not_send_to_agent") is True
+                or str(prev_entry.get("taint_classification", "")).upper()
+                in ("CONFIDENTIAL", "TAINTED", "DO_NOT_SEND")
+            )
+        )
+        effective_do_not_send = prev_taint or requested_do_not_send
+        effective_description = (
+            raw_description
+            if raw_description is not None
+            else (prev_entry.get("description") if isinstance(prev_entry, dict) else None)
+        )
+
+        prev_sid = str(prev_entry.get("source_id") or "") if isinstance(prev_entry, dict) else ""
+        source_id = prev_sid if prev_sid.startswith("src-") else f"src-{sha256_hex[:16]}"
+        now_iso = datetime.now(UTC).isoformat()
+
+        files = [
+            f
+            for f in existing
+            if isinstance(f, dict)
+            and f.get("sha256") != sha256_hex
+            and f.get("source_sha256") != sha256_hex
+        ]
+        source_entry: dict[str, Any] = {
+            "source_id": source_id,
             "source_sha256": sha256_hex,
             "file_name": fpath.name,
             "filename": fpath.name,
@@ -762,20 +1247,60 @@ def handle_upload(
             "size_bytes": len(content),
             "byte_count": len(content),
             "mime_type": "application/octet-stream",
-            "do_not_send_to_agent": do_not_send,
-            "uploaded_at": datetime.now(UTC).isoformat(),
+            "do_not_send_to_agent": effective_do_not_send,
+            "taint_classification": "CONFIDENTIAL" if effective_do_not_send else "CLEAN",
+            "uploaded_at": now_iso,
         }
+        if effective_description is not None:
+            source_entry["description"] = str(effective_description)
+
         files.append(source_entry)
         manifest["files"] = files
         manifest["sources"] = files
         manifest["total_bytes"] = sum(f.get("size_bytes", 0) for f in files)
+        _atomic_write_json(manifest_file, manifest)
 
-        manifest_file.parent.mkdir(parents=True, exist_ok=True)
-        tmp_m = manifest_file.parent / f".manifest.{uuid.uuid4().hex[:8]}.tmp"
-        tmp_m.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-        set_owner_only_permissions(tmp_m)
-        os.replace(tmp_m, manifest_file)
-        set_owner_only_permissions(manifest_file)
+        # Synchronize taint_index.json & session.json sticky taint state
+        taint_index_path = sdir / "taint_index.json"
+        tainted_ids = sorted(
+            {
+                str(f.get("source_id") or f.get("sha256"))
+                for f in files
+                if f.get("do_not_send_to_agent") is True
+                or str(f.get("taint_classification", "")).upper()
+                in ("CONFIDENTIAL", "TAINTED", "DO_NOT_SEND")
+            }
+        )
+        tainted_shas = sorted(
+            {
+                str(f.get("sha256") or f.get("source_sha256"))
+                for f in files
+                if f.get("do_not_send_to_agent") is True
+                or str(f.get("taint_classification", "")).upper()
+                in ("CONFIDENTIAL", "TAINTED", "DO_NOT_SEND")
+            }
+        )
+        taint_index_data: dict[str, Any] = {
+            "session_id": sid,
+            "is_tainted": bool(tainted_ids),
+            "tainted_sources": tainted_ids,
+            "tainted_source_ids": tainted_ids,
+            "tainted_sha256s": tainted_shas,
+            "updated_at": now_iso,
+        }
+        _atomic_write_json(taint_index_path, taint_index_data)
+
+        is_session_tainted = bool(compute_effective_session_taint(sdir)) or bool(tainted_ids)
+        session_json_path = sdir / "session.json"
+        if session_json_path.is_file():
+            try:
+                sess_dict = json.loads(session_json_path.read_text(encoding="utf-8"))
+                if sess_dict.get("taint_classification") == "TAINTED" or is_session_tainted:
+                    sess_dict["taint_classification"] = "TAINTED"
+                sess_dict["updated_at"] = now_iso
+                _atomic_write_json(session_json_path, sess_dict)
+            except (json.JSONDecodeError, OSError):
+                pass
 
     return 0, source_entry
 
@@ -783,204 +1308,301 @@ def handle_upload(
 def handle_parse(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """6. `opendv ontology studio parse -s <session>` (CRIT-01)."""
+    """7. `opendv ontology studio parse -s <session>` via `StudioJobRunners`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    _, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Read-only viewer role is not permitted to trigger parse jobs.",
+        )
+
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    session_mgr, _, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    session_mgr, _, _, sid = ctx  # type: ignore[misc]
 
-    manifest_file = sdir / "inputs" / "manifest.json"
-    files: list[dict[str, Any]] = []
-    if manifest_file.is_file():
-        try:
-            mdata = json.loads(manifest_file.read_text(encoding="utf-8"))
-            files = mdata.get("files", []) or mdata.get("sources", [])
-        except (json.JSONDecodeError, OSError) as err_man:
-            return _err(
-                4, "CORRUPT_SESSION_STATE", f"Failed to parse inputs manifest.json: {err_man}"
-            )
+    collected_ids: list[str] = []
+    single_id = getattr(args, "source_id", None)
+    if single_id:
+        collected_ids.extend([s.strip() for s in str(single_id).split(",") if s.strip()])
+    multi_ids = getattr(args, "source_ids", None)
+    if isinstance(multi_ids, list):
+        for item in multi_ids:
+            collected_ids.extend([s.strip() for s in str(item).split(",") if s.strip()])
+    elif isinstance(multi_ids, str) and multi_ids.strip():
+        collected_ids.extend([s.strip() for s in multi_ids.split(",") if s.strip()])
 
-    cas = session_mgr.get_cas(sid)
-    ingestion_service = IngestionService(
-        adapters=[
-            MarkdownDocumentAdapter(),
-            DelimitedTabularAdapter(),
-            PyArrowTabularAdapter(),
-            StructuredDataDocumentAdapter(),
-            MarkupDocumentAdapter(),
-            PlainTextDocumentAdapter(),
-        ]
-    )
+    ocr_mode = str(getattr(args, "ocr_mode", None) or "auto")
+    try:
+        res = run_parse_session_sources(
+            session_mgr,
+            sid,
+            source_ids=collected_ids or None,
+            ocr_mode=ocr_mode,
+            actor_role=role_tier,
+        )
+    except OCRUnavailableError as exc:
+        return _err(1, "OCR_UNAVAILABLE", str(exc))
+    except OfficeConversionUnavailableError as exc:
+        return _err(1, "OFFICE_CONVERSION_UNAVAILABLE", str(exc))
+    except UnsupportedFormatError as exc:
+        return _err(2, "UNSUPPORTED_FORMAT", str(exc))
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
 
-    parsed_chunks: list[EvidenceChunk] = []
-    parsed_tables: list[TableStructure] = []
-    diagnostics: list[str] = []
-
-    for f in files:
-        sha = f.get("sha256") or f.get("source_sha256", "")
-        fn = f.get("filename") or f.get("file_name", "document.txt")
-        try:
-            raw_bytes = cas.get(sha)
-            res = ingestion_service.ingest_bytes(data=raw_bytes, filename=fn)
-            parsed_chunks.extend(res.chunks)
-            if hasattr(res, "tables") and res.tables:
-                parsed_tables.extend(res.tables)
-        except (OSError, RuntimeError, ValueError, KeyError) as exc:
-            diagnostics.append(f"Failed to ingest source {fn} ({sha[:8]}): {exc}")
-
-    lock_file = sdir / ".session.lock"
-    with studio_lock(lock_file, level=L5_SESSION, session_id=sid):
-        evidence_dir = sdir / "evidence"
-        evidence_dir.mkdir(parents=True, exist_ok=True)
-        chunks_file = evidence_dir / "chunks.jsonl"
-        tmp_chunks = evidence_dir / f".chunks.{uuid.uuid4().hex[:8]}.tmp"
-        with open(tmp_chunks, "w", encoding="utf-8") as fp:
-            for c in parsed_chunks:
-                fp.write(json.dumps(c.model_dump(mode="json", exclude_none=True)) + "\n")
-        set_owner_only_permissions(tmp_chunks)
-        os.replace(tmp_chunks, chunks_file)
-        set_owner_only_permissions(chunks_file)
-
-        if parsed_tables:
-            tables_file = evidence_dir / "tables.jsonl"
-            tmp_tables = evidence_dir / f".tables.{uuid.uuid4().hex[:8]}.tmp"
-            with open(tmp_tables, "w", encoding="utf-8") as fp:
-                for t in parsed_tables:
-                    fp.write(json.dumps(t.model_dump(mode="json", exclude_none=True)) + "\n")
-            set_owner_only_permissions(tmp_tables)
-            os.replace(tmp_tables, tables_file)
-            set_owner_only_permissions(tables_file)
-
-    return 0, {
-        "session_id": sid,
-        "status": "COMPLETED",
-        "parsed_sources_count": len(files),
-        "chunks_count": len(parsed_chunks),
-        "tables_count": len(parsed_tables),
-        "stage": "PARSED",
-        "diagnostics": diagnostics,
-    }
+    res["stage"] = "PARSED"
+    return 0, res
 
 
 def handle_clarify(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """7. `opendv ontology studio clarify -s <session>` (CRIT-01)."""
+    """8. `opendv ontology studio clarify -s <session>` via `StudioJobRunners`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    _, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Read-only viewer role is not permitted to run clarification.",
+        )
+    if role_tier == "automated":
+        return _err(
+            7,
+            "AGENT_OPERATION_FORBIDDEN",
+            "Automated agent role is forbidden from dispatching clarification jobs.",
+        )
+
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    _, _, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    session_mgr, _, sdir, sid = ctx  # type: ignore[misc]
 
-    chunks_file = sdir / "evidence" / "chunks.jsonl"
-    chunks: list[EvidenceChunk] = []
-    if chunks_file.is_file():
-        for line in chunks_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line:
-                with contextlib.suppress(Exception):
-                    chunks.append(EvidenceChunk.model_validate_json(line))
+    mode = str(getattr(args, "mode", None) or "auto").lower()
+    if mode == "agent":
+        return _err(
+            1,
+            "AGENT_UNAVAILABLE",
+            "Agent-assisted clarification harness is unavailable in local standalone engine; "
+            "use --mode deterministic or --mode auto.",
+        )
 
-    harness = ClarificationHarness(session_dir=sdir)
-    max_q = int(getattr(args, "max_questions", 5) or 5)
-    questions = harness.generate_questions(
-        candidate_terms=None,
-        evidence_chunks=chunks,
-        max_questions=max_q,
-    )
+    max_q_raw = getattr(args, "max_questions", None)
+    max_q = int(max_q_raw) if max_q_raw is not None else 10
+    focus = getattr(args, "focus_concept", None)
+    cand_terms = [str(focus)] if focus else None
 
+    try:
+        res = run_clarify_session(
+            session_mgr,
+            sid,
+            candidate_terms=cand_terms,
+            max_questions=max_q,
+            actor_role=role_tier,
+        )
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
+
+    q_dicts: list[dict[str, Any]] = []
     q_file = sdir / "clarifications" / "questions.json"
-    q_file.parent.mkdir(parents=True, exist_ok=True)
-    tmp_q = q_file.parent / f".questions.{uuid.uuid4().hex[:8]}.tmp"
-    q_dicts = [q.model_dump(mode="json", exclude_none=True) for q in questions]
-    tmp_q.write_text(json.dumps(q_dicts, indent=2), encoding="utf-8")
-    set_owner_only_permissions(tmp_q)
-    os.replace(tmp_q, q_file)
-    set_owner_only_permissions(q_file)
+    if q_file.is_file():
+        with contextlib.suppress(json.JSONDecodeError, OSError):
+            loaded_q = json.loads(q_file.read_text(encoding="utf-8"))
+            if isinstance(loaded_q, list):
+                q_dicts = loaded_q
+    res["questions"] = q_dicts
+    return 0, res
 
-    return 0, {
-        "session_id": sid,
-        "status": "COMPLETED",
-        "questions_count": len(questions),
-        "questions": q_dicts,
-    }
+
+def _normalize_answer_item_dict(raw_item: dict[str, Any]) -> ClarificationAnswerItem:
+    """Normalize CLI/legacy answer item keys into strict `ClarificationAnswerItem` DTO."""
+    qid = str(raw_item.get("question_id") or "").strip()
+    raw_opts = raw_item.get("selected_options")
+    if raw_opts is None:
+        raw_opts = raw_item.get("selected_option_ids")
+    if raw_opts is None and raw_item.get("selected_option_id") is not None:
+        raw_opts = [str(raw_item["selected_option_id"])]
+    if isinstance(raw_opts, str):
+        selected_opts = [s.strip() for s in raw_opts.split(",") if s.strip()]
+    elif isinstance(raw_opts, list):
+        selected_opts = [str(s).strip() for s in raw_opts if str(s).strip()]
+    else:
+        selected_opts = []
+
+    raw_text = (
+        raw_item.get("user_text")
+        if raw_item.get("user_text") is not None
+        else (
+            raw_item.get("free_text")
+            if raw_item.get("free_text") is not None
+            else raw_item.get("text")
+        )
+    )
+    user_text = str(raw_text).strip() if raw_text is not None and str(raw_text).strip() else None
+
+    return ClarificationAnswerItem(
+        question_id=qid,
+        selected_options=selected_opts,
+        user_text=user_text,
+    )
 
 
 def handle_answer(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """8. `opendv ontology studio answer -s <session> -f <file>`."""
+    """9. `opendv ontology studio answer -s <session>` (canonical list + JCS OCC)."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    _, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Read-only viewer role is not permitted to submit clarification answers.",
+        )
+
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    _, _, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    session_mgr, _, sdir, sid = ctx  # type: ignore[misc]
+
     ans_file = getattr(args, "file", None)
+    qid_flag = getattr(args, "question_id", None) or getattr(args, "question", None)
+    opt_flag = getattr(args, "option", None) or getattr(args, "option_id", None)
+    text_flag = getattr(args, "text", None) or getattr(args, "free_text", None)
+    exp_sha_flag = getattr(args, "expected_answers_sha256", None)
+
+    incoming_raw: list[dict[str, Any]] = []
+    file_exp_sha: str | None = None
+
     if ans_file:
         fpath = Path(ans_file)
         if not fpath.is_absolute() and executor:
             fpath = (executor.workspace_root / fpath).resolve()
         if not fpath.is_file():
-            return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Answers file not found: {ans_file}")
+            return _err(3, "FILE_NOT_FOUND", f"Answers file not found: {ans_file}")
         try:
             loaded_answers = json.loads(fpath.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as e:
-            return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Malformed answers JSON: {e}")
-    else:
-        loaded_answers = None
+        except (json.JSONDecodeError, OSError) as exc:
+            return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Malformed answers JSON: {exc}")
+
+        if isinstance(loaded_answers, dict):
+            if isinstance(loaded_answers.get("expected_answers_sha256"), str):
+                file_exp_sha = str(loaded_answers["expected_answers_sha256"])
+            if isinstance(loaded_answers.get("answers"), list):
+                for item in loaded_answers["answers"]:
+                    if isinstance(item, dict):
+                        incoming_raw.append(item)
+            elif loaded_answers.get("question_id"):
+                incoming_raw.append(loaded_answers)
+            else:
+                for k, v in loaded_answers.items():
+                    if k == "expected_answers_sha256":
+                        continue
+                    if isinstance(v, dict):
+                        d = dict(v)
+                        d.setdefault("question_id", str(k))
+                        incoming_raw.append(d)
+        elif isinstance(loaded_answers, list):
+            for item in loaded_answers:
+                if isinstance(item, dict):
+                    incoming_raw.append(item)
+        else:
+            return _err(
+                2, "SYNTAX_INVALID_ARGUMENT", "Answers file must contain a JSON list or object"
+            )
+
+    if qid_flag:
+        flag_item: dict[str, Any] = {"question_id": str(qid_flag)}
+        if opt_flag is not None:
+            flag_item["selected_options"] = (
+                [opt_flag] if isinstance(opt_flag, str) else list(opt_flag)
+            )
+        if text_flag is not None:
+            flag_item["user_text"] = str(text_flag)
+        incoming_raw.append(flag_item)
+
+    if not incoming_raw:
+        return _err(
+            2,
+            "SYNTAX_INVALID_ARGUMENT",
+            "Provide either --file or --question-id with --option/--text for studio answer.",
+        )
+
+    try:
+        incoming_items = [_normalize_answer_item_dict(item) for item in incoming_raw]
+    except (ValidationError, ValueError, TypeError) as exc:
+        return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Invalid clarification answer item: {exc}")
+
+    expected_sha = (exp_sha_flag or file_exp_sha or "").strip().strip('"').lower() or None
 
     target_ans = sdir / "clarifications" / "answers.json"
     target_ans.parent.mkdir(parents=True, exist_ok=True)
     lock_file = sdir / ".session.lock"
+    cas = session_mgr.get_cas(sid)
 
     with studio_lock(lock_file, level=L5_SESSION, session_id=sid):
-        # Load existing answers
-        answers_dict: dict[str, Any] = {}
+        existing_map: dict[str, ClarificationAnswerItem] = {}
         if target_ans.is_file():
             try:
-                raw = json.loads(target_ans.read_text(encoding="utf-8"))
-                if isinstance(raw, dict):
-                    answers_dict = raw
-                elif isinstance(raw, list):
-                    for idx, item in enumerate(raw):
+                raw_existing = json.loads(target_ans.read_text(encoding="utf-8"))
+                if isinstance(raw_existing, list):
+                    for item in raw_existing:
                         if isinstance(item, dict):
-                            answers_dict[item.get("question_id", str(idx))] = item
-            except (json.JSONDecodeError, OSError) as e:
+                            norm_existing = _normalize_answer_item_dict(item)
+                            existing_map[norm_existing.question_id] = norm_existing
+                elif isinstance(raw_existing, dict):
+                    for k, item in raw_existing.items():
+                        if isinstance(item, dict):
+                            d = dict(item)
+                            d.setdefault("question_id", str(k))
+                            norm_existing = _normalize_answer_item_dict(d)
+                            existing_map[norm_existing.question_id] = norm_existing
+            except (json.JSONDecodeError, OSError, ValidationError, ValueError) as exc:
                 return _err(
                     1,
                     "CORRUPT_SESSION_RECORD",
-                    f"Corrupt answers record in session '{sid}': {e}",
+                    f"Corrupt answers record in session '{sid}': {exc}",
                 )
 
-        if isinstance(loaded_answers, dict):
-            answers_dict.update(loaded_answers)
-        elif isinstance(loaded_answers, list):
-            for idx, item in enumerate(loaded_answers):
-                if isinstance(item, dict):
-                    answers_dict[item.get("question_id", str(idx))] = item
+        sorted_existing = sorted(existing_map.values(), key=lambda x: x.question_id)
+        if sorted_existing:
+            existing_jcs = dumps_jcs(
+                [a.model_dump(mode="json", exclude_none=True) for a in sorted_existing]
+            ).encode("utf-8")
+            current_sha = hashlib.sha256(existing_jcs).hexdigest()
+        else:
+            current_sha = EMPTY_ANSWERS_SHA256
 
-        # CLI flag overrides
-        qid = getattr(args, "question_id", None) or getattr(args, "question", None)
-        oid = getattr(args, "option_id", None) or getattr(args, "option", None)
-        ftext = getattr(args, "text", None) or getattr(args, "free_text", None)
-        if qid:
-            entry = answers_dict.get(qid, {"question_id": qid})
-            if oid:
-                entry["selected_option_ids"] = [oid] if isinstance(oid, str) else oid
-            if ftext:
-                entry["free_text"] = ftext
-            answers_dict[qid] = entry
+        if expected_sha is not None and expected_sha != current_sha:
+            return _err(
+                5,
+                "ONT_EVO_CONCURRENT_MODIFICATION",
+                f"Clarification answers OCC mismatch: expected '{expected_sha}', "
+                f"current is '{current_sha}'.",
+            )
 
-        out_bytes = json.dumps(answers_dict, indent=2).encode("utf-8")
-        tmp_ans = target_ans.parent / f".answers.{uuid.uuid4().hex[:8]}.tmp"
-        tmp_ans.write_bytes(out_bytes)
-        set_owner_only_permissions(tmp_ans)
-        os.replace(tmp_ans, target_ans)
-        set_owner_only_permissions(target_ans)
-        answers_sha = hashlib.sha256(out_bytes).hexdigest()
+        for item in incoming_items:
+            existing_map[item.question_id] = item
+
+        merged_sorted = sorted(existing_map.values(), key=lambda x: x.question_id)
+        answers_payload = [a.model_dump(mode="json", exclude_none=True) for a in merged_sorted]
+        jcs_bytes = dumps_jcs(answers_payload).encode("utf-8")
+        answers_sha = cas.put(jcs_bytes)
+        _atomic_write_json(target_ans, answers_payload)
 
     return 0, {
         "session_id": sid,
         "status": "ACCEPTED",
-        "answers_recorded": len(answers_dict),
+        "saved_count": len(incoming_items),
+        "answers_recorded": len(answers_payload),
         "answers_sha256": answers_sha,
     }
 
@@ -988,264 +1610,95 @@ def handle_answer(
 def handle_construct(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """9. `opendv ontology studio construct -s <session>` (CRIT-01)."""
-    ctx = _require_session_context(args, executor)
-    if isinstance(ctx[0], int):
-        return ctx
-    session_mgr, meta, sdir, sid = ctx
+    """10. `opendv ontology studio construct -s <session>` via `StudioJobRunners`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Read-only viewer role is not permitted to construct ontology proposals.",
+        )
 
     auto_commit = bool(getattr(args, "auto_commit", False))
-    mode = getattr(args, "mode", "auto") or "auto"
+    if auto_commit and role_tier == "automated":
+        return _err(
+            7,
+            "AGENT_PROPOSAL_ACCEPT_FORBIDDEN",
+            "Automated agent role is forbidden from committing ontology deltas directly.",
+        )
+
+    ctx = _require_session_context(args, executor)
+    if isinstance(ctx[0], int):
+        return ctx  # type: ignore[return-value]
+    session_mgr, _, sdir, sid = ctx  # type: ignore[misc]
+
+    mode = str(getattr(args, "mode", "auto") or "auto").lower()
     base_ver = getattr(args, "base_version", None)
     base_sha = getattr(args, "base_sha256", None)
 
-    if auto_commit:
-        if mode != "deterministic" or not base_ver or not base_sha:
-            return _err(
-                2,
-                "MISSING_AUTO_COMMIT_PRECONDITION",
-                "--auto-commit requires --mode deterministic, --base-version, and --base-sha256",
-            )
-        clean_sha = base_sha.strip('"')
-        clean_base_ver = base_ver.lstrip("v")
-        head_ver = meta.head_version.lstrip("v")
-        if clean_base_ver != head_ver or clean_sha != meta.head_sha256:
-            return _err(
-                5,
-                "ONT_EVO_CONCURRENT_MODIFICATION",
-                f"Precondition mismatch: base_version='{base_ver}' (head='{meta.head_version}'), "
-                f"base_sha='{base_sha}' (head='{meta.head_sha256}')",
-            )
-
-    # 1. Load base ontology
     if base_ver and not _VERSION_PATTERN.match(str(base_ver)):
         return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Invalid --base-version format: '{base_ver}'")
 
-    active_version = (base_ver or meta.head_version).lstrip("v")
-    vdir = (sdir / "versions" / f"v{active_version}").resolve()
-    if not vdir.is_relative_to(sdir.resolve()):
+    if auto_commit and (mode != "deterministic" or not base_ver or not base_sha):
         return _err(
-            2, "INVALID_WORKSPACE_PATH", f"Base version path traversal detected: '{base_ver}'"
-        )
-    ont_file = vdir / "ontology.json"
-    if not ont_file.is_file():
-        ont_file = vdir / "ontology.yaml"
-
-    if base_ver and (not vdir.is_dir() or not ont_file.is_file()):
-        return _err(
-            2, "SYNTAX_INVALID_ARGUMENT", f"Specified --base-version does not exist: '{base_ver}'"
+            2,
+            "MISSING_AUTO_COMMIT_PRECONDITION",
+            "--auto-commit requires --mode deterministic, --base-version, and --base-sha256",
         )
 
-    if ont_file.is_file():
-        try:
-            if ont_file.suffix == ".json":
-                base_ontology = GraphAOntology.model_validate_json(
-                    ont_file.read_text(encoding="utf-8")
-                )
-            else:
-                base_ontology = GraphAOntology.model_validate(
-                    yaml.safe_load(ont_file.read_text(encoding="utf-8"))
-                )
-        except (ValidationError, yaml.YAMLError, OSError, ValueError) as exc:
-            return _err(4, "CORRUPT_SESSION_STATE", f"Failed to load base ontology artifact: {exc}")
-    else:
-        base_ontology = GraphAOntology(
-            domain_name=meta.domain_namespace or "default",
-            concepts={},
-        )
+    if base_ver:
+        clean_ver = str(base_ver).lstrip("v")
+        vdir = (sdir / "versions" / f"v{clean_ver}").resolve()
+        if not vdir.is_relative_to(sdir.resolve()):
+            return _err(
+                2, "INVALID_WORKSPACE_PATH", f"Base version path traversal detected: '{base_ver}'"
+            )
+        if clean_ver != "0.0.0" and not (
+            (vdir / "ontology.json").is_file() or (vdir / "ontology.yaml").is_file()
+        ):
+            return _err(
+                2,
+                "SYNTAX_INVALID_ARGUMENT",
+                f"Specified --base-version does not exist: '{base_ver}'",
+            )
 
-    # Compute actual base ontology SHA
-    base_onto_sha = (
-        compute_ontology_sha256(base_ontology) if ont_file.is_file() else meta.head_sha256
-    )
+    sec_mgr = session_mgr.security_manager
 
-    # 2. Load evidence chunks & tables
-    chunks_file = sdir / "evidence" / "chunks.jsonl"
-    chunks: list[EvidenceChunk] = []
-    if chunks_file.is_file():
-        for line in chunks_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line:
-                with contextlib.suppress(
-                    ValidationError, json.JSONDecodeError, ValueError, TypeError
-                ):
-                    chunks.append(EvidenceChunk.model_validate_json(line))
-
-    tables_file = sdir / "evidence" / "tables.jsonl"
-    tables: list[TableStructure] = []
-    if tables_file.is_file():
-        for line in tables_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line:
-                with contextlib.suppress(
-                    ValidationError, json.JSONDecodeError, ValueError, TypeError
-                ):
-                    tables.append(TableStructure.model_validate_json(line))
-
-    # 3. Load clarification answers
-    answers_file = sdir / "clarifications" / "answers.json"
-    answers_dict: dict[str, Any] = {}
-    if answers_file.is_file():
-        with contextlib.suppress(json.JSONDecodeError, OSError, ValueError):
-            loaded_ans = json.loads(answers_file.read_text(encoding="utf-8"))
-            if isinstance(loaded_ans, dict):
-                answers_dict = loaded_ans
-            elif isinstance(loaded_ans, list):
-                for idx, item in enumerate(loaded_ans):
-                    if isinstance(item, dict):
-                        answers_dict[item.get("question_id", str(idx))] = item
-
-    pipeline = DeterministicConstructionPipeline()
-    opts = ConstructOptions(auto_commit=False, if_match=None)
     try:
-        proposal = pipeline.construct_proposal(
-            base_ontology=base_ontology,
-            evidence_chunks=chunks,
-            tables=tables,
-            clarification_answers=answers_dict,
-            options=opts,
+        res = run_construct_session(
+            session_mgr,
+            sid,
+            actor=principal if auto_commit else "system:deterministic",
+            actor_role=role_tier,
+            mode=mode,
+            auto_commit=auto_commit,
+            base_version=base_ver,
+            base_sha256=base_sha,
+            if_match=base_sha if auto_commit else None,
+            security_manager=sec_mgr,
         )
-    except (RuntimeError, ValueError, TypeError, KeyError) as exc:
-        return _err(4, "CONSTRUCTION_FAILED", f"Deterministic construction pipeline failed: {exc}")
+    except ConcurrentModificationError as err_occ:
+        return _err(5, "ONT_EVO_CONCURRENT_MODIFICATION", str(err_occ))
+    except InvalidPreconditionHeaderError as err_hdr:
+        return _err(2, "INVALID_PRECONDITION_HEADER", str(err_hdr))
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
 
-    proposal_ops = (
-        proposal.delta.operations
-        if hasattr(proposal, "delta") and hasattr(proposal.delta, "operations")
-        else getattr(proposal, "operations", [])
-    )
-
-    # Save proposal to disk atomically
-    props_dir = sdir / "proposals"
-    props_dir.mkdir(parents=True, exist_ok=True)
-    prop_id = getattr(proposal, "proposal_id", None) or f"prop-{uuid.uuid4().hex[:8]}"
-    pfile = props_dir / f"{prop_id}.json"
-    if pfile.is_file():
-        with contextlib.suppress(Exception):
-            existing = json.loads(pfile.read_text(encoding="utf-8"))
-            if existing.get("status") in ("ACCEPTED", "REJECTED"):
-                return _err(
-                    6,
-                    "PROPOSAL_ALREADY_RESOLVED",
-                    f"Proposal '{prop_id}' is already {existing.get('status')}.",
-                )
-
-    prop_data = {
-        "proposal_id": prop_id,
-        "session_id": sid,
-        "base_version": base_ver or meta.head_version,
-        "base_sha256": base_onto_sha,
-        "status": "PENDING",
-        "operations": [
-            op.model_dump(mode="json", exclude_none=True) if hasattr(op, "model_dump") else op
-            for op in proposal_ops
-        ],
-        "rationale": getattr(proposal, "rationale", "Deterministic pipeline construction"),
-        "proposer": "system:deterministic",
-        "created_at": datetime.now(UTC).isoformat(),
-    }
-    _atomic_write_json(pfile, prop_data)
-
-    if auto_commit:
-        if not proposal_ops:
-            return _err(
-                4, "ONT_EVO_CONTRACT_VIOLATION", "Cannot auto-commit proposal with zero operations."
-            )
-
-        # Check grounding: low-confidence mappings require manual steward review and waiver (MAJ-01)
-        ungrounded = _collect_ungrounded_concepts(proposal_ops)
-        if ungrounded:
-            return _err(
-                4,
-                "ONT_EVO_LOW_CONFIDENCE_GROUNDING",
-                f"Proposal has low-confidence grounding for concepts: {sorted(ungrounded)} "
-                "and requires human review.",
-            )
-
-        is_genesis = meta.head_version == "0.0.0"
-        parent_sha = "" if is_genesis else meta.head_sha256
-        temp_delta = (
-            proposal.delta
-            if hasattr(proposal, "delta")
-            else OntologyDelta.model_construct(
-                delta_id=f"delta-{uuid.uuid4().hex[:8]}",
-                parent_sha256=parent_sha,
-                base_version=meta.head_version,
-                target_version=None,
-                operations=proposal_ops,
-            )
-        )
-        base_ont = _load_session_base_ontology(sdir, meta.head_version)
-        try:
-            target_ver = compute_next_semver(meta.head_version, temp_delta, base_ontology=base_ont)
-        except (
-            ValueError,
-            TypeError,
-            KeyError,
-            SemVerCalculusError,
-            ValidationError,
-            AttributeError,
-        ) as exc:
-            return _err(4, "ONT_EVO_CONTRACT_VIOLATION", f"SemVer bump computation failure: {exc}")
-
-        delta_obj = OntologyDelta(
-            delta_id=f"delta-{uuid.uuid4().hex[:12]}",
-            parent_sha256=parent_sha,
-            base_version=meta.head_version,
-            target_version=target_ver,
-            operations=proposal_ops,
-            author="system:deterministic",
-            rationale=prop_data["rationale"],
-        )
-
-        commit_svc = AtomicCommitService(session_manager=session_mgr)
-        try:
-            res = commit_svc.commit_delta(
-                session_id=sid,
-                delta=delta_obj,
-                proposal_id=prop_id,
-                author="system:deterministic",
-                if_match=meta.head_sha256,
-            )
-        except ConcurrentModificationError as err_occ:
-            return _err(5, "ONT_EVO_CONCURRENT_MODIFICATION", str(err_occ))
-        except (
-            RuntimeError,
-            ValueError,
-            TypeError,
-            KeyError,
-            ValidationError,
-            OSError,
-        ) as err_commit:
-            return _err(4, "ONT_EVO_CONTRACT_VIOLATION", str(err_commit))
-
-        prop_data["status"] = "ACCEPTED"
-        _atomic_write_json(pfile, prop_data)
-
-        return 0, {
-            "session_id": sid,
-            "status": "COMMITTED",
-            "committed": True,
-            "proposal_id": prop_id,
-            "target_version": res.version,
-            "target_sha256": res.target_sha256,
-            "parent_sha256": res.parent_sha256,
-        }
-
-    return 0, {
-        "session_id": sid,
-        "proposal_id": prop_id,
-        "status": "PENDING",
-        "base_version": prop_data["base_version"],
-        "base_sha256": prop_data["base_sha256"],
-        "operations_count": len(proposal_ops),
-        "proposer": "system:deterministic",
-    }
+    return 0, res
 
 
 def handle_delta_validate(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """10. `opendv ontology studio delta validate -s <session> -f <delta_file>` (MAJ-06)."""
+    """11. `opendv ontology studio delta validate` via `GovernanceValidator`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+
     fpath_raw = getattr(args, "file", None) or getattr(args, "delta", None)
     if not fpath_raw:
         return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing required --file flag")
@@ -1257,16 +1710,25 @@ def handle_delta_validate(
         return _err(3, "FILE_NOT_FOUND", f"File not found: {fpath_raw}")
 
     try:
-        delta_dict = json.loads(fpath.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as err_json:
-        return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Malformed delta JSON: {err_json}")
+        raw_delta_text = fpath.read_text(encoding="utf-8")
+        delta_dict = (
+            json.loads(raw_delta_text)
+            if fpath.suffix.lower() == ".json"
+            else yaml.safe_load(raw_delta_text)
+        )
+        if not isinstance(delta_dict, dict):
+            return _err(2, "SYNTAX_INVALID_ARGUMENT", "Delta file must contain a JSON/YAML object")
+    except (json.JSONDecodeError, yaml.YAMLError, OSError) as err_json:
+        return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Malformed delta file: {err_json}")
 
     sid = getattr(args, "session", None)
     base_file_arg = getattr(args, "base", None) or getattr(args, "base_file", None)
     base_ver_arg = getattr(args, "base_version", None)
+    base_sha_arg = getattr(args, "base_sha256", None)
     meta = None
-    sdir = None
+    sdir: Path | None = None
     base_ontology: GraphAOntology | None = None
+    grandfathered: set[str] = set()
 
     if sid:
         err = _validate_session(sid)
@@ -1276,6 +1738,7 @@ def handle_delta_validate(
         try:
             meta = session_mgr.get_session(sid)
             sdir = session_mgr.get_session_dir(sid)
+            grandfathered = set(_load_grandfathered_concept_uris(sdir))
         except SessionNotFoundError:
             return _err(3, "SESSION_NOT_FOUND", f"Session '{sid}' not found")
     elif not base_file_arg:
@@ -1285,8 +1748,6 @@ def handle_delta_validate(
             "Either --session or --base must be provided for delta validation.",
         )
 
-    # 1. Resolve base ontology artifact, base_version, and expected_parent_sha
-    expected_parent_sha: str = ""
     if base_file_arg:
         base_path = Path(base_file_arg)
         if not base_path.is_absolute() and executor:
@@ -1295,7 +1756,7 @@ def handle_delta_validate(
             return _err(3, "FILE_NOT_FOUND", f"Base ontology file not found: '{base_file_arg}'")
         try:
             raw_text = base_path.read_text(encoding="utf-8")
-            if base_path.suffix == ".json":
+            if base_path.suffix.lower() == ".json":
                 base_ontology = GraphAOntology.model_validate_json(raw_text)
             else:
                 base_ontology = GraphAOntology.model_validate(yaml.safe_load(raw_text))
@@ -1307,31 +1768,43 @@ def handle_delta_validate(
                 "SYNTAX_INVALID_ARGUMENT",
                 f"Failed to parse base ontology file '{base_file_arg}': {exc}",
             )
-    elif base_ver_arg and sdir:
-        base_ver = base_ver_arg
-        if base_ver not in ("0.0.0", "", None):
-            base_ontology = _load_session_base_ontology(sdir, base_ver)
-            if base_ontology is None:
-                return _err(3, "VERSION_NOT_FOUND", f"Base version artifact missing: '{base_ver}'")
-            expected_parent_sha = compute_ontology_sha256(base_ontology)
-        else:
-            base_ver = "0.0.0"
-            expected_parent_sha = ""
+    elif base_ver_arg and sdir and meta:
+        base_ver = str(base_ver_arg).lstrip("v")
+        base_ontology = _load_session_version_ontology(
+            sdir,
+            base_ver,
+            domain_namespace=meta.domain_namespace,
+            enterprise_owner=meta.enterprise_owner,
+        )
+        if base_ontology is None:
+            return _err(3, "VERSION_NOT_FOUND", f"Base version artifact missing: '{base_ver_arg}'")
+        expected_parent_sha = compute_ontology_sha256(base_ontology)
     elif sdir and meta:
         base_ver = meta.head_version
-        if base_ver in ("0.0.0", "", None):
-            base_ver = "0.0.0"
-            expected_parent_sha = ""
-            base_ontology = None
-        else:
-            base_ontology = _load_session_base_ontology(sdir, base_ver)
-            expected_parent_sha = meta.head_sha256
+        base_ontology = _load_session_version_ontology(
+            sdir,
+            base_ver,
+            domain_namespace=meta.domain_namespace,
+            enterprise_owner=meta.enterprise_owner,
+        )
+        if base_ontology is None:
+            return _err(1, "CORRUPT_SESSION_STATE", f"Head ontology artifact missing: '{base_ver}'")
+        expected_parent_sha = meta.head_sha256
     else:
         return _err(
             2,
             "SYNTAX_INVALID_ARGUMENT",
             "Either --session or --base must be provided for delta validation.",
         )
+
+    if base_sha_arg:
+        clean_arg_sha = str(base_sha_arg).strip().strip('"').lower()
+        if clean_arg_sha and clean_arg_sha != expected_parent_sha:
+            return _err(
+                5,
+                "ONT_EVO_CONCURRENT_MODIFICATION",
+                f"Base SHA mismatch: expected {expected_parent_sha}, got {clean_arg_sha}",
+            )
 
     raw_ops = delta_dict.get("operations", [])
     try:
@@ -1347,26 +1820,53 @@ def handle_delta_validate(
         }
 
     violations: list[str] = []
-
-    # Grounding check (fail-closed when verify_grounding enabled, or if waiver requested)
-    if getattr(args, "verify_grounding", False):
-        ungrounded = _collect_ungrounded_concepts(norm_ops)
-        if ungrounded and not getattr(args, "low_confidence_waiver", False):
+    parent_given = str(delta_dict.get("parent_sha256") or "").strip()
+    if base_ver == "0.0.0":
+        if parent_given not in ("", expected_parent_sha):
             violations.append(
-                "Operations contain low-confidence mappings for concepts: "
-                f"{sorted(ungrounded)} and require an administrative waiver."
+                f"Genesis delta parent_sha256 '{parent_given}' must be empty or match genesis SHA."
             )
+    elif parent_given and parent_given != expected_parent_sha:
+        violations.append(
+            f"parent_sha256 '{parent_given}' does not match expected base SHA "
+            f"'{expected_parent_sha}' for base version '{base_ver}'"
+        )
 
-    # 1. Structural & Schema Delta Construction Validation
+    temp_delta = OntologyDelta.model_construct(
+        delta_id=delta_dict.get("delta_id", f"delta-{uuid.uuid4().hex[:8]}"),
+        parent_sha256=expected_parent_sha,
+        base_ontology_version=base_ver,
+        target_ontology_version=None,
+        operations=norm_ops,
+    )
+    computed_target_ver: str | None = None
+    if norm_ops:
+        try:
+            computed_target_ver = compute_next_semver(
+                base_version=base_ver, delta=temp_delta, base_ontology=base_ontology
+            )
+        except (ValueError, TypeError, KeyError, SemVerCalculusError, ValidationError) as exc:
+            violations.append(f"SemVer bump computation failure: {exc}")
+
+    req_tgt = delta_dict.get("target_version") or delta_dict.get("target_ontology_version")
+    if (
+        req_tgt
+        and computed_target_ver
+        and str(req_tgt).lstrip("v") != computed_target_ver.lstrip("v")
+    ):
+        violations.append(
+            f"target_version '{req_tgt}' does not match required semver bump "
+            f"'{computed_target_ver}'."
+        )
+
+    effective_tgt = str(req_tgt).lstrip("v") if req_tgt else computed_target_ver
     delta_obj: OntologyDelta | None = None
-    tgt_ver = delta_dict.get("target_version")
-    parent_sha = delta_dict.get("parent_sha256") or expected_parent_sha
     try:
         delta_obj = OntologyDelta(
             delta_id=delta_dict.get("delta_id", f"delta-{uuid.uuid4().hex[:8]}"),
-            parent_sha256=parent_sha,
+            parent_sha256=expected_parent_sha,
             base_version=base_ver,
-            target_version=tgt_ver,
+            target_version=effective_tgt,
             operations=norm_ops,
             author=delta_dict.get("author", "validator"),
             rationale=delta_dict.get("rationale"),
@@ -1374,37 +1874,72 @@ def handle_delta_validate(
     except (ValidationError, ValueError, TypeError) as exc:
         violations.append(f"Delta structural validation failure: {exc}")
 
-    # 2. Lineage Precondition Validation
-    parent_given = str(delta_dict.get("parent_sha256") or "").strip()
-    if base_ver == "0.0.0":
-        if parent_given not in ("", None):
-            violations.append("Genesis delta parent_sha256 must be empty")
-    else:
-        if parent_given and parent_given != expected_parent_sha:
-            violations.append(
-                f"parent_sha256 '{parent_given}' does not match expected base SHA "
-                f"'{expected_parent_sha}' for base version '{base_ver}'"
-            )
+    studio_root = _get_studio_root(executor)
+    sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
 
-    # 3. SemVer Bump and Semantic Concept Conflict Checks
-    req_tgt = delta_dict.get("target_version")
-    if req_tgt and delta_obj is not None:
+    waiver_rec: StewardWaiverRecord | None = None
+    if delta_obj is not None and bool(getattr(args, "low_confidence_waiver", False)):
+        w_res = _build_signed_waiver_record(
+            args=args,
+            delta_obj=delta_obj,
+            base_ontology=base_ontology,
+            base_sha256=expected_parent_sha,
+            proposal_id=None,
+            principal=principal,
+            role_tier=role_tier,
+            executor=executor,
+            sec_mgr=sec_mgr,
+        )
+        if isinstance(w_res, tuple):
+            return w_res
+        waiver_rec = w_res
+
+    error_code_out = "ONT_EVO_CONTRACT_VIOLATION"
+    exit_code_out = 4
+    enforce_grounding = (
+        bool(sid)
+        or bool(getattr(args, "verify_grounding", False))
+        or bool(getattr(args, "low_confidence_waiver", False))
+    )
+    if not violations and delta_obj is not None and norm_ops:
         try:
-            expected_next = compute_next_semver(
-                base_version=base_ver, delta=delta_obj, base_ontology=base_ontology
-            )
-            if req_tgt.lstrip("v") != expected_next.lstrip("v"):
-                violations.append(
-                    f"target_version '{req_tgt}' does not match required semver bump "
-                    f"'{expected_next}'."
+            target_ontology = apply_delta(base_ontology, delta_obj, validate_structural=True)
+            gv = _build_governance_validator(executor, sec_mgr, verify_grounding=enforce_grounding)
+            waivers_list = [waiver_rec] if waiver_rec is not None else []
+            gv.validate_deployed_contracts(base_ontology, delta_obj)
+            if enforce_grounding:
+                gv.validate(
+                    base_ontology,
+                    delta_obj,
+                    target_ontology,
+                    waivers=waivers_list,
+                    grandfathered_concept_uris=grandfathered,
                 )
-        except (ValueError, TypeError, KeyError, SemVerCalculusError, ValidationError) as exc:
-            violations.append(f"SemVer bump computation failure: {exc}")
+                verify_ont_evo_002_post_state_grounding(
+                    base_ontology,
+                    delta_obj,
+                    target_ontology,
+                    waivers=waivers_list,
+                    security_manager=sec_mgr,
+                    grounding_verifier=gv.grounding_verifier,
+                )
+        except OntologyGovernanceError as gov_err:
+            raw_c = getattr(gov_err, "error_code", "ONT_EVO_CONTRACT_VIOLATION")
+            error_code_out = raw_c.value if hasattr(raw_c, "value") else str(raw_c)
+            violations.append(str(gov_err))
+        except (SemVerCalculusError, ValidationError, ValueError, OpenDVError) as apply_err:
+            if isinstance(apply_err, OpenDVError):
+                raw_c = getattr(apply_err, "error_code", "ONT_EVO_CONTRACT_VIOLATION")
+                error_code_out = raw_c.value if hasattr(raw_c, "value") else str(raw_c)
+                exit_code_out = int(getattr(apply_err, "exit_code", 4) or 4)
+            violations.append(str(apply_err))
 
     if violations:
-        return 4, {
+        return exit_code_out, {
             "valid": False,
-            "error_code": "ONT_EVO_CONTRACT_VIOLATION",
+            "status": "ERROR",
+            "error_code": error_code_out,
+            "detail": violations[0],
             "violations": violations,
             "diagnostics": [],
         }
@@ -1422,8 +1957,27 @@ def handle_delta_validate(
 def handle_delta_apply(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """11. `opendv ontology studio delta apply -s <session> -f <delta_file>` (MAJ-07, MAJ-10)."""
-    fpath_raw = getattr(args, "file", None)
+    """12. `opendv ontology studio delta apply` via `AtomicCommitService`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier in ("viewer", "automated"):
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            f"Role '{role_tier}' is not authorized to apply ontology deltas directly.",
+        )
+
+    # Check waiver role & credentials BEFORE rationale / delta apply (MAJ-03, P12::MAJ-04)
+    studio_root = _get_studio_root(executor)
+    sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
+    if bool(getattr(args, "low_confidence_waiver", False)):
+        cred_err = _load_and_verify_waiver_credentials(args, executor, sec_mgr, role_tier=role_tier)
+        if cred_err is not None:
+            return cred_err
+
+    fpath_raw = getattr(args, "file", None) or getattr(args, "delta", None)
     if not fpath_raw:
         return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing required --file flag")
 
@@ -1440,18 +1994,29 @@ def handle_delta_apply(
 
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    session_mgr, meta, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    session_mgr, meta, sdir, sid = ctx  # type: ignore[misc]
 
-    # Mandatory base_sha256 OCC check (MAJ-05)
+    base_ver_arg = (
+        getattr(args, "base_version", None)
+        or delta_dict.get("base_version")
+        or delta_dict.get("base_ontology_version")
+    )
+    if base_ver_arg and str(base_ver_arg).lstrip("v") != meta.head_version.lstrip("v"):
+        return _err(
+            4,
+            "ONT_EVO_ENVELOPE_VIOLATION",
+            f"Base version '{base_ver_arg}' does not match session head '{meta.head_version}'.",
+        )
+
     base_sha = getattr(args, "base_sha256", None) or delta_dict.get("parent_sha256")
     is_genesis = meta.head_version in ("0.0.0", "", None)
-    clean_base_sha = base_sha.strip('"') if base_sha else ""
+    clean_base_sha = base_sha.strip('"') if isinstance(base_sha, str) else ""
 
     if not clean_base_sha and not is_genesis:
         return _err(
             2,
-            "MISSING_PRECONDITION",
+            "MISSING_PRECONDITION_HEADER",
             "Missing mandatory --base-sha256 precondition for delta apply.",
         )
 
@@ -1464,34 +2029,31 @@ def handle_delta_apply(
 
     raw_ops = delta_dict.get("operations", [])
     if not raw_ops:
-        return _err(4, "ONT_EVO_CONTRACT_VIOLATION", "Cannot apply delta with zero operations.")
+        return _err(1, "NO_OP_DELTA", "Cannot apply delta with zero operations.")
 
     try:
         norm_ops = [_normalize_delta_operation(op) for op in raw_ops]
     except (ValidationError, ValueError, TypeError, KeyError) as exc:
         return _err(4, "ONT_EVO_CONTRACT_VIOLATION", f"Invalid delta operation: {exc}")
 
-    studio_root = _get_studio_root(executor)
-    waiver_res = _verify_grounding_and_waiver(
-        norm_ops=norm_ops,
-        args=args,
-        head_sha256=meta.head_sha256,
-        proposal_id=None,
-        executor=executor,
-        studio_root=studio_root,
+    base_ont = _load_session_version_ontology(
+        sdir,
+        meta.head_version,
+        domain_namespace=meta.domain_namespace,
+        enterprise_owner=meta.enterprise_owner,
     )
-    if isinstance(waiver_res, tuple):
-        return waiver_res
-    waiver_record = waiver_res
+    if base_ont is None:
+        return _err(
+            1, "CORRUPT_SESSION_STATE", f"Missing head ontology artifact '{meta.head_version}'"
+        )
 
     temp_delta = OntologyDelta.model_construct(
         delta_id=f"delta-{uuid.uuid4().hex[:8]}",
-        parent_sha256="" if meta.head_version == "0.0.0" else meta.head_sha256,
-        base_version=meta.head_version,
-        target_version=None,
+        parent_sha256=meta.head_sha256,
+        base_ontology_version=meta.head_version,
+        target_ontology_version=None,
         operations=norm_ops,
     )
-    base_ont = _load_session_base_ontology(sdir, meta.head_version)
     try:
         target_version = compute_next_semver(meta.head_version, temp_delta, base_ontology=base_ont)
     except (
@@ -1503,9 +2065,8 @@ def handle_delta_apply(
         AttributeError,
     ) as exc:
         return _err(4, "ONT_EVO_CONTRACT_VIOLATION", f"SemVer bump computation failure: {exc}")
-    parent_sha = "" if meta.head_version == "0.0.0" else meta.head_sha256
 
-    user_target = delta_dict.get("target_version")
+    user_target = delta_dict.get("target_version") or delta_dict.get("target_ontology_version")
     if (
         user_target
         and isinstance(user_target, str)
@@ -1521,33 +2082,75 @@ def handle_delta_apply(
     try:
         delta_obj = OntologyDelta(
             delta_id=delta_dict.get("delta_id", f"delta-{uuid.uuid4().hex[:12]}"),
-            parent_sha256=parent_sha,
+            parent_sha256=meta.head_sha256,
             base_version=meta.head_version,
             target_version=target_version,
             operations=norm_ops,
-            author=delta_dict.get("author", "steward"),
+            author=principal,
             rationale=getattr(args, "rationale", None)
-            or delta_dict.get("rationale", "Direct delta apply"),
+            or delta_dict.get("rationale")
+            or "Direct delta apply",
         )
     except (ValidationError, ValueError, TypeError) as exc:
         return _err(4, "ONT_EVO_CONTRACT_VIOLATION", f"Delta construction failure: {exc}")
+
+    is_major = (
+        parse_semver_tuple(target_version)[0] > parse_semver_tuple(meta.head_version)[0]
+        and meta.head_version != "0.0.0"
+    )
+    if (is_destructive_delta(delta_obj) or is_major) and role_tier != "admin":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Destructive (MAJOR SemVer) ontology revisions require the 'admin' role.",
+        )
+
+    waiver_res = _build_signed_waiver_record(
+        args=args,
+        delta_obj=delta_obj,
+        base_ontology=base_ont,
+        base_sha256=meta.head_sha256,
+        proposal_id=None,
+        principal=principal,
+        role_tier=role_tier,
+        executor=executor,
+        sec_mgr=sec_mgr,
+    )
+    if isinstance(waiver_res, tuple):
+        return waiver_res
+    waiver_record = waiver_res
+    waivers_list = [waiver_record] if waiver_record is not None else []
 
     eval_dict = (
         {"waiver": waiver_record.model_dump(mode="json", exclude_none=True)}
         if waiver_record
         else None
     )
-    commit_svc = AtomicCommitService(session_manager=session_mgr)
     try:
+        gv = _build_governance_validator(executor, sec_mgr, verify_grounding=True)
+        commit_svc = AtomicCommitService(
+            session_manager=session_mgr,
+            security_manager=sec_mgr,
+            governance_validator=gv,
+            enforce_governance=True,
+        )
         res = commit_svc.commit_delta(
             session_id=sid,
             delta=delta_obj,
-            author="steward",
+            author=principal,
+            actor_role=role_tier,
             if_match=clean_base_sha if clean_base_sha else meta.head_sha256,
+            waivers=waivers_list,
+            governance_validator=gv,
+            enforce_governance=True,
             evaluation=eval_dict,
         )
+    except ForbiddenAdminRequiredError as err_adm:
+        return _err(7, "FORBIDDEN_ADMIN_REQUIRED", str(err_adm))
     except ConcurrentModificationError as err_occ:
         return _err(5, "ONT_EVO_CONCURRENT_MODIFICATION", str(err_occ))
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
     except (
         RuntimeError,
         ValueError,
@@ -1580,11 +2183,15 @@ def handle_delta_apply(
 def handle_proposal_list(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """12. `opendv ontology studio proposal list -s <session>`."""
+    """13. `opendv ontology studio proposal list -s <session>`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    _, _, sdir, _ = ctx
+        return ctx  # type: ignore[return-value]
+    _, _, sdir, _ = ctx  # type: ignore[misc]
 
     props_dir = sdir / "proposals"
     results: list[dict[str, Any]] = []
@@ -1598,12 +2205,16 @@ def handle_proposal_list(
 def handle_proposal_show(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """13. `opendv ontology studio proposal show -s <session> -p <proposal_id>` (MAJ-01)."""
+    """14. `opendv ontology studio proposal show -s <session> -p <proposal_id>`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+
     pid = getattr(args, "proposal_id", None) or getattr(args, "proposal", None)
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    _, _, sdir, _ = ctx
+        return ctx  # type: ignore[return-value]
+    _, _, sdir, _ = ctx  # type: ignore[misc]
 
     prop_res = _resolve_proposal_path(sdir, pid)
     if isinstance(prop_res, tuple):
@@ -1615,44 +2226,62 @@ def handle_proposal_show(
 
     try:
         return 0, json.loads(pfile.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError) as e:
-        return _err(4, "CORRUPT_PROPOSAL_FILE", f"Failed to read proposal JSON: {e}")
+    except (json.JSONDecodeError, OSError) as exc:
+        return _err(1, "CORRUPT_SESSION_RECORD", f"Failed to read proposal JSON: {exc}")
 
 
 def handle_proposal_accept(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """14. `opendv ontology studio proposal accept` (CRIT-01, MAJ-01, MAJ-02, MAJ-03, MAJ-05)."""
+    """15. `opendv ontology studio proposal accept` (RBAC, self-acceptance, waiver, governance)."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Read-only viewer role is not permitted to accept proposals.",
+        )
+    if role_tier == "automated":
+        return _err(
+            7,
+            "AGENT_PROPOSAL_ACCEPT_FORBIDDEN",
+            "Automated agent role is forbidden from accepting ontology proposals.",
+        )
+
+    allow_self = bool(getattr(args, "allow_self_accepted_proposals", False))
+    if allow_self and role_tier != "admin":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "--allow-self-accepted-proposals requires the 'admin' role.",
+        )
+
+    studio_root = _get_studio_root(executor)
+    sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
+    if bool(getattr(args, "low_confidence_waiver", False)):
+        cred_err = _load_and_verify_waiver_credentials(args, executor, sec_mgr, role_tier=role_tier)
+        if cred_err is not None:
+            return cred_err
+
     pid = getattr(args, "proposal_id", None) or getattr(args, "proposal", None)
     base_sha = getattr(args, "base_sha256", None)
     if not pid or base_sha is None:
         return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing --proposal-id or --base-sha256")
 
-    if bool(getattr(args, "low_confidence_waiver", False)):
-        waiver_rat = getattr(args, "waiver_rationale", None) or getattr(
-            args, "grounding_rationale", None
-        )
-        if not waiver_rat or len(waiver_rat.strip()) < 10:
-            return _err(
-                4,
-                "INVALID_GROUNDING_WAIVER",
-                "Administrative grounding waiver requires a rationale of at least 10 characters.",
-            )
-        studio_root = _get_studio_root(executor)
-        key_res = _load_and_verify_waiver_credentials(args, executor, studio_root)
-        if isinstance(key_res, tuple):
-            return key_res
-
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    session_mgr, meta, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    session_mgr, meta, sdir, sid = ctx  # type: ignore[misc]
 
     prop_res = _resolve_proposal_path(sdir, pid)
     if isinstance(prop_res, tuple):
         return prop_res
     pfile = prop_res
 
+    # Inspect proposal under session lock for existence, status, self-acceptance, and OCC
     lock_file = sdir / ".session.lock"
     with studio_lock(lock_file, level=L5_SESSION, session_id=sid):
         meta = session_mgr.get_session(sid)
@@ -1661,8 +2290,8 @@ def handle_proposal_accept(
 
         try:
             prop_data = json.loads(pfile.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as e:
-            return _err(4, "CORRUPT_PROPOSAL_FILE", f"Failed to read proposal JSON: {e}")
+        except (json.JSONDecodeError, OSError) as exc:
+            return _err(1, "CORRUPT_SESSION_RECORD", f"Failed to read proposal JSON: {exc}")
 
         if prop_data.get("status") in ("ACCEPTED", "REJECTED"):
             return _err(
@@ -1671,8 +2300,16 @@ def handle_proposal_accept(
                 f"Proposal '{pid}' has already been resolved ({prop_data.get('status')}).",
             )
 
-        # OCC precondition check: compare caller's base_sha256 with head (HTTP If-Match semantics)
-        clean_base_sha = base_sha.strip('"')
+        proposer = _extract_proposal_proposer(prop_data)
+        if proposer == principal and not allow_self:
+            return _err(
+                7,
+                "PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN",
+                f"Principal '{principal}' cannot accept their own proposal '{pid}' without "
+                "--allow-self-accepted-proposals (admin only).",
+            )
+
+        clean_base_sha = str(base_sha).strip('"')
         is_genesis_occ = meta.head_version in ("0.0.0", "", None) and clean_base_sha == ""
         if clean_base_sha != meta.head_sha256 and not is_genesis_occ:
             return _err(
@@ -1681,12 +2318,10 @@ def handle_proposal_accept(
                 f"Base SHA-256 mismatch: expected {meta.head_sha256}, got {base_sha}",
             )
 
-        prop_base = prop_data.get("base_sha256") or ""
+        prop_base = _extract_proposal_base_sha256(prop_data)
         is_genesis = meta.head_version in ("0.0.0", "", None) and (
             prop_base == "" or clean_base_sha == ""
         )
-
-        # Stale proposal check (MAJ-05): proposal.base_sha256 must match head (unless genesis)
         if prop_base != meta.head_sha256 and not is_genesis:
             return _err(
                 5,
@@ -1695,33 +2330,56 @@ def handle_proposal_accept(
                 f"'{meta.head_sha256}' is required before acceptance.",
             )
 
-        raw_ops = prop_data.get("operations", [])
+        raw_ops = _extract_proposal_operations(prop_data)
         try:
             norm_ops = [_normalize_delta_operation(op) for op in raw_ops]
         except (ValidationError, ValueError, TypeError, KeyError) as exc:
             return _err(4, "ONT_EVO_CONTRACT_VIOLATION", f"Invalid proposal operations: {exc}")
 
-        studio_root = _get_studio_root(executor)
-        waiver_res = _verify_grounding_and_waiver(
-            norm_ops=norm_ops,
-            args=args,
-            head_sha256=meta.head_sha256,
-            proposal_id=pid,
-            executor=executor,
-            studio_root=studio_root,
+        if len(norm_ops) == 0:
+            prop_data["status"] = "ACCEPTED"
+            prop_data["accepted_at"] = datetime.now(UTC).isoformat()
+            prop_data["accepted_by"] = principal
+            prop_data["commit_sha256"] = meta.head_sha256
+            _atomic_write_json(pfile, prop_data)
+            append_signed_audit_record(
+                session_dir=sdir,
+                action="PROPOSAL_ACCEPTED_NOOP",
+                actor=principal,
+                details={
+                    "proposal_id": str(pid),
+                    "base_version": meta.head_version,
+                    "base_sha256": meta.head_sha256,
+                },
+                security_manager=sec_mgr,
+            )
+            return 0, {
+                "session_id": sid,
+                "target_version": meta.head_version,
+                "target_sha256": meta.head_sha256,
+                "parent_sha256": meta.head_sha256,
+                "delta_id": pid,
+                "proposal_id": pid,
+                "bump_type": "none",
+                "applied_operations_count": 0,
+            }
+
+        base_ont = _load_session_version_ontology(
+            sdir,
+            meta.head_version,
+            domain_namespace=meta.domain_namespace,
+            enterprise_owner=meta.enterprise_owner,
         )
-        if isinstance(waiver_res, tuple):
-            return waiver_res
-        waiver_record = waiver_res
+        if base_ont is None:
+            return _err(1, "CORRUPT_SESSION_STATE", f"Missing head ontology '{meta.head_version}'")
 
         temp_delta = OntologyDelta.model_construct(
             delta_id=f"delta-{uuid.uuid4().hex[:8]}",
-            parent_sha256="" if meta.head_version == "0.0.0" else meta.head_sha256,
-            base_version=meta.head_version,
-            target_version=None,
+            parent_sha256=meta.head_sha256,
+            base_ontology_version=meta.head_version,
+            target_ontology_version=None,
             operations=norm_ops,
         )
-        base_ont = _load_session_base_ontology(sdir, meta.head_version)
         try:
             next_ver = compute_next_semver(meta.head_version, temp_delta, base_ontology=base_ont)
         except (
@@ -1733,16 +2391,15 @@ def handle_proposal_accept(
             AttributeError,
         ) as exc:
             return _err(4, "ONT_EVO_CONTRACT_VIOLATION", f"SemVer bump computation failure: {exc}")
-        parent_sha = "" if meta.head_version == "0.0.0" else meta.head_sha256
 
         try:
             delta_obj = OntologyDelta(
                 delta_id=pid,
-                parent_sha256=parent_sha,
+                parent_sha256=meta.head_sha256,
                 base_version=meta.head_version,
                 target_version=next_ver,
                 operations=norm_ops,
-                author="steward",
+                author=principal,
                 rationale=prop_data.get("rationale")
                 or getattr(args, "waiver_rationale", None)
                 or getattr(args, "grounding_rationale", None)
@@ -1753,25 +2410,66 @@ def handle_proposal_accept(
                 4, "ONT_EVO_CONTRACT_VIOLATION", f"Proposal delta construction failure: {exc}"
             )
 
+        is_major = (
+            parse_semver_tuple(next_ver)[0] > parse_semver_tuple(meta.head_version)[0]
+            and meta.head_version != "0.0.0"
+        )
+        if (is_destructive_delta(delta_obj) or is_major) and role_tier != "admin":
+            return _err(
+                7,
+                "FORBIDDEN_ADMIN_REQUIRED",
+                "Destructive (MAJOR SemVer) proposal acceptance requires the 'admin' role.",
+            )
+
+        waiver_res = _build_signed_waiver_record(
+            args=args,
+            delta_obj=delta_obj,
+            base_ontology=base_ont,
+            base_sha256=meta.head_sha256,
+            proposal_id=str(pid),
+            principal=principal,
+            role_tier=role_tier,
+            executor=executor,
+            sec_mgr=sec_mgr,
+        )
+        if isinstance(waiver_res, tuple):
+            return waiver_res
+        waiver_record = waiver_res
+        waivers_list = [waiver_record] if waiver_record is not None else []
+
         eval_dict = (
             {"waiver": waiver_record.model_dump(mode="json", exclude_none=True)}
             if waiver_record
             else None
         )
-        commit_svc = AtomicCommitService(session_manager=session_mgr)
         try:
+            gv = _build_governance_validator(executor, sec_mgr, verify_grounding=True)
+            commit_svc = AtomicCommitService(
+                session_manager=session_mgr,
+                security_manager=sec_mgr,
+                governance_validator=gv,
+                enforce_governance=True,
+            )
             res = commit_svc.commit_delta(
                 session_id=sid,
                 delta=delta_obj,
-                proposal_id=pid,
-                author="steward",
+                proposal_id=str(pid),
+                author=principal,
+                actor_role=role_tier,
                 if_match=meta.head_sha256,
+                waivers=waivers_list,
+                governance_validator=gv,
+                enforce_governance=True,
                 evaluation=eval_dict,
             )
+        except ForbiddenAdminRequiredError as err_adm:
+            return _err(7, "FORBIDDEN_ADMIN_REQUIRED", str(err_adm))
         except ConcurrentModificationError as err_occ:
             if "already been resolved" in str(err_occ):
                 return _err(6, "PROPOSAL_ALREADY_RESOLVED", str(err_occ))
             return _err(5, "ONT_EVO_CONCURRENT_MODIFICATION", str(err_occ))
+        except OpenDVError as exc:
+            return _err_from_opendv_error(exc)
         except (
             RuntimeError,
             ValueError,
@@ -1784,6 +2482,7 @@ def handle_proposal_accept(
 
         prop_data["status"] = "ACCEPTED"
         prop_data["accepted_at"] = datetime.now(UTC).isoformat()
+        prop_data["accepted_by"] = principal
         prop_data["commit_sha256"] = res.target_sha256
         _atomic_write_json(pfile, prop_data)
 
@@ -1810,12 +2509,23 @@ def handle_proposal_accept(
 def handle_proposal_reject(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """15. `opendv ontology studio proposal reject` (MAJ-01)."""
+    """16. `opendv ontology studio proposal reject`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier in ("viewer", "automated"):
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            f"Role '{role_tier}' is not authorized to reject proposals.",
+        )
+
     pid = getattr(args, "proposal_id", None) or getattr(args, "proposal", None)
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    _, _, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    _, _, sdir, sid = ctx  # type: ignore[misc]
 
     prop_res = _resolve_proposal_path(sdir, pid)
     if isinstance(prop_res, tuple):
@@ -1829,8 +2539,8 @@ def handle_proposal_reject(
 
         try:
             prop_data = json.loads(pfile.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as e:
-            return _err(4, "CORRUPT_PROPOSAL_FILE", f"Failed to read proposal JSON: {e}")
+        except (json.JSONDecodeError, OSError) as exc:
+            return _err(1, "CORRUPT_SESSION_RECORD", f"Failed to read proposal JSON: {exc}")
 
         if prop_data.get("status") in ("ACCEPTED", "REJECTED"):
             return _err(
@@ -1841,13 +2551,9 @@ def handle_proposal_reject(
 
         reason = getattr(args, "reason", None) or "Rejected by steward"
         prop_data["status"] = "REJECTED"
+        prop_data["rejected_by"] = principal
         prop_data["rejection_reason"] = reason
-
-        tmp_p = sdir / "proposals" / f".{pid}.reject.tmp"
-        tmp_p.write_text(json.dumps(prop_data, indent=2), encoding="utf-8")
-        set_owner_only_permissions(tmp_p)
-        os.replace(tmp_p, pfile)
-        set_owner_only_permissions(pfile)
+        _atomic_write_json(pfile, prop_data)
 
     return 0, {
         "proposal_id": pid,
@@ -1856,21 +2562,81 @@ def handle_proposal_reject(
     }
 
 
+def _load_intervening_deltas_strict(
+    sdir: Path,
+    prop_base_ver_str: str,
+    head_ver_str: str,
+) -> tuple[int, dict[str, str]] | list[OntologyDelta]:
+    """Load all committed `OntologyDelta` records strictly in `(prop_base_ver, head_ver]`."""
+    versions_dir = sdir / "versions"
+    if not versions_dir.is_dir():
+        return _err(1, "CORRUPT_SESSION_RECORD", f"Missing versions directory in '{sdir.name}'")
+
+    try:
+        base_tuple = parse_semver(prop_base_ver_str.lstrip("v") or "0.0.0")
+        head_tuple = parse_semver(head_ver_str.lstrip("v") or "0.0.0")
+    except (SemVerCalculusError, ValueError) as exc:
+        return _err(1, "CORRUPT_SESSION_STATE", f"Invalid version identifier during rebase: {exc}")
+
+    matched: list[tuple[tuple[int, int, int], Path]] = []
+    for child in versions_dir.iterdir():
+        if not child.is_dir() or not child.name.startswith("v"):
+            continue
+        ver_raw = child.name[1:]
+        try:
+            ver_t = parse_semver(ver_raw)
+        except (SemVerCalculusError, ValueError):
+            continue
+        if base_tuple < ver_t <= head_tuple:
+            matched.append((ver_t, child))
+
+    matched.sort(key=lambda item: item[0])
+    deltas: list[OntologyDelta] = []
+    for ver_t, vdir in matched:
+        delta_file = vdir / "delta.json"
+        if not delta_file.is_file():
+            return _err(
+                1,
+                "CORRUPT_SESSION_RECORD",
+                f"Missing intervening delta.json for version v{ver_t[0]}.{ver_t[1]}.{ver_t[2]}",
+            )
+        try:
+            raw_d = json.loads(delta_file.read_text(encoding="utf-8"))
+            norm_ops = [_normalize_delta_operation(op) for op in raw_d.get("operations", [])]
+            raw_d["operations"] = norm_ops
+            deltas.append(OntologyDelta.model_validate(raw_d))
+        except (OSError, json.JSONDecodeError, ValidationError, ValueError, TypeError) as exc:
+            return _err(
+                1,
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt intervening delta.json in {vdir.name}: {exc}",
+            )
+    return deltas
+
+
 def handle_proposal_rebase(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """16. `opendv ontology studio proposal rebase` (MAJ-01, MAJ-05)."""
-    pid = getattr(args, "proposal_id", None) or getattr(args, "proposal", None)
-    base_sha = getattr(args, "base_sha256", None) or getattr(args, "head_sha256", None)
-    if not pid or not base_sha:
+    """17. `opendv ontology studio proposal rebase` via 24-op `check_rebase_conflicts`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    _, role_tier = auth_res  # type: ignore[misc]
+    if role_tier in ("viewer", "automated"):
         return _err(
-            2, "SYNTAX_INVALID_ARGUMENT", "Missing --proposal-id or --base-sha256 / --head-sha256"
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            f"Role '{role_tier}' is not authorized to rebase proposals.",
         )
+
+    pid = getattr(args, "proposal_id", None) or getattr(args, "proposal", None)
+    if not pid:
+        return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing required --proposal-id")
 
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    session_mgr, meta, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    session_mgr, meta, sdir, sid = ctx  # type: ignore[misc]
 
     prop_res = _resolve_proposal_path(sdir, pid)
     if isinstance(prop_res, tuple):
@@ -1885,8 +2651,8 @@ def handle_proposal_rebase(
 
         try:
             prop_data = json.loads(pfile.read_text(encoding="utf-8"))
-        except (json.JSONDecodeError, OSError) as e:
-            return _err(4, "CORRUPT_PROPOSAL_FILE", f"Failed to read proposal JSON: {e}")
+        except (json.JSONDecodeError, OSError) as exc:
+            return _err(1, "CORRUPT_SESSION_RECORD", f"Failed to read proposal JSON: {exc}")
 
         if prop_data.get("status") in ("ACCEPTED", "REJECTED"):
             return _err(
@@ -1895,86 +2661,111 @@ def handle_proposal_rebase(
                 f"Cannot rebase proposal '{pid}': status is {prop_data.get('status')}",
             )
 
-        clean_sha = base_sha.strip('"')
-        if clean_sha != meta.head_sha256:
-            return _err(
-                5,
-                "ONT_EVO_CONCURRENT_MODIFICATION",
-                f"Base SHA mismatch: expected {meta.head_sha256}, got {clean_sha}",
-            )
+        target_sha_arg = getattr(args, "base_sha256", None) or getattr(args, "head_sha256", None)
+        if target_sha_arg is not None:
+            clean_sha = str(target_sha_arg).strip('"')
+            if clean_sha != meta.head_sha256:
+                return _err(
+                    5,
+                    "ONT_EVO_CONCURRENT_MODIFICATION",
+                    f"Base SHA mismatch: expected {meta.head_sha256}, got {clean_sha}",
+                )
 
-        raw_ops = prop_data.get("operations", [])
+        raw_ops = _extract_proposal_operations(prop_data)
         try:
             ops = [_normalize_delta_operation(op) for op in raw_ops]
         except (ValidationError, ValueError, TypeError, KeyError) as exc:
             return _err(4, "ONT_EVO_CONTRACT_VIOLATION", f"Invalid proposal operations: {exc}")
 
-        # Semantic conflict check against head ontology
-        if meta.head_version not in ("0.0.0", "", None):
-            head_ver = meta.head_version.lstrip("v")
-            head_ont_file = sdir / "versions" / f"v{head_ver}" / "ontology.json"
-            if not head_ont_file.is_file():
-                head_ont_file = sdir / "versions" / f"v{head_ver}" / "ontology.yaml"
-            if head_ont_file.is_file():
-                try:
-                    if head_ont_file.suffix == ".json":
-                        head_data = json.loads(head_ont_file.read_text(encoding="utf-8"))
-                    else:
-                        head_data = yaml.safe_load(head_ont_file.read_text(encoding="utf-8")) or {}
-                    head_concepts: set[str] = set()
-                    raw_concepts = head_data.get("concepts")
-                    if isinstance(raw_concepts, dict):
-                        for k, v in raw_concepts.items():
-                            head_concepts.add(str(k))
-                            if isinstance(v, dict):
-                                u = v.get("concept_uri") or v.get("uri") or v.get("id")
-                                if u:
-                                    head_concepts.add(str(u))
-                    elif isinstance(raw_concepts, list):
-                        for c in raw_concepts:
-                            if isinstance(c, dict):
-                                u = c.get("concept_uri") or c.get("uri") or c.get("id")
-                                if u:
-                                    head_concepts.add(str(u))
-                            elif isinstance(c, str):
-                                head_concepts.add(c)
-                    for c in head_data.get("canonical_business_concepts", []):
-                        if isinstance(c, dict):
-                            u = c.get("concept_uri") or c.get("uri") or c.get("id")
-                            if u:
-                                head_concepts.add(str(u))
-                        elif isinstance(c, str):
-                            head_concepts.add(c)
-                    for op in ops:
-                        op_type = getattr(op, "op_type", None) or (
-                            op.get("op_type") if isinstance(op, dict) else None
-                        )
-                        if op_type in ("add_concept", "AddConcept", "AddConceptOp"):
-                            c_uri = getattr(op, "concept_uri", None) or (
-                                op.get("concept_uri") if isinstance(op, dict) else None
-                            )
-                            if c_uri and str(c_uri) in head_concepts:
-                                return _err(
-                                    4,
-                                    "ONT_EVO_CONTRACT_VIOLATION",
-                                    f"Rebase conflict: concept '{c_uri}' already exists in head "
-                                    f"ontology version {meta.head_version}.",
-                                )
-                except (OSError, json.JSONDecodeError, yaml.YAMLError):
-                    pass
+        # Fail closed when head ontology artifact is missing or corrupt (P12::MAJ-05)
+        head_ver = (meta.head_version or "0.0.0").lstrip("v")
+        head_vdir = sdir / "versions" / f"v{head_ver}"
+        head_ont_file = head_vdir / "ontology.json"
+        if not head_ont_file.is_file():
+            head_ont_file = head_vdir / "ontology.yaml"
+        if head_ver != "0.0.0" and not head_ont_file.is_file():
+            return _err(
+                1,
+                "CORRUPT_SESSION_RECORD",
+                f"Head ontology artifact missing for version 'v{head_ver}'; refusing blind rebase.",
+            )
 
-        # Validate structural integrity of delta operations against new head
+        try:
+            head_ontology = _load_session_version_ontology(
+                sdir,
+                meta.head_version,
+                domain_namespace=meta.domain_namespace,
+                enterprise_owner=meta.enterprise_owner,
+            )
+        except (OSError, json.JSONDecodeError, yaml.YAMLError, ValidationError, ValueError) as exc:
+            return _err(
+                1,
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt head ontology artifact for version 'v{head_ver}': {exc}",
+            )
+        if head_ontology is None:
+            return _err(
+                1,
+                "CORRUPT_SESSION_RECORD",
+                f"Head ontology artifact could not be loaded for version 'v{head_ver}'.",
+            )
+
+        prop_base_ver = str(
+            prop_data.get("base_version")
+            or (prop_data.get("delta") or {}).get("base_ontology_version")
+            or "0.0.0"
+        ).lstrip("v")
+        try:
+            prop_base_ontology = _load_session_version_ontology(
+                sdir,
+                prop_base_ver,
+                domain_namespace=meta.domain_namespace,
+                enterprise_owner=meta.enterprise_owner,
+            )
+        except (OSError, json.JSONDecodeError, yaml.YAMLError, ValidationError, ValueError) as exc:
+            return _err(
+                1,
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt proposal base ontology 'v{prop_base_ver}': {exc}",
+            )
+        if prop_base_ontology is None:
+            return _err(
+                1,
+                "CORRUPT_SESSION_RECORD",
+                f"Missing proposal base ontology artifact 'v{prop_base_ver}'.",
+            )
+
+        deltas_res = _load_intervening_deltas_strict(sdir, prop_base_ver, head_ver)
+        if isinstance(deltas_res, tuple):
+            return deltas_res
+        intervening_deltas = deltas_res
+
+        rebase_res = check_rebase_conflicts(
+            ops,
+            base_ontology=prop_base_ontology,
+            head_ontology=head_ontology,
+            intervening_deltas=intervening_deltas,
+        )
+        if rebase_res.has_conflicts:
+            conflict_dicts = [c.to_dict() for c in rebase_res.conflicts]
+            first_msg = conflict_dicts[0].get("reason", "24-op conflict detected")
+            return 6, {
+                "status": "ERROR",
+                "error_code": "PROPOSAL_STALE_REBASE_REQUIRED",
+                "detail": f"Rebase blocked by {len(conflict_dicts)} conflict(s): {first_msg}",
+                "conflicts": conflict_dicts,
+            }
+
         temp_delta = OntologyDelta.model_construct(
             delta_id=f"delta-{uuid.uuid4().hex[:8]}",
-            parent_sha256="" if meta.head_version in ("0.0.0", "", None) else meta.head_sha256,
-            base_version=meta.head_version or "0.0.0",
-            target_version=None,
+            parent_sha256=meta.head_sha256,
+            base_ontology_version=meta.head_version or "0.0.0",
+            target_ontology_version=None,
             operations=ops,
         )
-        base_ont = _load_session_base_ontology(sdir, meta.head_version)
         try:
             t_ver = compute_next_semver(
-                meta.head_version or "0.0.0", temp_delta, base_ontology=base_ont
+                meta.head_version or "0.0.0", temp_delta, base_ontology=head_ontology
             )
         except (
             ValueError,
@@ -1987,26 +2778,32 @@ def handle_proposal_rebase(
             return _err(4, "ONT_EVO_CONTRACT_VIOLATION", f"SemVer bump computation failure: {exc}")
 
         try:
-            OntologyDelta(
-                delta_id=f"delta-{uuid.uuid4().hex[:12]}",
-                parent_sha256="" if meta.head_version in ("0.0.0", "", None) else meta.head_sha256,
+            rebased_delta = OntologyDelta(
+                delta_id=str(
+                    (prop_data.get("delta") or {}).get("delta_id")
+                    or f"delta-{uuid.uuid4().hex[:12]}"
+                ),
+                parent_sha256=meta.head_sha256,
                 base_version=meta.head_version,
                 target_version=t_ver,
                 operations=ops,
-                author=prop_data.get("proposer", "unknown"),
+                author=_extract_proposal_proposer(prop_data),
             )
-        except (ValidationError, ValueError, TypeError) as exc:
+            apply_delta(head_ontology, rebased_delta, validate_structural=True)
+        except (ValidationError, ValueError, TypeError, SemVerCalculusError, OpenDVError) as exc:
             return _err(
                 4,
                 "ONT_EVO_CONTRACT_VIOLATION",
-                f"Rebase delta structural integrity check failed: {exc}",
+                f"Rebase post-state structural validation failed against head: {exc}",
             )
 
         prop_data["base_sha256"] = meta.head_sha256
+        prop_data["base_ontology_sha256"] = meta.head_sha256
         prop_data["base_version"] = meta.head_version
+        if isinstance(prop_data.get("delta"), dict):
+            prop_data["delta"] = rebased_delta.model_dump(mode="json", exclude_none=True)
         prop_data["rebased_at"] = datetime.now(UTC).isoformat()
         prop_data["status"] = "PENDING"
-
         _atomic_write_json(pfile, prop_data)
 
     return 0, {
@@ -2020,11 +2817,15 @@ def handle_proposal_rebase(
 def handle_export(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """17. `opendv ontology studio export -s <session>` (MAJ-01, MAJ-07)."""
+    """18. `opendv ontology studio export -s <session>` (never reads global `args.format`!)."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    _, meta, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    _, meta, sdir, sid = ctx  # type: ignore[misc]
 
     raw_ver = getattr(args, "version", None)
     if raw_ver:
@@ -2057,11 +2858,10 @@ def handle_export(
                 yaml.safe_load(ont_file.read_text(encoding="utf-8"))
             )
     except (ValidationError, yaml.YAMLError, OSError, ValueError) as exc:
-        return _err(4, "CORRUPT_SESSION_STATE", f"Failed to load ontology artifact: {exc}")
+        return _err(1, "CORRUPT_SESSION_STATE", f"Failed to load ontology artifact: {exc}")
 
-    fmt = (
-        getattr(args, "export_format", None) or getattr(args, "format", "yaml") or "yaml"
-    ).lower()
+    # CRIT-03 parity: strictly use `export_format` (never global `--format` default `toon`)
+    fmt = str(getattr(args, "export_format", None) or "yaml").lower()
     if fmt not in (
         "yaml",
         "yml",
@@ -2079,9 +2879,17 @@ def handle_export(
         return _err(
             2,
             "SYNTAX_INVALID_ARGUMENT",
-            f"Unsupported export format '{fmt}'. "
-            "Supported: yaml, json, ttl, turtle, rdf, owl, jsonld.",
+            f"Unsupported export format '{fmt}'. Supported: yaml, json, turtle, jsonld.",
         )
+
+    out_file = getattr(args, "out", None)
+    resolved_out_p: Path | None = None
+    if out_file is not None:
+        out_res = _validate_out_path(str(out_file), executor)
+        if isinstance(out_res, tuple):
+            return out_res
+        resolved_out_p = out_res
+
     try:
         if fmt in ("ttl", "turtle", "rdf", "owl", "jsonld", "json-ld", "nt", "ntriples", "xml"):
             res = export_ontology(ont, export_format=fmt)
@@ -2091,28 +2899,65 @@ def handle_export(
         else:
             exported_text = yaml.safe_dump(ont.model_dump(mode="json", exclude_none=True))
     except (RuntimeError, ValueError, TypeError, OSError) as exc:
-        return _err(4, "EXPORT_FAILED", f"Ontology serialization failed: {exc}")
+        return _err(1, "EXECUTION_FAILURE", f"Ontology serialization failed: {exc}")
 
-    out_file = getattr(args, "out", None)
-    if out_file:
-        out_p = Path(out_file)
-        if not out_p.is_absolute() and executor:
-            out_p = (executor.workspace_root / out_p).resolve()
-        out_p.parent.mkdir(parents=True, exist_ok=True)
-        out_p.write_text(exported_text, encoding="utf-8")
+    if resolved_out_p is not None:
+        try:
+            _atomic_write_text(resolved_out_p, exported_text)
+        except OSError as exc:
+            return _err(1, "EXECUTION_FAILURE", f"Failed to write export output: {exc}")
 
-    return 0, {
+    content_sha = hashlib.sha256(exported_text.encode("utf-8")).hexdigest()
+    res_payload: dict[str, Any] = {
         "session_id": sid,
         "version": vdir.name,
         "format": fmt,
+        "export_format": fmt,
+        "sha256": content_sha,
         "content": exported_text,
     }
+    if resolved_out_p is not None:
+        res_payload["out_path"] = str(resolved_out_p)
+    return 0, res_payload
+
+
+def _resolve_workspace_target_contract(target_ws: Path, domain_namespace: str) -> Path:
+    """Resolve existing workspace Graph A contract or greenfield `{ns}_graph_a_ontology.yaml`."""
+    if target_ws.suffix.lower() in (".yaml", ".yml", ".json"):
+        return target_ws
+
+    ns_slug = sanitize_domain_namespace(domain_namespace or "general")
+    namespaced = target_ws / f"{ns_slug}_graph_a_ontology.yaml"
+    candidates: list[Path] = [namespaced]
+    if ns_slug in ("private_equity", "pe"):
+        candidates.append(target_ws / "pe_graph_a_ontology.yaml")
+    candidates.extend(
+        [
+            target_ws / "graph_a_ontology.yaml",
+            target_ws / "ontology.yaml",
+        ]
+    )
+    for cand in candidates:
+        if cand.is_file():
+            return cand
+    return namespaced
 
 
 def handle_promote(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """18. `opendv ontology studio promote` (MAJ-01, MAJ-05, MAJ-07)."""
+    """19. `opendv ontology studio promote` via `AtomicCommitService.promote_to_workspace`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier != "admin":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Promoting session ontology to workspace requires the 'admin' role.",
+        )
+
     rationale = getattr(args, "rationale", None)
     if not rationale or len(rationale.strip()) < 10:
         return _err(
@@ -2128,183 +2973,118 @@ def handle_promote(
 
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    session_mgr, meta, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    session_mgr, meta, _, sid = ctx  # type: ignore[misc]
 
-    base_ws = executor.workspace_root if executor else Path.cwd().resolve()
+    base_ws = (executor.workspace_root if executor else Path.cwd()).resolve()
+    configured_roots = _resolve_configured_workspace_roots(base_ws)
+    allowed_roots = configured_roots if configured_roots is not None else [base_ws]
+
     ws_arg = getattr(args, "workspace", None)
-    target_ws = (base_ws / ws_arg).resolve() if ws_arg else base_ws.resolve()
+    if ws_arg:
+        raw_ws_path = Path(ws_arg)
+        candidate_ws = raw_ws_path if raw_ws_path.is_absolute() else (base_ws / raw_ws_path)
+        try:
+            target_ws = validate_workspace_containment(
+                candidate_ws,
+                allowed_roots=allowed_roots,
+                is_remote_request=False,
+            )
+        except OpenDVError as exc:
+            return _err(2, "INVALID_WORKSPACE_PATH", str(exc))
+    else:
+        target_ws = base_ws
 
-    if not target_ws.is_relative_to(base_ws.resolve()):
+    if target_ws.suffix.lower() not in (".yaml", ".yml", ".json"):
+        target_ws.mkdir(parents=True, exist_ok=True)
+    target_contract = _resolve_workspace_target_contract(target_ws, meta.domain_namespace)
+
+    # Strict greenfield workspace SHA-256 check (`"0" * 64` required when no contract exists)
+    clean_ws_sha = str(ws_sha).strip().strip('"').lower()
+    if not target_contract.is_file() and clean_ws_sha != "0" * 64:
         return _err(
-            2,
-            "INVALID_WORKSPACE_PATH",
-            f"Promote target workspace escapes base workspace: '{ws_arg}'",
+            5,
+            "ONT_EVO_CONCURRENT_MODIFICATION",
+            f"Greenfield workspace promotion requires --workspace-sha256={'0' * 64}, "
+            f"got '{ws_sha}'.",
         )
 
-    target_ws.mkdir(parents=True, exist_ok=True)
-    target_contract = target_ws / "graph_a_ontology.yaml"
-    if not target_contract.exists():
-        pe_contract = target_ws / "pe_graph_a_ontology.yaml"
-        if pe_contract.exists():
-            target_contract = pe_contract
-
-    w_lock = target_ws / ".workspace.lock"
-    s_lock = sdir / ".session.lock"
-
-    with multi_studio_lock(
-        [
-            StudioLock(w_lock, level=L4_WORKSPACE, session_id=target_ws.name),
-            StudioLock(s_lock, level=L5_SESSION, session_id=sid),
-        ]
-    ):
-        meta = session_mgr.get_session(sid)
-        if meta.head_version in ("0.0.0", "", None):
-            return _err(
-                4,
-                "INVALID_PROPOSAL_STATE",
-                "Cannot promote uncommitted genesis draft (version 0.0.0). "
-                "A committed version bump is required before promotion.",
-            )
-
-        if head_sha.strip('"') != meta.head_sha256:
-            return _err(
-                5,
-                "ONT_EVO_CONCURRENT_MODIFICATION",
-                f"Head SHA-256 mismatch: expected {meta.head_sha256}, got {head_sha}",
-            )
-
-        current_ws_sha = ""
-        raw_ws_sha = ""
-        ws_ver: str | None = None
-        if target_contract.is_file():
-            raw_bytes = target_contract.read_bytes()
-            raw_ws_sha = hashlib.sha256(raw_bytes).hexdigest()
-            try:
-                ws_data = yaml.safe_load(raw_bytes.decode("utf-8"))
-                if isinstance(ws_data, dict):
-                    ws_ver = ws_data.get("ontology_version")
-                current_ws_sha = (
-                    compute_ontology_sha256(ws_data) if isinstance(ws_data, dict) else raw_ws_sha
-                )
-            except (
-                yaml.YAMLError,
-                ValueError,
-                TypeError,
-                OSError,
-                AttributeError,
-                ValidationError,
-            ):
-                current_ws_sha = raw_ws_sha
-
-            clean_ws_sha = ws_sha.strip('"')
-            if clean_ws_sha not in (current_ws_sha, raw_ws_sha):
-                return _err(
-                    5,
-                    "ONT_EVO_CONCURRENT_MODIFICATION",
-                    f"Workspace contract SHA mismatch: expected {current_ws_sha}, got {ws_sha}",
-                )
-
-        if ws_ver:
-            try:
-                head_tuple = parse_semver(meta.head_version.lstrip("v"))
-                ws_tuple = parse_semver(str(ws_ver).lstrip("v"))
-                if head_tuple < ws_tuple:
-                    ack = getattr(args, "acknowledge_historical_contract_warning", False)
-                    rat = getattr(args, "historical_contract_rationale", None)
-                    if not ack:
-                        return _err(
-                            4,
-                            "HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED",
-                            f"Promoting version {meta.head_version} downgrades existing workspace "
-                            f"contract version {ws_ver}. "
-                            "Requires --acknowledge-historical-contract-warning.",
-                        )
-                    if not rat or len(rat.strip()) < 10:
-                        return _err(
-                            1,
-                            "HISTORICAL_CONTRACT_RATIONALE_REQUIRED",
-                            "Historical contract rationale of at least 10 characters is required "
-                            "when acknowledging historical contract warning.",
-                        )
-            except (SemVerCalculusError, ValueError, TypeError):
-                pass
-
-        ver_tag = f"v{meta.head_version.lstrip('v')}"
-        ont_src = sdir / "versions" / ver_tag / "ontology.yaml"
-        if not ont_src.is_file():
-            ont_src = sdir / "versions" / ver_tag / "ontology.json"
-
-        if not ont_src.is_file():
-            return _err(3, "VERSION_NOT_FOUND", f"Head version artifact missing: '{ver_tag}'")
-
-        src_bytes = ont_src.read_bytes()
-        try:
-            if ont_src.suffix == ".json":
-                src_ont = GraphAOntology.model_validate_json(src_bytes.decode("utf-8"))
-            else:
-                src_ont = GraphAOntology.model_validate(yaml.safe_load(src_bytes.decode("utf-8")))
-            src_canonical_sha = compute_ontology_sha256(src_ont)
-        except (OSError, ValueError, TypeError, yaml.YAMLError, ValidationError) as exc:
-            return _err(
-                4, "CORRUPT_VERSION_ARTIFACT", f"Failed to validate version artifact: {exc}"
-            )
-        if src_canonical_sha != meta.head_sha256:
-            return _err(
-                4,
-                "CORRUPT_VERSION_ARTIFACT",
-                f"Version artifact SHA '{src_canonical_sha}' does not match head SHA "
-                f"'{meta.head_sha256}'",
-            )
-
-        tmp_contract = target_ws / f".contract.{uuid.uuid4().hex[:8]}.tmp"
-        tmp_contract.write_bytes(src_bytes)
-        set_owner_only_permissions(tmp_contract)
-        os.replace(tmp_contract, target_contract)
-        set_owner_only_permissions(target_contract)
-
-        audit_rec = {
-            "action": "PROMOTE",
-            "session_id": sid,
-            "promoted_version": meta.head_version,
-            "head_sha256": meta.head_sha256,
-            "workspace_sha256": ws_sha,
-            "rationale": rationale.strip(),
-            "historical_contract_acknowledged": getattr(
-                args, "acknowledge_historical_contract_warning", False
-            ),
-            "historical_contract_rationale": getattr(args, "historical_contract_rationale", None),
-            "promoted_at": datetime.now(UTC).isoformat(),
-            "target_contract_path": str(target_contract),
-        }
-        prom_log = target_ws / ".promotion_audit.jsonl"
-        with open(prom_log, "a", encoding="utf-8") as afp:
-            afp.write(json.dumps(audit_rec) + "\n")
-        set_owner_only_permissions(prom_log)
+    ack_hist = bool(getattr(args, "acknowledge_historical_contract_warning", False))
+    commit_svc = AtomicCommitService(
+        session_manager=session_mgr,
+        security_manager=session_mgr.security_manager,
+    )
+    try:
+        res = commit_svc.promote_to_workspace(
+            session_id=sid,
+            target_workspace=target_contract,
+            expected_workspace_sha256=clean_ws_sha,
+            expected_head_sha256=str(head_sha).strip().strip('"'),
+            rationale=rationale.strip(),
+            actor=principal,
+            actor_role=role_tier,
+            acknowledge_historical_contract_warning=ack_hist,
+            historical_contract_rationale=getattr(args, "historical_contract_rationale", None),
+            allowed_workspace_roots=allowed_roots,
+            is_remote_request=False,
+            enforce_lineage=(not ack_hist),
+            allow_noop=False,
+        )
+    except ForbiddenAdminRequiredError as exc:
+        return _err(7, "FORBIDDEN_ADMIN_REQUIRED", str(exc))
+    except PromotionRationaleRequiredError as exc:
+        return _err(1, "PROMOTION_RATIONALE_REQUIRED", str(exc))
+    except HistoricalContractWarningUnacknowledgedError as exc:
+        return _err(4, "HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED", str(exc))
+    except HistoricalContractRationaleRequiredError as exc:
+        return _err(1, "HISTORICAL_CONTRACT_RATIONALE_REQUIRED", str(exc))
+    except LineageRootMismatchError as exc:
+        return _err(5, "LINEAGE_ROOT_MISMATCH", str(exc))
+    except ConcurrentModificationError as exc:
+        return _err(5, "ONT_EVO_CONCURRENT_MODIFICATION", str(exc))
+    except NoOpPromotionError as exc:
+        return _err(1, "NO_OP_DELTA", str(exc))
+    except CommitValidationError as exc:
+        return _err_from_opendv_error(exc)
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
 
     return 0, {
-        "session_id": sid,
-        "promoted_version": meta.head_version,
-        "head_sha256": meta.head_sha256,
-        "workspace_sha256": ws_sha,
-        "promoted_at": datetime.now(UTC).isoformat(),
-        "target_contract_path": str(target_contract),
+        "session_id": res.session_id,
+        "promoted_version": res.promoted_version,
+        "head_sha256": res.head_sha256,
+        "workspace_sha256": res.workspace_sha256,
+        "pre_workspace_sha256": res.pre_workspace_sha256,
+        "promoted_at": res.promoted_at,
+        "target_contract_path": str(res.target_contract_path),
     }
 
 
 def handle_bundle_export(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """19. `opendv ontology studio bundle export` (MAJ-07, MAJ-08)."""
+    """20. `opendv ontology studio bundle export`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Read-only viewer role is not permitted to export Studio session bundles.",
+        )
+
     ctx = _require_session_context(args, executor)
     if isinstance(ctx[0], int):
-        return ctx
-    _, _, sdir, sid = ctx
+        return ctx  # type: ignore[return-value]
+    session_mgr, _, sdir, sid = ctx  # type: ignore[misc]
 
     out_zip = getattr(args, "out", None) or f"{sid}.odvstudio.zip"
-    out_p = Path(out_zip)
-    if not out_p.is_absolute() and executor:
-        out_p = (executor.workspace_root / out_p).resolve()
+    out_res = _validate_out_path(str(out_zip), executor)
+    if isinstance(out_res, tuple):
+        return out_res
+    out_p = out_res
 
     ack_confidential = bool(getattr(args, "acknowledge_confidential_source_export", False))
     export_rationale = getattr(args, "export_rationale", None)
@@ -2313,17 +3093,24 @@ def handle_bundle_export(
         res_path = export_bundle(
             session_dir=sdir,
             output_zip_path=out_p,
+            security_manager=session_mgr.security_manager,
             acknowledge_confidential=ack_confidential,
             export_rationale=export_rationale,
+            admin=(role_tier == "admin"),
+            actor=principal,
         )
+    except AdminRoleRequiredError as exc:
+        return _err(7, "FORBIDDEN_ADMIN_REQUIRED", str(exc))
+    except ConfidentialSourceExportUnacknowledgedError as exc:
+        return _err(4, "CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED", str(exc))
+    except ExportRationaleRequiredError as exc:
+        return _err(1, "EXPORT_RATIONALE_REQUIRED", str(exc))
     except ArchiveSecurityViolationError as exc:
-        return 4, {
-            "status": "ERROR",
-            "error_code": exc.error_code,
-            "detail": str(exc),
-        }
+        return _err_from_opendv_error(exc)
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
     except (OSError, ValueError, RuntimeError, KeyError) as exc:
-        return _err(4, "BUNDLE_EXPORT_FAILED", str(exc))
+        return _err(1, "EXECUTION_FAILURE", str(exc))
 
     return 0, {
         "session_id": sid,
@@ -2335,7 +3122,27 @@ def handle_bundle_export(
 def handle_bundle_import(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """20. `opendv ontology studio bundle import -f <in_zip>` (MAJ-07)."""
+    """21. `opendv ontology studio bundle import -f <in_zip>`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier in ("viewer", "automated"):
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            f"Role '{role_tier}' is not authorized to import Studio bundles.",
+        )
+
+    ack_unverified = bool(getattr(args, "acknowledge_unverified_import_attribution", False))
+    force = bool(getattr(args, "force", False))
+    if (ack_unverified or force) and role_tier != "admin":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "--acknowledge-unverified-import-attribution and --force require the 'admin' role.",
+        )
+
     in_zip = getattr(args, "file", None)
     if not in_zip:
         return _err(2, "SYNTAX_INVALID_ARGUMENT", "Missing required --file flag")
@@ -2344,7 +3151,7 @@ def handle_bundle_import(
     if not in_p.is_absolute() and executor:
         in_p = (executor.workspace_root / in_p).resolve()
     if not in_p.is_file():
-        return _err(2, "SYNTAX_INVALID_ARGUMENT", f"File not found: {in_zip}")
+        return _err(3, "FILE_NOT_FOUND", f"File not found: {in_zip}")
 
     studio_root = _get_studio_root(executor)
     sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
@@ -2354,8 +3161,6 @@ def handle_bundle_import(
         if err_new:
             return err_new
 
-    force = bool(getattr(args, "force", False))
-    ack_unverified = bool(getattr(args, "acknowledge_unverified_import_attribution", False))
     ack_rationale = getattr(args, "acknowledgement_rationale", None)
     try:
         res = import_bundle(
@@ -2365,14 +3170,16 @@ def handle_bundle_import(
             new_session_id=new_sid,
             acknowledge_unverified_import_attribution=ack_unverified,
             acknowledgement_rationale=ack_rationale,
+            imported_by=principal,
             force=force,
+            actor_role=role_tier,
         )
+    except SessionAlreadyExistsError as exc:
+        return _err(6, "SESSION_ALREADY_EXISTS", str(exc))
     except ArchiveSecurityViolationError as exc:
-        return 4, {
-            "status": "ERROR",
-            "error_code": exc.error_code,
-            "detail": str(exc),
-        }
+        return _err_from_opendv_error(exc)
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
     except zipfile.BadZipFile as exc:
         return _err(4, "ONT_EVO_CONTRACT_VIOLATION", f"Corrupt bundle zip archive: {exc}")
     except FileExistsError as exc:
@@ -2391,7 +3198,18 @@ def handle_bundle_import(
 def handle_bundle_clone(
     args: argparse.Namespace, executor: LocalExecutor | None = None
 ) -> tuple[int, Any]:
-    """21. `opendv ontology studio bundle clone` (MAJ-01, MAJ-03, MIN-03)."""
+    """22. `opendv ontology studio bundle clone`."""
+    auth_res = _resolve_studio_principal(args)
+    if isinstance(auth_res[0], int):
+        return auth_res  # type: ignore[return-value]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "viewer":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Read-only viewer role is not permitted to clone Studio sessions.",
+        )
+
     sid = getattr(args, "session", None)
     err = _validate_session(sid)
     if err:
@@ -2403,11 +3221,18 @@ def handle_bundle_clone(
         return err_new
 
     session_mgr = _get_session_manager(executor)
-    res_sess = _require_session(session_mgr, sid)
+    res_sess = _require_session(session_mgr, str(sid))
     if isinstance(res_sess, tuple):
         return res_sess
 
-    sdir = session_mgr.get_session_dir(sid)
+    sdir = session_mgr.get_session_dir(str(sid))
+    if bool(compute_effective_session_taint(sdir)) and role_tier != "admin":
+        return _err(
+            7,
+            "FORBIDDEN_ADMIN_REQUIRED",
+            "Cloning a session containing confidential/tainted sources requires the 'admin' role.",
+        )
+
     studio_root = _get_studio_root(executor)
     new_sdir = studio_root / new_sid
     if new_sdir.exists():
@@ -2420,18 +3245,26 @@ def handle_bundle_clone(
             export_bundle(
                 session_dir=sdir,
                 output_zip_path=tmp_zip,
+                security_manager=sec_mgr,
                 acknowledge_confidential=True,
                 export_rationale="Session bundle clone",
+                admin=(role_tier == "admin"),
+                actor=principal,
             )
             res = import_bundle(
                 zip_path=tmp_zip,
                 target_dir=studio_root,
                 security_manager=sec_mgr,
                 new_session_id=new_sid,
+                acknowledge_unverified_import_attribution=True,
+                acknowledgement_rationale="Local workspace session clone",
+                imported_by=principal,
                 force=False,
             )
-        except FileExistsError:
+        except (FileExistsError, SessionAlreadyExistsError):
             return _err(6, "SESSION_ALREADY_EXISTS", f"Session '{new_sid}' already exists")
+        except OpenDVError as exc:
+            return _err_from_opendv_error(exc)
         except (
             ArchiveSecurityViolationError,
             zipfile.BadZipFile,
@@ -2439,7 +3272,7 @@ def handle_bundle_clone(
             RuntimeError,
             ValueError,
         ) as exc:
-            return _err(4, "CLONE_FAILED", f"Failed to clone bundle: {exc}")
+            return _err(1, "INTERNAL_CLONE_ERROR", f"Failed to clone bundle: {exc}")
 
     return 0, {
         "source_session_id": sid,
@@ -2458,6 +3291,7 @@ def handle_bundle_clone(
 _STUDIO_DISPATCH = {
     "init": handle_init,
     "create": handle_create,
+    "delete": handle_delete,
     "list": handle_list,
     "status": handle_status,
     "upload": handle_upload,
@@ -2491,10 +3325,9 @@ def run_ontology_studio_command(
         return _err(
             2,
             "SYNTAX_INVALID_ARGUMENT",
-            "Missing studio action (e.g. init, create, list, status, ...)",
+            "Missing studio action (e.g. init, create, delete, list, status, ...)",
         )
 
-    # Check for nested subcommands (delta, proposal, bundle)
     if action in ("delta", "proposal", "bundle"):
         sub_action = getattr(args, f"studio_{action}_action", None)
         if not sub_action:
@@ -2509,408 +3342,18 @@ def run_ontology_studio_command(
     return handler(args, executor=executor)
 
 
-# ---------------------------------------------------------------------------
-# ArgumentParser Subparser Registration
-# ---------------------------------------------------------------------------
-
-
-def _build_studio_parent() -> argparse.ArgumentParser:
-    """Shared parent parser providing global options (--json, --format, --role, etc.)."""
-    parent = argparse.ArgumentParser(add_help=False)
-    parent.add_argument(
-        "--format", dest="format", choices=["toon", "json", "text"], default=argparse.SUPPRESS
-    )
-    parent.add_argument("--verbose", dest="verbose", action="store_true", default=argparse.SUPPRESS)
-    parent.add_argument(
-        "--json", "--json-output", dest="json", action="store_true", default=argparse.SUPPRESS
-    )
-    parent.add_argument("--toon", dest="toon", action="store_true", default=argparse.SUPPRESS)
-    parent.add_argument(
-        "--role",
-        dest="role",
-        choices=[
-            "PUBLIC",
-            "INTERNAL_MODELER",
-            "DATA_STEWARD",
-            "AUDITOR_FINANCE",
-            "RESTRICTED_PII_CUSTODIAN",
-        ],
-        default=argparse.SUPPRESS,
-    )
-    return parent
-
-
 def register_studio_subparsers(parser: argparse.ArgumentParser) -> None:
-    """Attach full 14-group / 21-leaf subcommand hierarchy to ArgumentParser."""
-    # Find top-level subcommand action
-    sub_action = next(
-        (a for a in parser._actions if isinstance(a.choices, dict) and "ontology" in a.choices),
-        None,
-    )
-    if not sub_action:
-        return
+    """No-op hook retained for backwards compatibility.
 
-    onto_parser = sub_action.choices["ontology"]
-    onto_sub = next(
-        (a for a in onto_parser._actions if isinstance(a.choices, dict) and "suggest" in a.choices),
-        None,
-    )
-    if not onto_sub:
-        return
-    sub_p = _build_studio_parent()
-    if "studio" in onto_sub.choices:
-        studio_p = onto_sub.choices["studio"]
-    else:
-        studio_p = onto_sub.add_parser(
-            "studio",
-            parents=[sub_p],
-            help="Interactive Ontology Construction Studio (CAS sessions, dual-mode engine)",
-            description=(
-                "Manage interactive Ontology Construction Studio sessions, ingestion, and promotion"
-            ),
-        )
-
-    studio_sub_action = next(
-        (a for a in studio_p._actions if isinstance(a, argparse._SubParsersAction)),
-        None,
-    )
-    studio_subs = (
-        studio_sub_action
-        if studio_sub_action is not None
-        else studio_p.add_subparsers(dest="studio_action", title="studio subcommands")
-    )
-
-    # 1. init
-    init_p = studio_subs.add_parser(
-        "init", parents=[_build_studio_parent()], help="Initialize local workbench loopback token"
-    )
-    init_p.add_argument("--force", action="store_true", default=False, help="Rotate local secret")
-    init_p.add_argument(
-        "--show-token",
-        dest="show_token",
-        action="store_true",
-        default=False,
-        help="Display local authentication token",
-    )
-
-    # 2. create
-    create_p = studio_subs.add_parser(
-        "create", parents=[_build_studio_parent()], help="Create new CAS studio session"
-    )
-    create_p.add_argument("-s", "--session", dest="session", type=str, help="Studio session ID")
-    create_p.add_argument(
-        "-n", "--domain-namespace", dest="domain_namespace", type=str, default="default"
-    )
-    create_p.add_argument(
-        "-o",
-        "--enterprise-owner",
-        dest="enterprise_owner",
-        type=str,
-        default="Enterprise",
-    )
-    create_p.add_argument(
-        "-d", "--description", dest="description", type=str, help="Session description"
-    )
-    create_p.add_argument("--from-workspace", dest="from_workspace", type=str)
-    create_p.add_argument("--session-label", dest="session_label", type=str)
-    create_p.add_argument("--ontology-id", dest="ontology_id", type=str)
-
-    # 3. list
-    list_p = studio_subs.add_parser(
-        "list", parents=[_build_studio_parent()], help="List studio sessions"
-    )
-    list_p.add_argument("--limit", dest="limit", type=int, default=50)
-    list_p.add_argument("--offset", dest="offset", type=int, default=0)
-    list_p.add_argument("--status", dest="status", type=str)
-
-    # 4. status
-    status_p = studio_subs.add_parser(
-        "status", parents=[_build_studio_parent()], help="Get session status"
-    )
-    status_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-
-    # 5. upload
-    upload_p = studio_subs.add_parser(
-        "upload", parents=[_build_studio_parent()], help="Upload source document into CAS"
-    )
-    upload_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    upload_p.add_argument("-f", "--file", dest="file", type=str, required=True)
-    upload_p.add_argument(
-        "--do-not-send-to-agent",
-        dest="do_not_send_to_agent",
-        action="store_true",
-        default=False,
-    )
-    upload_p.add_argument("--confidential", dest="confidential", action="store_true", default=False)
-    upload_p.add_argument("-d", "--description", dest="description", type=str)
-
-    # 6. parse
-    parse_p = studio_subs.add_parser(
-        "parse", parents=[_build_studio_parent()], help="Parse uploaded source documents"
-    )
-    parse_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    parse_p.add_argument("--source-id", dest="source_id", type=str)
-    parse_p.add_argument("--source-ids", dest="source_ids", nargs="+")
-    parse_p.add_argument(
-        "--ocr-mode",
-        dest="ocr_mode",
-        choices=["auto", "force", "off"],
-        default="auto",
-    )
-    parse_p.add_argument("--wait", dest="wait", action="store_true", default=False)
-    parse_p.add_argument("--stream", dest="stream", action="store_true", default=False)
-
-    # 7. clarify
-    clarify_p = studio_subs.add_parser(
-        "clarify", parents=[_build_studio_parent()], help="Run domain clarification harness"
-    )
-    clarify_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    clarify_p.add_argument("--focus-concept", dest="focus_concept", type=str)
-    clarify_p.add_argument("--max-questions", dest="max_questions", type=int, default=10)
-    clarify_p.add_argument("--wait", dest="wait", action="store_true", default=False)
-    clarify_p.add_argument("--stream", dest="stream", action="store_true", default=False)
-
-    # 8. answer
-    answer_p = studio_subs.add_parser(
-        "answer", parents=[_build_studio_parent()], help="Submit clarification answers"
-    )
-    answer_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    answer_p.add_argument("-f", "--file", dest="file", type=str)
-    answer_p.add_argument("-q", "--question-id", dest="question_id", type=str)
-    answer_p.add_argument("-o", "--option", dest="option", nargs="+")
-    answer_p.add_argument("-t", "--text", dest="text", type=str)
-
-    # 9. construct
-    construct_p = studio_subs.add_parser(
-        "construct", parents=[_build_studio_parent()], help="Synthesize ontology candidates"
-    )
-    construct_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    construct_p.add_argument("--base-version", dest="base_version", type=str)
-    construct_p.add_argument("--base-sha256", dest="base_sha256", type=str)
-    construct_p.add_argument(
-        "--mode",
-        dest="mode",
-        choices=["auto", "agent", "deterministic"],
-        default="auto",
-    )
-    construct_p.add_argument(
-        "--auto-commit", dest="auto_commit", action="store_true", default=False
-    )
-    construct_p.add_argument("--wait", dest="wait", action="store_true", default=False)
-    construct_p.add_argument("--stream", dest="stream", action="store_true", default=False)
-
-    # 10. delta
-    delta_p = studio_subs.add_parser(
-        "delta", parents=[_build_studio_parent()], help="Delta operations (validate, apply)"
-    )
-    delta_subs = delta_p.add_subparsers(dest="studio_delta_action", title="delta subcommands")
-
-    # 10a. delta validate
-    dval_p = delta_subs.add_parser(
-        "validate", parents=[_build_studio_parent()], help="Validate ontology delta"
-    )
-    dval_p.add_argument("-s", "--session", dest="session", type=str, required=False)
-    dval_p.add_argument("-f", "--file", dest="file", type=str, required=True)
-    dval_p.add_argument("-b", "--base", dest="base", type=str, required=False)
-    dval_p.add_argument("--base-version", dest="base_version", type=str)
-    dval_p.add_argument("--base-sha256", dest="base_sha256", type=str)
-    dval_p.add_argument(
-        "--verify-grounding",
-        dest="verify_grounding",
-        action="store_true",
-        default=False,
-    )
-    dval_p.add_argument(
-        "--low-confidence-waiver",
-        dest="low_confidence_waiver",
-        action="store_true",
-        default=False,
-    )
-
-    # 10b. delta apply
-    dapp_p = delta_subs.add_parser(
-        "apply", parents=[_build_studio_parent()], help="Apply delta directly to session head"
-    )
-    dapp_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    dapp_p.add_argument("-f", "--file", dest="file", type=str, required=True)
-    dapp_p.add_argument("--base-version", dest="base_version", type=str)
-    dapp_p.add_argument("--base-sha256", dest="base_sha256", type=str)
-    dapp_p.add_argument("-r", "--rationale", dest="rationale", type=str)
-    dapp_p.add_argument(
-        "--low-confidence-waiver",
-        dest="low_confidence_waiver",
-        action="store_true",
-        default=False,
-    )
-    dapp_p.add_argument("--grounding-rationale", dest="grounding_rationale", type=str)
-    dapp_p.add_argument("--waiver-rationale", dest="waiver_rationale", type=str)
-    dapp_p.add_argument("--waiver-key-file", dest="waiver_key_file", type=str)
-    dapp_p.add_argument("--ungrounded-concept", dest="ungrounded_concept", nargs="+")
-    dapp_p.add_argument("--evidence-grounding-file", dest="evidence_grounding_file", type=str)
-    dapp_p.add_argument("--authorized-by", dest="authorized_by", type=str)
-    dapp_p.add_argument("--authorized-role", dest="authorized_role", type=str)
-
-    # 11. proposal
-    prop_p = studio_subs.add_parser(
-        "proposal",
-        parents=[_build_studio_parent()],
-        help="Proposal operations (list, show, accept, reject, rebase)",
-    )
-    prop_subs = prop_p.add_subparsers(dest="studio_proposal_action", title="proposal subcommands")
-
-    # 11a. proposal list
-    plist_p = prop_subs.add_parser(
-        "list", parents=[_build_studio_parent()], help="List session proposals"
-    )
-    plist_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-
-    # 11b. proposal show
-    pshow_p = prop_subs.add_parser(
-        "show", parents=[_build_studio_parent()], help="Show proposal details"
-    )
-    pshow_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    pshow_p.add_argument("-p", "--proposal-id", dest="proposal_id", type=str, required=True)
-
-    # 11c. proposal accept
-    pacc_p = prop_subs.add_parser(
-        "accept", parents=[_build_studio_parent()], help="Accept proposal and roll head forward"
-    )
-    pacc_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    pacc_p.add_argument("-p", "--proposal-id", dest="proposal_id", type=str, required=True)
-    pacc_p.add_argument("--base-sha256", dest="base_sha256", type=str, required=True)
-    pacc_p.add_argument(
-        "--allow-self-accepted-proposals",
-        dest="allow_self_accepted_proposals",
-        action="store_true",
-        default=False,
-    )
-    pacc_p.add_argument(
-        "--low-confidence-waiver",
-        dest="low_confidence_waiver",
-        action="store_true",
-        default=False,
-    )
-    pacc_p.add_argument("--grounding-rationale", dest="grounding_rationale", type=str)
-    pacc_p.add_argument("--waiver-rationale", dest="waiver_rationale", type=str)
-    pacc_p.add_argument("--waiver-key-file", dest="waiver_key_file", type=str)
-    pacc_p.add_argument("--ungrounded-concept", dest="ungrounded_concept", nargs="+")
-    pacc_p.add_argument("--evidence-grounding-file", dest="evidence_grounding_file", type=str)
-    pacc_p.add_argument("--authorized-by", dest="authorized_by", type=str)
-    pacc_p.add_argument("--authorized-role", dest="authorized_role", type=str)
-
-    # 11d. proposal reject
-    prej_p = prop_subs.add_parser(
-        "reject", parents=[_build_studio_parent()], help="Reject proposal"
-    )
-    prej_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    prej_p.add_argument("-p", "--proposal-id", dest="proposal_id", type=str, required=True)
-    prej_p.add_argument("-r", "--reason", dest="reason", type=str)
-
-    # 11e. proposal rebase
-    preb_p = prop_subs.add_parser(
-        "rebase", parents=[_build_studio_parent()], help="Rebase proposal onto current head"
-    )
-    preb_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    preb_p.add_argument("-p", "--proposal-id", dest="proposal_id", type=str, required=True)
-    preb_p.add_argument("--base-sha256", dest="base_sha256", type=str)
-    preb_p.add_argument("--head-sha256", dest="head_sha256", type=str)
-
-    # 12. export
-    export_p = studio_subs.add_parser(
-        "export", parents=[_build_studio_parent()], help="Export session ontology"
-    )
-    export_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    export_p.add_argument(
-        "-e",
-        "--export-format",
-        dest="export_format",
-        choices=["yaml", "json", "turtle", "jsonld"],
-        default="yaml",
-    )
-    export_p.add_argument("-v", "--version", dest="version", type=str)
-    export_p.add_argument("-o", "--out", dest="out", type=str)
-
-    # 13. promote
-    promote_p = studio_subs.add_parser(
-        "promote",
-        parents=[_build_studio_parent()],
-        help="Promote committed ontology into workspace",
-    )
-    promote_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    promote_p.add_argument("-w", "--workspace", dest="workspace", type=str)
-    promote_p.add_argument("--workspace-sha256", dest="workspace_sha256", type=str, required=True)
-    promote_p.add_argument("--head-sha256", dest="head_sha256", type=str, required=True)
-    promote_p.add_argument("-r", "--rationale", dest="rationale", type=str, required=True)
-    promote_p.add_argument(
-        "--acknowledge-historical-contract-warning",
-        dest="acknowledge_historical_contract_warning",
-        action="store_true",
-        default=False,
-    )
-    promote_p.add_argument(
-        "--historical-contract-rationale",
-        dest="historical_contract_rationale",
-        type=str,
-    )
-
-    # 14. bundle
-    bundle_p = studio_subs.add_parser(
-        "bundle",
-        parents=[_build_studio_parent()],
-        help="Studio bundle operations (export, import, clone)",
-    )
-    bundle_subs = bundle_p.add_subparsers(dest="studio_bundle_action", title="bundle subcommands")
-
-    # 14a. bundle export
-    bexp_p = bundle_subs.add_parser(
-        "export", parents=[_build_studio_parent()], help="Export session archive bundle"
-    )
-    bexp_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    bexp_p.add_argument("-o", "--out", dest="out", type=str, required=True)
-    bexp_p.add_argument(
-        "--acknowledge-confidential-source-export",
-        dest="acknowledge_confidential_source_export",
-        action="store_true",
-        default=False,
-    )
-    bexp_p.add_argument("--export-rationale", dest="export_rationale", type=str)
-
-    # 14b. bundle import
-    bimp_p = bundle_subs.add_parser(
-        "import", parents=[_build_studio_parent()], help="Import session archive bundle"
-    )
-    bimp_p.add_argument("-f", "--file", dest="file", type=str, required=True)
-    bimp_p.add_argument(
-        "--acknowledge-unverified-import-attribution",
-        dest="acknowledge_unverified_import_attribution",
-        action="store_true",
-        default=False,
-    )
-    bimp_p.add_argument("--acknowledgement-rationale", dest="acknowledgement_rationale", type=str)
-    bimp_p.add_argument("--new-session-id", dest="new_session_id", type=str)
-    bimp_p.add_argument("--force", action="store_true", default=False)
-    bimp_p.add_argument(
-        "--acknowledge-historical-contract-warning",
-        dest="acknowledge_historical_contract_warning",
-        action="store_true",
-        default=False,
-    )
-    bimp_p.add_argument(
-        "--historical-contract-rationale",
-        dest="historical_contract_rationale",
-        type=str,
-    )
-
-    # 14c. bundle clone
-    bclone_p = bundle_subs.add_parser(
-        "clone", parents=[_build_studio_parent()], help="Clone existing session"
-    )
-    bclone_p.add_argument("-s", "--session", dest="session", type=str, required=True)
-    bclone_p.add_argument("--new-session-id", dest="new_session_id", type=str)
-    bclone_p.add_argument("-l", "--session-label", dest="session_label", type=str)
+    All `ontology studio` subcommands (including 3rd/4th-level `delta`, `proposal`,
+    and `bundle` leaf commands) are now generated directly from `cli-spec.json` by
+    `opendv_cli_common.parser_builder.build_argument_parser` (`P13::MAJ-02`).
+    """
+    _ = parser
 
 
 __all__ = [
+    "StudioLocalError",
     "handle_answer",
     "handle_bundle_clone",
     "handle_bundle_export",
@@ -2918,6 +3361,7 @@ __all__ = [
     "handle_clarify",
     "handle_construct",
     "handle_create",
+    "handle_delete",
     "handle_delta_apply",
     "handle_delta_validate",
     "handle_export",
@@ -2933,5 +3377,6 @@ __all__ = [
     "handle_status",
     "handle_upload",
     "register_studio_subparsers",
+    "resolve_studio_principal",
     "run_ontology_studio_command",
 ]

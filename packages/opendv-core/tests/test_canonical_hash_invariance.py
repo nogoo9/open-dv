@@ -10,7 +10,7 @@ Task 4A.2 / Issue #198:
 - Assert bit-for-bit canonical PE hash:
   1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81
 - Assert Greenfield Genesis draft hash:
-  99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e
+  1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9
 - Equivalence: None vs empty collections/strings vs omitted produces identical canonical hash
 - Sensitivity: Genuine attribute or synonym additions change hash deterministically
 - RFC 8785 JCS canonical formatting (Unicode, delimiters, sorted keys, number formatting)
@@ -26,12 +26,20 @@ from typing import Any
 
 import pytest
 
-from opendv_core import compute_ontology_sha256, validate_graph_a
+from opendv_core import (
+    GENESIS_DRAFT_SHA256,
+    GenesisDraft,
+    compute_ontology_sha256,
+    create_genesis_ontology,
+    validate_graph_a,
+)
 from opendv_core.models.graph_a import (
     CanonicalBusinessConcept,
+    CanonicalRelationship,
     ConceptAttribute,
     ExternalMapping,
     GraphAOntology,
+    ReferenceEnumeration,
 )
 from opendv_core.ontology_hashing import (
     _ATTR_OPT,
@@ -46,13 +54,21 @@ from opendv_core.ontology_hashing import (
 
 # Authoritative Certified Baseline SHA-256 Digests (RFC 8785 JCS)
 PE_CANONICAL_SHA256: str = "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81"
-GENESIS_DRAFT_CANONICAL_SHA256: str = (
-    "99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e"
-)
+GOLDEN_GRAPH_A_SHA256: str = "dec92838dddee6d823b866e2b66d66c91cc7cd57c9b355e27901ca863916c8fe"
+GENESIS_DRAFT_CANONICAL_SHA256: str = GENESIS_DRAFT_SHA256
 
 # Repository root discovery for baseline fixtures and schemas
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
 PE_FIXTURE_PATH = REPO_ROOT / "examples" / "private_equity" / "pe_graph_a_ontology.yaml"
+GOLDEN_FIXTURE_PATH = (
+    REPO_ROOT
+    / "packages"
+    / "opendv-contracts"
+    / "schemas"
+    / "v1"
+    / "fixtures"
+    / "graph_a_golden.json"
+)
 BASELINE_DIGESTS_PATH = REPO_ROOT / "schemas" / "v1" / "baseline-digests.json"
 
 
@@ -90,16 +106,34 @@ class TestCertifiedBaselineInvariance:
         assert computed_sha == catalog_pe_sha
 
     def test_greenfield_genesis_draft_exact_match(self, baseline_digests: dict[str, Any]) -> None:
-        """Greenfield Genesis draft 0.0.0 hash must evaluate to the certified digest."""
+        """Greenfield Genesis draft 0.0.0 JCS SHA-256 must match certified digest & vector."""
         genesis_entry = baseline_digests["genesis_draft"]
+        expected_sha = "1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9"
+        assert expected_sha == GENESIS_DRAFT_SHA256
         assert genesis_entry["canonical_sha256"] == GENESIS_DRAFT_CANONICAL_SHA256
-        assert (
-            genesis_entry["canonical_sha256"]
-            == "99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e"
-        )
+        assert genesis_entry["canonical_sha256"] == expected_sha
         assert genesis_entry["version"] == "0.0.0"
         assert genesis_entry["default_domain_namespace"] == "general"
         assert genesis_entry["default_enterprise_owner"] == "Enterprise Architecture"
+
+        # Compute real RFC 8785 JCS SHA-256 from GenesisDraft and create_genesis_ontology()
+        draft = GenesisDraft()
+        ont = create_genesis_ontology()
+        assert compute_ontology_sha256(draft) == expected_sha
+        assert compute_ontology_sha256(ont) == expected_sha
+
+        # Verify on-disk vector file matches JCS digest
+        vector_path = REPO_ROOT / genesis_entry["vector_path"]
+        assert vector_path.is_file(), f"Missing genesis vector at {vector_path}"
+        vector_doc = json.loads(vector_path.read_text(encoding="utf-8"))
+        assert compute_ontology_sha256(vector_doc) == expected_sha
+
+    def test_graph_a_golden_fixture_invariance(self) -> None:
+        """Contract golden fixture graph_a_golden.json must retain exact certified SHA-256."""
+        assert GOLDEN_FIXTURE_PATH.is_file(), f"Missing golden fixture at {GOLDEN_FIXTURE_PATH}"
+        golden = json.loads(GOLDEN_FIXTURE_PATH.read_text(encoding="utf-8"))
+        assert golden["sha256"] == GOLDEN_GRAPH_A_SHA256
+        assert compute_ontology_sha256(golden["raw_model"]) == GOLDEN_GRAPH_A_SHA256
 
     def test_all_certified_baseline_fixtures_invariance(
         self, baseline_digests: dict[str, Any]
@@ -227,71 +261,73 @@ class TestExtensionFieldEmptyInvariance:
         assert normalized_cbc["concept_name"] == "Fund"
         assert normalized_cbc["governance_constraints"] == []
 
-        # 2. Attribute scope test: only extension fields (metadata, source_hints, deprecated) pruned
+        # 2. Attribute scope test: post-baseline optional fields pruned when empty
         attr_data = {
             "attribute_name": "fund_name",
             "data_type": "string",
-            "description": "",  # legacy field preserved
-            "example_values": [],  # legacy field preserved
+            "description": "",
+            "example_values": [],
             "metadata": {},
             "source_hints": [],
             "deprecated": None,
             "is_optional": True,
         }
         normalized_attr = _norm_empty(attr_data, scope=_ATTR_OPT)
+        assert "description" not in normalized_attr
+        assert "example_values" not in normalized_attr
         assert "metadata" not in normalized_attr
         assert "source_hints" not in normalized_attr
         assert "deprecated" not in normalized_attr
         assert normalized_attr["attribute_name"] == "fund_name"
         assert normalized_attr["data_type"] == "string"
-        assert normalized_attr["description"] == ""
-        assert normalized_attr["example_values"] == []
         assert normalized_attr["is_optional"] is True
 
-        # 3. Relationship scope test: only extension fields (metadata, deprecated) pruned
+        # 3. Relationship scope test: post-baseline optional fields pruned when empty
         rel_data = {
             "relationship_uri": "urn:ontology:rel:manages",
-            "description": "",  # legacy field preserved
-            "cardinality": "",  # legacy field preserved
+            "description": "",
+            "cardinality": "",
+            "source_hints": [],
             "metadata": {},
             "deprecated": None,
             "endpoints": ["urn:a", "urn:b"],
         }
         normalized_rel = _norm_empty(rel_data, scope=_REL_EXT)
+        assert "description" not in normalized_rel
+        assert "cardinality" not in normalized_rel
+        assert "source_hints" not in normalized_rel
         assert "metadata" not in normalized_rel
         assert "deprecated" not in normalized_rel
-        assert normalized_rel["description"] == ""
-        assert normalized_rel["cardinality"] == ""
         assert normalized_rel["endpoints"] == ["urn:a", "urn:b"]
 
-        # 4. Enumeration scope test: only extension fields (metadata, deprecated) pruned
+        # 4. Enumeration scope test: post-baseline optional fields pruned when empty
         enum_data = {
             "enum_uri": "urn:ontology:enum:status",
-            "enumeration_name": "",  # legacy field preserved
-            "description": "",  # legacy field preserved
-            "code_descriptions": {},  # legacy field preserved
+            "enumeration_name": "",
+            "description": "",
+            "code_descriptions": {},
             "metadata": {},
             "deprecated": None,
             "allowed_codes": ["ACTIVE", "INACTIVE"],
         }
         normalized_enum = _norm_empty(enum_data, scope=_ENUM_EXT)
+        assert "enumeration_name" not in normalized_enum
+        assert "description" not in normalized_enum
+        assert "code_descriptions" not in normalized_enum
         assert "metadata" not in normalized_enum
         assert "deprecated" not in normalized_enum
-        assert normalized_enum["enumeration_name"] == ""
-        assert normalized_enum["description"] == ""
-        assert normalized_enum["code_descriptions"] == {}
         assert normalized_enum["allowed_codes"] == ["ACTIVE", "INACTIVE"]
 
-        # 5. Root ontology scope test: only extension field (metadata) pruned
+        # 5. Root ontology scope test: post-baseline optional fields pruned when empty
         ont_data = {
             "ontology_version": "1.0.0",
-            "description": "",  # legacy field preserved
+            "description": "",
             "metadata": {},
             "decision_refs": [],  # legacy field outside _ONT_EXT
         }
         normalized_ont = _norm_empty(ont_data, scope=_ONT_EXT)
+        assert "description" not in normalized_ont
         assert "metadata" not in normalized_ont
-        assert normalized_ont["description"] == ""
         assert normalized_ont["decision_refs"] == []
 
     def test_false_and_zero_values_preserved(self) -> None:
@@ -512,3 +548,50 @@ class TestRFC8785JCSFormatting:
         raw_dict = {"text": 'hello\nworld\t"escaped"\\'}
         jcs = dumps_jcs_bytes(raw_dict).decode("utf-8")
         assert jcs == '{"text":"hello\\nworld\\t\\"escaped\\"\\\\"}'
+
+
+class TestGenesisAndPromotedUrnInvariants:
+    """Tests for 0.x.y Genesis empty-CBC allowance, >= 1.0.0 enforcement, and URN schemes."""
+
+    def test_genesis_0_x_y_allows_empty_concepts_while_1_0_0_rejects(self) -> None:
+        """0.x.y ontologies permit empty CBCs; >= 1.0.0 strictly require >= 1 CBC."""
+        g0 = GraphAOntology(ontology_version="0.0.0", canonical_business_concepts=[])
+        assert g0.canonical_business_concepts == []
+
+        g01 = GraphAOntology(ontology_version="0.1.0", canonical_business_concepts=[])
+        assert g01.canonical_business_concepts == []
+
+        with pytest.raises(ValueError, match="ONTOLOGY_REQUIRES_CONCEPT"):
+            GraphAOntology(ontology_version="1.0.0", canonical_business_concepts=[])
+
+    def test_promoted_opendv_urn_schemes_accepted_provisional_rejected(self) -> None:
+        """Both urn:ontology:* and urn:opendv:* promoted URNs work; :provisional: fails."""
+        c = CanonicalBusinessConcept(
+            concept_uri="urn:opendv:concept:limited_partner",
+            concept_name="Limited Partner",
+        )
+        r = CanonicalRelationship(
+            relationship_uri="urn:opendv:relationship:fund_lp",
+            endpoints=["urn:opendv:concept:limited_partner", "urn:ontology:entity:fund"],
+        )
+        e = ReferenceEnumeration(
+            enum_uri="urn:opendv:enum:currency_code",
+            target_reference_table="ref_currency_code",
+            allowed_codes=["USD", "EUR"],
+        )
+        ont = GraphAOntology(
+            ontology_version="1.0.0",
+            canonical_business_concepts=[
+                c,
+                CanonicalBusinessConcept(concept_uri="urn:ontology:entity:fund"),
+            ],
+            canonical_relationships=[r],
+            reference_enumerations=[e],
+        )
+        assert ont.get_concept("urn:opendv:concept:limited_partner") is not None
+        assert ont.get_concept("urn:opendv:concept:missing") is None
+
+        with pytest.raises(ValueError):
+            CanonicalBusinessConcept(concept_uri="urn:opendv:provisional:concept:lp")
+        with pytest.raises(ValueError):
+            CanonicalBusinessConcept(concept_uri="urn:ontology:provisional:entity:lp")

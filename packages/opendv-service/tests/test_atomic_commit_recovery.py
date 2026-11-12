@@ -30,12 +30,17 @@ from opendv_contracts.dtos.ontology import (
     AddConceptOp,
     OntologyDelta,
 )
-from opendv_core.models.graph_a import CanonicalBusinessConcept, GraphAOntology
+from opendv_core.models.graph_a import (
+    CanonicalBusinessConcept,
+    ExternalMapping,
+    GraphAOntology,
+)
 from opendv_core.ontology_hashing import compute_ontology_sha256, dumps_jcs_bytes
 from opendv_service.studio.atomic_commit import (
     AtomicCommitService,
     CommitValidationError,
     ConcurrentModificationError,
+    InvalidPreconditionHeaderError,
     SourceReferencedByCommittedVersionError,
     SourceReferencedByPendingProposalError,
     TamperEvidentChainCorruptError,
@@ -50,10 +55,16 @@ from opendv_service.studio.bundle import (
 )
 from opendv_service.studio.cas_storage import ContentAddressableStorage
 from opendv_service.studio.session_manager import (
+    GENESIS_DRAFT_SHA256,
     StudioSessionManager,
 )
 from opendv_service.studio.workspace_security import (
     WorkspaceSecurityManager,
+)
+
+FIBO_PARTY_URI = "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/ContractParty"
+FIBO_ACCOUNT_URI = (
+    "https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account"
 )
 
 
@@ -64,7 +75,11 @@ def test_env(tmp_path: Path) -> dict[str, Any]:
     studio_root.mkdir(parents=True, exist_ok=True)
     sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
     session_mgr = StudioSessionManager(studio_root=studio_root, security_manager=sec_mgr)
-    commit_svc = AtomicCommitService(session_manager=session_mgr, security_manager=sec_mgr)
+    commit_svc = AtomicCommitService(
+        session_manager=session_mgr,
+        security_manager=sec_mgr,
+        enforce_governance=False,
+    )
     return {
         "root": tmp_path,
         "studio_root": studio_root,
@@ -74,19 +89,28 @@ def test_env(tmp_path: Path) -> dict[str, Any]:
     }
 
 
-def _make_genesis_delta() -> OntologyDelta:
+def _make_genesis_delta(parent_sha: str = GENESIS_DRAFT_SHA256) -> OntologyDelta:
     """Helper to create an additive genesis delta from 0.0.0 to 1.0.0."""
     return OntologyDelta(
         delta_id="delta-genesis-1",
         base_ontology_version="0.0.0",
         target_ontology_version="1.0.0",
-        parent_sha256="",
+        parent_sha256=parent_sha,
         operations=[
             AddConceptOp(
                 op_id="op-1",
                 concept_name="Party",
                 concept_uri="urn:ontology:entity:party",
                 description="Autonomous legal or natural entity",
+                synonyms=["Contract Party"],
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="fibo",
+                        target_uri=FIBO_PARTY_URI,
+                        predicate="skos:exactMatch",
+                        confidence=0.95,
+                    )
+                ],
             )
         ],
     )
@@ -105,6 +129,14 @@ def _make_v110_delta(parent_sha: str) -> OntologyDelta:
                 concept_name="Account",
                 concept_uri="urn:ontology:entity:account",
                 description="Financial account structure",
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="fibo",
+                        target_uri=FIBO_ACCOUNT_URI,
+                        predicate="skos:exactMatch",
+                        confidence=0.95,
+                    )
+                ],
             )
         ],
     )
@@ -273,14 +305,26 @@ def test_if_match_header_validation(test_env: dict[str, Any]) -> None:
         ],
     )
 
+    # Weak ETag is strictly rejected with HTTP 400 / exit 2 (INVALID_PRECONDITION_HEADER)
+    with pytest.raises(InvalidPreconditionHeaderError) as weak_exc:
+        commit_svc.commit_delta(
+            "session-if-match",
+            delta3,
+            if_match=f'W/"{res2.target_sha256}"',
+        )
+    assert weak_exc.value.status_code == 400
+    assert weak_exc.value.exit_code == 2
+
+    # Strong stale ETag raises HTTP 412 / exit 5 (ConcurrentModificationError)
     with pytest.raises(ConcurrentModificationError) as exc_info:
         commit_svc.commit_delta(
             "session-if-match",
             delta3,
-            if_match=f'W/"{res1.target_sha256}"',  # Stale ETag
+            if_match=f'"{res1.target_sha256}"',  # Stale strong ETag
         )
 
     assert exc_info.value.status_code == 412
+    assert exc_info.value.exit_code == 5
 
 
 def test_semver_downgrade_rejected(test_env: dict[str, Any]) -> None:
@@ -349,8 +393,8 @@ def test_crash_recovery_incomplete_staging_before_rename_is_aborted(
         json.dumps({"target_sha256": target_sha, "target_version": "v1.0.0"}), encoding="utf-8"
     )
 
-    # Execute recovery
-    commit_svc.reconcile_and_recover_session("session-crash-staging")
+    # Execute recovery (pass staging_grace_seconds=0.0 so brand-new test fixture dir is swept)
+    commit_svc.reconcile_and_recover_session("session-crash-staging", staging_grace_seconds=0.0)
 
     # Staging directory must be cleaned up
     assert not staging_dir.exists()
@@ -490,7 +534,7 @@ def test_staging_cleanup_safety_invariant_preserves_committed(
         encoding="utf-8",
     )
 
-    commit_svc.reconcile_and_recover_session("session-safety")
+    commit_svc.reconcile_and_recover_session("session-safety", staging_grace_seconds=0.0)
 
     # keep_staging must be preserved!
     assert keep_staging.exists()

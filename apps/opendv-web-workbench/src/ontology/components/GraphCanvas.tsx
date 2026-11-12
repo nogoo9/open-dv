@@ -234,7 +234,13 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 				},
 			};
 		});
-	}, [rawNodes, layoutState.lodTier, layoutState.searchTerm, selectedNodeId, matchesSearch]);
+	}, [
+		rawNodes,
+		layoutState.lodTier,
+		layoutState.searchTerm,
+		selectedNodeId,
+		matchesSearch,
+	]);
 
 	// Convert raw store edges into React Flow format
 	const initialFlowEdges: Edge[] = useMemo(() => {
@@ -384,6 +390,9 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 	const activeSessionId = activeSession?.session_id;
 	const prevSessionIdRef = useRef<string | undefined>(activeSessionId);
 	const hasAutoLaidOutRef = useRef(false);
+	const prevLayoutTriggerCountRef = useRef<number>(
+		layoutState.layoutTriggerCount || 0,
+	);
 
 	useEffect(() => {
 		if (prevSessionIdRef.current !== activeSessionId) {
@@ -398,6 +407,17 @@ export const GraphCanvas: React.FC<GraphCanvasProps> = ({
 			});
 		}
 	}, [rawNodes.length, activeSessionId, runAutoLayout, setNodes]);
+
+	// Subscribe to layoutTriggerCount increments from Header Re-layout button / store triggerRelayout (P14a::MAJ-01)
+	useEffect(() => {
+		const nextCount = layoutState.layoutTriggerCount || 0;
+		if (nextCount !== prevLayoutTriggerCountRef.current) {
+			prevLayoutTriggerCountRef.current = nextCount;
+			runAutoLayout().catch((err) => {
+				console.warn("Triggered relayout failed:", err);
+			});
+		}
+	}, [layoutState.layoutTriggerCount, runAutoLayout]);
 
 	const handleNodeClick = useCallback(
 		(_: React.MouseEvent, node: Node) => {

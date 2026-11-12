@@ -1,9 +1,11 @@
 """Empirical Adversarial Test Suite for Milestone M4 Quality Gate.
 
 Focus:
-1. Canonical PE Graph A SHA-256 Stability (exact digest 1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81)
+1. Canonical PE Graph A SHA-256 Stability
+   (exact digest 1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81)
 2. All certified baseline fixtures stability
-3. Genesis draft baseline digest stability (99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e)
+3. Genesis draft baseline digest stability
+   (1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9)
 4. Field invariance across None vs empty collection vs omitted extensions
 5. Serialization roundtrips (YAML, JSON, JCS, key reordering, Unicode NFC)
 6. Sensitivity tests (counter-examples showing genuine modifications alter the hash)
@@ -11,27 +13,21 @@ Focus:
 
 from __future__ import annotations
 
-import copy
-import hashlib
 import json
 import random
 from pathlib import Path
 from typing import Any
 
-import pytest
 import yaml
 
-from opendv_core import compute_ontology_sha256, validate_graph_a
-from opendv_core.models.graph_a import (
-    CanonicalBusinessConcept,
-    ConceptAttribute,
-    ExternalMapping,
-    GraphAOntology,
+from opendv_core import (
+    GENESIS_DRAFT_SHA256,
+    compute_ontology_sha256,
+    create_genesis_ontology,
+    validate_graph_a,
 )
-from opendv_core.ontology_hashing import (
-    _norm_empty,
-    canonicalize_graph_a_dict,
-    dumps_jcs_bytes,
+from opendv_core.models.graph_a import (
+    GraphAOntology,
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -39,7 +35,7 @@ PE_PATH = REPO_ROOT / "examples" / "private_equity" / "pe_graph_a_ontology.yaml"
 BASELINE_CATALOG_PATH = REPO_ROOT / "schemas" / "v1" / "baseline-digests.json"
 
 EXPECTED_PE_SHA256 = "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81"
-EXPECTED_GENESIS_SHA256 = "99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e"
+EXPECTED_GENESIS_SHA256 = "1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9"
 
 
 class TestCanonicalPESHA256Empirical:
@@ -72,11 +68,13 @@ class TestCanonicalPESHA256Empirical:
             )
 
     def test_genesis_draft_digest_registered(self) -> None:
-        """Verify Genesis Draft digest in baseline-digests.json."""
+        """Verify Genesis Draft digest in baseline-digests.json and JCS computation."""
         catalog = json.loads(BASELINE_CATALOG_PATH.read_text(encoding="utf-8"))
         genesis = catalog["genesis_draft"]
+        assert GENESIS_DRAFT_SHA256 == EXPECTED_GENESIS_SHA256
         assert genesis["canonical_sha256"] == EXPECTED_GENESIS_SHA256
         assert genesis["version"] == "0.0.0"
+        assert compute_ontology_sha256(create_genesis_ontology()) == EXPECTED_GENESIS_SHA256
 
     def test_extension_defaults_none_invariance(self) -> None:
         """Explicitly set extension fields to None on all concepts and verify hash invariance."""
@@ -98,7 +96,7 @@ class TestCanonicalPESHA256Empirical:
         assert variant_sha == EXPECTED_PE_SHA256
 
     def test_extension_empty_collections_invariance(self) -> None:
-        """Explicitly set extension fields to empty collections ([], {}, '') and verify hash invariance."""
+        """Set extension fields to empty collections ([], {}, '') and verify hash invariance."""
         ont = validate_graph_a(PE_PATH)
         raw = ont.model_dump(mode="json", exclude_none=True)
 
@@ -125,20 +123,20 @@ class TestCanonicalPESHA256Empirical:
         assert variant_sha == EXPECTED_PE_SHA256
 
     def test_randomized_key_order_invariance(self) -> None:
-        """Adversarially shuffle dictionary keys in JSON / dict representations and verify hash invariance."""
+        """Shuffle dictionary keys in JSON / dict representations and verify hash invariance."""
         ont = validate_graph_a(PE_PATH)
         raw = ont.model_dump(mode="json", exclude_none=True)
 
         for seed in [42, 1337, 2026, 9999]:
             rng = random.Random(seed)
 
-            def _shuffle_dict(d: Any) -> Any:
+            def _shuffle_dict(d: Any, _rng: random.Random = rng) -> Any:
                 if isinstance(d, dict):
                     keys = list(d.keys())
-                    rng.shuffle(keys)
-                    return {k: _shuffle_dict(d[k]) for k in keys}
+                    _rng.shuffle(keys)
+                    return {k: _shuffle_dict(d[k], _rng) for k in keys}
                 if isinstance(d, list):
-                    return [_shuffle_dict(x) for x in d]
+                    return [_shuffle_dict(x, _rng) for x in d]
                 return d
 
             shuffled = _shuffle_dict(raw)

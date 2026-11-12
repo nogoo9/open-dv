@@ -100,18 +100,19 @@ def test_dump_cli_tree_studio_parity(
     py_studio = py_ont["subcommands"].get("studio")
     assert py_studio is not None, "Missing studio subcommand in python CLI tree"
 
-    ts_ont = next((c for c in ts_tree["commands"] if c["name"] == "ontology"), None)
+    ts_ont = ts_tree["commands"].get("ontology")
     assert ts_ont is not None, "Missing ontology command in TypeScript CLI tree"
-    ts_studio = next((s for s in ts_ont["subcommands"] if s["name"] == "studio"), None)
+    ts_studio = ts_ont["subcommands"].get("studio")
     assert ts_studio is not None, "Missing studio subcommand in TypeScript CLI tree"
 
-    # Verify studio subcommands are declared in both trees
+    # Verify studio subcommands are declared in both trees (`init` is standalone_only)
     py_groups = py_studio.get("subcommands", {})
-    ts_groups = {s["name"]: s for s in ts_studio.get("subcommands", [])}
+    ts_groups = ts_studio.get("subcommands", {})
 
     expected_groups = {
         "init",
         "create",
+        "delete",
         "list",
         "status",
         "upload",
@@ -125,19 +126,21 @@ def test_dump_cli_tree_studio_parity(
         "promote",
         "bundle",
     }
+    expected_shared_groups = expected_groups - {"init"}
     assert set(py_groups.keys()) == expected_groups
-    assert set(ts_groups.keys()) == expected_groups
+    assert py_groups["init"]["availability"] == "standalone_only"
+    assert set(ts_groups.keys()) == expected_shared_groups
 
-    # Verify all 14 groups and 21 leaf commands have identical structure and options
-    leaf_count_py = 0
+    # Verify shared groups and leaf commands have identical structure and options
+    leaf_count_py = 1  # standalone-only `init`
     leaf_count_ts = 0
 
-    for group_name in sorted(expected_groups):
+    for group_name in sorted(expected_shared_groups):
         py_grp = py_groups[group_name]
         ts_grp = ts_groups[group_name]
 
         py_subs = py_grp.get("subcommands", {})
-        ts_subs = {s["name"]: s for s in ts_grp.get("subcommands", [])}
+        ts_subs = ts_grp.get("subcommands", {})
 
         assert set(py_subs.keys()) == set(ts_subs.keys()), (
             f"Subcommand mismatch in group '{group_name}': "
@@ -166,8 +169,8 @@ def test_dump_cli_tree_studio_parity(
                     f"Option mismatch in '{group_name} {leaf_name}': py={py_opts} ts={ts_opts}"
                 )
 
-    assert leaf_count_py == 21, f"Expected 21 python leaf commands, got {leaf_count_py}"
-    assert leaf_count_ts == 21, f"Expected 21 TypeScript leaf commands, got {leaf_count_ts}"
+    assert leaf_count_py == 22, f"Expected 22 python leaf commands, got {leaf_count_py}"
+    assert leaf_count_ts == 21, f"Expected 21 TypeScript shared leaf commands, got {leaf_count_ts}"
 
 
 @pytest.mark.parity
@@ -484,9 +487,14 @@ def test_studio_exit_code_matrix_parity_0_to_7(
         "--json",
     ]
     code_local_4, stdout_local_4, stderr_local_4 = cli_transport.invoke_raw(waiver_short_py)
-    code_remote_4, stdout_remote_4, stderr_remote_4 = client_cli_transport.invoke_raw(
-        waiver_short_ts
-    )
+    old_role_4 = client_cli_transport.role
+    try:
+        client_cli_transport.role = "DATA_STEWARD"
+        code_remote_4, stdout_remote_4, stderr_remote_4 = client_cli_transport.invoke_raw(
+            waiver_short_ts
+        )
+    finally:
+        client_cli_transport.role = old_role_4
     assert code_local_4 == 4, f"Local short waiver expected exit 4, got {code_local_4}"
     assert code_remote_4 == 4, f"Remote short waiver expected exit 4, got {code_remote_4}"
     assert _extract_error_code(stdout_local_4, stderr_local_4) == "INVALID_GROUNDING_WAIVER"

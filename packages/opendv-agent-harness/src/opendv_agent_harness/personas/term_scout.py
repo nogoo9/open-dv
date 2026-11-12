@@ -17,7 +17,7 @@ from opendv_agent_harness.models import (
     PipelineStageId,
     SubagentSpec,
 )
-from opendv_agent_harness.privacy import Pseudonymizer
+from opendv_agent_harness.privacy import Pseudonymizer, validate_task_spec_privacy
 from opendv_agent_harness.routing import get_persona_capability
 from opendv_agent_harness.tools.catalog import get_tools_for_persona
 from opendv_contracts.dtos.ingestion import EvidenceChunk, TableStructure
@@ -88,11 +88,26 @@ def build_term_scout_task_spec(
     system_instructions: str = TERM_SCOUT_SYSTEM_INSTRUCTIONS,
 ) -> AgentTaskSpec[Any]:
     """Build the canonical `AgentTaskSpec` for `@term-scout`."""
+    validate_task_spec_privacy(
+        prompt=prompt,
+        system_instructions=system_instructions,
+        input_data=input_data,
+    )
     profile = get_persona_capability(AgentPersona.TERM_SCOUT)
     eff_trace = trace_id or uuid.uuid4().hex
-    eff_tools = (
-        tuple(tools) if tools is not None else tuple(get_tools_for_persona(AgentPersona.TERM_SCOUT))
-    )
+    if tools is not None:
+        for t in tools:
+            if (
+                t.name not in profile.authorized_tools
+                or AgentPersona.TERM_SCOUT not in t.allowed_personas
+            ):
+                raise PermissionError(
+                    f"Tool '{t.name}' is not authorized for persona "
+                    f"'{AgentPersona.TERM_SCOUT.value}'."
+                )
+        eff_tools = tuple(tools)
+    else:
+        eff_tools = tuple(get_tools_for_persona(AgentPersona.TERM_SCOUT))
     from opendv_agent_harness.personas import build_input_context_refs
 
     context_refs: dict[str, str | None] = {}
@@ -132,6 +147,22 @@ def _is_explicitly_public(taint: Any) -> bool:
     return str(val).lower().strip() == "public"
 
 
+def _header_stem_to_term(stem: str) -> str:
+    """Convert snake_case stem to Title Case while keeping `pseudo_<hex>` tokens intact."""
+    parts = re.split(r"(pseudo_[0-9a-f]{12,64})", stem, flags=re.IGNORECASE)
+    out: list[str] = []
+    for part in parts:
+        if not part:
+            continue
+        if re.fullmatch(r"pseudo_[0-9a-f]{12,64}", part, flags=re.IGNORECASE):
+            out.append(part.lower())
+        else:
+            cleaned = part.replace("_", " ").strip()
+            if cleaned:
+                out.append(cleaned.title())
+    return " ".join(out)
+
+
 class TermScout:
     """Execution engine for `@term-scout` candidate entity harvesting.
 
@@ -155,6 +186,9 @@ class TermScout:
         term_citations: dict[str, list[EvidenceRef]] = {}
 
         for chunk in evidence_chunks or []:
+            chunk_meta = chunk.metadata if isinstance(chunk.metadata, dict) else {}
+            if chunk_meta.get("do_not_send_to_agent") is True:
+                continue
             # Fail closed: Only explicit 'public' taint is untainted (MIN-01)
             is_tainted = not _is_explicitly_public(chunk.taint)
 
@@ -162,9 +196,7 @@ class TermScout:
             masked_full_text: str | None
             if is_tainted:
                 if self.pseudonymizer:
-                    raw_sensitive = (
-                        chunk.metadata.get("sensitive_entities") if chunk.metadata else None
-                    )
+                    raw_sensitive = chunk_meta.get("sensitive_entities")
                     if isinstance(raw_sensitive, (list, tuple)):
                         sensitive = [str(s).strip() for s in raw_sensitive if str(s).strip()]
                     else:
@@ -181,6 +213,8 @@ class TermScout:
                             if s_term.lower() in lower_masked:
                                 masked_full_text = None
                                 break
+                    elif chunk_meta.get("pseudonymized") is True:
+                        masked_full_text = chunk.text
                     else:
                         masked_full_text = None
                 else:
@@ -240,31 +274,70 @@ class TermScout:
         # Step 2: Extract from tables
         for tbl in tables or []:
             tbl_taint = getattr(tbl, "taint", None)
-            if tbl_taint is None and hasattr(tbl, "metadata") and tbl.metadata:
-                tbl_taint = tbl.metadata.get("taint")
+            tbl_meta = (
+                tbl.metadata if hasattr(tbl, "metadata") and isinstance(tbl.metadata, dict) else {}
+            )
+            if tbl_meta.get("do_not_send_to_agent") is True:
+                continue
+            if tbl_taint is None and tbl_meta:
+                tbl_taint = tbl_meta.get("taint")
             # Fail closed: Only explicit 'public' taint is untainted.
-            # Missing taint (None), internal, confidential, or restricted are tainted (MAJ-01).
+            # Missing taint (None), internal, confidential, or restricted are tainted (CRIT-05).
             tbl_tainted = not _is_explicitly_public(tbl_taint)
+
+            raw_tbl_id = getattr(tbl, "table_id", None) or "table"
+            if tbl_tainted:
+                if self.pseudonymizer is None:
+                    continue
+                raw_sensitive = tbl_meta.get("sensitive_entities")
+                sensitive = (
+                    [str(s).strip() for s in raw_sensitive if str(s).strip()]
+                    if isinstance(raw_sensitive, (list, tuple))
+                    else []
+                )
+                if not sensitive and not tbl_meta.get("pseudonymized"):
+                    continue
+                safe_tbl_id = (
+                    self.pseudonymizer.pseudonymize_text(raw_tbl_id, sensitive)
+                    if sensitive
+                    else raw_tbl_id
+                )
+                if any(s.lower() in safe_tbl_id.lower() for s in sensitive):
+                    continue
+            else:
+                sensitive = []
+                safe_tbl_id = raw_tbl_id
 
             headers = tbl.headers or []
             rows = tbl.rows or []
             for col_idx, header in enumerate(headers):
-                clean = header.strip()
-                if self.pseudonymizer:
-                    clean = self.pseudonymizer.de_pseudonymize(clean)
-                lower = clean.lower()
+                raw_header = header.strip()
+                if not raw_header:
+                    continue
+                if tbl_tainted:
+                    assert self.pseudonymizer is not None
+                    safe_header = (
+                        self.pseudonymizer.pseudonymize_text(raw_header, sensitive)
+                        if sensitive
+                        else raw_header
+                    )
+                    if any(s.lower() in safe_header.lower() for s in sensitive):
+                        continue
+                else:
+                    safe_header = raw_header
+
+                lower = safe_header.lower()
                 entity_term: str | None = None
                 if lower.endswith("_id"):
-                    entity_term = lower.removesuffix("_id").replace("_", " ").title()
+                    entity_term = _header_stem_to_term(lower.removesuffix("_id"))
                 elif lower.endswith("_pk"):
-                    entity_term = lower.removesuffix("_pk").replace("_", " ").title()
+                    entity_term = _header_stem_to_term(lower.removesuffix("_pk"))
                 elif lower.endswith("_key"):
-                    entity_term = lower.removesuffix("_key").replace("_", " ").title()
+                    entity_term = _header_stem_to_term(lower.removesuffix("_key"))
 
                 if entity_term:
                     if entity_term.lower() not in seen_terms:
                         seen_terms.add(entity_term.lower())
-                        tbl_id = getattr(tbl, "table_id", None) or "table"
                         candidates.append(
                             {
                                 "term": entity_term,
@@ -272,7 +345,7 @@ class TermScout:
                                 "evidence_citations": [
                                     EvidenceRef(
                                         evidence_type="column_profile",
-                                        reference_uri=f"urn:opendv:evidence:table:{tbl_id}#{header}",
+                                        reference_uri=f"urn:opendv:evidence:table:{safe_tbl_id}#{safe_header}",
                                         confidence=1.0,
                                     )
                                 ],
@@ -280,61 +353,41 @@ class TermScout:
                         )
                 elif lower.endswith(("_code", "_status", "_type")):
                     if lower.endswith("_code"):
-                        ref_term = lower.removesuffix("_code").replace("_", " ").title()
+                        ref_term = _header_stem_to_term(lower.removesuffix("_code"))
                     elif lower.endswith("_status"):
-                        ref_term = lower.removesuffix("_status").replace("_", " ").title()
+                        ref_term = _header_stem_to_term(lower.removesuffix("_status"))
                     else:
-                        ref_term = lower.removesuffix("_type").replace("_", " ").title()
+                        ref_term = _header_stem_to_term(lower.removesuffix("_type"))
 
-                    # Extract codes from table rows with fail-closed confidential
-                    # taint guard (MAJ-01)
+                    # Extract codes from table rows with fail-closed confidential taint guard
                     if tbl_tainted:
-                        if not self.pseudonymizer:
+                        assert self.pseudonymizer is not None
+                        if not sensitive:
                             codes = []
                         else:
-                            raw_sensitive = (
-                                tbl.metadata.get("sensitive_entities")
-                                if hasattr(tbl, "metadata") and tbl.metadata
-                                else None
-                            )
-                            if isinstance(raw_sensitive, (list, tuple)) and raw_sensitive:
-                                sensitive = [
-                                    str(s).strip() for s in raw_sensitive if str(s).strip()
-                                ]
-                            else:
-                                sensitive = []
-
-                            if not sensitive:
-                                codes = []  # Fail closed: tainted table with no sensitive list
-                            else:
-                                raw_codes_set: set[str] = set()
-                                masking_failed = False
-                                for row in rows:
-                                    if col_idx < len(row) and row[col_idx] is not None:
-                                        cell_val = str(row[col_idx]).strip()
-                                        if not cell_val:
-                                            continue
-                                        masked_val = self.pseudonymizer.pseudonymize_text(
-                                            cell_val, sensitive
-                                        )
-                                        lower_masked = masked_val.lower()
-                                        # Verify no sensitive entity survived masking
-                                        if any(s.lower() in lower_masked for s in sensitive):
-                                            masking_failed = True
-                                            break
-                                        # If cell contained sensitive entity (masked to pseudo_*),
-                                        # fail closed so confidential entity never leaks into enum
-                                        if "pseudo_" in lower_masked:
-                                            masking_failed = True
-                                            break
-                                        raw_codes_set.add(masked_val)
-
-                                if masking_failed or not raw_codes_set:
-                                    codes = []
-                                else:
-                                    codes = (
-                                        sorted(raw_codes_set) if len(raw_codes_set) <= 100 else []
+                            raw_codes_set: set[str] = set()
+                            masking_failed = False
+                            for row in rows:
+                                if col_idx < len(row) and row[col_idx] is not None:
+                                    cell_val = str(row[col_idx]).strip()
+                                    if not cell_val:
+                                        continue
+                                    masked_val = self.pseudonymizer.pseudonymize_text(
+                                        cell_val, sensitive
                                     )
+                                    lower_masked = masked_val.lower()
+                                    if any(s.lower() in lower_masked for s in sensitive):
+                                        masking_failed = True
+                                        break
+                                    if "pseudo_" in lower_masked:
+                                        masking_failed = True
+                                        break
+                                    raw_codes_set.add(masked_val)
+
+                            if masking_failed or not raw_codes_set:
+                                codes = []
+                            else:
+                                codes = sorted(raw_codes_set) if len(raw_codes_set) <= 100 else []
                     else:
                         raw_codes = {
                             str(row[col_idx]).strip()
@@ -347,7 +400,6 @@ class TermScout:
 
                     if ref_term.lower() not in seen_terms:
                         seen_terms.add(ref_term.lower())
-                        tbl_id = getattr(tbl, "table_id", None) or "table"
                         candidates.append(
                             {
                                 "term": ref_term,
@@ -356,7 +408,7 @@ class TermScout:
                                 "evidence_citations": [
                                     EvidenceRef(
                                         evidence_type="column_profile",
-                                        reference_uri=f"urn:opendv:evidence:table:{tbl_id}#{header}",
+                                        reference_uri=f"urn:opendv:evidence:table:{safe_tbl_id}#{safe_header}",
                                         confidence=1.0,
                                     )
                                 ],

@@ -231,3 +231,115 @@ def test_state_store_resolve_captain_hold_with_hold_option(
         updated_proj = store.projects[project_id]
         assert updated_proj.graph_a_sha256 != compute_ontology_sha256(base_ontology)
         assert store.cas_store.has(updated_proj.graph_a_sha256)
+
+
+def test_r3_execute_ontology_decision_strictly_scopes_legacy_ip1_cold_bootstrap(
+    base_ontology: GraphAOntology,
+) -> None:
+    """P06b MAJ-01: execute_ontology_decision allows 1.0.0 -> 1.0.0 BOOTSTRAP ONLY for genuine
+    Wave-1 IP-1 cold-start payloads (no parent_sha256, no v2 envelope author/created_at/rationale,
+    and only the 7 Wave-1 v1 additive op types), rejecting Studio v2 spoofed bootstrap deltas.
+    """
+    import yaml
+
+    from opendv_contracts.dtos.ontology import OntologyDecisionRequest
+    from opendv_service.errors import InputValidationError
+    from opendv_service.models import CreateProjectRequest
+    from opendv_service.use_cases.ontology import execute_ontology_decision
+
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        store = StateStore(repo_root=Path(tmp_dir), state_dir=Path(tmp_dir) / "state")
+        ont_path = Path(tmp_dir) / "graph_a_ontology.yaml"
+        ont_path.write_text(
+            yaml.safe_dump(base_ontology.model_dump(mode="json", exclude_none=True)),
+            encoding="utf-8",
+        )
+        store.create_project(
+            CreateProjectRequest(
+                project_id="proj-ip1-r3",
+                display_name="IP1 Cold Start",
+                domain_namespace="logistics_and_commerce",
+                graph_a_ontology_path=str(ont_path),
+            )
+        )
+
+        # 1. Genuine Wave-1 IP-1 cold-start bootstrap succeeds
+        genuine_ip1_delta = {
+            "delta_id": "delta-ip1-genuine",
+            "base_ontology_version": "1.0.0",
+            "target_ontology_version": "1.0.0",
+            "metadata": {"mode": "BOOTSTRAP"},
+            "operations": [
+                {
+                    "op_id": "op-warehouse",
+                    "op_type": "add_concept",
+                    "concept_uri": "urn:ontology:entity:warehouse",
+                    "concept_name": "CBC_WAREHOUSE",
+                    "target_hub": "hub_warehouse",
+                }
+            ],
+        }
+        resp = execute_ontology_decision(
+            store,
+            OntologyDecisionRequest(
+                action="ACCEPT",
+                decided_by="captain",
+                base_ontology_path=str(ont_path),
+                delta=genuine_ip1_delta,
+            ),
+            workspace_root=Path(tmp_dir),
+        )
+        assert resp.status == "COMPLETED"
+        assert resp.resulting_ontology_version == "1.0.0"
+
+        # 2. Spoofed BOOTSTRAP with Studio v2 envelope field (`rationale`) is rejected
+        spoofed_v2_author = dict(genuine_ip1_delta)
+        spoofed_v2_author["delta_id"] = "delta-spoof-author"
+        spoofed_v2_author["rationale"] = "Spoofed studio v2 rationale"
+        spoofed_v2_author["operations"] = [
+            {
+                "op_id": "op-spoof",
+                "op_type": "add_concept",
+                "concept_uri": "urn:ontology:entity:spoof_a",
+                "concept_name": "Spoof A",
+                "target_hub": "hub_spoof_a",
+            }
+        ]
+        with pytest.raises(InputValidationError):
+            execute_ontology_decision(
+                store,
+                OntologyDecisionRequest(
+                    action="ACCEPT",
+                    decided_by="captain",
+                    base_ontology_path=str(ont_path),
+                    delta_content=yaml.safe_dump(spoofed_v2_author),
+                ),
+                workspace_root=Path(tmp_dir),
+            )
+
+        # 3. Spoofed BOOTSTRAP containing a Studio v2 non-Wave-1 op (`add_synonym`) is rejected
+        spoofed_v2_op = {
+            "delta_id": "delta-spoof-v2op",
+            "base_ontology_version": "1.0.0",
+            "target_ontology_version": "1.0.0",
+            "metadata": {"mode": "BOOTSTRAP"},
+            "operations": [
+                {
+                    "op_id": "op-syn",
+                    "op_type": "add_synonym",
+                    "concept_uri": "urn:ontology:entity:customer",
+                    "synonym": "Buyer",
+                }
+            ],
+        }
+        with pytest.raises(InputValidationError, match=r"Target version '1\.0\.0' is invalid"):
+            execute_ontology_decision(
+                store,
+                OntologyDecisionRequest(
+                    action="ACCEPT",
+                    decided_by="captain",
+                    base_ontology_path=str(ont_path),
+                    delta_content=yaml.safe_dump(spoofed_v2_op),
+                ),
+                workspace_root=Path(tmp_dir),
+            )

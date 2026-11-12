@@ -45,14 +45,25 @@ export const ClarificationPanel: React.FC<ClarificationPanelProps> = ({
 	onAnswerSubmitted,
 }) => {
 	const activeSession = useStudioStore((s) => s.activeSession);
+	const userRole = useStudioStore((s) => s.userRole);
 	const clarifications = useStudioStore((s) => s.clarifications);
 	const answers = useStudioStore((s) => s.answers);
+	const proposals = useStudioStore((s) => s.proposals);
 	const isLoadingClarifications = useStudioStore(
 		(s) => s.isLoadingClarifications,
 	);
+	const isClarifying = useStudioStore((s) => s.isClarifying);
+	const isConstructing = useStudioStore((s) => s.isConstructing);
+	const isLoadingProposals = useStudioStore((s) => s.isLoadingProposals);
 	const loadClarifications = useStudioStore((s) => s.loadClarifications);
 	const submitAnswer = useStudioStore((s) => s.submitAnswer);
 	const setAnswerDraft = useStudioStore((s) => s.setAnswerDraft);
+	const startClarify = useStudioStore((s) => s.startClarify);
+	const startConstruct = useStudioStore((s) => s.startConstruct);
+	const loadProposals = useStudioStore((s) => s.loadProposals);
+	const acceptProposal = useStudioStore((s) => s.acceptProposal);
+	const rejectProposal = useStudioStore((s) => s.rejectProposal);
+	const rebaseProposal = useStudioStore((s) => s.rebaseProposal);
 
 	// Local drafts state
 	const [activeDrafts, setActiveDrafts] = useState<
@@ -71,6 +82,8 @@ export const ClarificationPanel: React.FC<ClarificationPanelProps> = ({
 	const answeredCount = clarifications.filter(
 		(q) => q.status === "ANSWERED",
 	).length;
+	const canHumanRatify = userRole === "editor" || userRole === "admin";
+	const canTriggerJobs = userRole !== "viewer";
 
 	const resolveDraft = useCallback(
 		(questionId: string) => {
@@ -203,15 +216,105 @@ export const ClarificationPanel: React.FC<ClarificationPanelProps> = ({
 				<p className="panel-subtitle">
 					Review and resolve domain ambiguities identified by @domain-clarifier.
 				</p>
-				<button
-					type="button"
-					className="btn-secondary btn-sm refresh-clarifications-btn"
-					onClick={() => loadClarifications()}
-					disabled={isLoadingClarifications || !activeSession}
-					data-testid="refresh-clarifications-btn"
-				>
-					{isLoadingClarifications ? "Loading..." : "Refresh Questions"}
-				</button>
+				<div className="clarification-toolbar-actions">
+					<button
+						type="button"
+						className="btn-secondary btn-sm refresh-clarifications-btn"
+						onClick={() => void loadClarifications()}
+						disabled={isLoadingClarifications || !activeSession}
+						data-testid="refresh-clarifications-btn"
+					>
+						{isLoadingClarifications ? "Loading..." : "Refresh Questions"}
+					</button>
+					<button
+						type="button"
+						className="btn-secondary btn-sm"
+						onClick={() => void startClarify()}
+						disabled={isClarifying || !activeSession || !canTriggerJobs}
+						data-testid="start-clarify-btn"
+					>
+						{isClarifying ? "Clarifying..." : "Generate Clarifications"}
+					</button>
+					<button
+						type="button"
+						className="btn-primary btn-sm"
+						onClick={() => void startConstruct()}
+						disabled={isConstructing || !activeSession || !canTriggerJobs}
+						data-testid="start-construct-btn"
+					>
+						{isConstructing ? "Constructing..." : "Construct Proposal"}
+					</button>
+				</div>
+			</div>
+
+			{/* Candidate Proposals Section */}
+			<div className="proposals-section" data-testid="proposals-section">
+				<div className="panel-title-group">
+					<h3 className="section-title">
+						Candidate Proposals ({proposals.length})
+					</h3>
+					<button
+						type="button"
+						className="btn-secondary btn-xs"
+						onClick={() => void loadProposals()}
+						disabled={isLoadingProposals || !activeSession}
+						data-testid="refresh-proposals-btn"
+					>
+						{isLoadingProposals ? "Loading..." : "Refresh Proposals"}
+					</button>
+				</div>
+				{proposals.length > 0 && (
+					<div className="proposals-list" data-testid="proposals-list">
+						{proposals.map((prop) => (
+							<div
+								key={prop.proposal_id}
+								className="proposal-card"
+								data-testid={`proposal-card-${prop.proposal_id}`}
+							>
+								<div className="proposal-card-header">
+									<strong>{prop.proposal_id}</strong>
+									<span className="badge">{prop.status}</span>
+								</div>
+								{prop.rationale && (
+									<p className="proposal-rationale">{prop.rationale}</p>
+								)}
+								<div className="proposal-card-actions">
+									<button
+										type="button"
+										className="btn-primary btn-xs"
+										onClick={() => void acceptProposal(prop.proposal_id)}
+										disabled={prop.status === "ACCEPTED" || !canHumanRatify}
+										data-testid={`accept-proposal-btn-${prop.proposal_id}`}
+									>
+										Accept
+									</button>
+									<button
+										type="button"
+										className="btn-secondary btn-xs"
+										onClick={() => void rebaseProposal(prop.proposal_id)}
+										disabled={prop.status === "ACCEPTED" || !canHumanRatify}
+										data-testid={`rebase-proposal-btn-${prop.proposal_id}`}
+									>
+										Rebase
+									</button>
+									<button
+										type="button"
+										className="btn-danger btn-xs"
+										onClick={() => void rejectProposal(prop.proposal_id)}
+										disabled={
+											prop.status === "ACCEPTED" ||
+											prop.status === "REJECTED" ||
+											!canHumanRatify
+										}
+										data-testid={`reject-proposal-btn-${prop.proposal_id}`}
+									>
+										Reject
+									</button>
+								</div>
+							</div>
+						))}
+					</div>
+				)}
 			</div>
 
 			{/* Questions Card Stack */}
@@ -365,6 +468,7 @@ export const ClarificationPanel: React.FC<ClarificationPanelProps> = ({
 										className="btn-primary btn-sm submit-answer-btn"
 										onClick={() => handleSubmit(q)}
 										disabled={
+											!canHumanRatify ||
 											isSubmitting ||
 											(currentDraft.selectedOptions.length === 0 &&
 												!currentDraft.customText.trim())

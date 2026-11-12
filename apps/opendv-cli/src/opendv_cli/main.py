@@ -76,13 +76,34 @@ def _wants_json(raw_args: list[str]) -> bool:
     return False
 
 
+def _has_cli_flag(raw_args: list[str], long_flag: str, short_flag: str | None = None) -> bool:
+    """Return True if an option flag was explicitly passed in CLI `raw_args` before `--`."""
+    for tok in raw_args:
+        if tok == "--":
+            break
+        if tok == long_flag or tok.startswith(f"{long_flag}="):
+            return True
+        if short_flag and (tok == short_flag or tok.startswith(f"{short_flag}=")):
+            return True
+    return False
+
+
+def _annotate_explicit_cli_flags(args: argparse.Namespace, raw_args: list[str]) -> None:
+    """Record which CLI flags with spec defaults were explicitly passed by the user."""
+    args._explicit_role = args.role if _has_cli_flag(raw_args, "--role") else None
+    is_studio_create = (
+        getattr(args, "subcommand", None) == "ontology"
+        and getattr(args, "ontology_action", None) == "studio"
+        and getattr(args, "studio_action", None) == "create"
+    )
+    if is_studio_create:
+        args._explicit_domain_namespace = _has_cli_flag(raw_args, "--domain-namespace", "-n")
+        args._explicit_enterprise_owner = _has_cli_flag(raw_args, "--enterprise-owner", "-o")
+
+
 def build_parser(prog: str = "opendv") -> argparse.ArgumentParser:
     """Construct the spec-driven ArgumentParser for `opendv` or `axi-dv`."""
-    parser = build_argument_parser(prog=prog)
-    from opendv_cli.commands.ontology_studio import register_studio_subparsers
-
-    register_studio_subparsers(parser)
-    return parser
+    return build_argument_parser(prog=prog)
 
 
 def _dispatch(
@@ -151,9 +172,17 @@ def app_main(
         args = parser.parse_args(raw_args)
     except SystemExit as exc:
         code = int(exc.code) if isinstance(exc.code, int) else 2
-        if code != 0 and (_wants_json(raw_args) or "--json" in raw_args or "-f" in raw_args):
-            print_jcs({"detail": "Invalid CLI arguments.", "status": "ERROR"})
+        if code != 0 and _wants_json(raw_args):
+            print_jcs(
+                {
+                    "detail": "Invalid CLI arguments.",
+                    "error_code": "SYNTAX_INVALID_ARGUMENT",
+                    "status": "ERROR",
+                }
+            )
         return code
+
+    _annotate_explicit_cli_flags(args, raw_args)
 
     return _dispatch(args, prog="opendv", executor=executor)
 
@@ -186,9 +215,17 @@ def axi_dv_main(
         args = parser.parse_args(raw_args)
     except SystemExit as exc:
         code = int(exc.code) if isinstance(exc.code, int) else 2
-        if code != 0 and (_wants_json(raw_args) or "--json" in raw_args or "-f" in raw_args):
-            print_jcs({"detail": "Invalid CLI arguments.", "status": "ERROR"})
+        if code != 0 and _wants_json(raw_args):
+            print_jcs(
+                {
+                    "detail": "Invalid CLI arguments.",
+                    "error_code": "SYNTAX_INVALID_ARGUMENT",
+                    "status": "ERROR",
+                }
+            )
         return code
+
+    _annotate_explicit_cli_flags(args, raw_args)
 
     return _dispatch(args, prog="axi-dv", executor=executor)
 

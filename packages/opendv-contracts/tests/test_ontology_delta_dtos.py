@@ -31,10 +31,12 @@ from opendv_contracts.dtos.ontology import (
     # Envelope & records
     EvidenceRef,
     OntologyDecision,
+    OntologyDecisionRequest,
     OntologyDelta,
     OntologyDiff,
     OntologyOperation,
     OntologyProposal,
+    OntologyValidateDeltaRequest,
     RefineDefinitionOp,
     RemoveAttributeOp,
     # Major breaking operations (4)
@@ -1199,52 +1201,79 @@ def test_semver_bump_enforcement() -> None:
             sha="",
         )
 
-    # BOOTSTRAP mode allows target 1.0.0 with base 1.0.0 (instantiating initial domain models)
-    d_boot = OntologyDelta(
-        delta_id="d-boot-1",
-        base_ontology_version="1.0.0",
-        target_ontology_version="1.0.0",
-        operations=[
-            AddConceptOp(op_id="1", concept_uri="urn:ontology:entity:c2", concept_name="C2")
-        ],
-        metadata={"mode": "BOOTSTRAP"},
-    )
-    assert d_boot.target_ontology_version == "1.0.0"
+    # Caller metadata (mode="BOOTSTRAP" / None) MUST NOT bypass SemVer bumps on >= 1.0.0
+    for bad_meta in ({}, {"mode": "BOOTSTRAP"}, {"action": "BOOTSTRAP"}, {"mode": "DELTA"}):
+        with pytest.raises(ValidationError, match="Expected minor or major bump"):
+            OntologyDelta(
+                delta_id="d-no-bypass",
+                base_ontology_version="1.0.0",
+                target_ontology_version="1.0.0",
+                parent_sha256="a" * 64,
+                operations=[
+                    AddConceptOp(op_id="1", concept_uri="urn:ontology:entity:c2", concept_name="C2")
+                ],
+                metadata=bad_meta,
+            )
 
-    # Default/None mode with base 1.0.0 and target 1.0.0 is also allowed for bootstrap compatibility
-    d_boot_none = OntologyDelta(
-        delta_id="d-boot-2",
-        base_ontology_version="1.0.0",
-        target_ontology_version="1.0.0",
-        operations=[
-            AddConceptOp(op_id="1", concept_uri="urn:ontology:entity:c2", concept_name="C2")
-        ],
-    )
-    assert d_boot_none.target_ontology_version == "1.0.0"
-
-    # Explicit DELTA mode with base 1.0.0 and target 1.0.0 must raise ValidationError
-    with pytest.raises(ValidationError, match="Expected minor or major bump"):
-        OntologyDelta(
-            delta_id="d-delta-err",
-            base_ontology_version="1.0.0",
-            target_ontology_version="1.0.0",
-            operations=[
-                AddConceptOp(op_id="1", concept_uri="urn:ontology:entity:c2", concept_name="C2")
+    # Trusted server-side context={"allow_bootstrap": True} permits non-MAJOR 1.0.0 -> 1.0.0
+    d_boot_ctx = OntologyDelta.model_validate(
+        {
+            "delta_id": "d-boot-ctx",
+            "base_ontology_version": "1.0.0",
+            "target_ontology_version": "1.0.0",
+            "operations": [
+                {
+                    "op_id": "1",
+                    "op_type": "add_concept",
+                    "concept_uri": "urn:ontology:entity:c2",
+                    "concept_name": "C2",
+                }
             ],
-            metadata={"mode": "DELTA"},
-        )
+        },
+        context={"allow_bootstrap": True},
+    )
+    assert d_boot_ctx.target_ontology_version == "1.0.0"
 
-    # Destructive operations (MAJOR) in BOOTSTRAP mode must still require major bump (>= 2.0.0)
+    # Destructive MAJOR ops even with allow_bootstrap context must still require >= 2.0.0
     with pytest.raises(ValidationError, match="Expected major bump"):
-        OntologyDelta(
-            delta_id="d-boot-maj-err",
-            base_ontology_version="1.0.0",
-            target_ontology_version="1.0.0",
-            operations=[
-                RemoveConceptOp(op_id="1", concept_uri="urn:ontology:entity:c2", reason="r")
-            ],
-            metadata={"mode": "BOOTSTRAP"},
+        OntologyDelta.model_validate(
+            {
+                "delta_id": "d-boot-maj-err",
+                "base_ontology_version": "1.0.0",
+                "target_ontology_version": "1.0.0",
+                "parent_sha256": "a" * 64,
+                "operations": [
+                    {
+                        "op_id": "1",
+                        "op_type": "remove_concept",
+                        "concept_uri": "urn:ontology:entity:c2",
+                        "reason": "r",
+                    }
+                ],
+            },
+            context={"allow_bootstrap": True},
         )
+
+    # Pre-CBC 0.x.y transitions: 0.0.0 -> 0.1.0 for enum draft, 0.1.0 -> 1.0.0 on first AddConceptOp
+    enum_op = AddReferenceEnumerationOp(
+        op_id="e1",
+        enum_uri="urn:opendv:enum:currency",
+        name="currency",
+        target_reference_table="ref_currency",
+        allowed_codes=["USD"],
+    )
+    assert _d("0.1.0", enum_op, v_base="0.0.0", sha="").target_version == "0.1.0"
+    with pytest.raises(ValidationError, match="without AddConceptOp"):
+        _d("1.0.0", enum_op, v_base="0.1.0", sha="a" * 64)
+    assert (
+        _d(
+            "1.0.0",
+            AddConceptOp(op_id="c1", concept_uri="urn:opendv:concept:fund", concept_name="Fund"),
+            v_base="0.1.0",
+            sha="a" * 64,
+        ).target_version
+        == "1.0.0"
+    )
 
 
 def test_to_v1_schema_dict_populated_extensions_rejected() -> None:
@@ -1359,7 +1388,7 @@ def test_add_external_mapping_confidence_alias_isolation() -> None:
 
 
 def test_genesis_delta_preconditions() -> None:
-    """Verify genesis delta rules: parent_sha256 must be empty, and MAJOR ops rejected."""
+    """Verify 0.x.y genesis delta preconditions and MAJOR op prohibition on 0.0.0."""
     d = OntologyDelta(
         delta_id="d1",
         base_version="0.0.0",
@@ -1372,11 +1401,26 @@ def test_genesis_delta_preconditions() -> None:
     )
     assert d.base_sha256 == ""
 
-    with pytest.raises(ValidationError, match="parent_sha256 must be empty for genesis delta"):
+    d_with_sha = OntologyDelta(
+        delta_id="d2",
+        base_version="0.0.0",
+        parent_sha256="1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9",
+        target_version="1.0.0",
+        operations=[
+            AddConceptOp(
+                op_id="1", concept_uri="urn:opendv:concept:instrument", concept_name="Instrument"
+            )
+        ],
+    )
+    assert (
+        d_with_sha.base_sha256 == "1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9"
+    )
+
+    with pytest.raises(ValidationError):
         OntologyDelta(
-            delta_id="d2",
+            delta_id="d2-bad-hex",
             base_version="0.0.0",
-            parent_sha256="a" * 64,
+            parent_sha256="not-a-valid-sha256",
             target_version="1.0.0",
             operations=[],
         )
@@ -1550,3 +1594,417 @@ def test_refine_definition_independent_uris() -> None:
     assert op.target_uri == "urn:ontology:entity:customer"
     assert op.concept_uri == "urn:ontology:entity:customer"
     assert op.definition == "Customer entity definition"
+
+
+def test_canonical_business_concepts_lookup_major_semver() -> None:
+    """Verify SetParentConceptOp & SetConceptElmArchetypeOp inspect canonical_business_concepts."""
+    from dataclasses import dataclass
+
+    from opendv_contracts.dtos.ontology import is_destructive_delta
+
+    @dataclass
+    class _MockConcept:
+        concept_uri: str
+        parent_concept_uri: str | None = None
+        elm_archetype: str = "CORE_CONCEPT"
+
+    @dataclass
+    class _MockGraphA:
+        canonical_business_concepts: list[_MockConcept]
+
+    base_obj = _MockGraphA(
+        canonical_business_concepts=[
+            _MockConcept(
+                concept_uri="urn:opendv:concept:limited_partner",
+                parent_concept_uri="urn:opendv:concept:party",
+                elm_archetype="CORE_CONCEPT",
+            ),
+            _MockConcept(
+                concept_uri="urn:opendv:concept:party",
+                parent_concept_uri=None,
+                elm_archetype="CORE_CONCEPT",
+            ),
+        ]
+    )
+    base_dict = {
+        "canonical_business_concepts": [
+            {
+                "concept_uri": "urn:opendv:concept:limited_partner",
+                "parent_concept_uri": "urn:opendv:concept:party",
+                "elm_archetype": "CORE_CONCEPT",
+            },
+            {
+                "concept_uri": "urn:opendv:concept:party",
+                "parent_concept_uri": None,
+                "elm_archetype": "CORE_CONCEPT",
+            },
+        ]
+    }
+
+    op_reparent = SetParentConceptOp(
+        op_id="1",
+        concept_uri="urn:opendv:concept:limited_partner",
+        parent_concept_uri="urn:ontology:entity:organization",
+    )
+    op_unset = SetParentConceptOp(
+        op_id="2",
+        concept_uri="urn:opendv:concept:limited_partner",
+        parent_concept_uri=None,
+    )
+    op_unset_root = SetParentConceptOp(
+        op_id="3",
+        concept_uri="urn:opendv:concept:party",
+        parent_concept_uri=None,
+    )
+    op_archetype_overwrite = SetConceptElmArchetypeOp(
+        op_id="4",
+        concept_uri="urn:opendv:concept:limited_partner",
+        elm_archetype="EVENT",
+    )
+    op_archetype_same = SetConceptElmArchetypeOp(
+        op_id="5",
+        concept_uri="urn:opendv:concept:limited_partner",
+        elm_archetype="CORE_CONCEPT",
+    )
+
+    for base in (base_obj, base_dict):
+        assert op_reparent.effective_semver_class(base) == "MAJOR"
+        assert op_unset.effective_semver_class(base) == "MAJOR"
+        assert op_unset_root.effective_semver_class(base) == "MINOR"
+        assert op_archetype_overwrite.effective_semver_class(base) == "MAJOR"
+        assert op_archetype_same.effective_semver_class(base) == "MINOR"
+
+        delta_destructive = OntologyDelta(
+            delta_id="d-destr",
+            base_ontology_version="1.0.0",
+            target_ontology_version="2.0.0",
+            parent_sha256="a" * 64,
+            operations=[op_reparent],
+        )
+        assert is_destructive_delta(delta_destructive, base) is True
+
+
+def test_governance_constants_and_exhaustive_24_op_partition() -> None:
+    """Verify exhaustive disjoint 24-op partition and exported governance constants."""
+    from typing import get_args
+
+    from opendv_contracts import (
+        ALLOWED_PATH_A_PREDICATES,
+        CONCEPT_MUTATING_OP_TYPES,
+        DESTRUCTIVE_OP_TYPES,
+        EXISTING_CONCEPT_MUTATING_OP_TYPES,
+        PATH_A_GROUNDING_THRESHOLD,
+        RELATIONSHIP_ENDPOINT_MUTATING_OP_TYPES,
+    )
+
+    assert len(EXISTING_CONCEPT_MUTATING_OP_TYPES) == 17
+    assert len(CONCEPT_MUTATING_OP_TYPES) == 18
+    assert EXISTING_CONCEPT_MUTATING_OP_TYPES | {"add_concept"} == CONCEPT_MUTATING_OP_TYPES
+    assert {
+        "remove_relationship",
+        "deprecate_relationship",
+    } == RELATIONSHIP_ENDPOINT_MUTATING_OP_TYPES
+    assert {
+        "remove_concept",
+        "remove_relationship",
+        "remove_attribute",
+        "update_concept_urn",
+    } == DESTRUCTIVE_OP_TYPES
+    assert {
+        "skos:exactMatch",
+        "skos:closeMatch",
+        "http://www.w3.org/2004/02/skos/core#exactMatch",
+        "http://www.w3.org/2004/02/skos/core#closeMatch",
+    } == ALLOWED_PATH_A_PREDICATES
+    assert PATH_A_GROUNDING_THRESHOLD == 0.65
+
+    union_inner = get_args(OntologyOperation)[0]
+    op_classes = get_args(union_inner)
+    assert len(op_classes) == 24
+    all_op_types = {cls.model_fields["op_type"].default for cls in op_classes}
+    assert len(all_op_types) == 24
+
+    other_ops = {
+        "remove_concept",
+        "add_relationship",
+        "add_reference_enumeration",
+        "add_reference_enum_code",
+    }
+    assert not (CONCEPT_MUTATING_OP_TYPES & RELATIONSHIP_ENDPOINT_MUTATING_OP_TYPES)
+    assert not (CONCEPT_MUTATING_OP_TYPES & other_ops)
+    assert not (RELATIONSHIP_ENDPOINT_MUTATING_OP_TYPES & other_ops)
+    assert (
+        CONCEPT_MUTATING_OP_TYPES | RELATIONSHIP_ENDPOINT_MUTATING_OP_TYPES | other_ops
+    ) == all_op_types
+
+
+def test_add_external_mapping_confidence_sync() -> None:
+    """Verify confidence <-> mapping_confidence synchronization when one is supplied."""
+    op_from_conf = AddExternalMappingOp(
+        op_id="m1",
+        concept_uri="urn:opendv:concept:fund",
+        scheme="fibo",
+        target_uri="https://spec.edmcouncil.org/fibo/ontology/SEC/Fund",
+        confidence=0.82,
+    )
+    assert op_from_conf.confidence == 0.82
+    assert op_from_conf.mapping_confidence == 0.82
+
+    op_from_map_conf = AddExternalMappingOp(
+        op_id="m2",
+        concept_uri="urn:opendv:concept:fund",
+        scheme="fibo",
+        target_uri="https://spec.edmcouncil.org/fibo/ontology/SEC/Fund",
+        mapping_confidence=0.77,
+    )
+    assert op_from_map_conf.mapping_confidence == 0.77
+    assert op_from_map_conf.confidence == 0.77
+
+    rescore_from_conf = RescoreExternalMappingOp(
+        op_id="r1",
+        concept_uri="urn:opendv:provisional:concept:fund",
+        target_uri="https://spec.edmcouncil.org/fibo/ontology/SEC/Fund",
+        confidence=0.91,
+    )
+    assert rescore_from_conf.new_confidence == 0.91
+    assert rescore_from_conf.confidence == 0.91
+
+
+def test_v2_schema_parity_and_alias_payload_validation(ontology_delta_v2_schema: dict) -> None:
+    """Verify schemas/v1/ontology-delta-v2.schema.json parity and AliasChoices validation."""
+    repo_root = Path(__file__).resolve().parents[3]
+    v1_v2_schema_path = repo_root / "schemas" / "v1" / "ontology-delta-v2.schema.json"
+    assert v1_v2_schema_path.is_file()
+    v1_v2_schema = json.loads(v1_v2_schema_path.read_text(encoding="utf-8"))
+    assert v1_v2_schema == ontology_delta_v2_schema
+
+    alias_payload = {
+        "delta_id": "d-alias-schema",
+        "base_sha256": "a" * 64,
+        "base_version": "1.0.0",
+        "target_version": "1.1.0",
+        "operations": [
+            {
+                "op_id": "op-1",
+                "op_type": "add_concept",
+                "concept_uri": "urn:opendv:concept:fund",
+                "concept_name": "Fund",
+            },
+            {
+                "op_id": "op-2",
+                "op_type": "add_external_mapping",
+                "concept_uri": "urn:opendv:concept:fund",
+                "standard_name": "fibo",
+                "standard_uri": "https://spec.edmcouncil.org/fibo/ontology/SEC/Fund",
+                "mapping_type": "skos:exactMatch",
+                "confidence": 0.85,
+            },
+        ],
+    }
+    jsonschema.validate(instance=alias_payload, schema=v1_v2_schema)
+    parsed = OntologyDelta.model_validate(alias_payload)
+    assert parsed.operations[1].mapping_confidence == 0.85  # type: ignore[union-attr]
+
+
+def test_clarify_request_and_grounding_verifier_spi() -> None:
+    """Verify ClarifyRequest focus_concepts normalization and GroundingVerifier signature."""
+    from opendv_contracts.dtos.clarification import ClarifyRequest
+
+    req_default = ClarifyRequest()
+    assert req_default.max_questions == 10
+    assert req_default.focus_concepts is None
+
+    req_single = ClarifyRequest(focus_concept="urn:opendv:concept:fund", max_questions=25)
+    assert req_single.focus_concepts == ["urn:opendv:concept:fund"]
+    assert req_single.max_questions == 25
+
+    req_merged = ClarifyRequest(
+        focus_concepts=["urn:opendv:concept:lp"],
+        focus_concept="urn:opendv:concept:gp",
+        max_questions=100,
+    )
+    assert req_merged.focus_concepts == ["urn:opendv:concept:lp", "urn:opendv:concept:gp"]
+
+    class _DummyVerifier:
+        def verify_grounding(
+            self,
+            concept_uri: str,
+            candidates: list[Any],
+            concept_name: str = "",
+            synonyms: tuple[str, ...] = (),
+            **kwargs: Any,
+        ) -> GroundingVerificationResult:
+            return GroundingVerificationResult(
+                is_grounded=bool(concept_name and candidates),
+                score=0.82,
+                matched_uri="https://spec.edmcouncil.org/fibo/ontology/SEC/Fund",
+                matched_label=concept_name or None,
+                diagnostics=list(synonyms),
+            )
+
+    verifier = _DummyVerifier()
+    assert isinstance(verifier, GroundingVerifier)
+    res = verifier.verify_grounding(
+        "urn:opendv:concept:fund",
+        [{"target_uri": "https://spec.edmcouncil.org/fibo/ontology/SEC/Fund"}],
+        concept_name="Fund",
+        synonyms=("Investment Pool",),
+    )
+    assert res.is_grounded is True
+    assert res.matched_label == "Fund"
+    assert res.diagnostics == ["Investment Pool"]
+
+
+def test_validate_delta_request_never_coerces_untrusted_bootstrap_metadata() -> None:
+    """Regression P01b::MAJ-01: OntologyValidateDeltaRequest never auto-enables allow_bootstrap."""
+    assert not hasattr(OntologyValidateDeltaRequest, "_coerce_bootstrap_validate_delta")
+
+    untrusted_bootstrap_payload = {
+        "delta": {
+            "delta_id": "d-untrusted-boot",
+            "base_ontology_version": "1.0.0",
+            "target_ontology_version": "1.0.0",
+            "metadata": {"mode": "BOOTSTRAP"},
+            "operations": [
+                {
+                    "op_id": "op-1",
+                    "op_type": "add_concept",
+                    "concept_uri": "urn:ontology:entity:customer",
+                    "concept_name": "Customer",
+                }
+            ],
+        }
+    }
+    with pytest.raises(ValidationError):
+        OntologyValidateDeltaRequest.model_validate(untrusted_bootstrap_payload)
+
+
+def test_bootstrap_delta_wrapper_restricted_to_legacy_wave1_ip1_only() -> None:
+    """Regression P01b::MAJ-01: _try_validate_bootstrap_delta_field enforces strict Wave-1 scope."""
+    valid_legacy_delta = {
+        "delta_id": "delta-bootstrap-1",
+        "domain_namespace": "retail",
+        "base_ontology_version": "1.0.0",
+        "target_ontology_version": "1.0.0",
+        "metadata": {"mode": "BOOTSTRAP", "author": "recommender-v1"},
+        "operations": [
+            {
+                "op_id": "op-1",
+                "op_type": "add_concept",
+                "concept_uri": "urn:ontology:entity:customer",
+                "concept_name": "Customer",
+            },
+            {
+                "op_id": "op-2",
+                "op_type": "refine_definition",
+                "concept_uri": "urn:ontology:entity:customer",
+                "definition": "A party purchasing goods or services.",
+            },
+        ],
+    }
+
+    prop = OntologyProposal.model_validate(
+        {"proposal_id": "prop-boot-1", "delta": valid_legacy_delta}
+    )
+    assert prop.delta.base_ontology_version == "1.0.0"
+    assert prop.delta.target_ontology_version == "1.0.0"
+
+    dec_req = OntologyDecisionRequest.model_validate(
+        {"action": "ACCEPT", "delta": valid_legacy_delta}
+    )
+    assert dec_req.delta is not None
+    assert dec_req.delta.target_ontology_version == "1.0.0"
+
+    # Reject if any Studio v2 envelope field (author, created_at, rationale) is populated
+    for v2_field, v2_val in (
+        ("author", "alice@example.com"),
+        ("created_at", "2026-06-01T00:00:00Z"),
+        ("rationale", "Studio v2 delta masquerading as bootstrap"),
+    ):
+        forged = {**valid_legacy_delta, v2_field: v2_val}
+        with pytest.raises(ValidationError):
+            OntologyProposal.model_validate({"proposal_id": "prop-bad", "delta": forged})
+        with pytest.raises(ValidationError):
+            OntologyDecisionRequest.model_validate({"action": "ACCEPT", "delta": forged})
+
+    # Reject if parent_sha256 / base_sha256 is populated or metadata.mode != "BOOTSTRAP"
+    for bad_override in (
+        {"parent_sha256": "a" * 64},
+        {"base_sha256": "b" * 64},
+        {"metadata": {"mode": "bootstrap"}},
+        {"metadata": {"mode": "DELTA"}},
+    ):
+        forged_env = {**valid_legacy_delta, **bad_override}
+        with pytest.raises(ValidationError):
+            OntologyProposal.model_validate({"proposal_id": "prop-bad", "delta": forged_env})
+
+    # Reject if any Studio v2 non-Wave-1 operation (e.g. add_synonym) or MAJOR op is included
+    for non_legacy_op in (
+        {
+            "op_id": "op-v2",
+            "op_type": "add_synonym",
+            "concept_uri": "urn:ontology:entity:customer",
+            "synonym": "Client",
+        },
+        {
+            "op_id": "op-maj",
+            "op_type": "remove_concept",
+            "concept_uri": "urn:ontology:entity:customer",
+            "reason": "Obsolete",
+        },
+    ):
+        forged_ops = {**valid_legacy_delta, "operations": [non_legacy_op]}
+        with pytest.raises(ValidationError):
+            OntologyProposal.model_validate({"proposal_id": "prop-bad", "delta": forged_ops})
+        with pytest.raises(ValidationError):
+            OntologyDecisionRequest.model_validate({"action": "ACCEPT", "delta": forged_ops})
+
+
+def test_v2_schema_requires_op_type_omits_discriminator_and_version_defaults(
+    ontology_delta_v2_schema: dict,
+) -> None:
+    """Regression P02b::MAJ-01 & MAJ-02: op_type required in 24 $defs; no defaults/discriminator."""
+    repo_root = Path(__file__).resolve().parents[3]
+    root_copy = repo_root / "schemas" / "v1" / "ontology-delta-v2.schema.json"
+    pkg_copy = (
+        repo_root / "packages" / "opendv-contracts" / "schemas" / "ontology-delta-v2.schema.json"
+    )
+    assert root_copy.read_bytes() == pkg_copy.read_bytes()
+
+    op_defs = {k: v for k, v in ontology_delta_v2_schema["$defs"].items() if k != "EvidenceRef"}
+    assert len(op_defs) == 24
+    for def_name, subschema in op_defs.items():
+        assert "op_type" in subschema.get("required", []), f"{def_name} missing required op_type"
+        assert "const" in subschema["properties"]["op_type"], f"{def_name} missing op_type const"
+
+    items_schema = ontology_delta_v2_schema["properties"]["operations"]["items"]
+    assert "discriminator" not in items_schema
+    assert len(items_schema["oneOf"]) == 24
+
+    for ver_prop in (
+        "base_version",
+        "base_ontology_version",
+        "target_version",
+        "target_ontology_version",
+    ):
+        assert "default" not in ontology_delta_v2_schema["properties"][ver_prop], (
+            f"Unexpected default on {ver_prop}"
+        )
+
+    missing_op_type_payload = {
+        "delta_id": "d-missing-op-type",
+        "base_sha256": "a" * 64,
+        "base_version": "1.0.0",
+        "target_version": "1.1.0",
+        "operations": [
+            {
+                "op_id": "op-1",
+                "concept_uri": "urn:opendv:concept:fund",
+                "concept_name": "Fund",
+            }
+        ],
+    }
+    with pytest.raises(jsonschema.ValidationError):
+        jsonschema.validate(instance=missing_op_type_payload, schema=ontology_delta_v2_schema)
+    with pytest.raises(ValidationError):
+        OntologyDelta.model_validate(missing_op_type_payload)

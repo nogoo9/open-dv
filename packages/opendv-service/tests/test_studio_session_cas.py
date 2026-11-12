@@ -23,6 +23,7 @@ from pathlib import Path
 
 import pytest
 
+from opendv_contracts.errors import ErrorCode
 from opendv_core.models.graph_a import (
     CanonicalBusinessConcept,
     GraphAOntology,
@@ -159,7 +160,7 @@ def test_workspace_security_corrupted_secret_fails_closed(tmp_path: Path) -> Non
 
     with pytest.raises(WorkspaceSecretCorruptError) as exc_info:
         WorkspaceSecurityManager(studio_root=studio_root)
-    assert exc_info.value.error_code == "WORKSPACE_SECRET_CORRUPT"
+    assert exc_info.value.error_code == ErrorCode.CORRUPT_SESSION_RECORD
 
     # Verify file was NOT overwritten
     assert secret_file.read_bytes() == b"truncated_secret"
@@ -262,7 +263,7 @@ def test_session_id_validation_invalid_syntax(invalid_id: str, reason: str) -> N
     with pytest.raises(InvalidSessionIdentifierError) as exc_info:
         validate_session_id(invalid_id)
     assert exc_info.value.error_code == "INVALID_SESSION_IDENTIFIER"
-    assert exc_info.value.status_code == 422
+    assert exc_info.value.status_code == 400
     assert exc_info.value.exit_code == 2
 
 
@@ -294,7 +295,7 @@ def test_session_id_validation_windows_reserved_device_names(reserved_name: str)
     with pytest.raises(InvalidSessionIdentifierError) as exc_info:
         validate_session_id(reserved_name)
     assert exc_info.value.error_code == "INVALID_SESSION_IDENTIFIER"
-    assert exc_info.value.status_code == 422
+    assert exc_info.value.status_code == 400
     assert exc_info.value.exit_code == 2
 
 
@@ -401,18 +402,20 @@ def test_create_session_with_initial_ontology(tmp_path: Path) -> None:
     meta = mgr.create_session("pe-seed", initial_ontology=ontology)
     assert meta.head_version == "1.0.0"
     assert meta.head_sha256 == expected_sha256
-    assert meta.committed_versions == ["1.0.0"]
+    assert meta.committed_versions == ["v1.0.0"]
 
     # Verify versions/v1.0.0/ contents
     v_dir = tmp_path / "studio" / "pe-seed" / "versions" / "v1.0.0"
     assert v_dir.is_dir()
     assert (v_dir / "ontology.json").is_file()
     assert (v_dir / "ontology.yaml").is_file()
+    assert (v_dir / "meta.json").is_file()
     assert (v_dir / "metadata.json").is_file()
 
-    version_meta = json.loads((v_dir / "metadata.json").read_text(encoding="utf-8"))
+    version_meta = json.loads((v_dir / "meta.json").read_text(encoding="utf-8"))
     assert version_meta["target_sha256"] == expected_sha256
     assert version_meta["mode"] == "seed"
+    assert version_meta["grandfathered_concept_uris"] == ["urn:ontology:entity:fund"]
     assert hashlib.sha256((v_dir / "ontology.json").read_bytes()).hexdigest() == expected_sha256
 
 
@@ -607,7 +610,7 @@ def test_append_audit_entry_occ_conflict(tmp_path: Path) -> None:
             head_sha256=meta.head_sha256,
             expected_audit_head="0" * 64,
         )
-    assert exc_info.value.error_code == "AUDIT_CHAIN_CONFLICT"
+    assert exc_info.value.error_code == ErrorCode.CONCURRENCY_CONFLICT
     assert exc_info.value.status_code == 409
 
 

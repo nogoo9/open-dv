@@ -36,10 +36,24 @@ const DATA_TYPES = [
 ] as const;
 
 export const ARCHETYPES = [
+	"CORE_BUSINESS_CONCEPT",
 	"CORE_CONCEPT",
 	"REFERENCE_CONCEPT",
 	"CONTEXT_CONCEPT",
 	"EVENT_CONCEPT",
+	"PARTY",
+	"AGREEMENT",
+	"PRODUCT",
+	"ACCOUNT",
+	"LOCATION",
+] as const;
+
+export const SKOS_PREDICATES = [
+	"skos:exactMatch",
+	"skos:closeMatch",
+	"skos:broadMatch",
+	"skos:narrowMatch",
+	"skos:relatedMatch",
 ] as const;
 
 export interface ConceptEditDraft {
@@ -47,6 +61,7 @@ export interface ConceptEditDraft {
 	concept_name: string;
 	elm_archetype: string;
 	definition?: string | null;
+	description?: string | null;
 	target_hub?: string | null;
 	parent_concept_uri?: string | null;
 	attributes: ConceptAttribute[];
@@ -58,8 +73,10 @@ export function validateConceptEdit(
 	draft: ConceptEditDraft,
 	committed?: ConceptNode | null,
 	allNodes?: ConceptNode[],
+	options?: { allowDestructive?: boolean },
 ): string[] {
 	const errors: string[] = [];
+	const allowDestructive = Boolean(options?.allowDestructive);
 
 	if (!draft.concept_name.trim()) {
 		errors.push("Concept Name is mandatory.");
@@ -85,7 +102,8 @@ export function validateConceptEdit(
 
 	if (draft.parent_concept_uri && allNodes && allNodes.length > 0) {
 		const visited = new Set<string>([draft.concept_uri]);
-		let currParentUri: string | null | undefined = draft.parent_concept_uri.trim();
+		let currParentUri: string | null | undefined =
+			draft.parent_concept_uri.trim();
 		while (currParentUri) {
 			if (visited.has(currParentUri)) {
 				errors.push(
@@ -107,7 +125,7 @@ export function validateConceptEdit(
 				"CANNOT_RENAME_COMMITTED_CONCEPT: Concept name is immutable under ONT-EVO-001.",
 			);
 		}
-		if (draft.elm_archetype !== committed.elm_archetype) {
+		if (!allowDestructive && draft.elm_archetype !== committed.elm_archetype) {
 			errors.push(
 				"CANNOT_CHANGE_ARCHETYPE: Archetype of committed concepts is immutable under ONT-EVO-001.",
 			);
@@ -117,16 +135,18 @@ export function validateConceptEdit(
 				"CANNOT_REMOVE_COMMITTED_DEFINITION: Definition of committed concepts cannot be removed under ONT-EVO-001.",
 			);
 		}
-		if (committed.parent_concept_uri) {
-			if (draft.parent_concept_uri?.trim() !== committed.parent_concept_uri) {
+		if (!allowDestructive) {
+			if (committed.parent_concept_uri) {
+				if (draft.parent_concept_uri?.trim() !== committed.parent_concept_uri) {
+					errors.push(
+						"CANNOT_REPARENT_COMMITTED_CONCEPT: Parent hierarchy of committed concepts is immutable under ONT-EVO-001.",
+					);
+				}
+			} else if (draft.parent_concept_uri?.trim()) {
 				errors.push(
-					"CANNOT_REPARENT_COMMITTED_CONCEPT: Parent hierarchy of committed concepts is immutable under ONT-EVO-001.",
+					"CANNOT_REPARENT_COMMITTED_CONCEPT: Adding a parent to a committed root concept is prohibited under ONT-EVO-001.",
 				);
 			}
-		} else if (draft.parent_concept_uri?.trim()) {
-			errors.push(
-				"CANNOT_REPARENT_COMMITTED_CONCEPT: Adding a parent to a committed root concept is prohibited under ONT-EVO-001.",
-			);
 		}
 		if (
 			committed.target_hub &&
@@ -137,8 +157,7 @@ export function validateConceptEdit(
 			);
 		}
 		const missingCommittedSynonym = committed.synonyms?.some(
-			(cs) =>
-				!draft.synonyms.some((s) => s.toLowerCase() === cs.toLowerCase()),
+			(cs) => !draft.synonyms.some((s) => s.toLowerCase() === cs.toLowerCase()),
 		);
 		if (missingCommittedSynonym) {
 			errors.push(
@@ -149,13 +168,14 @@ export function validateConceptEdit(
 		for (const ca of committed.attributes || []) {
 			const matching = draft.attributes.find(
 				(a) =>
-					a.attribute_name.toLowerCase() ===
-					ca.attribute_name.toLowerCase(),
+					a.attribute_name.toLowerCase() === ca.attribute_name.toLowerCase(),
 			);
 			if (!matching) {
-				errors.push(
-					`CANNOT_REMOVE_COMMITTED_ATTRIBUTE: Committed attribute '${ca.attribute_name}' cannot be removed under ONT-EVO-001.`,
-				);
+				if (!allowDestructive) {
+					errors.push(
+						`CANNOT_REMOVE_COMMITTED_ATTRIBUTE: Committed attribute '${ca.attribute_name}' cannot be removed under ONT-EVO-001.`,
+					);
+				}
 			} else if (matching.data_type !== ca.data_type) {
 				errors.push(
 					`CANNOT_MODIFY_COMMITTED_ATTRIBUTE_TYPE: Data type of committed attribute '${ca.attribute_name}' is immutable under ONT-EVO-001 (was '${ca.data_type}', cannot change to '${matching.data_type}').`,
@@ -175,7 +195,7 @@ export function validateConceptEdit(
 						m.target_uri.toLowerCase() === cm.target_uri.toLowerCase(),
 				),
 		);
-		if (missingCommittedMapping) {
+		if (missingCommittedMapping && !allowDestructive) {
 			errors.push(
 				"CANNOT_REMOVE_COMMITTED_MAPPING: Committed external mappings cannot be removed under ONT-EVO-001.",
 			);
@@ -202,7 +222,9 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 	const selectedNodeId = useStudioStore((s) => s.selectedNodeId);
 	const nodes = useStudioStore((s) => s.nodes);
 	const committedNodes = useStudioStore((s) => s.committedNodes);
+	const userRole = useStudioStore((s) => s.userRole);
 	const updateConcept = useStudioStore((s) => s.updateConcept);
+	const deleteConcept = useStudioStore((s) => s.deleteConcept);
 	const selectNode = useStudioStore((s) => s.selectNode);
 
 	const selectedConcept = nodes.find(
@@ -213,16 +235,21 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 		(n) => n.concept_uri === selectedConcept?.concept_uri,
 	);
 	const isCommitted = Boolean(committedConcept);
+	const isAdmin = userRole === "admin";
+	const canMutateConcept = userRole === "editor" || userRole === "admin";
 
 	// Form state
 	const [conceptName, setConceptName] = useState(
 		selectedConcept?.concept_name || "",
 	);
 	const [elmArchetype, setElmArchetype] = useState(
-		selectedConcept?.elm_archetype || "CORE_CONCEPT",
+		selectedConcept?.elm_archetype || "CORE_BUSINESS_CONCEPT",
 	);
 	const [definition, setDefinition] = useState(
 		selectedConcept?.definition || "",
+	);
+	const [description, setDescription] = useState(
+		selectedConcept?.description || "",
 	);
 	const [targetHub, setTargetHub] = useState(selectedConcept?.target_hub || "");
 	const [parentConceptUri, setParentConceptUri] = useState(
@@ -281,8 +308,9 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 			prevSelectedUriRef.current = selectedConcept.concept_uri;
 			initialSnapshotRef.current = JSON.stringify(selectedConcept);
 			setConceptName(selectedConcept.concept_name || "");
-			setElmArchetype(selectedConcept.elm_archetype || "CORE_CONCEPT");
+			setElmArchetype(selectedConcept.elm_archetype || "CORE_BUSINESS_CONCEPT");
 			setDefinition(selectedConcept.definition || "");
+			setDescription(selectedConcept.description || "");
 			setTargetHub(selectedConcept.target_hub || "");
 			setParentConceptUri(selectedConcept.parent_concept_uri || "");
 			setAttributes([...(selectedConcept.attributes || [])]);
@@ -332,9 +360,9 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 		const wasCommitted = committedConcept?.attributes?.some(
 			(a) => a.attribute_name.toLowerCase() === attrName.toLowerCase(),
 		);
-		if (wasCommitted) {
+		if (wasCommitted && !isAdmin) {
 			setValidationErrors([
-				`CANNOT_REMOVE_COMMITTED_ATTRIBUTE: Attribute '${attrName}' is committed. Under ONT-EVO-001, ontology evolution is strictly additive.`,
+				`CANNOT_REMOVE_COMMITTED_ATTRIBUTE: Attribute '${attrName}' is committed. Admin role is required to remove committed attributes under ONT-EVO-001.`,
 			]);
 			return;
 		}
@@ -350,11 +378,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 			return;
 		}
 
-		if (
-			synonyms.some(
-				(s) => s.toLowerCase() === cleanSyn.toLowerCase(),
-			)
-		) {
+		if (synonyms.some((s) => s.toLowerCase() === cleanSyn.toLowerCase())) {
 			setValidationErrors([`Synonym '${cleanSyn}' is already registered.`]);
 			return;
 		}
@@ -409,11 +433,20 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 			target_uri: cleanUri,
 			confidence: Number(conf.toFixed(4)),
 			predicate: newMappingPredicate,
+			provenance: "user_asserted",
 		};
 
 		setExternalMappings([...externalMappings, newMapping]);
 		setNewMappingUri("");
 		setValidationErrors([]);
+	};
+
+	const handleToggleMappingPin = (idx: number) => {
+		setExternalMappings(
+			externalMappings.map((m, i) =>
+				i === idx ? { ...m, pinned: !m.pinned } : m,
+			),
+		);
 	};
 
 	const handleRemoveMapping = (targetUriOrIndex: string | number) => {
@@ -430,9 +463,9 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 					m.scheme.toLowerCase() === target.scheme.toLowerCase() &&
 					m.target_uri.toLowerCase() === target.target_uri.toLowerCase(),
 			);
-			if (wasCommitted) {
+			if (wasCommitted && !isAdmin) {
 				setValidationErrors([
-					`CANNOT_REMOVE_COMMITTED_MAPPING: External mapping '${target.target_uri}' is committed. Under ONT-EVO-001, ontology evolution is strictly additive.`,
+					`CANNOT_REMOVE_COMMITTED_MAPPING: External mapping '${target.target_uri}' is committed. Admin role is required to remove committed mappings.`,
 				]);
 				return;
 			}
@@ -457,6 +490,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 		}
 
 		const trimmedDef = definition.trim();
+		const trimmedDesc = description.trim();
 		const trimmedHub = targetHub.trim();
 		const trimmedParent = parentConceptUri.trim();
 
@@ -465,6 +499,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 			concept_name: conceptName.trim(),
 			elm_archetype: elmArchetype,
 			definition: trimmedDef.length > 0 ? trimmedDef : null,
+			description: trimmedDesc.length > 0 ? trimmedDesc : null,
 			target_hub: trimmedHub.length > 0 ? trimmedHub : null,
 			parent_concept_uri: trimmedParent.length > 0 ? trimmedParent : null,
 			attributes,
@@ -476,6 +511,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 			draft,
 			isCommitted ? committedConcept : null,
 			nodes,
+			{ allowDestructive: isAdmin },
 		);
 
 		if (errors.length > 0) {
@@ -484,15 +520,16 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 		}
 
 		const updatedDef = trimmedDef.length > 0 ? trimmedDef : undefined;
+		const updatedDesc = trimmedDesc.length > 0 ? trimmedDesc : undefined;
 		const updatedHub = trimmedHub.length > 0 ? trimmedHub : undefined;
-		const updatedParent =
-			trimmedParent.length > 0 ? trimmedParent : undefined;
+		const updatedParent = trimmedParent.length > 0 ? trimmedParent : undefined;
 
 		const updated: ConceptNode = {
 			...selectedConcept,
 			concept_name: conceptName.trim(),
 			elm_archetype: elmArchetype,
-			definition: (updatedDef as unknown as string),
+			definition: updatedDef as unknown as string,
+			description: updatedDesc,
 			target_hub: updatedHub,
 			parent_concept_uri: updatedParent,
 			attributes,
@@ -506,6 +543,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 			currentStoreConcept.concept_name === updated.concept_name &&
 			currentStoreConcept.elm_archetype === updated.elm_archetype &&
 			currentStoreConcept.definition === updated.definition &&
+			(currentStoreConcept.description || undefined) === updated.description &&
 			currentStoreConcept.target_hub === updated.target_hub &&
 			currentStoreConcept.parent_concept_uri === updated.parent_concept_uri &&
 			JSON.stringify(currentStoreConcept.attributes) ===
@@ -646,6 +684,18 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 							value={definition}
 							onChange={(e) => setDefinition(e.target.value)}
 							data-testid="concept-definition-input"
+						/>
+					</div>
+
+					<div className="form-group">
+						<label htmlFor="concept-desc-input">Concept Description:</label>
+						<textarea
+							id="concept-desc-input"
+							className="form-textarea"
+							rows={2}
+							value={description}
+							onChange={(e) => setDescription(e.target.value)}
+							data-testid="concept-description-input"
 						/>
 					</div>
 
@@ -825,21 +875,52 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 									<span className="mapping-scheme">
 										{m.scheme.toUpperCase()}
 									</span>
-									<span className="mapping-uri">{m.target_uri}</span>
-									<span className="mapping-conf">
-										{m.confidence != null
-											? `${(m.confidence * 100).toFixed(0)}%`
-											: ""}
+									<span
+										className="mapping-predicate-badge"
+										data-testid="mapping-predicate-badge"
+									>
+										{m.predicate || "skos:relatedMatch"}
 									</span>
+									<span className="mapping-uri">{m.target_uri}</span>
+									{m.provenance === "user_asserted" ? (
+										<span
+											className="mapping-provenance-badge badge-user-asserted"
+											data-testid="mapping-user-asserted-badge"
+											title="Manually asserted mapping — unverified until server FIBO validation"
+										>
+											USER-ASSERTED (Unverified)
+										</span>
+									) : (
+										<span className="mapping-conf">
+											{m.confidence != null
+												? `${(m.confidence * 100).toFixed(0)}%`
+												: ""}
+										</span>
+									)}
 								</div>
-								<button
-									type="button"
-									className="btn-danger btn-xs"
-									onClick={() => handleRemoveMapping(idx)}
-									aria-label={`Remove mapping ${m.target_uri}`}
-								>
-									✕
-								</button>
+								<div className="mapping-card-actions">
+									<button
+										type="button"
+										className={`btn-secondary btn-xs ${m.pinned ? "active" : ""}`}
+										onClick={() => handleToggleMappingPin(idx)}
+										aria-label={
+											m.pinned
+												? `Unpin mapping ${m.target_uri}`
+												: `Pin mapping ${m.target_uri}`
+										}
+										data-testid={`toggle-pin-mapping-${idx}`}
+									>
+										{m.pinned ? "📌 Pinned" : "Pin"}
+									</button>
+									<button
+										type="button"
+										className="btn-danger btn-xs"
+										onClick={() => handleRemoveMapping(idx)}
+										aria-label={`Remove mapping ${m.target_uri}`}
+									>
+										✕
+									</button>
+								</div>
 							</div>
 						))}
 					</div>
@@ -850,11 +931,25 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 								className="form-select-sm"
 								value={newMappingScheme}
 								onChange={(e) => setNewMappingScheme(e.target.value)}
+								data-testid="new-mapping-scheme-select"
 							>
 								<option value="fibo">FIBO</option>
 								<option value="iso20022">ISO 20022</option>
 								<option value="edmcouncil">EDM Council</option>
 								<option value="custom">Custom</option>
+							</select>
+							<select
+								aria-label="SKOS Mapping Predicate"
+								className="form-select-sm"
+								value={newMappingPredicate}
+								onChange={(e) => setNewMappingPredicate(e.target.value)}
+								data-testid="new-mapping-predicate-select"
+							>
+								{SKOS_PREDICATES.map((pred) => (
+									<option key={pred} value={pred}>
+										{pred}
+									</option>
+								))}
 							</select>
 							<input
 								type="text"
@@ -873,6 +968,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 								placeholder="0.85"
 								value={newMappingConf}
 								onChange={(e) => setNewMappingConf(e.target.value)}
+								data-testid="new-mapping-conf-input"
 							/>
 						</div>
 						<button
@@ -882,7 +978,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 							disabled={!newMappingUri.trim()}
 							data-testid="add-mapping-btn"
 						>
-							Add Mapping
+							Add Mapping (User-Asserted)
 						</button>
 					</div>
 				</section>
@@ -890,6 +986,22 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 
 			{/* Drawer Footer Actions */}
 			<div className="drawer-footer">
+				<button
+					type="button"
+					className="btn-danger"
+					onClick={() => deleteConcept(selectedConcept.concept_uri)}
+					disabled={!canMutateConcept || (isCommitted && !isAdmin)}
+					data-testid="delete-concept-btn"
+					title={
+						!canMutateConcept
+							? "Editor or Admin human role required to modify concepts"
+							: isCommitted && !isAdmin
+								? "Admin role required to delete committed concepts"
+								: `Delete concept ${selectedConcept.concept_name}`
+					}
+				>
+					Delete Concept
+				</button>
 				<button
 					type="button"
 					className="btn-secondary"
@@ -902,6 +1014,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 					type="button"
 					className="btn-primary"
 					onClick={handleSave}
+					disabled={!canMutateConcept}
 					data-testid="save-concept-btn"
 				>
 					Save Concept Changes

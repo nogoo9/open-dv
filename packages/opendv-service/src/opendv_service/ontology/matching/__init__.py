@@ -12,16 +12,22 @@ from opendv_service.ontology.matching.tokenization import (
     tokenize_concept_text,
 )
 from opendv_service.ontology.matching.verifier import (
+    ALLOWED_GROUNDING_PREDICATES,
     GROUNDING_THRESHOLD,
     FiboPackGroundingVerifier,
+    get_default_grounding_verifier,
+    is_allowed_path_a_predicate,
 )
 
 __all__ = [
+    "ALLOWED_GROUNDING_PREDICATES",
     "FINANCIAL_ACRONYMS",
     "GROUNDING_THRESHOLD",
     "STOPWORDS",
     "Bm25ConceptMatcher",
     "ConceptMatcher",
     "FiboPackGroundingVerifier",
+    "get_default_grounding_verifier",
+    "is_allowed_path_a_predicate",
     "tokenize_concept_text",
 ]

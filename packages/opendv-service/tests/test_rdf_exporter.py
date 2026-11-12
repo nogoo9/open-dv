@@ -9,7 +9,6 @@ import yaml
 from rdflib import Graph, URIRef
 from rdflib.namespace import OWL, RDF, RDFS, SKOS, XSD
 
-from opendv_contracts.jcs import dumps_jcs
 from opendv_core.models.graph_a import (
     CanonicalBusinessConcept,
     CanonicalRelationship,
@@ -198,22 +197,141 @@ def test_export_ontology_ntriples(sample_ontology: GraphAOntology) -> None:
 
 
 def test_export_ontology_yaml_and_json(sample_ontology: GraphAOntology) -> None:
-    """Verify export_ontology formats for YAML and canonical RFC 8785 JSON."""
+    """Verify export_ontology formats for YAML and canonical RFC 8785 JSON (CRIT-07)."""
+    import hashlib
+
+    from opendv_core.ontology_hashing import compute_ontology_sha256
+
     yaml_content, yaml_mt = export_ontology(sample_ontology, export_format="yaml")
     assert yaml_mt == "application/yaml"
     assert "!!python" not in yaml_content
     loaded_yaml = yaml.safe_load(yaml_content)
     assert loaded_yaml["domain_namespace"] == "wealth_mgmt"
 
+    expected_sha = compute_ontology_sha256(sample_ontology)
     json_content, json_mt = export_ontology(sample_ontology, export_format="json")
     assert json_mt == "application/json"
-    expected_jcs = dumps_jcs(sample_ontology.model_dump(mode="json", exclude_none=True))
-    assert json_content == expected_jcs
+    assert hashlib.sha256(json_content.encode("utf-8")).hexdigest() == expected_sha
 
-    # Verify dict input also normalizes through GraphAOntology
+    for alias_fmt in ("jcs", "rfc8785"):
+        jcs_content, jcs_mt = export_ontology(sample_ontology, export_format=alias_fmt)
+        assert jcs_mt == "application/json"
+        assert jcs_content == json_content
+
+    # Verify dict input also normalizes through GraphAOntology to identical JCS SHA-256
     raw_dict = sample_ontology.model_dump()
     json_from_dict, _ = export_ontology(raw_dict, export_format="json")
-    assert json_from_dict == expected_jcs
+    assert json_from_dict == json_content
+
+
+def test_export_ontology_rejects_malformed_rfc3987_iri(sample_ontology: GraphAOntology) -> None:
+    """CRIT-07: Malformed ExternalMapping.target_uri raises typed OpenDVError instead of crash."""
+    from opendv_contracts.errors import ErrorCode, OpenDVError
+
+    injected = sample_ontology.model_copy(deep=True)
+    injected.canonical_business_concepts[0].external_mappings.append(
+        ExternalMapping(
+            scheme="fibo",
+            target_uri="https://evil.example/a> <https://evil.example/p> <https://evil.example/o",
+            predicate="skos:exactMatch",
+            confidence=0.90,
+        )
+    )
+    with pytest.raises(OpenDVError) as exc_info:
+        export_ontology(injected, export_format="turtle")
+    assert exc_info.value.error_code == ErrorCode.INVALID_WORKSPACE_ONTOLOGY
+
+
+def test_export_ontology_full_predicates_nary_endpoints_and_owl2dl_annotations() -> None:
+    """MAJ-09 & MIN-04: Full SKOS/OWL/RDFS IRIs, N-ary endpoints, and OWL 2 DL annotations."""
+    c1 = CanonicalBusinessConcept(
+        concept_uri="urn:ontology:entity:fund",
+        concept_name="Fund",
+        target_hub="hub_fund",
+        external_mappings=[
+            ExternalMapping(
+                scheme="fibo",
+                target_uri="https://spec.edmcouncil.org/fibo/ontology/SEC/Funds/Funds/Fund",
+                predicate="http://www.w3.org/2004/02/skos/core#exactMatch",
+                confidence=0.95,
+            ),
+            ExternalMapping(
+                scheme="fibo",
+                target_uri="https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Pool",
+                predicate="owl:equivalentClass",
+                confidence=0.90,
+            ),
+            ExternalMapping(
+                scheme="fibo",
+                target_uri="https://spec.edmcouncil.org/fibo/ontology/FND/Thing",
+                predicate="rdfs:subClassOf",
+                confidence=0.80,
+            ),
+        ],
+    )
+    c2 = CanonicalBusinessConcept(
+        concept_uri="urn:ontology:entity:investor",
+        concept_name="Investor",
+        target_hub="hub_investor",
+    )
+    c3 = CanonicalBusinessConcept(
+        concept_uri="urn:ontology:entity:advisor",
+        concept_name="Advisor",
+        target_hub="hub_advisor",
+    )
+    ternary_rel = CanonicalRelationship(
+        relationship_uri="urn:ontology:relationship:commitment_deal",
+        relationship_name="CommitmentDeal",
+        target_link="lnk_commitment_deal",
+        endpoints=[
+            "urn:ontology:entity:fund",
+            "urn:ontology:entity:investor",
+            "urn:ontology:entity:advisor",
+        ],
+        grain_semantics="Ternary fund-investor-advisor commitment.",
+    )
+    ont = GraphAOntology(
+        ontology_version="1.0.0",
+        domain_namespace="pe",
+        canonical_business_concepts=[c1, c2, c3],
+        canonical_relationships=[ternary_rel],
+    )
+    g = build_rdf_graph(ont)
+
+    fund_u = URIRef("urn:ontology:entity:fund")
+    assert (
+        fund_u,
+        SKOS.exactMatch,
+        URIRef("https://spec.edmcouncil.org/fibo/ontology/SEC/Funds/Funds/Fund"),
+    ) in g
+    assert (
+        fund_u,
+        OWL.equivalentClass,
+        URIRef("https://spec.edmcouncil.org/fibo/ontology/FND/Arrangements/Pool"),
+    ) in g
+    assert (
+        fund_u,
+        RDFS.subClassOf,
+        URIRef("https://spec.edmcouncil.org/fibo/ontology/FND/Thing"),
+    ) in g
+    assert (fund_u, SKOS.relatedMatch, None) not in g
+
+    rel_u = URIRef("urn:ontology:relationship:commitment_deal")
+    for ep in (
+        "urn:ontology:entity:fund",
+        "urn:ontology:entity:investor",
+        "urn:ontology:entity:advisor",
+    ):
+        assert (rel_u, DV2.hasEndpoint, URIRef(ep)) in g
+
+    for skos_prop in (
+        SKOS.prefLabel,
+        SKOS.altLabel,
+        SKOS.definition,
+        SKOS.exactMatch,
+        SKOS.closeMatch,
+    ):
+        assert (skos_prop, RDF.type, OWL.AnnotationProperty) in g
 
 
 def test_export_ontology_unsupported_format(sample_ontology: GraphAOntology) -> None:

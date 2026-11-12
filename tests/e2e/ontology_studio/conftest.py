@@ -56,6 +56,9 @@ def mint_test_jwt(
 @pytest.fixture
 def isolated_studio_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Path, Path]:
     """Isolate each test in a clean temporary workspace and studio root."""
+    from opendv_core.schema_registry import get_default_schema_registry
+
+    get_default_schema_registry()
     workspace_root = tmp_path / "workspace"
     workspace_root.mkdir(parents=True, exist_ok=True)
     studio_root = tmp_path / "studio_root"

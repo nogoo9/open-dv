@@ -34,7 +34,7 @@ The following global options apply across all top-level commands in both CLIs:
 | `--version` | — | `boolean` | `False` | — | Show OpenDV CLI version |
 | `--json` | — | `boolean` | `False` | — | Format command output as deterministic RFC 8785 canonical JSON |
 | `--toon` | — | `boolean` | `False` | — | Print compact diagnostic @toon_v1 trace output |
-| `--role` | — | `string` | `INTERNAL_MODELER` | Choices: PUBLIC, INTERNAL_MODELER, DATA_STEWARD, AUDITOR_FINANCE, RESTRICTED_PII_CUSTODIAN; Env: `OPENDV_ROLE` | 5-Tier RBAC role clearance context |
+| `--role` | — | `string` | `INTERNAL_MODELER` | Choices: PUBLIC, INTERNAL_MODELER, DATA_STEWARD, AUDITOR_FINANCE, RESTRICTED_PII_CUSTODIAN, ADMIN, EDITOR, VIEWER, AUTOMATED, admin, editor, viewer, automated; Env: `OPENDV_ROLE` | 5-Tier RBAC role clearance context |
 | `--api-url` | — | `string` | — | Env: `OPENDV_API_URL` | Open-DV Platform REST/SSE API base endpoint (`opendvctl` only) |
 
 ---
@@ -221,9 +221,6 @@ Inspect or dump a completed pipeline run report
 ```bash
 # Standalone execution
 opendv pipeline report --help
-
-# Client execution
-opendvctl pipeline report --api-url $OPENDV_API_URL --json
 ```
 
 ### `opendv run` / `opendvctl run`
@@ -632,34 +629,22 @@ opendvctl ontology reject --api-url $OPENDV_API_URL --json
 
 Interactive Ontology Construction Studio (FIBO, LiteParse, dual-mode engine, CAS sessions)
 
-
-**Example Invocations:**
-```bash
-# Standalone execution
-opendv ontology studio --help
-
-# Client execution
-opendvctl ontology studio --api-url $OPENDV_API_URL --json
-```
-
 ###### Subcommands of `ontology studio`
 
-###### `ontology studio init` *(Both CLIs)*
+###### `ontology studio init` *(Standalone `opendv` only)*
 
 Initialize local workbench loopback token and DACL permissions
 
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | `--force` | — | `boolean` | No | `False` | No | Force overwrite existing local token if authorized |
+| `--show-token` | — | `boolean` | No | `False` | No | Display local authentication token in output |
 
 
 **Example Invocations:**
 ```bash
 # Standalone execution
 opendv ontology studio init --help
-
-# Client execution
-opendvctl ontology studio init --api-url $OPENDV_API_URL --json
 ```
 
 ###### `ontology studio create` *(Both CLIs)*
@@ -686,6 +671,25 @@ opendv ontology studio create --help
 
 # Client execution
 opendvctl ontology studio create --api-url $OPENDV_API_URL --json
+```
+
+###### `ontology studio delete` *(Both CLIs)*
+
+Delete an ontology construction studio session and sweep unreferenced CAS
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | Yes | — | No | Studio session identifier to delete |
+| `--force` | — | `boolean` | No | `False` | No | Force deletion even if session has active state |
+
+
+**Example Invocations:**
+```bash
+# Standalone execution
+opendv ontology studio delete --help
+
+# Client execution
+opendvctl ontology studio delete --api-url $OPENDV_API_URL --json
 ```
 
 ###### `ontology studio list` *(Both CLIs)*
@@ -733,8 +737,9 @@ Upload candidate source documents (PDF, CSV, TSV, Parquet, MD, etc.) to session 
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
-| `--file` | `-f` | `path` | Yes | — | Yes | Path to document file to upload |
+| `--file` | `-f` | `path` | Yes | — | No | Path to document file to upload |
 | `--do-not-send-to-agent` | — | `boolean` | No | `False` | No | Mark source confidential to suppress raw text transmission to external LLMs |
+| `--confidential` | — | `boolean` | No | `False` | No | Alias for --do-not-send-to-agent (mark source confidential) |
 | `--description` | `-d` | `string` | No | — | No | Optional description of source dataset |
 
 
@@ -755,10 +760,10 @@ Trigger document ingestion and layout parsing job
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
 | `--source-id` | — | `string` | No | — | No | Specific source document ID to parse (defaults to all pending) |
+| `--source-ids` | — | `array` | No | — | No | List of source document IDs to parse (repeatable or comma-separated) |
 | `--ocr-mode` | — | `string` | No | `auto` | No | OCR routing mode for scanned pages |
 | `--stream` | — | `boolean` | No | `False` | No | Follow live SSE event stream until job completes |
 | `--wait` | — | `boolean` | No | `False` | No | Block until job completes and return terminal status |
-| `--source-ids` | — | `string` | No | — | No | Comma-separated list of source document IDs to parse |
 
 
 **Example Invocations:**
@@ -778,7 +783,8 @@ Generate domain clarification questions from candidate terms
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
 | `--focus-concept` | — | `string` | No | — | No | Optional focus concept URI to target clarification |
-| `--max-questions` | — | `integer` | No | `5` | No | Maximum number of questions to generate |
+| `--max-questions` | — | `integer` | No | `10` | No | Maximum number of questions to generate |
+| `--mode` | `-m` | `string` | No | `auto` | No | Clarification execution mode |
 | `--stream` | — | `boolean` | No | `False` | No | Follow live SSE event stream |
 | `--wait` | — | `boolean` | No | `False` | No | Block until clarify job completes |
 
@@ -799,7 +805,11 @@ Submit human answers to clarification questions
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
-| `--file` | `-f` | `path` | Yes | — | Yes | Path to JSON file containing clarification answers |
+| `--file` | `-f` | `path` | No | — | Yes | Path to JSON file containing clarification answers |
+| `--question-id` | `-q` | `string` | No | — | No | Clarification question identifier for single-answer submission |
+| `--option` | `-o` | `array` | No | — | No | Selected clarification option key(s) |
+| `--text` | `-t` | `string` | No | — | No | Free-text clarification response |
+| `--expected-answers-sha256` | — | `string` | No | — | No | Expected SHA-256 digest of current answers state for OCC |
 
 
 **Example Invocations:**
@@ -837,19 +847,37 @@ opendvctl ontology studio construct --api-url $OPENDV_API_URL --json
 
 ###### `ontology studio delta` *(Both CLIs)*
 
-Apply human additive delta operations or steward revisions
+Validate or apply human ontology delta operations and steward revisions
+
+###### Subcommands of `ontology studio delta`
+
+###### `ontology studio delta validate` *(Both CLIs)*
+
+Validate ontology delta operations against session head or base
+
+| Option | Short | Type | Required | Default | Inline Upload | Description |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| `--session` | `-s` | `string` | No | — | No | Studio session identifier |
+| `--file` | `-f` | `path` | No | — | Yes | Path to JSON/YAML file containing delta operations |
+| `--delta` | — | `path` | No | — | Yes | Alias path to JSON/YAML file containing delta operations |
+| `--base` | `-b` | `path` | No | — | Yes | Path to base Graph A ontology file (when validating outside session) |
+| `--base-version` | — | `string` | No | — | No | Expected base SemVer version |
+| `--base-sha256` | — | `string` | No | — | No | Expected base SHA-256 digest |
+| `--verify-grounding` | — | `boolean` | No | `False` | No | Verify external concept grounding URIs against knowledge pack |
+| `--low-confidence-waiver` | — | `boolean` | No | `False` | No | Include admin waiver for low-confidence grounding during validation |
+| `--grounding-rationale` | — | `string` | No | — | No | Admin rationale for grounding waiver (min 10 chars) |
+| `--waiver-rationale` | — | `string` | No | — | No | Alias for --grounding-rationale |
+| `--waiver-key-file` | `-k` | `path` | No | — | No | Path to steward waiver secret key file |
 
 
 **Example Invocations:**
 ```bash
 # Standalone execution
-opendv ontology studio delta --help
+opendv ontology studio delta validate --help
 
 # Client execution
-opendvctl ontology studio delta --api-url $OPENDV_API_URL --json
+opendvctl ontology studio delta validate --api-url $OPENDV_API_URL --json
 ```
-
-###### Subcommands of `ontology studio delta`
 
 ###### `ontology studio delta apply` *(Both CLIs)*
 
@@ -858,14 +886,19 @@ Apply delta operations from file to active session
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
-| `--file` | `-f` | `path` | Yes | — | Yes | Path to JSON file containing delta operations |
-| `--base-version` | — | `string` | Yes | — | No | Base SemVer version |
-| `--base-sha256` | — | `string` | Yes | — | No | Base SHA-256 hash |
+| `--file` | `-f` | `path` | No | — | Yes | Path to JSON file containing delta operations |
+| `--delta` | — | `path` | No | — | Yes | Alias path to JSON file containing delta operations |
+| `--base-version` | — | `string` | No | — | No | Base SemVer version (optional; defaults to session head version) |
+| `--base-sha256` | — | `string` | No | — | No | Base SHA-256 hash (optional on genesis; checked via OCC) |
 | `--rationale` | `-r` | `string` | No | `` | No | Business rationale for mutation |
 | `--low-confidence-waiver` | — | `boolean` | No | `False` | No | Admin waiver for concepts with low confidence grounding |
 | `--grounding-rationale` | — | `string` | No | — | No | Admin rationale for grounding waiver (min 10 chars) |
+| `--waiver-rationale` | — | `string` | No | — | No | Alias for --grounding-rationale |
+| `--waiver-key-file` | `-k` | `path` | No | — | No | Path to steward waiver secret key file |
 | `--ungrounded-concept` | — | `array` | No | — | No | Explicit list of concept URIs covered by grounding waiver |
 | `--evidence-grounding-file` | — | `path` | No | — | Yes | Path to admin evidence grounding approval JSON |
+| `--authorized-by` | — | `string` | No | — | No | Steward identity authorizing grounding waiver |
+| `--authorized-role` | — | `string` | No | — | No | Steward role authorizing grounding waiver (must match admin role) |
 
 
 **Example Invocations:**
@@ -880,16 +913,6 @@ opendvctl ontology studio delta apply --api-url $OPENDV_API_URL --json
 ###### `ontology studio proposal` *(Both CLIs)*
 
 Manage candidate ontology proposals (list, show, accept, reject, rebase)
-
-
-**Example Invocations:**
-```bash
-# Standalone execution
-opendv ontology studio proposal --help
-
-# Client execution
-opendvctl ontology studio proposal --api-url $OPENDV_API_URL --json
-```
 
 ###### Subcommands of `ontology studio proposal`
 
@@ -939,11 +962,15 @@ Accept pending proposal and apply its delta to roll head forward
 | `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
 | `--proposal-id` | `-p` | `string` | Yes | — | No | Proposal identifier |
 | `--base-sha256` | — | `string` | Yes | — | No | Expected base SHA-256 for optimistic concurrency check |
-| `--allow-self-accepted-proposals` | — | `boolean` | No | `False` | No | Admin override allowing acceptance of own proposal (requires local admin) |
+| `--allow-self-accepted-proposals` | — | `boolean` | No | `False` | No | Admin override allowing acceptance of own proposal (requires admin role) |
 | `--low-confidence-waiver` | — | `boolean` | No | `False` | No | Admin waiver for low-confidence external mappings |
 | `--grounding-rationale` | — | `string` | No | — | No | Rationale for grounding waiver (min 10 chars) |
+| `--waiver-rationale` | — | `string` | No | — | No | Alias for --grounding-rationale |
+| `--waiver-key-file` | `-k` | `path` | No | — | No | Path to steward waiver secret key file |
 | `--ungrounded-concept` | — | `array` | No | — | No | Concept URIs covered by waiver |
 | `--evidence-grounding-file` | — | `path` | No | — | Yes | Path to admin evidence grounding approval JSON |
+| `--authorized-by` | — | `string` | No | — | No | Steward identity authorizing grounding waiver |
+| `--authorized-role` | — | `string` | No | — | No | Steward role authorizing grounding waiver (must match admin role) |
 
 
 **Example Invocations:**
@@ -983,7 +1010,8 @@ Rebase proposal operations onto latest active session head
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
 | `--session` | `-s` | `string` | Yes | — | No | Studio session identifier |
 | `--proposal-id` | `-p` | `string` | Yes | — | No | Proposal identifier |
-| `--base-sha256` | — | `string` | Yes | — | No | Target base SHA-256 for rebase |
+| `--base-sha256` | — | `string` | No | — | No | Target base SHA-256 for rebase (defaults to current session head) |
+| `--head-sha256` | — | `string` | No | — | No | Alias for target session head SHA-256 |
 
 
 **Example Invocations:**
@@ -1044,16 +1072,6 @@ opendvctl ontology studio promote --api-url $OPENDV_API_URL --json
 
 Manage portable session archives (.odvstudio.zip export, import, clone)
 
-
-**Example Invocations:**
-```bash
-# Standalone execution
-opendv ontology studio bundle --help
-
-# Client execution
-opendvctl ontology studio bundle --api-url $OPENDV_API_URL --json
-```
-
 ###### Subcommands of `ontology studio bundle`
 
 ###### `ontology studio bundle export` *(Both CLIs)*
@@ -1083,7 +1101,9 @@ Import and re-validate portable .odvstudio.zip archive
 
 | Option | Short | Type | Required | Default | Inline Upload | Description |
 | :--- | :---: | :---: | :---: | :---: | :---: | :--- |
-| `--file` | `-f` | `path` | Yes | — | Yes | Path to .odvstudio.zip archive to import |
+| `--file` | `-f` | `path` | Yes | — | No | Path to .odvstudio.zip archive to import |
+| `--new-session-id` | — | `string` | No | — | No | Optional explicit session identifier for imported session |
+| `--force` | — | `boolean` | No | `False` | No | Force overwrite if target session identifier already exists |
 | `--acknowledge-unverified-import-attribution` | — | `boolean` | No | `False` | No | Admin acknowledgement for unverified imported attribution or waivers |
 | `--acknowledgement-rationale` | — | `string` | No | — | No | Rationale acknowledging unverified import attribution |
 | `--acknowledge-historical-contract-warning` | — | `boolean` | No | `False` | No | Acknowledge historical contract warning in imported session |
@@ -1193,7 +1213,7 @@ opendv config validate --help
 opendvctl config validate --api-url $OPENDV_API_URL --json
 ```
 
-### `opendv serve` / `opendvctl serve`
+### `opendv serve`
 
 **Availability:** *(Standalone `opendv` only)*  
 **Description:** Launch the unified Open-DV Platform Server serving both the REST/SSE API and the embedded static Web Explorer UI  
@@ -1212,9 +1232,6 @@ opendvctl config validate --api-url $OPENDV_API_URL --json
 ```bash
 # Standalone execution
 opendv serve --help
-
-# Client execution
-opendvctl serve --api-url $OPENDV_API_URL --json
 ```
 
 ---
@@ -1224,8 +1241,13 @@ opendvctl serve --api-url $OPENDV_API_URL --json
 Both CLIs adhere to normative exit code standards across all failure scenarios:
 
 - `0`: Operation succeeded (`overall_passed: true` or status `COMPLETED`).
-- `1`: Domain or verification rejection (`overall_passed: false` or gate failure).
-- `2`: Syntax, argument error, configuration error, or schema validation failure.
+- `1`: Domain, verification, or runtime failure (`overall_passed: false`, gate failure, or internal error).
+- `2`: Syntax, invalid CLI argument, configuration error, or missing precondition.
+- `3`: Resource not found (session, proposal, job, source, or input file not found).
+- `4`: Governance, contract, or semantic validation violation (`ONT-EVO-001..003`, grounding, or taint policy).
+- `5`: Optimistic concurrency or stale base precondition conflict (`If-Match` / `base_sha256` mismatch).
+- `6`: Resource state conflict (session already exists, proposal already resolved, or active job conflict).
+- `7`: Authentication, RBAC role clearance, steward waiver, or transport security forbidden.
 
 ### Domain Error Mapping Specification
 
@@ -1241,7 +1263,7 @@ Both CLIs adhere to normative exit code standards across all failure scenarios:
 | `HOLD_NOT_FOUND` | `2` | `404` | Hold Not Found | `urn:opendv:hold-not-found` |
 | `ARTIFACT_NOT_FOUND` | `2` | `404` | Artifact Not Found | `urn:opendv:artifact-not-found` |
 | `PAYLOAD_TOO_LARGE` | `2` | `413` | Payload Too Large | `urn:opendv:payload-too-large` |
-| `UNSUPPORTED_FORMAT` | `2` | `415` | Unsupported Format | `urn:opendv:unsupported-format` |
+| `UNSUPPORTED_FORMAT` | `2` | `400` | Unsupported Format | `urn:opendv:error:unsupported-format` |
 | `INPUT_VALIDATION_ERROR` | `2` | `422` | Input Validation Error | `urn:opendv:input-validation-error` |
 | `SCHEMA_VALIDATION_ERROR` | `2` | `422` | Schema Validation Error | `urn:opendv:schema-validation-error` |
 | `SOURCE_LOAD_ERROR` | `2` | `422` | Source Ingestion Error | `urn:opendv:source-load-error` |
@@ -1264,8 +1286,8 @@ Both CLIs adhere to normative exit code standards across all failure scenarios:
 | `JOB_ABANDONED_SERVER_CRASH` | `1` | `500` | Background Job Abandoned Due to Server Crash | `urn:opendv:error:job-abandoned-server-crash` |
 | `MATCHER_UNIDATA_VERSION_MISMATCH` | `1` | `500` | Matcher Unicode Character Tables Version Mismatch | `urn:opendv:error:matcher-unidata-version-mismatch` |
 | `NO_OP_DELTA` | `1` | `400` | No-Op Delta | `urn:opendv:error:no-op-delta` |
-| `OCR_UNAVAILABLE` | `1` | `503` | OCR Engine Unavailable | `urn:opendv:error:ocr-unavailable` |
-| `OFFICE_CONVERSION_UNAVAILABLE` | `1` | `503` | Office Document Conversion Unavailable | `urn:opendv:error:office-conversion-unavailable` |
+| `OCR_UNAVAILABLE` | `1` | `501` | OCR Engine Unavailable | `urn:opendv:error:ocr-unavailable` |
+| `OFFICE_CONVERSION_UNAVAILABLE` | `1` | `501` | Office Document Conversion Unavailable | `urn:opendv:error:office-conversion-unavailable` |
 | `PROMOTION_RATIONALE_REQUIRED` | `1` | `400` | Promotion Rationale Required | `urn:opendv:error:promotion-rationale-required` |
 | `REFERENCE_PACK_INTEGRITY_FAILURE` | `1` | `500` | Reference Pack Integrity Failure | `urn:opendv:error:reference-pack-integrity-failure` |
 | `VERSION_COMMIT_IO_FAILURE` | `1` | `500` | Version Commit IO Failure | `urn:opendv:error:version-commit-io-failure` |
@@ -1289,7 +1311,7 @@ Both CLIs adhere to normative exit code standards across all failure scenarios:
 | `ARCHIVE_SECURITY_VIOLATION` | `4` | `422` | Archive Security Violation | `urn:opendv:error:archive-security-violation` |
 | `ATTRIBUTE_NOT_FOUND` | `4` | `422` | Attribute Not Found | `urn:opendv:error:attribute-not-found` |
 | `AUTOMATED_ATTRIBUTION_INVALID` | `4` | `422` | Invalid Automated Attribution | `urn:opendv:error:automated-attribution-invalid` |
-| `CANNOT_DELETE_PROMOTED_SESSION` | `4` | `422` | Cannot Delete Promoted Session | `urn:opendv:error:cannot-delete-promoted-session` |
+| `CANNOT_DELETE_PROMOTED_SESSION` | `6` | `409` | Cannot Delete Promoted Session | `urn:opendv:error:cannot-delete-promoted-session` |
 | `CANNOT_PRUNE_PROMOTED_SESSION` | `4` | `422` | Cannot Prune Promoted Session | `urn:opendv:error:cannot-prune-promoted-session` |
 | `CONCEPT_STILL_REFERENCED` | `4` | `422` | Concept Still Referenced | `urn:opendv:error:concept-still-referenced` |
 | `CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED` | `4` | `422` | Confidential Source Export Unacknowledged | `urn:opendv:error:confidential-source-export-unacknowledged` |
@@ -1370,6 +1392,24 @@ Both CLIs adhere to normative exit code standards across all failure scenarios:
 | `EXECUTION_FAILURE` | `1` | `500` | Execution Failure | `urn:opendv:error:execution-failure` |
 | `JOB_ALREADY_TERMINAL` | `6` | `409` | Job Already Terminal | `urn:opendv:error:job-already-terminal` |
 | `STATIC_TOKEN_CONFIGURED` | `1` | `500` | Static Token Configured | `urn:opendv:error:static-token-configured` |
+| `FILE_NOT_FOUND` | `3` | `404` | File Not Found | `urn:opendv:error:file-not-found` |
+| `INSECURE_TRANSPORT_REFUSED` | `7` | `403` | Insecure Transport Refused | `urn:opendv:error:insecure-transport-refused` |
+| `CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN` | `7` | `403` | Confidential Source Agent Access Forbidden | `urn:opendv:error:confidential-source-agent-access-forbidden` |
+| `REFERENCE_ONTOLOGY_CORRUPT` | `1` | `500` | Reference Ontology Pack Corrupt | `urn:opendv:error:reference-ontology-corrupt` |
+| `UNGROUNDED_SEED_MAPPING` | `4` | `422` | Ungrounded Seed Mapping | `urn:opendv:error:ungrounded-seed-mapping` |
+| `TAXONOMY_CYCLE_DETECTED` | `4` | `422` | Taxonomy Cycle Detected | `urn:opendv:error:taxonomy-cycle-detected` |
+| `QUESTION_NOT_FOUND` | `3` | `404` | Clarification Question Not Found | `urn:opendv:error:question-not-found` |
+| `TAMPER_EVIDENT_CHAIN_CORRUPT` | `4` | `422` | Tamper-Evident Audit Chain Corrupt | `urn:opendv:error:tamper-evident-chain-corrupt` |
+| `CSRF_ORIGIN_DENIED` | `7` | `403` | CSRF Origin Denied | `urn:opendv:error:csrf-origin-denied` |
+| `TOKEN_EXPIRED` | `7` | `401` | Authentication Token Expired | `urn:opendv:error:token-expired` |
+| `JOB_CANNOT_BE_CANCELLED` | `6` | `409` | Job Cannot Be Cancelled | `urn:opendv:error:job-cannot-be-cancelled` |
+| `CORRUPT_SESSION_STATE` | `1` | `500` | Corrupt Session State | `urn:opendv:error:corrupt-session-state` |
+| `CONCURRENCY_CONFLICT` | `5` | `412` | Concurrency Conflict | `urn:opendv:error:concurrency-conflict` |
+| `LOW_CONFIDENCE_GROUNDING` | `4` | `422` | Low Confidence Grounding | `urn:opendv:error:low-confidence-grounding` |
+| `PROPOSAL_STALE_REBASE_REQUIRED` | `6` | `409` | Proposal Stale Rebase Required | `urn:opendv:error:proposal-stale-rebase-required` |
+| `INTERNAL_CLONE_ERROR` | `1` | `500` | Internal Clone Error | `urn:opendv:error:internal-clone-error` |
+| `AGENT_LAUNCH_NONCE_FORBIDDEN` | `7` | `403` | Agent Launch Nonce Forbidden | `urn:opendv:error:agent-launch-nonce-forbidden` |
+| `HARNESS_CONFIG_INVALID` | `4` | `422` | Harness Configuration Invalid | `urn:opendv:error:harness-config-invalid` |
 
 ---
 

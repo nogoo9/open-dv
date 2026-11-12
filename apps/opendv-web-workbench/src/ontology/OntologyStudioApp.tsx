@@ -18,10 +18,107 @@ import { GraphCanvas } from "./components/GraphCanvas";
 import { QualityFeedbackPanel } from "./components/QualityFeedbackPanel";
 import { SourcesPanel } from "./components/SourcesPanel";
 import { VisualEditorDrawer } from "./components/VisualEditorDrawer";
-import { studioStore, useStudioStore } from "./store/studio-store";
+import {
+	extractAndScrubLaunchNonce,
+	studioStore,
+	useStudioStore,
+} from "./store/studio-store";
 
 export interface OntologyStudioAppProps {
 	className?: string;
+}
+
+function slugifyIdentifier(raw: string, fallback: string): string {
+	const cleaned = raw
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, "_")
+		.replace(/^_+|_+$/g, "");
+	return cleaned || fallback;
+}
+
+function extractConceptTerminalSlug(
+	conceptUri: string,
+	fallback: string,
+): string {
+	const tail = conceptUri.split(/[:/#]/).filter(Boolean).pop() || "";
+	return slugifyIdentifier(tail, fallback);
+}
+
+export function buildUniqueConceptIdentifiers(
+	rawName: string,
+	nodes: ReadonlyArray<{
+		concept_uri: string;
+		target_hub?: string | null | undefined;
+	}>,
+	committedNodes: ReadonlyArray<{
+		concept_uri: string;
+		target_hub?: string | null | undefined;
+	}>,
+): { slug: string; conceptUri: string; targetHub: string } {
+	const baseSlug = slugifyIdentifier(rawName, "concept");
+	const existingUris = new Set<string>();
+	const existingHubs = new Set<string>();
+	for (const n of [...nodes, ...committedNodes]) {
+		if (n.concept_uri) existingUris.add(n.concept_uri.toLowerCase());
+		if (n.target_hub) existingHubs.add(n.target_hub.toLowerCase());
+	}
+
+	let candidate = baseSlug;
+	let suffix = 2;
+	while (
+		existingUris.has(`urn:ontology:entity:${candidate}`.toLowerCase()) ||
+		existingHubs.has(`hub_${candidate}`.toLowerCase())
+	) {
+		candidate = `${baseSlug}_${suffix}`;
+		suffix += 1;
+	}
+	return {
+		slug: candidate,
+		conceptUri: `urn:ontology:entity:${candidate}`,
+		targetHub: `hub_${candidate}`,
+	};
+}
+
+export function buildUniqueRelationshipIdentifiers(
+	rawVerb: string,
+	sourceConceptUri: string,
+	targetConceptUri: string,
+	edges: ReadonlyArray<{
+		relationship_uri: string;
+		target_link?: string | null | undefined;
+	}>,
+	committedEdges: ReadonlyArray<{
+		relationship_uri: string;
+		target_link?: string | null | undefined;
+	}>,
+): { slug: string; relationshipUri: string; targetLink: string } {
+	const srcSlug = extractConceptTerminalSlug(sourceConceptUri, "src");
+	const verbSlug = slugifyIdentifier(rawVerb, "relates_to");
+	const tgtSlug = extractConceptTerminalSlug(targetConceptUri, "tgt");
+	const baseSlug = `${srcSlug}_${verbSlug}_${tgtSlug}`;
+
+	const existingUris = new Set<string>();
+	const existingLinks = new Set<string>();
+	for (const e of [...edges, ...committedEdges]) {
+		if (e.relationship_uri) existingUris.add(e.relationship_uri.toLowerCase());
+		if (e.target_link) existingLinks.add(e.target_link.toLowerCase());
+	}
+
+	let candidate = baseSlug;
+	let suffix = 2;
+	while (
+		existingUris.has(`urn:ontology:relationship:${candidate}`.toLowerCase()) ||
+		existingLinks.has(`lnk_${candidate}`.toLowerCase())
+	) {
+		candidate = `${baseSlug}_${suffix}`;
+		suffix += 1;
+	}
+	return {
+		slug: candidate,
+		relationshipUri: `urn:ontology:relationship:${candidate}`,
+		targetLink: `lnk_${candidate}`,
+	};
 }
 
 export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
@@ -31,23 +128,60 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 	const sessions = useStudioStore((s) => s.sessions);
 	const activeMode = useStudioStore((s) => s.activeMode);
 	const userRole = useStudioStore((s) => s.userRole);
+	const authRequired = useStudioStore((s) => s.authRequired);
+	const isBootstrappingAuth = useStudioStore((s) => s.isBootstrappingAuth);
 	const layout = useStudioStore((s) => s.layout);
 	const toasts = useStudioStore((s) => s.toasts);
+	const sseEvents = useStudioStore((s) => s.sseEvents);
 	const nodes = useStudioStore((s) => s.nodes);
 	const edges = useStudioStore((s) => s.edges);
+	const committedNodes = useStudioStore((s) => s.committedNodes);
+	const committedEdges = useStudioStore((s) => s.committedEdges);
+	const selectedEdgeId = useStudioStore((s) => s.selectedEdgeId);
+	const hasUnsavedChanges = useStudioStore((s) => s.hasUnsavedChanges);
+	const isCommitting = useStudioStore((s) => s.isCommitting);
+	const isHistoricalView = useStudioStore((s) => s.isHistoricalView);
 	const parsingState = useStudioStore((s) => s.parsingState);
+	const setAuthToken = useStudioStore((s) => s.setAuthToken);
+	const exchangeLaunchNonce = useStudioStore((s) => s.exchangeLaunchNonce);
+	const bootstrapLoopbackAuth = useStudioStore((s) => s.bootstrapLoopbackAuth);
 	const loadSessions = useStudioStore((s) => s.loadSessions);
 	const selectSession = useStudioStore((s) => s.selectSession);
 	const createSession = useStudioStore((s) => s.createSession);
+	const addConcept = useStudioStore((s) => s.addConcept);
+	const addRelationship = useStudioStore((s) => s.addRelationship);
+	const deleteRelationship = useStudioStore((s) => s.deleteRelationship);
+	const selectNode = useStudioStore((s) => s.selectNode);
+	const commitChanges = useStudioStore((s) => s.commitChanges);
+	const discardChanges = useStudioStore((s) => s.discardChanges);
 	const setLeftDrawerTab = useStudioStore((s) => s.setLeftDrawerTab);
 	const toggleLeftDrawer = useStudioStore((s) => s.toggleLeftDrawer);
 	const toggleBottomDock = useStudioStore((s) => s.toggleBottomDock);
 	const setActiveModal = useStudioStore((s) => s.setActiveModal);
 	const dismissToast = useStudioStore((s) => s.dismissToast);
-	const computeDiff = useStudioStore((s) => s.computeDiff);
+	const loadAndComputeDiff = useStudioStore((s) => s.loadAndComputeDiff);
 	const diffState = useStudioStore((s) => s.diffState);
-	const isPromoting = useStudioStore((s) => s.isPromoting);
 	const addToast = useStudioStore((s) => s.addToast);
+
+	// Auth bootstrap token state
+	const [tokenInput, setTokenInput] = useState("");
+
+	// Quick-create & commit toolbar state
+	const [quickCreateMode, setQuickCreateMode] = useState<
+		"concept" | "relationship" | null
+	>(null);
+	const [newConceptName, setNewConceptName] = useState("");
+	const [newConceptDefinition, setNewConceptDefinition] = useState("");
+	const [newConceptArchetype, setNewConceptArchetype] = useState(
+		"CORE_BUSINESS_CONCEPT",
+	);
+	const [newRelName, setNewRelName] = useState("");
+	const [newRelSourceUri, setNewRelSourceUri] = useState("");
+	const [newRelTargetUri, setNewRelTargetUri] = useState("");
+	const [newRelCardinality, setNewRelCardinality] = useState<
+		"one_to_one" | "one_to_many" | "many_to_many"
+	>("one_to_many");
+	const [commitRationale, setCommitRationale] = useState("");
 
 	// New Session form state
 	const [newSessionId, setNewSessionId] = useState("");
@@ -56,10 +190,23 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 	const [newWorkspace, setNewWorkspace] = useState("");
 	const [isCreatingSession, setIsCreatingSession] = useState(false);
 
-	// On mount, load sessions
+	// On mount, scrub any #token=<nonce> / ?nonce=<nonce>, exchange cookie, then load sessions
 	useEffect(() => {
-		loadSessions();
-	}, [loadSessions]);
+		let cancelled = false;
+		const runBootstrap = async () => {
+			const nonce = extractAndScrubLaunchNonce();
+			if (nonce) {
+				await exchangeLaunchNonce(nonce);
+			}
+			if (!cancelled) {
+				await loadSessions();
+			}
+		};
+		void runBootstrap();
+		return () => {
+			cancelled = true;
+		};
+	}, [exchangeLaunchNonce, loadSessions]);
 
 	// Close new_session modal on Escape key (ExportPromoteModal manages its own Escape lifecycle, MIN-01)
 	useEffect(() => {
@@ -73,6 +220,79 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 			return () => window.removeEventListener("keydown", handleKeyDown);
 		}
 	}, [layout.activeModal, setActiveModal]);
+
+	const handleAuthenticateToken = async (e: React.FormEvent) => {
+		e.preventDefault();
+		if (!tokenInput.trim()) return;
+		setAuthToken(tokenInput.trim());
+		setTokenInput("");
+		await loadSessions();
+	};
+
+	const handleQuickAddConcept = (e: React.FormEvent) => {
+		e.preventDefault();
+		const cleanName = newConceptName.trim();
+		if (!cleanName) return;
+		const { conceptUri, targetHub } = buildUniqueConceptIdentifiers(
+			cleanName,
+			nodes,
+			committedNodes,
+		);
+		addConcept({
+			id: conceptUri,
+			concept_uri: conceptUri,
+			concept_name: cleanName,
+			elm_archetype: newConceptArchetype,
+			definition: newConceptDefinition.trim(),
+			target_hub: targetHub,
+			parent_concept_uri: null,
+			grounding_status: "UNGROUNDED",
+			attributes: [],
+			synonyms: [],
+			external_mappings: [],
+		});
+		selectNode(conceptUri);
+		setNewConceptName("");
+		setNewConceptDefinition("");
+		setQuickCreateMode(null);
+	};
+
+	const handleQuickAddRelationship = (e: React.FormEvent) => {
+		e.preventDefault();
+		const cleanName = newRelName.trim();
+		const srcUri = newRelSourceUri || nodes[0]?.concept_uri || "";
+		const tgtUri =
+			newRelTargetUri || nodes[1]?.concept_uri || nodes[0]?.concept_uri || "";
+		if (!cleanName || !srcUri || !tgtUri) return;
+		const { relationshipUri, targetLink } = buildUniqueRelationshipIdentifiers(
+			cleanName,
+			srcUri,
+			tgtUri,
+			edges,
+			committedEdges,
+		);
+		addRelationship({
+			id: relationshipUri,
+			relationship_uri: relationshipUri,
+			relationship_name: cleanName,
+			target_link: targetLink,
+			source_concept_uri: srcUri,
+			target_concept_uri: tgtUri,
+			endpoints: [srcUri, tgtUri],
+			cardinality: newRelCardinality,
+		});
+		setNewRelName("");
+		setQuickCreateMode(null);
+	};
+
+	const handleCommitToolbarClick = async () => {
+		const ok = await commitChanges(
+			commitRationale.trim() || "Workbench Studio visual edits",
+		);
+		if (ok) {
+			setCommitRationale("");
+		}
+	};
 
 	const handleCreateSessionSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
@@ -133,12 +353,35 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 		} else if (commits.length === 1 && commits[0]?.version !== targetVersion) {
 			baseVersion = commits[0]?.version || "0.0.0";
 		}
-		computeDiff(baseVersion, targetVersion);
+		void loadAndComputeDiff(baseVersion, targetVersion);
 		setLeftDrawerTab("history");
 		if (!layout.leftDrawerOpen) {
 			toggleLeftDrawer();
 		}
 	};
+
+	const canMutateGraph =
+		Boolean(activeSession) &&
+		(userRole === "editor" || userRole === "admin") &&
+		!isHistoricalView;
+	const roleLabel =
+		userRole === "admin"
+			? "Admin"
+			: userRole === "automated"
+				? "Automated"
+				: userRole === "viewer"
+					? "Viewer"
+					: "Editor";
+	const selectedEdge = edges.find(
+		(e) => e.id === selectedEdgeId || e.relationship_uri === selectedEdgeId,
+	);
+	const isSelectedEdgeCommitted = selectedEdge
+		? studioStore
+				.getState()
+				.committedEdges.some(
+					(ce) => ce.relationship_uri === selectedEdge.relationship_uri,
+				)
+		: false;
 
 	return (
 		<div
@@ -205,9 +448,10 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 							</span>
 							<span
 								className="meta-pill role-pill"
-								data-testid="user-role-pill"
+								title={`Authenticated RBAC role: ${roleLabel}`}
+								data-testid="studio-role-badge"
 							>
-								{userRole.toUpperCase()}
+								Role: {roleLabel}
 							</span>
 							<span
 								className="meta-pill mode-pill"
@@ -221,6 +465,71 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 
 				{/* Header Actions */}
 				<div className="header-actions">
+					<button
+						type="button"
+						className="btn-secondary btn-sm"
+						onClick={() =>
+							setQuickCreateMode((m) => (m === "concept" ? null : "concept"))
+						}
+						disabled={!canMutateGraph}
+						data-testid="add-concept-btn"
+						title="Add a new Canonical Business Concept to working draft"
+					>
+						+ Concept
+					</button>
+					<button
+						type="button"
+						className="btn-secondary btn-sm"
+						onClick={() =>
+							setQuickCreateMode((m) =>
+								m === "relationship" ? null : "relationship",
+							)
+						}
+						disabled={!canMutateGraph || nodes.length === 0}
+						data-testid="add-relationship-btn"
+						title="Add a new Relationship Link between concepts"
+					>
+						+ Relationship
+					</button>
+					{selectedEdge && (
+						<button
+							type="button"
+							className="btn-danger btn-sm"
+							onClick={() => deleteRelationship(selectedEdge.relationship_uri)}
+							disabled={
+								!canMutateGraph ||
+								(isSelectedEdgeCommitted && userRole !== "admin")
+							}
+							data-testid="delete-relationship-btn"
+							title={
+								isSelectedEdgeCommitted && userRole !== "admin"
+									? "Admin role required to remove committed relationships"
+									: `Delete relationship ${selectedEdge.relationship_name}`
+							}
+						>
+							Delete Link
+						</button>
+					)}
+					<button
+						type="button"
+						className="btn-primary btn-sm"
+						onClick={() => void handleCommitToolbarClick()}
+						disabled={!canMutateGraph || !hasUnsavedChanges || isCommitting}
+						data-testid="commit-changes-btn"
+						title="Commit working draft as an OntologyDelta against session head"
+					>
+						{isCommitting ? "Committing..." : "Commit Changes"}
+					</button>
+					<button
+						type="button"
+						className="btn-secondary btn-sm"
+						onClick={discardChanges}
+						disabled={!hasUnsavedChanges || isCommitting}
+						data-testid="discard-changes-btn"
+						title="Discard uncommitted working draft edits"
+					>
+						Discard
+					</button>
 					<button
 						type="button"
 						className="btn-toolbar"
@@ -266,7 +575,202 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 				</div>
 			</header>
 
-			{/* Offline Standalone Banner */}
+			{/* Authentication Bootstrap Banner when 401 Unauthorized */}
+			{authRequired && (
+				<div
+					className="studio-auth-bootstrap-banner"
+					role="region"
+					aria-label="Studio Authentication Required"
+					data-testid="studio-auth-bootstrap"
+				>
+					<form
+						onSubmit={(e) => void handleAuthenticateToken(e)}
+						className="auth-bootstrap-form"
+					>
+						<strong>Studio Authentication Required:</strong>
+						<input
+							type="password"
+							className="form-input auth-token-input"
+							placeholder="Enter Studio API Bearer Token (OPENDV_STUDIO_TOKEN)..."
+							value={tokenInput}
+							onChange={(e) => setTokenInput(e.target.value)}
+							data-testid="auth-token-input"
+						/>
+						<button
+							type="submit"
+							className="btn-primary btn-sm"
+							disabled={!tokenInput.trim() || isBootstrappingAuth}
+							data-testid="auth-token-submit-btn"
+						>
+							Authenticate
+						</button>
+						<button
+							type="button"
+							className="btn-secondary btn-sm"
+							onClick={() => void bootstrapLoopbackAuth()}
+							disabled={isBootstrappingAuth}
+							data-testid="loopback-init-btn"
+						>
+							{isBootstrappingAuth
+								? "Initializing..."
+								: "Initialize Local Loopback Session"}
+						</button>
+					</form>
+				</div>
+			)}
+
+			{/* Quick-Create Concept / Relationship Inline Bar */}
+			{quickCreateMode === "concept" && canMutateGraph && (
+				<form
+					onSubmit={handleQuickAddConcept}
+					className="quick-create-bar"
+					data-testid="quick-add-concept-panel"
+				>
+					<strong>New Concept:</strong>
+					<input
+						type="text"
+						className="form-input"
+						placeholder="Concept Name (e.g. Limited Partner)"
+						value={newConceptName}
+						onChange={(e) => setNewConceptName(e.target.value)}
+						required
+						data-testid="quick-concept-name-input"
+					/>
+					<select
+						className="form-select"
+						value={newConceptArchetype}
+						onChange={(e) => setNewConceptArchetype(e.target.value)}
+						data-testid="quick-concept-archetype-select"
+					>
+						<option value="CORE_BUSINESS_CONCEPT">CORE_BUSINESS_CONCEPT</option>
+						<option value="EVENT">EVENT</option>
+						<option value="PARTY">PARTY</option>
+						<option value="AGREEMENT">AGREEMENT</option>
+						<option value="PRODUCT">PRODUCT</option>
+						<option value="ACCOUNT">ACCOUNT</option>
+						<option value="LOCATION">LOCATION</option>
+					</select>
+					<input
+						type="text"
+						className="form-input"
+						placeholder="Normative definition..."
+						value={newConceptDefinition}
+						onChange={(e) => setNewConceptDefinition(e.target.value)}
+						data-testid="quick-concept-definition-input"
+					/>
+					<button
+						type="submit"
+						className="btn-primary btn-sm"
+						disabled={!newConceptName.trim()}
+						data-testid="confirm-add-concept-btn"
+					>
+						Create Concept
+					</button>
+					<button
+						type="button"
+						className="btn-secondary btn-sm"
+						onClick={() => setQuickCreateMode(null)}
+					>
+						Cancel
+					</button>
+				</form>
+			)}
+
+			{quickCreateMode === "relationship" && canMutateGraph && (
+				<form
+					onSubmit={handleQuickAddRelationship}
+					className="quick-create-bar"
+					data-testid="quick-add-relationship-panel"
+				>
+					<strong>New Relationship:</strong>
+					<input
+						type="text"
+						className="form-input"
+						placeholder="Relationship Name (e.g. commits_capital_to)"
+						value={newRelName}
+						onChange={(e) => setNewRelName(e.target.value)}
+						required
+						data-testid="quick-rel-name-input"
+					/>
+					<select
+						aria-label="Source Concept"
+						className="form-select"
+						value={newRelSourceUri || nodes[0]?.concept_uri || ""}
+						onChange={(e) => setNewRelSourceUri(e.target.value)}
+						data-testid="quick-rel-source-select"
+					>
+						{nodes.map((n) => (
+							<option key={n.concept_uri} value={n.concept_uri}>
+								From: {n.concept_name}
+							</option>
+						))}
+					</select>
+					<select
+						aria-label="Target Concept"
+						className="form-select"
+						value={
+							newRelTargetUri ||
+							nodes[1]?.concept_uri ||
+							nodes[0]?.concept_uri ||
+							""
+						}
+						onChange={(e) => setNewRelTargetUri(e.target.value)}
+						data-testid="quick-rel-target-select"
+					>
+						{nodes.map((n) => (
+							<option key={n.concept_uri} value={n.concept_uri}>
+								To: {n.concept_name}
+							</option>
+						))}
+					</select>
+					<select
+						aria-label="Cardinality"
+						className="form-select"
+						value={newRelCardinality}
+						onChange={(e) =>
+							setNewRelCardinality(
+								e.target.value as "one_to_one" | "one_to_many" | "many_to_many",
+							)
+						}
+						data-testid="quick-rel-cardinality-select"
+					>
+						<option value="one_to_one">one_to_one</option>
+						<option value="one_to_many">one_to_many</option>
+						<option value="many_to_many">many_to_many</option>
+					</select>
+					<button
+						type="submit"
+						className="btn-primary btn-sm"
+						disabled={!newRelName.trim() || nodes.length === 0}
+						data-testid="confirm-add-relationship-btn"
+					>
+						Create Relationship
+					</button>
+					<button
+						type="button"
+						className="btn-secondary btn-sm"
+						onClick={() => setQuickCreateMode(null)}
+					>
+						Cancel
+					</button>
+				</form>
+			)}
+
+			{hasUnsavedChanges && canMutateGraph && (
+				<div className="unsaved-changes-bar" data-testid="unsaved-changes-bar">
+					<span>● Uncommitted working draft changes</span>
+					<input
+						type="text"
+						className="form-input commit-rationale-input"
+						placeholder="Optional commit rationale..."
+						value={commitRationale}
+						onChange={(e) => setCommitRationale(e.target.value)}
+						data-testid="commit-rationale-input"
+					/>
+				</div>
+			)}
+
+			{/* Standalone Mode Banner */}
 			{activeMode === "local_standalone" && (
 				<div
 					className="standalone-mode-banner"
@@ -274,7 +778,8 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 					data-testid="standalone-mode-banner"
 				>
 					<span>
-						⚡ Standalone Mode (Local In-Memory Engine) — changes are stored in-memory
+						⚡ Standalone Mode — sessions & versions are persisted in local CAS
+						(.opendv/ontology_studio)
 					</span>
 				</div>
 			)}
@@ -463,7 +968,17 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 						<pre className="event-stream-log">
 							<code>
 								{activeSession
-									? `[SESSION] id=${activeSession.session_id} active_version=${activeSession.active_version} status=${activeSession.status}\n[GRAPH] concepts=${nodes.length} relationships=${edges.length}\n[PARSING] status=${parsingState.status} stage=${parsingState.stage || "idle"} progress=${parsingState.progress_pct}%`
+									? `[SESSION] id=${activeSession.session_id} active_version=${activeSession.active_version} status=${activeSession.status}\n[GRAPH] concepts=${nodes.length} relationships=${edges.length}\n[PARSING] status=${parsingState.status} stage=${parsingState.stage || "idle"} progress=${parsingState.progress_pct}%${
+											sseEvents.length > 0
+												? `\n${sseEvents
+														.slice(0, 12)
+														.map(
+															(ev) =>
+																`[JOB ${ev.job_id || "studio"}] stage=${ev.stage}${ev.progress_pct !== undefined ? ` (${ev.progress_pct}%)` : ""} ${ev.message}`,
+														)
+														.join("\n")}`
+												: ""
+										}`
 									: "[IDLE] No active session loaded. Select or create a session above."}
 							</code>
 						</pre>

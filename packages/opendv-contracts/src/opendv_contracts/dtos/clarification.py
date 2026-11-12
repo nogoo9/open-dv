@@ -6,9 +6,9 @@ docs/20-ontology-studio-spec.md.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from opendv_contracts.dtos.common import BaseContractModel
 from opendv_contracts.dtos.ontology import EvidenceRef
@@ -88,9 +88,33 @@ class ClarifyRequest(BaseContractModel):
     mode: Literal["auto", "agent", "deterministic"] = Field(
         default="auto", description="Generation mode ('auto', 'agent', 'deterministic')"
     )
-    max_questions: int = Field(
-        default=5, ge=1, le=50, description="Maximum number of questions to generate"
+    focus_concepts: list[str] | None = Field(
+        default=None,
+        max_length=100,
+        description="Optional list of concept URIs or names to focus clarification on",
     )
+    focus_concept: str | None = Field(
+        default=None,
+        description="Optional single focus concept (normalized into focus_concepts)",
+    )
+    max_questions: int = Field(
+        default=10, ge=1, le=100, description="Maximum number of questions to generate"
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_focus_concepts(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            fc_single = data.get("focus_concept")
+            if isinstance(fc_single, str) and fc_single.strip():
+                data = dict(data)
+                single = fc_single.strip()
+                existing_raw = data.get("focus_concepts")
+                existing = list(existing_raw) if isinstance(existing_raw, (list, tuple)) else []
+                if single not in existing:
+                    existing.append(single)
+                data["focus_concepts"] = existing
+        return data
 
 
 __all__ = [

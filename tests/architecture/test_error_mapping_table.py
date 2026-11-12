@@ -7,10 +7,10 @@ from __future__ import annotations
 import pytest
 
 from opendv_contracts.errors import (
+    VALID_EXIT_CODES,
     ErrorCode,
     ErrorMappingEntry,
     ProblemDetail,
-    VALID_EXIT_CODES,
     create_problem_detail,
     get_error_entry,
     get_error_mapping,
@@ -46,7 +46,10 @@ def test_authoritative_error_mappings() -> None:
         ErrorCode.INVALID_REQUEST: (2, 400),
         ErrorCode.RESOURCE_NOT_FOUND: (2, 404),
         ErrorCode.PAYLOAD_TOO_LARGE: (2, 413),
-        ErrorCode.UNSUPPORTED_FORMAT: (2, 415),
+        ErrorCode.UNSUPPORTED_FORMAT: (2, 400),
+        ErrorCode.OCR_UNAVAILABLE: (1, 501),
+        ErrorCode.OFFICE_CONVERSION_UNAVAILABLE: (1, 501),
+        ErrorCode.CANNOT_DELETE_PROMOTED_SESSION: (6, 409),
         ErrorCode.INPUT_VALIDATION_ERROR: (2, 422),
         ErrorCode.CAS_INTEGRITY_FAILURE: (2, 500),
         ErrorCode.INTERNAL_ERROR: (2, 500),

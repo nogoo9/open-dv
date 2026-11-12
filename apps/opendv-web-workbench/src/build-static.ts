@@ -7,7 +7,14 @@
  * 2. `apps/opendv-platform-api/src/opendv_platform_api/static/`
  */
 
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -31,7 +38,7 @@ export function generateStaticIndexHtml(): string {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="referrer" content="no-referrer" />
     <title>Open-DV Explorer</title>
     <link rel="stylesheet" href="/assets/workbench.css" />
   </head>
@@ -80,7 +87,9 @@ export async function buildStaticWorkbenchAssets(
 		if (buildResult.success && entryOutput) {
 			workbenchJs = await entryOutput.text();
 		} else if (!buildResult.success) {
-			const logs = buildResult.logs ? buildResult.logs.map((l) => String(l)).join("; ") : "no logs";
+			const logs = buildResult.logs
+				? buildResult.logs.map((l) => String(l)).join("; ")
+				: "no logs";
 			programmaticError = new Error(`Bun.build programmatic failure: ${logs}`);
 		}
 	} catch (err) {
@@ -133,8 +142,11 @@ export async function buildStaticWorkbenchAssets(
 
 	for (const outDir of outDirs) {
 		const assetsDir = join(outDir, "assets");
+		const ontologyDir = join(outDir, "ontology");
 		mkdirSync(assetsDir, { recursive: true });
+		mkdirSync(ontologyDir, { recursive: true });
 		writeFileSync(join(outDir, "index.html"), indexHtml, "utf-8");
+		writeFileSync(join(ontologyDir, "index.html"), indexHtml, "utf-8");
 		writeFileSync(join(assetsDir, "workbench.js"), workbenchJs, "utf-8");
 		writeFileSync(join(assetsDir, "workbench.css"), workbenchCss, "utf-8");
 	}

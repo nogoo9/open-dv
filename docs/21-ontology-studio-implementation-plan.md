@@ -210,7 +210,7 @@ All 16 Architecture Decisions formulated in Phase 1 (`master-plan.md`, `ADR-001.
   - Model extensions (all defaulting to `None`): CBC (`parent_concept_uri`, `attributes`, `synonyms`, `external_mappings`, `deprecated`, `metadata`, `source_hints`), ConceptAttribute (`deprecated`, `metadata`, `source_hints`), ExternalMapping (`pinned`, `provenance`), Relationship (`deprecated`, `metadata`), ReferenceEnumeration (`deprecated`, `metadata`), and GraphAOntology (`metadata`).
   - Hashing specification: `model_dump(mode="json", exclude_none=True)` followed by recursive `_norm_empty` scoped strictly to extension field sets (`_CBC_EXT`, `_ATTR_OPT`, `_REL_EXT`, `_ENUM_EXT`, `_ONT_EXT`), guaranteeing that empty legacy collections are not mutated.
   - `compute_ontology_sha256(validate_graph_a("examples/private_equity/pe_graph_a_ontology.yaml"))` evaluates to `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`.
-  - Greenfield Genesis draft `0.0.0` digest: `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e`.
+  - Greenfield Genesis draft `0.0.0` digest: `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9`.
   - Closed 24-Operation Delta Catalog & SemVer Bump Classes:
     - **MAJOR Bump (Breaking Changes)**: `RemoveConceptOp`, `RemoveRelationshipOp`, `RemoveAttributeOp`, `UpdateConceptUrnOp`, and overwrites of existing non-None values on `SetConceptElmArchetypeOp` or `SetParentConceptOp` (strictly prohibited on deployed physical Data Vault tables under `ONT-EVO-001`).
     - **MINOR Bump (Additive Structural & Deprecations)**: `AddConceptOp` (with explicit Genesis Rule: if `base_version == '0.0.0'`, promotes directly to `1.0.0` establishing initial certified baseline rather than `0.1.0`), `AddRelationshipOp`, `AddAttributeOp`, initial unset assignment on `SetParentConceptOp` and `SetConceptElmArchetypeOp` (when field is currently `None`), `AddReferenceEnumerationOp`, `AddKeyAuthorityPatternOp`, `AddGovernanceConstraintOp`, `DeprecateConceptOp`, `DeprecateRelationshipOp`.
@@ -473,7 +473,7 @@ The issue tracker hierarchy is managed and deployed via `open-dv/docs/design/ont
 - **Roll-Up Tracking**: Tracks completion across Phase 4 (Foundation: #TBD), Phase 5 (Engine & UI: #TBD), and Phase 6 (Integration & Release: #TBD).
 - **Invariants Enforced**:
   - PE Graph A canonical SHA-256 hash: `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`.
-  - Genesis Draft `0.0.0` hash: `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e`.
+  - Genesis Draft `0.0.0` hash: `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9`.
   - ONT-EVO-001 (deployed table immutability), ONT-EVO-002 (positive reference grounding >= 0.6500 or authorized waiver), ONT-EVO-003 (OCC & rebase).
   - Unidirectional AST layering (`test_import_contracts.py`) and zero production mocks (`test_mock_guards.py`).
   - Bit-for-bit CLI parity across `opendv` and `opendvctl`.
@@ -966,7 +966,7 @@ The issue tracker hierarchy is managed and deployed via `open-dv/docs/design/ont
    Enforced via `model_dump(mode="json", exclude_none=True)` followed by recursive empty collection pruning (`_norm_empty` scoped strictly to extension field sets `_CBC_EXT`, `_ATTR_OPT`, `_REL_EXT`, `_ENUM_EXT`, `_ONT_EXT`).
 2. **Genesis Draft Hash Invariant**:
    `compute_ontology_sha256` evaluated over `GenesisDraft(0.0.0)` must yield exactly:
-   $$\mathtt{99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e}$$
+   $$\mathtt{1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9}$$
 3. **AST Import Isolation & Layering (`test_import_contracts.py`)**:
    - `apps/opendv-cli` is banned from importing `{"fastapi", "starlette", "opendv_platform_api", "httpx"}`.
    - `apps/opendv-platform-api` is banned from importing direct engine packages; all business logic routes through `opendv_service`.
@@ -1006,7 +1006,7 @@ The Open-DV Ontology Construction Studio is complete and ready for release when:
 
 1. **All 43 Task Issues and 3 Phase Issues Merged**: Every task in §1.4 is implemented via an independent PR merged into `dev/ontology-studio`.
 2. **0 CRITICAL and 0 MAJOR Claude Opus Findings**: Every merged PR has a verified critique report from `scripts/run_opus_critique.py` adhering to the user directive of 2026-11-09T17:11:51Z.
-3. **Bit-for-Bit Hash Invariance Verified**: `pe_graph_a_ontology.yaml` evaluates to `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`; Genesis draft evaluates to `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e`.
+3. **Bit-for-Bit Hash Invariance Verified**: `pe_graph_a_ontology.yaml` evaluates to `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`; Genesis draft evaluates to `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9`.
 4. **Monorepo CI Clean**:
    - Python: 100% passing `uv run pytest` across unit, contract, architecture, and parity tests.
    - TypeScript: 100% passing `bun test` (184+ tests) and `bun x tsc -b --pretty` (0 errors).

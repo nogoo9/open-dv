@@ -180,7 +180,8 @@ PERSONA_CAPABILITY_MATRIX: dict[AgentPersona, PersonaCapabilityProfile] = {
         ),
         authorized_tools=frozenset(
             {
-                "extract_candidate_terms",
+                "profile_source_feed",
+                "extract_pdf_spans",
                 "emit_observability_event",
             }
         ),
@@ -196,8 +197,7 @@ PERSONA_CAPABILITY_MATRIX: dict[AgentPersona, PersonaCapabilityProfile] = {
         ),
         authorized_tools=frozenset(
             {
-                "formulate_clarification_questions",
-                "evaluate_polysemy",
+                "request_steward_decision",
                 "emit_observability_event",
             }
         ),
@@ -213,8 +213,8 @@ PERSONA_CAPABILITY_MATRIX: dict[AgentPersona, PersonaCapabilityProfile] = {
         ),
         authorized_tools=frozenset(
             {
-                "propose_ontology_delta",
-                "validate_ontology_delta",
+                "run_axi_dv_gates",
+                "request_steward_decision",
                 "emit_observability_event",
             }
         ),

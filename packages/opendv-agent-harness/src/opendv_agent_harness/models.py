@@ -240,6 +240,10 @@ class HarnessConfig(BaseModel):
         return normalized
 
 
+class ToolCallBudgetExceededError(Exception):
+    """Raised when tool execution exceeds HarnessBudget.max_tool_calls."""
+
+
 class ToolExecutionContext:
     """Injected into pure-Python domain tools during execution across any SDK adapter."""
 
@@ -265,6 +269,8 @@ class ToolExecutionContext:
         self.emitted_events: list[dict[str, Any]] = []
         self._emitted_cursor: int = 0
         self.artifacts_written: dict[str, str] = {}
+        self.tool_calls_invoked: int = 0
+        self.tool_budget_exceeded: bool = False
 
     def get_state(self, key: str, default: Any = None) -> Any:
         """Retrieve a session state value by key."""
@@ -328,11 +334,18 @@ class AgentToolDefinition(Generic[InT, OutT]):  # noqa: UP046
         return self.input_model.model_json_schema()
 
     async def invoke(self, raw_args: dict[str, Any] | InT, ctx: ToolExecutionContext) -> OutT:
-        """Enforce persona RBAC, validate input arguments, and invoke the async tool handler."""
+        """Enforce persona RBAC, tool-call budget, argument schema, and async handler."""
         if ctx.persona not in self.allowed_personas:
             raise PermissionError(
                 f"Persona '{ctx.persona}' is not authorized to invoke tool '{self.name}'."
             )
+        max_calls = ctx.config.budget.max_tool_calls
+        if ctx.tool_calls_invoked >= max_calls:
+            ctx.tool_budget_exceeded = True
+            raise ToolCallBudgetExceededError(
+                f"Tool call budget exceeded ({max_calls}) while invoking '{self.name}'."
+            )
+        ctx.tool_calls_invoked += 1
         validated_input = (
             raw_args
             if isinstance(raw_args, self.input_model)
@@ -490,5 +503,6 @@ __all__ = [
     "PipelineStageId",
     "SandboxPolicy",
     "SubagentSpec",
+    "ToolCallBudgetExceededError",
     "ToolExecutionContext",
 ]

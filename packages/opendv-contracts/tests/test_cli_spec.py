@@ -1,7 +1,8 @@
-"""Tests validating cli-spec.json and cli-spec.schema.json."""
+"""Tests validating cli-spec.json, error-codes.json, and baseline-digests.json parity."""
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -139,74 +140,84 @@ def test_cli_spec_option_flags_validity() -> None:
 
 
 def test_error_codes_normative_catalog_conformance() -> None:
-    """Assert all error codes in schemas/v1/error-codes.json match ERROR_MAPPINGS bit-for-bit.
-
-    Validates:
-    1. Every code in the catalog exists in ErrorCode with exact exit_code and problem_title.
-    2. Non-legacy codes have bit-for-bit identical problem_type_uri (urn:opendv:error:<slug>).
-    3. The only ErrorCode members not in error-codes.json are the documented 20 Wave 1 legacy codes.
-    4. Every problem_type_uri across ERROR_MAPPINGS is unique (no collisions).
-    """
+    """Assert 100% set and field parity between ErrorCode / ERROR_MAPPINGS and error-codes.json."""
     pkg_root = Path(__file__).resolve().parent.parent
     catalog_path = pkg_root.parent.parent / "schemas" / "v1" / "error-codes.json"
     assert catalog_path.is_file(), f"Missing normative error code catalog: {catalog_path}"
 
     catalog = json.loads(catalog_path.read_text(encoding="utf-8"))
     catalog_codes = catalog.get("error_codes", [])
+    assert catalog.get("total_error_codes") == len(catalog_codes)
+
+    catalog_code_set = {e["code"] for e in catalog_codes}
+    enum_code_set = {c.value for c in ErrorCode}
+    assert enum_code_set == catalog_code_set, (
+        f"ErrorCode enum vs error-codes.json parity mismatch: "
+        f"only_in_enum={sorted(enum_code_set - catalog_code_set)}, "
+        f"only_in_json={sorted(catalog_code_set - enum_code_set)}"
+    )
 
     for entry in catalog_codes:
         code_str = entry["code"]
-        assert code_str in ErrorCode.__members__, (
-            f"Normative code {code_str} from error-codes.json missing in ErrorCode enum!"
-        )
         mapping = ERROR_MAPPINGS[ErrorCode[code_str]]
         assert mapping.exit_code == entry["exit_code"], (
             f"Exit code mismatch for {code_str}: "
             f"py={mapping.exit_code} vs catalog={entry['exit_code']}"
         )
+        assert mapping.http_status == entry["http_status"], (
+            f"HTTP status mismatch for {code_str}: "
+            f"py={mapping.http_status} vs catalog={entry['http_status']}"
+        )
         assert mapping.problem_title == entry["problem_title"], (
             f"Title mismatch for {code_str}: "
             f"py={mapping.problem_title} vs catalog={entry['problem_title']}"
         )
-        if code_str not in {"OK", "UNSUPPORTED_FORMAT"}:
-            assert mapping.problem_type_uri == entry["problem_type_uri"], (
-                f"URI mismatch for {code_str}: "
-                f"py={mapping.problem_type_uri} vs catalog={entry['problem_type_uri']}"
-            )
-            assert mapping.http_status == entry["http_status"], (
-                f"HTTP status mismatch for {code_str}: "
-                f"py={mapping.http_status} vs catalog={entry['http_status']}"
-            )
-
-    # Verify only documented 20 Wave 1 legacy codes are not in error-codes.json
-    catalog_code_set = {e["code"] for e in catalog_codes}
-    legacy_codes = {c.value for c in ErrorCode if c.value not in catalog_code_set}
-    expected_legacy = {
-        "API_UNREACHABLE",
-        "ARTIFACT_NOT_FOUND",
-        "CAS_INTEGRITY_FAILURE",
-        "CONTRACT_VERSION_MISMATCH",
-        "DETERMINISTIC_PROVIDER_REJECTED",
-        "HOLD_NOT_FOUND",
-        "INPUT_VALIDATION_ERROR",
-        "INTERNAL_ERROR",
-        "INVALID_REQUEST",
-        "ONTOLOGY_RECOMMENDER_UNAVAILABLE",
-        "PATH_CONTAINMENT_ERROR",
-        "PROJECT_NOT_FOUND",
-        "PROVIDER_CONFIG_ERROR",
-        "PROVIDER_UNAVAILABLE",
-        "RESOURCE_NOT_FOUND",
-        "RUN_NOT_FOUND",
-        "SANDBOX_EXECUTION_ERROR",
-        "SCHEMA_VALIDATION_ERROR",
-        "SOURCE_LOAD_ERROR",
-        "VERIFICATION_FAILED",
-    }
-    assert legacy_codes == expected_legacy, (
-        f"Unexpected legacy code difference: {legacy_codes ^ expected_legacy}"
-    )
+        assert mapping.problem_type_uri == entry["problem_type_uri"], (
+            f"URI mismatch for {code_str}: "
+            f"py={mapping.problem_type_uri} vs catalog={entry['problem_type_uri']}"
+        )
 
     # Verify problem_type_uri uniqueness across ERROR_MAPPINGS
     uris = [m.problem_type_uri for m in ERROR_MAPPINGS.values()]
     assert len(uris) == len(set(uris)), "Duplicate problem_type_uri detected in ERROR_MAPPINGS!"
+
+
+def test_baseline_digests_all_files_and_sha256_match_disk() -> None:
+    """Assert every file path and SHA-256 in schemas/v1/baseline-digests.json matches disk."""
+    pkg_root = Path(__file__).resolve().parent.parent
+    repo_root = pkg_root.parent.parent
+    baselines_path = repo_root / "schemas" / "v1" / "baseline-digests.json"
+    assert baselines_path.is_file(), f"Missing baseline digests: {baselines_path}"
+
+    baselines = json.loads(baselines_path.read_text(encoding="utf-8"))
+
+    for key, ont_meta in baselines.get("certified_ontologies", {}).items():
+        ont_file = repo_root / ont_meta["path"]
+        assert ont_file.is_file(), f"Missing certified ontology '{key}': {ont_file}"
+
+    genesis_vec = repo_root / baselines["genesis_draft"]["vector_path"]
+    assert genesis_vec.is_file(), f"Missing genesis vector: {genesis_vec}"
+
+    for matcher_id, m_meta in baselines.get("matchers", {}).items():
+        assert (repo_root / m_meta["spec_path"]).is_file(), f"Missing {matcher_id} spec_path"
+        assert (repo_root / m_meta["vector_path"]).is_file(), f"Missing {matcher_id} vector_path"
+
+    for pack_id, p_meta in baselines.get("reference_packs", {}).items():
+        pack_file = repo_root / p_meta["pack_path"]
+        reg_file = repo_root / p_meta["registry_path"]
+        assert pack_file.is_file(), f"Missing {pack_id} pack_path: {pack_file}"
+        assert reg_file.is_file(), f"Missing {pack_id} registry_path: {reg_file}"
+        actual_pack_sha = hashlib.sha256(pack_file.read_bytes()).hexdigest()
+        assert actual_pack_sha == p_meta["canonical_sha256"], (
+            f"FIBO pack SHA-256 mismatch for {pack_id}: "
+            f"expected {p_meta['canonical_sha256']}, got {actual_pack_sha}"
+        )
+
+    for schema_rel, s_meta in baselines.get("schema_baselines", {}).items():
+        schema_file = repo_root / schema_rel
+        assert schema_file.is_file(), f"Missing baseline schema: {schema_file}"
+        actual_sha = hashlib.sha256(schema_file.read_bytes()).hexdigest()
+        assert actual_sha == s_meta["sha256"], (
+            f"Schema baseline SHA-256 mismatch for {schema_rel}: "
+            f"expected {s_meta['sha256']}, got {actual_sha}"
+        )

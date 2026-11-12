@@ -33,6 +33,12 @@ export interface StudioSessionSummary {
 	grandfathered_concept_uris?: string[] | undefined;
 	commits?: SessionCommit[] | undefined;
 	from_workspace?: string | undefined;
+	parent_sha256?: string | null | undefined;
+	description?: string | null | undefined;
+	metadata?: Record<string, unknown> | null | undefined;
+	reference_enumerations?: Array<Record<string, unknown>> | undefined;
+	standards_references?: string[] | undefined;
+	decision_refs?: string[] | undefined;
 }
 
 export interface CreateSessionRequest {
@@ -50,7 +56,10 @@ export interface SourceDocument {
 	size_bytes: number;
 	mime_type: string;
 	do_not_send_to_agent: boolean;
+	confidential?: boolean | undefined;
 	tombstoned?: boolean | undefined;
+	uploaded_at?: string | undefined;
+	status?: string | undefined;
 }
 
 export interface EvidenceChunk {
@@ -71,6 +80,7 @@ export interface ParsingState {
 	stage: string;
 	ocr_mode: "auto" | "force" | "off";
 	evidence_chunks: EvidenceChunk[];
+	chunks_count?: number | undefined;
 	error: string | null;
 }
 
@@ -112,15 +122,22 @@ export interface ConceptAttribute {
 	description?: string | null | undefined;
 	is_optional?: boolean | null | undefined;
 	example_values?: string[] | null | undefined;
+	deprecated?: boolean | null | undefined;
+	metadata?: Record<string, unknown> | null | undefined;
+	source_hints?: string[] | null | undefined;
 }
 
 export interface ExternalMapping {
 	scheme: string;
 	target_uri: string;
 	confidence?: number | null | undefined;
+	mapping_confidence?: number | null | undefined;
 	predicate?: string | null | undefined;
+	rationale?: string | null | undefined;
 	pinned?: boolean | null | undefined;
 	provenance?: string | null | undefined;
+	reference_pack_id?: string | null | undefined;
+	reference_pack_sha256?: string | null | undefined;
 }
 
 export interface ConceptNode {
@@ -129,6 +146,7 @@ export interface ConceptNode {
 	concept_name: string;
 	elm_archetype: string;
 	definition: string;
+	description?: string | null | undefined;
 	target_hub?: string | null | undefined;
 	parent_concept_uri?: string | null | undefined;
 	confidence?: number | undefined;
@@ -136,6 +154,11 @@ export interface ConceptNode {
 	attributes: ConceptAttribute[];
 	synonyms: string[];
 	external_mappings: ExternalMapping[];
+	deprecated?: boolean | null | undefined;
+	metadata?: Record<string, unknown> | null | undefined;
+	source_hints?: string[] | null | undefined;
+	governance_constraints?: Record<string, unknown> | null | undefined;
+	key_authority_tiers?: Record<string, unknown> | null | undefined;
 	x?: number | undefined;
 	y?: number | undefined;
 }
@@ -147,8 +170,14 @@ export interface RelationshipEdge {
 	target_link: string;
 	source_concept_uri: string;
 	target_concept_uri: string;
+	endpoints?: string[] | undefined;
+	grain_semantics?: string | null | undefined;
 	cardinality?: string | null | undefined;
 	description?: string | null | undefined;
+	deprecated?: boolean | null | undefined;
+	metadata?: Record<string, unknown> | null | undefined;
+	source_hints?: string[] | null | undefined;
+	yagni_cost_guard_policy?: Record<string, unknown> | null | undefined;
 }
 
 export interface DiffRecord {
@@ -195,7 +224,30 @@ export interface QualityScorecard {
 	waived_base_sha256?: string | undefined;
 	feedback_rating: number; // 1-5
 	feedback_comment: string;
+	feedback_concept_uri?: string | null | undefined;
 	feedback_submitted?: boolean | undefined;
+}
+
+export interface CandidateProposalSummary {
+	proposal_id: string;
+	status: string;
+	base_version: string;
+	base_sha256?: string | undefined;
+	target_version?: string | undefined;
+	rationale?: string | undefined;
+	operations_count?: number | undefined;
+	operations?: Array<Record<string, unknown>> | undefined;
+	created_at?: string | undefined;
+}
+
+export interface StudioEventLogEntry {
+	id: string;
+	timestamp: string;
+	job_id?: string | undefined;
+	stage: string;
+	message: string;
+	progress_pct?: number | undefined;
+	level?: "info" | "success" | "warn" | "error" | undefined;
 }
 
 export interface LayoutState {
@@ -227,3 +279,5 @@ export interface StudioErrorToast {
 }
 
 export type StudioMode = "local_standalone" | "remote_platform";
+
+export type StudioUserRole = "viewer" | "editor" | "automated" | "admin";

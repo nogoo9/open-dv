@@ -29,18 +29,21 @@ from pydantic import ValidationError
 
 from opendv_contracts.dtos.ingestion import EvidenceChunk, TableStructure
 from opendv_contracts.dtos.ontology import (
+    PATH_A_GROUNDING_THRESHOLD,
     AddAttributeOp,
     AddConceptOp,
     AddExternalMappingOp,
     AddReferenceEnumCodeOp,
     AddReferenceEnumerationOp,
     AddRelationshipOp,
+    AddSynonymOp,
     BaseOntologyDeltaOp,
     OntologyDelta,
     OntologyOperation,
     OntologyProposal,
 )
-from opendv_core.models.graph_a import GraphAOntology
+from opendv_contracts.errors import ErrorCode, OpenDVError
+from opendv_core.models.graph_a import CanonicalBusinessConcept, GraphAOntology
 from opendv_core.ontology_hashing import compute_ontology_sha256
 from opendv_service.construction.models import (
     ConstructOptions,
@@ -48,10 +51,12 @@ from opendv_service.construction.models import (
     StagedCandidatesFile,
 )
 from opendv_service.construction.utils import atomic_write_text
+from opendv_service.ontology.applier import compute_next_semver
 from opendv_service.ontology.matching.bm25 import ConceptMatcher
 from opendv_service.ontology.matching.tokenization import STOPWORDS
 from opendv_service.ontology.matching.verifier import (
     FiboPackGroundingVerifier,
+    is_allowed_path_a_predicate,
 )
 
 logger = logging.getLogger(__name__)
@@ -114,6 +119,7 @@ class DeterministicConstructionPipeline:
         else:
             self._verifier = FiboPackGroundingVerifier()
             self._matcher = self._verifier.matcher
+        self._grounding_verifier = self._verifier
 
     @property
     def matcher(self) -> ConceptMatcher:
@@ -149,9 +155,15 @@ class DeterministicConstructionPipeline:
             )
 
         if opts.auto_commit:
-            raise NotImplementedError(
+            err_code = (
+                ErrorCode.MISSING_AUTO_COMMIT_PRECONDITION
+                if not opts.if_match
+                else ErrorCode.SYNTAX_INVALID_ARGUMENT
+            )
+            raise OpenDVError(
                 "auto_commit is not supported in offline deterministic construction; "
-                "proposals must be reviewed and committed via Platform API."
+                "proposals must be reviewed and committed via Platform API.",
+                error_code=err_code,
             )
 
         answers_dict = clarification_answers or {}
@@ -183,32 +195,44 @@ class DeterministicConstructionPipeline:
         candidate_links: list[dict[str, Any]] = []
         candidate_attributes: list[dict[str, Any]] = []
 
-        existing_concept_uris = (
-            {c.concept_uri for c in base_ontology.canonical_business_concepts}
-            if base_ontology.canonical_business_concepts
-            else set()
-        )
-        existing_target_hubs = (
-            {c.target_hub for c in base_ontology.canonical_business_concepts if c.target_hub}
-            if base_ontology.canonical_business_concepts
-            else set()
-        )
+        existing_concepts_by_uri: dict[str, CanonicalBusinessConcept] = {
+            c.concept_uri: c
+            for c in getattr(base_ontology, "canonical_business_concepts", None) or []
+            if c.concept_uri
+        }
+        existing_concept_uris = set(existing_concepts_by_uri.keys())
+        existing_target_hubs = {
+            c.target_hub for c in existing_concepts_by_uri.values() if c.target_hub
+        }
         existing_hub_to_uri: dict[str, str] = {
             c.target_hub: c.concept_uri
-            for c in getattr(base_ontology, "canonical_business_concepts", None) or []
+            for c in existing_concepts_by_uri.values()
             if c.target_hub and c.concept_uri
         }
-        existing_rel_names = {
-            r.target_link
-            for r in getattr(base_ontology, "canonical_business_relationships", None) or []
+        base_rels = list(
+            getattr(base_ontology, "canonical_relationships", None)
+            or getattr(base_ontology, "canonical_business_relationships", None)
+            or []
+        )
+        existing_rel_uris = {
+            r.relationship_uri for r in base_rels if getattr(r, "relationship_uri", None)
         }
-        existing_rels: dict[str, tuple[str, str]] = {
-            r.target_link: (r.source_concept_uri, r.target_concept_uri)
-            for r in getattr(base_ontology, "canonical_business_relationships", None) or []
-            if r.target_link
-            and getattr(r, "source_concept_uri", None)
-            and getattr(r, "target_concept_uri", None)
-        }
+        existing_rel_names: set[str] = set()
+        existing_rels: dict[str, tuple[str, ...]] = {}
+        for r in base_rels:
+            eps: tuple[str, ...] = ()
+            if getattr(r, "endpoints", None):
+                eps = tuple(r.endpoints)
+            elif getattr(r, "source_concept_uri", None) and getattr(r, "target_concept_uri", None):
+                eps = (r.source_concept_uri, r.target_concept_uri)
+            if getattr(r, "target_link", None):
+                existing_rel_names.add(r.target_link)
+                if eps:
+                    existing_rels[r.target_link] = eps
+            if getattr(r, "relationship_name", None):
+                existing_rel_names.add(r.relationship_name)
+                if eps:
+                    existing_rels.setdefault(r.relationship_name, eps)
         existing_enum_names = {
             e.target_reference_table
             for e in getattr(base_ontology, "reference_enumerations", None) or []
@@ -255,8 +279,9 @@ class DeterministicConstructionPipeline:
                         logger.debug("Failed to deserialize table from chunk metadata: %s", err)
 
         seen_enum_uris: set[str] = set()
-        seen_enum_sources: dict[str, tuple[str, str]] = {}
+        seen_enum_sources: dict[str, str] = {}
         seen_key_pairs: set[frozenset[str]] = set()
+        discovered_table_keys: list[str] = []
 
         for tbl in table_list:
             headers = tbl.headers or []
@@ -426,21 +451,48 @@ class DeterministicConstructionPipeline:
                                 }
                             )
 
-            # Record Hub candidates discovered from table keys
+            # Record Hub candidates discovered from table keys (evaluated after all tables scanned)
             for k_slug in table_key_slugs:
-                if k_slug not in accepted_hubs and k_slug not in withheld_hubs:
-                    self._evaluate_hub_candidate(
-                        hub_slug=k_slug,
-                        base_ontology=base_ontology,
-                        existing_concept_uris=existing_concept_uris,
-                        existing_target_hubs=existing_target_hubs,
-                        existing_hub_to_uri=existing_hub_to_uri,
-                        preferred_mappings=preferred_mappings,
-                        min_confidence=opts.min_confidence,
-                        accepted_hubs=accepted_hubs,
-                        withheld_hubs=withheld_hubs,
-                        staged_candidates=staged_candidates,
-                    )
+                if k_slug not in discovered_table_keys:
+                    discovered_table_keys.append(k_slug)
+
+        # Determine which hub slugs have proposed mutations (new single-hub attributes or overrides)
+        mutated_hub_slugs: set[str] = set()
+        for attr in candidate_attributes:
+            thub = attr.get("table_hub")
+            if thub:
+                t_hub_name = f"hub_{thub}"
+                t_uri = existing_hub_to_uri.get(t_hub_name, f"urn:ontology:entity:{thub}")
+                if (t_uri, attr["attr_name"]) not in existing_attribute_keys:
+                    mutated_hub_slugs.add(thub)
+        for k_slug in discovered_table_keys:
+            c_label = k_slug.replace("_", " ").title()
+            if k_slug in preferred_mappings or c_label in preferred_mappings:
+                mutated_hub_slugs.add(k_slug)
+
+        ungrounded_existing_hubs: dict[str, StagedCandidate] = {}
+
+        for k_slug in discovered_table_keys:
+            if (
+                k_slug not in accepted_hubs
+                and k_slug not in withheld_hubs
+                and k_slug not in ungrounded_existing_hubs
+            ):
+                self._evaluate_hub_candidate(
+                    hub_slug=k_slug,
+                    base_ontology=base_ontology,
+                    existing_concepts_by_uri=existing_concepts_by_uri,
+                    existing_concept_uris=existing_concept_uris,
+                    existing_target_hubs=existing_target_hubs,
+                    existing_hub_to_uri=existing_hub_to_uri,
+                    mutated_hub_slugs=mutated_hub_slugs,
+                    preferred_mappings=preferred_mappings,
+                    min_confidence=opts.min_confidence,
+                    accepted_hubs=accepted_hubs,
+                    withheld_hubs=withheld_hubs,
+                    ungrounded_existing_hubs=ungrounded_existing_hubs,
+                    staged_candidates=staged_candidates,
+                )
 
         # Step 2: Also evaluate evidence text chunks for explicit candidate entities if no tables
         if not table_list and evidence_chunks:
@@ -457,34 +509,66 @@ class DeterministicConstructionPipeline:
                         and len(slug) >= 3
                         and slug not in accepted_hubs
                         and slug not in withheld_hubs
+                        and slug not in ungrounded_existing_hubs
                     ):
                         self._evaluate_hub_candidate(
                             hub_slug=slug,
                             base_ontology=base_ontology,
+                            existing_concepts_by_uri=existing_concepts_by_uri,
                             existing_concept_uris=existing_concept_uris,
                             existing_target_hubs=existing_target_hubs,
                             existing_hub_to_uri=existing_hub_to_uri,
+                            mutated_hub_slugs=mutated_hub_slugs,
                             preferred_mappings=preferred_mappings,
                             min_confidence=opts.min_confidence,
                             accepted_hubs=accepted_hubs,
                             withheld_hubs=withheld_hubs,
+                            ungrounded_existing_hubs=ungrounded_existing_hubs,
                             staged_candidates=staged_candidates,
                         )
 
-        # Step 3: Emit accepted Hub concepts & mappings
+        # Step 3: Emit accepted Hub concepts, synonyms, & mappings
         for _hub_slug, hub_info in accepted_hubs.items():
+            if hub_info.get("existing_untouched"):
+                continue
             concept_uri = hub_info["uri"]
             concept_name = hub_info["name"]
             hub_name = hub_info["hub_slug"]
-            if concept_uri not in existing_concept_uris and hub_name not in existing_target_hubs:
+            synonyms: list[str] = list(hub_info.get("synonyms") or [])
+            is_new_concept = (
+                concept_uri not in existing_concept_uris and hub_name not in existing_target_hubs
+            )
+            if is_new_concept:
                 emit_op(
                     AddConceptOp(
                         op_id=f"op-hub-{_det_id('concept', concept_uri, concept_name, hub_name)}",
                         concept_uri=concept_uri,
                         concept_name=concept_name,
                         target_hub=hub_name,
+                        synonyms=synonyms if synonyms else None,
                     )
                 )
+            else:
+                base_c = existing_concepts_by_uri.get(concept_uri)
+                existing_syns_cf = {
+                    *(s.strip().casefold() for s in (base_c.synonyms or []) if base_c),
+                    *(
+                        (base_c.concept_name.strip().casefold(),)
+                        if (base_c and base_c.concept_name)
+                        else ()
+                    ),
+                }
+                for syn in synonyms:
+                    if syn.strip() and syn.strip().casefold() not in existing_syns_cf:
+                        existing_syns_cf.add(syn.strip().casefold())
+                        emit_op(
+                            AddSynonymOp(
+                                op_id=f"op-syn-{_det_id('synonym', concept_uri, syn.strip())}",
+                                concept_uri=concept_uri,
+                                synonym=syn.strip(),
+                            )
+                        )
+
             target_uri = hub_info.get("target_uri")
             score = hub_info.get("score", 1.0)
             if target_uri and (concept_uri, target_uri) not in existing_mappings:
@@ -499,9 +583,42 @@ class DeterministicConstructionPipeline:
                         target_uri=target_uri,
                         scheme="fibo",
                         confidence=score,
+                        mapping_confidence=score,
                         predicate=pred,
                     )
                 )
+                # MIN-01: Materialize transitive superclass skos:broadMatch annotations
+                ref_c = self._matcher.lookup_concept(target_uri)
+                if ref_c and ref_c.parent_concept_uris:
+                    visited_parents: set[str] = {target_uri}
+                    parent_queue: list[str] = list(ref_c.parent_concept_uris)
+                    while parent_queue and len(visited_parents) <= 8:
+                        sup_uri = parent_queue.pop(0)
+                        if not sup_uri or sup_uri in visited_parents:
+                            continue
+                        visited_parents.add(sup_uri)
+                        sup_ref = self._matcher.lookup_concept(sup_uri)
+                        if sup_ref is None:
+                            continue
+                        if (concept_uri, sup_uri) not in existing_mappings:
+                            broad_hash = _det_id(
+                                "mapping", concept_uri, sup_uri, "skos:broadMatch", f"{score:.4f}"
+                            )
+                            broad_id = f"op-map-{broad_hash}"
+                            emit_op(
+                                AddExternalMappingOp(
+                                    op_id=broad_id,
+                                    concept_uri=concept_uri,
+                                    target_uri=sup_uri,
+                                    scheme="fibo",
+                                    confidence=score,
+                                    mapping_confidence=score,
+                                    predicate="skos:broadMatch",
+                                )
+                            )
+                        for gp in sup_ref.parent_concept_uris or []:
+                            if gp not in visited_parents:
+                                parent_queue.append(gp)
 
         # Step 4: Evaluate Dependency Closure Guard on Links
         seen_link_names: dict[str, tuple[str, str]] = {}
@@ -523,13 +640,17 @@ class DeterministicConstructionPipeline:
                 continue
             seen_link_names[lnk_name] = (src, tgt)
 
-            # Check collision with existing base relationships (MIN-04)
-            if lnk_name in existing_rels:
+            # Check collision with existing base relationships (MIN-04 / MAJ-05)
+            rel_uri_cand = f"urn:ontology:relationship:{src}_{tgt}"
+            if lnk_name in existing_rels or rel_uri_cand in existing_rel_uris:
                 src_uri = accepted_hubs[src]["uri"] if src in accepted_hubs else None
                 tgt_uri = accepted_hubs[tgt]["uri"] if tgt in accepted_hubs else None
-                if src_uri and tgt_uri:
+                if src_uri and tgt_uri and lnk_name in existing_rels:
                     existing_endpoints = existing_rels[lnk_name]
-                    if existing_endpoints != (src_uri, tgt_uri):
+                    if existing_endpoints != (src_uri, tgt_uri) and set(existing_endpoints) != {
+                        src_uri,
+                        tgt_uri,
+                    }:
                         staged_candidates.append(
                             StagedCandidate(
                                 candidate_id=f"staged-lnk-{src}-{tgt}",
@@ -598,7 +719,19 @@ class DeterministicConstructionPipeline:
                 )
                 continue
 
-            if thub and thub in accepted_hubs:
+            if thub and thub in ungrounded_existing_hubs:
+                withheld_cand = ungrounded_existing_hubs[thub]
+                attr_dict = {
+                    "attribute_name": attr_name,
+                    "column": attr.get("col_name", attr_name),
+                    "table_id": table_id,
+                }
+                if not any(
+                    isinstance(a, dict) and a.get("attribute_name") == attr_name
+                    for a in withheld_cand.attributes
+                ):
+                    withheld_cand.attributes.append(attr_dict)
+            elif thub and thub in accepted_hubs:
                 hub_uri = accepted_hubs[thub]["uri"]
                 if (hub_uri, attr_name) not in existing_attribute_keys:
                     emit_op(
@@ -692,7 +825,30 @@ class DeterministicConstructionPipeline:
         base_ver = (
             base_ontology.ontology_version or getattr(base_ontology, "version", None) or "1.0.0"
         )
-        target_ver = _bump_minor_version(base_ver)
+        parent_sha = base_sha
+        if not accepted_ops:
+            target_ver = base_ver
+        else:
+            probe_delta = OntologyDelta.model_construct(
+                _fields_set={
+                    "delta_id",
+                    "base_ontology_version",
+                    "parent_sha256",
+                    "domain_namespace",
+                    "operations",
+                },
+                delta_id="delta-probe",
+                base_ontology_version=base_ver,
+                target_ontology_version=None,
+                parent_sha256=parent_sha,
+                domain_namespace=base_ontology.domain_namespace or "default",
+                operations=accepted_ops,
+            )
+            target_ver = compute_next_semver(
+                base_ver,
+                probe_delta,
+                base_ontology=base_ontology,
+            )
 
         op_content_hash = hashlib.sha256(
             json.dumps(
@@ -707,7 +863,6 @@ class DeterministicConstructionPipeline:
             else (opts.actor if opts.actor else "deterministic:pipeline")
         )
 
-        parent_sha = "" if base_ver == "0.0.0" else base_sha
         delta = OntologyDelta(
             delta_id=f"delta-{_det_id('delta', base_sha, target_ver, op_content_hash)}",
             base_ontology_version=base_ver,
@@ -732,23 +887,78 @@ class DeterministicConstructionPipeline:
 
         return proposal
 
+    def _has_verified_base_fibo_grounding(
+        self,
+        base_c: CanonicalBusinessConcept | None,
+        concept_uri: str,
+        min_confidence: float,
+    ) -> bool:
+        """Return True iff `base_c` already carries a verified Path A FIBO mapping."""
+        if base_c is None or not base_c.external_mappings:
+            return False
+        eff_threshold = max(PATH_A_GROUNDING_THRESHOLD, min_confidence)
+        qualifying = [
+            m
+            for m in base_c.external_mappings
+            if (m.scheme or "").strip().upper() == "FIBO"
+            and is_allowed_path_a_predicate(m.predicate)
+            and (m.confidence if m.confidence is not None else 0.0) >= eff_threshold
+        ]
+        if not qualifying:
+            return False
+        if self._grounding_verifier is not None:
+            base_res = self._grounding_verifier.verify_grounding(
+                concept_uri=concept_uri,
+                candidates=qualifying,
+                threshold=eff_threshold,
+                concept_name=base_c.concept_name,
+                synonyms=base_c.synonyms or (),
+            )
+            return bool(base_res.is_grounded and base_res.score >= eff_threshold)
+        return True
+
     def _evaluate_hub_candidate(
         self,
         hub_slug: str,
         base_ontology: GraphAOntology,
+        existing_concepts_by_uri: dict[str, CanonicalBusinessConcept],
         existing_concept_uris: set[str],
         existing_target_hubs: set[str],
         existing_hub_to_uri: dict[str, str],
+        mutated_hub_slugs: set[str],
         preferred_mappings: dict[str, str],
         min_confidence: float,
         accepted_hubs: dict[str, dict[str, Any]],
         withheld_hubs: dict[str, StagedCandidate],
+        ungrounded_existing_hubs: dict[str, StagedCandidate],
         staged_candidates: list[StagedCandidate],
     ) -> None:
         """Evaluate a candidate Hub concept against grounding rules and guards."""
+        _ = base_ontology
         hub_name = f"hub_{hub_slug}"
         concept_uri = existing_hub_to_uri.get(hub_name, f"urn:ontology:entity:{hub_slug}")
         concept_label = hub_slug.replace("_", " ").title()
+        is_existing = (concept_uri in existing_concept_uris) or (hub_name in existing_target_hubs)
+        base_c = existing_concepts_by_uri.get(concept_uri)
+
+        # MAJ-07: Existing seed concepts referenced solely as FK endpoints without proposed
+        # mutations remain untouched and eligible as AddRelationshipOp endpoints.
+        if (
+            is_existing
+            and hub_slug not in mutated_hub_slugs
+            and hub_slug not in preferred_mappings
+            and concept_label not in preferred_mappings
+        ):
+            accepted_hubs[hub_slug] = {
+                "uri": concept_uri,
+                "name": base_c.concept_name if (base_c and base_c.concept_name) else concept_label,
+                "hub_slug": base_c.target_hub if (base_c and base_c.target_hub) else hub_name,
+                "score": 0.0,
+                "target_uri": None,
+                "synonyms": [],
+                "existing_untouched": True,
+            }
+            return
 
         # Guard 1: Physical table identifier budget (<= 55 chars)
         if len(hub_name) > MAX_PHYSICAL_SLUG_CHARS:
@@ -762,24 +972,31 @@ class DeterministicConstructionPipeline:
             staged_candidates.append(cand)
             return
 
-        # Guard 2: Human clarification answer override
+        # Guard 2: Human clarification answer override (MAJ-06)
         target_uri: str | None = None
         score: float = 0.0
+        override_synonyms: list[str] = []
 
-        if hub_slug in preferred_mappings or concept_label in preferred_mappings:
-            candidate_target_uri = preferred_mappings.get(hub_slug) or preferred_mappings.get(
-                concept_label
+        pref_norm = {k.strip().casefold(): v for k, v in preferred_mappings.items()}
+        candidate_target_uri = (
+            preferred_mappings.get(hub_slug)
+            or preferred_mappings.get(concept_label)
+            or pref_norm.get(hub_slug.casefold())
+            or pref_norm.get(concept_label.strip().casefold())
+        )
+        if candidate_target_uri is not None:
+            ref_concept = (
+                self._matcher.lookup_concept(candidate_target_uri) if candidate_target_uri else None
             )
-            is_verified = False
-            if (
-                candidate_target_uri
-                and self._matcher.lookup_concept(candidate_target_uri) is not None
-            ):
-                is_verified = True
-
-            if is_verified and candidate_target_uri:
+            if ref_concept is not None and candidate_target_uri:
                 target_uri = candidate_target_uri
                 score = 1.0
+                if (
+                    ref_concept.concept_name
+                    and ref_concept.concept_name.strip().casefold()
+                    != concept_label.strip().casefold()
+                ):
+                    override_synonyms.append(ref_concept.concept_name.strip())
             else:
                 cand = StagedCandidate(
                     candidate_id=f"staged-{hub_slug}",
@@ -789,7 +1006,23 @@ class DeterministicConstructionPipeline:
                     top_match_score=0.0,
                     reason_held_back="PREFERRED_MAPPING_UNVERIFIED",
                 )
-                withheld_hubs[hub_slug] = cand
+                if is_existing:
+                    ungrounded_existing_hubs[hub_slug] = cand
+                    accepted_hubs[hub_slug] = {
+                        "uri": concept_uri,
+                        "name": base_c.concept_name
+                        if (base_c and base_c.concept_name)
+                        else concept_label,
+                        "hub_slug": base_c.target_hub
+                        if (base_c and base_c.target_hub)
+                        else hub_name,
+                        "score": 0.0,
+                        "target_uri": None,
+                        "synonyms": [],
+                        "existing_untouched": True,
+                    }
+                else:
+                    withheld_hubs[hub_slug] = cand
                 staged_candidates.append(cand)
                 return
         else:
@@ -800,20 +1033,53 @@ class DeterministicConstructionPipeline:
                 score = top_m.normalized_score
                 target_uri = top_m.concept_uri
 
-        # Verifier binding: if a GroundingVerifier is attached, verify mapping (MAJ-01)
-        if self._verifier is not None and target_uri:
+        if (
+            is_existing
+            and base_c
+            and base_c.concept_name
+            and base_c.concept_name.strip().casefold() != concept_label.strip().casefold()
+            and concept_label not in override_synonyms
+        ):
+            override_synonyms.append(concept_label)
+
+        # Verifier binding: if a GroundingVerifier is attached, verify mapping (MAJ-01 / MAJ-06)
+        if self._grounding_verifier is not None and target_uri:
             cand_mapping = {
                 "target_uri": target_uri,
                 "confidence": score,
+                "mapping_confidence": score,
                 "predicate": "skos:exactMatch" if score >= 0.8500 else "skos:closeMatch",
             }
-            v_res = self._verifier.verify_grounding(
+            eval_name = (
+                base_c.concept_name
+                if (is_existing and base_c and base_c.concept_name)
+                else concept_label
+            )
+            eval_syns = [*(base_c.synonyms or [] if base_c else []), *override_synonyms]
+            v_res = self._grounding_verifier.verify_grounding(
                 concept_uri=concept_uri,
                 candidates=[cand_mapping],
                 threshold=min_confidence,
-                concept_name=concept_label,
+                concept_name=eval_name,
+                synonyms=eval_syns,
             )
             if not v_res.is_grounded:
+                if (
+                    is_existing
+                    and candidate_target_uri is None
+                    and self._has_verified_base_fibo_grounding(base_c, concept_uri, min_confidence)
+                ):
+                    accepted_hubs[hub_slug] = {
+                        "uri": concept_uri,
+                        "name": eval_name,
+                        "hub_slug": base_c.target_hub
+                        if (base_c and base_c.target_hub)
+                        else hub_name,
+                        "score": 1.0,
+                        "target_uri": None,
+                        "synonyms": [],
+                    }
+                    return
                 cand = StagedCandidate(
                     candidate_id=f"staged-{hub_slug}",
                     concept_name=concept_label,
@@ -822,26 +1088,64 @@ class DeterministicConstructionPipeline:
                     top_match_score=v_res.score,
                     reason_held_back="VERIFIER_REJECTED",
                 )
-                withheld_hubs[hub_slug] = cand
+                if is_existing:
+                    ungrounded_existing_hubs[hub_slug] = cand
+                    accepted_hubs[hub_slug] = {
+                        "uri": concept_uri,
+                        "name": eval_name,
+                        "hub_slug": base_c.target_hub
+                        if (base_c and base_c.target_hub)
+                        else hub_name,
+                        "score": 0.0,
+                        "target_uri": None,
+                        "synonyms": [],
+                        "existing_untouched": True,
+                    }
+                else:
+                    withheld_hubs[hub_slug] = cand
                 staged_candidates.append(cand)
                 return
             score = v_res.score
 
-        # Guard 3: Grandfathered Seed Concept Guard
+        # Guard 3: Grandfathered Seed Concept Guard (MAJ-07 / P06a MAJ-02)
         # If concept already existed in base ontology (by URI or target_hub), mutations require
-        # verified grounding >= 0.6500
-        is_existing = (concept_uri in existing_concept_uris) or (hub_name in existing_target_hubs)
+        # verified grounding >= 0.6500 (either via new match or existing verified base mappings).
         if is_existing and score < min_confidence:
-            cand = StagedCandidate(
-                candidate_id=f"staged-{hub_slug}",
-                concept_name=concept_label,
-                suggested_hub=hub_name,
-                top_match_uri=target_uri,
-                top_match_score=score,
-                reason_held_back="GRANDFATHERED_MUTATION_UNGROUNDED",
+            already_grounded_in_base = self._has_verified_base_fibo_grounding(
+                base_c, concept_uri, min_confidence
             )
-            withheld_hubs[hub_slug] = cand
-            staged_candidates.append(cand)
+            if not already_grounded_in_base:
+                cand = StagedCandidate(
+                    candidate_id=f"staged-{hub_slug}",
+                    concept_name=concept_label,
+                    suggested_hub=hub_name,
+                    top_match_uri=target_uri,
+                    top_match_score=score,
+                    reason_held_back="GRANDFATHERED_MUTATION_UNGROUNDED",
+                )
+                ungrounded_existing_hubs[hub_slug] = cand
+                accepted_hubs[hub_slug] = {
+                    "uri": concept_uri,
+                    "name": base_c.concept_name
+                    if (base_c and base_c.concept_name)
+                    else concept_label,
+                    "hub_slug": base_c.target_hub if (base_c and base_c.target_hub) else hub_name,
+                    "score": 0.0,
+                    "target_uri": None,
+                    "synonyms": [],
+                    "existing_untouched": True,
+                }
+                staged_candidates.append(cand)
+                return
+            # Base concept already grounded: allow additive attributes without new mapping
+            accepted_hubs[hub_slug] = {
+                "uri": concept_uri,
+                "name": base_c.concept_name if (base_c and base_c.concept_name) else concept_label,
+                "hub_slug": base_c.target_hub if (base_c and base_c.target_hub) else hub_name,
+                "score": 1.0,
+                "target_uri": None,
+                "synonyms": [],
+            }
             return
 
         # Guard 4: Zero-waiver grounding threshold guard
@@ -865,4 +1169,5 @@ class DeterministicConstructionPipeline:
             "hub_slug": hub_name,
             "score": score,
             "target_uri": target_uri,
+            "synonyms": override_synonyms,
         }

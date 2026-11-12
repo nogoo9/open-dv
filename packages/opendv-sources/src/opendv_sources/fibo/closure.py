@@ -26,7 +26,7 @@ from __future__ import annotations
 import collections
 import logging
 from collections.abc import Sequence
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 from typing import Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -53,7 +53,7 @@ class UngroundedSeedMappingError(SourceError, ValueError):
     Transitive closure is computed strictly iff direct seed mapping is grounded (>= 0.6500).
     """
 
-    error_code: ErrorCode = ErrorCode.SOURCE_LOAD_ERROR
+    error_code: ErrorCode = ErrorCode.ONT_EVO_UNGROUNDED_CONCEPT
     exit_code: int = 4
     http_status: int = 422
 
@@ -73,16 +73,18 @@ class UngroundedSeedMappingError(SourceError, ValueError):
             merged_details["direct_seed_score"] = float(direct_seed_score)
         merged_details["grounding_threshold"] = float(threshold)
         merged_details["error_code_symbol"] = "ONT_EVO_UNGROUNDED_CONCEPT"
-        super().__init__(message, details=merged_details)
-        self.exit_code = 4
-        self.http_status = 422
+        super().__init__(
+            message,
+            error_code=ErrorCode.ONT_EVO_UNGROUNDED_CONCEPT,
+            details=merged_details,
+        )
         self.error_code_symbol = "ONT_EVO_UNGROUNDED_CONCEPT"
 
 
 class TaxonomyCycleError(SourceError, ValueError):
     """Raised when a circular inheritance relationship is detected in taxonomic hierarchy."""
 
-    error_code: ErrorCode = ErrorCode.SOURCE_LOAD_ERROR
+    error_code: ErrorCode = ErrorCode.HIERARCHICAL_CYCLE_DETECTED
     exit_code: int = 4
     http_status: int = 422
 
@@ -97,9 +99,11 @@ class TaxonomyCycleError(SourceError, ValueError):
         if cycle_path is not None:
             merged_details["cycle_path"] = list(cycle_path)
         merged_details["error_code_symbol"] = "HIERARCHICAL_CYCLE_DETECTED"
-        super().__init__(message, details=merged_details)
-        self.exit_code = 4
-        self.http_status = 422
+        super().__init__(
+            message,
+            error_code=ErrorCode.HIERARCHICAL_CYCLE_DETECTED,
+            details=merged_details,
+        )
         self.error_code_symbol = "HIERARCHICAL_CYCLE_DETECTED"
 
 
@@ -193,7 +197,7 @@ def _normalize_score(score: float | Decimal | str | int) -> Decimal:
         msg = f"Confidence score must be between 0.0 and 1.0, got {dec}"
         raise ValueError(msg)
 
-    return dec.quantize(_DECIMAL_FOUR_PLACES, rounding=ROUND_HALF_UP)
+    return dec.quantize(_DECIMAL_FOUR_PLACES, rounding=ROUND_HALF_EVEN)
 
 
 def can_satisfy_path_a_grounding(predicate: str | None) -> bool:

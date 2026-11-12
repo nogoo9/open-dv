@@ -40,11 +40,11 @@ The Open-DV Ontology Construction Studio enforces a 4-tier role hierarchy: `view
 
 #### 2.1 Journey 1: Greenfield Enterprise Modeling from Regulatory Filings
 1. **Context**: Financial data steward creates a new Data Vault model from an SEC 10-K report without an existing workspace model.
-2. **Session Creation**: Steward calls `POST /sessions` (`domain_namespace="wealth_mgmt"`, `enterprise_owner="Global Wealth"`), initializing at genesis version `0.0.0` (canonical hash `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e` in `baseline-digests.json`). Steward uploads `annual_report_2024.pdf` via `POST .../sources` (normalized into CAS).
+2. **Session Creation**: Steward calls `POST /sessions` (`domain_namespace="wealth_mgmt"`, `enterprise_owner="Global Wealth"`), initializing at genesis version `0.0.0` (canonical hash `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9` in `baseline-digests.json`). Steward uploads `annual_report_2024.pdf` via `POST .../sources` (normalized into CAS).
 3. **Parsing**: `POST .../parse` spawns async parser; SSE emits `progress_update` and `chunk_parsed`. Chunks, tables, and codepoint offset spans are persisted in `evidence/chunks.jsonl`.
 4. **Grounding & Clarification**: `POST .../clarify` runs `@domain-clarifier`, detecting ambiguous alignments for *"Fund Advisor"* between `fibo-fbc-fct-fse:InvestmentAdvisor` and `fibo-be-oac-cctl:FundManager` (registered pack examples). Steward selects `InvestmentAdvisor` with rationale: *"Acts as registered investment advisor under SEC regulations."*
 5. **Construction**: `POST .../construct` invokes `@ontology-architect`, synthesizing 6 CBCs (`InvestmentAdvisor`, `MutualFund`, etc.), 8 Links, and 24 Satellites with FIBO grounding. Proposal `prop-8821` created (`PENDING`).
-6. **Acceptance & Commit**: Steward calls `POST .../proposals/prop-8821/accept` with `If-Match: "99d4aa05..."`. Genesis transition bumps `0.0.0` $\to$ `1.0.0` on adding CBCs, atomically committing `versions/v1.0.0/`.
+6. **Acceptance & Commit**: Steward calls `POST .../proposals/prop-8821/accept` with `If-Match: "1916a5c6..."`. Genesis transition bumps `0.0.0` $\to$ `1.0.0` on adding CBCs, atomically committing `versions/v1.0.0/`.
 
 ### 2.2 Journey 2: Evolutionary Workspace Modeling & Promotion
 1. **Context**: Enterprise architect evolves deployed private equity ontology in `examples/private_equity/pe_graph_a_ontology.yaml` with LP commitments.
@@ -62,7 +62,7 @@ The Open-DV Ontology Construction Studio enforces a 4-tier role hierarchy: `view
 
 ### 2.5 Normative Acceptance Criteria (AC-1 through AC-8)
 - **AC-1 (Canonical Hash Invariance)**:
-  `compute_ontology_sha256` evaluated over `pe_graph_a_ontology.yaml` must yield exactly `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`. Zero byte drift permitted across platforms. Canonical genesis hash `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e` is verified against `baseline-digests.json`.
+  `compute_ontology_sha256` evaluated over `pe_graph_a_ontology.yaml` must yield exactly `1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81`. Zero byte drift permitted across platforms. Canonical genesis hash `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9` is verified against `baseline-digests.json`.
 - **AC-2 (Zero Regression)**: All unit, integration, and compiler tests across `opendv-core`, `opendv-service`, and `opendv-duckdb-sandbox` pass 100% without modification.
 - **AC-3 (Dual-CLI Parity)**: `opendv --dump-cli-tree` and `opendvctl --dump-cli-tree` produce canonical JCS command trees matching identically across spec version, commands, options, and error maps.
 - **AC-4 (Construction Parity)**: Deterministic Fallback and Agent-First modes output valid `GraphAOntology` structures satisfying ONT-EVO rules.

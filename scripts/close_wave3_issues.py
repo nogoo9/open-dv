@@ -113,7 +113,7 @@ ISSUES: dict[int, dict[str, str]] = {
 #### Delivered Features
 1. **Tier 1: Canonical E2E User Journeys (`test_tier1_journeys.py`)**:
    - Greenfield Genesis journey (Draft 0.0.0 invariant
-     `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e`).
+     `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9`).
    - FIBO Grounding journey (5 classes, 2 properties grounded, 0 ungrounded concepts).
    - Evolution Delta journey (v1.0.0 -> v1.1.0, 5 additive deltas, monotonic SemVer).
    - Workspace Promotion Lock journey (promoted status blocks further mutations
@@ -339,7 +339,7 @@ ISSUES: dict[int, dict[str, str]] = {
    - FIBO Reference Pack verified:
      `bebd6ae87dfa4eaee523fdeac730f0fe652761004f24e5d15ab36d5225a0acb5`.
    - Genesis draft 0.0.0 invariant verified:
-     `99d4aa051a49f40596c53210592853fde09ee6995db5b1ff0ca8e57170dffa8e`.
+     `1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9`.
 3. **Linting & Code Quality**:
    - `uv run ruff check packages/*/src apps/*/src`: All checks passed!
 
@@ -349,19 +349,19 @@ ISSUES: dict[int, dict[str, str]] = {
 }
 
 
-def is_issue_already_closed_and_verified(
-    issue_number: int, repo: str
-) -> bool:
+def is_issue_already_closed_and_verified(issue_number: int, repo: str) -> bool:
     """Check if issue is already closed and carries the verified summary marker (MIN-01)."""
-    res = run_gh([
-        "issue",
-        "view",
-        str(issue_number),
-        "--repo",
-        repo,
-        "--json",
-        "state,comments",
-    ])
+    res = run_gh(
+        [
+            "issue",
+            "view",
+            str(issue_number),
+            "--repo",
+            repo,
+            "--json",
+            "state,comments",
+        ]
+    )
     if res.returncode != 0:
         return False
     try:
@@ -377,22 +377,22 @@ def is_issue_already_closed_and_verified(
 
 def post_comment_with_tempfile(issue_number: int, body: str, repo: str) -> bool:
     """Post comment safely using tempfile to avoid argv truncation on Windows (SUG-01)."""
-    with tempfile.NamedTemporaryFile(
-        mode="w", encoding="utf-8", suffix=".md", delete=False
-    ) as tf:
+    with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".md", delete=False) as tf:
         tf.write(body)
         temp_path = tf.name
 
     try:
-        res = run_gh([
-            "issue",
-            "comment",
-            str(issue_number),
-            "--repo",
-            repo,
-            "--body-file",
-            temp_path,
-        ])
+        res = run_gh(
+            [
+                "issue",
+                "comment",
+                str(issue_number),
+                "--repo",
+                repo,
+                "--body-file",
+                temp_path,
+            ]
+        )
         if res.returncode != 0:
             print(f"[!] Error commenting on issue #{issue_number}: {res.stderr}")
             return False
@@ -418,15 +418,17 @@ def update_and_close_issue(
         return True
 
     marker = f"<!-- opendv-closeout:{issue_number} -->"
-    view_res = run_gh([
-        "issue",
-        "view",
-        str(issue_number),
-        "--repo",
-        repo,
-        "--json",
-        "state,comments",
-    ])
+    view_res = run_gh(
+        [
+            "issue",
+            "view",
+            str(issue_number),
+            "--repo",
+            repo,
+            "--json",
+            "state,comments",
+        ]
+    )
     if view_res.returncode != 0:
         print(f"[!] Error viewing issue #{issue_number}: {view_res.stderr}")
         return False
@@ -450,15 +452,17 @@ def update_and_close_issue(
         return False
 
     if state != "CLOSED":
-        close_res = run_gh([
-            "issue",
-            "close",
-            str(issue_number),
-            "--repo",
-            repo,
-            "--reason",
-            "completed",
-        ])
+        close_res = run_gh(
+            [
+                "issue",
+                "close",
+                str(issue_number),
+                "--repo",
+                repo,
+                "--reason",
+                "completed",
+            ]
+        )
         if close_res.returncode != 0:
             print(f"[!] Error closing issue #{issue_number}: {close_res.stderr}")
             return False
@@ -492,11 +496,7 @@ def load_issue_hierarchy(
             for task in data.get("tasks", [])
             if task.get("phaseKey", "").lower() in ("phase_6", "phase6") and "id" in task
         ]
-        phase_trackers = [
-            phase["id"]
-            for phase in data.get("phases", [])
-            if "id" in phase
-        ]
+        phase_trackers = [phase["id"] for phase in data.get("phases", []) if "id" in phase]
         if not phase_6_children:
             phase_6_children = list(range(228, 240))
         if not phase_trackers:
@@ -521,15 +521,17 @@ def close_phase_6_tracker(
 
     # Read-only gating check runs in both dry-run and live modes (MIN-07)
     for child_num in phase_6_children:
-        view_res = run_gh([
-            "issue",
-            "view",
-            str(child_num),
-            "--repo",
-            repo,
-            "--json",
-            "state,stateReason,comments",
-        ])
+        view_res = run_gh(
+            [
+                "issue",
+                "view",
+                str(child_num),
+                "--repo",
+                repo,
+                "--json",
+                "state,stateReason,comments",
+            ]
+        )
         if view_res.returncode != 0:
             print(
                 f"[!] Error viewing Phase 6 child task #{child_num}: {view_res.stderr.strip()}. "
@@ -565,15 +567,17 @@ def close_phase_6_tracker(
         return True
 
     marker = f"<!-- opendv-closeout:{issue_number} -->"
-    res = run_gh([
-        "issue",
-        "view",
-        str(issue_number),
-        "--repo",
-        repo,
-        "--json",
-        "state,comments",
-    ])
+    res = run_gh(
+        [
+            "issue",
+            "view",
+            str(issue_number),
+            "--repo",
+            repo,
+            "--json",
+            "state,comments",
+        ]
+    )
     if res.returncode != 0:
         print(f"[!] Error viewing Phase 6 Tracker #{issue_number}: {res.stderr}")
         return False
@@ -632,15 +636,17 @@ def close_phase_6_tracker(
         )
 
     if state != "CLOSED":
-        close_res = run_gh([
-            "issue",
-            "close",
-            str(issue_number),
-            "--repo",
-            repo,
-            "--reason",
-            "completed",
-        ])
+        close_res = run_gh(
+            [
+                "issue",
+                "close",
+                str(issue_number),
+                "--repo",
+                repo,
+                "--reason",
+                "completed",
+            ]
+        )
         if close_res.returncode != 0:
             print(f"[!] Error closing Phase 6 Tracker #{issue_number}: {close_res.stderr}")
             return False
@@ -668,15 +674,17 @@ def update_epic_tracker(
 
     # Read-only gating check runs in both dry-run and live modes (MIN-07)
     for phase_num in phase_trackers:
-        view_res = run_gh([
-            "issue",
-            "view",
-            str(phase_num),
-            "--repo",
-            repo,
-            "--json",
-            "state,stateReason,comments",
-        ])
+        view_res = run_gh(
+            [
+                "issue",
+                "view",
+                str(phase_num),
+                "--repo",
+                repo,
+                "--json",
+                "state,stateReason,comments",
+            ]
+        )
         if view_res.returncode != 0:
             print(
                 f"[!] Error viewing Phase Tracker #{phase_num}: {view_res.stderr.strip()}. "
@@ -716,15 +724,17 @@ def update_epic_tracker(
         return True
 
     marker = f"<!-- opendv-closeout:{issue_number} -->"
-    res = run_gh([
-        "issue",
-        "view",
-        str(issue_number),
-        "--repo",
-        repo,
-        "--json",
-        "comments",
-    ])
+    res = run_gh(
+        [
+            "issue",
+            "view",
+            str(issue_number),
+            "--repo",
+            repo,
+            "--json",
+            "comments",
+        ]
+    )
     if res.returncode != 0:
         print(f"[!] Error viewing Epic Tracker #{issue_number}: {res.stderr}")
         return False

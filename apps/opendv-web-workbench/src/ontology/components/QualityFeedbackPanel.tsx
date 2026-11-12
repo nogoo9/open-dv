@@ -10,8 +10,8 @@
  */
 
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
-import { useStudioStore } from "../store/studio-store";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { deriveGroundingStatus, useStudioStore } from "../store/studio-store";
 import type { QualityCheck } from "../store/types";
 
 export interface QualityFeedbackPanelProps {
@@ -52,6 +52,7 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 		qualityScorecard.waiver_rationale,
 	);
 	const [waiverKey, setWaiverKey] = useState("");
+	const [excludedWaiverUris, setExcludedWaiverUris] = useState<string[]>([]);
 	const [waiverError, setWaiverError] = useState<string | null>(null);
 	const [isSubmittingWaiver, setIsSubmittingWaiver] = useState(false);
 
@@ -61,7 +62,37 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 	const [comment, setComment] = useState(
 		qualityScorecard.feedback_comment || "",
 	);
+	const [feedbackConceptUri, setFeedbackConceptUri] = useState<string>(
+		qualityScorecard.feedback_concept_uri || "",
+	);
 	const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
+
+	const ungroundedConcepts = useMemo(
+		() =>
+			nodes.filter((n) => {
+				const hasMappings =
+					Array.isArray(n.external_mappings) && n.external_mappings.length > 0;
+				const status = hasMappings
+					? deriveGroundingStatus(n.external_mappings, n.confidence)
+							.grounding_status
+					: "UNGROUNDED";
+				return status !== "GROUNDED";
+			}),
+		[nodes],
+	);
+
+	const selectedWaiverUris = useMemo(
+		() =>
+			ungroundedConcepts
+				.map((n) => n.concept_uri)
+				.filter((uri) => !excludedWaiverUris.includes(uri)),
+		[ungroundedConcepts, excludedWaiverUris],
+	);
+
+	const activeWaivedSet = useMemo(
+		() => new Set(qualityScorecard.waived_concept_uris || []),
+		[qualityScorecard.waived_concept_uris],
+	);
 
 	const activeSessionId = activeSession?.session_id;
 	const prevSessionIdRef = useRef<string | undefined>(activeSessionId);
@@ -74,6 +105,8 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 			setWaiverRationale(qualityScorecard.waiver_rationale || "");
 			setRating(qualityScorecard.feedback_rating || 0);
 			setComment(qualityScorecard.feedback_comment || "");
+			setFeedbackConceptUri(qualityScorecard.feedback_concept_uri || "");
+			setExcludedWaiverUris([]);
 			setWaiverKey("");
 			setWaiverError(null);
 		}
@@ -98,17 +131,30 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 			return;
 		}
 
+		if (ungroundedConcepts.length > 0 && selectedWaiverUris.length === 0) {
+			setWaiverError(
+				"Select at least one ungrounded concept to receive the administrative waiver.",
+			);
+			return;
+		}
+
 		setIsSubmittingWaiver(true);
 		setWaiverError(null);
 		try {
-			const ok = await submitWaiver(waiverRationale.trim(), waiverKey.trim());
+			const ok = await submitWaiver(
+				waiverRationale.trim(),
+				waiverKey.trim(),
+				selectedWaiverUris,
+			);
 			if (ok) {
 				setWaiverKey("");
 				if (onWaiverSubmitted) {
 					onWaiverSubmitted(waiverRationale.trim());
 				}
 			} else {
-				setWaiverError("Waiver submission rejected by server or preconditions not met.");
+				setWaiverError(
+					"Waiver submission rejected by server or preconditions not met.",
+				);
 			}
 		} catch (err) {
 			setWaiverError(String(err));
@@ -123,7 +169,11 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 
 		setIsSubmittingFeedback(true);
 		try {
-			const ok = await submitFeedback(rating, comment.trim());
+			const ok = await submitFeedback(
+				rating,
+				comment.trim(),
+				feedbackConceptUri || null,
+			);
 			if (ok && onFeedbackSubmitted) {
 				onFeedbackSubmitted(rating, comment.trim());
 			}
@@ -135,13 +185,19 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 	};
 
 	const hasNodes = nodes.length > 0;
-	const groundedNodes = nodes.filter(
-		(n) => n.grounding_status === "GROUNDED",
-	).length;
+	const groundedNodes = nodes.filter((n) => {
+		const hasMappings =
+			Array.isArray(n.external_mappings) && n.external_mappings.length > 0;
+		return (
+			hasMappings &&
+			deriveGroundingStatus(n.external_mappings, n.confidence)
+				.grounding_status === "GROUNDED"
+		);
+	}).length;
 	const groundingPct = hasNodes
-		? (qualityScorecard.grounding_score !== undefined
-				? qualityScorecard.grounding_score * 100
-				: (groundedNodes / nodes.length) * 100)
+		? qualityScorecard.grounding_score !== undefined
+			? qualityScorecard.grounding_score * 100
+			: (groundedNodes / nodes.length) * 100
 		: null;
 
 	return (
@@ -272,7 +328,9 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 						className="waiver-applied-badge"
 						data-testid="waiver-applied-badge"
 					>
-						✓ Active Waiver Authorized ({qualityScorecard.waiver_rationale})
+						✓ Active Waiver Authorized ({qualityScorecard.waiver_rationale}) —{" "}
+						{(qualityScorecard.waived_concept_uris || []).length} concept(s)
+						covered
 					</div>
 				)}
 
@@ -284,11 +342,66 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 							onChange={(e) => setWaiverRequested(e.target.checked)}
 							data-testid="waiver-requested-checkbox"
 						/>
-						<span>Request Low-Confidence / Grounding Waiver</span>
+						<span>Request Per-Concept Grounding Waiver</span>
 					</label>
 
 					{waiverRequested && (
 						<div className="waiver-fields">
+							{ungroundedConcepts.length > 0 && (
+								<div
+									className="form-group waiver-concepts-group"
+									data-testid="waiver-concepts-list"
+								>
+									<span className="form-label">
+										Target Ungrounded Concepts ({selectedWaiverUris.length}/
+										{ungroundedConcepts.length}):
+									</span>
+									{ungroundedConcepts.map((concept) => {
+										const checked = selectedWaiverUris.includes(
+											concept.concept_uri,
+										);
+										const isCurrentlyWaived = activeWaivedSet.has(
+											concept.concept_uri,
+										);
+										return (
+											<label
+												key={concept.concept_uri}
+												className="checkbox-sm waiver-concept-row"
+											>
+												<input
+													type="checkbox"
+													checked={checked}
+													onChange={(e) => {
+														if (e.target.checked) {
+															setExcludedWaiverUris((prev) =>
+																prev.filter((u) => u !== concept.concept_uri),
+															);
+														} else {
+															setExcludedWaiverUris((prev) => [
+																...prev,
+																concept.concept_uri,
+															]);
+														}
+													}}
+													data-testid={`waiver-concept-checkbox-${concept.concept_uri}`}
+												/>
+												<span>
+													{concept.concept_name} (
+													<code>{concept.concept_uri}</code>)
+												</span>
+												{isCurrentlyWaived && (
+													<span
+														className="badge badge-pass"
+														data-testid={`waiver-active-pill-${concept.concept_uri}`}
+													>
+														WAIVED
+													</span>
+												)}
+											</label>
+										);
+									})}
+								</div>
+							)}
 							<div className="form-group">
 								<label htmlFor="waiver-rationale-input">
 									Waiver Rationale (minimum 10 characters):
@@ -389,6 +502,26 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 						<span className="rating-text" data-testid="rating-display-text">
 							{rating > 0 ? `${rating} of 5 stars` : "Select a rating"}
 						</span>
+					</div>
+
+					<div className="form-group">
+						<label htmlFor="feedback-concept-select">
+							Target Concept (Optional):
+						</label>
+						<select
+							id="feedback-concept-select"
+							className="form-select"
+							value={feedbackConceptUri}
+							onChange={(e) => setFeedbackConceptUri(e.target.value)}
+							data-testid="feedback-concept-select"
+						>
+							<option value="">Session-wide Feedback</option>
+							{nodes.map((n) => (
+								<option key={n.concept_uri} value={n.concept_uri}>
+									{n.concept_name} ({n.concept_uri})
+								</option>
+							))}
+						</select>
 					</div>
 
 					<div className="form-group">

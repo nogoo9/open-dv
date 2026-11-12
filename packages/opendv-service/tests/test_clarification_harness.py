@@ -345,8 +345,9 @@ def test_save_answers_invalid_option_id_raises_invalid_option_error(tmp_path: Pa
 
     err = exc_info.value
     assert err.exit_code == 2
-    assert err.http_status == 422
-    assert err.error_code == "INVALID_OPTION"
+    assert err.http_status == 400
+    assert err.error_code == "SYNTAX_INVALID_ARGUMENT"
+    assert err.to_problem_detail().status == 400
     assert "Invalid option 'nonexistent-option-id-999'" in str(err)
 
 
@@ -520,9 +521,10 @@ def test_save_answers_occ_precondition_success_and_conflict(tmp_path: Path) -> N
         harness.save_answers(req3_stale)
 
     err = exc_info.value
-    assert err.exit_code == 1
-    assert err.http_status == 409
-    assert err.error_code == "OCC_PRECONDITION_FAILED"
+    assert err.exit_code == 5
+    assert err.http_status == 412
+    assert err.error_code == "ONT_EVO_CONCURRENT_MODIFICATION"
+    assert err.to_problem_detail().status == 412
     assert "OCC precondition failed" in str(err)
 
 
@@ -550,8 +552,9 @@ def test_save_answers_duplicate_question_id_in_request_rejected(tmp_path: Path) 
 
     err = exc_info.value
     assert err.exit_code == 2
-    assert err.http_status == 422
-    assert err.error_code == "INVALID_ANSWER"
+    assert err.http_status == 400
+    assert err.error_code == "SYNTAX_INVALID_ARGUMENT"
+    assert err.to_problem_detail().status == 400
     assert "Duplicate answer provided" in str(err)
 
 
@@ -576,8 +579,8 @@ def test_save_answers_duplicate_option_ids_rejected(tmp_path: Path) -> None:
 
     err = exc_info.value
     assert err.exit_code == 2
-    assert err.http_status == 422
-    assert err.error_code == "INVALID_OPTION"
+    assert err.http_status == 400
+    assert err.error_code == "SYNTAX_INVALID_ARGUMENT"
     assert "Duplicate option IDs" in str(err)
 
 
@@ -609,7 +612,7 @@ def test_save_answers_question_without_options_rejects_selected_options(tmp_path
 
     err = exc_info.value
     assert err.exit_code == 2
-    assert err.http_status == 422
+    assert err.http_status == 400
     assert "has no predefined options" in str(err)
 
 
@@ -661,7 +664,7 @@ def test_save_answers_invalid_answered_at_timestamp_raises_422(tmp_path: Path) -
 
     err = exc_info.value
     assert err.exit_code == 2
-    assert err.http_status == 422
+    assert err.http_status == 400
     assert "Invalid ISO-8601 timestamp" in str(err)
 
 
@@ -789,7 +792,7 @@ def test_save_answers_empty_request_rejected(tmp_path: Path) -> None:
     with pytest.raises(InvalidClarificationAnswerError) as exc_info:
         harness.save_answers(ClarificationAnswerRequest(answers=[]))
     assert exc_info.value.exit_code == 2
-    assert exc_info.value.http_status == 422
+    assert exc_info.value.http_status == 400
 
 
 def test_generate_questions_max_questions_validation(tmp_path: Path) -> None:
@@ -894,9 +897,10 @@ def test_concurrent_first_write_occ_conflict(tmp_path: Path) -> None:
     )
     with pytest.raises(ClarificationConflictError) as exc_info:
         h1.save_answers(req2)
-    assert exc_info.value.exit_code == 1
-    assert exc_info.value.http_status == 409
-    assert exc_info.value.error_code == "OCC_PRECONDITION_FAILED"
+    assert exc_info.value.exit_code == 5
+    assert exc_info.value.http_status == 412
+    assert exc_info.value.error_code == "ONT_EVO_CONCURRENT_MODIFICATION"
+    assert exc_info.value.to_problem_detail().status == 412
 
 
 def test_whitespace_only_user_text_normalized_to_none(tmp_path: Path) -> None:

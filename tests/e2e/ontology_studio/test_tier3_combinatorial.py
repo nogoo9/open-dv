@@ -48,14 +48,17 @@ from opendv_contracts.dtos.ontology import (
     SetParentConceptOp,
     UpdateConceptUrnOp,
 )
-from opendv_core.models.graph_a import CanonicalBusinessConcept, GraphAOntology
+from opendv_core.models.graph_a import (
+    CanonicalBusinessConcept,
+    ExternalMapping,
+    GraphAOntology,
+)
 from opendv_core.ontology_hashing import compute_ontology_sha256
 from opendv_platform_api.main import create_app
 from opendv_service import OpenDVSettings
 from opendv_service.ontology.applier import apply_ontology_delta
 from opendv_service.studio.atomic_commit import AtomicCommitService
 from opendv_service.studio.session_manager import (
-    GENESIS_DRAFT_SHA256,
     StudioSessionManager,
 )
 
@@ -224,9 +227,17 @@ def test_combinatorial_transports(
             AddConceptOp(
                 op_id="op-py-fund",
                 concept_uri="urn:ontology:entity:py_fund",
-                concept_name="PyFund",
+                concept_name="Pooled Fund",
                 definition="Fund created via Python API.",
                 target_hub="hub_py_fund",
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="FIBO",
+                        target_uri="https://spec.edmcouncil.org/fibo/ontology/SEC/Securities/Pools/PooledFund",
+                        predicate="skos:exactMatch",
+                        confidence=0.95,
+                    )
+                ],
             )
         ],
     )
@@ -234,7 +245,7 @@ def test_combinatorial_transports(
         session_id=py_session_id,
         delta=init_delta,
         author="human:architect",
-        if_match=GENESIS_DRAFT_SHA256,
+        if_match=meta_py.head_sha256,
     )
     assert commit_res.version in ("1.0.0", "v1.0.0")
 
@@ -254,6 +265,7 @@ def test_combinatorial_transports(
         headers=auth_headers,
     )
     assert create_resp.status_code == 201
+    rest_head_sha = create_resp.json()["head_sha256"]
 
     delta_payload = {
         "delta_id": "delta-rest-init",
@@ -272,13 +284,15 @@ def test_combinatorial_transports(
                 "target_hub": "hub_rest_fund",
             }
         ],
+        "low_confidence_waiver": True,
+        "grounding_rationale": "Approved REST combinatorial concept for transport matrix test.",
     }
     apply_resp = client.post(
         f"/api/v1/ontology/studio/sessions/{rest_session_id}/delta",
         json=delta_payload,
-        headers={**auth_headers, "If-Match": f'"{GENESIS_DRAFT_SHA256}"'},
+        headers={**auth_headers, "If-Match": f'"{rest_head_sha}"'},
     )
-    assert apply_resp.status_code == 200
+    assert apply_resp.status_code == 200, apply_resp.text
     assert apply_resp.json()["target_version"] in ("1.0.0", "v1.0.0")
 
     # --- Transport 3: CLI Commands API ---
@@ -504,7 +518,7 @@ def test_combinatorial_delta_operations_matrix() -> None:
     )
 
     # Apply delta and verify all 24 operations mutated state correctly
-    updated_ont = apply_ontology_delta(base_ont, delta_24)
+    updated_ont = apply_ontology_delta(base_ont, delta_24, actor_role="admin")
     assert updated_ont.ontology_version == "2.0.0"
     assert len(updated_ont.canonical_business_concepts) == 1
     cbc = updated_ont.canonical_business_concepts[0]
@@ -523,11 +537,12 @@ def test_combinatorial_export_formats_isomorphism(
     Tests equivalence across YAML, JCS JSON, Turtle, JSON-LD, NTriples.
     """
     session_id = "comb-export-iso-05"
-    studio_client.post(
+    create_resp = studio_client.post(
         "/api/v1/ontology/studio/sessions",
         json={"session_id": session_id, "domain_namespace": "wealth_mgmt"},
         headers=auth_headers,
     )
+    genesis_sha = create_resp.json()["head_sha256"]
 
     # Commit canonical concepts and relationships
     delta_payload = {
@@ -579,13 +594,15 @@ def test_combinatorial_export_formats_isomorphism(
                 "allowed_codes": ["ACTIVE", "CLOSED"],
             },
         ],
+        "low_confidence_waiver": True,
+        "grounding_rationale": "Approved export isomorphism concepts for multi-format test.",
     }
     commit_resp = studio_client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/delta",
         json=delta_payload,
-        headers={**auth_headers, "If-Match": f'"{GENESIS_DRAFT_SHA256}"'},
+        headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
     )
-    assert commit_resp.status_code == 200
+    assert commit_resp.status_code == 200, commit_resp.text
 
     # 1. Export YAML
     exp_yaml = studio_client.get(

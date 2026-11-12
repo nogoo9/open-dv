@@ -7,6 +7,19 @@ from typing import Any
 from opendv_contracts.jcs import dumps_jcs
 from opendv_contracts.spec import load_cli_spec
 
+CLIENT_API_URL_OPTION: dict[str, Any] = {
+    "name": "api_url",
+    "flag": "--api-url",
+    "short": None,
+    "type": "string",
+    "required": False,
+    "default": None,
+    "choices": None,
+    "env_var": "OPENDV_API_URL",
+    "inline_upload": False,
+    "help": "Open-DV Platform REST/SSE API base endpoint (e.g. https://api.open-dv.internal)",
+}
+
 
 def _build_sub_node(sub: dict[str, Any], excluded_availability: str) -> dict[str, Any] | None:
     sub_avail = sub.get("availability", "both")
@@ -28,52 +41,6 @@ def _build_sub_node(sub: dict[str, Any], excluded_availability: str) -> dict[str
             child_node = _build_sub_node(child, excluded_availability)
             if child_node is not None:
                 child_dict[child["name"]] = child_node
-        if sub_name == "delta" and "validate" not in child_dict:
-            child_dict["validate"] = {
-                "name": "validate",
-                "description": "Validate ontology delta against base ontology",
-                "help": "Validate ontology delta",
-                "aliases": [],
-                "availability": "both",
-                "options": [
-                    {
-                        "name": "file",
-                        "flag": "--file",
-                        "short": "-f",
-                        "type": "path",
-                        "required": False,
-                        "default": None,
-                        "choices": None,
-                        "env_var": None,
-                        "inline_upload": True,
-                        "help": "Path to delta file",
-                    },
-                    {
-                        "name": "delta",
-                        "flag": "--delta",
-                        "short": None,
-                        "type": "path",
-                        "required": False,
-                        "default": None,
-                        "choices": None,
-                        "env_var": None,
-                        "inline_upload": True,
-                        "help": "Path to delta file",
-                    },
-                    {
-                        "name": "base",
-                        "flag": "--base",
-                        "short": "-b",
-                        "type": "path",
-                        "required": False,
-                        "default": None,
-                        "choices": None,
-                        "env_var": None,
-                        "inline_upload": True,
-                        "help": "Path to base ontology file",
-                    },
-                ],
-            }
         sub_node["subcommands"] = child_dict
     if "request_dto" in sub:
         sub_node["request_dto"] = sub["request_dto"]
@@ -100,8 +67,10 @@ def build_cli_tree(
     """
     cli_spec = spec or load_cli_spec()
 
-    # Filter global options
+    # Filter global options and include client --api-url in client mode
     global_options = [dict(opt) for opt in cli_spec.get("global_options", [])]
+    if mode == "client" and not any(opt.get("flag") == "--api-url" for opt in global_options):
+        global_options.append(dict(CLIENT_API_URL_OPTION))
 
     # Exclude entries that belong exclusively to the other mode
     excluded_availability = "client_only" if mode == "standalone" else "standalone_only"
@@ -159,4 +128,4 @@ def dump_cli_tree(
     return dumps_jcs(tree)
 
 
-__all__ = ["build_cli_tree", "dump_cli_tree"]
+__all__ = ["CLIENT_API_URL_OPTION", "build_cli_tree", "dump_cli_tree"]

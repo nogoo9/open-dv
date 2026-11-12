@@ -1,14 +1,14 @@
 """Job Supervisor managing asynchronous Studio tasks and W3C SSE streaming (Task 5B.2 / Issue #216).
 
 Conforms to docs/19 §6.3, docs/20 §3.1, docs/21 Task 5B.2:
-- Manages background threads executing parse, clarify, and construct jobs.
+- Manages background threads executing parse, clarify, and construct jobs via `StudioJobRunners`.
 - Holds exclusive L2 job execution leases (.job_<job_id>.lock).
 - Enforces strict lock hierarchy order: buffers telemetry during L5 mutations,
   and flushes to SSE journal under L3 ONLY after releasing L5 session lock.
 - Supports W3C Server-Sent Events with monotonic Last-Event-ID cursor replay
   and 15s keepalive comments (: keepalive\n\n).
-- Cooperative job cancellation releasing L2 leases.
-- Crash recovery detecting abandoned jobs via non-blocking L2 lease checks.
+- Cooperative job cancellation with locked terminal-state transitions (`MAJOR-04`).
+- Startup and lazy crash recovery detecting abandoned jobs via non-blocking L2 lease checks.
 """
 
 from __future__ import annotations
@@ -18,29 +18,24 @@ import json
 import logging
 import os
 import re
-import secrets
 import threading
 import uuid
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
 
-from opendv_contracts.dtos.ingestion import EvidenceChunk, TableStructure
-from opendv_contracts.dtos.ontology import AddConceptOp, AddExternalMappingOp
-from opendv_core.models.graph_a import GraphAOntology
-from opendv_core.ontology_hashing import compute_ontology_sha256
+from opendv_contracts.errors import ErrorCode, OpenDVError
 from opendv_platform_api.security.error_catalog import StudioAPIError
-from opendv_service.construction.clarification_harness import ClarificationHarness
-from opendv_service.construction.deterministic_pipeline import (
-    DeterministicConstructionPipeline,
+from opendv_service.studio.atomic_commit import SourceNotFoundError
+from opendv_service.studio.job_runners import (
+    run_clarify_session,
+    run_construct_session,
+    run_parse_session_sources,
 )
-from opendv_service.construction.models import ConstructOptions
-from opendv_service.studio.atomic_commit import AtomicCommitService
 from opendv_service.studio.locks import (
     L2_JOB,
-    L5_SESSION,
     LockTimeoutError,
     studio_lock,
 )
@@ -49,18 +44,26 @@ from opendv_service.studio.sse_journal import (
     SSEJournalWriter,
     stream_sse_events,
 )
-from opendv_service.studio.workspace_security import set_owner_only_permissions
-from opendv_sources.adapters.multiformat_adapter import (
-    DelimitedTabularAdapter,
-    MarkdownDocumentAdapter,
-    MarkupDocumentAdapter,
-    PyArrowTabularAdapter,
-    StructuredDataDocumentAdapter,
+from opendv_service.studio.workspace_security import (
+    replace_with_retry,
+    set_owner_only_permissions,
 )
-from opendv_sources.ingestion import PlainTextDocumentAdapter
-from opendv_sources.ingestion.service import IngestionService
+from opendv_sources.exceptions import (
+    OCRUnavailableError,
+    OfficeConversionUnavailableError,
+    SourceError,
+    UnsupportedFormatError,
+)
 
 logger = logging.getLogger(__name__)
+
+MAX_IN_MEMORY_JOBS: Final[int] = 256
+_TERMINAL_JOB_STATUSES: Final[frozenset[str]] = frozenset({"completed", "failed", "cancelled"})
+_VALID_ERROR_CODES: Final[frozenset[str]] = frozenset(e.value for e in ErrorCode)
+
+
+class JobCancelledError(Exception):
+    """Raised when cooperative cancellation wins before entering an irreversible phase."""
 
 
 @dataclass
@@ -76,12 +79,14 @@ class JobContext:
     created_at: str
     finished_at: str | None = None
     principal: str = "human:local_admin"
+    role: str = "admin"
     cancel_event: threading.Event = field(default_factory=threading.Event)
     lock: threading.Lock = field(default_factory=threading.Lock)
     writer: SSEJournalWriter | None = None
     error: dict[str, Any] | None = None
     result: dict[str, Any] | None = None
     thread: threading.Thread | None = None
+    terminal_event_emitted: bool = False
 
     def is_cancelled(self, session_mgr: StudioSessionManager | None = None) -> bool:
         """Check if job has been cancelled either in-memory or via on-disk marker (MAJ-03)."""
@@ -105,8 +110,46 @@ def _validate_job_id(job_id: str) -> None:
         raise StudioAPIError(
             "SYNTAX_INVALID_ARGUMENT",
             f"Invalid job identifier '{job_id}'.",
-            status_code=400,
         )
+
+
+def _translate_runner_error(exc: Exception) -> StudioAPIError:
+    """Translate service/source exceptions into canonical StudioAPIError instances."""
+    if isinstance(exc, StudioAPIError):
+        return exc
+    if isinstance(exc, OCRUnavailableError):
+        return StudioAPIError("OCR_UNAVAILABLE", str(exc))
+    if isinstance(exc, OfficeConversionUnavailableError):
+        return StudioAPIError("OFFICE_CONVERSION_UNAVAILABLE", str(exc))
+    if isinstance(exc, UnsupportedFormatError):
+        return StudioAPIError("UNSUPPORTED_FORMAT", str(exc))
+    if isinstance(exc, SourceNotFoundError):
+        return StudioAPIError("SOURCE_NOT_FOUND", str(exc))
+    if isinstance(exc, OpenDVError):
+        raw_code = getattr(exc, "error_code", None)
+        code_str = (
+            raw_code.value
+            if hasattr(raw_code, "value")
+            else (str(raw_code) if raw_code else "EXECUTION_FAILURE")
+        )
+        if code_str not in _VALID_ERROR_CODES:
+            code_str = "EXECUTION_FAILURE"
+        return StudioAPIError(
+            code_str,
+            str(getattr(exc, "message", None) or str(exc)),
+            status_code=getattr(exc, "http_status", None),
+        )
+    if isinstance(exc, SourceError):
+        raw_src_code = getattr(exc, "error_code", None)
+        code_str = (
+            raw_src_code.value
+            if hasattr(raw_src_code, "value")
+            else (str(raw_src_code) if raw_src_code else "SOURCE_LOAD_ERROR")
+        )
+        if code_str not in _VALID_ERROR_CODES:
+            code_str = "SOURCE_LOAD_ERROR"
+        return StudioAPIError(code_str, str(exc))
+    return StudioAPIError("EXECUTION_FAILURE", str(exc))
 
 
 class JobSupervisor:
@@ -116,14 +159,150 @@ class JobSupervisor:
         self._jobs: dict[str, JobContext] = {}
         self._lock = threading.Lock()
 
+    def _evict_terminal_jobs_locked(self) -> None:
+        """Evict oldest terminal JobContext entries when cache exceeds MAX_IN_MEMORY_JOBS."""
+        if len(self._jobs) <= MAX_IN_MEMORY_JOBS:
+            return
+        terminal_keys = [
+            jid for jid, jctx in self._jobs.items() if jctx.status.lower() in _TERMINAL_JOB_STATUSES
+        ]
+        overflow = len(self._jobs) - MAX_IN_MEMORY_JOBS
+        for jid in terminal_keys[: max(0, overflow)]:
+            self._jobs.pop(jid, None)
+
+    def purge_session_jobs(self, session_id: str) -> None:
+        """Remove all cached job records belonging to a deleted session."""
+        with self._lock:
+            to_remove = [jid for jid, jctx in self._jobs.items() if jctx.session_id == session_id]
+            for jid in to_remove:
+                self._jobs.pop(jid, None)
+
+    def resolve_job_session_id(self, session_mgr: StudioSessionManager, job_id: str) -> str:
+        """Resolve `session_id` for `job_id`, checking in-memory `self._jobs` before disk."""
+        _validate_job_id(job_id)
+        with self._lock:
+            ctx = self._jobs.get(job_id)
+            in_mem_sid = ctx.session_id if ctx is not None else None
+
+        if in_mem_sid is not None:
+            sdir = session_mgr.get_session_dir(in_mem_sid)
+            if sdir.is_dir() and (sdir / "session.json").is_file():
+                return in_mem_sid
+
+        for m in session_mgr.list_sessions():
+            sdir = session_mgr.get_session_dir(m.session_id)
+            jdir = sdir / "jobs"
+            if (jdir / f"{job_id}.json").is_file() or (jdir / f"{job_id}.events.jsonl").is_file():
+                return m.session_id
+
+        raise StudioAPIError("JOB_NOT_FOUND", f"Job '{job_id}' not found.")
+
+    def count_active_jobs(self, session_mgr: StudioSessionManager, session_id: str) -> int:
+        """Count active (pending/running) jobs for `session_id` across memory and disk."""
+        active_ids: set[str] = set()
+        seen_in_memory: set[str] = set()
+        with self._lock:
+            for jid, jctx in self._jobs.items():
+                if jctx.session_id == session_id:
+                    seen_in_memory.add(jid)
+                    if jctx.status.lower() in ("pending", "running"):
+                        active_ids.add(jid)
+
+        sdir = session_mgr.get_session_dir(session_id)
+        jdir = sdir / "jobs"
+        if jdir.is_dir():
+            for jfile in jdir.glob("job-*.json"):
+                jid = jfile.stem
+                if jid in seen_in_memory or jid in active_ids:
+                    continue
+                with contextlib.suppress(OSError, json.JSONDecodeError):
+                    data = json.loads(jfile.read_text(encoding="utf-8"))
+                    if str(data.get("status", "")).lower() in ("pending", "running"):
+                        lock_file = jdir / f".job_{jid}.lock"
+                        try:
+                            with studio_lock(
+                                lock_file, level=L2_JOB, session_id=session_id, timeout=0.01
+                            ):
+                                pass
+                        except LockTimeoutError:
+                            active_ids.add(jid)
+
+        return len(active_ids)
+
+    def recover_abandoned_jobs(self, studio_root: Path) -> int:
+        """Transition unclosed jobs from prior crashed server runs to failed (`MAJOR-04`)."""
+        if not studio_root.is_dir():
+            return 0
+        recovered = 0
+        for sdir in sorted(studio_root.iterdir()):
+            if not sdir.is_dir() or not (sdir / "session.json").is_file():
+                continue
+            jdir = sdir / "jobs"
+            if not jdir.is_dir():
+                continue
+            session_id = sdir.name
+            for jfile in sorted(jdir.glob("job-*.json")):
+                job_id = jfile.stem
+                with self._lock:
+                    if job_id in self._jobs:
+                        continue
+                try:
+                    data = json.loads(jfile.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    continue
+                if str(data.get("status", "")).upper() not in ("PENDING", "RUNNING"):
+                    continue
+
+                lock_file = jdir / f".job_{job_id}.lock"
+                abandoned = False
+                try:
+                    with studio_lock(lock_file, level=L2_JOB, session_id=session_id, timeout=0.01):
+                        abandoned = True
+                        now_iso = datetime.now(UTC).isoformat()
+                        err_obj = {
+                            "code": "JOB_ABANDONED_SERVER_CRASH",
+                            "error_code": "JOB_ABANDONED_SERVER_CRASH",
+                            "detail": "Background job abandoned due to process restart or crash.",
+                        }
+                        data["status"] = "failed"
+                        data["stage"] = "abandoned"
+                        data["finished_at"] = now_iso
+                        data["error"] = err_obj
+                        tmp_file = jdir / f".{job_id}.json.{uuid.uuid4().hex[:8]}.tmp"
+                        tmp_file.write_text(json.dumps(data, indent=2), encoding="utf-8")
+                        set_owner_only_permissions(tmp_file)
+                        replace_with_retry(tmp_file, jfile)
+                        set_owner_only_permissions(jfile)
+
+                        with contextlib.suppress(Exception):
+                            writer = SSEJournalWriter(
+                                session_dir=sdir, job_id=job_id, session_id=session_id
+                            )
+                            writer.buffer_event(
+                                "job_failed",
+                                {
+                                    "job_id": job_id,
+                                    "status": "failed",
+                                    "error": err_obj,
+                                },
+                            )
+                            writer.flush()
+                        recovered += 1
+                except LockTimeoutError:
+                    continue
+
+                if abandoned:
+                    with contextlib.suppress(OSError):
+                        lock_file.unlink(missing_ok=True)
+
+        return recovered
+
     def _get_jobs_dir(
         self, session_mgr: StudioSessionManager, session_id: str, create: bool = False
     ) -> Path:
         sdir = session_mgr.get_session_dir(session_id)
         if not sdir.is_dir() or not (sdir / "session.json").is_file():
-            raise StudioAPIError(
-                "SESSION_NOT_FOUND", f"Session '{session_id}' not found.", status_code=404
-            )
+            raise StudioAPIError("SESSION_NOT_FOUND", f"Session '{session_id}' not found.")
         jdir = sdir / "jobs"
         if create:
             jdir.mkdir(parents=True, exist_ok=True)
@@ -139,11 +318,10 @@ class JobSupervisor:
         _validate_job_id(job_id)
         jdir = self._get_jobs_dir(session_mgr, session_id, create=create).resolve()
         job_file = (jdir / f"{job_id}.json").resolve()
-        if not str(job_file).startswith(str(jdir)):
+        if not job_file.is_relative_to(jdir):
             raise StudioAPIError(
                 "SYNTAX_INVALID_ARGUMENT",
                 f"Path traversal detected in job_id: '{job_id}'",
-                status_code=400,
             )
         return job_file
 
@@ -161,7 +339,8 @@ class JobSupervisor:
             json.dump(data, fp, indent=2)
             fp.flush()
             os.fsync(fp.fileno())
-        os.replace(tmp_file, job_file)
+        set_owner_only_permissions(tmp_file)
+        replace_with_retry(tmp_file, job_file)
         set_owner_only_permissions(job_file)
 
     def _persist_job_status(
@@ -182,10 +361,12 @@ class JobSupervisor:
             "finished_at": ctx.finished_at,
             "heartbeat_at": datetime.now(UTC).isoformat(),
             "principal": ctx.principal,
+            "role": ctx.role,
             "error": ctx.error,
             "result": ctx.result,
         }
-        self._write_job_data_atomic(session_mgr, session_id, ctx.job_id, payload)
+        with contextlib.suppress(StudioAPIError, OSError):
+            self._write_job_data_atomic(session_mgr, session_id, ctx.job_id, payload)
 
     def submit_job(
         self,
@@ -194,14 +375,13 @@ class JobSupervisor:
         job_type: str,
         runner_fn: Any,
         principal: str = "human:local_admin",
+        role: str = "admin",
         **kwargs: Any,
     ) -> dict[str, Any]:
         """Create, register, and launch a new asynchronous studio job."""
         session_dir = session_mgr.get_session_dir(session_id)
         if not session_dir.is_dir() or not (session_dir / "session.json").is_file():
-            raise StudioAPIError(
-                "SESSION_NOT_FOUND", f"Session '{session_id}' not found.", status_code=404
-            )
+            raise StudioAPIError("SESSION_NOT_FOUND", f"Session '{session_id}' not found.")
 
         job_id = f"job-{uuid.uuid4().hex[:12]}"
         now_iso = datetime.now(UTC).isoformat()
@@ -216,11 +396,13 @@ class JobSupervisor:
             pct_complete=0,
             created_at=now_iso,
             principal=principal,
+            role=role,
             writer=writer,
         )
 
         with self._lock:
             self._jobs[job_id] = ctx
+            self._evict_terminal_jobs_locked()
 
         self._persist_job_status(session_mgr, session_id, ctx)
 
@@ -246,17 +428,40 @@ class JobSupervisor:
         runner_fn: Any,
         **kwargs: Any,
     ) -> None:
-        """Run job under L2 job lease with cooperative cancellation and crash handling."""
+        """Run job under L2 job lease with locked terminal state transitions (`MAJOR-04`)."""
         session_dir = session_mgr.get_session_dir(ctx.session_id)
         lock_file = session_dir / "jobs" / f".job_{ctx.job_id}.lock"
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
 
         try:
             with studio_lock(lock_file, level=L2_JOB, session_id=ctx.session_id, timeout=10.0):
-                ctx.status = "running"
-                ctx.stage = "started"
-                ctx.pct_complete = 5
-                self._persist_job_status(session_mgr, ctx.session_id, ctx)
+                already_cancelled = False
+                emit_cancel_now = False
+                with ctx.lock:
+                    if ctx.status.lower() == "cancelled" or ctx.is_cancelled(session_mgr):
+                        already_cancelled = True
+                        ctx.status = "cancelled"
+                        ctx.stage = "cancelled"
+                        ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
+                        if not ctx.terminal_event_emitted:
+                            ctx.terminal_event_emitted = True
+                            emit_cancel_now = True
+                    else:
+                        ctx.status = "running"
+                        ctx.stage = "started"
+                        ctx.pct_complete = 5
 
+                if already_cancelled:
+                    if emit_cancel_now and ctx.writer:
+                        with contextlib.suppress(Exception):
+                            ctx.writer.buffer_event(
+                                "job_cancelled",
+                                {"job_id": ctx.job_id, "status": "cancelled"},
+                            )
+                            ctx.writer.flush()
+                    return
+
+                self._persist_job_status(session_mgr, ctx.session_id, ctx)
                 if ctx.writer:
                     ctx.writer.buffer_event(
                         "job_started",
@@ -269,12 +474,13 @@ class JobSupervisor:
                     )
                     ctx.writer.flush()
 
-                # Execute domain runner logic
                 result = runner_fn(session_mgr, ctx, **kwargs)
-
-                # If auto-committed, delta is committed and cannot be marked cancelled!
                 auto_committed = isinstance(result, dict) and result.get("auto_committed") is True
+                runner_reported_cancel = (
+                    isinstance(result, dict) and result.get("status") == "cancelled"
+                )
 
+                event_to_emit: tuple[str, dict[str, Any]] | None = None
                 with ctx.lock:
                     if auto_committed:
                         ctx.status = "completed"
@@ -282,8 +488,9 @@ class JobSupervisor:
                         ctx.pct_complete = 100
                         ctx.finished_at = datetime.now(UTC).isoformat()
                         ctx.result = result
-                        if ctx.writer:
-                            ctx.writer.buffer_event(
+                        if not ctx.terminal_event_emitted:
+                            ctx.terminal_event_emitted = True
+                            event_to_emit = (
                                 "job_completed",
                                 {
                                     "job_id": ctx.job_id,
@@ -291,25 +498,29 @@ class JobSupervisor:
                                     "result": ctx.result,
                                 },
                             )
-                            ctx.writer.flush()
-                    elif ctx.cancel_event.is_set():
+                    elif (
+                        ctx.status.lower() == "cancelled"
+                        or ctx.cancel_event.is_set()
+                        or runner_reported_cancel
+                    ):
                         ctx.status = "cancelled"
                         ctx.stage = "cancelled"
-                        ctx.finished_at = datetime.now(UTC).isoformat()
-                        if ctx.writer:
-                            ctx.writer.buffer_event(
+                        ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
+                        if not ctx.terminal_event_emitted:
+                            ctx.terminal_event_emitted = True
+                            event_to_emit = (
                                 "job_cancelled",
                                 {"job_id": ctx.job_id, "status": "cancelled"},
                             )
-                            ctx.writer.flush()
                     else:
                         ctx.status = "completed"
                         ctx.stage = "completed"
                         ctx.pct_complete = 100
                         ctx.finished_at = datetime.now(UTC).isoformat()
                         ctx.result = result or {}
-                        if ctx.writer:
-                            ctx.writer.buffer_event(
+                        if not ctx.terminal_event_emitted:
+                            ctx.terminal_event_emitted = True
+                            event_to_emit = (
                                 "job_completed",
                                 {
                                     "job_id": ctx.job_id,
@@ -317,31 +528,72 @@ class JobSupervisor:
                                     "result": ctx.result,
                                 },
                             )
-                            ctx.writer.flush()
+
+                if event_to_emit is not None and ctx.writer:
+                    ctx.writer.buffer_event(event_to_emit[0], event_to_emit[1])
+                    ctx.writer.flush()
+
+        except JobCancelledError:
+            cancel_event: tuple[str, dict[str, Any]] | None = None
+            with ctx.lock:
+                ctx.status = "cancelled"
+                ctx.stage = "cancelled"
+                ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
+                if not ctx.terminal_event_emitted:
+                    ctx.terminal_event_emitted = True
+                    cancel_event = (
+                        "job_cancelled",
+                        {"job_id": ctx.job_id, "status": "cancelled"},
+                    )
+            if cancel_event is not None and ctx.writer:
+                with contextlib.suppress(Exception):
+                    ctx.writer.buffer_event(cancel_event[0], cancel_event[1])
+                    ctx.writer.flush()
 
         except Exception as exc:
-            logger.exception("Job %s execution failed", ctx.job_id)
-            ctx.status = "failed"
-            ctx.stage = "failed"
-            ctx.finished_at = datetime.now(UTC).isoformat()
-            ctx.error = {
-                "code": getattr(exc, "code", "EXECUTION_FAILURE"),
-                "detail": str(exc),
-            }
-            if ctx.writer:
+            mapped = _translate_runner_error(exc)
+            fail_event: tuple[str, dict[str, Any]] | None = None
+            with ctx.lock:
+                if ctx.status.lower() == "cancelled" or ctx.cancel_event.is_set():
+                    ctx.status = "cancelled"
+                    ctx.stage = "cancelled"
+                    ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
+                    if not ctx.terminal_event_emitted:
+                        ctx.terminal_event_emitted = True
+                        fail_event = (
+                            "job_cancelled",
+                            {"job_id": ctx.job_id, "status": "cancelled"},
+                        )
+                else:
+                    logger.exception("Job %s execution failed", ctx.job_id)
+                    ctx.status = "failed"
+                    ctx.stage = "failed"
+                    ctx.finished_at = datetime.now(UTC).isoformat()
+                    ctx.error = {
+                        "code": mapped.code,
+                        "error_code": mapped.code,
+                        "detail": mapped.detail,
+                    }
+                    if not ctx.terminal_event_emitted:
+                        ctx.terminal_event_emitted = True
+                        fail_event = (
+                            "job_failed",
+                            {
+                                "job_id": ctx.job_id,
+                                "status": "failed",
+                                "error": ctx.error,
+                            },
+                        )
+
+            if fail_event is not None and ctx.writer:
                 with contextlib.suppress(Exception):
-                    ctx.writer.buffer_event(
-                        "job_failed",
-                        {
-                            "job_id": ctx.job_id,
-                            "status": "failed",
-                            "error": ctx.error,
-                        },
-                    )
+                    ctx.writer.buffer_event(fail_event[0], fail_event[1])
                     ctx.writer.flush()
 
         finally:
             self._persist_job_status(session_mgr, ctx.session_id, ctx)
+            with self._lock:
+                self._evict_terminal_jobs_locked()
 
     def get_job(
         self,
@@ -354,51 +606,64 @@ class JobSupervisor:
             ctx = self._jobs.get(job_id)
 
         if ctx and ctx.session_id == session_id:
-            return {
-                "job_id": ctx.job_id,
-                "session_id": ctx.session_id,
-                "job_type": ctx.job_type,
-                "status": ctx.status.lower(),
-                "stage": ctx.stage,
-                "pct_complete": ctx.pct_complete,
-                "created_at": ctx.created_at,
-                "finished_at": ctx.finished_at,
-                "error": ctx.error,
-                "result": ctx.result,
-            }
+            with ctx.lock:
+                return {
+                    "job_id": ctx.job_id,
+                    "session_id": ctx.session_id,
+                    "job_type": ctx.job_type,
+                    "status": ctx.status.lower(),
+                    "stage": ctx.stage,
+                    "pct_complete": ctx.pct_complete,
+                    "created_at": ctx.created_at,
+                    "finished_at": ctx.finished_at,
+                    "error": ctx.error,
+                    "result": ctx.result,
+                }
 
-        # Check on-disk job file
         session_dir = session_mgr.get_session_dir(session_id)
         job_file = self._get_job_file(session_mgr, session_id, job_id, create=False)
         if not job_file.is_file():
-            raise StudioAPIError("JOB_NOT_FOUND", f"Job '{job_id}' not found.", status_code=404)
+            raise StudioAPIError("JOB_NOT_FOUND", f"Job '{job_id}' not found.")
 
         try:
             data = json.loads(job_file.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
             raise StudioAPIError(
-                "CORRUPT_SESSION_RECORD", f"Job record '{job_id}' is corrupt.", status_code=500
+                "CORRUPT_SESSION_RECORD", f"Job record '{job_id}' is corrupt."
             ) from exc
 
-        # Crash recovery check: if status was pending/running, test if L2 lock can be acquired
         status = str(data.get("status", "")).upper()
         if status in ("PENDING", "RUNNING"):
             lock_file = session_dir / "jobs" / f".job_{job_id}.lock"
+            abandoned = False
             try:
-                # Non-blocking acquisition probe
                 with studio_lock(lock_file, level=L2_JOB, session_id=session_id, timeout=0.01):
-                    # Acquired lock successfully -> worker thread died / abandoned
+                    abandoned = True
+                    err_obj = {
+                        "code": "JOB_ABANDONED_SERVER_CRASH",
+                        "error_code": "JOB_ABANDONED_SERVER_CRASH",
+                        "detail": "Background job abandoned due to process restart or crash.",
+                    }
                     data["status"] = "failed"
                     data["stage"] = "abandoned"
                     data["finished_at"] = datetime.now(UTC).isoformat()
-                    data["error"] = {
-                        "code": "JOB_ABANDONED_SERVER_CRASH",
-                        "detail": "Background job abandoned due to process restart or crash.",
-                    }
+                    data["error"] = err_obj
                     self._write_job_data_atomic(session_mgr, session_id, job_id, data)
+                    with contextlib.suppress(Exception):
+                        writer = SSEJournalWriter(
+                            session_dir=session_dir, job_id=job_id, session_id=session_id
+                        )
+                        writer.buffer_event(
+                            "job_failed",
+                            {"job_id": job_id, "status": "failed", "error": err_obj},
+                        )
+                        writer.flush()
             except LockTimeoutError:
-                # Lock is actively held by a running worker; leave as running
                 pass
+
+            if abandoned:
+                with contextlib.suppress(OSError):
+                    lock_file.unlink(missing_ok=True)
 
         if "status" in data and isinstance(data["status"], str):
             data["status"] = data["status"].lower()
@@ -412,40 +677,42 @@ class JobSupervisor:
         job_id: str,
         reason: str | None = None,
     ) -> dict[str, Any]:
-        """Cancel an in-flight background job."""
+        """Cancel an in-flight background job cleanly under `ctx.lock`."""
         _validate_job_id(job_id)
         session_dir = session_mgr.get_session_dir(session_id)
         if not session_dir.is_dir() or not (session_dir / "session.json").is_file():
-            raise StudioAPIError(
-                "SESSION_NOT_FOUND", f"Session '{session_id}' not found.", status_code=404
-            )
+            raise StudioAPIError("SESSION_NOT_FOUND", f"Session '{session_id}' not found.")
 
         with self._lock:
             ctx = self._jobs.get(job_id)
 
         if ctx and ctx.session_id == session_id:
             with ctx.lock:
-                if ctx.status.lower() in ("completed", "failed", "cancelled"):
+                if ctx.status.lower() in _TERMINAL_JOB_STATUSES:
                     raise StudioAPIError(
                         "JOB_ALREADY_TERMINAL",
                         f"Job '{job_id}' is already terminal ({ctx.status}).",
-                        status_code=409,
                     )
                 if ctx.stage == "committing":
                     raise StudioAPIError(
-                        "JOB_CANNOT_BE_CANCELLED",
+                        "JOB_COMMIT_IN_PROGRESS",
                         f"Job '{job_id}' is actively committing delta and cannot be cancelled.",
-                        status_code=409,
                     )
                 ctx.cancel_event.set()
                 with contextlib.suppress(Exception):
                     cancel_marker = session_dir / "jobs" / f".{job_id}.cancel"
+                    cancel_marker.parent.mkdir(parents=True, exist_ok=True)
                     cancel_marker.write_text("cancelled", encoding="utf-8")
                     set_owner_only_permissions(cancel_marker)
                 ctx.status = "cancelled"
                 ctx.stage = "cancelled"
                 ctx.finished_at = datetime.now(UTC).isoformat()
-                if ctx.writer:
+                emit_now = not ctx.terminal_event_emitted
+                ctx.terminal_event_emitted = True
+                self._persist_job_status(session_mgr, session_id, ctx)
+
+            if emit_now and ctx.writer:
+                with contextlib.suppress(Exception):
                     ctx.writer.buffer_event(
                         "job_cancelled",
                         {
@@ -454,84 +721,145 @@ class JobSupervisor:
                             "reason": reason or "Cancelled by user",
                         },
                     )
-                    with contextlib.suppress(Exception):
-                        ctx.writer.flush()
-                self._persist_job_status(session_mgr, session_id, ctx)
+                    ctx.writer.flush()
 
             return self.get_job(session_mgr, session_id, job_id)
 
-        # On-disk cancellation check (cross-process or post-restart)
-        data = self.get_job(session_mgr, session_id, job_id)
-        if data.get("status", "").lower() in ("completed", "failed", "cancelled"):
+        # On-disk cancellation check (cross-process or post-eviction) serialized via L2_JOB
+        job_file = self._get_job_file(session_mgr, session_id, job_id, create=False)
+        if not job_file.is_file():
+            raise StudioAPIError("JOB_NOT_FOUND", f"Job '{job_id}' not found.")
+
+        try:
+            pre_data = json.loads(job_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD", f"Job record '{job_id}' is corrupt."
+            ) from exc
+
+        if str(pre_data.get("status", "")).lower() in _TERMINAL_JOB_STATUSES:
             raise StudioAPIError(
                 "JOB_ALREADY_TERMINAL",
-                f"Job '{job_id}' is already terminal ({data.get('status')}).",
-                status_code=409,
+                f"Job '{job_id}' is already terminal ({pre_data.get('status')}).",
             )
-        if data.get("stage") == "committing":
+        if pre_data.get("stage") == "committing":
             raise StudioAPIError(
-                "JOB_CANNOT_BE_CANCELLED",
+                "JOB_COMMIT_IN_PROGRESS",
                 f"Job '{job_id}' is actively committing delta and cannot be cancelled.",
-                status_code=409,
             )
 
-        cancel_marker = session_dir / "jobs" / f".{job_id}.cancel"
-        with contextlib.suppress(Exception):
-            cancel_marker.write_text("cancelled", encoding="utf-8")
-            set_owner_only_permissions(cancel_marker)
+        lock_file = session_dir / "jobs" / f".job_{job_id}.lock"
+        lock_file.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with studio_lock(lock_file, level=L2_JOB, session_id=session_id, timeout=0.01):
+                try:
+                    data = json.loads(job_file.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError) as exc:
+                    raise StudioAPIError(
+                        "CORRUPT_SESSION_RECORD", f"Job record '{job_id}' is corrupt."
+                    ) from exc
 
-        data["status"] = "cancelled"
-        data["stage"] = "cancelled"
-        data["finished_at"] = datetime.now(UTC).isoformat()
-        self._write_job_data_atomic(session_mgr, session_id, job_id, data)
+                if str(data.get("status", "")).lower() in _TERMINAL_JOB_STATUSES:
+                    raise StudioAPIError(
+                        "JOB_ALREADY_TERMINAL",
+                        f"Job '{job_id}' is already terminal ({data.get('status')}).",
+                    )
+                if data.get("stage") == "committing":
+                    raise StudioAPIError(
+                        "JOB_COMMIT_IN_PROGRESS",
+                        f"Job '{job_id}' is actively committing delta and cannot be cancelled.",
+                    )
+
+                cancel_marker = session_dir / "jobs" / f".{job_id}.cancel"
+                with contextlib.suppress(Exception):
+                    cancel_marker.parent.mkdir(parents=True, exist_ok=True)
+                    cancel_marker.write_text("cancelled", encoding="utf-8")
+                    set_owner_only_permissions(cancel_marker)
+
+                data["status"] = "cancelled"
+                data["stage"] = "cancelled"
+                data["finished_at"] = datetime.now(UTC).isoformat()
+                self._write_job_data_atomic(session_mgr, session_id, job_id, data)
+
+                with contextlib.suppress(Exception):
+                    writer = SSEJournalWriter(
+                        session_dir=session_dir, job_id=job_id, session_id=session_id
+                    )
+                    writer.buffer_event(
+                        "job_cancelled",
+                        {
+                            "job_id": job_id,
+                            "status": "cancelled",
+                            "reason": reason or "Cancelled by user",
+                        },
+                    )
+                    writer.flush()
+        except LockTimeoutError as exc:
+            raise StudioAPIError(
+                "JOB_COMMIT_IN_PROGRESS",
+                f"Job '{job_id}' is held by an active worker and cannot be cancelled on disk.",
+            ) from exc
+
+        with contextlib.suppress(OSError):
+            lock_file.unlink(missing_ok=True)
         return data
 
-    async def stream_job_events(
+    def stream_job_events(
         self,
         session_mgr: StudioSessionManager,
         session_id: str,
         job_id: str,
         last_event_id: int | str | None = None,
     ) -> AsyncIterator[str]:
-        """Stream SSE wire protocol events for the given job with Last-Event-ID replay."""
+        """Validate session/job synchronously, then return an async SSE wire generator."""
         _validate_job_id(job_id)
         session_dir = session_mgr.get_session_dir(session_id)
         if not session_dir.is_dir() or not (session_dir / "session.json").is_file():
-            raise StudioAPIError(
-                "SESSION_NOT_FOUND", f"Session '{session_id}' not found.", status_code=404
-            )
-        journal_file = session_dir / "jobs" / f"{job_id}.events.jsonl"
+            raise StudioAPIError("SESSION_NOT_FOUND", f"Session '{session_id}' not found.")
         job_file = self._get_job_file(session_mgr, session_id, job_id, create=False)
-
-        if not job_file.is_file() and not journal_file.is_file():
-            raise StudioAPIError("JOB_NOT_FOUND", f"Job '{job_id}' not found.", status_code=404)
+        journal_file = (session_dir / "jobs" / f"{job_id}.events.jsonl").resolve()
+        if not journal_file.is_relative_to((session_dir / "jobs").resolve()):
+            raise StudioAPIError(
+                "SYNTAX_INVALID_ARGUMENT",
+                f"Path traversal detected in job_id: '{job_id}'",
+            )
 
         with self._lock:
             ctx = self._jobs.get(job_id)
 
-        writer = ctx.writer if ctx else None
+        has_in_mem = ctx is not None and ctx.session_id == session_id
+        if not has_in_mem and not job_file.is_file() and not journal_file.is_file():
+            raise StudioAPIError("JOB_NOT_FOUND", f"Job '{job_id}' not found.")
+
+        eff_ctx = ctx if has_in_mem else None
+        writer = eff_ctx.writer if eff_ctx else None
 
         def _is_active() -> bool:
-            if ctx:
-                return str(ctx.status).upper() in ("PENDING", "RUNNING")
+            if eff_ctx:
+                with eff_ctx.lock:
+                    return str(eff_ctx.status).upper() in ("PENDING", "RUNNING")
             if job_file.is_file():
                 with contextlib.suppress(Exception):
                     rec = json.loads(job_file.read_text(encoding="utf-8"))
                     return str(rec.get("status", "")).upper() in ("PENDING", "RUNNING")
             return False
 
-        async for chunk in stream_sse_events(
-            journal_file=journal_file,
-            last_event_id=last_event_id,
-            writer=writer,
-            is_active=_is_active,
-            poll_interval=1.0,
-        ):
-            yield chunk
+        async def _event_generator() -> AsyncIterator[str]:
+            async for chunk in stream_sse_events(
+                journal_file=journal_file,
+                last_event_id=last_event_id,
+                writer=writer,
+                is_active=_is_active,
+                poll_interval=0.25,
+                keepalive_interval=15.0,
+            ):
+                yield chunk
+
+        return _event_generator()
 
 
 # ---------------------------------------------------------------------------
-# Domain Job Runner Functions
+# Domain Job Runner Functions (Delegating to opendv_service.studio.job_runners)
 # ---------------------------------------------------------------------------
 
 
@@ -540,143 +868,32 @@ def run_parse_job(
     ctx: JobContext,
     source_ids: list[str] | None = None,
     ocr_mode: str = "auto",
+    actor_role: str | None = None,
 ) -> dict[str, Any]:
-    """Execute document parsing and layout extraction on session sources."""
-    session_dir = session_mgr.get_session_dir(ctx.session_id)
-    manifest_file = session_dir / "inputs" / "manifest.json"
-    if not manifest_file.is_file():
-        return {"parsed_count": 0, "chunks_count": 0}
+    """Execute document parsing and layout extraction via `StudioJobRunners`."""
 
-    manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
-    files = manifest.get("files", [])
-
-    if source_ids:
-        files = [f for f in files if f.get("source_id") in source_ids]
-
-    cas = session_mgr.get_cas(ctx.session_id)
-    ingestion_service = IngestionService(
-        adapters=[
-            MarkdownDocumentAdapter(),
-            DelimitedTabularAdapter(),
-            PyArrowTabularAdapter(),
-            StructuredDataDocumentAdapter(),
-            MarkupDocumentAdapter(),
-            PlainTextDocumentAdapter(),
-        ]
-    )
-    chunks_file = session_dir / "evidence" / "chunks.jsonl"
-    chunks_file.parent.mkdir(parents=True, exist_ok=True)
-    tables_file = session_dir / "evidence" / "tables.jsonl"
-
-    parsed_chunks: list[EvidenceChunk] = []
-    parsed_tables: list[TableStructure] = []
-    total_files = len(files)
-
-    for idx, f in enumerate(files, 1):
-        if ctx.is_cancelled(session_mgr):
-            break
-
-        ctx.stage = f"parsing_file_{idx}_of_{total_files}"
-        ctx.pct_complete = int(10 + (idx / max(1, total_files)) * 80)
+    def _on_progress(stage: str, pct: int) -> None:
+        with ctx.lock:
+            if ctx.status.lower() == "cancelled":
+                return
+            ctx.stage = stage
+            ctx.pct_complete = pct
         get_job_supervisor()._persist_job_status(session_mgr, ctx.session_id, ctx)
 
-        source_id = f.get("source_id", "")
-        source_sha = f.get("sha256", "")
-        filename = f.get("filename", "unknown.txt")
-
-        try:
-            raw_bytes = cas.get(source_sha)
-            res = ingestion_service.ingest_bytes(
-                data=raw_bytes,
-                filename=filename,
-            )
-            for c in res.chunks:
-                parsed_chunks.append(c)
-                if ctx.writer:
-                    ctx.writer.buffer_event(
-                        "chunk_parsed",
-                        {
-                            "job_id": ctx.job_id,
-                            "source_id": source_id,
-                            "chunk_id": c.chunk_id,
-                            "page_number": c.page_number or 1,
-                            "byte_length": len(c.text.encode("utf-8")),
-                        },
-                    )
-            if hasattr(res, "tables") and res.tables:
-                for t in res.tables:
-                    parsed_tables.append(t)
-        except (OSError, ValueError, RuntimeError) as exc:
-            logger.warning("Failed to ingest %s: %s", filename, exc)
-
-    # Persist evidence chunks to chunks.jsonl atomically under L5 session lock with deduplication
-    if parsed_chunks:
-        lock_file = session_dir / ".session.lock"
-        with studio_lock(lock_file, level=L5_SESSION, session_id=ctx.session_id):
-            existing_chunks: list[EvidenceChunk] = []
-            if chunks_file.is_file():
-                for line in chunks_file.read_text(encoding="utf-8").splitlines():
-                    line = line.strip()
-                    if line:
-                        with contextlib.suppress(Exception):
-                            existing_chunks.append(EvidenceChunk.model_validate_json(line))
-
-            seen_chunk_keys = {
-                (c.source_sha256 or c.source_id or "", c.chunk_id) for c in parsed_chunks
-            }
-            combined_chunks = [
-                c
-                for c in existing_chunks
-                if (c.source_sha256 or c.source_id or "", c.chunk_id) not in seen_chunk_keys
-            ] + parsed_chunks
-
-            tmp_chunks = chunks_file.parent / f".chunks.{uuid.uuid4().hex[:8]}.tmp"
-            fd = os.open(str(tmp_chunks), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with open(fd, "w", encoding="utf-8") as fp:
-                for c in combined_chunks:
-                    fp.write(json.dumps(c.model_dump(mode="json", exclude_none=True)) + "\n")
-                fp.flush()
-                os.fsync(fp.fileno())
-            set_owner_only_permissions(tmp_chunks)
-            os.replace(tmp_chunks, chunks_file)
-            set_owner_only_permissions(chunks_file)
-
-    # Persist evidence tables to tables.jsonl atomically under L5 lock with deduplication (MAJ-04)
-    if parsed_tables:
-        lock_file = session_dir / ".session.lock"
-        with studio_lock(lock_file, level=L5_SESSION, session_id=ctx.session_id):
-            existing_tables: list[TableStructure] = []
-            if tables_file.is_file():
-                for line in tables_file.read_text(encoding="utf-8").splitlines():
-                    line = line.strip()
-                    if line:
-                        with contextlib.suppress(Exception):
-                            existing_tables.append(TableStructure.model_validate_json(line))
-
-            seen_table_ids = {t.table_id for t in parsed_tables}
-            combined_tables = [
-                t for t in existing_tables if t.table_id not in seen_table_ids
-            ] + parsed_tables
-
-            tmp_tables = tables_file.parent / f".tables.{uuid.uuid4().hex[:8]}.tmp"
-            fd = os.open(str(tmp_tables), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-            with open(fd, "w", encoding="utf-8") as fp:
-                for t in combined_tables:
-                    fp.write(json.dumps(t.model_dump(mode="json", exclude_none=True)) + "\n")
-                fp.flush()
-                os.fsync(fp.fileno())
-            set_owner_only_permissions(tmp_tables)
-            os.replace(tmp_tables, tables_file)
-            set_owner_only_permissions(tables_file)
-
-    if ctx.writer:
-        ctx.writer.flush()
-
-    return {
-        "parsed_sources_count": len(files),
-        "chunks_count": len(parsed_chunks),
-        "tables_count": len(parsed_tables),
-    }
+    try:
+        return run_parse_session_sources(
+            session_manager=session_mgr,
+            session_id=ctx.session_id,
+            job_id=ctx.job_id,
+            source_ids=source_ids,
+            ocr_mode=ocr_mode,
+            actor_role=actor_role or ctx.role,
+            writer=ctx.writer,
+            is_cancelled=lambda: ctx.is_cancelled(session_mgr),
+            on_progress=_on_progress,
+        )
+    except Exception as exc:
+        raise _translate_runner_error(exc) from exc
 
 
 def run_clarify_job(
@@ -684,304 +901,83 @@ def run_clarify_job(
     ctx: JobContext,
     mode: str = "auto",
     max_questions: int = 5,
+    focus_concepts: Sequence[str | dict[str, Any]] | None = None,
+    candidate_terms: Sequence[str | dict[str, Any]] | None = None,
+    actor_role: str | None = None,
 ) -> dict[str, Any]:
-    """Execute polysemy scan and clarification question generation."""
-    session_dir = session_mgr.get_session_dir(ctx.session_id)
-    chunks_file = session_dir / "evidence" / "chunks.jsonl"
-    chunks: list[EvidenceChunk] = []
-    if chunks_file.is_file():
-        for line in chunks_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line:
-                with contextlib.suppress(Exception):
-                    chunks.append(EvidenceChunk.model_validate_json(line))
-
-    if not chunks or ctx.is_cancelled(session_mgr):
-        return {"questions_count": 0}
-
-    harness = ClarificationHarness(session_dir=session_dir)
-    questions = harness.generate_questions(
-        candidate_terms=None,
-        evidence_chunks=chunks,
-        max_questions=max_questions,
-    )
-
-    if ctx.writer:
-        for q in questions:
-            ctx.writer.buffer_event(
-                "clarification_generated",
-                {
-                    "job_id": ctx.job_id,
-                    "question_id": q.question_id,
-                    "focus_concept": q.focus_concept,
-                },
-            )
-        ctx.writer.flush()
-
-    return {"questions_count": len(questions)}
+    """Execute polysemy scan and clarification question generation via `StudioJobRunners`."""
+    terms = candidate_terms if candidate_terms is not None else focus_concepts
+    try:
+        return run_clarify_session(
+            session_manager=session_mgr,
+            session_id=ctx.session_id,
+            job_id=ctx.job_id,
+            mode=mode,
+            max_questions=max_questions,
+            candidate_terms=terms,
+            actor_role=actor_role or ctx.role,
+            writer=ctx.writer,
+            is_cancelled=lambda: ctx.is_cancelled(session_mgr),
+        )
+    except Exception as exc:
+        raise _translate_runner_error(exc) from exc
 
 
 def run_construct_job(
     session_mgr: StudioSessionManager,
     ctx: JobContext,
-    base_version: str,
-    base_sha256: str,
+    base_version: str | None = None,
+    base_sha256: str | None = None,
     auto_commit: bool = False,
     fibo_modules: list[str] | None = None,
-    mode: str = "auto",
+    mode: str = "deterministic",
     if_match: str | None = None,
+    actor_role: str | None = None,
+    agent_runner: Any = None,
 ) -> dict[str, Any]:
-    """Execute deterministic construction pipeline producing proposal or version commit."""
-    session_dir = session_mgr.get_session_dir(ctx.session_id)
+    """Execute ontology construction pipeline via `StudioJobRunners`."""
+    eff_mode = "deterministic" if (mode or "").strip().lower() == "challenger" else mode
 
-    # 1. Load base ontology
-    session_meta = session_mgr.get_session(ctx.session_id)
-    active_version = (base_version or session_meta.head_version).lstrip("v")
-
-    vdir = session_dir / "versions" / f"v{active_version}"
-    ont_file = vdir / "ontology.json"
-    if not ont_file.is_file():
-        ont_file = vdir / "ontology.yaml"
-    if ont_file.is_file():
-        if ont_file.suffix == ".json":
-            raw_json = ont_file.read_text(encoding="utf-8")
-            base_ontology = GraphAOntology.model_validate_json(raw_json)
-        else:
-            import yaml
-
-            raw_yaml = ont_file.read_text(encoding="utf-8")
-            base_ontology = GraphAOntology.model_validate(yaml.safe_load(raw_yaml))
-    else:
-        raise StudioAPIError(
-            "CORRUPT_SESSION_STATE",
-            f"Base ontology artifact missing for version 'v{active_version}' "
-            f"in session '{ctx.session_id}'.",
-            status_code=500,
-        )
-
-    # OCC verification on loaded base ontology
-    canonical_base_sha = compute_ontology_sha256(base_ontology)
-    clean_base_sha = base_sha256.strip('"') if base_sha256 else None
-    if clean_base_sha and clean_base_sha not in (canonical_base_sha, session_meta.head_sha256):
-        raise StudioAPIError(
-            "CONCURRENCY_CONFLICT",
-            f"base_sha256 '{base_sha256}' does not match loaded base ontology "
-            f"digest '{canonical_base_sha}'.",
-            status_code=412,
-        )
-
-    # 2. Load evidence chunks & tables
-    chunks_file = session_dir / "evidence" / "chunks.jsonl"
-    chunks: list[EvidenceChunk] = []
-    if chunks_file.is_file():
-        for line in chunks_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line:
-                with contextlib.suppress(Exception):
-                    chunks.append(EvidenceChunk.model_validate_json(line))
-
-    tables_file = session_dir / "evidence" / "tables.jsonl"
-    tables: list[TableStructure] = []
-    if tables_file.is_file():
-        for line in tables_file.read_text(encoding="utf-8").splitlines():
-            line = line.strip()
-            if line:
-                with contextlib.suppress(Exception):
-                    tables.append(TableStructure.model_validate_json(line))
-
-    # 3. Load clarification answers
-    answers_file = session_dir / "clarifications" / "answers.json"
-    answers_dict: dict[str, Any] = {}
-    if answers_file.is_file():
-        with contextlib.suppress(Exception):
-            answers_dict = json.loads(answers_file.read_text(encoding="utf-8"))
-
-    pipeline = DeterministicConstructionPipeline()
-    opts = ConstructOptions(
-        auto_commit=False,  # auto_commit handled below under L5
-        if_match=None,
-    )
-    proposal = pipeline.construct_proposal(
-        base_ontology=base_ontology,
-        evidence_chunks=chunks,
-        tables=tables,
-        clarification_answers=answers_dict,
-        options=opts,
-    )
-
-    proposal_ops = (
-        proposal.delta.operations
-        if hasattr(proposal, "delta") and hasattr(proposal.delta, "operations")
-        else getattr(proposal, "operations", [])
-    )
-
-    if ctx.writer:
-        for op in proposal_ops:
-            if hasattr(op, "external_mappings") and op.external_mappings:
-                for m in op.external_mappings:
-                    ctx.writer.buffer_event(
-                        "fibo_grounding",
-                        {
-                            "job_id": ctx.job_id,
-                            "concept_uri": getattr(op, "concept_uri", ""),
-                            "matched_fibo_uri": m.target_uri,
-                            "score": m.confidence,
-                        },
-                    )
-        ctx.writer.flush()
-
-    if ctx.is_cancelled(session_mgr):
-        return {
-            "proposal_id": getattr(proposal, "proposal_id", None),
-            "status": "cancelled",
-            "message": "Job cancelled before commit.",
-        }
-
-    if auto_commit:
-        principal_id = getattr(ctx, "principal", None) or "human:local_admin"
-        if principal_id.startswith("agent:"):
-            raise StudioAPIError(
-                "AGENT_PROPOSAL_ACCEPT_FORBIDDEN",
-                "Automated agent identities are forbidden from auto-commit construction.",
-                status_code=403,
-            )
-
-        # ONT-EVO-002: ungrounded or low-confidence concepts cannot be auto-committed
-        # without human waiver (MAJ-01)
-        added_concepts: dict[str, list[Any]] = {}
-        for op in proposal_ops:
-            op_type = getattr(op, "op_type", "")
-            if op_type == "add_concept" or isinstance(op, AddConceptOp):
-                c_uri = getattr(op, "concept_uri", "")
-                mappings = list(getattr(op, "external_mappings", None) or [])
-                added_concepts[c_uri] = mappings
-            elif op_type == "add_external_mapping" or isinstance(op, AddExternalMappingOp):
-                c_uri = getattr(op, "concept_uri", "")
-                if c_uri in added_concepts:
-                    added_concepts[c_uri].append(op)
-
-        for c_uri, mappings in added_concepts.items():
-            if not mappings:
-                raise StudioAPIError(
-                    "LOW_CONFIDENCE_GROUNDING",
-                    f"Concept '{c_uri}' is ungrounded (missing external ontology mapping) "
-                    "and cannot be auto-committed without human review and waiver.",
-                    status_code=422,
-                )
-            for m in mappings:
-                conf = getattr(m, "confidence", 0.0)
-                if conf < 0.7:
-                    raise StudioAPIError(
-                        "LOW_CONFIDENCE_GROUNDING",
-                        f"Concept '{c_uri}' has low-confidence grounding ({conf}) "
-                        "and cannot be auto-committed without human review and waiver.",
-                        status_code=422,
-                    )
-
-        # Also check all ops for low-confidence external mappings
-        for op in proposal_ops:
-            if hasattr(op, "external_mappings") and op.external_mappings:
-                for m in op.external_mappings:
-                    if getattr(m, "confidence", 1.0) < 0.7:
-                        conf_val = getattr(m, "confidence", 0.0)
-                        raise StudioAPIError(
-                            "LOW_CONFIDENCE_GROUNDING",
-                            f"Concept has low-confidence grounding ({conf_val}) "
-                            "and cannot be auto-committed without human review and waiver.",
-                            status_code=422,
-                        )
-
-        clean_if_match = (
-            if_match.strip('"') if if_match else (base_sha256.strip('"') if base_sha256 else "")
-        )
-        if not clean_if_match:
-            raise StudioAPIError(
-                "MISSING_AUTO_COMMIT_PRECONDITION",
-                "Auto-commit construction strictly requires an If-Match header or base_sha256 "
-                "anchoring the expected base ontology SHA-256.",
-                status_code=428,
-            )
-        if clean_if_match not in (canonical_base_sha, session_meta.head_sha256):
-            raise StudioAPIError(
-                "CONCURRENCY_CONFLICT",
-                f"Auto-commit precondition '{clean_if_match}' does not match loaded "
-                f"base ontology digest '{canonical_base_sha}'.",
-                status_code=412,
-            )
-        if clean_if_match != session_meta.head_sha256:
-            raise StudioAPIError(
-                "CONCURRENCY_CONFLICT",
-                f"Auto-commit precondition '{clean_if_match}' does not match active session "
-                f"head digest '{session_meta.head_sha256}'.",
-                status_code=412,
-            )
-
+    def _on_stage(stage: str) -> None:
         with ctx.lock:
-            if ctx.is_cancelled(session_mgr):
-                return {
-                    "proposal_id": getattr(proposal, "proposal_id", None),
-                    "status": "cancelled",
-                    "message": "Job cancelled before commit.",
-                }
-            ctx.stage = "committing"
+            if stage == "committing":
+                if ctx.status.lower() == "cancelled" or ctx.is_cancelled(session_mgr):
+                    ctx.status = "cancelled"
+                    ctx.stage = "cancelled"
+                    raise JobCancelledError("Job cancelled prior to commit phase")
+                ctx.stage = "committing"
+                ctx.pct_complete = 90
+            else:
+                if ctx.status.lower() == "cancelled":
+                    return
+                ctx.stage = stage
+        get_job_supervisor()._persist_job_status(session_mgr, ctx.session_id, ctx)
 
-        # Commit under L5, buffer SSE, and flush to L3 ONLY after releasing L5!
-        delta = (
-            proposal.delta
-            if hasattr(proposal, "delta")
-            else (proposal.to_delta() if hasattr(proposal, "to_delta") else proposal)
-        )
-        atomic_svc = AtomicCommitService(session_manager=session_mgr)
-
-        author = getattr(ctx, "principal", None) or "human:local_admin"
-        commit_res = atomic_svc.commit_delta(
+    try:
+        return run_construct_session(
+            session_manager=session_mgr,
             session_id=ctx.session_id,
-            delta=delta,
-            proposal_id=getattr(proposal, "proposal_id", None),
-            author=author,
-            if_match=clean_if_match,
+            base_version=base_version,
+            base_sha256=base_sha256,
+            job_id=ctx.job_id,
+            auto_commit=auto_commit,
+            fibo_modules=fibo_modules,
+            mode=eff_mode,
+            if_match=if_match,
+            actor=ctx.principal,
+            actor_role=actor_role or ctx.role,
+            require_admin_for_auto_commit=False,
+            writer=ctx.writer,
+            is_cancelled=lambda: ctx.is_cancelled(session_mgr),
+            on_stage=_on_stage,
+            agent_runner=agent_runner,
         )
-
-        # Flush SSE journal under L3 after releasing L5 session lock
-        if ctx.writer:
-            ctx.writer.buffer_event(
-                "version_committed",
-                {
-                    "job_id": ctx.job_id,
-                    "target_version": commit_res.version,
-                    "target_sha256": commit_res.target_sha256,
-                },
-            )
-            ctx.writer.flush()
-
-        return {
-            "proposal_id": getattr(proposal, "proposal_id", None),
-            "auto_committed": True,
-            "target_version": commit_res.version,
-            "target_sha256": commit_res.target_sha256,
-        }
-
-    # Save proposal to disk atomically
-    proposals_dir = session_dir / "proposals"
-    proposals_dir.mkdir(parents=True, exist_ok=True)
-    prop_file = proposals_dir / f"{proposal.proposal_id}.json"
-    tmp_prop = proposals_dir / f".{proposal.proposal_id}.{secrets.token_hex(4)}.tmp"
-    fd = os.open(str(tmp_prop), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with open(fd, "w", encoding="utf-8") as fp:
-        fp.write(json.dumps(proposal.model_dump(mode="json", exclude_none=True), indent=2))
-        fp.flush()
-        os.fsync(fp.fileno())
-    set_owner_only_permissions(tmp_prop)
-    os.replace(tmp_prop, prop_file)
-    set_owner_only_permissions(prop_file)
-
-    return {
-        "proposal_id": proposal.proposal_id,
-        "operations_count": len(proposal_ops),
-    }
+    except JobCancelledError:
+        raise
+    except Exception as exc:
+        raise _translate_runner_error(exc) from exc
 
 
-# Singleton job supervisor instance
 _GLOBAL_SUPERVISOR: JobSupervisor | None = None
 
 
@@ -994,6 +990,8 @@ def get_job_supervisor() -> JobSupervisor:
 
 
 __all__ = [
+    "MAX_IN_MEMORY_JOBS",
+    "JobCancelledError",
     "JobContext",
     "JobSupervisor",
     "get_job_supervisor",

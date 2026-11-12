@@ -86,10 +86,34 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     if args.open:
+        from opendv_platform_api.security.csrf import is_loopback_host
+        from opendv_platform_api.security.studio_auth import (
+            SERVER_MODE_REMOTE,
+            mint_launch_nonce,
+        )
+
         browser_host = (
             DEFAULT_SERVER_HOST if host in {"0.0.0.0", "::", "::0", "0:0:0:0:0:0:0:0"} else host
         )
-        url = f"http://{browser_host}:{port}"
+        eff_mode = (
+            (
+                os.environ.get("OPENDV_SERVER_MODE")
+                or getattr(settings, "server_mode", "")
+                or "local_standalone"
+            )
+            .strip()
+            .lower()
+        )
+        fmt_host = (
+            f"[{browser_host}]"
+            if ":" in browser_host and not browser_host.startswith("[")
+            else browser_host
+        )
+        if eff_mode != SERVER_MODE_REMOTE and is_loopback_host(browser_host):
+            nonce = mint_launch_nonce(principal="human:local_admin", role="admin", ttl=60.0)
+            url = f"http://{fmt_host}:{port}/ontology#token={nonce}"
+        else:
+            url = f"http://{fmt_host}:{port}"
         timer = threading.Timer(0.6, webbrowser.open, args=(url,))
         timer.daemon = True
         timer.start()

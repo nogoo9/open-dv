@@ -116,4 +116,53 @@ describe("error-mapping", () => {
 			"Error: Contract version mismatch (client: 1.0.0, server: 2.0.0)",
 		);
 	});
+
+	it("S5-MAJ-03: every error code referenced in error-handler.ts is registered in canonical ErrorCode catalog", async () => {
+		const rawCatalog = (await Bun.file(
+			"../../schemas/v1/error-codes.json",
+		).json()) as {
+			error_codes: Array<{ code: string; exit_code: number }>;
+		};
+		const registered = new Set<string>([
+			...rawCatalog.error_codes.map((e) => e.code),
+			...spec.error_map.map((e) => e.error_code),
+		]);
+
+		const src = await Bun.file("src/error-handler.ts").text();
+		const nonErrorCodeLiterals = new Set([
+			"ERROR",
+			"FAILED",
+			"COMPLETED",
+			"ECONNREFUSED",
+		]);
+		const codeTokens = [...src.matchAll(/"([A-Z][A-Z0-9_]{2,})"/g)]
+			.map((m) => m[1]!)
+			.filter((t) => !nonErrorCodeLiterals.has(t));
+
+		expect(codeTokens.length).toBeGreaterThanOrEqual(10);
+		for (const tok of codeTokens) {
+			if (tok === "OK") continue;
+			expect(registered.has(tok)).toBe(true);
+		}
+
+		// Verify PROPOSAL_STALE_REBASE_REQUIRED maps to exit 6 (409 conflict)
+		const staleRebase = errorHandler.resolveError(
+			new CliDomainError("PROPOSAL_STALE_REBASE_REQUIRED", "Rebase required", 409),
+		);
+		expect(staleRebase.exitCode).toBe(6);
+		expect(staleRebase.errorCode).toBe("PROPOSAL_STALE_REBASE_REQUIRED");
+
+		// Unregistered HTTP fallback strings normalize strictly onto canonical ErrorCode members
+		const norm401 = errorHandler.resolveError(
+			new CliDomainError("AUTH_UNAUTHORIZED", "Missing token", 401),
+		);
+		expect(norm401.exitCode).toBe(7);
+		expect(norm401.errorCode).toBe("UNAUTHENTICATED");
+
+		const norm422 = errorHandler.resolveError(
+			new CliDomainError("VALIDATION_FAILED", "Invalid schema", 422),
+		);
+		expect(norm422.exitCode).toBe(4);
+		expect(norm422.errorCode).toBe("ONT_EVO_CONTRACT_VIOLATION");
+	});
 });

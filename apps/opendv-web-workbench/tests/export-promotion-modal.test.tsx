@@ -80,7 +80,9 @@ describe("QualityFeedbackPanel & ExportPromoteModal (Task 5D.6, #227)", () => {
 					grounding_status: "GROUNDED",
 					attributes: [],
 					synonyms: [],
-					external_mappings: [],
+					external_mappings: [
+						{ scheme: "FIBO", target_uri: "fibo:Fund", predicate: "skos:exactMatch", confidence: 0.95 },
+					],
 				},
 				{
 					id: "c2",
@@ -91,7 +93,9 @@ describe("QualityFeedbackPanel & ExportPromoteModal (Task 5D.6, #227)", () => {
 					grounding_status: "GROUNDED",
 					attributes: [],
 					synonyms: [],
-					external_mappings: [],
+					external_mappings: [
+						{ scheme: "FIBO", target_uri: "fibo:Investor", predicate: "skos:exactMatch", confidence: 0.92 },
+					],
 				},
 				{
 					id: "c3",
@@ -451,10 +455,11 @@ describe("QualityFeedbackPanel & ExportPromoteModal (Task 5D.6, #227)", () => {
 			expect(html).toContain("Export Ontology Representation");
 			expect(html).toContain("data-testid=\"export-format-select\"");
 			expect(html).toContain("Graph A YAML (.yaml)");
-			expect(html).toContain("JSON Schema Representation (.json)");
+			expect(html).toContain("Canonical JSON / RFC 8785 JCS (.json)");
 			expect(html).toContain("W3C Turtle (.ttl)");
 			expect(html).toContain("JSON-LD (.jsonld)");
-			expect(html).toContain("RDF/XML (.rdf)");
+			expect(html).toContain("N-Triples (.nt)");
+			expect(html).not.toContain("RDF/XML (.rdf)");
 			expect(html).toContain("data-testid=\"export-version-select\"");
 			expect(html).toContain("v1.1.0 (Current Head)");
 			expect(html).toContain("data-testid=\"export-preview-block\"");
@@ -525,10 +530,10 @@ describe("QualityFeedbackPanel & ExportPromoteModal (Task 5D.6, #227)", () => {
 			expect(jsonldOut).toContain("\"@context\"");
 			expect(jsonldOut).toContain("\"@graph\"");
 
-			// RDF/XML
-			const rdfOut = generateLocalExport("rdf", "1.1.0", nodes, edges, session);
-			expect(rdfOut).toContain("<rdf:RDF");
-			expect(rdfOut).toContain("</rdf:RDF>");
+			// N-Triples (.nt)
+			const ntOut = generateLocalExport("ntriples", "1.1.0", nodes, edges, session);
+			expect(ntOut).toContain("<http://www.w3.org/2002/07/owl#Class>");
+			expect(ntOut).toContain("<urn:ontology:entity:fund>");
 		});
 	});
 

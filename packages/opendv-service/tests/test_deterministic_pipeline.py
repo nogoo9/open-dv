@@ -942,3 +942,258 @@ def test_construction_package_import_smoke() -> None:
     assert StagedCandidate is not None
     assert StagedCandidatesFile is not None
     assert atomic_write_text is not None
+
+
+# ---------------------------------------------------------------------------
+# Wave R2-A Regression Tests: CRIT-04, MAJ-05..07, MIN-01..02
+# ---------------------------------------------------------------------------
+
+
+def test_deterministic_pipeline_populates_mapping_confidence_and_superclass_broadmatch() -> None:
+    """CRIT-04 & MIN-01: Emit mapping_confidence=score on AddExternalMappingOp so Path A
+    validator accepts pipeline proposals, and materialize skos:broadMatch superclass closures.
+    """
+    from opendv_service.ontology import GovernanceValidator, apply
+
+    concepts = [
+        ReferenceConcept(
+            concept_uri="https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity",
+            concept_name="Legal Entity",
+            module="BE",
+            definition="An entity that has legal identity and rights under law.",
+            synonyms=["Artificial Person"],
+            parent_concept_uris=[
+                "https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/Agents/AutonomousAgent"
+            ],
+        ),
+        ReferenceConcept(
+            concept_uri="https://spec.edmcouncil.org/fibo/ontology/FND/AgentsAndPeople/Agents/AutonomousAgent",
+            concept_name="Autonomous Agent",
+            module="FND",
+            definition="Autonomous agent superclass.",
+            synonyms=[],
+        ),
+    ]
+    matcher = Bm25ConceptMatcher()
+    matcher.index_concepts(concepts)
+    verifier = FiboPackGroundingVerifier(matcher=matcher)
+    pipeline = DeterministicConstructionPipeline(matcher=matcher, verifier=verifier)
+
+    base = _make_sample_base_ontology()
+    table = TableStructure(
+        table_id="tbl_entities",
+        headers=["legal_entity_id"],
+        rows=[["LE-001"]],
+    )
+    proposal = pipeline.construct_proposal(base_ontology=base, tables=[table])
+    map_ops = [op for op in proposal.delta.operations if isinstance(op, AddExternalMappingOp)]
+    assert len(map_ops) >= 2
+    primary = next(op for op in map_ops if op.predicate in ("skos:exactMatch", "skos:closeMatch"))
+    assert primary.mapping_confidence is not None
+    assert primary.mapping_confidence >= 0.65
+    broad = next(op for op in map_ops if op.predicate == "skos:broadMatch")
+    assert "AutonomousAgent" in broad.target_uri
+
+    # Verify GovernanceValidator accepts the applied delta end-to-end!
+    target = apply(base, proposal.delta)
+    gov = GovernanceValidator(grounding_verifier=verifier)
+    gov.validate_grounding(
+        base,
+        proposal.delta,
+        target,
+        grandfathered_concept_uris={"urn:ontology:entity:initial_seed"},
+    )
+
+
+def test_deterministic_pipeline_dedups_canonical_relationships_and_leaves_seed_fk_unmutated() -> (
+    None
+):
+    """MAJ-05 & MAJ-07: Read canonical_relationships/r.endpoints to avoid duplicate Links,
+    and allow untouched base concepts as AddRelationshipOp endpoints without mutating them.
+    """
+    from opendv_core.models.graph_a import CanonicalRelationship
+    from opendv_service.ontology import is_concept_mutated
+
+    pipeline = DeterministicConstructionPipeline(matcher=_make_mock_matcher())
+    base = _make_sample_base_ontology().model_copy(
+        update={
+            "canonical_business_concepts": [
+                CanonicalBusinessConcept(
+                    concept_uri="urn:ontology:entity:initial_seed",
+                    concept_name="Initial Seed",
+                    target_hub="hub_initial_seed",
+                ),
+                CanonicalBusinessConcept(
+                    concept_uri="urn:ontology:entity:bond",
+                    concept_name="Bond",
+                    target_hub="hub_bond",
+                ),
+            ],
+            "canonical_relationships": [
+                CanonicalRelationship(
+                    relationship_uri="urn:ontology:relationship:initial_seed_bond",
+                    relationship_name="InitialSeedBond",
+                    target_link="lnk_initial_seed_bond",
+                    endpoints=[
+                        "urn:ontology:entity:initial_seed",
+                        "urn:ontology:entity:bond",
+                    ],
+                )
+            ],
+        }
+    )
+
+    # Table 1 has already-existing relationship (initial_seed_id, bond_id) -> must NOT duplicate
+    # Table 2 links untouched seed (initial_seed_id) with newly grounded (legal_entity_id) -> Link
+    # emitted WITHOUT mutating urn:ontology:entity:initial_seed!
+    t1 = TableStructure(table_id="t1", headers=["initial_seed_id", "bond_id"], rows=[["1", "2"]])
+    t2 = TableStructure(
+        table_id="t2", headers=["initial_seed_id", "legal_entity_id"], rows=[["1", "LE-1"]]
+    )
+    proposal = pipeline.construct_proposal(base_ontology=base, tables=[t1, t2])
+    rel_ops = [op for op in proposal.delta.operations if isinstance(op, AddRelationshipOp)]
+    assert len(rel_ops) == 1
+    assert set(
+        rel_ops[0].endpoints or [rel_ops[0].source_concept_uri, rel_ops[0].target_concept_uri]
+    ) == {
+        "urn:ontology:entity:initial_seed",
+        "urn:ontology:entity:legal_entity",
+    }
+    assert is_concept_mutated(base, proposal.delta, "urn:ontology:entity:initial_seed") is False
+
+
+def test_deterministic_pipeline_preferred_mapping_attaches_fibo_synonym_for_verifier() -> None:
+    """MAJ-06: Steward clarification preferred_mappings attaches FIBO concept_name to synonyms
+    so FiboPackGroundingVerifier BM25 cross-check passes even when raw column label differs.
+    """
+    from opendv_service.ontology import GovernanceValidator, apply
+
+    matcher = _make_mock_matcher()
+    verifier = FiboPackGroundingVerifier(matcher=matcher)
+    pipeline = DeterministicConstructionPipeline(matcher=matcher, verifier=verifier)
+
+    base = _make_sample_base_ontology()
+    table = TableStructure(
+        table_id="tbl_accounts",
+        headers=["acct_holder_id"],
+        rows=[["AH-1"]],
+    )
+    opts = ConstructOptions(
+        preferred_mappings={
+            "acct holder": "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity"
+        }
+    )
+    proposal = pipeline.construct_proposal(base_ontology=base, tables=[table], options=opts)
+    c_ops = [op for op in proposal.delta.operations if isinstance(op, AddConceptOp)]
+    assert len(c_ops) == 1
+    assert "Legal Entity" in (c_ops[0].synonyms or [])
+
+    target = apply(base, proposal.delta)
+    GovernanceValidator(grounding_verifier=verifier).validate_grounding(
+        base,
+        proposal.delta,
+        target,
+        grandfathered_concept_uris={"urn:ontology:entity:initial_seed"},
+    )
+
+
+def test_deterministic_pipeline_zero_op_version_and_auto_commit_rejected() -> None:
+    """MIN-02: 0-op proposal keeps base_ontology_version; auto_commit=True raises OpenDVError."""
+    from opendv_contracts.errors import ErrorCode, OpenDVError
+
+    pipeline = DeterministicConstructionPipeline(matcher=_make_mock_matcher())
+    base = _make_sample_base_ontology()
+    empty_prop = pipeline.construct_proposal(base_ontology=base, tables=[])
+    assert empty_prop.delta.operations == []
+    assert empty_prop.delta.target_ontology_version == "1.0.0"
+
+    with pytest.raises(OpenDVError) as exc_info:
+        pipeline.construct_proposal(
+            base_ontology=base,
+            tables=[],
+            options=ConstructOptions(auto_commit=True),
+        )
+    assert exc_info.value.error_code == ErrorCode.MISSING_AUTO_COMMIT_PRECONDITION
+
+
+def test_r3_genesis_0_0_0_binds_parent_sha256_and_preserves_grounded_existing_hub(
+    tmp_path: Path,
+) -> None:
+    """P06a MAJ-01 & MAJ-02:
+    - 0.0.0 genesis proposals always bind delta.parent_sha256 == base_ontology_sha256;
+    - Existing base hubs that already carry verified Path A FIBO grounding retain additive
+      attributes even when raw column header BM25 lookup misses or scores < min_confidence.
+    """
+    from opendv_core.models.graph_a import ExternalMapping
+    from opendv_core.ontology_hashing import compute_ontology_sha256
+
+    matcher = _make_mock_matcher()
+    verifier = FiboPackGroundingVerifier(matcher=matcher)
+    pipeline = DeterministicConstructionPipeline(matcher=matcher, verifier=verifier)
+
+    # MAJ-01: 0.0.0 genesis parent_sha256 == base_sha (never empty string)
+    genesis_base = GraphAOntology(
+        ontology_version="0.0.0",
+        domain_namespace="finance",
+        canonical_business_concepts=[],
+    )
+    expected_genesis_sha = compute_ontology_sha256(genesis_base)
+    gen_tbl = TableStructure(
+        table_id="tbl_gen",
+        headers=["legal_entity_id"],
+        rows=[["LE-001"]],
+    )
+    gen_prop = pipeline.construct_proposal(base_ontology=genesis_base, tables=[gen_tbl])
+    assert gen_prop.base_ontology_sha256 == expected_genesis_sha
+    assert gen_prop.delta.parent_sha256 == expected_genesis_sha
+    assert gen_prop.delta.parent_sha256 != ""
+
+    # MAJ-02: Existing base hub with verified Path A FIBO mapping keeps additive attributes
+    # even when raw header stem ("bespoke obligor") has zero BM25 match in FIBO index!
+    grounded_existing_base = GraphAOntology(
+        ontology_version="1.0.0",
+        domain_namespace="finance",
+        canonical_business_concepts=[
+            CanonicalBusinessConcept(
+                concept_uri="urn:ontology:entity:bespoke_obligor",
+                concept_name="Bespoke Obligor",
+                target_hub="hub_bespoke_obligor",
+                synonyms=["Legal Entity"],
+                external_mappings=[
+                    ExternalMapping(
+                        scheme="FIBO",
+                        target_uri="https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity",
+                        predicate="skos:exactMatch",
+                        confidence=0.91,
+                    )
+                ],
+            ),
+            CanonicalBusinessConcept(
+                concept_uri="urn:ontology:entity:ungrounded_legacy",
+                concept_name="Ungrounded Legacy",
+                target_hub="hub_ungrounded_legacy",
+            ),
+        ],
+    )
+    ext_tbl = TableStructure(
+        table_id="tbl_obligors",
+        headers=["bespoke_obligor_id", "credit_exposure_amt"],
+        rows=[["OB-1", "1000.00"]],
+    )
+    ungrounded_tbl = TableStructure(
+        table_id="tbl_legacy",
+        headers=["ungrounded_legacy_id", "legacy_note"],
+        rows=[["LG-1", "note"]],
+    )
+    prop = pipeline.construct_proposal(
+        base_ontology=grounded_existing_base,
+        tables=[ext_tbl, ungrounded_tbl],
+        options=ConstructOptions(session_id="s-r3-maj02", session_dir=tmp_path),
+    )
+    attr_ops = [op for op in prop.delta.operations if isinstance(op, AddAttributeOp)]
+    assert any(
+        op.concept_uri == "urn:ontology:entity:bespoke_obligor"
+        and op.attribute_name == "credit_exposure_amt"
+        for op in attr_ops
+    )
+    assert not any(op.concept_uri == "urn:ontology:entity:ungrounded_legacy" for op in attr_ops)

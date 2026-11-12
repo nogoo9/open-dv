@@ -439,8 +439,10 @@ describe("Wave 2 Track B1: Pipeline Run Progress Indicators & Static Asset Build
 	});
 
 	describe("3. Static Asset Builder (build-static.ts)", () => {
-		it("generates production index.html and bundles workbench.js + workbench.css", async () => {
+		it("generates production index.html with no-referrer policy and bundles workbench.js + workbench.css", async () => {
 			const html = generateStaticIndexHtml();
+			expect(html).toContain('<meta name="referrer" content="no-referrer" />');
+			expect(html).not.toContain("strict-origin-when-cross-origin");
 			expect(html).toContain('<div id="root"></div>');
 			expect(html).toContain(
 				'<link rel="stylesheet" href="/assets/workbench.css" />',
@@ -458,9 +460,13 @@ describe("Wave 2 Track B1: Pipeline Run Progress Indicators & Static Asset Build
 				expect(result.jsBytes).toBeGreaterThan(1000);
 				expect(result.cssBytes).toBeGreaterThan(100);
 				expect(existsSync(join(tempDir, "index.html"))).toBe(true);
+				expect(existsSync(join(tempDir, "ontology", "index.html"))).toBe(true);
 				expect(existsSync(join(tempDir, "assets", "workbench.js"))).toBe(true);
 				expect(existsSync(join(tempDir, "assets", "workbench.css"))).toBe(true);
 				expect(readFileSync(join(tempDir, "index.html"), "utf-8")).toBe(html);
+				expect(
+					readFileSync(join(tempDir, "ontology", "index.html"), "utf-8"),
+				).toBe(html);
 			} finally {
 				rmSync(tempDir, { recursive: true, force: true });
 			}

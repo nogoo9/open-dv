@@ -5,10 +5,14 @@ from __future__ import annotations
 import hashlib
 import hmac
 import re
-from collections.abc import Sequence
-from typing import Final
+from collections.abc import Mapping, Sequence
+from collections.abc import Set as AbstractSet
+from typing import Any, Final
 
-from opendv_contracts.dtos.ingestion import EvidenceChunk
+from pydantic import BaseModel
+
+from opendv_contracts.dtos.ingestion import EvidenceChunk, IngestionResult, TableStructure
+from opendv_contracts.errors import ErrorCode, OpenDVError
 
 REDACTED_PLACEHOLDER_PATTERN: Final[re.Pattern[str]] = re.compile(r"\[REDACTED_ODV_[A-Z0-9_]+\]")
 PSEUDONYM_TOKEN_PATTERN: Final[re.Pattern[str]] = re.compile(
@@ -108,13 +112,13 @@ class Pseudonymizer:
         return f"Pseudonymizer(active_tokens={len(self._token_to_pseudo)})"
 
     def pseudonymize_token(self, term: str) -> str:
-        """Derive or retrieve a 12-hex HMAC-SHA256 pseudonym for `term`."""
+        """Derive or retrieve a 16-hex HMAC-SHA256 pseudonym for `term`."""
         if not term:
             return term
         if term in self._token_to_pseudo:
             return self._token_to_pseudo[term]
 
-        token_hash = hmac.new(self._k_pseudo, term.encode("utf-8"), hashlib.sha256).hexdigest()[:12]
+        token_hash = hmac.new(self._k_pseudo, term.encode("utf-8"), hashlib.sha256).hexdigest()[:16]
         pseudo = f"pseudo_{token_hash}"
         if pseudo in self._pseudo_to_token and self._pseudo_to_token[pseudo] != term:
             raise ValueError(
@@ -141,9 +145,34 @@ class Pseudonymizer:
         result = text
         for term in sorted_terms:
             pseudo = self.pseudonymize_token(term)
-            pattern = re.compile(rf"(?<!\w){re.escape(term)}(?!\w)", re.IGNORECASE)
+            pattern = re.compile(
+                rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])",
+                re.IGNORECASE,
+            )
             result = pattern.sub(lambda _m, p=pseudo: p, result)
         return result
+
+    def _mask_metadata_value(self, value: Any, effective_terms: Sequence[str], key: str) -> Any:
+        """Recursively pseudonymize string values inside chunk metadata."""
+        if isinstance(value, str):
+            masked_v = self.pseudonymize_text(value, effective_terms)
+            if any(t.strip() and t.strip().lower() in masked_v.lower() for t in effective_terms):
+                raise OpenDVError(
+                    f"Residual confidential substring survived in chunk metadata key '{key}'.",
+                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                )
+            return masked_v
+        if isinstance(value, Mapping):
+            return {
+                k: self._mask_metadata_value(v, effective_terms, f"{key}.{k}")
+                for k, v in value.items()
+                if k != "sensitive_entities"
+            }
+        if isinstance(value, list):
+            return [self._mask_metadata_value(elem, effective_terms, key) for elem in value]
+        if isinstance(value, tuple):
+            return tuple(self._mask_metadata_value(elem, effective_terms, key) for elem in value)
+        return value
 
     def pseudonymize_chunk(
         self,
@@ -151,11 +180,40 @@ class Pseudonymizer:
         sensitive_terms: Sequence[str] | None = None,
     ) -> EvidenceChunk:
         """Return a copy of `chunk` with sensitive terms replaced by HMAC pseudonyms."""
-        terms = sensitive_terms or []
-        if not terms:
+        raw_meta_terms = (
+            chunk.metadata.get("sensitive_entities")
+            if chunk.metadata and isinstance(chunk.metadata, dict)
+            else None
+        )
+        effective_terms: list[str] = [
+            str(t).strip() for t in (sensitive_terms or []) if str(t).strip()
+        ]
+        if not effective_terms and isinstance(raw_meta_terms, (list, tuple)):
+            effective_terms = [str(t).strip() for t in raw_meta_terms if str(t).strip()]
+        if not effective_terms:
+            if chunk.metadata and "sensitive_entities" in chunk.metadata:
+                stripped_meta = dict(chunk.metadata)
+                stripped_meta.pop("sensitive_entities", None)
+                return chunk.model_copy(update={"metadata": stripped_meta})
             return chunk
-        new_text = self.pseudonymize_text(chunk.text, terms)
-        return chunk.model_copy(update={"text": new_text})
+
+        new_text = self.pseudonymize_text(chunk.text, effective_terms)
+        lower_new = new_text.lower()
+        for raw_term in effective_terms:
+            clean_term = raw_term.strip()
+            if clean_term and clean_term.lower() in lower_new:
+                raise OpenDVError(
+                    f"Residual confidential substring '{clean_term}' survived pseudonymization.",
+                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                )
+
+        new_meta: dict[str, Any] = dict(chunk.metadata) if chunk.metadata else {}
+        new_meta.pop("sensitive_entities", None)
+        for k, v in list(new_meta.items()):
+            new_meta[k] = self._mask_metadata_value(v, effective_terms, str(k))
+        new_meta["redacted_entity_count"] = len(effective_terms)
+        new_meta["pseudonymized"] = True
+        return chunk.model_copy(update={"text": new_text, "metadata": new_meta})
 
     def de_pseudonymize(self, text: str) -> str:
         """Map all known `pseudo_*` tokens back to their original plain text.
@@ -182,3 +240,162 @@ class Pseudonymizer:
         """Verify text contains no raw placeholders and no unresolved pseudonyms."""
         scan_redacted_placeholder_leak(text)
         scan_unresolved_pseudonyms(text)
+
+
+def _is_public_taint(taint: Any) -> bool:
+    if taint is None:
+        return False
+    val = taint.value if hasattr(taint, "value") else str(taint)
+    return str(val).lower().strip() == "public"
+
+
+def _walk_privacy_input(val: Any, visited: set[int]) -> None:
+    """Recursively inspect TaskSpec input_data for placeholder leaks and taint violations."""
+    if val is None or isinstance(val, (int, float, bool, bytes, bytearray)):
+        return
+    if isinstance(val, str):
+        scan_redacted_placeholder_leak(val)
+        return
+
+    obj_id = id(val)
+    if obj_id in visited:
+        return
+    visited.add(obj_id)
+
+    if isinstance(val, EvidenceChunk):
+        scan_redacted_placeholder_leak(val.text)
+        meta = val.metadata if isinstance(val.metadata, dict) else {}
+        _walk_privacy_input(meta, visited)
+        if meta.get("do_not_send_to_agent") is True:
+            raise OpenDVError(
+                f"EvidenceChunk '{val.chunk_id}' is marked do_not_send_to_agent and "
+                "cannot be dispatched to an agent TaskSpec.",
+                error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+            )
+        if not _is_public_taint(val.taint):
+            if meta.get("pseudonymized") is not True:
+                raise OpenDVError(
+                    f"Tainted EvidenceChunk '{val.chunk_id}' cannot be dispatched to an "
+                    "agent TaskSpec without HMAC pseudonymization.",
+                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                )
+            raw_sens = meta.get("sensitive_entities")
+            sens = (
+                [str(s).strip() for s in raw_sens if str(s).strip()]
+                if isinstance(raw_sens, (list, tuple))
+                else []
+            )
+            lower_txt = val.text.lower()
+            for s_term in sens:
+                if s_term.lower() in lower_txt:
+                    raise OpenDVError(
+                        f"Unredacted confidential entity '{s_term}' detected in tainted "
+                        f"EvidenceChunk '{val.chunk_id}'.",
+                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                    )
+        return
+
+    if isinstance(val, TableStructure) or (
+        hasattr(val, "table_id") and hasattr(val, "headers") and hasattr(val, "rows")
+    ):
+        tbl_id = str(getattr(val, "table_id", "") or "")
+        caption = str(getattr(val, "caption", "") or "")
+        raw_markup = str(getattr(val, "raw_html_or_md", "") or "")
+        headers = [str(h) for h in (getattr(val, "headers", None) or [])]
+        rows = getattr(val, "rows", None) or []
+        cell_texts = [
+            str(cell)
+            for row in rows
+            if isinstance(row, (list, tuple))
+            for cell in row
+            if cell is not None
+        ]
+        combined = "\n".join([tbl_id, caption, raw_markup, *headers, *cell_texts])
+        scan_redacted_placeholder_leak(combined)
+        meta = val.metadata if isinstance(getattr(val, "metadata", None), dict) else {}
+        _walk_privacy_input(meta, visited)
+        if meta.get("do_not_send_to_agent") is True:
+            raise OpenDVError(
+                f"TableStructure '{tbl_id}' is marked do_not_send_to_agent and "
+                "cannot be dispatched to an agent TaskSpec.",
+                error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+            )
+        tbl_taint = (
+            getattr(val, "taint", None)
+            or getattr(val, "taint_classification", None)
+            or meta.get("taint")
+        )
+        if not _is_public_taint(tbl_taint):
+            if meta.get("pseudonymized") is not True:
+                raise OpenDVError(
+                    f"Tainted TableStructure '{tbl_id}' cannot be dispatched to an "
+                    "agent TaskSpec without HMAC pseudonymization.",
+                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                )
+            raw_sens = meta.get("sensitive_entities")
+            sens = (
+                [str(s).strip() for s in raw_sens if str(s).strip()]
+                if isinstance(raw_sens, (list, tuple))
+                else []
+            )
+            lower_comb = combined.lower()
+            for s_term in sens:
+                if s_term.lower() in lower_comb:
+                    raise OpenDVError(
+                        f"Unredacted confidential entity '{s_term}' detected in tainted "
+                        f"TableStructure '{tbl_id}'.",
+                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                    )
+        return
+
+    if isinstance(val, BaseModel):
+        model_meta = getattr(val, "metadata", None)
+        if isinstance(model_meta, Mapping) and model_meta.get("do_not_send_to_agent") is True:
+            raise OpenDVError(
+                f"{type(val).__name__} is marked do_not_send_to_agent and "
+                "cannot be dispatched to an agent TaskSpec.",
+                error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+            )
+        if (
+            isinstance(val, IngestionResult)
+            and not _is_public_taint(val.taint)
+            and val.normalized_text
+            and not (isinstance(model_meta, Mapping) and model_meta.get("pseudonymized") is True)
+        ):
+            raise OpenDVError(
+                f"Tainted IngestionResult '{val.document_id}' with raw normalized_text "
+                "cannot be dispatched to an agent TaskSpec without HMAC pseudonymization.",
+                error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+            )
+        for field_name in type(val).model_fields:
+            _walk_privacy_input(getattr(val, field_name, None), visited)
+        extra = getattr(val, "model_extra", None)
+        if isinstance(extra, Mapping):
+            _walk_privacy_input(extra, visited)
+        return
+
+    if isinstance(val, Mapping):
+        for k, v in val.items():
+            _walk_privacy_input(k, visited)
+            _walk_privacy_input(v, visited)
+        return
+
+    if isinstance(val, (Sequence, AbstractSet)):
+        for elem in val:
+            _walk_privacy_input(elem, visited)
+        return
+
+
+def validate_task_spec_privacy(
+    prompt: str,
+    system_instructions: str = "",
+    input_data: Any = None,
+) -> None:
+    """Enforce redacted placeholder and confidential taint guards on TaskSpec builders."""
+    scan_redacted_placeholder_leak(prompt)
+    if system_instructions:
+        scan_redacted_placeholder_leak(system_instructions)
+
+    if input_data is None:
+        return
+    _walk_privacy_input(input_data, set())

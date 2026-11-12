@@ -4,32 +4,193 @@
  * Implements:
  * - Mandatory API endpoint verification (REQ-CFG-01).
  * - Contract version guard against `GET /api/v1/health` (REQ-FAIL-01).
- * - Decision D1 inline uploads attached to requests.
- * - Decision D2 async pipeline runs with live SSE streaming via `followEventStream`.
+ * - Decision D1 inline uploads attached to text contract requests (skipped for binary Studio uploads).
+ * - Decision D2 async pipeline runs & Studio jobs (`--wait` polling / `--stream` SSE).
  * - Command dispatch across all platform API endpoints.
  */
 
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { OpenDVPlatformClient } from "@opendv/protocol-ts";
 import { CliDomainError, errorHandler } from "./error-handler";
 import { executeConfigCommand, parseHttpErrorResponse } from "./http-executor";
 import { processInlineUploads } from "./inline-uploader";
-import { type CliCommand, type CliOption, loadCliSpec } from "./spec";
-import { followEventStream } from "./sse-follower";
+import { dumpsJcs } from "./jcs";
+import {
+	type CliCommand,
+	type CliOption,
+	type CliSubcommand,
+	loadCliSpec,
+} from "./spec";
+import {
+	StudioSsePrematureEofError,
+	followEventStream,
+	followStudioJobEvents,
+} from "./sse-follower";
 
 export interface RemoteExecutorConfig {
 	baseUrl?: string | undefined;
 	role?: string | undefined;
+	explicitRole?: boolean | undefined;
 	fetchImpl?: typeof fetch | undefined;
 	writer?: ((msg: string) => void) | undefined;
+	errWriter?: ((msg: string) => void) | undefined;
+	pollIntervalMs?: number | undefined;
+}
+
+const ADMIN_ROLE_NAMES = new Set([
+	"ADMIN",
+	"DATA_STEWARD",
+	"RESTRICTED_PII_CUSTODIAN",
+]);
+
+const DESTRUCTIVE_OP_TYPES = new Set([
+	"remove_concept",
+	"remove_attribute",
+	"remove_relationship",
+	"change_relationship_cardinality",
+	"reparent_concept",
+	"retype_attribute",
+	"split_concept",
+	"merge_concepts",
+]);
+
+function normalizeOpType(rawType: unknown): string {
+	const str = String(rawType ?? "").trim();
+	if (!str) return "";
+	if (str === "AddConceptOp") return "add_concept";
+	if (str.endsWith("Op") && str.length > 2) {
+		const base = str.slice(0, -2);
+		return base.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+	}
+	return str;
+}
+
+function normalizeDeltaOperations(
+	rawOps: unknown,
+): Array<Record<string, unknown>> {
+	if (!Array.isArray(rawOps)) {
+		return [];
+	}
+	return rawOps.map((item, idx) => {
+		if (typeof item !== "object" || item === null || Array.isArray(item)) {
+			return {} as Record<string, unknown>;
+		}
+		const opDict: Record<string, unknown> = {
+			...(item as Record<string, unknown>),
+		};
+		const resolvedType = normalizeOpType(opDict.op_type ?? opDict.op);
+		delete opDict.op;
+		if (resolvedType) {
+			opDict.op_type = resolvedType;
+		}
+		if (!opDict.op_id) {
+			opDict.op_id = `op-${idx + 1}-${randomUUID().replace(/-/g, "").slice(0, 8)}`;
+		}
+		if (
+			opDict.op_type === "add_concept" &&
+			typeof opDict.concept === "object" &&
+			opDict.concept !== null &&
+			!Array.isArray(opDict.concept)
+		) {
+			const conceptFields = {
+				...(opDict.concept as Record<string, unknown>),
+			};
+			delete opDict.concept;
+			return {
+				...conceptFields,
+				...opDict,
+				op_type: "add_concept",
+			};
+		}
+		return opDict;
+	});
+}
+
+function deriveNextSemverClient(
+	baseVersion: string,
+	ops: Array<Record<string, unknown>>,
+): string {
+	const cleanBase = baseVersion.replace(/^v/i, "").trim() || "0.0.0";
+	if (cleanBase === "0.0.0") {
+		const hasConcept = ops.some((op) => op.op_type === "add_concept");
+		return hasConcept ? "1.0.0" : "0.1.0";
+	}
+	const parts = cleanBase.split(".").map((p) => Number.parseInt(p, 10));
+	const maj = Number.isFinite(parts[0]) ? (parts[0] as number) : 0;
+	const min = Number.isFinite(parts[1]) ? (parts[1] as number) : 1;
+	const pat = Number.isFinite(parts[2]) ? (parts[2] as number) : 0;
+
+	const isMajor = ops.some((op) =>
+		DESTRUCTIVE_OP_TYPES.has(String(op.op_type ?? "")),
+	);
+	if (isMajor) {
+		return maj === 0 ? `0.${min + 1}.0` : `${maj + 1}.0.0`;
+	}
+	const isMinor = ops.some((op) => {
+		const t = String(op.op_type ?? "");
+		return (
+			t === "add_concept" ||
+			t === "add_attribute" ||
+			t === "add_relationship" ||
+			t === "add_enum" ||
+			t === "add_enum_member"
+		);
+	});
+	if (isMinor) {
+		return `${maj}.${min + 1}.0`;
+	}
+	return `${maj}.${min}.${pat + 1}`;
+}
+
+function computeCanonicalAnswersSha256(items: unknown[]): string {
+	if (!items || items.length === 0) {
+		return createHash("sha256").update(dumpsJcs([]), "utf-8").digest("hex");
+	}
+	const cleaned = items
+		.filter(
+			(it): it is Record<string, unknown> =>
+				typeof it === "object" && it !== null && !Array.isArray(it),
+		)
+		.map((it) => {
+			const row: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(it)) {
+				if (v !== null && v !== undefined) {
+					row[k] = v;
+				}
+			}
+			return row;
+		})
+		.sort((a, b) =>
+			String(a.question_id ?? "").localeCompare(String(b.question_id ?? "")),
+		);
+	return createHash("sha256").update(dumpsJcs(cleaned), "utf-8").digest("hex");
+}
+
+function normalizeStringArrayOption(val: unknown): string[] {
+	if (val === undefined || val === null) {
+		return [];
+	}
+	const rawItems = Array.isArray(val) ? val : [val];
+	const out: string[] = [];
+	for (const item of rawItems) {
+		for (const part of String(item).split(",")) {
+			const trimmed = part.trim();
+			if (trimmed) out.push(trimmed);
+		}
+	}
+	return out;
 }
 
 export class RemoteExecutor {
 	private readonly baseUrl: string;
 	private readonly role: string;
+	private readonly explicitRole: boolean;
 	private readonly fetchImpl: typeof fetch;
 	private readonly writer: (msg: string) => void;
+	private readonly errWriter: (msg: string) => void;
+	private readonly pollIntervalMs: number;
 	private readonly client: OpenDVPlatformClient;
 
 	constructor(config: RemoteExecutorConfig = {}) {
@@ -46,14 +207,22 @@ export class RemoteExecutor {
 		}
 
 		this.baseUrl = rawUrl.replace(/\/+$/, "");
-		this.role =
-			config.role ||
-			(typeof process !== "undefined" && process.env.OPENDV_ROLE
+		const envRole =
+			typeof process !== "undefined" && process.env.OPENDV_ROLE
 				? process.env.OPENDV_ROLE
-				: undefined) ||
-			"INTERNAL_MODELER";
+				: undefined;
+		this.explicitRole =
+			config.explicitRole !== undefined
+				? config.explicitRole
+				: Boolean(
+						(config.role && config.role !== "INTERNAL_MODELER") ||
+							(envRole && envRole.trim() !== "" && envRole !== "undefined"),
+					);
+		this.role = config.role || envRole || "INTERNAL_MODELER";
 		this.fetchImpl = config.fetchImpl ?? globalThis.fetch.bind(globalThis);
 		this.writer = config.writer ?? ((s) => console.log(s));
+		this.errWriter = config.errWriter ?? ((s) => console.error(s));
+		this.pollIntervalMs = config.pollIntervalMs ?? 50;
 
 		this.client = new OpenDVPlatformClient({
 			baseUrl: this.baseUrl,
@@ -94,13 +263,120 @@ export class RemoteExecutor {
 		}
 	}
 
-	private async resolveWaiverHeaders(options: Record<string, unknown>): Promise<{
+	private assertLoopbackForServerPath(
+		flagName: string,
+		pathValue: unknown,
+	): void {
+		if (
+			pathValue !== undefined &&
+			pathValue !== null &&
+			String(pathValue).trim() !== "" &&
+			!this.isLoopback()
+		) {
+			throw new CliDomainError(
+				"REMOTE_SERVER_PATH_FORBIDDEN",
+				`${flagName} specifies a server-local filesystem path and is forbidden against non-loopback remote endpoints (${this.baseUrl}).`,
+				400,
+			);
+		}
+	}
+
+	private async resolveWaiverHeaders(
+		options: Record<string, unknown>,
+	): Promise<{
 		low_confidence_waiver: boolean;
 		grounding_rationale?: string;
 		headers: Record<string, string>;
 	}> {
 		if (!options.low_confidence_waiver) {
 			return { low_confidence_waiver: false, headers: {} };
+		}
+
+		if (
+			this.isInsecureHttp() &&
+			process.env.OPENDV_ALLOW_INSECURE_HTTP !== "true"
+		) {
+			throw new CliDomainError(
+				"INSECURE_TRANSPORT_REFUSED",
+				"Refusing to transmit privileged steward waiver credentials over plaintext HTTP to non-loopback endpoint. Use HTTPS or set OPENDV_ALLOW_INSECURE_HTTP=true.",
+				403,
+			);
+		}
+
+		// Check caller role BEFORE rationale length (`P13::MAJ-01`, `MAJ-03`):
+		// if an explicit non-admin role was provided, fail immediately with exit 7.
+		const normalizedRole = (this.role || "INTERNAL_MODELER").toUpperCase();
+		if (this.explicitRole && !ADMIN_ROLE_NAMES.has(normalizedRole)) {
+			throw new CliDomainError(
+				"FORBIDDEN_ADMIN_REQUIRED",
+				`Administrative grounding waiver requires admin/steward role clearance (got '${this.role}').`,
+				403,
+			);
+		}
+		if (
+			options.authorized_role &&
+			!ADMIN_ROLE_NAMES.has(String(options.authorized_role).toUpperCase())
+		) {
+			throw new CliDomainError(
+				"FORBIDDEN_ADMIN_REQUIRED",
+				`Authorized waiver role '${options.authorized_role}' is not an administrator/steward role.`,
+				403,
+			);
+		}
+
+		let waiverKey = "";
+		const keyFile = options.waiver_key_file;
+		if (keyFile && typeof keyFile === "string") {
+			let rawContent: string;
+			try {
+				const fs = await import("node:fs/promises");
+				rawContent = await fs.readFile(keyFile, "utf-8");
+			} catch (err: unknown) {
+				if (
+					(err instanceof Error &&
+						"code" in err &&
+						(err as { code: string }).code === "ENOENT") ||
+					String(err).includes("ENOENT")
+				) {
+					throw new CliDomainError(
+						"FILE_NOT_FOUND",
+						`Waiver key file not found: ${keyFile}`,
+						404,
+					);
+				}
+				throw new CliDomainError(
+					"SYNTAX_INVALID_ARGUMENT",
+					`Failed to read waiver key file '${keyFile}': ${err}`,
+					400,
+				);
+			}
+			waiverKey = rawContent.trim();
+			if (!waiverKey) {
+				throw new CliDomainError(
+					"FORBIDDEN_ADMIN_REQUIRED",
+					`Waiver key file '${keyFile}' is empty.`,
+					403,
+				);
+			}
+		} else {
+			// Read OPENDV_WAIVER_KEY strictly as a raw secret (never as a file path!)
+			waiverKey = (process.env.OPENDV_WAIVER_KEY || "").trim();
+		}
+
+		const baseHeaders = this.getHeaders();
+		const hasRemoteBearerAuth =
+			!this.isLoopback() &&
+			Boolean(baseHeaders.Authorization || baseHeaders.authorization);
+
+		// On non-loopback remote endpoints with an RS256 Bearer JWT, do not block remote admins
+		// client-side for lacking a local workstation waiver key file; on loopback or without
+		// remote Bearer auth, require local waiver credentials first (exit 7).
+		if (!waiverKey && !hasRemoteBearerAuth) {
+			throw new CliDomainError(
+				"FORBIDDEN_ADMIN_REQUIRED",
+				"Low-confidence waiver requires steward credentials via --waiver-key-file, OPENDV_WAIVER_KEY, or remote admin Authorization token.",
+				403,
+			);
 		}
 
 		const rationale = options.waiver_rationale || options.grounding_rationale;
@@ -112,43 +388,24 @@ export class RemoteExecutor {
 			);
 		}
 
-		if (this.isInsecureHttp() && process.env.OPENDV_ALLOW_INSECURE_HTTP !== "true") {
-			throw new CliDomainError(
-				"INSECURE_TRANSPORT_REFUSED",
-				"Refusing to transmit privileged steward waiver key over plaintext HTTP to non-loopback endpoint. Use HTTPS or set OPENDV_ALLOW_INSECURE_HTTP=true.",
-				403,
-			);
+		const headers: Record<string, string> = {};
+		if (waiverKey) {
+			headers["X-OpenDV-Waiver-Key"] = waiverKey
+				.replace(/^Bearer\s+/i, "")
+				.trim();
 		}
 
-		let waiverKey = (process.env.OPENDV_WAIVER_KEY || "").trim();
-		const keyFile = options.waiver_key_file;
-		if (keyFile && typeof keyFile === "string") {
-			try {
-				const fs = await import("node:fs/promises");
-				waiverKey = (await fs.readFile(keyFile, "utf-8")).trim();
-			} catch {
-				throw new CliDomainError("FORBIDDEN_ADMIN_REQUIRED", "Waiver key file could not be read", 403);
-			}
-		}
-
-		if (!waiverKey) {
-			throw new CliDomainError(
-				"FORBIDDEN_ADMIN_REQUIRED",
-				"Low-confidence waiver requires steward credentials via --waiver-key-file or OPENDV_WAIVER_KEY.",
-				403,
-			);
-		}
-
-		waiverKey = waiverKey.replace(/^Bearer\s+/i, "").trim();
 		return {
 			low_confidence_waiver: true,
 			grounding_rationale: String(rationale).trim(),
-			headers: { "X-OpenDV-Waiver-Key": waiverKey },
+			headers,
 		};
 	}
 
 	getHeaders(extraHeaders?: Record<string, string>): Record<string, string> {
-		const normalizedRole = this.role ? this.role.toUpperCase() : "INTERNAL_MODELER";
+		const normalizedRole = this.role
+			? this.role.toUpperCase()
+			: "INTERNAL_MODELER";
 		const allowedRoles = new Set([
 			"PUBLIC",
 			"INTERNAL_MODELER",
@@ -158,11 +415,12 @@ export class RemoteExecutor {
 			"ADMIN",
 			"EDITOR",
 			"VIEWER",
+			"AUTOMATED",
 		]);
 		if (!allowedRoles.has(normalizedRole)) {
 			throw new CliDomainError(
 				"SYNTAX_INVALID_ARGUMENT",
-				`Invalid or unsupported role: ${this.role}. Supported roles: PUBLIC, INTERNAL_MODELER, DATA_STEWARD, RESTRICTED_PII_CUSTODIAN, AUDITOR_FINANCE, ADMIN, EDITOR, VIEWER`,
+				`Invalid or unsupported role: ${this.role}. Supported roles: PUBLIC, INTERNAL_MODELER, DATA_STEWARD, RESTRICTED_PII_CUSTODIAN, AUDITOR_FINANCE, ADMIN, EDITOR, VIEWER, AUTOMATED`,
 				400,
 			);
 		}
@@ -184,7 +442,10 @@ export class RemoteExecutor {
 				} else if (genericToken) {
 					headers.Authorization = `Bearer ${genericToken}`;
 				} else if (process.env.OPENDV_STUDIO_DIR) {
-					const tokenPath = path.join(process.env.OPENDV_STUDIO_DIR, ".local_token");
+					const tokenPath = path.join(
+						process.env.OPENDV_STUDIO_DIR,
+						".local_token",
+					);
 					if (existsSync(tokenPath)) {
 						try {
 							const tok = readFileSync(tokenPath, "utf-8").trim();
@@ -200,7 +461,10 @@ export class RemoteExecutor {
 				// Remote endpoints: ONLY generic OPENDV_TOKEN (never leak local workstation OPENDV_STUDIO_TOKEN or .local_token)
 				const remoteToken = (process.env.OPENDV_TOKEN || "").trim();
 				if (remoteToken) {
-					if (this.isInsecureHttp() && process.env.OPENDV_ALLOW_INSECURE_HTTP !== "true") {
+					if (
+						this.isInsecureHttp() &&
+						process.env.OPENDV_ALLOW_INSECURE_HTTP !== "true"
+					) {
 						// Refuse to attach bearer credentials over plaintext http to remote hosts without opt-in
 					} else {
 						headers.Authorization = `Bearer ${remoteToken}`;
@@ -275,6 +539,29 @@ export class RemoteExecutor {
 		return res.json();
 	}
 
+	private async deleteRequest(
+		endpoint: string,
+		extraHeaders?: Record<string, string>,
+	): Promise<unknown> {
+		const res = await this.fetchImpl(`${this.baseUrl}${endpoint}`, {
+			method: "DELETE",
+			headers: this.getHeaders(extraHeaders),
+		});
+
+		if (!res.ok) {
+			throw await this.parseErrorResponse(res);
+		}
+
+		if (res.status === 204) {
+			return null;
+		}
+		const text = await res.text();
+		if (!text.trim()) {
+			return null;
+		}
+		return JSON.parse(text);
+	}
+
 	private async postFormData(
 		endpoint: string,
 		formData: FormData,
@@ -297,6 +584,226 @@ export class RemoteExecutor {
 		return res.json();
 	}
 
+	private throwIfFailedJobRecord(jobObj: Record<string, unknown>): void {
+		const statusUpper = String(jobObj.status ?? "").toUpperCase();
+		if (statusUpper === "FAILED") {
+			const errObj =
+				typeof jobObj.error === "object" && jobObj.error !== null
+					? (jobObj.error as Record<string, unknown>)
+					: jobObj;
+			const code = String(
+				errObj.code || errObj.error_code || "INTERNAL_ERROR",
+			);
+			const detail = String(
+				errObj.detail || errObj.message || "Studio background job failed.",
+			);
+			const httpStatus =
+				typeof errObj.status === "number" ? errObj.status : undefined;
+			throw new CliDomainError(code, detail, httpStatus);
+		}
+		if (statusUpper === "CANCELLED") {
+			const errObj =
+				typeof jobObj.error === "object" && jobObj.error !== null
+					? (jobObj.error as Record<string, unknown>)
+					: {};
+			const detail = String(
+				errObj.detail || errObj.message || "Studio background job was cancelled.",
+			);
+			throw new CliDomainError("JOB_ALREADY_TERMINAL", detail, 409);
+		}
+	}
+
+	private async waitForStudioJob(
+		sid: string,
+		initialPayload: unknown,
+		options: Record<string, unknown>,
+	): Promise<unknown> {
+		const wantsWait = Boolean(options.wait);
+		const wantsStream = Boolean(options.stream);
+		if (!wantsWait && !wantsStream) {
+			return initialPayload;
+		}
+
+		if (typeof initialPayload !== "object" || initialPayload === null) {
+			return initialPayload;
+		}
+
+		const initObj = initialPayload as Record<string, unknown>;
+		this.throwIfFailedJobRecord(initObj);
+
+		const initStatus = String(initObj.status ?? "").toUpperCase();
+		const jobId = initObj.job_id ? String(initObj.job_id) : "";
+		if (!jobId) {
+			return initialPayload;
+		}
+
+		const encodedSid = encodeURIComponent(sid);
+		const encodedJobId = encodeURIComponent(jobId);
+		const jobStatusEndpoint = `/api/v1/ontology/studio/sessions/${encodedSid}/jobs/${encodedJobId}`;
+
+		if (wantsStream) {
+			const isJsonOut =
+				options.json === true || options.format === "json";
+			const streamLogger = isJsonOut ? this.errWriter : this.writer;
+			const streamUrl = `${this.baseUrl}${jobStatusEndpoint}/events`;
+
+			try {
+				const streamSummary = await followStudioJobEvents({
+					streamUrl,
+					headers: this.getHeaders(),
+					streamEnabled: true,
+					writer: streamLogger,
+					fetchImpl: this.fetchImpl,
+				});
+				try {
+					const finalJob = (await this.getJson(jobStatusEndpoint)) as Record<
+						string,
+						unknown
+					>;
+					this.throwIfFailedJobRecord(finalJob);
+					return finalJob;
+				} catch (err) {
+					if (err instanceof CliDomainError && err.errorCode !== "JOB_NOT_FOUND") {
+						throw err;
+					}
+					return { ...initObj, ...streamSummary, status: "COMPLETED" };
+				}
+			} catch (err) {
+				if (!(err instanceof StudioSsePrematureEofError)) {
+					throw err;
+				}
+				// Premature SSE EOF without terminal event: fall through to poll job status
+				// so disconnects are never masked as COMPLETED!
+			}
+		}
+
+		if (initStatus === "COMPLETED") {
+			return initialPayload;
+		}
+
+		// Poll job status until terminal state with adaptive backoff + wall-clock deadline (P13 MAJ-03)
+		const configuredTimeoutMs = Number(
+			process.env.OPENDV_JOB_WAIT_TIMEOUT_MS || 600_000,
+		);
+		const maxWaitMs =
+			Number.isFinite(configuredTimeoutMs) && configuredTimeoutMs > 0
+				? configuredTimeoutMs
+				: 600_000;
+		const startedAt = Date.now();
+		for (let attempt = 0; ; attempt++) {
+			const jobRecord = (await this.getJson(jobStatusEndpoint)) as Record<
+				string,
+				unknown
+			>;
+			this.throwIfFailedJobRecord(jobRecord);
+			const st = String(jobRecord.status ?? "").toUpperCase();
+			if (st === "COMPLETED") {
+				return jobRecord;
+			}
+			const elapsedMs = Date.now() - startedAt;
+			if (elapsedMs >= maxWaitMs) {
+				break;
+			}
+			const baseDelayMs =
+				attempt < 10
+					? this.pollIntervalMs
+					: elapsedMs < 5_000
+						? Math.max(this.pollIntervalMs, 250)
+						: Math.max(this.pollIntervalMs, 1_000);
+			const sleepMs = Math.min(baseDelayMs, Math.max(1, maxWaitMs - elapsedMs));
+			await new Promise((resolve) => setTimeout(resolve, sleepMs));
+		}
+
+		throw new CliDomainError(
+			"API_UNREACHABLE",
+			`Timed out waiting for Studio job '${jobId}' in session '${sid}' to reach terminal state.`,
+			503,
+		);
+	}
+
+	private async fetchSessionDetail(
+		sid: string,
+	): Promise<Record<string, unknown>> {
+		const encodedSid = encodeURIComponent(sid);
+		try {
+			return (await this.getJson(
+				`/api/v1/ontology/studio/sessions/${encodedSid}`,
+			)) as Record<string, unknown>;
+		} catch (err) {
+			if (
+				err instanceof CliDomainError &&
+				err.httpStatus === 404 &&
+				err.errorCode !== "SESSION_NOT_FOUND"
+			) {
+				return (await this.getJson(
+					`/api/v1/ontology/studio/sessions/${encodedSid}/status`,
+				)) as Record<string, unknown>;
+			}
+			throw err;
+		}
+	}
+
+	private async readLocalJsonFile(
+		filePath: string,
+		label: string,
+	): Promise<unknown> {
+		let rawText: string;
+		try {
+			const fs = await import("node:fs/promises");
+			rawText = await fs.readFile(filePath, "utf-8");
+		} catch (err: unknown) {
+			if (
+				(err instanceof Error &&
+					"code" in err &&
+					(err as { code: string }).code === "ENOENT") ||
+				String(err).includes("ENOENT")
+			) {
+				throw new CliDomainError(
+					"FILE_NOT_FOUND",
+					`${label} file not found: ${filePath}`,
+					404,
+				);
+			}
+			throw new CliDomainError(
+				"SYNTAX_INVALID_ARGUMENT",
+				`Failed to read ${label} file '${filePath}': ${err}`,
+				400,
+			);
+		}
+
+		const trimmed = rawText.trim();
+		if (!trimmed) {
+			throw new CliDomainError(
+				"SYNTAX_INVALID_ARGUMENT",
+				`${label} file '${filePath}' is empty.`,
+				400,
+			);
+		}
+
+		try {
+			return JSON.parse(trimmed);
+		} catch (err) {
+			const yamlApi = (
+				Bun as typeof Bun & { YAML?: { parse: (s: string) => unknown } }
+			).YAML;
+			if (
+				yamlApi &&
+				(filePath.endsWith(".yaml") || filePath.endsWith(".yml"))
+			) {
+				try {
+					return yamlApi.parse(trimmed);
+				} catch {
+					// fall through
+				}
+			}
+			throw new CliDomainError(
+				"SYNTAX_INVALID_ARGUMENT",
+				`Malformed ${label} JSON in '${filePath}': ${err}`,
+				400,
+			);
+		}
+	}
+
 	async execute(
 		command: string,
 		subcommand: string | undefined,
@@ -305,34 +812,43 @@ export class RemoteExecutor {
 		// 1. Contract version guard
 		await this.verifyContractVersion();
 
-		// 2. Resolve spec options for inline file uploads (Decision D1)
-		const spec = loadCliSpec();
-		const cmdDef = spec.commands.find((c) => c.name === command);
-		const specOptions: CliOption[] = [...spec.global_options];
-		if (cmdDef?.options) {
-			specOptions.push(...cmdDef.options);
-		}
-		if (subcommand && cmdDef?.subcommands) {
-			const subTokens = subcommand.split(" ");
-			let currentCmd: CliCommand | CliSubcommand | undefined = cmdDef;
-			for (const tok of subTokens) {
-				if (currentCmd?.subcommands) {
-					const found = currentCmd.subcommands.find(
-						(s) => s.name === tok || (s.aliases && s.aliases.includes(tok)),
-					);
-					if (found) {
-						if (found.options) {
-							specOptions.push(...found.options);
+		// 2. Skip text `processInlineUploads` on `ontology studio` commands (`MAJ-04`)
+		// so binary PDFs, Parquet, Office, and .odvstudio.zip archives are never UTF-8 decoded.
+		const isStudioCommand =
+			command === "ontology" &&
+			Boolean(subcommand && subcommand.toLowerCase().startsWith("studio"));
+
+		let enrichedOptions: Record<string, unknown>;
+		if (isStudioCommand) {
+			enrichedOptions = { ...rawOptions };
+		} else {
+			const spec = loadCliSpec();
+			const cmdDef = spec.commands.find((c) => c.name === command);
+			const specOptions: CliOption[] = [...spec.global_options];
+			if (cmdDef?.options) {
+				specOptions.push(...cmdDef.options);
+			}
+			if (subcommand && cmdDef?.subcommands) {
+				const subTokens = subcommand.split(" ");
+				let currentCmd: CliCommand | CliSubcommand | undefined = cmdDef;
+				for (const tok of subTokens) {
+					if (currentCmd?.subcommands) {
+						const found: CliSubcommand | undefined = currentCmd.subcommands.find(
+							(s) => s.name === tok || (s.aliases && s.aliases.includes(tok)),
+						);
+						if (found) {
+							if (found.options) {
+								specOptions.push(...found.options);
+							}
+							currentCmd = found;
+						} else {
+							break;
 						}
-						currentCmd = found;
-					} else {
-						break;
 					}
 				}
 			}
+			enrichedOptions = await processInlineUploads(rawOptions, specOptions);
 		}
-
-		const enrichedOptions = await processInlineUploads(rawOptions, specOptions);
 
 		let payload: unknown;
 
@@ -654,7 +1170,7 @@ export class RemoteExecutor {
 				if (!subcommand) {
 					throw new CliDomainError(
 						"INVALID_REQUEST",
-						"Missing ontology subcommand (suggest, validate-delta, diff, accept, reject)",
+						"Missing ontology subcommand (suggest, validate-delta, diff, accept, reject, studio)",
 						400,
 					);
 				}
@@ -853,7 +1369,6 @@ export class RemoteExecutor {
 
 		switch (studioSub) {
 			case "init": {
-				// Task 5C.3 / Task 5C.2: Prohibited against remote platform API endpoints
 				throw new CliDomainError(
 					"LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE",
 					"The 'ontology studio init' command generates a local workstation loopback secret and is prohibited against remote platform API endpoints.",
@@ -862,25 +1377,52 @@ export class RemoteExecutor {
 			}
 
 			case "create": {
-				const body: Record<string, unknown> = {};
+				this.assertLoopbackForServerPath(
+					"--from-workspace",
+					options.from_workspace,
+				);
+				const body: Record<string, unknown> = {
+					domain_namespace: options.domain_namespace || "general",
+					enterprise_owner:
+						options.enterprise_owner || "Enterprise Architecture",
+				};
 				if (options.session) body.session_id = options.session;
-				if (options.domain_namespace) body.domain_namespace = options.domain_namespace;
-				if (options.enterprise_owner) body.enterprise_owner = options.enterprise_owner;
 				if (options.description) body.description = options.description;
 				if (options.ontology_id) body.ontology_id = options.ontology_id;
-				if (options.from_workspace) body.from_workspace = options.from_workspace;
+				if (options.from_workspace)
+					body.from_workspace = options.from_workspace;
 				if (options.session_label) body.session_label = options.session_label;
 				return await this.postJson("/api/v1/ontology/studio/sessions", body);
+			}
+
+			case "delete": {
+				const sid = options.session;
+				if (!sid) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
+				}
+				const forceParam = options.force ? "?force=true" : "";
+				const resp = await this.deleteRequest(
+					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}${forceParam}`,
+				);
+				return resp ?? { session_id: String(sid), status: "DELETED" };
 			}
 
 			case "list": {
 				const params = new URLSearchParams();
 				const limit =
-					options.limit !== undefined && Number.isInteger(Number(options.limit)) && Number(options.limit) >= 0
+					options.limit !== undefined &&
+					Number.isInteger(Number(options.limit)) &&
+					Number(options.limit) >= 0
 						? String(options.limit)
 						: "50";
 				const offset =
-					options.offset !== undefined && Number.isInteger(Number(options.offset)) && Number(options.offset) >= 0
+					options.offset !== undefined &&
+					Number.isInteger(Number(options.offset)) &&
+					Number(options.offset) >= 0
 						? String(options.offset)
 						: "0";
 				params.set("limit", limit);
@@ -888,25 +1430,49 @@ export class RemoteExecutor {
 				if (options.status) {
 					params.set("status", String(options.status));
 				}
-				return await this.getJson(`/api/v1/ontology/studio/sessions?${params.toString()}`);
+				return await this.getJson(
+					`/api/v1/ontology/studio/sessions?${params.toString()}`,
+				);
 			}
 
 			case "status": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
-				return await this.getJson(
-					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/status`,
-				);
+				const encodedSid = encodeURIComponent(String(sid));
+				try {
+					return await this.getJson(
+						`/api/v1/ontology/studio/sessions/${encodedSid}/status`,
+					);
+				} catch (err) {
+					if (
+						err instanceof CliDomainError &&
+						err.httpStatus === 404 &&
+						err.errorCode !== "SESSION_NOT_FOUND"
+					) {
+						return await this.fetchSessionDetail(String(sid));
+					}
+					throw err;
+				}
 			}
 
 			case "upload": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
-				const filePath = (options.file_path || options.file) as string | undefined;
+				const filePath = (options.file_path || options.file) as
+					| string
+					| undefined;
 				let rawBuffer: Buffer | Uint8Array | null = null;
 				let fileName = "upload";
 
@@ -915,37 +1481,61 @@ export class RemoteExecutor {
 					try {
 						const stat = await fs.stat(filePath);
 						if (stat.size === 0) {
-							throw new CliDomainError("CORRUPT_SOURCE_BLOB", `Source file '${filePath}' is empty (0 bytes).`, 422);
+							throw new CliDomainError(
+								"CORRUPT_SOURCE_BLOB",
+								`Source file '${filePath}' is empty (0 bytes).`,
+								422,
+							);
 						}
 						rawBuffer = await fs.readFile(filePath);
 					} catch (err: unknown) {
 						if (err instanceof CliDomainError) throw err;
 						if (
-							(err instanceof Error && "code" in err && (err as { code: string }).code === "ENOENT") ||
+							(err instanceof Error &&
+								"code" in err &&
+								(err as { code: string }).code === "ENOENT") ||
 							String(err).includes("ENOENT")
 						) {
-							throw new CliDomainError("FILE_NOT_FOUND", `Source file not found: ${filePath}`, 404);
+							throw new CliDomainError(
+								"FILE_NOT_FOUND",
+								`Source file not found: ${filePath}`,
+								404,
+							);
 						}
-						throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", `Failed to read source file '${filePath}': ${err}`, 400);
+						throw new CliDomainError(
+							"SYNTAX_INVALID_ARGUMENT",
+							`Failed to read source file '${filePath}': ${err}`,
+							400,
+						);
 					}
 					fileName = filePath.split(/[\\/]/).pop() || "upload";
 				} else if (options.file_content !== undefined) {
 					const strContent = String(options.file_content);
 					if (strContent.length === 0) {
-						throw new CliDomainError("CORRUPT_SOURCE_BLOB", "Source content is empty (0 bytes).", 422);
+						throw new CliDomainError(
+							"CORRUPT_SOURCE_BLOB",
+							"Source content is empty (0 bytes).",
+							422,
+						);
 					}
 					rawBuffer = Buffer.from(strContent, "utf-8");
 				} else {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --file or source content", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --file or source content",
+						400,
+					);
 				}
 
 				const formData = new FormData();
-				const blob = new Blob([rawBuffer], { type: "application/octet-stream" });
+				const blob = new Blob([new Uint8Array(rawBuffer)], {
+					type: "application/octet-stream",
+				});
 				formData.append("file", blob, fileName);
 				const isConfidential = Boolean(
 					options.confidential ||
-					options["do-not-send-to-agent"] ||
-					options.do_not_send_to_agent
+						options["do-not-send-to-agent"] ||
+						options.do_not_send_to_agent,
 				);
 				if (isConfidential) {
 					formData.append("do_not_send_to_agent", "true");
@@ -962,29 +1552,42 @@ export class RemoteExecutor {
 			case "parse": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
 				const body: Record<string, unknown> = {
 					ocr_mode: options.ocr_mode || "auto",
 				};
+				const combinedSourceIds: string[] = [];
 				if (options.source_id) {
-					body.source_ids = [options.source_id];
+					combinedSourceIds.push(...normalizeStringArrayOption(options.source_id));
 				}
 				if (options.source_ids) {
-					body.source_ids = Array.isArray(options.source_ids)
-						? options.source_ids
-						: String(options.source_ids).split(",").map((s) => s.trim()).filter(Boolean);
+					combinedSourceIds.push(
+						...normalizeStringArrayOption(options.source_ids),
+					);
 				}
-				return await this.postJson(
+				if (combinedSourceIds.length > 0) {
+					body.source_ids = combinedSourceIds;
+				}
+				const handle = await this.postJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/parse`,
 					body,
 				);
+				return await this.waitForStudioJob(String(sid), handle, options);
 			}
 
 			case "clarify": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
 				const body: Record<string, unknown> = {};
 				if (options.focus_concept) {
@@ -993,38 +1596,195 @@ export class RemoteExecutor {
 				if (options.max_questions !== undefined) {
 					body.max_questions = options.max_questions;
 				}
-				return await this.postJson(
+				if (options.mode) {
+					body.mode = options.mode;
+				}
+				const handle = await this.postJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/clarify`,
 					body,
 				);
+				return await this.waitForStudioJob(String(sid), handle, options);
 			}
 
 			case "answer": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
-				let answersData: unknown = options.file_content;
-				if (!answersData && options.file) {
-					const filePath = String(options.file);
-					try {
-						const fs = await import("node:fs/promises");
-						answersData = await fs.readFile(filePath, "utf-8");
-					} catch {
-						throw new CliDomainError("FILE_NOT_FOUND", `Answers file not found: ${filePath}`, 404);
+
+				const normalizedItems: Array<Record<string, unknown>> = [];
+				let fileExpectedSha: string | undefined;
+
+				if (options.file || options.file_content !== undefined) {
+					let parsedRaw: unknown = options.file_content;
+					if (parsedRaw === undefined && options.file) {
+						parsedRaw = await this.readLocalJsonFile(
+							String(options.file),
+							"Answers",
+						);
+					} else if (typeof parsedRaw === "string") {
+						try {
+							parsedRaw = JSON.parse(parsedRaw);
+						} catch (err) {
+							throw new CliDomainError(
+								"SYNTAX_INVALID_ARGUMENT",
+								`Malformed answers JSON: ${err}`,
+								400,
+							);
+						}
+					}
+
+					let rawList: unknown[] = [];
+					if (Array.isArray(parsedRaw)) {
+						rawList = parsedRaw;
+					} else if (
+						typeof parsedRaw === "object" &&
+						parsedRaw !== null &&
+						Array.isArray((parsedRaw as Record<string, unknown>).answers)
+					) {
+						const wrapper = parsedRaw as Record<string, unknown>;
+						rawList = wrapper.answers as unknown[];
+						if (typeof wrapper.expected_answers_sha256 === "string") {
+							fileExpectedSha = wrapper.expected_answers_sha256;
+						}
+					} else if (typeof parsedRaw === "object" && parsedRaw !== null) {
+						// Map dict of `{ [question_id]: value }` to ClarificationAnswerItem[]
+						for (const [qid, val] of Object.entries(
+							parsedRaw as Record<string, unknown>,
+						)) {
+							if (Array.isArray(val)) {
+								rawList.push({
+									question_id: qid,
+									selected_options: val.map(String),
+								});
+							} else if (typeof val === "object" && val !== null) {
+								rawList.push({
+									question_id: qid,
+									...(val as Record<string, unknown>),
+								});
+							} else {
+								rawList.push({ question_id: qid, user_text: String(val ?? "") });
+							}
+						}
+					}
+
+					for (const entry of rawList) {
+						if (typeof entry !== "object" || entry === null) {
+							throw new CliDomainError(
+								"SYNTAX_INVALID_ARGUMENT",
+								"Each clarification answer must be an object.",
+								400,
+							);
+						}
+						const eObj = entry as Record<string, unknown>;
+						const qid = String(eObj.question_id ?? "").trim();
+						if (!qid) {
+							throw new CliDomainError(
+								"SYNTAX_INVALID_ARGUMENT",
+								"Clarification answer item is missing 'question_id'.",
+								400,
+							);
+						}
+						const selectedOptions = Array.isArray(eObj.selected_options)
+							? eObj.selected_options.map(String)
+							: eObj.option !== undefined
+								? normalizeStringArrayOption(eObj.option)
+								: [];
+						const userText =
+							eObj.user_text !== undefined && eObj.user_text !== null
+								? String(eObj.user_text)
+								: eObj.answer !== undefined && eObj.answer !== null
+									? String(eObj.answer)
+									: eObj.text !== undefined && eObj.text !== null
+										? String(eObj.text)
+										: "";
+						normalizedItems.push({
+							question_id: qid,
+							selected_options: selectedOptions,
+							user_text: userText,
+						});
 					}
 				}
-				if (typeof answersData === "string") {
-					try {
-						answersData = JSON.parse(answersData);
-					} catch (err) {
-						throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", `Malformed answers JSON: ${err}`, 400);
+
+				if (options.question_id) {
+					const qid = String(options.question_id).trim();
+					const selectedOptions = normalizeStringArrayOption(options.option);
+					const userText =
+						options.text !== undefined && options.text !== null
+							? String(options.text)
+							: "";
+					if (selectedOptions.length === 0 && !userText.trim()) {
+						throw new CliDomainError(
+							"SYNTAX_INVALID_ARGUMENT",
+							"Single-question answer requires --option (-o) and/or --text (-t).",
+							400,
+						);
+					}
+					normalizedItems.push({
+						question_id: qid,
+						selected_options: selectedOptions,
+						user_text: userText,
+					});
+				}
+
+				if (normalizedItems.length === 0) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing clarification answers: provide --file (-f) or --question-id (-q) with --option/-o or --text/-t.",
+						400,
+					);
+				}
+
+				const explicitAnswersShaRaw =
+					options.expected_answers_sha256 !== undefined
+						? String(options.expected_answers_sha256)
+						: fileExpectedSha;
+				let expectedAnswersSha = explicitAnswersShaRaw
+					? explicitAnswersShaRaw.trim().replace(/^"|"$/g, "")
+					: undefined;
+
+				if (!expectedAnswersSha) {
+					const encodedSid = encodeURIComponent(String(sid));
+					const currentResp = await this.getJson(
+						`/api/v1/ontology/studio/sessions/${encodedSid}/answers`,
+					);
+					const currentArr = Array.isArray(currentResp)
+						? currentResp
+						: typeof currentResp === "object" &&
+								currentResp !== null &&
+								Array.isArray((currentResp as Record<string, unknown>).answers)
+							? ((currentResp as Record<string, unknown>).answers as unknown[])
+							: [];
+					if (currentArr.length > 0) {
+						throw new CliDomainError(
+							"MISSING_AUTO_COMMIT_PRECONDITION",
+							"Existing clarification answers require explicit --expected-answers-sha256 precondition.",
+							400,
+						);
+					}
+					if (
+						typeof currentResp === "object" &&
+						currentResp !== null &&
+						!Array.isArray(currentResp) &&
+						typeof (currentResp as Record<string, unknown>).answers_sha256 ===
+							"string"
+					) {
+						expectedAnswersSha = String(
+							(currentResp as Record<string, unknown>).answers_sha256,
+						);
+					} else {
+						expectedAnswersSha = computeCanonicalAnswersSha256(currentArr);
 					}
 				}
-				if (!answersData || (Array.isArray(answersData) && answersData.length === 0)) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required answers content or file", 400);
-				}
-				const body = { answers: answersData };
+
+				const body = {
+					answers: normalizedItems,
+					expected_answers_sha256: expectedAnswersSha,
+				};
 				return await this.postJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/answers`,
 					body,
@@ -1034,59 +1794,184 @@ export class RemoteExecutor {
 			case "construct": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
+				const mode = String(options.mode || "auto");
+				const autoCommit = Boolean(options.auto_commit);
+				const extraHeaders: Record<string, string> = {};
+
+				if (autoCommit) {
+					if (
+						mode !== "deterministic" ||
+						!options.base_version ||
+						options.base_sha256 === undefined ||
+						options.base_sha256 === null ||
+						String(options.base_sha256).trim() === ""
+					) {
+						throw new CliDomainError(
+							"MISSING_AUTO_COMMIT_PRECONDITION",
+							"--auto-commit requires --mode deterministic, --base-version, and --base-sha256.",
+							400,
+						);
+					}
+					extraHeaders["If-Match"] = `"${String(options.base_sha256)}"`;
+				}
+
 				const body: Record<string, unknown> = {
 					base_version: options.base_version,
 					base_sha256: options.base_sha256,
-					mode: options.mode || "auto",
-					auto_commit: Boolean(options.auto_commit),
+					mode,
+					auto_commit: autoCommit,
 				};
-				return await this.postJson(
+				const handle = await this.postJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/construct`,
 					body,
+					extraHeaders,
 				);
+				return await this.waitForStudioJob(String(sid), handle, options);
 			}
 
 			case "delta validate": {
 				let deltaContent = options.file_content as unknown;
-				if (!deltaContent && (options.file || options.delta)) {
-					const filePath = String(options.file || options.delta);
-					try {
-						const fs = await import("node:fs/promises");
-						deltaContent = await fs.readFile(filePath, "utf-8");
-					} catch {
-						throw new CliDomainError("FILE_NOT_FOUND", `Delta file not found: ${filePath}`, 404);
-					}
-				}
-				if (typeof deltaContent === "string") {
+				const deltaPath = options.file || options.delta;
+				if (deltaContent === undefined && deltaPath) {
+					deltaContent = await this.readLocalJsonFile(
+						String(deltaPath),
+						"Delta",
+					);
+				} else if (typeof deltaContent === "string") {
 					try {
 						deltaContent = JSON.parse(deltaContent);
 					} catch (err) {
-						throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", `Malformed delta JSON: ${err}`, 400);
+						throw new CliDomainError(
+							"SYNTAX_INVALID_ARGUMENT",
+							`Malformed delta JSON: ${err}`,
+							400,
+						);
 					}
 				}
-				const sid = options.session;
-				if (sid) {
-					const body: Record<string, unknown> =
-						typeof deltaContent === "object" && deltaContent !== null
-							? { ...(deltaContent as Record<string, unknown>) }
-							: {};
-					if (options.base_version) body.base_version = options.base_version;
-					if (options.base_sha256) body.base_sha256 = options.base_sha256;
-					return await this.postJson(
-						`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/deltas/validate`,
-						body,
+				if (!deltaContent || typeof deltaContent !== "object") {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --file (-f) or --delta JSON payload.",
+						400,
 					);
 				}
-				const body: Record<string, unknown> = {};
-				if (typeof deltaContent === "object" && deltaContent !== null) {
-					body.delta = deltaContent;
-				} else if (typeof deltaContent === "string") {
-					body.delta_content = deltaContent;
-				} else if (typeof options.file_content === "string") {
-					body.delta_content = options.file_content;
+
+				const rawDeltaObj: Record<string, unknown> = Array.isArray(deltaContent)
+					? { operations: deltaContent }
+					: { ...(deltaContent as Record<string, unknown>) };
+				const normalizedOps = normalizeDeltaOperations(rawDeltaObj.operations);
+
+				const sid = options.session;
+				if (sid) {
+					const waiverInfo = await this.resolveWaiverHeaders(options);
+					let resolvedBaseVer = options.base_version
+						? String(options.base_version)
+						: typeof rawDeltaObj.base_version === "string"
+							? rawDeltaObj.base_version
+							: undefined;
+					const deltaProvidedSha =
+						typeof rawDeltaObj.parent_sha256 === "string" &&
+						rawDeltaObj.parent_sha256.trim() !== ""
+							? rawDeltaObj.parent_sha256.trim().replace(/^"|"$/g, "")
+							: typeof rawDeltaObj.base_sha256 === "string" &&
+									rawDeltaObj.base_sha256.trim() !== ""
+								? rawDeltaObj.base_sha256.trim().replace(/^"|"$/g, "")
+								: undefined;
+					const callerProvidedSha =
+						options.base_sha256 !== undefined
+							? String(options.base_sha256).trim().replace(/^"|"$/g, "")
+							: deltaProvidedSha;
+					let resolvedParentSha = callerProvidedSha;
+
+					if (resolvedBaseVer === undefined || resolvedParentSha === undefined) {
+						const sessionDetail = await this.fetchSessionDetail(String(sid));
+						if (resolvedBaseVer === undefined) {
+							resolvedBaseVer = String(
+								sessionDetail.active_version ??
+									sessionDetail.head_version ??
+									"0.0.0",
+							);
+						}
+						if (resolvedParentSha === undefined) {
+							resolvedParentSha =
+								resolvedBaseVer.replace(/^v/i, "") === "0.0.0"
+									? ""
+									: String(sessionDetail.head_sha256 ?? "");
+						}
+					}
+
+					const body: Record<string, unknown> = {
+						...rawDeltaObj,
+						delta_id:
+							typeof rawDeltaObj.delta_id === "string" && rawDeltaObj.delta_id
+								? rawDeltaObj.delta_id
+								: `delta-${randomUUID().replace(/-/g, "").slice(0, 12)}`,
+						base_version: resolvedBaseVer,
+						parent_sha256: resolvedParentSha,
+						target_version:
+							typeof rawDeltaObj.target_version === "string" &&
+							rawDeltaObj.target_version
+								? rawDeltaObj.target_version
+								: deriveNextSemverClient(resolvedBaseVer, normalizedOps),
+						operations: normalizedOps,
+					};
+					if (options.verify_grounding) {
+						body.verify_grounding = true;
+					}
+					if (waiverInfo.low_confidence_waiver) {
+						body.low_confidence_waiver = true;
+						body.grounding_rationale = waiverInfo.grounding_rationale;
+					}
+
+					const encodedSid = encodeURIComponent(String(sid));
+					let valRes: unknown;
+					try {
+						valRes = await this.postJson(
+							`/api/v1/ontology/studio/sessions/${encodedSid}/validate`,
+							body,
+							waiverInfo.headers,
+						);
+					} catch (err) {
+						if (
+							err instanceof CliDomainError &&
+							err.httpStatus === 404 &&
+							err.errorCode !== "SESSION_NOT_FOUND"
+						) {
+							valRes = await this.postJson(
+								`/api/v1/ontology/studio/sessions/${encodedSid}/deltas/validate`,
+								body,
+								waiverInfo.headers,
+							);
+						} else {
+							throw err;
+						}
+					}
+					if (
+						typeof valRes === "object" &&
+						valRes !== null &&
+						(valRes as Record<string, unknown>).valid === false &&
+						!(valRes as Record<string, unknown>).error_code
+					) {
+						return {
+							...(valRes as Record<string, unknown>),
+							error_code: "ONT_EVO_CONTRACT_VIOLATION",
+						};
+					}
+					return valRes;
 				}
+
+				const body: Record<string, unknown> = {
+					delta: {
+						...rawDeltaObj,
+						operations: normalizedOps,
+					},
+				};
 				let baseContent = options.base_ontology_content;
 				if (!baseContent && (options.base_ontology_path || options.base)) {
 					const basePath = String(options.base_ontology_path || options.base);
@@ -1094,7 +1979,11 @@ export class RemoteExecutor {
 						const fs = await import("node:fs/promises");
 						baseContent = await fs.readFile(basePath, "utf-8");
 					} catch {
-						throw new CliDomainError("FILE_NOT_FOUND", `Base ontology file not found: ${basePath}`, 404);
+						throw new CliDomainError(
+							"FILE_NOT_FOUND",
+							`Base ontology file not found: ${basePath}`,
+							404,
+						);
 					}
 				}
 				if (baseContent) {
@@ -1103,57 +1992,175 @@ export class RemoteExecutor {
 				if (options.contract) {
 					body.contract_path = options.contract;
 				}
-				return await this.postJson("/api/v1/ontology/validate-delta", body);
+				const valRes = await this.postJson(
+					"/api/v1/ontology/validate-delta",
+					body,
+				);
+				if (
+					typeof valRes === "object" &&
+					valRes !== null &&
+					(valRes as Record<string, unknown>).valid === false &&
+					!(valRes as Record<string, unknown>).error_code
+				) {
+					return {
+						...(valRes as Record<string, unknown>),
+						error_code: "ONT_EVO_CONTRACT_VIOLATION",
+					};
+				}
+				return valRes;
 			}
 
 			case "delta apply": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
+
+				// Resolve waiver credentials/role check BEFORE reading/applying if requested
+				const waiverInfo = await this.resolveWaiverHeaders(options);
+
 				let deltaContent = options.file_content as unknown;
-				if (!deltaContent && (options.file || options.delta)) {
-					const filePath = String(options.file || options.delta);
-					try {
-						const fs = await import("node:fs/promises");
-						const raw = await fs.readFile(filePath, "utf-8");
-						deltaContent = JSON.parse(raw);
-					} catch (err: unknown) {
-						if (
-							(err instanceof Error && "code" in err && (err as { code: string }).code === "ENOENT") ||
-							String(err).includes("ENOENT")
-						) {
-							throw new CliDomainError("FILE_NOT_FOUND", `Delta file not found: ${filePath}`, 404);
-						}
-						throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", `Failed to read or parse delta JSON: ${err}`, 400);
-					}
-				}
-				if (typeof deltaContent === "string") {
+				const deltaPath = options.file || options.delta;
+				if (deltaContent === undefined && deltaPath) {
+					deltaContent = await this.readLocalJsonFile(
+						String(deltaPath),
+						"Delta",
+					);
+				} else if (typeof deltaContent === "string") {
 					try {
 						deltaContent = JSON.parse(deltaContent);
 					} catch (err) {
-						throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", `Malformed delta JSON: ${err}`, 400);
+						throw new CliDomainError(
+							"SYNTAX_INVALID_ARGUMENT",
+							`Malformed delta JSON: ${err}`,
+							400,
+						);
 					}
 				}
-				const body: Record<string, unknown> =
-					typeof deltaContent === "object" && deltaContent !== null
-						? { ...(deltaContent as Record<string, unknown>) }
-						: {};
-				if (options.base_version) body.base_version = options.base_version;
-				if (options.base_sha256) body.base_sha256 = options.base_sha256;
-				if (options.rationale) body.rationale = options.rationale;
-				const headers: Record<string, string> = {};
-				if (options.base_sha256) {
-					headers["If-Match"] = `"${options.base_sha256}"`;
+				if (!deltaContent || typeof deltaContent !== "object") {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --file (-f) or --delta JSON payload.",
+						400,
+					);
 				}
-				const waiverInfo = await this.resolveWaiverHeaders(options);
+
+				const rawDeltaObj: Record<string, unknown> = Array.isArray(deltaContent)
+					? { operations: deltaContent }
+					: { ...(deltaContent as Record<string, unknown>) };
+				const normalizedOps = normalizeDeltaOperations(rawDeltaObj.operations);
+				if (normalizedOps.length === 0) {
+					throw new CliDomainError(
+						"NO_OP_DELTA",
+						"Cannot apply delta with zero operations.",
+						400,
+					);
+				}
+
+				let resolvedBaseVer = options.base_version
+					? String(options.base_version)
+					: typeof rawDeltaObj.base_version === "string" &&
+							rawDeltaObj.base_version.trim() !== ""
+						? rawDeltaObj.base_version
+						: undefined;
+				const explicitBaseSha =
+					options.base_sha256 !== undefined
+						? String(options.base_sha256).trim().replace(/^"|"$/g, "")
+						: "";
+				const deltaBaseSha =
+					typeof rawDeltaObj.base_sha256 === "string" &&
+					rawDeltaObj.base_sha256.trim() !== ""
+						? rawDeltaObj.base_sha256.trim().replace(/^"|"$/g, "")
+						: "";
+				const deltaParentSha =
+					typeof rawDeltaObj.parent_sha256 === "string" &&
+					rawDeltaObj.parent_sha256.trim() !== ""
+						? rawDeltaObj.parent_sha256.trim().replace(/^"|"$/g, "")
+						: "";
+				if (deltaBaseSha && deltaParentSha && deltaBaseSha !== deltaParentSha) {
+					throw new CliDomainError(
+						"PRECONDITION_BASE_SHA_MISMATCH",
+						`Delta base_sha256 '${deltaBaseSha}' conflicts with parent_sha256 '${deltaParentSha}'.`,
+						400,
+					);
+				}
+				const deltaSha = deltaBaseSha || deltaParentSha;
+				if (explicitBaseSha && deltaSha && explicitBaseSha !== deltaSha) {
+					throw new CliDomainError(
+						"PRECONDITION_BASE_SHA_MISMATCH",
+						`CLI --base-sha256 '${explicitBaseSha}' conflicts with delta SHA '${deltaSha}'.`,
+						400,
+					);
+				}
+				const effectiveSha = explicitBaseSha || deltaSha;
+				let sessionHeadSha: string | undefined;
+
+				if (resolvedBaseVer === undefined || !effectiveSha) {
+					const sessionDetail = await this.fetchSessionDetail(String(sid));
+					sessionHeadSha = String(sessionDetail.head_sha256 ?? "");
+					if (resolvedBaseVer === undefined) {
+						resolvedBaseVer = String(
+							sessionDetail.active_version ??
+								sessionDetail.head_version ??
+								"0.0.0",
+						);
+					}
+				}
+
+				const isGenesis = resolvedBaseVer.replace(/^v/i, "") === "0.0.0";
+				if (!effectiveSha && !isGenesis) {
+					throw new CliDomainError(
+						"MISSING_PRECONDITION_HEADER",
+						"Missing mandatory --base-sha256 (or delta parent_sha256) precondition for non-genesis delta apply.",
+						400,
+					);
+				}
+
+				const parentSha = effectiveSha || "";
+				const ifMatchSha = effectiveSha || (sessionHeadSha ?? "");
+
+				const body: Record<string, unknown> = {
+					...rawDeltaObj,
+					delta_id:
+						typeof rawDeltaObj.delta_id === "string" && rawDeltaObj.delta_id
+							? rawDeltaObj.delta_id
+							: `delta-${randomUUID().replace(/-/g, "").slice(0, 12)}`,
+					base_version: resolvedBaseVer,
+					parent_sha256: parentSha,
+					target_version:
+						typeof rawDeltaObj.target_version === "string" &&
+						rawDeltaObj.target_version
+							? rawDeltaObj.target_version
+							: deriveNextSemverClient(resolvedBaseVer, normalizedOps),
+					operations: normalizedOps,
+				};
+				if (options.rationale) {
+					body.rationale = options.rationale;
+				}
+				if (options.ungrounded_concept) {
+					body.ungrounded_concept = normalizeStringArrayOption(
+						options.ungrounded_concept,
+					);
+				}
+				if (options.evidence_grounding_file) {
+					body.evidence_grounding_file = String(options.evidence_grounding_file);
+				}
+
+				const headers: Record<string, string> = {
+					"If-Match": `"${ifMatchSha}"`,
+				};
 				if (waiverInfo.low_confidence_waiver) {
 					body.low_confidence_waiver = true;
 					body.grounding_rationale = waiverInfo.grounding_rationale;
 					Object.assign(headers, waiverInfo.headers);
 				}
+
 				return await this.postJson(
-					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/deltas/apply`,
+					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/delta`,
 					body,
 					headers,
 				);
@@ -1162,7 +2169,11 @@ export class RemoteExecutor {
 			case "proposal list": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
 				return await this.getJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/proposals`,
@@ -1173,7 +2184,11 @@ export class RemoteExecutor {
 				const sid = options.session;
 				const pid = options.proposal_id;
 				if (!sid || !pid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session or --proposal-id flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session or --proposal-id flag",
+						400,
+					);
 				}
 				return await this.getJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/proposals/${encodeURIComponent(String(pid))}`,
@@ -1184,7 +2199,11 @@ export class RemoteExecutor {
 				const sid = options.session;
 				const pid = options.proposal_id;
 				if (!sid || !pid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session or --proposal-id flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session or --proposal-id flag",
+						400,
+					);
 				}
 
 				const extraHeaders: Record<string, string> = {};
@@ -1199,13 +2218,23 @@ export class RemoteExecutor {
 
 				const body: Record<string, unknown> = {
 					base_sha256: options.base_sha256,
-					allow_self_accepted_proposals: Boolean(options.allow_self_accepted_proposals),
+					allow_self_accepted_proposals: Boolean(
+						options.allow_self_accepted_proposals,
+					),
 					low_confidence_waiver: waiverInfo.low_confidence_waiver,
 					grounding_rationale: waiverInfo.grounding_rationale,
-					self_acceptance_override: Boolean(options.allow_self_accepted_proposals),
+					self_acceptance_override: Boolean(
+						options.allow_self_accepted_proposals,
+					),
 				};
-				if (options.ungrounded_concept) body.ungrounded_concept = options.ungrounded_concept;
-				if (options.evidence_grounding_file) body.evidence_grounding_file = options.evidence_grounding_file;
+				if (options.ungrounded_concept) {
+					body.ungrounded_concept = normalizeStringArrayOption(
+						options.ungrounded_concept,
+					);
+				}
+				if (options.evidence_grounding_file) {
+					body.evidence_grounding_file = options.evidence_grounding_file;
+				}
 
 				return await this.postJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/proposals/${encodeURIComponent(String(pid))}/accept`,
@@ -1218,7 +2247,11 @@ export class RemoteExecutor {
 				const sid = options.session;
 				const pid = options.proposal_id;
 				if (!sid || !pid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session or --proposal-id flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session or --proposal-id flag",
+						400,
+					);
 				}
 				const body: Record<string, unknown> = {};
 				if (options.reason) {
@@ -1234,14 +2267,25 @@ export class RemoteExecutor {
 				const sid = options.session;
 				const pid = options.proposal_id;
 				if (!sid || !pid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session or --proposal-id flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session or --proposal-id flag",
+						400,
+					);
+				}
+				let targetSha = (options.base_sha256 || options.head_sha256) as
+					| string
+					| undefined;
+				if (!targetSha) {
+					const sessionDetail = await this.fetchSessionDetail(String(sid));
+					targetSha = String(sessionDetail.head_sha256 ?? "");
 				}
 				const extraHeaders: Record<string, string> = {};
-				if (options.base_sha256) {
-					extraHeaders["If-Match"] = `"${options.base_sha256}"`;
+				if (targetSha) {
+					extraHeaders["If-Match"] = `"${targetSha}"`;
 				}
 				const body: Record<string, unknown> = {
-					base_sha256: options.base_sha256,
+					base_sha256: targetSha,
 				};
 				return await this.postJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/proposals/${encodeURIComponent(String(pid))}/rebase`,
@@ -1253,63 +2297,110 @@ export class RemoteExecutor {
 			case "export": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
-				const fmt = options.export_format || options.format || "yaml";
-				const ver = options.version ? `&version=${encodeURIComponent(String(options.version))}` : "";
-				const payload = await this.getJson(
-					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/export?export_format=${encodeURIComponent(String(fmt))}${ver}`,
+				// NEVER fall back to global `options.format` (`toon`) — `CRIT-03`!
+				const fmt = String(options.export_format || "yaml");
+				const ver =
+					options.version && typeof options.version === "string"
+						? `&version=${encodeURIComponent(options.version)}`
+						: "";
+				const headers = { ...this.getHeaders(), Accept: "*/*" };
+				const res = await this.fetchImpl(
+					`${this.baseUrl}/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/export?export_format=${encodeURIComponent(fmt)}${ver}`,
+					{ headers },
 				);
+				if (!res.ok) {
+					throw await this.parseErrorResponse(res);
+				}
+				const rawText = await res.text();
+				const sha256 = createHash("sha256")
+					.update(rawText, "utf-8")
+					.digest("hex");
+
 				if (options.out && typeof options.out === "string") {
 					const fs = await import("node:fs/promises");
-					let content: string;
-					if (typeof payload === "string") {
-						content = payload;
-					} else if (
-						payload &&
-						typeof payload === "object" &&
-						"content" in payload &&
-						typeof (payload as any).content === "string"
-					) {
-						content = (payload as any).content;
-					} else {
-						content = JSON.stringify(payload, null, 2);
-					}
-					await fs.writeFile(options.out, content, "utf-8");
+					await fs.writeFile(options.out, rawText, "utf-8");
 				}
-				return payload;
+
+				const wantsJson =
+					options.json === true || options.format === "json";
+				if (wantsJson) {
+					return {
+						session_id: String(sid),
+						format: fmt,
+						export_format: fmt,
+						...(options.version && typeof options.version === "string"
+							? { version: options.version }
+							: {}),
+						...(options.out && typeof options.out === "string"
+							? { out_path: options.out }
+							: {}),
+						sha256,
+						content: rawText,
+					};
+				}
+				return rawText;
 			}
 
 			case "promote": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
+				this.assertLoopbackForServerPath("--workspace", options.workspace);
 				const rationale = options.rationale;
 				if (!rationale || String(rationale).trim().length < 10) {
-					throw new CliDomainError("PROMOTION_RATIONALE_REQUIRED", "Promotion requires rationale (min 10 chars)", 400);
+					throw new CliDomainError(
+						"PROMOTION_RATIONALE_REQUIRED",
+						"Promotion requires rationale (min 10 chars)",
+						400,
+					);
 				}
+				const headSha = String(options.head_sha256 ?? "");
+				const wsSha = String(options.workspace_sha256 ?? "");
+				const extraHeaders: Record<string, string> = {
+					"If-Match": `"${headSha}"`,
+					"X-OpenDV-Workspace-If-Match": `"${wsSha}"`,
+				};
 				const body: Record<string, unknown> = {
-					workspace_sha256: options.workspace_sha256,
-					head_sha256: options.head_sha256,
+					workspace_sha256: wsSha,
+					head_sha256: headSha,
 					rationale: options.rationale,
 					workspace: options.workspace,
-					acknowledge_historical_contract_warning: Boolean(options.acknowledge_historical_contract_warning),
+					acknowledge_historical_contract_warning: Boolean(
+						options.acknowledge_historical_contract_warning,
+					),
 					historical_contract_rationale: options.historical_contract_rationale,
 				};
 				return await this.postJson(
 					`/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/promote`,
 					body,
+					extraHeaders,
 				);
 			}
 
 			case "bundle export": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
 				const body: Record<string, unknown> = {
-					acknowledge_confidential_source_export: Boolean(options.acknowledge_confidential_source_export),
+					acknowledge_confidential_source_export: Boolean(
+						options.acknowledge_confidential_source_export,
+					),
 					export_rationale: options.export_rationale,
 				};
 				const res = await this.fetchImpl(
@@ -1329,16 +2420,27 @@ export class RemoteExecutor {
 				}
 				const arrayBuffer = await res.arrayBuffer();
 				const buffer = Buffer.from(arrayBuffer);
-				const outPath = (options.out as string) || (options.out_path as string) || `${sid}.odvstudio.zip`;
+				const outPath =
+					(options.out as string) ||
+					(options.out_path as string) ||
+					`${sid}.odvstudio.zip`;
 				const fs = await import("node:fs/promises");
 				await fs.writeFile(outPath, buffer);
-				return { session_id: sid, bundle_path: outPath, size_bytes: buffer.byteLength };
+				return {
+					session_id: sid,
+					bundle_path: outPath,
+					size_bytes: buffer.byteLength,
+				};
 			}
 
 			case "bundle import": {
 				const filePath = (options.file_path || options.file) as string;
 				if (!filePath) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --file flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --file flag",
+						400,
+					);
 				}
 				let fileData: Uint8Array;
 				try {
@@ -1346,32 +2448,72 @@ export class RemoteExecutor {
 					fileData = await fs.readFile(filePath);
 				} catch (err: unknown) {
 					if (
-						(err instanceof Error && "code" in err && (err as { code: string }).code === "ENOENT") ||
+						(err instanceof Error &&
+							"code" in err &&
+							(err as { code: string }).code === "ENOENT") ||
 						String(err).includes("ENOENT")
 					) {
-						throw new CliDomainError("FILE_NOT_FOUND", `Bundle file not found: ${filePath}`, 404);
+						throw new CliDomainError(
+							"FILE_NOT_FOUND",
+							`Bundle file not found: ${filePath}`,
+							404,
+						);
 					}
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", `Failed to read bundle file: ${err}`, 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						`Failed to read bundle file: ${err}`,
+						400,
+					);
 				}
 				const fileName = filePath.split(/[\\/]/).pop() || "bundle.zip";
 				const formData = new FormData();
-				formData.append("file", new Blob([fileData]), fileName);
+				formData.append("file", new Blob([new Uint8Array(fileData)]), fileName);
 
 				const queryParams = new URLSearchParams();
+				if (options.new_session_id) {
+					queryParams.set("new_session_id", String(options.new_session_id));
+					formData.append("new_session_id", String(options.new_session_id));
+				}
+				if (options.force) {
+					queryParams.set("force", "true");
+					formData.append("force", "true");
+				}
 				if (options.acknowledge_unverified_import_attribution) {
-					queryParams.set("acknowledge_unverified_import_attribution", "true");
+					queryParams.set(
+						"acknowledge_unverified_import_attribution",
+						"true",
+					);
 				}
 				if (options.acknowledgement_rationale) {
-					queryParams.set("acknowledgement_rationale", String(options.acknowledgement_rationale));
+					queryParams.set(
+						"acknowledgement_rationale",
+						String(options.acknowledgement_rationale),
+					);
+				}
+				if (options.acknowledge_historical_contract_warning) {
+					queryParams.set("acknowledge_historical_contract_warning", "true");
+				}
+				if (options.historical_contract_rationale) {
+					queryParams.set(
+						"historical_contract_rationale",
+						String(options.historical_contract_rationale),
+					);
 				}
 				const q = queryParams.toString() ? `?${queryParams.toString()}` : "";
-				return await this.postFormData(`/api/v1/ontology/studio/sessions/bundle/import${q}`, formData);
+				return await this.postFormData(
+					`/api/v1/ontology/studio/sessions/bundle/import${q}`,
+					formData,
+				);
 			}
 
 			case "bundle clone": {
 				const sid = options.session;
 				if (!sid) {
-					throw new CliDomainError("SYNTAX_INVALID_ARGUMENT", "Missing required --session flag", 400);
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Missing required --session flag",
+						400,
+					);
 				}
 				const body: Record<string, unknown> = {
 					new_session_id: options.new_session_id,

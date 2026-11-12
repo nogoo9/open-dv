@@ -66,7 +66,7 @@
           },
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -169,7 +169,7 @@
           },
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -280,7 +280,7 @@
           },
           "concept_uri": {
             "description": "Unique canonical concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -385,7 +385,7 @@
           "parent_concept_uri": {
             "anyOf": [
               {
-                "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+                "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
                 "type": "string"
               },
               {
@@ -458,7 +458,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -570,7 +570,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -977,7 +977,7 @@
           "enum_uri": {
             "default": "",
             "description": "Unique reference enumeration URN",
-            "pattern": "^(urn:ontology:(provisional:)?enum:[a-z0-9_]+)?$",
+            "pattern": "^(urn:(?:ontology:(?:provisional:)?enum|opendv:(?:provisional(?::enum)?|enum)):[a-z0-9_]+)?$",
             "title": "Enum Uri",
             "type": "string"
           },
@@ -1139,7 +1139,7 @@
           },
           "relationship_uri": {
             "description": "Unique canonical relationship URN",
-            "pattern": "^urn:ontology:(provisional:)?(event|relationship):[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?(?:event|relationship)|opendv:(?:provisional(?::(?:event|relationship))?|event|relationship)):[a-z0-9_]+$",
             "title": "Relationship Uri",
             "type": "string"
           },
@@ -1294,7 +1294,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -1354,7 +1354,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -1434,7 +1434,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -1877,10 +1877,54 @@
       },
       "Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post": {
         "properties": {
+          "acknowledge_unverified_import_attribution": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledge Unverified Import Attribution"
+          },
+          "acknowledgement_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Acknowledgement Rationale"
+          },
           "file": {
             "contentMediaType": "application/octet-stream",
             "title": "File",
             "type": "string"
+          },
+          "force": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Force"
+          },
+          "new_session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "New Session Id"
           }
         },
         "required": [
@@ -2311,33 +2355,6 @@
         "title": "ClarificationQuestion",
         "type": "object"
       },
-      "ClarifyRequest": {
-        "additionalProperties": false,
-        "description": "Request payload to trigger clarification question generation.",
-        "properties": {
-          "max_questions": {
-            "default": 5,
-            "description": "Maximum number of questions to generate",
-            "maximum": 50.0,
-            "minimum": 1.0,
-            "title": "Max Questions",
-            "type": "integer"
-          },
-          "mode": {
-            "default": "auto",
-            "description": "Generation mode ('auto', 'agent', 'deterministic')",
-            "enum": [
-              "auto",
-              "agent",
-              "deterministic"
-            ],
-            "title": "Mode",
-            "type": "string"
-          }
-        },
-        "title": "ClarifyRequest",
-        "type": "object"
-      },
       "CloneSessionRequest": {
         "properties": {
           "new_session_id": {
@@ -2658,9 +2675,15 @@
             "type": "array"
           },
           "mode": {
-            "default": "auto",
-            "title": "Mode",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mode"
           }
         },
         "title": "ConstructRequest",
@@ -3084,7 +3107,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -3137,7 +3160,7 @@
           "superseded_by_concept_uri": {
             "anyOf": [
               {
-                "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+                "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
                 "type": "string"
               },
               {
@@ -3770,6 +3793,99 @@
           "statusLabel"
         ],
         "title": "ExplorerBundleDTO",
+        "type": "object"
+      },
+      "FeedbackSubmissionRequest": {
+        "properties": {
+          "comment": {
+            "anyOf": [
+              {
+                "maxLength": 4000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "concept_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Uri"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Id"
+          },
+          "rating": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              }
+            ],
+            "description": "Feedback rating ('up', 'down', or numeric score)",
+            "title": "Rating"
+          }
+        },
+        "required": [
+          "rating"
+        ],
+        "title": "FeedbackSubmissionRequest",
+        "type": "object"
+      },
+      "FeedbackSubmissionResponse": {
+        "properties": {
+          "active_version": {
+            "title": "Active Version",
+            "type": "string"
+          },
+          "feedback_id": {
+            "title": "Feedback Id",
+            "type": "string"
+          },
+          "head_sha256": {
+            "title": "Head Sha256",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "timestamp": {
+            "title": "Timestamp",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "feedback_id",
+          "session_id",
+          "active_version",
+          "head_sha256",
+          "timestamp"
+        ],
+        "title": "FeedbackSubmissionResponse",
         "type": "object"
       },
       "GateScorecardSummary": {
@@ -5303,13 +5419,65 @@
             ],
             "title": "Author"
           },
+          "base_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Sha256"
+          },
           "base_version": {
-            "title": "Base Version",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Version"
           },
           "delta_id": {
-            "title": "Delta Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Id"
+          },
+          "evidence_grounding_file": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Grounding File"
+          },
+          "grounding_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Grounding Rationale"
+          },
+          "low_confidence_waiver": {
+            "default": false,
+            "title": "Low Confidence Waiver",
+            "type": "boolean"
           },
           "operations": {
             "items": {
@@ -5320,8 +5488,15 @@
             "type": "array"
           },
           "parent_sha256": {
-            "title": "Parent Sha256",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Sha256"
           },
           "rationale": {
             "anyOf": [
@@ -5335,15 +5510,35 @@
             "title": "Rationale"
           },
           "target_version": {
-            "title": "Target Version",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Version"
+          },
+          "ungrounded_concept": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ungrounded Concept"
           }
         },
         "required": [
-          "delta_id",
-          "parent_sha256",
-          "base_version",
-          "target_version",
           "operations"
         ],
         "title": "OntologyDeltaRequest",
@@ -7351,8 +7546,15 @@
             "type": "boolean"
           },
           "head_sha256": {
-            "title": "Head Sha256",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Head Sha256"
           },
           "historical_contract_rationale": {
             "anyOf": [
@@ -7366,6 +7568,7 @@
             "title": "Historical Contract Rationale"
           },
           "rationale": {
+            "default": "",
             "title": "Rationale",
             "type": "string"
           },
@@ -7381,15 +7584,17 @@
             "title": "Workspace"
           },
           "workspace_sha256": {
-            "title": "Workspace Sha256",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Workspace Sha256"
           }
         },
-        "required": [
-          "workspace_sha256",
-          "head_sha256",
-          "rationale"
-        ],
         "title": "PromoteRequest",
         "type": "object"
       },
@@ -7485,6 +7690,9 @@
                 "type": "array"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -7526,6 +7734,17 @@
             "title": "Operations",
             "type": "array"
           },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Id"
+          },
           "rationale": {
             "anyOf": [
               {
@@ -7547,13 +7766,17 @@
       "ProposalRebaseRequest": {
         "properties": {
           "base_sha256": {
-            "title": "Base Sha256",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Sha256"
           }
         },
-        "required": [
-          "base_sha256"
-        ],
         "title": "ProposalRebaseRequest",
         "type": "object"
       },
@@ -7848,7 +8071,7 @@
           },
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -7907,7 +8130,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -7965,7 +8188,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -8148,7 +8371,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -8242,7 +8465,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -8365,7 +8588,7 @@
           "concept_uri": {
             "default": "",
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^(urn:ontology:(provisional:)?entity:[a-z0-9_]+)?$",
+            "pattern": "^(urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+)?$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -9023,7 +9246,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -9082,7 +9305,7 @@
         "properties": {
           "concept_uri": {
             "description": "Target Canonical Business Concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Concept Uri",
             "type": "string"
           },
@@ -9117,7 +9340,7 @@
           "parent_concept_uri": {
             "anyOf": [
               {
-                "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+                "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
                 "type": "string"
               },
               {
@@ -9442,110 +9665,21 @@
         "title": "StepDTO",
         "type": "object"
       },
-      "StewardWaiverRecord": {
-        "additionalProperties": false,
-        "description": "Cryptographically verifiable administrative waiver for ungrounded concept evolution.",
-        "properties": {
-          "authorized_by": {
-            "description": "Identity of approving administrator or steward",
-            "minLength": 1,
-            "title": "Authorized By",
-            "type": "string"
-          },
-          "authorized_role": {
-            "description": "Role authorization tier for waiver approval",
-            "enum": [
-              "admin",
-              "steward"
-            ],
-            "title": "Authorized Role",
-            "type": "string"
-          },
-          "base_sha256": {
-            "description": "SHA-256 digest of base ontology precondition",
-            "pattern": "^[a-f0-9]{64}$",
-            "title": "Base Sha256",
-            "type": "string"
-          },
-          "created_at": {
-            "description": "UTC timestamp of authorization",
-            "format": "date-time",
-            "title": "Created At",
-            "type": "string"
-          },
-          "expires_at": {
-            "anyOf": [
-              {
-                "format": "date-time",
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional expiration timestamp for time-bounded waiver",
-            "title": "Expires At"
-          },
-          "proposal_delta_sha256": {
-            "description": "SHA-256 digest of proposed delta",
-            "pattern": "^[a-f0-9]{64}$",
-            "title": "Proposal Delta Sha256",
-            "type": "string"
-          },
-          "proposal_id": {
-            "description": "Referenced ontology proposal identifier",
-            "format": "uuid4",
-            "title": "Proposal Id",
-            "type": "string"
-          },
-          "rationale": {
-            "description": "Business and architectural justification for waiver (>= 10 chars)",
-            "minLength": 10,
-            "title": "Rationale",
-            "type": "string"
-          },
-          "signature_or_token": {
-            "description": "Cryptographic signature or authorization token",
-            "minLength": 1,
-            "title": "Signature Or Token",
-            "type": "string"
-          },
-          "target_concept_uris": {
-            "description": "Target concept URIs exempted from grounding check",
-            "items": {
-              "type": "string"
-            },
-            "minItems": 1,
-            "title": "Target Concept Uris",
-            "type": "array"
-          },
-          "waiver_id": {
-            "description": "Unique waiver identifier",
-            "format": "uuid4",
-            "title": "Waiver Id",
-            "type": "string"
-          }
-        },
-        "required": [
-          "proposal_id",
-          "proposal_delta_sha256",
-          "target_concept_uris",
-          "base_sha256",
-          "rationale",
-          "authorized_by",
-          "authorized_role",
-          "signature_or_token"
-        ],
-        "title": "StewardWaiverRecord",
-        "type": "object"
-      },
       "StudioClarificationAnswerRequest": {
         "properties": {
           "answers": {
             "anyOf": [
               {
                 "items": {
-                  "$ref": "#/components/schemas/ClarificationAnswerItem"
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/ClarificationAnswerItem"
+                    },
+                    {
+                      "additionalProperties": true,
+                      "type": "object"
+                    }
+                  ]
                 },
                 "type": "array"
               },
@@ -9569,6 +9703,71 @@
           }
         },
         "title": "StudioClarificationAnswerRequest",
+        "type": "object"
+      },
+      "StudioClarifyRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "base_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Version"
+          },
+          "focus_concept": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional single focus concept (normalized into focus_concepts)",
+            "title": "Focus Concept"
+          },
+          "focus_concepts": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional list of concept URIs or names to focus clarification on",
+            "title": "Focus Concepts"
+          },
+          "max_questions": {
+            "default": 10,
+            "description": "Maximum number of questions to generate",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Max Questions",
+            "type": "integer"
+          },
+          "mode": {
+            "default": "auto",
+            "description": "Generation mode ('auto', 'agent', 'deterministic')",
+            "enum": [
+              "auto",
+              "agent",
+              "deterministic"
+            ],
+            "title": "Mode",
+            "type": "string"
+          }
+        },
+        "title": "StudioClarifyRequest",
         "type": "object"
       },
       "StudioSessionDTO": {
@@ -9711,6 +9910,11 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "taint_classification": {
+            "default": "UNTAINTED",
+            "title": "Taint Classification",
+            "type": "string"
           }
         },
         "required": [
@@ -9844,13 +10048,13 @@
           },
           "new_concept_uri": {
             "description": "New concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "New Concept Uri",
             "type": "string"
           },
           "old_concept_uri": {
             "description": "Original concept URN",
-            "pattern": "^urn:ontology:(provisional:)?entity:[a-z0-9_]+$",
+            "pattern": "^urn:(?:ontology:(?:provisional:)?entity|opendv:(?:provisional(?::(?:entity|concept))?|concept)):[a-z0-9_]+$",
             "title": "Old Concept Uri",
             "type": "string"
           },
@@ -10253,6 +10457,181 @@
         "title": "VerifyResponse",
         "type": "object"
       },
+      "WaiverSubmissionRequest": {
+        "additionalProperties": true,
+        "properties": {
+          "authorized_by": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorized By"
+          },
+          "authorized_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Authorized Role"
+          },
+          "base_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Sha256"
+          },
+          "concept_uri": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Uri"
+          },
+          "concept_uris": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Concept Uris"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expires At"
+          },
+          "proposal_delta_sha256": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Delta Sha256"
+          },
+          "proposal_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Proposal Id"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "signature_or_token": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Signature Or Token"
+          },
+          "steward": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Steward"
+          },
+          "target_concept_uris": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Concept Uris"
+          },
+          "ungrounded_concepts": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ungrounded Concepts"
+          },
+          "waiver_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Waiver Id"
+          }
+        },
+        "title": "WaiverSubmissionRequest",
+        "type": "object"
+      },
       "WaveMetadataSpecDTO": {
         "additionalProperties": false,
         "description": "Wave metadata specification.",
@@ -10546,7 +10925,7 @@
     },
     "/api/v1/ontology/studio/auth/launch-nonce": {
       "post": {
-        "description": "Mint single-use browser launch nonce (256-bit, 60s TTL) for local Web Workbench bootstrap.",
+        "description": "Mint single-use browser launch nonce (256-bit, 60s TTL) preserving caller RBAC role.",
         "operationId": "mint_launch_nonce_endpoint_api_v1_ontology_studio_auth_launch_nonce_post",
         "responses": {
           "200": {
@@ -10807,7 +11186,7 @@
     },
     "/api/v1/ontology/studio/jobs/{job_id}/events": {
       "get": {
-        "description": "Stream W3C Server-Sent Events with monotonic Last-Event-ID cursor replay\nand 15s keepalive.",
+        "description": "Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and 15s keepalive.",
         "operationId": "get_job_events_stream_api_v1_ontology_studio_jobs__job_id__events_get",
         "parameters": [
           {
@@ -10997,7 +11376,7 @@
     },
     "/api/v1/ontology/studio/sessions/bundle/import": {
       "post": {
-        "description": "Streaming import of .odvstudio.zip archive with attribution governance.",
+        "description": "Streaming import of .odvstudio.zip archive (editor allowed; admin required for ack).",
         "operationId": "import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post",
         "parameters": [
           {
@@ -11024,6 +11403,32 @@
                 }
               ],
               "title": "Acknowledgement Rationale"
+            }
+          },
+          {
+            "in": "query",
+            "name": "new_session_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "New Session Id"
+            }
+          },
+          {
+            "in": "query",
+            "name": "force",
+            "required": false,
+            "schema": {
+              "default": false,
+              "title": "Force",
+              "type": "boolean"
             }
           }
         ],
@@ -11253,7 +11658,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/bundle": {
       "post": {
-        "description": "Export full session into portable archive .odvstudio.zip.",
+        "description": "Export full session into portable archive .odvstudio.zip enforcing taint gates.",
         "operationId": "export_bundle_endpoint_api_v1_ontology_studio_sessions__session_id__bundle_post",
         "parameters": [
           {
@@ -11304,7 +11709,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/bundle/clone": {
       "post": {
-        "description": "Clone session into an isolated new session with new session ID under L5 lock.",
+        "description": "Clone session into an isolated session with re-anchored local audit chain under L5 lock.",
         "operationId": "clone_session_endpoint_api_v1_ontology_studio_sessions__session_id__bundle_clone_post",
         "parameters": [
           {
@@ -11411,7 +11816,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/clarify": {
       "post": {
-        "description": "Dispatch background clarification question generation.",
+        "description": "Dispatch background clarification question generation (human editor/admin required).",
         "operationId": "trigger_clarification_api_v1_ontology_studio_sessions__session_id__clarify_post",
         "parameters": [
           {
@@ -11428,7 +11833,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/ClarifyRequest"
+                "$ref": "#/components/schemas/StudioClarifyRequest"
               }
             }
           },
@@ -11464,7 +11869,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/construct": {
       "post": {
-        "description": "Trigger background construction job (offline deterministic pipeline).",
+        "description": "Trigger background construction job (deterministic or agent-first).",
         "operationId": "trigger_construction_api_v1_ontology_studio_sessions__session_id__construct_post",
         "parameters": [
           {
@@ -11533,7 +11938,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/delta": {
       "post": {
-        "description": "Direct delta commit with strict OCC If-Match precondition.",
+        "description": "Direct governed delta commit with strict OCC If-Match precondition.",
         "operationId": "apply_delta_endpoint_api_v1_ontology_studio_sessions__session_id__delta_post",
         "parameters": [
           {
@@ -11595,128 +12000,6 @@
           }
         },
         "summary": "Apply Delta Endpoint",
-        "tags": [
-          "ontology-studio"
-        ]
-      }
-    },
-    "/api/v1/ontology/studio/sessions/{session_id}/deltas/apply": {
-      "post": {
-        "description": "Direct delta commit with strict OCC If-Match precondition.",
-        "operationId": "apply_delta_endpoint_api_v1_ontology_studio_sessions__session_id__deltas_apply_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "header",
-            "name": "If-Match",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "If-Match"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OntologyDeltaRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/DeltaCommitResponse"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Apply Delta Endpoint",
-        "tags": [
-          "ontology-studio"
-        ]
-      }
-    },
-    "/api/v1/ontology/studio/sessions/{session_id}/deltas/validate": {
-      "post": {
-        "description": "Dry-run two-phase structural and governance validation on an OntologyDelta.",
-        "operationId": "validate_delta_endpoint_api_v1_ontology_studio_sessions__session_id__deltas_validate_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "session_id",
-            "required": true,
-            "schema": {
-              "title": "Session Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/OntologyDeltaRequest"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/OntologyValidationResult"
-                }
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "summary": "Validate Delta Endpoint",
         "tags": [
           "ontology-studio"
         ]
@@ -11784,6 +12067,59 @@
           }
         },
         "summary": "Export Ontology Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
+    "/api/v1/ontology/studio/sessions/{session_id}/feedback": {
+      "post": {
+        "description": "Persist steward/user feedback record to feedback.jsonl under L5 session lock.",
+        "operationId": "submit_feedback_api_v1_ontology_studio_sessions__session_id__feedback_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/FeedbackSubmissionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackSubmissionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Feedback",
         "tags": [
           "ontology-studio"
         ]
@@ -11927,7 +12263,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}/events": {
       "get": {
-        "description": "Stream W3C Server-Sent Events with monotonic Last-Event-ID cursor replay\nand 15s keepalive.",
+        "description": "Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and 15s keepalive.",
         "operationId": "get_job_events_stream_api_v1_ontology_studio_sessions__session_id__jobs__job_id__events_get",
         "parameters": [
           {
@@ -12226,7 +12562,7 @@
         ]
       },
       "post": {
-        "description": "Submit a candidate proposal without committing.",
+        "description": "Submit candidate proposal without committing (automated restricted to additive ops).",
         "operationId": "create_proposal_api_v1_ontology_studio_sessions__session_id__proposals_post",
         "parameters": [
           {
@@ -12331,7 +12667,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/accept": {
       "post": {
-        "description": "Accept pending proposal with OCC If-Match, role check, and waiver validation.",
+        "description": "Accept pending proposal enforcing 11-step precedence, RBAC, strong ETag OCC, and ONT-EVO.",
         "operationId": "accept_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__accept_post",
         "parameters": [
           {
@@ -12409,7 +12745,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/rebase": {
       "post": {
-        "description": "Rebase proposal onto new session head SHA-256.",
+        "description": "Rebase proposal onto new session head via 24-op conflict matrix (P10::MAJ-04, MAJOR-06).",
         "operationId": "rebase_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__rebase_post",
         "parameters": [
           {
@@ -12487,7 +12823,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/reject": {
       "post": {
-        "description": "Mark proposal REJECTED while preserving in CAS for audit trace.",
+        "description": "Mark proposal REJECTED while preserving in CAS for audit trace (human editor/admin).",
         "operationId": "reject_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__reject_post",
         "parameters": [
           {
@@ -12648,7 +12984,7 @@
         ]
       },
       "post": {
-        "description": "Upload document to CAS blob store and register in inputs/manifest.json.",
+        "description": "Stream document to CAS blob store and register in inputs/manifest.json.",
         "operationId": "upload_source_api_v1_ontology_studio_sessions__session_id__sources_post",
         "parameters": [
           {
@@ -12701,6 +13037,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/sources/{source_id}": {
       "delete": {
+        "description": "Tombstone and purge unreferenced source document (human editor/admin required).",
         "operationId": "delete_source_endpoint_api_v1_ontology_studio_sessions__session_id__sources__source_id__delete",
         "parameters": [
           {
@@ -12795,7 +13132,7 @@
     },
     "/api/v1/ontology/studio/sessions/{session_id}/sources/{source_id}/content": {
       "get": {
-        "description": "Preview or download raw source content bytes from CAS (MAJ-06 security headers).",
+        "description": "Preview or download raw source content bytes from CAS enforcing taint perimeter.",
         "operationId": "get_source_content_api_v1_ontology_studio_sessions__session_id__sources__source_id__content_get",
         "parameters": [
           {
@@ -12886,9 +13223,62 @@
         ]
       }
     },
+    "/api/v1/ontology/studio/sessions/{session_id}/validate": {
+      "post": {
+        "description": "Dry-run two-phase structural and governance validation on an OntologyDelta.",
+        "operationId": "validate_delta_endpoint_api_v1_ontology_studio_sessions__session_id__validate_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OntologyDeltaRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OntologyValidationResult"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Validate Delta Endpoint",
+        "tags": [
+          "ontology-studio"
+        ]
+      }
+    },
     "/api/v1/ontology/studio/sessions/{session_id}/waiver": {
       "post": {
-        "description": "Authorize administrative steward waiver with rationale >= 10 chars.",
+        "description": "Authorize K_waiver-signed steward waiver and append signed audit record (CRITICAL-05).",
         "operationId": "submit_waiver_api_v1_ontology_studio_sessions__session_id__waiver_post",
         "parameters": [
           {
@@ -12905,7 +13295,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/StewardWaiverRecord"
+                "$ref": "#/components/schemas/WaiverSubmissionRequest"
               }
             }
           },

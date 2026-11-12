@@ -34,7 +34,6 @@ from opendv_service.construction.deterministic_pipeline import (
     DeterministicConstructionPipeline,
 )
 from opendv_service.ontology.matching import Bm25ConceptMatcher
-from opendv_service.studio.session_manager import GENESIS_DRAFT_SHA256
 
 
 def _make_test_matcher() -> Bm25ConceptMatcher:
@@ -133,9 +132,8 @@ def test_boundary_large_volume_and_scaling(
     assert resp_wide_table.status_code == 201, resp_wide_table.text
 
     # 3. Large text: 50,000 characters
-    large_text = (
-        "# ENTERPRISE INVESTMENT MEMORANDUM\n\n"
-        + ("The fund shall allocate capital according to strict risk parameters. " * 750)
+    large_text = "# ENTERPRISE INVESTMENT MEMORANDUM\n\n" + (
+        "The fund shall allocate capital according to strict risk parameters. " * 750
     )
     assert len(large_text) >= 50000
     large_text_bytes = large_text.encode("utf-8")
@@ -183,9 +181,7 @@ def test_boundary_identifier_budget_guard(tmp_path: Path) -> None:
     )
 
     # No AddAttributeOp emitted for the long identifier
-    attr_ops_long = [
-        op for op in proposal_long.delta.operations if isinstance(op, AddAttributeOp)
-    ]
+    attr_ops_long = [op for op in proposal_long.delta.operations if isinstance(op, AddAttributeOp)]
     assert not any(a.attribute_name == long_col for a in attr_ops_long)
 
     # Staged candidates must record the budget rejection reason
@@ -280,11 +276,12 @@ def test_boundary_internationalization_multibyte_unicode(
 ) -> None:
     """Boundary 5: Multibyte Unicode & i18n (Nordic, German, CJK, Emojis, NFC normalization)."""
     session_id = "boundary-i18n-unicode-05"
-    studio_client.post(
+    create_resp = studio_client.post(
         "/api/v1/ontology/studio/sessions",
         json={"session_id": session_id, "domain_namespace": "wealth_mgmt"},
         headers=auth_headers,
     )
+    genesis_sha = create_resp.json()["head_sha256"]
 
     # 1. Multibyte characters in definitions, concepts, and synonyms
     nordic_text = "Företag och Räkenskaper för nordiska investerare (DK/SE/NO: æ, ø, å)."
@@ -337,12 +334,16 @@ def test_boundary_internationalization_multibyte_unicode(
                 ],
             },
         ],
+        "low_confidence_waiver": True,
+        "grounding_rationale": (
+            "Approved multilingual boundary concepts for Unicode roundtrip test."
+        ),
     }
 
     resp = studio_client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/delta",
         json=delta_payload,
-        headers={**auth_headers, "If-Match": f'"{GENESIS_DRAFT_SHA256}"'},
+        headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
     )
     assert resp.status_code == 200, resp.text
     commit_data = resp.json()
@@ -382,11 +383,12 @@ def test_boundary_extreme_text_lengths(
 ) -> None:
     """Boundary 6: Maximum text lengths: 256-char synonyms, 500-char definitions."""
     session_id = "boundary-text-lengths-06"
-    studio_client.post(
+    create_resp = studio_client.post(
         "/api/v1/ontology/studio/sessions",
         json={"session_id": session_id, "domain_namespace": "wealth_mgmt"},
         headers=auth_headers,
     )
+    genesis_sha = create_resp.json()["head_sha256"]
 
     # 1. Exactly 500-character definition (allowed maximum)
     exact_500_def = ("Corporate enterprise with complex governance structures " * 10)[:500]
@@ -427,11 +429,13 @@ def test_boundary_extreme_text_lengths(
                 "synonym": exact_256_synonym,
             },
         ],
+        "low_confidence_waiver": True,
+        "grounding_rationale": "Approved maximum field length boundary concept.",
     }
     resp = studio_client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/delta",
         json=delta_payload,
-        headers={**auth_headers, "If-Match": f'"{GENESIS_DRAFT_SHA256}"'},
+        headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
     )
     assert resp.status_code == 200, resp.text
 
