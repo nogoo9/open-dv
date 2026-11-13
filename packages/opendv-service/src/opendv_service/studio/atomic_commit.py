@@ -1353,12 +1353,36 @@ class AtomicCommitService:
         head_ont: GraphAOntology,
         *,
         acknowledge_historical_contract_warning: bool = False,
+        historical_contract_rationale: str | None = None,
     ) -> None:
         """Enforce ONT-EVO-001 + ONT-EVO-002 on `head_ont` prior to workspace promotion."""
+        clean_hist_rationale = (historical_contract_rationale or "").strip()
+        if acknowledge_historical_contract_warning and len(clean_hist_rationale) < 10:
+            raise HistoricalContractRationaleRequiredError(
+                "Historical contract rationale must be at least 10 characters."
+            )
+
         StructuralValidator().validate(head_ont)
 
         ws_grandfathered: set[str] = set()
         if existing_ws_ont is not None:
+            ws_semver = parse_semver_tuple(existing_ws_ont.ontology_version)
+            head_semver = parse_semver_tuple(head_ont.ontology_version)
+            is_identical_snapshot = compute_ontology_sha256(
+                existing_ws_ont
+            ) == compute_ontology_sha256(head_ont)
+            if not is_identical_snapshot and ws_semver >= head_semver:
+                if not acknowledge_historical_contract_warning:
+                    raise HistoricalContractWarningUnacknowledgedError(
+                        f"Workspace ontology version '{existing_ws_ont.ontology_version}' "
+                        f"is >= session head '{head_ont.ontology_version}'; explicit warning "
+                        "acknowledgement required."
+                    )
+                if len(clean_hist_rationale) < 10:
+                    raise HistoricalContractRationaleRequiredError(
+                        "Historical contract rationale must be at least 10 characters."
+                    )
+
             ws_concepts = {c.concept_uri: c for c in existing_ws_ont.canonical_business_concepts}
             head_concepts = {c.concept_uri: c for c in head_ont.canonical_business_concepts}
             ws_rels = {r.relationship_uri: r for r in existing_ws_ont.canonical_relationships}
@@ -1429,9 +1453,9 @@ class AtomicCommitService:
                         existing_ws_ont, synth_delta
                     )
 
-                if not acknowledge_historical_contract_warning:
-                    ws_major = parse_semver_tuple(existing_ws_ont.ontology_version)[0]
-                    head_major = parse_semver_tuple(head_ont.ontology_version)[0]
+                if head_semver > ws_semver:
+                    ws_major = ws_semver[0]
+                    head_major = head_semver[0]
                     if head_major <= ws_major:
                         raise ContractViolationError(
                             f"ONT_EVO_CONTRACT_VIOLATION: Promoting '{head_ont.ontology_version}' "
@@ -1495,6 +1519,12 @@ class AtomicCommitService:
         if not rationale or len(rationale.strip()) < 10:
             raise PromotionRationaleRequiredError(
                 "Promotion rationale must be at least 10 non-whitespace characters."
+            )
+
+        clean_hist_rationale = (historical_contract_rationale or "").strip()
+        if acknowledge_historical_contract_warning and len(clean_hist_rationale) < 10:
+            raise HistoricalContractRationaleRequiredError(
+                "Historical contract rationale must be at least 10 characters."
             )
 
         clean_if_match: str | None = None
@@ -1687,6 +1717,20 @@ class AtomicCommitService:
                             f"Workspace contract SHA-256 '{pre_ws_canonical_sha}' is not an "
                             f"ancestor in session '{session_id}' lineage."
                         )
+
+                if parse_semver_tuple(existing_ws_ont.ontology_version) >= parse_semver_tuple(
+                    session.head_version
+                ):
+                    if not acknowledge_historical_contract_warning:
+                        raise HistoricalContractWarningUnacknowledgedError(
+                            f"Workspace ontology version '{existing_ws_ont.ontology_version}' "
+                            f"is >= session head '{session.head_version}'; explicit warning "
+                            "acknowledgement required."
+                        )
+                    if len(clean_hist_rationale) < 10:
+                        raise HistoricalContractRationaleRequiredError(
+                            "Historical contract rationale must be at least 10 characters."
+                        )
             else:
                 if exp_ws not in ("", "0" * 64):
                     raise ConcurrentModificationError(
@@ -1700,6 +1744,7 @@ class AtomicCommitService:
                 existing_ws_ont=existing_ws_ont,
                 head_ont=head_ont,
                 acknowledge_historical_contract_warning=acknowledge_historical_contract_warning,
+                historical_contract_rationale=historical_contract_rationale,
             )
 
             version_tag = normalize_version_tag(session.head_version)
@@ -1713,10 +1758,8 @@ class AtomicCommitService:
                 "target_version": version_tag,
                 "rationale": rationale.strip(),
             }
-            if historical_contract_rationale:
-                intent_details["historical_contract_rationale"] = (
-                    historical_contract_rationale.strip()
-                )
+            if clean_hist_rationale:
+                intent_details["historical_contract_rationale"] = clean_hist_rationale
 
             intent_entry = self._append_raw_audit_entry_under_lock(
                 session_dir=session_dir,
@@ -1779,7 +1822,7 @@ class AtomicCommitService:
                 raise
 
             # Record promotion.json and update SessionMetadata + PROMOTION_COMMITTED
-            promo_record = {
+            promo_record: dict[str, Any] = {
                 "session_id": session_id,
                 "promoted_version": version_tag,
                 "head_sha256": session.head_sha256,
@@ -1790,6 +1833,8 @@ class AtomicCommitService:
                 "promoted_by": actor,
                 "promoted_at": now_iso,
             }
+            if clean_hist_rationale:
+                promo_record["historical_contract_rationale"] = clean_hist_rationale
             promo_tmp = session_dir / f".promotion.{secrets.token_hex(4)}.tmp"
             promo_path = session_dir / "promotion.json"
             promo_bytes = json.dumps(promo_record, indent=2).encode("utf-8")
@@ -1811,6 +1856,15 @@ class AtomicCommitService:
             if version_tag not in promoted_list:
                 promoted_list.append(version_tag)
 
+            committed_details: dict[str, Any] = {
+                "workspace_path": str(target_contract_path),
+                "workspace_sha256": session.head_sha256,
+                "pre_workspace_sha256": pre_ws_canonical_sha,
+                "target_version": version_tag,
+            }
+            if clean_hist_rationale:
+                committed_details["historical_contract_rationale"] = clean_hist_rationale
+
             committed_entry = self._append_raw_audit_entry_under_lock(
                 session_dir=session_dir,
                 session_id=session_id,
@@ -1818,12 +1872,7 @@ class AtomicCommitService:
                 target_version=version_tag,
                 head_sha256=session.head_sha256,
                 actor=actor,
-                details={
-                    "workspace_path": str(target_contract_path),
-                    "workspace_sha256": session.head_sha256,
-                    "pre_workspace_sha256": pre_ws_canonical_sha,
-                    "target_version": version_tag,
-                },
+                details=committed_details,
                 prev_audit_sha=session.audit_chain_head_sha256,
             )
             final_audit_sha = committed_entry["audit_sha256"]

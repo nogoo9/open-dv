@@ -516,7 +516,11 @@ class JobSupervisor:
                                 "result": ctx.result,
                             },
                         )
-                    elif ctx.cancel_event.is_set() or runner_reported_cancel:
+                    elif (
+                        ctx.cancel_event.is_set()
+                        or runner_reported_cancel
+                        or (not ctx.commit_started and ctx.is_cancelled(session_mgr))
+                    ):
                         ctx.status = "cancelled"
                         ctx.stage = "cancelled"
                         ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
@@ -583,7 +587,9 @@ class JobSupervisor:
             with ctx.lock:
                 if ctx.terminal_event_emitted or ctx.status.lower() in _TERMINAL_JOB_STATUSES:
                     pass
-                elif ctx.cancel_event.is_set():
+                elif ctx.cancel_event.is_set() or (
+                    not ctx.commit_started and ctx.is_cancelled(session_mgr)
+                ):
                     ctx.status = "cancelled"
                     ctx.stage = "cancelled"
                     ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
@@ -698,6 +704,32 @@ class JobSupervisor:
 
         return data
 
+    @staticmethod
+    def _write_cancel_marker_atomic(session_dir: Path, job_id: str) -> Path:
+        """Atomically persist cooperative `.{job_id}.cancel` marker file on disk."""
+        jobs_dir = session_dir / "jobs"
+        jobs_dir.mkdir(parents=True, exist_ok=True)
+        cancel_marker = jobs_dir / f".{job_id}.cancel"
+        tmp_marker = jobs_dir / f".{job_id}.cancel.{uuid.uuid4().hex[:8]}.tmp"
+        try:
+            with open(tmp_marker, "w", encoding="utf-8") as fp:
+                fp.write("cancelled")
+                fp.flush()
+                os.fsync(fp.fileno())
+            set_owner_only_permissions(tmp_marker)
+            replace_with_retry(tmp_marker, cancel_marker)
+            set_owner_only_permissions(cancel_marker)
+        finally:
+            if tmp_marker.exists():
+                with contextlib.suppress(OSError):
+                    tmp_marker.unlink()
+        return cancel_marker
+
+    @staticmethod
+    def _unlink_cancel_marker_best_effort(cancel_marker: Path) -> None:
+        with contextlib.suppress(OSError):
+            cancel_marker.unlink(missing_ok=True)
+
     def cancel_job(
         self,
         session_mgr: StudioSessionManager,
@@ -705,7 +737,7 @@ class JobSupervisor:
         job_id: str,
         reason: str | None = None,
     ) -> dict[str, Any]:
-        """Cancel an in-flight background job cleanly under `ctx.lock`."""
+        """Cancel an in-flight background job cleanly under `ctx.lock` or cross-process marker."""
         _validate_job_id(job_id)
         session_dir = session_mgr.get_session_dir(session_id)
         if not session_dir.is_dir() or not (session_dir / "session.json").is_file():
@@ -728,10 +760,7 @@ class JobSupervisor:
                     )
                 ctx.cancel_event.set()
                 with contextlib.suppress(Exception):
-                    cancel_marker = session_dir / "jobs" / f".{job_id}.cancel"
-                    cancel_marker.parent.mkdir(parents=True, exist_ok=True)
-                    cancel_marker.write_text("cancelled", encoding="utf-8")
-                    set_owner_only_permissions(cancel_marker)
+                    self._write_cancel_marker_atomic(session_dir, job_id)
                 ctx.status = "cancelled"
                 ctx.stage = "cancelled"
                 ctx.finished_at = datetime.now(UTC).isoformat()
@@ -753,7 +782,7 @@ class JobSupervisor:
 
             return self.get_job(session_mgr, session_id, job_id)
 
-        # On-disk cancellation check (cross-process or post-eviction) serialized via L2_JOB
+        # On-disk cancellation check (cross-process or post-eviction)
         job_file = self._get_job_file(session_mgr, session_id, job_id, create=False)
         if not job_file.is_file():
             raise StudioAPIError("JOB_NOT_FOUND", f"Job '{job_id}' not found.")
@@ -764,6 +793,8 @@ class JobSupervisor:
             raise StudioAPIError(
                 "CORRUPT_SESSION_RECORD", f"Job record '{job_id}' is corrupt."
             ) from exc
+        if not isinstance(pre_data, dict):
+            raise StudioAPIError("CORRUPT_SESSION_RECORD", f"Job record '{job_id}' is corrupt.")
 
         if str(pre_data.get("status", "")).lower() in _TERMINAL_JOB_STATUSES:
             raise StudioAPIError(
@@ -776,57 +807,100 @@ class JobSupervisor:
                 f"Job '{job_id}' is actively committing delta and cannot be cancelled.",
             )
 
+        # P11::MAJ-01: Atomically write cooperative .{job_id}.cancel marker BEFORE probing L2_JOB
+        # so an active worker in another process immediately observes ctx.is_cancelled() == True.
+        cancel_marker = self._write_cancel_marker_atomic(session_dir, job_id)
+
         lock_file = session_dir / "jobs" / f".job_{job_id}.lock"
         lock_file.parent.mkdir(parents=True, exist_ok=True)
         try:
-            with studio_lock(lock_file, level=L2_JOB, session_id=session_id, timeout=0.01):
+            with studio_lock(lock_file, level=L2_JOB, session_id=session_id, timeout=0.05):
                 try:
                     data = json.loads(job_file.read_text(encoding="utf-8"))
                 except (OSError, json.JSONDecodeError) as exc:
+                    self._unlink_cancel_marker_best_effort(cancel_marker)
                     raise StudioAPIError(
                         "CORRUPT_SESSION_RECORD", f"Job record '{job_id}' is corrupt."
                     ) from exc
-
-                if str(data.get("status", "")).lower() in _TERMINAL_JOB_STATUSES:
+                if not isinstance(data, dict):
+                    self._unlink_cancel_marker_best_effort(cancel_marker)
                     raise StudioAPIError(
-                        "JOB_ALREADY_TERMINAL",
-                        f"Job '{job_id}' is already terminal ({data.get('status')}).",
+                        "CORRUPT_SESSION_RECORD", f"Job record '{job_id}' is corrupt."
                     )
-                if data.get("stage") == "committing" or data.get("commit_started") is True:
+
+                curr_status = str(data.get("status", "")).lower()
+                if curr_status in _TERMINAL_JOB_STATUSES:
+                    if curr_status == "cancelled":
+                        data["status"] = "cancelled"
+                    else:
+                        self._unlink_cancel_marker_best_effort(cancel_marker)
+                        raise StudioAPIError(
+                            "JOB_ALREADY_TERMINAL",
+                            f"Job '{job_id}' is already terminal ({data.get('status')}).",
+                        )
+                elif data.get("stage") == "committing" or data.get("commit_started") is True:
+                    self._unlink_cancel_marker_best_effort(cancel_marker)
                     raise StudioAPIError(
                         "JOB_COMMIT_IN_PROGRESS",
                         f"Job '{job_id}' is actively committing delta and cannot be cancelled.",
                     )
+                else:
+                    data["status"] = "cancelled"
+                    data["stage"] = "cancelled"
+                    data["finished_at"] = datetime.now(UTC).isoformat()
+                    self._write_job_data_atomic(session_mgr, session_id, job_id, data)
 
-                cancel_marker = session_dir / "jobs" / f".{job_id}.cancel"
-                with contextlib.suppress(Exception):
-                    cancel_marker.parent.mkdir(parents=True, exist_ok=True)
-                    cancel_marker.write_text("cancelled", encoding="utf-8")
-                    set_owner_only_permissions(cancel_marker)
+                    with contextlib.suppress(Exception):
+                        writer = SSEJournalWriter(
+                            session_dir=session_dir, job_id=job_id, session_id=session_id
+                        )
+                        writer.buffer_event(
+                            "job_cancelled",
+                            {
+                                "job_id": job_id,
+                                "status": "cancelled",
+                                "reason": reason or "Cancelled by user",
+                            },
+                        )
+                        writer.flush()
+        except LockTimeoutError as lock_err:
+            try:
+                latest_data = json.loads(job_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                self._unlink_cancel_marker_best_effort(cancel_marker)
+                raise StudioAPIError(
+                    "CORRUPT_SESSION_RECORD", f"Job record '{job_id}' is corrupt."
+                ) from exc
+            if not isinstance(latest_data, dict):
+                self._unlink_cancel_marker_best_effort(cancel_marker)
+                raise StudioAPIError(
+                    "CORRUPT_SESSION_RECORD", f"Job record '{job_id}' is corrupt."
+                ) from None
 
-                data["status"] = "cancelled"
-                data["stage"] = "cancelled"
-                data["finished_at"] = datetime.now(UTC).isoformat()
-                self._write_job_data_atomic(session_mgr, session_id, job_id, data)
-
-                with contextlib.suppress(Exception):
-                    writer = SSEJournalWriter(
-                        session_dir=session_dir, job_id=job_id, session_id=session_id
-                    )
-                    writer.buffer_event(
-                        "job_cancelled",
-                        {
-                            "job_id": job_id,
-                            "status": "cancelled",
-                            "reason": reason or "Cancelled by user",
-                        },
-                    )
-                    writer.flush()
-        except LockTimeoutError as exc:
-            raise StudioAPIError(
-                "JOB_COMMIT_IN_PROGRESS",
-                f"Job '{job_id}' is held by an active worker and cannot be cancelled on disk.",
-            ) from exc
+            latest_status = str(latest_data.get("status", "")).lower()
+            if latest_status in _TERMINAL_JOB_STATUSES:
+                if latest_status == "cancelled":
+                    latest_data["status"] = "cancelled"
+                    return latest_data
+                self._unlink_cancel_marker_best_effort(cancel_marker)
+                raise StudioAPIError(
+                    "JOB_ALREADY_TERMINAL",
+                    f"Job '{job_id}' is already terminal ({latest_data.get('status')}).",
+                ) from None
+            if (
+                latest_data.get("stage") == "committing"
+                or latest_data.get("commit_started") is True
+            ):
+                self._unlink_cancel_marker_best_effort(cancel_marker)
+                raise StudioAPIError(
+                    "JOB_COMMIT_IN_PROGRESS",
+                    f"Job '{job_id}' is actively committing delta and cannot be cancelled.",
+                ) from lock_err
+            return {
+                **latest_data,
+                "status": "cancelling",
+                "stage": "cancel_requested",
+            }
 
         with contextlib.suppress(OSError):
             lock_file.unlink(missing_ok=True)

@@ -344,10 +344,26 @@ describe("Wave R4-E: Pre-Opus Hardening Regression Suite", () => {
 					?.mapping_confidence,
 			).toBe(0.78);
 
-			// Minimal mock without GET /export: must NOT fabricate 1.0/0.85 or verified_pack
+			// Fallback when GET /export returns HTTP 500: must preserve error toast AND strip user_asserted confidence / GROUNDED status
 			const fallbackStore = createStudioStore({ initialSession: session });
-			fallbackStore.getState().addConcept(userAssertedNode);
-			const mockMinimalFetch: typeof fetch = (async (url, init) => {
+			fallbackStore.getState().addConcept({
+				...userAssertedNode,
+				confidence: 0.95,
+				grounding_status: "GROUNDED",
+				external_mappings: [
+					{
+						scheme: "FIBO",
+						target_uri:
+							"https://spec.edmcouncil.org/fibo/ontology/SEC/Portfolio",
+						predicate: "skos:exactMatch",
+						pinned: true,
+						confidence: 0.95,
+						mapping_confidence: 0.95,
+						provenance: "user_asserted",
+					},
+				],
+			});
+			const mockFailingExportFetch: typeof fetch = (async (url, init) => {
 				const u = String(url);
 				const method = (init?.method || "GET").toUpperCase();
 				if (method === "POST" && u.endsWith("/delta")) {
@@ -359,18 +375,32 @@ describe("Wave R4-E: Pre-Opus Hardening Regression Suite", () => {
 						{ status: 200 },
 					);
 				}
-				return new Response("{}", { status: 404 });
+				return new Response(
+					JSON.stringify({
+						detail: "Snapshot read failure",
+						code: "GRAPH_LOAD_FAILED",
+					}),
+					{ status: 500 },
+				);
 			}) as typeof fetch;
 
 			const fallbackOk = await fallbackStore
 				.getState()
-				.commitChanges("Commit fallback test", mockMinimalFetch);
+				.commitChanges("Commit fallback test", mockFailingExportFetch);
 			expect(fallbackOk).toBe(true);
-			const fallbackMapping =
-				fallbackStore.getState().nodes[0]?.external_mappings?.[0];
+			const fallbackNode = fallbackStore.getState().nodes[0];
+			const fallbackMapping = fallbackNode?.external_mappings?.[0];
 			expect(fallbackMapping?.mapping_confidence).toBeUndefined();
 			expect(fallbackMapping?.confidence).toBeUndefined();
 			expect(fallbackMapping?.provenance).toBe("user_asserted");
+			expect(fallbackNode?.grounding_status).toBe("UNGROUNDED");
+			expect(
+				fallbackStore
+					.getState()
+					.toasts.some(
+						(t) => t.status === 500 && t.code === "GRAPH_LOAD_FAILED",
+					),
+			).toBe(true);
 		});
 	});
 
@@ -891,6 +921,589 @@ describe("Wave R4-E: Pre-Opus Hardening Regression Suite", () => {
 			expect(store.getState().answers.q2?.custom_answer_text).toBe(
 				"Unsent local draft for q2",
 			);
+		});
+	});
+
+	// =========================================================================
+	// 7. Opus Remediation Regression Suite (P14c2::MAJ-01, P14c3::MAJ-01, P14c3::MAJ-02, P14c4::MAJ-01, P14c4::MAJ-02)
+	// =========================================================================
+	describe("7. Opus Remediation Regression Suite: startConstruct auto_commit guards, historical diff, n-ary relationship diffing & post-commit loadGraph safety", () => {
+		it("P14c2::MAJ-01: blocks startConstruct({ auto_commit: true }) when hasUnsavedChanges is true unless force: true", async () => {
+			(globalThis as Record<string, unknown>).EventSource = undefined;
+			const sess = makeSession({ head_sha256: "a".repeat(64) });
+			const store = createStudioStore({ initialSession: sess });
+			store.getState().addConcept(makeConcept());
+			expect(store.getState().hasUnsavedChanges).toBe(true);
+
+			let constructCalled = false;
+			const mockFetch: typeof fetch = (async (url, init) => {
+				const u = String(url);
+				const method = (init?.method || "GET").toUpperCase();
+				if (method === "POST" && u.endsWith("/construct")) {
+					constructCalled = true;
+					return new Response(
+						JSON.stringify({ job_id: "job-forced-1", status: "QUEUED" }),
+						{ status: 202 },
+					);
+				}
+				return new Response(JSON.stringify({ status: "COMPLETED" }), {
+					status: 200,
+				});
+			}) as typeof fetch;
+
+			// Blocked without force: true
+			const blockedJobId = await store
+				.getState()
+				.startConstruct({ auto_commit: true }, mockFetch);
+			expect(blockedJobId).toBeNull();
+			expect(constructCalled).toBe(false);
+			const warnToast = store.getState().toasts[0];
+			expect(warnToast?.title).toBe("Unsaved Canvas Edits");
+			expect(warnToast?.code).toBe("UNSAVED_CHANGES");
+			expect(warnToast?.status).toBe(409);
+
+			// Non-auto_commit (proposal mode) is allowed even when canvas is dirty
+			const proposalJobId = await store
+				.getState()
+				.startConstruct({ auto_commit: false }, mockFetch);
+			expect(proposalJobId).toBe("job-forced-1");
+			expect(constructCalled).toBe(true);
+
+			// Explicit force: true overrides guard for auto_commit
+			constructCalled = false;
+			const forcedJobId = await store
+				.getState()
+				.startConstruct({ auto_commit: true, force: true }, mockFetch);
+			expect(forcedJobId).toBe("job-forced-1");
+			expect(constructCalled).toBe(true);
+			store.getState().reset();
+		});
+
+		it("P14c3::MAJ-01: preserves dirty canvas and pins baseline ETag when auto-commit construct completes, while reloading cleanly when canvas is clean", async () => {
+			(globalThis as Record<string, unknown>).EventSource = MockEventSource;
+			MockEventSource.instances = [];
+
+			const baselineSha = "1".repeat(64);
+			const serverAdvancedSha = "2".repeat(64);
+			const sess = makeSession({
+				session_id: "sess-autocommit-dirty",
+				active_version: "1.0.0",
+				head_sha256: baselineSha,
+			});
+			const baseNode = makeConcept();
+			const store = createStudioStore({ initialSession: sess });
+			store.setState({
+				sessions: [sess],
+				nodes: [baseNode],
+				committedNodes: [baseNode],
+				hasUnsavedChanges: false,
+			});
+
+			let selectSessionDetailCalls = 0;
+			let loadSessionsCalls = 0;
+
+			const mockFetch: typeof fetch = (async (url, init) => {
+				const u = String(url);
+				const method = (init?.method || "GET").toUpperCase();
+				if (method === "POST" && u.endsWith("/construct")) {
+					return new Response(
+						JSON.stringify({ job_id: "job-ac-sse", status: "RUNNING" }),
+						{ status: 202 },
+					);
+				}
+				if (method === "GET" && u.endsWith("/ontology/studio/sessions")) {
+					loadSessionsCalls += 1;
+					return new Response(
+						JSON.stringify({
+							sessions: [
+								{
+									...sess,
+									active_version: "1.1.0",
+									head_sha256: serverAdvancedSha,
+								},
+							],
+						}),
+						{ status: 200 },
+					);
+				}
+				if (
+					method === "GET" &&
+					u.endsWith(`/sessions/${encodeURIComponent(sess.session_id)}`)
+				) {
+					selectSessionDetailCalls += 1;
+					return new Response(
+						JSON.stringify({
+							...sess,
+							active_version: "1.1.0",
+							head_sha256: serverAdvancedSha,
+						}),
+						{ status: 200 },
+					);
+				}
+				if (method === "GET" && u.includes("/export?")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict(
+								[
+									baseNode,
+									makeConcept({
+										id: "urn:opendv:concept:server_fund",
+										concept_uri: "urn:opendv:concept:server_fund",
+										concept_name: "Server Fund",
+									}),
+								],
+								[],
+								{ ...sess, active_version: "1.1.0" },
+							),
+						),
+						{ status: 200 },
+					);
+				}
+				return new Response(JSON.stringify([]), { status: 200 });
+			}) as typeof fetch;
+
+			const jobId = await store
+				.getState()
+				.startConstruct({ auto_commit: true }, mockFetch);
+			expect(jobId).toBe("job-ac-sse");
+			expect(MockEventSource.instances.length).toBe(1);
+
+			// Steward edits canvas while background auto-commit construction is running
+			const localDraftNode = makeConcept({
+				id: "urn:opendv:concept:local_draft_deal",
+				concept_uri: "urn:opendv:concept:local_draft_deal",
+				concept_name: "Local Draft Deal",
+			});
+			store.getState().addConcept(localDraftNode);
+			expect(store.getState().hasUnsavedChanges).toBe(true);
+
+			// Background job finishes with auto_committed: true
+			const es = MockEventSource.instances[0];
+			es?.emit("job_completed", {
+				job_id: "job-ac-sse",
+				status: "COMPLETED",
+				result: { auto_committed: true, target_version: "1.1.0" },
+			});
+			await new Promise((r) => setTimeout(r, 25));
+
+			// Dirty canvas MUST NOT be wiped by selectSession(..., true)!
+			expect(selectSessionDetailCalls).toBe(0);
+			expect(loadSessionsCalls).toBe(1);
+			expect(store.getState().hasUnsavedChanges).toBe(true);
+			expect(store.getState().nodes.map((n) => n.concept_uri)).toEqual([
+				"urn:opendv:concept:portfolio",
+				"urn:opendv:concept:local_draft_deal",
+			]);
+			expect(store.getState().committedNodes.map((n) => n.concept_uri)).toEqual(
+				["urn:opendv:concept:portfolio"],
+			);
+			// Sessions list reflects 1.1.0 on server, while activeSession stays pinned to baseline 1.0.0 / baselineSha for OCC
+			expect(store.getState().sessions[0]?.active_version).toBe("1.1.0");
+			expect(store.getState().activeSession?.active_version).toBe("1.0.0");
+			expect(store.getState().activeSession?.head_sha256).toBe(baselineSha);
+			expect(
+				store
+					.getState()
+					.toasts.some(
+						(t) =>
+							t.title === "New Version Committed on Server" &&
+							t.code === "SERVER_HEAD_ADVANCED" &&
+							t.status === 409,
+					),
+			).toBe(true);
+
+			// Clean canvas case: selectSession IS invoked and loads v1.1.0
+			const cleanStore = createStudioStore({ initialSession: sess });
+			cleanStore.setState({
+				sessions: [sess],
+				nodes: [baseNode],
+				committedNodes: [baseNode],
+				hasUnsavedChanges: false,
+			});
+			MockEventSource.instances = [];
+			await cleanStore
+				.getState()
+				.startConstruct({ auto_commit: true }, mockFetch);
+			MockEventSource.instances[0]?.emit("job_completed", {
+				job_id: "job-ac-sse",
+				status: "COMPLETED",
+				result: { auto_committed: true, target_version: "1.1.0" },
+			});
+			await new Promise((r) => setTimeout(r, 25));
+			expect(selectSessionDetailCalls).toBe(1);
+			expect(cleanStore.getState().activeSession?.active_version).toBe("1.1.0");
+			expect(cleanStore.getState().nodes.length).toBe(2);
+		});
+
+		it("P14c3::MAJ-02: diffs historical v1.0.0 against HEAD v1.2.0 accurately when isHistoricalView is true (online & offline)", async () => {
+			const sess = makeSession({
+				session_id: "sess-hist-diff",
+				active_version: "1.2.0",
+				head_sha256: "c".repeat(64),
+			});
+			const v1Portfolio = makeConcept();
+			const v12Fund = makeConcept({
+				id: "urn:opendv:concept:fund_v12",
+				concept_uri: "urn:opendv:concept:fund_v12",
+				concept_name: "Fund V12",
+			});
+
+			const store = createStudioStore({ initialSession: sess });
+			store.setState({
+				nodes: [v1Portfolio, v12Fund],
+				committedNodes: [v1Portfolio, v12Fund],
+				edges: [],
+				committedEdges: [],
+				viewedVersion: "1.2.0",
+				isHistoricalView: false,
+			});
+
+			const exportUrls: string[] = [];
+			const mockHistFetch: typeof fetch = (async (url) => {
+				const u = String(url);
+				exportUrls.push(u);
+				if (u.includes("version=1.0.0")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict([v1Portfolio], [], {
+								...sess,
+								active_version: "1.0.0",
+							}),
+						),
+						{ status: 200 },
+					);
+				}
+				if (u.includes("version=1.2.0")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict([v1Portfolio, v12Fund], [], {
+								...sess,
+								active_version: "1.2.0",
+							}),
+						),
+						{ status: 200 },
+					);
+				}
+				return new Response("{}", { status: 404 });
+			}) as typeof fetch;
+
+			// Open historical version 1.0.0 -> isHistoricalView === true, nodes holds [v1Portfolio], committedNodes holds [v1Portfolio, v12Fund]
+			await store.getState().loadGraph("1.0.0", mockHistFetch);
+			expect(store.getState().isHistoricalView).toBe(true);
+			expect(store.getState().viewedVersion).toBe("1.0.0");
+			expect(store.getState().nodes.length).toBe(1);
+			expect(store.getState().committedNodes.length).toBe(2);
+
+			// 1. Synchronous computeDiff("1.0.0", "1.2.0") uses nodes (1.0.0) vs committedNodes (1.2.0) — NOT nodes vs nodes!
+			store.getState().computeDiff("1.0.0", "1.2.0");
+			expect(store.getState().diffState.summary.added_count).toBe(1);
+			expect(store.getState().diffState.records[0]?.identifier).toBe(
+				"urn:opendv:concept:fund_v12",
+			);
+
+			// 2. Online loadAndComputeDiff("1.0.0", "1.2.0") fetches version=1.2.0 instead of fast-pathing to historical get().nodes
+			exportUrls.length = 0;
+			await store
+				.getState()
+				.loadAndComputeDiff("1.0.0", "1.2.0", mockHistFetch);
+			expect(exportUrls.some((u) => u.includes("version=1.2.0"))).toBe(true);
+			expect(store.getState().diffState.summary.added_count).toBe(1);
+			expect(store.getState().diffState.records[0]?.identifier).toBe(
+				"urn:opendv:concept:fund_v12",
+			);
+
+			// 3. Offline loadAndComputeDiff("1.0.0", "1.2.0") falls back to historical canvas (1.0.0) vs committedNodes (1.2.0)
+			const mockOfflineFetch: typeof fetch = (async () => {
+				throw new Error("Offline");
+			}) as typeof fetch;
+			await store
+				.getState()
+				.loadAndComputeDiff("1.0.0", "1.2.0", mockOfflineFetch);
+			expect(store.getState().diffState.summary.added_count).toBe(1);
+			expect(store.getState().diffState.records[0]?.identifier).toBe(
+				"urn:opendv:concept:fund_v12",
+			);
+		});
+
+		it("P14c4::MAJ-01: detects relationship_name, grain_semantics & n-ary endpoints[2..] mutations (blocking editor, emitting remove+add for admin)", async () => {
+			const sess = makeSession({
+				session_id: "sess-nary-rel",
+				active_version: "1.0.0",
+				head_sha256: "a".repeat(64),
+			});
+			const c1 = makeConcept({
+				id: "urn:opendv:concept:fund",
+				concept_uri: "urn:opendv:concept:fund",
+				concept_name: "Fund",
+			});
+			const c2 = makeConcept({
+				id: "urn:opendv:concept:deal",
+				concept_uri: "urn:opendv:concept:deal",
+				concept_name: "Deal",
+			});
+			const c3 = makeConcept({
+				id: "urn:opendv:concept:sponsor",
+				concept_uri: "urn:opendv:concept:sponsor",
+				concept_name: "Sponsor",
+			});
+			const c4 = makeConcept({
+				id: "urn:opendv:concept:advisor",
+				concept_uri: "urn:opendv:concept:advisor",
+				concept_name: "Advisor",
+			});
+			const ternaryRel: RelationshipEdge = {
+				id: "urn:opendv:rel:syndication",
+				relationship_uri: "urn:opendv:rel:syndication",
+				relationship_name: "syndicates_deal",
+				target_link: "lnk_fund_deal_sponsor",
+				source_concept_uri: c1.concept_uri,
+				target_concept_uri: c2.concept_uri,
+				endpoints: [c1.concept_uri, c2.concept_uri, c3.concept_uri],
+				grain_semantics: "One record per fund-deal-sponsor tranche",
+				cardinality: "many_to_many",
+				description: "Original ternary syndication link",
+			};
+
+			// 1. Editor role: blocked on relationship_name, grain_semantics, and endpoints[2] edits
+			const editorStore = createStudioStore({
+				initialSession: sess,
+				userRole: "editor",
+			});
+			editorStore.setState({
+				nodes: [c1, c2, c3, c4],
+				committedNodes: [c1, c2, c3, c4],
+				edges: [ternaryRel],
+				committedEdges: [ternaryRel],
+				hasUnsavedChanges: false,
+			});
+
+			// updateRelationship preserves n-ary endpoints[2] when updating relationship_name
+			editorStore.getState().updateRelationship(ternaryRel.id, {
+				relationship_name: "co_syndicates_deal",
+			});
+			expect(editorStore.getState().edges[0]?.endpoints).toEqual([
+				c1.concept_uri,
+				c2.concept_uri,
+				c3.concept_uri,
+			]);
+			expect(editorStore.getState().hasUnsavedChanges).toBe(true);
+			const okName = await editorStore
+				.getState()
+				.commitChanges("Rename relationship");
+			expect(okName).toBe(false);
+			expect(editorStore.getState().toasts[0]?.code).toBe(
+				"ONT_EVO_NON_ADDITIVE_CHANGE",
+			);
+
+			// Reset to baseline and mutate grain_semantics alone -> also blocked for editor
+			editorStore.setState({
+				edges: [{ ...ternaryRel, grain_semantics: "Updated grain" }],
+				toasts: [],
+				hasUnsavedChanges: true,
+			});
+			const okGrain = await editorStore
+				.getState()
+				.commitChanges("Change grain semantics");
+			expect(okGrain).toBe(false);
+			expect(editorStore.getState().toasts[0]?.code).toBe(
+				"ONT_EVO_NON_ADDITIVE_CHANGE",
+			);
+
+			// Reset to baseline and mutate endpoints[2] alone -> also blocked for editor
+			editorStore.setState({
+				edges: [
+					{
+						...ternaryRel,
+						endpoints: [c1.concept_uri, c2.concept_uri, c4.concept_uri],
+					},
+				],
+				toasts: [],
+				hasUnsavedChanges: true,
+			});
+			const okNary = await editorStore
+				.getState()
+				.commitChanges("Change 3rd endpoint");
+			expect(okNary).toBe(false);
+			expect(editorStore.getState().toasts[0]?.code).toBe(
+				"ONT_EVO_NON_ADDITIVE_CHANGE",
+			);
+
+			// 2. Admin role: emits remove_relationship + add_relationship with updated name, grain_semantics & full 3-ary endpoints
+			const adminStore = createStudioStore({
+				initialSession: sess,
+				userRole: "admin",
+			});
+			adminStore.setState({
+				nodes: [c1, c2, c4],
+				committedNodes: [c1, c2, c3, c4],
+				edges: [
+					{
+						...ternaryRel,
+						relationship_name: "co_syndicates_deal",
+						grain_semantics: "One record per co-syndicated advisor tranche",
+						endpoints: [c1.concept_uri, c2.concept_uri, c4.concept_uri],
+						description: "Updated ternary relationship",
+					},
+				],
+				committedEdges: [ternaryRel],
+				hasUnsavedChanges: true,
+			});
+
+			let postedAdminDelta: {
+				target_version: string;
+				operations: Array<Record<string, unknown>>;
+			} | null = null;
+			const mockAdminFetch: typeof fetch = (async (url, init) => {
+				const u = String(url);
+				const method = (init?.method || "GET").toUpperCase();
+				if (method === "POST" && u.endsWith("/delta")) {
+					postedAdminDelta = JSON.parse(String(init?.body || "{}"));
+					return new Response(
+						JSON.stringify({
+							target_version: "2.0.0",
+							target_sha256: "b".repeat(64),
+						}),
+						{ status: 200 },
+					);
+				}
+				if (method === "GET" && u.includes("/export")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict(
+								adminStore.getState().nodes,
+								adminStore.getState().edges,
+								{ ...sess, active_version: "2.0.0" },
+							),
+						),
+						{ status: 200 },
+					);
+				}
+				return new Response("{}", { status: 404 });
+			}) as typeof fetch;
+
+			const adminOk = await adminStore
+				.getState()
+				.commitChanges("Refactor ternary relationship", mockAdminFetch);
+			expect(adminOk).toBe(true);
+			expect(postedAdminDelta?.target_version).toBe("2.0.0");
+			const ops = postedAdminDelta?.operations ?? [];
+			const removeRelIdx = ops.findIndex(
+				(o) =>
+					o.op_type === "remove_relationship" &&
+					o.relationship_uri === ternaryRel.relationship_uri,
+			);
+			const removeConceptIdx = ops.findIndex(
+				(o) =>
+					o.op_type === "remove_concept" && o.concept_uri === c3.concept_uri,
+			);
+			const addRelIdx = ops.findIndex(
+				(o) =>
+					o.op_type === "add_relationship" &&
+					o.relationship_uri === ternaryRel.relationship_uri,
+			);
+			expect(removeRelIdx).toBeGreaterThanOrEqual(0);
+			expect(removeConceptIdx).toBeGreaterThan(removeRelIdx);
+			expect(addRelIdx).toBeGreaterThan(removeConceptIdx);
+
+			const addRelOp = ops[addRelIdx];
+			expect(addRelOp?.relationship_name).toBe("co_syndicates_deal");
+			expect(addRelOp?.grain_semantics).toBe(
+				"One record per co-syndicated advisor tranche",
+			);
+			expect(addRelOp?.endpoints).toEqual([
+				c1.concept_uri,
+				c2.concept_uri,
+				c4.concept_uri,
+			]);
+			expect(addRelOp?.target_link).toBe("lnk_fund_deal_sponsor");
+			expect(addRelOp?.cardinality).toBe("many_to_many");
+			expect(addRelOp?.description).toBe("Updated ternary relationship");
+		});
+
+		it("P14c4::MAJ-02: never wipes loadGraph HTTP 500 or concurrent SSE toasts on post-commit reload failure and sanitizes unverified user_asserted confidence", async () => {
+			const sess = makeSession({
+				session_id: "sess-reload-500",
+				active_version: "0.0.0",
+				head_sha256: GENESIS_SHA256,
+				status: "EMPTY",
+			});
+			const store = createStudioStore({ initialSession: sess });
+			store.getState().addConcept(
+				makeConcept({
+					confidence: 0.99,
+					grounding_status: "GROUNDED",
+					external_mappings: [
+						{
+							scheme: "FIBO",
+							target_uri:
+								"https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/FinancialProductsAndServices/FinancialProduct",
+							predicate: "skos:exactMatch",
+							confidence: 0.99,
+							mapping_confidence: 0.99,
+							provenance: "user_asserted",
+						},
+					],
+				}),
+			);
+
+			const mockReload500Fetch: typeof fetch = (async (url, init) => {
+				const u = String(url);
+				const method = (init?.method || "GET").toUpperCase();
+				if (method === "POST" && u.endsWith("/delta")) {
+					return new Response(
+						JSON.stringify({
+							target_version: "1.0.0",
+							target_sha256: "9".repeat(64),
+						}),
+						{ status: 200 },
+					);
+				}
+				if (method === "GET" && u.includes("/export")) {
+					// Simulate concurrent SSE/background toast arriving during loadGraph
+					store.getState().addToast({
+						type: "urn:opendv:warning:sse-concurrent",
+						title: "Background Clarifier Notice",
+						status: 409,
+						detail: "Concurrent job notification while loadGraph was in-flight",
+						code: "CONCURRENT_JOB_NOTICE",
+					});
+					return new Response(
+						JSON.stringify({
+							detail: "Simulated storage backend outage on export",
+							code: "STORAGE_READ_ERROR",
+						}),
+						{ status: 500 },
+					);
+				}
+				return new Response("{}", { status: 404 });
+			}) as typeof fetch;
+
+			const ok = await store
+				.getState()
+				.commitChanges("Commit with export 500", mockReload500Fetch);
+			expect(ok).toBe(true);
+
+			const toasts = store.getState().toasts;
+			expect(
+				toasts.some(
+					(t) =>
+						t.title === "Failed to Load Graph" &&
+						t.status === 500 &&
+						t.code === "STORAGE_READ_ERROR",
+				),
+			).toBe(true);
+			expect(toasts.some((t) => t.code === "CONCURRENT_JOB_NOTICE")).toBe(true);
+
+			// Unverified user_asserted confidence MUST NOT be displayed as GROUNDED when server snapshot failed to load
+			const node = store.getState().nodes[0];
+			const committedNode = store.getState().committedNodes[0];
+			expect(node?.grounding_status).toBe("UNGROUNDED");
+			expect(node?.confidence).toBe(0);
+			expect(node?.external_mappings[0]?.confidence).toBeUndefined();
+			expect(node?.external_mappings[0]?.mapping_confidence).toBeUndefined();
+			expect(committedNode?.grounding_status).toBe("UNGROUNDED");
+			expect(committedNode?.confidence).toBe(0);
+			expect(committedNode?.external_mappings[0]?.confidence).toBeUndefined();
 		});
 	});
 });

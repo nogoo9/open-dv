@@ -35,6 +35,7 @@ from opendv_sources.adapters.liteparse_adapter import (
     extract_tables_with_spans,
 )
 from opendv_sources.exceptions import (
+    ArchiveSecurityViolationError,
     DocumentExtractionError,
     DocumentPayloadTooLargeError,
     UnsupportedFormatError,
@@ -72,14 +73,23 @@ MAX_YAML_ALIASES_DEFAULT: int = 1_000
 MAX_STRUCTURED_NODES_DEFAULT: int = 100_000
 MAX_JSON_PATHS_SAMPLE: int = 100
 
-# Parquet decompression / preview safety bounds (P04::MAJ-01)
+# Parquet decompression / preview safety bounds (P04::MAJ-01, P04b::MAJ-01)
 MAX_PARQUET_INPUT_BYTES_DEFAULT: int = 50 * 1024 * 1024
 MAX_PARQUET_METADATA_ROWS_DEFAULT: int = 100_000_000
 MAX_PARQUET_UNCOMPRESSED_BYTES_DEFAULT: int = 512 * 1024 * 1024
 MAX_PARQUET_COMPRESSION_RATIO_DEFAULT: float = 500.0
 MAX_PARQUET_COLUMNS_DEFAULT: int = 10_000
+MAX_PARQUET_PREVIEW_COLUMNS_DEFAULT: int = 64
 MAX_PARQUET_PREVIEW_CELL_CHARS_DEFAULT: int = 4_096
 MAX_PARQUET_PREVIEW_BYTES_DEFAULT: int = 1 * 1024 * 1024
+MAX_PARQUET_PREVIEW_MEMORY_BYTES_CAP: int = 64 * 1024 * 1024
+_PARQUET_COL_RATIO_MIN_UNCOMPRESSED_BYTES: int = 1_048_576
+
+# Wide table & preview cell bounds (P04b::MAJ-02)
+MAX_DELIMITED_COLUMNS_DEFAULT: int = 10_000
+MAX_TABLE_COLUMNS_DEFAULT: int = 256
+MAX_TABLE_CELLS_DEFAULT: int = 100_000
+MAX_TYPE_INFERENCE_CELLS_DEFAULT: int = 250_000
 
 # Configure process-wide CSV field size limit once safely at import time (MAJ-07)
 _CSV_MIN_FIELD_SIZE_LIMIT: int = 10 * 1024 * 1024
@@ -428,6 +438,11 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
 # =============================================================================
 
 
+_BOOL_VALUES = frozenset({"true", "false", "yes", "no", "1", "0", "t", "f"})
+_INT_VALUE_RE = re.compile(r"^-?\d+$")
+_FLOAT_VALUE_RE = re.compile(r"^-?\d+(\.\d+)?([eE][+-]?\d+)?$")
+
+
 def _infer_column_type(values: list[str]) -> str:
     """Infer high-level column type from a list of non-empty string values."""
     if not values:
@@ -437,18 +452,18 @@ def _infer_column_type(values: list[str]) -> str:
     is_float = True
     is_bool = True
 
-    bool_values = {"true", "false", "yes", "no", "1", "0", "t", "f"}
-
     for val in values:
         v = val.strip().lower()
         if not v:
             continue
-        if v not in bool_values:
+        if is_bool and v not in _BOOL_VALUES:
             is_bool = False
-        if not re.match(r"^-?\d+$", v):
+        if is_int and _INT_VALUE_RE.match(v) is None:
             is_int = False
-        if not re.match(r"^-?\d+(\.\d+)?([eE][+-]?\d+)?$", v):
+        if is_float and _FLOAT_VALUE_RE.match(v) is None:
             is_float = False
+        if not is_bool and not is_int and not is_float:
+            return "string"
 
     if is_bool:
         return "boolean"
@@ -479,6 +494,9 @@ class DelimitedTabularAdapter(BaseDocumentAdapter):
         max_cell_chars: int = MAX_CELL_CHARS_DEFAULT,
         max_rows: int | None = None,
         max_bytes: int | None = MAX_TEXT_DOCUMENT_BYTES_DEFAULT,
+        max_columns: int = MAX_DELIMITED_COLUMNS_DEFAULT,
+        max_table_columns: int = MAX_TABLE_COLUMNS_DEFAULT,
+        max_table_cells: int = MAX_TABLE_CELLS_DEFAULT,
     ) -> None:
         """Initialize DelimitedTabularAdapter.
 
@@ -486,10 +504,16 @@ class DelimitedTabularAdapter(BaseDocumentAdapter):
             max_cell_chars: Maximum character length per cell before truncation guard activates.
             max_rows: Optional row count limit for preview or bounding ingestion memory.
             max_bytes: Maximum allowed raw byte size.
+            max_columns: Maximum allowed columns in CSV/TSV header or rows.
+            max_table_columns: Maximum columns synthesized in TableStructure / Markdown preview.
+            max_table_cells: Maximum total cells materialized in TableStructure.
         """
         self.max_cell_chars = max_cell_chars
         self.max_rows = max_rows
         self.max_bytes = max_bytes
+        self.max_columns = max_columns
+        self.max_table_columns = max(1, int(max_table_columns))
+        self.max_table_cells = max(1, int(max_table_cells))
 
     @property
     def adapter_name(self) -> str:
@@ -526,61 +550,95 @@ class DelimitedTabularAdapter(BaseDocumentAdapter):
         )
         delimiter = "\t" if is_tsv else ","
 
-        # Streaming row parsing with cell truncation guard and csv.Error translation (MAJ-07)
-        raw_rows: list[list[str]] = []
+        # Streaming row parsing with column count, cell truncation, and cell budget guards
+        all_headers: list[str] | None = None
+        table_headers: list[str] = []
+        headers_truncated = False
+        effective_max_table_rows = 1
+        sample_row_budget = 100
+        sample_rows: list[list[str]] = []
+        table_rows: list[list[str]] = []
+        total_data_rows = 0
         truncated_cells_count = 0
+
+        def _guard_cell(cell: str) -> str:
+            nonlocal truncated_cells_count
+            if len(cell) > self.max_cell_chars:
+                truncated_cells_count += 1
+                return cell[: self.max_cell_chars] + "…[TRUNCATED]"
+            return cell
 
         try:
             reader = csv.reader(io.StringIO(raw_text), delimiter=delimiter)
             for row_idx, row in enumerate(reader):
                 if self.max_rows is not None and row_idx >= self.max_rows:
                     break
-                guarded_row: list[str] = []
-                for cell in row:
-                    if len(cell) > self.max_cell_chars:
-                        guarded_row.append(cell[: self.max_cell_chars] + "…[TRUNCATED]")
-                        truncated_cells_count += 1
-                    else:
-                        guarded_row.append(cell)
-                raw_rows.append(guarded_row)
+                if len(row) > self.max_columns:
+                    raise ArchiveSecurityViolationError(
+                        f"Tabular document '{filename}' contains {len(row)} columns at row "
+                        f"{row_idx}, exceeding maximum allowed column count ({self.max_columns})"
+                    )
+                if row_idx == 0:
+                    guarded_header = [_guard_cell(cell) for cell in row]
+                    all_headers = [h.strip() for h in guarded_header]
+                    headers_truncated = len(all_headers) > self.max_table_columns
+                    table_headers = all_headers[: self.max_table_columns]
+                    effective_max_table_rows = max(
+                        1, self.max_table_cells // max(1, len(table_headers))
+                    )
+                    sample_row_budget = max(
+                        1,
+                        min(100, MAX_TYPE_INFERENCE_CELLS_DEFAULT // max(1, len(all_headers))),
+                    )
+                    continue
+
+                total_data_rows += 1
+                need_sample = len(sample_rows) < sample_row_budget
+                need_table = len(table_rows) < effective_max_table_rows
+                if need_sample or need_table:
+                    guarded_row = [_guard_cell(cell) for cell in row]
+                    if need_sample:
+                        sample_rows.append(guarded_row)
+                    if need_table:
+                        table_rows.append(guarded_row[: len(table_headers)])
+                else:
+                    for cell in row:
+                        if len(cell) > self.max_cell_chars:
+                            truncated_cells_count += 1
         except csv.Error as exc:
             raise InvalidDocumentError(f"Malformed CSV/TSV payload in '{filename}': {exc}") from exc
 
-        if not raw_rows:
+        if all_headers is None:
             raise InvalidDocumentError(f"Tabular document '{filename}' contains no rows")
 
-        headers = [h.strip() for h in raw_rows[0]]
-        data_rows = raw_rows[1:]
-
-        # Column type inference
-        sample_rows = data_rows[:100]
+        # Column type inference bounded to <= MAX_TYPE_INFERENCE_CELLS_DEFAULT cells
         column_types: dict[str, str] = {}
-        for col_idx, h in enumerate(headers):
+        for col_idx, h in enumerate(all_headers):
             col_vals = [r[col_idx] for r in sample_rows if col_idx < len(r)]
             column_types[h or f"col_{col_idx}"] = _infer_column_type(col_vals)
 
-        # Build Markdown table representation
-        divider = ["---"] * len(headers)
+        # Build Markdown table representation bounded by table_headers (<=256) and <=50 rows
+        divider = ["---"] * len(table_headers)
         table_lines = [
-            "| " + " | ".join(headers) + " |",
+            "| " + " | ".join(table_headers) + " |",
             "| " + " | ".join(divider) + " |",
         ]
-        # Include first 50 rows in markdown text representation for readability
-        for r in data_rows[:50]:
-            padded_row = r[: len(headers)] + [""] * max(0, len(headers) - len(r))
+        md_preview_cap = min(50, effective_max_table_rows)
+        for r in table_rows[:md_preview_cap]:
+            padded_row = r[: len(table_headers)] + [""] * max(0, len(table_headers) - len(r))
             escaped_cells = [c.replace("|", "\\|").replace("\n", " ") for c in padded_row]
             table_lines.append("| " + " | ".join(escaped_cells) + " |")
 
-        if len(data_rows) > 50:
-            table_lines.append(f"\n*... and {len(data_rows) - 50} more rows.*")
+        if total_data_rows > md_preview_cap:
+            table_lines.append(f"\n*... and {total_data_rows - md_preview_cap} more rows.*")
 
         normalized_table_text = normalize_text("\n".join(table_lines))
 
         table_structure = TableStructure(
             table_id="tbl_1",
             page_number=1,
-            headers=headers,
-            rows=data_rows,
+            headers=table_headers,
+            rows=table_rows,
             raw_html_or_md=normalized_table_text,
             bounding_box=None,
         )
@@ -594,8 +652,9 @@ class DelimitedTabularAdapter(BaseDocumentAdapter):
             {
                 "encoding": encoding,
                 "delimiter": "\\t" if delimiter == "\t" else delimiter,
-                "row_count": len(data_rows),
-                "column_count": len(headers),
+                "row_count": total_data_rows,
+                "column_count": len(all_headers),
+                "headers_truncated": headers_truncated,
                 "column_types": column_types,
                 "truncated_cells_count": truncated_cells_count,
             }
@@ -644,6 +703,7 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
         max_uncompressed_bytes: int = MAX_PARQUET_UNCOMPRESSED_BYTES_DEFAULT,
         max_compression_ratio: float = MAX_PARQUET_COMPRESSION_RATIO_DEFAULT,
         max_columns: int = MAX_PARQUET_COLUMNS_DEFAULT,
+        max_preview_columns: int = MAX_PARQUET_PREVIEW_COLUMNS_DEFAULT,
         max_preview_cell_chars: int = MAX_PARQUET_PREVIEW_CELL_CHARS_DEFAULT,
         max_preview_bytes: int = MAX_PARQUET_PREVIEW_BYTES_DEFAULT,
     ) -> None:
@@ -656,6 +716,7 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
             max_uncompressed_bytes: Maximum allowed total uncompressed row-group bytes.
             max_compression_ratio: Maximum uncompressed-to-compressed byte ratio for large files.
             max_columns: Maximum allowed column count in schema metadata.
+            max_preview_columns: Maximum columns projected during preview batch extraction.
             max_preview_cell_chars: Maximum characters materialized per preview cell.
             max_preview_bytes: Maximum total UTF-8 bytes materialized across preview cells.
         """
@@ -665,6 +726,7 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
         self.max_uncompressed_bytes = max_uncompressed_bytes
         self.max_compression_ratio = max_compression_ratio
         self.max_columns = max_columns
+        self.max_preview_columns = max(1, int(max_preview_columns))
         self.max_preview_cell_chars = max_preview_cell_chars
         self.max_preview_bytes = max_preview_bytes
 
@@ -736,45 +798,117 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                 f"Parquet document '{filename}' declares {num_rows} rows, exceeding maximum "
                 f"allowed row count ({self.max_metadata_rows})"
             )
-        if num_columns > self.max_columns:
-            raise InvalidDocumentError(
+        if num_columns < 0 or num_columns > self.max_columns:
+            raise ArchiveSecurityViolationError(
                 f"Parquet document '{filename}' declares {num_columns} columns, exceeding maximum "
                 f"allowed column count ({self.max_columns})"
             )
 
-        total_uncompressed_bytes = 0
+        total_declared_bytes = 0
+        total_col_uncompressed_bytes = 0
+        total_col_compressed_bytes = 0
         for rg_idx in range(num_row_groups):
             rg_meta = parquet_meta.row_group(rg_idx)
-            rg_bytes = max(0, int(getattr(rg_meta, "total_byte_size", 0) or 0))
-            total_uncompressed_bytes += rg_bytes
-            if total_uncompressed_bytes > self.max_uncompressed_bytes:
+            raw_rg_bytes = getattr(rg_meta, "total_byte_size", 0)
+            rg_bytes = int(raw_rg_bytes) if raw_rg_bytes is not None else 0
+            raw_rg_rows = getattr(rg_meta, "num_rows", 0)
+            rg_rows = int(raw_rg_rows) if raw_rg_rows is not None else 0
+            if rg_bytes < 0 or rg_rows < 0:
+                raise ArchiveSecurityViolationError(
+                    f"Parquet document '{filename}' declares negative size or row count in "
+                    f"row group {rg_idx}"
+                )
+
+            rg_col_uncompressed = 0
+            rg_col_compressed = 0
+            rg_num_cols = int(getattr(rg_meta, "num_columns", 0) or 0)
+            col_sizes: list[tuple[int, int]] = []
+            for col_idx in range(rg_num_cols):
+                col_meta = rg_meta.column(col_idx)
+                raw_col_uncomp = getattr(col_meta, "total_uncompressed_size", 0)
+                raw_col_comp = getattr(col_meta, "total_compressed_size", 0)
+                col_uncomp = int(raw_col_uncomp) if raw_col_uncomp is not None else 0
+                col_comp = int(raw_col_comp) if raw_col_comp is not None else 0
+                if col_uncomp < 0 or col_comp < 0:
+                    raise ArchiveSecurityViolationError(
+                        f"Parquet document '{filename}' declares negative column-chunk size in "
+                        f"row group {rg_idx} column {col_idx}"
+                    )
+                col_sizes.append((col_uncomp, col_comp))
+                rg_col_uncompressed += col_uncomp
+                rg_col_compressed += col_comp
+
+            if (
+                rg_rows > 0
+                and rg_col_uncompressed > 0
+                and (rg_bytes <= 0 or rg_bytes < rg_col_uncompressed // 2)
+            ):
+                raise ArchiveSecurityViolationError(
+                    f"Parquet document '{filename}' has inconsistent or forged footer in "
+                    f"row group {rg_idx} (total_byte_size={rg_bytes} vs column uncompressed "
+                    f"sum={rg_col_uncompressed})"
+                )
+
+            for col_idx, (col_uncomp, col_comp) in enumerate(col_sizes):
+                if col_uncomp > self.max_uncompressed_bytes:
+                    max_unc = self.max_uncompressed_bytes
+                    raise DocumentPayloadTooLargeError(
+                        f"Parquet document '{filename}' uncompressed row-group size exceeds "
+                        f"maximum allowed limit ({col_uncomp} > {max_unc} bytes)"
+                    )
+                col_ratio = col_uncomp / max(1, col_comp)
+                if (
+                    col_uncomp > _PARQUET_COL_RATIO_MIN_UNCOMPRESSED_BYTES
+                    and col_ratio > self.max_compression_ratio
+                ):
+                    raise ArchiveSecurityViolationError(
+                        f"Parquet document '{filename}' column {col_idx} in row group {rg_idx} "
+                        f"exhibits extreme compression ratio "
+                        f"({col_ratio:.1f}:1 > {self.max_compression_ratio:.1f}:1)"
+                    )
+
+            total_declared_bytes += rg_bytes
+            total_col_uncompressed_bytes += rg_col_uncompressed
+            total_col_compressed_bytes += rg_col_compressed
+            effective_rg_sum = max(total_declared_bytes, total_col_uncompressed_bytes)
+            if effective_rg_sum > self.max_uncompressed_bytes:
                 max_unc = self.max_uncompressed_bytes
                 raise DocumentPayloadTooLargeError(
                     f"Parquet document '{filename}' uncompressed row-group size exceeds "
-                    f"maximum allowed limit ({total_uncompressed_bytes} > {max_unc} bytes)"
+                    f"maximum allowed limit ({effective_rg_sum} > {max_unc} bytes)"
                 )
 
+        effective_uncompressed_bytes = max(total_declared_bytes, total_col_uncompressed_bytes)
         ratio_floor = min(16 * 1024 * 1024, max(65_536, self.max_uncompressed_bytes // 4))
-        compression_ratio = total_uncompressed_bytes / max(len(data), 1)
+        ratio_vs_file = effective_uncompressed_bytes / max(len(data), 1)
+        ratio_vs_col = (
+            effective_uncompressed_bytes / max(1, total_col_compressed_bytes)
+            if total_col_compressed_bytes > 0
+            else ratio_vs_file
+        )
+        compression_ratio = max(ratio_vs_file, ratio_vs_col)
         if (
-            total_uncompressed_bytes > ratio_floor
+            effective_uncompressed_bytes > ratio_floor
             and compression_ratio > self.max_compression_ratio
         ):
-            raise DocumentPayloadTooLargeError(
+            raise ArchiveSecurityViolationError(
                 f"Parquet document '{filename}' exhibits extreme compression ratio "
                 f"({compression_ratio:.1f}:1 > {self.max_compression_ratio:.1f}:1)"
             )
 
-        # Schema and column metadata
+        # Schema and column metadata (up to max_columns)
         columns_meta: list[dict[str, Any]] = []
+        column_types_map: dict[str, str] = {}
         for field in schema_arrow:
+            type_str = str(field.type)
             columns_meta.append(
                 {
                     "name": field.name,
-                    "type": str(field.type),
+                    "type": type_str,
                     "nullable": field.nullable,
                 }
             )
+            column_types_map[field.name] = type_str
 
         # Key-value custom metadata (bounded to prevent metadata bomb)
         custom_metadata: dict[str, str] = {}
@@ -790,18 +924,47 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                     v_str = str(v[:8192])
                 custom_metadata[k_str] = v_str
 
-        # Stream ONLY a bounded preview batch via iter_batches (never read_row_group / read)
+        # Stream ONLY a bounded preview batch via projected iter_batches + memory pool guard
         preview_table_rows: list[list[str]] = []
-        headers = list(schema_arrow.names)
+        schema_names = list(schema_arrow.names)
+        preview_columns_truncated = len(schema_names) > self.max_preview_columns
+        preview_col_names = schema_names[: self.max_preview_columns]
         target_preview = max(0, min(num_rows, self.preview_rows))
-        if target_preview > 0 and headers:
+        max_preview_memory_bytes = min(
+            self.max_uncompressed_bytes, MAX_PARQUET_PREVIEW_MEMORY_BYTES_CAP
+        )
+        if target_preview > 0 and preview_col_names:
+            base_pool = pa.default_memory_pool() if hasattr(pa, "default_memory_pool") else None
+            proxy_pool = (
+                pa.proxy_memory_pool(base_pool)
+                if base_pool is not None and hasattr(pa, "proxy_memory_pool")
+                else None
+            )
+            baseline_alloc = base_pool.bytes_allocated() if base_pool is not None else 0
+            cumulative_batch_nbytes = 0
             try:
-                batch_iter = parquet_file.iter_batches(batch_size=max(1, target_preview))
+                batch_iter = parquet_file.iter_batches(
+                    batch_size=max(1, target_preview),
+                    columns=preview_col_names,
+                )
                 first_batch = next(batch_iter, None)
                 if first_batch is not None:
+                    cumulative_batch_nbytes += int(getattr(first_batch, "nbytes", 0) or 0)
+                    current_pool_delta = (
+                        max(0, base_pool.bytes_allocated() - baseline_alloc)
+                        if base_pool is not None
+                        else 0
+                    )
+                    proxy_alloc = proxy_pool.bytes_allocated() if proxy_pool is not None else 0
+                    observed_mem = max(cumulative_batch_nbytes, current_pool_delta, proxy_alloc)
+                    if observed_mem > max_preview_memory_bytes:
+                        raise ArchiveSecurityViolationError(
+                            f"Parquet document '{filename}' preview exceeded memory cap "
+                            f"({observed_mem} > {max_preview_memory_bytes} bytes)"
+                        )
                     sliced_batch = first_batch[:target_preview]
                     rows_in_batch = min(target_preview, len(sliced_batch))
-                    col_arrays = [sliced_batch.column(i) for i in range(len(headers))]
+                    col_arrays = [sliced_batch.column(i) for i in range(len(preview_col_names))]
                     materialized_preview_bytes = 0
                     budget_exceeded = False
                     for r_idx in range(rows_in_batch):
@@ -821,6 +984,8 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                         if budget_exceeded:
                             break
                         preview_table_rows.append(row_vals)
+            except ArchiveSecurityViolationError:
+                raise
             except (MemoryError, arrow_mem_err) as exc:
                 raise DocumentPayloadTooLargeError(
                     f"Parquet preview extraction exhausted memory on '{filename}': {exc}"
@@ -851,8 +1016,8 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
         if preview_table_rows:
             lines.append("")
             lines.append(f"## Preview Rows (first {len(preview_table_rows)})")
-            lines.append("| " + " | ".join(headers) + " |")
-            lines.append("| " + " | ".join(["---"] * len(headers)) + " |")
+            lines.append("| " + " | ".join(preview_col_names) + " |")
+            lines.append("| " + " | ".join(["---"] * len(preview_col_names)) + " |")
             for r in preview_table_rows:
                 escaped = [c.replace("|", "\\|").replace("\n", " ") for c in r]
                 lines.append("| " + " | ".join(escaped) + " |")
@@ -862,7 +1027,7 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
         table_structure = TableStructure(
             table_id="tbl_parquet_1",
             page_number=1,
-            headers=headers,
+            headers=preview_col_names,
             rows=preview_table_rows,
             raw_html_or_md=normalized_text,
             bounding_box=None,
@@ -878,7 +1043,10 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                 "num_rows": num_rows,
                 "num_columns": num_columns,
                 "num_row_groups": num_row_groups,
+                "column_names": schema_names,
+                "column_types": column_types_map,
                 "columns": columns_meta,
+                "preview_columns_truncated": preview_columns_truncated,
                 "custom_metadata": custom_metadata,
             }
         )
@@ -1219,6 +1387,8 @@ class StructuredDataDocumentAdapter(BaseDocumentAdapter):
         max_nodes: int = MAX_STRUCTURED_NODES_DEFAULT,
         max_aliases: int = MAX_YAML_ALIASES_DEFAULT,
         max_bytes: int | None = MAX_TEXT_DOCUMENT_BYTES_DEFAULT,
+        max_table_columns: int = MAX_TABLE_COLUMNS_DEFAULT,
+        max_table_cells: int = MAX_TABLE_CELLS_DEFAULT,
     ) -> None:
         """Initialize StructuredDataDocumentAdapter.
 
@@ -1227,11 +1397,15 @@ class StructuredDataDocumentAdapter(BaseDocumentAdapter):
             max_nodes: Maximum allowable visited DAG nodes across expanded structures.
             max_aliases: Maximum allowable YAML alias expansions.
             max_bytes: Maximum allowed raw byte size.
+            max_table_columns: Maximum columns synthesized in TableStructure.
+            max_table_cells: Maximum total cells materialized in TableStructure.
         """
         self.max_depth = max_depth
         self.max_nodes = max_nodes
         self.max_aliases = max_aliases
         self.max_bytes = max_bytes
+        self.max_table_columns = max(1, int(max_table_columns))
+        self.max_table_cells = max(1, int(max_table_cells))
 
     @property
     def adapter_name(self) -> str:
@@ -1327,16 +1501,26 @@ class StructuredDataDocumentAdapter(BaseDocumentAdapter):
                     candidate_list = val
                     break
 
+        headers_truncated = False
         if candidate_list:
             headers: list[str] = []
+            seen_headers: set[str] = set()
             for item in candidate_list[:100]:
                 if isinstance(item, dict):
                     for k in item:
-                        if str(k) not in headers:
-                            headers.append(str(k))
+                        k_str = str(k)
+                        if k_str not in seen_headers:
+                            if len(headers) >= self.max_table_columns:
+                                headers_truncated = True
+                                break
+                            seen_headers.add(k_str)
+                            headers.append(k_str)
+                if headers_truncated:
+                    break
             if headers:
+                effective_max_rows = min(500, max(1, self.max_table_cells // max(1, len(headers))))
                 rows: list[list[str]] = []
-                for item in candidate_list[:500]:
+                for item in candidate_list[:effective_max_rows]:
                     if isinstance(item, dict):
                         row = [_format_bounded_cell(item.get(h)) for h in headers]
                         rows.append(row)
@@ -1372,6 +1556,7 @@ class StructuredDataDocumentAdapter(BaseDocumentAdapter):
                 "max_depth": observed_depth,
                 "field_count": len(discovered_fields),
                 "fields": sorted(discovered_fields),
+                "headers_truncated": headers_truncated,
                 "json_path_count": counters[1],
                 "json_paths_sample": json_paths[:MAX_JSON_PATHS_SAMPLE],
             }

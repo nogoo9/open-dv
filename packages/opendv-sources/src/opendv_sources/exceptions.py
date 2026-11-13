@@ -115,6 +115,27 @@ class InvalidDocumentError(DocumentExtractionError):
         )
 
 
+class ArchiveSecurityViolationError(InvalidDocumentError, ValueError):
+    """Raised when an archive or structured payload violates bomb, XXE, DDE, or SSRF guards."""
+
+    error_code: ErrorCode = ErrorCode.ARCHIVE_SECURITY_VIOLATION
+    exit_code: int = 4
+    http_status: int = 422
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: ErrorCode | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            error_code=error_code or ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+            details=details,
+        )
+
+
 class DocumentPayloadTooLargeError(InvalidDocumentError, PayloadTooLargeError):
     """Raised when an input document or decompressed bomb exceeds configured byte limits."""
 
@@ -230,6 +251,7 @@ class AuthenticationError(SourceError):
 
 
 __all__ = [
+    "ArchiveSecurityViolationError",
     "AuthenticationError",
     "DocumentExtractionError",
     "DocumentPayloadTooLargeError",

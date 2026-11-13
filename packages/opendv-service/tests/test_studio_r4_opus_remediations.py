@@ -1599,3 +1599,666 @@ def test_s3_r6_maj01_promote_and_clarification_harness_lifecycle_lock_and_no_gho
             allowed_workspace_roots=[tmp_path],
         )
     assert not ghost_dir.exists()
+
+
+# ==============================================================================
+# Round-7 Opus 5.5 Follow-Up Remediations (P06a, P07a2, P07b, P08a1, P08a2)
+# ==============================================================================
+
+
+def test_p06a_maj01_construct_proposal_typed_opendv_errors() -> None:
+    """P06a::MAJ-01: construct_proposal raises OpenDVError on stale if_match & invalid mode."""
+    from opendv_contracts.errors import ErrorCode, OpenDVError
+    from opendv_core.genesis import create_genesis_ontology
+    from opendv_service.construction.deterministic_pipeline import (
+        DeterministicConstructionPipeline,
+    )
+    from opendv_service.construction.models import ConstructOptions
+
+    base_ont = create_genesis_ontology()
+    pipeline = DeterministicConstructionPipeline()
+
+    with pytest.raises(OpenDVError) as occ_exc:
+        pipeline.construct_proposal(
+            base_ont,
+            options=ConstructOptions(mode="deterministic", if_match="f" * 64),
+        )
+    assert isinstance(occ_exc.value, ValueError)
+    assert occ_exc.value.error_code == ErrorCode.ONT_EVO_CONCURRENT_MODIFICATION
+    assert occ_exc.value.status_code == 412
+    assert occ_exc.value.exit_code == 5
+
+    bad_opts = ConstructOptions.model_construct(mode="llm_only", if_match=None, auto_commit=False)
+    with pytest.raises(OpenDVError) as mode_exc:
+        pipeline.construct_proposal(base_ont, options=bad_opts)
+    assert isinstance(mode_exc.value, ValueError)
+    assert mode_exc.value.error_code == ErrorCode.SYNTAX_INVALID_ARGUMENT
+    assert mode_exc.value.status_code == 400
+    assert mode_exc.value.exit_code == 2
+
+
+def test_p07a2_maj01_promotion_forward_destructive_bump_and_rationale_invariant(
+    tmp_path: Path,
+) -> None:
+    """P07a2::MAJ-01: acknowledge_historical_contract_warning never waives forward MAJOR bump
+    and always requires >=10 char historical_contract_rationale.
+    """
+    from opendv_service.ontology.validator import ContractViolationError
+    from opendv_service.studio.atomic_commit import HistoricalContractRationaleRequiredError
+
+    ws_root = tmp_path / "ws"
+    ws_root.mkdir(parents=True, exist_ok=True)
+    studio_root = ws_root / "studio"
+    sec = WorkspaceSecurityManager(studio_root=studio_root)
+    mgr = StudioSessionManager(studio_root=studio_root, security_manager=sec)
+    svc = AtomicCommitService(session_manager=mgr, security_manager=sec)
+
+    meta0 = mgr.create_session("sess-promo-gov")
+    r100 = svc.commit_delta(
+        "sess-promo-gov",
+        OntologyDelta(
+            delta_id="d-100",
+            parent_sha256=meta0.head_sha256,
+            base_ontology_version="0.0.0",
+            target_ontology_version="1.0.0",
+            operations=[
+                AddConceptOp(
+                    op_id="op-acct",
+                    concept_name="Account",
+                    concept_uri="urn:ontology:entity:account",
+                    target_hub="hub_account",
+                    external_mappings=[_fibo_mapping()],
+                )
+            ],
+        ),
+    )
+
+    ws_contract = ws_root / "graph_a_ontology.json"
+
+    # 1. acknowledge_historical_contract_warning=True without rationale >=10 is ALWAYS rejected
+    with pytest.raises(HistoricalContractRationaleRequiredError):
+        svc.promote_to_workspace(
+            "sess-promo-gov",
+            ws_contract,
+            "",
+            rationale="Greenfield promotion with stray ack flag.",
+            acknowledge_historical_contract_warning=True,
+            historical_contract_rationale="short",
+            actor_role="admin",
+            allowed_workspace_roots=[ws_root],
+        )
+
+    # Deploy v1.0.0 containing BOTH Account and Party in workspace contract
+    ws_v100 = GraphAOntology(
+        ontology_version="1.0.0",
+        domain_namespace="general",
+        enterprise_owner="Enterprise Architecture",
+        parent_sha256="0" * 64,
+        canonical_business_concepts=[
+            CanonicalBusinessConcept(
+                concept_uri="urn:ontology:entity:account",
+                concept_name="Account",
+                target_hub="hub_account",
+                external_mappings=[_fibo_mapping()],
+            ),
+            CanonicalBusinessConcept(
+                concept_uri="urn:ontology:entity:party",
+                concept_name="Contract Party",
+                target_hub="hub_party",
+                external_mappings=[_fibo_mapping(FIBO_PARTY_URI)],
+            ),
+        ],
+    )
+    ws_contract.write_text(ws_v100.model_dump_json(indent=2), encoding="utf-8")
+    ws_v100_raw_sha = hashlib.sha256(ws_contract.read_bytes()).hexdigest()
+
+    # Advance session to v1.1.0 (lacks 'party' vs deployed v1.0.0 -> destructive diff!)
+    svc.commit_delta(
+        "sess-promo-gov",
+        OntologyDelta(
+            delta_id="d-110",
+            parent_sha256=r100.target_sha256,
+            base_ontology_version="1.0.0",
+            target_ontology_version="1.1.0",
+            operations=[
+                AddConceptOp(
+                    op_id="op-party-2",
+                    concept_name="Contract Party",
+                    concept_uri="urn:ontology:entity:contract_party",
+                    target_hub="hub_contract_party",
+                    external_mappings=[_fibo_mapping(FIBO_PARTY_URI)],
+                )
+            ],
+        ),
+    )
+
+    # 2. Forward 1.0.0 -> 1.1.0 destructive removal MUST reject with ContractViolationError
+    # even when acknowledge_historical_contract_warning=True and rationale >= 10 chars!
+    with pytest.raises(ContractViolationError):
+        svc.promote_to_workspace(
+            "sess-promo-gov",
+            ws_contract,
+            ws_v100_raw_sha,
+            rationale="Attempt forward 1.1.0 promotion dropping Party.",
+            acknowledge_historical_contract_warning=True,
+            historical_contract_rationale="Attempting to waive MAJOR bump via historical flag.",
+            enforce_lineage=False,
+            actor_role="admin",
+            allowed_workspace_roots=[ws_root],
+        )
+
+    # 3. Historical rollback (2.0.0 -> 1.1.0) with ack + rationale succeeds
+    # and records historical_contract_rationale in PROMOTION_INTENT and PROMOTION_COMMITTED!
+    ws_v200 = ws_v100.model_copy(update={"ontology_version": "2.0.0"})
+    ws_contract.write_text(ws_v200.model_dump_json(indent=2), encoding="utf-8")
+    ws_v200_raw_sha = hashlib.sha256(ws_contract.read_bytes()).hexdigest()
+
+    hist_rationale = "Approved emergency rollback from 2.0.0 to validated 1.1.0."
+    svc.promote_to_workspace(
+        "sess-promo-gov",
+        ws_contract,
+        ws_v200_raw_sha,
+        rationale="Emergency workspace rollback.",
+        acknowledge_historical_contract_warning=True,
+        historical_contract_rationale=hist_rationale,
+        enforce_lineage=False,
+        actor_role="admin",
+        allowed_workspace_roots=[ws_root],
+    )
+    sdir = mgr.get_session_dir("sess-promo-gov")
+    audit_recs = [
+        json.loads(ln)
+        for ln in (sdir / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        if ln.strip()
+    ]
+    intent_rec = next(r for r in reversed(audit_recs) if r["action"] == "PROMOTION_INTENT")
+    commit_rec = next(r for r in reversed(audit_recs) if r["action"] == "PROMOTION_COMMITTED")
+    assert intent_rec["details"]["historical_contract_rationale"] == hist_rationale
+    assert commit_rec["details"]["historical_contract_rationale"] == hist_rationale
+
+
+def test_p07b_maj01_release_unlinks_under_flock_on_posix_and_concurrent_remove_on_release(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P07b::MAJ-01: On POSIX, StudioLock.release unlinks BEFORE _close_file(); concurrent
+    remove_on_release=True preserves strict mutual exclusion.
+    """
+    import opendv_service.studio.locks as locks_mod
+
+    # 1. Verify POSIX release order: unlink runs WHILE self._file is still open & locked
+    order_events: list[tuple[str, bool]] = []
+    posix_lock_path = tmp_path / "posix_order.lock"
+    lk = StudioLock(posix_lock_path, level=LockLevel.L4, remove_on_release=True)
+    lk.acquire()
+
+    orig_close = lk._close_file
+
+    def _spy_close() -> None:
+        order_events.append(("close", lk._file is not None and not lk._file.closed))
+        orig_close()
+
+    orig_unlink = Path.unlink
+
+    def _spy_unlink(self_path: Path, missing_ok: bool = False) -> None:
+        if self_path == lk.path:
+            # Record that self._file is STILL open (flock held on POSIX) when unlink executes!
+            order_events.append(("unlink", lk._file is not None and not lk._file.closed))
+            return
+        orig_unlink(self_path, missing_ok=missing_ok)
+
+    monkeypatch.setattr(lk, "_close_file", _spy_close)
+    monkeypatch.setattr(Path, "unlink", _spy_unlink)
+    monkeypatch.setattr(locks_mod.os, "name", "posix")
+    try:
+        lk.release()
+    finally:
+        monkeypatch.undo()
+        posix_lock_path.unlink(missing_ok=True)
+
+    assert order_events == [("unlink", True), ("close", True)]
+
+    # 2. Multi-threaded contention stress with remove_on_release=True
+    shared_lock_path = tmp_path / "contended_ephemeral.lock"
+    active_holders = 0
+    overlap_detected = False
+    errors: list[BaseException] = []
+
+    def _worker() -> None:
+        nonlocal active_holders, overlap_detected
+        try:
+            for _ in range(8):
+                with studio_lock(
+                    shared_lock_path,
+                    level=LockLevel.L4,
+                    timeout=5.0,
+                    remove_on_release=True,
+                ):
+                    active_holders += 1
+                    if active_holders > 1:
+                        overlap_detected = True
+                    time.sleep(0.004)
+                    active_holders -= 1
+        except BaseException as exc:  # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=_worker) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10.0)
+
+    assert errors == []
+    assert overlap_detected is False
+
+
+def test_p08a1_maj01_clone_session_strict_role_allowlist_and_required_kwarg(
+    tmp_path: Path,
+) -> None:
+    """P08a1::MAJ-01: clone_session requires keyword actor_role and enforces strict allow-list."""
+    from opendv_contracts.errors import ErrorCode, OpenDVError
+
+    sec = WorkspaceSecurityManager(studio_root=tmp_path / "studio")
+    mgr = StudioSessionManager(studio_root=tmp_path / "studio", security_manager=sec)
+    mgr.create_session("src-allowlist")
+
+    # Missing actor_role raises TypeError
+    with pytest.raises(TypeError):
+        mgr.clone_session("src-allowlist", "clone-missing")  # type: ignore[call-arg]
+
+    for agent_role in ("agent:llm", "Automated", "  AGENT:planner  "):
+        with pytest.raises(OpenDVError) as ag_exc:
+            mgr.clone_session("src-allowlist", "clone-agent", actor_role=agent_role)
+        assert ag_exc.value.error_code == ErrorCode.AGENT_OPERATION_FORBIDDEN
+        assert ag_exc.value.status_code == 403
+
+    for bad_role in ("", "   ", "guest", "viewer", "steward"):
+        with pytest.raises(OpenDVError) as role_exc:
+            mgr.clone_session("src-allowlist", "clone-bad", actor_role=bad_role)
+        assert role_exc.value.error_code == ErrorCode.FORBIDDEN_ADMIN_REQUIRED
+        assert role_exc.value.status_code == 403
+
+    cloned = mgr.clone_session("src-allowlist", "clone-editor-ok", actor_role="Editor")
+    assert cloned.session_id == "clone-editor-ok"
+
+
+def test_p08a2_maj01_waiver_transplant_via_meta_json_rejected_and_local_hmac_enforced(
+    tmp_path: Path,
+) -> None:
+    """P08a2::MAJ-01: meta.json delta_sha256 cannot transplant a valid K_waiver onto another delta,
+    and forged K_waiver raises ImportAttributionUnverifiedError without admin acknowledgement.
+    """
+    from opendv_service.studio.bundle import (
+        ImportAttributionUnverifiedError,
+        ImportGroundingViolationError,
+    )
+
+    ws_a = tmp_path / "ws_a"
+    sec_a = WorkspaceSecurityManager(studio_root=ws_a)
+    mgr_a = StudioSessionManager(studio_root=ws_a, security_manager=sec_a)
+    svc_a = AtomicCommitService(session_manager=mgr_a, security_manager=sec_a)
+
+    meta = mgr_a.create_session("sess-transplant")
+
+    # Legitimate local K_waiver signed for delta_x (concept_x)
+    delta_x = OntologyDelta(
+        delta_id="d-legit-x",
+        base_ontology_version="0.0.0",
+        target_ontology_version="1.0.0",
+        parent_sha256=meta.head_sha256,
+        operations=[
+            AddConceptOp(
+                op_id="op-x",
+                concept_name="ConceptX",
+                concept_uri="urn:ontology:entity:concept_x",
+                target_hub="hub_concept_x",
+            )
+        ],
+    )
+    wv_x_raw = StewardWaiverRecord(
+        proposal_id=uuid.uuid4(),
+        target_concept_uris=["urn:ontology:entity:concept_y"],
+        proposal_delta_sha256=delta_x.canonical_sha256(),
+        base_sha256=meta.head_sha256,
+        authorized_by="human:admin_a",
+        authorized_role="admin",
+        rationale="Signed under local K_waiver for delta_x digest.",
+        created_at=datetime.now(UTC) - timedelta(minutes=2),
+        signature_or_token="0" * 64,
+    )
+    wv_x_signed = wv_x_raw.model_copy(
+        update={"signature_or_token": sec_a.sign_waiver(wv_x_raw.signing_payload().encode("utf-8"))}
+    )
+
+    # Commit unrelated delta_y using its own valid waiver first so bundle is structurally valid
+    delta_y = OntologyDelta(
+        delta_id="d-unrelated-y",
+        base_ontology_version="0.0.0",
+        target_ontology_version="1.0.0",
+        parent_sha256=meta.head_sha256,
+        operations=[
+            AddConceptOp(
+                op_id="op-y",
+                concept_name="ConceptY",
+                concept_uri="urn:ontology:entity:concept_y",
+                target_hub="hub_concept_y",
+            )
+        ],
+    )
+    wv_y_raw = wv_x_raw.model_copy(update={"proposal_delta_sha256": delta_y.canonical_sha256()})
+    wv_y_signed = wv_y_raw.model_copy(
+        update={"signature_or_token": sec_a.sign_waiver(wv_y_raw.signing_payload().encode("utf-8"))}
+    )
+    svc_a.commit_delta("sess-transplant", delta_y, waivers=[wv_y_signed])
+
+    base_zip = tmp_path / "base_y.odvstudio.zip"
+    export_bundle(mgr_a.get_session_dir("sess-transplant"), base_zip, security_manager=sec_a)
+
+    # Attack 1: Forge meta.json delta_sha256 = delta_x.sha and transplant wv_x_signed!
+    transplant_zip = tmp_path / "transplant.odvstudio.zip"
+    with (
+        zipfile.ZipFile(base_zip, "r") as zin,
+        zipfile.ZipFile(transplant_zip, "w", compression=zipfile.ZIP_DEFLATED) as zout,
+    ):
+        for info in zin.infolist():
+            raw = zin.read(info.filename)
+            if info.filename in ("versions/v1.0.0/meta.json", "versions/v1.0.0/metadata.json"):
+                m_obj = json.loads(raw.decode("utf-8"))
+                m_obj["delta_sha256"] = delta_x.canonical_sha256()
+                m_obj["submitted_delta_sha256"] = delta_x.canonical_sha256()
+                m_obj["waivers"] = [wv_x_signed.model_dump(mode="json")]
+                raw = json.dumps(m_obj).encode("utf-8")
+            elif info.filename in (
+                "versions/v1.0.0/waivers.json",
+                "versions/v1.0.0/evaluation.json",
+            ):
+                raw = json.dumps([wv_x_signed.model_dump(mode="json")]).encode("utf-8")
+            zout.writestr(info, raw)
+
+    with pytest.raises(ImportGroundingViolationError):
+        import_bundle(
+            transplant_zip,
+            ws_a,
+            security_manager=sec_a,
+            new_session_id="imp-transplant",
+            actor_role="admin",
+        )
+
+    # Attack 2: Matching delta_y digest with forged signature -> ImportAttributionUnverifiedError
+    forged_sig_wv = wv_y_signed.model_copy(update={"signature_or_token": "b" * 64})
+    forged_sig_zip = tmp_path / "forged_sig.odvstudio.zip"
+    with (
+        zipfile.ZipFile(base_zip, "r") as zin,
+        zipfile.ZipFile(forged_sig_zip, "w", compression=zipfile.ZIP_DEFLATED) as zout,
+    ):
+        for info in zin.infolist():
+            raw = zin.read(info.filename)
+            if info.filename in ("versions/v1.0.0/meta.json", "versions/v1.0.0/metadata.json"):
+                m_obj = json.loads(raw.decode("utf-8"))
+                m_obj["waivers"] = [forged_sig_wv.model_dump(mode="json")]
+                raw = json.dumps(m_obj).encode("utf-8")
+            elif info.filename in (
+                "versions/v1.0.0/waivers.json",
+                "versions/v1.0.0/evaluation.json",
+            ):
+                raw = json.dumps([forged_sig_wv.model_dump(mode="json")]).encode("utf-8")
+            zout.writestr(info, raw)
+
+    with pytest.raises(ImportAttributionUnverifiedError):
+        import_bundle(
+            forged_sig_zip,
+            ws_a,
+            security_manager=sec_a,
+            new_session_id="imp-forged-sig",
+            actor_role="editor",
+        )
+
+
+def test_p08a2_maj02_session_fenced_marker_and_rollback_unfencing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P08a2::MAJ-02: .session_fenced blocks reentrant_session_lock with FileNotFoundError
+    and is cleaned up if import_bundle(force=True) rolls back on swap failure.
+    """
+    import opendv_service.studio.bundle as bundle_mod
+    from opendv_service.studio.workspace_security import replace_with_retry as real_replace
+
+    ws = tmp_path / "ws_fence"
+    sec = WorkspaceSecurityManager(studio_root=ws)
+    mgr = StudioSessionManager(studio_root=ws, security_manager=sec)
+    mgr.create_session("fence-sess")
+    sdir = mgr.get_session_dir("fence-sess")
+
+    b_zip = tmp_path / "fence.odvstudio.zip"
+    export_bundle(sdir, b_zip, security_manager=sec)
+
+    # Manual .session_fenced immediately causes reentrant_session_lock to raise FileNotFoundError
+    fence_file = sdir / ".session_fenced"
+    fence_file.write_bytes(b"fenced")
+    with (
+        pytest.raises(FileNotFoundError, match="fenced"),
+        reentrant_session_lock(sdir / ".session.lock", session_id="fence-sess"),
+    ):
+        pass
+    fence_file.unlink()
+
+    # Simulate failure on second replace_with_retry(staging_dir, dest_dir) during force=True swap
+    call_count = 0
+
+    def _failing_second_replace(src: Path, dst: Path, **kwargs: Any) -> None:
+        nonlocal call_count
+        if dst == sdir and src.name.startswith(".staging-import-"):
+            call_count += 1
+            raise OSError("Simulated staging->dest swap failure")
+        real_replace(src, dst, **kwargs)
+
+    monkeypatch.setattr(bundle_mod, "replace_with_retry", _failing_second_replace)
+    with pytest.raises(OSError, match="Simulated staging->dest swap failure"):
+        import_bundle(
+            b_zip,
+            ws,
+            security_manager=sec,
+            force=True,
+            actor_role="admin",
+        )
+    monkeypatch.undo()
+
+    assert call_count == 1
+    assert sdir.is_dir()
+    assert not (sdir / ".session_fenced").exists()
+    # Restored session can immediately re-acquire reentrant_session_lock!
+    with reentrant_session_lock(sdir / ".session.lock", session_id="fence-sess"):
+        assert (sdir / "session.json").is_file()
+
+
+def test_p08a2_maj03_export_bundle_containment_nesting_and_overwrite_guard(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """P08a2::MAJ-03: export_bundle enforces containment, nesting & overwrite guards."""
+    from opendv_service.studio.workspace_security import InvalidWorkspacePathError
+
+    ws_root = tmp_path / "allowed_ws"
+    outside_root = tmp_path / "outside_ws"
+    ws_root.mkdir(parents=True, exist_ok=True)
+    outside_root.mkdir(parents=True, exist_ok=True)
+
+    studio_root = ws_root / "studio"
+    sec = WorkspaceSecurityManager(studio_root=studio_root)
+    mgr = StudioSessionManager(studio_root=studio_root, security_manager=sec)
+    mgr.create_session("exp-guard")
+    sdir = mgr.get_session_dir("exp-guard")
+
+    # 1. Output inside session_dir is rejected
+    with pytest.raises(InvalidWorkspacePathError):
+        export_bundle(sdir, sdir / "nested.odvstudio.zip", security_manager=sec)
+
+    # 2. Traversal '..' is rejected
+    with pytest.raises(InvalidWorkspacePathError):
+        export_bundle(
+            sdir,
+            ws_root / ".." / "outside_ws" / "trav.zip",
+            security_manager=sec,
+        )
+
+    # 3. OPENDV_WORKSPACE_ROOTS containment blocks outside_root while allowing studio_root/.scratch
+    monkeypatch.setenv("OPENDV_WORKSPACE_ROOTS", str(ws_root))
+    with pytest.raises(InvalidWorkspacePathError):
+        export_bundle(sdir, outside_root / "escaped.zip", security_manager=sec)
+
+    scratch_zip = studio_root / ".scratch" / "api_export.zip"
+    export_bundle(sdir, scratch_zip, security_manager=sec)
+    assert scratch_zip.is_file()
+
+    # 4. Existing output file rejected when overwrite=False (default), allowed when overwrite=True
+    valid_zip = ws_root / "exp-guard.odvstudio.zip"
+    export_bundle(sdir, valid_zip, security_manager=sec)
+    with pytest.raises(InvalidWorkspacePathError, match="overwrite=True"):
+        export_bundle(sdir, valid_zip, security_manager=sec)
+    export_bundle(sdir, valid_zip, security_manager=sec, overwrite=True)
+    assert valid_zip.is_file()
+
+
+def test_p08a2_maj04_historical_expired_waiver_bundle_roundtrip_and_post_import_guard(
+    tmp_path: Path,
+) -> None:
+    """P08a2::MAJ-04: Historical waivers valid at commit time remain importable after wall-clock
+    expiry, while post-import promotion blocks until re-waived (and commit-time-expired fails!).
+    """
+    from opendv_service.ontology.validator import UngroundedConceptError
+    from opendv_service.studio.bundle import ImportGroundingViolationError
+
+    ws_a = tmp_path / "ws_a"
+    ws_b = tmp_path / "ws_b"
+    sec_a = WorkspaceSecurityManager(studio_root=ws_a)
+    sec_b = WorkspaceSecurityManager(studio_root=ws_b)
+    mgr_a = StudioSessionManager(studio_root=ws_a, security_manager=sec_a)
+    svc_a = AtomicCommitService(session_manager=mgr_a, security_manager=sec_a)
+
+    meta_a = mgr_a.create_session("hist-waiver-sess")
+    delta = OntologyDelta(
+        delta_id="d-hist-wv",
+        base_ontology_version="0.0.0",
+        target_ontology_version="1.0.0",
+        parent_sha256=meta_a.head_sha256,
+        operations=[
+            AddConceptOp(
+                op_id="op-hist",
+                concept_name="LegacyDeskFactor",
+                concept_uri="urn:ontology:entity:legacy_desk_factor",
+                target_hub="hub_legacy_desk_factor",
+            )
+        ],
+    )
+
+    # Issue waiver active for ~1.5s, commit while active, then let wall-clock pass expires_at!
+    now_utc = datetime.now(UTC)
+    wv_raw = StewardWaiverRecord(
+        proposal_id=uuid.uuid4(),
+        target_concept_uris=["urn:ontology:entity:legacy_desk_factor"],
+        proposal_delta_sha256=delta.canonical_sha256(),
+        base_sha256=meta_a.head_sha256,
+        authorized_by="human:admin_a",
+        authorized_role="admin",
+        rationale="Short-lived waiver active at commit time for portability test.",
+        created_at=now_utc - timedelta(seconds=5),
+        expires_at=now_utc + timedelta(milliseconds=900),
+        signature_or_token="0" * 64,
+    )
+    wv_signed = wv_raw.model_copy(
+        update={"signature_or_token": sec_a.sign_waiver(wv_raw.signing_payload().encode("utf-8"))}
+    )
+    svc_a.commit_delta("hist-waiver-sess", delta, waivers=[wv_signed])
+
+    # Wait until waiver is strictly expired relative to wall-clock datetime.now(UTC)
+    time.sleep(1.1)
+    assert wv_signed.expires_at is not None and wv_signed.expires_at <= datetime.now(UTC)
+
+    hist_zip = tmp_path / "hist_waiver.odvstudio.zip"
+    export_bundle(mgr_a.get_session_dir("hist-waiver-sess"), hist_zip, security_manager=sec_a)
+
+    # 1. Same-workspace import succeeds WITHOUT acknowledge_unverified_import_attribution!
+    imp_same = import_bundle(
+        hist_zip,
+        ws_a,
+        security_manager=sec_a,
+        new_session_id="hist-waiver-reimp-a",
+        actor_role="editor",
+    )
+    assert imp_same.head_version == "1.0.0"
+
+    # 2. Cross-workspace import with admin acknowledgement also succeeds!
+    mgr_b = StudioSessionManager(studio_root=ws_b, security_manager=sec_b)
+    svc_b = AtomicCommitService(session_manager=mgr_b, security_manager=sec_b)
+    imp_b = import_bundle(
+        hist_zip,
+        ws_b,
+        security_manager=sec_b,
+        new_session_id="hist-waiver-reimp-b",
+        actor_role="admin",
+        acknowledge_unverified_import_attribution=True,
+        import_rationale="Importing historical session whose waiver expired after commit.",
+    )
+    assert imp_b.head_version == "1.0.0"
+
+    # 3. Post-import promotion on BOTH same-workspace and cross-workspace sessions blocks
+    # with UngroundedConceptError because the waiver is expired at promotion time!
+    with pytest.raises(UngroundedConceptError):
+        svc_a.promote_to_workspace(
+            "hist-waiver-reimp-a",
+            tmp_path / "ws_a_contract.json",
+            "",
+            rationale="Attempt promotion with expired historical waiver.",
+            actor_role="admin",
+            allowed_workspace_roots=[tmp_path],
+        )
+    with pytest.raises(UngroundedConceptError):
+        svc_b.promote_to_workspace(
+            "hist-waiver-reimp-b",
+            tmp_path / "ws_b_contract.json",
+            "",
+            rationale="Attempt promotion with expired historical waiver in ws_b.",
+            actor_role="admin",
+            allowed_workspace_roots=[tmp_path],
+        )
+
+    # 4. Verify audit.jsonl COMMITTED timestamp precedence: if waiver was ALREADY expired when
+    # COMMITTED was logged, backdating meta.json created_at CANNOT bypass expiry!
+    expired_before_commit_wv_raw = wv_raw.model_copy(
+        update={
+            "created_at": now_utc - timedelta(minutes=10),
+            "expires_at": now_utc - timedelta(minutes=5),
+        }
+    )
+    expired_before_commit_wv = expired_before_commit_wv_raw.model_copy(
+        update={
+            "signature_or_token": sec_a.sign_waiver(
+                expired_before_commit_wv_raw.signing_payload().encode("utf-8")
+            )
+        }
+    )
+    backdated_zip = tmp_path / "backdated_meta.odvstudio.zip"
+    with (
+        zipfile.ZipFile(hist_zip, "r") as zin,
+        zipfile.ZipFile(backdated_zip, "w", compression=zipfile.ZIP_DEFLATED) as zout,
+    ):
+        for info in zin.infolist():
+            raw = zin.read(info.filename)
+            if info.filename in ("versions/v1.0.0/meta.json", "versions/v1.0.0/metadata.json"):
+                m_obj = json.loads(raw.decode("utf-8"))
+                m_obj["created_at"] = (now_utc - timedelta(minutes=8)).isoformat()
+                m_obj["waivers"] = [expired_before_commit_wv.model_dump(mode="json")]
+                raw = json.dumps(m_obj).encode("utf-8")
+            elif info.filename in (
+                "versions/v1.0.0/waivers.json",
+                "versions/v1.0.0/evaluation.json",
+            ):
+                raw = json.dumps([expired_before_commit_wv.model_dump(mode="json")]).encode("utf-8")
+            zout.writestr(info, raw)
+
+    with pytest.raises(ImportGroundingViolationError, match="not active at commit time"):
+        import_bundle(
+            backdated_zip,
+            ws_a,
+            security_manager=sec_a,
+            new_session_id="imp-backdated-fail",
+            actor_role="admin",
+        )

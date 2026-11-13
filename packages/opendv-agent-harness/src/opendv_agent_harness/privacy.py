@@ -18,6 +18,41 @@ REDACTED_PLACEHOLDER_PATTERN: Final[re.Pattern[str]] = re.compile(r"\[REDACTED_O
 PSEUDONYM_TOKEN_PATTERN: Final[re.Pattern[str]] = re.compile(
     r"(?i)(?:(?<=[\W_])|^)pseudo[_\s][a-f0-9]{12,64}(?![a-f0-9])"
 )
+_GENERATED_PSEUDONYM_SCRUB_RE: Final[re.Pattern[str]] = re.compile(
+    r"pseudo_[0-9a-f]{16}",
+    re.IGNORECASE,
+)
+
+
+def _is_ascii_alnum(ch: str) -> bool:
+    """Return True if `ch` is an ASCII alphanumeric character `[A-Za-z0-9]`."""
+    return ("a" <= ch <= "z") or ("A" <= ch <= "Z") or ("0" <= ch <= "9")
+
+
+def _term_boundary_fragment(term: str) -> str:
+    """Return regex fragment for `term` with ASCII alphanumeric boundary lookarounds."""
+    prefix = r"(?<![A-Za-z0-9])" if term and _is_ascii_alnum(term[0]) else ""
+    suffix = r"(?![A-Za-z0-9])" if term and _is_ascii_alnum(term[-1]) else ""
+    return rf"{prefix}{re.escape(term)}{suffix}"
+
+
+def _build_term_pattern(term: str) -> re.Pattern[str]:
+    """Build shared boundary-aware case-insensitive pattern for `term`."""
+    return re.compile(_term_boundary_fragment(term), re.IGNORECASE)
+
+
+def _find_residual_term_index(
+    value: str,
+    term_patterns: Sequence[re.Pattern[str]],
+) -> int | None:
+    """Scrub generated `pseudo_<16hex>` tokens, then return first matching term index if any."""
+    if not value or not term_patterns:
+        return None
+    scrubbed = _GENERATED_PSEUDONYM_SCRUB_RE.sub(" \x00 ", value)
+    for idx, pattern in enumerate(term_patterns):
+        if pattern.search(scrubbed) is not None:
+            return idx
+    return None
 
 
 class RedactedPlaceholderLeakError(ValueError):
@@ -204,7 +239,7 @@ def _union_sensitive_terms(
 
 def _verify_no_residual_terms_in_value(
     value: Any,
-    lowered_terms: Sequence[tuple[str, str]],
+    term_patterns: Sequence[re.Pattern[str]],
     location: str,
     _visited: set[int] | None = None,
     *,
@@ -214,13 +249,12 @@ def _verify_no_residual_terms_in_value(
     if value is None or isinstance(value, (bool, int, float, bytes, bytearray)):
         return
     if isinstance(value, str):
-        val_lower = value.lower()
-        for raw_term, term_lower in lowered_terms:
-            if term_lower and term_lower in val_lower:
-                raise OpenDVError(
-                    f"Residual confidential substring '{raw_term}' survived in {location}.",
-                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
-                )
+        leaked_idx = _find_residual_term_index(value, term_patterns)
+        if leaked_idx is not None:
+            raise OpenDVError(
+                f"Residual confidential term #{leaked_idx} survived in {location}.",
+                error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+            )
         return
 
     visited = _visited if _visited is not None else set()
@@ -230,7 +264,7 @@ def _verify_no_residual_terms_in_value(
     visited.add(obj_id)
 
     if isinstance(value, Mapping):
-        for k, v in value.items():
+        for key_idx, (k, v) in enumerate(value.items()):
             if k == "sensitive_entities":
                 if forbid_sensitive_entities_key:
                     raise OpenDVError(
@@ -240,15 +274,15 @@ def _verify_no_residual_terms_in_value(
                 continue
             _verify_no_residual_terms_in_value(
                 k,
-                lowered_terms,
-                f"{location}.<key:{k}>",
+                term_patterns,
+                f"{location}.<key#{key_idx}>",
                 visited,
                 forbid_sensitive_entities_key=forbid_sensitive_entities_key,
             )
             _verify_no_residual_terms_in_value(
                 v,
-                lowered_terms,
-                f"{location}.{k}",
+                term_patterns,
+                f"{location}.<entry#{key_idx}>",
                 visited,
                 forbid_sensitive_entities_key=forbid_sensitive_entities_key,
             )
@@ -258,7 +292,7 @@ def _verify_no_residual_terms_in_value(
         for idx, elem in enumerate(value):
             _verify_no_residual_terms_in_value(
                 elem,
-                lowered_terms,
+                term_patterns,
                 f"{location}[{idx}]",
                 visited,
                 forbid_sensitive_entities_key=forbid_sensitive_entities_key,
@@ -292,7 +326,7 @@ class Pseudonymizer:
         if pseudo in self._pseudo_to_token and self._pseudo_to_token[pseudo] != term:
             raise ValueError(
                 f"Pseudonym collision detected for token '{pseudo}': "
-                f"already mapped to '{self._pseudo_to_token[pseudo]}', cannot map to '{term}'"
+                "distinct sensitive terms mapped to identical 16-hex HMAC digest"
             )
         self._token_to_pseudo[term] = pseudo
         self._pseudo_to_token[pseudo] = term
@@ -307,51 +341,96 @@ class Pseudonymizer:
 
         # Sort longest terms first to prevent partial token shadowing; secondary sort by
         # term string ensures deterministic substitution order across runs (MIN-06)
-        sorted_terms = sorted(
-            {t.strip() for t in sensitive_terms if t.strip()},
+        dedup_by_fold: dict[str, str] = {}
+        for raw_t in sorted(
+            {t.strip() for t in sensitive_terms if t and t.strip()},
             key=lambda t: (-len(t), t),
-        )
-        result = text
+        ):
+            dedup_by_fold.setdefault(raw_t.casefold(), raw_t)
+        sorted_terms = sorted(dedup_by_fold.values(), key=lambda t: (-len(t), t))
+        if not sorted_terms:
+            return text
+
+        term_entries: list[tuple[re.Pattern[str], str, str]] = []
+        folded_lookup: dict[str, str] = {}
         for term in sorted_terms:
             pseudo = self.pseudonymize_token(term)
-            pattern = re.compile(
-                rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])",
-                re.IGNORECASE,
-            )
-            result = pattern.sub(lambda _m, p=pseudo: p, result)
-        return result
+            pat = _build_term_pattern(term)
+            term_entries.append((pat, _term_boundary_fragment(term), pseudo))
+            folded_lookup[term.casefold()] = pseudo
 
-    def _mask_metadata_value(self, value: Any, effective_terms: Sequence[str], key: str) -> Any:
+        combined_re = re.compile(
+            r"(?<![A-Za-z0-9])pseudo_[0-9a-f]{16}(?![A-Za-z0-9])|"
+            + "|".join(f"(?:{frag})" for _, frag, _ in term_entries),
+            re.IGNORECASE,
+        )
+
+        def _replace_match(match: re.Match[str]) -> str:
+            matched = match.group(0)
+            mapped = folded_lookup.get(matched.casefold())
+            if mapped is not None:
+                return mapped
+            if _GENERATED_PSEUDONYM_SCRUB_RE.fullmatch(matched) is not None:
+                return matched
+            for pat, _, pseudo_tok in term_entries:
+                if pat.fullmatch(matched) is not None:
+                    return pseudo_tok
+            return matched
+
+        return combined_re.sub(_replace_match, text)
+
+    def _mask_metadata_value(
+        self,
+        value: Any,
+        effective_terms: Sequence[str],
+        term_patterns: Sequence[re.Pattern[str]],
+        location: str,
+    ) -> Any:
         """Recursively pseudonymize string keys and values inside chunk metadata."""
         if isinstance(value, str):
             masked_v = self.pseudonymize_text(value, effective_terms)
-            if any(t.strip() and t.strip().lower() in masked_v.lower() for t in effective_terms):
+            leaked_idx = _find_residual_term_index(masked_v, term_patterns)
+            if leaked_idx is not None:
                 raise OpenDVError(
-                    f"Residual confidential substring survived in chunk metadata key '{key}'.",
+                    f"Residual confidential term #{leaked_idx} survived in {location}.",
                     error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
                 )
             return masked_v
         if isinstance(value, Mapping):
             masked_map: dict[Any, Any] = {}
-            for k, v in value.items():
+            for key_idx, (k, v) in enumerate(value.items()):
                 if k == "sensitive_entities":
                     continue
                 masked_k = (
-                    self._mask_metadata_value(k, effective_terms, f"{key}.<key:{k}>")
+                    self._mask_metadata_value(
+                        k, effective_terms, term_patterns, f"{location}.<key#{key_idx}>"
+                    )
                     if isinstance(k, str)
                     else k
                 )
-                masked_map[masked_k] = self._mask_metadata_value(v, effective_terms, f"{key}.{k}")
+                masked_map[masked_k] = self._mask_metadata_value(
+                    v, effective_terms, term_patterns, f"{location}.<entry#{key_idx}>"
+                )
             return masked_map
         if isinstance(value, list):
-            return [self._mask_metadata_value(elem, effective_terms, key) for elem in value]
+            return [
+                self._mask_metadata_value(elem, effective_terms, term_patterns, f"{location}[{i}]")
+                for i, elem in enumerate(value)
+            ]
         if isinstance(value, tuple):
-            return tuple(self._mask_metadata_value(elem, effective_terms, key) for elem in value)
+            return tuple(
+                self._mask_metadata_value(elem, effective_terms, term_patterns, f"{location}[{i}]")
+                for i, elem in enumerate(value)
+            )
         if isinstance(value, set):
-            return {self._mask_metadata_value(elem, effective_terms, key) for elem in value}
+            return {
+                self._mask_metadata_value(elem, effective_terms, term_patterns, f"{location}[{i}]")
+                for i, elem in enumerate(value)
+            }
         if isinstance(value, frozenset):
             return frozenset(
-                self._mask_metadata_value(elem, effective_terms, key) for elem in value
+                self._mask_metadata_value(elem, effective_terms, term_patterns, f"{location}[{i}]")
+                for i, elem in enumerate(value)
             )
         return value
 
@@ -374,29 +453,33 @@ class Pseudonymizer:
                 return chunk.model_copy(update={"metadata": stripped_meta})
             return chunk
 
-        lowered_terms: list[tuple[str, str]] = [(t, t.lower()) for t in effective_terms]
+        term_patterns: list[re.Pattern[str]] = [_build_term_pattern(t) for t in effective_terms]
 
         # 1. Mask text and non-sensitive_entities metadata entries BEFORE popping sensitive_entities
         new_text = self.pseudonymize_text(chunk.text, effective_terms)
-        _verify_no_residual_terms_in_value(new_text, lowered_terms, "chunk.text")
+        _verify_no_residual_terms_in_value(new_text, term_patterns, "chunk.text")
 
         pre_pop_meta: dict[str, Any] = (
             dict(chunk.metadata) if isinstance(chunk.metadata, Mapping) else {}
         )
         masked_pre_pop: dict[str, Any] = {}
-        for k, v in pre_pop_meta.items():
+        for key_idx, (k, v) in enumerate(pre_pop_meta.items()):
             if k == "sensitive_entities":
                 masked_pre_pop[k] = v
                 continue
             masked_k = (
-                self._mask_metadata_value(k, effective_terms, f"metadata.<key:{k}>")
+                self._mask_metadata_value(
+                    k, effective_terms, term_patterns, f"chunk.metadata.<key#{key_idx}>"
+                )
                 if isinstance(k, str)
                 else k
             )
-            masked_pre_pop[masked_k] = self._mask_metadata_value(v, effective_terms, str(k))
+            masked_pre_pop[masked_k] = self._mask_metadata_value(
+                v, effective_terms, term_patterns, f"chunk.metadata.<entry#{key_idx}>"
+            )
         _verify_no_residual_terms_in_value(
             masked_pre_pop,
-            lowered_terms,
+            term_patterns,
             "chunk.metadata",
             forbid_sensitive_entities_key=False,
         )
@@ -407,10 +490,10 @@ class Pseudonymizer:
         new_meta["redacted_entity_count"] = len(effective_terms)
         new_meta["pseudonymized"] = True
 
-        _verify_no_residual_terms_in_value(new_text, lowered_terms, "chunk.text")
+        _verify_no_residual_terms_in_value(new_text, term_patterns, "chunk.text")
         _verify_no_residual_terms_in_value(
             new_meta,
-            lowered_terms,
+            term_patterns,
             "chunk.metadata",
             forbid_sensitive_entities_key=True,
         )
@@ -482,16 +565,16 @@ def _walk_privacy_input(val: Any, visited: set[int]) -> None:
                 )
             sens = _collect_sensitive_entities_from_mapping(meta)
             if sens:
-                lowered = [(s, s.lower()) for s in sens]
+                compiled = [_build_term_pattern(s) for s in sens]
                 _verify_no_residual_terms_in_value(
                     val.text,
-                    lowered,
-                    f"EvidenceChunk '{val.chunk_id}' text",
+                    compiled,
+                    "EvidenceChunk.text",
                 )
                 _verify_no_residual_terms_in_value(
                     meta,
-                    lowered,
-                    f"EvidenceChunk '{val.chunk_id}' metadata",
+                    compiled,
+                    "EvidenceChunk.metadata",
                     forbid_sensitive_entities_key=True,
                 )
             if _contains_sensitive_entities_key(meta):
@@ -543,16 +626,16 @@ def _walk_privacy_input(val: Any, visited: set[int]) -> None:
                 )
             sens = _collect_sensitive_entities_from_mapping(meta)
             if sens:
-                lowered = [(s, s.lower()) for s in sens]
+                compiled = [_build_term_pattern(s) for s in sens]
                 _verify_no_residual_terms_in_value(
                     combined,
-                    lowered,
-                    f"TableStructure '{tbl_id}'",
+                    compiled,
+                    "TableStructure",
                 )
                 _verify_no_residual_terms_in_value(
                     meta,
-                    lowered,
-                    f"TableStructure '{tbl_id}' metadata",
+                    compiled,
+                    "TableStructure.metadata",
                     forbid_sensitive_entities_key=True,
                 )
             if _contains_sensitive_entities_key(meta):

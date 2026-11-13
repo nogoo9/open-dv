@@ -71,6 +71,7 @@ from opendv_service.studio.locks import (
     L3_JOURNAL,
     L4_WORKSPACE,
     L5_SESSION,
+    SESSION_FENCE_FILENAME,
     LockLevel,
     LockMetadata,
     LockOrderViolationError,
@@ -87,6 +88,7 @@ from opendv_service.studio.locks import (
     read_lock_metadata,
     reentrant_session_lock,
     studio_lock,
+    write_session_fence_marker,
 )
 from opendv_service.studio.session_manager import (
     GENESIS_DRAFT_SHA256,
@@ -153,6 +155,7 @@ __all__ = [
     "MAX_COMPRESSION_RATIO",
     "MAX_JOURNAL_SEGMENT_BYTES",
     "MAX_LISTENER_QUEUE_SIZE",
+    "SESSION_FENCE_FILENAME",
     "TERMINAL_SSE_EVENTS",
     "AdminRoleRequiredError",
     "ArchiveSecurityViolationError",
@@ -245,4 +248,5 @@ __all__ = [
     "validate_workspace_containment",
     "verify_ont_evo_002_post_state_grounding",
     "verify_owner_only_permissions",
+    "write_session_fence_marker",
 ]

@@ -1602,3 +1602,125 @@ def test_r4c_clone_session_taint_audit_chain_and_lifecycle_lock_parity(
     assert clone_corrupt.status_code == 422, clone_corrupt.text
     assert clone_corrupt.json()["error_code"] == "TAMPER_EVIDENT_CHAIN_CORRUPT"
     assert not (studio_root / "s-r4c-should-not-exist").exists()
+
+
+def test_r4c_p11_maj01_cross_process_cancel_cooperative_vs_commit_started(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify cross-supervisor cancel writes .cancel marker for active workers and blocks commit."""
+    studio_root = tmp_path / "opendv_studio"
+    session_mgr = StudioSessionManager(studio_root=studio_root)
+    sid = "s-r4c-p11-xproc"
+    session_mgr.create_session(sid, domain_namespace="wealth_mgmt")
+    jobs_dir = studio_root / sid / "jobs"
+
+    supervisor_a = JobSupervisor()
+    supervisor_b = JobSupervisor()  # Empty _jobs dict, simulating a 2nd uvicorn worker process
+    monkeypatch.setattr(js_mod, "_GLOBAL_SUPERVISOR", supervisor_a)
+
+    # 1. Active non-committing worker in supervisor_a cancelled via supervisor_b
+    worker_started = threading.Event()
+    allow_worker_poll = threading.Event()
+
+    def _cooperative_parse_runner(sm: StudioSessionManager, jctx: JobContext) -> dict[str, Any]:
+        worker_started.set()
+        allow_worker_poll.wait(timeout=5.0)
+        if jctx.is_cancelled(sm):
+            raise JobCancelledError("Aborted cooperatively via cross-process .cancel marker")
+        return {"parsed_sources": 1}
+
+    handle_1 = supervisor_a.submit_job(
+        session_mgr=session_mgr,
+        session_id=sid,
+        job_type="parse",
+        runner_fn=_cooperative_parse_runner,
+    )
+    job_1 = handle_1["job_id"]
+    assert worker_started.wait(timeout=5.0)
+    assert job_1 not in supervisor_b._jobs
+
+    # supervisor_b cannot acquire .job_<id>.lock (held by supervisor_a), but MUST write .cancel
+    # first and return status="cancelling" / stage="cancel_requested" without clobbering JSON
+    cancel_dto = supervisor_b.cancel_job(session_mgr, sid, job_1, reason="Cross-worker cancel")
+    assert cancel_dto["status"] == "cancelling"
+    assert cancel_dto["stage"] == "cancel_requested"
+    assert (jobs_dir / f".{job_1}.cancel").is_file()
+
+    mid_disk = json.loads((jobs_dir / f"{job_1}.json").read_text(encoding="utf-8"))
+    assert mid_disk["status"] == "running"
+
+    allow_worker_poll.set()
+    ctx_1 = supervisor_a._jobs[job_1]
+    assert ctx_1.thread is not None
+    ctx_1.thread.join(timeout=5.0)
+
+    assert supervisor_a.get_job(session_mgr, sid, job_1)["status"] == "cancelled"
+    assert supervisor_b.get_job(session_mgr, sid, job_1)["status"] == "cancelled"
+    events_1 = [
+        json.loads(ln)
+        for ln in (jobs_dir / f"{job_1}.events.jsonl").read_text(encoding="utf-8").splitlines()
+        if ln.strip()
+    ]
+    assert any(ev.get("event") == "job_cancelled" for ev in events_1)
+
+    # 2. Active committing / post-commit worker in supervisor_a rejected by supervisor_b
+    in_commit_phase = threading.Event()
+    allow_commit_finish = threading.Event()
+
+    def _committing_construct(**kwargs: Any) -> dict[str, Any]:
+        on_stage = kwargs["on_stage"]
+        on_stage("extracting")
+        on_stage("committing")
+        on_stage("finalizing")
+        in_commit_phase.set()
+        allow_commit_finish.wait(timeout=5.0)
+        return {"auto_committed": True, "target_version": "1.0.0"}
+
+    monkeypatch.setattr(js_mod, "run_construct_session", _committing_construct)
+
+    handle_2 = supervisor_a.submit_job(
+        session_mgr=session_mgr,
+        session_id=sid,
+        job_type="construct",
+        runner_fn=run_construct_job,
+        auto_commit=True,
+    )
+    job_2 = handle_2["job_id"]
+    assert in_commit_phase.wait(timeout=5.0)
+    assert job_2 not in supervisor_b._jobs
+
+    with pytest.raises(js_mod.StudioAPIError) as exc_info:
+        supervisor_b.cancel_job(session_mgr, sid, job_2, reason="Cancel during commit")
+    assert exc_info.value.code == "JOB_COMMIT_IN_PROGRESS"
+    assert not (jobs_dir / f".{job_2}.cancel").exists()
+
+    # Also test TOCTOU race where pre_data looked pre-commit right before worker set commit_started:
+    # if cancel_marker was written just as <job_2>.json became commit_started=True under lock,
+    # cancel_job must unlink cancel_marker and raise JOB_COMMIT_IN_PROGRESS.
+    job_2_file = jobs_dir / f"{job_2}.json"
+    real_commit_bytes = job_2_file.read_bytes()
+    stale_pre_data = json.loads(real_commit_bytes.decode("utf-8"))
+    stale_pre_data["stage"] = "extracting"
+    stale_pre_data["commit_started"] = False
+
+    orig_write_marker = supervisor_b._write_cancel_marker_atomic
+
+    def _write_marker_as_worker_enters_commit(s_dir: Path, j_id: str) -> Path:
+        marker = orig_write_marker(s_dir, j_id)
+        job_2_file.write_bytes(real_commit_bytes)
+        return marker
+
+    job_2_file.write_text(json.dumps(stale_pre_data), encoding="utf-8")
+    monkeypatch.setattr(
+        supervisor_b, "_write_cancel_marker_atomic", _write_marker_as_worker_enters_commit
+    )
+    with pytest.raises(js_mod.StudioAPIError) as race_exc:
+        supervisor_b.cancel_job(session_mgr, sid, job_2, reason="TOCTOU commit transition")
+    assert race_exc.value.code == "JOB_COMMIT_IN_PROGRESS"
+    assert not (jobs_dir / f".{job_2}.cancel").exists()
+
+    allow_commit_finish.set()
+    ctx_2 = supervisor_a._jobs[job_2]
+    assert ctx_2.thread is not None
+    ctx_2.thread.join(timeout=5.0)
+    assert supervisor_b.get_job(session_mgr, sid, job_2)["status"] == "completed"

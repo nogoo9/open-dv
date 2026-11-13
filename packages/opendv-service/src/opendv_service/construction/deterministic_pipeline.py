@@ -102,6 +102,24 @@ def _bump_minor_version(base_ver: str) -> str:
     return f"{base_ver}.1"
 
 
+class InvalidConstructionModeError(OpenDVError, ValueError):
+    """Raised when an unsupported construction mode is passed to deterministic construction."""
+
+    def __init__(self, message: str) -> None:
+        ValueError.__init__(self, message)
+        OpenDVError.__init__(self, message, error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT)
+        self.status_code = self.http_status
+
+
+class ConstructionPreconditionMismatchError(OpenDVError, ValueError):
+    """Raised when `opts.if_match` does not match base ontology SHA-256 (HTTP 412 / exit 6)."""
+
+    def __init__(self, message: str) -> None:
+        ValueError.__init__(self, message)
+        OpenDVError.__init__(self, message, error_code=ErrorCode.ONT_EVO_CONCURRENT_MODIFICATION)
+        self.status_code = self.http_status
+
+
 class DeterministicConstructionPipeline:
     """Headless zero-API-key deterministic fallback construction pipeline."""
 
@@ -141,7 +159,7 @@ class DeterministicConstructionPipeline:
         opts = options or ConstructOptions()
 
         if opts.mode not in ("auto", "deterministic"):
-            raise ValueError(
+            raise InvalidConstructionModeError(
                 f"DeterministicConstructionPipeline only supports 'deterministic' or 'auto' mode, "
                 f"got: {opts.mode}"
             )
@@ -149,7 +167,7 @@ class DeterministicConstructionPipeline:
         # Check OCC precondition if supplied (MIN-03 / ONT-EVO-003)
         base_sha = compute_ontology_sha256(base_ontology)
         if opts.if_match is not None and opts.if_match != base_sha:
-            raise ValueError(
+            raise ConstructionPreconditionMismatchError(
                 f"OCC precondition failed: if_match='{opts.if_match}' does not match "
                 f"base ontology SHA-256='{base_sha}' (ONT-EVO-003)"
             )

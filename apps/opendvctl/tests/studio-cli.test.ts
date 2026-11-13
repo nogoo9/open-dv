@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, unlinkSync, writeFileSync } from "node:fs";
 import { runCli } from "../src/main";
-import { RemoteExecutor } from "../src/remote-executor";
+import {
+	DESTRUCTIVE_OP_TYPES,
+	isDestructiveDeltaOperation,
+	RemoteExecutor,
+} from "../src/remote-executor";
 import { loadCliSpec } from "../src/spec";
 
 describe("opendvctl ontology studio subcommands (Issue #220)", () => {
@@ -1905,7 +1909,8 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 						session_id: url.pathname.includes("s-gen-custom")
 							? "s-gen-custom"
 							: "s-gen-default",
-						target_version: lastApplyBody.target_version,
+						target_version:
+							(lastApplyBody.target_version as string | undefined) ?? "1.0.0",
 						target_sha256: "a".repeat(64),
 						parent_sha256: lastApplyBody.parent_sha256,
 						applied_operations_count: 1,
@@ -1947,7 +1952,7 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 
 		const savedWaiverKey = process.env.OPENDV_WAIVER_KEY;
 		try {
-			// 1. 0.0.0 -> 1.0.0 (add_concept): delta validate & delta apply send genuine defaultGenesisSha
+			// 1. 0.0.0 -> 1.0.0 (add_concept): delta validate & delta apply send genuine defaultGenesisSha and omit client-fabricated target_version
 			const valMajorCode = await runCli(
 				[
 					"ontology",
@@ -1966,7 +1971,7 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			);
 			expect(valMajorCode).toBe(0);
 			expect(lastValidateBody?.base_version).toBe("0.0.0");
-			expect(lastValidateBody?.target_version).toBe("1.0.0");
+			expect("target_version" in (lastValidateBody ?? {})).toBe(false);
 			expect(lastValidateBody?.parent_sha256).toBe(defaultGenesisSha);
 
 			const applyMajorCode = await runCli(
@@ -1987,12 +1992,12 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			);
 			expect(applyMajorCode).toBe(0);
 			expect(lastApplyBody?.base_version).toBe("0.0.0");
-			expect(lastApplyBody?.target_version).toBe("1.0.0");
+			expect("target_version" in (lastApplyBody ?? {})).toBe(false);
 			expect(lastApplyBody?.parent_sha256).toBe(defaultGenesisSha);
 			expect(lastApplyIfMatch).toBe(`"${defaultGenesisSha}"`);
 
 			// 2. 0.0.0 -> 0.1.0 (non-CBC add_reference_enumeration on custom namespace):
-			// delta validate & delta apply send genuine customGenesisSha + grounding rationale without key-copying
+			// delta validate & delta apply send genuine customGenesisSha + grounding rationale without key-copying or fabricated target_version
 			process.env.OPENDV_WAIVER_KEY = "local-steward-secret";
 			const valMinorCode = await runCli(
 				[
@@ -2017,7 +2022,7 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			);
 			expect(valMinorCode).toBe(0);
 			expect(lastValidateBody?.base_version).toBe("0.0.0");
-			expect(lastValidateBody?.target_version).toBe("0.1.0");
+			expect("target_version" in (lastValidateBody ?? {})).toBe(false);
 			expect(lastValidateBody?.parent_sha256).toBe(customGenesisSha);
 			expect(lastValidateBody?.grounding_rationale).toBe(
 				"Approved genesis reference enumeration waiver",
@@ -2046,7 +2051,7 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			);
 			expect(applyMinorCode).toBe(0);
 			expect(lastApplyBody?.base_version).toBe("0.0.0");
-			expect(lastApplyBody?.target_version).toBe("0.1.0");
+			expect("target_version" in (lastApplyBody ?? {})).toBe(false);
 			expect(lastApplyBody?.parent_sha256).toBe(customGenesisSha);
 			expect(lastApplyIfMatch).toBe(`"${customGenesisSha}"`);
 			expect(lastApplyBody?.grounding_rationale).toBe(
@@ -2085,6 +2090,360 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			genServer.stop();
 			if (existsSync(majorConceptDeltaFile)) unlinkSync(majorConceptDeltaFile);
 			if (existsSync(minorEnumDeltaFile)) unlinkSync(minorEnumDeltaFile);
+		}
+	});
+
+	it("P13b::MAJ-01: session delta validate/apply omit target_version when unspecified (0.1.0->1.0.0 CBC promotion & update_concept_urn major bump) and preserve explicit target_version", async () => {
+		// 1. Verify DESTRUCTIVE_OP_TYPES and isDestructiveDeltaOperation match the 24-op calculus
+		for (const opType of [
+			"remove_concept",
+			"remove_relationship",
+			"remove_attribute",
+			"update_concept_urn",
+		]) {
+			expect(DESTRUCTIVE_OP_TYPES.has(opType)).toBe(true);
+			expect(isDestructiveDeltaOperation({ op_type: opType })).toBe(true);
+		}
+		expect(
+			isDestructiveDeltaOperation({
+				op_type: "add_attribute",
+				concept_uri: "urn:ontology:entity:existing_cbc",
+				attribute_name: "mandatory_code",
+				is_optional: false,
+			}),
+		).toBe(true);
+		expect(
+			isDestructiveDeltaOperation({
+				op_type: "add_attribute",
+				concept_uri: "urn:ontology:entity:existing_cbc",
+				attribute_name: "optional_note",
+				is_optional: true,
+			}),
+		).toBe(false);
+		expect(
+			isDestructiveDeltaOperation(
+				{
+					op_type: "add_attribute",
+					concept_uri: "urn:ontology:entity:newly_added_cbc",
+					attribute_name: "mandatory_code",
+					is_optional: false,
+				},
+				new Set(["urn:ontology:entity:newly_added_cbc"]),
+			),
+		).toBe(false);
+		const baseMap = new Map<string, Record<string, unknown>>([
+			[
+				"urn:ontology:entity:existing_cbc",
+				{
+					parent_concept_uri: "urn:ontology:entity:party",
+					elm_archetype: "CORE_BUSINESS_CONCEPT",
+				},
+			],
+		]);
+		expect(
+			isDestructiveDeltaOperation(
+				{
+					op_type: "set_parent_concept",
+					concept_uri: "urn:ontology:entity:existing_cbc",
+					parent_concept_uri: "urn:ontology:entity:other_parent",
+				},
+				undefined,
+				baseMap,
+			),
+		).toBe(true);
+		expect(
+			isDestructiveDeltaOperation(
+				{
+					op_type: "set_concept_elm_archetype",
+					concept_uri: "urn:ontology:entity:existing_cbc",
+					elm_archetype: "NATURAL_BUSINESS_RELATIONSHIP",
+				},
+				undefined,
+				baseMap,
+			),
+		).toBe(true);
+
+		// 2. Verify session delta validate & apply omit target_version when unspecified, while preserving explicit target_version / target_ontology_version
+		const draft010Sha = "b".repeat(64);
+		const v100Sha = "c".repeat(64);
+		let capturedValidateBody: Record<string, unknown> | null = null;
+		let capturedApplyBody: Record<string, unknown> | null = null;
+
+		const semverServer = Bun.serve({
+			port: 0,
+			async fetch(req) {
+				const url = new URL(req.url);
+				if (url.pathname === "/api/v1/health") {
+					return Response.json({
+						status: "HEALTHY",
+						version: "0.1.0",
+						contract_version: spec.contract_version,
+						mode: "PLATFORM_API",
+					});
+				}
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s-draft-010" &&
+					req.method === "GET"
+				) {
+					return Response.json({
+						session_id: "s-draft-010",
+						domain_namespace: "logistics",
+						status: "ACTIVE",
+						head_version: "0.1.0",
+						active_version: "0.1.0",
+						head_sha256: draft010Sha,
+					});
+				}
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s-v100" &&
+					req.method === "GET"
+				) {
+					return Response.json({
+						session_id: "s-v100",
+						domain_namespace: "logistics",
+						status: "ACTIVE",
+						head_version: "1.0.0",
+						active_version: "1.0.0",
+						head_sha256: v100Sha,
+					});
+				}
+				if (url.pathname.endsWith("/validate") && req.method === "POST") {
+					capturedValidateBody = (await req.json()) as Record<string, unknown>;
+					return Response.json({
+						valid: true,
+						violations: [],
+						computed_target_version: url.pathname.includes("s-draft-010")
+							? (capturedValidateBody.target_version ?? "1.0.0")
+							: (capturedValidateBody.target_version ?? "2.0.0"),
+					});
+				}
+				if (url.pathname.endsWith("/delta") && req.method === "POST") {
+					capturedApplyBody = (await req.json()) as Record<string, unknown>;
+					return Response.json({
+						session_id: url.pathname.includes("s-draft-010")
+							? "s-draft-010"
+							: "s-v100",
+						target_version: url.pathname.includes("s-draft-010")
+							? (capturedApplyBody.target_version ?? "1.0.0")
+							: (capturedApplyBody.target_version ?? "2.0.0"),
+						target_sha256: "d".repeat(64),
+						parent_sha256: capturedApplyBody.parent_sha256,
+						applied_operations_count: 1,
+					});
+				}
+				return new Response("Not Found", { status: 404 });
+			},
+		});
+
+		const semverUrl = `http://127.0.0.1:${semverServer.port}`;
+		const firstCbcFile = `temp_010_first_cbc_${Date.now()}.json`;
+		const urnMajorFile = `temp_100_urn_major_${Date.now()}.json`;
+		const explicitTargetFile = `temp_explicit_target_${Date.now()}.json`;
+		const explicitAliasTargetFile = `temp_explicit_alias_target_${Date.now()}.json`;
+
+		await Bun.write(
+			firstCbcFile,
+			JSON.stringify({
+				operations: [
+					{
+						op_type: "add_concept",
+						concept_uri: "urn:ontology:entity:shipment",
+						concept_name: "Shipment",
+					},
+				],
+			}),
+		);
+		await Bun.write(
+			urnMajorFile,
+			JSON.stringify({
+				operations: [
+					{
+						op_type: "update_concept_urn",
+						concept_uri: "urn:ontology:entity:shipment",
+						new_concept_uri: "urn:ontology:entity:freight_shipment",
+					},
+				],
+			}),
+		);
+		await Bun.write(
+			explicitTargetFile,
+			JSON.stringify({
+				base_version: "1.0.0",
+				target_version: "2.0.0",
+				operations: [
+					{
+						op_type: "update_concept_urn",
+						concept_uri: "urn:ontology:entity:shipment",
+						new_concept_uri: "urn:ontology:entity:freight_shipment",
+					},
+				],
+			}),
+		);
+		await Bun.write(
+			explicitAliasTargetFile,
+			JSON.stringify({
+				base_ontology_version: "0.1.0",
+				target_ontology_version: "1.0.0",
+				operations: [
+					{
+						op_type: "add_concept",
+						concept_uri: "urn:ontology:entity:shipment",
+						concept_name: "Shipment",
+					},
+				],
+			}),
+		);
+
+		try {
+			// Case A: 0.1.0 (0-CBC enum draft) adding first add_concept -> target_version omitted so server computes 1.0.0
+			const c1 = await runCli(
+				[
+					"ontology",
+					"studio",
+					"delta",
+					"validate",
+					"--api-url",
+					semverUrl,
+					"-s",
+					"s-draft-010",
+					"-f",
+					firstCbcFile,
+					"--json",
+				],
+				() => {},
+			);
+			expect(c1).toBe(0);
+			expect(capturedValidateBody?.base_version).toBe("0.1.0");
+			expect("target_version" in (capturedValidateBody ?? {})).toBe(false);
+
+			const applyOutA: string[] = [];
+			const c2 = await runCli(
+				[
+					"ontology",
+					"studio",
+					"delta",
+					"apply",
+					"--api-url",
+					semverUrl,
+					"-s",
+					"s-draft-010",
+					"--base-sha256",
+					draft010Sha,
+					"-f",
+					firstCbcFile,
+					"--json",
+				],
+				(m) => applyOutA.push(m),
+			);
+			expect(c2).toBe(0);
+			expect(capturedApplyBody?.base_version).toBe("0.1.0");
+			expect("target_version" in (capturedApplyBody ?? {})).toBe(false);
+			expect(JSON.parse(applyOutA.join("\n")).target_version).toBe("1.0.0");
+
+			// Case B: 1.0.0 with update_concept_urn -> target_version omitted so server computes 2.0.0
+			const c3 = await runCli(
+				[
+					"ontology",
+					"studio",
+					"delta",
+					"validate",
+					"--api-url",
+					semverUrl,
+					"-s",
+					"s-v100",
+					"-f",
+					urnMajorFile,
+					"--json",
+				],
+				() => {},
+			);
+			expect(c3).toBe(0);
+			expect(capturedValidateBody?.base_version).toBe("1.0.0");
+			expect("target_version" in (capturedValidateBody ?? {})).toBe(false);
+
+			const applyOutB: string[] = [];
+			const c4 = await runCli(
+				[
+					"--role",
+					"DATA_STEWARD",
+					"ontology",
+					"studio",
+					"delta",
+					"apply",
+					"--api-url",
+					semverUrl,
+					"-s",
+					"s-v100",
+					"--base-sha256",
+					v100Sha,
+					"-f",
+					urnMajorFile,
+					"--json",
+				],
+				(m) => applyOutB.push(m),
+			);
+			expect(c4).toBe(0);
+			expect(capturedApplyBody?.base_version).toBe("1.0.0");
+			expect("target_version" in (capturedApplyBody ?? {})).toBe(false);
+			expect(JSON.parse(applyOutB.join("\n")).target_version).toBe("2.0.0");
+
+			// Case C: Explicit target_version & target_ontology_version in delta file ARE preserved as body.target_version
+			const c5 = await runCli(
+				[
+					"ontology",
+					"studio",
+					"delta",
+					"validate",
+					"--api-url",
+					semverUrl,
+					"-s",
+					"s-v100",
+					"-f",
+					explicitTargetFile,
+					"--json",
+				],
+				() => {},
+			);
+			expect(c5).toBe(0);
+			expect(capturedValidateBody?.target_version).toBe("2.0.0");
+
+			const c6 = await runCli(
+				[
+					"--role",
+					"DATA_STEWARD",
+					"ontology",
+					"studio",
+					"delta",
+					"apply",
+					"--api-url",
+					semverUrl,
+					"-s",
+					"s-draft-010",
+					"--base-sha256",
+					draft010Sha,
+					"-f",
+					explicitAliasTargetFile,
+					"--json",
+				],
+				() => {},
+			);
+			expect(c6).toBe(0);
+			expect(capturedApplyBody?.base_version).toBe("0.1.0");
+			expect(capturedApplyBody?.target_version).toBe("1.0.0");
+			expect("base_ontology_version" in (capturedApplyBody ?? {})).toBe(false);
+			expect("target_ontology_version" in (capturedApplyBody ?? {})).toBe(
+				false,
+			);
+		} finally {
+			semverServer.stop();
+			for (const f of [
+				firstCbcFile,
+				urnMajorFile,
+				explicitTargetFile,
+				explicitAliasTargetFile,
+			]) {
+				if (existsSync(f)) unlinkSync(f);
+			}
 		}
 	});
 });

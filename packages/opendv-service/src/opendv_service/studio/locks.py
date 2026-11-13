@@ -689,6 +689,12 @@ class StudioLock:
 
         _validate_release_order(self, allow_foreign_early_release=allow_foreign_early_release)
 
+        # On POSIX, unlink WHILE flock is still held so no waiter holding an open fd on the old
+        # inode can acquire flock and pass fstat == stat before unlink completes (P07b::MAJ-01).
+        if os.name != "nt" and self.remove_on_release and self._file is not None:
+            with contextlib.suppress(OSError):
+                self.path.unlink(missing_ok=True)
+
         self._close_file()
         self._is_locked = False
         self._metadata = None
@@ -701,7 +707,8 @@ class StudioLock:
             )
         )
 
-        if self.remove_on_release:
+        # On Windows, open handles forbid unlink, so best-effort unlink runs after _close_file().
+        if os.name == "nt" and self.remove_on_release:
             with contextlib.suppress(OSError):
                 self.path.unlink(missing_ok=True)
 
@@ -964,6 +971,25 @@ def multi_studio_lock(
     return MultiStudioLock(locks=locks, timeout=timeout)
 
 
+SESSION_FENCE_FILENAME: Final[str] = ".session_fenced"
+
+
+def write_session_fence_marker(session_dir: Path | str) -> Path:
+    """Atomically write the `.session_fenced` tombstone marker inside `session_dir`."""
+    fence_path = Path(session_dir) / SESSION_FENCE_FILENAME
+    fd_f = os.open(
+        str(fence_path),
+        os.O_CREAT | os.O_WRONLY | os.O_TRUNC | getattr(os, "O_BINARY", 0),
+        0o600,
+    )
+    try:
+        os.write(fd_f, b"fenced")
+        os.fsync(fd_f)
+    finally:
+        os.close(fd_f)
+    return fence_path
+
+
 @contextlib.contextmanager
 def reentrant_session_lock(
     lock_path: Path | str,
@@ -1013,6 +1039,11 @@ def reentrant_session_lock(
                 session_id=sid,
                 timeout=timeout,
             ) as lk:
+                if (resolved.parent / SESSION_FENCE_FILENAME).exists():
+                    raise FileNotFoundError(
+                        f"Session directory '{resolved.parent}' has been fenced for "
+                        "replacement/deletion"
+                    )
                 yield lk
     else:
         if not resolved.parent.exists():
@@ -1023,4 +1054,9 @@ def reentrant_session_lock(
             session_id=sid,
             timeout=timeout,
         ) as lk:
+            if (resolved.parent / SESSION_FENCE_FILENAME).exists():
+                raise FileNotFoundError(
+                    f"Session directory '{resolved.parent}' has been fenced for "
+                    "replacement/deletion"
+                )
             yield lk

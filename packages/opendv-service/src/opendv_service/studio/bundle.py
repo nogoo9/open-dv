@@ -36,6 +36,7 @@ import shutil
 import stat
 import unicodedata
 import zipfile
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Final
@@ -62,7 +63,13 @@ from opendv_service.studio.atomic_commit import (
     parse_semver_tuple,
     verify_ont_evo_002_post_state_grounding,
 )
-from opendv_service.studio.locks import L5_SESSION, reentrant_session_lock, studio_lock
+from opendv_service.studio.locks import (
+    L5_SESSION,
+    SESSION_FENCE_FILENAME,
+    reentrant_session_lock,
+    studio_lock,
+    write_session_fence_marker,
+)
 from opendv_service.studio.session_manager import (
     _WINDOWS_RESERVED_DEVICES,
     SessionAlreadyExistsError,
@@ -199,6 +206,10 @@ class ImportGroundingViolationError(ArchiveSecurityViolationError):
         super().__init__(
             message, error_code=error_code, status_code=status_code, exit_code=exit_code
         )
+
+
+class ImportAttributionUnverifiedError(ImportGroundingViolationError):
+    """Raised when an imported steward waiver fails local K_waiver HMAC verification."""
 
 
 class ImportGroundingRationaleRequiredError(OpenDVError, ValueError):
@@ -459,6 +470,41 @@ def validate_archive_member(
     seen_normalized_names.add(norm)
 
 
+def _reject_symlinks_on_path_and_ancestors(
+    raw_path: Path,
+    stop_roots: Sequence[Path | str],
+    label: str,
+) -> None:
+    """Reject '..' segments and symlinks on `raw_path` and its ancestors up to `stop_roots`."""
+    if ".." in raw_path.parts:
+        raise InvalidWorkspacePathError(
+            f"{label} '{raw_path}' must not contain '..' traversal segments."
+        )
+    if raw_path.is_symlink():
+        raise InvalidWorkspacePathError(f"{label} '{raw_path.name}' must not be a symlink.")
+
+    stop_norm: set[str] = set()
+    for sr in stop_roots:
+        sr_path = Path(sr)
+        if sr_path.is_symlink():
+            raise InvalidWorkspacePathError(
+                f"Configured workspace root '{sr_path.name}' must not be a symlink."
+            )
+        with contextlib.suppress(OSError):
+            stop_norm.add(os.path.normcase(str(sr_path.resolve())))
+
+    cur = raw_path if raw_path.is_absolute() else (Path.cwd() / raw_path)
+    while True:
+        if cur.is_symlink():
+            raise InvalidWorkspacePathError(f"{label} ancestor '{cur.name}' must not be a symlink.")
+        with contextlib.suppress(OSError):
+            if os.path.normcase(str(cur.resolve())) in stop_norm:
+                break
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+
+
 def export_bundle(
     session_dir: Path | str,
     output_zip_path: Path | str,
@@ -468,22 +514,88 @@ def export_bundle(
     *,
     security_manager: WorkspaceSecurityManager | None = None,
     actor: str = "admin",
+    overwrite: bool = False,
 ) -> Path:
     """Export a studio session CAS directory into a portable .odvstudio.zip archive under L5 lock.
 
     Excludes:
     - .session_secret
+    - .session_fenced
     - *.lock (active lock files)
     - .staging and .staging-*
     - .quarantine*
     - .trash-*
     - *.tmp
     """
-    sdir = Path(session_dir).resolve()
+    raw_sdir = Path(session_dir)
+    raw_out = Path(output_zip_path)
+
+    env_roots = os.environ.get("OPENDV_WORKSPACE_ROOTS", "").strip()
+    env_studio = os.environ.get("OPENDV_STUDIO_ROOT", "").strip()
+    env_ws = os.environ.get("OPENDV_WORKSPACE_ROOT", "").strip()
+
+    if env_roots:
+        ws_root_list: list[Path | str] = [
+            r.strip() for r in env_roots.split(os.pathsep) if r.strip()
+        ]
+        sess_allowed_roots: list[Path | str] = list(ws_root_list)
+        if security_manager is not None:
+            sess_allowed_roots.append(security_manager.studio_root)
+        if env_studio:
+            sess_allowed_roots.append(env_studio)
+
+        out_allowed_roots: list[Path | str] = list(ws_root_list)
+        if security_manager is not None:
+            out_allowed_roots.append(security_manager.studio_root / ".scratch")
+        if env_studio:
+            out_allowed_roots.append(Path(env_studio) / ".scratch")
+    else:
+        sess_allowed_roots = [os.getcwd()]
+        if security_manager is not None:
+            sec_r = security_manager.studio_root
+            sess_allowed_roots.extend([sec_r, sec_r.parent, sec_r.parent.parent])
+        else:
+            s_parent = (raw_sdir if raw_sdir.is_absolute() else (Path.cwd() / raw_sdir)).parent
+            sess_allowed_roots.extend([s_parent, s_parent.parent])
+        if env_studio:
+            sess_allowed_roots.extend([env_studio, Path(env_studio).parent])
+        if env_ws:
+            sess_allowed_roots.extend([env_ws, Path(env_ws).parent])
+
+        out_allowed_roots = list(sess_allowed_roots)
+        if security_manager is not None:
+            out_allowed_roots.append(security_manager.studio_root / ".scratch")
+
+    _reject_symlinks_on_path_and_ancestors(raw_sdir, sess_allowed_roots, "Export session directory")
+    sdir = validate_workspace_containment(raw_sdir, allowed_roots=sess_allowed_roots)
+    if sdir.is_symlink():
+        raise InvalidWorkspacePathError(
+            f"Export session directory '{sdir.name}' must not be a symlink."
+        )
     if not sdir.exists() or not (sdir / "session.json").exists():
         raise FileNotFoundError(f"Session directory '{sdir}' not found")
+    if (sdir / "session.json").is_symlink():
+        raise InvalidWorkspacePathError("Session metadata 'session.json' must not be a symlink.")
 
-    out_path = Path(output_zip_path).resolve()
+    _reject_symlinks_on_path_and_ancestors(raw_out, out_allowed_roots, "Export output path")
+    raw_out_parent = raw_out.parent if str(raw_out.parent) not in ("", ".") else Path.cwd()
+    validate_workspace_containment(raw_out_parent, allowed_roots=out_allowed_roots)
+    out_path = validate_workspace_containment(raw_out, allowed_roots=out_allowed_roots)
+    if out_path.is_symlink():
+        raise InvalidWorkspacePathError(
+            f"Export output file '{out_path.name}' must not be a symlink."
+        )
+
+    if out_path == sdir or out_path.is_relative_to(sdir):
+        raise InvalidWorkspacePathError(
+            f"Export output file '{out_path}' must not reside inside session directory '{sdir}'."
+        )
+
+    if (raw_out.exists() or out_path.exists()) and not overwrite:
+        raise InvalidWorkspacePathError(
+            f"Export output file already exists: '{out_path}' (pass overwrite=True to replace)"
+        )
+
     out_path.parent.mkdir(parents=True, exist_ok=True)
 
     lock_file = sdir / ".session.lock"
@@ -533,7 +645,12 @@ def export_bundle(
             for file_name in sorted(files):
                 if file_name.endswith((".lock", ".tmp")):
                     continue
-                if file_name in (".session_secret", ".session.lock", ".local_token.lock"):
+                if file_name in (
+                    ".session_secret",
+                    ".session.lock",
+                    ".local_token.lock",
+                    ".session_fenced",
+                ):
                     continue
 
                 full_path = Path(root) / file_name
@@ -595,14 +712,122 @@ def export_bundle(
     return out_path
 
 
+def _parse_utc_timestamp(raw_val: Any) -> datetime | None:
+    """Parse an ISO-8601 string or datetime into a timezone-aware UTC datetime."""
+    if isinstance(raw_val, datetime):
+        return raw_val.astimezone(UTC) if raw_val.tzinfo else raw_val.replace(tzinfo=UTC)
+    if not isinstance(raw_val, str) or not raw_val.strip():
+        return None
+    txt = raw_val.strip()
+    if txt.endswith("Z"):
+        txt = txt[:-1] + "+00:00"
+    try:
+        dt = datetime.fromisoformat(txt)
+    except ValueError:
+        return None
+    return dt.astimezone(UTC) if dt.tzinfo else dt.replace(tzinfo=UTC)
+
+
+def _verify_audit_chain_records_for_timestamps(
+    audit_path: Path,
+    expected_tail_sha: str | None,
+) -> list[dict[str, Any]] | None:
+    """Return records from `audit_path` only if its JCS hash chain and tail digest verify."""
+    if not audit_path.is_file() or audit_path.is_symlink():
+        return None
+    try:
+        raw_lines = audit_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return None
+    valid_lines = [ln.strip() for ln in raw_lines if ln.strip()]
+    if not valid_lines:
+        return None
+
+    expected_prev: str | None = None
+    records: list[dict[str, Any]] = []
+    for line in valid_lines:
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError:
+            return None
+        if not isinstance(rec, dict):
+            return None
+        actual_sha = rec.get("audit_sha256")
+        prev_sha = rec.get("prev_audit_sha256")
+        if not isinstance(actual_sha, str) or len(actual_sha) != 64:
+            return None
+        if prev_sha != expected_prev:
+            return None
+        recon = {k: v for k, v in rec.items() if k not in ("audit_sha256", "hmac_signature")}
+        computed_sha = hashlib.sha256(dumps_jcs_bytes(recon)).hexdigest().lower()
+        if computed_sha != actual_sha:
+            return None
+        records.append(rec)
+        expected_prev = actual_sha
+
+    if expected_tail_sha and expected_tail_sha != "0" * 64 and expected_prev != expected_tail_sha:
+        return None
+    return records
+
+
+def _extract_verified_commit_timestamps(
+    staging_dir: Path,
+    session_meta: SessionMetadata,
+    bundle_meta: dict[str, Any] | None = None,
+) -> dict[tuple[str, str], datetime]:
+    """Extract verified `(version_tag, target_sha256) -> commit_timestamp` from audit chains."""
+    expected_declared_tail = session_meta.audit_chain_head_sha256
+    if isinstance(bundle_meta, dict) and bundle_meta.get("audit_chain_head_sha256"):
+        expected_declared_tail = str(bundle_meta["audit_chain_head_sha256"])
+
+    def _collect_from_chain(
+        audit_path: Path, expected_tail: str | None, visited: set[str]
+    ) -> list[dict[str, Any]]:
+        norm_name = audit_path.name
+        if norm_name in visited:
+            return []
+        visited.add(norm_name)
+        recs = _verify_audit_chain_records_for_timestamps(audit_path, expected_tail)
+        if recs is None:
+            return []
+        combined: list[dict[str, Any]] = []
+        for rec in recs:
+            if rec.get("action") == "SESSION_IMPORTED":
+                det = rec.get("details")
+                if isinstance(det, dict):
+                    arch_name = str(det.get("archived_audit_file") or "").strip()
+                    arch_tail = str(det.get("imported_audit_tail_sha256") or "").strip()
+                    if arch_name and "/" not in arch_name and "\\" not in arch_name:
+                        arch_path = staging_dir / arch_name
+                        combined.extend(_collect_from_chain(arch_path, arch_tail or None, visited))
+            combined.append(rec)
+        return combined
+
+    all_records = _collect_from_chain(staging_dir / "audit.jsonl", expected_declared_tail, set())
+    commit_ts_map: dict[tuple[str, str], datetime] = {}
+    for rec in all_records:
+        if rec.get("action") != "COMMITTED":
+            continue
+        dt = _parse_utc_timestamp(rec.get("timestamp"))
+        if dt is None:
+            continue
+        det = rec.get("details") if isinstance(rec.get("details"), dict) else {}
+        raw_ver = str(rec.get("target_version") or det.get("target_version") or "").strip()
+        raw_sha = str(det.get("target_sha256") or rec.get("head_sha256") or "").strip().lower()
+        if raw_ver and len(raw_sha) == 64:
+            commit_ts_map[(normalize_version_tag(raw_ver), raw_sha)] = dt
+    return commit_ts_map
+
+
 def _extract_version_waivers(
     vdir: Path,
     delta: OntologyDelta,
     expected_parent_sha: str,
+    *,
+    commit_timestamp: datetime | None = None,
 ) -> list[StewardWaiverRecord]:
     """Extract and structurally validate StewardWaiverRecords attached to an imported version."""
     raw_items: list[Any] = []
-    meta_delta_shas: set[str] = set()
     for fname in ("waivers.json", "meta.json", "metadata.json", "evaluation.json"):
         fpath = vdir / fname
         if not fpath.is_file():
@@ -616,11 +841,6 @@ def _extract_version_waivers(
         if isinstance(vdata, list):
             raw_items.extend(vdata)
         elif isinstance(vdata, dict):
-            if fname in ("meta.json", "metadata.json"):
-                for dkey in ("delta_sha256", "submitted_delta_sha256"):
-                    dval = vdata.get(dkey)
-                    if isinstance(dval, str) and len(dval.strip()) == 64:
-                        meta_delta_shas.add(dval.strip().lower())
             if isinstance(vdata.get("waivers"), list):
                 raw_items.extend(vdata["waivers"])
             if isinstance(vdata.get("waiver"), dict):
@@ -629,16 +849,23 @@ def _extract_version_waivers(
     if not raw_items:
         return []
 
-    probe_no_target = delta.model_copy(update={"target_ontology_version": None})
-    probe_no_target.__pydantic_fields_set__.discard("target_ontology_version")
-    allowed_delta_shas = {
-        delta.canonical_sha256(),
-        probe_no_target.canonical_sha256(),
-        *meta_delta_shas,
-    }
-    if not (delta.parent_sha256 or "").strip() and expected_parent_sha:
-        with_parent = delta.model_copy(update={"parent_sha256": expected_parent_sha})
-        allowed_delta_shas.add(with_parent.canonical_sha256())
+    # Compute allowed delta digests EXCLUSIVELY from the replayed delta.json object and its
+    # deterministic pre/post-normalization envelope combinations (NEVER from untrusted meta.json!).
+    parent_variants: list[str | None] = [delta.parent_sha256, "", None]
+    if expected_parent_sha:
+        parent_variants.append(expected_parent_sha)
+    target_ver_variants: list[str | None] = [delta.target_ontology_version, None]
+
+    allowed_delta_shas: set[str] = set()
+    for p_val in parent_variants:
+        for t_val in target_ver_variants:
+            cand_delta = delta.model_copy(
+                update={
+                    "parent_sha256": p_val,
+                    "target_ontology_version": t_val,
+                }
+            )
+            allowed_delta_shas.add(cand_delta.canonical_sha256())
 
     seen_keys: set[tuple[str, tuple[str, ...], str]] = set()
     validated: list[StewardWaiverRecord] = []
@@ -686,15 +913,29 @@ def _extract_version_waivers(
                 f"Waiver proposal_delta_sha256 '{w.proposal_delta_sha256}' does not match "
                 f"delta digest in '{vdir.name}'."
             )
-        if expected_parent_sha and w.base_sha256 and w.base_sha256 != expected_parent_sha:
+        if expected_parent_sha and not hmac.compare_digest(
+            (w.base_sha256 or "").strip().lower(),
+            expected_parent_sha.strip().lower(),
+        ):
             raise ImportGroundingViolationError(
                 f"Waiver base_sha256 '{w.base_sha256}' does not match parent ontology SHA-256 "
                 f"'{expected_parent_sha}' in '{vdir.name}'."
             )
-        if w.expires_at is not None and w.expires_at <= datetime.now(UTC):
-            raise ImportGroundingViolationError(
-                f"Waiver '{w.waiver_id}' in '{vdir.name}' has expired ({w.expires_at.isoformat()})."
-            )
+        if w.expires_at is not None:
+            if commit_timestamp is None:
+                raise ImportGroundingViolationError(
+                    f"Waiver '{w.waiver_id}' in '{vdir.name}' specifies expires_at "
+                    "but version commit timestamp is missing or invalid."
+                )
+            issued_at = w.created_at.astimezone(UTC)
+            ref_ts = commit_timestamp.astimezone(UTC)
+            exp_ts = w.expires_at.astimezone(UTC)
+            if not (issued_at <= ref_ts < exp_ts):
+                raise ImportGroundingViolationError(
+                    f"Waiver '{w.waiver_id}' in '{vdir.name}' was not active at commit time "
+                    f"(issued_at={issued_at.isoformat()}, commit_ts={ref_ts.isoformat()}, "
+                    f"expires_at={exp_ts.isoformat()})."
+                )
         validated.append(w)
 
     return validated
@@ -726,8 +967,16 @@ def _scan_ontology_for_provisional_uris(
 def _verify_versions_and_replay_deltas(
     staging_dir: Path,
     session_meta: SessionMetadata,
+    *,
+    security_manager: WorkspaceSecurityManager | None = None,
+    acknowledge_unverified_import_attribution: bool = False,
+    is_admin: bool = False,
+    bundle_meta: dict[str, Any] | None = None,
 ) -> None:
     """Verify canonical JCS ontology digests, provisional URIs, delta lineage, and grounding."""
+    verified_commit_ts = _extract_verified_commit_timestamps(
+        staging_dir, session_meta, bundle_meta=bundle_meta
+    )
     versions_dir = staging_dir / "versions"
     head_ver_clean = session_meta.head_version.lstrip("v")
     head_ver_tag = normalize_version_tag(head_ver_clean)
@@ -1020,24 +1269,50 @@ def _verify_versions_and_replay_deltas(
         active_grandfathered -= touched_uris
         active_waived_uris -= touched_uris
 
-        version_waivers = _extract_version_waivers(vdir, delta, expected_parent_sha)
+        v_tag = normalize_version_tag(v_clean)
+        commit_ts = verified_commit_ts.get((v_tag, actual_sha.lower()))
+        if commit_ts is None:
+            commit_ts = _parse_utc_timestamp(
+                meta_dict.get("commit_timestamp")
+                or meta_dict.get("committed_at")
+                or meta_dict.get("created_at")
+            )
+
+        version_waivers = _extract_version_waivers(
+            vdir, delta, expected_parent_sha, commit_timestamp=commit_ts
+        )
+        waived_this_version: set[str] = set()
         for w in version_waivers:
+            sig_ok = security_manager is not None and security_manager.verify_waiver_signature(
+                w.signing_payload().encode("utf-8"), w.signature_or_token
+            )
+            if not sig_ok and not (acknowledge_unverified_import_attribution and is_admin):
+                if (staging_dir / "audit.jsonl").is_file():
+                    _verify_imported_audit_chain_integrity(
+                        staging_dir, session_meta, bundle_meta=bundle_meta
+                    )
+                raise ImportAttributionUnverifiedError(
+                    f"Steward waiver '{w.waiver_id}' in '{vdir.name}' failed local K_waiver "
+                    "HMAC verification. Explicit admin acknowledgement required: "
+                    "acknowledge_unverified_import_attribution=true."
+                )
             active_waived_uris.update(w.target_concept_uris)
+            waived_this_version.update(w.target_concept_uris)
 
         non_exempt_uris = {
             c.concept_uri
             for c in replayed_ont.canonical_business_concepts
             if c.concept_uri not in active_grandfathered and c.concept_uri not in active_waived_uris
         }
-        uris_to_verify = touched_uris | non_exempt_uris
+        uris_to_verify = (touched_uris - waived_this_version) | non_exempt_uris
         if uris_to_verify:
             try:
                 verify_ont_evo_002_post_state_grounding(
                     apply_base_ont,
                     delta,
                     replayed_ont,
-                    waivers=version_waivers,
-                    security_manager=None,
+                    waivers=[],
+                    security_manager=security_manager,
                     grounding_verifier=grounding_verifier,
                     explicit_touched_uris=uris_to_verify,
                 )
@@ -1047,6 +1322,67 @@ def _verify_versions_and_replay_deltas(
                 ) from exc
 
         verified_ont_by_sha[actual_sha] = replayed_ont
+
+
+def _verify_imported_audit_chain_integrity(
+    staging_dir: Path,
+    session_meta: SessionMetadata,
+    *,
+    bundle_meta: dict[str, Any] | None = None,
+) -> None:
+    """Verify JCS hash-chain and tail digest of imported `audit.jsonl`, raising on tampering."""
+    audit_file = staging_dir / "audit.jsonl"
+    if not audit_file.is_file():
+        raise BundleAuditChainCorruptError("Bundle archive is missing authoritative 'audit.jsonl'.")
+    raw_lines = audit_file.read_text(encoding="utf-8").splitlines()
+    valid_lines = [line.strip() for line in raw_lines if line.strip()]
+    if not valid_lines:
+        raise BundleAuditChainCorruptError("Bundle archive 'audit.jsonl' is empty.")
+
+    expected_prev: str | None = None
+    for idx, line in enumerate(valid_lines):
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise BundleAuditChainCorruptError(
+                f"Corrupt JSON on line {idx + 1} of imported audit.jsonl: {exc}"
+            ) from exc
+        if not isinstance(rec, dict):
+            raise BundleAuditChainCorruptError(
+                f"Non-object JSON on line {idx + 1} of imported audit.jsonl."
+            )
+        actual_sha = rec.get("audit_sha256")
+        prev_sha = rec.get("prev_audit_sha256")
+        if not isinstance(actual_sha, str) or len(actual_sha) != 64:
+            raise BundleAuditChainCorruptError(
+                f"Missing or invalid audit_sha256 on line {idx + 1} of imported audit.jsonl."
+            )
+        if prev_sha != expected_prev:
+            raise BundleAuditChainCorruptError(
+                f"Audit hash-chain break on line {idx + 1}: expected prev '{expected_prev}', "
+                f"got '{prev_sha}'."
+            )
+        recon = {k: v for k, v in rec.items() if k not in ("audit_sha256", "hmac_signature")}
+        computed_sha = hashlib.sha256(dumps_jcs_bytes(recon)).hexdigest().lower()
+        if computed_sha != actual_sha:
+            raise BundleAuditChainCorruptError(
+                f"Audit entry JCS SHA-256 mismatch on line {idx + 1} of imported audit.jsonl."
+            )
+        expected_prev = actual_sha
+
+    assert expected_prev is not None
+    expected_declared_tail = session_meta.audit_chain_head_sha256
+    if isinstance(bundle_meta, dict) and bundle_meta.get("audit_chain_head_sha256"):
+        expected_declared_tail = str(bundle_meta["audit_chain_head_sha256"])
+    if (
+        expected_declared_tail
+        and expected_declared_tail != "0" * 64
+        and expected_prev != expected_declared_tail
+    ):
+        raise BundleAuditChainCorruptError(
+            f"Imported audit.jsonl tail '{expected_prev}' does not match declared "
+            f"audit_chain_head_sha256 '{expected_declared_tail}' (tail truncation detected)."
+        )
 
 
 def _verify_and_reanchor_audit_chain(
@@ -1278,8 +1614,6 @@ def _has_unverified_attribution_or_foreign_waiver(
                         return True
                     try:
                         waiver = StewardWaiverRecord.model_validate(w_raw)
-                        if waiver.expires_at is not None and waiver.expires_at <= datetime.now(UTC):
-                            return True
                         payload_bytes = waiver.signing_payload().encode("utf-8")
                         if not security_manager.verify_waiver_signature(
                             payload_bytes, waiver.signature_or_token
@@ -1624,8 +1958,17 @@ def import_bundle(
             except (OSError, json.JSONDecodeError) as exc:
                 raise ArchiveSecurityViolationError(f"Corrupt bundle.json: {exc}") from exc
 
+        is_admin = actor_role is None or actor_role.strip().lower() == "admin"
+
         # 4. Full delta replay, provisional URI scan & canonical JCS SHA-256 + grounding checks
-        _verify_versions_and_replay_deltas(staging_dir, session_meta)
+        _verify_versions_and_replay_deltas(
+            staging_dir,
+            session_meta,
+            security_manager=security_manager,
+            acknowledge_unverified_import_attribution=acknowledge_unverified_import_attribution,
+            is_admin=is_admin,
+            bundle_meta=bundle_meta,
+        )
 
         # 5. Effective taint propagation (T_effective = T_manifest U T_imported)
         is_tainted = compute_effective_session_taint(
@@ -1697,7 +2040,17 @@ def import_bundle(
                 (staging_dir / "session.json").read_text(encoding="utf-8")
             )
 
-        # 9. Atomic destination swap under parent-level L5 lifecycle + session locks
+        # 9. Atomic destination swap under parent-level L5 lifecycle + session locks.
+        # Concurrency & Win32 rename safety invariant (P08a2::MAJ-02):
+        # 1) `.lifecycle_<sid>.lock` (L5 resource_id="0_lifecycle") is held across the entire
+        #    check, fence, backup swap, staging swap, and cleanup; all session accessors
+        #    (`reentrant_session_lock` and `promote_to_workspace`) acquire `.lifecycle_<sid>.lock`
+        #    before `.session.lock` ("1_session").
+        # 2) On Windows, `.session.lock` inside `dest_dir` MUST be closed before `os.replace`
+        #    can rename `dest_dir`. Right before releasing `.session.lock`, we write + fsync
+        #    `.session_fenced` inside `dest_dir`, and `reentrant_session_lock` rejects any
+        #    directory containing `.session_fenced` with `FileNotFoundError` (unlinked only if
+        #    the swap fails and rolls `backup_dir` back to `dest_dir`).
         dest_dir.parent.mkdir(parents=True, exist_ok=True)
         parent_lock_path = dest_dir.parent / f".lifecycle_{target_sid}.lock"
         with studio_lock(
@@ -1720,6 +2073,7 @@ def import_bundle(
                             f"Refusing force=True overwrite of non-session directory "
                             f"'{dest_dir.name}' (missing authoritative session.json)."
                         )
+                    write_session_fence_marker(dest_dir)
                 backup_dir = dest_dir.parent / f".trash-import-{target_sid}-{secrets.token_hex(4)}"
                 replace_with_retry(dest_dir, backup_dir)
                 try:
@@ -1727,6 +2081,7 @@ def import_bundle(
                 except BaseException:
                     with contextlib.suppress(OSError):
                         replace_with_retry(backup_dir, dest_dir)
+                        (dest_dir / SESSION_FENCE_FILENAME).unlink(missing_ok=True)
                     raise
                 shutil.rmtree(backup_dir, ignore_errors=True)
             else:

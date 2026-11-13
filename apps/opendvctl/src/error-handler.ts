@@ -1,10 +1,10 @@
 /**
  * Error Handler and Exit Code Mapper.
  *
- * Driven by `error_map` in `cli-spec.json` and `schemas/v1/error-codes.json`:
+ * Driven by `error_map` in `cli-spec.json` (authoritative Wave-1 precedence) and `schemas/v1/error-codes.json`:
  * - Exit code 0: Success (`OK`, `overall_passed = true`, `status = COMPLETED`).
- * - Exit code 1: Verification or runtime failure (`VERIFICATION_FAILED`, `INTERNAL_ERROR`).
- * - Exit code 2: Syntax, invalid CLI argument, configuration error, or missing precondition.
+ * - Exit code 1: Verification rejection or Studio capability/runtime failure (`VERIFICATION_FAILED`, `EXECUTION_FAILURE`).
+ * - Exit code 2: Syntax, invalid CLI argument, configuration error, missing precondition, or Wave-1 `INTERNAL_ERROR`.
  * - Exit code 3: Resource, session, proposal, job, or local file not found.
  * - Exit code 4: Governance, contract, grounding, or validation violation (`422`).
  * - Exit code 5: Optimistic concurrency / stale precondition conflict (`412`).
@@ -59,8 +59,11 @@ export function mapHttpStatusToExitCode(httpStatus?: number): number {
 	if (httpStatus === 400 || httpStatus === 413 || httpStatus === 415) {
 		return 2;
 	}
-	if (httpStatus >= 500) {
+	if (httpStatus === 501) {
 		return 1;
+	}
+	if (httpStatus >= 500) {
+		return 2;
 	}
 	return 2;
 }
@@ -74,6 +77,7 @@ function canonicalFallbackCodeForStatus(httpStatus?: number): string {
 	if (httpStatus === 413) return "PAYLOAD_TOO_LARGE";
 	if (httpStatus === 415) return "UNSUPPORTED_FORMAT";
 	if (httpStatus === 422) return "ONT_EVO_CONTRACT_VIOLATION";
+	if (httpStatus === 503) return "API_UNREACHABLE";
 	if (httpStatus !== undefined && httpStatus >= 500) return "INTERNAL_ERROR";
 	return "INVALID_REQUEST";
 }
@@ -83,7 +87,7 @@ export class ErrorHandler {
 	private readonly httpStatusMap = new Map<number, ErrorMapping>();
 
 	constructor(customMappings?: ErrorMapping[]) {
-		// 1. Authoritative normative mapping to 0..7 from schemas/v1/error-codes.json (Issue #220)
+		// 1. Load Studio catalog from schemas/v1/error-codes.json first (Issue #220)
 		const catalog =
 			(
 				rawErrorCodes as {
@@ -111,14 +115,16 @@ export class ErrorHandler {
 			}
 		}
 
-		// 2. Overlay / supplement with cli-spec.json mappings
+		// 2. Authoritative overlay: cli-spec.json error_map (or customMappings) unconditionally
+		// overwrites error-codes.json so frozen Wave-1 CLI mappings remain 100% authoritative,
+		// while error-codes.json supplies all Studio codes outside cli-spec.json.
 		const mappings = customMappings ?? loadCliSpec().error_map;
+		const specStatuses = new Set<number>();
 		for (const mapping of mappings) {
-			if (!this.errorMap.has(mapping.error_code)) {
-				this.errorMap.set(mapping.error_code, mapping);
-			}
-			if (!this.httpStatusMap.has(mapping.http_status)) {
+			this.errorMap.set(mapping.error_code, mapping);
+			if (!specStatuses.has(mapping.http_status)) {
 				this.httpStatusMap.set(mapping.http_status, mapping);
+				specStatuses.add(mapping.http_status);
 			}
 		}
 	}
@@ -226,7 +232,7 @@ export class ErrorHandler {
 
 		const def = this.errorMap.get("INTERNAL_ERROR");
 		return {
-			exitCode: def?.exit_code ?? 1,
+			exitCode: def?.exit_code ?? 2,
 			errorCode: "INTERNAL_ERROR",
 			detail: errMsg,
 			httpStatus: def?.http_status ?? 500,
@@ -235,12 +241,29 @@ export class ErrorHandler {
 		};
 	}
 
+	getExitCode(errorOrCode: unknown, httpStatus?: number): number {
+		if (typeof errorOrCode === "string") {
+			const mapped = this.errorMap.get(errorOrCode);
+			if (mapped) {
+				return mapped.exit_code;
+			}
+			return this.resolveError(
+				new CliDomainError(errorOrCode, errorOrCode, httpStatus),
+			).exitCode;
+		}
+		return this.resolveError(errorOrCode).exitCode;
+	}
+
+	getExitCodeForPayload(payload: unknown): number {
+		return this.resolvePayloadExitCode(payload);
+	}
+
 	resolvePayloadExitCode(payload: unknown): number {
 		if (typeof payload === "object" && payload !== null) {
 			const obj = payload as Record<string, unknown>;
 
 			if (obj.error_code === "VERIFICATION_FAILED") {
-				return 1;
+				return this.errorMap.get("VERIFICATION_FAILED")?.exit_code ?? 1;
 			}
 			// Check explicit domain error_code BEFORE generic `valid === false` so
 			// `delta validate` governance/contract failures exit 4 instead of 1 (MAJ-05).

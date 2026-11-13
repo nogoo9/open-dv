@@ -31,12 +31,12 @@ from opendv_contracts.dtos.ingestion import (
     IngestionResult,
     TaintClassification,
 )
-from opendv_contracts.errors import ErrorCode
 from opendv_sources.adapters.liteparse_adapter import (
     InvalidDocumentError,
     LiteParseDocumentAdapter,
 )
 from opendv_sources.exceptions import (
+    ArchiveSecurityViolationError,
     DocumentExtractionError,
     DocumentPayloadTooLargeError,
     OfficeConversionUnavailableError,
@@ -44,27 +44,6 @@ from opendv_sources.exceptions import (
 from opendv_sources.ingestion.adapter import BaseDocumentAdapter
 
 logger = logging.getLogger(__name__)
-
-
-class ArchiveSecurityViolationError(InvalidDocumentError, ValueError):
-    """Raised when an Office payload violates magic-byte, bomb, XXE, DDE, or link security."""
-
-    error_code: ErrorCode = ErrorCode.ARCHIVE_SECURITY_VIOLATION
-    exit_code: int = 4
-    http_status: int = 422
-
-    def __init__(
-        self,
-        message: str,
-        *,
-        error_code: ErrorCode | None = None,
-        details: dict[str, Any] | None = None,
-    ) -> None:
-        super().__init__(
-            message,
-            error_code=error_code or ErrorCode.ARCHIVE_SECURITY_VIOLATION,
-            details=details,
-        )
 
 
 _OFFICE_EXTENSION_MIME_MAP: dict[str, str] = {
@@ -153,6 +132,16 @@ _EXTERNAL_URI_PREFIXES: tuple[str, ...] = (
     "\\\\",
 )
 
+_PASSIVE_HYPERLINK_TAGS: frozenset[str] = frozenset(
+    {"a", "hyperlink", "hlinkclick", "hlinkhover", "hlinkmouse"}
+)
+_PASSIVE_HYPERLINK_SCHEME_PREFIXES: tuple[str, ...] = (
+    "http://",
+    "https://",
+    "ftp://",
+    "ftps://",
+)
+
 _WORD_UNSAFE_FIELD_RE = re.compile(
     r"\b(?:DDEAUTO|DDE|INCLUDEPICTURE|INCLUDETEXT|IMPORT|LINK)\b",
     re.IGNORECASE,
@@ -176,15 +165,18 @@ _HTML_META_REFRESH_RE = re.compile(
     rf"<\s*meta{_ASCII_RB}[^>]*{_ASCII_LB}http-equiv\s*=\s*[\"']?\s*refresh{_ASCII_RB}[^>]*url\s*=",
     re.IGNORECASE,
 )
-_HTML_ACTIVE_EXT_ATTR_RE = re.compile(
-    r"<\s*(?:img|image|imagedata|iframe|frame|embed|object|applet|script|link|base|video|audio"
-    rf"|source|feimage|use|fill|stroke|body|table|td|th){_ASCII_RB}[^>]*"
-    rf"{_ASCII_LB}(?:src|href)\s*=\s*[\"']?\s*"
-    r"(?:https?://|ftps?://|file:|smb:|jar:|gopher:|ldap:|ldaps:|netdoc:|//|\\\\)",
+_HTML_OPEN_TAG_RE = re.compile(r"<\s*([A-Za-z][A-Za-z0-9_:\-.]*)([^>]*)")
+_HTML_HREF_SRC_ATTR_RE = re.compile(
+    r"(?:^|[\s\"'/])(?:[A-Za-z0-9_\-.]+:)?(href|src)\s*=\s*"
+    r"(?:\"([^\"]*)\"|'([^']*)'|([^\s\"'>]+))",
+    re.IGNORECASE,
+)
+_HTML_ONLOAD_ACTUATE_RE = re.compile(
+    rf"(?:^|[\s\"'/])(?:[A-Za-z0-9_\-.]+:)?actuate\s*=\s*[\"']?\s*onload{_ASCII_RB}",
     re.IGNORECASE,
 )
 _HTML_ANY_UNSAFE_SCHEME_RE = re.compile(
-    rf"{_ASCII_LB}(?:src|href)\s*=\s*[\"']?\s*(?:file:|smb:|jar:|gopher:|ldap:|ldaps:|netdoc:|\\\\)",
+    rf"{_ASCII_LB}(?:src|href)\s*=\s*[\"']?\s*(?:file:|smb:|jar:|gopher:|ldap:|ldaps:|netdoc:|//|\\\\)",
     re.IGNORECASE,
 )
 _HTML_CSS_EXT_URL_RE = re.compile(
@@ -233,6 +225,9 @@ _HARDENED_REGISTRYMODIFICATIONS_XCU: str = """<?xml version="1.0" encoding="UTF-
       <value>3</value>
     </prop>
     <prop oor:name="DisableMacrosExecution" oor:op="fuse">
+      <value>true</value>
+    </prop>
+    <prop oor:name="BlockUntrustedRefererLinks" oor:op="fuse">
       <value>true</value>
     </prop>
   </item>
@@ -330,7 +325,6 @@ def _inspect_html_entry_security(entry_name: str, html_bytes: bytes, filename: s
             )
         if (
             _HTML_META_REFRESH_RE.search(view)
-            or _HTML_ACTIVE_EXT_ATTR_RE.search(view)
             or _HTML_ANY_UNSAFE_SCHEME_RE.search(view)
             or _HTML_CSS_EXT_URL_RE.search(view)
         ):
@@ -338,6 +332,40 @@ def _inspect_html_entry_security(entry_name: str, html_bytes: bytes, filename: s
                 f"Office archive '{filename}' contains forbidden external HTML resource link in "
                 f"'{entry_name}' ({enc_label})"
             )
+        for tag_match in _HTML_OPEN_TAG_RE.finditer(view):
+            tag_raw = tag_match.group(1)
+            attrs_blob = tag_match.group(2)
+            local_tag_lower = tag_raw.rsplit(":", 1)[-1].lower()
+            has_onload_actuate = bool(_HTML_ONLOAD_ACTUATE_RE.search(attrs_blob))
+            for attr_match in _HTML_HREF_SRC_ATTR_RE.finditer(attrs_blob):
+                attr_kind = attr_match.group(1).lower()
+                raw_val = (
+                    attr_match.group(2)
+                    if attr_match.group(2) is not None
+                    else attr_match.group(3)
+                    if attr_match.group(3) is not None
+                    else (attr_match.group(4) or "")
+                )
+                val_stripped = raw_val.strip()
+                val_lower = val_stripped.lower()
+                if val_lower.startswith(_UNSAFE_TARGET_PREFIXES) or val_lower.startswith("//"):
+                    raise ArchiveSecurityViolationError(
+                        f"Office archive '{filename}' contains forbidden {attr_kind} "
+                        f"'{val_stripped}' in '{entry_name}' ({enc_label})"
+                    )
+                if val_lower.startswith(_EXTERNAL_URI_PREFIXES):
+                    is_passive_anchor = (
+                        attr_kind == "href"
+                        and local_tag_lower == "a"
+                        and val_lower.startswith(_PASSIVE_HYPERLINK_SCHEME_PREFIXES)
+                        and not has_onload_actuate
+                    )
+                    if not is_passive_anchor:
+                        raise ArchiveSecurityViolationError(
+                            f"Office archive '{filename}' contains forbidden external HTML "
+                            f"resource link '<{tag_raw} {attr_kind}={val_stripped!r}>' in "
+                            f"'{entry_name}' ({enc_label})"
+                        )
 
 
 def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str) -> None:
@@ -446,6 +474,17 @@ def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str
                 f"Office archive '{filename}' contains forbidden external formula in '{entry_name}'"
             )
 
+        if local_tag_lower == "style" and elem.text and _HTML_CSS_EXT_URL_RE.search(elem.text):
+            raise ArchiveSecurityViolationError(
+                f"Office archive '{filename}' contains forbidden external CSS url() in "
+                f"'{entry_name}'"
+            )
+
+        has_onload_actuate = any(
+            _xml_local_name(k).lower() == "actuate" and v.strip().lower() == "onload"
+            for k, v in elem.attrib.items()
+        )
+
         for attr_k, attr_v in elem.attrib.items():
             ak_lower = _xml_local_name(attr_k).lower()
             val_stripped = attr_v.strip()
@@ -461,7 +500,7 @@ def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str
                     f"'{entry_name}'"
                 )
             if ak_lower in {"href", "src"}:
-                if val_lower.startswith(_UNSAFE_TARGET_PREFIXES):
+                if val_lower.startswith(_UNSAFE_TARGET_PREFIXES) or val_lower.startswith("//"):
                     raise ArchiveSecurityViolationError(
                         f"Office archive '{filename}' contains forbidden {ak_lower} "
                         f"'{val_stripped}' in '{entry_name}'"
@@ -483,31 +522,18 @@ def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str
                         f"Office archive '{filename}' contains forbidden linked ODF resource "
                         f"'<{local_tag} {ak_lower}={val_stripped!r}>' in '{entry_name}'"
                     )
-                if local_tag_lower in {
-                    "image",
-                    "img",
-                    "object",
-                    "object-ole",
-                    "oleobject",
-                    "imagedata",
-                    "iframe",
-                    "frame",
-                    "embed",
-                    "script",
-                    "link",
-                    "base",
-                    "video",
-                    "audio",
-                    "source",
-                    "feimage",
-                    "use",
-                    "fill",
-                    "stroke",
-                } and val_lower.startswith(_EXTERNAL_URI_PREFIXES):
-                    raise ArchiveSecurityViolationError(
-                        f"Office archive '{filename}' contains forbidden external media link "
-                        f"'<{local_tag} {ak_lower}={val_stripped!r}>' in '{entry_name}'"
+                if val_lower.startswith(_EXTERNAL_URI_PREFIXES):
+                    is_passive_hyperlink = (
+                        ak_lower == "href"
+                        and local_tag_lower in _PASSIVE_HYPERLINK_TAGS
+                        and val_lower.startswith(_PASSIVE_HYPERLINK_SCHEME_PREFIXES)
+                        and not has_onload_actuate
                     )
+                    if not is_passive_hyperlink:
+                        raise ArchiveSecurityViolationError(
+                            f"Office archive '{filename}' contains forbidden external resource "
+                            f"link '<{local_tag} {ak_lower}={val_stripped!r}>' in '{entry_name}'"
+                        )
 
     if instr_chunks:
         combined_instr = "".join(instr_chunks)

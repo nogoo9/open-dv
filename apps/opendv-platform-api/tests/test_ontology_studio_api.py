@@ -1649,23 +1649,47 @@ def test_cancel_job_committing_stage_rejected_and_on_disk_marker(
     }
     (jobs_dir / f"{job_id_2}.json").write_text(json.dumps(job_data_2), encoding="utf-8")
 
-    # Active worker holding L2_JOB lock on disk rejects cross-process fallback with 409
+    # Active worker holding L2_JOB lock on non-committing job receives cooperative .cancel marker
+    # and returns 200 ("cancelling" / "cancel_requested") without overwriting <job_id>.json
     with hold_worker_lock(jobs_dir / f".job_{job_id_2}.lock", session_id):
         cancel_resp_locked = client.post(
             f"/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id_2}/cancel",
             headers=auth_headers,
         )
-        assert cancel_resp_locked.status_code == 409
-        assert cancel_resp_locked.json()["error_code"] == "JOB_COMMIT_IN_PROGRESS"
+        assert cancel_resp_locked.status_code == 200
+        assert cancel_resp_locked.json()["status"] == "cancelling"
+        assert cancel_resp_locked.json()["stage"] == "cancel_requested"
+        assert (jobs_dir / f".{job_id_2}.cancel").is_file()
+        persisted_2 = json.loads((jobs_dir / f"{job_id_2}.json").read_text(encoding="utf-8"))
+        assert persisted_2["status"] == "running"
 
-    # Once L2_JOB lock is free, on-disk cancel acquires L2_JOB, writes .cancel & appends event
+    # Once L2_JOB lock is free, on-disk cancel acquires L2_JOB, finalizes status & appends event
     cancel_resp_2 = client.post(
         f"/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id_2}/cancel",
         headers=auth_headers,
     )
     assert cancel_resp_2.status_code == 200
+    assert cancel_resp_2.json()["status"] == "cancelled"
     assert (jobs_dir / f".{job_id_2}.cancel").is_file()
     assert (jobs_dir / f"{job_id_2}.events.jsonl").is_file()
+
+    # Post-committing stage with commit_started=True still rejects cross-process cancel with 409
+    job_id_3 = "job-post-commit-03"
+    job_data_3 = {
+        **job_data_2,
+        "job_id": job_id_3,
+        "stage": "finalizing",
+        "commit_started": True,
+    }
+    (jobs_dir / f"{job_id_3}.json").write_text(json.dumps(job_data_3), encoding="utf-8")
+    with hold_worker_lock(jobs_dir / f".job_{job_id_3}.lock", session_id):
+        cancel_resp_3 = client.post(
+            f"/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id_3}/cancel",
+            headers=auth_headers,
+        )
+        assert cancel_resp_3.status_code == 409
+        assert cancel_resp_3.json()["error_code"] == "JOB_COMMIT_IN_PROGRESS"
+        assert not (jobs_dir / f".{job_id_3}.cancel").exists()
 
 
 def test_agent_launch_nonce_and_direct_delta_forbidden(

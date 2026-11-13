@@ -430,6 +430,7 @@ export interface StudioStoreState {
 			mode?: "auto" | "agent" | "deterministic";
 			auto_commit?: boolean;
 			rationale?: string;
+			force?: boolean;
 		},
 		fetchImpl?: typeof fetch,
 	) => Promise<string | null>;
@@ -1956,6 +1957,27 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			activePollTimers.clear();
 		};
 
+		const handleAutoCommittedCompletion = async (
+			sid: string,
+			fetchImpl: typeof fetch,
+		): Promise<void> => {
+			if (get().hasUnsavedChanges) {
+				await get().loadSessions(fetchImpl);
+				if (get().activeSession?.session_id === sid) {
+					get().addToast({
+						type: "urn:opendv:warning:server-head-advanced",
+						title: "New Version Committed on Server",
+						status: 409,
+						detail:
+							"Auto-commit construction committed a new ontology version on the server while unsaved canvas edits exist. Your local draft was preserved — review, rebase, or discard local changes to load the latest head.",
+						code: "SERVER_HEAD_ADVANCED",
+					});
+				}
+				return;
+			}
+			await get().selectSession(sid, fetchImpl, true);
+		};
+
 		const handleJobPayloadUpdate = async (
 			sid: string,
 			jobId: string,
@@ -2169,7 +2191,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					) {
 						set({ isConstructing: false });
 						if (opts?.autoCommit || Boolean(resultObj.auto_committed)) {
-							await get().selectSession(sid, fetchImpl, true);
+							await handleAutoCommittedCompletion(sid, fetchImpl);
 						} else {
 							await get().loadProposals(fetchImpl, sid);
 						}
@@ -2772,7 +2794,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 								user_role?: string;
 								principal?: string;
 						  };
-					const sessionList = Array.isArray(data) ? data : data.sessions || [];
+					const sessionList = Array.isArray(data)
+						? data
+						: Array.isArray(data.sessions)
+							? data.sessions
+							: get().sessions;
 					const hydratedRole = !Array.isArray(data)
 						? normalizeStudioRole(data.user_role ?? data.role, data.principal)
 						: undefined;
@@ -4051,6 +4077,21 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				if (!activeSession) return null;
 				const sid = activeSession.session_id;
 				const isAutoCommit = Boolean(constructOptions.auto_commit);
+				if (
+					isAutoCommit &&
+					get().hasUnsavedChanges &&
+					!constructOptions.force
+				) {
+					get().addToast({
+						type: "urn:opendv:warning:unsaved-changes",
+						title: "Unsaved Canvas Edits",
+						status: 409,
+						detail:
+							"Cannot start auto-commit construction while unsaved canvas edits exist. Please commit or discard your local canvas changes before running auto-commit construction.",
+						code: "UNSAVED_CHANGES",
+					});
+					return null;
+				}
 				const headers: Record<string, string> = {
 					"Content-Type": "application/json",
 				};
@@ -4130,13 +4171,22 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						progress_pct: initialPct,
 						level: "info",
 					});
+					const jobRecord = job as Record<string, unknown>;
+					const jobResult =
+						jobRecord.result && typeof jobRecord.result === "object"
+							? (jobRecord.result as Record<string, unknown>)
+							: undefined;
+					const didAutoCommit =
+						isAutoCommit ||
+						Boolean(jobRecord.auto_committed) ||
+						Boolean(jobResult?.auto_committed);
 					const isDone =
 						String(job.status || "").toUpperCase() === "COMPLETED" ||
 						String(job.status || "").toUpperCase() === "SUCCEEDED";
 					if (isDone) {
 						set({ isConstructing: false });
-						if (isAutoCommit) {
-							await get().selectSession(sid, fetchImpl, true);
+						if (didAutoCommit) {
+							await handleAutoCommittedCompletion(sid, fetchImpl);
 						} else {
 							await get().loadProposals(fetchImpl, sid);
 						}
@@ -4740,13 +4790,22 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							return edge;
 						}
 						matched = true;
-						const nextSrc =
-							updates.source_concept_uri ?? edge.source_concept_uri;
-						const nextTgt =
-							updates.target_concept_uri ?? edge.target_concept_uri;
-						const nextEndpoints =
-							updates.endpoints && updates.endpoints.length >= 2
+						const explicitEndpoints =
+							Array.isArray(updates.endpoints) && updates.endpoints.length >= 2
 								? updates.endpoints
+								: undefined;
+						const nextSrc =
+							updates.source_concept_uri ??
+							explicitEndpoints?.[0] ??
+							edge.source_concept_uri;
+						const nextTgt =
+							updates.target_concept_uri ??
+							explicitEndpoints?.[1] ??
+							edge.target_concept_uri;
+						const nextEndpoints = explicitEndpoints
+							? [...explicitEndpoints]
+							: edge.endpoints && edge.endpoints.length >= 2
+								? [nextSrc, nextTgt, ...edge.endpoints.slice(2)]
 								: [nextSrc, nextTgt];
 						return {
 							...edge,
@@ -5037,26 +5096,45 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					return;
 				}
 
-				const baseNodes = baseGraph
-					? baseGraph.nodes
-					: baseVersion === "0.0.0"
-						? []
-						: get().committedNodes;
-				const baseEdges = baseGraph
-					? baseGraph.edges
-					: baseVersion === "0.0.0"
-						? []
-						: get().committedEdges;
-				const currentNodes = targetGraph
-					? targetGraph.nodes
-					: targetVersion === "0.0.0"
-						? []
-						: get().nodes;
-				const currentEdges = targetGraph
-					? targetGraph.edges
-					: targetVersion === "0.0.0"
-						? []
-						: get().edges;
+				const resolveDiffFallbackSnapshot = (
+					ver: string,
+					role: "base" | "target",
+				): { nodes: ConceptNode[]; edges: RelationshipEdge[] } => {
+					if (ver === "0.0.0") {
+						return { nodes: [], edges: [] };
+					}
+					const state = get();
+					const headVersion = state.activeSession?.active_version;
+					if (state.isHistoricalView) {
+						if (
+							state.viewedVersion &&
+							ver === state.viewedVersion &&
+							ver !== headVersion
+						) {
+							return { nodes: state.nodes, edges: state.edges };
+						}
+						return {
+							nodes: state.committedNodes,
+							edges: state.committedEdges,
+						};
+					}
+					if (role === "base") {
+						return {
+							nodes: state.committedNodes,
+							edges: state.committedEdges,
+						};
+					}
+					return { nodes: state.nodes, edges: state.edges };
+				};
+
+				const fallbackBase =
+					baseGraph ?? resolveDiffFallbackSnapshot(baseVersion, "base");
+				const fallbackTarget =
+					targetGraph ?? resolveDiffFallbackSnapshot(targetVersion, "target");
+				const baseNodes = fallbackBase.nodes;
+				const baseEdges = fallbackBase.edges;
+				const currentNodes = fallbackTarget.nodes;
+				const currentEdges = fallbackTarget.edges;
 				const records: DiffRecord[] = [];
 
 				const baseNodeMap = new Map(baseNodes.map((n) => [n.concept_uri, n]));
@@ -5225,7 +5303,19 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							is_breaking: false,
 						});
 					} else {
-						const baseEdge = baseEdgeMap.get(uri)!;
+						const baseEdge = baseEdgeMap.get(uri);
+						if (!baseEdge) continue;
+						const baseEps =
+							baseEdge.endpoints && baseEdge.endpoints.length >= 2
+								? baseEdge.endpoints
+								: [baseEdge.source_concept_uri, baseEdge.target_concept_uri];
+						const targetEps =
+							edge.endpoints && edge.endpoints.length >= 2
+								? edge.endpoints
+								: [edge.source_concept_uri, edge.target_concept_uri];
+						const epsChanged =
+							baseEps.length !== targetEps.length ||
+							baseEps.some((ep, idx) => ep !== targetEps[idx]);
 						const linkChanged = edge.target_link !== baseEdge.target_link;
 						const cardChanged =
 							(edge.cardinality ?? null) !== (baseEdge.cardinality ?? null);
@@ -5233,14 +5323,53 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							edge.source_concept_uri !== baseEdge.source_concept_uri;
 						const tgtChanged =
 							edge.target_concept_uri !== baseEdge.target_concept_uri;
-						if (linkChanged || cardChanged || srcChanged || tgtChanged) {
+						const relNameChanged =
+							(edge.relationship_name ?? "") !==
+							(baseEdge.relationship_name ?? "");
+						const grainChanged =
+							(edge.grain_semantics ?? "") !== (baseEdge.grain_semantics ?? "");
+						const relDescChanged =
+							(edge.description ?? "") !== (baseEdge.description ?? "");
+						if (
+							linkChanged ||
+							cardChanged ||
+							srcChanged ||
+							tgtChanged ||
+							epsChanged ||
+							relNameChanged ||
+							grainChanged ||
+							relDescChanged
+						) {
+							const relDetails: string[] = [];
+							if (relNameChanged) {
+								relDetails.push(
+									`name: '${baseEdge.relationship_name}' -> '${edge.relationship_name}'`,
+								);
+							}
+							if (linkChanged) {
+								relDetails.push(
+									`target_link: ${baseEdge.target_link} -> ${edge.target_link}`,
+								);
+							}
+							if (cardChanged) {
+								relDetails.push(
+									`cardinality: ${baseEdge.cardinality} -> ${edge.cardinality}`,
+								);
+							}
+							if (grainChanged) relDetails.push("grain_semantics updated");
+							if (relDescChanged) relDetails.push("description updated");
+							if (srcChanged || tgtChanged || epsChanged) {
+								relDetails.push(
+									`endpoints: [${baseEps.join(", ")}] -> [${targetEps.join(", ")}]`,
+								);
+							}
 							records.push({
 								item_type: "relationship",
 								change_type: "modified",
 								identifier: uri,
 								label: edge.relationship_name,
-								details: `Modified relationship properties (${linkChanged ? `target_link: ${baseEdge.target_link} -> ${edge.target_link}; ` : ""}${cardChanged ? `cardinality: ${baseEdge.cardinality} -> ${edge.cardinality}; ` : ""}${srcChanged || tgtChanged ? `endpoints: ${baseEdge.source_concept_uri}->${baseEdge.target_concept_uri} changed to ${edge.source_concept_uri}->${edge.target_concept_uri}` : ""})`,
-								is_breaking: srcChanged || tgtChanged,
+								details: `Modified relationship properties (${relDetails.join("; ")})`,
+								is_breaking: srcChanged || tgtChanged || epsChanged,
 							});
 						}
 					}
@@ -5318,7 +5447,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					if (ver === "0.0.0") {
 						return { nodes: [], edges: [] };
 					}
-					if (ver === activeSession.active_version) {
+					if (!get().isHistoricalView && ver === activeSession.active_version) {
 						if (role === "target") {
 							return { nodes: get().nodes, edges: get().edges };
 						}
@@ -5327,12 +5456,36 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							edges: get().committedEdges,
 						};
 					}
+					const isHeadInHistoricalMode =
+						get().isHistoricalView && ver === activeSession.active_version;
+					const isViewedInHistoricalMode =
+						get().isHistoricalView &&
+						Boolean(get().viewedVersion) &&
+						ver === get().viewedVersion &&
+						ver !== activeSession.active_version;
+					const resolveOfflineHistoricalFallback = (): {
+						nodes: ConceptNode[];
+						edges: RelationshipEdge[];
+					} | null => {
+						if (isHeadInHistoricalMode) {
+							return {
+								nodes: get().committedNodes,
+								edges: get().committedEdges,
+							};
+						}
+						if (isViewedInHistoricalMode) {
+							return { nodes: get().nodes, edges: get().edges };
+						}
+						return null;
+					};
 					try {
 						const res = await studioFetch(
 							fetchImpl,
 							`/api/v1/ontology/studio/sessions/${encodeURIComponent(sid)}/export?export_format=json&version=${encodeURIComponent(ver)}`,
 						);
 						if (!res.ok) {
+							const fallback = resolveOfflineHistoricalFallback();
+							if (fallback) return fallback;
 							const err = (await res.json().catch(() => ({}))) as {
 								detail?: string;
 								code?: string;
@@ -5349,12 +5502,25 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							return null;
 						}
 						const ont = (await res.json()) as Record<string, unknown>;
+						const hasOntologyPayload =
+							ont !== null &&
+							typeof ont === "object" &&
+							!Array.isArray(ont) &&
+							(Array.isArray(ont.canonical_business_concepts) ||
+								Array.isArray(ont.concepts) ||
+								Array.isArray(ont.canonical_concepts));
+						if (!hasOntologyPayload) {
+							const fallback = resolveOfflineHistoricalFallback();
+							if (fallback) return fallback;
+						}
 						const parsed = parseLoadedGraphPayload(ont);
 						return {
 							nodes: parsed.loadedNodes,
 							edges: parsed.loadedEdges,
 						};
 					} catch (err) {
+						const fallback = resolveOfflineHistoricalFallback();
+						if (fallback) return fallback;
 						get().addToast({
 							type: "urn:opendv:error:network",
 							title: "Diff Load Network Error",
@@ -5742,13 +5908,22 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					}
 				}
 
+				const normalizedEndpoints = (e: RelationshipEdge): string[] =>
+					e.endpoints && e.endpoints.length >= 2
+						? e.endpoints
+						: [e.source_concept_uri, e.target_concept_uri];
+				const endpointsEqual = (a: string[], b: string[]): boolean =>
+					a.length === b.length && a.every((ep, idx) => ep === b[idx]);
+
+				const modifiedEdgeUris = new Set<string>();
+				const modifiedCommittedEdges: RelationshipEdge[] = [];
 				for (const committedEdge of committedEdges) {
 					const currentEdge = currentEdgeMap.get(
 						committedEdge.relationship_uri,
 					);
 					if (!currentEdge) continue;
 
-					if (
+					const isEdgeMutated =
 						committedEdge.target_link !== currentEdge.target_link ||
 						(committedEdge.cardinality ?? null) !==
 							(currentEdge.cardinality ?? null) ||
@@ -5756,18 +5931,31 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							currentEdge.source_concept_uri ||
 						committedEdge.target_concept_uri !==
 							currentEdge.target_concept_uri ||
-						(committedEdge.description ?? null) !==
-							(currentEdge.description ?? null)
-					) {
-						get().addToast({
-							type: "urn:opendv:error:non-additive-change",
-							title: "Relationship Mutation Blocked",
-							status: 400,
-							detail:
-								"Modifying properties or endpoints of existing relationships cannot be expressed via delta operations.",
-							code: "ONT_EVO_NON_ADDITIVE_CHANGE",
-						});
-						return false;
+						(committedEdge.description ?? "") !==
+							(currentEdge.description ?? "") ||
+						(currentEdge.relationship_name ?? "") !==
+							(committedEdge.relationship_name ?? "") ||
+						(currentEdge.grain_semantics ?? "") !==
+							(committedEdge.grain_semantics ?? "") ||
+						!endpointsEqual(
+							normalizedEndpoints(currentEdge),
+							normalizedEndpoints(committedEdge),
+						);
+
+					if (isEdgeMutated) {
+						if (!allowDestructive) {
+							get().addToast({
+								type: "urn:opendv:error:non-additive-change",
+								title: "Relationship Mutation Blocked",
+								status: 400,
+								detail:
+									"Modifying properties or endpoints of existing relationships violates ONT-EVO-001 additive evolution without admin authorization.",
+								code: "ONT_EVO_NON_ADDITIVE_CHANGE",
+							});
+							return false;
+						}
+						modifiedEdgeUris.add(committedEdge.relationship_uri);
+						modifiedCommittedEdges.push(committedEdge);
 					}
 				}
 
@@ -5904,7 +6092,10 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				};
 
 				// Emit remove_relationship before remove_concept so no dangling links remain during sequential apply
-				for (const removedEdge of removedEdges) {
+				for (const removedEdge of [
+					...removedEdges,
+					...modifiedCommittedEdges,
+				]) {
 					hasMajorOp = true;
 					operations.push({
 						op_id: nextOpId(),
@@ -6160,22 +6351,19 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					}
 				}
 
-				// Added relationships
+				// Added & structurally modified relationships
 				for (const edge of currentEdges) {
 					const committed = committedEdgeMap.get(edge.relationship_uri);
-					if (!committed) {
+					if (!committed || modifiedEdgeUris.has(edge.relationship_uri)) {
 						hasMinorOp = true;
-						const endpoints =
-							edge.endpoints && edge.endpoints.length >= 2
-								? edge.endpoints
-								: [edge.source_concept_uri, edge.target_concept_uri];
+						const endpoints = normalizedEndpoints(edge);
 						operations.push({
 							op_id: nextOpId(),
 							op_type: "add_relationship",
 							relationship_uri: edge.relationship_uri,
 							relationship_name: edge.relationship_name,
 							target_link: edge.target_link || "lnk_default",
-							endpoints,
+							endpoints: [...endpoints],
 							...(edge.grain_semantics
 								? { grain_semantics: edge.grain_semantics }
 								: {}),
@@ -6307,14 +6495,32 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						data.head_sha256 ||
 						get().activeSession?.head_sha256;
 
-					const cloneNodeClean = (n: ConceptNode): ConceptNode => ({
-						...n,
-						attributes: (n.attributes || []).map((a) => ({ ...a })),
-						synonyms: [...(n.synonyms || [])],
-						external_mappings: (n.external_mappings || []).map((m) => ({
-							...m,
-						})),
-					});
+					const cloneNodeUnverifiedFallback = (n: ConceptNode): ConceptNode => {
+						const sanitizedMappings: ExternalMapping[] = (
+							n.external_mappings || []
+						).map((m) => {
+							const isUserAsserted =
+								(m.provenance || "").trim().toLowerCase() === "user_asserted";
+							if (isUserAsserted) {
+								const {
+									confidence: _strippedConf,
+									mapping_confidence: _strippedMapConf,
+									...rest
+								} = m;
+								return { ...rest };
+							}
+							return { ...m };
+						});
+						const derived = deriveGroundingStatus(sanitizedMappings);
+						return {
+							...n,
+							confidence: derived.confidence,
+							grounding_status: derived.grounding_status,
+							attributes: (n.attributes || []).map((a) => ({ ...a })),
+							synonyms: [...(n.synonyms || [])],
+							external_mappings: sanitizedMappings,
+						};
+					};
 					const cloneEdgeClean = (e: RelationshipEdge): RelationshipEdge => ({
 						...e,
 						...(e.endpoints ? { endpoints: [...e.endpoints] } : {}),
@@ -6329,7 +6535,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							state.nodes.some((n, i) => n !== sentNodes[i]) ||
 							state.edges.some((e, i) => e !== sentEdges[i]);
 
-						let ratifiedNodes = sentNodes.map(cloneNodeClean);
+						let ratifiedNodes = sentNodes.map(cloneNodeUnverifiedFallback);
 						let ratifiedEdges = sentEdges.map(cloneEdgeClean);
 						const hasInlineOntology = Boolean(
 							data.ontology && typeof data.ontology === "object",
@@ -6395,11 +6601,23 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						get().activeSession?.session_id === sid &&
 						!get().hasUnsavedChanges
 					) {
-						const toastsBeforeReload = get().toasts;
+						const fallbackCommittedRef = get().committedNodes;
+						const toastIdsBeforeReload = new Set(get().toasts.map((t) => t.id));
 						await get().loadGraph(nextVersion, fetchImpl, sid);
-						if (get().toasts !== toastsBeforeReload) {
-							// Minimal unit-test mock without GET /export: preserve clean cloned fallback without spurious error toast
-							set({ toasts: toastsBeforeReload });
+						const hydrated = get().committedNodes !== fallbackCommittedRef;
+						if (!hydrated && get().activeSession?.session_id === sid) {
+							const hasReloadFailureToast = get().toasts.some(
+								(t) => !toastIdsBeforeReload.has(t.id) && t.status >= 400,
+							);
+							if (!hasReloadFailureToast) {
+								get().addToast({
+									type: "urn:opendv:warning:post-commit-reload-failed",
+									title: "Post-Commit Snapshot Reload Failed",
+									status: 409,
+									detail: `Delta committed as v${nextVersion}, but reloading the server-verified ontology snapshot failed.`,
+									code: "GRAPH_LOAD_FAILED",
+								});
+							}
 						}
 					}
 

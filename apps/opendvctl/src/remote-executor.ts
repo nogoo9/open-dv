@@ -45,16 +45,59 @@ const ADMIN_ROLE_NAMES = new Set([
 	"RESTRICTED_PII_CUSTODIAN",
 ]);
 
-const DESTRUCTIVE_OP_TYPES = new Set([
+export const DESTRUCTIVE_OP_TYPES = new Set([
 	"remove_concept",
-	"remove_attribute",
 	"remove_relationship",
+	"remove_attribute",
+	"update_concept_urn",
 	"change_relationship_cardinality",
 	"reparent_concept",
 	"retype_attribute",
 	"split_concept",
 	"merge_concepts",
 ]);
+
+export function isDestructiveDeltaOperation(
+	op: Record<string, unknown>,
+	newlyAddedConceptUris?: ReadonlySet<string>,
+	baseConceptsByUri?: ReadonlyMap<string, Record<string, unknown>>,
+): boolean {
+	const opType = normalizeOpType(op.op_type ?? op.op);
+	if (DESTRUCTIVE_OP_TYPES.has(opType)) {
+		return true;
+	}
+	if (opType === "add_attribute" && op.is_optional === false) {
+		const conceptUri = String(op.concept_uri ?? "").trim();
+		if (!conceptUri || !newlyAddedConceptUris?.has(conceptUri)) {
+			return true;
+		}
+	}
+	if (opType === "set_parent_concept") {
+		const conceptUri = String(op.concept_uri ?? "").trim();
+		const existing = conceptUri ? baseConceptsByUri?.get(conceptUri) : undefined;
+		if (op.parent_concept_uri === null) {
+			if (!baseConceptsByUri || existing?.parent_concept_uri != null) {
+				return true;
+			}
+		} else if (
+			existing?.parent_concept_uri != null &&
+			existing.parent_concept_uri !== op.parent_concept_uri
+		) {
+			return true;
+		}
+	}
+	if (opType === "set_concept_elm_archetype") {
+		const conceptUri = String(op.concept_uri ?? "").trim();
+		const existing = conceptUri ? baseConceptsByUri?.get(conceptUri) : undefined;
+		if (
+			existing?.elm_archetype != null &&
+			existing.elm_archetype !== op.elm_archetype
+		) {
+			return true;
+		}
+	}
+	return false;
+}
 
 function normalizeOpType(rawType: unknown): string {
 	const str = String(rawType ?? "").trim();
@@ -106,42 +149,6 @@ function normalizeDeltaOperations(
 		}
 		return opDict;
 	});
-}
-
-function deriveNextSemverClient(
-	baseVersion: string,
-	ops: Array<Record<string, unknown>>,
-): string {
-	const cleanBase = baseVersion.replace(/^v/i, "").trim() || "0.0.0";
-	if (cleanBase === "0.0.0") {
-		const hasConcept = ops.some((op) => op.op_type === "add_concept");
-		return hasConcept ? "1.0.0" : "0.1.0";
-	}
-	const parts = cleanBase.split(".").map((p) => Number.parseInt(p, 10));
-	const maj = Number.isFinite(parts[0]) ? (parts[0] as number) : 0;
-	const min = Number.isFinite(parts[1]) ? (parts[1] as number) : 1;
-	const pat = Number.isFinite(parts[2]) ? (parts[2] as number) : 0;
-
-	const isMajor = ops.some((op) =>
-		DESTRUCTIVE_OP_TYPES.has(String(op.op_type ?? "")),
-	);
-	if (isMajor) {
-		return maj === 0 ? `0.${min + 1}.0` : `${maj + 1}.0.0`;
-	}
-	const isMinor = ops.some((op) => {
-		const t = String(op.op_type ?? "");
-		return (
-			t === "add_concept" ||
-			t === "add_attribute" ||
-			t === "add_relationship" ||
-			t === "add_enum" ||
-			t === "add_enum_member"
-		);
-	});
-	if (isMinor) {
-		return `${maj}.${min + 1}.0`;
-	}
-	return `${maj}.${min}.${pat + 1}`;
 }
 
 function computeCanonicalAnswersSha256(items: unknown[]): string {
@@ -1890,8 +1897,22 @@ export class RemoteExecutor {
 						? String(options.base_version)
 						: typeof rawDeltaObj.base_version === "string" &&
 								rawDeltaObj.base_version.trim() !== ""
-							? rawDeltaObj.base_version
-							: undefined;
+							? rawDeltaObj.base_version.trim()
+							: typeof rawDeltaObj.base_ontology_version === "string" &&
+									rawDeltaObj.base_ontology_version.trim() !== ""
+								? rawDeltaObj.base_ontology_version.trim()
+								: undefined;
+					const explicitTargetVer =
+						typeof options.target_version === "string" &&
+						options.target_version.trim() !== ""
+							? options.target_version.trim()
+							: typeof rawDeltaObj.target_version === "string" &&
+									rawDeltaObj.target_version.trim() !== ""
+								? rawDeltaObj.target_version.trim()
+								: typeof rawDeltaObj.target_ontology_version === "string" &&
+										rawDeltaObj.target_ontology_version.trim() !== ""
+									? rawDeltaObj.target_ontology_version.trim()
+									: undefined;
 					const deltaProvidedSha =
 						typeof rawDeltaObj.parent_sha256 === "string" &&
 						rawDeltaObj.parent_sha256.trim() !== ""
@@ -1923,19 +1944,23 @@ export class RemoteExecutor {
 						}
 					}
 
+					const {
+						base_ontology_version: _ignoredBaseOntVer,
+						target_ontology_version: _ignoredTargetOntVer,
+						target_version: _ignoredTargetVer,
+						...restDeltaObj
+					} = rawDeltaObj;
 					const body: Record<string, unknown> = {
-						...rawDeltaObj,
+						...restDeltaObj,
 						delta_id:
 							typeof rawDeltaObj.delta_id === "string" && rawDeltaObj.delta_id
 								? rawDeltaObj.delta_id
 								: `delta-${randomUUID().replace(/-/g, "").slice(0, 12)}`,
 						base_version: resolvedBaseVer,
 						parent_sha256: resolvedParentSha,
-						target_version:
-							typeof rawDeltaObj.target_version === "string" &&
-							rawDeltaObj.target_version
-								? rawDeltaObj.target_version
-								: deriveNextSemverClient(resolvedBaseVer, normalizedOps),
+						...(explicitTargetVer !== undefined
+							? { target_version: explicitTargetVer }
+							: {}),
 						operations: normalizedOps,
 					};
 					if (options.verify_grounding) {
@@ -2082,8 +2107,22 @@ export class RemoteExecutor {
 					? String(options.base_version)
 					: typeof rawDeltaObj.base_version === "string" &&
 							rawDeltaObj.base_version.trim() !== ""
-						? rawDeltaObj.base_version
-						: undefined;
+						? rawDeltaObj.base_version.trim()
+						: typeof rawDeltaObj.base_ontology_version === "string" &&
+								rawDeltaObj.base_ontology_version.trim() !== ""
+							? rawDeltaObj.base_ontology_version.trim()
+							: undefined;
+				const explicitTargetVer =
+					typeof options.target_version === "string" &&
+					options.target_version.trim() !== ""
+						? options.target_version.trim()
+						: typeof rawDeltaObj.target_version === "string" &&
+								rawDeltaObj.target_version.trim() !== ""
+							? rawDeltaObj.target_version.trim()
+							: typeof rawDeltaObj.target_ontology_version === "string" &&
+									rawDeltaObj.target_ontology_version.trim() !== ""
+								? rawDeltaObj.target_ontology_version.trim()
+								: undefined;
 				const explicitBaseSha =
 					options.base_sha256 !== undefined
 						? String(options.base_sha256).trim().replace(/^"|"$/g, "")
@@ -2151,19 +2190,23 @@ export class RemoteExecutor {
 				const parentSha = resolvedHeadSha;
 				const ifMatchSha = resolvedHeadSha;
 
+				const {
+					base_ontology_version: _ignoredApplyBaseOntVer,
+					target_ontology_version: _ignoredApplyTargetOntVer,
+					target_version: _ignoredApplyTargetVer,
+					...restApplyDeltaObj
+				} = rawDeltaObj;
 				const body: Record<string, unknown> = {
-					...rawDeltaObj,
+					...restApplyDeltaObj,
 					delta_id:
 						typeof rawDeltaObj.delta_id === "string" && rawDeltaObj.delta_id
 							? rawDeltaObj.delta_id
 							: `delta-${randomUUID().replace(/-/g, "").slice(0, 12)}`,
 					base_version: resolvedBaseVer,
 					parent_sha256: parentSha,
-					target_version:
-						typeof rawDeltaObj.target_version === "string" &&
-						rawDeltaObj.target_version
-							? rawDeltaObj.target_version
-							: deriveNextSemverClient(resolvedBaseVer, normalizedOps),
+					...(explicitTargetVer !== undefined
+						? { target_version: explicitTargetVer }
+						: {}),
 					operations: normalizedOps,
 				};
 				if (options.rationale) {

@@ -352,7 +352,7 @@ def apply(
     validate_structural: bool = True,
     allow_bootstrap: bool = False,
     allow_legacy_ip1_bootstrap: bool = False,
-    _legacy_v1_projection: bool | None = None,
+    _legacy_v1_projection: bool = False,
 ) -> GraphAOntology:
     """Pure state transition engine: NEVER mutates `base` in-place.
 
@@ -368,11 +368,7 @@ def apply(
     Returns:
         New validated GraphAOntology instance.
     """
-    legacy_v1 = (
-        _legacy_v1_projection
-        if _legacy_v1_projection is not None
-        else (delta.metadata or {}).get("benchmark") == "PAR-ONT-HOLD"
-    )
+    legacy_v1 = bool(_legacy_v1_projection)
 
     # 1. Compute lineage hash over base
     base_sha256 = compute_ontology_sha256(base)

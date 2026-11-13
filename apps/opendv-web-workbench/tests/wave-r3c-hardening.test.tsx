@@ -769,6 +769,21 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 			let capturedGenesisBody: Record<string, unknown> | null = null;
 			let capturedGenesisHeaders: Record<string, string> = {};
 			const mockGenesisFetch: typeof fetch = (async (url, init) => {
+				if (String(url).includes("/export")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict(
+								genesisStore.getState().nodes,
+								genesisStore.getState().edges,
+								{
+									...(genesisStore.getState().activeSession ?? makeSession()),
+									active_version: "1.0.0",
+								},
+							),
+						),
+						{ status: 200 },
+					);
+				}
 				if (!String(url).endsWith("/delta")) {
 					return new Response("{}", { status: 404 });
 				}
@@ -821,6 +836,21 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 
 			let capturedRelOnlyBody: Record<string, unknown> | null = null;
 			const mockRelOnlyFetch: typeof fetch = (async (url, init) => {
+				if (String(url).includes("/export")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict(
+								relOnlyStore.getState().nodes,
+								relOnlyStore.getState().edges,
+								{
+									...(relOnlyStore.getState().activeSession ?? makeSession()),
+									active_version: "0.1.0",
+								},
+							),
+						),
+						{ status: 200 },
+					);
+				}
 				if (!String(url).endsWith("/delta")) {
 					return new Response("{}", { status: 404 });
 				}
@@ -949,6 +979,17 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 				operations: Array<Record<string, unknown>>;
 			} | null = null;
 			const mockAdminCommit: typeof fetch = (async (url, init) => {
+				if (String(url).includes("/export")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict([parentNode, editedFund], [], {
+								...(store.getState().activeSession ?? makeSession()),
+								active_version: "2.0.0",
+							}),
+						),
+						{ status: 200 },
+					);
+				}
 				if (!String(url).endsWith("/delta")) {
 					return new Response("{}", { status: 404 });
 				}

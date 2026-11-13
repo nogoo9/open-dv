@@ -397,6 +397,32 @@ class TestDelimitedTabularAdapter:
         ):
             adapter.parse_bytes(b'col1,col2\n"unclosed,val2\n', filename="bad_quote.csv")
 
+    def test_wide_csv_bounded_preview_and_max_columns_guard(self) -> None:
+        """Regression P04b::MAJ-02: Wide 5,000-column CSV runs in < 1.0s with bounded cells."""
+        num_cols = 5_000
+        header_line = ",".join(f"col_{i}" for i in range(num_cols))
+        row_line = ",".join(str(i % 10) for i in range(num_cols))
+        wide_csv = ("\n".join([header_line, *[row_line for _ in range(25)]]) + "\n").encode("utf-8")
+
+        adapter = DelimitedTabularAdapter()
+        t0 = time.perf_counter()
+        result = adapter.parse_bytes(wide_csv, filename="wide_5k.csv")
+        elapsed = time.perf_counter() - t0
+
+        assert elapsed < 1.0, f"Wide CSV parsing exceeded 1.0s budget: {elapsed:.3f}s"
+        assert result.metadata["column_count"] == num_cols
+        assert result.metadata["row_count"] == 25
+        assert result.metadata["headers_truncated"] is True
+        tbl = result.tables[0]
+        assert len(tbl.headers) == 256
+        assert len(tbl.headers) * len(tbl.rows) <= 100_000
+
+        # > 10,000 columns rejected with ArchiveSecurityViolationError
+        over_cap_header = (",".join(f"c{i}" for i in range(10_001)) + "\n").encode("utf-8")
+        with pytest.raises(ArchiveSecurityViolationError) as exc_info:
+            adapter.parse_bytes(over_cap_header, filename="over_10k.csv")
+        assert exc_info.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+
 
 # =============================================================================
 # 3. PyArrowTabularAdapter Tests (Parquet)
@@ -543,6 +569,81 @@ class TestPyArrowTabularAdapter:
             pytest.raises(InvalidDocumentError, match="recursion limits"),
         ):
             adapter.parse_bytes(sample_parquet_bytes, filename="deep_parquet.parquet")
+
+    def test_parquet_forged_footer_column_projection_and_memory_guard(self) -> None:
+        """Regression P04b::MAJ-01: Reject forged Thrift footer, project <=64 cols, cap memory."""
+        import struct
+
+        def _zigzag_varint(n: int) -> bytes:
+            zz = (n << 1) ^ (n >> 63)
+            out = bytearray()
+            while zz >= 0x80:
+                out.append((zz & 0x7F) | 0x80)
+                zz >>= 7
+            out.append(zz)
+            return bytes(out)
+
+        # 1) Craft real 2-column Parquet and binary-patch RowGroup.total_byte_size to 16 bytes
+        # while column-chunk total_uncompressed_size remains > 6,000 bytes (and oversized > limit)
+        base_tbl = pa.Table.from_pydict(
+            {
+                "col_a": ["A" * 1024 for _ in range(100)],
+                "col_b": ["B" * 1024 for _ in range(100)],
+            }
+        )
+        raw_buf = io.BytesIO()
+        pq.write_table(base_tbl, raw_buf, compression="gzip")
+        raw_pq = raw_buf.getvalue()
+
+        orig_pf = pq.ParquetFile(io.BytesIO(raw_pq))
+        orig_rg = orig_pf.metadata.row_group(0)
+        orig_rg_total = orig_rg.total_byte_size
+        orig_col0_uncomp = orig_rg.column(0).total_uncompressed_size
+
+        footer_len = struct.unpack("<I", raw_pq[-8:-4])[0]
+        footer = raw_pq[-8 - footer_len : -8]
+        rg_field_tag = b"\x16" + _zigzag_varint(orig_rg_total)
+        assert footer.count(rg_field_tag) == 1
+        forged_footer = footer.replace(rg_field_tag, b"\x16" + _zigzag_varint(16), 1)
+        # Also patch column 0 total_uncompressed_size to 900 MiB while total_byte_size=16
+        col0_tag = b"\x16" + _zigzag_varint(orig_col0_uncomp)
+        forged_oversized_footer = forged_footer.replace(
+            col0_tag, b"\x16" + _zigzag_varint(900_000_000), 1
+        )
+
+        for patched_ftr in (forged_footer, forged_oversized_footer):
+            forged_pq = (
+                raw_pq[: -8 - footer_len]
+                + patched_ftr
+                + struct.pack("<I", len(patched_ftr))
+                + b"PAR1"
+            )
+            with pytest.raises(ArchiveSecurityViolationError) as exc_forged:
+                PyArrowTabularAdapter().parse_bytes(forged_pq, filename="forged_footer.parquet")
+            assert exc_forged.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+
+        # 2) > 64 columns safely projects only 64 preview columns while reporting full schema
+        wide_pq_tbl = pa.Table.from_pydict({f"f_{i}": [i, i + 1] for i in range(120)})
+        wide_buf = io.BytesIO()
+        pq.write_table(wide_pq_tbl, wide_buf)
+        wide_res = PyArrowTabularAdapter(preview_rows=5).parse_bytes(
+            wide_buf.getvalue(), filename="wide_120.parquet"
+        )
+        assert wide_res.metadata["num_columns"] == 120
+        assert len(wide_res.metadata["column_names"]) == 120
+        assert len(wide_res.metadata["column_types"]) == 120
+        assert wide_res.metadata["preview_columns_truncated"] is True
+        assert len(wide_res.tables[0].headers) == 64
+        assert len(wide_res.tables[0].rows[0]) == 64
+
+        # 3) Preview batch exceeding max_preview_memory_bytes raises ArchiveSecurityViolationError
+        fake_batch = MagicMock()
+        fake_batch.nbytes = 128 * 1024 * 1024
+        with (
+            patch.object(pq.ParquetFile, "iter_batches", return_value=iter([fake_batch])),
+            pytest.raises(ArchiveSecurityViolationError, match="preview exceeded memory cap"),
+        ):
+            PyArrowTabularAdapter().parse_bytes(raw_pq, filename="mem_spike.parquet")
 
 
 # =============================================================================
@@ -700,6 +801,25 @@ class TestStructuredDataDocumentAdapter:
         quoted_brackets = json.dumps({"pattern": "[" * 5000}).encode("utf-8")
         res = adapter.parse_bytes(quoted_brackets, filename="quoted_safe.json")
         assert res.metadata["max_depth"] == 2
+
+    def test_wide_json_object_and_empty_rows_linear_time_and_bounded_cells(self) -> None:
+        """Regression P04b::MAJ-02: 50,000-key JSON + 499 empty dicts parses in < 1.0s."""
+        wide_obj = {f"k{i}": 0 for i in range(50_000)}
+        payload = {"data": [wide_obj, *[{} for _ in range(499)]]}
+        raw_bytes = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+
+        adapter = StructuredDataDocumentAdapter()
+        t0 = time.perf_counter()
+        result = adapter.parse_bytes(raw_bytes, filename="wide_50k.json")
+        elapsed = time.perf_counter() - t0
+
+        assert elapsed < 1.0, f"Wide JSON table synthesis quadratic regression: {elapsed:.3f}s"
+        assert result.metadata["field_count"] == 50_001
+        assert result.metadata["headers_truncated"] is True
+        assert len(result.tables) == 1
+        tbl = result.tables[0]
+        assert len(tbl.headers) == 256
+        assert len(tbl.headers) * len(tbl.rows) <= 100_000
 
 
 # =============================================================================
@@ -1236,6 +1356,7 @@ class TestLibreOfficeDocumentAdapter:
         assert len(captured_xcu) == 1
         assert "MacroSecurityLevel" in captured_xcu[0]
         assert "<value>3</value>" in captured_xcu[0]
+        assert "BlockUntrustedRefererLinks" in captured_xcu[0]
         assert "UpdateMode" in captured_xcu[0]
         assert "<value>1</value>" in captured_xcu[0]
 
@@ -1743,6 +1864,176 @@ class TestLibreOfficeDocumentAdapter:
                 ):
                     with pytest.raises(ArchiveSecurityViolationError):
                         _inspect_ole_cfb_security(self._minimal_ole_cfb_bytes(raw_stream), ext)
+
+    def test_odf_linked_graphic_elements_default_deny_while_passive_hyperlinks_pass(self) -> None:
+        """Regression P04a::MAJ-01: Default-deny external href/src on ODF style/graphic elements."""
+        adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
+
+        def _make_zip(entries: dict[str, bytes]) -> bytes:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for name, raw in entries.items():
+                    zf.writestr(name, raw)
+            return buf.getvalue()
+
+        odf_ns = (
+            'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+            'xmlns:style="urn:oasis:names:tc:opendocument:xmlns:style:1.0" '
+            'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
+            'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+            'xmlns:svg="urn:oasis:names:tc:opendocument:xmlns:svg-compatible:1.0" '
+            'xmlns:xlink="http://www.w3.org/1999/xlink"'
+        )
+
+        ssrf_odf_cases: list[tuple[str, dict[str, bytes]]] = [
+            (
+                "bg_image.odt",
+                {
+                    "styles.xml": (
+                        f"<office:document-styles {odf_ns}>"
+                        "<office:styles><style:style style:name='P1'>"
+                        "<style:paragraph-properties>"
+                        '<style:background-image xlink:href="http://169.254.169.254/latest/meta-data/"/>'
+                        "</style:paragraph-properties></style:style></office:styles>"
+                        "</office:document-styles>"
+                    ).encode()
+                },
+            ),
+            (
+                "fill_image.ods",
+                {
+                    "styles.xml": (
+                        f"<office:document-styles {odf_ns}>"
+                        "<office:styles>"
+                        '<draw:fill-image draw:name="bg" xlink:href="http://internal.corp/bg.png"/>'
+                        "</office:styles></office:document-styles>"
+                    ).encode()
+                },
+            ),
+            (
+                "list_bullet.odt",
+                {
+                    "content.xml": (
+                        f"<office:document-content {odf_ns}>"
+                        "<office:automatic-styles><text:list-style style:name='L1'>"
+                        '<text:list-level-style-image text:level="1" '
+                        'xlink:href="http://evil.example/bullet.png"/>'
+                        "</text:list-style></office:automatic-styles>"
+                        "</office:document-content>"
+                    ).encode()
+                },
+            ),
+            (
+                "font_face.odt",
+                {
+                    "styles.xml": (
+                        f"<office:document-styles {odf_ns}>"
+                        "<office:font-face-decls><style:font-face style:name='F1'>"
+                        "<svg:font-face-src>"
+                        '<svg:font-face-uri xlink:href="http://evil.example/font.woff2"/>'
+                        "</svg:font-face-src></style:font-face></office:font-face-decls>"
+                        "</office:document-styles>"
+                    ).encode()
+                },
+            ),
+            (
+                "anchor_onload.odt",
+                {
+                    "content.xml": (
+                        f"<office:document-content {odf_ns}>"
+                        "<office:body><office:text><text:p>"
+                        '<text:a xlink:href="https://evil.example/auto" xlink:actuate="onLoad">'
+                        "Auto</text:a></text:p></office:text></office:body>"
+                        "</office:document-content>"
+                    ).encode()
+                },
+            ),
+            (
+                "anchor_file_uri.odt",
+                {
+                    "content.xml": (
+                        f"<office:document-content {odf_ns}>"
+                        "<office:body><office:text><text:p>"
+                        '<text:a xlink:href="file:///etc/passwd">Local</text:a>'
+                        "</text:p></office:text></office:body></office:document-content>"
+                    ).encode()
+                },
+            ),
+            (
+                "html_custom_tag_href.docx",
+                {
+                    "word/afchunk.html": (
+                        b'<html><body><svg:font-face-uri xlink:href="http://evil.example/f.ttf"/>'
+                        b"</body></html>"
+                    )
+                },
+            ),
+        ]
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            for fname, entries in ssrf_odf_cases:
+                with pytest.raises(ArchiveSecurityViolationError) as exc_info:
+                    adapter.parse_bytes(_make_zip(entries), filename=fname)
+                assert exc_info.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+            mock_popen.assert_not_called()
+
+        # Normal passive <text:a xlink:href="https://example.com"> hyperlink MUST still pass!
+        mock_pdf_adapter = MagicMock(spec=LiteParseDocumentAdapter)
+        mock_pdf_adapter.parse_bytes.return_value = IngestionResult(
+            document_id="doc_passive_link",
+            filename="out.pdf",
+            mime_type="application/pdf",
+            total_pages=1,
+            total_characters=7,
+            chunks=[],
+            page_map=[],
+            tables=[],
+            taint=TaintClassification.INTERNAL,
+            source_sha256="intermediate",
+            normalized_text="Passive",
+            metadata={},
+        )
+        safe_adapter = LibreOfficeDocumentAdapter(
+            soffice_path="mock_soffice", pdf_adapter=mock_pdf_adapter
+        )
+        passive_odt = _make_zip(
+            {
+                "content.xml": (
+                    f"<office:document-content {odf_ns}>"
+                    "<office:body><office:text><text:p>"
+                    '<text:a xlink:href="https://example.com/spec" xlink:type="simple">'
+                    "Example Spec</text:a>"
+                    "</text:p></office:text></office:body></office:document-content>"
+                ).encode(),
+                "embed/note.html": (
+                    b'<html><body><a href="https://example.com/ref">Ref</a></body></html>'
+                ),
+            }
+        )
+
+        def _mock_ok_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            (out_dir / f"{Path(cmd[-1]).stem}.pdf").write_bytes(b"%PDF-1.5 mock")
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate.return_value = (b"", b"")
+            return proc
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen", side_effect=_mock_ok_popen),
+        ):
+            res = safe_adapter.parse_bytes(passive_odt, filename="passive_link.odt")
+            assert res.normalized_text == "Passive"
 
 
 # =============================================================================

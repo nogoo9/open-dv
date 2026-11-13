@@ -1393,6 +1393,18 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				url: string,
 				init?: RequestInit,
 			) => {
+				if (String(url).includes("/export")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict(
+								store.getState().nodes,
+								store.getState().edges,
+								{ ...activeSession, active_version: "1.1.0" },
+							),
+						),
+						{ status: 200 },
+					);
+				}
 				if (!String(url).endsWith("/delta")) {
 					return new Response("{}", { status: 404 });
 				}
@@ -2173,6 +2185,18 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				url: string,
 				init?: RequestInit,
 			) => {
+				if (String(url).includes("/export")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict(
+								store.getState().nodes,
+								store.getState().edges,
+								{ ...session, active_version: "0.2.0" },
+							),
+						),
+						{ status: 200 },
+					);
+				}
 				if (!String(url).endsWith("/delta")) {
 					return new Response("{}", { status: 404 });
 				}
@@ -2876,6 +2900,30 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				url: string,
 				init?: RequestInit,
 			) => {
+				if (String(url).includes("/export")) {
+					return new Response(
+						JSON.stringify(
+							canonicalizeGraphADict(
+								store.getState().nodes,
+								store.getState().edges,
+								{
+									...(store.getState().activeSession ?? {
+										session_id: "sess-waiver-head-advance",
+										domain_namespace: "finance",
+										enterprise_owner: "cdo@example.com",
+										status: "ACTIVE",
+										active_version: "1.1.0",
+										head_sha256: "b".repeat(64),
+										created_at: new Date().toISOString(),
+										updated_at: new Date().toISOString(),
+									}),
+									active_version: "1.1.0",
+								},
+							),
+						),
+						{ status: 200 },
+					);
+				}
 				if (!String(url).endsWith("/delta")) {
 					return new Response("{}", { status: 404 });
 				}
@@ -4193,9 +4241,7 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			expect(store.getState().proposals).toHaveLength(1);
 			expect(store.getState().proposals[0]?.proposal_id).toBe("prop-pending-1");
 
-			await store
-				.getState()
-				.startConstruct({ auto_commit: true }, mockFetch);
+			await store.getState().startConstruct({ auto_commit: true }, mockFetch);
 			expect(constructHeaders["If-Match"]).toBe(`"${headA}"`);
 			expect(constructBody?.mode).toBe("deterministic");
 			expect(constructBody?.base_sha256).toBe(headA);
@@ -4400,10 +4446,21 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			});
 			let postedDelta: Record<string, unknown> | null = null;
 			let serveVerifiedS6Export = true;
+			let exportNodesSource: () => ConceptNode[] = () => [];
 			const mockDeltaFetch: typeof fetch = (async (url, init) => {
 				if (String(url).includes("/export")) {
 					if (!serveVerifiedS6Export) {
-						return new Response("{}", { status: 404 });
+						return new Response(
+							JSON.stringify(
+								canonicalizeGraphADict(exportNodesSource(), [], {
+									...baseSession,
+									active_version: String(
+										postedDelta?.target_version || "1.1.0",
+									),
+								}),
+							),
+							{ status: 200 },
+						);
 					}
 					return new Response(
 						JSON.stringify({
@@ -4436,7 +4493,7 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				postedDelta = JSON.parse(String(init?.body));
 				return new Response(
 					JSON.stringify({
-						target_version: "1.1.0",
+						target_version: String(postedDelta?.target_version || "1.1.0"),
 						target_sha256: "b".repeat(64),
 					}),
 					{ status: 200 },
@@ -4491,6 +4548,7 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				initialSession: baseSession,
 				userRole: "admin",
 			});
+			exportNodesSource = () => semverStore.getState().nodes;
 			semverStore.setState({
 				committedNodes: [baseConcept],
 				nodes: [{ ...baseConcept, definition: "Refined steward definition" }],

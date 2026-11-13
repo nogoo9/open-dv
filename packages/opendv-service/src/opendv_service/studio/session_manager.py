@@ -53,6 +53,7 @@ from opendv_service.studio.locks import (
     L5_SESSION,
     reentrant_session_lock,
     studio_lock,
+    write_session_fence_marker,
 )
 from opendv_service.studio.workspace_security import (
     DEFAULT_STUDIO_DIR,
@@ -1095,6 +1096,9 @@ class StudioSessionManager:
                     with contextlib.suppress(OSError):
                         session_json.unlink()
 
+                with contextlib.suppress(OSError):
+                    write_session_fence_marker(session_dir)
+
             tombstone = self.studio_root / f".trash-{session_id}-{uuid.uuid4().hex[:8]}"
             try:
                 replace_with_retry(session_dir, tombstone)
@@ -1107,24 +1111,27 @@ class StudioSessionManager:
         source_session_id: str,
         new_session_id: str | None = None,
         *,
-        actor: str = "system:studio",
-        actor_role: str = "editor",
+        actor: str = "system",
+        actor_role: str,
     ) -> SessionMetadata:
         """Clone an existing verified local Studio session into a new isolated session."""
-        if actor_role == "automated":
+        norm_role = (actor_role or "").strip().lower()
+        if norm_role == "automated" or norm_role.startswith("agent:"):
             err = OpenDVError(
                 "Automated agents are not permitted to clone Studio sessions.",
                 error_code=ErrorCode.AGENT_OPERATION_FORBIDDEN,
             )
             err.status_code = err.http_status
             raise err
-        if actor_role == "viewer":
+        if norm_role not in ("editor", "admin"):
             err = OpenDVError(
-                "Read-only viewer role is not permitted to clone Studio sessions.",
+                f"Role '{actor_role}' is not permitted to clone Studio sessions "
+                "(requires 'editor' or 'admin').",
                 error_code=ErrorCode.FORBIDDEN_ADMIN_REQUIRED,
             )
             err.status_code = err.http_status
             raise err
+        is_admin = norm_role == "admin"
 
         validate_session_id(source_session_id)
         if new_session_id is not None:
@@ -1161,7 +1168,7 @@ class StudioSessionManager:
                         )
 
                     is_tainted = compute_effective_session_taint(sdir)
-                    if is_tainted and actor_role != "admin":
+                    if is_tainted and not is_admin:
                         err = OpenDVError(
                             "Cloning a session containing confidential/tainted sources "
                             "requires the 'admin' role.",
@@ -1190,7 +1197,7 @@ class StudioSessionManager:
                                         has_unverified_import_ack = True
                                         break
 
-                    if has_unverified_import_ack and actor_role != "admin":
+                    if has_unverified_import_ack and not is_admin:
                         err = OpenDVError(
                             "Cloning a session imported under an unverified "
                             "attribution waiver requires the 'admin' role.",
@@ -1209,6 +1216,7 @@ class StudioSessionManager:
                         symlinks=False,
                         ignore=shutil.ignore_patterns(
                             ".session.lock*",
+                            ".session_fenced",
                             "*.lock",
                             "*.tmp",
                             "jobs",

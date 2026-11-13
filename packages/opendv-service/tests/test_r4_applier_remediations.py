@@ -271,9 +271,9 @@ class TestLegacyV1ProjectionFidelity:
             metadata={"benchmark": "PAR-ONT-HOLD"},
         )
 
-        # Verify both apply_ontology_delta() and direct apply() honor metadata.benchmark
+        # apply_ontology_delta() honors metadata.benchmark; direct apply() requires explicit flag
         legacy_via_service = apply_ontology_delta(base, legacy_delta)
-        legacy_via_apply = apply(base, legacy_delta)
+        legacy_via_apply = apply(base, legacy_delta, _legacy_v1_projection=True)
         assert compute_ontology_sha256(legacy_via_service) == compute_ontology_sha256(
             legacy_via_apply
         )
@@ -324,6 +324,142 @@ class TestLegacyV1ProjectionFidelity:
         modern_rel = modern_target.canonical_relationships[0]
         assert modern_rel.grain_semantics == "Unit-of-work link lnk_fund_deal_sponsor."
         assert modern_rel.metadata == {"rel_meta": "suppressed_in_v1"}
+
+    def test_apply_and_studio_commit_preserve_wave2_fields_with_par_ont_hold_metadata(
+        self, tmp_path: Path
+    ) -> None:
+        """P05a::MAJ-01: Studio apply() & commit_delta() preserve Wave-2 fields on PAR-ONT-HOLD."""
+        from opendv_service.studio.atomic_commit import AtomicCommitService
+        from opendv_service.studio.session_manager import StudioSessionManager
+        from opendv_service.studio.workspace_security import WorkspaceSecurityManager
+
+        fibo_map = {
+            "scheme": "fibo",
+            "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FBC/ProductsAndServices/ClientsAndAccounts/Account",
+            "predicate": "skos:exactMatch",
+            "confidence": 0.95,
+        }
+        party_map = {
+            "scheme": "fibo",
+            "target_uri": "https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/ContractParty",
+            "predicate": "skos:exactMatch",
+            "confidence": 0.95,
+        }
+
+        studio_ops = [
+            AddConceptOp(
+                op_id="op-party",
+                concept_uri="urn:ontology:entity:party",
+                concept_name="Contract Party",
+                elm_archetype="WHO_LEGAL_ENTITY",
+                target_hub="hub_party",
+                external_mappings=[party_map],
+            ),
+            AddConceptOp(
+                op_id="op-acct",
+                concept_uri="urn:ontology:entity:account",
+                concept_name="Account",
+                elm_archetype="WHAT_FINANCIAL_ACCOUNT",
+                target_hub="hub_account",
+                description="Extended Wave-2 account description.",
+                parent_concept_uri="urn:ontology:entity:party",
+                synonyms=["Client Account", "Custody Account"],
+                external_mappings=[fibo_map],
+                attributes=["account_number", "currency_code"],
+                metadata={"curated_by": "studio"},
+                source_hints=["core.accounts.account_id"],
+            ),
+            AddRelationshipOp(
+                op_id="op-rel-party-acct",
+                relationship_uri="urn:ontology:relationship:party_holds_account",
+                relationship_name="PartyHoldsAccount",
+                target_link="lnk_party_account",
+                endpoints=[
+                    "urn:ontology:entity:party",
+                    "urn:ontology:entity:account",
+                ],
+                cardinality="one_to_many",
+                metadata={"link_tier": "core"},
+            ),
+            AddSourceHintOp(
+                op_id="op-hint-acct",
+                concept_uri="urn:ontology:entity:account",
+                source_system="ledger",
+                table_name="tbl_account",
+                column_name="acct_pk",
+            ),
+        ]
+
+        sec = WorkspaceSecurityManager(studio_root=tmp_path / "studio")
+        mgr = StudioSessionManager(studio_root=tmp_path / "studio", security_manager=sec)
+        svc = AtomicCommitService(session_manager=mgr, security_manager=sec)
+        meta = mgr.create_session("sess-par-ont-hold-safe")
+        genesis_ont = GraphAOntology.model_validate_json(
+            (
+                mgr.get_session_dir("sess-par-ont-hold-safe")
+                / "versions"
+                / "v0.0.0"
+                / "ontology.json"
+            ).read_text(encoding="utf-8")
+        )
+
+        studio_delta = OntologyDelta(
+            delta_id="d-par-hold-studio",
+            base_ontology_version="0.0.0",
+            target_ontology_version="1.0.0",
+            parent_sha256=meta.head_sha256,
+            operations=studio_ops,
+            metadata={"benchmark": "PAR-ONT-HOLD"},
+        )
+
+        # 1. Direct apply() preserves all Wave-2 fields despite metadata.benchmark == 'PAR-ONT-HOLD'
+        direct_out = apply(genesis_ont, studio_delta)
+        acct_direct = {c.concept_uri: c for c in direct_out.canonical_business_concepts}[
+            "urn:ontology:entity:account"
+        ]
+        assert acct_direct.description == "Extended Wave-2 account description."
+        assert acct_direct.parent_concept_uri == "urn:ontology:entity:party"
+        assert acct_direct.synonyms == ["Client Account", "Custody Account"]
+        assert acct_direct.external_mappings is not None and len(acct_direct.external_mappings) == 1
+        assert acct_direct.attributes is not None and len(acct_direct.attributes) == 2
+        assert acct_direct.metadata == {"curated_by": "studio"}
+        assert acct_direct.source_hints == [
+            "core.accounts.account_id",
+            "ledger.tbl_account.acct_pk",
+        ]
+        rel_direct = direct_out.canonical_relationships[0]
+        assert str(rel_direct.cardinality) == "one_to_many"
+        assert rel_direct.metadata == {"link_tier": "core"}
+
+        # 2. AtomicCommitService.commit_delta() succeeds and preserves all Wave-2 fields
+        res = svc.commit_delta("sess-par-ont-hold-safe", studio_delta)
+        assert res.version == "v1.0.0"
+        committed_ont = GraphAOntology.model_validate_json(
+            (
+                mgr.get_session_dir("sess-par-ont-hold-safe")
+                / "versions"
+                / "v1.0.0"
+                / "ontology.json"
+            ).read_text(encoding="utf-8")
+        )
+        acct_committed = {c.concept_uri: c for c in committed_ont.canonical_business_concepts}[
+            "urn:ontology:entity:account"
+        ]
+        assert acct_committed.description == "Extended Wave-2 account description."
+        assert acct_committed.parent_concept_uri == "urn:ontology:entity:party"
+        assert acct_committed.synonyms == ["Client Account", "Custody Account"]
+        assert (
+            acct_committed.external_mappings is not None
+            and len(acct_committed.external_mappings) == 1
+        )
+        assert acct_committed.attributes is not None and len(acct_committed.attributes) == 2
+        assert acct_committed.source_hints == [
+            "core.accounts.account_id",
+            "ledger.tbl_account.acct_pk",
+        ]
+        rel_committed = committed_ont.canonical_relationships[0]
+        assert str(rel_committed.cardinality) == "one_to_many"
+        assert rel_committed.metadata == {"link_tier": "core"}
 
     def test_pe_graph_a_ontology_canonical_sha256_preserved(self) -> None:
         pe_yaml_path = REPO_ROOT / "examples" / "private_equity" / "pe_graph_a_ontology.yaml"
