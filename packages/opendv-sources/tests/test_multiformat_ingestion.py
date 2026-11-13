@@ -16,6 +16,7 @@ import csv
 import hashlib
 import io
 import json
+import os
 import subprocess
 import time
 import zipfile
@@ -1152,6 +1153,9 @@ class TestLibreOfficeDocumentAdapter:
     def test_find_soffice_binary_custom_path(self, tmp_path: Path) -> None:
         fake_bin = tmp_path / "soffice.exe"
         fake_bin.write_bytes(b"fake exe")
+        if os.name != "nt":
+            assert find_soffice_binary(str(fake_bin)) is None
+        fake_bin.chmod(0o755)
         found = find_soffice_binary(str(fake_bin))
         assert found == str(fake_bin.resolve())
 
