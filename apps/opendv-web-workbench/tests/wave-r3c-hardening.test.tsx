@@ -768,7 +768,10 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 
 			let capturedGenesisBody: Record<string, unknown> | null = null;
 			let capturedGenesisHeaders: Record<string, string> = {};
-			const mockGenesisFetch: typeof fetch = (async (_url, init) => {
+			const mockGenesisFetch: typeof fetch = (async (url, init) => {
+				if (!String(url).endsWith("/delta")) {
+					return new Response("{}", { status: 404 });
+				}
 				capturedGenesisHeaders =
 					(init?.headers as Record<string, string>) || {};
 				capturedGenesisBody = JSON.parse(String(init?.body)) as Record<
@@ -817,7 +820,10 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 			});
 
 			let capturedRelOnlyBody: Record<string, unknown> | null = null;
-			const mockRelOnlyFetch: typeof fetch = (async (_url, init) => {
+			const mockRelOnlyFetch: typeof fetch = (async (url, init) => {
+				if (!String(url).endsWith("/delta")) {
+					return new Response("{}", { status: 404 });
+				}
 				capturedRelOnlyBody = JSON.parse(String(init?.body)) as Record<
 					string,
 					unknown
@@ -942,7 +948,10 @@ describe("Wave R3-C: Web Workbench Hardening & End-to-End Contract Alignment", (
 				target_version: string;
 				operations: Array<Record<string, unknown>>;
 			} | null = null;
-			const mockAdminCommit: typeof fetch = (async (_url, init) => {
+			const mockAdminCommit: typeof fetch = (async (url, init) => {
+				if (!String(url).endsWith("/delta")) {
+					return new Response("{}", { status: 404 });
+				}
 				capturedPayload = JSON.parse(String(init?.body));
 				return new Response(
 					JSON.stringify({

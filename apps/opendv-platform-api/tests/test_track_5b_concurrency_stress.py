@@ -700,7 +700,7 @@ class TestLockHierarchyStress:
                     target_ver = (
                         "1.0.0" if base_ver == "0.0.0" else f"1.{int(base_ver.split('.')[1]) + 1}.0"
                     )
-                    parent_sha = "" if base_ver == "0.0.0" else current_head
+                    parent_sha = current_head
                     delta = OntologyDelta(
                         delta_id=f"delta-{worker_id}-{k}",
                         parent_sha256=parent_sha,
@@ -711,6 +711,19 @@ class TestLockHierarchyStress:
                                 op_id=f"op-{worker_id}-{k}-{time.time_ns()}",
                                 concept_uri=f"urn:ontology:entity:c_{worker_id}_{k}",
                                 concept_name=f"c_{worker_id}_{k}",
+                                definition="Autonomous agent entity for concurrency stress test.",
+                                synonyms=["Autonomous Agent"],
+                                external_mappings=[
+                                    {
+                                        "scheme": "fibo",
+                                        "predicate": "skos:exactMatch",
+                                        "target_uri": (
+                                            "https://spec.edmcouncil.org/fibo/ontology/"
+                                            "FND/AgentsAndPeople/Agents/AutonomousAgent"
+                                        ),
+                                        "confidence": 0.95,
+                                    }
+                                ],
                             )
                         ],
                         author="stress-test",
@@ -721,7 +734,6 @@ class TestLockHierarchyStress:
                             session_id=session_id,
                             delta=delta,
                             if_match=current_head,
-                            enforce_governance=False,
                         )
                     time.sleep(0.01)
             except (OSError, RuntimeError, ValueError) as e:

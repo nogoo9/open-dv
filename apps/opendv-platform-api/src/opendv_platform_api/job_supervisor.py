@@ -87,6 +87,7 @@ class JobContext:
     result: dict[str, Any] | None = None
     thread: threading.Thread | None = None
     terminal_event_emitted: bool = False
+    commit_started: bool = False
 
     def is_cancelled(self, session_mgr: StudioSessionManager | None = None) -> bool:
         """Check if job has been cancelled either in-memory or via on-disk marker (MAJ-03)."""
@@ -362,6 +363,7 @@ class JobSupervisor:
             "heartbeat_at": datetime.now(UTC).isoformat(),
             "principal": ctx.principal,
             "role": ctx.role,
+            "commit_started": ctx.commit_started,
             "error": ctx.error,
             "result": ctx.result,
         }
@@ -435,23 +437,36 @@ class JobSupervisor:
 
         try:
             with studio_lock(lock_file, level=L2_JOB, session_id=ctx.session_id, timeout=10.0):
-                already_cancelled = False
+                already_terminal = False
                 emit_cancel_now = False
                 with ctx.lock:
-                    if ctx.status.lower() == "cancelled" or ctx.is_cancelled(session_mgr):
-                        already_cancelled = True
-                        ctx.status = "cancelled"
-                        ctx.stage = "cancelled"
-                        ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
+                    if (
+                        ctx.terminal_event_emitted
+                        or ctx.status.lower() in _TERMINAL_JOB_STATUSES
+                        or ctx.is_cancelled(session_mgr)
+                    ):
+                        already_terminal = True
                         if not ctx.terminal_event_emitted:
-                            ctx.terminal_event_emitted = True
-                            emit_cancel_now = True
+                            if ctx.status.lower() not in _TERMINAL_JOB_STATUSES:
+                                ctx.status = "cancelled"
+                                ctx.stage = "cancelled"
+                                ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
+                                ctx.terminal_event_emitted = True
+                                emit_cancel_now = True
+                                self._persist_job_status(session_mgr, ctx.session_id, ctx)
+                            elif ctx.status.lower() == "cancelled":
+                                ctx.stage = "cancelled"
+                                ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
+                                ctx.terminal_event_emitted = True
+                                emit_cancel_now = True
+                                self._persist_job_status(session_mgr, ctx.session_id, ctx)
                     else:
                         ctx.status = "running"
                         ctx.stage = "started"
                         ctx.pct_complete = 5
+                        self._persist_job_status(session_mgr, ctx.session_id, ctx)
 
-                if already_cancelled:
+                if already_terminal:
                     if emit_cancel_now and ctx.writer:
                         with contextlib.suppress(Exception):
                             ctx.writer.buffer_event(
@@ -461,7 +476,6 @@ class JobSupervisor:
                             ctx.writer.flush()
                     return
 
-                self._persist_job_status(session_mgr, ctx.session_id, ctx)
                 if ctx.writer:
                     ctx.writer.buffer_event(
                         "job_started",
@@ -482,52 +496,52 @@ class JobSupervisor:
 
                 event_to_emit: tuple[str, dict[str, Any]] | None = None
                 with ctx.lock:
-                    if auto_committed:
+                    if ctx.terminal_event_emitted or ctx.status.lower() in _TERMINAL_JOB_STATUSES:
+                        # Terminal state already finalized under ctx.lock (e.g. via cancel_job);
+                        # never overwrite ctx.status or clobber terminal state on disk.
+                        pass
+                    elif auto_committed:
                         ctx.status = "completed"
                         ctx.stage = "completed"
                         ctx.pct_complete = 100
                         ctx.finished_at = datetime.now(UTC).isoformat()
                         ctx.result = result
-                        if not ctx.terminal_event_emitted:
-                            ctx.terminal_event_emitted = True
-                            event_to_emit = (
-                                "job_completed",
-                                {
-                                    "job_id": ctx.job_id,
-                                    "status": "completed",
-                                    "result": ctx.result,
-                                },
-                            )
-                    elif (
-                        ctx.status.lower() == "cancelled"
-                        or ctx.cancel_event.is_set()
-                        or runner_reported_cancel
-                    ):
+                        ctx.terminal_event_emitted = True
+                        self._persist_job_status(session_mgr, ctx.session_id, ctx)
+                        event_to_emit = (
+                            "job_completed",
+                            {
+                                "job_id": ctx.job_id,
+                                "status": "completed",
+                                "result": ctx.result,
+                            },
+                        )
+                    elif ctx.cancel_event.is_set() or runner_reported_cancel:
                         ctx.status = "cancelled"
                         ctx.stage = "cancelled"
                         ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
-                        if not ctx.terminal_event_emitted:
-                            ctx.terminal_event_emitted = True
-                            event_to_emit = (
-                                "job_cancelled",
-                                {"job_id": ctx.job_id, "status": "cancelled"},
-                            )
+                        ctx.terminal_event_emitted = True
+                        self._persist_job_status(session_mgr, ctx.session_id, ctx)
+                        event_to_emit = (
+                            "job_cancelled",
+                            {"job_id": ctx.job_id, "status": "cancelled"},
+                        )
                     else:
                         ctx.status = "completed"
                         ctx.stage = "completed"
                         ctx.pct_complete = 100
                         ctx.finished_at = datetime.now(UTC).isoformat()
                         ctx.result = result or {}
-                        if not ctx.terminal_event_emitted:
-                            ctx.terminal_event_emitted = True
-                            event_to_emit = (
-                                "job_completed",
-                                {
-                                    "job_id": ctx.job_id,
-                                    "status": "completed",
-                                    "result": ctx.result,
-                                },
-                            )
+                        ctx.terminal_event_emitted = True
+                        self._persist_job_status(session_mgr, ctx.session_id, ctx)
+                        event_to_emit = (
+                            "job_completed",
+                            {
+                                "job_id": ctx.job_id,
+                                "status": "completed",
+                                "result": ctx.result,
+                            },
+                        )
 
                 if event_to_emit is not None and ctx.writer:
                     ctx.writer.buffer_event(event_to_emit[0], event_to_emit[1])
@@ -536,11 +550,24 @@ class JobSupervisor:
         except JobCancelledError:
             cancel_event: tuple[str, dict[str, Any]] | None = None
             with ctx.lock:
-                ctx.status = "cancelled"
-                ctx.stage = "cancelled"
-                ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
-                if not ctx.terminal_event_emitted:
+                if (
+                    not ctx.terminal_event_emitted
+                    and ctx.status.lower() not in _TERMINAL_JOB_STATUSES
+                ):
+                    ctx.status = "cancelled"
+                    ctx.stage = "cancelled"
+                    ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
                     ctx.terminal_event_emitted = True
+                    self._persist_job_status(session_mgr, ctx.session_id, ctx)
+                    cancel_event = (
+                        "job_cancelled",
+                        {"job_id": ctx.job_id, "status": "cancelled"},
+                    )
+                elif not ctx.terminal_event_emitted and ctx.status.lower() == "cancelled":
+                    ctx.stage = "cancelled"
+                    ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
+                    ctx.terminal_event_emitted = True
+                    self._persist_job_status(session_mgr, ctx.session_id, ctx)
                     cancel_event = (
                         "job_cancelled",
                         {"job_id": ctx.job_id, "status": "cancelled"},
@@ -554,16 +581,18 @@ class JobSupervisor:
             mapped = _translate_runner_error(exc)
             fail_event: tuple[str, dict[str, Any]] | None = None
             with ctx.lock:
-                if ctx.status.lower() == "cancelled" or ctx.cancel_event.is_set():
+                if ctx.terminal_event_emitted or ctx.status.lower() in _TERMINAL_JOB_STATUSES:
+                    pass
+                elif ctx.cancel_event.is_set():
                     ctx.status = "cancelled"
                     ctx.stage = "cancelled"
                     ctx.finished_at = ctx.finished_at or datetime.now(UTC).isoformat()
-                    if not ctx.terminal_event_emitted:
-                        ctx.terminal_event_emitted = True
-                        fail_event = (
-                            "job_cancelled",
-                            {"job_id": ctx.job_id, "status": "cancelled"},
-                        )
+                    ctx.terminal_event_emitted = True
+                    self._persist_job_status(session_mgr, ctx.session_id, ctx)
+                    fail_event = (
+                        "job_cancelled",
+                        {"job_id": ctx.job_id, "status": "cancelled"},
+                    )
                 else:
                     logger.exception("Job %s execution failed", ctx.job_id)
                     ctx.status = "failed"
@@ -574,16 +603,16 @@ class JobSupervisor:
                         "error_code": mapped.code,
                         "detail": mapped.detail,
                     }
-                    if not ctx.terminal_event_emitted:
-                        ctx.terminal_event_emitted = True
-                        fail_event = (
-                            "job_failed",
-                            {
-                                "job_id": ctx.job_id,
-                                "status": "failed",
-                                "error": ctx.error,
-                            },
-                        )
+                    ctx.terminal_event_emitted = True
+                    self._persist_job_status(session_mgr, ctx.session_id, ctx)
+                    fail_event = (
+                        "job_failed",
+                        {
+                            "job_id": ctx.job_id,
+                            "status": "failed",
+                            "error": ctx.error,
+                        },
+                    )
 
             if fail_event is not None and ctx.writer:
                 with contextlib.suppress(Exception):
@@ -591,7 +620,6 @@ class JobSupervisor:
                     ctx.writer.flush()
 
         finally:
-            self._persist_job_status(session_mgr, ctx.session_id, ctx)
             with self._lock:
                 self._evict_terminal_jobs_locked()
 
@@ -693,7 +721,7 @@ class JobSupervisor:
                         "JOB_ALREADY_TERMINAL",
                         f"Job '{job_id}' is already terminal ({ctx.status}).",
                     )
-                if ctx.stage == "committing":
+                if ctx.stage == "committing" or ctx.commit_started:
                     raise StudioAPIError(
                         "JOB_COMMIT_IN_PROGRESS",
                         f"Job '{job_id}' is actively committing delta and cannot be cancelled.",
@@ -742,7 +770,7 @@ class JobSupervisor:
                 "JOB_ALREADY_TERMINAL",
                 f"Job '{job_id}' is already terminal ({pre_data.get('status')}).",
             )
-        if pre_data.get("stage") == "committing":
+        if pre_data.get("stage") == "committing" or pre_data.get("commit_started") is True:
             raise StudioAPIError(
                 "JOB_COMMIT_IN_PROGRESS",
                 f"Job '{job_id}' is actively committing delta and cannot be cancelled.",
@@ -764,7 +792,7 @@ class JobSupervisor:
                         "JOB_ALREADY_TERMINAL",
                         f"Job '{job_id}' is already terminal ({data.get('status')}).",
                     )
-                if data.get("stage") == "committing":
+                if data.get("stage") == "committing" or data.get("commit_started") is True:
                     raise StudioAPIError(
                         "JOB_COMMIT_IN_PROGRESS",
                         f"Job '{job_id}' is actively committing delta and cannot be cancelled.",
@@ -874,11 +902,11 @@ def run_parse_job(
 
     def _on_progress(stage: str, pct: int) -> None:
         with ctx.lock:
-            if ctx.status.lower() == "cancelled":
+            if ctx.terminal_event_emitted or ctx.status.lower() in _TERMINAL_JOB_STATUSES:
                 return
             ctx.stage = stage
             ctx.pct_complete = pct
-        get_job_supervisor()._persist_job_status(session_mgr, ctx.session_id, ctx)
+            get_job_supervisor()._persist_job_status(session_mgr, ctx.session_id, ctx)
 
     try:
         return run_parse_session_sources(
@@ -941,17 +969,24 @@ def run_construct_job(
     def _on_stage(stage: str) -> None:
         with ctx.lock:
             if stage == "committing":
-                if ctx.status.lower() == "cancelled" or ctx.is_cancelled(session_mgr):
-                    ctx.status = "cancelled"
-                    ctx.stage = "cancelled"
+                if not ctx.commit_started and (
+                    ctx.terminal_event_emitted
+                    or ctx.status.lower() in _TERMINAL_JOB_STATUSES
+                    or ctx.is_cancelled(session_mgr)
+                ):
                     raise JobCancelledError("Job cancelled prior to commit phase")
-                ctx.stage = "committing"
-                ctx.pct_complete = 90
+                ctx.commit_started = True
+                if not ctx.terminal_event_emitted and ctx.status.lower() not in (
+                    _TERMINAL_JOB_STATUSES
+                ):
+                    ctx.stage = "committing"
+                    ctx.pct_complete = max(ctx.pct_complete, 90)
+                    get_job_supervisor()._persist_job_status(session_mgr, ctx.session_id, ctx)
             else:
-                if ctx.status.lower() == "cancelled":
+                if ctx.terminal_event_emitted or ctx.status.lower() in _TERMINAL_JOB_STATUSES:
                     return
                 ctx.stage = stage
-        get_job_supervisor()._persist_job_status(session_mgr, ctx.session_id, ctx)
+                get_job_supervisor()._persist_job_status(session_mgr, ctx.session_id, ctx)
 
     try:
         return run_construct_session(

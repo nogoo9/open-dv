@@ -15,7 +15,6 @@ import json
 import os
 import re
 import secrets
-import tempfile
 import uuid
 import zipfile
 from datetime import UTC, datetime
@@ -225,6 +224,8 @@ def resolve_studio_principal(
         return "human:local_editor", "editor"
     if upper in _AUTOMATED_ROLES:
         return "agent:internal_modeler", "automated"
+    if role_token.lower().startswith("agent:") and len(role_token) > 6:
+        return role_token, "automated"
     if upper in _VIEWER_ROLES:
         return "human:local_viewer", "viewer"
     return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Unsupported --role value: '{role_token}'")
@@ -2132,7 +2133,6 @@ def handle_delta_apply(
             session_manager=session_mgr,
             security_manager=sec_mgr,
             governance_validator=gv,
-            enforce_governance=True,
         )
         res = commit_svc.commit_delta(
             session_id=sid,
@@ -2142,7 +2142,6 @@ def handle_delta_apply(
             if_match=clean_base_sha if clean_base_sha else meta.head_sha256,
             waivers=waivers_list,
             governance_validator=gv,
-            enforce_governance=True,
             evaluation=eval_dict,
         )
     except ForbiddenAdminRequiredError as err_adm:
@@ -2448,7 +2447,6 @@ def handle_proposal_accept(
                 session_manager=session_mgr,
                 security_manager=sec_mgr,
                 governance_validator=gv,
-                enforce_governance=True,
             )
             res = commit_svc.commit_delta(
                 session_id=sid,
@@ -2459,7 +2457,6 @@ def handle_proposal_accept(
                 if_match=meta.head_sha256,
                 waivers=waivers_list,
                 governance_validator=gv,
-                enforce_governance=True,
                 evaluation=eval_dict,
             )
         except ForbiddenAdminRequiredError as err_adm:
@@ -3203,6 +3200,12 @@ def handle_bundle_clone(
     if isinstance(auth_res[0], int):
         return auth_res  # type: ignore[return-value]
     principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "automated":
+        return _err(
+            7,
+            "AGENT_OPERATION_FORBIDDEN",
+            "Automated agents are not permitted to clone Studio sessions.",
+        )
     if role_tier == "viewer":
         return _err(
             7,
@@ -3233,51 +3236,24 @@ def handle_bundle_clone(
             "Cloning a session containing confidential/tainted sources requires the 'admin' role.",
         )
 
-    studio_root = _get_studio_root(executor)
-    new_sdir = studio_root / new_sid
-    if new_sdir.exists():
+    try:
+        res = session_mgr.clone_session(
+            str(sid),
+            new_sid,
+            actor=principal,
+            actor_role=role_tier,
+        )
+    except (FileExistsError, SessionAlreadyExistsError):
         return _err(6, "SESSION_ALREADY_EXISTS", f"Session '{new_sid}' already exists")
-
-    sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
-    with tempfile.TemporaryDirectory(prefix="clone_bundle_") as tmp_dir:
-        tmp_zip = Path(tmp_dir) / f"{sid}_clone.zip"
-        try:
-            export_bundle(
-                session_dir=sdir,
-                output_zip_path=tmp_zip,
-                security_manager=sec_mgr,
-                acknowledge_confidential=True,
-                export_rationale="Session bundle clone",
-                admin=(role_tier == "admin"),
-                actor=principal,
-            )
-            res = import_bundle(
-                zip_path=tmp_zip,
-                target_dir=studio_root,
-                security_manager=sec_mgr,
-                new_session_id=new_sid,
-                acknowledge_unverified_import_attribution=True,
-                acknowledgement_rationale="Local workspace session clone",
-                imported_by=principal,
-                force=False,
-            )
-        except (FileExistsError, SessionAlreadyExistsError):
-            return _err(6, "SESSION_ALREADY_EXISTS", f"Session '{new_sid}' already exists")
-        except OpenDVError as exc:
-            return _err_from_opendv_error(exc)
-        except (
-            ArchiveSecurityViolationError,
-            zipfile.BadZipFile,
-            OSError,
-            RuntimeError,
-            ValueError,
-        ) as exc:
-            return _err(1, "INTERNAL_CLONE_ERROR", f"Failed to clone bundle: {exc}")
+    except OpenDVError as exc:
+        return _err_from_opendv_error(exc)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return _err(1, "INTERNAL_CLONE_ERROR", f"Failed to clone session: {exc}")
 
     return 0, {
         "source_session_id": sid,
-        "new_session_id": new_sid,
-        "session_id": new_sid,
+        "new_session_id": res.session_id,
+        "session_id": res.session_id,
         "status": "CLONED",
         "head_version": res.head_version,
         "head_sha256": res.head_sha256,

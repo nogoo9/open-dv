@@ -58,8 +58,8 @@ describe("tree (--dump-cli-tree)", () => {
 		const repoRoot = path.resolve(import.meta.dir, "../../..");
 		const pyCode = [
 			"import json",
-			"from opendv_cli_common.tree import build_cli_tree",
-			"print(json.dumps({'client': build_cli_tree(prog='opendvctl', mode='client'), 'standalone': build_cli_tree(prog='opendv', mode='standalone')}))",
+			"from opendv_cli_common.tree import build_cli_tree, dump_cli_tree",
+			"print(json.dumps({'client': build_cli_tree(prog='opendvctl', mode='client'), 'standalone': build_cli_tree(prog='opendv', mode='standalone'), 'client_jcs': dump_cli_tree(prog='opendvctl', mode='client')}))",
 		].join("; ");
 
 		const proc = Bun.spawnSync(["uv", "run", "python", "-c", pyCode], {
@@ -71,9 +71,13 @@ describe("tree (--dump-cli-tree)", () => {
 		const pyTrees = JSON.parse(new TextDecoder().decode(proc.stdout)) as {
 			client: CanonicalCliTree;
 			standalone: CanonicalCliTree;
+			client_jcs: string;
 		};
 
-		const tsClient = loadsJcs<CanonicalCliTree>(dumpCliTree());
+		const tsJcs = dumpCliTree();
+		expect(tsJcs).toBe(pyTrees.client_jcs);
+
+		const tsClient = loadsJcs<CanonicalCliTree>(tsJcs);
 		const tsStudio = tsClient.commands.ontology?.subcommands?.studio;
 		const pyClientStudio = pyTrees.client.commands.ontology?.subcommands?.studio;
 		const pyStandaloneStudio = pyTrees.standalone.commands.ontology?.subcommands?.studio;

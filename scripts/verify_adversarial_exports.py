@@ -17,16 +17,23 @@ import rdflib
 import yaml
 
 from opendv_contracts.jcs import dumps_jcs
+from opendv_core.models.graph_a import GraphAOntology
 from opendv_core.ontology_hashing import canonicalize_graph_a_dict
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 def verify_golden_fixture_parity():
     print("--- 1. Verifying Graph A Golden Fixture Parity ---")
-    fixture_path = Path("packages/opendv-contracts/schemas/v1/fixtures/graph_a_golden.json")
-    if not fixture_path.exists():
-        fixture_path = Path(
-            "open-dv/packages/opendv-contracts/schemas/v1/fixtures/graph_a_golden.json"
-        )
+    fixture_path = (
+        REPO_ROOT
+        / "packages"
+        / "opendv-contracts"
+        / "schemas"
+        / "v1"
+        / "fixtures"
+        / "graph_a_golden.json"
+    )
 
     with open(fixture_path, encoding="utf-8") as f:
         fixture = json.load(f)
@@ -77,8 +84,8 @@ const session = {
 
 const nodes = [
     {
-        id: "urn:entity:portfolio",
-        concept_uri: "urn:entity:portfolio",
+        id: "urn:opendv:concept:portfolio",
+        concept_uri: "urn:opendv:concept:portfolio",
         concept_name: "Portfolio <Managed>",
         elm_archetype: "CORE_CONCEPT",
         definition: "A collection of financial investments & assets with \\"strict\\" governance.",
@@ -100,8 +107,8 @@ const nodes = [
         ]
     },
     {
-        id: "urn:entity:asset",
-        concept_uri: "urn:entity:asset",
+        id: "urn:opendv:concept:asset",
+        concept_uri: "urn:opendv:concept:asset",
         concept_name: "Asset",
         elm_archetype: "CORE_CONCEPT",
         definition: "Financial asset holding value.",
@@ -125,10 +132,10 @@ const nodes = [
 const edges = [
     {
         id: "edge_holds",
-        relationship_uri: "urn:relation:holds_asset",
+        relationship_uri: "urn:opendv:relationship:holds_asset",
         relationship_name: "holds_asset",
-        source_concept_uri: "urn:entity:portfolio",
-        target_concept_uri: "urn:entity:asset",
+        source_concept_uri: "urn:opendv:concept:portfolio",
+        target_concept_uri: "urn:opendv:concept:asset",
         cardinality: "1:N",
         target_link: "lnk_holds_asset",
     }
@@ -138,14 +145,14 @@ const ttl = generateLocalExport("turtle", session.active_version, nodes, edges, 
 const rdf = generateLocalExport("rdf", session.active_version, nodes, edges, session);
 const jsonld = generateLocalExport("jsonld", session.active_version, nodes, edges, session);
 const yamlStr = generateLocalExport("yaml", session.active_version, nodes, edges, session);
+const jsonStr = generateLocalExport("json", session.active_version, nodes, edges, session);
 const jcs = generateLocalExport("rfc8785", session.active_version, nodes, edges, session);
 
-console.log(JSON.stringify({ ttl, rdf, jsonld, yamlStr, jcs }));
+console.log(JSON.stringify({ ttl, rdf, jsonld, yamlStr, jsonStr, jcs }));
 """
     # Run bun to generate formats
-    repo_dir = Path(__file__).resolve().parent.parent
     res = subprocess.run(
-        ["bun", "-e", bun_script], capture_output=True, text=True, cwd=str(repo_dir)
+        ["bun", "-e", bun_script], capture_output=True, text=True, cwd=str(REPO_ROOT)
     )
     if res.returncode != 0:
         print(f"Bun error: {res.stderr}")
@@ -157,8 +164,8 @@ console.log(JSON.stringify({ ttl, rdf, jsonld, yamlStr, jcs }));
     g_ttl.parse(data=exports["ttl"], format="turtle")
     print(f"  [PASS] Turtle (.ttl) parsed successfully: {len(g_ttl)} triples")
     # Verify classes present
-    portfolio_uri = rdflib.URIRef("urn:entity:portfolio")
-    asset_uri = rdflib.URIRef("urn:entity:asset")
+    portfolio_uri = rdflib.URIRef("urn:opendv:concept:portfolio")
+    asset_uri = rdflib.URIRef("urn:opendv:concept:asset")
     assert (portfolio_uri, rdflib.RDF.type, rdflib.OWL.Class) in g_ttl, (
         "Portfolio class missing in Turtle"
     )
@@ -184,15 +191,23 @@ console.log(JSON.stringify({ ttl, rdf, jsonld, yamlStr, jcs }));
         "Asset class missing in JSON-LD"
     )
 
-    # 4. Test YAML with pyyaml
+    # 4. Test YAML with pyyaml + GraphAOntology validation
     parsed_yaml = yaml.safe_load(exports["yamlStr"])
-    concept_count = len(parsed_yaml.get("concepts", []))
-    print(f"  [PASS] YAML (.yaml) parsed successfully: {concept_count} concepts")
+    validated_yaml_ont = GraphAOntology.model_validate(parsed_yaml)
+    concept_count = len(parsed_yaml["canonical_business_concepts"])
+    print(f"  [PASS] YAML (.yaml) parsed & GraphAOntology validated: {concept_count} concepts")
     assert parsed_yaml["ontology_version"] == "2.1.0"
     assert parsed_yaml["domain_namespace"] == "wealth_prod"
-    assert len(parsed_yaml["concepts"]) == 2
+    assert parsed_yaml["enterprise_owner"] == "Global Asset Architecture"
+    assert len(parsed_yaml["canonical_business_concepts"]) == 2
+    assert len(validated_yaml_ont.canonical_business_concepts) == 2
+    assert len(validated_yaml_ont.canonical_relationships) == 1
 
-    # 5. Test RFC 8785 JCS
+    # 5. Test JSON & RFC 8785 JCS
+    parsed_json = json.loads(exports["jsonStr"])
+    validated_json_ont = GraphAOntology.model_validate(parsed_json)
+    assert len(validated_json_ont.canonical_business_concepts) == 2
+    assert exports["jsonStr"] == exports["jcs"], "json and rfc8785 JCS outputs must match!"
     parsed_jcs = json.loads(exports["jcs"])
     cbc_count = len(parsed_jcs.get("canonical_business_concepts", []))
     print(f"  [PASS] RFC 8785 JCS parsed successfully: {cbc_count} concepts")

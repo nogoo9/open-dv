@@ -430,6 +430,244 @@ def _is_valid_audit_record_bytes(
     return (True, actual_sha)
 
 
+def _fsync_dir_best_effort(dir_path: Path) -> None:
+    """Best-effort directory fsync on POSIX platforms."""
+    if os.name == "nt":
+        return
+    with contextlib.suppress(OSError):
+        fd = os.open(str(dir_path), os.O_RDONLY)
+        try:
+            os.fsync(fd)
+        finally:
+            os.close(fd)
+
+
+def _validate_single_audit_record_obj(
+    rec: Any,
+    *,
+    sid: str,
+    expected_prev: str | None,
+    anchor_sha: str | None,
+    seen_anchor: bool,
+    sec_mgr: WorkspaceSecurityManager,
+) -> tuple[str, bool, bool]:
+    """Validate hash-chain link, RFC 8785 JCS SHA-256, and K_audit HMAC for one audit record."""
+    if not isinstance(rec, dict):
+        raise TamperEvidentChainCorruptError(
+            f"TAMPER_EVIDENT_CHAIN_CORRUPT: Non-object audit record in '{sid}'."
+        )
+    actual_sha = rec.get("audit_sha256")
+    actual_sig = rec.get("hmac_signature")
+    prev_sha = rec.get("prev_audit_sha256")
+
+    if not isinstance(actual_sha, str) or len(actual_sha) != 64 or prev_sha != expected_prev:
+        raise TamperEvidentChainCorruptError(
+            f"Audit chain hash break in '{sid}': expected prev '{expected_prev}', got '{prev_sha}'"
+        )
+
+    recon = {k: v for k, v in rec.items() if k not in ("audit_sha256", "hmac_signature")}
+    canonical_bytes = dumps_jcs_bytes(recon)
+    computed_sha = hashlib.sha256(canonical_bytes).hexdigest().lower()
+    if computed_sha != actual_sha:
+        raise TamperEvidentChainCorruptError(f"Audit entry SHA-256 digest mismatch in '{sid}'")
+
+    if not seen_anchor and actual_sha == anchor_sha:
+        seen_anchor = True
+
+    expected_sig = sec_mgr.sign_audit_entry(canonical_bytes)
+    hmac_ok = isinstance(actual_sig, str) and hmac.compare_digest(actual_sig, expected_sig)
+    if seen_anchor and not hmac_ok:
+        raise TamperEvidentChainCorruptError(
+            f"Audit entry HMAC signature verification failed in '{sid}'"
+        )
+
+    return (actual_sha, seen_anchor, hmac_ok)
+
+
+def reconcile_or_verify_audit_ledger(
+    session_dir: Path,
+    metadata: SessionMetadata,
+    sec_mgr: WorkspaceSecurityManager,
+    *,
+    mutate: bool,
+) -> str | None:
+    """Validate `audit.jsonl` against `metadata.audit_chain_head_sha256` and reconcile WAL state.
+
+    Supports:
+    - Torn incomplete non-newline-terminated trailing fragment after record `k` (where record `k`
+      matches `declared_head`): verifies `0..k`, and truncates back to end of record `k` when
+      `mutate=True` under L5 lock. (If the non-newline-terminated line IS record `k` itself matching
+      `declared_head`, repairs the missing trailing `\\n` when `mutate=True`.)
+    - Single complete newline-terminated write-ahead record `k+1` after `declared_head`: when
+      `record[k+1]` chains from `declared_head`, matches canonical JCS SHA-256, and verifies under
+      local `K_audit`, treats `k+1` as committed WAL state (advancing `session.json` under L5 lock
+      when `mutate=True`, and returning `record[k+1]["audit_sha256"]` in read-only mode).
+    - Rejects tail truncation, unsigned/forged write-ahead records, mismatched `prev_audit_sha256`,
+      and multi-record (>= 2) uncommitted divergence with `TamperEvidentChainCorruptError`.
+    """
+    sid = session_dir.name
+    declared_head = (metadata.audit_chain_head_sha256 or "").strip()
+    anchor_sha = metadata.imported_audit_anchor_sha256
+    audit_file = session_dir / "audit.jsonl"
+
+    if not audit_file.is_file():
+        if declared_head:
+            raise TamperEvidentChainCorruptError(
+                f"TAMPER_EVIDENT_CHAIN_CORRUPT: Audit ledger missing for session '{sid}' "
+                f"while session.json declares head '{declared_head}'."
+            )
+        return None
+
+    raw_bytes = audit_file.read_bytes()
+    if not raw_bytes:
+        if declared_head:
+            raise TamperEvidentChainCorruptError(
+                f"TAMPER_EVIDENT_CHAIN_CORRUPT: Audit ledger is empty for session '{sid}' "
+                f"while session.json declares head '{declared_head}'."
+            )
+        return None
+
+    has_unterminated_tail = not raw_bytes.endswith(b"\n")
+    if has_unterminated_tail:
+        last_nl = raw_bytes.rfind(b"\n")
+        prefix_bytes = raw_bytes[: last_nl + 1] if last_nl >= 0 else b""
+        tail_fragment = raw_bytes[last_nl + 1 :]
+    else:
+        last_nl = len(raw_bytes) - 1
+        prefix_bytes = raw_bytes
+        tail_fragment = b""
+
+    try:
+        prefix_text = prefix_bytes.decode("utf-8")
+    except UnicodeDecodeError as err:
+        raise TamperEvidentChainCorruptError(
+            f"TAMPER_EVIDENT_CHAIN_CORRUPT: Invalid UTF-8 in audit ledger for '{sid}'."
+        ) from err
+
+    prefix_lines = [ln.strip() for ln in prefix_text.split("\n") if ln.strip()]
+    seen_anchor = anchor_sha is None
+    expected_prev: str | None = None
+    chain_hashes: list[str] = []
+    records: list[dict[str, Any]] = []
+    hmac_flags: list[bool] = []
+
+    for line in prefix_lines:
+        try:
+            rec = json.loads(line)
+        except json.JSONDecodeError as exc:
+            raise TamperEvidentChainCorruptError(
+                f"Corrupt JSON in audit ledger for session '{sid}': {exc}"
+            ) from exc
+        actual_sha, seen_anchor, hmac_ok = _validate_single_audit_record_obj(
+            rec,
+            sid=sid,
+            expected_prev=expected_prev,
+            anchor_sha=anchor_sha,
+            seen_anchor=seen_anchor,
+            sec_mgr=sec_mgr,
+        )
+        chain_hashes.append(actual_sha)
+        records.append(rec)
+        hmac_flags.append(hmac_ok)
+        expected_prev = actual_sha
+
+    if has_unterminated_tail:
+        # Check if the unterminated line is itself the committed head record k missing only '\n'
+        committed_unterminated_ok = False
+        try:
+            tail_rec = json.loads(tail_fragment.decode("utf-8"))
+            t_sha, t_seen_anchor, t_hmac_ok = _validate_single_audit_record_obj(
+                tail_rec,
+                sid=sid,
+                expected_prev=expected_prev,
+                anchor_sha=anchor_sha,
+                seen_anchor=seen_anchor,
+                sec_mgr=sec_mgr,
+            )
+            if (not declared_head and not chain_hashes and t_hmac_ok) or (
+                declared_head and t_sha == declared_head
+            ):
+                committed_unterminated_ok = True
+                chain_hashes.append(t_sha)
+                records.append(tail_rec)
+                hmac_flags.append(t_hmac_ok)
+                seen_anchor = t_seen_anchor
+                expected_prev = t_sha
+                if mutate:
+                    atomic_repair_audit_file(audit_file, prefix_bytes + tail_fragment + b"\n")
+        except (UnicodeDecodeError, json.JSONDecodeError, TamperEvidentChainCorruptError):
+            committed_unterminated_ok = False
+
+        if not committed_unterminated_ok:
+            if not chain_hashes or last_nl < 0:
+                raise TamperEvidentChainCorruptError(
+                    f"Audit ledger for session '{sid}' contains unparseable torn bytes"
+                )
+            if not seen_anchor:
+                raise TamperEvidentChainCorruptError(
+                    f"Imported audit anchor '{anchor_sha}' missing from audit chain in '{sid}'"
+                )
+            if chain_hashes[-1] != declared_head:
+                raise TamperEvidentChainCorruptError(
+                    f"TAMPER_EVIDENT_CHAIN_CORRUPT: Audit ledger prefix tail '{chain_hashes[-1]}' "
+                    f"before torn fragment disagrees with session anchor '{declared_head}' "
+                    f"missing from audit chain in session '{sid}'."
+                )
+            if mutate:
+                atomic_repair_audit_file(audit_file, prefix_bytes)
+
+    if not chain_hashes:
+        if declared_head:
+            raise TamperEvidentChainCorruptError(
+                f"TAMPER_EVIDENT_CHAIN_CORRUPT: Audit ledger contains no valid lines for "
+                f"session '{sid}' while session.json declares head '{declared_head}'."
+            )
+        return None
+
+    if not seen_anchor:
+        raise TamperEvidentChainCorruptError(
+            f"Imported audit anchor '{anchor_sha}' missing from audit chain in '{sid}'"
+        )
+
+    if not declared_head:
+        if len(chain_hashes) == 1 and hmac_flags[0]:
+            if mutate:
+                metadata.audit_chain_head_sha256 = chain_hashes[0]
+                _atomic_write_session_json(session_dir, metadata)
+            return chain_hashes[0]
+        raise TamperEvidentChainCorruptError(
+            f"TAMPER_EVIDENT_CHAIN_CORRUPT: Session '{sid}' has empty audit_chain_head_sha256 "
+            f"with {len(chain_hashes)} ledger entries."
+        )
+
+    if chain_hashes[-1] == declared_head:
+        return declared_head
+
+    # Single complete newline-terminated K_audit-signed write-ahead record k+1 after declared_head
+    if (
+        len(chain_hashes) >= 2
+        and chain_hashes[-2] == declared_head
+        and records[-1].get("prev_audit_sha256") == declared_head
+        and hmac_flags[-1]
+    ):
+        wal_head = chain_hashes[-1]
+        if mutate:
+            metadata.audit_chain_head_sha256 = wal_head
+            _atomic_write_session_json(session_dir, metadata)
+        return wal_head
+
+    if declared_head not in chain_hashes:
+        raise TamperEvidentChainCorruptError(
+            f"Session anchor '{declared_head}' missing from audit chain "
+            f"in session '{sid}' (tail is '{chain_hashes[-1]}')"
+        )
+
+    raise TamperEvidentChainCorruptError(
+        f"TAMPER_EVIDENT_CHAIN_CORRUPT: Uncommitted multi-record audit divergence after "
+        f"'{declared_head}' in session '{sid}' (tail is '{chain_hashes[-1]}')."
+    )
+
+
 def append_signed_audit_record(
     session_dir: Path | str,
     action: str,
@@ -445,8 +683,9 @@ def append_signed_audit_record(
     """Unified helper appending an RFC 8785 JCS + K_audit HMAC-signed record to `audit.jsonl`.
 
     Synchronizes under L5 `.session.lock` (reentrant when already inside an active L5 critical
-    section for the same session), repairs torn trailing bytes atomically, verifies tail integrity
-    against `session.json.audit_chain_head_sha256`, fsyncs `audit.jsonl`, and atomically advances
+    section for the same session), repairs torn trailing bytes or rolls forward a single
+    uncommitted signed WAL entry atomically, verifies full chain integrity against
+    `session.json.audit_chain_head_sha256`, fsyncs `audit.jsonl`, and atomically advances
     `session.json.audit_chain_head_sha256`.
     """
     sdir = Path(session_dir).resolve()
@@ -466,123 +705,21 @@ def append_signed_audit_record(
         metadata = SessionMetadata.model_validate_json(
             session_json_path.read_text(encoding="utf-8")
         )
-        declared_head = (metadata.audit_chain_head_sha256 or "").strip()
+        prev_audit_sha = reconcile_or_verify_audit_ledger(
+            sdir,
+            metadata,
+            sec_mgr,
+            mutate=True,
+        )
+        effective_head = (metadata.audit_chain_head_sha256 or "").strip()
 
-        if expected_audit_head is not None and declared_head != expected_audit_head:
+        if expected_audit_head is not None and effective_head != expected_audit_head:
             raise AuditChainConflictError(
                 f"Audit chain head conflict for session '{sid}': "
-                f"expected '{expected_audit_head}', found '{declared_head}'"
+                f"expected '{expected_audit_head}', found '{effective_head}'"
             )
 
         audit_file = sdir / "audit.jsonl"
-        if not audit_file.is_file():
-            if declared_head:
-                raise TamperEvidentChainCorruptError(
-                    f"TAMPER_EVIDENT_CHAIN_CORRUPT: Audit ledger missing for session '{sid}' "
-                    f"while session.json declares head '{declared_head}'."
-                )
-            prev_audit_sha: str | None = None
-        else:
-            raw_bytes = audit_file.read_bytes()
-            if raw_bytes and not raw_bytes.endswith(b"\n"):
-                last_nl = raw_bytes.rfind(b"\n")
-                prev_line_sha: str | None = None
-                if last_nl >= 0:
-                    prefix_lines = [
-                        ln.strip()
-                        for ln in raw_bytes[:last_nl].decode("utf-8", errors="replace").splitlines()
-                        if ln.strip()
-                    ]
-                    if prefix_lines:
-                        try:
-                            prev_rec = json.loads(prefix_lines[-1])
-                            if isinstance(prev_rec, dict) and isinstance(
-                                prev_rec.get("audit_sha256"), str
-                            ):
-                                prev_line_sha = prev_rec["audit_sha256"]
-                        except json.JSONDecodeError as err:
-                            raise TamperEvidentChainCorruptError(
-                                "TAMPER_EVIDENT_CHAIN_CORRUPT: "
-                                f"Corrupt audit JSON in '{sid}': {err}"
-                            ) from err
-
-                tail_fragment = raw_bytes[last_nl + 1 :]
-                valid_tail, tail_sha = _is_valid_audit_record_bytes(
-                    tail_fragment,
-                    expected_prev_sha=prev_line_sha,
-                    sec_mgr=sec_mgr,
-                    require_hmac=True,
-                )
-                if valid_tail and (not declared_head or tail_sha == declared_head):
-                    raw_bytes = raw_bytes + b"\n"
-                    atomic_repair_audit_file(audit_file, raw_bytes)
-                elif last_nl >= 0:
-                    raw_bytes = raw_bytes[: last_nl + 1]
-                    atomic_repair_audit_file(audit_file, raw_bytes)
-                else:
-                    raise TamperEvidentChainCorruptError(
-                        f"TAMPER_EVIDENT_CHAIN_CORRUPT: Audit ledger for session '{sid}' "
-                        "contains torn initial content."
-                    )
-
-            try:
-                raw_lines = raw_bytes.decode("utf-8").splitlines()
-            except UnicodeDecodeError as err:
-                raise TamperEvidentChainCorruptError(
-                    f"TAMPER_EVIDENT_CHAIN_CORRUPT: Invalid UTF-8 in audit ledger for '{sid}'."
-                ) from err
-
-            lines = [line.strip() for line in raw_lines if line.strip()]
-            if not lines:
-                if declared_head:
-                    raise TamperEvidentChainCorruptError(
-                        f"TAMPER_EVIDENT_CHAIN_CORRUPT: Audit ledger is empty for session '{sid}' "
-                        f"while session.json declares head '{declared_head}'."
-                    )
-                prev_audit_sha = None
-            else:
-                try:
-                    last_record = json.loads(lines[-1])
-                    if not isinstance(last_record, dict):
-                        raise TamperEvidentChainCorruptError(
-                            f"TAMPER_EVIDENT_CHAIN_CORRUPT: Non-object tail record in '{sid}'."
-                        )
-                    actual_sha = last_record["audit_sha256"]
-                    actual_sig = last_record["hmac_signature"]
-                    if not isinstance(actual_sha, str) or not isinstance(actual_sig, str):
-                        raise TamperEvidentChainCorruptError(
-                            f"TAMPER_EVIDENT_CHAIN_CORRUPT: Invalid tail digest fields in '{sid}'."
-                        )
-                    recon = {
-                        k: v
-                        for k, v in last_record.items()
-                        if k not in ("audit_sha256", "hmac_signature")
-                    }
-                    canonical_tail = dumps_jcs_bytes(recon)
-                    computed_sha = hashlib.sha256(canonical_tail).hexdigest().lower()
-                    if computed_sha != actual_sha:
-                        raise TamperEvidentChainCorruptError(
-                            f"TAMPER_EVIDENT_CHAIN_CORRUPT: Audit ledger tail SHA-256 corrupted "
-                            f"for '{sid}'."
-                        )
-                    expected_sig = sec_mgr.sign_audit_entry(canonical_tail)
-                    if not hmac.compare_digest(actual_sig, expected_sig):
-                        raise TamperEvidentChainCorruptError(
-                            f"TAMPER_EVIDENT_CHAIN_CORRUPT: Audit ledger tail signature corrupted "
-                            f"for '{sid}'."
-                        )
-                    if declared_head and actual_sha != declared_head:
-                        raise TamperEvidentChainCorruptError(
-                            f"TAMPER_EVIDENT_CHAIN_CORRUPT: Audit ledger tail '{actual_sha}' "
-                            "disagrees with session.json audit_chain_head_sha256 "
-                            f"'{declared_head}' for session '{sid}'."
-                        )
-                    prev_audit_sha = actual_sha
-                except (json.JSONDecodeError, KeyError, TypeError) as err:
-                    raise TamperEvidentChainCorruptError(
-                        f"TAMPER_EVIDENT_CHAIN_CORRUPT: Failed to parse audit ledger tail for "
-                        f"session '{sid}': {err}"
-                    ) from err
 
         now_iso = datetime.now(UTC).isoformat()
         entry: dict[str, Any] = {
@@ -925,13 +1062,13 @@ class StudioSessionManager:
     def delete_session(self, session_id: str, force: bool = False) -> None:
         """Delete an existing studio session directory under L5 lifecycle + session locks."""
         session_dir = self.get_session_dir(session_id)
-        lifecycle_lock_path = self.studio_root / f".lifecycle_{session_id}.lock"
+        lifecycle_lock_path = session_dir.parent / f".lifecycle_{session_id}.lock"
 
         with studio_lock(
             lifecycle_lock_path,
             level=L5_SESSION,
             session_id=session_id,
-            remove_on_release=True,
+            remove_on_release=False,
         ):
             if not session_dir.exists() or session_dir.is_symlink():
                 raise SessionNotFoundError(f"Session '{session_id}' not found")
@@ -964,6 +1101,231 @@ class StudioSessionManager:
                 shutil.rmtree(tombstone)
             except OSError:
                 shutil.rmtree(session_dir)
+
+    def clone_session(
+        self,
+        source_session_id: str,
+        new_session_id: str | None = None,
+        *,
+        actor: str = "system:studio",
+        actor_role: str = "editor",
+    ) -> SessionMetadata:
+        """Clone an existing verified local Studio session into a new isolated session."""
+        if actor_role == "automated":
+            err = OpenDVError(
+                "Automated agents are not permitted to clone Studio sessions.",
+                error_code=ErrorCode.AGENT_OPERATION_FORBIDDEN,
+            )
+            err.status_code = err.http_status
+            raise err
+        if actor_role == "viewer":
+            err = OpenDVError(
+                "Read-only viewer role is not permitted to clone Studio sessions.",
+                error_code=ErrorCode.FORBIDDEN_ADMIN_REQUIRED,
+            )
+            err.status_code = err.http_status
+            raise err
+
+        validate_session_id(source_session_id)
+        if new_session_id is not None:
+            new_sid = validate_session_id(new_session_id)
+        else:
+            src_part = source_session_id[:51].rstrip("-_")
+            new_sid = validate_session_id(f"clone-{src_part}-{secrets.token_hex(3)}")
+
+        sdir = self.get_session_dir(source_session_id)
+        new_dir = self.get_session_dir(new_sid)
+
+        if not sdir.exists() or not (sdir / "session.json").is_file():
+            raise SessionNotFoundError(f"Session '{source_session_id}' not found")
+        if new_dir.exists():
+            raise SessionAlreadyExistsError(f"Session '{new_sid}' already exists")
+
+        from opendv_service.studio.bundle import compute_effective_session_taint
+
+        scratch_dir = self.studio_root / ".scratch"
+        scratch_dir.mkdir(parents=True, exist_ok=True)
+        set_owner_only_permissions(scratch_dir)
+        staging_dir = scratch_dir / f".staging_clone_{new_sid}_{secrets.token_hex(6)}"
+
+        try:
+            try:
+                with reentrant_session_lock(sdir / ".session.lock", session_id=source_session_id):
+                    if not (sdir / "session.json").is_file():
+                        raise SessionNotFoundError(f"Session '{source_session_id}' not found")
+
+                    if not self.verify_audit_chain(source_session_id):
+                        raise TamperEvidentChainCorruptError(
+                            f"TAMPER_EVIDENT_CHAIN_CORRUPT: Source session '{source_session_id}' "
+                            "failed cryptographic audit chain verification."
+                        )
+
+                    is_tainted = compute_effective_session_taint(sdir)
+                    if is_tainted and actor_role != "admin":
+                        err = OpenDVError(
+                            "Cloning a session containing confidential/tainted sources "
+                            "requires the 'admin' role.",
+                            error_code=ErrorCode.FORBIDDEN_ADMIN_REQUIRED,
+                        )
+                        err.status_code = err.http_status
+                        raise err
+
+                    has_unverified_import_ack = False
+                    src_audit_file = sdir / "audit.jsonl"
+                    if src_audit_file.is_file():
+                        for raw_line in src_audit_file.read_text(encoding="utf-8").splitlines():
+                            clean_line = raw_line.strip()
+                            if not clean_line:
+                                continue
+                            with contextlib.suppress(json.JSONDecodeError):
+                                rec_obj = json.loads(clean_line)
+                                if isinstance(rec_obj, dict):
+                                    act = str(rec_obj.get("action") or "")
+                                    det = rec_obj.get("details")
+                                    if act == "IMPORT_ATTRIBUTION_ACKNOWLEDGED" or (
+                                        act in ("BUNDLE_IMPORTED", "SESSION_CLONED")
+                                        and isinstance(det, dict)
+                                        and bool(det.get("unverified_attribution_acknowledged"))
+                                    ):
+                                        has_unverified_import_ack = True
+                                        break
+
+                    if has_unverified_import_ack and actor_role != "admin":
+                        err = OpenDVError(
+                            "Cloning a session imported under an unverified "
+                            "attribution waiver requires the 'admin' role.",
+                            error_code=ErrorCode.FORBIDDEN_ADMIN_REQUIRED,
+                        )
+                        err.status_code = err.http_status
+                        raise err
+
+                    source_meta = SessionMetadata.model_validate_json(
+                        (sdir / "session.json").read_text(encoding="utf-8")
+                    )
+
+                    shutil.copytree(
+                        sdir,
+                        staging_dir,
+                        symlinks=False,
+                        ignore=shutil.ignore_patterns(
+                            ".session.lock*",
+                            "jobs",
+                            "promotion.json",
+                            "audit.jsonl",
+                            "audit.imported.*",
+                            "waivers.json",
+                            ".scratch*",
+                            ".staging*",
+                            ".bundle*",
+                            ".quarantine*",
+                        ),
+                    )
+            except FileNotFoundError as exc:
+                if isinstance(exc, SessionNotFoundError):
+                    raise
+                raise SessionNotFoundError(f"Session '{source_session_id}' not found") from exc
+
+            secret_file = staging_dir / ".session_secret"
+            with secret_file.open("wb") as fp:
+                fp.write(secrets.token_bytes(32))
+                fp.flush()
+                os.fsync(fp.fileno())
+            set_owner_only_permissions(secret_file)
+
+            proposals_dir = staging_dir / "proposals"
+            if proposals_dir.is_dir():
+                for prop_f in proposals_dir.glob("*.json"):
+                    with contextlib.suppress(OSError, json.JSONDecodeError):
+                        p_data = json.loads(prop_f.read_text(encoding="utf-8"))
+                        if isinstance(p_data, dict):
+                            p_data["session_id"] = new_sid
+                            encoded = json.dumps(p_data, indent=2).encode("utf-8")
+                            with prop_f.open("wb") as fp:
+                                fp.write(encoded)
+                                fp.flush()
+                                os.fsync(fp.fileno())
+                            set_owner_only_permissions(prop_f)
+
+            now_iso = datetime.now(UTC).isoformat()
+            clone_details: dict[str, Any] = {
+                "source_session_id": source_session_id,
+                "new_session_id": new_sid,
+            }
+            if source_meta.imported_audit_anchor_sha256:
+                clone_details["source_imported_audit_anchor_sha256"] = (
+                    source_meta.imported_audit_anchor_sha256
+                )
+            if has_unverified_import_ack:
+                clone_details["unverified_attribution_acknowledged"] = True
+
+            genesis_audit_entry: dict[str, Any] = {
+                "timestamp": now_iso,
+                "session_id": new_sid,
+                "actor": actor,
+                "action": "SESSION_CLONED",
+                "target_version": source_meta.head_version,
+                "head_sha256": source_meta.head_sha256,
+                "details": clone_details,
+                "prev_audit_sha256": None,
+            }
+            canonical_entry_bytes = dumps_jcs_bytes(genesis_audit_entry)
+            entry_sha256 = hashlib.sha256(canonical_entry_bytes).hexdigest().lower()
+            hmac_sig = self.security_manager.sign_audit_entry(canonical_entry_bytes)
+            genesis_audit_entry["audit_sha256"] = entry_sha256
+            genesis_audit_entry["hmac_signature"] = hmac_sig
+
+            audit_file = staging_dir / "audit.jsonl"
+            with audit_file.open("w", encoding="utf-8") as fp:
+                fp.write(json.dumps(genesis_audit_entry) + "\n")
+                fp.flush()
+                os.fsync(fp.fileno())
+            set_owner_only_permissions(audit_file)
+
+            effective_taint: Literal["UNTAINTED", "TAINTED"] = (
+                "TAINTED" if is_tainted else source_meta.taint_classification
+            )
+            clone_meta = source_meta.model_copy(
+                update={
+                    "session_id": new_sid,
+                    "created_at": now_iso,
+                    "updated_at": now_iso,
+                    "taint_classification": effective_taint,
+                    "promoted_versions": [],
+                    "last_promoted_sha256": None,
+                    "audit_chain_head_sha256": entry_sha256,
+                    "imported_audit_anchor_sha256": None,
+                }
+            )
+            _atomic_write_session_json(staging_dir, clone_meta)
+
+            for root_str, _dirs, files in os.walk(staging_dir):
+                root_path = Path(root_str)
+                for fname in files:
+                    fpath = root_path / fname
+                    with contextlib.suppress(OSError), fpath.open("r+b") as fp:
+                        fp.flush()
+                        os.fsync(fp.fileno())
+                _fsync_dir_best_effort(root_path)
+
+            set_owner_only_permissions(staging_dir)
+
+            with studio_lock(
+                new_dir.parent / f".lifecycle_{new_sid}.lock",
+                level=L5_SESSION,
+                session_id=new_sid,
+                remove_on_release=False,
+            ):
+                if new_dir.exists():
+                    raise SessionAlreadyExistsError(f"Session '{new_sid}' already exists")
+                new_dir.parent.mkdir(parents=True, exist_ok=True)
+                replace_with_retry(staging_dir, new_dir)
+                set_owner_only_permissions(new_dir)
+                _fsync_dir_best_effort(new_dir.parent)
+
+            return clone_meta
+        finally:
+            if staging_dir.exists():
+                shutil.rmtree(staging_dir, ignore_errors=True)
 
     def get_cas(self, session_id: str) -> ContentAddressableStorage:
         """Get the ContentAddressableStorage instance for a session's inputs/cas."""
@@ -1004,8 +1366,10 @@ class StudioSessionManager:
         3. Each local entry's HMAC signature verifies under K_audit (and for imported sessions
            anchored at `imported_audit_anchor_sha256`, the anchor and all subsequent records
            must verify under local K_audit).
-        4. The verified physical tail `audit_sha256` equals `session.audit_chain_head_sha256`
-           (detecting tail-truncation rollback).
+        4. The verified physical tail matches `session.audit_chain_head_sha256` (or holds at
+           most a single locally K_audit-signed write-ahead record immediately following
+           `session.audit_chain_head_sha256`, rejecting tail truncation and multi-record
+           divergence).
         """
         session = self.get_session(session_id)
         session_dir = self.get_session_dir(session_id)
@@ -1013,48 +1377,14 @@ class StudioSessionManager:
         if not audit_file.exists():
             raise SessionNotFoundError(f"Session '{session_id}' not found")
 
-        raw_lines = audit_file.read_text(encoding="utf-8").splitlines()
-        lines = [line.strip() for line in raw_lines if line.strip()]
-        if not lines:
+        try:
+            tail_sha = reconcile_or_verify_audit_ledger(
+                session_dir,
+                session,
+                self.security_manager,
+                mutate=False,
+            )
+        except TamperEvidentChainCorruptError:
             return False
 
-        anchor_sha = session.imported_audit_anchor_sha256
-        seen_anchor = anchor_sha is None
-        expected_prev_sha: str | None = None
-
-        for record_str in lines:
-            try:
-                record = json.loads(record_str)
-            except json.JSONDecodeError:
-                return False
-
-            if not isinstance(record, dict):
-                return False
-
-            actual_sha = record.get("audit_sha256")
-            actual_sig = record.get("hmac_signature")
-            prev_sha = record.get("prev_audit_sha256")
-
-            if not isinstance(actual_sha, str) or prev_sha != expected_prev_sha:
-                return False
-
-            recon = {k: v for k, v in record.items() if k not in ("audit_sha256", "hmac_signature")}
-            canonical_bytes = dumps_jcs_bytes(recon)
-            computed_sha = hashlib.sha256(canonical_bytes).hexdigest().lower()
-            if computed_sha != actual_sha:
-                return False
-
-            if not seen_anchor and actual_sha == anchor_sha:
-                seen_anchor = True
-
-            if seen_anchor:
-                computed_sig = self.security_manager.sign_audit_entry(canonical_bytes)
-                if not hmac.compare_digest(str(actual_sig or ""), computed_sig):
-                    return False
-
-            expected_prev_sha = actual_sha
-
-        if not seen_anchor:
-            return False
-
-        return expected_prev_sha == session.audit_chain_head_sha256
+        return tail_sha is not None

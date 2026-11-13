@@ -307,6 +307,22 @@ def _parse_concept_attributes(
     return parsed
 
 
+def _is_placeholder_definition(defn: str | None, concept_name: str) -> bool:
+    """Return True ONLY when `defn` is empty/whitespace or an exact generated placeholder."""
+    if defn is None:
+        return True
+    stripped = defn.strip()
+    if not stripped:
+        return True
+    clean_name = (concept_name or "").strip()
+    return stripped in {
+        f"Canonical business concept: {clean_name}.",
+        f"Canonical business concept: {clean_name}",
+        f"Canonical concept for {clean_name}.",
+        f"Canonical concept for {clean_name}",
+    }
+
+
 def _merge_key_authority_tiers_additive(
     existing: KeyAuthorityTiers,
     incoming: KeyAuthorityTiers,
@@ -336,7 +352,7 @@ def apply(
     validate_structural: bool = True,
     allow_bootstrap: bool = False,
     allow_legacy_ip1_bootstrap: bool = False,
-    _legacy_v1_projection: bool = False,
+    _legacy_v1_projection: bool | None = None,
 ) -> GraphAOntology:
     """Pure state transition engine: NEVER mutates `base` in-place.
 
@@ -352,6 +368,12 @@ def apply(
     Returns:
         New validated GraphAOntology instance.
     """
+    legacy_v1 = (
+        _legacy_v1_projection
+        if _legacy_v1_projection is not None
+        else (delta.metadata or {}).get("benchmark") == "PAR-ONT-HOLD"
+    )
+
     # 1. Compute lineage hash over base
     base_sha256 = compute_ontology_sha256(base)
 
@@ -424,7 +446,7 @@ def apply(
         # --- Minor Additive & Structural Mutations ---
         elif isinstance(op, AddConceptOp):
             ext_maps: list[ExternalMapping] = []
-            if op.external_mappings:
+            if not legacy_v1 and op.external_mappings:
                 for m in op.external_mappings:
                     if isinstance(m, dict):
                         ext_maps.append(ExternalMapping.model_validate(m))
@@ -441,11 +463,7 @@ def apply(
                 if op.key_authority_tiers
                 else None
             )
-            op_attrs = (
-                []
-                if _legacy_v1_projection
-                else _parse_concept_attributes(op.attributes, op.concept_uri)
-            )
+            op_attrs = [] if legacy_v1 else _parse_concept_attributes(op.attributes, op.concept_uri)
 
             if op.concept_uri in concepts:
                 existing = concepts[op.concept_uri]
@@ -458,7 +476,7 @@ def apply(
                         )
                     existing.target_hub = op.target_hub
 
-                if op.parent_concept_uri is not None:
+                if not legacy_v1 and op.parent_concept_uri is not None:
                     if existing.parent_concept_uri is None:
                         existing.parent_concept_uri = op.parent_concept_uri
                     elif existing.parent_concept_uri != op.parent_concept_uri:
@@ -469,9 +487,11 @@ def apply(
                             error_code=ErrorCode.PARENT_ALREADY_EXISTS,
                         )
 
-                if not _legacy_v1_projection and op.description and existing.description is None:
+                if not legacy_v1 and op.description and existing.description is None:
                     existing.description = op.description
-                if op.definition and existing.definition.startswith("Canonical business concept:"):
+                if op.definition and _is_placeholder_definition(
+                    existing.definition, existing.concept_name
+                ):
                     existing.definition = op.definition
 
                 if op_attrs:
@@ -493,13 +513,13 @@ def apply(
                         else:
                             existing.attributes.append(new_a)
 
-                if op.synonyms:
+                if not legacy_v1 and op.synonyms:
                     existing_syns = existing.synonyms or []
                     for syn in op.synonyms:
                         if not any(s.casefold() == syn.casefold() for s in existing_syns):
                             existing_syns.append(syn)
                     existing.synonyms = existing_syns
-                if ext_maps:
+                if not legacy_v1 and ext_maps:
                     existing_maps = existing.external_mappings or []
                     existing_map_keys = {(m.target_uri, m.predicate) for m in existing_maps}
                     for new_m in ext_maps:
@@ -544,13 +564,13 @@ def apply(
                         _merge_key_authority_tiers_additive(
                             existing.key_authority_tiers, kat, op.concept_uri
                         )
-                if op.source_hints:
+                if not legacy_v1 and op.source_hints:
                     ex_hints = existing.source_hints or []
                     for h in op.source_hints:
                         if h not in ex_hints:
                             ex_hints.append(h)
                     existing.source_hints = ex_hints
-                if op.metadata:
+                if not legacy_v1 and op.metadata:
                     if existing.metadata is None:
                         existing.metadata = dict(op.metadata)
                     else:
@@ -558,8 +578,13 @@ def apply(
                             existing.metadata.setdefault(mk, mv)
             else:
                 c_name = op.concept_name or op.concept_uri.split(":")[-1].replace("_", " ").title()
-                defn = op.definition or op.description or f"Canonical business concept: {c_name}."
-                desc_val = None if _legacy_v1_projection else (op.description or None)
+                default_defn = (
+                    f"Canonical concept for {c_name}."
+                    if legacy_v1
+                    else f"Canonical business concept: {c_name}."
+                )
+                defn = op.definition or op.description or default_defn
+                desc_val = None if legacy_v1 else (op.description or None)
                 concepts[op.concept_uri] = CanonicalBusinessConcept(
                     concept_uri=op.concept_uri,
                     concept_name=c_name,
@@ -568,13 +593,15 @@ def apply(
                     description=desc_val,
                     attributes=op_attrs if op_attrs else None,
                     target_hub=op.target_hub,
-                    parent_concept_uri=op.parent_concept_uri,
-                    synonyms=list(op.synonyms) if op.synonyms else None,
-                    external_mappings=ext_maps if ext_maps else None,
+                    parent_concept_uri=None if legacy_v1 else op.parent_concept_uri,
+                    synonyms=None if legacy_v1 else (list(op.synonyms) if op.synonyms else None),
+                    external_mappings=None if legacy_v1 else (ext_maps if ext_maps else None),
                     governance_constraints=gov,
                     key_authority_tiers=kat,
-                    metadata=dict(op.metadata) if op.metadata else None,
-                    source_hints=list(op.source_hints) if op.source_hints else None,
+                    metadata=None if legacy_v1 else (dict(op.metadata) if op.metadata else None),
+                    source_hints=(
+                        None if legacy_v1 else (list(op.source_hints) if op.source_hints else None)
+                    ),
                 )
 
         elif isinstance(op, AddRelationshipOp):
@@ -637,17 +664,13 @@ def apply(
                     )
                 if not existing_r.target_link and op.target_link:
                     existing_r.target_link = op.target_link
-                if not _legacy_v1_projection and existing_r.description is None and op.description:
+                if not legacy_v1 and existing_r.description is None and op.description:
                     existing_r.description = op.description
-                if (
-                    not _legacy_v1_projection
-                    and existing_r.cardinality is None
-                    and op.cardinality is not None
-                ):
+                if not legacy_v1 and existing_r.cardinality is None and op.cardinality is not None:
                     existing_r.cardinality = op.cardinality
                 if yagni and existing_r.yagni_cost_guard_policy is None:
                     existing_r.yagni_cost_guard_policy = yagni
-                if op.metadata:
+                if not legacy_v1 and op.metadata:
                     if existing_r.metadata is None:
                         existing_r.metadata = dict(op.metadata)
                     else:
@@ -667,11 +690,15 @@ def apply(
                                 f"'{other_r.relationship_uri}'.",
                                 error_code=ErrorCode.DUPLICATE_RELATIONSHIP_NAME,
                             )
-                grain = (
-                    op.grain_semantics or op.description or f"Unit-of-work link {op.target_link}."
+                default_grain = (
+                    f"Unit-of-work link {op.target_link}"
+                    if legacy_v1
+                    else f"Unit-of-work link {op.target_link}."
                 )
-                rel_desc = None if _legacy_v1_projection else (op.description or None)
-                rel_card = None if _legacy_v1_projection else op.cardinality
+                grain = op.grain_semantics or op.description or default_grain
+                rel_desc = None if legacy_v1 else (op.description or None)
+                rel_card = None if legacy_v1 else op.cardinality
+                rel_meta = None if legacy_v1 else (dict(op.metadata) if op.metadata else None)
                 relationships[op.relationship_uri] = CanonicalRelationship(
                     relationship_uri=op.relationship_uri,
                     relationship_name=r_name,
@@ -681,7 +708,7 @@ def apply(
                     description=rel_desc,
                     cardinality=rel_card,
                     yagni_cost_guard_policy=yagni,
-                    metadata=dict(op.metadata) if op.metadata else None,
+                    metadata=rel_meta,
                 )
 
         elif isinstance(op, AddAttributeOp):
@@ -724,16 +751,14 @@ def apply(
                 f"ref_{op.name}" if not op.name.startswith("ref_") else op.name
             )
             codes = list(op.allowed_codes or op.values or [])
-            enum_name_val = None if _legacy_v1_projection else (op.enumeration_name or None)
-            enum_desc_val = None if _legacy_v1_projection else (op.description or None)
+            enum_name_val = None if legacy_v1 else (op.enumeration_name or None)
+            enum_desc_val = None if legacy_v1 else (op.description or None)
             enum_code_descs = (
                 None
-                if _legacy_v1_projection
+                if legacy_v1
                 else (dict(op.code_descriptions) if op.code_descriptions else None)
             )
-            enum_meta = (
-                None if _legacy_v1_projection else (dict(op.metadata) if op.metadata else None)
-            )
+            enum_meta = None if legacy_v1 else (dict(op.metadata) if op.metadata else None)
 
             if enum_uri in enumerations:
                 ex_enum = enumerations[enum_uri]
@@ -955,8 +980,9 @@ def apply(
             target_u = op.concept_uri or op.target_uri
             if target_u in concepts:
                 c = concepts[target_u]
-                c.description = op.description
-                if not c.definition or c.definition.startswith("Canonical"):
+                if not legacy_v1:
+                    c.description = op.description
+                if _is_placeholder_definition(c.definition, c.concept_name):
                     c.definition = op.description
 
         elif isinstance(op, RescoreExternalMappingOp):
@@ -988,7 +1014,7 @@ def apply(
                 def_text = op.refined_description or op.definition
                 if def_text and def_text not in c.definition:
                     c.definition = f"{c.definition} {def_text}".strip()
-                if not _legacy_v1_projection and op.additional_attributes:
+                if not legacy_v1 and op.additional_attributes:
                     extra_attrs = _parse_concept_attributes(op.additional_attributes, target_u)
                     if extra_attrs:
                         if c.attributes is None:
@@ -1000,6 +1026,8 @@ def apply(
                                 existing_names.add(new_a.attribute_name)
 
         elif isinstance(op, AddSourceHintOp):
+            if legacy_v1:
+                continue
             if op.concept_uri in concepts:
                 c = concepts[op.concept_uri]
                 if c.source_hints is None:
@@ -1239,6 +1267,7 @@ def apply_ontology_delta(
 
 __all__ = [
     "OntologyContractViolationError",
+    "_is_placeholder_definition",
     "apply",
     "apply_ontology_delta",
     "compute_next_semver",

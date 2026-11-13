@@ -101,6 +101,7 @@ from opendv_service.studio.session_manager import (
     StudioSessionManager,
     append_signed_audit_record,
     normalize_version_tag,
+    reconcile_or_verify_audit_ledger,
     sanitize_domain_namespace,
     validate_session_id,
 )
@@ -228,6 +229,7 @@ __all__ = [
     "parse_semver_tuple",
     "parse_strong_etag",
     "read_lock_metadata",
+    "reconcile_or_verify_audit_ledger",
     "reentrant_session_lock",
     "replace_with_retry",
     "replay_sse_events",

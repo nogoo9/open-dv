@@ -201,7 +201,7 @@ def infer_lock_level(path: Path | str) -> LockLevel:
         return LockLevel.L3
     if name == "graph_a.lock" or name.endswith(".graph_a.lock"):
         return LockLevel.L4
-    if name == ".session.lock":
+    if name == ".session.lock" or (name.startswith(".lifecycle_") and name.endswith(".lock")):
         return LockLevel.L5
     raise ValueError(
         f"Cannot infer LockLevel from filename '{name}'. Explicit level parameter required."
@@ -432,18 +432,32 @@ class StudioLock:
             self.session_id: str | None = session_id
         elif self.level == LockLevel.L5 and self.path.name == ".session.lock":
             self.session_id = self.path.parent.name
+        elif (
+            self.level == LockLevel.L5
+            and self.path.name.startswith(".lifecycle_")
+            and self.path.name.endswith(".lock")
+        ):
+            self.session_id = self.path.name[len(".lifecycle_") : -len(".lock")] or None
         elif self.level in (LockLevel.L2, LockLevel.L3) and self.path.parent.name == "jobs":
             self.session_id = self.path.parent.parent.name
         else:
             self.session_id = None
 
-        # Resource ID resolution (e.g. job_id)
+        # Resource ID resolution (e.g. job_id or deterministic L5 ordering)
         if resource_id is not None:
             self.resource_id: str | None = resource_id
         elif self.level == LockLevel.L2 and self.path.name.startswith(".job_"):
             self.resource_id = self.path.name[len(".job_") : -len(".lock")]
         elif self.level == LockLevel.L3 and self.path.name.startswith(".journal_"):
             self.resource_id = self.path.name[len(".journal_") : -len(".lock")]
+        elif (
+            self.level == LockLevel.L5
+            and self.path.name.startswith(".lifecycle_")
+            and self.path.name.endswith(".lock")
+        ):
+            self.resource_id = "0_lifecycle"
+        elif self.level == LockLevel.L5 and self.path.name == ".session.lock":
+            self.resource_id = "1_session"
         else:
             self.resource_id = None
 
@@ -505,9 +519,21 @@ class StudioLock:
             if sys.platform == "win32":
                 f.seek(_WIN32_LOCK_OFFSET)
                 msvcrt.locking(f.fileno(), msvcrt.LK_NBLCK, _WIN32_LOCK_LENGTH)
+                locked = True
             else:
                 fcntl.flock(f.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            locked = True
+                locked = True
+                f_st = os.fstat(f.fileno())
+                try:
+                    p_st = os.stat(self.path)
+                except FileNotFoundError as exc:
+                    raise BlockingIOError(
+                        errno.EAGAIN, "Lock file unlinked or replaced during acquire"
+                    ) from exc
+                if (f_st.st_dev, f_st.st_ino) != (p_st.st_dev, p_st.st_ino):
+                    raise BlockingIOError(
+                        errno.EAGAIN, "Lock file unlinked or replaced during acquire"
+                    )
 
             if not path_existed:
                 with contextlib.suppress(Exception):
@@ -944,21 +970,57 @@ def reentrant_session_lock(
     session_id: str | None = None,
     timeout: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
 ) -> Iterator[StudioLock]:
-    """Acquire L5 `.session.lock` under the total lock hierarchy, or reuse if already held.
+    """Acquire L5 `.lifecycle_<sid>.lock` and `.session.lock` in order, or reuse if held.
 
     Never creates parent directories if the session directory does not exist.
     """
     p = Path(lock_path)
     resolved = (p if p.name == ".session.lock" else p / ".session.lock").resolve()
-    if not resolved.parent.exists():
-        raise FileNotFoundError(f"Session directory '{resolved.parent.name}' does not exist")
 
     target_norm = os.path.normcase(str(resolved))
-    for held in get_held_locks():
+    held_locks = get_held_locks()
+    for held in held_locks:
         if held.level == LockLevel.L5 and os.path.normcase(str(held.path)) == target_norm:
             yield held
             return
 
+    if not resolved.parent.parent.exists():
+        raise FileNotFoundError(f"Session directory '{resolved.parent.name}' does not exist")
+
     sid = session_id or resolved.parent.name
-    with studio_lock(resolved, level=L5_SESSION, session_id=sid, timeout=timeout) as lk:
-        yield lk
+    lifecycle_path = (resolved.parent.parent / f".lifecycle_{sid}.lock").resolve()
+    lifecycle_norm = os.path.normcase(str(lifecycle_path))
+    lifecycle_already_held = any(
+        held.level == LockLevel.L5 and os.path.normcase(str(held.path)) == lifecycle_norm
+        for held in held_locks
+    )
+
+    if not lifecycle_already_held:
+        with studio_lock(
+            lifecycle_path,
+            level=L5_SESSION,
+            session_id=sid,
+            timeout=timeout,
+            remove_on_release=False,
+        ):
+            if not resolved.parent.exists():
+                raise FileNotFoundError(
+                    f"Session directory '{resolved.parent.name}' does not exist"
+                )
+            with studio_lock(
+                resolved,
+                level=L5_SESSION,
+                session_id=sid,
+                timeout=timeout,
+            ) as lk:
+                yield lk
+    else:
+        if not resolved.parent.exists():
+            raise FileNotFoundError(f"Session directory '{resolved.parent.name}' does not exist")
+        with studio_lock(
+            resolved,
+            level=L5_SESSION,
+            session_id=sid,
+            timeout=timeout,
+        ) as lk:
+            yield lk

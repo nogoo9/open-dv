@@ -57,11 +57,13 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 	onExportComplete,
 	onPromoteComplete,
 }) => {
+	const activeMode = useStudioStore((s) => s.activeMode);
 	const activeSession = useStudioStore((s) => s.activeSession);
 	const exportOntology = useStudioStore((s) => s.exportOntology);
 	const promoteWorkspace = useStudioStore((s) => s.promoteWorkspace);
 	const hasUnsavedChanges = useStudioStore((s) => s.hasUnsavedChanges);
 	const addToast = useStudioStore((s) => s.addToast);
+	const isRemotePlatform = activeMode === "remote_platform";
 
 	const [activeTab, setActiveTab] = useState<"export" | "promote">(initialTab);
 
@@ -86,14 +88,18 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 
 	// Promote tab state
 	const [workspacePath, setWorkspacePath] = useState(
-		activeSession?.from_workspace ||
-			(activeSession?.domain_namespace
-				? `workspaces/${activeSession.domain_namespace}`
-				: ""),
+		isRemotePlatform
+			? ""
+			: activeSession?.from_workspace ||
+					(activeSession?.domain_namespace
+						? `workspaces/${activeSession.domain_namespace}`
+						: ""),
 	);
 	const [workspaceSha, setWorkspaceSha] = useState("");
 	const [promoteRationale, setPromoteRationale] = useState("");
 	const [ackWarning, setAckWarning] = useState(false);
+	const [historicalContractRationale, setHistoricalContractRationale] =
+		useState("");
 	const [promoteError, setPromoteError] = useState<string | null>(null);
 	const [isPromoting, setIsPromoting] = useState(false);
 
@@ -107,18 +113,21 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 	// Reset promotion fields whenever session changes or modal opens (MAJ-01 & MIN-01)
 	useEffect(() => {
 		if (!isOpen) return;
-		const targetPath =
-			activeSession?.from_workspace ||
-			(activeSession?.domain_namespace
-				? `workspaces/${activeSession.domain_namespace}`
-				: "");
+		const targetPath = isRemotePlatform
+			? ""
+			: activeSession?.from_workspace ||
+				(activeSession?.domain_namespace
+					? `workspaces/${activeSession.domain_namespace}`
+					: "");
 		setWorkspacePath(targetPath);
 		setWorkspaceSha("");
 		setPromoteRationale("");
 		setAckWarning(false);
+		setHistoricalContractRationale("");
 		setPromoteError(null);
 	}, [
 		isOpen,
+		isRemotePlatform,
 		sessionId,
 		activeSession?.from_workspace,
 		activeSession?.domain_namespace,
@@ -228,10 +237,22 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 		}
 	};
 
+	const nonWsHistoricalRationaleLen = historicalContractRationale.replace(
+		/\s+/g,
+		"",
+	).length;
+
 	const handlePromoteSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
 		if (!promoteRationale || promoteRationale.trim().length < 10) {
 			setPromoteError("Promotion rationale must be at least 10 characters.");
+			return;
+		}
+
+		if (ackWarning && nonWsHistoricalRationaleLen < 10) {
+			setPromoteError(
+				"Historical contract warning rationale must contain at least 10 non-whitespace characters.",
+			);
 			return;
 		}
 
@@ -244,16 +265,17 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 
 		const SHA256_REGEX = /^[a-f0-9]{64}$/i;
 		const trimmedPath = workspacePath.trim();
-		if (!trimmedPath) {
+		if (!isRemotePlatform && !trimmedPath) {
 			setPromoteError("Target workspace path must be specified.");
 			return;
 		}
 
 		if (
-			trimmedPath.startsWith("/") ||
-			trimmedPath.startsWith("\\") ||
-			/^[a-zA-Z]:/.test(trimmedPath) ||
-			trimmedPath.includes("..")
+			trimmedPath &&
+			(trimmedPath.startsWith("/") ||
+				trimmedPath.startsWith("\\") ||
+				/^[a-zA-Z]:/.test(trimmedPath) ||
+				trimmedPath.includes(".."))
 		) {
 			setPromoteError(
 				"Workspace path must be a relative path without directory traversal ('..').",
@@ -280,11 +302,16 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 		setPromoteError(null);
 		try {
 			const ok = await promoteWorkspace({
-				workspace: trimmedPath,
+				...(trimmedPath ? { workspace: trimmedPath } : {}),
 				workspace_sha256: workspaceSha.trim(),
 				head_sha256: activeSession.head_sha256,
 				rationale: promoteRationale.trim(),
 				acknowledge_historical_contract_warning: ackWarning,
+				...(ackWarning
+					? {
+							historical_contract_rationale: historicalContractRationale.trim(),
+						}
+					: {}),
 			});
 
 			if (ok) {
@@ -513,13 +540,19 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 
 						<div className="form-group">
 							<label htmlFor="workspace-path-input">
-								Target Workspace Path:
+								{isRemotePlatform
+									? "Target Workspace Path (Optional — Server Managed):"
+									: "Target Workspace Path:"}
 							</label>
 							<input
 								id="workspace-path-input"
 								type="text"
 								className="form-input"
-								placeholder="workspaces/domain_namespace"
+								placeholder={
+									isRemotePlatform
+										? "Leave empty to use server-configured workspace"
+										: "workspaces/domain_namespace"
+								}
 								value={workspacePath}
 								onChange={(e) => setWorkspacePath(e.target.value)}
 								data-testid="workspace-path-input"
@@ -529,9 +562,19 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 						{/* OCC Verification Card */}
 						<div className="occ-card" data-testid="occ-verification-card">
 							<div className="occ-field">
-								<label htmlFor="workspace-sha-input" className="occ-label">
-									Expected Workspace SHA-256:
-								</label>
+								<div className="occ-label-row">
+									<label htmlFor="workspace-sha-input" className="occ-label">
+										Expected Workspace SHA-256:
+									</label>
+									<button
+										type="button"
+										className="btn-secondary btn-xs"
+										onClick={() => setWorkspaceSha("0".repeat(64))}
+										data-testid="greenfield-workspace-sha-btn"
+									>
+										Greenfield (64 zeros)
+									</button>
+								</div>
 								<input
 									id="workspace-sha-input"
 									type="text"
@@ -587,6 +630,35 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 							</span>
 						</label>
 
+						{ackWarning && (
+							<div className="form-group">
+								<label htmlFor="historical-contract-rationale-input">
+									Historical Contract Warning Rationale (minimum 10
+									non-whitespace characters):
+								</label>
+								<textarea
+									id="historical-contract-rationale-input"
+									className="form-textarea"
+									rows={2}
+									placeholder="Document explicit impact justification for overriding historical contract warnings..."
+									value={historicalContractRationale}
+									onChange={(e) => {
+										setHistoricalContractRationale(e.target.value);
+										if (e.target.value.replace(/\s+/g, "").length >= 10) {
+											setPromoteError(null);
+										}
+									}}
+									data-testid="historical-contract-rationale-input"
+								/>
+								<span
+									className={`char-count ${nonWsHistoricalRationaleLen < 10 ? "text-fail" : "text-pass"}`}
+								>
+									{nonWsHistoricalRationaleLen} / 10 non-whitespace chars
+									minimum
+								</span>
+							</div>
+						)}
+
 						{promoteError && (
 							<div
 								className="error-banner"
@@ -604,7 +676,11 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 							<button
 								type="submit"
 								className="btn-primary"
-								disabled={isPromoting || promoteRationale.trim().length < 10}
+								disabled={
+									isPromoting ||
+									promoteRationale.trim().length < 10 ||
+									(ackWarning && nonWsHistoricalRationaleLen < 10)
+								}
 								data-testid="confirm-promote-btn"
 							>
 								{isPromoting ? "Promoting..." : "Promote to Workspace"}

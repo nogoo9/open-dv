@@ -241,7 +241,9 @@ class TestCrashRecoveryAndAuditHMAC:
         assert not abandoned.exists()
 
     def test_interrupted_commit_forward_reconciliation(self, tmp_path: Path) -> None:
-        """Verify an interrupted commit with completed forward version is auto-reconciled."""
+        """Verify signed PENDING_COMMIT forward version recovers; unauthenticated quarantines."""
+        from opendv_service.studio.session_manager import append_signed_audit_record
+
         studio_root = tmp_path / "studio"
         studio_root.mkdir()
         sec_mgr = WorkspaceSecurityManager(studio_root=studio_root)
@@ -273,12 +275,53 @@ class TestCrashRecoveryAndAuditHMAC:
             ),
             encoding="utf-8",
         )
+        # Write unauthenticated forward v2.0.0 with NO PENDING_COMMIT -> must be quarantined
+        ont_200 = GraphAOntology(
+            canonical_business_concepts=[
+                CanonicalBusinessConcept(concept_uri="urn:ontology:entity:rogue")
+            ]
+        )
+        sha_200 = compute_ontology_sha256(ont_200)
+        v2_unauth_dir = s_dir / "versions" / "v2.0.0"
+        v2_unauth_dir.mkdir(parents=True, exist_ok=True)
+        (v2_unauth_dir / "ontology.json").write_text(
+            ont_200.model_dump_json(indent=2), encoding="utf-8"
+        )
+        (v2_unauth_dir / "meta.json").write_text(
+            json.dumps(
+                {
+                    "version": "2.0.0",
+                    "target_sha256": sha_200,
+                    "parent_sha256": sha_100,
+                    "proposal_id": None,
+                }
+            ),
+            encoding="utf-8",
+        )
+
+        # Authenticate v1.0.0 via signed PENDING_COMMIT in K_audit chain
+        append_signed_audit_record(
+            session_dir=s_dir,
+            action="PENDING_COMMIT",
+            actor="steward",
+            target_version="v1.0.0",
+            head_sha256=sha_100,
+            details={
+                "target_version": "v1.0.0",
+                "target_sha256": sha_100,
+                "parent_sha256": init_meta.head_sha256,
+            },
+            security_manager=sec_mgr,
+        )
 
         commit_svc.reconcile_and_recover_session(sid)
         meta = sess_mgr.get_session(sid)
         assert meta.head_version == "1.0.0"
         assert meta.head_sha256 == sha_100
         assert "v1.0.0" in meta.committed_versions
+        assert "v2.0.0" not in meta.committed_versions
+        assert not v2_unauth_dir.exists()
+        assert list((s_dir / ".quarantine").glob("v2.0.0-*"))
 
     def test_corrupt_orphan_version_quarantine(self, tmp_path: Path) -> None:
         """Verify a forward orphan version with invalid/corrupt data is quarantined."""

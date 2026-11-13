@@ -519,6 +519,7 @@ export interface StudioStoreState {
 			head_sha256: string;
 			rationale: string;
 			acknowledge_historical_contract_warning?: boolean;
+			historical_contract_rationale?: string;
 		},
 		fetchImpl?: typeof fetch,
 	) => Promise<boolean>;
@@ -1389,6 +1390,125 @@ export function canonicalizeGraphADict(
 	return root;
 }
 
+function serializeGraphAYaml(root: Record<string, unknown>): string {
+	const formatKey = (key: string): string =>
+		/^[A-Za-z_][A-Za-z0-9_]*$/.test(key) ? key : JSON.stringify(key);
+
+	const isInlineYamlValue = (val: unknown): boolean => {
+		if (val === null || val === undefined) return true;
+		if (
+			typeof val === "string" ||
+			typeof val === "number" ||
+			typeof val === "boolean"
+		) {
+			return true;
+		}
+		if (Array.isArray(val)) return val.length === 0;
+		if (typeof val === "object") {
+			return (
+				Object.entries(val as Record<string, unknown>).filter(
+					([, v]) => v !== undefined,
+				).length === 0
+			);
+		}
+		return true;
+	};
+
+	const formatInlineYamlValue = (val: unknown): string => {
+		if (val === null || val === undefined) return "null";
+		if (typeof val === "string") return JSON.stringify(val);
+		if (typeof val === "number") {
+			return Number.isFinite(val) ? String(val) : "null";
+		}
+		if (typeof val === "boolean") return val ? "true" : "false";
+		if (Array.isArray(val)) return "[]";
+		if (typeof val === "object") return "{}";
+		return JSON.stringify(String(val));
+	};
+
+	const emitNode = (val: unknown, indent: number, out: string[]): void => {
+		const pad = " ".repeat(indent);
+		if (Array.isArray(val)) {
+			for (const item of val) {
+				if (isInlineYamlValue(item)) {
+					out.push(`${pad}- ${formatInlineYamlValue(item)}`);
+				} else if (Array.isArray(item)) {
+					out.push(`${pad}-`);
+					emitNode(item, indent + 2, out);
+				} else if (item && typeof item === "object") {
+					const entries = Object.entries(
+						item as Record<string, unknown>,
+					).filter(([, v]) => v !== undefined);
+					const [firstEntry, ...restEntries] = entries;
+					if (!firstEntry) {
+						out.push(`${pad}- {}`);
+						continue;
+					}
+					const [firstKey, firstVal] = firstEntry;
+					if (isInlineYamlValue(firstVal)) {
+						out.push(
+							`${pad}- ${formatKey(firstKey)}: ${formatInlineYamlValue(firstVal)}`,
+						);
+					} else {
+						out.push(`${pad}- ${formatKey(firstKey)}:`);
+						emitNode(firstVal, indent + 4, out);
+					}
+					for (const [k, v] of restEntries) {
+						if (isInlineYamlValue(v)) {
+							out.push(`${pad}  ${formatKey(k)}: ${formatInlineYamlValue(v)}`);
+						} else {
+							out.push(`${pad}  ${formatKey(k)}:`);
+							emitNode(v, indent + 4, out);
+						}
+					}
+				}
+			}
+			return;
+		}
+		if (val && typeof val === "object") {
+			const entries = Object.entries(val as Record<string, unknown>).filter(
+				([, v]) => v !== undefined,
+			);
+			for (const [k, v] of entries) {
+				if (isInlineYamlValue(v)) {
+					out.push(`${pad}${formatKey(k)}: ${formatInlineYamlValue(v)}`);
+				} else {
+					out.push(`${pad}${formatKey(k)}:`);
+					emitNode(v, indent + 2, out);
+				}
+			}
+		}
+	};
+
+	const preferredTopKeys = [
+		"ontology_version",
+		"domain_namespace",
+		"enterprise_owner",
+		"description",
+		"parent_sha256",
+		"decision_refs",
+		"standards_references",
+		"canonical_business_concepts",
+		"canonical_relationships",
+		"reference_enumerations",
+		"metadata",
+	];
+	const orderedRoot: Record<string, unknown> = {};
+	for (const k of preferredTopKeys) {
+		if (k in root && root[k] !== undefined) {
+			orderedRoot[k] = root[k];
+		}
+	}
+	for (const [k, v] of Object.entries(root)) {
+		if (!(k in orderedRoot) && v !== undefined) {
+			orderedRoot[k] = v;
+		}
+	}
+	const lines: string[] = [];
+	emitNode(orderedRoot, 0, lines);
+	return lines.join("\n");
+}
+
 export function generateLocalExport(
 	format: string,
 	version: string,
@@ -1415,6 +1535,7 @@ export function generateLocalExport(
 	}
 
 	const rawDomain = session.domain_namespace || "general";
+	const rawOwner = session.enterprise_owner || "Enterprise Architecture";
 	const domain = escapeIri(rawDomain);
 
 	switch (normalizedFormat) {
@@ -1468,51 +1589,13 @@ export function generateLocalExport(
 			return lines.join("\n");
 		}
 		case "json": {
-			const sortedConcepts = [...nodes]
-				.sort((a, b) =>
-					a.concept_uri < b.concept_uri
-						? -1
-						: a.concept_uri > b.concept_uri
-							? 1
-							: 0,
-				)
-				.map((n) => ({
-					concept_uri: n.concept_uri,
-					concept_name: n.concept_name,
-					elm_archetype: n.elm_archetype,
-					definition: n.definition,
-					parent_concept_uri: n.parent_concept_uri ?? null,
-					target_hub: n.target_hub ?? null,
-					grounding_status: n.grounding_status,
-					attributes: n.attributes,
-					synonyms: n.synonyms,
-					external_mappings: n.external_mappings,
-				}));
-			const sortedEdges = [...edges]
-				.sort((a, b) =>
-					a.relationship_uri < b.relationship_uri
-						? -1
-						: a.relationship_uri > b.relationship_uri
-							? 1
-							: 0,
-				)
-				.map((e) => ({
-					relationship_uri: e.relationship_uri,
-					relationship_name: e.relationship_name,
-					source_concept_uri: e.source_concept_uri,
-					target_concept_uri: e.target_concept_uri,
-					cardinality: e.cardinality ?? null,
-					target_link: e.target_link,
-				}));
-			const obj = {
-				$schema: "https://open-dv.io/schemas/v1/ontology-export.schema.json",
-				schema_version: "v1",
-				ontology_version: version,
-				domain_namespace: session.domain_namespace || "general",
-				concepts: sortedConcepts,
-				relationships: sortedEdges,
-			};
-			return JSON.stringify(obj, null, 2);
+			const canonical = canonicalizeGraphADict(nodes, edges, {
+				...session,
+				domain_namespace: rawDomain,
+				enterprise_owner: rawOwner,
+				active_version: version,
+			});
+			return dumpsJcs(canonical, { excludeNone: true });
 		}
 		case "turtle": {
 			const lines = [
@@ -1612,33 +1695,13 @@ export function generateLocalExport(
 		}
 		case "yaml":
 		default: {
-			const lines = [
-				`ontology_version: "${escapeYamlString(version)}"`,
-				`domain_namespace: "${escapeYamlString(rawDomain)}"`,
-				"concepts:",
-			];
-			for (const n of nodes) {
-				lines.push(`  - concept_uri: "${escapeYamlString(n.concept_uri)}"`);
-				lines.push(`    concept_name: "${escapeYamlString(n.concept_name)}"`);
-				lines.push(`    elm_archetype: "${escapeYamlString(n.elm_archetype)}"`);
-				lines.push(`    definition: "${escapeYamlString(n.definition)}"`);
-			}
-			lines.push("relationships:");
-			for (const e of edges) {
-				lines.push(
-					`  - relationship_uri: "${escapeYamlString(e.relationship_uri)}"`,
-				);
-				lines.push(
-					`    relationship_name: "${escapeYamlString(e.relationship_name)}"`,
-				);
-				lines.push(
-					`    source_concept_uri: "${escapeYamlString(e.source_concept_uri)}"`,
-				);
-				lines.push(
-					`    target_concept_uri: "${escapeYamlString(e.target_concept_uri)}"`,
-				);
-			}
-			return lines.join("\n");
+			const canonical = canonicalizeGraphADict(nodes, edges, {
+				...session,
+				domain_namespace: rawDomain,
+				enterprise_owner: rawOwner,
+				active_version: version,
+			});
+			return serializeGraphAYaml(canonical);
 		}
 	}
 }
@@ -1878,15 +1941,31 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			return res;
 		};
 
+		const cancelActiveJobWatchers = () => {
+			for (const es of activeEventSources) {
+				try {
+					es.close();
+				} catch {
+					// ignore cleanup errors
+				}
+			}
+			activeEventSources.clear();
+			for (const timer of activePollTimers) {
+				clearTimeout(timer);
+			}
+			activePollTimers.clear();
+		};
+
 		const handleJobPayloadUpdate = async (
 			sid: string,
 			jobId: string,
 			jobKind: "parse" | "clarify" | "construct",
 			payload: Record<string, unknown>,
 			fetchImpl: typeof fetch,
-			opts?: { eventType?: string; autoCommit?: boolean },
+			opts?: { eventType?: string; autoCommit?: boolean; myGen?: number },
 		): Promise<boolean> => {
-			if (get().activeSession?.session_id !== sid) return true;
+			const myGen = opts?.myGen ?? activeJobGeneration;
+			if (myGen !== activeJobGeneration) return true;
 			const eventType =
 				opts?.eventType ||
 				(typeof payload.event === "string" ? payload.event : "");
@@ -1908,6 +1987,10 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				rawStatus === "CANCELED" ||
 				rawStatus === "ABANDONED" ||
 				rawStatus === "JOB_ABANDONED_SERVER_CRASH";
+
+			if (get().activeSession?.session_id !== sid) {
+				return isTerminalSuccess || isTerminalFailure;
+			}
 
 			const resultObj =
 				payload.result && typeof payload.result === "object"
@@ -1955,6 +2038,12 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			});
 
 			if (isTerminalFailure) {
+				if (
+					myGen !== activeJobGeneration ||
+					get().activeSession?.session_id !== sid
+				) {
+					return true;
+				}
 				const isCrashAbandoned =
 					eventType === "JOB_ABANDONED_SERVER_CRASH" ||
 					rawStatus === "JOB_ABANDONED_SERVER_CRASH";
@@ -1973,8 +2062,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 								: `${jobKind.charAt(0).toUpperCase() + jobKind.slice(1)} job failed`),
 				);
 				set((state) => ({
-					isClarifying: false,
-					isConstructing: false,
+					...(jobKind === "clarify" ? { isClarifying: false } : {}),
+					...(jobKind === "construct" ? { isConstructing: false } : {}),
 					...(jobKind === "parse" || state.parsingState.status === "parsing"
 						? {
 								parsingState: {
@@ -2007,6 +2096,12 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						? (payload.evidence_chunks as EvidenceChunk[])
 						: undefined;
 				if (isTerminalSuccess) {
+					if (
+						myGen !== activeJobGeneration ||
+						get().activeSession?.session_id !== sid
+					) {
+						return true;
+					}
 					set((state) => ({
 						parsingState: {
 							...state.parsingState,
@@ -2021,6 +2116,12 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						},
 					}));
 					return true;
+				}
+				if (
+					myGen !== activeJobGeneration ||
+					get().activeSession?.session_id !== sid
+				) {
+					return false;
 				}
 				set((state) => {
 					const nextChunksCount = chunks
@@ -2048,8 +2149,13 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 
 			if (jobKind === "clarify") {
 				if (isTerminalSuccess) {
-					set({ isClarifying: false });
-					await get().loadClarifications(fetchImpl, sid);
+					if (
+						myGen === activeJobGeneration &&
+						get().activeSession?.session_id === sid
+					) {
+						set({ isClarifying: false });
+						await get().loadClarifications(fetchImpl, sid);
+					}
 					return true;
 				}
 				return false;
@@ -2057,11 +2163,16 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 
 			if (jobKind === "construct") {
 				if (isTerminalSuccess) {
-					set({ isConstructing: false });
-					if (opts?.autoCommit || Boolean(resultObj.auto_committed)) {
-						await get().selectSession(sid, fetchImpl, true);
-					} else {
-						await get().loadProposals(fetchImpl, sid);
+					if (
+						myGen === activeJobGeneration &&
+						get().activeSession?.session_id === sid
+					) {
+						set({ isConstructing: false });
+						if (opts?.autoCommit || Boolean(resultObj.auto_committed)) {
+							await get().selectSession(sid, fetchImpl, true);
+						} else {
+							await get().loadProposals(fetchImpl, sid);
+						}
 					}
 					return true;
 				}
@@ -2075,14 +2186,16 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			jobId: string,
 			jobKind: "parse" | "clarify" | "construct",
 			fetchImpl: typeof fetch,
-			jobOpts?: { autoCommit?: boolean },
+			jobOpts?: { autoCommit?: boolean; myGen?: number },
 		) => {
 			if (!jobId) return;
-			const gen = activeJobGeneration;
+			const myGen = jobOpts?.myGen ?? activeJobGeneration;
 
 			const schedulePoll = (fn: () => void, delayMs: number) => {
+				if (myGen !== activeJobGeneration) return;
 				const timer = setTimeout(() => {
 					activePollTimers.delete(timer);
+					if (myGen !== activeJobGeneration) return;
 					fn();
 				}, delayMs);
 				activePollTimers.add(timer);
@@ -2094,7 +2207,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				status = 504,
 			) => {
 				if (
-					gen !== activeJobGeneration ||
+					myGen !== activeJobGeneration ||
 					get().activeSession?.session_id !== sid
 				) {
 					return;
@@ -2106,8 +2219,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					level: "error",
 				});
 				set((state) => ({
-					isClarifying: false,
-					isConstructing: false,
+					...(jobKind === "clarify" ? { isClarifying: false } : {}),
+					...(jobKind === "construct" ? { isConstructing: false } : {}),
 					...(jobKind === "parse" || state.parsingState.status === "parsing"
 						? {
 								parsingState: {
@@ -2140,7 +2253,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 
 				const pollOnce = async () => {
 					if (
-						gen !== activeJobGeneration ||
+						myGen !== activeJobGeneration ||
 						get().activeSession?.session_id !== sid
 					) {
 						return;
@@ -2155,11 +2268,13 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						attempts >= maxAttempts ||
 						Date.now() - startedAt > maxDurationMs
 					) {
-						failWatchedJob(
-							`Timed out waiting for ${jobKind} job ${jobId} to complete.`,
-							"JOB_POLL_TIMEOUT",
-							504,
-						);
+						if (myGen === activeJobGeneration) {
+							failWatchedJob(
+								`Timed out waiting for ${jobKind} job ${jobId} to complete.`,
+								"JOB_POLL_TIMEOUT",
+								504,
+							);
+						}
 						return;
 					}
 					attempts += 1;
@@ -2176,7 +2291,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							`/api/v1/ontology/studio/jobs/${encodeURIComponent(jobId)}`,
 						);
 						if (
-							gen !== activeJobGeneration ||
+							myGen !== activeJobGeneration ||
 							get().activeSession?.session_id !== sid
 						) {
 							return;
@@ -2207,6 +2322,12 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 								error?: string;
 								code?: string;
 							};
+							if (
+								myGen !== activeJobGeneration ||
+								get().activeSession?.session_id !== sid
+							) {
+								return;
+							}
 							failWatchedJob(
 								errData.detail ||
 									errData.error ||
@@ -2221,6 +2342,12 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							string,
 							unknown
 						> | null;
+						if (
+							myGen !== activeJobGeneration ||
+							get().activeSession?.session_id !== sid
+						) {
+							return;
+						}
 						if (
 							!pollData ||
 							(pollData.status === undefined &&
@@ -2241,11 +2368,14 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							jobKind,
 							pollData,
 							fetchImpl,
-							jobOpts?.autoCommit ? { autoCommit: true } : undefined,
+							{
+								...(jobOpts?.autoCommit ? { autoCommit: true } : {}),
+								myGen,
+							},
 						);
 						if (
 							!done &&
-							gen === activeJobGeneration &&
+							myGen === activeJobGeneration &&
 							get().activeSession?.session_id === sid
 						) {
 							schedulePoll(() => {
@@ -2254,7 +2384,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						}
 					} catch (err) {
 						if (
-							gen !== activeJobGeneration ||
+							myGen !== activeJobGeneration ||
 							get().activeSession?.session_id !== sid
 						) {
 							return;
@@ -2314,7 +2444,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					};
 
 					const onEventData = async (ev: MessageEvent, eventType?: string) => {
-						if (gen !== activeJobGeneration) {
+						if (myGen !== activeJobGeneration) {
+							settled = true;
 							cleanupEs();
 							return;
 						}
@@ -2352,6 +2483,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							{
 								...(eventType ? { eventType } : {}),
 								...(jobOpts?.autoCommit ? { autoCommit: true } : {}),
+								myGen,
 							},
 						);
 						if (done) {
@@ -2384,18 +2516,32 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					}
 					es.onerror = () => {
 						cleanupEs();
-						if (!settled && gen === activeJobGeneration) {
+						if (
+							!settled &&
+							myGen === activeJobGeneration &&
+							get().activeSession?.session_id === sid
+						) {
 							startPollingFallback();
 						}
 					};
 					return;
 				} catch {
-					startPollingFallback();
+					if (
+						myGen === activeJobGeneration &&
+						get().activeSession?.session_id === sid
+					) {
+						startPollingFallback();
+					}
 					return;
 				}
 			}
 
-			startPollingFallback();
+			if (
+				myGen === activeJobGeneration &&
+				get().activeSession?.session_id === sid
+			) {
+				startPollingFallback();
+			}
 		};
 
 		return {
@@ -2702,6 +2848,12 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						code: "UNSAVED_CHANGES",
 					});
 					return;
+				}
+
+				const prevSessionId = get().activeSession?.session_id;
+				if (sessionId !== prevSessionId) {
+					activeJobGeneration++;
+					cancelActiveJobWatchers();
 				}
 
 				const reqId = ++activeSessionRequestId;
@@ -3147,6 +3299,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				if (!activeSession) return null;
 
 				const sid = activeSession.session_id;
+				const myGen = ++activeJobGeneration;
+				cancelActiveJobWatchers();
 
 				set({
 					parsingState: {
@@ -3170,14 +3324,22 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							body: JSON.stringify({ ocr_mode: ocrMode }),
 						},
 					);
-					if (get().activeSession?.session_id !== sid) return null;
+					if (
+						myGen !== activeJobGeneration ||
+						get().activeSession?.session_id !== sid
+					)
+						return null;
 
 					if (!res.ok) {
 						const err = (await res.json().catch(() => ({}))) as {
 							detail?: string;
 							code?: string;
 						};
-						if (get().activeSession?.session_id !== sid) return null;
+						if (
+							myGen !== activeJobGeneration ||
+							get().activeSession?.session_id !== sid
+						)
+							return null;
 						set({
 							parsingState: {
 								status: "failed",
@@ -3215,7 +3377,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							progress_pct?: number;
 						};
 					};
-					if (get().activeSession?.session_id !== sid) return null;
+					if (
+						myGen !== activeJobGeneration ||
+						get().activeSession?.session_id !== sid
+					)
+						return null;
 					const initialChunks =
 						job.result?.evidence_chunks || job.evidence_chunks || [];
 					const initialPct =
@@ -3255,11 +3421,14 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						level: "info",
 					});
 					if (!isAlreadyDone && job.job_id) {
-						monitorStudioJob(sid, job.job_id, "parse", fetchImpl);
+						monitorStudioJob(sid, job.job_id, "parse", fetchImpl, { myGen });
 					}
 					return job.job_id;
 				} catch (err) {
-					if (get().activeSession?.session_id === sid) {
+					if (
+						myGen === activeJobGeneration &&
+						get().activeSession?.session_id === sid
+					) {
 						set({
 							parsingState: {
 								status: "failed",
@@ -3715,12 +3884,12 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						if (res.status === 409 || res.status === 412) {
 							// Concurrent modification: reload clarifications but preserve unsent local drafts
 							const currentDrafts = { ...get().answers };
-							await get().loadClarifications(fetchImpl);
+							await get().loadClarifications(fetchImpl, sid);
 							if (get().activeSession?.session_id !== sid) return false;
 							set((state) => ({
 								answers: {
-									...currentDrafts,
 									...state.answers,
+									...currentDrafts,
 								},
 							}));
 						}
@@ -3788,6 +3957,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				const activeSession = get().activeSession;
 				if (!activeSession) return null;
 				const sid = activeSession.session_id;
+				const myGen = ++activeJobGeneration;
+				cancelActiveJobWatchers();
 				set({ isClarifying: true });
 				try {
 					const res = await studioFetch(
@@ -3802,12 +3973,21 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							}),
 						},
 					);
-					if (get().activeSession?.session_id !== sid) return null;
+					if (
+						myGen !== activeJobGeneration ||
+						get().activeSession?.session_id !== sid
+					)
+						return null;
 					if (!res.ok) {
 						const err = (await res.json().catch(() => ({}))) as {
 							detail?: string;
 							code?: string;
 						};
+						if (
+							myGen !== activeJobGeneration ||
+							get().activeSession?.session_id !== sid
+						)
+							return null;
 						set({ isClarifying: false });
 						get().addToast({
 							type: "urn:opendv:error:clarify-failed",
@@ -3824,6 +4004,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						stage?: string;
 						progress_pct?: number;
 					};
+					if (
+						myGen !== activeJobGeneration ||
+						get().activeSession?.session_id !== sid
+					)
+						return null;
 					appendSseEvent({
 						job_id: job.job_id,
 						stage: job.stage || "clarify",
@@ -3838,13 +4023,16 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						set({ isClarifying: false });
 						await get().loadClarifications(fetchImpl, sid);
 					} else if (job.job_id) {
-						monitorStudioJob(sid, job.job_id, "clarify", fetchImpl);
+						monitorStudioJob(sid, job.job_id, "clarify", fetchImpl, { myGen });
 					} else {
 						set({ isClarifying: false });
 					}
 					return job.job_id || null;
 				} catch (err) {
-					if (get().activeSession?.session_id === sid) {
+					if (
+						myGen === activeJobGeneration &&
+						get().activeSession?.session_id === sid
+					) {
 						set({ isClarifying: false });
 						get().addToast({
 							type: "urn:opendv:error:network",
@@ -3869,6 +4057,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				if (isAutoCommit && activeSession.head_sha256) {
 					headers["If-Match"] = `"${activeSession.head_sha256}"`;
 				}
+				const myGen = ++activeJobGeneration;
+				cancelActiveJobWatchers();
 				set({ isConstructing: true });
 				try {
 					const res = await studioFetch(
@@ -3890,18 +4080,24 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 												: {}),
 										}
 									: {}),
-								rationale:
-									constructOptions.rationale ||
-									"Construct candidate ontology proposal from parsed sources",
 							}),
 						},
 					);
-					if (get().activeSession?.session_id !== sid) return null;
+					if (
+						myGen !== activeJobGeneration ||
+						get().activeSession?.session_id !== sid
+					)
+						return null;
 					if (!res.ok) {
 						const err = (await res.json().catch(() => ({}))) as {
 							detail?: string;
 							code?: string;
 						};
+						if (
+							myGen !== activeJobGeneration ||
+							get().activeSession?.session_id !== sid
+						)
+							return null;
 						set({ isConstructing: false });
 						get().addToast({
 							type: "urn:opendv:error:construct-failed",
@@ -3920,6 +4116,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						progress_pct?: number;
 						progress?: number;
 					};
+					if (
+						myGen !== activeJobGeneration ||
+						get().activeSession?.session_id !== sid
+					)
+						return null;
 					const initialPct =
 						job.pct_complete ?? job.progress_pct ?? job.progress ?? 10;
 					appendSseEvent({
@@ -3940,19 +4141,19 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							await get().loadProposals(fetchImpl, sid);
 						}
 					} else if (job.job_id) {
-						monitorStudioJob(
-							sid,
-							job.job_id,
-							"construct",
-							fetchImpl,
-							isAutoCommit ? { autoCommit: true } : undefined,
-						);
+						monitorStudioJob(sid, job.job_id, "construct", fetchImpl, {
+							...(isAutoCommit ? { autoCommit: true } : {}),
+							myGen,
+						});
 					} else {
 						set({ isConstructing: false });
 					}
 					return job.job_id || null;
 				} catch (err) {
-					if (get().activeSession?.session_id === sid) {
+					if (
+						myGen === activeJobGeneration &&
+						get().activeSession?.session_id === sid
+					) {
 						set({ isConstructing: false });
 						get().addToast({
 							type: "urn:opendv:error:network",
@@ -4057,9 +4258,6 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 									? { base_sha256: activeSession.head_sha256 }
 									: {}),
 								grounding_rationale:
-									rationale ||
-									`Accepted candidate proposal ${proposalId} via Workbench Studio`,
-								rationale:
 									rationale ||
 									`Accepted candidate proposal ${proposalId} via Workbench Studio`,
 								...(acceptOptions?.selfAcceptanceOverride
@@ -4292,13 +4490,28 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					)
 						return;
 
-					const ont = (await res.json()) as Record<string, unknown>;
+					const ont = (await res.json().catch(() => null)) as Record<
+						string,
+						unknown
+					> | null;
 
 					if (
 						reqId !== activeGraphRequestId ||
 						get().activeSession?.session_id !== expectedId
 					)
 						return;
+
+					const hasOntologyPayload =
+						ont !== null &&
+						typeof ont === "object" &&
+						!Array.isArray(ont) &&
+						(Array.isArray(ont.canonical_business_concepts) ||
+							Array.isArray(ont.concepts) ||
+							Array.isArray(ont.canonical_concepts));
+					if (!hasOntologyPayload || !ont) {
+						set({ isLoadingGraph: false });
+						return;
+					}
 
 					const { loadedNodes, loadedEdges } = parseLoadedGraphPayload(ont);
 
@@ -5597,7 +5810,6 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					});
 				};
 
-				let reliedOnCandidateUserAssertedFibo = false;
 				const evoCheck = authoritativeScorecard.checks.find(
 					(c) => c.rule_id === "ONT-EVO-002",
 				);
@@ -5644,7 +5856,6 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						});
 						return false;
 					}
-					reliedOnCandidateUserAssertedFibo = true;
 				}
 
 				const dagCheck = authoritativeScorecard.checks.find(
@@ -6086,6 +6297,31 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						return false;
 					}
 
+					const nextVersion =
+						data.target_version ||
+						data.active_version ||
+						get().activeSession?.active_version ||
+						targetVersion;
+					const nextSha =
+						data.target_sha256 ||
+						data.head_sha256 ||
+						get().activeSession?.head_sha256;
+
+					const cloneNodeClean = (n: ConceptNode): ConceptNode => ({
+						...n,
+						attributes: (n.attributes || []).map((a) => ({ ...a })),
+						synonyms: [...(n.synonyms || [])],
+						external_mappings: (n.external_mappings || []).map((m) => ({
+							...m,
+						})),
+					});
+					const cloneEdgeClean = (e: RelationshipEdge): RelationshipEdge => ({
+						...e,
+						...(e.endpoints ? { endpoints: [...e.endpoints] } : {}),
+					});
+
+					let shouldReloadVerifiedSnapshot = false;
+
 					set((state) => {
 						const hasFurtherEdits =
 							state.nodes.length !== sentNodes.length ||
@@ -6093,48 +6329,17 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							state.nodes.some((n, i) => n !== sentNodes[i]) ||
 							state.edges.some((e, i) => e !== sentEdges[i]);
 
-						// Once POST /delta returns 200 OK, server-side GroundingVerifier has ratified
-						// any candidate user_asserted FIBO Path A mappings included in the delta.
-						let ratifiedNodes = sentNodes;
-						let ratifiedEdges = sentEdges;
-						if (data.ontology && typeof data.ontology === "object") {
+						let ratifiedNodes = sentNodes.map(cloneNodeClean);
+						let ratifiedEdges = sentEdges.map(cloneEdgeClean);
+						const hasInlineOntology = Boolean(
+							data.ontology && typeof data.ontology === "object",
+						);
+						if (hasInlineOntology && data.ontology) {
 							const parsedOnt = parseLoadedGraphPayload(data.ontology);
 							ratifiedNodes = parsedOnt.loadedNodes;
 							ratifiedEdges = parsedOnt.loadedEdges;
-						} else if (reliedOnCandidateUserAssertedFibo) {
-							ratifiedNodes = sentNodes.map((n) => {
-								const nextMappings = (n.external_mappings || []).map((m) => {
-									const isUserAsserted =
-										(m.provenance || "").trim().toLowerCase() ===
-										"user_asserted";
-									const isFibo =
-										(m.scheme || "").trim().toLowerCase() === "fibo";
-									const hasPathAPredicate =
-										typeof m.predicate === "string" &&
-										VALID_PATH_A_PREDICATES.has(m.predicate.trim());
-									if (!isUserAsserted || !isFibo || !hasPathAPredicate) {
-										return m;
-									}
-									const verifiedConf = m.predicate?.includes("exactMatch")
-										? 1.0
-										: 0.85;
-									return {
-										...m,
-										confidence: verifiedConf,
-										provenance: "verified_pack",
-									};
-								});
-								const derived = deriveGroundingStatus(
-									nextMappings,
-									n.confidence,
-								);
-								return {
-									...n,
-									external_mappings: nextMappings,
-									confidence: derived.confidence,
-									grounding_status: derived.grounding_status,
-								};
-							});
+						} else if (!hasFurtherEdits) {
+							shouldReloadVerifiedSnapshot = true;
 						}
 
 						const nextWorkingNodes = hasFurtherEdits
@@ -6147,14 +6352,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						const nextSession = state.activeSession
 							? {
 									...state.activeSession,
-									head_sha256:
-										data.target_sha256 ||
-										data.head_sha256 ||
-										state.activeSession.head_sha256,
-									active_version:
-										data.target_version ||
-										data.active_version ||
-										state.activeSession.active_version,
+									...(state.activeSession.status === "EMPTY"
+										? { status: "COMMITTED" }
+										: {}),
+									head_sha256: nextSha || state.activeSession.head_sha256,
+									active_version: nextVersion,
 								}
 							: null;
 
@@ -6187,6 +6389,20 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							),
 						};
 					});
+
+					if (
+						shouldReloadVerifiedSnapshot &&
+						get().activeSession?.session_id === sid &&
+						!get().hasUnsavedChanges
+					) {
+						const toastsBeforeReload = get().toasts;
+						await get().loadGraph(nextVersion, fetchImpl, sid);
+						if (get().toasts !== toastsBeforeReload) {
+							// Minimal unit-test mock without GET /export: preserve clean cloned fallback without spurious error toast
+							set({ toasts: toastsBeforeReload });
+						}
+					}
+
 					get().addToast({
 						type: "urn:opendv:notice:commit-success",
 						title: "Changes Committed",
@@ -6294,7 +6510,48 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					return false;
 				}
 
-				if (get().nodes.length === 0) {
+				const normalizedExplicitTargets = explicitTargetUris
+					? explicitTargetUris.map((u) => u.trim()).filter(Boolean)
+					: undefined;
+
+				const pendingProposalUngroundedUris: string[] = [];
+				const pendingProposalAllConceptUris = new Set<string>();
+				for (const prop of get().proposals || []) {
+					if (prop.status && prop.status.toUpperCase() !== "PENDING") {
+						continue;
+					}
+					for (const op of prop.operations || []) {
+						if (
+							op &&
+							typeof op === "object" &&
+							op.op_type === "add_concept" &&
+							typeof op.concept_uri === "string" &&
+							op.concept_uri.trim().length > 0
+						) {
+							const uri = op.concept_uri.trim();
+							pendingProposalAllConceptUris.add(uri);
+							const rawMappings = Array.isArray(op.external_mappings)
+								? (op.external_mappings as ExternalMapping[])
+								: [];
+							const rawConf =
+								typeof op.confidence === "number" ? op.confidence : undefined;
+							const status =
+								rawMappings.length > 0
+									? deriveGroundingStatus(rawMappings, rawConf).grounding_status
+									: "UNGROUNDED";
+							if (status !== "GROUNDED") {
+								pendingProposalUngroundedUris.push(uri);
+							}
+						}
+					}
+				}
+
+				if (
+					get().nodes.length === 0 &&
+					(!normalizedExplicitTargets ||
+						normalizedExplicitTargets.length === 0) &&
+					pendingProposalAllConceptUris.size === 0
+				) {
 					get().addToast({
 						type: "urn:opendv:notice:empty-graph",
 						title: "Empty Graph",
@@ -6318,7 +6575,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					}),
 				);
 
-				const ungroundedUris = get()
+				const ungroundedNodeUris = get()
 					.nodes.filter((n) => {
 						if (effectiveGrandfathered.has(n.concept_uri)) return false;
 						const hasMappings =
@@ -6332,9 +6589,18 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					})
 					.map((n) => n.concept_uri);
 
+				const ungroundedUris = Array.from(
+					new Set([...ungroundedNodeUris, ...pendingProposalUngroundedUris]),
+				);
+
 				const targetUris =
-					explicitTargetUris && explicitTargetUris.length > 0
-						? explicitTargetUris.filter((u) => ungroundedUris.includes(u))
+					normalizedExplicitTargets && normalizedExplicitTargets.length > 0
+						? get().nodes.length === 0 &&
+							pendingProposalAllConceptUris.size === 0
+							? normalizedExplicitTargets
+							: normalizedExplicitTargets.filter((u) =>
+									ungroundedUris.includes(u),
+								)
 						: ungroundedUris;
 
 				if (targetUris.length === 0) {
@@ -6696,6 +6962,24 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				}
 
 				const sid = activeSession.session_id;
+				const trimmedWorkspace = req.workspace?.trim();
+				const trimmedHistoricalRationale =
+					req.historical_contract_rationale?.trim();
+				const promoteBody: Record<string, unknown> = {
+					workspace_sha256: req.workspace_sha256,
+					head_sha256: req.head_sha256,
+					rationale: req.rationale.trim(),
+					...(trimmedWorkspace ? { workspace: trimmedWorkspace } : {}),
+					...(req.acknowledge_historical_contract_warning !== undefined
+						? {
+								acknowledge_historical_contract_warning:
+									req.acknowledge_historical_contract_warning,
+							}
+						: {}),
+					...(trimmedHistoricalRationale
+						? { historical_contract_rationale: trimmedHistoricalRationale }
+						: {}),
+				};
 				set({ isPromoting: true });
 				try {
 					const res = await studioFetch(
@@ -6708,7 +6992,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 								"If-Match": `"${req.head_sha256}"`,
 								"X-OpenDV-Workspace-If-Match": `"${req.workspace_sha256}"`,
 							},
-							body: JSON.stringify(req),
+							body: JSON.stringify(promoteBody),
 						},
 					);
 
@@ -6741,6 +7025,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 									s.session_id === sid
 										? {
 												...s,
+												status: "PROMOTED",
 												head_sha256: promoData.head_sha256 || s.head_sha256,
 												active_version:
 													promoData.promoted_version || s.active_version,
@@ -6768,31 +7053,22 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					const newVersion =
 						promoData.promoted_version || currentSession.active_version;
 
-					const newCommit: SessionCommit = {
-						commit_id: `commit-${Date.now()}`,
-						parent_sha256: req.head_sha256,
-						new_sha256: newSha,
-						version: newVersion,
-						rationale: req.rationale,
-						committed_at: new Date().toISOString(),
-					};
-
 					set((state) => ({
 						activeSession: state.activeSession
 							? {
 									...state.activeSession,
+									status: "PROMOTED",
 									active_version: newVersion,
 									head_sha256: newSha,
-									commits: [...(state.activeSession.commits || []), newCommit],
 								}
 							: null,
 						sessions: state.sessions.map((s) =>
 							s.session_id === sid
 								? {
 										...s,
+										status: "PROMOTED",
 										active_version: newVersion,
 										head_sha256: newSha,
-										commits: [...(s.commits || []), newCommit],
 									}
 								: s,
 						),

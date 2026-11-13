@@ -5452,6 +5452,17 @@
             ],
             "title": "Delta Id"
           },
+          "domain_namespace": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Domain Namespace"
+          },
           "evidence_grounding_file": {
             "anyOf": [
               {

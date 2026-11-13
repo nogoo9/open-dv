@@ -44,6 +44,28 @@ from opendv_sources.ingestion.adapter import BaseDocumentAdapter
 
 logger = logging.getLogger(__name__)
 
+
+class ArchiveSecurityViolationError(InvalidDocumentError, ValueError):
+    """Raised when an Office payload violates magic-byte, bomb, XXE, DDE, or link security."""
+
+    error_code: ErrorCode = ErrorCode.ARCHIVE_SECURITY_VIOLATION
+    exit_code: int = 4
+    http_status: int = 422
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_code: ErrorCode | None = None,
+        details: dict[str, Any] | None = None,
+    ) -> None:
+        super().__init__(
+            message,
+            error_code=error_code or ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+            details=details,
+        )
+
+
 _OFFICE_EXTENSION_MIME_MAP: dict[str, str] = {
     ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -54,6 +76,31 @@ _OFFICE_EXTENSION_MIME_MAP: dict[str, str] = {
     ".doc": "application/msword",
     ".ppt": "application/vnd.ms-powerpoint",
     ".xls": "application/vnd.ms-excel",
+}
+_OFFICE_MIME_EXTENSION_MAP: dict[str, str] = {
+    mime: ext for ext, mime in _OFFICE_EXTENSION_MIME_MAP.items()
+}
+_GENERIC_BINARY_MIMES: frozenset[str] = frozenset(
+    {"", "application/octet-stream", "binary/octet-stream"}
+)
+_ZIP_OFFICE_EXTENSIONS: frozenset[str] = frozenset(
+    {".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"}
+)
+_OLE_OFFICE_EXTENSIONS: frozenset[str] = frozenset({".doc", ".xls", ".ppt"})
+_ZIP_LOCAL_MAGIC_PREFIXES: tuple[bytes, ...] = (b"PK\x03\x04", b"PK\x05\x06")
+_OLE_CFB_MAGIC: bytes = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+_OLE_CFB_MIN_BYTES: int = 512
+
+_SOFFICE_INFILTER_MAP: dict[str, str] = {
+    ".doc": "MS Word 97",
+    ".docx": "MS Word 2007 XML",
+    ".xls": "MS Excel 97",
+    ".xlsx": "Calc MS Excel 2007 XML",
+    ".ppt": "MS PowerPoint 97",
+    ".pptx": "Impress MS PowerPoint 2007 XML",
+    ".odt": "writer8",
+    ".ods": "calc8",
+    ".odp": "impress8",
 }
 
 MAX_OFFICE_INPUT_BYTES_DEFAULT: int = 50 * 1024 * 1024
@@ -118,6 +165,38 @@ _XML_DOCTYPE_ENTITY_RE = re.compile(
     re.IGNORECASE,
 )
 
+_ASCII_LB = r"(?<![A-Za-z0-9_])"
+_ASCII_RB = r"(?![A-Za-z0-9_])"
+
+_OLE_UNSAFE_MARKER_RE = re.compile(
+    r"(?:"
+    rf"{_ASCII_LB}(?:DDEAUTO|INCLUDEPICTURE|INCLUDETEXT|WEBSERVICE){_ASCII_RB}"
+    rf"|{_ASCII_LB}RTD\s*\("
+    rf"|{_ASCII_LB}(?:table-source|section-source|cell-range-source|dde-source|dde-connection"
+    rf"|stdolelink|olelink|externallink|externalbook|subdoc|htmlpubsaveas|attachedtemplate){_ASCII_RB}"
+    r"|<!\s*(?:DOCTYPE|ENTITY)(?![A-Za-z0-9_])"
+    r"|(?:file|ftp|ftps|smb|jar|gopher|ldap|ldaps|netdoc)://"
+    rf"|{_ASCII_LB}file:///"
+    r"|\\\\[A-Za-z0-9_.\-]+\\[A-Za-z0-9_$.\-]+"
+    r"|\x13\s*(?:DDEAUTO|DDE|INCLUDEPICTURE|INCLUDETEXT|RD|IMPORT|LINK|AUTOTEXTLIST|DATABASE)(?![A-Za-z0-9_])"
+    rf"|{_ASCII_LB}(?:DDE|RD|IMPORT|LINK)\s+(?:"
+    r"[\"']"
+    r"|(?:https?|ftps?|file|smb)://"
+    r"|\\\\"
+    r"|[A-Za-z]:[/\\]"
+    r"|/[A-Za-z0-9_.\-]+"
+    r"|[A-Za-z0-9_\-]+\.[A-Za-z0-9_.\-]+"
+    r")"
+    r")",
+    re.IGNORECASE,
+)
+_OLE_UPPERCASE_FIELD_RE = re.compile(rf"{_ASCII_LB}(?:DDE|RD|IMPORT|LINK) ")
+_OLE_HTTP_URI_RE = re.compile(r"(?:https?|ftps?)://", re.IGNORECASE)
+_OLE_LINK_AUTOLOAD_INDICATOR_RE = re.compile(
+    rf"(?:\x01https?://|Ole10Native|\x01Ole{_ASCII_RB}|LinkSource|LinkInfo|AutoLoad|TargetMode\s*=\s*[\"']?External)",
+    re.IGNORECASE,
+)
+
 _HARDENED_REGISTRYMODIFICATIONS_XCU: str = """<?xml version="1.0" encoding="UTF-8"?>
 <oor:items xmlns:oor="http://openoffice.org/2001/registry"
            xmlns:xs="http://www.w3.org/2001/XMLSchema"
@@ -166,18 +245,16 @@ def _write_hardened_libreoffice_profile(profile_dir: Path) -> Path:
 def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str) -> None:
     """Reject XXE declarations, external OOXML/ODF subdocuments/images/OLE, DDE, and WEBSERVICE."""
     if _XML_DOCTYPE_ENTITY_RE.search(xml_bytes):
-        raise InvalidDocumentError(
+        raise ArchiveSecurityViolationError(
             f"Office archive '{filename}' contains forbidden DTD/ENTITY declaration in "
-            f"'{entry_name}'",
-            error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+            f"'{entry_name}'"
         )
 
     try:
         root = ET.fromstring(xml_bytes)
     except (ET.ParseError, RecursionError, MemoryError, ValueError) as exc:
-        raise InvalidDocumentError(
-            f"Malformed XML entry '{entry_name}' inside Office archive '{filename}': {exc}",
-            error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+        raise ArchiveSecurityViolationError(
+            f"Malformed XML entry '{entry_name}' inside Office archive '{filename}': {exc}"
         ) from exc
 
     is_rels = entry_name.lower().endswith(".rels")
@@ -203,19 +280,17 @@ def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str
             target_lower = target.lower()
             rel_type_lower = rel_type.lower()
             if target_lower.startswith(_UNSAFE_TARGET_PREFIXES):
-                raise InvalidDocumentError(
+                raise ArchiveSecurityViolationError(
                     f"Office archive '{filename}' contains forbidden external target '{target}' "
-                    f"in '{entry_name}'",
-                    error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                    f"in '{entry_name}'"
                 )
             if target_mode.lower() == "external" and (
                 rel_type_lower.endswith(_UNSAFE_OOXML_REL_TYPE_SUFFIXES)
                 or not rel_type_lower.endswith("/hyperlink")
             ):
-                raise InvalidDocumentError(
+                raise ArchiveSecurityViolationError(
                     f"Office archive '{filename}' contains forbidden external relationship "
-                    f"type '{rel_type}' -> '{target}' in '{entry_name}'",
-                    error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                    f"type '{rel_type}' -> '{target}' in '{entry_name}'"
                 )
 
         if local_tag_lower in {
@@ -227,19 +302,17 @@ def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str
             "externalbook",
             "olelink",
         }:
-            raise InvalidDocumentError(
+            raise ArchiveSecurityViolationError(
                 f"Office archive '{filename}' contains forbidden external link element "
-                f"'<{local_tag}>' in '{entry_name}'",
-                error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                f"'<{local_tag}>' in '{entry_name}'"
             )
 
         if local_tag_lower == "instrtext" and elem.text:
             instr_chunks.append(elem.text)
             if _WORD_UNSAFE_FIELD_RE.search(elem.text):
-                raise InvalidDocumentError(
+                raise ArchiveSecurityViolationError(
                     f"Office archive '{filename}' contains forbidden field instruction in "
-                    f"'{entry_name}'",
-                    error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                    f"'{entry_name}'"
                 )
 
         if local_tag_lower == "fldsimple":
@@ -247,17 +320,14 @@ def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str
                 if _xml_local_name(attr_k).lower() == "instr" and _WORD_UNSAFE_FIELD_RE.search(
                     attr_v
                 ):
-                    raise InvalidDocumentError(
+                    raise ArchiveSecurityViolationError(
                         f"Office archive '{filename}' contains forbidden simple field instruction "
-                        f"in '{entry_name}'",
-                        error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                        f"in '{entry_name}'"
                     )
 
         if local_tag_lower == "f" and elem.text and _CALC_UNSAFE_FORMULA_RE.search(elem.text):
-            raise InvalidDocumentError(
-                f"Office archive '{filename}' contains forbidden external formula in "
-                f"'{entry_name}'",
-                error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+            raise ArchiveSecurityViolationError(
+                f"Office archive '{filename}' contains forbidden external formula in '{entry_name}'"
             )
 
         for attr_k, attr_v in elem.attrib.items():
@@ -265,17 +335,15 @@ def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str
             val_stripped = attr_v.strip()
             val_lower = val_stripped.lower()
             if ak_lower == "formula" and _CALC_UNSAFE_FORMULA_RE.search(val_stripped):
-                raise InvalidDocumentError(
+                raise ArchiveSecurityViolationError(
                     f"Office archive '{filename}' contains forbidden spreadsheet formula in "
-                    f"'{entry_name}'",
-                    error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                    f"'{entry_name}'"
                 )
             if ak_lower == "href":
                 if val_lower.startswith(_UNSAFE_TARGET_PREFIXES):
-                    raise InvalidDocumentError(
+                    raise ArchiveSecurityViolationError(
                         f"Office archive '{filename}' contains forbidden href '{val_stripped}' "
-                        f"in '{entry_name}'",
-                        error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                        f"in '{entry_name}'"
                     )
                 if (
                     local_tag_lower
@@ -290,10 +358,9 @@ def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str
                     and val_stripped
                     and not val_stripped.startswith("#")
                 ):
-                    raise InvalidDocumentError(
+                    raise ArchiveSecurityViolationError(
                         f"Office archive '{filename}' contains forbidden linked ODF resource "
-                        f"'<{local_tag} href={val_stripped!r}>' in '{entry_name}'",
-                        error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                        f"'<{local_tag} href={val_stripped!r}>' in '{entry_name}'"
                     )
                 if local_tag_lower in {
                     "image",
@@ -301,19 +368,17 @@ def _inspect_xml_entry_security(entry_name: str, xml_bytes: bytes, filename: str
                     "object-ole",
                     "imagedata",
                 } and val_lower.startswith(_EXTERNAL_URI_PREFIXES):
-                    raise InvalidDocumentError(
+                    raise ArchiveSecurityViolationError(
                         f"Office archive '{filename}' contains forbidden external media link "
-                        f"'<{local_tag} href={val_stripped!r}>' in '{entry_name}'",
-                        error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                        f"'<{local_tag} href={val_stripped!r}>' in '{entry_name}'"
                     )
 
     if instr_chunks:
         combined_instr = "".join(instr_chunks)
         if _WORD_UNSAFE_FIELD_RE.search(combined_instr):
-            raise InvalidDocumentError(
+            raise ArchiveSecurityViolationError(
                 f"Office archive '{filename}' contains split forbidden field instruction in "
-                f"'{entry_name}'",
-                error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                f"'{entry_name}'"
             )
 
 
@@ -326,25 +391,24 @@ def _inspect_office_zip_container(
     max_entries: int = MAX_OFFICE_ZIP_ENTRIES_DEFAULT,
 ) -> None:
     """Validate ZIP-based Office archives (.docx/.xlsx/.pptx/.odt/...) against bombs & SSRF."""
-    has_pk_magic = data.startswith(b"PK")
-    if not has_pk_magic and not zipfile.is_zipfile(io.BytesIO(data)):
-        return
+    if not data.startswith(_ZIP_LOCAL_MAGIC_PREFIXES):
+        raise ArchiveSecurityViolationError(
+            f"Office archive '{filename}' lacks required PKZIP local file header signature"
+        )
 
     try:
         zf = zipfile.ZipFile(io.BytesIO(data), mode="r")
     except (zipfile.BadZipFile, OSError, ValueError) as exc:
-        raise InvalidDocumentError(
-            f"Corrupt Office ZIP container '{filename}': {exc}",
-            error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+        raise ArchiveSecurityViolationError(
+            f"Corrupt Office ZIP container '{filename}': {exc}"
         ) from exc
 
     with zf:
         infos = zf.infolist()
         if len(infos) > max_entries:
-            raise InvalidDocumentError(
+            raise ArchiveSecurityViolationError(
                 f"Office archive '{filename}' contains {len(infos)} entries, exceeding maximum "
-                f"allowed entry count ({max_entries})",
-                error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                f"allowed entry count ({max_entries})"
             )
 
         declared_uncompressed = 0
@@ -352,10 +416,9 @@ def _inspect_office_zip_container(
             entry_name = info.filename
             norm_parts = entry_name.replace("\\", "/").split("/")
             if entry_name.startswith(("/", "\\")) or ".." in norm_parts:
-                raise InvalidDocumentError(
+                raise ArchiveSecurityViolationError(
                     f"Office archive '{filename}' contains unsafe path traversal entry "
-                    f"'{entry_name}'",
-                    error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                    f"'{entry_name}'"
                 )
             declared_uncompressed += max(0, int(info.file_size))
             if declared_uncompressed > max_uncompressed_bytes:
@@ -369,10 +432,9 @@ def _inspect_office_zip_container(
             and (declared_uncompressed / max(len(data), 1)) > max_compression_ratio
         ):
             ratio = declared_uncompressed / max(len(data), 1)
-            raise InvalidDocumentError(
+            raise ArchiveSecurityViolationError(
                 f"Office archive '{filename}' rejected as potential ZIP bomb: compression ratio "
-                f"{ratio:.1f}:1 exceeds maximum {max_compression_ratio:.1f}:1",
-                error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                f"{ratio:.1f}:1 exceeds maximum {max_compression_ratio:.1f}:1"
             )
 
         actual_uncompressed = 0
@@ -381,6 +443,9 @@ def _inspect_office_zip_container(
                 continue
             lower_name = info.filename.lower()
             is_xml_like = lower_name.endswith((".xml", ".rels"))
+            is_dtd_scan = is_xml_like or lower_name.endswith(
+                (".vml", ".svg", ".xhtml", ".html", ".htm", ".fodt", ".fods", ".fodp")
+            )
             xml_chunks: list[bytes] = []
             try:
                 with zf.open(info, mode="r") as member:
@@ -399,22 +464,102 @@ def _inspect_office_zip_container(
                             and (actual_uncompressed / max(len(data), 1)) > max_compression_ratio
                         ):
                             ratio = actual_uncompressed / max(len(data), 1)
-                            raise InvalidDocumentError(
+                            raise ArchiveSecurityViolationError(
                                 f"Office archive '{filename}' rejected as potential ZIP bomb: "
                                 f"stream compression ratio {ratio:.1f}:1 exceeds maximum "
-                                f"{max_compression_ratio:.1f}:1",
-                                error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                                f"{max_compression_ratio:.1f}:1"
                             )
-                        if is_xml_like:
+                        if is_dtd_scan:
                             xml_chunks.append(chunk)
             except (zipfile.BadZipFile, OSError, EOFError, RuntimeError) as exc:
-                raise InvalidDocumentError(
-                    f"Failed to read entry '{info.filename}' in Office archive '{filename}': {exc}",
-                    error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+                raise ArchiveSecurityViolationError(
+                    f"Failed to read entry '{info.filename}' in Office archive '{filename}': {exc}"
                 ) from exc
 
             if is_xml_like and xml_chunks:
                 _inspect_xml_entry_security(info.filename, b"".join(xml_chunks), filename)
+            elif is_dtd_scan and xml_chunks:
+                raw_entry_bytes = b"".join(xml_chunks)
+                if _XML_DOCTYPE_ENTITY_RE.search(raw_entry_bytes):
+                    raise ArchiveSecurityViolationError(
+                        f"Office archive '{filename}' contains forbidden DTD/ENTITY declaration "
+                        f"in '{info.filename}'"
+                    )
+
+
+def _inspect_ole_cfb_security(data: bytes, ext: str, filename: str = "") -> None:
+    """Validate legacy binary OLE2 CFB Office payloads (.doc/.xls/.ppt) against DDE & SSRF."""
+    label = filename or ext
+    ext_norm = ext.lower()
+    if ext_norm not in _OLE_OFFICE_EXTENSIONS:
+        raise ArchiveSecurityViolationError(
+            f"Unsupported legacy OLE2 Office extension '{ext}' for '{label}'"
+        )
+    if not data.startswith(_OLE_CFB_MAGIC):
+        raise ArchiveSecurityViolationError(
+            f"Legacy Office document '{label}' lacks required OLE2 CFB header signature"
+        )
+    if len(data) < _OLE_CFB_MIN_BYTES:
+        raise ArchiveSecurityViolationError(
+            f"Legacy Office document '{label}' has malformed OLE2 CFB header "
+            f"({len(data)} < {_OLE_CFB_MIN_BYTES} bytes)"
+        )
+
+    payload = data[len(_OLE_CFB_MAGIC) :]
+    even_len = len(payload) - (len(payload) % 2)
+    odd_raw = payload[1:]
+    odd_len = len(odd_raw) - (len(odd_raw) % 2)
+
+    text_views: tuple[tuple[str, str], ...] = (
+        ("latin1", payload.decode("latin-1")),
+        ("utf16le_even", payload[:even_len].decode("utf-16-le", errors="ignore")),
+        ("utf16le_odd", odd_raw[:odd_len].decode("utf-16-le", errors="ignore")),
+    )
+
+    for encoding_label, view in text_views:
+        if not view:
+            continue
+        match = _OLE_UNSAFE_MARKER_RE.search(view) or _OLE_UPPERCASE_FIELD_RE.search(view)
+        if match is not None:
+            matched_token = match.group(0).strip()
+            raise ArchiveSecurityViolationError(
+                f"Legacy Office document '{label}' contains forbidden external/DDE/formula "
+                f"marker {matched_token!r} ({encoding_label})"
+            )
+        if _OLE_HTTP_URI_RE.search(view) and _OLE_LINK_AUTOLOAD_INDICATOR_RE.search(view):
+            raise ArchiveSecurityViolationError(
+                f"Legacy Office document '{label}' contains forbidden external OLE auto-load "
+                f"URI link ({encoding_label})"
+            )
+
+
+def _resolve_and_validate_office_extension(filename: str, mime_type: str | None) -> tuple[str, str]:
+    """Resolve normalized Office extension + MIME type and enforce extension/MIME agreement."""
+    ext = Path(filename).suffix.lower()
+    clean_mime = (mime_type or "").split(";", 1)[0].strip().lower()
+
+    if not ext and clean_mime in _OFFICE_MIME_EXTENSION_MAP:
+        ext = _OFFICE_MIME_EXTENSION_MAP[clean_mime]
+
+    if ext not in _SOFFICE_INFILTER_MAP:
+        raise ArchiveSecurityViolationError(
+            f"Unsupported or unrecognized Office extension '{ext or filename}' for '{filename}'"
+        )
+
+    if clean_mime and clean_mime not in _GENERIC_BINARY_MIMES:
+        expected_ext = _OFFICE_MIME_EXTENSION_MAP.get(clean_mime)
+        if expected_ext != ext:
+            raise ArchiveSecurityViolationError(
+                f"Office MIME type '{mime_type}' disagrees with file extension '{ext}' "
+                f"for '{filename}'"
+            )
+
+    resolved_mime = (
+        clean_mime
+        if clean_mime and clean_mime not in _GENERIC_BINARY_MIMES
+        else _OFFICE_EXTENSION_MIME_MAP[ext]
+    )
+    return ext, resolved_mime
 
 
 _ALLOWED_SOFFICE_ENV_KEYS: frozenset[str] = frozenset(
@@ -617,12 +762,30 @@ class LibreOfficeDocumentAdapter(BaseDocumentAdapter):
                 f"digest '{actual_sha256}' for '{filename}'"
             )
 
-        _inspect_office_zip_container(
-            data,
-            filename,
-            max_uncompressed_bytes=self.max_uncompressed_bytes,
-            max_compression_ratio=self.max_compression_ratio,
-        )
+        ext, resolved_mime = _resolve_and_validate_office_extension(filename, mime_type)
+        if ext in _ZIP_OFFICE_EXTENSIONS:
+            if not data.startswith(_ZIP_LOCAL_MAGIC_PREFIXES):
+                raise ArchiveSecurityViolationError(
+                    f"Office document '{filename}' with extension '{ext}' lacks required "
+                    f"PKZIP header signature"
+                )
+            _inspect_office_zip_container(
+                data,
+                filename,
+                max_uncompressed_bytes=self.max_uncompressed_bytes,
+                max_compression_ratio=self.max_compression_ratio,
+            )
+        elif ext in _OLE_OFFICE_EXTENSIONS:
+            if not data.startswith(_OLE_CFB_MAGIC):
+                raise ArchiveSecurityViolationError(
+                    f"Legacy Office document '{filename}' with extension '{ext}' lacks required "
+                    f"OLE2 CFB header signature"
+                )
+            _inspect_ole_cfb_security(data, ext, filename=filename)
+        else:
+            raise ArchiveSecurityViolationError(
+                f"Unsupported Office extension '{ext}' for '{filename}'"
+            )
 
         soffice_bin = find_soffice_binary(self.soffice_path)
         if not soffice_bin:
@@ -631,10 +794,7 @@ class LibreOfficeDocumentAdapter(BaseDocumentAdapter):
                 details={"filename": filename, "requested": mime_type or filename},
             )
 
-        ext = Path(filename).suffix.lower()
-        default_mime = _OFFICE_EXTENSION_MIME_MAP.get(ext, "application/octet-stream")
-        resolved_mime = mime_type or default_mime
-
+        infilter = _SOFFICE_INFILTER_MAP[ext]
         doc_id = str(kwargs.get("document_id") or f"doc_{actual_sha256[:16]}")
         taint_raw = kwargs.get("taint", TaintClassification.INTERNAL)
         taint = TaintClassification(taint_raw) if taint_raw else TaintClassification.INTERNAL
@@ -664,6 +824,7 @@ class LibreOfficeDocumentAdapter(BaseDocumentAdapter):
                 "--nodefault",
                 "--nofirststartwizard",
                 f"-env:UserInstallation={profile_uri}",
+                f"--infilter={infilter}",
                 "--convert-to",
                 "pdf",
                 "--outdir",
@@ -783,6 +944,8 @@ class LibreOfficeDocumentAdapter(BaseDocumentAdapter):
 
 
 __all__ = [
+    "ArchiveSecurityViolationError",
     "LibreOfficeDocumentAdapter",
+    "_inspect_ole_cfb_security",
     "find_soffice_binary",
 ]

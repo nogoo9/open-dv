@@ -3146,3 +3146,220 @@ def test_r3_s5_maj03_canonical_error_codes_and_exit_parity(
         == 7
     )
     assert _read_cli_json(capsys)["error_code"] == "FORBIDDEN_ADMIN_REQUIRED"
+
+
+def test_r4_p12b_maj01_bundle_clone_rbac_and_signed_audit_lineage(
+    studio_env: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """P12b::MAJ-01: bundle clone rejects automated agents, preserves SESSION_CLONED audit,
+    and never forges unverified-import admin acknowledgements.
+    """
+    from opendv_core.genesis import create_genesis_ontology
+    from opendv_service.studio.bundle import export_bundle
+    from opendv_service.studio.session_manager import StudioSessionManager
+    from opendv_service.studio.workspace_security import WorkspaceSecurityManager
+
+    ws, studio_root = studio_env
+    assert app_main(["ontology", "studio", "init"]) == 0
+    capsys.readouterr()
+
+    # Create a workspace-seeded non-tainted session
+    seed_ont = create_genesis_ontology(
+        domain_namespace="logistics_clone", enterprise_owner="Enterprise"
+    ).model_copy(update={"ontology_version": "0.1.0"})
+    seed_yaml = ws / "contracts" / "ontology.yaml"
+    seed_yaml.parent.mkdir(parents=True, exist_ok=True)
+    seed_yaml.write_text(
+        yaml.safe_dump(seed_ont.model_dump(mode="json", exclude_none=True)),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "create",
+                "-s",
+                "seed-src",
+                "--from-workspace",
+                str(seed_yaml),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    created_payload = _read_cli_json(capsys)
+    expected_sha = created_payload["head_sha256"]
+
+    # a) Automated agent (`--role automated` and `OPENDV_ROLE=agent:bot`) is rejected (exit 7)
+    assert (
+        app_main(
+            [
+                "--role",
+                "automated",
+                "ontology",
+                "studio",
+                "bundle",
+                "clone",
+                "-s",
+                "seed-src",
+                "--new-session-id",
+                "bot-clone-1",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    err_auto = _read_cli_json(capsys)
+    assert err_auto["error_code"] == "AGENT_OPERATION_FORBIDDEN"
+    assert not (studio_root / "bot-clone-1").exists()
+
+    monkeypatch.setenv("OPENDV_ROLE", "agent:bot")
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "bundle",
+                "clone",
+                "-s",
+                "seed-src",
+                "--new-session-id",
+                "bot-clone-2",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    err_bot = _read_cli_json(capsys)
+    assert err_bot["error_code"] == "AGENT_OPERATION_FORBIDDEN"
+    assert not (studio_root / "bot-clone-2").exists()
+    monkeypatch.delenv("OPENDV_ROLE", raising=False)
+
+    # Viewer role is rejected with exit 7 FORBIDDEN_ADMIN_REQUIRED
+    assert (
+        app_main(
+            [
+                "--role",
+                "viewer",
+                "ontology",
+                "studio",
+                "bundle",
+                "clone",
+                "-s",
+                "seed-src",
+                "--new-session-id",
+                "viewer-clone",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    assert _read_cli_json(capsys)["error_code"] == "FORBIDDEN_ADMIN_REQUIRED"
+
+    # b) Editor cloning a workspace-seeded non-tainted session succeeds cleanly with SESSION_CLONED
+    assert (
+        app_main(
+            [
+                "--role",
+                "editor",
+                "ontology",
+                "studio",
+                "bundle",
+                "clone",
+                "-s",
+                "seed-src",
+                "--new-session-id",
+                "editor-cloned",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    clone_res = _read_cli_json(capsys)
+    assert clone_res["session_id"] == "editor-cloned"
+    assert clone_res["new_session_id"] == "editor-cloned"
+    assert clone_res["source_session_id"] == "seed-src"
+    assert clone_res["status"] == "CLONED"
+    assert clone_res["head_version"] == "0.1.0"
+    assert clone_res["head_sha256"] == expected_sha
+
+    session_mgr = StudioSessionManager(studio_root=studio_root)
+    assert session_mgr.verify_audit_chain("editor-cloned") is True
+
+    audit_lines = [
+        json.loads(line)
+        for line in (studio_root / "editor-cloned" / "audit.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()
+        if line.strip()
+    ]
+    actions = [rec.get("action") for rec in audit_lines]
+    assert "SESSION_CLONED" in actions
+    assert "BUNDLE_IMPORTED" not in actions
+    assert "IMPORT_ATTRIBUTION_ACKNOWLEDGED" not in actions
+    for rec in audit_lines:
+        details = rec.get("details") or {}
+        assert details.get("unverified_attribution_acknowledged") is not True
+
+    # Meanwhile, an editor CANNOT launder an external bundle signed by a foreign K_audit!
+    ext_root = ws / "external_studio_root"
+    ext_root.mkdir(parents=True, exist_ok=True)
+    ext_sec = WorkspaceSecurityManager(studio_root=ext_root)
+    ext_mgr = StudioSessionManager(studio_root=ext_root, security_manager=ext_sec)
+    ext_mgr.create_session("foreign-sess", initial_ontology=seed_ont)
+    foreign_zip = ws / "foreign.odvstudio.zip"
+    export_bundle(
+        session_dir=ext_mgr.get_session_dir("foreign-sess"),
+        output_zip_path=foreign_zip,
+        security_manager=ext_sec,
+        admin=True,
+        actor="human:foreign_admin",
+    )
+
+    # Without acknowledgement flag -> fails (cannot silently import unverified foreign bundle)
+    code_unack = app_main(
+        [
+            "--role",
+            "editor",
+            "ontology",
+            "studio",
+            "bundle",
+            "import",
+            "-f",
+            str(foreign_zip),
+            "--new-session-id",
+            "laundered-1",
+            "--json",
+        ]
+    )
+    assert code_unack != 0
+    assert not (studio_root / "laundered-1").exists()
+    capsys.readouterr()
+
+    # With --acknowledge-unverified-import-attribution -> editor rejected (exit 7)
+    assert (
+        app_main(
+            [
+                "--role",
+                "editor",
+                "ontology",
+                "studio",
+                "bundle",
+                "import",
+                "-f",
+                str(foreign_zip),
+                "--new-session-id",
+                "laundered-2",
+                "--acknowledge-unverified-import-attribution",
+                "--acknowledgement-rationale",
+                "Attempted editor attribution override",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    assert _read_cli_json(capsys)["error_code"] == "FORBIDDEN_ADMIN_REQUIRED"
+    assert not (studio_root / "laundered-2").exists()

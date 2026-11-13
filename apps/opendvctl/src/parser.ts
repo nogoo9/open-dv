@@ -39,6 +39,19 @@ const FLAG_ALIASES: Record<string, string[]> = {
 	"--project-id": ["--project"],
 };
 
+const ALIAS_TO_CANONICAL: Record<string, string> = Object.fromEntries(
+	Object.entries(FLAG_ALIASES).flatMap(([canonical, aliases]) =>
+		aliases.map((alias) => [alias, canonical] as const),
+	),
+);
+
+function findOptionByFlag(
+	options: readonly CliOption[] | undefined,
+	flag: string,
+): CliOption | undefined {
+	return options?.find((opt) => opt.flag === flag || opt.short === flag);
+}
+
 export class CommandLineParseError extends Error {
 	constructor(message: string) {
 		super(message);
@@ -301,10 +314,19 @@ export class SpecDrivenParser {
 				flagVal = tok.slice(eqIdx + 1);
 			}
 
-			for (const [canon, aliases] of Object.entries(FLAG_ALIASES)) {
-				if (aliases.includes(flagName)) {
-					flagName = canon;
-					break;
+			const canonicalFlag = ALIAS_TO_CANONICAL[flagName];
+			if (canonicalFlag) {
+				const currentScopeOptions = currentCmd
+					? [...(currentCmd.options ?? []), ...this.globalOptions]
+					: [
+							...(this.commandMap.get("verify")?.options ?? []),
+							...this.globalOptions,
+						];
+				if (
+					!findOptionByFlag(currentScopeOptions, flagName) &&
+					Boolean(findOptionByFlag(currentScopeOptions, canonicalFlag))
+				) {
+					flagName = canonicalFlag;
 				}
 			}
 
@@ -618,19 +640,6 @@ export class SpecDrivenParser {
 					throw new CliSyntaxError(`Missing required option: ${opt.flag}`);
 				}
 			}
-		}
-
-		if (
-			options.grounding_rationale !== undefined &&
-			options.waiver_rationale === undefined
-		) {
-			options.waiver_rationale = options.grounding_rationale;
-		}
-		if (
-			options.waiver_rationale !== undefined &&
-			options.grounding_rationale === undefined
-		) {
-			options.grounding_rationale = options.waiver_rationale;
 		}
 
 		return {

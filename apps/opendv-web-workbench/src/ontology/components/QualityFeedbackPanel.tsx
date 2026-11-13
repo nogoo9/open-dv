@@ -12,7 +12,7 @@
 import type React from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { deriveGroundingStatus, useStudioStore } from "../store/studio-store";
-import type { QualityCheck } from "../store/types";
+import type { ExternalMapping, QualityCheck } from "../store/types";
 
 export interface QualityFeedbackPanelProps {
 	className?: string;
@@ -40,6 +40,7 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 }) => {
 	const activeSession = useStudioStore((s) => s.activeSession);
 	const nodes = useStudioStore((s) => s.nodes);
+	const proposals = useStudioStore((s) => s.proposals);
 	const qualityScorecard = useStudioStore((s) => s.qualityScorecard);
 	const submitWaiver = useStudioStore((s) => s.submitWaiver);
 	const submitFeedback = useStudioStore((s) => s.submitFeedback);
@@ -67,19 +68,66 @@ export const QualityFeedbackPanel: React.FC<QualityFeedbackPanelProps> = ({
 	);
 	const [isSubmittingFeedback, setIsSubmittingFeedback] = useState(false);
 
-	const ungroundedConcepts = useMemo(
-		() =>
-			nodes.filter((n) => {
-				const hasMappings =
-					Array.isArray(n.external_mappings) && n.external_mappings.length > 0;
-				const status = hasMappings
-					? deriveGroundingStatus(n.external_mappings, n.confidence)
-							.grounding_status
-					: "UNGROUNDED";
-				return status !== "GROUNDED";
-			}),
-		[nodes],
-	);
+	const ungroundedConcepts = useMemo(() => {
+		const seenUris = new Set<string>();
+		const items: Array<{ concept_uri: string; concept_name: string }> = [];
+
+		for (const n of nodes) {
+			const hasMappings =
+				Array.isArray(n.external_mappings) && n.external_mappings.length > 0;
+			const status = hasMappings
+				? deriveGroundingStatus(n.external_mappings, n.confidence)
+						.grounding_status
+				: "UNGROUNDED";
+			if (status !== "GROUNDED" && !seenUris.has(n.concept_uri)) {
+				seenUris.add(n.concept_uri);
+				items.push({
+					concept_uri: n.concept_uri,
+					concept_name: n.concept_name,
+				});
+			}
+		}
+
+		for (const prop of proposals) {
+			if (prop.status && prop.status.toUpperCase() !== "PENDING") {
+				continue;
+			}
+			for (const op of prop.operations || []) {
+				if (
+					op &&
+					typeof op === "object" &&
+					op.op_type === "add_concept" &&
+					typeof op.concept_uri === "string" &&
+					op.concept_uri.trim().length > 0
+				) {
+					const uri = op.concept_uri.trim();
+					if (seenUris.has(uri)) continue;
+					const rawMappings = Array.isArray(op.external_mappings)
+						? (op.external_mappings as ExternalMapping[])
+						: [];
+					const rawConf =
+						typeof op.confidence === "number" ? op.confidence : undefined;
+					const status =
+						rawMappings.length > 0
+							? deriveGroundingStatus(rawMappings, rawConf).grounding_status
+							: "UNGROUNDED";
+					if (status !== "GROUNDED") {
+						seenUris.add(uri);
+						const rawName =
+							typeof op.concept_name === "string" && op.concept_name.trim()
+								? op.concept_name.trim()
+								: uri.split(":").pop()?.replace(/_/g, " ") || uri;
+						items.push({
+							concept_uri: uri,
+							concept_name: rawName,
+						});
+					}
+				}
+			}
+		}
+
+		return items;
+	}, [nodes, proposals]);
 
 	const selectedWaiverUris = useMemo(
 		() =>

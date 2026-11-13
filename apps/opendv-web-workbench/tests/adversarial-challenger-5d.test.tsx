@@ -741,12 +741,13 @@ describe("Empirical Challenger 5D: Adversarial Security & OCC Concurrency Suite"
 			expect(edgeNode["rdfs:range"]["@id"]).toBe("urn:entity:asset");
 		});
 
-		it("exports valid Graph A YAML (.yaml) containing concepts and relationships", () => {
+		it("exports valid Graph A YAML (.yaml) containing canonical_business_concepts and canonical_relationships", () => {
 			const yamlStr = generateLocalExport("yaml", "1.0.0", nodes, edges, session);
 
 			expect(yamlStr).toContain('ontology_version: "1.0.0"');
 			expect(yamlStr).toContain('domain_namespace: "wealth_adv"');
-			expect(yamlStr).toContain("concepts:");
+			expect(yamlStr).toContain("canonical_business_concepts:");
+			expect(yamlStr).toContain("canonical_relationships:");
 			expect(yamlStr).toContain('concept_uri: "urn:entity:portfolio"');
 			expect(yamlStr).toContain('concept_name: "Portfolio"');
 			expect(yamlStr).toContain('concept_uri: "urn:entity:asset"');

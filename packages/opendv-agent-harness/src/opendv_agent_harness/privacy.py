@@ -96,6 +96,175 @@ def scan_unresolved_pseudonyms(text: str) -> None:
         )
 
 
+def _extract_raw_terms(raw: Any) -> list[str]:
+    """Normalize a raw sensitive-term input (str or collection of strings) into stripped terms."""
+    if raw is None or isinstance(raw, (bool, int, float, bytes, bytearray)):
+        return []
+    if isinstance(raw, str):
+        cleaned = raw.strip()
+        return [cleaned] if cleaned else []
+    if isinstance(raw, (Sequence, AbstractSet)):
+        out: list[str] = []
+        for item in raw:
+            if item is None or isinstance(item, bool):
+                continue
+            if isinstance(item, (Sequence, AbstractSet)) and not isinstance(
+                item, (str, bytes, bytearray)
+            ):
+                out.extend(_extract_raw_terms(item))
+            else:
+                cleaned = str(item).strip()
+                if cleaned:
+                    out.append(cleaned)
+        return out
+    return []
+
+
+def _collect_sensitive_entities_from_mapping(
+    meta: Any, _visited: set[int] | None = None
+) -> list[str]:
+    """Recursively collect all `sensitive_entities` terms from metadata mappings/collections."""
+    if meta is None or isinstance(meta, (str, bytes, bytearray, int, float, bool)):
+        return []
+    visited = _visited if _visited is not None else set()
+    obj_id = id(meta)
+    if obj_id in visited:
+        return []
+    visited.add(obj_id)
+
+    collected: list[str] = []
+    if isinstance(meta, Mapping):
+        for k, v in meta.items():
+            if k == "sensitive_entities":
+                collected.extend(_extract_raw_terms(v))
+            else:
+                collected.extend(_collect_sensitive_entities_from_mapping(v, visited))
+    elif isinstance(meta, (Sequence, AbstractSet)):
+        for elem in meta:
+            collected.extend(_collect_sensitive_entities_from_mapping(elem, visited))
+    return collected
+
+
+def _contains_sensitive_entities_key(meta: Any, _visited: set[int] | None = None) -> bool:
+    """Return True if `sensitive_entities` appears as a key anywhere in `meta`."""
+    if meta is None or isinstance(meta, (str, bytes, bytearray, int, float, bool)):
+        return False
+    visited = _visited if _visited is not None else set()
+    obj_id = id(meta)
+    if obj_id in visited:
+        return False
+    visited.add(obj_id)
+
+    if isinstance(meta, Mapping):
+        if "sensitive_entities" in meta:
+            return True
+        return any(_contains_sensitive_entities_key(v, visited) for v in meta.values())
+    if isinstance(meta, (Sequence, AbstractSet)):
+        return any(_contains_sensitive_entities_key(elem, visited) for elem in meta)
+    return False
+
+
+def _strip_sensitive_entities_keys(value: Any) -> Any:
+    """Recursively copy metadata removing any `sensitive_entities` keys."""
+    if isinstance(value, Mapping):
+        return {
+            k: _strip_sensitive_entities_keys(v)
+            for k, v in value.items()
+            if k != "sensitive_entities"
+        }
+    if isinstance(value, list):
+        return [_strip_sensitive_entities_keys(elem) for elem in value]
+    if isinstance(value, tuple):
+        return tuple(_strip_sensitive_entities_keys(elem) for elem in value)
+    if isinstance(value, set):
+        return {_strip_sensitive_entities_keys(elem) for elem in value}
+    if isinstance(value, frozenset):
+        return frozenset(_strip_sensitive_entities_keys(elem) for elem in value)
+    return value
+
+
+def _union_sensitive_terms(
+    caller_terms: Sequence[str] | None,
+    meta: Any,
+) -> list[str]:
+    """Compute order-preserving deduplicated non-empty union of caller and metadata terms."""
+    combined = [*_extract_raw_terms(caller_terms), *_collect_sensitive_entities_from_mapping(meta)]
+    deduped: list[str] = []
+    seen_folded: set[str] = set()
+    for term in combined:
+        clean = term.strip()
+        if not clean:
+            continue
+        folded = clean.casefold()
+        if folded not in seen_folded:
+            seen_folded.add(folded)
+            deduped.append(clean)
+    return deduped
+
+
+def _verify_no_residual_terms_in_value(
+    value: Any,
+    lowered_terms: Sequence[tuple[str, str]],
+    location: str,
+    _visited: set[int] | None = None,
+    *,
+    forbid_sensitive_entities_key: bool = True,
+) -> None:
+    """Recursively verify no sensitive term (or `sensitive_entities` key) survives in `value`."""
+    if value is None or isinstance(value, (bool, int, float, bytes, bytearray)):
+        return
+    if isinstance(value, str):
+        val_lower = value.lower()
+        for raw_term, term_lower in lowered_terms:
+            if term_lower and term_lower in val_lower:
+                raise OpenDVError(
+                    f"Residual confidential substring '{raw_term}' survived in {location}.",
+                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                )
+        return
+
+    visited = _visited if _visited is not None else set()
+    obj_id = id(value)
+    if obj_id in visited:
+        return
+    visited.add(obj_id)
+
+    if isinstance(value, Mapping):
+        for k, v in value.items():
+            if k == "sensitive_entities":
+                if forbid_sensitive_entities_key:
+                    raise OpenDVError(
+                        f"Unstripped 'sensitive_entities' key survived in {location}.",
+                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                    )
+                continue
+            _verify_no_residual_terms_in_value(
+                k,
+                lowered_terms,
+                f"{location}.<key:{k}>",
+                visited,
+                forbid_sensitive_entities_key=forbid_sensitive_entities_key,
+            )
+            _verify_no_residual_terms_in_value(
+                v,
+                lowered_terms,
+                f"{location}.{k}",
+                visited,
+                forbid_sensitive_entities_key=forbid_sensitive_entities_key,
+            )
+        return
+
+    if isinstance(value, (Sequence, AbstractSet)):
+        for idx, elem in enumerate(value):
+            _verify_no_residual_terms_in_value(
+                elem,
+                lowered_terms,
+                f"{location}[{idx}]",
+                visited,
+                forbid_sensitive_entities_key=forbid_sensitive_entities_key,
+            )
+
+
 class Pseudonymizer:
     """Deterministic HMAC-SHA256 pseudonymizer using injected K_pseudo."""
 
@@ -153,7 +322,7 @@ class Pseudonymizer:
         return result
 
     def _mask_metadata_value(self, value: Any, effective_terms: Sequence[str], key: str) -> Any:
-        """Recursively pseudonymize string values inside chunk metadata."""
+        """Recursively pseudonymize string keys and values inside chunk metadata."""
         if isinstance(value, str):
             masked_v = self.pseudonymize_text(value, effective_terms)
             if any(t.strip() and t.strip().lower() in masked_v.lower() for t in effective_terms):
@@ -163,15 +332,27 @@ class Pseudonymizer:
                 )
             return masked_v
         if isinstance(value, Mapping):
-            return {
-                k: self._mask_metadata_value(v, effective_terms, f"{key}.{k}")
-                for k, v in value.items()
-                if k != "sensitive_entities"
-            }
+            masked_map: dict[Any, Any] = {}
+            for k, v in value.items():
+                if k == "sensitive_entities":
+                    continue
+                masked_k = (
+                    self._mask_metadata_value(k, effective_terms, f"{key}.<key:{k}>")
+                    if isinstance(k, str)
+                    else k
+                )
+                masked_map[masked_k] = self._mask_metadata_value(v, effective_terms, f"{key}.{k}")
+            return masked_map
         if isinstance(value, list):
             return [self._mask_metadata_value(elem, effective_terms, key) for elem in value]
         if isinstance(value, tuple):
             return tuple(self._mask_metadata_value(elem, effective_terms, key) for elem in value)
+        if isinstance(value, set):
+            return {self._mask_metadata_value(elem, effective_terms, key) for elem in value}
+        if isinstance(value, frozenset):
+            return frozenset(
+                self._mask_metadata_value(elem, effective_terms, key) for elem in value
+            )
         return value
 
     def pseudonymize_chunk(
@@ -179,40 +360,60 @@ class Pseudonymizer:
         chunk: EvidenceChunk,
         sensitive_terms: Sequence[str] | None = None,
     ) -> EvidenceChunk:
-        """Return a copy of `chunk` with sensitive terms replaced by HMAC pseudonyms."""
-        raw_meta_terms = (
-            chunk.metadata.get("sensitive_entities")
-            if chunk.metadata and isinstance(chunk.metadata, dict)
-            else None
-        )
-        effective_terms: list[str] = [
-            str(t).strip() for t in (sensitive_terms or []) if str(t).strip()
-        ]
-        if not effective_terms and isinstance(raw_meta_terms, (list, tuple)):
-            effective_terms = [str(t).strip() for t in raw_meta_terms if str(t).strip()]
+        """Return a copy of `chunk` with sensitive terms replaced by HMAC pseudonyms.
+
+        Always computes `effective_terms` as the deduplicated non-empty union of
+        caller-supplied `sensitive_terms` and `chunk.metadata` `sensitive_entities`.
+        """
+        effective_terms = _union_sensitive_terms(sensitive_terms, chunk.metadata)
         if not effective_terms:
-            if chunk.metadata and "sensitive_entities" in chunk.metadata:
-                stripped_meta = dict(chunk.metadata)
-                stripped_meta.pop("sensitive_entities", None)
+            if isinstance(chunk.metadata, Mapping) and _contains_sensitive_entities_key(
+                chunk.metadata
+            ):
+                stripped_meta = _strip_sensitive_entities_keys(dict(chunk.metadata))
                 return chunk.model_copy(update={"metadata": stripped_meta})
             return chunk
 
-        new_text = self.pseudonymize_text(chunk.text, effective_terms)
-        lower_new = new_text.lower()
-        for raw_term in effective_terms:
-            clean_term = raw_term.strip()
-            if clean_term and clean_term.lower() in lower_new:
-                raise OpenDVError(
-                    f"Residual confidential substring '{clean_term}' survived pseudonymization.",
-                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
-                )
+        lowered_terms: list[tuple[str, str]] = [(t, t.lower()) for t in effective_terms]
 
-        new_meta: dict[str, Any] = dict(chunk.metadata) if chunk.metadata else {}
+        # 1. Mask text and non-sensitive_entities metadata entries BEFORE popping sensitive_entities
+        new_text = self.pseudonymize_text(chunk.text, effective_terms)
+        _verify_no_residual_terms_in_value(new_text, lowered_terms, "chunk.text")
+
+        pre_pop_meta: dict[str, Any] = (
+            dict(chunk.metadata) if isinstance(chunk.metadata, Mapping) else {}
+        )
+        masked_pre_pop: dict[str, Any] = {}
+        for k, v in pre_pop_meta.items():
+            if k == "sensitive_entities":
+                masked_pre_pop[k] = v
+                continue
+            masked_k = (
+                self._mask_metadata_value(k, effective_terms, f"metadata.<key:{k}>")
+                if isinstance(k, str)
+                else k
+            )
+            masked_pre_pop[masked_k] = self._mask_metadata_value(v, effective_terms, str(k))
+        _verify_no_residual_terms_in_value(
+            masked_pre_pop,
+            lowered_terms,
+            "chunk.metadata",
+            forbid_sensitive_entities_key=False,
+        )
+
+        # 2. Pop sensitive_entities and re-verify full union AFTER popping sensitive_entities
+        new_meta: dict[str, Any] = dict(masked_pre_pop)
         new_meta.pop("sensitive_entities", None)
-        for k, v in list(new_meta.items()):
-            new_meta[k] = self._mask_metadata_value(v, effective_terms, str(k))
         new_meta["redacted_entity_count"] = len(effective_terms)
         new_meta["pseudonymized"] = True
+
+        _verify_no_residual_terms_in_value(new_text, lowered_terms, "chunk.text")
+        _verify_no_residual_terms_in_value(
+            new_meta,
+            lowered_terms,
+            "chunk.metadata",
+            forbid_sensitive_entities_key=True,
+        )
         return chunk.model_copy(update={"text": new_text, "metadata": new_meta})
 
     def de_pseudonymize(self, text: str) -> str:
@@ -264,7 +465,7 @@ def _walk_privacy_input(val: Any, visited: set[int]) -> None:
 
     if isinstance(val, EvidenceChunk):
         scan_redacted_placeholder_leak(val.text)
-        meta = val.metadata if isinstance(val.metadata, dict) else {}
+        meta = val.metadata if isinstance(val.metadata, Mapping) else {}
         _walk_privacy_input(meta, visited)
         if meta.get("do_not_send_to_agent") is True:
             raise OpenDVError(
@@ -279,20 +480,26 @@ def _walk_privacy_input(val: Any, visited: set[int]) -> None:
                     "agent TaskSpec without HMAC pseudonymization.",
                     error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
                 )
-            raw_sens = meta.get("sensitive_entities")
-            sens = (
-                [str(s).strip() for s in raw_sens if str(s).strip()]
-                if isinstance(raw_sens, (list, tuple))
-                else []
-            )
-            lower_txt = val.text.lower()
-            for s_term in sens:
-                if s_term.lower() in lower_txt:
-                    raise OpenDVError(
-                        f"Unredacted confidential entity '{s_term}' detected in tainted "
-                        f"EvidenceChunk '{val.chunk_id}'.",
-                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
-                    )
+            sens = _collect_sensitive_entities_from_mapping(meta)
+            if sens:
+                lowered = [(s, s.lower()) for s in sens]
+                _verify_no_residual_terms_in_value(
+                    val.text,
+                    lowered,
+                    f"EvidenceChunk '{val.chunk_id}' text",
+                )
+                _verify_no_residual_terms_in_value(
+                    meta,
+                    lowered,
+                    f"EvidenceChunk '{val.chunk_id}' metadata",
+                    forbid_sensitive_entities_key=True,
+                )
+            if _contains_sensitive_entities_key(meta):
+                raise OpenDVError(
+                    f"Tainted EvidenceChunk '{val.chunk_id}' retains unstripped "
+                    "'sensitive_entities' metadata.",
+                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                )
         return
 
     if isinstance(val, TableStructure) or (
@@ -306,13 +513,15 @@ def _walk_privacy_input(val: Any, visited: set[int]) -> None:
         cell_texts = [
             str(cell)
             for row in rows
-            if isinstance(row, (list, tuple))
+            if isinstance(row, (Sequence, AbstractSet))
+            and not isinstance(row, (str, bytes, bytearray))
             for cell in row
             if cell is not None
         ]
         combined = "\n".join([tbl_id, caption, raw_markup, *headers, *cell_texts])
         scan_redacted_placeholder_leak(combined)
-        meta = val.metadata if isinstance(getattr(val, "metadata", None), dict) else {}
+        raw_tbl_meta = getattr(val, "metadata", None)
+        meta = raw_tbl_meta if isinstance(raw_tbl_meta, Mapping) else {}
         _walk_privacy_input(meta, visited)
         if meta.get("do_not_send_to_agent") is True:
             raise OpenDVError(
@@ -332,20 +541,26 @@ def _walk_privacy_input(val: Any, visited: set[int]) -> None:
                     "agent TaskSpec without HMAC pseudonymization.",
                     error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
                 )
-            raw_sens = meta.get("sensitive_entities")
-            sens = (
-                [str(s).strip() for s in raw_sens if str(s).strip()]
-                if isinstance(raw_sens, (list, tuple))
-                else []
-            )
-            lower_comb = combined.lower()
-            for s_term in sens:
-                if s_term.lower() in lower_comb:
-                    raise OpenDVError(
-                        f"Unredacted confidential entity '{s_term}' detected in tainted "
-                        f"TableStructure '{tbl_id}'.",
-                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
-                    )
+            sens = _collect_sensitive_entities_from_mapping(meta)
+            if sens:
+                lowered = [(s, s.lower()) for s in sens]
+                _verify_no_residual_terms_in_value(
+                    combined,
+                    lowered,
+                    f"TableStructure '{tbl_id}'",
+                )
+                _verify_no_residual_terms_in_value(
+                    meta,
+                    lowered,
+                    f"TableStructure '{tbl_id}' metadata",
+                    forbid_sensitive_entities_key=True,
+                )
+            if _contains_sensitive_entities_key(meta):
+                raise OpenDVError(
+                    f"Tainted TableStructure '{tbl_id}' retains unstripped "
+                    "'sensitive_entities' metadata.",
+                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                )
         return
 
     if isinstance(val, BaseModel):
@@ -356,17 +571,23 @@ def _walk_privacy_input(val: Any, visited: set[int]) -> None:
                 "cannot be dispatched to an agent TaskSpec.",
                 error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
             )
-        if (
-            isinstance(val, IngestionResult)
-            and not _is_public_taint(val.taint)
-            and val.normalized_text
-            and not (isinstance(model_meta, Mapping) and model_meta.get("pseudonymized") is True)
-        ):
-            raise OpenDVError(
-                f"Tainted IngestionResult '{val.document_id}' with raw normalized_text "
-                "cannot be dispatched to an agent TaskSpec without HMAC pseudonymization.",
-                error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
-            )
+        if isinstance(val, IngestionResult) and not _is_public_taint(val.taint):
+            has_raw_doc_text = bool(val.normalized_text) or any(bool(p.text) for p in val.page_map)
+            if has_raw_doc_text and not (
+                isinstance(model_meta, Mapping) and model_meta.get("pseudonymized") is True
+            ):
+                raise OpenDVError(
+                    f"Tainted IngestionResult '{val.document_id}' with raw normalized_text "
+                    "or page_map text cannot be dispatched to an agent TaskSpec without "
+                    "HMAC pseudonymization.",
+                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                )
+            if isinstance(model_meta, Mapping) and _contains_sensitive_entities_key(model_meta):
+                raise OpenDVError(
+                    f"Tainted IngestionResult '{val.document_id}' retains unstripped "
+                    "'sensitive_entities' metadata.",
+                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                )
         for field_name in type(val).model_fields:
             _walk_privacy_input(getattr(val, field_name, None), visited)
         extra = getattr(val, "model_extra", None)

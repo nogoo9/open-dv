@@ -78,7 +78,6 @@ def test_env(tmp_path: Path) -> dict[str, Any]:
     commit_svc = AtomicCommitService(
         session_manager=session_mgr,
         security_manager=sec_mgr,
-        enforce_governance=False,
     )
     return {
         "root": tmp_path,
@@ -457,6 +456,24 @@ def test_crash_recovery_interrupted_after_rename_before_session_json(
     prop_file = sdir / "proposals" / "prop-crash.json"
     prop_file.write_text(
         json.dumps({"proposal_id": "prop-crash", "status": "PENDING"}), encoding="utf-8"
+    )
+
+    # Record signed PENDING_COMMIT intent prior to crash after Step 4 rename
+    from opendv_service.studio.session_manager import append_signed_audit_record
+
+    append_signed_audit_record(
+        session_dir=sdir,
+        action="PENDING_COMMIT",
+        actor="architect",
+        target_version="v1.1.0",
+        head_sha256=target_sha,
+        details={
+            "proposal_id": "prop-crash",
+            "target_version": "v1.1.0",
+            "target_sha256": target_sha,
+            "parent_sha256": res1.target_sha256,
+        },
+        security_manager=test_env["sec_mgr"],
     )
 
     # Run recovery

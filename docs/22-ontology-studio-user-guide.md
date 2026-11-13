@@ -412,10 +412,10 @@ The Open-DV Web Workbench provides a visual, reactive single-page application at
 
 ### 4.1 Shell & Navigation Bar
 - **Session Switcher**: Switch instantly between active sessions or initialize a new workspace.
-- **State Badges**: Color-coded lifecycle indicators:
+- **State Badges**: Color-coded lifecycle indicators (`EMPTY`, `INGESTED`, `CLARIFYING`, `CONSTRUCTED`, `COMMITTED`, `PROMOTED`):
   - `EMPTY`: Initialized without committed versions (`v0.0.0`).
-  - `SEEDED`: Initialized from an existing workspace baseline.
-  - `COMMITTED`: Version committed in session CAS.
+  - `INGESTED` / `CLARIFYING` / `CONSTRUCTED`: Active ingestion, ambiguity Q&A, or candidate proposal synthesis in progress.
+  - `COMMITTED`: Version committed in session CAS (including sessions initialized from an existing workspace baseline).
   - `PROMOTED`: Head version promoted to workspace Data Vault.
 
 ### 4.2 Sources Panel
@@ -451,14 +451,14 @@ The Open-DV Web Workbench provides a visual, reactive single-page application at
 ### 4.7 Quality Scorecard & Export Modal
 - Validates 100% of ONT-EVO rules in real time.
 - Displays grounding confidence score meters against the $0.6500$ threshold.
-- One-click export modal to Graph A YAML (`.yaml`), Canonical RFC 8785 JCS JSON (`.json`), W3C Turtle (`.ttl`), JSON-LD (`.jsonld`), or N-Triples (`.nt`).
+- One-click UI and CLI export across 4 standard formats: Graph A YAML (`.yaml`), Canonical JCS JSON (`.json`), Turtle (`.ttl`), and JSON-LD (`.jsonld`) (with N-Triples (`.nt`) additionally supported at the Python `rdf_exporter` service layer).
 - Two-phase promotion trigger with lock status verification.
 
 ---
 
 ## 5. Dual-CLI Command Recipes
 
-Open-DV provides **21** shared dual-CLI leaf commands across `opendv` and `opendvctl` (plus the standalone-only local bootstrap command `init`, 22 leaf commands total in `schemas/v1/cli-spec.json`) under the `ontology studio` namespace. Below are working invocations for every command:
+Open-DV provides 15 studio subcommands (21 shared dual-CLI leaf commands + standalone-only `init`, 22 total in `schemas/v1/cli-spec.json`) across `opendv` and `opendvctl` under the `ontology studio` namespace. Below are working invocations for every command:
 
 ### 5.1 Session Lifecycle Commands
 
@@ -512,7 +512,7 @@ opendv ontology studio list --limit 25 --offset 0
 Filter sessions by status:
 
 ```bash
-opendv ontology studio list --status active
+opendv ontology studio list --status COMMITTED
 ```
 
 #### `status`
@@ -696,13 +696,13 @@ opendv ontology studio export \
   --out pe_ontology.json
 ```
 
-Export to W3C N-Triples (`.nt`):
+Export to JSON-LD (`.jsonld`):
 
 ```bash
 opendv ontology studio export \
   --session session-pe \
-  --export-format ntriples \
-  --out pe_ontology.nt
+  --export-format jsonld \
+  --out pe_ontology.jsonld
 ```
 
 #### `promote`

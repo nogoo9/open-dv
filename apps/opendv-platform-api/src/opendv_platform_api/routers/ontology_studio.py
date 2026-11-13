@@ -16,7 +16,6 @@ import logging
 import os
 import re
 import secrets
-import shutil
 import urllib.parse
 import uuid
 from datetime import UTC, datetime
@@ -78,7 +77,6 @@ from opendv_service.studio.atomic_commit import (
     _LocalWaiverVerifier,
     collect_touched_concept_uris,
     delete_source,
-    fsync_directory_best_effort,
     parse_semver_tuple,
     parse_strong_etag,
 )
@@ -90,11 +88,7 @@ from opendv_service.studio.bundle import (
     export_bundle,
     import_bundle,
 )
-from opendv_service.studio.locks import (
-    L5_SESSION,
-    reentrant_session_lock,
-    studio_lock,
-)
+from opendv_service.studio.locks import reentrant_session_lock
 from opendv_service.studio.session_manager import (
     InvalidOntologyPayloadError,
     InvalidSessionIdentifierError,
@@ -102,6 +96,7 @@ from opendv_service.studio.session_manager import (
     SessionMetadata,
     SessionNotFoundError,
     StudioSessionManager,
+    TamperEvidentChainCorruptError,
     _atomic_write_session_json,
     append_signed_audit_record,
     normalize_version_tag,
@@ -263,6 +258,7 @@ class OntologyDeltaRequest(BaseModel):
     delta_id: str | None = None
     parent_sha256: str | None = None
     base_sha256: str | None = None
+    domain_namespace: str | None = None
     base_version: str | None = None
     target_version: str | None = None
     operations: list[dict[str, Any]]
@@ -886,6 +882,118 @@ def _ensure_session_version_exists(sdir: Path, base_version: str | None) -> None
         )
 
 
+def _compute_stored_proposal_delta_sha256(
+    sdir: Path,
+    meta: SessionMetadata,
+    raw_prop: dict[str, Any],
+    proposal_id: str,
+) -> str:
+    """Compute canonical RFC 8785 SHA-256 of a stored proposal's effective delta (P10a::MAJ-01)."""
+    prop_data = _normalize_proposal_record(
+        raw_prop, session_id=meta.session_id, fallback_proposal_id=proposal_id
+    )
+    raw_ops = prop_data.get("operations", [])
+    ops = [_normalize_delta_operation(op) for op in raw_ops]
+    prop_base_ver = (
+        str(prop_data.get("base_version") or GENESIS_VERSION).lstrip("v") or GENESIS_VERSION
+    )
+    prop_base_sha = str(prop_data.get("base_sha256") or "")
+    base_ont = _load_session_version_ontology(sdir, meta, prop_base_ver)
+    eff_parent_sha = prop_base_sha or compute_ontology_sha256(base_ont)
+
+    try:
+        raw_delta = raw_prop.get("delta")
+        if isinstance(raw_delta, dict):
+            if "operations" not in raw_prop:
+                return OntologyDelta.model_validate(raw_delta).canonical_sha256()
+
+            cleaned_delta = {
+                k: v
+                for k, v in raw_delta.items()
+                if k not in ("base_sha256", "base_version", "target_version")
+            }
+            eff_ns = cleaned_delta.get("domain_namespace") or meta.domain_namespace
+            t_ver = _compute_expected_semver_for_ops(
+                base_version=prop_base_ver,
+                base_sha256=eff_parent_sha,
+                norm_ops=ops,
+                base_ontology=base_ont,
+                domain_namespace=eff_ns,
+            )
+            cleaned_delta.update(
+                {
+                    "parent_sha256": (
+                        ""
+                        if prop_base_sha == "" and raw_delta.get("parent_sha256") == ""
+                        else eff_parent_sha
+                    ),
+                    "base_ontology_version": prop_base_ver,
+                    "target_ontology_version": t_ver,
+                    "operations": ops,
+                }
+            )
+            return OntologyDelta.model_validate(cleaned_delta).canonical_sha256()
+
+        t_ver = _compute_expected_semver_for_ops(
+            base_version=prop_base_ver,
+            base_sha256=eff_parent_sha,
+            norm_ops=ops,
+            base_ontology=base_ont,
+            domain_namespace=meta.domain_namespace,
+        )
+        reconstructed = OntologyDelta(
+            delta_id=str(raw_prop.get("delta_id") or f"delta-prop-{prop_data['proposal_id']}"),
+            parent_sha256=eff_parent_sha,
+            base_version=prop_base_ver,
+            target_version=t_ver,
+            domain_namespace=meta.domain_namespace,
+            operations=ops,
+            author=prop_data.get("proposer"),
+            rationale=prop_data.get("rationale"),
+        )
+        return reconstructed.canonical_sha256()
+    except OpenDVError as exc:
+        raise _raise_from_opendv_error(exc) from exc
+    except (ValidationError, ValueError, TypeError) as exc:
+        raise StudioAPIError(
+            "CORRUPT_SESSION_RECORD",
+            f"Corrupt proposal delta in proposal '{proposal_id}': {exc}",
+        ) from exc
+
+
+def _compute_submitted_request_delta_sha256(
+    *,
+    payload: OntologyDeltaRequest,
+    norm_ops: list[Any],
+    fallback_base_version: str,
+    fallback_parent_sha256: str,
+    fallback_target_version: str,
+    fallback_sha256: str,
+) -> str:
+    """Compute canonical SHA-256 of caller-submitted pre-normalization delta when delta_id set."""
+    if not payload.delta_id:
+        return fallback_sha256
+    raw_parent = (
+        payload.parent_sha256
+        if payload.parent_sha256 is not None
+        else (payload.base_sha256 if payload.base_sha256 is not None else fallback_parent_sha256)
+    )
+    try:
+        sub_delta = OntologyDelta(
+            delta_id=payload.delta_id,
+            parent_sha256=raw_parent,
+            base_version=(payload.base_version or fallback_base_version).lstrip("v"),
+            target_version=(payload.target_version or fallback_target_version).lstrip("v"),
+            domain_namespace=payload.domain_namespace,
+            operations=norm_ops,
+            author=payload.author,
+            rationale=payload.rationale,
+        )
+        return sub_delta.canonical_sha256()
+    except (ValidationError, ValueError, TypeError):
+        return fallback_sha256
+
+
 def _build_and_sign_commit_waivers(
     *,
     sdir: Path,
@@ -897,11 +1005,15 @@ def _build_and_sign_commit_waivers(
     grounding_rationale: str | None,
     explicit_ungrounded: list[str] | str | None,
     proposal_id: str | None,
+    submitted_delta_sha256: str | None = None,
 ) -> list[StewardWaiverRecord]:
     """Assemble cryptographically signed K_waiver records from inline or pre-authorized waivers."""
     sec_mgr = session_mgr.security_manager
     delta_sha = delta.canonical_sha256()
+    expected_delta_sha = delta_sha.strip().lower()
+    clean_submitted_sha = (submitted_delta_sha256 or "").strip().lower()
     base_sha = delta.base_sha256
+    expected_base_sha = (base_sha or "").strip().lower()
     signed_waivers: list[StewardWaiverRecord] = []
 
     # 1. Load pre-authorized session waivers from <session_dir>/waivers.json (if any)
@@ -943,8 +1055,13 @@ def _build_and_sign_commit_waivers(
                     continue
 
                 # P10a MAJ-01: Enforce strict base_sha256 binding (reject empty or 0*64 wildcard)
-                env_base = str(envelope.get("base_sha256") or "").strip()
-                if not env_base or env_base == "0" * 64 or env_base != base_sha:
+                env_base = str(envelope.get("base_sha256") or "").strip().lower()
+                if (
+                    not env_base
+                    or env_base == "0" * 64
+                    or not expected_base_sha
+                    or not hmac.compare_digest(env_base, expected_base_sha)
+                ):
                     continue
 
                 # P10a MAJ-01: Enforce strict proposal_id scoping
@@ -964,6 +1081,24 @@ def _build_and_sign_commit_waivers(
                 auth_by = str(raw_auth_by).strip() if isinstance(raw_auth_by, str) else ""
                 if auth_role != "admin" or not auth_by:
                     continue
+
+                # P10a MAJ-01: Enforce proposal_delta_sha256 binding (prevent cross-delta replay)
+                raw_env_delta_sha = envelope.get("proposal_delta_sha256")
+                env_delta_sha = (
+                    str(raw_env_delta_sha).strip().lower() if raw_env_delta_sha is not None else ""
+                )
+                if env_delta_sha:
+                    if env_delta_sha == "0" * 64:
+                        continue
+                    matches_commit_delta = hmac.compare_digest(env_delta_sha, expected_delta_sha)
+                    matches_submitted_delta = bool(clean_submitted_sha) and hmac.compare_digest(
+                        env_delta_sha, clean_submitted_sha
+                    )
+                    if not (matches_commit_delta or matches_submitted_delta):
+                        continue
+                else:
+                    if auth_role != "admin" or not hmac.compare_digest(env_base, expected_base_sha):
+                        continue
 
                 target_uris = [str(u) for u in (envelope.get("target_concept_uris") or []) if u]
                 rationale = str(envelope.get("rationale") or "").strip()
@@ -2358,6 +2493,14 @@ def validate_delta_endpoint(
                 )
                 and _has_valid_waiver_authorization(request, session_mgr, _principal)
             )
+            dry_run_sub_sha = _compute_submitted_request_delta_sha256(
+                payload=payload,
+                norm_ops=norm_ops,
+                fallback_base_version=meta.head_version,
+                fallback_parent_sha256=meta.head_sha256,
+                fallback_target_version=delta.target_version or meta.head_version,
+                fallback_sha256=delta.canonical_sha256(),
+            )
             dry_run_waivers = _build_and_sign_commit_waivers(
                 sdir=sdir,
                 session_mgr=session_mgr,
@@ -2368,6 +2511,7 @@ def validate_delta_endpoint(
                 grounding_rationale=(payload.grounding_rationale if allow_dry_run_inline else None),
                 explicit_ungrounded=(payload.ungrounded_concept if allow_dry_run_inline else None),
                 proposal_id=None,
+                submitted_delta_sha256=dry_run_sub_sha,
             )
             gv.validate_grounding(
                 base_ontology,
@@ -2558,6 +2702,14 @@ def apply_delta_endpoint(
         )
 
     # Step 8: Waiver validation & cryptographic K_waiver signing
+    submitted_delta_sha = _compute_submitted_request_delta_sha256(
+        payload=payload,
+        norm_ops=norm_ops,
+        fallback_base_version=meta.head_version,
+        fallback_parent_sha256=meta.head_sha256,
+        fallback_target_version=expected_semver,
+        fallback_sha256=delta.canonical_sha256(),
+    )
     signed_waivers = _build_and_sign_commit_waivers(
         sdir=sdir,
         session_mgr=session_mgr,
@@ -2568,9 +2720,10 @@ def apply_delta_endpoint(
         grounding_rationale=payload.grounding_rationale,
         explicit_ungrounded=payload.ungrounded_concept,
         proposal_id=None,
+        submitted_delta_sha256=submitted_delta_sha,
     )
 
-    atomic_svc = AtomicCommitService(session_manager=session_mgr, enforce_governance=True)
+    atomic_svc = AtomicCommitService(session_manager=session_mgr)
     grandfathered_uris = _load_grandfathered_concept_uris(sdir)
     try:
         commit_res = atomic_svc.commit_delta(
@@ -2580,7 +2733,6 @@ def apply_delta_endpoint(
             author=principal.principal,
             actor_role=principal.role,
             if_match=clean_if_match,
-            enforce_governance=True,
             waivers=signed_waivers or None,
             grandfathered_concept_uris=grandfathered_uris,
         )
@@ -2755,6 +2907,7 @@ def create_proposal(
             domain_namespace=meta.domain_namespace,
             operations=norm_ops,
             author=principal.principal,
+            rationale=payload.rationale,
         )
     except OpenDVError as exc:
         raise _raise_from_opendv_error(exc) from exc
@@ -2781,6 +2934,7 @@ def create_proposal(
         "proposer": principal.principal,
         "created_at": now_iso,
         "rationale": payload.rationale,
+        "delta": candidate_delta.model_dump(mode="json", exclude_none=True),
     }
 
     with reentrant_session_lock(sdir / ".session.lock", session_id=session_id):
@@ -2966,6 +3120,12 @@ def accept_proposal(
         )
 
     # Step 8: Waiver validation & K_waiver signing
+    submitted_prop_delta_sha = _compute_stored_proposal_delta_sha256(
+        sdir=sdir,
+        meta=meta,
+        raw_prop=raw_prop,
+        proposal_id=proposal_id,
+    )
     signed_waivers = _build_and_sign_commit_waivers(
         sdir=sdir,
         session_mgr=session_mgr,
@@ -2976,6 +3136,7 @@ def accept_proposal(
         grounding_rationale=payload.grounding_rationale,
         explicit_ungrounded=payload.ungrounded_concept,
         proposal_id=proposal_id,
+        submitted_delta_sha256=submitted_prop_delta_sha,
     )
 
     # Step 9: Strong ETag Precondition & OCC Check
@@ -3016,7 +3177,7 @@ def accept_proposal(
             f"('{meta.head_sha256}'). Proposal rebase is required.",
         )
 
-    atomic_svc = AtomicCommitService(session_manager=session_mgr, enforce_governance=True)
+    atomic_svc = AtomicCommitService(session_manager=session_mgr)
     eval_dict: dict[str, Any] | None = None
     if signed_waivers:
         eval_dict = {"waivers": [w.model_dump(mode="json") for w in signed_waivers]}
@@ -3031,7 +3192,6 @@ def accept_proposal(
             actor_role=principal.role,
             if_match=clean_if_match,
             evaluation=eval_dict,
-            enforce_governance=True,
             waivers=signed_waivers or None,
             grandfathered_concept_uris=grandfathered_uris,
         )
@@ -3134,38 +3294,285 @@ def reject_proposal(
     )
 
 
+def _load_version_ontology_fail_closed(
+    sdir: Path,
+    meta: SessionMetadata,
+    version_str: str,
+) -> GraphAOntology:
+    """Load version ontology failing closed (`CORRUPT_SESSION_RECORD` vs non-ancestor 409)."""
+    clean_ver = str(version_str).strip().lstrip("v") or GENESIS_VERSION
+    if clean_ver != GENESIS_VERSION:
+        vdir = sdir / "versions" / normalize_version_tag(clean_ver)
+        if not vdir.is_dir():
+            committed_tags = {
+                normalize_version_tag(str(cv).strip().lstrip("v"))
+                for cv in meta.committed_versions
+                if str(cv).strip()
+            }
+            if normalize_version_tag(
+                clean_ver
+            ) in committed_tags or clean_ver == meta.head_version.lstrip("v"):
+                raise StudioAPIError(
+                    "CORRUPT_SESSION_RECORD",
+                    f"Missing version directory 'v{clean_ver}' in session '{meta.session_id}'.",
+                )
+            raise StudioAPIError(
+                "PROPOSAL_STALE_REBASE_REQUIRED",
+                f"Proposal base_version 'v{clean_ver}' does not exist in session history.",
+            )
+
+    try:
+        return _load_session_version_ontology(sdir, meta, clean_ver)
+    except (StudioAPIError, OSError, ValidationError, ValueError, yaml.YAMLError) as exc:
+        raise StudioAPIError(
+            "CORRUPT_SESSION_RECORD",
+            f"Corrupt or missing ontology artifact for version 'v{clean_ver}' in session "
+            f"'{meta.session_id}': {exc}",
+        ) from exc
+
+
 def _collect_intervening_deltas(
     sdir: Path,
+    meta: SessionMetadata,
     prop_base_version: str,
-    head_version: str,
+    prop_base_sha256: str,
+    base_ontology_sha256: str,
 ) -> list[OntologyDelta]:
-    """Load committed OntologyDelta artifacts after prop_base_version up to head_version."""
+    """Load and cryptographically verify intervening deltas from prop_base up to HEAD."""
+    clean_base_ver = str(prop_base_version or "").strip().lstrip("v") or GENESIS_VERSION
+    clean_head_ver = str(meta.head_version or "").strip().lstrip("v")
+    try:
+        base_tup = parse_semver_tuple(clean_base_ver)
+    except ValueError as exc:
+        raise StudioAPIError(
+            "CORRUPT_SESSION_RECORD",
+            f"Malformed proposal base_version '{prop_base_version}': {exc}",
+        ) from exc
+    try:
+        head_tup = parse_semver_tuple(clean_head_ver)
+    except ValueError as exc:
+        raise StudioAPIError(
+            "CORRUPT_SESSION_RECORD",
+            f"Malformed session head_version '{meta.head_version}': {exc}",
+        ) from exc
+
+    if base_tup > head_tup:
+        raise StudioAPIError(
+            "PROPOSAL_STALE_REBASE_REQUIRED",
+            f"Proposal base_version '{prop_base_version}' exceeds session head_version "
+            f"'{meta.head_version}'.",
+        )
+
+    expected_head_sha = str(meta.head_sha256 or "").strip().lower()
+    if not re.fullmatch(r"[0-9a-f]{64}", expected_head_sha):
+        raise StudioAPIError(
+            "CORRUPT_SESSION_RECORD",
+            f"Corrupt session head_sha256 in session '{meta.session_id}'.",
+        )
+
+    eff_prop_base_sha = str(prop_base_sha256 or "").strip().lower()
+    if eff_prop_base_sha:
+        if not re.fullmatch(r"[0-9a-f]{64}", eff_prop_base_sha):
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Malformed proposal base_sha256 '{prop_base_sha256}'.",
+            )
+    elif clean_base_ver == GENESIS_VERSION:
+        eff_prop_base_sha = base_ontology_sha256.strip().lower()
+    else:
+        raise StudioAPIError(
+            "CORRUPT_SESSION_RECORD",
+            f"Empty proposal base_sha256 for non-genesis base_version '{prop_base_version}'.",
+        )
+
     versions_dir = sdir / "versions"
     if not versions_dir.is_dir():
-        return []
-    try:
-        base_tup = parse_semver_tuple(prop_base_version.lstrip("v") or "0.0.0")
-        head_tup = parse_semver_tuple(head_version.lstrip("v"))
-    except ValueError:
+        if base_tup < head_tup or meta.committed_versions:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Missing versions directory in session '{meta.session_id}'.",
+            )
+        if eff_prop_base_sha != expected_head_sha:
+            raise StudioAPIError(
+                "PROPOSAL_STALE_REBASE_REQUIRED",
+                f"Proposal base SHA-256 ('{eff_prop_base_sha}') is not an ancestor of "
+                f"session head ('{meta.head_sha256}').",
+            )
         return []
 
-    found: list[tuple[tuple[int, int, int], OntologyDelta]] = []
+    dir_by_tuple: dict[tuple[int, int, int], Path] = {}
     for vdir in sorted(versions_dir.iterdir()):
         if not vdir.is_dir():
             continue
-        v_clean = vdir.name.lstrip("v")
+        if not vdir.name.startswith("v") or len(vdir.name) < 2:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Malformed version directory '{vdir.name}' in session '{meta.session_id}'.",
+            )
+        v_clean = vdir.name[1:]
         try:
             v_tup = parse_semver_tuple(v_clean)
-        except ValueError:
+        except ValueError as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Malformed SemVer version directory '{vdir.name}' in session "
+                f"'{meta.session_id}': {exc}",
+            ) from exc
+        if v_tup in dir_by_tuple:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Duplicate SemVer version directory '{vdir.name}' in session '{meta.session_id}'.",
+            )
+        dir_by_tuple[v_tup] = vdir
+
+    for cv in meta.committed_versions:
+        cv_clean = str(cv or "").strip().lstrip("v")
+        try:
+            cv_tup = parse_semver_tuple(cv_clean)
+        except ValueError as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Malformed committed_versions entry '{cv}' in session '{meta.session_id}': {exc}",
+            ) from exc
+        if base_tup < cv_tup <= head_tup and cv_tup not in dir_by_tuple:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Missing version directory for committed version '{cv}' in session "
+                f"'{meta.session_id}'.",
+            )
+
+    if base_tup == head_tup:
+        if eff_prop_base_sha != expected_head_sha:
+            raise StudioAPIError(
+                "PROPOSAL_STALE_REBASE_REQUIRED",
+                f"Proposal base SHA-256 ('{eff_prop_base_sha}') does not match "
+                f"session head ('{meta.head_sha256}').",
+            )
+        return []
+
+    collected: list[tuple[tuple[int, int, int], OntologyDelta, str, str]] = []
+    for v_tup in sorted(dir_by_tuple):
+        if not (base_tup < v_tup <= head_tup):
             continue
-        if base_tup < v_tup <= head_tup:
-            delta_file = vdir / "delta.json"
-            if delta_file.is_file():
-                with contextlib.suppress(OSError, ValidationError, ValueError):
-                    d = OntologyDelta.model_validate_json(delta_file.read_text(encoding="utf-8"))
-                    found.append((v_tup, d))
-    found.sort(key=lambda item: item[0])
-    return [d for _, d in found]
+        vdir = dir_by_tuple[v_tup]
+        delta_file = vdir / "delta.json"
+        if not delta_file.is_file():
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Missing delta.json for version '{vdir.name}' in session '{meta.session_id}'.",
+            )
+        try:
+            d = OntologyDelta.model_validate_json(delta_file.read_text(encoding="utf-8"))
+        except (OSError, ValidationError, ValueError) as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt delta.json for version '{vdir.name}' in session "
+                f"'{meta.session_id}': {exc}",
+            ) from exc
+
+        meta_file = vdir / "meta.json"
+        if not meta_file.is_file():
+            meta_file = vdir / "metadata.json"
+        if not meta_file.is_file():
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Missing meta.json for version '{vdir.name}' in session '{meta.session_id}'.",
+            )
+        try:
+            vmeta = json.loads(meta_file.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt {meta_file.name} for version '{vdir.name}' in session "
+                f"'{meta.session_id}': {exc}",
+            ) from exc
+        if not isinstance(vmeta, dict):
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt {meta_file.name} for version '{vdir.name}': expected JSON object.",
+            )
+
+        v_parent_sha = str(vmeta.get("parent_sha256") or "").strip().lower()
+        v_target_sha = str(vmeta.get("target_sha256") or "").strip().lower()
+        if not re.fullmatch(r"[0-9a-f]{64}", v_parent_sha) or not re.fullmatch(
+            r"[0-9a-f]{64}", v_target_sha
+        ):
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt SHA-256 lineage metadata in {meta_file.name} for version '{vdir.name}'.",
+            )
+
+        try:
+            d_target_tup = parse_semver_tuple((d.target_version or "").lstrip("v"))
+        except ValueError as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt delta target_version in '{vdir.name}': {exc}",
+            ) from exc
+        if d_target_tup != v_tup:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Delta target_version '{d.target_version}' mismatches directory '{vdir.name}'.",
+            )
+
+        d_parent_sha = (d.parent_sha256 or "").strip().lower()
+        if d_parent_sha and d_parent_sha != v_parent_sha:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Delta parent_sha256 mismatches {meta_file.name} parent_sha256 in '{vdir.name}'.",
+            )
+
+        v_ont = _load_version_ontology_fail_closed(sdir, meta, vdir.name.lstrip("v"))
+        if compute_ontology_sha256(v_ont).lower() != v_target_sha:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Ontology digest mismatch for version '{vdir.name}' in session "
+                f"'{meta.session_id}'.",
+            )
+
+        collected.append((v_tup, d, v_parent_sha, v_target_sha))
+
+    if not collected:
+        raise StudioAPIError(
+            "CORRUPT_SESSION_RECORD",
+            f"Missing intervening deltas between '{prop_base_version}' and "
+            f"'{meta.head_version}' in session '{meta.session_id}'.",
+        )
+
+    clean_base_ont_sha = base_ontology_sha256.strip().lower()
+    if eff_prop_base_sha != clean_base_ont_sha:
+        raise StudioAPIError(
+            "PROPOSAL_STALE_REBASE_REQUIRED",
+            f"Proposal base SHA-256 ('{eff_prop_base_sha}') is not an ancestor of "
+            f"session head ('{meta.head_sha256}').",
+        )
+
+    first_parent_sha = collected[0][2]
+    if first_parent_sha != eff_prop_base_sha:
+        raise StudioAPIError(
+            "CORRUPT_SESSION_RECORD",
+            f"Broken SHA-256 lineage at version '{collected[0][1].target_version}': "
+            f"expected parent '{eff_prop_base_sha}', got '{first_parent_sha}'.",
+        )
+
+    prev_target_sha = collected[0][3]
+    for v_tup, d, v_parent_sha, v_target_sha in collected[1:]:
+        if v_parent_sha != prev_target_sha:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Broken SHA-256 lineage at version 'v{v_tup[0]}.{v_tup[1]}.{v_tup[2]}' "
+                f"('{d.delta_id}'): parent '{v_parent_sha}' != prev target '{prev_target_sha}'.",
+            )
+        prev_target_sha = v_target_sha
+
+    if collected[-1][0] != head_tup or prev_target_sha != expected_head_sha:
+        raise StudioAPIError(
+            "CORRUPT_SESSION_RECORD",
+            f"Terminal version lineage ('{prev_target_sha}') does not match session "
+            f"head_sha256 ('{meta.head_sha256}').",
+        )
+
+    return [d for _, d, _, _ in collected]
 
 
 @router.post(
@@ -3242,16 +3649,59 @@ def rebase_proposal(
                 f"session head SHA-256 ('{meta.head_sha256}').",
             )
 
-        prop_base_ver = str(prop_data.get("base_version") or GENESIS_VERSION).lstrip("v")
+        raw_prop_base_ver = prop_data.get("base_version")
+        prop_base_ver = (
+            str(raw_prop_base_ver).strip().lstrip("v")
+            if raw_prop_base_ver is not None and str(raw_prop_base_ver).strip()
+            else GENESIS_VERSION
+        )
         prop_base_sha = str(prop_data.get("base_sha256") or "")
+        try:
+            base_tup = parse_semver_tuple(prop_base_ver)
+        except ValueError as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt proposal base_version '{raw_prop_base_ver}' in proposal "
+                f"'{proposal_id}': {exc}",
+            ) from exc
+        try:
+            head_tup = parse_semver_tuple(str(meta.head_version or "").strip().lstrip("v"))
+        except ValueError as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt session head_version '{meta.head_version}' in session "
+                f"'{session_id}': {exc}",
+            ) from exc
+        if base_tup > head_tup:
+            raise StudioAPIError(
+                "PROPOSAL_STALE_REBASE_REQUIRED",
+                f"Proposal base_version '{prop_base_ver}' exceeds session head_version "
+                f"'{meta.head_version}'.",
+            )
+
         raw_ops = prop_data.get("operations", [])
         ops = [_normalize_delta_operation(op) for op in raw_ops]
 
-        base_ontology = _load_session_version_ontology(sdir, meta, prop_base_ver)
-        head_ontology = _load_session_version_ontology(sdir, meta, meta.head_version)
-        intervening_deltas = _collect_intervening_deltas(sdir, prop_base_ver, meta.head_version)
+        base_ontology = _load_version_ontology_fail_closed(sdir, meta, prop_base_ver)
+        head_ontology = _load_version_ontology_fail_closed(sdir, meta, meta.head_version)
+        base_ont_sha = compute_ontology_sha256(base_ontology)
+        head_ont_sha = compute_ontology_sha256(head_ontology)
+        if head_ont_sha.lower() != str(meta.head_sha256 or "").strip().lower():
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Head ontology SHA-256 ('{head_ont_sha}') does not match session.json "
+                f"head_sha256 ('{meta.head_sha256}').",
+            )
 
-        eff_prop_parent = prop_base_sha or compute_ontology_sha256(base_ontology)
+        intervening_deltas = _collect_intervening_deltas(
+            sdir=sdir,
+            meta=meta,
+            prop_base_version=prop_base_ver,
+            prop_base_sha256=prop_base_sha,
+            base_ontology_sha256=base_ont_sha,
+        )
+
+        eff_prop_parent = prop_base_sha.strip().lower() or base_ont_sha
         try:
             orig_t_ver = _compute_expected_semver_for_ops(
                 base_version=prop_base_ver,
@@ -3319,8 +3769,13 @@ def rebase_proposal(
                 base_ontology=head_ontology,
                 domain_namespace=meta.domain_namespace,
             )
+            cleaned_prop_delta = {
+                k: v
+                for k, v in prop_data["delta"].items()
+                if k not in ("base_sha256", "base_version", "target_version")
+            }
             prop_data["delta"] = {
-                **prop_data["delta"],
+                **cleaned_prop_delta,
                 "parent_sha256": meta.head_sha256,
                 "base_ontology_version": meta.head_version.lstrip("v"),
                 "target_ontology_version": rebased_target,
@@ -3397,9 +3852,34 @@ def submit_waiver(
         )
 
     # P10a MAJ-01: Never bind to "0" * 64 wildcard; bind to meta.head_sha256 (or matching proposal)
+    loaded_proposal_raw: dict[str, Any] | None = None
+    loaded_proposal_norm: dict[str, Any] | None = None
+    if payload.proposal_id:
+        prop_file = _resolve_proposal_file(sdir, payload.proposal_id)
+        if prop_file.is_file():
+            try:
+                raw_p = json.loads(prop_file.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError) as exc:
+                raise StudioAPIError(
+                    "CORRUPT_SESSION_RECORD",
+                    f"Corrupt proposal record '{payload.proposal_id}': {exc}",
+                ) from exc
+            if not isinstance(raw_p, dict):
+                raise StudioAPIError(
+                    "CORRUPT_SESSION_RECORD",
+                    f"Corrupt proposal record '{payload.proposal_id}': expected JSON object.",
+                )
+            loaded_proposal_raw = raw_p
+            loaded_proposal_norm = _normalize_proposal_record(
+                raw_p, session_id=session_id, fallback_proposal_id=payload.proposal_id
+            )
+
     raw_req_base = (payload.base_sha256 or "").strip()
     if not raw_req_base:
-        eff_base_sha = meta.head_sha256
+        if loaded_proposal_norm and loaded_proposal_norm.get("base_sha256"):
+            eff_base_sha = str(loaded_proposal_norm["base_sha256"])
+        else:
+            eff_base_sha = meta.head_sha256
     else:
         clean_req_base = _parse_strong_etag_or_400(raw_req_base, header_name="base_sha256")
         if clean_req_base == "0" * 64:
@@ -3408,17 +3888,8 @@ def submit_waiver(
                 "Wildcard zero base_sha256 is forbidden for steward waivers.",
             )
         allowed_bases = {meta.head_sha256}
-        if payload.proposal_id:
-            prop_file = _resolve_proposal_file(sdir, payload.proposal_id)
-            if prop_file.is_file():
-                with contextlib.suppress(OSError, json.JSONDecodeError):
-                    raw_p = json.loads(prop_file.read_text(encoding="utf-8"))
-                    if isinstance(raw_p, dict):
-                        norm_p = _normalize_proposal_record(
-                            raw_p, session_id=session_id, fallback_proposal_id=payload.proposal_id
-                        )
-                        if norm_p.get("base_sha256"):
-                            allowed_bases.add(str(norm_p["base_sha256"]))
+        if loaded_proposal_norm and loaded_proposal_norm.get("base_sha256"):
+            allowed_bases.add(str(loaded_proposal_norm["base_sha256"]))
         if clean_req_base not in allowed_bases:
             raise StudioAPIError(
                 "ONT_EVO_CONCURRENT_MODIFICATION",
@@ -3427,16 +3898,36 @@ def submit_waiver(
             )
         eff_base_sha = clean_req_base
 
+    # P10a MAJ-01: Bind proposal_delta_sha256 to explicit digest or looked-up proposal delta;
+    # leave envelope proposal_delta_sha256 empty "" ONLY for pre-proposal admin waivers.
+    raw_req_delta_sha = (payload.proposal_delta_sha256 or "").strip().lower()
+    if raw_req_delta_sha:
+        if raw_req_delta_sha == "0" * 64 or not re.fullmatch(r"[0-9a-f]{64}", raw_req_delta_sha):
+            raise StudioAPIError(
+                "INVALID_GROUNDING_WAIVER",
+                "Waiver proposal_delta_sha256 must be a valid non-zero 64-character hex digest.",
+            )
+        envelope_delta_sha = raw_req_delta_sha
+    elif payload.proposal_id and loaded_proposal_raw is not None:
+        envelope_delta_sha = _compute_stored_proposal_delta_sha256(
+            sdir=sdir,
+            meta=meta,
+            raw_prop=loaded_proposal_raw,
+            proposal_id=payload.proposal_id,
+        )
+    else:
+        envelope_delta_sha = ""
+
     waiver_id_uuid = (
         _proposal_uuid_from_str(payload.waiver_id) if payload.waiver_id else uuid.uuid4()
     )
     proposal_uuid = _proposal_uuid_from_str(payload.proposal_id)
-    eff_delta_sha = payload.proposal_delta_sha256 or ("0" * 64)
+    record_delta_sha = envelope_delta_sha or ("0" * 64)
 
     record_kwargs: dict[str, Any] = {
         "waiver_id": waiver_id_uuid,
         "proposal_id": proposal_uuid,
-        "proposal_delta_sha256": eff_delta_sha,
+        "proposal_delta_sha256": record_delta_sha,
         "target_concept_uris": target_uris,
         "base_sha256": eff_base_sha,
         "rationale": rationale,
@@ -3464,7 +3955,7 @@ def submit_waiver(
     envelope: dict[str, Any] = {
         "waiver_id": str(signed_record.waiver_id),
         "proposal_id": payload.proposal_id,
-        "proposal_delta_sha256": eff_delta_sha,
+        "proposal_delta_sha256": envelope_delta_sha,
         "target_concept_uris": target_uris,
         "base_sha256": eff_base_sha,
         "rationale": rationale,
@@ -3765,7 +4256,7 @@ def promote_session(
         validated_ws, meta.domain_namespace
     )
 
-    atomic_svc = AtomicCommitService(session_manager=session_mgr, enforce_governance=True)
+    atomic_svc = AtomicCommitService(session_manager=session_mgr)
     try:
         promo_res = atomic_svc.promote_to_workspace(
             session_id=session_id,
@@ -3989,142 +4480,43 @@ def clone_session_endpoint(
 ) -> StudioSessionDTO:
     """Clone session into an isolated session with re-anchored local audit chain under L5 lock."""
     _get_session_or_404(session_mgr, session_id)
-    sdir = session_mgr.get_session_dir(session_id)
-
-    new_sid = (
+    requested_new_sid = (
         payload.new_session_id
         if payload and payload.new_session_id
-        else f"clone-{session_id}-{uuid.uuid4().hex[:6]}"
+        else f"clone-{session_id[:51].rstrip('-_')}-{uuid.uuid4().hex[:6]}"
+    )
+    role_tier = (
+        "admin" if principal.is_admin else ("automated" if principal.is_automated else "editor")
     )
     try:
-        validate_session_id(new_sid)
+        meta = session_mgr.clone_session(
+            source_session_id=session_id,
+            new_session_id=requested_new_sid,
+            actor=principal.principal,
+            actor_role=role_tier,
+        )
     except InvalidSessionIdentifierError as exc:
         raise StudioAPIError(
             "SYNTAX_INVALID_ARGUMENT",
-            f"Invalid destination session identifier '{new_sid}': {exc}",
+            f"Invalid destination session identifier '{requested_new_sid}': {exc}",
         ) from exc
-
-    new_dir = session_mgr.get_session_dir(new_sid)
-    if new_dir.exists():
-        raise StudioAPIError("SESSION_ALREADY_EXISTS", f"Session '{new_sid}' already exists.")
-
-    scratch_dir = session_mgr.studio_root / ".scratch"
-    scratch_dir.mkdir(parents=True, exist_ok=True)
-    staging_dir = scratch_dir / f".staging_clone_{uuid.uuid4().hex[:12]}"
-    clone_lock_path = session_mgr.studio_root / f".clone_{new_sid}.lock"
-
-    try:
-        with studio_lock(sdir / ".session.lock", level=L5_SESSION, session_id=session_id):
-            shutil.copytree(
-                sdir,
-                staging_dir,
-                ignore=shutil.ignore_patterns(
-                    ".session.lock*",
-                    "jobs",
-                    "promotion.json",
-                    "audit.jsonl",
-                    "audit.imported.*",
-                    "waivers.json",
-                    ".scratch*",
-                    ".staging*",
-                    ".bundle*",
-                ),
-            )
-
-        secret_file = staging_dir / ".session_secret"
-        with open(secret_file, "wb") as fp:
-            fp.write(secrets.token_bytes(32))
-            fp.flush()
-            os.fsync(fp.fileno())
-        set_owner_only_permissions(secret_file)
-
-        proposals_dir = staging_dir / "proposals"
-        if proposals_dir.is_dir():
-            for prop_f in proposals_dir.glob("*.json"):
-                with contextlib.suppress(OSError, json.JSONDecodeError):
-                    p_data = json.loads(prop_f.read_text(encoding="utf-8"))
-                    p_data["session_id"] = new_sid
-                    encoded = json.dumps(p_data, indent=2).encode("utf-8")
-                    with open(prop_f, "wb") as fp:
-                        fp.write(encoded)
-                        fp.flush()
-                        os.fsync(fp.fileno())
-                    set_owner_only_permissions(prop_f)
-
-        clone_meta_dict = json.loads((staging_dir / "session.json").read_text(encoding="utf-8"))
-        now_iso = datetime.now(UTC).isoformat()
-        head_version = str(clone_meta_dict.get("head_version", GENESIS_VERSION))
-        head_sha256 = str(clone_meta_dict.get("head_sha256", ""))
-
-        genesis_audit_entry: dict[str, Any] = {
-            "timestamp": now_iso,
-            "session_id": new_sid,
-            "actor": principal.principal,
-            "action": "SESSION_CLONED",
-            "target_version": head_version,
-            "head_sha256": head_sha256,
-            "details": {
-                "source_session_id": session_id,
-                "new_session_id": new_sid,
-            },
-            "prev_audit_sha256": None,
-        }
-        canonical_entry_bytes = dumps_jcs_bytes(genesis_audit_entry)
-        entry_sha256 = hashlib.sha256(canonical_entry_bytes).hexdigest().lower()
-        hmac_sig = session_mgr.security_manager.sign_audit_entry(canonical_entry_bytes)
-        genesis_audit_entry["audit_sha256"] = entry_sha256
-        genesis_audit_entry["hmac_signature"] = hmac_sig
-
-        audit_file = staging_dir / "audit.jsonl"
-        with open(audit_file, "w", encoding="utf-8") as fp:
-            fp.write(json.dumps(genesis_audit_entry) + "\n")
-            fp.flush()
-            os.fsync(fp.fileno())
-        set_owner_only_permissions(audit_file)
-
-        clone_meta_dict["session_id"] = new_sid
-        clone_meta_dict["created_at"] = now_iso
-        clone_meta_dict["updated_at"] = now_iso
-        clone_meta_dict["promoted_versions"] = []
-        clone_meta_dict["last_promoted_sha256"] = None
-        clone_meta_dict["imported_audit_anchor_sha256"] = None
-        clone_meta_dict["audit_chain_head_sha256"] = entry_sha256
-
-        clone_meta = SessionMetadata.model_validate(clone_meta_dict)
-        _atomic_write_session_json(staging_dir, clone_meta)
-
-        with contextlib.suppress(OSError):
-            (staging_dir / ".session.lock").unlink(missing_ok=True)
-
-        for root_str, _dirs, files in os.walk(staging_dir):
-            root_path = Path(root_str)
-            for fname in files:
-                fpath = root_path / fname
-                with contextlib.suppress(OSError):
-                    fd = os.open(str(fpath), os.O_RDONLY | getattr(os, "O_BINARY", 0))
-                    try:
-                        os.fsync(fd)
-                    finally:
-                        os.close(fd)
-            fsync_directory_best_effort(root_path)
-
-        set_owner_only_permissions(staging_dir)
-
-        with studio_lock(
-            clone_lock_path,
-            level=L5_SESSION,
-            session_id=new_sid,
-            remove_on_release=True,
-        ):
-            if new_dir.exists():
-                raise StudioAPIError(
-                    "SESSION_ALREADY_EXISTS",
-                    f"Session '{new_sid}' already exists.",
-                )
-            new_dir.parent.mkdir(parents=True, exist_ok=True)
-            replace_with_retry(staging_dir, new_dir)
-            set_owner_only_permissions(new_dir)
-            fsync_directory_best_effort(new_dir.parent)
+    except SessionAlreadyExistsError as exc:
+        raise StudioAPIError(
+            "SESSION_ALREADY_EXISTS",
+            f"Session '{requested_new_sid}' already exists.",
+        ) from exc
+    except TamperEvidentChainCorruptError as exc:
+        raise StudioAPIError(
+            "TAMPER_EVIDENT_CHAIN_CORRUPT",
+            str(exc),
+        ) from exc
+    except SessionNotFoundError as exc:
+        raise StudioAPIError(
+            "TAMPER_EVIDENT_CHAIN_CORRUPT",
+            f"Audit ledger or session metadata missing for session '{session_id}': {exc}",
+        ) from exc
+    except OpenDVError as exc:
+        raise StudioAPIError(exc.error_code.value, str(exc)) from exc
     except Exception as exc:
         if isinstance(exc, StudioAPIError):
             raise
@@ -4132,11 +4524,8 @@ def clone_session_endpoint(
             "INTERNAL_CLONE_ERROR",
             f"Failed to clone session '{session_id}': {exc}",
         ) from exc
-    finally:
-        if staging_dir.exists():
-            shutil.rmtree(staging_dir, ignore_errors=True)
 
-    meta = session_mgr.get_session(new_sid)
+    new_dir = session_mgr.get_session_dir(meta.session_id)
     return StudioSessionDTO(
         session_id=meta.session_id,
         domain_namespace=meta.domain_namespace,

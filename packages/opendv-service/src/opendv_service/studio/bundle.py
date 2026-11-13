@@ -321,7 +321,16 @@ def compute_effective_session_taint(
             if isinstance(tdata, dict):
                 if tdata.get("is_tainted") is True or tdata.get("tainted") is True:
                     return True
-                for key in ("tainted_sources", "confidential_sources", "sources"):
+                for key in (
+                    "tainted_source_ids",
+                    "tainted_sources",
+                    "confidential_sources",
+                    "do_not_send_to_agent",
+                    "do_not_send_source_ids",
+                    "do_not_send_sources",
+                    "tainted_sha256s",
+                    "sources",
+                ):
                     coll = tdata.get(key)
                     if isinstance(coll, (list, dict)) and len(coll) > 0:
                         return True
@@ -343,12 +352,17 @@ def compute_effective_session_taint(
                         continue
                     if item.get("tombstoned") or item.get("deleted"):
                         continue
+                    raw_item_taint = (
+                        str(item.get("taint") or item.get("taint_classification") or "")
+                        .strip()
+                        .upper()
+                    )
                     if (
                         item.get("do_not_send_to_agent") is True
                         or item.get("tainted") is True
                         or item.get("confidential") is True
-                        or str(item.get("taint_classification") or "").upper()
-                        in ("TAINTED", "CONFIDENTIAL", "RESTRICTED")
+                        or raw_item_taint
+                        in ("TAINTED", "CONFIDENTIAL", "RESTRICTED", "DO_NOT_SEND")
                     ):
                         return True
 
@@ -588,6 +602,7 @@ def _extract_version_waivers(
 ) -> list[StewardWaiverRecord]:
     """Extract and structurally validate StewardWaiverRecords attached to an imported version."""
     raw_items: list[Any] = []
+    meta_delta_shas: set[str] = set()
     for fname in ("waivers.json", "meta.json", "metadata.json", "evaluation.json"):
         fpath = vdir / fname
         if not fpath.is_file():
@@ -601,6 +616,11 @@ def _extract_version_waivers(
         if isinstance(vdata, list):
             raw_items.extend(vdata)
         elif isinstance(vdata, dict):
+            if fname in ("meta.json", "metadata.json"):
+                for dkey in ("delta_sha256", "submitted_delta_sha256"):
+                    dval = vdata.get(dkey)
+                    if isinstance(dval, str) and len(dval.strip()) == 64:
+                        meta_delta_shas.add(dval.strip().lower())
             if isinstance(vdata.get("waivers"), list):
                 raw_items.extend(vdata["waivers"])
             if isinstance(vdata.get("waiver"), dict):
@@ -611,7 +631,11 @@ def _extract_version_waivers(
 
     probe_no_target = delta.model_copy(update={"target_ontology_version": None})
     probe_no_target.__pydantic_fields_set__.discard("target_ontology_version")
-    allowed_delta_shas = {delta.canonical_sha256(), probe_no_target.canonical_sha256()}
+    allowed_delta_shas = {
+        delta.canonical_sha256(),
+        probe_no_target.canonical_sha256(),
+        *meta_delta_shas,
+    }
     if not (delta.parent_sha256 or "").strip() and expected_parent_sha:
         with_parent = delta.model_copy(update={"parent_sha256": expected_parent_sha})
         allowed_delta_shas.add(with_parent.canonical_sha256())
@@ -652,7 +676,12 @@ def _extract_version_waivers(
             raise ImportGroundingViolationError(
                 f"Waiver in '{vdir.name}' is missing cryptographic signature_or_token."
             )
-        if w.proposal_delta_sha256 not in allowed_delta_shas:
+        prop_sha = (w.proposal_delta_sha256 or "").strip().lower()
+        delta_sha_matched = False
+        for cand_sha in allowed_delta_shas:
+            if hmac.compare_digest(prop_sha, cand_sha.strip().lower()):
+                delta_sha_matched = True
+        if not delta_sha_matched:
             raise ImportGroundingViolationError(
                 f"Waiver proposal_delta_sha256 '{w.proposal_delta_sha256}' does not match "
                 f"delta digest in '{vdir.name}'."
@@ -813,7 +842,35 @@ def _verify_versions_and_replay_deltas(
         first_delta_file = first_vdir / "delta.json"
         first_mode = str(first_meta.get("mode") or "").strip().lower()
 
-        if first_vc == GENESIS_VERSION:
+        if first_vc == GENESIS_VERSION or first_mode == "genesis":
+            expected_genesis = create_genesis_ontology(
+                domain_namespace=sanitize_domain_namespace(
+                    first_ont.domain_namespace or session_meta.domain_namespace
+                ),
+                enterprise_owner=(
+                    first_ont.enterprise_owner
+                    or session_meta.enterprise_owner
+                    or "Enterprise Architecture"
+                ),
+            )
+            expected_genesis_sha = compute_ontology_sha256(expected_genesis)
+            has_non_genesis_elements = bool(
+                first_ont.canonical_business_concepts
+                or first_ont.canonical_relationships
+                or first_ont.reference_enumerations
+                or getattr(first_ont, "properties", None)
+                or getattr(first_ont, "shared_attributes", None)
+            )
+            if (
+                first_vc != GENESIS_VERSION
+                or has_non_genesis_elements
+                or first_sha not in (genesis_fallback_sha, expected_genesis_sha)
+            ):
+                raise ImportDeltaReplayHashMismatchError(
+                    f"Root genesis ontology in '{first_vdir.name}' (SHA-256 '{first_sha}') "
+                    f"does not match genuine GenesisDraft digest ('{expected_genesis_sha}')."
+                )
+
             root_ont = first_ont
             root_sha256 = first_sha
             root_came_from_v0_dir = True
@@ -839,19 +896,18 @@ def _verify_versions_and_replay_deltas(
                     raise ImportDeltaReplayHashMismatchError(
                         "Genesis version 'v0.0.0' cannot carry non-empty delta operations."
                     )
-        elif not first_delta_file.is_file() and first_mode in ("seed", "genesis"):
+        elif not first_delta_file.is_file() and first_mode == "seed":
             root_ont = first_ont
             root_sha256 = first_sha
             root_came_from_v0_dir = True
             verified_ont_by_sha[first_sha] = first_ont
             start_replay_idx = 1
-            if first_mode == "seed":
-                root_cbcs = {c.concept_uri for c in first_ont.canonical_business_concepts}
-                raw_gf = first_meta.get("grandfathered_concept_uris")
-                if isinstance(raw_gf, list):
-                    active_grandfathered = {str(u) for u in raw_gf if str(u) in root_cbcs}
-                else:
-                    active_grandfathered = set(root_cbcs)
+            root_cbcs = {c.concept_uri for c in first_ont.canonical_business_concepts}
+            raw_gf = first_meta.get("grandfathered_concept_uris")
+            if isinstance(raw_gf, list):
+                active_grandfathered = {str(u) for u in raw_gf if str(u) in root_cbcs}
+            else:
+                active_grandfathered = set(root_cbcs)
         elif not first_delta_file.is_file():
             raise ImportLineageBrokenError(
                 f"Initial version '{first_vdir.name}' is missing required delta.json and is not "
@@ -1239,11 +1295,35 @@ def _has_unverified_attribution_or_foreign_waiver(
             ):
                 ont_path = vdir / "ontology.json"
                 if ont_path.is_file():
-                    with contextlib.suppress(OSError, ValidationError, ValueError):
+                    try:
                         root_ont = GraphAOntology.model_validate_json(
                             ont_path.read_text(encoding="utf-8")
                         )
-                        if len(root_ont.canonical_business_concepts) > 0:
+                    except (OSError, ValidationError, ValueError):
+                        return True
+                    if len(root_ont.canonical_business_concepts) > 0:
+                        return True
+                    if v_mode == "seed" or (
+                        not (vdir / "delta.json").is_file() and vc != GENESIS_VERSION
+                    ):
+                        s_ns = "general"
+                        s_owner = "Enterprise Architecture"
+                        sjson_p = staging_dir / "session.json"
+                        if sjson_p.is_file():
+                            with contextlib.suppress(OSError, ValidationError, ValueError):
+                                smeta = SessionMetadata.model_validate_json(
+                                    sjson_p.read_text(encoding="utf-8")
+                                )
+                                s_ns = smeta.domain_namespace
+                                s_owner = smeta.enterprise_owner or "Enterprise Architecture"
+                        genesis_fallback_sha = compute_ontology_sha256(
+                            create_genesis_ontology(
+                                domain_namespace=sanitize_domain_namespace(s_ns),
+                                enterprise_owner=s_owner,
+                            )
+                        )
+                        first_sha = compute_ontology_sha256(root_ont)
+                        if first_sha != genesis_fallback_sha:
                             return True
 
     return False
@@ -1624,7 +1704,7 @@ def import_bundle(
             parent_lock_path,
             level=L5_SESSION,
             session_id=target_sid,
-            remove_on_release=True,
+            remove_on_release=False,
         ):
             if dest_dir.is_symlink():
                 raise InvalidWorkspacePathError(
@@ -1652,8 +1732,8 @@ def import_bundle(
             else:
                 replace_with_retry(staging_dir, dest_dir)
 
-        set_owner_only_permissions(dest_dir)
-        fsync_directory_best_effort(dest_dir.parent)
+            set_owner_only_permissions(dest_dir)
+            fsync_directory_best_effort(dest_dir.parent)
         return session_meta
     finally:
         if staging_dir.exists():

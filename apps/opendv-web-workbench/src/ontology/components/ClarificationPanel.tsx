@@ -75,6 +75,12 @@ export const ClarificationPanel: React.FC<ClarificationPanelProps> = ({
 	const [submissionErrors, setSubmissionErrors] = useState<
 		Record<string, string>
 	>({});
+	const [proposalRationales, setProposalRationales] = useState<
+		Record<string, string>
+	>({});
+	const [proposalSelfOverrides, setProposalSelfOverrides] = useState<
+		Record<string, boolean>
+	>({});
 
 	const pendingCount = clarifications.filter(
 		(q) => q.status === "PENDING",
@@ -265,54 +271,102 @@ export const ClarificationPanel: React.FC<ClarificationPanelProps> = ({
 				</div>
 				{proposals.length > 0 && (
 					<div className="proposals-list" data-testid="proposals-list">
-						{proposals.map((prop) => (
-							<div
-								key={prop.proposal_id}
-								className="proposal-card"
-								data-testid={`proposal-card-${prop.proposal_id}`}
-							>
-								<div className="proposal-card-header">
-									<strong>{prop.proposal_id}</strong>
-									<span className="badge">{prop.status}</span>
+						{proposals.map((prop) => {
+							const isNonPending = Boolean(
+								prop.status && prop.status !== "PENDING",
+							);
+							const customAcceptRationale =
+								proposalRationales[prop.proposal_id] || "";
+							const selfAcceptOverride = Boolean(
+								proposalSelfOverrides[prop.proposal_id],
+							);
+							return (
+								<div
+									key={prop.proposal_id}
+									className="proposal-card"
+									data-testid={`proposal-card-${prop.proposal_id}`}
+								>
+									<div className="proposal-card-header">
+										<strong>{prop.proposal_id}</strong>
+										<span className="badge">{prop.status}</span>
+									</div>
+									{prop.rationale && (
+										<p className="proposal-rationale">{prop.rationale}</p>
+									)}
+									{!isNonPending && canHumanRatify && (
+										<div className="proposal-ratification-controls">
+											<input
+												type="text"
+												className="form-input"
+												placeholder="Optional ratification rationale..."
+												value={customAcceptRationale}
+												onChange={(e) =>
+													setProposalRationales((prev) => ({
+														...prev,
+														[prop.proposal_id]: e.target.value,
+													}))
+												}
+												data-testid={`proposal-accept-rationale-${prop.proposal_id}`}
+											/>
+											{userRole === "admin" && (
+												<label className="checkbox-sm">
+													<input
+														type="checkbox"
+														checked={selfAcceptOverride}
+														onChange={(e) =>
+															setProposalSelfOverrides((prev) => ({
+																...prev,
+																[prop.proposal_id]: e.target.checked,
+															}))
+														}
+														data-testid={`proposal-self-accept-override-${prop.proposal_id}`}
+													/>
+													<span>Admin self-acceptance override</span>
+												</label>
+											)}
+										</div>
+									)}
+									<div className="proposal-card-actions">
+										<button
+											type="button"
+											className="btn-primary btn-xs"
+											onClick={() =>
+												void acceptProposal(
+													prop.proposal_id,
+													customAcceptRationale.trim() || undefined,
+													undefined,
+													userRole === "admin" && selfAcceptOverride
+														? { selfAcceptanceOverride: true }
+														: undefined,
+												)
+											}
+											disabled={isNonPending || !canHumanRatify}
+											data-testid={`accept-proposal-btn-${prop.proposal_id}`}
+										>
+											Accept
+										</button>
+										<button
+											type="button"
+											className="btn-secondary btn-xs"
+											onClick={() => void rebaseProposal(prop.proposal_id)}
+											disabled={isNonPending || !canHumanRatify}
+											data-testid={`rebase-proposal-btn-${prop.proposal_id}`}
+										>
+											Rebase
+										</button>
+										<button
+											type="button"
+											className="btn-danger btn-xs"
+											onClick={() => void rejectProposal(prop.proposal_id)}
+											disabled={isNonPending || !canHumanRatify}
+											data-testid={`reject-proposal-btn-${prop.proposal_id}`}
+										>
+											Reject
+										</button>
+									</div>
 								</div>
-								{prop.rationale && (
-									<p className="proposal-rationale">{prop.rationale}</p>
-								)}
-								<div className="proposal-card-actions">
-									<button
-										type="button"
-										className="btn-primary btn-xs"
-										onClick={() => void acceptProposal(prop.proposal_id)}
-										disabled={prop.status === "ACCEPTED" || !canHumanRatify}
-										data-testid={`accept-proposal-btn-${prop.proposal_id}`}
-									>
-										Accept
-									</button>
-									<button
-										type="button"
-										className="btn-secondary btn-xs"
-										onClick={() => void rebaseProposal(prop.proposal_id)}
-										disabled={prop.status === "ACCEPTED" || !canHumanRatify}
-										data-testid={`rebase-proposal-btn-${prop.proposal_id}`}
-									>
-										Rebase
-									</button>
-									<button
-										type="button"
-										className="btn-danger btn-xs"
-										onClick={() => void rejectProposal(prop.proposal_id)}
-										disabled={
-											prop.status === "ACCEPTED" ||
-											prop.status === "REJECTED" ||
-											!canHumanRatify
-										}
-										data-testid={`reject-proposal-btn-${prop.proposal_id}`}
-									>
-										Reject
-									</button>
-								</div>
-							</div>
-						))}
+							);
+						})}
 					</div>
 				)}
 			</div>

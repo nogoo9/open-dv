@@ -22,8 +22,8 @@ The Ontology Construction Studio provides enterprise-grade, neuro-symbolic Data 
   * *Agent Mode*: 3-persona reasoning architecture (`@term-scout`, `@domain-clarifier`, `@ontology-architect`) with HMAC-SHA256 pseudonymization (`K_pseudo`) for strict privacy isolation.
   * *Clarification Q&A Harness*: Automated ambiguity detection, polysemy resolution, and multi-iteration answer incorporation.
 - **Platform REST API**: 27 standardized endpoints (`/api/v1/ontology/studio/*`) implementing strict RFC 9457 `ProblemDetails` error codes, optimistic concurrency control (`ETag` / `If-Match`), SSE stage streaming, and administrative waiver authorization (`OPENDV_WAIVER_KEY`).
-- **Dual-CLI Parity**: 1-to-1 operational equivalence across standalone Python CLI (`opendv ontology studio`) and compiled Bun client (`opendvctl ontology studio`) with 21 shared leaf subcommands (plus standalone `init`) and canonical JCS output.
-- **Decoupled Web Workbench UI**: React 19 SPA mounted at `/ontology` featuring Zustand state management, sources & parsing panel, clarification Q&A drawer, React Flow + elkjs canvas, visual diff overlay, and multi-format export (Graph A YAML, Canonical RFC 8785 JCS JSON, W3C Turtle, JSON-LD, and N-Triples (`.nt`)).
+- **Dual-CLI Parity**: 1-to-1 operational equivalence across standalone Python CLI (`opendv ontology studio`) and compiled Bun client (`opendvctl ontology studio`) across 15 studio subcommands (21 shared dual-CLI leaf commands + standalone-only `init`, 22 total) with canonical JCS output.
+- **Decoupled Web Workbench UI**: React 19 SPA mounted at `/ontology` featuring Zustand state management, sources & parsing panel, clarification Q&A drawer, React Flow + elkjs canvas, visual diff overlay, and multi-format UI/CLI export across 4 formats (YAML, Canonical JCS JSON, Turtle (`.ttl`), and JSON-LD (`.jsonld`), with N-Triples (`.nt`) also supported at the Python `rdf_exporter` service layer).
 
 ### Wave 3 (Phase 6): Integration, Golden Evaluations, Documentation & Release
 - **CI Golden Evaluation Benchmark**: Ground truth evaluation harness on canonical Private Equity and Wealth Management models with 20 formal Competency Questions (Precision $\ge 85\%$, Recall $\ge 80\%$, CQ Coverage $\ge 90\%$).
@@ -36,7 +36,7 @@ The Ontology Construction Studio provides enterprise-grade, neuro-symbolic Data 
 - **Authoritative Documentation & Persistent Engineering Learnings**:
   * `docs/22-ontology-studio-user-guide.md` (End-user manual for Web Workbench & CLI).
   * `docs/23-ontology-studio-extension-guide.md` (Developer SPI guide for adapters, ontologies, and personas).
-  * `docs/16-cli-reference.md` (Fully synchronized reference documenting all 14 studio command groups).
+  * `docs/16-cli-reference.md` (Fully synchronized reference documenting all 15 studio subcommands — 21 shared dual-CLI leaf commands + standalone-only `init`, 22 total).
   * `docs/24-ontology-studio-engineering-learnings.md`, `.agents/rules/ontology-studio-learnings.md`, `AGENTS.md`, and `CLAUDE.md` (Compiled engineering learnings and operational checklists wired into root agent discovery rules).
 - **Schema & TypeScript Synchronization**: OpenAPI 3.1 schema drift verification and re-generated TypeScript types in `@opendv/protocol-ts`.
 

@@ -15,8 +15,23 @@ _FLAG_ALIASES: dict[str, list[str]] = {
     "--candidate-id": ["--candidate"],
     "--input": ["--input-spec"],
     "--json": ["--json-output"],
+    "--grounding-rationale": ["--waiver-rationale"],
     "--project-id": ["--project"],
 }
+
+
+def _collect_declared_flags(*option_lists: list[dict[str, Any]]) -> frozenset[str]:
+    """Collect all explicitly declared long and short option flags in a parser scope."""
+    declared: set[str] = set()
+    for opts in option_lists:
+        for opt in opts:
+            flag = opt.get("flag")
+            if isinstance(flag, str) and flag:
+                declared.add(flag)
+            short = opt.get("short")
+            if isinstance(short, str) and short:
+                declared.add(short)
+    return frozenset(declared)
 
 
 def _resolve_default(opt: dict[str, Any], *, suppress_default: bool) -> Any:
@@ -50,6 +65,7 @@ def _add_option_to_parser(
     opt: dict[str, Any],
     *,
     suppress_default: bool = False,
+    declared_flags: frozenset[str] = frozenset(),
 ) -> None:
     """Attach a single declarative option specification to an ArgumentParser."""
     flag = opt["flag"]
@@ -64,7 +80,7 @@ def _add_option_to_parser(
     if short and short not in flags:
         flags.insert(0, short)
     for alias in _FLAG_ALIASES.get(flag, []):
-        if alias not in flags:
+        if alias not in declared_flags and alias not in flags:
             flags.append(alias)
 
     flags = [f for f in flags if f not in parser._option_string_actions]
@@ -146,13 +162,26 @@ def _attach_command_node(
         allow_abbrev=False,
     )
 
+    cmd_options: list[dict[str, Any]] = list(cmd.get("options", []))
+    scope_declared_flags = _collect_declared_flags(cmd_options, global_options)
+
     # 1. Register command-specific options first so they claim their short flags
-    for opt in cmd.get("options", []):
-        _add_option_to_parser(cmd_parser, opt, suppress_default=False)
+    for opt in cmd_options:
+        _add_option_to_parser(
+            cmd_parser,
+            opt,
+            suppress_default=False,
+            declared_flags=scope_declared_flags,
+        )
 
     # 2. Register inherited global options second (skipping any short/long flag already claimed)
     for g_opt in global_options:
-        _add_option_to_parser(cmd_parser, g_opt, suppress_default=True)
+        _add_option_to_parser(
+            cmd_parser,
+            g_opt,
+            suppress_default=True,
+            declared_flags=scope_declared_flags,
+        )
 
     if "--dump-cli-tree" not in cmd_parser._option_string_actions:
         cmd_parser.add_argument(
@@ -201,9 +230,15 @@ def build_argument_parser(
 
     # 1. Root parent parser for top-level global options
     root_parent = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+    root_declared_flags = _collect_declared_flags(global_options)
 
     for opt in global_options:
-        _add_option_to_parser(root_parent, opt, suppress_default=False)
+        _add_option_to_parser(
+            root_parent,
+            opt,
+            suppress_default=False,
+            declared_flags=root_declared_flags,
+        )
 
     # Hidden flag for RFC 8785 canonical command tree inspection (Decision D6, T15)
     root_parent.add_argument(

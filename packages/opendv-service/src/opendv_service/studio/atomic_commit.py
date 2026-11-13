@@ -84,8 +84,8 @@ from opendv_service.studio.session_manager import (
     SessionMetadata,
     StudioSessionManager,
     TamperEvidentChainCorruptError,
-    atomic_repair_audit_file,
     normalize_version_tag,
+    reconcile_or_verify_audit_ledger,
     sanitize_domain_namespace,
 )
 from opendv_service.studio.workspace_security import (
@@ -373,8 +373,18 @@ class PromotionResult:
 class _LocalWaiverVerifier:
     """Adapter binding WorkspaceSecurityManager K_waiver verification to GovernanceValidator."""
 
-    def __init__(self, security_manager: WorkspaceSecurityManager) -> None:
+    def __init__(
+        self,
+        security_manager: WorkspaceSecurityManager,
+        *,
+        accepted_delta_shas: Sequence[str] | set[str] | frozenset[str] | None = None,
+    ) -> None:
         self._sec = security_manager
+        self._accepted_delta_shas: tuple[str, ...] = tuple(
+            s.strip().lower()
+            for s in (accepted_delta_shas or ())
+            if isinstance(s, str) and s.strip()
+        )
 
     def verify_waiver(
         self,
@@ -382,14 +392,52 @@ class _LocalWaiverVerifier:
         delta_sha256: str,
         base_sha256: str,
     ) -> bool:
-        if waiver.proposal_delta_sha256 != delta_sha256:
+        candidates: list[str] = []
+        if delta_sha256:
+            candidates.append(delta_sha256.strip().lower())
+        for extra_sha in self._accepted_delta_shas:
+            if extra_sha not in candidates:
+                candidates.append(extra_sha)
+
+        prop_sha = (waiver.proposal_delta_sha256 or "").strip().lower()
+        delta_matched = False
+        for cand in candidates:
+            if hmac.compare_digest(prop_sha, cand):
+                delta_matched = True
+        if not delta_matched:
             return False
-        if base_sha256 and waiver.base_sha256 != base_sha256:
+
+        if base_sha256 and not hmac.compare_digest(
+            (waiver.base_sha256 or "").strip().lower(), base_sha256.strip().lower()
+        ):
             return False
         if waiver.expires_at is not None and waiver.expires_at <= datetime.now(UTC):
             return False
         payload_bytes = waiver.signing_payload().encode("utf-8")
         return self._sec.verify_waiver_signature(payload_bytes, waiver.signature_or_token)
+
+
+class _AcceptedDeltaWaiverVerifierProxy:
+    """Wraps a custom WaiverVerifier so both normalized and submitted delta digests are accepted."""
+
+    def __init__(self, inner: Any, accepted_delta_shas: Sequence[str]) -> None:
+        self._inner = inner
+        self._accepted_delta_shas = tuple(dict.fromkeys(s for s in accepted_delta_shas if s))
+
+    def verify_waiver(
+        self,
+        waiver: StewardWaiverRecord,
+        delta_sha256: str,
+        base_sha256: str,
+    ) -> bool:
+        cands = list(dict.fromkeys([delta_sha256, *self._accepted_delta_shas]))
+        matched = False
+        for cand in cands:
+            if cand and self._inner.verify_waiver(
+                waiver, delta_sha256=cand, base_sha256=base_sha256
+            ):
+                matched = True
+        return matched
 
 
 def parse_strong_etag(if_match: str) -> str:
@@ -520,6 +568,7 @@ def verify_ont_evo_002_post_state_grounding(
     security_manager: WorkspaceSecurityManager | None = None,
     grounding_verifier: Any | None = None,
     explicit_touched_uris: set[str] | None = None,
+    submitted_delta_sha256: str | None = None,
 ) -> None:
     """Enforce ONT-EVO-002 across all 18+2 concept-mutating ops at threshold 0.65.
 
@@ -540,8 +589,13 @@ def verify_ont_evo_002_post_state_grounding(
 
     target_concepts = {c.concept_uri: c for c in target_ontology.canonical_business_concepts}
     waiver_list = waivers or []
-    waiver_verifier = _LocalWaiverVerifier(security_manager) if security_manager else None
     delta_sha = delta.canonical_sha256()
+    accepted_shas = [delta_sha, submitted_delta_sha256] if submitted_delta_sha256 else [delta_sha]
+    waiver_verifier = (
+        _LocalWaiverVerifier(security_manager, accepted_delta_shas=accepted_shas)
+        if security_manager
+        else None
+    )
 
     for concept_uri in sorted(touched_uris):
         if concept_uri not in target_concepts:
@@ -653,21 +707,10 @@ class AtomicCommitService:
         security_manager: WorkspaceSecurityManager | None = None,
         *,
         governance_validator: GovernanceValidator | None = None,
-        enforce_governance: bool = True,
     ) -> None:
         self.session_manager = session_manager
         self.security_manager = security_manager or session_manager.security_manager
         self.governance_validator = governance_validator
-        self._enforce_governance = bool(enforce_governance)
-
-    @property
-    def enforce_governance(self) -> bool:
-        """Whether ONT-EVO-001/002 governance enforcement is active by default."""
-        return self._enforce_governance
-
-    @enforce_governance.setter
-    def enforce_governance(self, value: bool) -> None:
-        self._enforce_governance = bool(value)
 
     def _load_version_ontology(
         self,
@@ -784,8 +827,6 @@ class AtomicCommitService:
         timeout_sec: float = DEFAULT_LOCK_TIMEOUT_SECONDS,
         *,
         actor_role: str = "editor",
-        run_governance: bool | None = None,
-        enforce_governance: bool | None = None,
         governance_validator: GovernanceValidator | None = None,
         waivers: list[StewardWaiverRecord] | None = None,
         grandfathered_concept_uris: set[str] | frozenset[str] | None = None,
@@ -935,11 +976,17 @@ class AtomicCommitService:
                     exit_code=4,
                 )
 
+            # Compute submitted delta digest BEFORE normalization rewrites parent / target_version
+            submitted_delta_sha = delta.canonical_sha256()
+
             # Apply delta exactly once via structural applier
             try:
                 normalized_delta = (
                     delta
-                    if delta.parent_sha256 == session.head_sha256
+                    if (
+                        delta.parent_sha256 == session.head_sha256
+                        and delta.target_ontology_version == expected_semver
+                    )
                     else delta.model_copy(
                         update={
                             "parent_sha256": session.head_sha256,
@@ -947,6 +994,7 @@ class AtomicCommitService:
                         }
                     )
                 )
+                normalized_delta_sha = normalized_delta.canonical_sha256()
                 target_ontology = apply_delta(
                     base_ontology, normalized_delta, validate_structural=True
                 )
@@ -956,65 +1004,65 @@ class AtomicCommitService:
                     raise
                 raise CommitValidationError(f"Invalid ontology delta transition: {err}") from err
 
-            # Step 2d: GovernanceValidator & ONT-EVO-002 18+2 op grounding enforcement
-            should_run_gov = bool(
-                governance_validator is not None
-                or run_governance is True
-                or enforce_governance is True
-                or (
-                    run_governance is None
-                    and enforce_governance is None
-                    and self.enforce_governance
-                )
+            # Step 2d: Unconditional GovernanceValidator & ONT-EVO-002 18+2 op grounding enforcement
+            effective_grandfathered = (
+                set(grandfathered_concept_uris)
+                if grandfathered_concept_uris is not None
+                else _load_grandfathered_concept_uris(session_dir)
             )
-            if should_run_gov:
-                effective_grandfathered = (
-                    set(grandfathered_concept_uris)
-                    if grandfathered_concept_uris is not None
-                    else _load_grandfathered_concept_uris(session_dir)
+            accepted_delta_shas = (normalized_delta_sha, submitted_delta_sha)
+            local_waiver_verifier = _LocalWaiverVerifier(
+                self.security_manager, accepted_delta_shas=accepted_delta_shas
+            )
+            gv = governance_validator or self.governance_validator
+            if gv is None:
+                gv = GovernanceValidator(waiver_verifier=local_waiver_verifier)
+            elif gv.waiver_verifier is None or isinstance(gv.waiver_verifier, _LocalWaiverVerifier):
+                gv = GovernanceValidator(
+                    deployment_provider=getattr(gv, "deployment_provider", None),
+                    grounding_verifier=gv.grounding_verifier,
+                    waiver_verifier=local_waiver_verifier,
                 )
-                gv = governance_validator or self.governance_validator
-                if gv is None:
-                    gv = GovernanceValidator(
-                        waiver_verifier=_LocalWaiverVerifier(self.security_manager)
-                    )
-                elif gv.waiver_verifier is None:
-                    gv = GovernanceValidator(
-                        deployment_provider=getattr(gv, "deployment_provider", None),
-                        grounding_verifier=gv.grounding_verifier,
-                        waiver_verifier=_LocalWaiverVerifier(self.security_manager),
-                    )
+            else:
+                gv = GovernanceValidator(
+                    deployment_provider=getattr(gv, "deployment_provider", None),
+                    grounding_verifier=gv.grounding_verifier,
+                    waiver_verifier=_AcceptedDeltaWaiverVerifierProxy(
+                        gv.waiver_verifier, accepted_delta_shas
+                    ),
+                )
 
-                occ_kwargs: dict[str, Any] = {
-                    "session_head_sha256": session.head_sha256,
-                    "if_match": if_match,
-                }
-                occ_sig = inspect.signature(gv.validate_occ)
-                if "actual_base_version" in occ_sig.parameters:
-                    occ_kwargs["actual_base_version"] = session.active_version
-                try:
-                    gv.validate_occ(normalized_delta, **occ_kwargs)
-                except OpenDVError as occ_err:
-                    if occ_err.error_code == ErrorCode.ONT_EVO_CONCURRENT_MODIFICATION:
-                        raise ConcurrentModificationError(str(occ_err)) from occ_err
-                    raise
+            occ_kwargs: dict[str, Any] = {
+                "session_head_sha256": session.head_sha256,
+                "if_match": if_match,
+            }
+            occ_sig = inspect.signature(gv.validate_occ)
+            if "actual_base_version" in occ_sig.parameters:
+                occ_kwargs["actual_base_version"] = session.active_version
+            try:
+                gv.validate_occ(normalized_delta, **occ_kwargs)
+            except OpenDVError as occ_err:
+                if occ_err.error_code == ErrorCode.ONT_EVO_CONCURRENT_MODIFICATION:
+                    raise ConcurrentModificationError(str(occ_err)) from occ_err
+                raise
 
-                gv.validate_deployed_contracts(base_ontology, normalized_delta)
-                gv.validate_grounding(
-                    base_ontology,
-                    normalized_delta,
-                    target_ontology,
-                    waivers=waivers,
-                    grandfathered_concept_uris=effective_grandfathered,
-                )
-                verify_ont_evo_002_post_state_grounding(
-                    base_ontology,
-                    normalized_delta,
-                    target_ontology,
-                    waivers=waivers,
-                    security_manager=self.security_manager,
-                    grounding_verifier=gv.grounding_verifier or get_default_grounding_verifier(),
-                )
+            gv.validate_deployed_contracts(base_ontology, normalized_delta)
+            gv.validate_grounding(
+                base_ontology,
+                normalized_delta,
+                target_ontology,
+                waivers=waivers,
+                grandfathered_concept_uris=effective_grandfathered,
+            )
+            verify_ont_evo_002_post_state_grounding(
+                base_ontology,
+                normalized_delta,
+                target_ontology,
+                waivers=waivers,
+                security_manager=self.security_manager,
+                grounding_verifier=gv.grounding_verifier or get_default_grounding_verifier(),
+                submitted_delta_sha256=submitted_delta_sha,
+            )
 
             target_version_raw = target_ontology.ontology_version.lstrip("v")
             target_version_tag = normalize_version_tag(target_version_raw)
@@ -1077,6 +1125,8 @@ class AtomicCommitService:
                     "target_version": target_version_tag,
                     "target_sha256": target_sha256,
                     "parent_sha256": session.head_sha256,
+                    "delta_sha256": normalized_delta_sha,
+                    "submitted_delta_sha256": submitted_delta_sha,
                     "proposal_id": proposal_id,
                     "created_at": now_iso,
                     "author": author,
@@ -1208,7 +1258,6 @@ class AtomicCommitService:
         if not versions_dir.is_dir():
             return set()
 
-        waiver_verifier = _LocalWaiverVerifier(self.security_manager)
         version_entries: list[tuple[tuple[int, int, int], Path]] = []
         for vdir in versions_dir.iterdir():
             if not vdir.is_dir():
@@ -1251,12 +1300,17 @@ class AtomicCommitService:
                         raw_waiver_items.extend(
                             x for x in wloaded["waivers"] if isinstance(x, dict)
                         )
+            meta_delta_shas: list[str] = [v_delta.canonical_sha256()]
             for fname in ("meta.json", "metadata.json", "evaluation.json"):
                 fpath = vdir / fname
                 if fpath.is_file():
                     with contextlib.suppress(OSError, json.JSONDecodeError):
                         floaded = json.loads(fpath.read_text(encoding="utf-8"))
                         if isinstance(floaded, dict):
+                            for dkey in ("delta_sha256", "submitted_delta_sha256"):
+                                dval = floaded.get(dkey)
+                                if isinstance(dval, str) and len(dval.strip()) == 64:
+                                    meta_delta_shas.append(dval.strip().lower())
                             if isinstance(floaded.get("waivers"), list):
                                 raw_waiver_items.extend(
                                     x for x in floaded["waivers"] if isinstance(x, dict)
@@ -1265,6 +1319,9 @@ class AtomicCommitService:
                                 raw_waiver_items.append(floaded["waiver"])
 
             v_delta_sha = v_delta.canonical_sha256()
+            ver_waiver_verifier = _LocalWaiverVerifier(
+                self.security_manager, accepted_delta_shas=meta_delta_shas
+            )
             for raw_w in raw_waiver_items:
                 with contextlib.suppress(ValidationError, ValueError):
                     w_rec = StewardWaiverRecord.model_validate(raw_w)
@@ -1272,7 +1329,7 @@ class AtomicCommitService:
                         w_rec.authorized_role == "admin"
                         and w_rec.rationale
                         and len(w_rec.rationale.strip()) >= 10
-                        and waiver_verifier.verify_waiver(
+                        and ver_waiver_verifier.verify_waiver(
                             w_rec,
                             delta_sha256=v_delta_sha,
                             base_sha256=v_delta.base_sha256,
@@ -1615,14 +1672,13 @@ class AtomicCommitService:
                         f"exists at '{target_contract_path.name}'."
                     )
 
-            if self._enforce_governance:
-                self._verify_promotion_governance(
-                    session_dir=session_dir,
-                    session=session,
-                    existing_ws_ont=existing_ws_ont,
-                    head_ont=head_ont,
-                    acknowledge_historical_contract_warning=acknowledge_historical_contract_warning,
-                )
+            self._verify_promotion_governance(
+                session_dir=session_dir,
+                session=session,
+                existing_ws_ont=existing_ws_ont,
+                head_ont=head_ont,
+                acknowledge_historical_contract_warning=acknowledge_historical_contract_warning,
+            )
 
             version_tag = normalize_version_tag(session.head_version)
             now_iso = datetime.now(UTC).isoformat()
@@ -1813,8 +1869,8 @@ class AtomicCommitService:
             )
             audit_file = session_dir / "audit.jsonl"
 
-            # 1. Audit Chain Integrity Verification
-            tail_sha256 = self._verify_audit_chain_or_raise(session_id, session)
+            # 1. Audit Chain Integrity Verification & WAL Roll-Forward
+            tail_sha256 = self._verify_audit_chain_or_raise(session_id, session, mutate=True)
             if tail_sha256 != session.audit_chain_head_sha256:
                 session.audit_chain_head_sha256 = tail_sha256
                 self._write_session_json(session_dir, session)
@@ -1878,10 +1934,14 @@ class AtomicCommitService:
                     if not keep:
                         shutil.rmtree(staging_dir, ignore_errors=True)
 
-            # 4. Orphan Version Directory Reconciliation
+            # 4. Orphan Version Directory Reconciliation (SemVer-sorted & PENDING_COMMIT-gated)
+            active_pending_intents = self._collect_active_pending_commit_intents(
+                audit_file, session
+            )
             versions_root = session_dir / "versions"
             if versions_root.exists():
-                for v_dir in sorted(versions_root.iterdir()):
+                semver_version_dirs: list[tuple[tuple[int, int, int], str, str, Path]] = []
+                for v_dir in versions_root.iterdir():
                     if not v_dir.is_dir():
                         continue
                     v_name = v_dir.name
@@ -1892,7 +1952,11 @@ class AtomicCommitService:
                         v_tuple = parse_semver_tuple(v_clean)
                     except ValueError:
                         continue
+                    semver_version_dirs.append((v_tuple, v_name, v_clean, v_dir))
 
+                semver_version_dirs.sort(key=lambda item: (item[0], item[1]))
+
+                for v_tuple, v_name, v_clean, v_dir in semver_version_dirs:
                     is_committed = (
                         v_name in committed_set
                         or v_clean in committed_set
@@ -1909,6 +1973,7 @@ class AtomicCommitService:
                         )
                         ont_path = v_dir / "ontology.json"
                         reconciled = False
+                        norm_tag = normalize_version_tag(v_clean)
 
                         if meta_path.exists() and ont_path.exists():
                             try:
@@ -1917,18 +1982,23 @@ class AtomicCommitService:
                                     ont_path.read_text(encoding="utf-8")
                                 )
                                 computed_sha = compute_ontology_sha256(ont_model)
-                                parent_sha = mdata.get("parent_sha256")
-                                target_sha = mdata.get("target_sha256")
+                                parent_sha = str(mdata.get("parent_sha256") or "").strip().lower()
+                                target_sha = str(mdata.get("target_sha256") or "").strip().lower()
+                                intent_key = (norm_tag, target_sha, parent_sha)
 
-                                if parent_sha == session.head_sha256 and computed_sha == target_sha:
+                                if (
+                                    parent_sha == session.head_sha256
+                                    and computed_sha == target_sha
+                                    and intent_key in active_pending_intents
+                                ):
                                     now_iso = datetime.now(UTC).isoformat()
-                                    norm_tag = normalize_version_tag(v_clean)
                                     session.head_version = v_clean
                                     session.head_sha256 = target_sha
                                     if norm_tag not in session.committed_versions:
                                         session.committed_versions.append(norm_tag)
                                     session.updated_at = now_iso
                                     committed_set.add(norm_tag)
+                                    active_pending_intents.pop(intent_key, None)
 
                                     self._mark_proposals_post_commit(
                                         session_dir=session_dir,
@@ -2173,7 +2243,86 @@ class AtomicCommitService:
                             session.audit_chain_head_sha256 = abort_promo["audit_sha256"]
                             self._write_session_json(session_dir, session)
 
-    def _verify_audit_chain_or_raise(self, session_id: str, session: SessionMetadata) -> str:
+    def _collect_active_pending_commit_intents(
+        self,
+        audit_file: Path,
+        session: SessionMetadata,
+    ) -> dict[tuple[str, str, str], dict[str, Any]]:
+        """Collect locally K_audit-verified PENDING_COMMIT intents without subsequent closure."""
+        if not audit_file.is_file():
+            return {}
+        records = self._read_valid_audit_records(audit_file)
+        anchor_sha = session.imported_audit_anchor_sha256
+        seen_anchor = anchor_sha is None
+        active: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+        for rec in records:
+            if not seen_anchor and rec.get("audit_sha256") == anchor_sha:
+                seen_anchor = True
+            if not seen_anchor:
+                continue
+
+            action = str(rec.get("action") or "")
+            det = rec.get("details") if isinstance(rec.get("details"), dict) else {}
+
+            if action == "PENDING_COMMIT":
+                raw_tv = str(det.get("target_version") or rec.get("target_version") or "").strip()
+                norm_tv = normalize_version_tag(raw_tv) if raw_tv else ""
+                t_sha = (
+                    str(det.get("target_sha256") or rec.get("head_sha256") or "").strip().lower()
+                )
+                p_sha = str(det.get("parent_sha256") or "").strip().lower()
+                if norm_tv and len(t_sha) == 64 and len(p_sha) == 64:
+                    active[(norm_tv, t_sha, p_sha)] = rec
+            elif action == "COMMITTED":
+                raw_tv = str(det.get("target_version") or rec.get("target_version") or "").strip()
+                norm_tv = normalize_version_tag(raw_tv) if raw_tv else ""
+                t_sha = (
+                    str(det.get("target_sha256") or rec.get("head_sha256") or "").strip().lower()
+                )
+                p_sha = str(det.get("parent_sha256") or "").strip().lower()
+                to_remove = [
+                    k
+                    for k in active
+                    if (t_sha and k[1] == t_sha)
+                    or (
+                        norm_tv
+                        and k[0] == norm_tv
+                        and (not t_sha or k[1] == t_sha)
+                        and (not p_sha or k[2] == p_sha)
+                    )
+                ]
+                for k in to_remove:
+                    active.pop(k, None)
+            elif action == "COMMIT_ABORTED":
+                raw_tv = str(det.get("target_version") or rec.get("target_version") or "").strip()
+                norm_tv = (
+                    normalize_version_tag(raw_tv) if raw_tv and raw_tv.lower() != "unknown" else ""
+                )
+                aborted_sha = (
+                    str(det.get("aborted_pending_sha256") or det.get("target_sha256") or "")
+                    .strip()
+                    .lower()
+                )
+                p_sha = str(det.get("parent_sha256") or "").strip().lower()
+                to_remove = [
+                    k
+                    for k in active
+                    if (aborted_sha and k[1] == aborted_sha)
+                    or (norm_tv and k[0] == norm_tv and (not p_sha or k[2] == p_sha))
+                ]
+                for k in to_remove:
+                    active.pop(k, None)
+
+        return active
+
+    def _verify_audit_chain_or_raise(
+        self,
+        session_id: str,
+        session: SessionMetadata,
+        *,
+        mutate: bool = False,
+    ) -> str:
         """Verify the full HMAC and hash chaining of audit.jsonl, raising error if corrupt."""
         session_dir = self.session_manager.get_session_dir(session_id)
         audit_file = session_dir / "audit.jsonl"
@@ -2181,139 +2330,16 @@ class AtomicCommitService:
         if not audit_file.exists():
             raise TamperEvidentChainCorruptError(f"Audit ledger missing for session '{session_id}'")
 
-        raw_bytes = audit_file.read_bytes()
-        if not raw_bytes:
-            raise TamperEvidentChainCorruptError(
-                f"Audit ledger is empty for session '{session_id}'"
-            )
-
-        anchor_sha = session.imported_audit_anchor_sha256
-        if not raw_bytes.endswith(b"\n"):
-            last_nl = raw_bytes.rfind(b"\n")
-            prev_line_sha: str | None = None
-            prefix_seen_anchor = anchor_sha is None
-            if last_nl >= 0:
-                prefix_lines = [
-                    ln.strip()
-                    for ln in raw_bytes[:last_nl].decode("utf-8", errors="replace").splitlines()
-                    if ln.strip()
-                ]
-                for pline in prefix_lines:
-                    try:
-                        prec = json.loads(pline)
-                    except json.JSONDecodeError as exc:
-                        raise TamperEvidentChainCorruptError(
-                            f"Corrupt JSON in audit ledger for session '{session_id}': {exc}"
-                        ) from exc
-                    if not isinstance(prec, dict) or not isinstance(prec.get("audit_sha256"), str):
-                        raise TamperEvidentChainCorruptError(
-                            f"Corrupt audit entry in session '{session_id}'"
-                        )
-                    prev_line_sha = prec["audit_sha256"]
-                    if not prefix_seen_anchor and prev_line_sha == anchor_sha:
-                        prefix_seen_anchor = True
-
-            tail_fragment = raw_bytes[last_nl + 1 :]
-            tail_is_valid = False
-            try:
-                tail_rec = json.loads(tail_fragment.decode("utf-8"))
-                if isinstance(tail_rec, dict):
-                    t_sha = tail_rec.get("audit_sha256")
-                    t_sig = tail_rec.get("hmac_signature")
-                    t_prev = tail_rec.get("prev_audit_sha256")
-                    if isinstance(t_sha, str) and len(t_sha) == 64 and t_prev == prev_line_sha:
-                        t_recon = {
-                            k: v
-                            for k, v in tail_rec.items()
-                            if k not in ("audit_sha256", "hmac_signature")
-                        }
-                        t_canon = dumps_jcs_bytes(t_recon)
-                        if hashlib.sha256(t_canon).hexdigest().lower() == t_sha:
-                            need_hmac = prefix_seen_anchor or (t_sha == anchor_sha)
-                            if not need_hmac or (
-                                isinstance(t_sig, str)
-                                and hmac.compare_digest(
-                                    t_sig, self.security_manager.sign_audit_entry(t_canon)
-                                )
-                            ):
-                                tail_is_valid = True
-            except (UnicodeDecodeError, json.JSONDecodeError):
-                tail_is_valid = False
-
-            if tail_is_valid:
-                raw_bytes = raw_bytes + b"\n"
-                atomic_repair_audit_file(audit_file, raw_bytes)
-            elif last_nl >= 0:
-                raw_bytes = raw_bytes[: last_nl + 1]
-                atomic_repair_audit_file(audit_file, raw_bytes)
-            else:
-                raise TamperEvidentChainCorruptError(
-                    f"Audit ledger for session '{session_id}' contains unparseable torn bytes"
-                )
-
-        raw_lines = raw_bytes.decode("utf-8").splitlines()
-        lines = [line.strip() for line in raw_lines if line.strip()]
-        if not lines:
+        tail_sha256 = reconcile_or_verify_audit_ledger(
+            session_dir,
+            session,
+            self.security_manager,
+            mutate=mutate,
+        )
+        if not tail_sha256:
             raise TamperEvidentChainCorruptError(
                 f"Audit ledger contains no valid lines for session '{session_id}'"
             )
-
-        anchor_sha = session.imported_audit_anchor_sha256
-        seen_anchor = anchor_sha is None
-        expected_prev: str | None = None
-        chain_hashes: list[str] = []
-
-        for line in lines:
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise TamperEvidentChainCorruptError(
-                    f"Corrupt JSON in audit ledger for session '{session_id}': {exc}"
-                ) from exc
-
-            actual_sha = record.get("audit_sha256")
-            actual_sig = record.get("hmac_signature")
-            prev_sha = record.get("prev_audit_sha256")
-
-            if not isinstance(actual_sha, str) or prev_sha != expected_prev:
-                raise TamperEvidentChainCorruptError(
-                    f"Audit chain hash break in '{session_id}': expected prev '{expected_prev}', "
-                    f"got '{prev_sha}'"
-                )
-
-            recon = {k: v for k, v in record.items() if k not in ("audit_sha256", "hmac_signature")}
-            canonical_bytes = dumps_jcs_bytes(recon)
-            computed_sha = hashlib.sha256(canonical_bytes).hexdigest().lower()
-            if computed_sha != actual_sha:
-                raise TamperEvidentChainCorruptError(
-                    f"Audit entry SHA-256 digest mismatch in '{session_id}'"
-                )
-
-            if not seen_anchor and actual_sha == anchor_sha:
-                seen_anchor = True
-
-            if seen_anchor:
-                expected_sig = self.security_manager.sign_audit_entry(canonical_bytes)
-                if not hmac.compare_digest(str(actual_sig or ""), expected_sig):
-                    raise TamperEvidentChainCorruptError(
-                        f"Audit entry HMAC signature verification failed in '{session_id}'"
-                    )
-
-            chain_hashes.append(actual_sha)
-            expected_prev = actual_sha
-
-        if not seen_anchor:
-            raise TamperEvidentChainCorruptError(
-                f"Imported audit anchor '{anchor_sha}' missing from audit chain in '{session_id}'"
-            )
-
-        tail_sha256 = chain_hashes[-1]
-        if session.audit_chain_head_sha256 not in chain_hashes:
-            raise TamperEvidentChainCorruptError(
-                f"Session anchor '{session.audit_chain_head_sha256}' missing from audit chain "
-                f"in session '{session_id}' (tail is '{tail_sha256}')"
-            )
-
         return tail_sha256
 
     def _read_valid_audit_records(self, audit_file: Path) -> list[dict[str, Any]]:

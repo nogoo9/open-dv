@@ -511,14 +511,17 @@ describe("QualityFeedbackPanel & ExportPromoteModal (Task 5D.6, #227)", () => {
 			const yamlOut = generateLocalExport("yaml", "1.1.0", nodes, edges, session);
 			expect(yamlOut).toContain("ontology_version:");
 			expect(yamlOut).toContain("1.1.0");
-			expect(yamlOut).toContain("concepts:");
+			expect(yamlOut).toContain("canonical_business_concepts:");
+			expect(yamlOut).toContain("canonical_relationships:");
 			expect(yamlOut).toContain("Fund");
 
 			// RFC 8785 JSON
 			const jsonOut = generateLocalExport("json", "1.1.0", nodes, edges, session);
-			expect(jsonOut).toContain("\"schema_version\": \"v1\"");
 			const parsed = JSON.parse(jsonOut);
-			expect(parsed.concepts.length).toBeGreaterThan(0);
+			expect(parsed.ontology_version).toBe("1.1.0");
+			expect(parsed.enterprise_owner).toBe("Securities Co");
+			expect(parsed.canonical_business_concepts.length).toBeGreaterThan(0);
+			expect(parsed.canonical_relationships.length).toBeGreaterThan(0);
 
 			// Turtle (.ttl)
 			const ttlOut = generateLocalExport("turtle", "1.1.0", nodes, edges, session);
@@ -623,8 +626,8 @@ describe("QualityFeedbackPanel & ExportPromoteModal (Task 5D.6, #227)", () => {
 
 			expect(ok).toBe(true);
 			const state = studioStore.getState();
-			expect(state.activeSession?.commits?.length).toBe(1);
-			expect(state.activeSession?.commits?.[0]?.rationale).toContain("Enterprise release");
+			expect(state.activeSession?.commits?.length ?? 0).toBe(0);
+			expect(state.activeSession?.status).toBe("PROMOTED");
 			expect(state.activeSession?.head_sha256).toBe(promotedHeadSha);
 			expect(state.toasts.some((t) => t.title === "Workspace Promotion Succeeded")).toBe(true);
 		});

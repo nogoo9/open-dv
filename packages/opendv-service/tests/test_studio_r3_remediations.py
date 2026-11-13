@@ -133,7 +133,8 @@ async def test_reentrant_session_lock_task_and_thread_isolation(tmp_path: Path) 
     jnl_lock_path = tmp_path / "job.events.jsonl.lock"
 
     with reentrant_session_lock(sess_lock_path, session_id="s-iso", timeout=1.0):
-        assert len(get_held_locks()) == 1
+        # Holds (.lifecycle_s-iso.lock, .session.lock) in strict L5 order
+        assert len(get_held_locks()) == 2
 
         async def _child_task() -> None:
             # Child task must NOT see parent's L5 lock as owned in its task context
@@ -270,7 +271,7 @@ def test_audit_chain_tail_truncation_missing_file_and_valid_unterminated_final_l
     studio_root = tmp_path / "studio"
     sec = WorkspaceSecurityManager(studio_root=studio_root)
     mgr = StudioSessionManager(studio_root=studio_root, security_manager=sec)
-    svc = AtomicCommitService(session_manager=mgr, security_manager=sec, enforce_governance=False)
+    svc = AtomicCommitService(session_manager=mgr, security_manager=sec)
 
     meta = mgr.create_session("sess-audit-guard")
     sdir = mgr.get_session_dir("sess-audit-guard")
@@ -732,27 +733,49 @@ def test_import_bundle_provisional_uri_lineage_and_post_root_grounding_gates(
     assert lin_exc.value.error_code == ErrorCode.IMPORT_LINEAGE_BROKEN
 
     # Craft archive where post-root v1.0.0 adds an ungrounded concept with NO waiver -> rejected!
-    svc_unguarded = AtomicCommitService(
-        session_manager=mgr_a, security_manager=sec_a, enforce_governance=False
-    )
+    svc_unguarded = AtomicCommitService(session_manager=mgr_a, security_manager=sec_a)
     m_ug = mgr_a.create_session("ug-post-root")
-    svc_unguarded.commit_delta(
-        "ug-post-root",
-        OntologyDelta(
-            delta_id="d-ug",
-            base_ontology_version="0.0.0",
-            target_ontology_version="1.0.0",
-            parent_sha256=m_ug.head_sha256,
-            operations=[
-                AddConceptOp(
-                    op_id="op-ug",
-                    concept_name="ShadowConcept",
-                    concept_uri="urn:ontology:entity:shadow_concept",
-                    target_hub="hub_shadow",
-                )
-            ],
-        ),
+    ug_delta = OntologyDelta(
+        delta_id="d-ug",
+        base_ontology_version="0.0.0",
+        target_ontology_version="1.0.0",
+        parent_sha256=m_ug.head_sha256,
+        operations=[
+            AddConceptOp(
+                op_id="op-ug",
+                concept_name="ShadowConcept",
+                concept_uri="urn:ontology:entity:shadow_concept",
+                target_hub="hub_shadow",
+            )
+        ],
     )
+    ug_wv_unsigned = StewardWaiverRecord(
+        proposal_id=uuid.uuid4(),
+        target_concept_uris=["urn:ontology:entity:shadow_concept"],
+        proposal_delta_sha256=ug_delta.canonical_sha256(),
+        base_sha256=m_ug.head_sha256,
+        authorized_by="human:steward_a",
+        authorized_role="admin",
+        rationale="Temporary waiver stripped from exported bundle to test import rejection.",
+        created_at=datetime.now(UTC) - timedelta(minutes=1),
+        signature_or_token="0" * 64,
+    )
+    ug_wv = ug_wv_unsigned.model_copy(
+        update={
+            "signature_or_token": sec_a.sign_waiver(
+                ug_wv_unsigned.signing_payload().encode("utf-8")
+            )
+        }
+    )
+    svc_unguarded.commit_delta("ug-post-root", ug_delta, waivers=[ug_wv])
+    ug_v1_dir = mgr_a.get_session_dir("ug-post-root") / "versions" / "v1.0.0"
+    (ug_v1_dir / "waivers.json").unlink(missing_ok=True)
+    for meta_fname in ("meta.json", "metadata.json", "evaluation.json"):
+        mf = ug_v1_dir / meta_fname
+        if mf.is_file():
+            m_obj = json.loads(mf.read_text(encoding="utf-8"))
+            m_obj.pop("waivers", None)
+            mf.write_text(json.dumps(m_obj, indent=2), encoding="utf-8")
     ug_zip = tmp_path / "ug.odvstudio.zip"
     export_bundle(mgr_a.get_session_dir("ug-post-root"), ug_zip, security_manager=sec_a)
 

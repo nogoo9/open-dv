@@ -1,15 +1,24 @@
 # Start Open-DV Platform API Server with runtime configuration
 $ErrorActionPreference = "Stop"
 
-$scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
-Set-Location $scriptDir
+Push-Location $PSScriptRoot
+try {
+    $env:OPENDV_CONFIG = Join-Path $PSScriptRoot "opendv.config.yaml"
+    $env:OPENDV_WORKSPACE_ROOT = $PSScriptRoot
+    if (-not $env:OPENDV_HOST) {
+        $env:OPENDV_HOST = "127.0.0.1"
+    }
+    if (-not $env:OPENDV_PORT) {
+        $env:OPENDV_PORT = "8420"
+    }
 
-$env:OPENDV_CONFIG = "$scriptDir\opendv.config.yaml"
-$env:OPENDV_WORKSPACE_ROOT = "$scriptDir"
+    Write-Host "Starting Open-DV Platform API on http://$($env:OPENDV_HOST):$($env:OPENDV_PORT) ..." -ForegroundColor Cyan
+    Write-Host "Using config: $env:OPENDV_CONFIG" -ForegroundColor DarkGray
+    Write-Host "Workspace:    $env:OPENDV_WORKSPACE_ROOT" -ForegroundColor DarkGray
 
-Write-Host "Starting Open-DV Platform API on http://127.0.0.1:8420 ..." -ForegroundColor Cyan
-Write-Host "Using config: $env:OPENDV_CONFIG" -ForegroundColor DarkGray
-Write-Host "Workspace:    $env:OPENDV_WORKSPACE_ROOT" -ForegroundColor DarkGray
-
-uv run --package opendv-platform-api uvicorn opendv_platform_api.main:app --host 127.0.0.1 --reload --port 8420 @args
+    uv run --package opendv-platform-api uvicorn opendv_platform_api.main:app --host $env:OPENDV_HOST --reload --port $env:OPENDV_PORT @args
+}
+finally {
+    Pop-Location
+}
 

@@ -1823,4 +1823,268 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			if (existsSync(emptyDeltaFile)) unlinkSync(emptyDeltaFile);
 		}
 	});
+
+	it("P13b::MAJ-01 & P13a::MAJ-01: genesis 0.0.0 delta validate and delta apply send genuine head_sha256 in parent_sha256 matching If-Match", async () => {
+		const defaultGenesisSha =
+			"1916a5c6be732b3867e8b123456789abcdef0123456789abcdef0123456789ab";
+		const customGenesisSha =
+			"c987654321fedcba0123456789abcdef0123456789abcdef0123456789abcdef";
+
+		let lastValidateBody: Record<string, unknown> | null = null;
+		let lastApplyBody: Record<string, unknown> | null = null;
+		let lastApplyIfMatch: string | null = null;
+
+		const genServer = Bun.serve({
+			port: 0,
+			async fetch(req) {
+				const url = new URL(req.url);
+				if (url.pathname === "/api/v1/health") {
+					return Response.json({ status: "ok", contract_version: "1.0.0" });
+				}
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s-gen-default" &&
+					req.method === "GET"
+				) {
+					return Response.json({
+						session_id: "s-gen-default",
+						status: "ACTIVE",
+						head_version: "0.0.0",
+						active_version: "0.0.0",
+						head_sha256: defaultGenesisSha,
+					});
+				}
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s-gen-custom" &&
+					req.method === "GET"
+				) {
+					return Response.json({
+						session_id: "s-gen-custom",
+						status: "ACTIVE",
+						domain_namespace: "supply_chain",
+						head_version: "0.0.0",
+						active_version: "0.0.0",
+						head_sha256: customGenesisSha,
+					});
+				}
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s-gen-empty-sha" &&
+					req.method === "GET"
+				) {
+					return Response.json({
+						session_id: "s-gen-empty-sha",
+						status: "ACTIVE",
+						head_version: "0.0.0",
+						active_version: "0.0.0",
+						head_sha256: "",
+					});
+				}
+				if (
+					(url.pathname ===
+						"/api/v1/ontology/studio/sessions/s-gen-default/validate" ||
+						url.pathname ===
+							"/api/v1/ontology/studio/sessions/s-gen-custom/validate") &&
+					req.method === "POST"
+				) {
+					lastValidateBody = (await req.json()) as Record<string, unknown>;
+					return Response.json({
+						valid: true,
+						violations: [],
+						diagnostics: [],
+					});
+				}
+				if (
+					(url.pathname ===
+						"/api/v1/ontology/studio/sessions/s-gen-default/delta" ||
+						url.pathname ===
+							"/api/v1/ontology/studio/sessions/s-gen-custom/delta") &&
+					req.method === "POST"
+				) {
+					lastApplyIfMatch = req.headers.get("if-match");
+					lastApplyBody = (await req.json()) as Record<string, unknown>;
+					return Response.json({
+						session_id: url.pathname.includes("s-gen-custom")
+							? "s-gen-custom"
+							: "s-gen-default",
+						target_version: lastApplyBody.target_version,
+						target_sha256: "a".repeat(64),
+						parent_sha256: lastApplyBody.parent_sha256,
+						applied_operations_count: 1,
+					});
+				}
+				return new Response("Not Found", { status: 404 });
+			},
+		});
+
+		const genUrl = `http://127.0.0.1:${genServer.port}`;
+		const majorConceptDeltaFile = `temp_gen_major_${Date.now()}.json`;
+		const minorEnumDeltaFile = `temp_gen_minor_${Date.now()}.json`;
+
+		await Bun.write(
+			majorConceptDeltaFile,
+			JSON.stringify({
+				operations: [
+					{
+						op_type: "add_concept",
+						concept_uri: "urn:ontology:entity:shipment",
+						concept_name: "Shipment",
+					},
+				],
+			}),
+		);
+		await Bun.write(
+			minorEnumDeltaFile,
+			JSON.stringify({
+				operations: [
+					{
+						op_type: "add_reference_enumeration",
+						enum_uri: "urn:ontology:enum:shipment_status",
+						enum_name: "ShipmentStatus",
+						allowed_values: ["PENDING", "SHIPPED"],
+					},
+				],
+			}),
+		);
+
+		const savedWaiverKey = process.env.OPENDV_WAIVER_KEY;
+		try {
+			// 1. 0.0.0 -> 1.0.0 (add_concept): delta validate & delta apply send genuine defaultGenesisSha
+			const valMajorCode = await runCli(
+				[
+					"ontology",
+					"studio",
+					"delta",
+					"validate",
+					"--api-url",
+					genUrl,
+					"-s",
+					"s-gen-default",
+					"-f",
+					majorConceptDeltaFile,
+					"--json",
+				],
+				() => {},
+			);
+			expect(valMajorCode).toBe(0);
+			expect(lastValidateBody?.base_version).toBe("0.0.0");
+			expect(lastValidateBody?.target_version).toBe("1.0.0");
+			expect(lastValidateBody?.parent_sha256).toBe(defaultGenesisSha);
+
+			const applyMajorCode = await runCli(
+				[
+					"ontology",
+					"studio",
+					"delta",
+					"apply",
+					"--api-url",
+					genUrl,
+					"-s",
+					"s-gen-default",
+					"-f",
+					majorConceptDeltaFile,
+					"--json",
+				],
+				() => {},
+			);
+			expect(applyMajorCode).toBe(0);
+			expect(lastApplyBody?.base_version).toBe("0.0.0");
+			expect(lastApplyBody?.target_version).toBe("1.0.0");
+			expect(lastApplyBody?.parent_sha256).toBe(defaultGenesisSha);
+			expect(lastApplyIfMatch).toBe(`"${defaultGenesisSha}"`);
+
+			// 2. 0.0.0 -> 0.1.0 (non-CBC add_reference_enumeration on custom namespace):
+			// delta validate & delta apply send genuine customGenesisSha + grounding rationale without key-copying
+			process.env.OPENDV_WAIVER_KEY = "local-steward-secret";
+			const valMinorCode = await runCli(
+				[
+					"--role",
+					"DATA_STEWARD",
+					"ontology",
+					"studio",
+					"delta",
+					"validate",
+					"--api-url",
+					genUrl,
+					"-s",
+					"s-gen-custom",
+					"-f",
+					minorEnumDeltaFile,
+					"--low-confidence-waiver",
+					"--grounding-rationale",
+					"Approved genesis reference enumeration waiver",
+					"--json",
+				],
+				() => {},
+			);
+			expect(valMinorCode).toBe(0);
+			expect(lastValidateBody?.base_version).toBe("0.0.0");
+			expect(lastValidateBody?.target_version).toBe("0.1.0");
+			expect(lastValidateBody?.parent_sha256).toBe(customGenesisSha);
+			expect(lastValidateBody?.grounding_rationale).toBe(
+				"Approved genesis reference enumeration waiver",
+			);
+
+			const applyMinorCode = await runCli(
+				[
+					"--role",
+					"DATA_STEWARD",
+					"ontology",
+					"studio",
+					"delta",
+					"apply",
+					"--api-url",
+					genUrl,
+					"-s",
+					"s-gen-custom",
+					"-f",
+					minorEnumDeltaFile,
+					"--low-confidence-waiver",
+					"--waiver-rationale",
+					"Approved genesis waiver via --waiver-rationale",
+					"--json",
+				],
+				() => {},
+			);
+			expect(applyMinorCode).toBe(0);
+			expect(lastApplyBody?.base_version).toBe("0.0.0");
+			expect(lastApplyBody?.target_version).toBe("0.1.0");
+			expect(lastApplyBody?.parent_sha256).toBe(customGenesisSha);
+			expect(lastApplyIfMatch).toBe(`"${customGenesisSha}"`);
+			expect(lastApplyBody?.grounding_rationale).toBe(
+				"Approved genesis waiver via --waiver-rationale",
+			);
+
+			// 3. 0.0.0 session with empty head_sha256 and no explicit SHA raises MISSING_PRECONDITION_HEADER
+			const emptyShaErr: string[] = [];
+			const emptyShaCode = await runCli(
+				[
+					"ontology",
+					"studio",
+					"delta",
+					"apply",
+					"--api-url",
+					genUrl,
+					"-s",
+					"s-gen-empty-sha",
+					"-f",
+					majorConceptDeltaFile,
+					"--json",
+				],
+				() => {},
+				(msg) => emptyShaErr.push(msg),
+			);
+			expect(emptyShaCode).toBe(2);
+			expect(JSON.parse(emptyShaErr.join("\n")).error_code).toBe(
+				"MISSING_PRECONDITION_HEADER",
+			);
+		} finally {
+			if (savedWaiverKey === undefined) {
+				delete process.env.OPENDV_WAIVER_KEY;
+			} else {
+				process.env.OPENDV_WAIVER_KEY = savedWaiverKey;
+			}
+			genServer.stop();
+			if (existsSync(majorConceptDeltaFile)) unlinkSync(majorConceptDeltaFile);
+			if (existsSync(minorEnumDeltaFile)) unlinkSync(minorEnumDeltaFile);
+		}
+	});
 });

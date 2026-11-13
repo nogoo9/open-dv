@@ -112,7 +112,7 @@
     },
     "schemas/openapi-v1.json": {
       "description": "OpenDV Platform API OpenAPI v1 specification",
-      "sha256": "d2646e3d43c2269737349b40865e3777cc0f81cc35cc9e1f9b87dfa817f4d6e5"
+      "sha256": "e986a3487065afd1eaa1af39a16f4a80678d80eae6f3b32b7ddebe05f2b1308a"
     },
     "schemas/v1/cli-spec.json": {
       "description": "v1 CLI specification schema",
@@ -136,7 +136,7 @@
     },
     "schemas/v1/openapi.json": {
       "description": "v1 OpenAPI specification",
-      "sha256": "d2646e3d43c2269737349b40865e3777cc0f81cc35cc9e1f9b87dfa817f4d6e5"
+      "sha256": "e986a3487065afd1eaa1af39a16f4a80678d80eae6f3b32b7ddebe05f2b1308a"
     },
     "schemas/v1/steward-hold-option.schema.json": {
       "description": "v1 Steward Hold Option schema",

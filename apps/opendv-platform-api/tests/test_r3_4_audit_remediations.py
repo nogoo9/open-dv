@@ -1167,3 +1167,438 @@ def test_r4_s6_crit_01_construct_then_accept_proposal_not_blocked_by_self_accept
             headers={**editor_headers, "If-Match": f'"{genesis_sha}"'},
         )
         assert r_acc.status_code != 403, r_acc.text
+
+
+# ===========================================================================
+# Round-4 R4-C Remediations: P10a::MAJ-01, P10c::MAJ-01, P11::MAJ-01 & Clone
+# ===========================================================================
+
+
+def test_r4c_p10a_maj01_waiver_delta_sha256_binding_blocks_cross_delta_replay(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path
+) -> None:
+    """Verify a waiver bound to delta D1 cannot authorize delta D2 on the same base_sha256."""
+    from opendv_contracts.dtos.ontology import OntologyDelta
+
+    sid = "s-r4c-p10a-delta-bind"
+    meta = _create_session(client, auth_headers, sid)
+    genesis_sha = meta["head_sha256"]
+    sdir = tmp_path / "opendv_studio" / sid
+
+    # 1. Construct D1 and D2 touching the EXACT SAME target_concept_uri on the same base_sha256
+    d1 = OntologyDelta(
+        delta_id="d-bound-1",
+        parent_sha256=genesis_sha,
+        base_version="0.0.0",
+        target_version="1.0.0",
+        operations=[
+            {
+                "op_type": "add_concept",
+                "op_id": "op-d1",
+                "concept_uri": "urn:ontology:entity:proprietary_signal",
+                "concept_name": "Proprietary Signal",
+                "definition": "Approved definition for D1.",
+            }
+        ],
+    )
+    d2 = OntologyDelta(
+        delta_id="d-bound-2",
+        parent_sha256=genesis_sha,
+        base_version="0.0.0",
+        target_version="1.0.0",
+        operations=[
+            {
+                "op_type": "add_concept",
+                "op_id": "op-d2",
+                "concept_uri": "urn:ontology:entity:proprietary_signal",
+                "concept_name": "Proprietary Signal",
+                "definition": "Unauthorized altered definition in D2!",
+            }
+        ],
+    )
+    d1_sha = d1.canonical_sha256()
+    assert d1_sha != d2.canonical_sha256()
+
+    # Submit waiver explicitly bound to D1's canonical_sha256
+    w_resp = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/waiver",
+        json={
+            "target_concept_uris": ["urn:ontology:entity:proprietary_signal"],
+            "base_sha256": genesis_sha,
+            "proposal_delta_sha256": d1_sha,
+            "rationale": "Approved waiver strictly bound to D1 canonical digest.",
+        },
+        headers=auth_headers,
+    )
+    assert w_resp.status_code == 200, w_resp.text
+    stored = json.loads((sdir / "waivers.json").read_text(encoding="utf-8"))
+    assert stored[0]["envelope"]["proposal_delta_sha256"] == d1_sha
+
+    # Committing D2 on the same base_sha256 MUST fail with 422 ONT_EVO_UNGROUNDED_CONCEPT
+    apply_d2 = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/deltas/apply",
+        json=d2.model_dump(mode="json", exclude_none=True),
+        headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
+    )
+    assert apply_d2.status_code == 422, apply_d2.text
+    assert apply_d2.json()["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
+
+    # Committing D1 on the same base_sha256 MUST succeed (200)
+    apply_d1 = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/deltas/apply",
+        json=d1.model_dump(mode="json", exclude_none=True),
+        headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
+    )
+    assert apply_d1.status_code == 200, apply_d1.text
+    head_1_sha = apply_d1.json()["target_sha256"]
+
+    # 2. Proposal-lookup binding: creating proposal P1 then calling POST .../waiver with
+    # proposal_id=P1 binds proposal_delta_sha256 to P1's stored delta canonical_sha256()
+    editor_headers = {
+        **auth_headers,
+        "X-OpenDV-Role": "editor",
+        "X-OpenDV-Principal": "human:editor_p1",
+    }
+    p1_resp = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/proposals",
+        json={
+            "proposal_id": "prop-bound-p1",
+            "operations": [
+                {
+                    "op_type": "add_concept",
+                    "op_id": "op-p1",
+                    "concept_uri": "urn:ontology:entity:custom_desk",
+                    "concept_name": "Custom Desk",
+                    "definition": "Original P1 definition.",
+                }
+            ],
+            "rationale": "Proposal P1 for delta-bound waiver test",
+        },
+        headers=editor_headers,
+    )
+    assert p1_resp.status_code == 201, p1_resp.text
+
+    w_p1 = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/waiver",
+        json={
+            "proposal_id": "prop-bound-p1",
+            "target_concept_uris": ["urn:ontology:entity:custom_desk"],
+            "rationale": "Waiver bound to P1's exact stored proposal delta.",
+        },
+        headers=auth_headers,
+    )
+    assert w_p1.status_code == 200, w_p1.text
+    stored_after_p1 = json.loads((sdir / "waivers.json").read_text(encoding="utf-8"))
+    bound_p1_sha = stored_after_p1[-1]["envelope"]["proposal_delta_sha256"]
+    assert len(bound_p1_sha) == 64 and bound_p1_sha != "0" * 64
+
+    # Tamper P1's operations to D2 on the same base_sha256 -> accept MUST reject (422)!
+    prop_path = sdir / "proposals" / "prop-bound-p1.json"
+    orig_prop_bytes = prop_path.read_bytes()
+    tampered_prop = json.loads(orig_prop_bytes.decode("utf-8"))
+    tampered_prop["operations"][0]["definition"] = "Mutated D2 definition after waiver!"
+    prop_path.write_text(json.dumps(tampered_prop, indent=2), encoding="utf-8")
+
+    acc_tampered = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/proposals/prop-bound-p1/accept",
+        json={"base_sha256": head_1_sha},
+        headers={**auth_headers, "If-Match": f'"{head_1_sha}"'},
+    )
+    assert acc_tampered.status_code == 422, acc_tampered.text
+    assert acc_tampered.json()["error_code"] == "ONT_EVO_UNGROUNDED_CONCEPT"
+
+    # Restore original P1 -> accept succeeds (200)!
+    prop_path.write_bytes(orig_prop_bytes)
+    acc_intact = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/proposals/prop-bound-p1/accept",
+        json={"base_sha256": head_1_sha},
+        headers={**auth_headers, "If-Match": f'"{head_1_sha}"'},
+    )
+    assert acc_intact.status_code == 200, acc_intact.text
+
+
+def test_r4c_p10c_maj01_rebase_fails_closed_on_missing_or_corrupt_delta_and_broken_lineage(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path
+) -> None:
+    """Verify rebase fails closed when delta.json is missing/corrupt or lineage is broken."""
+    sid = "s-r4c-p10c-rebase"
+    meta = _create_session(client, auth_headers, sid)
+    genesis_sha = meta["head_sha256"]
+    sdir = tmp_path / "opendv_studio" / sid
+
+    # 1. Create proposal on genesis 0.0.0 that touches concept X (conflicting with HEAD)
+    p_resp = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/proposals",
+        json={
+            "proposal_id": "prop-stale-conflict",
+            "base_sha256": genesis_sha,
+            "operations": [
+                {
+                    "op_type": "add_concept",
+                    "op_id": "op-prop-x",
+                    "concept_uri": "urn:ontology:entity:desk_book",
+                    "concept_name": "Desk Book",
+                    "definition": "Proposal version of Desk Book.",
+                }
+            ],
+            "rationale": "Proposal created at 0.0.0",
+        },
+        headers=auth_headers,
+    )
+    assert p_resp.status_code == 201
+
+    # Also create a non-conflicting proposal so even without semantic conflict in head_ontology,
+    # missing/corrupt delta.json MUST fail closed instead of re-anchoring!
+    p_clean_resp = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/proposals",
+        json={
+            "proposal_id": "prop-stale-clean",
+            "base_sha256": genesis_sha,
+            "operations": [
+                {
+                    "op_type": "add_concept",
+                    "op_id": "op-prop-y",
+                    "concept_uri": "urn:ontology:entity:margin_call",
+                    "concept_name": "Margin Call",
+                    "definition": "Margin call notice.",
+                }
+            ],
+            "rationale": "Clean proposal created at 0.0.0",
+        },
+        headers=auth_headers,
+    )
+    assert p_clean_resp.status_code == 201
+
+    # Advance HEAD to v1.0.0
+    apply_1 = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/deltas/apply",
+        json={
+            "delta_id": "d-head-100",
+            "parent_sha256": genesis_sha,
+            "base_version": "0.0.0",
+            "target_version": "1.0.0",
+            "operations": [
+                {
+                    "op_type": "add_concept",
+                    "op_id": "op-head-1",
+                    "concept_uri": "urn:ontology:entity:ledger_entry",
+                    "concept_name": "Ledger Entry",
+                    "definition": "Committed at v1.0.0.",
+                }
+            ],
+            "low_confidence_waiver": True,
+            "grounding_rationale": "Admin waiver for v1.0.0 commit.",
+        },
+        headers={**auth_headers, "If-Match": f'"{genesis_sha}"'},
+    )
+    assert apply_1.status_code == 200, apply_1.text
+    head_1_sha = apply_1.json()["target_sha256"]
+
+    delta_file = sdir / "versions" / "v1.0.0" / "delta.json"
+    orig_delta_bytes = delta_file.read_bytes()
+
+    # 2a. Corrupt intervening delta.json -> 500 CORRUPT_SESSION_RECORD (does NOT re-anchor!)
+    delta_file.write_text("{corrupt-json", encoding="utf-8")
+    r_corrupt = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/proposals/prop-stale-clean/rebase",
+        json={"base_sha256": head_1_sha},
+        headers={**auth_headers, "If-Match": f'"{head_1_sha}"'},
+    )
+    assert r_corrupt.status_code == 500, r_corrupt.text
+    assert r_corrupt.json()["error_code"] == "CORRUPT_SESSION_RECORD"
+
+    # 2b. Delete intervening delta.json -> 500 CORRUPT_SESSION_RECORD
+    delta_file.unlink()
+    r_missing = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/proposals/prop-stale-clean/rebase",
+        json={"base_sha256": head_1_sha},
+        headers={**auth_headers, "If-Match": f'"{head_1_sha}"'},
+    )
+    assert r_missing.status_code == 500, r_missing.text
+    assert r_missing.json()["error_code"] == "CORRUPT_SESSION_RECORD"
+
+    # Restore delta.json; verify proposal was NEVER re-anchored on disk
+    delta_file.write_bytes(orig_delta_bytes)
+    prop_disk = json.loads(
+        (sdir / "proposals" / "prop-stale-clean.json").read_text(encoding="utf-8")
+    )
+    assert prop_disk["base_sha256"] == genesis_sha
+
+    # 2c. Malformed version directory name under versions/ -> 500 CORRUPT_SESSION_RECORD
+    bad_vdir = sdir / "versions" / "vnot-a-semver"
+    bad_vdir.mkdir()
+    r_bad_dir = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/proposals/prop-stale-clean/rebase",
+        json={"base_sha256": head_1_sha},
+        headers={**auth_headers, "If-Match": f'"{head_1_sha}"'},
+    )
+    assert r_bad_dir.status_code == 500, r_bad_dir.text
+    assert r_bad_dir.json()["error_code"] == "CORRUPT_SESSION_RECORD"
+    bad_vdir.rmdir()
+
+    # 2d. Non-ancestor proposal base_sha256 -> 409 PROPOSAL_STALE_REBASE_REQUIRED
+    prop_clean_path = sdir / "proposals" / "prop-stale-clean.json"
+    orig_prop_bytes = prop_clean_path.read_bytes()
+    alien_prop = json.loads(orig_prop_bytes.decode("utf-8"))
+    alien_prop["base_sha256"] = "e" * 64
+    prop_clean_path.write_text(json.dumps(alien_prop, indent=2), encoding="utf-8")
+
+    r_non_ancestor = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/proposals/prop-stale-clean/rebase",
+        json={"base_sha256": head_1_sha},
+        headers={**auth_headers, "If-Match": f'"{head_1_sha}"'},
+    )
+    assert r_non_ancestor.status_code == 409, r_non_ancestor.text
+    assert r_non_ancestor.json()["error_code"] == "PROPOSAL_STALE_REBASE_REQUIRED"
+
+    # Restore intact proposal & verify legitimate rebase succeeds (200)
+    prop_clean_path.write_bytes(orig_prop_bytes)
+    r_ok = client.post(
+        f"/api/v1/ontology/studio/sessions/{sid}/proposals/prop-stale-clean/rebase",
+        json={"base_sha256": head_1_sha},
+        headers={**auth_headers, "If-Match": f'"{head_1_sha}"'},
+    )
+    assert r_ok.status_code == 200, r_ok.text
+    assert r_ok.json()["base_sha256"] == head_1_sha
+
+
+def test_r4c_p11_maj01_sticky_commit_started_and_terminal_state_protection(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Verify cancellation stays blocked after 'committing' stage & terminal state is sticky."""
+    studio_root = tmp_path / "opendv_studio"
+    session_mgr = StudioSessionManager(studio_root=studio_root)
+    session_mgr.create_session("s-r4c-p11", domain_namespace="wealth_mgmt")
+    sup = JobSupervisor()
+    monkeypatch.setattr(js_mod, "_GLOBAL_SUPERVISOR", sup)
+
+    post_commit_stage_reached = threading.Event()
+    allow_runner_finish = threading.Event()
+
+    def _fake_construct_session(**kwargs: Any) -> dict[str, Any]:
+        on_stage = kwargs["on_stage"]
+        on_stage("extracting")
+        on_stage("committing")
+        # Subsequent stage callback AFTER "committing" MUST NOT reopen cancellation!
+        on_stage("finalizing")
+        post_commit_stage_reached.set()
+        allow_runner_finish.wait(timeout=5.0)
+        return {"auto_committed": True, "target_version": "1.0.0"}
+
+    monkeypatch.setattr(js_mod, "run_construct_session", _fake_construct_session)
+
+    handle = sup.submit_job(
+        session_mgr=session_mgr,
+        session_id="s-r4c-p11",
+        job_type="construct",
+        runner_fn=run_construct_job,
+        auto_commit=True,
+    )
+    job_id = handle["job_id"]
+    assert post_commit_stage_reached.wait(timeout=5.0)
+
+    # Even though ctx.stage is now "finalizing", commit_started is True -> JOB_COMMIT_IN_PROGRESS
+    with pytest.raises(js_mod.StudioAPIError) as exc_info:
+        sup.cancel_job(session_mgr, "s-r4c-p11", job_id, reason="Late cancel attempt")
+    assert exc_info.value.code == "JOB_COMMIT_IN_PROGRESS"
+
+    allow_runner_finish.set()
+    ctx = sup._jobs[job_id]
+    assert ctx.thread is not None
+    ctx.thread.join(timeout=5.0)
+
+    final_job = sup.get_job(session_mgr, "s-r4c-p11", job_id)
+    assert final_job["status"] == "completed"
+    disk_data = json.loads(
+        (studio_root / "s-r4c-p11" / "jobs" / f"{job_id}.json").read_text(encoding="utf-8")
+    )
+    assert disk_data["status"] == "completed"
+
+    # 2. Verify _execute_job NEVER overwrites an already-terminal "cancelled" state even when
+    # runner_fn returns {"auto_committed": True}
+    cancelled_in_runner = threading.Event()
+    proceed_after_cancel = threading.Event()
+
+    def _race_runner(_sm: StudioSessionManager, _ctx: JobContext) -> dict[str, Any]:
+        cancelled_in_runner.set()
+        proceed_after_cancel.wait(timeout=5.0)
+        return {"auto_committed": True, "note": "Late return after pre-commit cancel"}
+
+    handle2 = sup.submit_job(
+        session_mgr=session_mgr,
+        session_id="s-r4c-p11",
+        job_type="construct",
+        runner_fn=_race_runner,
+    )
+    job2_id = handle2["job_id"]
+    assert cancelled_in_runner.wait(timeout=5.0)
+
+    cancel_res = sup.cancel_job(session_mgr, "s-r4c-p11", job2_id, reason="Pre-commit cancel")
+    assert cancel_res["status"] == "cancelled"
+
+    proceed_after_cancel.set()
+    ctx2 = sup._jobs[job2_id]
+    assert ctx2.thread is not None
+    ctx2.thread.join(timeout=5.0)
+
+    assert sup.get_job(session_mgr, "s-r4c-p11", job2_id)["status"] == "cancelled"
+    disk_data2 = json.loads(
+        (studio_root / "s-r4c-p11" / "jobs" / f"{job2_id}.json").read_text(encoding="utf-8")
+    )
+    assert disk_data2["status"] == "cancelled"
+
+
+def test_r4c_clone_session_taint_audit_chain_and_lifecycle_lock_parity(
+    client: TestClient, auth_headers: dict[str, str], tmp_path: Path
+) -> None:
+    """Verify clone_session_endpoint enforces taint RBAC, audit chain, and lock parity."""
+    studio_root = tmp_path / "opendv_studio"
+    editor_headers = {
+        **auth_headers,
+        "X-OpenDV-Role": "editor",
+        "X-OpenDV-Principal": "human:editor_clone",
+    }
+
+    # 1. Tainted session requires admin role to clone
+    tainted_sid = "s-r4c-tainted-src"
+    _create_session(client, auth_headers, tainted_sid)
+    up_resp = client.post(
+        f"/api/v1/ontology/studio/sessions/{tainted_sid}/sources",
+        files={"file": ("secret.txt", b"confidential term sheet", "text/plain")},
+        data={"do_not_send_to_agent": "true"},
+        headers=auth_headers,
+    )
+    assert up_resp.status_code == 201
+
+    clone_editor = client.post(
+        f"/api/v1/ontology/studio/sessions/{tainted_sid}/bundle/clone",
+        json={"new_session_id": "s-r4c-tainted-ed-clone"},
+        headers=editor_headers,
+    )
+    assert clone_editor.status_code == 403, clone_editor.text
+    assert clone_editor.json()["error_code"] == "FORBIDDEN_ADMIN_REQUIRED"
+
+    clone_admin = client.post(
+        f"/api/v1/ontology/studio/sessions/{tainted_sid}/bundle/clone",
+        json={"new_session_id": "s-r4c-tainted-adm-clone"},
+        headers=auth_headers,
+    )
+    assert clone_admin.status_code == 201, clone_admin.text
+    assert (studio_root / ".lifecycle_s-r4c-tainted-adm-clone.lock").is_file()
+
+    # 2. Tampered audit.jsonl on source session -> 422 TAMPER_EVIDENT_CHAIN_CORRUPT
+    corrupt_sid = "s-r4c-corrupt-audit-src"
+    _create_session(client, auth_headers, corrupt_sid)
+    audit_path = studio_root / corrupt_sid / "audit.jsonl"
+    lines = [json.loads(ln) for ln in audit_path.read_text(encoding="utf-8").splitlines() if ln]
+    lines[0]["actor"] = "attacker:forged"
+    audit_path.write_text(json.dumps(lines[0]) + "\n", encoding="utf-8")
+
+    clone_corrupt = client.post(
+        f"/api/v1/ontology/studio/sessions/{corrupt_sid}/bundle/clone",
+        json={"new_session_id": "s-r4c-should-not-exist"},
+        headers=auth_headers,
+    )
+    assert clone_corrupt.status_code == 422, clone_corrupt.text
+    assert clone_corrupt.json()["error_code"] == "TAMPER_EVIDENT_CHAIN_CORRUPT"
+    assert not (studio_root / "s-r4c-should-not-exist").exists()

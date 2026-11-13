@@ -1393,6 +1393,9 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				url: string,
 				init?: RequestInit,
 			) => {
+				if (!String(url).endsWith("/delta")) {
+					return new Response("{}", { status: 404 });
+				}
 				captured.url = url;
 				captured.headers = (init?.headers as Record<string, string>) || {};
 				captured.body = JSON.parse(init?.body as string) as CommitBody;
@@ -2024,9 +2027,12 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			const captured: { body?: DeltaPayload } = {};
 
 			const slowFetch: typeof fetch = (async (
-				_url: string,
+				url: string,
 				init?: RequestInit,
 			) => {
+				if (!String(url).endsWith("/delta")) {
+					return new Response("{}", { status: 404 });
+				}
 				captured.body = JSON.parse(init?.body as string) as DeltaPayload;
 				return commitDeferred;
 			}) as typeof fetch;
@@ -2164,9 +2170,12 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			}
 			const captured: { body?: DeltaBodyPayload } = {};
 			const mockFetch: typeof fetch = (async (
-				_url: string,
+				url: string,
 				init?: RequestInit,
 			) => {
+				if (!String(url).endsWith("/delta")) {
+					return new Response("{}", { status: 404 });
+				}
 				captured.body = JSON.parse(init?.body as string) as DeltaBodyPayload;
 				return new Response(
 					JSON.stringify({
@@ -2864,9 +2873,12 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 			// Mock commit moving head to 'b'
 			const commitFetch: typeof fetch = (async (
-				_url: string,
+				url: string,
 				init?: RequestInit,
 			) => {
+				if (!String(url).endsWith("/delta")) {
+					return new Response("{}", { status: 404 });
+				}
 				const body = JSON.parse(init?.body as string);
 				return new Response(
 					JSON.stringify({
@@ -3225,7 +3237,7 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			expect(reExportDigest).toBe(initialDigest);
 		});
 
-		it("produces byte-stable deterministic JSON schema envelope output with shuffled input order (MIN-03)", () => {
+		it("produces byte-stable deterministic canonical JCS JSON GraphAOntology output with shuffled input order (MIN-03, P14c-MAJ-04)", () => {
 			const json1 = generateLocalExport(
 				"json",
 				"1.0.0",
@@ -3243,11 +3255,11 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 
 			expect(json1).toBe(json2);
 			const parsed = JSON.parse(json1);
-			expect(parsed.$schema).toContain("ontology-export.schema.json");
 			expect(parsed.domain_namespace).toBe("finance");
+			expect(parsed.enterprise_owner).toBeDefined();
 			expect(parsed.ontology_version).toBe("1.0.0");
-			expect(parsed.concepts).toHaveLength(2);
-			expect(parsed.relationships).toHaveLength(1);
+			expect(parsed.canonical_business_concepts).toHaveLength(2);
+			expect(parsed.canonical_relationships).toHaveLength(1);
 		});
 
 		it("produces byte-stable deterministic RFC 8785 JCS output with shuffled input order (MIN-03)", () => {
@@ -3268,7 +3280,7 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			expect(rfc1).toBe(rfc2);
 		});
 
-		it("generates valid Graph A YAML with schema version, concepts and relationships (MAJ-02)", () => {
+		it("generates valid Graph A YAML with canonical_business_concepts and canonical_relationships (MAJ-02, P14c-MAJ-04)", () => {
 			const yaml = generateLocalExport(
 				"yaml",
 				"1.0.0",
@@ -3278,6 +3290,8 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			);
 			expect(yaml).toContain('ontology_version: "1.0.0"');
 			expect(yaml).toContain('domain_namespace: "finance"');
+			expect(yaml).toContain("canonical_business_concepts:");
+			expect(yaml).toContain("canonical_relationships:");
 			expect(yaml).toContain('concept_uri: "urn:ontology:entity:portfolio"');
 			expect(yaml).toContain(
 				'relationship_uri: "urn:ontology:rel:holds_asset"',
@@ -4385,7 +4399,40 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 				],
 			});
 			let postedDelta: Record<string, unknown> | null = null;
-			const mockDeltaFetch: typeof fetch = (async (_url, init) => {
+			let serveVerifiedS6Export = true;
+			const mockDeltaFetch: typeof fetch = (async (url, init) => {
+				if (String(url).includes("/export")) {
+					if (!serveVerifiedS6Export) {
+						return new Response("{}", { status: 404 });
+					}
+					return new Response(
+						JSON.stringify({
+							ontology_version: "1.1.0",
+							domain_namespace: "pe",
+							enterprise_owner: "Owner",
+							canonical_business_concepts: [
+								{
+									concept_uri: "urn:ontology:entity:commitment",
+									concept_name: "Capital Commitment",
+									elm_archetype: "AGREEMENT",
+									definition: "LP commitment",
+									external_mappings: [
+										{
+											scheme: "fibo",
+											target_uri:
+												"https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/ContractualCommitment",
+											predicate: "skos:exactMatch",
+											confidence: 0.91,
+											provenance: "verified_pack",
+										},
+									],
+								},
+							],
+							canonical_relationships: [],
+						}),
+						{ status: 200 },
+					);
+				}
 				postedDelta = JSON.parse(String(init?.body));
 				return new Response(
 					JSON.stringify({
@@ -4410,6 +4457,10 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			)[0]!;
 			expect("confidence" in sentMapping).toBe(false);
 			expect(s6Store.getState().nodes[0]?.grounding_status).toBe("GROUNDED");
+			expect(
+				s6Store.getState().nodes[0]?.external_mappings[0]?.confidence,
+			).toBe(0.91);
+			serveVerifiedS6Export = false;
 
 			// Part B: P14e::MAJ-01 — refine_definition -> MINOR (1.1.0), remove_external_mapping -> MAJOR (2.0.0)
 			const baseConcept: ConceptNode = {

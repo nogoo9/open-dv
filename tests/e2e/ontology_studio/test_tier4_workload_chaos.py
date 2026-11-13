@@ -39,6 +39,7 @@ from opendv_service.studio.locks import (
 )
 from opendv_service.studio.session_manager import (
     StudioSessionManager,
+    append_signed_audit_record,
 )
 from opendv_service.studio.sse_journal import (
     SSEJournalWriter,
@@ -248,6 +249,22 @@ def test_chaos_crash_after_atomic_commit_step5(tmp_path: Path) -> None:
     prop_file = prop_dir / f"{prop_id}.json"
     prop_file.write_text(
         json.dumps({"proposal_id": prop_id, "status": "PENDING"}), encoding="utf-8"
+    )
+
+    # Record the K_audit-signed PENDING_COMMIT intent written in Step 3 prior to the Step 5 swap
+    append_signed_audit_record(
+        session_dir=session_dir,
+        action="PENDING_COMMIT",
+        actor="system:worker",
+        target_version="1.1.0",
+        head_sha256=target_sha256,
+        details={
+            "target_version": "1.1.0",
+            "target_sha256": target_sha256,
+            "parent_sha256": base_head_sha,
+            "proposal_id": prop_id,
+        },
+        security_manager=session_mgr.security_manager,
     )
 
     # 3. Trigger supervisor recovery

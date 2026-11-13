@@ -58,6 +58,7 @@ SECRET_PATTERNS: list[re.Pattern[str]] = [
     re.compile(r"github_pat_[A-Za-z0-9_]{50,255}"),
     re.compile(r"sk-ant-[A-Za-z0-9_\-]{30,255}"),
     re.compile(r"AKIA[0-9A-Z]{16}"),
+    re.compile(r"odv_[A-Za-z0-9_\-]{24,255}"),
     re.compile(r"bearer\s+[A-Za-z0-9_\-\.]{30,255}", re.IGNORECASE),
 ]
 
@@ -550,6 +551,7 @@ def invoke_claude_critique(
     model: str = "opus",
     dry_run: bool = False,
     timeout_sec: float = 300.0,
+    repo_dir: Path | None = None,
 ) -> CritiqueResult:
     """Run `claude -p --model opus` with the structured review prompt."""
     validate_model_identifier(model)
@@ -618,7 +620,11 @@ def invoke_claude_critique(
     )
 
     try:
-        claude_cmd = resolve_claude_binary()
+        claude_cmd = (
+            resolve_claude_binary(repo_dir=repo_dir)
+            if repo_dir is not None
+            else resolve_claude_binary()
+        )
     except FileNotFoundError as e:
         return CritiqueResult(
             verdict="FAIL",
@@ -1106,12 +1112,14 @@ def run_self_tests() -> int:
     sample_text_with_key = (
         "Found secret: ghp_1234567890abcdefghijklmnopqrstuvwxyz and "
         "sk-ant-1234567890abcdefghijklmnopqrstuvwxyz and "
+        "odv_1234567890abcdefghijklmnopqrstuv and "
         "github_pat_11AAAAAAA012345678901234567890123456789012345678901234567890"
     )
     sanitized = sanitize_text(sample_text_with_key)
     check(
         "ghp_" not in sanitized
         and "sk-ant-" not in sanitized
+        and "odv_" not in sanitized
         and "github_pat_" not in sanitized
         and "[REDACTED_SECRET]" in sanitized,
         "Test 4: Secret credential sanitization in output markdown",
@@ -1289,6 +1297,7 @@ def main() -> int:
             model=args.model,
             dry_run=args.dry_run,
             timeout_sec=args.timeout,
+            repo_dir=repo_path,
         )
     except ValueError as e:
         print(f"Error: Invalid configuration or parameter: {e}", file=sys.stderr)

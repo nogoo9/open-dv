@@ -211,6 +211,10 @@ def _verify_source_sha256(data: bytes, filename: str, caller_sha256: str | None)
 # 1. MarkdownDocumentAdapter
 # =============================================================================
 
+MAX_MARKDOWN_METADATA_ITEMS_DEFAULT: int = 50_000
+_MD_FENCE_RE = re.compile(r"^(```+|~~~+)(.*)$")
+_MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
+
 
 class MarkdownDocumentAdapter(BaseDocumentAdapter):
     """Adapter for Markdown documents (.md, .markdown) with heading hierarchies,
@@ -231,6 +235,7 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
         *,
         exclude_code_blocks: bool = False,
         max_bytes: int | None = MAX_TEXT_DOCUMENT_BYTES_DEFAULT,
+        max_metadata_items: int = MAX_MARKDOWN_METADATA_ITEMS_DEFAULT,
     ) -> None:
         """Initialize MarkdownDocumentAdapter.
 
@@ -238,9 +243,11 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
             exclude_code_blocks: If True, fenced code blocks are excluded from normalized_text
                 and quarantined into metadata only.
             max_bytes: Maximum allowed raw byte size.
+            max_metadata_items: Maximum stored heading / code-block metadata dicts.
         """
         self.exclude_code_blocks = exclude_code_blocks
         self.max_bytes = max_bytes
+        self.max_metadata_items = max(0, int(max_metadata_items))
 
     @property
     def adapter_name(self) -> str:
@@ -268,81 +275,84 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
         taint_raw = kwargs.get("taint", TaintClassification.INTERNAL)
         taint = TaintClassification(taint_raw) if taint_raw else TaintClassification.INTERNAL
 
-        # 1. Parse fenced code blocks
+        # 1. Single O(lines) pass for fenced code blocks + heading hierarchy (P04b::MAJ-01)
         code_blocks: list[dict[str, Any]] = []
         code_block_spans: list[tuple[int, int]] = []
+        code_block_count = 0
+        headings: list[dict[str, Any]] = []
+        heading_count = 0
+
         lines = raw_text.split("\n")
         in_code_block = False
         code_lang = ""
         block_lines: list[str] = []
         block_start_char = 0
         current_offset = 0
+        max_meta = self.max_metadata_items
 
         for line in lines:
-            line_len = len(line) + 1  # includes newline
+            line_start = current_offset
+            line_end = line_start + len(line)
+            current_offset = line_end + 1  # includes newline
+
             stripped = line.strip()
-            fence_match = re.match(r"^(```+|~~~+)(.*)$", stripped)
-            if fence_match:
-                if not in_code_block:
-                    in_code_block = True
-                    code_lang = fence_match.group(2).strip()
-                    block_start_char = current_offset
-                    block_lines = []
-                else:
-                    in_code_block = False
-                    block_end_char = current_offset + len(line)
-                    code_content = "\n".join(block_lines)
-                    code_blocks.append(
-                        {
-                            "language": code_lang,
-                            "code": code_content,
-                            "start_char": block_start_char,
-                            "end_char": block_end_char,
-                        }
-                    )
-                    code_block_spans.append((block_start_char, block_end_char))
-            elif in_code_block:
-                block_lines.append(line)
-            current_offset += line_len
+            if stripped.startswith(("```", "~~~")):
+                fence_match = _MD_FENCE_RE.match(stripped)
+                if fence_match is not None:
+                    if not in_code_block:
+                        in_code_block = True
+                        code_lang = fence_match.group(2).strip()
+                        block_start_char = line_start
+                        block_lines = []
+                    else:
+                        in_code_block = False
+                        code_block_count += 1
+                        code_block_spans.append((block_start_char, line_end))
+                        if len(code_blocks) < max_meta:
+                            code_blocks.append(
+                                {
+                                    "language": code_lang,
+                                    "code": "\n".join(block_lines),
+                                    "start_char": block_start_char,
+                                    "end_char": line_end,
+                                }
+                            )
+                    continue
+
+            if in_code_block:
+                if len(code_blocks) < max_meta:
+                    block_lines.append(line)
+                continue
+
+            if stripped.startswith("#"):
+                heading_match = _MD_HEADING_RE.match(stripped)
+                if heading_match is not None:
+                    heading_count += 1
+                    if len(headings) < max_meta:
+                        headings.append(
+                            {
+                                "level": len(heading_match.group(1)),
+                                "title": heading_match.group(2).strip(),
+                                "start_char": line_start,
+                                "end_char": line_end,
+                            }
+                        )
 
         # If code block wasn't closed at EOF
         if in_code_block:
-            code_blocks.append(
-                {
-                    "language": code_lang,
-                    "code": "\n".join(block_lines),
-                    "start_char": block_start_char,
-                    "end_char": len(raw_text),
-                }
-            )
+            code_block_count += 1
             code_block_spans.append((block_start_char, len(raw_text)))
-
-        # 2. Parse heading hierarchy (ignoring lines inside code blocks)
-        headings: list[dict[str, Any]] = []
-        offset = 0
-        for line in lines:
-            line_start = offset
-            line_end = offset + len(line)
-            offset += len(line) + 1
-            # Check if this line is inside a code block
-            inside_code = any(s <= line_start and line_end <= e for s, e in code_block_spans)
-            if inside_code:
-                continue
-
-            heading_match = re.match(r"^(#{1,6})\s+(.+)$", line.strip())
-            if heading_match:
-                level = len(heading_match.group(1))
-                title = heading_match.group(2).strip()
-                headings.append(
+            if len(code_blocks) < max_meta:
+                code_blocks.append(
                     {
-                        "level": level,
-                        "title": title,
-                        "start_char": line_start,
-                        "end_char": line_end,
+                        "language": code_lang,
+                        "code": "\n".join(block_lines),
+                        "start_char": block_start_char,
+                        "end_char": len(raw_text),
                     }
                 )
 
-        # 3. Optional code block exclusion from normalized text
+        # 2. Optional code block exclusion from normalized text
         if self.exclude_code_blocks and code_block_spans:
             # Reconstruct text excluding code blocks with replacement indicator
             text_segments: list[str] = []
@@ -356,11 +366,11 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
         else:
             effective_text = raw_text
 
-        # 4. Table extraction using liteparse helper
+        # 3. Table extraction using liteparse helper
         detected_tables = extract_tables_with_spans(effective_text, page_number=1)
         tables = [d.table for d in detected_tables]
 
-        # 5. Build page map entry and chunks
+        # 4. Build page map entry and chunks
         page_entry = _build_page_map_entry(
             effective_text, page_number=1, has_tables=bool(tables), confidence=1.0
         )
@@ -370,10 +380,10 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
             {
                 "encoding": encoding,
                 "headings": headings,
-                "heading_count": len(headings),
+                "heading_count": heading_count,
                 "code_blocks": code_blocks,
-                "code_block_count": len(code_blocks),
-                "quarantined_code_blocks": len(code_blocks),
+                "code_block_count": code_block_count,
+                "quarantined_code_blocks": code_block_count,
             }
         )
 

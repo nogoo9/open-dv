@@ -17,8 +17,8 @@ FastAPI, Starlette, httpx, or app-layer imports):
 - `run_construct_session`: enforces exact base ontology SHA-256 OCC (`P11::MAJ-01`),
   extracts binding steward clarification constraints via `ClarificationHarness`
   (`565f7024::CRIT-07`), handles 0-op `NOOP_CONSTRUCT` deltas with signed audit records,
-  and routes `auto_commit=True` through `AtomicCommitService.commit_delta(...,
-  enforce_governance=True, waivers=[])` (`P11::MAJ-02` / `565f7024::CRIT-04`).
+  and routes `auto_commit=True` through `AtomicCommitService.commit_delta(..., waivers=[])`
+  (`P11::MAJ-02` / `565f7024::CRIT-04`).
 """
 
 from __future__ import annotations
@@ -96,6 +96,13 @@ logger = logging.getLogger(__name__)
 
 _VALID_OCR_MODES: Final[frozenset[str]] = frozenset({"auto", "force", "off"})
 _VALID_CONSTRUCT_MODES: Final[frozenset[str]] = frozenset({"auto", "deterministic", "agent"})
+_STRICT_CORE_SEMVER_RE: Final[re.Pattern[str]] = re.compile(r"\A\d+\.\d+\.\d+\Z")
+_TAINT_RANK: Final[dict[TaintClassification, int]] = {
+    TaintClassification.PUBLIC: 0,
+    TaintClassification.INTERNAL: 1,
+    TaintClassification.CONFIDENTIAL: 2,
+    TaintClassification.RESTRICTED: 3,
+}
 
 
 def build_studio_ingestion_service(ocr_mode: str = "auto") -> IngestionService:
@@ -159,6 +166,18 @@ def _normalize_taint_value(
     return default
 
 
+def _max_taint(*labels: TaintClassification | str | None) -> TaintClassification | None:
+    """Return the monotonic maximum TaintClassification across all provided labels."""
+    best: TaintClassification | None = None
+    for lbl in labels:
+        norm = _normalize_taint_value(lbl)
+        if norm is None:
+            continue
+        if best is None or _TAINT_RANK[norm] > _TAINT_RANK[best]:
+            best = norm
+    return best
+
+
 def _iter_manifest_entries_deduped(manifest: dict[str, Any]) -> list[dict[str, Any]]:
     """Return deduplicated entries across `manifest['files']` and `manifest['sources']`."""
     entries: list[dict[str, Any]] = []
@@ -194,19 +213,13 @@ def _load_source_privacy_and_lifecycle_state(session_dir: Path) -> dict[str, Any
     """Read `inputs/manifest.json` and `taint_index.json` for sticky privacy and tombstones."""
     active_ids: set[str] = set()
     active_hashes: set[str] = set()
+    active_sha_by_id: dict[str, str] = {}
     tombstoned_ids: set[str] = set()
     tombstoned_hashes: set[str] = set()
     do_not_send_ids: set[str] = set()
     do_not_send_shas: set[str] = set()
     taint_by_id: dict[str, TaintClassification] = {}
     taint_by_sha: dict[str, TaintClassification] = {}
-
-    taint_rank = {
-        TaintClassification.PUBLIC: 0,
-        TaintClassification.INTERNAL: 1,
-        TaintClassification.CONFIDENTIAL: 2,
-        TaintClassification.RESTRICTED: 3,
-    }
 
     def _merge_taint(
         store: dict[str, TaintClassification],
@@ -215,9 +228,9 @@ def _load_source_privacy_and_lifecycle_state(session_dir: Path) -> dict[str, Any
     ) -> None:
         if not key or val is None:
             return
-        prev = store.get(key)
-        if prev is None or taint_rank[val] > taint_rank[prev]:
-            store[key] = val
+        merged = _max_taint(store.get(key), val)
+        if merged is not None:
+            store[key] = merged
 
     manifest_file = session_dir / "inputs" / "manifest.json"
     if manifest_file.is_file():
@@ -238,6 +251,8 @@ def _load_source_privacy_and_lifecycle_state(session_dir: Path) -> dict[str, Any
                     else:
                         if sid:
                             active_ids.add(sid)
+                            if entry_shas:
+                                active_sha_by_id[sid] = entry_shas[0]
                         active_hashes.update(entry_shas)
 
                     raw_t = entry.get("taint") or entry.get("taint_classification")
@@ -246,7 +261,7 @@ def _load_source_privacy_and_lifecycle_state(session_dir: Path) -> dict[str, Any
                     if str(raw_t or "").strip().upper() == "DO_NOT_SEND":
                         dns = True
                     if dns:
-                        norm_t = TaintClassification.CONFIDENTIAL
+                        norm_t = _max_taint(norm_t, TaintClassification.CONFIDENTIAL)
                         if sid:
                             do_not_send_ids.add(sid)
                         do_not_send_shas.update(entry_shas)
@@ -305,7 +320,7 @@ def _load_source_privacy_and_lifecycle_state(session_dir: Path) -> dict[str, Any
                                     default=TaintClassification.CONFIDENTIAL,
                                 )
                                 if i_dns:
-                                    i_taint = TaintClassification.CONFIDENTIAL
+                                    i_taint = _max_taint(i_taint, TaintClassification.CONFIDENTIAL)
                                     if i_sid:
                                         do_not_send_ids.add(i_sid)
                                     if len(i_sha) == 64:
@@ -332,13 +347,14 @@ def _load_source_privacy_and_lifecycle_state(session_dir: Path) -> dict[str, Any
                                 v.get("taint") or v.get("taint_classification")
                             )
                             if v_dns:
-                                v_taint = TaintClassification.CONFIDENTIAL
+                                v_taint = _max_taint(v_taint, TaintClassification.CONFIDENTIAL)
                                 do_not_send_ids.add(str(k))
                             _merge_taint(taint_by_id, str(k), v_taint)
 
     return {
         "active_ids": active_ids,
         "active_hashes": active_hashes,
+        "active_sha_by_id": active_sha_by_id,
         "tombstoned_ids": tombstoned_ids,
         "tombstoned_hashes": tombstoned_hashes,
         "do_not_send_ids": do_not_send_ids,
@@ -356,6 +372,7 @@ def load_active_session_evidence(
     state = _load_source_privacy_and_lifecycle_state(sdir)
     active_ids: set[str] = state["active_ids"]
     active_hashes: set[str] = state["active_hashes"]
+    active_sha_by_id: dict[str, str] = state["active_sha_by_id"]
     tombstoned_ids: set[str] = state["tombstoned_ids"]
     tombstoned_hashes: set[str] = state["tombstoned_hashes"]
     do_not_send_ids: set[str] = state["do_not_send_ids"]
@@ -400,6 +417,8 @@ def load_active_session_evidence(
             if c_sid:
                 if c_sid in tombstoned_ids:
                     continue
+                if c_sha and c_sha in tombstoned_hashes and c_sha != active_sha_by_id.get(c_sid):
+                    continue
             elif c_sha and c_sha in tombstoned_hashes and c_sha not in active_hashes:
                 continue
 
@@ -409,16 +428,19 @@ def load_active_session_evidence(
                 or (c_sid and c_sid in do_not_send_ids)
                 or (c_sha and c_sha in do_not_send_shas)
             )
-            raw_c_taint = raw_obj.get("taint") or raw_obj.get("taint_classification")
-            eff_c_taint = _normalize_taint_value(raw_c_taint)
-            if eff_c_taint is None:
-                eff_c_taint = (
-                    (taint_by_id.get(c_sid) if c_sid else None)
-                    or (taint_by_sha.get(c_sha) if c_sha else None)
-                    or TaintClassification.INTERNAL
+            raw_c_taint = (
+                raw_obj.get("taint") or raw_obj.get("taint_classification") or meta.get("taint")
+            )
+            eff_c_taint = (
+                _max_taint(
+                    raw_c_taint,
+                    taint_by_id.get(c_sid) if c_sid else None,
+                    taint_by_sha.get(c_sha) if c_sha else None,
+                    TaintClassification.CONFIDENTIAL if is_dns else None,
                 )
+                or TaintClassification.INTERNAL
+            )
             if is_dns:
-                eff_c_taint = TaintClassification.CONFIDENTIAL
                 meta["do_not_send_to_agent"] = True
 
             cleaned = {
@@ -470,6 +492,8 @@ def load_active_session_evidence(
             if t_sid:
                 if t_sid in tombstoned_ids:
                     continue
+                if t_sha and t_sha in tombstoned_hashes and t_sha != active_sha_by_id.get(t_sid):
+                    continue
             elif t_sha and t_sha in tombstoned_hashes and t_sha not in active_hashes:
                 continue
 
@@ -482,13 +506,13 @@ def load_active_session_evidence(
             raw_t_taint = (
                 raw_obj.get("taint") or raw_obj.get("taint_classification") or meta.get("taint")
             )
-            eff_t_taint = _normalize_taint_value(raw_t_taint)
-            if eff_t_taint is None:
-                eff_t_taint = (taint_by_id.get(t_sid) if t_sid else None) or (
-                    taint_by_sha.get(t_sha) if t_sha else None
-                )
+            eff_t_taint = _max_taint(
+                raw_t_taint,
+                taint_by_id.get(t_sid) if t_sid else None,
+                taint_by_sha.get(t_sha) if t_sha else None,
+                TaintClassification.CONFIDENTIAL if is_dns else None,
+            )
             if is_dns:
-                eff_t_taint = TaintClassification.CONFIDENTIAL
                 meta["do_not_send_to_agent"] = True
 
             cleaned = {
@@ -621,6 +645,7 @@ def run_parse_session_sources(
 
     parsed_chunks: list[EvidenceChunk] = []
     parsed_tables: list[TableStructure] = []
+    parsed_source_ids: set[str] = set()
     failed_sources: list[dict[str, str]] = []
     total_files = len(files)
 
@@ -649,15 +674,12 @@ def run_parse_session_sources(
             or (source_id and source_id in sticky_dns_ids)
             or (source_sha and source_sha in sticky_dns_shas)
         )
-        norm_source_taint = _normalize_taint_value(raw_taint)
-        if norm_source_taint is None:
-            norm_source_taint = (sticky_taint_by_id.get(source_id) if source_id else None) or (
-                sticky_taint_by_sha.get(source_sha) if source_sha else None
-            )
-        if is_sticky_dns:
-            source_taint: TaintClassification | None = TaintClassification.CONFIDENTIAL
-        else:
-            source_taint = norm_source_taint
+        source_taint = _max_taint(
+            raw_taint,
+            sticky_taint_by_id.get(source_id) if source_id else None,
+            sticky_taint_by_sha.get(source_sha) if source_sha else None,
+            TaintClassification.CONFIDENTIAL if is_sticky_dns else None,
+        )
 
         try:
             raw_bytes = cas.get(source_sha)
@@ -668,18 +690,27 @@ def run_parse_session_sources(
                 taint=source_taint,
                 ocr_mode=ocr_mode,
             )
+            if source_id:
+                parsed_source_ids.add(source_id)
             for c in res.chunks:
                 stamped_meta = dict(c.metadata or {})
                 if source_id:
                     stamped_meta["source_id"] = source_id
                 if source_sha:
                     stamped_meta["source_sha256"] = source_sha
-                eff_chunk_taint = (
-                    TaintClassification.CONFIDENTIAL
-                    if is_sticky_dns or stamped_meta.get("do_not_send_to_agent") is True
-                    else (source_taint or c.taint)
+                is_chunk_dns = bool(
+                    is_sticky_dns or stamped_meta.get("do_not_send_to_agent") is True
                 )
-                if is_sticky_dns or stamped_meta.get("do_not_send_to_agent") is True:
+                eff_chunk_taint = (
+                    _max_taint(
+                        source_taint,
+                        c.taint,
+                        stamped_meta.get("taint"),
+                        TaintClassification.CONFIDENTIAL if is_chunk_dns else None,
+                    )
+                    or TaintClassification.INTERNAL
+                )
+                if is_chunk_dns:
                     stamped_meta["do_not_send_to_agent"] = True
                 stamped_chunk = c.model_copy(
                     update={
@@ -708,12 +739,14 @@ def run_parse_session_sources(
                         t_meta["source_id"] = source_id
                     if source_sha:
                         t_meta["source_sha256"] = source_sha
-                    eff_tbl_taint = (
-                        TaintClassification.CONFIDENTIAL
-                        if is_sticky_dns or t_meta.get("do_not_send_to_agent") is True
-                        else (source_taint or t.taint)
+                    is_tbl_dns = bool(is_sticky_dns or t_meta.get("do_not_send_to_agent") is True)
+                    eff_tbl_taint = _max_taint(
+                        source_taint,
+                        t.taint,
+                        t_meta.get("taint"),
+                        TaintClassification.CONFIDENTIAL if is_tbl_dns else None,
                     )
-                    if is_sticky_dns or t_meta.get("do_not_send_to_agent") is True:
+                    if is_tbl_dns:
                         t_meta["do_not_send_to_agent"] = True
                     stamped_table = t.model_copy(
                         update={"taint": eff_tbl_taint, "metadata": t_meta}
@@ -735,50 +768,68 @@ def run_parse_session_sources(
             failed_sources.append({"source_id": source_id, "filename": filename})
 
     # Persist deduplicated chunks & tables atomically under L5 session lock
-    if parsed_chunks or parsed_tables:
+    if parsed_source_ids or parsed_chunks or parsed_tables:
         lock_file = session_dir / ".session.lock"
         with reentrant_session_lock(lock_file, session_id=session_id):
             existing_chunks, existing_tables = load_active_session_evidence(session_dir)
 
-            if parsed_chunks:
+            def _chunk_source_id(chk: EvidenceChunk) -> str:
+                c_meta = chk.metadata or {}
+                return str(c_meta.get("source_id") or chk.document_id or "")
 
-                def _chunk_key(chk: EvidenceChunk) -> tuple[str, str]:
-                    c_meta = chk.metadata or {}
-                    src_key = str(
-                        c_meta.get("source_id") or chk.document_id or chk.source_sha256 or ""
-                    )
-                    return (src_key, chk.chunk_id)
+            def _chunk_key(chk: EvidenceChunk) -> tuple[str, str]:
+                c_meta = chk.metadata or {}
+                src_key = str(c_meta.get("source_id") or chk.document_id or chk.source_sha256 or "")
+                return (src_key, chk.chunk_id)
 
+            filtered_existing_chunks = [
+                c for c in existing_chunks if _chunk_source_id(c) not in parsed_source_ids
+            ]
+            if parsed_chunks or len(filtered_existing_chunks) != len(existing_chunks):
                 seen_chunk_keys = {_chunk_key(c) for c in parsed_chunks}
                 combined_chunks = [
-                    c for c in existing_chunks if _chunk_key(c) not in seen_chunk_keys
+                    c for c in filtered_existing_chunks if _chunk_key(c) not in seen_chunk_keys
                 ] + parsed_chunks
                 chunks_payload = (
-                    "\n".join(
-                        json.dumps(c.model_dump(mode="json", exclude_none=True))
-                        for c in combined_chunks
+                    (
+                        "\n".join(
+                            json.dumps(c.model_dump(mode="json", exclude_none=True))
+                            for c in combined_chunks
+                        )
+                        + "\n"
                     )
-                    + "\n"
+                    if combined_chunks
+                    else ""
                 ).encode("utf-8")
                 _atomic_write_bytes(session_dir / "evidence" / "chunks.jsonl", chunks_payload)
 
-            if parsed_tables:
+            def _table_source_id(tbl: TableStructure) -> str:
+                t_meta = tbl.metadata or {}
+                return str(t_meta.get("source_id") or "")
 
-                def _table_key(tbl: TableStructure) -> tuple[str, str]:
-                    t_meta = tbl.metadata or {}
-                    src_key = str(t_meta.get("source_id") or t_meta.get("source_sha256") or "")
-                    return (src_key, tbl.table_id)
+            def _table_key(tbl: TableStructure) -> tuple[str, str]:
+                t_meta = tbl.metadata or {}
+                src_key = str(t_meta.get("source_id") or t_meta.get("source_sha256") or "")
+                return (src_key, tbl.table_id)
 
+            filtered_existing_tables = [
+                t for t in existing_tables if _table_source_id(t) not in parsed_source_ids
+            ]
+            if parsed_tables or len(filtered_existing_tables) != len(existing_tables):
                 seen_table_keys = {_table_key(t) for t in parsed_tables}
                 combined_tables = [
-                    t for t in existing_tables if _table_key(t) not in seen_table_keys
+                    t for t in filtered_existing_tables if _table_key(t) not in seen_table_keys
                 ] + parsed_tables
                 tables_payload = (
-                    "\n".join(
-                        json.dumps(t.model_dump(mode="json", exclude_none=True))
-                        for t in combined_tables
+                    (
+                        "\n".join(
+                            json.dumps(t.model_dump(mode="json", exclude_none=True))
+                            for t in combined_tables
+                        )
+                        + "\n"
                     )
-                    + "\n"
+                    if combined_tables
+                    else ""
                 ).encode("utf-8")
                 _atomic_write_bytes(session_dir / "evidence" / "tables.jsonl", tables_payload)
 
@@ -805,9 +856,11 @@ def _prepare_evidence_for_agent(
     chunks: Sequence[EvidenceChunk],
     tables: Sequence[TableStructure],
     security_manager: WorkspaceSecurityManager,
+    sensitive_terms: Sequence[str] | None = None,
 ) -> tuple[list[EvidenceChunk], list[TableStructure]]:
     """Filter `do_not_send_to_agent` items and HMAC-pseudonymize non-public evidence for agents."""
     pseudonymizer = Pseudonymizer(security_manager.get_pseudo_key())
+    caller_terms = [str(t).strip() for t in (sensitive_terms or ()) if str(t).strip()]
     safe_chunks: list[EvidenceChunk] = []
     for chunk in chunks:
         c_meta = dict(chunk.metadata or {})
@@ -820,6 +873,9 @@ def _prepare_evidence_for_agent(
                 if isinstance(raw_c_terms, (list, tuple))
                 else []
             )
+            for extra_term in caller_terms:
+                if extra_term not in eff_c_terms:
+                    eff_c_terms.append(extra_term)
             for email_hit in _PII_EMAIL_RE.findall(chunk.text or ""):
                 if email_hit not in eff_c_terms:
                     eff_c_terms.append(email_hit)
@@ -836,9 +892,7 @@ def _prepare_evidence_for_agent(
         t_meta = dict(tbl.metadata or {})
         if t_meta.get("do_not_send_to_agent") is True:
             continue
-        eff_taint = tbl.taint or _normalize_taint_value(
-            t_meta.get("taint"), default=TaintClassification.INTERNAL
-        )
+        eff_taint = _max_taint(tbl.taint, t_meta.get("taint")) or TaintClassification.INTERNAL
         if eff_taint != TaintClassification.PUBLIC:
             raw_terms = t_meta.get("sensitive_entities")
             eff_terms = (
@@ -846,6 +900,9 @@ def _prepare_evidence_for_agent(
                 if isinstance(raw_terms, (list, tuple))
                 else []
             )
+            for extra_term in caller_terms:
+                if extra_term not in eff_terms:
+                    eff_terms.append(extra_term)
             tbl_blob = "\n".join(
                 [
                     *tbl.headers,
@@ -973,6 +1030,35 @@ def run_clarify_session(
     }
 
 
+def _normalize_and_validate_version_dir(
+    raw_version: str,
+    session_dir: Path,
+    session_id: str,
+) -> tuple[str, Path]:
+    """Validate strict `X.Y.Z` SemVer and assert containment within `session_dir/versions`."""
+    cleaned = raw_version.strip() if isinstance(raw_version, str) else ""
+    if cleaned.startswith("v") and not cleaned.startswith("vv"):
+        cleaned = cleaned[1:]
+    if not _STRICT_CORE_SEMVER_RE.fullmatch(cleaned):
+        err = OpenDVError(
+            f"Malformed or unknown version '{raw_version}' in session '{session_id}'.",
+            error_code=ErrorCode.VERSION_NOT_FOUND,
+        )
+        err.status_code = err.http_status
+        raise err
+
+    versions_root = (session_dir / "versions").resolve()
+    vdir = (session_dir / "versions" / f"v{cleaned}").resolve()
+    if not vdir.is_relative_to(versions_root):
+        err = OpenDVError(
+            f"Version path traversal rejected for 'v{cleaned}' in session '{session_id}'.",
+            error_code=ErrorCode.VERSION_NOT_FOUND,
+        )
+        err.status_code = err.http_status
+        raise err
+    return cleaned, vdir
+
+
 def _load_session_version_ontology(
     session_dir: Path,
     session_id: str,
@@ -980,7 +1066,9 @@ def _load_session_version_ontology(
     head_version: str,
 ) -> GraphAOntology:
     """Load `versions/v{active_version}/ontology.{json,yaml}` or raise typed OpenDVError."""
-    vdir = session_dir / "versions" / f"v{active_version}"
+    clean_active, vdir = _normalize_and_validate_version_dir(
+        active_version, session_dir, session_id
+    )
     ont_json = vdir / "ontology.json"
     ont_yaml = vdir / "ontology.yaml"
     if ont_json.is_file():
@@ -988,16 +1076,23 @@ def _load_session_version_ontology(
     if ont_yaml.is_file():
         return GraphAOntology.model_validate(yaml.safe_load(ont_yaml.read_text(encoding="utf-8")))
 
-    if active_version != head_version.strip().lstrip("v"):
-        raise OpenDVError(
-            f"Requested base version 'v{active_version}' does not exist in session '{session_id}'.",
+    clean_head = head_version.strip()
+    if clean_head.startswith("v") and not clean_head.startswith("vv"):
+        clean_head = clean_head[1:]
+    if clean_active != clean_head:
+        err = OpenDVError(
+            f"Requested base version 'v{clean_active}' does not exist in session '{session_id}'.",
             error_code=ErrorCode.VERSION_NOT_FOUND,
         )
-    raise OpenDVError(
-        f"Base ontology artifact missing for head version 'v{active_version}' "
+        err.status_code = err.http_status
+        raise err
+    err = OpenDVError(
+        f"Base ontology artifact missing for head version 'v{clean_active}' "
         f"in session '{session_id}'.",
         error_code=ErrorCode.CORRUPT_SESSION_RECORD,
     )
+    err.status_code = err.http_status
+    raise err
 
 
 def run_construct_session(
@@ -1052,7 +1147,10 @@ def run_construct_session(
 
     session_dir = session_manager.get_session_dir(session_id)
     session_meta = session_manager.get_session(session_id)
-    active_version = (base_version or session_meta.head_version).strip().lstrip("v")
+    raw_target_version = session_meta.head_version if base_version is None else base_version
+    active_version, _ = _normalize_and_validate_version_dir(
+        raw_target_version, session_dir, session_id
+    )
     sec_mgr = (
         security_manager
         or getattr(session_manager, "security_manager", None)
@@ -1314,7 +1412,6 @@ def run_construct_session(
         author=actor,
         if_match=f'"{clean_auto_precond}"',
         actor_role=actor_role,
-        enforce_governance=True,
         waivers=[],
     )
 

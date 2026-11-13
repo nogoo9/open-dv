@@ -288,8 +288,24 @@ export class RemoteExecutor {
 		grounding_rationale?: string;
 		headers: Record<string, string>;
 	}> {
+		const rawRationale =
+			(typeof options.grounding_rationale === "string" &&
+			options.grounding_rationale.trim() !== ""
+				? options.grounding_rationale
+				: undefined) ??
+			(typeof options.waiver_rationale === "string" &&
+			options.waiver_rationale.trim() !== ""
+				? options.waiver_rationale
+				: (options.grounding_rationale ?? options.waiver_rationale));
+
 		if (!options.low_confidence_waiver) {
-			return { low_confidence_waiver: false, headers: {} };
+			return {
+				low_confidence_waiver: false,
+				...(typeof rawRationale === "string" && rawRationale.trim() !== ""
+					? { grounding_rationale: rawRationale.trim() }
+					: {}),
+				headers: {},
+			};
 		}
 
 		if (
@@ -379,7 +395,7 @@ export class RemoteExecutor {
 			);
 		}
 
-		const rationale = options.waiver_rationale || options.grounding_rationale;
+		const rationale = rawRationale;
 		if (!rationale || String(rationale).trim().length < 10) {
 			throw new CliDomainError(
 				"INVALID_GROUNDING_WAIVER",
@@ -1872,7 +1888,8 @@ export class RemoteExecutor {
 					const waiverInfo = await this.resolveWaiverHeaders(options);
 					let resolvedBaseVer = options.base_version
 						? String(options.base_version)
-						: typeof rawDeltaObj.base_version === "string"
+						: typeof rawDeltaObj.base_version === "string" &&
+								rawDeltaObj.base_version.trim() !== ""
 							? rawDeltaObj.base_version
 							: undefined;
 					const deltaProvidedSha =
@@ -1884,7 +1901,8 @@ export class RemoteExecutor {
 								? rawDeltaObj.base_sha256.trim().replace(/^"|"$/g, "")
 								: undefined;
 					const callerProvidedSha =
-						options.base_sha256 !== undefined
+						options.base_sha256 !== undefined &&
+						String(options.base_sha256).trim() !== ""
 							? String(options.base_sha256).trim().replace(/^"|"$/g, "")
 							: deltaProvidedSha;
 					let resolvedParentSha = callerProvidedSha;
@@ -1899,10 +1917,9 @@ export class RemoteExecutor {
 							);
 						}
 						if (resolvedParentSha === undefined) {
-							resolvedParentSha =
-								resolvedBaseVer.replace(/^v/i, "") === "0.0.0"
-									? ""
-									: String(sessionDetail.head_sha256 ?? "");
+							resolvedParentSha = String(sessionDetail.head_sha256 ?? "")
+								.trim()
+								.replace(/^"|"$/g, "");
 						}
 					}
 
@@ -2101,7 +2118,9 @@ export class RemoteExecutor {
 
 				if (resolvedBaseVer === undefined || !effectiveSha) {
 					const sessionDetail = await this.fetchSessionDetail(String(sid));
-					sessionHeadSha = String(sessionDetail.head_sha256 ?? "");
+					sessionHeadSha = String(sessionDetail.head_sha256 ?? "")
+						.trim()
+						.replace(/^"|"$/g, "");
 					if (resolvedBaseVer === undefined) {
 						resolvedBaseVer = String(
 							sessionDetail.active_version ??
@@ -2120,8 +2139,17 @@ export class RemoteExecutor {
 					);
 				}
 
-				const parentSha = effectiveSha || "";
-				const ifMatchSha = effectiveSha || (sessionHeadSha ?? "");
+				const resolvedHeadSha = effectiveSha || (sessionHeadSha ?? "");
+				if (!resolvedHeadSha) {
+					throw new CliDomainError(
+						"MISSING_PRECONDITION_HEADER",
+						"Missing mandatory --base-sha256, delta parent_sha256, or session head_sha256 precondition for delta apply.",
+						400,
+					);
+				}
+
+				const parentSha = resolvedHeadSha;
+				const ifMatchSha = resolvedHeadSha;
 
 				const body: Record<string, unknown> = {
 					...rawDeltaObj,

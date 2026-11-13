@@ -216,7 +216,7 @@ def test_delete_promoted_session_guard_and_tail_truncation_detection(tmp_path: P
             )
         ],
     )
-    commit_svc.commit_delta("sess-promo", delta, enforce_governance=True)
+    commit_svc.commit_delta("sess-promo", delta)
 
     ws_root = tmp_path / "workspace"
     ws_root.mkdir()
@@ -312,9 +312,9 @@ def test_commit_delta_governance_path_a_path_b_grandfathered_and_destructive_rba
         ],
     )
     with pytest.raises(CommitValidationError):
-        svc.commit_delta("sess-gov", wrong_ver_delta, enforce_governance=True)
+        svc.commit_delta("sess-gov", wrong_ver_delta)
 
-    # 2. skos:broadMatch rejected under Path A (enforce_governance=True)
+    # 2. skos:broadMatch rejected under Path A
     broad_delta = OntologyDelta(
         delta_id="d-broad",
         base_ontology_version="1.0.0",
@@ -338,7 +338,7 @@ def test_commit_delta_governance_path_a_path_b_grandfathered_and_destructive_rba
         ],
     )
     with pytest.raises(UngroundedConceptError):
-        svc.commit_delta("sess-gov", broad_delta, enforce_governance=True)
+        svc.commit_delta("sess-gov", broad_delta)
 
     # 3. Path B signed StewardWaiverRecord allows custom domain concept commit!
     ungrounded_delta = OntologyDelta(
@@ -374,7 +374,6 @@ def test_commit_delta_governance_path_a_path_b_grandfathered_and_destructive_rba
     res_110 = svc.commit_delta(
         "sess-gov",
         ungrounded_delta,
-        enforce_governance=True,
         waivers=[signed_waiver],
     )
     assert res_110.version == "v1.1.0"
@@ -400,7 +399,7 @@ def test_commit_delta_governance_path_a_path_b_grandfathered_and_destructive_rba
         ],
     )
     with pytest.raises(UngroundedConceptError):
-        svc.commit_delta("sess-gov", touch_grandfathered, enforce_governance=True)
+        svc.commit_delta("sess-gov", touch_grandfathered)
 
     # Adding an attribute to the grandfathered concept also revokes exemption
     touch_attr = OntologyDelta(
@@ -418,7 +417,7 @@ def test_commit_delta_governance_path_a_path_b_grandfathered_and_destructive_rba
         ],
     )
     with pytest.raises(UngroundedConceptError):
-        svc.commit_delta("sess-gov", touch_attr, enforce_governance=True)
+        svc.commit_delta("sess-gov", touch_attr)
 
     # 5. Non-admin editor attempting destructive MAJOR RemoveConceptOp is rejected with 403/7
     destructive_delta = OntologyDelta(
@@ -438,7 +437,6 @@ def test_commit_delta_governance_path_a_path_b_grandfathered_and_destructive_rba
             "sess-gov",
             destructive_delta,
             actor_role="editor",
-            enforce_governance=True,
         )
     assert rbac_exc.value.status_code == 403
     assert rbac_exc.value.exit_code == 7
@@ -448,7 +446,6 @@ def test_commit_delta_governance_path_a_path_b_grandfathered_and_destructive_rba
         "sess-gov",
         destructive_delta,
         actor_role="admin",
-        enforce_governance=True,
     )
     assert res_200.version == "v2.0.0"
 
@@ -490,7 +487,7 @@ def test_promotion_lineage_downgrade_noop_and_crash_recovery(tmp_path: Path) -> 
             )
         ],
     )
-    r1 = svc.commit_delta("sess-p2", d1, enforce_governance=True)
+    r1 = svc.commit_delta("sess-p2", d1)
 
     ws_root = tmp_path / "ws"
     ws_root.mkdir()
@@ -788,7 +785,7 @@ def test_bundle_cross_workspace_reanchor_replay_tamper_taint_and_force_swap(
     wv_a = wv_raw.model_copy(
         update={"signature_or_token": sec_a.sign_waiver(wv_raw.signing_payload().encode("utf-8"))}
     )
-    svc_a.commit_delta("portable-01", delta_a, enforce_governance=True, waivers=[wv_a])
+    svc_a.commit_delta("portable-01", delta_a, waivers=[wv_a])
     # Persist waivers.json in versions/v1.0.0 so importer inspects foreign K_waiver
     (sdir_a / "versions" / "v1.0.0" / "waivers.json").write_text(
         json.dumps([wv_a.model_dump(mode="json")]), encoding="utf-8"
