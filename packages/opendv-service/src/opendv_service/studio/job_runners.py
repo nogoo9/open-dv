@@ -866,16 +866,9 @@ def _prepare_evidence_for_agent(
         c_meta = dict(chunk.metadata or {})
         if c_meta.get("do_not_send_to_agent") is True:
             continue
-        if chunk.taint != TaintClassification.PUBLIC:
-            raw_c_terms = c_meta.get("sensitive_entities")
-            eff_c_terms = (
-                [str(t).strip() for t in raw_c_terms if str(t).strip()]
-                if isinstance(raw_c_terms, (list, tuple))
-                else []
-            )
-            for extra_term in caller_terms:
-                if extra_term not in eff_c_terms:
-                    eff_c_terms.append(extra_term)
+        eff_c_taint = _max_taint(chunk.taint, c_meta.get("taint")) or TaintClassification.INTERNAL
+        if eff_c_taint != TaintClassification.PUBLIC:
+            eff_c_terms: list[str] = list(caller_terms)
             for email_hit in _PII_EMAIL_RE.findall(chunk.text or ""):
                 if email_hit not in eff_c_terms:
                     eff_c_terms.append(email_hit)
@@ -894,17 +887,10 @@ def _prepare_evidence_for_agent(
             continue
         eff_taint = _max_taint(tbl.taint, t_meta.get("taint")) or TaintClassification.INTERNAL
         if eff_taint != TaintClassification.PUBLIC:
-            raw_terms = t_meta.get("sensitive_entities")
-            eff_terms = (
-                [str(t).strip() for t in raw_terms if str(t).strip()]
-                if isinstance(raw_terms, (list, tuple))
-                else []
-            )
-            for extra_term in caller_terms:
-                if extra_term not in eff_terms:
-                    eff_terms.append(extra_term)
+            eff_terms: list[str] = list(caller_terms)
             tbl_blob = "\n".join(
                 [
+                    tbl.table_id or "",
                     *tbl.headers,
                     *(str(c) for r in tbl.rows for c in r),
                     tbl.caption or "",
@@ -914,57 +900,7 @@ def _prepare_evidence_for_agent(
             for email_hit in _PII_EMAIL_RE.findall(tbl_blob):
                 if email_hit not in eff_terms:
                     eff_terms.append(email_hit)
-            if eff_terms:
-                new_headers = [pseudonymizer.pseudonymize_text(h, eff_terms) for h in tbl.headers]
-                new_rows = [
-                    [
-                        pseudonymizer.pseudonymize_text(cell, eff_terms)
-                        if isinstance(cell, str)
-                        else cell
-                        for cell in row
-                    ]
-                    for row in tbl.rows
-                ]
-                new_caption = (
-                    pseudonymizer.pseudonymize_text(tbl.caption, eff_terms)
-                    if tbl.caption
-                    else tbl.caption
-                )
-                new_raw = (
-                    pseudonymizer.pseudonymize_text(tbl.raw_html_or_md, eff_terms)
-                    if tbl.raw_html_or_md
-                    else tbl.raw_html_or_md
-                )
-                for k, v in list(t_meta.items()):
-                    if k != "sensitive_entities" and isinstance(v, str):
-                        t_meta[k] = pseudonymizer.pseudonymize_text(v, eff_terms)
-                combined_check = "\n".join(
-                    [tbl.table_id, *new_headers, *(str(c) for r in new_rows for c in r)]
-                ).lower()
-                for s_term in eff_terms:
-                    if s_term.lower() in combined_check:
-                        raise OpenDVError(
-                            f"Residual confidential substring '{s_term}' survived table "
-                            f"pseudonymization on '{tbl.table_id}'.",
-                            error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
-                        )
-                t_meta.pop("sensitive_entities", None)
-                t_meta["pseudonymized"] = True
-                safe_tables.append(
-                    tbl.model_copy(
-                        update={
-                            "headers": new_headers,
-                            "rows": new_rows,
-                            "caption": new_caption,
-                            "raw_html_or_md": new_raw,
-                            "metadata": t_meta,
-                        }
-                    )
-                )
-            else:
-                t_meta.pop("sensitive_entities", None)
-                t_meta["pseudonymized"] = True
-                safe_tables.append(tbl.model_copy(update={"metadata": t_meta}))
+            safe_tables.append(pseudonymizer.pseudonymize_table(tbl, sensitive_terms=eff_terms))
         else:
             safe_tables.append(tbl)
 

@@ -499,6 +499,98 @@ class Pseudonymizer:
         )
         return chunk.model_copy(update={"text": new_text, "metadata": new_meta})
 
+    def pseudonymize_table(
+        self,
+        table: TableStructure,
+        sensitive_terms: Sequence[str] | None = None,
+    ) -> TableStructure:
+        """Return a copy of `table` with sensitive terms replaced by HMAC pseudonyms.
+
+        Always computes `effective_terms` as the deduplicated non-empty union of
+        caller-supplied `sensitive_terms` and `table.metadata` `sensitive_entities`
+        (recursively collected across nested metadata structures).
+        """
+        raw_meta: dict[str, Any] = (
+            dict(table.metadata) if isinstance(table.metadata, Mapping) else {}
+        )
+        effective_terms = _union_sensitive_terms(sensitive_terms, raw_meta)
+        if not effective_terms:
+            stripped_meta = _strip_sensitive_entities_keys(raw_meta)
+            stripped_meta["pseudonymized"] = True
+            return table.model_copy(update={"metadata": stripped_meta})
+
+        term_patterns: list[re.Pattern[str]] = [_build_term_pattern(t) for t in effective_terms]
+
+        new_table_id = self.pseudonymize_text(table.table_id, effective_terms)
+        new_headers = [self.pseudonymize_text(h, effective_terms) for h in table.headers]
+        new_rows = [
+            [
+                self.pseudonymize_text(cell, effective_terms) if isinstance(cell, str) else cell
+                for cell in row
+            ]
+            for row in table.rows
+        ]
+        new_caption = (
+            self.pseudonymize_text(table.caption, effective_terms)
+            if table.caption
+            else table.caption
+        )
+        new_raw = (
+            self.pseudonymize_text(table.raw_html_or_md, effective_terms)
+            if table.raw_html_or_md
+            else table.raw_html_or_md
+        )
+
+        pre_pop_meta: dict[str, Any] = dict(raw_meta)
+        masked_pre_pop: dict[str, Any] = {}
+        for key_idx, (k, v) in enumerate(pre_pop_meta.items()):
+            if k == "sensitive_entities":
+                masked_pre_pop[k] = v
+                continue
+            masked_k = (
+                self._mask_metadata_value(
+                    k, effective_terms, term_patterns, f"table.metadata.<key#{key_idx}>"
+                )
+                if isinstance(k, str)
+                else k
+            )
+            masked_pre_pop[masked_k] = self._mask_metadata_value(
+                v, effective_terms, term_patterns, f"table.metadata.<entry#{key_idx}>"
+            )
+        _verify_no_residual_terms_in_value(
+            masked_pre_pop,
+            term_patterns,
+            "table.metadata",
+            forbid_sensitive_entities_key=False,
+        )
+
+        new_meta: dict[str, Any] = dict(masked_pre_pop)
+        new_meta.pop("sensitive_entities", None)
+        new_meta["redacted_entity_count"] = len(effective_terms)
+        new_meta["pseudonymized"] = True
+
+        _verify_no_residual_terms_in_value(new_table_id, term_patterns, "table.table_id")
+        _verify_no_residual_terms_in_value(new_headers, term_patterns, "table.headers")
+        _verify_no_residual_terms_in_value(new_rows, term_patterns, "table.rows")
+        _verify_no_residual_terms_in_value(new_caption, term_patterns, "table.caption")
+        _verify_no_residual_terms_in_value(new_raw, term_patterns, "table.raw_html_or_md")
+        _verify_no_residual_terms_in_value(
+            new_meta,
+            term_patterns,
+            "table.metadata",
+            forbid_sensitive_entities_key=True,
+        )
+        return table.model_copy(
+            update={
+                "table_id": new_table_id,
+                "headers": new_headers,
+                "rows": new_rows,
+                "caption": new_caption,
+                "raw_html_or_md": new_raw,
+                "metadata": new_meta,
+            }
+        )
+
     def de_pseudonymize(self, text: str) -> str:
         """Map all known `pseudo_*` tokens back to their original plain text.
 

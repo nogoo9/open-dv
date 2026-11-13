@@ -2747,7 +2747,7 @@ def apply_delta_endpoint(
         target_sha256=commit_res.target_sha256,
         parent_sha256=raw_body_parent if raw_body_parent is not None else meta.head_sha256,
         delta_id=delta.delta_id,
-        bump_type=delta.highest_semver_class(),
+        bump_type=delta.highest_semver_class(base_ontology),
         applied_operations_count=len(delta.operations),
     )
 
@@ -3211,7 +3211,7 @@ def accept_proposal(
         target_sha256=commit_res.target_sha256,
         parent_sha256=meta.head_sha256,
         delta_id=delta.delta_id,
-        bump_type=delta.highest_semver_class(),
+        bump_type=delta.highest_semver_class(base_ontology),
         applied_operations_count=len(delta.operations),
     )
 

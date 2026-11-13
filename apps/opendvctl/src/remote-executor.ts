@@ -75,7 +75,7 @@ export function isDestructiveDeltaOperation(
 	if (opType === "set_parent_concept") {
 		const conceptUri = String(op.concept_uri ?? "").trim();
 		const existing = conceptUri ? baseConceptsByUri?.get(conceptUri) : undefined;
-		if (op.parent_concept_uri === null) {
+		if (op.parent_concept_uri == null) {
 			if (!baseConceptsByUri || existing?.parent_concept_uri != null) {
 				return true;
 			}

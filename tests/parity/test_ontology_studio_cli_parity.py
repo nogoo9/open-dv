@@ -680,3 +680,272 @@ def test_studio_delta_validate_bit_for_bit_parity(
         f"LOCAL:  {dumps_jcs(py_val_json)}\n"
         f"REMOTE: {dumps_jcs(ts_val_json)}"
     )
+
+
+@pytest.mark.parity
+def test_s5_r8_bundle_export_overwrite_and_non_optional_attribute_rbac_parity(
+    cli_transport: StandaloneCliTransport,
+    client_cli_transport: ClientCliTransport,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression S5-R8-MAJ-01 & S5-R8-MAJ-02:
+    1. `bundle export -o <external_tmp>/out.odvstudio.zip` succeeds on initial write and overwrite
+       across both `opendv` and `opendvctl` when `OPENDV_WORKSPACE_ROOTS` is unset.
+    2. `AddAttributeOp(is_optional=False)` targeting an existing concept in `1.0.0` is classified
+       as destructive `MAJOR` and rejected with exit 7 (`FORBIDDEN_ADMIN_REQUIRED`) for `editor`
+       on both `opendv` and `opendvctl`.
+    """
+    monkeypatch.delenv("OPENDV_WORKSPACE_ROOTS", raising=False)
+    sfx = uuid.uuid4().hex[:8]
+    sid_py = f"s5-r8-py-{sfx}"
+    sid_ts = f"s5-r8-ts-{sfx}"
+
+    c_py, out_py, err_py = cli_transport.invoke_raw(
+        ["ontology", "studio", "create", "-s", sid_py, "--json"]
+    )
+    c_ts, out_ts, err_ts = client_cli_transport.invoke_raw(
+        ["ontology", "studio", "create", "-s", sid_ts, "--json"]
+    )
+    assert c_py == 0, err_py
+    assert c_ts == 0, err_ts
+    head_py = json.loads(out_py)["head_sha256"]
+    head_ts = json.loads(out_ts)["head_sha256"]
+
+    # 1. Automated principal rejected with exit 7 AGENT_OPERATION_FORBIDDEN on bundle export;
+    #    editor/admin principal succeeds on outside workspace_root + overwrite repeat on BOTH CLIs!
+    ext_py = tmp_path / "ext_py" / "s1.odvstudio.zip"
+    ext_ts = tmp_path / "ext_ts" / "s1.odvstudio.zip"
+    ext_py.parent.mkdir(parents=True, exist_ok=True)
+    ext_ts.parent.mkdir(parents=True, exist_ok=True)
+
+    auto_py, aout_py, aerr_py = cli_transport.invoke_raw(
+        [
+            "ontology",
+            "studio",
+            "bundle",
+            "export",
+            "-s",
+            sid_py,
+            "-o",
+            str(ext_py),
+            "--role",
+            "automated",
+            "--json",
+        ]
+    )
+    auto_ts, aout_ts, aerr_ts = client_cli_transport.invoke_raw(
+        ["ontology", "studio", "bundle", "export", "-s", sid_ts, "-o", str(ext_ts), "--json"]
+    )
+    assert auto_py == 7 and auto_ts == 7
+    assert _extract_error_code(aout_py, aerr_py) == "AGENT_OPERATION_FORBIDDEN"
+    assert _extract_error_code(aout_ts, aerr_ts) == "AGENT_OPERATION_FORBIDDEN"
+
+    old_role_exp = client_cli_transport.role
+    try:
+        client_cli_transport.role = "DATA_STEWARD"
+        for _ in range(2):
+            ec_py, _, eerr_py = cli_transport.invoke_raw(
+                [
+                    "ontology",
+                    "studio",
+                    "bundle",
+                    "export",
+                    "-s",
+                    sid_py,
+                    "-o",
+                    str(ext_py),
+                    "--role",
+                    "editor",
+                    "--json",
+                ]
+            )
+            ec_ts, _, eerr_ts = client_cli_transport.invoke_raw(
+                [
+                    "ontology",
+                    "studio",
+                    "bundle",
+                    "export",
+                    "-s",
+                    sid_ts,
+                    "-o",
+                    str(ext_ts),
+                    "--json",
+                ]
+            )
+            assert ec_py == 0, eerr_py
+            assert ec_ts == 0, eerr_ts
+            assert ext_py.is_file() and ext_ts.is_file()
+    finally:
+        client_cli_transport.role = old_role_exp
+
+    # 2. Seed grounded concept at v1.0.0 on both sessions
+    seed_delta = tmp_path / "seed_v1.json"
+    seed_delta.write_text(
+        json.dumps(
+            {
+                "delta_id": "delta-seed-v1",
+                "operations": [
+                    {
+                        "op_id": "op-seed-le",
+                        "op_type": "add_concept",
+                        "concept_uri": "urn:ontology:entity:legal_entity",
+                        "concept_name": "LegalEntity",
+                        "target_hub": "hub_legal_entity",
+                        "external_mappings": [
+                            {
+                                "scheme": "FIBO",
+                                "target_uri": "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity",
+                                "predicate": "skos:exactMatch",
+                                "confidence": 0.95,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    sc_py, sout_py, serr_py = cli_transport.invoke_raw(
+        [
+            "ontology",
+            "studio",
+            "delta",
+            "apply",
+            "-s",
+            sid_py,
+            "-f",
+            str(seed_delta),
+            "--base-sha256",
+            head_py,
+            "--json",
+        ]
+    )
+    old_role_seed = client_cli_transport.role
+    try:
+        client_cli_transport.role = "DATA_STEWARD"
+        sc_ts, sout_ts, serr_ts = client_cli_transport.invoke_raw(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                sid_ts,
+                "-f",
+                str(seed_delta),
+                "--base-sha256",
+                head_ts,
+                "--json",
+            ]
+        )
+    finally:
+        client_cli_transport.role = old_role_seed
+    assert sc_py == 0, serr_py
+    assert sc_ts == 0, serr_ts
+    v1_sha_py = json.loads(sout_py)["target_sha256"]
+    v1_sha_ts = json.loads(sout_ts)["target_sha256"]
+    assert v1_sha_py == v1_sha_ts
+
+    # 3. Non-optional AddAttributeOp on existing concept with editor role -> exit 7 on BOTH CLIs!
+    breaking_attr_delta = tmp_path / "breaking_attr.json"
+    breaking_attr_delta.write_text(
+        json.dumps(
+            {
+                "delta_id": "delta-break-attr",
+                "operations": [
+                    {
+                        "op_id": "op-req-attr",
+                        "op_type": "add_attribute",
+                        "concept_uri": "urn:ontology:entity:legal_entity",
+                        "attribute_name": "tax_id",
+                        "data_type": "string",
+                        "is_optional": False,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    bc_py, bout_py, berr_py = cli_transport.invoke_raw(
+        [
+            "ontology",
+            "studio",
+            "delta",
+            "apply",
+            "-s",
+            sid_py,
+            "-f",
+            str(breaking_attr_delta),
+            "--base-sha256",
+            v1_sha_py,
+            "--role",
+            "editor",
+            "--json",
+        ]
+    )
+    bc_ts, bout_ts, berr_ts = client_cli_transport.invoke_raw(
+        [
+            "ontology",
+            "studio",
+            "delta",
+            "apply",
+            "-s",
+            sid_ts,
+            "-f",
+            str(breaking_attr_delta),
+            "--base-sha256",
+            v1_sha_ts,
+            "--role",
+            "editor",
+            "--json",
+        ]
+    )
+
+    assert bc_py == 7, f"Expected exit 7 on opendv, got {bc_py}: {bout_py} {berr_py}"
+    assert bc_ts == 7, f"Expected exit 7 on opendvctl, got {bc_ts}: {bout_ts} {berr_ts}"
+    assert _extract_error_code(bout_py, berr_py) == "FORBIDDEN_ADMIN_REQUIRED"
+    assert _extract_error_code(bout_ts, berr_ts) == "FORBIDDEN_ADMIN_REQUIRED"
+
+    # 4. Admin role succeeds on BOTH CLIs with bump_type == "MAJOR" and target_version == "2.0.0"!
+    ac_py, aout_py2, aerr_py2 = cli_transport.invoke_raw(
+        [
+            "ontology",
+            "studio",
+            "delta",
+            "apply",
+            "-s",
+            sid_py,
+            "-f",
+            str(breaking_attr_delta),
+            "--base-sha256",
+            v1_sha_py,
+            "--role",
+            "admin",
+            "--json",
+        ]
+    )
+    ac_ts, aout_ts2, aerr_ts2 = client_cli_transport.invoke_raw(
+        [
+            "ontology",
+            "studio",
+            "delta",
+            "apply",
+            "-s",
+            sid_ts,
+            "-f",
+            str(breaking_attr_delta),
+            "--base-sha256",
+            v1_sha_ts,
+            "--role",
+            "admin",
+            "--json",
+        ]
+    )
+    assert ac_py == 0, aerr_py2
+    assert ac_ts == 0, aerr_ts2
+    res_py = json.loads(aout_py2)
+    res_ts = json.loads(aout_ts2)
+    assert res_py["bump_type"] == "MAJOR" and res_ts["bump_type"] == "MAJOR"
+    assert res_py["target_version"] == "2.0.0" and res_ts["target_version"] == "2.0.0"
+    assert res_py["target_sha256"] == res_ts["target_sha256"]

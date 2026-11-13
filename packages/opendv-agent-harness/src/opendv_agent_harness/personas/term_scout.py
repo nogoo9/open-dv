@@ -17,7 +17,13 @@ from opendv_agent_harness.models import (
     PipelineStageId,
     SubagentSpec,
 )
-from opendv_agent_harness.privacy import Pseudonymizer, validate_task_spec_privacy
+from opendv_agent_harness.privacy import (
+    Pseudonymizer,
+    _build_term_pattern,
+    _collect_sensitive_entities_from_mapping,
+    _find_residual_term_index,
+    validate_task_spec_privacy,
+)
 from opendv_agent_harness.routing import get_persona_capability
 from opendv_agent_harness.tools.catalog import get_tools_for_persona
 from opendv_contracts.dtos.ingestion import EvidenceChunk, TableStructure
@@ -196,23 +202,16 @@ class TermScout:
             masked_full_text: str | None
             if is_tainted:
                 if self.pseudonymizer:
-                    raw_sensitive = chunk_meta.get("sensitive_entities")
-                    if isinstance(raw_sensitive, (list, tuple)):
-                        sensitive = [str(s).strip() for s in raw_sensitive if str(s).strip()]
-                    else:
-                        sensitive = []
-
+                    sensitive = _collect_sensitive_entities_from_mapping(chunk_meta)
                     if sensitive:
+                        sens_patterns = [_build_term_pattern(s) for s in sensitive]
                         masked_full_text = self.pseudonymizer.pseudonymize_text(
                             chunk.text, sensitive
                         )
                         # Post-masking safety verification (fail-closed, MAJ-01):
-                        # Ensure no listed sensitive term remains anywhere in masked text
-                        lower_masked = masked_full_text.lower()
-                        for s_term in sensitive:
-                            if s_term.lower() in lower_masked:
-                                masked_full_text = None
-                                break
+                        # Ensure no listed sensitive term remains in masked text
+                        if _find_residual_term_index(masked_full_text, sens_patterns) is not None:
+                            masked_full_text = None
                     elif chunk_meta.get("pseudonymized") is True:
                         masked_full_text = chunk.text
                     else:
@@ -289,12 +288,8 @@ class TermScout:
             if tbl_tainted:
                 if self.pseudonymizer is None:
                     continue
-                raw_sensitive = tbl_meta.get("sensitive_entities")
-                sensitive = (
-                    [str(s).strip() for s in raw_sensitive if str(s).strip()]
-                    if isinstance(raw_sensitive, (list, tuple))
-                    else []
-                )
+                sensitive = _collect_sensitive_entities_from_mapping(tbl_meta)
+                sens_patterns = [_build_term_pattern(s) for s in sensitive]
                 if not sensitive and not tbl_meta.get("pseudonymized"):
                     continue
                 safe_tbl_id = (
@@ -302,10 +297,11 @@ class TermScout:
                     if sensitive
                     else raw_tbl_id
                 )
-                if any(s.lower() in safe_tbl_id.lower() for s in sensitive):
+                if _find_residual_term_index(safe_tbl_id, sens_patterns) is not None:
                     continue
             else:
                 sensitive = []
+                sens_patterns = []
                 safe_tbl_id = raw_tbl_id
 
             headers = tbl.headers or []
@@ -321,7 +317,7 @@ class TermScout:
                         if sensitive
                         else raw_header
                     )
-                    if any(s.lower() in safe_header.lower() for s in sensitive):
+                    if _find_residual_term_index(safe_header, sens_patterns) is not None:
                         continue
                 else:
                     safe_header = raw_header
@@ -375,11 +371,13 @@ class TermScout:
                                     masked_val = self.pseudonymizer.pseudonymize_text(
                                         cell_val, sensitive
                                     )
-                                    lower_masked = masked_val.lower()
-                                    if any(s.lower() in lower_masked for s in sensitive):
+                                    if (
+                                        _find_residual_term_index(masked_val, sens_patterns)
+                                        is not None
+                                    ):
                                         masking_failed = True
                                         break
-                                    if "pseudo_" in lower_masked:
+                                    if "pseudo_" in masked_val.lower():
                                         masking_failed = True
                                         break
                                     raw_codes_set.add(masked_val)

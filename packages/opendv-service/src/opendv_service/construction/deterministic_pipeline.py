@@ -112,7 +112,7 @@ class InvalidConstructionModeError(OpenDVError, ValueError):
 
 
 class ConstructionPreconditionMismatchError(OpenDVError, ValueError):
-    """Raised when `opts.if_match` does not match base ontology SHA-256 (HTTP 412 / exit 6)."""
+    """Raised when `opts.if_match` does not match base ontology SHA-256 (HTTP 412 / exit 5)."""
 
     def __init__(self, message: str) -> None:
         ValueError.__init__(self, message)

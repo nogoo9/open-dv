@@ -565,6 +565,8 @@ def export_bundle(
         out_allowed_roots = list(sess_allowed_roots)
         if security_manager is not None:
             out_allowed_roots.append(security_manager.studio_root / ".scratch")
+        if raw_out.is_absolute() and ".." not in raw_out.parts:
+            out_allowed_roots.append(Path(os.path.realpath(str(raw_out))).parent)
 
     _reject_symlinks_on_path_and_ancestors(raw_sdir, sess_allowed_roots, "Export session directory")
     sdir = validate_workspace_containment(raw_sdir, allowed_roots=sess_allowed_roots)

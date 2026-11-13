@@ -355,3 +355,102 @@ class TestPseudonymizeChunkUnionRemediation:
         with pytest.raises(OpenDVError) as exc_ing:
             validate_task_spec_privacy("Analyze ingestion", input_data=raw_page_ing)
         assert exc_ing.value.error_code == ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN
+
+    def test_pseudonymize_table_and_term_scout_boundary_and_scrubbing(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Regression S2-R8-MAJ-01 & S2-R8-MAJ-02:
+        - `Pseudonymizer.pseudonymize_table` masks table_id, headers, rows, caption, raw_html_or_md,
+          and nested metadata without false-positiving on superstrings ('Annual' vs 'Ann') or
+          generated `pseudo_<16hex>` hex overlaps, and scrubs plaintext terms from residual errors.
+        - `TermScout.extract_candidates` preserves valid snippets, headers, tables, and enum codes
+          when boundary-aware masking leaves superstrings ('Annual') or `pseudo_<16hex>` tokens.
+        """
+        import hashlib as std_hashlib
+        import hmac as std_hmac
+
+        from opendv_agent_harness.personas import TermScout
+
+        real_hmac_new = std_hmac.new
+
+        class _CafeDigest:
+            def __init__(self, term_bytes: bytes) -> None:
+                raw_hex = real_hmac_new(b"s2-r8-seed", term_bytes, std_hashlib.sha256).hexdigest()
+                self._hex = "cafea1" + raw_hex[:58]
+
+            def hexdigest(self) -> str:
+                return self._hex
+
+        monkeypatch.setattr(std_hmac, "new", lambda _k, msg, _d: _CafeDigest(msg))
+        pseudo = Pseudonymizer(b"s2-r8-table-hmac-key-0123456789ab")
+
+        tbl = TableStructure(
+            table_id="annual_accounts_ann",
+            headers=["annual_account_id", "annual_status_code", "owner_ann"],
+            rows=[
+                ["ACC-100", "OPEN", "Handled by Ann for Annual review"],
+                ["ACC-200", "CLOSED", "Reviewed at cafe"],
+            ],
+            caption="Annual ledger for Ann",
+            raw_html_or_md="| annual_account_id | owner_ann |",
+            taint=TaintClassification.CONFIDENTIAL,
+            metadata={
+                "sensitive_entities": ["Ann", "cafe"],
+                "nested": {
+                    "sensitive_entities": ["SecretDesk"],
+                    "reviewer_key_Ann": "Approved by SecretDesk and Ann",
+                },
+            },
+        )
+
+        # 1. TermScout on raw tainted chunk + table with boundary superstrings & pseudo hex overlap
+        chk = _make_chunk(
+            "Annual report confirms the Legal Entity signed an agreement with Ann at cafe.",
+            metadata={"sensitive_entities": ["Ann", "cafe", "pseudo"]},
+        )
+        scout = TermScout(pseudonymizer=pseudo)
+        cands = scout.extract_candidates(evidence_chunks=[chk], tables=[tbl])
+        by_term = {c["term"].lower(): c for c in cands}
+
+        # Chunk snippet is preserved (NOT wiped to None by 'Ann' in 'Annual' or 'cafe' in pseudo_)
+        assert "legal entity" in by_term
+        le_snip = by_term["legal entity"]["evidence_citations"][0].snippet
+        assert le_snip is not None and "Annual" in le_snip
+        assert "ann" not in le_snip.lower().replace("annual", "")
+
+        # Table is NOT dropped and both entity + reference enum codes survive!
+        assert "annual account" in by_term
+        assert "annual status" in by_term
+        assert by_term["annual status"]["codes"] == ["CLOSED", "OPEN"]
+
+        # 2. Pseudonymizer.pseudonymize_table masks all fields + nested metadata cleanly
+        masked_tbl = pseudo.pseudonymize_table(tbl, sensitive_terms=["ExtraSecret"])
+        assert masked_tbl.metadata is not None
+        assert masked_tbl.metadata["pseudonymized"] is True
+        assert masked_tbl.metadata["redacted_entity_count"] == 4
+        assert "sensitive_entities" not in masked_tbl.metadata
+        assert "sensitive_entities" not in masked_tbl.metadata["nested"]
+        assert "Annual" in masked_tbl.rows[0][2]
+        assert "annual_accounts_" in masked_tbl.table_id
+        validate_task_spec_privacy("Dispatch table", input_data={"tables": [masked_tbl]})
+
+        # 3. Simulated residual leak inside pseudonymize_table never leaks plaintext secret
+        # or table_id
+        orig_ptext = pseudo.pseudonymize_text
+        monkeypatch.setattr(
+            pseudo,
+            "pseudonymize_text",
+            lambda text, _terms: text if "UltraSecretToken" in text else orig_ptext(text, _terms),
+        )
+        leak_tbl = TableStructure(
+            table_id="tbl_UltraSecretToken",
+            headers=["col"],
+            rows=[["UltraSecretToken"]],
+            taint=TaintClassification.CONFIDENTIAL,
+            metadata={"sensitive_entities": ["UltraSecretToken"]},
+        )
+        with pytest.raises(OpenDVError) as exc_tbl_leak:
+            pseudo.pseudonymize_table(leak_tbl)
+        assert exc_tbl_leak.value.error_code == ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN
+        assert "ultrasecrettoken" not in str(exc_tbl_leak.value).lower()

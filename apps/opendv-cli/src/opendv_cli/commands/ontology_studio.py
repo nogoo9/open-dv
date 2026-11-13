@@ -2098,7 +2098,7 @@ def handle_delta_apply(
         parse_semver_tuple(target_version)[0] > parse_semver_tuple(meta.head_version)[0]
         and meta.head_version != "0.0.0"
     )
-    if (is_destructive_delta(delta_obj) or is_major) and role_tier != "admin":
+    if (is_destructive_delta(delta_obj, base_ont) or is_major) and role_tier != "admin":
         return _err(
             7,
             "FORBIDDEN_ADMIN_REQUIRED",
@@ -2159,17 +2159,11 @@ def handle_delta_apply(
     ) as err_commit:
         return _err(4, "ONT_EVO_CONTRACT_VIOLATION", str(err_commit))
 
-    bump_type = (
-        "major"
-        if target_version.split(".")[0] != meta.head_version.split(".")[0]
-        else (
-            "minor" if target_version.split(".")[1] != meta.head_version.split(".")[1] else "patch"
-        )
-    )
+    bump_type = delta_obj.highest_semver_class(base_ont)
 
     return 0, {
         "session_id": sid,
-        "target_version": res.version,
+        "target_version": res.version.lstrip("v"),
         "target_sha256": res.target_sha256,
         "parent_sha256": res.parent_sha256,
         "delta_id": delta_obj.delta_id,
@@ -2353,12 +2347,12 @@ def handle_proposal_accept(
             )
             return 0, {
                 "session_id": sid,
-                "target_version": meta.head_version,
+                "target_version": meta.head_version.lstrip("v"),
                 "target_sha256": meta.head_sha256,
                 "parent_sha256": meta.head_sha256,
                 "delta_id": pid,
                 "proposal_id": pid,
-                "bump_type": "none",
+                "bump_type": "NONE",
                 "applied_operations_count": 0,
             }
 
@@ -2412,7 +2406,7 @@ def handle_proposal_accept(
             parse_semver_tuple(next_ver)[0] > parse_semver_tuple(meta.head_version)[0]
             and meta.head_version != "0.0.0"
         )
-        if (is_destructive_delta(delta_obj) or is_major) and role_tier != "admin":
+        if (is_destructive_delta(delta_obj, base_ont) or is_major) and role_tier != "admin":
             return _err(
                 7,
                 "FORBIDDEN_ADMIN_REQUIRED",
@@ -2482,17 +2476,11 @@ def handle_proposal_accept(
         prop_data["commit_sha256"] = res.target_sha256
         _atomic_write_json(pfile, prop_data)
 
-        bump_type = (
-            "major"
-            if res.version.split(".")[0] != meta.head_version.split(".")[0]
-            else (
-                "minor" if res.version.split(".")[1] != meta.head_version.split(".")[1] else "patch"
-            )
-        )
+        bump_type = delta_obj.highest_semver_class(base_ont)
 
         return 0, {
             "session_id": sid,
-            "target_version": res.version,
+            "target_version": res.version.lstrip("v"),
             "target_sha256": res.target_sha256,
             "parent_sha256": res.parent_sha256,
             "delta_id": pid,
@@ -2962,6 +2950,16 @@ def handle_promote(
             "Promotion rationale of at least 10 characters is required.",
         )
 
+    ack_hist = bool(getattr(args, "acknowledge_historical_contract_warning", False))
+    hist_rationale = getattr(args, "historical_contract_rationale", None)
+    if ack_hist and (not hist_rationale or len(str(hist_rationale).strip()) < 10):
+        return _err(
+            1,
+            "HISTORICAL_CONTRACT_RATIONALE_REQUIRED",
+            "historical_contract_rationale of at least 10 characters is required when "
+            "acknowledge_historical_contract_warning=True.",
+        )
+
     ws_sha = getattr(args, "workspace_sha256", None)
     head_sha = getattr(args, "head_sha256", None)
     if not ws_sha or not head_sha:
@@ -3064,6 +3062,12 @@ def handle_bundle_export(
     if isinstance(auth_res[0], int):
         return auth_res  # type: ignore[return-value]
     principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "automated":
+        return _err(
+            7,
+            "AGENT_OPERATION_FORBIDDEN",
+            "Automated agents are not permitted to export Studio session bundles.",
+        )
     if role_tier == "viewer":
         return _err(
             7,
@@ -3094,6 +3098,7 @@ def handle_bundle_export(
             export_rationale=export_rationale,
             admin=(role_tier == "admin"),
             actor=principal,
+            overwrite=True,
         )
     except AdminRoleRequiredError as exc:
         return _err(7, "FORBIDDEN_ADMIN_REQUIRED", str(exc))
@@ -3123,7 +3128,13 @@ def handle_bundle_import(
     if isinstance(auth_res[0], int):
         return auth_res  # type: ignore[return-value]
     principal, role_tier = auth_res  # type: ignore[misc]
-    if role_tier in ("viewer", "automated"):
+    if role_tier == "automated":
+        return _err(
+            7,
+            "AGENT_OPERATION_FORBIDDEN",
+            "Automated agents are not permitted to import Studio bundles.",
+        )
+    if role_tier == "viewer":
         return _err(
             7,
             "FORBIDDEN_ADMIN_REQUIRED",

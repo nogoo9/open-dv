@@ -2262,3 +2262,80 @@ def test_p08a2_maj04_historical_expired_waiver_bundle_roundtrip_and_post_import_
             new_session_id="imp-backdated-fail",
             actor_role="admin",
         )
+
+
+def test_s2_r8_maj01_job_runners_prepare_evidence_for_agent_table_pseudonymization(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression S2-R8-MAJ-01: `_prepare_evidence_for_agent` delegates table masking to
+    `Pseudonymizer.pseudonymize_table` so benign word superstrings ('Annual' with 'Ann'),
+    `pseudo_<16hex>` overlaps ('cafe'), `table_id` secrets, and nested metadata are handled
+    without false-positive crashes or plaintext secret leaks in `OpenDVError`.
+    """
+    from opendv_agent_harness.privacy import Pseudonymizer, validate_task_spec_privacy
+    from opendv_contracts.dtos.ingestion import (
+        EvidenceChunk,
+        TableStructure,
+        TaintClassification,
+    )
+    from opendv_service.studio.job_runners import _prepare_evidence_for_agent
+
+    sec = WorkspaceSecurityManager(tmp_path)
+
+    chk = EvidenceChunk(
+        chunk_id="c-ann-1",
+        document_id="d-ann-1",
+        text="Annual Revenue reviewed by Ann (ann@secretcorp.example).",
+        taint=TaintClassification.PUBLIC,
+        metadata={"taint": "confidential", "sensitive_entities": ["Ann"]},
+    )
+    tbl = TableStructure(
+        table_id="tbl_Ann_annual_summary",
+        headers=["annual_revenue", "contact_email"],
+        rows=[["1000", "Annual check by Ann at cafe (ops@secretcorp.example)"]],
+        caption="Annual summary for Ann",
+        taint=TaintClassification.CONFIDENTIAL,
+        metadata={
+            "sensitive_entities": ["Ann", "cafe", "pseudo"],
+            "nested": {
+                "sensitive_entities": ["ProjectMercury"],
+                "owner": "Managed by ProjectMercury and Ann",
+            },
+        },
+    )
+
+    safe_chunks, safe_tables = _prepare_evidence_for_agent([chk], [tbl], sec)
+    assert len(safe_chunks) == 1 and len(safe_tables) == 1
+    stbl = safe_tables[0]
+    assert stbl.metadata is not None and stbl.metadata["pseudonymized"] is True
+    assert "sensitive_entities" not in stbl.metadata
+    assert "sensitive_entities" not in stbl.metadata["nested"]
+    assert "Annual" in stbl.rows[0][1]
+    assert "ops@secretcorp.example" not in stbl.rows[0][1]
+    assert "ann" not in stbl.table_id.lower().replace("annual", "")
+    validate_task_spec_privacy(
+        "Verify agent task payload",
+        input_data={"chunks": safe_chunks, "tables": safe_tables},
+    )
+
+    # Simulate faulty pseudonymize_text leaving secret unmasked -> OpenDVError MUST NOT leak secret
+    orig_ptext = Pseudonymizer.pseudonymize_text
+    monkeypatch.setattr(
+        Pseudonymizer,
+        "pseudonymize_text",
+        lambda self, text, terms: (
+            text if "TopSecretClient" in text else orig_ptext(self, text, terms)
+        ),
+    )
+    bad_tbl = TableStructure(
+        table_id="tbl_TopSecretClient",
+        headers=["client"],
+        rows=[["TopSecretClient"]],
+        taint=TaintClassification.CONFIDENTIAL,
+        metadata={"sensitive_entities": ["TopSecretClient"]},
+    )
+    with pytest.raises(OpenDVError) as exc_info:
+        _prepare_evidence_for_agent([], [bad_tbl], sec)
+    assert exc_info.value.error_code == ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN
+    assert "topsecretclient" not in str(exc_info.value).lower()

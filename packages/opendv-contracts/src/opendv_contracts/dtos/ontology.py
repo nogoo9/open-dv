@@ -395,6 +395,16 @@ class AddAttributeOp(BaseOntologyDeltaOp):
             raise ValueError("'attribute_name' must be a non-empty string")
         return self
 
+    def effective_semver_class(self, base_ontology: Any = None) -> SemVerClass:
+        """Compute the effective SemVer classification of this operation."""
+        if (
+            not self.is_optional
+            and base_ontology is not None
+            and _lookup_concept_attr(base_ontology, self.concept_uri, "concept_uri") is not None
+        ):
+            return "MAJOR"
+        return self.semver_class
+
 
 class SetParentConceptOp(BaseOntologyDeltaOp):
     """Minor (or Major on overwrite/unset) operation to set or unset parent concept hierarchy."""
