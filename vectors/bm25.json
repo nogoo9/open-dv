@@ -1,0 +1,123 @@
+{
+  "matcher_id": "bm25_fibo_v1",
+  "version": "1.0.0",
+  "quantization_boundary_vectors": [
+    {
+      "description": "Boundary case rounding up under ROUND_HALF_EVEN",
+      "raw_normalized_decimal": "0.64995",
+      "expected_quantized": 0.6500,
+      "is_grounded": true
+    },
+    {
+      "description": "Boundary case rounding down under ROUND_HALF_EVEN",
+      "raw_normalized_decimal": "0.64994",
+      "expected_quantized": 0.6499,
+      "is_grounded": false
+    },
+    {
+      "description": "Exact half on even digit rounds down under ROUND_HALF_EVEN",
+      "raw_normalized_decimal": "0.65005",
+      "expected_quantized": 0.6500,
+      "is_grounded": true
+    },
+    {
+      "description": "Exact half on odd digit rounds up under ROUND_HALF_EVEN",
+      "raw_normalized_decimal": "0.65015",
+      "expected_quantized": 0.6502,
+      "is_grounded": true
+    }
+  ],
+  "hit_gate_vectors": [
+    {
+      "description": "Definition-only high score capped at 0.6400",
+      "definition_match_raw": "0.7820",
+      "has_name_hit": false,
+      "has_synonym_hit": false,
+      "expected_capped": 0.6400,
+      "is_grounded": false
+    },
+    {
+      "description": "Match with name token hit uncapped above threshold",
+      "definition_match_raw": "0.7820",
+      "has_name_hit": true,
+      "has_synonym_hit": false,
+      "expected_capped": 0.7820,
+      "is_grounded": true
+    }
+  ],
+  "tokenization_vectors": [
+    {
+      "description": "CamelCase decomposition and NAV acronym expansion",
+      "input": "NAVCalculation",
+      "expected_tokens": ["net", "asset", "value", "calculation"]
+    },
+    {
+      "description": "Delimiter replacement and LEI acronym expansion with protected stopword 'entity'",
+      "input": "LEI_Code/Registration",
+      "expected_tokens": ["legal", "entity", "identifier", "code", "registration"]
+    },
+    {
+      "description": "CamelCase decomposition without acronyms",
+      "input": "PrivateEquityFund",
+      "expected_tokens": ["private", "equity", "fund"]
+    },
+    {
+      "description": "Spelled-out phrase with stopwords ('the', 'entity', 'concept', 'and', 'model') pruned by Step 7",
+      "input": "The Legal Entity Identifier Concept and Model",
+      "expected_tokens": ["legal", "identifier"]
+    },
+    {
+      "description": "Acronym expansion preserving protected stopword 'entity' while stopwords ('the', 'concept', 'and', 'model') are pruned",
+      "input": "The LEI Concept and Model",
+      "expected_tokens": ["legal", "entity", "identifier"]
+    }
+  ],
+  "scoring_vectors": [
+    {
+      "description": "Exact match on concept name yields normalized score 1.0000",
+      "corpus": [
+        {
+          "concept_uri": "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalEntity",
+          "concept_name": "Legal Entity",
+          "module": "BE",
+          "definition": "An entity that has legal identity and rights under law.",
+          "synonyms": ["Artificial Person", "Juridical Entity"]
+        },
+        {
+          "concept_uri": "https://spec.edmcouncil.org/fibo/ontology/BE/Corporations/Corporation",
+          "concept_name": "Corporation",
+          "module": "BE",
+          "definition": "A legal entity that is created under the laws of a state.",
+          "synonyms": ["Body Corporate"]
+        }
+      ],
+      "query": "Legal Entity",
+      "target_uri": "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalEntity",
+      "expected_normalized_score": 1.0,
+      "is_grounded": true
+    },
+    {
+      "description": "Definition-only match with high token overlap capped from 1.0000 at exactly 0.6400",
+      "corpus": [
+        {
+          "concept_uri": "urn:test:spv",
+          "concept_name": "SPV",
+          "module": "BE",
+          "definition": "A structured bankruptcy remote vehicle used for complex synthetic securitization financing transactions.",
+          "synonyms": []
+        },
+        {
+          "concept_uri": "urn:test:other",
+          "concept_name": "Other Instrument",
+          "module": "BE",
+          "definition": "Some other generic financial vehicle.",
+          "synonyms": []
+        }
+      ],
+      "query": "structured bankruptcy remote vehicle used for complex synthetic securitization",
+      "target_uri": "urn:test:spv",
+      "expected_normalized_score": 0.6400,
+      "is_grounded": false
+    }
+  ]
+}

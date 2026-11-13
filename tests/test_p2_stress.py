@@ -77,6 +77,7 @@ from opendv_contracts import (
     SandboxQueryResponse,
     VerifyRequest,
     VerifyResponse,
+    VALID_EXIT_CODES,
     create_problem_detail,
     dumps_jcs,
     dumps_jcs_bytes,
@@ -175,7 +176,12 @@ def test_jcs_float_oracle_against_bun() -> None:
     # Oracle query to Bun
     bun_payload = json.dumps(test_floats)
     proc = subprocess.run(
-        ["bun", "-e", "console.log(JSON.stringify(JSON.parse(process.argv[1]).map(x => JSON.stringify(x))))", bun_payload],
+        [
+            "bun",
+            "-e",
+            "console.log(JSON.stringify(JSON.parse(process.argv[1]).map(x => JSON.stringify(x))))",
+            bun_payload,
+        ],
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -232,10 +238,13 @@ def test_jcs_unicode_escaping_and_surrogates() -> None:
         assert json.loads(serialized) == s
 
     # Escaping \b, \f, \n, \r, \t, \\, \"
-    assert dumps_jcs("\b\f\n\r\t\\\"") == '"\\b\\f\\n\\r\\t\\\\\\""'
+    assert dumps_jcs('\b\f\n\r\t\\"') == '"\\b\\f\\n\\r\\t\\\\\\""'
 
     # Forward slash MUST NOT be escaped per RFC 8785
-    assert dumps_jcs("https://example.com/api/v1/runs?query=a/b") == '"https://example.com/api/v1/runs?query=a/b"'
+    assert (
+        dumps_jcs("https://example.com/api/v1/runs?query=a/b")
+        == '"https://example.com/api/v1/runs?query=a/b"'
+    )
 
     # Non-ASCII unicode must NOT be escaped
     multilingual = "中文, 日本語, 한국어, עברית, العربية, Русский, Français, Español, 🚀, 👨‍👩‍👦"
@@ -331,18 +340,40 @@ def test_error_code_taxonomy_exhaustive_coverage() -> None:
     """Verify all ErrorCode enum members have complete and valid mappings."""
     assert len(ErrorCode) == len(ERROR_MAPPINGS)
 
-    valid_exit_codes = {0, 1, 2}
-    valid_http_statuses = {200, 400, 404, 413, 415, 422, 500, 503}
+    valid_exit_codes = VALID_EXIT_CODES
+    valid_http_statuses = {
+        200,
+        201,
+        202,
+        400,
+        401,
+        403,
+        404,
+        409,
+        412,
+        413,
+        415,
+        422,
+        500,
+        501,
+        503,
+    }
 
     for code in ErrorCode:
         # 1. Present in ERROR_MAPPINGS
         assert code in ERROR_MAPPINGS, f"ErrorCode.{code.name} missing from ERROR_MAPPINGS"
         entry = get_error_entry(code)
         assert entry.error_code == code
-        assert entry.exit_code in valid_exit_codes, f"Invalid exit code {entry.exit_code} for {code}"
-        assert entry.http_status in valid_http_statuses, f"Invalid HTTP status {entry.http_status} for {code}"
+        assert entry.exit_code in valid_exit_codes, (
+            f"Invalid exit code {entry.exit_code} for {code}"
+        )
+        assert entry.http_status in valid_http_statuses, (
+            f"Invalid HTTP status {entry.http_status} for {code}"
+        )
         assert entry.problem_title, f"Missing title for {code}"
-        assert entry.problem_type_uri.startswith("urn:opendv:"), f"Bad type URI {entry.problem_type_uri} for {code}"
+        assert entry.problem_type_uri.startswith("urn:opendv:"), (
+            f"Bad type URI {entry.problem_type_uri} for {code}"
+        )
 
         # 2. get_error_mapping helper
         exit_code, http_status = get_error_mapping(code)
@@ -354,7 +385,9 @@ def test_error_code_taxonomy_exhaustive_coverage() -> None:
             code,
             detail=f"Stress test error detail for {code.value}",
             instance=f"/test/{code.value.lower()}",
-            invalid_params=[ErrorDetail(field="param1", message="invalid value", error_type="value_error")],
+            invalid_params=[
+                ErrorDetail(field="param1", message="invalid value", error_type="value_error")
+            ],
             extensions={"debug_trace": "trace_12345", "counter": 42},
         )
         assert pd.error_code == code
@@ -415,7 +448,14 @@ def test_dtos_extra_field_forbid_across_all_models() -> None:
         (ProfileRequest, {"source_system": "ERP", "table_name": "cust"}),
         (
             ProfileResponse,
-            {"status": "PASS", "profile_id": "p-1", "table_count": 1, "column_count": 2, "source_system": "ERP", "table_name": "cust"},
+            {
+                "status": "PASS",
+                "profile_id": "p-1",
+                "table_count": 1,
+                "column_count": 2,
+                "source_system": "ERP",
+                "table_name": "cust",
+            },
         ),
         (CompileRequest, {"contract_path": "contract.yaml"}),
         (
@@ -539,7 +579,9 @@ def test_dtos_legacy_identifiers_purged_d3() -> None:
         VaultObservabilityEvent,
     ]:
         for forbidden in forbidden_keys:
-            assert forbidden not in model_cls.model_fields, f"{forbidden} found in {model_cls.__name__}"
+            assert forbidden not in model_cls.model_fields, (
+                f"{forbidden} found in {model_cls.__name__}"
+            )
 
     assert "current_view_id" not in ProjectRunDTO.model_fields
 
@@ -633,7 +675,9 @@ def test_cli_spec_draft202012_schema_validation() -> None:
     assert len(error_map_entries) == len(ErrorCode)
     mapped_codes = {entry["error_code"] for entry in error_map_entries}
     for code in ErrorCode:
-        assert code.value in mapped_codes, f"ErrorCode.{code.value} not found in cli-spec.json error_map"
+        assert code.value in mapped_codes, (
+            f"ErrorCode.{code.value} not found in cli-spec.json error_map"
+        )
 
 
 # ==============================================================================
@@ -652,7 +696,18 @@ def test_standalone_cli_in_process_local_executor(
     pe_ir = "examples/private_equity/pe_canonical_ir.json"
 
     # 1. verify --json
-    rc = app_main(["verify", "--contract", pe_contract, "--graph-a", pe_graph_a, "--graph-b", pe_graph_b, "--json"])
+    rc = app_main(
+        [
+            "verify",
+            "--contract",
+            pe_contract,
+            "--graph-a",
+            pe_graph_a,
+            "--graph-b",
+            pe_graph_b,
+            "--json",
+        ]
+    )
     assert rc == 0
     raw_out = capsys.readouterr().out.strip()
     parsed = json.loads(raw_out)
@@ -672,7 +727,18 @@ def test_standalone_cli_in_process_local_executor(
     # 3. profile --json with sample CSV
     csv_file = tmp_path / "test_deals.csv"
     csv_file.write_text("deal_id,deal_name,amount\nD-1,Acquisition,500000\n", encoding="utf-8")
-    rc = app_main(["profile", "--source-csv", str(csv_file), "--source-system", "deals_crm", "--table-name", "deals", "--json"])
+    rc = app_main(
+        [
+            "profile",
+            "--source-csv",
+            str(csv_file),
+            "--source-system",
+            "deals_crm",
+            "--table-name",
+            "deals",
+            "--json",
+        ]
+    )
     assert rc == 0
     raw_out = capsys.readouterr().out.strip()
     parsed = json.loads(raw_out)
@@ -681,7 +747,18 @@ def test_standalone_cli_in_process_local_executor(
     assert parsed["column_count"] == 3
 
     # 4. sandbox --json
-    rc = app_main(["sandbox", "--contract", pe_contract, "--canonical-ir", pe_ir, "--query-type", "ADVERSARIAL_BATCHES_1_TO_4", "--json"])
+    rc = app_main(
+        [
+            "sandbox",
+            "--contract",
+            pe_contract,
+            "--canonical-ir",
+            pe_ir,
+            "--query-type",
+            "ADVERSARIAL_BATCHES_1_TO_4",
+            "--json",
+        ]
+    )
     assert rc == 0
     raw_out = capsys.readouterr().out.strip()
     parsed = json.loads(raw_out)
@@ -724,19 +801,44 @@ def test_presenter_formatting(capsys: pytest.CaptureFixture[str]) -> None:
     pe_graph_b = "examples/private_equity/pe_graph_b_profile.json"
 
     # --toon flag (explicit)
-    rc = app_main(["verify", "--contract", pe_contract, "--graph-a", pe_graph_a, "--graph-b", pe_graph_b, "--toon"])
+    rc = app_main(
+        [
+            "verify",
+            "--contract",
+            pe_contract,
+            "--graph-a",
+            pe_graph_a,
+            "--graph-b",
+            pe_graph_b,
+            "--toon",
+        ]
+    )
     assert rc == 0
     out = capsys.readouterr().out.strip()
     assert "@toon_v1" in out
 
     # Default output (default format is toon per cli-spec.json)
-    rc = app_main(["verify", "--contract", pe_contract, "--graph-a", pe_graph_a, "--graph-b", pe_graph_b])
+    rc = app_main(
+        ["verify", "--contract", pe_contract, "--graph-a", pe_graph_a, "--graph-b", pe_graph_b]
+    )
     assert rc == 0
     out = capsys.readouterr().out.strip()
     assert "@toon_v1" in out
 
     # Explicit --format text
-    rc = app_main(["verify", "--contract", pe_contract, "--graph-a", pe_graph_a, "--graph-b", pe_graph_b, "--format", "text"])
+    rc = app_main(
+        [
+            "verify",
+            "--contract",
+            pe_contract,
+            "--graph-a",
+            pe_graph_a,
+            "--graph-b",
+            pe_graph_b,
+            "--format",
+            "text",
+        ]
+    )
     assert rc == 0
     out = capsys.readouterr().out.strip()
     assert "[opendv verify]" in out
@@ -810,7 +912,9 @@ def test_subprocess_standalone_zero_dependency_isolation() -> None:
         "assert not loaded, f'Forbidden modules loaded in sys.modules: {loaded}'\n"
     )
     res = subprocess.run([sys.executable, "-c", probe_script], capture_output=True, text=True)
-    assert res.returncode == 0, f"Subprocess isolation failed:\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+    assert res.returncode == 0, (
+        f"Subprocess isolation failed:\nstdout:\n{res.stdout}\nstderr:\n{res.stderr}"
+    )
 
 
 def test_jcs_unsupported_types_raise_canonicalization_error() -> None:
@@ -888,14 +992,19 @@ def test_json_flag_precedence_over_toon(capsys: pytest.CaptureFixture[str]) -> N
     pe_graph_a = "examples/private_equity/pe_graph_a_ontology.yaml"
     pe_graph_b = "examples/private_equity/pe_graph_b_profile.json"
 
-    rc = app_main([
-        "verify",
-        "--contract", pe_contract,
-        "--graph-a", pe_graph_a,
-        "--graph-b", pe_graph_b,
-        "--json",
-        "--toon",
-    ])
+    rc = app_main(
+        [
+            "verify",
+            "--contract",
+            pe_contract,
+            "--graph-a",
+            pe_graph_a,
+            "--graph-b",
+            pe_graph_b,
+            "--json",
+            "--toon",
+        ]
+    )
     assert rc == 0
     raw = capsys.readouterr().out.strip()
     # Output must be pure RFC 8785 JSON, NOT toon
@@ -913,13 +1022,46 @@ def test_all_subcommands_subprocess_isolation() -> None:
     pe_ir = "examples/private_equity/pe_canonical_ir.json"
 
     commands_to_probe: list[tuple[list[str], int]] = [
-        (["verify", "--contract", pe_contract, "--graph-a", pe_graph_a, "--graph-b", pe_graph_b, "--json"], 0),
+        (
+            [
+                "verify",
+                "--contract",
+                pe_contract,
+                "--graph-a",
+                pe_graph_a,
+                "--graph-b",
+                pe_graph_b,
+                "--json",
+            ],
+            0,
+        ),
         (["compile", "--contract", pe_contract, "--canonical-ir", pe_ir, "--json"], 0),
         (["profile", "--graph-b", pe_graph_b, "--json"], 0),
-        (["sandbox", "--contract", pe_contract, "--canonical-ir", pe_ir, "--query-type", "ADVERSARIAL_BATCHES_1_TO_4", "--json"], 0),
+        (
+            [
+                "sandbox",
+                "--contract",
+                pe_contract,
+                "--canonical-ir",
+                pe_ir,
+                "--query-type",
+                "ADVERSARIAL_BATCHES_1_TO_4",
+                "--json",
+            ],
+            0,
+        ),
         (["run", "list", "--project-id", "proj-apex-horizon-pe", "--json"], 0),
         (["hold", "list", "--run-id", "run-pe-apex-horizon-20261030", "--json"], 2),
-        (["pipeline", "validate", "--input", "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml", "--json"], 0),
+        (
+            [
+                "pipeline",
+                "validate",
+                "--input",
+                "examples/pipeline_samples/global_commerce_vault/pipeline_input.yaml",
+                "--json",
+            ],
+            0,
+        ),
     ]
 
     for cmd_args, expected_rc in commands_to_probe:
@@ -933,7 +1075,9 @@ def test_all_subcommands_subprocess_isolation() -> None:
             "assert not loaded, f'Forbidden modules loaded in sys.modules: {loaded}'\n"
         )
         res = subprocess.run([sys.executable, "-c", probe_code], capture_output=True, text=True)
-        assert res.returncode == 0, f"Subprocess isolation failed for cmd {cmd_args[0]}:\nstderr: {res.stderr}"
+        assert res.returncode == 0, (
+            f"Subprocess isolation failed for cmd {cmd_args[0]}:\nstderr: {res.stderr}"
+        )
 
 
 def test_adversarial_subcommand_edge_cases(capsys: pytest.CaptureFixture[str]) -> None:

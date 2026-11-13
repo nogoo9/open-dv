@@ -392,7 +392,7 @@ def test_negative_and_failure_invariants(tmp_path: Path) -> None:
         isolated_registry.get_tabular_adapter("file")
     assert iso_exc.value.error_code == ErrorCode.UNSUPPORTED_FORMAT
 
-    # Check mapping to exit code 2 and HTTP 415
+    # Check mapping to exit code 2 and HTTP 400
     exit_code, http_status = get_error_mapping(iso_exc.value.error_code)
     assert exit_code == 2
-    assert http_status == 415
+    assert http_status == 400

@@ -34,6 +34,7 @@ def find_workspace_root(start_path: Path | None = None) -> Path:
     _ = start_path
     return REPO_ROOT
 
+
 _WORKSPACE_SRC_DIRS: tuple[Path, ...] = (
     REPO_ROOT / "packages" / "opendv-core" / "src",
     REPO_ROOT / "packages" / "opendv-telemetry" / "src",
@@ -221,8 +222,7 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         action="store",
         default="",
         help=(
-            "Mandatory justification with issue/PR number (>= 10 chars) "
-            "when using --update-golden."
+            "Mandatory justification with issue/PR number (>= 10 chars) when using --update-golden."
         ),
     )
 
@@ -235,4 +235,3 @@ def golden_manager(request: pytest.FixtureRequest) -> Any:
     golden_root = REPO_ROOT / "tests" / "golden"
     docs17_path = DOCS_DIR / "17-testing-scenarios-and-datasets.md"
     return GoldenManager(golden_root=golden_root, docs17_path=docs17_path, request=request)
-

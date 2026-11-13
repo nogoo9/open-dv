@@ -171,6 +171,59 @@ PERSONA_CAPABILITY_MATRIX: dict[AgentPersona, PersonaCapabilityProfile] = {
             PipelineStageId.STAGE_07_DETERMINISTIC_COMPILER,
         ),
     ),
+    AgentPersona.TERM_SCOUT: PersonaCapabilityProfile(
+        persona=AgentPersona.TERM_SCOUT,
+        default_model_tier=ModelTier.FAST_TIER,
+        sandbox_policy=SandboxPolicy(
+            read_only_workspace=True,
+            allow_shell_execution=False,
+        ),
+        authorized_tools=frozenset(
+            {
+                "profile_source_feed",
+                "extract_pdf_spans",
+                "emit_observability_event",
+            }
+        ),
+        allowed_subagents=(),
+        primary_stages=(),
+    ),
+    AgentPersona.DOMAIN_CLARIFIER: PersonaCapabilityProfile(
+        persona=AgentPersona.DOMAIN_CLARIFIER,
+        default_model_tier=ModelTier.HIGH_REASONING,
+        sandbox_policy=SandboxPolicy(
+            read_only_workspace=True,
+            allow_shell_execution=False,
+        ),
+        authorized_tools=frozenset(
+            {
+                "request_steward_decision",
+                "emit_observability_event",
+            }
+        ),
+        allowed_subagents=(),
+        primary_stages=(),
+    ),
+    AgentPersona.ONTOLOGY_ARCHITECT: PersonaCapabilityProfile(
+        persona=AgentPersona.ONTOLOGY_ARCHITECT,
+        default_model_tier=ModelTier.HIGH_REASONING,
+        sandbox_policy=SandboxPolicy(
+            read_only_workspace=True,
+            allow_shell_execution=False,
+        ),
+        authorized_tools=frozenset(
+            {
+                "run_axi_dv_gates",
+                "request_steward_decision",
+                "emit_observability_event",
+            }
+        ),
+        allowed_subagents=(
+            AgentPersona.TERM_SCOUT.value,
+            AgentPersona.DOMAIN_CLARIFIER.value,
+        ),
+        primary_stages=(),
+    ),
 }
 
 

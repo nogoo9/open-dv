@@ -9,32 +9,42 @@ from opendv_contracts.dtos.common import BaseContractModel
 
 
 class ErrorCode(StrEnum):
-    """Canonical error classification across CLI exit codes and HTTP status codes."""
+    """Canonical error classification across CLI exit codes and HTTP status codes.
 
-    # 0 Exit / 200 HTTP
+    Normative Exit Code Taxonomy (conforming to schemas/v1/error-codes.json):
+    - Exit 0: Success (HTTP 200, 201, 202)
+    - Exit 1: Capability & Subsystem Failure / Missing Rationale / Verification Rejection
+      (HTTP 200, 400, 500, 501, 503)
+    - Exit 2: Command Syntax, Precondition, Payload, or Frozen Wave-1 Legacy Contract Failure
+      (HTTP 400, 404, 413, 422, 500, 503)
+    - Exit 3: Resource Not Found (HTTP 404)
+    - Exit 4: Domain, Referential Integrity Violation & ONT-EVO Governance (HTTP 422)
+    - Exit 5: Optimistic Concurrency Control (OCC) Precondition Failure (HTTP 412)
+    - Exit 6: Lock & In-Progress State Conflict (HTTP 409)
+    - Exit 7: Authentication & RBAC Authorization Violation (HTTP 401, 403)
+
+    Historical Parity Note:
+    - The 18 pre-existing Wave-1 error codes (e.g. API_UNREACHABLE, PROVIDER_UNAVAILABLE,
+      RESOURCE_NOT_FOUND, INPUT_VALIDATION_ERROR) retain `exit_code=2` for frozen Wave-1 CLI
+      baseline compatibility per `schemas/cli-spec.json`, while Ontology Studio error codes
+      follow strict HTTP-status exit tiers (1/3/4/5/6/7).
+    - `UNSUPPORTED_FORMAT` maps normatively to `(2, 400, "urn:opendv:error:unsupported-format")`
+      per `docs/20-ontology-studio-spec.md` §3.1 and `schemas/cli-spec.json`.
+    - Forward Studio runtime capabilities (e.g. AGENT_UNAVAILABLE) map to `(1, 503)` and missing
+      host capabilities (`OCR_UNAVAILABLE`, `OFFICE_CONVERSION_UNAVAILABLE`) map to `(1, 501)`.
+    """
+
     OK = "OK"
-
-    # 1 Exit / 200 HTTP (Domain verification result)
     VERIFICATION_FAILED = "VERIFICATION_FAILED"
-
-    # 2 Exit / 400 Bad Request
     PATH_CONTAINMENT_ERROR = "PATH_CONTAINMENT_ERROR"
     INVALID_REQUEST = "INVALID_REQUEST"
-
-    # 2 Exit / 404 Not Found
     RESOURCE_NOT_FOUND = "RESOURCE_NOT_FOUND"
     RUN_NOT_FOUND = "RUN_NOT_FOUND"
     PROJECT_NOT_FOUND = "PROJECT_NOT_FOUND"
     HOLD_NOT_FOUND = "HOLD_NOT_FOUND"
     ARTIFACT_NOT_FOUND = "ARTIFACT_NOT_FOUND"
-
-    # 2 Exit / 413 Payload Too Large
     PAYLOAD_TOO_LARGE = "PAYLOAD_TOO_LARGE"
-
-    # 2 Exit / 415 Unsupported Media Type
     UNSUPPORTED_FORMAT = "UNSUPPORTED_FORMAT"
-
-    # 2 Exit / 422 Unprocessable Entity
     INPUT_VALIDATION_ERROR = "INPUT_VALIDATION_ERROR"
     SCHEMA_VALIDATION_ERROR = "SCHEMA_VALIDATION_ERROR"
     SOURCE_LOAD_ERROR = "SOURCE_LOAD_ERROR"
@@ -43,14 +53,144 @@ class ErrorCode(StrEnum):
     DETERMINISTIC_PROVIDER_REJECTED = "DETERMINISTIC_PROVIDER_REJECTED"
     CONTRACT_VERSION_MISMATCH = "CONTRACT_VERSION_MISMATCH"
     ONTOLOGY_RECOMMENDER_UNAVAILABLE = "ONTOLOGY_RECOMMENDER_UNAVAILABLE"
-
-    # 2 Exit / 500 Internal Error
     CAS_INTEGRITY_FAILURE = "CAS_INTEGRITY_FAILURE"
     INTERNAL_ERROR = "INTERNAL_ERROR"
-
-    # 2 Exit / 503 Service Unavailable
     API_UNREACHABLE = "API_UNREACHABLE"
     PROVIDER_UNAVAILABLE = "PROVIDER_UNAVAILABLE"
+    AGENT_UNAVAILABLE = "AGENT_UNAVAILABLE"
+    CONFLICTING_WORKSPACE_SEED_PARAMS = "CONFLICTING_WORKSPACE_SEED_PARAMS"
+    CORRUPT_SESSION_RECORD = "CORRUPT_SESSION_RECORD"
+    EXPORT_RATIONALE_REQUIRED = "EXPORT_RATIONALE_REQUIRED"
+    HISTORICAL_CONTRACT_RATIONALE_REQUIRED = "HISTORICAL_CONTRACT_RATIONALE_REQUIRED"
+    IMPORT_GROUNDING_RATIONALE_REQUIRED = "IMPORT_GROUNDING_RATIONALE_REQUIRED"
+    INSECURE_STUDIO_ROOT_PERMISSIONS = "INSECURE_STUDIO_ROOT_PERMISSIONS"
+    JOB_ABANDONED_SERVER_CRASH = "JOB_ABANDONED_SERVER_CRASH"
+    MATCHER_UNIDATA_VERSION_MISMATCH = "MATCHER_UNIDATA_VERSION_MISMATCH"
+    NO_OP_DELTA = "NO_OP_DELTA"
+    OCR_UNAVAILABLE = "OCR_UNAVAILABLE"
+    OFFICE_CONVERSION_UNAVAILABLE = "OFFICE_CONVERSION_UNAVAILABLE"
+    PROMOTION_RATIONALE_REQUIRED = "PROMOTION_RATIONALE_REQUIRED"
+    REFERENCE_PACK_INTEGRITY_FAILURE = "REFERENCE_PACK_INTEGRITY_FAILURE"
+    VERSION_COMMIT_IO_FAILURE = "VERSION_COMMIT_IO_FAILURE"
+    INVALID_EVIDENCE_OFFSETS = "INVALID_EVIDENCE_OFFSETS"
+    INVALID_PRECONDITION_HEADER = "INVALID_PRECONDITION_HEADER"
+    INVALID_SESSION_IDENTIFIER = "INVALID_SESSION_IDENTIFIER"
+    INVALID_WORKSPACE_PATH = "INVALID_WORKSPACE_PATH"
+    MISSING_AUTO_COMMIT_PRECONDITION = "MISSING_AUTO_COMMIT_PRECONDITION"
+    MISSING_PRECONDITION_HEADER = "MISSING_PRECONDITION_HEADER"
+    PRECONDITION_BASE_SHA_MISMATCH = "PRECONDITION_BASE_SHA_MISMATCH"
+    REMOTE_SERVER_PATH_FORBIDDEN = "REMOTE_SERVER_PATH_FORBIDDEN"
+    SYNTAX_INVALID_ARGUMENT = "SYNTAX_INVALID_ARGUMENT"
+    VALIDATION_AMBIGUOUS_TARGET = "VALIDATION_AMBIGUOUS_TARGET"
+    JOB_NOT_FOUND = "JOB_NOT_FOUND"
+    PROPOSAL_NOT_FOUND = "PROPOSAL_NOT_FOUND"
+    SESSION_NOT_FOUND = "SESSION_NOT_FOUND"
+    SOURCE_NOT_FOUND = "SOURCE_NOT_FOUND"
+    VERSION_NOT_FOUND = "VERSION_NOT_FOUND"
+    AGENT_UNRESOLVED_PSEUDONYM = "AGENT_UNRESOLVED_PSEUDONYM"
+    AMBIGUOUS_EXTERNAL_MAPPING = "AMBIGUOUS_EXTERNAL_MAPPING"
+    ARCHIVE_SECURITY_VIOLATION = "ARCHIVE_SECURITY_VIOLATION"
+    ATTRIBUTE_NOT_FOUND = "ATTRIBUTE_NOT_FOUND"
+    AUTOMATED_ATTRIBUTION_INVALID = "AUTOMATED_ATTRIBUTION_INVALID"
+    CANNOT_DELETE_PROMOTED_SESSION = "CANNOT_DELETE_PROMOTED_SESSION"
+    CANNOT_PRUNE_PROMOTED_SESSION = "CANNOT_PRUNE_PROMOTED_SESSION"
+    CONCEPT_STILL_REFERENCED = "CONCEPT_STILL_REFERENCED"
+    CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED = "CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED"
+    DANGLING_ENUM_CODE_DESCRIPTION = "DANGLING_ENUM_CODE_DESCRIPTION"
+    DESCRIPTION_ALREADY_EXISTS = "DESCRIPTION_ALREADY_EXISTS"
+    DUPLICATE_ATTRIBUTE_NAME = "DUPLICATE_ATTRIBUTE_NAME"
+    DUPLICATE_ENUM_CODE = "DUPLICATE_ENUM_CODE"
+    DUPLICATE_RELATIONSHIP_NAME = "DUPLICATE_RELATIONSHIP_NAME"
+    DUPLICATE_RELATIONSHIP_URI = "DUPLICATE_RELATIONSHIP_URI"
+    DUPLICATE_SYNONYM = "DUPLICATE_SYNONYM"
+    ENUM_CODE_NOT_FOUND = "ENUM_CODE_NOT_FOUND"
+    EVIDENCE_OFFSET_OUT_OF_RANGE = "EVIDENCE_OFFSET_OUT_OF_RANGE"
+    GENESIS_REQUIRES_CONCEPT = "GENESIS_REQUIRES_CONCEPT"
+    HIERARCHICAL_CYCLE_DETECTED = "HIERARCHICAL_CYCLE_DETECTED"
+    HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED = "HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED"
+    HUB_BIJECTION_VIOLATION = "HUB_BIJECTION_VIOLATION"
+    IMPORT_ADMIN_OP_FORBIDDEN = "IMPORT_ADMIN_OP_FORBIDDEN"
+    IMPORT_AGENT_DESTRUCTIVE_OP_FORBIDDEN = "IMPORT_AGENT_DESTRUCTIVE_OP_FORBIDDEN"
+    IMPORT_AUTOMATED_ATTRIBUTION_INVALID = "IMPORT_AUTOMATED_ATTRIBUTION_INVALID"
+    IMPORT_CONFIDENCE_MISMATCH = "IMPORT_CONFIDENCE_MISMATCH"
+    IMPORT_DELTA_REPLAY_HASH_MISMATCH = "IMPORT_DELTA_REPLAY_HASH_MISMATCH"
+    IMPORT_ENVELOPE_VIOLATION = "IMPORT_ENVELOPE_VIOLATION"
+    IMPORT_GROUNDING_VIOLATION = "IMPORT_GROUNDING_VIOLATION"
+    IMPORT_LINEAGE_BROKEN = "IMPORT_LINEAGE_BROKEN"
+    IMPORT_MATCHER_VERSION_MISMATCH = "IMPORT_MATCHER_VERSION_MISMATCH"
+    IMPORT_PROVISIONAL_URI_FORBIDDEN = "IMPORT_PROVISIONAL_URI_FORBIDDEN"
+    IMPORT_SELF_ACCEPTANCE_UNACKNOWLEDGED = "IMPORT_SELF_ACCEPTANCE_UNACKNOWLEDGED"
+    IMPORT_SEMVER_BUMP_MISMATCH = "IMPORT_SEMVER_BUMP_MISMATCH"
+    IMPORT_UNKNOWN_REFERENCE_PACK = "IMPORT_UNKNOWN_REFERENCE_PACK"
+    INVALID_EVIDENCE_GROUNDING = "INVALID_EVIDENCE_GROUNDING"
+    INVALID_GROUNDING_WAIVER = "INVALID_GROUNDING_WAIVER"
+    INVALID_PHYSICAL_TABLE_NAME = "INVALID_PHYSICAL_TABLE_NAME"
+    INVALID_PROPOSAL_STATE = "INVALID_PROPOSAL_STATE"
+    INVALID_WORKSPACE_ONTOLOGY = "INVALID_WORKSPACE_ONTOLOGY"
+    MAPPING_NOT_FOUND = "MAPPING_NOT_FOUND"
+    ONTOLOGY_REQUIRES_CONCEPT = "ONTOLOGY_REQUIRES_CONCEPT"
+    ONT_EVO_CONTRACT_VIOLATION = "ONT_EVO_CONTRACT_VIOLATION"
+    ONT_EVO_ENVELOPE_VIOLATION = "ONT_EVO_ENVELOPE_VIOLATION"
+    ONT_EVO_FORGED_PROVENANCE = "ONT_EVO_FORGED_PROVENANCE"
+    ONT_EVO_GROUNDING_VIOLATION = "ONT_EVO_GROUNDING_VIOLATION"
+    ONT_EVO_LOW_CONFIDENCE_GROUNDING = "ONT_EVO_LOW_CONFIDENCE_GROUNDING"
+    ONT_EVO_PSEUDONYM_LEAK = "ONT_EVO_PSEUDONYM_LEAK"
+    ONT_EVO_UNGROUNDED_CONCEPT = "ONT_EVO_UNGROUNDED_CONCEPT"
+    PARENT_ALREADY_EXISTS = "PARENT_ALREADY_EXISTS"
+    PARENT_NOT_FOUND = "PARENT_NOT_FOUND"
+    PHYSICAL_TABLE_NAME_COLLISION = "PHYSICAL_TABLE_NAME_COLLISION"
+    REDACTED_PLACEHOLDER_LEAK = "REDACTED_PLACEHOLDER_LEAK"
+    REFERENCED_CONCEPT_NOT_FOUND = "REFERENCED_CONCEPT_NOT_FOUND"
+    RELATIONSHIP_NOT_FOUND = "RELATIONSHIP_NOT_FOUND"
+    SOURCE_REFERENCED_BY_COMMITTED_VERSION = "SOURCE_REFERENCED_BY_COMMITTED_VERSION"
+    SOURCE_REFERENCED_BY_PENDING_PROPOSAL = "SOURCE_REFERENCED_BY_PENDING_PROPOSAL"
+    UNDEFINED_PHYSICAL_TABLE_MAPPING = "UNDEFINED_PHYSICAL_TABLE_MAPPING"
+    UNKNOWN_REFERENCE_PACK = "UNKNOWN_REFERENCE_PACK"
+    VERSION_CONSISTENCY_MISMATCH = "VERSION_CONSISTENCY_MISMATCH"
+    LINEAGE_ROOT_MISMATCH = "LINEAGE_ROOT_MISMATCH"
+    ONT_EVO_CONCURRENT_MODIFICATION = "ONT_EVO_CONCURRENT_MODIFICATION"
+    JOB_COMMIT_IN_PROGRESS = "JOB_COMMIT_IN_PROGRESS"
+    LOCK_TIMEOUT = "LOCK_TIMEOUT"
+    PRINCIPAL_ALREADY_EXISTS = "PRINCIPAL_ALREADY_EXISTS"
+    PRINCIPAL_RESERVED = "PRINCIPAL_RESERVED"
+    PROPOSAL_ALREADY_RESOLVED = "PROPOSAL_ALREADY_RESOLVED"
+    STUDIO_ALREADY_INITIALIZED = "STUDIO_ALREADY_INITIALIZED"
+    AGENT_ADMIN_OP_FORBIDDEN = "AGENT_ADMIN_OP_FORBIDDEN"
+    AGENT_DESTRUCTIVE_OP_FORBIDDEN = "AGENT_DESTRUCTIVE_OP_FORBIDDEN"
+    AGENT_METADATA_OVERWRITE_FORBIDDEN = "AGENT_METADATA_OVERWRITE_FORBIDDEN"
+    AGENT_OPERATION_FORBIDDEN = "AGENT_OPERATION_FORBIDDEN"
+    AGENT_PROPOSAL_ACCEPT_FORBIDDEN = "AGENT_PROPOSAL_ACCEPT_FORBIDDEN"
+    CSRF_ORIGIN_MISMATCH = "CSRF_ORIGIN_MISMATCH"
+    FORBIDDEN_ADMIN_REQUIRED = "FORBIDDEN_ADMIN_REQUIRED"
+    LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE = "LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE"
+    PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN = "PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN"
+    SERVER_OPERATION_FORBIDDEN = "SERVER_OPERATION_FORBIDDEN"
+    UNAUTHENTICATED = "UNAUTHENTICATED"
+    SESSION_ALREADY_EXISTS = "SESSION_ALREADY_EXISTS"
+    CORRUPT_SOURCE_BLOB = "CORRUPT_SOURCE_BLOB"
+    LAUNCH_NONCE_EXPIRED = "LAUNCH_NONCE_EXPIRED"
+    AUTHENTICATION_CONFIG_ERROR = "AUTHENTICATION_CONFIG_ERROR"
+    EXECUTION_FAILURE = "EXECUTION_FAILURE"
+    JOB_ALREADY_TERMINAL = "JOB_ALREADY_TERMINAL"
+    STATIC_TOKEN_CONFIGURED = "STATIC_TOKEN_CONFIGURED"
+    FILE_NOT_FOUND = "FILE_NOT_FOUND"
+    INSECURE_TRANSPORT_REFUSED = "INSECURE_TRANSPORT_REFUSED"
+    CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN = "CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN"
+    REFERENCE_ONTOLOGY_CORRUPT = "REFERENCE_ONTOLOGY_CORRUPT"
+    UNGROUNDED_SEED_MAPPING = "UNGROUNDED_SEED_MAPPING"
+    TAXONOMY_CYCLE_DETECTED = "TAXONOMY_CYCLE_DETECTED"
+    QUESTION_NOT_FOUND = "QUESTION_NOT_FOUND"
+    TAMPER_EVIDENT_CHAIN_CORRUPT = "TAMPER_EVIDENT_CHAIN_CORRUPT"
+    CSRF_ORIGIN_DENIED = "CSRF_ORIGIN_DENIED"
+    TOKEN_EXPIRED = "TOKEN_EXPIRED"
+    JOB_CANNOT_BE_CANCELLED = "JOB_CANNOT_BE_CANCELLED"
+    CORRUPT_SESSION_STATE = "CORRUPT_SESSION_STATE"
+    CONCURRENCY_CONFLICT = "CONCURRENCY_CONFLICT"
+    LOW_CONFIDENCE_GROUNDING = "LOW_CONFIDENCE_GROUNDING"
+    PROPOSAL_STALE_REBASE_REQUIRED = "PROPOSAL_STALE_REBASE_REQUIRED"
+    INTERNAL_CLONE_ERROR = "INTERNAL_CLONE_ERROR"
+    AGENT_LAUNCH_NONCE_FORBIDDEN = "AGENT_LAUNCH_NONCE_FORBIDDEN"
+    HARNESS_CONFIG_INVALID = "HARNESS_CONFIG_INVALID"
 
 
 class ErrorDetail(BaseContractModel):
@@ -164,9 +304,9 @@ ERROR_MAPPINGS: dict[ErrorCode, ErrorMappingEntry] = {
     ErrorCode.UNSUPPORTED_FORMAT: ErrorMappingEntry(
         error_code=ErrorCode.UNSUPPORTED_FORMAT,
         exit_code=2,
-        http_status=415,
+        http_status=400,
         problem_title="Unsupported Format",
-        problem_type_uri="urn:opendv:unsupported-format",
+        problem_type_uri="urn:opendv:error:unsupported-format",
     ),
     ErrorCode.INPUT_VALIDATION_ERROR: ErrorMappingEntry(
         error_code=ErrorCode.INPUT_VALIDATION_ERROR,
@@ -252,9 +392,949 @@ ERROR_MAPPINGS: dict[ErrorCode, ErrorMappingEntry] = {
         problem_title="Harness Provider Unavailable",
         problem_type_uri="urn:opendv:provider-unavailable",
     ),
+    ErrorCode.AGENT_UNAVAILABLE: ErrorMappingEntry(
+        error_code=ErrorCode.AGENT_UNAVAILABLE,
+        exit_code=1,
+        http_status=503,
+        problem_title="LLM Agent Service Unavailable",
+        problem_type_uri="urn:opendv:error:agent-unavailable",
+    ),
+    ErrorCode.CONFLICTING_WORKSPACE_SEED_PARAMS: ErrorMappingEntry(
+        error_code=ErrorCode.CONFLICTING_WORKSPACE_SEED_PARAMS,
+        exit_code=1,
+        http_status=400,
+        problem_title="Conflicting Workspace Seed Parameters",
+        problem_type_uri="urn:opendv:error:conflicting-workspace-seed-params",
+    ),
+    ErrorCode.CORRUPT_SESSION_RECORD: ErrorMappingEntry(
+        error_code=ErrorCode.CORRUPT_SESSION_RECORD,
+        exit_code=1,
+        http_status=500,
+        problem_title="Corrupt Session Record",
+        problem_type_uri="urn:opendv:error:corrupt-session-record",
+    ),
+    ErrorCode.EXPORT_RATIONALE_REQUIRED: ErrorMappingEntry(
+        error_code=ErrorCode.EXPORT_RATIONALE_REQUIRED,
+        exit_code=1,
+        http_status=400,
+        problem_title="Export Rationale Required",
+        problem_type_uri="urn:opendv:error:export-rationale-required",
+    ),
+    ErrorCode.HISTORICAL_CONTRACT_RATIONALE_REQUIRED: ErrorMappingEntry(
+        error_code=ErrorCode.HISTORICAL_CONTRACT_RATIONALE_REQUIRED,
+        exit_code=1,
+        http_status=400,
+        problem_title="Historical Contract Rationale Required",
+        problem_type_uri="urn:opendv:error:historical-contract-rationale-required",
+    ),
+    ErrorCode.IMPORT_GROUNDING_RATIONALE_REQUIRED: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_GROUNDING_RATIONALE_REQUIRED,
+        exit_code=1,
+        http_status=400,
+        problem_title="Import Grounding Rationale Required",
+        problem_type_uri="urn:opendv:error:import-grounding-rationale-required",
+    ),
+    ErrorCode.INSECURE_STUDIO_ROOT_PERMISSIONS: ErrorMappingEntry(
+        error_code=ErrorCode.INSECURE_STUDIO_ROOT_PERMISSIONS,
+        exit_code=1,
+        http_status=500,
+        problem_title="Insecure Studio Root Permissions",
+        problem_type_uri="urn:opendv:error:insecure-studio-root-permissions",
+    ),
+    ErrorCode.JOB_ABANDONED_SERVER_CRASH: ErrorMappingEntry(
+        error_code=ErrorCode.JOB_ABANDONED_SERVER_CRASH,
+        exit_code=1,
+        http_status=500,
+        problem_title="Background Job Abandoned Due to Server Crash",
+        problem_type_uri="urn:opendv:error:job-abandoned-server-crash",
+    ),
+    ErrorCode.MATCHER_UNIDATA_VERSION_MISMATCH: ErrorMappingEntry(
+        error_code=ErrorCode.MATCHER_UNIDATA_VERSION_MISMATCH,
+        exit_code=1,
+        http_status=500,
+        problem_title="Matcher Unicode Character Tables Version Mismatch",
+        problem_type_uri="urn:opendv:error:matcher-unidata-version-mismatch",
+    ),
+    ErrorCode.NO_OP_DELTA: ErrorMappingEntry(
+        error_code=ErrorCode.NO_OP_DELTA,
+        exit_code=1,
+        http_status=400,
+        problem_title="No-Op Delta",
+        problem_type_uri="urn:opendv:error:no-op-delta",
+    ),
+    ErrorCode.OCR_UNAVAILABLE: ErrorMappingEntry(
+        error_code=ErrorCode.OCR_UNAVAILABLE,
+        exit_code=1,
+        http_status=501,
+        problem_title="OCR Engine Unavailable",
+        problem_type_uri="urn:opendv:error:ocr-unavailable",
+    ),
+    ErrorCode.OFFICE_CONVERSION_UNAVAILABLE: ErrorMappingEntry(
+        error_code=ErrorCode.OFFICE_CONVERSION_UNAVAILABLE,
+        exit_code=1,
+        http_status=501,
+        problem_title="Office Document Conversion Unavailable",
+        problem_type_uri="urn:opendv:error:office-conversion-unavailable",
+    ),
+    ErrorCode.PROMOTION_RATIONALE_REQUIRED: ErrorMappingEntry(
+        error_code=ErrorCode.PROMOTION_RATIONALE_REQUIRED,
+        exit_code=1,
+        http_status=400,
+        problem_title="Promotion Rationale Required",
+        problem_type_uri="urn:opendv:error:promotion-rationale-required",
+    ),
+    ErrorCode.REFERENCE_PACK_INTEGRITY_FAILURE: ErrorMappingEntry(
+        error_code=ErrorCode.REFERENCE_PACK_INTEGRITY_FAILURE,
+        exit_code=1,
+        http_status=500,
+        problem_title="Reference Pack Integrity Failure",
+        problem_type_uri="urn:opendv:error:reference-pack-integrity-failure",
+    ),
+    ErrorCode.VERSION_COMMIT_IO_FAILURE: ErrorMappingEntry(
+        error_code=ErrorCode.VERSION_COMMIT_IO_FAILURE,
+        exit_code=1,
+        http_status=500,
+        problem_title="Version Commit IO Failure",
+        problem_type_uri="urn:opendv:error:version-commit-io-failure",
+    ),
+    ErrorCode.INVALID_EVIDENCE_OFFSETS: ErrorMappingEntry(
+        error_code=ErrorCode.INVALID_EVIDENCE_OFFSETS,
+        exit_code=2,
+        http_status=400,
+        problem_title="Invalid Evidence Offsets",
+        problem_type_uri="urn:opendv:error:invalid-evidence-offsets",
+    ),
+    ErrorCode.INVALID_PRECONDITION_HEADER: ErrorMappingEntry(
+        error_code=ErrorCode.INVALID_PRECONDITION_HEADER,
+        exit_code=2,
+        http_status=400,
+        problem_title="Invalid Precondition Header",
+        problem_type_uri="urn:opendv:error:invalid-precondition-header",
+    ),
+    ErrorCode.INVALID_SESSION_IDENTIFIER: ErrorMappingEntry(
+        error_code=ErrorCode.INVALID_SESSION_IDENTIFIER,
+        exit_code=2,
+        http_status=400,
+        problem_title="Invalid Session Identifier",
+        problem_type_uri="urn:opendv:error:invalid-session-identifier",
+    ),
+    ErrorCode.INVALID_WORKSPACE_PATH: ErrorMappingEntry(
+        error_code=ErrorCode.INVALID_WORKSPACE_PATH,
+        exit_code=2,
+        http_status=400,
+        problem_title="Invalid Workspace Path",
+        problem_type_uri="urn:opendv:error:invalid-workspace-path",
+    ),
+    ErrorCode.MISSING_AUTO_COMMIT_PRECONDITION: ErrorMappingEntry(
+        error_code=ErrorCode.MISSING_AUTO_COMMIT_PRECONDITION,
+        exit_code=2,
+        http_status=400,
+        problem_title="Missing Auto-Commit Precondition",
+        problem_type_uri="urn:opendv:error:missing-auto-commit-precondition",
+    ),
+    ErrorCode.MISSING_PRECONDITION_HEADER: ErrorMappingEntry(
+        error_code=ErrorCode.MISSING_PRECONDITION_HEADER,
+        exit_code=2,
+        http_status=400,
+        problem_title="Missing Precondition Header",
+        problem_type_uri="urn:opendv:error:missing-precondition-header",
+    ),
+    ErrorCode.PRECONDITION_BASE_SHA_MISMATCH: ErrorMappingEntry(
+        error_code=ErrorCode.PRECONDITION_BASE_SHA_MISMATCH,
+        exit_code=2,
+        http_status=400,
+        problem_title="Precondition Base SHA Mismatch",
+        problem_type_uri="urn:opendv:error:precondition-base-sha-mismatch",
+    ),
+    ErrorCode.REMOTE_SERVER_PATH_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.REMOTE_SERVER_PATH_FORBIDDEN,
+        exit_code=2,
+        http_status=400,
+        problem_title="Remote Server Path Forbidden",
+        problem_type_uri="urn:opendv:error:remote-server-path-forbidden",
+    ),
+    ErrorCode.SYNTAX_INVALID_ARGUMENT: ErrorMappingEntry(
+        error_code=ErrorCode.SYNTAX_INVALID_ARGUMENT,
+        exit_code=2,
+        http_status=400,
+        problem_title="Invalid Argument Syntax",
+        problem_type_uri="urn:opendv:error:syntax-invalid-argument",
+    ),
+    ErrorCode.VALIDATION_AMBIGUOUS_TARGET: ErrorMappingEntry(
+        error_code=ErrorCode.VALIDATION_AMBIGUOUS_TARGET,
+        exit_code=2,
+        http_status=400,
+        problem_title="Ambiguous Target Specifier",
+        problem_type_uri="urn:opendv:error:validation-ambiguous-target",
+    ),
+    ErrorCode.JOB_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.JOB_NOT_FOUND,
+        exit_code=3,
+        http_status=404,
+        problem_title="Job Not Found",
+        problem_type_uri="urn:opendv:error:job-not-found",
+    ),
+    ErrorCode.PROPOSAL_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.PROPOSAL_NOT_FOUND,
+        exit_code=3,
+        http_status=404,
+        problem_title="Proposal Not Found",
+        problem_type_uri="urn:opendv:error:proposal-not-found",
+    ),
+    ErrorCode.SESSION_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.SESSION_NOT_FOUND,
+        exit_code=3,
+        http_status=404,
+        problem_title="Session Not Found",
+        problem_type_uri="urn:opendv:error:session-not-found",
+    ),
+    ErrorCode.SOURCE_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.SOURCE_NOT_FOUND,
+        exit_code=3,
+        http_status=404,
+        problem_title="Source Document Not Found",
+        problem_type_uri="urn:opendv:error:source-not-found",
+    ),
+    ErrorCode.VERSION_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.VERSION_NOT_FOUND,
+        exit_code=3,
+        http_status=404,
+        problem_title="Version Not Found",
+        problem_type_uri="urn:opendv:error:version-not-found",
+    ),
+    ErrorCode.AGENT_UNRESOLVED_PSEUDONYM: ErrorMappingEntry(
+        error_code=ErrorCode.AGENT_UNRESOLVED_PSEUDONYM,
+        exit_code=4,
+        http_status=422,
+        problem_title="Agent Unresolved Pseudonym",
+        problem_type_uri="urn:opendv:error:agent-unresolved-pseudonym",
+    ),
+    ErrorCode.AMBIGUOUS_EXTERNAL_MAPPING: ErrorMappingEntry(
+        error_code=ErrorCode.AMBIGUOUS_EXTERNAL_MAPPING,
+        exit_code=4,
+        http_status=422,
+        problem_title="Ambiguous External Mapping",
+        problem_type_uri="urn:opendv:error:ambiguous-external-mapping",
+    ),
+    ErrorCode.ARCHIVE_SECURITY_VIOLATION: ErrorMappingEntry(
+        error_code=ErrorCode.ARCHIVE_SECURITY_VIOLATION,
+        exit_code=4,
+        http_status=422,
+        problem_title="Archive Security Violation",
+        problem_type_uri="urn:opendv:error:archive-security-violation",
+    ),
+    ErrorCode.ATTRIBUTE_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.ATTRIBUTE_NOT_FOUND,
+        exit_code=4,
+        http_status=422,
+        problem_title="Attribute Not Found",
+        problem_type_uri="urn:opendv:error:attribute-not-found",
+    ),
+    ErrorCode.AUTOMATED_ATTRIBUTION_INVALID: ErrorMappingEntry(
+        error_code=ErrorCode.AUTOMATED_ATTRIBUTION_INVALID,
+        exit_code=4,
+        http_status=422,
+        problem_title="Invalid Automated Attribution",
+        problem_type_uri="urn:opendv:error:automated-attribution-invalid",
+    ),
+    ErrorCode.CANNOT_DELETE_PROMOTED_SESSION: ErrorMappingEntry(
+        error_code=ErrorCode.CANNOT_DELETE_PROMOTED_SESSION,
+        exit_code=6,
+        http_status=409,
+        problem_title="Cannot Delete Promoted Session",
+        problem_type_uri="urn:opendv:error:cannot-delete-promoted-session",
+    ),
+    ErrorCode.CANNOT_PRUNE_PROMOTED_SESSION: ErrorMappingEntry(
+        error_code=ErrorCode.CANNOT_PRUNE_PROMOTED_SESSION,
+        exit_code=4,
+        http_status=422,
+        problem_title="Cannot Prune Promoted Session",
+        problem_type_uri="urn:opendv:error:cannot-prune-promoted-session",
+    ),
+    ErrorCode.CONCEPT_STILL_REFERENCED: ErrorMappingEntry(
+        error_code=ErrorCode.CONCEPT_STILL_REFERENCED,
+        exit_code=4,
+        http_status=422,
+        problem_title="Concept Still Referenced",
+        problem_type_uri="urn:opendv:error:concept-still-referenced",
+    ),
+    ErrorCode.CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED: ErrorMappingEntry(
+        error_code=ErrorCode.CONFIDENTIAL_SOURCE_EXPORT_UNACKNOWLEDGED,
+        exit_code=4,
+        http_status=422,
+        problem_title="Confidential Source Export Unacknowledged",
+        problem_type_uri="urn:opendv:error:confidential-source-export-unacknowledged",
+    ),
+    ErrorCode.DANGLING_ENUM_CODE_DESCRIPTION: ErrorMappingEntry(
+        error_code=ErrorCode.DANGLING_ENUM_CODE_DESCRIPTION,
+        exit_code=4,
+        http_status=422,
+        problem_title="Dangling Enumeration Code Description",
+        problem_type_uri="urn:opendv:error:dangling-enum-code-description",
+    ),
+    ErrorCode.DESCRIPTION_ALREADY_EXISTS: ErrorMappingEntry(
+        error_code=ErrorCode.DESCRIPTION_ALREADY_EXISTS,
+        exit_code=4,
+        http_status=422,
+        problem_title="Description Already Exists",
+        problem_type_uri="urn:opendv:error:description-already-exists",
+    ),
+    ErrorCode.DUPLICATE_ATTRIBUTE_NAME: ErrorMappingEntry(
+        error_code=ErrorCode.DUPLICATE_ATTRIBUTE_NAME,
+        exit_code=4,
+        http_status=422,
+        problem_title="Duplicate Attribute Name",
+        problem_type_uri="urn:opendv:error:duplicate-attribute-name",
+    ),
+    ErrorCode.DUPLICATE_ENUM_CODE: ErrorMappingEntry(
+        error_code=ErrorCode.DUPLICATE_ENUM_CODE,
+        exit_code=4,
+        http_status=422,
+        problem_title="Duplicate Enumeration Code",
+        problem_type_uri="urn:opendv:error:duplicate-enum-code",
+    ),
+    ErrorCode.DUPLICATE_RELATIONSHIP_NAME: ErrorMappingEntry(
+        error_code=ErrorCode.DUPLICATE_RELATIONSHIP_NAME,
+        exit_code=4,
+        http_status=422,
+        problem_title="Duplicate Relationship Name",
+        problem_type_uri="urn:opendv:error:duplicate-relationship-name",
+    ),
+    ErrorCode.DUPLICATE_RELATIONSHIP_URI: ErrorMappingEntry(
+        error_code=ErrorCode.DUPLICATE_RELATIONSHIP_URI,
+        exit_code=4,
+        http_status=422,
+        problem_title="Duplicate Relationship URI",
+        problem_type_uri="urn:opendv:error:duplicate-relationship-uri",
+    ),
+    ErrorCode.DUPLICATE_SYNONYM: ErrorMappingEntry(
+        error_code=ErrorCode.DUPLICATE_SYNONYM,
+        exit_code=4,
+        http_status=422,
+        problem_title="Duplicate Synonym",
+        problem_type_uri="urn:opendv:error:duplicate-synonym",
+    ),
+    ErrorCode.ENUM_CODE_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.ENUM_CODE_NOT_FOUND,
+        exit_code=4,
+        http_status=422,
+        problem_title="Enumeration Code Not Found",
+        problem_type_uri="urn:opendv:error:enum-code-not-found",
+    ),
+    ErrorCode.EVIDENCE_OFFSET_OUT_OF_RANGE: ErrorMappingEntry(
+        error_code=ErrorCode.EVIDENCE_OFFSET_OUT_OF_RANGE,
+        exit_code=4,
+        http_status=422,
+        problem_title="Evidence Offset Out of Range",
+        problem_type_uri="urn:opendv:error:evidence-offset-out-of-range",
+    ),
+    ErrorCode.GENESIS_REQUIRES_CONCEPT: ErrorMappingEntry(
+        error_code=ErrorCode.GENESIS_REQUIRES_CONCEPT,
+        exit_code=4,
+        http_status=422,
+        problem_title="Genesis Version Requires Concept",
+        problem_type_uri="urn:opendv:error:genesis-requires-concept",
+    ),
+    ErrorCode.HIERARCHICAL_CYCLE_DETECTED: ErrorMappingEntry(
+        error_code=ErrorCode.HIERARCHICAL_CYCLE_DETECTED,
+        exit_code=4,
+        http_status=422,
+        problem_title="Hierarchical Cycle Detected",
+        problem_type_uri="urn:opendv:error:hierarchical-cycle-detected",
+    ),
+    ErrorCode.HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED: ErrorMappingEntry(
+        error_code=ErrorCode.HISTORICAL_CONTRACT_WARNING_UNACKNOWLEDGED,
+        exit_code=4,
+        http_status=422,
+        problem_title="Historical Contract Warning Unacknowledged",
+        problem_type_uri="urn:opendv:error:historical-contract-warning-unacknowledged",
+    ),
+    ErrorCode.HUB_BIJECTION_VIOLATION: ErrorMappingEntry(
+        error_code=ErrorCode.HUB_BIJECTION_VIOLATION,
+        exit_code=4,
+        http_status=422,
+        problem_title="Hub Bijection Violation",
+        problem_type_uri="urn:opendv:error:hub-bijection-violation",
+    ),
+    ErrorCode.IMPORT_ADMIN_OP_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_ADMIN_OP_FORBIDDEN,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Admin Operation Forbidden",
+        problem_type_uri="urn:opendv:error:import-admin-op-forbidden",
+    ),
+    ErrorCode.IMPORT_AGENT_DESTRUCTIVE_OP_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_AGENT_DESTRUCTIVE_OP_FORBIDDEN,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Agent Destructive Operation Forbidden",
+        problem_type_uri="urn:opendv:error:import-agent-destructive-op-forbidden",
+    ),
+    ErrorCode.IMPORT_AUTOMATED_ATTRIBUTION_INVALID: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_AUTOMATED_ATTRIBUTION_INVALID,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Invalid Automated Attribution",
+        problem_type_uri="urn:opendv:error:import-automated-attribution-invalid",
+    ),
+    ErrorCode.IMPORT_CONFIDENCE_MISMATCH: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_CONFIDENCE_MISMATCH,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Confidence Mismatch",
+        problem_type_uri="urn:opendv:error:import-confidence-mismatch",
+    ),
+    ErrorCode.IMPORT_DELTA_REPLAY_HASH_MISMATCH: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_DELTA_REPLAY_HASH_MISMATCH,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Delta Replay Hash Mismatch",
+        problem_type_uri="urn:opendv:error:import-delta-replay-hash-mismatch",
+    ),
+    ErrorCode.IMPORT_ENVELOPE_VIOLATION: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_ENVELOPE_VIOLATION,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Envelope Violation",
+        problem_type_uri="urn:opendv:error:import-envelope-violation",
+    ),
+    ErrorCode.IMPORT_GROUNDING_VIOLATION: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_GROUNDING_VIOLATION,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Grounding Violation",
+        problem_type_uri="urn:opendv:error:import-grounding-violation",
+    ),
+    ErrorCode.IMPORT_LINEAGE_BROKEN: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_LINEAGE_BROKEN,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Lineage Broken",
+        problem_type_uri="urn:opendv:error:import-lineage-broken",
+    ),
+    ErrorCode.IMPORT_MATCHER_VERSION_MISMATCH: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_MATCHER_VERSION_MISMATCH,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Matcher Version Mismatch",
+        problem_type_uri="urn:opendv:error:import-matcher-version-mismatch",
+    ),
+    ErrorCode.IMPORT_PROVISIONAL_URI_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_PROVISIONAL_URI_FORBIDDEN,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Provisional URI Forbidden",
+        problem_type_uri="urn:opendv:error:import-provisional-uri-forbidden",
+    ),
+    ErrorCode.IMPORT_SELF_ACCEPTANCE_UNACKNOWLEDGED: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_SELF_ACCEPTANCE_UNACKNOWLEDGED,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Self-Acceptance Unacknowledged",
+        problem_type_uri="urn:opendv:error:import-self-acceptance-unacknowledged",
+    ),
+    ErrorCode.IMPORT_SEMVER_BUMP_MISMATCH: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_SEMVER_BUMP_MISMATCH,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import SemVer Bump Mismatch",
+        problem_type_uri="urn:opendv:error:import-semver-bump-mismatch",
+    ),
+    ErrorCode.IMPORT_UNKNOWN_REFERENCE_PACK: ErrorMappingEntry(
+        error_code=ErrorCode.IMPORT_UNKNOWN_REFERENCE_PACK,
+        exit_code=4,
+        http_status=422,
+        problem_title="Import Unknown Reference Pack",
+        problem_type_uri="urn:opendv:error:import-unknown-reference-pack",
+    ),
+    ErrorCode.INVALID_EVIDENCE_GROUNDING: ErrorMappingEntry(
+        error_code=ErrorCode.INVALID_EVIDENCE_GROUNDING,
+        exit_code=4,
+        http_status=422,
+        problem_title="Invalid Evidence Grounding",
+        problem_type_uri="urn:opendv:error:invalid-evidence-grounding",
+    ),
+    ErrorCode.INVALID_GROUNDING_WAIVER: ErrorMappingEntry(
+        error_code=ErrorCode.INVALID_GROUNDING_WAIVER,
+        exit_code=4,
+        http_status=422,
+        problem_title="Invalid Grounding Waiver",
+        problem_type_uri="urn:opendv:error:invalid-grounding-waiver",
+    ),
+    ErrorCode.INVALID_PHYSICAL_TABLE_NAME: ErrorMappingEntry(
+        error_code=ErrorCode.INVALID_PHYSICAL_TABLE_NAME,
+        exit_code=4,
+        http_status=422,
+        problem_title="Invalid Physical Table Name",
+        problem_type_uri="urn:opendv:error:invalid-physical-table-name",
+    ),
+    ErrorCode.INVALID_PROPOSAL_STATE: ErrorMappingEntry(
+        error_code=ErrorCode.INVALID_PROPOSAL_STATE,
+        exit_code=4,
+        http_status=422,
+        problem_title="Invalid Proposal State",
+        problem_type_uri="urn:opendv:error:invalid-proposal-state",
+    ),
+    ErrorCode.INVALID_WORKSPACE_ONTOLOGY: ErrorMappingEntry(
+        error_code=ErrorCode.INVALID_WORKSPACE_ONTOLOGY,
+        exit_code=4,
+        http_status=422,
+        problem_title="Invalid Workspace Ontology",
+        problem_type_uri="urn:opendv:error:invalid-workspace-ontology",
+    ),
+    ErrorCode.MAPPING_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.MAPPING_NOT_FOUND,
+        exit_code=4,
+        http_status=422,
+        problem_title="External Mapping Not Found",
+        problem_type_uri="urn:opendv:error:mapping-not-found",
+    ),
+    ErrorCode.ONTOLOGY_REQUIRES_CONCEPT: ErrorMappingEntry(
+        error_code=ErrorCode.ONTOLOGY_REQUIRES_CONCEPT,
+        exit_code=4,
+        http_status=422,
+        problem_title="Ontology Requires Concept",
+        problem_type_uri="urn:opendv:error:ontology-requires-concept",
+    ),
+    ErrorCode.ONT_EVO_CONTRACT_VIOLATION: ErrorMappingEntry(
+        error_code=ErrorCode.ONT_EVO_CONTRACT_VIOLATION,
+        exit_code=4,
+        http_status=422,
+        problem_title="ONT-EVO Contract Violation",
+        problem_type_uri="urn:opendv:error:ont-evo-contract-violation",
+    ),
+    ErrorCode.ONT_EVO_ENVELOPE_VIOLATION: ErrorMappingEntry(
+        error_code=ErrorCode.ONT_EVO_ENVELOPE_VIOLATION,
+        exit_code=4,
+        http_status=422,
+        problem_title="ONT-EVO Envelope Violation",
+        problem_type_uri="urn:opendv:error:ont-evo-envelope-violation",
+    ),
+    ErrorCode.ONT_EVO_FORGED_PROVENANCE: ErrorMappingEntry(
+        error_code=ErrorCode.ONT_EVO_FORGED_PROVENANCE,
+        exit_code=4,
+        http_status=422,
+        problem_title="ONT-EVO Forged Provenance",
+        problem_type_uri="urn:opendv:error:ont-evo-forged-provenance",
+    ),
+    ErrorCode.ONT_EVO_GROUNDING_VIOLATION: ErrorMappingEntry(
+        error_code=ErrorCode.ONT_EVO_GROUNDING_VIOLATION,
+        exit_code=4,
+        http_status=422,
+        problem_title="ONT-EVO Grounding Violation",
+        problem_type_uri="urn:opendv:error:ont-evo-grounding-violation",
+    ),
+    ErrorCode.ONT_EVO_LOW_CONFIDENCE_GROUNDING: ErrorMappingEntry(
+        error_code=ErrorCode.ONT_EVO_LOW_CONFIDENCE_GROUNDING,
+        exit_code=4,
+        http_status=422,
+        problem_title="ONT-EVO Low Confidence Grounding",
+        problem_type_uri="urn:opendv:error:ont-evo-low-confidence-grounding",
+    ),
+    ErrorCode.ONT_EVO_PSEUDONYM_LEAK: ErrorMappingEntry(
+        error_code=ErrorCode.ONT_EVO_PSEUDONYM_LEAK,
+        exit_code=4,
+        http_status=422,
+        problem_title="ONT-EVO Pseudonym Leak",
+        problem_type_uri="urn:opendv:error:ont-evo-pseudonym-leak",
+    ),
+    ErrorCode.ONT_EVO_UNGROUNDED_CONCEPT: ErrorMappingEntry(
+        error_code=ErrorCode.ONT_EVO_UNGROUNDED_CONCEPT,
+        exit_code=4,
+        http_status=422,
+        problem_title="ONT-EVO Ungrounded Concept",
+        problem_type_uri="urn:opendv:error:ont-evo-ungrounded-concept",
+    ),
+    ErrorCode.PARENT_ALREADY_EXISTS: ErrorMappingEntry(
+        error_code=ErrorCode.PARENT_ALREADY_EXISTS,
+        exit_code=4,
+        http_status=422,
+        problem_title="Parent Already Exists",
+        problem_type_uri="urn:opendv:error:parent-already-exists",
+    ),
+    ErrorCode.PARENT_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.PARENT_NOT_FOUND,
+        exit_code=4,
+        http_status=422,
+        problem_title="Parent Concept Not Found",
+        problem_type_uri="urn:opendv:error:parent-not-found",
+    ),
+    ErrorCode.PHYSICAL_TABLE_NAME_COLLISION: ErrorMappingEntry(
+        error_code=ErrorCode.PHYSICAL_TABLE_NAME_COLLISION,
+        exit_code=4,
+        http_status=422,
+        problem_title="Physical Table Name Collision",
+        problem_type_uri="urn:opendv:error:physical-table-name-collision",
+    ),
+    ErrorCode.REDACTED_PLACEHOLDER_LEAK: ErrorMappingEntry(
+        error_code=ErrorCode.REDACTED_PLACEHOLDER_LEAK,
+        exit_code=4,
+        http_status=422,
+        problem_title="Redacted Placeholder Leak",
+        problem_type_uri="urn:opendv:error:redacted-placeholder-leak",
+    ),
+    ErrorCode.REFERENCED_CONCEPT_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.REFERENCED_CONCEPT_NOT_FOUND,
+        exit_code=4,
+        http_status=422,
+        problem_title="Referenced Concept Not Found",
+        problem_type_uri="urn:opendv:error:referenced-concept-not-found",
+    ),
+    ErrorCode.RELATIONSHIP_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.RELATIONSHIP_NOT_FOUND,
+        exit_code=4,
+        http_status=422,
+        problem_title="Relationship Not Found",
+        problem_type_uri="urn:opendv:error:relationship-not-found",
+    ),
+    ErrorCode.SOURCE_REFERENCED_BY_COMMITTED_VERSION: ErrorMappingEntry(
+        error_code=ErrorCode.SOURCE_REFERENCED_BY_COMMITTED_VERSION,
+        exit_code=4,
+        http_status=422,
+        problem_title="Source Referenced by Committed Version",
+        problem_type_uri="urn:opendv:error:source-referenced-by-committed-version",
+    ),
+    ErrorCode.SOURCE_REFERENCED_BY_PENDING_PROPOSAL: ErrorMappingEntry(
+        error_code=ErrorCode.SOURCE_REFERENCED_BY_PENDING_PROPOSAL,
+        exit_code=4,
+        http_status=422,
+        problem_title="Source Referenced by Pending Proposal",
+        problem_type_uri="urn:opendv:error:source-referenced-by-pending-proposal",
+    ),
+    ErrorCode.UNDEFINED_PHYSICAL_TABLE_MAPPING: ErrorMappingEntry(
+        error_code=ErrorCode.UNDEFINED_PHYSICAL_TABLE_MAPPING,
+        exit_code=4,
+        http_status=422,
+        problem_title="Undefined Physical Table Mapping",
+        problem_type_uri="urn:opendv:error:undefined-physical-table-mapping",
+    ),
+    ErrorCode.UNKNOWN_REFERENCE_PACK: ErrorMappingEntry(
+        error_code=ErrorCode.UNKNOWN_REFERENCE_PACK,
+        exit_code=4,
+        http_status=422,
+        problem_title="Unknown Reference Pack",
+        problem_type_uri="urn:opendv:error:unknown-reference-pack",
+    ),
+    ErrorCode.VERSION_CONSISTENCY_MISMATCH: ErrorMappingEntry(
+        error_code=ErrorCode.VERSION_CONSISTENCY_MISMATCH,
+        exit_code=4,
+        http_status=422,
+        problem_title="Version Consistency Mismatch",
+        problem_type_uri="urn:opendv:error:version-consistency-mismatch",
+    ),
+    ErrorCode.LINEAGE_ROOT_MISMATCH: ErrorMappingEntry(
+        error_code=ErrorCode.LINEAGE_ROOT_MISMATCH,
+        exit_code=5,
+        http_status=412,
+        problem_title="Lineage Root Mismatch",
+        problem_type_uri="urn:opendv:error:lineage-root-mismatch",
+    ),
+    ErrorCode.ONT_EVO_CONCURRENT_MODIFICATION: ErrorMappingEntry(
+        error_code=ErrorCode.ONT_EVO_CONCURRENT_MODIFICATION,
+        exit_code=5,
+        http_status=412,
+        problem_title="ONT-EVO Concurrent Modification",
+        problem_type_uri="urn:opendv:error:ont-evo-concurrent-modification",
+    ),
+    ErrorCode.JOB_COMMIT_IN_PROGRESS: ErrorMappingEntry(
+        error_code=ErrorCode.JOB_COMMIT_IN_PROGRESS,
+        exit_code=6,
+        http_status=409,
+        problem_title="Job Commit In Progress",
+        problem_type_uri="urn:opendv:error:job-commit-in-progress",
+    ),
+    ErrorCode.LOCK_TIMEOUT: ErrorMappingEntry(
+        error_code=ErrorCode.LOCK_TIMEOUT,
+        exit_code=6,
+        http_status=409,
+        problem_title="Lock Acquisition Timeout",
+        problem_type_uri="urn:opendv:error:lock-timeout",
+    ),
+    ErrorCode.PRINCIPAL_ALREADY_EXISTS: ErrorMappingEntry(
+        error_code=ErrorCode.PRINCIPAL_ALREADY_EXISTS,
+        exit_code=6,
+        http_status=409,
+        problem_title="Principal Already Exists",
+        problem_type_uri="urn:opendv:error:principal-already-exists",
+    ),
+    ErrorCode.PRINCIPAL_RESERVED: ErrorMappingEntry(
+        error_code=ErrorCode.PRINCIPAL_RESERVED,
+        exit_code=6,
+        http_status=409,
+        problem_title="Principal Identifier Reserved",
+        problem_type_uri="urn:opendv:error:principal-reserved",
+    ),
+    ErrorCode.PROPOSAL_ALREADY_RESOLVED: ErrorMappingEntry(
+        error_code=ErrorCode.PROPOSAL_ALREADY_RESOLVED,
+        exit_code=6,
+        http_status=409,
+        problem_title="Proposal Already Resolved",
+        problem_type_uri="urn:opendv:error:proposal-already-resolved",
+    ),
+    ErrorCode.STUDIO_ALREADY_INITIALIZED: ErrorMappingEntry(
+        error_code=ErrorCode.STUDIO_ALREADY_INITIALIZED,
+        exit_code=6,
+        http_status=409,
+        problem_title="Studio Already Initialized",
+        problem_type_uri="urn:opendv:error:studio-already-initialized",
+    ),
+    ErrorCode.AGENT_ADMIN_OP_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.AGENT_ADMIN_OP_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Agent Admin Operation Forbidden",
+        problem_type_uri="urn:opendv:error:agent-admin-op-forbidden",
+    ),
+    ErrorCode.AGENT_DESTRUCTIVE_OP_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.AGENT_DESTRUCTIVE_OP_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Agent Destructive Operation Forbidden",
+        problem_type_uri="urn:opendv:error:agent-destructive-op-forbidden",
+    ),
+    ErrorCode.AGENT_METADATA_OVERWRITE_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.AGENT_METADATA_OVERWRITE_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Agent Metadata Overwrite Forbidden",
+        problem_type_uri="urn:opendv:error:agent-metadata-overwrite-forbidden",
+    ),
+    ErrorCode.AGENT_OPERATION_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.AGENT_OPERATION_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Agent Operation Forbidden",
+        problem_type_uri="urn:opendv:error:agent-operation-forbidden",
+    ),
+    ErrorCode.AGENT_PROPOSAL_ACCEPT_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.AGENT_PROPOSAL_ACCEPT_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Agent Proposal Accept Forbidden",
+        problem_type_uri="urn:opendv:error:agent-proposal-accept-forbidden",
+    ),
+    ErrorCode.CSRF_ORIGIN_MISMATCH: ErrorMappingEntry(
+        error_code=ErrorCode.CSRF_ORIGIN_MISMATCH,
+        exit_code=7,
+        http_status=403,
+        problem_title="CSRF Origin Mismatch",
+        problem_type_uri="urn:opendv:error:csrf-origin-mismatch",
+    ),
+    ErrorCode.FORBIDDEN_ADMIN_REQUIRED: ErrorMappingEntry(
+        error_code=ErrorCode.FORBIDDEN_ADMIN_REQUIRED,
+        exit_code=7,
+        http_status=403,
+        problem_title="Forbidden: Admin Role Required",
+        problem_type_uri="urn:opendv:error:forbidden-admin-required",
+    ),
+    ErrorCode.LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE: ErrorMappingEntry(
+        error_code=ErrorCode.LOOPBACK_PRIVILEGE_DISABLED_IN_REMOTE_MODE,
+        exit_code=7,
+        http_status=403,
+        problem_title="Loopback Privilege Disabled in Remote Mode",
+        problem_type_uri="urn:opendv:error:loopback-privilege-disabled-in-remote-mode",
+    ),
+    ErrorCode.PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.PROPOSAL_SELF_ACCEPTANCE_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Proposal Self-Acceptance Forbidden",
+        problem_type_uri="urn:opendv:error:proposal-self-acceptance-forbidden",
+    ),
+    ErrorCode.SERVER_OPERATION_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.SERVER_OPERATION_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Server Operation Forbidden",
+        problem_type_uri="urn:opendv:error:server-operation-forbidden",
+    ),
+    ErrorCode.UNAUTHENTICATED: ErrorMappingEntry(
+        error_code=ErrorCode.UNAUTHENTICATED,
+        exit_code=7,
+        http_status=401,
+        problem_title="Unauthenticated Request",
+        problem_type_uri="urn:opendv:error:unauthenticated",
+    ),
+    ErrorCode.SESSION_ALREADY_EXISTS: ErrorMappingEntry(
+        error_code=ErrorCode.SESSION_ALREADY_EXISTS,
+        exit_code=6,
+        http_status=409,
+        problem_title="Session Already Exists",
+        problem_type_uri="urn:opendv:error:session-already-exists",
+    ),
+    ErrorCode.CORRUPT_SOURCE_BLOB: ErrorMappingEntry(
+        error_code=ErrorCode.CORRUPT_SOURCE_BLOB,
+        exit_code=4,
+        http_status=422,
+        problem_title="Corrupt Source Blob",
+        problem_type_uri="urn:opendv:error:corrupt-source-blob",
+    ),
+    ErrorCode.LAUNCH_NONCE_EXPIRED: ErrorMappingEntry(
+        error_code=ErrorCode.LAUNCH_NONCE_EXPIRED,
+        exit_code=7,
+        http_status=401,
+        problem_title="Launch Nonce Expired",
+        problem_type_uri="urn:opendv:error:launch-nonce-expired",
+    ),
+    ErrorCode.AUTHENTICATION_CONFIG_ERROR: ErrorMappingEntry(
+        error_code=ErrorCode.AUTHENTICATION_CONFIG_ERROR,
+        exit_code=1,
+        http_status=500,
+        problem_title="Authentication Configuration Error",
+        problem_type_uri="urn:opendv:error:authentication-config-error",
+    ),
+    ErrorCode.EXECUTION_FAILURE: ErrorMappingEntry(
+        error_code=ErrorCode.EXECUTION_FAILURE,
+        exit_code=1,
+        http_status=500,
+        problem_title="Execution Failure",
+        problem_type_uri="urn:opendv:error:execution-failure",
+    ),
+    ErrorCode.JOB_ALREADY_TERMINAL: ErrorMappingEntry(
+        error_code=ErrorCode.JOB_ALREADY_TERMINAL,
+        exit_code=6,
+        http_status=409,
+        problem_title="Job Already Terminal",
+        problem_type_uri="urn:opendv:error:job-already-terminal",
+    ),
+    ErrorCode.STATIC_TOKEN_CONFIGURED: ErrorMappingEntry(
+        error_code=ErrorCode.STATIC_TOKEN_CONFIGURED,
+        exit_code=1,
+        http_status=500,
+        problem_title="Static Token Configured",
+        problem_type_uri="urn:opendv:error:static-token-configured",
+    ),
+    ErrorCode.FILE_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.FILE_NOT_FOUND,
+        exit_code=3,
+        http_status=404,
+        problem_title="File Not Found",
+        problem_type_uri="urn:opendv:error:file-not-found",
+    ),
+    ErrorCode.INSECURE_TRANSPORT_REFUSED: ErrorMappingEntry(
+        error_code=ErrorCode.INSECURE_TRANSPORT_REFUSED,
+        exit_code=7,
+        http_status=403,
+        problem_title="Insecure Transport Refused",
+        problem_type_uri="urn:opendv:error:insecure-transport-refused",
+    ),
+    ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Confidential Source Agent Access Forbidden",
+        problem_type_uri="urn:opendv:error:confidential-source-agent-access-forbidden",
+    ),
+    ErrorCode.REFERENCE_ONTOLOGY_CORRUPT: ErrorMappingEntry(
+        error_code=ErrorCode.REFERENCE_ONTOLOGY_CORRUPT,
+        exit_code=1,
+        http_status=500,
+        problem_title="Reference Ontology Pack Corrupt",
+        problem_type_uri="urn:opendv:error:reference-ontology-corrupt",
+    ),
+    ErrorCode.UNGROUNDED_SEED_MAPPING: ErrorMappingEntry(
+        error_code=ErrorCode.UNGROUNDED_SEED_MAPPING,
+        exit_code=4,
+        http_status=422,
+        problem_title="Ungrounded Seed Mapping",
+        problem_type_uri="urn:opendv:error:ungrounded-seed-mapping",
+    ),
+    ErrorCode.TAXONOMY_CYCLE_DETECTED: ErrorMappingEntry(
+        error_code=ErrorCode.TAXONOMY_CYCLE_DETECTED,
+        exit_code=4,
+        http_status=422,
+        problem_title="Taxonomy Cycle Detected",
+        problem_type_uri="urn:opendv:error:taxonomy-cycle-detected",
+    ),
+    ErrorCode.QUESTION_NOT_FOUND: ErrorMappingEntry(
+        error_code=ErrorCode.QUESTION_NOT_FOUND,
+        exit_code=3,
+        http_status=404,
+        problem_title="Clarification Question Not Found",
+        problem_type_uri="urn:opendv:error:question-not-found",
+    ),
+    ErrorCode.TAMPER_EVIDENT_CHAIN_CORRUPT: ErrorMappingEntry(
+        error_code=ErrorCode.TAMPER_EVIDENT_CHAIN_CORRUPT,
+        exit_code=4,
+        http_status=422,
+        problem_title="Tamper-Evident Audit Chain Corrupt",
+        problem_type_uri="urn:opendv:error:tamper-evident-chain-corrupt",
+    ),
+    ErrorCode.CSRF_ORIGIN_DENIED: ErrorMappingEntry(
+        error_code=ErrorCode.CSRF_ORIGIN_DENIED,
+        exit_code=7,
+        http_status=403,
+        problem_title="CSRF Origin Denied",
+        problem_type_uri="urn:opendv:error:csrf-origin-denied",
+    ),
+    ErrorCode.TOKEN_EXPIRED: ErrorMappingEntry(
+        error_code=ErrorCode.TOKEN_EXPIRED,
+        exit_code=7,
+        http_status=401,
+        problem_title="Authentication Token Expired",
+        problem_type_uri="urn:opendv:error:token-expired",
+    ),
+    ErrorCode.JOB_CANNOT_BE_CANCELLED: ErrorMappingEntry(
+        error_code=ErrorCode.JOB_CANNOT_BE_CANCELLED,
+        exit_code=6,
+        http_status=409,
+        problem_title="Job Cannot Be Cancelled",
+        problem_type_uri="urn:opendv:error:job-cannot-be-cancelled",
+    ),
+    ErrorCode.CORRUPT_SESSION_STATE: ErrorMappingEntry(
+        error_code=ErrorCode.CORRUPT_SESSION_STATE,
+        exit_code=1,
+        http_status=500,
+        problem_title="Corrupt Session State",
+        problem_type_uri="urn:opendv:error:corrupt-session-state",
+    ),
+    ErrorCode.CONCURRENCY_CONFLICT: ErrorMappingEntry(
+        error_code=ErrorCode.CONCURRENCY_CONFLICT,
+        exit_code=5,
+        http_status=412,
+        problem_title="Concurrency Conflict",
+        problem_type_uri="urn:opendv:error:concurrency-conflict",
+    ),
+    ErrorCode.LOW_CONFIDENCE_GROUNDING: ErrorMappingEntry(
+        error_code=ErrorCode.LOW_CONFIDENCE_GROUNDING,
+        exit_code=4,
+        http_status=422,
+        problem_title="Low Confidence Grounding",
+        problem_type_uri="urn:opendv:error:low-confidence-grounding",
+    ),
+    ErrorCode.PROPOSAL_STALE_REBASE_REQUIRED: ErrorMappingEntry(
+        error_code=ErrorCode.PROPOSAL_STALE_REBASE_REQUIRED,
+        exit_code=6,
+        http_status=409,
+        problem_title="Proposal Stale Rebase Required",
+        problem_type_uri="urn:opendv:error:proposal-stale-rebase-required",
+    ),
+    ErrorCode.INTERNAL_CLONE_ERROR: ErrorMappingEntry(
+        error_code=ErrorCode.INTERNAL_CLONE_ERROR,
+        exit_code=1,
+        http_status=500,
+        problem_title="Internal Clone Error",
+        problem_type_uri="urn:opendv:error:internal-clone-error",
+    ),
+    ErrorCode.AGENT_LAUNCH_NONCE_FORBIDDEN: ErrorMappingEntry(
+        error_code=ErrorCode.AGENT_LAUNCH_NONCE_FORBIDDEN,
+        exit_code=7,
+        http_status=403,
+        problem_title="Agent Launch Nonce Forbidden",
+        problem_type_uri="urn:opendv:error:agent-launch-nonce-forbidden",
+    ),
+    ErrorCode.HARNESS_CONFIG_INVALID: ErrorMappingEntry(
+        error_code=ErrorCode.HARNESS_CONFIG_INVALID,
+        exit_code=4,
+        http_status=422,
+        problem_title="Harness Configuration Invalid",
+        problem_type_uri="urn:opendv:error:harness-config-invalid",
+    ),
 }
 
 ERROR_MAP = ERROR_MAPPINGS
+
+VALID_EXIT_CODES: frozenset[int] = frozenset(range(8))
 
 
 def get_error_mapping(code: ErrorCode) -> tuple[int, int]:
@@ -323,12 +1403,15 @@ class OpenDVError(Exception):
 
     def to_problem_detail(self, *, instance: str | None = None) -> ProblemDetail:
         """Convert exception to an RFC 9457 ProblemDetail DTO."""
-        return create_problem_detail(
+        problem = create_problem_detail(
             code=self.error_code,
             detail=self.message,
             instance=instance,
             extensions=self.details,
         )
+        if problem.status != self.http_status:
+            return problem.model_copy(update={"status": self.http_status})
+        return problem
 
 
 class InputValidationError(OpenDVError):
@@ -372,6 +1455,7 @@ __all__ = [
     "DEFAULT_MAX_INLINE_BYTES",
     "ERROR_MAP",
     "ERROR_MAPPINGS",
+    "VALID_EXIT_CODES",
     "ErrorCode",
     "ErrorDetail",
     "ErrorMappingEntry",

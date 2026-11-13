@@ -7,7 +7,15 @@
  * 2. `apps/opendv-platform-api/src/opendv_platform_api/static/`
  */
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 export interface StaticBuildOptions {
@@ -30,7 +38,7 @@ export function generateStaticIndexHtml(): string {
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="referrer" content="no-referrer" />
     <title>Open-DV Explorer</title>
     <link rel="stylesheet" href="/assets/workbench.css" />
   </head>
@@ -63,39 +71,63 @@ export async function buildStaticWorkbenchAssets(
 	const outDirs = options.outDirs ? [...options.outDirs] : defaultOutDirs;
 
 	let workbenchJs = "";
-	const isTestEnv =
-		typeof process !== "undefined" && process.env?.NODE_ENV === "test";
+	let programmaticError: Error | null = null;
 
-	if (!isTestEnv) {
+	try {
 		const buildResult = await Bun.build({
 			entrypoints: [join(workbenchRoot, "src/index.ts")],
 			target: "browser",
 			format: "esm",
 			minify,
 		});
-		if (buildResult.success && buildResult.outputs[0]) {
-			workbenchJs = await buildResult.outputs[0].text();
+		const entryOutput =
+			buildResult.outputs.find(
+				(o) => (o as unknown as { kind?: string }).kind === "entry-point",
+			) || buildResult.outputs[0];
+		if (buildResult.success && entryOutput) {
+			workbenchJs = await entryOutput.text();
+		} else if (!buildResult.success) {
+			const logs = buildResult.logs
+				? buildResult.logs.map((l) => String(l)).join("; ")
+				: "no logs";
+			programmaticError = new Error(`Bun.build programmatic failure: ${logs}`);
 		}
+	} catch (err) {
+		programmaticError = err instanceof Error ? err : new Error(String(err));
 	}
 
 	if (!workbenchJs) {
-		const proc = Bun.spawnSync(
-			[
-				process.execPath,
-				"build",
-				join(workbenchRoot, "src/index.ts"),
-				"--target=browser",
-				"--format=esm",
-				...(minify ? ["--minify"] : []),
-			],
-			{ cwd: workbenchRoot, stdout: "pipe", stderr: "pipe" },
-		);
-		if (proc.exitCode !== 0) {
-			throw new Error(
-				`Failed to bundle static workbench assets: ${proc.stderr.toString()}`,
+		const tempOutDir = mkdtempSync(join(tmpdir(), "opendv_wb_build_"));
+		try {
+			const proc = Bun.spawnSync(
+				[
+					process.execPath,
+					"build",
+					join(workbenchRoot, "src/index.ts"),
+					"--target=browser",
+					"--format=esm",
+					`--outdir=${tempOutDir}`,
+					...(minify ? ["--minify"] : []),
+				],
+				{ cwd: workbenchRoot, stdout: "pipe", stderr: "pipe" },
 			);
+			if (proc.exitCode !== 0) {
+				const errorDetail = proc.stderr.toString("utf-8");
+				throw new Error(
+					`Failed to bundle static workbench assets (CLI exit ${proc.exitCode}): ${errorDetail}${programmaticError ? ` (Programmatic attempt error: ${programmaticError.message})` : ""}`,
+				);
+			}
+			const mainJsPath = join(tempOutDir, "index.js");
+			if (existsSync(mainJsPath)) {
+				workbenchJs = readFileSync(mainJsPath, "utf-8");
+			} else {
+				throw new Error(
+					`Bun build CLI completed but expected bundle '${mainJsPath}' was not generated.`,
+				);
+			}
+		} finally {
+			rmSync(tempOutDir, { recursive: true, force: true });
 		}
-		workbenchJs = proc.stdout.toString("utf-8");
 	}
 
 	if (!workbenchJs) {
@@ -110,8 +142,11 @@ export async function buildStaticWorkbenchAssets(
 
 	for (const outDir of outDirs) {
 		const assetsDir = join(outDir, "assets");
+		const ontologyDir = join(outDir, "ontology");
 		mkdirSync(assetsDir, { recursive: true });
+		mkdirSync(ontologyDir, { recursive: true });
 		writeFileSync(join(outDir, "index.html"), indexHtml, "utf-8");
+		writeFileSync(join(ontologyDir, "index.html"), indexHtml, "utf-8");
 		writeFileSync(join(assetsDir, "workbench.js"), workbenchJs, "utf-8");
 		writeFileSync(join(assetsDir, "workbench.css"), workbenchCss, "utf-8");
 	}

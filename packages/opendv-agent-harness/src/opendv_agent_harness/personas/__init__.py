@@ -9,9 +9,22 @@ Provides task and subagent builders for:
 
 from __future__ import annotations
 
+import hashlib
 from typing import Any
 
 from opendv_agent_harness.models import AgentPersona, AgentTaskSpec, SubagentSpec
+from opendv_agent_harness.personas.domain_clarifier import (
+    DOMAIN_CLARIFIER_SYSTEM_INSTRUCTIONS,
+    DomainClarifier,
+    build_domain_clarifier_subagent_spec,
+    build_domain_clarifier_task_spec,
+)
+from opendv_agent_harness.personas.ontology_architect import (
+    ONTOLOGY_ARCHITECT_SYSTEM_INSTRUCTIONS,
+    OntologyArchitect,
+    build_ontology_architect_subagent_spec,
+    build_ontology_architect_task_spec,
+)
 from opendv_agent_harness.personas.scout_source import (
     SCOUT_SOURCE_SYSTEM_INSTRUCTIONS,
     build_scout_source_subagent_spec,
@@ -30,6 +43,12 @@ from opendv_agent_harness.personas.ship_vault import (
     build_ship_vault_task_spec,
     create_ship_vault_task_spec,
 )
+from opendv_agent_harness.personas.term_scout import (
+    TERM_SCOUT_SYSTEM_INSTRUCTIONS,
+    TermScout,
+    build_term_scout_subagent_spec,
+    build_term_scout_task_spec,
+)
 from opendv_agent_harness.personas.vault_first_mate import (
     VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS,
     build_vault_first_mate_subagent_spec,
@@ -37,6 +56,24 @@ from opendv_agent_harness.personas.vault_first_mate import (
     build_vault_first_mate_task_spec,
     create_vault_first_mate_task_spec,
 )
+
+
+def build_input_context_refs(input_data: Any) -> dict[str, str]:
+    """Derive canonical context references from input data (SUG-01)."""
+    if input_data is None:
+        return {}
+    if isinstance(input_data, (int, float, bool)):
+        return {"input_data": str(input_data)}
+    if hasattr(input_data, "chunk_id"):
+        return {"input_data": f"urn:opendv:evidence:chunk:{input_data.chunk_id}"}
+    if hasattr(input_data, "table_id"):
+        return {"input_data": f"urn:opendv:evidence:table:{input_data.table_id}"}
+    if isinstance(input_data, (list, tuple)):
+        return {"input_data": f"items:{len(input_data)}"}
+    if isinstance(input_data, str):
+        digest = hashlib.sha256(input_data.encode("utf-8")).hexdigest()[:16]
+        return {"input_data": f"sha256:{digest}"}
+    return {"input_data": f"ref:{type(input_data).__name__}"}
 
 
 def build_persona_subagent_spec(persona: AgentPersona | str) -> SubagentSpec:
@@ -50,6 +87,12 @@ def build_persona_subagent_spec(persona: AgentPersona | str) -> SubagentSpec:
         return build_scout_unstructured_subagent_spec()
     if persona_enum == AgentPersona.SHIP_VAULT:
         return build_ship_vault_subagent_spec()
+    if persona_enum == AgentPersona.TERM_SCOUT:
+        return build_term_scout_subagent_spec()
+    if persona_enum == AgentPersona.DOMAIN_CLARIFIER:
+        return build_domain_clarifier_subagent_spec()
+    if persona_enum == AgentPersona.ONTOLOGY_ARCHITECT:
+        return build_ontology_architect_subagent_spec()
     raise ValueError(f"Unsupported agent persona '{persona_enum}' for SubagentSpec builder.")
 
 
@@ -70,14 +113,31 @@ def build_persona_task_spec(
         return build_scout_unstructured_task_spec(**kwargs)
     if persona_enum == AgentPersona.SHIP_VAULT:
         return build_ship_vault_task_spec(**kwargs)
+    if persona_enum == AgentPersona.TERM_SCOUT:
+        return build_term_scout_task_spec(**kwargs)
+    if persona_enum == AgentPersona.DOMAIN_CLARIFIER:
+        return build_domain_clarifier_task_spec(**kwargs)
+    if persona_enum == AgentPersona.ONTOLOGY_ARCHITECT:
+        return build_ontology_architect_task_spec(**kwargs)
     raise ValueError(f"Unsupported agent persona '{persona_enum}' for AgentTaskSpec builder.")
 
 
 __all__ = [
+    "DOMAIN_CLARIFIER_SYSTEM_INSTRUCTIONS",
+    "ONTOLOGY_ARCHITECT_SYSTEM_INSTRUCTIONS",
     "SCOUT_SOURCE_SYSTEM_INSTRUCTIONS",
     "SCOUT_UNSTRUCTURED_SYSTEM_INSTRUCTIONS",
     "SHIP_VAULT_SYSTEM_INSTRUCTIONS",
+    "TERM_SCOUT_SYSTEM_INSTRUCTIONS",
     "VAULT_FIRST_MATE_SYSTEM_INSTRUCTIONS",
+    "DomainClarifier",
+    "OntologyArchitect",
+    "TermScout",
+    "build_domain_clarifier_subagent_spec",
+    "build_domain_clarifier_task_spec",
+    "build_input_context_refs",
+    "build_ontology_architect_subagent_spec",
+    "build_ontology_architect_task_spec",
     "build_persona_subagent_spec",
     "build_persona_task_spec",
     "build_scout_source_subagent_spec",
@@ -86,6 +146,8 @@ __all__ = [
     "build_scout_unstructured_task_spec",
     "build_ship_vault_subagent_spec",
     "build_ship_vault_task_spec",
+    "build_term_scout_subagent_spec",
+    "build_term_scout_task_spec",
     "build_vault_first_mate_subagent_spec",
     "build_vault_first_mate_subagents",
     "build_vault_first_mate_task_spec",

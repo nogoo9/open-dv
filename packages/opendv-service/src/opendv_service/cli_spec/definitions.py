@@ -134,6 +134,14 @@ GLOBAL_OPTIONS: list[OptionDef] = [
             "DATA_STEWARD",
             "AUDITOR_FINANCE",
             "RESTRICTED_PII_CUSTODIAN",
+            "ADMIN",
+            "EDITOR",
+            "VIEWER",
+            "AUTOMATED",
+            "admin",
+            "editor",
+            "viewer",
+            "automated",
         ],
         env_var="OPENDV_ROLE",
         help="5-Tier RBAC role clearance context",
@@ -967,6 +975,8 @@ HOLD_COMMAND = CommandDef(
 
 
 # --- 8. ontology (Phase P7) ---
+from opendv_service.cli_spec.studio_commands import STUDIO_COMMAND  # noqa: E402
+
 ONTOLOGY_COMMAND = CommandDef(
     name="ontology",
     description=(
@@ -1233,6 +1243,7 @@ ONTOLOGY_COMMAND = CommandDef(
                 ),
             ],
         ),
+        STUDIO_COMMAND,
     ],
 )
 

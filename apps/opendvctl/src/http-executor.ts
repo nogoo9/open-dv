@@ -7,6 +7,7 @@
  * - `opendvctl config validate` -> `POST ${baseUrl}/api/v1/platform/config/validate`
  */
 
+import rawErrorCodes from "../../../schemas/v1/error-codes.json" with { type: "json" };
 import { CliDomainError } from "./error-handler";
 import { loadCliSpec } from "./spec";
 
@@ -242,10 +243,21 @@ export async function buildConfigValidateRequest(
 	};
 }
 
+function defaultCodeForHttpStatus(status: number): string {
+	if (status === 401) return "AUTH_UNAUTHORIZED";
+	if (status === 403) return "FORBIDDEN_ADMIN_REQUIRED";
+	if (status === 404) return "RESOURCE_NOT_FOUND";
+	if (status === 409) return "SESSION_ALREADY_EXISTS";
+	if (status === 412) return "ONT_EVO_CONCURRENT_MODIFICATION";
+	if (status === 422) return "VALIDATION_FAILED";
+	if (status >= 500) return "INTERNAL_ERROR";
+	return "INVALID_REQUEST";
+}
+
 export async function parseHttpErrorResponse(
 	res: Response,
 ): Promise<CliDomainError> {
-	let code = "INVALID_REQUEST";
+	let code = defaultCodeForHttpStatus(res.status);
 	let msg = `HTTP ${res.status}`;
 	try {
 		const text = await res.text();
@@ -261,6 +273,14 @@ export async function parseHttpErrorResponse(
 					);
 					if (match) {
 						code = match.error_code;
+					} else {
+						const catalog = (rawErrorCodes as {
+							error_codes?: Array<{ code: string; problem_type_uri: string }>;
+						}).error_codes ?? [];
+						const catMatch = catalog.find((e) => e.problem_type_uri === errBody.type);
+						if (catMatch) {
+							code = catMatch.code;
+						}
 					}
 				}
 				if (typeof errBody.detail === "string") {

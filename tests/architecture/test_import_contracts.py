@@ -71,6 +71,15 @@ BANNED_IMPORTS: dict[str, set[str]] = {
         "opendv_duckdb_sandbox",
         "opendv_agent_harness",
     },
+    # packages/opendv-agent-harness/personas must depend only on opendv-core and opendv-contracts
+    "packages/opendv-agent-harness/src/opendv_agent_harness/personas": {
+        "opendv_service",
+        "opendv_sources",
+        "opendv_platform_api",
+        "opendv_cli",
+        "fastapi",
+        "starlette",
+    },
 }
 
 

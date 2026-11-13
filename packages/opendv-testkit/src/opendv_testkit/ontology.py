@@ -245,13 +245,16 @@ class DeterministicTestkitRecommender:
                 ),
             ]
 
-        delta = OntologyDelta(
-            delta_id="delta-bootstrap-1",
-            domain_namespace=domain_namespace,
-            base_ontology_version="1.0.0",
-            target_ontology_version="1.0.0",
-            operations=ops,
-            metadata={"mode": "BOOTSTRAP", "author": self.recommender_id},
+        delta = OntologyDelta.model_validate(
+            {
+                "delta_id": "delta-bootstrap-1",
+                "domain_namespace": domain_namespace,
+                "base_ontology_version": "1.0.0",
+                "target_ontology_version": "1.0.0",
+                "operations": [op.model_dump(mode="json") for op in ops],
+                "metadata": {"mode": "BOOTSTRAP", "author": self.recommender_id},
+            },
+            context={"allow_bootstrap": True},
         )
 
         return OntologyProposal(

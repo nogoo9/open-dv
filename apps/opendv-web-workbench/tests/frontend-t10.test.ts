@@ -12,7 +12,15 @@
  */
 
 import { describe, expect, it } from "bun:test";
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import {
+	existsSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import React, { createElement } from "react";
 import { renderToString } from "react-dom/server";
@@ -260,6 +268,7 @@ describe("T10 Frontend Suite & WCAG AA Accessibility (#119)", () => {
 			const clientFiles = [
 				join(srcDir, "index.ts"),
 				...collectFiles(join(srcDir, "explorer"), [".ts", ".tsx"]),
+				...collectFiles(join(srcDir, "ontology"), [".ts", ".tsx"]),
 			];
 			const distDir = join(workbenchRoot, "dist");
 			if (existsSync(distDir)) {
@@ -302,14 +311,31 @@ describe("T10 Frontend Suite & WCAG AA Accessibility (#119)", () => {
 
 			expect(violations).toEqual([]);
 
-			// Also build browser bundle dynamically to verify compiled output
-			const buildResult = await Bun.build({
-				entrypoints: [join(srcDir, "index.ts")],
-				target: "browser",
-			});
-			expect(buildResult.success).toBe(true);
-			const bundleText = await buildResult.outputs[0]?.text();
-			expect(bundleText).toBeDefined();
+			// Build browser bundle in an isolated CLI process to verify compiled output cleanly across OSes
+			const tempOutDir = mkdtempSync(join(tmpdir(), "opendv_t10_bundle_"));
+			let bundleText = "";
+			try {
+				const proc = Bun.spawnSync(
+					[
+						process.execPath,
+						"build",
+						join(srcDir, "index.ts"),
+						"--target=browser",
+						"--format=esm",
+						`--outdir=${tempOutDir}`,
+					],
+					{ cwd: workbenchRoot, stdout: "pipe", stderr: "pipe" },
+				);
+				if (proc.exitCode !== 0) {
+					throw new Error(
+						`bun build failed (exit ${proc.exitCode}): ${proc.stderr.toString("utf-8")}`,
+					);
+				}
+				bundleText = readFileSync(join(tempOutDir, "index.js"), "utf-8");
+			} finally {
+				rmSync(tempOutDir, { recursive: true, force: true });
+			}
+			expect(bundleText.length).toBeGreaterThan(1000);
 			expect(bundleText).not.toContain("127.0.0.1");
 			expect(bundleText).not.toContain(":8000");
 			expect(bundleText).not.toContain(":8420");

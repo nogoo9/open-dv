@@ -202,6 +202,12 @@ def test_all_8_domain_tools_registered_with_valid_identifiers_and_schemas() -> N
     for persona, profile in PERSONA_CAPABILITY_MATRIX.items():
         persona_tool_names = frozenset(t.name for t in get_tools_for_persona(persona))
         assert persona_tool_names == profile.authorized_tools
+        if persona in (
+            AgentPersona.TERM_SCOUT,
+            AgentPersona.DOMAIN_CLARIFIER,
+            AgentPersona.ONTOLOGY_ARCHITECT,
+        ):
+            assert len(persona_tool_names) >= 1
 
 
 @pytest.mark.asyncio
@@ -943,3 +949,93 @@ async def test_wp01_real_compile_gates_codemods_and_sandbox(tmp_path: Path) -> N
     assert sbx_fail.all_batches_passed is False
     assert sbx_fail.orphan_count == 1
     assert sbx_fail.status == ObservabilityVerdict.REJECT_WITH_TRACE
+
+
+@pytest.mark.asyncio
+async def test_r3_harness_budget_max_tool_calls_enforced_in_run_task_and_invoke(
+    tmp_path: Path,
+) -> None:
+    """S2-MAJ-01: VaultAgentHarness.run_task() stops with MAX_TOOL_CALLS_EXCEEDED and cancels
+    active turns when tool invocations exceed HarnessBudget.max_tool_calls, and
+    AgentToolDefinition.invoke raises ToolCallBudgetExceededError on budget exhaustion.
+    """
+    from opendv_agent_harness.models import ToolCallBudgetExceededError
+
+    cfg = _make_harness_config(tmp_path, budget=HarnessBudget(max_tool_calls=2))
+    tool_map = build_default_domain_tool_map()
+    executed_calls = 0
+    cancelled_tasks: list[str] = []
+
+    class _OverCallingHarness(BaseVaultAgentHarness):
+        @property
+        def provider_name(self) -> str:
+            return "antigravity"
+
+        def resolve_model(self, tier: ModelTier, persona: AgentPersona | None = None) -> str:
+            return "gemini-3.8-flash-high"
+
+        async def _stream_provider_task(
+            self,
+            spec: AgentTaskSpec[Any],
+            ctx: ToolExecutionContext,
+            model_id: str,
+        ) -> AsyncIterator[HarnessStreamEvent]:
+            nonlocal executed_calls
+
+            async def _cancel() -> None:
+                cancelled_tasks.append(spec.task_id)
+
+            self._active_cancels[spec.task_id] = _cancel
+            for idx in range(4):
+                yield self._make_event(
+                    spec,
+                    ctx,
+                    HarnessEventKind.TOOL_CALL_START,
+                    tool_name="profile_source_feed",
+                    tool_call_id=f"call-{idx}",
+                )
+                executed_calls += 1
+                await tool_map["profile_source_feed"].invoke(
+                    {
+                        "source_system": "ERP",
+                        "table_or_path": "t",
+                        "sample_rows": [{"id": idx}],
+                    },
+                    ctx,
+                )
+
+    harness = _OverCallingHarness(cfg)
+    spec = AgentTaskSpec(
+        task_id="task-budget-limit",
+        run_id="run-budget-1",
+        trace_id=SAMPLE_TRACE_ID,
+        persona=AgentPersona.SCOUT_SOURCE,
+        stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE,
+        prompt="Profile feed",
+        system_instructions="Scout",
+        model_tier=ModelTier.FAST_TIER,
+    )
+    res = await harness.run_task(spec)
+    assert res.stop_reason == HarnessStopReason.MAX_TOOL_CALLS_EXCEEDED
+    assert executed_calls == 2
+    assert res.usage.tool_calls == 2
+    assert cancelled_tasks == ["task-budget-limit"]
+
+    # Direct AgentToolDefinition.invoke budget enforcement check
+    direct_ctx = ToolExecutionContext(
+        run_id="run-direct-budget",
+        trace_id=SAMPLE_TRACE_ID,
+        span_id=SAMPLE_SPAN_ID,
+        persona=AgentPersona.SCOUT_SOURCE,
+        stage_id=PipelineStageId.STAGE_01_SCOUT_SOURCE,
+        config=_make_harness_config(tmp_path, budget=HarnessBudget(max_tool_calls=1)),
+    )
+    await tool_map["profile_source_feed"].invoke(
+        {"source_system": "ERP", "table_or_path": "t", "sample_rows": [{"id": 1}]},
+        direct_ctx,
+    )
+    with pytest.raises(ToolCallBudgetExceededError):
+        await tool_map["profile_source_feed"].invoke(
+            {"source_system": "ERP", "table_or_path": "t", "sample_rows": [{"id": 2}]},
+            direct_ctx,
+        )

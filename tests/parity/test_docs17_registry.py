@@ -65,9 +65,9 @@ def _check_coverage_matrix(specs: list[ScenarioSpec]) -> None:
 
 def _check_anchors_exist(text: str, specs: list[ScenarioSpec]) -> None:
     for spec in specs:
-        assert (
-            spec.docs17_anchor in text
-        ), f"Scenario {spec.id} anchor '{spec.docs17_anchor}' not found in docs/17"
+        assert spec.docs17_anchor in text, (
+            f"Scenario {spec.id} anchor '{spec.docs17_anchor}' not found in docs/17"
+        )
 
 
 def _check_library_only_surface(specs: list[ScenarioSpec]) -> None:
@@ -192,7 +192,9 @@ def test_mutation_sensitivity_missing_anchor_fails() -> None:
         surface="cli+api",
     )
     _, _, text = _parse_docs17()
-    with pytest.raises(AssertionError, match=r"anchor 'Nonexistent Anchor 12345' not found in docs/17"):
+    with pytest.raises(
+        AssertionError, match=r"anchor 'Nonexistent Anchor 12345' not found in docs/17"
+    ):
         _check_anchors_exist(text, [mutated_spec])
 
 

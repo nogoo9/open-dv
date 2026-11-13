@@ -48,10 +48,12 @@ class GoldenManager:
         *,
         update_mode: bool = False,
         justification: str = "",
+        include_prefixes: tuple[str, ...] = ("GT-",),
     ) -> None:
         self.golden_root = golden_root
         self.docs17_path = docs17_path
         self.request = request
+        self.include_prefixes = include_prefixes
 
         if request is not None:
             self.update_mode = bool(request.config.getoption("--update-golden", default=False))
@@ -140,7 +142,7 @@ class GoldenManager:
     def scan_committed_golden_files(self) -> list[str]:
         """Return relative paths of all committed golden files.
 
-        Excludes MANIFEST.json and dotfiles.
+        Excludes MANIFEST.json, dotfiles, and files outside configured include_prefixes.
         """
         if not self.golden_root.exists():
             return []
@@ -148,8 +150,12 @@ class GoldenManager:
         for path in self.golden_root.rglob("*"):
             if not path.is_file():
                 continue
+            if "__pycache__" in path.parts:
+                continue
             rel = path.relative_to(self.golden_root).as_posix()
             if rel == "MANIFEST.json" or rel.startswith(".") or "/." in rel:
+                continue
+            if self.include_prefixes and not any(rel.startswith(p) for p in self.include_prefixes):
                 continue
             files.append(rel)
         return sorted(files)
@@ -392,7 +398,7 @@ class GoldenManager:
         if not target_path.exists():
             raise FileNotFoundError(
                 f"Golden file '{target_path}' does not exist. Run with --update-golden "
-                f"--golden-justification=\"[#ISSUE] reason\" to generate."
+                f'--golden-justification="[#ISSUE] reason" to generate.'
             )
 
         committed_bytes = self.normalize_line_endings_lf(target_path.read_bytes())
@@ -404,7 +410,7 @@ class GoldenManager:
                 f"  Actual SHA-256:    {actual_sha256}\n"
                 f"  Committed SHA-256: {committed_sha256}\n"
                 f"If this behavioral change is intended and approved, regenerate with:\n"
-                f"  uv run pytest -m golden --update-golden --golden-justification=\"[#ISSUE] ...\""
+                f'  uv run pytest -m golden --update-golden --golden-justification="[#ISSUE] ..."'
             )
 
     def verify_three_way_agreement(self) -> None:
@@ -412,6 +418,27 @@ class GoldenManager:
         manifest_entries = self.load_manifest_json()
         docs17_entries = self.parse_docs17_manifest_table()
         committed_files = self.scan_committed_golden_files()
+
+        # Check: ensure any committed non-prefixed files are on explicit allowlist (MIN-04)
+        allowed_non_prefixed: frozenset[str] = frozenset(
+            {
+                "ontology_studio/__init__.py",
+                "ontology_studio/golden_cqs.json",
+                "ontology_studio/test_golden_evaluation.py",
+                "ontology_studio/test_golden_modes.py",
+                "ontology_studio/wm_graph_a_ontology.yaml",
+            }
+        )
+        for path in self.golden_root.rglob("*"):
+            if not path.is_file() or "__pycache__" in path.parts:
+                continue
+            rel = path.relative_to(self.golden_root).as_posix()
+            if rel == "MANIFEST.json" or rel.startswith(".") or "/." in rel:
+                continue
+            if self.include_prefixes and not any(rel.startswith(p) for p in self.include_prefixes):
+                assert rel in allowed_non_prefixed, (
+                    f"Unregistered golden orphan file detected outside allowlist: '{rel}'"
+                )
 
         # Check 1: File set equality
         manifest_files = {e["file"] for e in manifest_entries}
@@ -433,9 +460,11 @@ class GoldenManager:
         for entry in manifest_entries:
             file_rel = entry["file"]
             file_path = self.golden_root / file_rel
-            computed_sha = hashlib.sha256(
-                self.normalize_line_endings_lf(file_path.read_bytes())
-            ).hexdigest().lower()
+            computed_sha = (
+                hashlib.sha256(self.normalize_line_endings_lf(file_path.read_bytes()))
+                .hexdigest()
+                .lower()
+            )
             assert computed_sha == entry["sha256"], (
                 f"MANIFEST sha256 mismatch for '{file_rel}': "
                 f"computed {computed_sha} != manifest {entry['sha256']}"

@@ -26,6 +26,7 @@ from opendv_agent_harness.models import (
     HarnessUsageMetrics,
     ModelTier,
     OutputT,
+    ToolCallBudgetExceededError,
     ToolExecutionContext,
 )
 
@@ -168,12 +169,16 @@ class BaseVaultAgentHarness(abc.ABC):
         try:
             async with asyncio.timeout(self._config.budget.timeout_seconds):
                 async for event in self._stream_provider_task(spec, ctx, model_id):
+                    if event.kind == HarnessEventKind.TOOL_CALL_START:
+                        if tool_call_count >= self._config.budget.max_tool_calls:
+                            stop_reason = HarnessStopReason.MAX_TOOL_CALLS_EXCEEDED
+                            await self.cancel_active_turn(spec.task_id)
+                            break
+                        tool_call_count += 1
                     if on_event is not None:
                         on_event(event)
                     if event.kind == HarnessEventKind.TEXT_DELTA and event.delta_text:
                         text_chunks.append(event.delta_text)
-                    elif event.kind == HarnessEventKind.TOOL_CALL_START:
-                        tool_call_count += 1
                     elif event.kind == HarnessEventKind.STEWARD_HOLD or (
                         event.kind == HarnessEventKind.OBSERVABILITY_EVENT
                         and isinstance(event.observability_event, dict)
@@ -216,6 +221,9 @@ class BaseVaultAgentHarness(abc.ABC):
                                 tool_calls=tool_call_count,
                                 cost_usd=float(u.get("cost_usd", 0.0)),
                             )
+        except ToolCallBudgetExceededError:
+            stop_reason = HarnessStopReason.MAX_TOOL_CALLS_EXCEEDED
+            await self.cancel_active_turn(spec.task_id)
         except asyncio.CancelledError:
             stop_reason = HarnessStopReason.CANCELLED
         except TimeoutError:
@@ -223,10 +231,14 @@ class BaseVaultAgentHarness(abc.ABC):
         except pydantic.ValidationError:
             stop_reason = HarnessStopReason.VALIDATION_ERROR
 
-        if stop_reason == HarnessStopReason.COMPLETED and any(
+        if ctx.tool_budget_exceeded:
+            stop_reason = HarnessStopReason.MAX_TOOL_CALLS_EXCEEDED
+        elif stop_reason == HarnessStopReason.COMPLETED and any(
             isinstance(ev, dict) and ev.get("status") == "ASK-USER" for ev in ctx.emitted_events
         ):
             stop_reason = HarnessStopReason.STEWARD_HOLD
+
+        tool_call_count = max(tool_call_count, ctx.tool_calls_invoked)
 
         usage.duration_ms = int((time.perf_counter_ns() - start_ns) / 1_000_000)
         usage.tool_calls = tool_call_count

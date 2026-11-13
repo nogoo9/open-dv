@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "catalog_version": "1.0.0",
+  "certified_ontologies": {
+    "commerce": {
+      "canonical_sha256": "1b6549436b0296f149be02c0f9eecd1139d448d640b76554dc3a33fd963e2b92",
+      "description": "Global e-commerce and retail transaction graph A ontology.",
+      "name": "Global Commerce Vault",
+      "path": "examples/pipeline_samples/global_commerce_vault/ontology/commerce_graph_a_ontology.yaml"
+    },
+    "issue_40": {
+      "canonical_sha256": "b362adb8fd132334fcfb403c43d8efa7f198498878f1baa310efc6d61f04c7e9",
+      "description": "Cross-border global business key authority scenario.",
+      "name": "Issue 40 Tier-1 Global BKCC",
+      "path": "examples/scenarios/issue_40_tier1_global_bkcc/graph_a_ontology.yaml"
+    },
+    "pe": {
+      "canonical_sha256": "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81",
+      "description": "Authoritative reference Graph A ontology for private equity benchmark.",
+      "name": "Private Equity Graph A Ontology",
+      "path": "examples/private_equity/pe_graph_a_ontology.yaml"
+    },
+    "s2": {
+      "canonical_sha256": "822ffa35681074612dca129f8742f2076c24d0d4d49afc03f7b3e5f20b04a44a",
+      "description": "Multi-tier BKCC resolution scenario.",
+      "name": "Scenario S2 Issue 39 BKCC",
+      "path": "examples/pipeline_samples/scenario_s2_issue39_bkcc/graph_a_ontology.yaml"
+    },
+    "s3": {
+      "canonical_sha256": "ec9c44b4feea838985d9210b0048833b1b7d1023a3f3623361aa9e6a1a6f10e3",
+      "description": "Unmapped bronze feed and candidate concept alignment scenario.",
+      "name": "Scenario S3 Unmapped Feed",
+      "path": "examples/scenarios/s3_unmapped_feed/graph_a_ontology.yaml"
+    },
+    "s9": {
+      "canonical_sha256": "a2ffed60b8c6f5b30e0e38007856458cd98f5229ef95c65bdab7520a00906086",
+      "description": "Multi-tenant tenant-isolation scenario.",
+      "name": "Scenario S9 Multi-Tenant",
+      "path": "examples/scenarios/s9_multitenant/graph_a_ontology.yaml"
+    },
+    "uf2": {
+      "canonical_sha256": "5b2f556b6d53dc4a4e34aa1eb5187c43e4e9099f9d8980b5fd606bf3af1d3723",
+      "description": "Column renaming and lineage compatibility scenario.",
+      "name": "Scenario UF2 Renamed Column",
+      "path": "examples/scenarios/uf2_renamed_column/graph_a_ontology.yaml"
+    }
+  },
+  "description": "Cryptographic SHA-256 baseline digests anchoring certified ontologies, genesis templates, reference packs, matchers, and contract schemas.",
+  "genesis_draft": {
+    "canonical_sha256": "1916a5c6d501015984b887fd76609b225b72d5d393e5813d8df210b92ab3b4c9",
+    "default_domain_namespace": "general",
+    "default_enterprise_owner": "Enterprise Architecture",
+    "description": "Greenfield genesis seed state baseline.",
+    "model": "opendv_core.genesis.GenesisDraft",
+    "vector_path": "vectors/genesis.json",
+    "version": "0.0.0"
+  },
+  "invariants": {
+    "canonical_jcs_rfc8785": true,
+    "sha256_hexdigest_length": 64,
+    "zero_hash_regression": true
+  },
+  "matchers": {
+    "bm25_fibo_v1": {
+      "description": "Multi-field Okapi BM25 concept matcher calibrated against FIBO core pack.",
+      "matcher_id": "bm25_fibo_v1",
+      "parameters": {
+        "b": "0.75",
+        "k1": "1.5",
+        "precision": 28,
+        "tokenization_steps": 7,
+        "unidata_version": "14.0.0"
+      },
+      "spec_path": "schemas/v1/matchers/bm25_fibo_v1.json",
+      "vector_path": "vectors/bm25.json",
+      "version": "1.0.0"
+    }
+  },
+  "reference_packs": {
+    "fibo_core": {
+      "canonical_sha256": "bebd6ae87dfa4eaee523fdeac730f0fe652761004f24e5d15ab36d5225a0acb5",
+      "description": "Curated 6-module FIBO core reference ontology pack.",
+      "modules": [
+        "FND",
+        "BE",
+        "FBC",
+        "SEC",
+        "LOAN",
+        "IND"
+      ],
+      "pack_file_pattern": "fibo-core-<sha256_8>.json",
+      "pack_id": "fibo-core",
+      "pack_path": "packages/opendv-sources/src/opendv_sources/fibo/fibo-core-bebd6ae8.json",
+      "registry_path": "packages/opendv-sources/src/opendv_sources/fibo/fibo-core-bebd6ae8.json",
+      "upstream_commit": "69dbbe7a6a4e32049ba3f3988b48877bc954f061",
+      "upstream_tag": "master_2024Q4",
+      "version": "1.0.0"
+    }
+  },
+  "schema_baselines": {
+    "schemas/cli-spec.json": {
+      "description": "Root CLI specification schema",
+      "sha256": "3974bc378f4e063f7d7aed38316320175fdc2264f2dc3f8f35f46f26d2eeeb3f"
+    },
+    "schemas/dv2-canonical-ir.schema.json": {
+      "description": "Data Vault 2.0 Canonical Intermediate Representation schema",
+      "sha256": "2db7f5d46889d5abc67951350d9d0ae66cf587da41a138d8d727016469feae79"
+    },
+    "schemas/no-mistake-dv2-contract-v5.schema.json": {
+      "description": "No-Mistake Data Vault 2.0 Contract v5.0 schema",
+      "sha256": "6ac2b73be6ec68a9657ba5acf181130edc2869d5289532288f7e5f5ea52bf63d"
+    },
+    "schemas/openapi-v1.json": {
+      "description": "OpenDV Platform API OpenAPI v1 specification",
+      "sha256": "e986a3487065afd1eaa1af39a16f4a80678d80eae6f3b32b7ddebe05f2b1308a"
+    },
+    "schemas/v1/cli-spec.json": {
+      "description": "v1 CLI specification schema",
+      "sha256": "3974bc378f4e063f7d7aed38316320175fdc2264f2dc3f8f35f46f26d2eeeb3f"
+    },
+    "schemas/v1/error-codes.json": {
+      "description": "v1 Closed Error Code Catalog schema",
+      "sha256": "1f0dc102a4fd3e993abb426371eaae533792d21328674512271083e46882beff"
+    },
+    "schemas/v1/ontology-coverage.schema.json": {
+      "description": "v1 Ontology Coverage validation schema",
+      "sha256": "5d7f4ce0753f694fdf155b4fd71836b21c4241ec32a9d554e108f23fed9a2c1e"
+    },
+    "schemas/v1/ontology-delta-v2.schema.json": {
+      "description": "v1 OntologyDelta v2 JSON Schema (Draft 2020-12)",
+      "sha256": "49ac7bc249b0ac3fef55c3000da2b1d91b336f8a801c6103d0cdca64f22b887d"
+    },
+    "schemas/v1/ontology-delta.schema.json": {
+      "description": "v1 OntologyDelta JSON Schema (Draft 2020-12)",
+      "sha256": "6a80d9eddeb98b15d06436e582be5fe56a80920aa714993aabc326923ebfd261"
+    },
+    "schemas/v1/openapi.json": {
+      "description": "v1 OpenAPI specification",
+      "sha256": "e986a3487065afd1eaa1af39a16f4a80678d80eae6f3b32b7ddebe05f2b1308a"
+    },
+    "schemas/v1/steward-hold-option.schema.json": {
+      "description": "v1 Steward Hold Option schema",
+      "sha256": "930677226b67a8ed38c2a5ec349c9fefaa2b54c9d91bd3d6f006cf589cf07736"
+    },
+    "schemas/vault-observability-event.schema.json": {
+      "description": "Data Vault observability telemetry schema",
+      "sha256": "fa7f9978a071943118e636dd97818047e753c6f0c12c53a65ef9bc088bb1e2c1"
+    }
+  },
+  "title": "Open-DV Ontology Construction Studio Authoritative Baseline Digests"
+}

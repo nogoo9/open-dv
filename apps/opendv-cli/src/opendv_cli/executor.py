@@ -36,7 +36,9 @@ from opendv_service.settings import (
     DEFAULT_CORS_ORIGINS,
     DEFAULT_SERVER_HOST,
     DEFAULT_SERVER_PORT,
+    is_loopback_hostname,
 )
+from opendv_service.studio.workspace_security import mint_launch_nonce
 
 
 def _load_platform_server_main() -> Any | None:
@@ -50,6 +52,7 @@ def _load_platform_server_main() -> Any | None:
             except ImportError:
                 return None
     return None
+
 
 for _attr_name, _attr_val in (
     ("HarnessAuthConfigDTO", HarnessAuthConfigDTO),
@@ -507,6 +510,11 @@ class LocalExecutor(CommandExecutor):
 
         action_norm = action.lower()
 
+        if action_norm == "studio":
+            from opendv_cli.commands.ontology_studio import run_ontology_studio_command
+
+            return run_ontology_studio_command(args, executor=self)
+
         if action_norm == "suggest":
             req = OntologySuggestionRequest(
                 base_ontology_path=getattr(args, "base", None),
@@ -888,6 +896,39 @@ class LocalExecutor(CommandExecutor):
             elif "OPENDV_WORKSPACE_ROOT" not in os.environ:
                 os.environ["OPENDV_WORKSPACE_ROOT"] = str(self.workspace_root)
 
+            server_mode = (
+                (
+                    os.environ.get("OPENDV_SERVER_MODE")
+                    or os.environ.get("OPENDV_DEPLOYMENT_MODE")
+                    or "local_standalone"
+                )
+                .strip()
+                .lower()
+            )
+            is_loopback = is_loopback_hostname(host)
+            studio_launch_url: str | None = None
+            if server_mode == "local_standalone" and is_loopback:
+                from opendv_cli.commands.ontology_studio import (
+                    _err_from_opendv_error,
+                    resolve_studio_principal,
+                )
+
+                auth_res = resolve_studio_principal(args)
+                if isinstance(auth_res[0], int):
+                    return auth_res  # type: ignore[return-value]
+                principal_id, studio_role = auth_res  # type: ignore[misc]
+                try:
+                    nonce = mint_launch_nonce(principal=principal_id, role=studio_role, ttl=60.0)
+                except OpenDVError as exc:
+                    return _err_from_opendv_error(exc)
+                display_host = "[::1]" if host.strip() == "::1" else host.strip()
+                studio_launch_url = f"http://{display_host}:{port}/ontology#token={nonce}"
+                wants_json = bool(
+                    getattr(args, "json", False) or getattr(args, "format", None) == "json"
+                )
+                out_stream = sys.stderr if wants_json else sys.stdout
+                print(f"Ontology Studio Launch URL: {studio_launch_url}", file=out_stream)
+
             cli_argv = ["--host", host, "--port", str(port)]
             if config_path:
                 cli_argv.extend(["--config", str(config_path)])
@@ -900,13 +941,16 @@ class LocalExecutor(CommandExecutor):
             if callable(launcher_main):
                 rc = launcher_main(cli_argv)
                 exit_code = int(rc) if isinstance(rc, int) else 0
-                return exit_code, {
+                res_payload: dict[str, Any] = {
                     "status": "OK" if exit_code == 0 else "ERROR",
                     "mode": "local",
                     "host": host,
                     "port": port,
                     "url": f"http://{host}:{port}",
                 }
+                if studio_launch_url:
+                    res_payload["studio_launch_url"] = studio_launch_url
+                return exit_code, res_payload
 
             logging.getLogger(__name__).debug(
                 "opendv-platform entrypoint not found; falling back to uvicorn.run"
@@ -917,7 +961,8 @@ class LocalExecutor(CommandExecutor):
                 import threading
                 import webbrowser
 
-                timer = threading.Timer(0.5, webbrowser.open, args=[f"http://{host}:{port}"])
+                target_open_url = studio_launch_url or f"http://{host}:{port}"
+                timer = threading.Timer(0.5, webbrowser.open, args=[target_open_url])
                 timer.daemon = True
                 timer.start()
 
@@ -928,13 +973,16 @@ class LocalExecutor(CommandExecutor):
             finally:
                 if timer is not None:
                     timer.cancel()
-            return 0, {
+            res_payload = {
                 "status": "OK",
                 "mode": "local",
                 "host": host,
                 "port": port,
                 "url": f"http://{host}:{port}",
             }
+            if studio_launch_url:
+                res_payload["studio_launch_url"] = studio_launch_url
+            return 0, res_payload
         finally:
             if prev_config is None:
                 os.environ.pop("OPENDV_CONFIG", None)

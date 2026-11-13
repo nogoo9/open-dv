@@ -11,17 +11,32 @@ from typing import Any
 from jsonschema import Draft202012Validator  # type: ignore[import-untyped]
 
 from opendv_platform_api.main import create_app
+from opendv_service import OpenDVSettings
 
 DRAFT_2020_12_URI = "https://json-schema.org/draft/2020-12/schema"
 
 
 def generate_openapi_spec() -> dict[str, Any]:
     """Build the deterministic OpenAPI 3.1.0 document with Draft 2020-12 dialect metadata."""
-    app = create_app(workspace_root=Path.cwd())
+    isolated_ws = Path(__file__).resolve().parent
+    isolated_settings = OpenDVSettings(
+        workspace_root=isolated_ws,
+        state_dir=isolated_ws / ".opendv_openapi_tmp",
+    )
+    app = create_app(settings=isolated_settings, workspace_root=isolated_ws)
     raw_spec = copy.deepcopy(app.openapi())
     raw_spec["$schema"] = DRAFT_2020_12_URI
     raw_spec["$id"] = "https://open-dv.dev/schemas/openapi-v1.json"
     raw_spec["jsonSchemaDialect"] = DRAFT_2020_12_URI
+
+    if "components" in raw_spec and "schemas" in raw_spec["components"]:
+        raw_spec["components"]["schemas"]["OntologyDelta"] = {
+            "$ref": "#/components/schemas/OntologyDelta-Output",
+            "description": (
+                "Ordered collection of additive and structural operations evolving Graph A to vN+1."
+            ),
+        }
+
     Draft202012Validator.check_schema(raw_spec)
     return raw_spec
 
@@ -39,6 +54,10 @@ def export_openapi_to_file(out_path: Path | None = None) -> Path:
     rendered = render_openapi_spec()
     with open(target, "w", encoding="utf-8", newline="\n") as f:
         f.write(rendered)
+    v1_target = target.parent / "v1" / "openapi.json"
+    if v1_target.parent.exists():
+        with open(v1_target, "w", encoding="utf-8", newline="\n") as f:
+            f.write(rendered)
     return target
 
 

@@ -129,14 +129,19 @@ def redact_telemetry_event(
         if isinstance(val, list):
             return [_mask_pii(item, key_name) for item in val]
         if isinstance(val, str):
-            if any(term in key_name.lower() for term in ["aba", "routing", "tax_id", "wire_iban", "ssn", "ein"]):
+            if any(
+                term in key_name.lower()
+                for term in ["aba", "routing", "tax_id", "wire_iban", "ssn", "ein"]
+            ):
                 return "[REDACTED:RESTRICTED_PII]"
             masked = RE_SSN.sub("[REDACTED:RESTRICTED_PII]", val)
             masked = RE_EIN.sub("[REDACTED:RESTRICTED_PII]", masked)
             masked = RE_ABA.sub(
-                lambda m: m.group(0)
-                if m.group(0).startswith(("2026", "1900", "0000"))
-                else "[REDACTED:RESTRICTED_PII]",
+                lambda m: (
+                    m.group(0)
+                    if m.group(0).startswith(("2026", "1900", "0000"))
+                    else "[REDACTED:RESTRICTED_PII]"
+                ),
                 masked,
             )
             return masked
@@ -163,15 +168,23 @@ def redact_telemetry_event(
         l2 = ev.get("layer2_visual_payload", {})
         metrics = l2.get("summary_metrics", {})
         for k in list(metrics.keys()):
-            if any(term in k.lower() for term in ["valuation", "multiple", "ev_", "ebitda", "fair_value"]):
+            if any(
+                term in k.lower()
+                for term in ["valuation", "multiple", "ev_", "ebitda", "fair_value"]
+            ):
                 metrics[k] = "[REDACTED:MNPI]"
 
     # Tier 3: CONFIDENTIAL individual LP rows
-    if tier in {"CONFIDENTIAL", "MNPI", "RESTRICTED_PII"} and "LP_CONFIDENTIAL_STEWARD" not in roles:
+    if (
+        tier in {"CONFIDENTIAL", "MNPI", "RESTRICTED_PII"}
+        and "LP_CONFIDENTIAL_STEWARD" not in roles
+    ):
         l2 = ev.get("layer2_visual_payload", {})
         pills = l2.get("semantic_hash_pills", [])
         for pill in pills:
-            if pill.get("bkcc_prefix") in ["GLOBAL", "LEGACY_GP_ADMIN"] and "LP" in pill.get("business_key", ""):
+            if pill.get("bkcc_prefix") in ["GLOBAL", "LEGACY_GP_ADMIN"] and "LP" in pill.get(
+                "business_key", ""
+            ):
                 pill["entity_label"] = "[REDACTED:CONFIDENTIAL]"
                 pill["pill_label"] = (
                     f"[{pill.get('pill_label', '').split(':')[0]}: "
@@ -264,7 +277,12 @@ class TestVaultObservabilitySchemaInvariants:
             ("P5_SYNTHESIS_PASS2", "STAGE_04_SHIP_VAULT_PASS2", "STEP-06", "ship-vault"),
             ("P6_VERIFICATION", "STAGE_05_AXI_DV_STATIC_GATES", None, "axi-dv"),
             ("P7_DYNAMIC_SANDBOX", "STAGE_06_AXI_DV_DYNAMIC_SANDBOX", None, "axi-dv"),
-            ("P8_OPERATIONS", "STAGE_07_DETERMINISTIC_COMPILER", "STEP-07", "deterministic-compiler"),
+            (
+                "P8_OPERATIONS",
+                "STAGE_07_DETERMINISTIC_COMPILER",
+                "STEP-07",
+                "deterministic-compiler",
+            ),
         ],
     )
     def test_positive_validation_across_all_eight_phases(
@@ -320,9 +338,7 @@ class TestVaultObservabilitySchemaInvariants:
             ("G_AUD", "INV-01"),
         ],
     )
-    def test_positive_validation_all_verification_gates(
-        self, base_valid_event, gate_id, rule_code
-    ):
+    def test_positive_validation_all_verification_gates(self, base_valid_event, gate_id, rule_code):
         """Verify positive schema validation across all verification gates G1..G6, G_DYN, G_AUD."""
         ev = copy.deepcopy(base_valid_event)
         ev["phase_id"] = "P6_VERIFICATION"
@@ -370,9 +386,7 @@ class TestVaultObservabilitySchemaInvariants:
             "P8_OPERATIONS",
         ],
     )
-    def test_non_p6_phase_illegally_setting_gate_id_rejected(
-        self, base_valid_event, non_p6_phase
-    ):
+    def test_non_p6_phase_illegally_setting_gate_id_rejected(self, base_valid_event, non_p6_phase):
         """Parametrized negative test: non-P6 phase (or omitted phase_id) illegally setting gate_id is rejected."""
         ev = copy.deepcopy(base_valid_event)
         if non_p6_phase is None:
@@ -384,7 +398,11 @@ class TestVaultObservabilitySchemaInvariants:
 
         with pytest.raises(ValidationError) as excinfo:
             VALIDATOR.validate(ev)
-        assert "not" in str(excinfo.value) or "gate_id" in str(excinfo.value) or "allOf" in str(excinfo.value)
+        assert (
+            "not" in str(excinfo.value)
+            or "gate_id" in str(excinfo.value)
+            or "allOf" in str(excinfo.value)
+        )
 
     @pytest.mark.parametrize(
         "phase_id,mismatched_step",
@@ -399,9 +417,7 @@ class TestVaultObservabilitySchemaInvariants:
             ("P8_OPERATIONS", "STEP-04"),
         ],
     )
-    def test_phase_step_mismatch_rejected(
-        self, base_valid_event, phase_id, mismatched_step
-    ):
+    def test_phase_step_mismatch_rejected(self, base_valid_event, phase_id, mismatched_step):
         """Parametrized negative test: incompatible phase_id and step_id are rejected."""
         ev = copy.deepcopy(base_valid_event)
         ev["phase_id"] = phase_id
@@ -421,11 +437,11 @@ class TestVaultObservabilitySchemaInvariants:
     @pytest.mark.parametrize(
         "bad_trace_id",
         [
-            "4bf92f3577b34da6a3ce929d0e0e473",   # 31 hex (too short)
+            "4bf92f3577b34da6a3ce929d0e0e473",  # 31 hex (too short)
             "4bf92f3577b34da6a3ce929d0e0e47366",  # 33 hex (too long)
             "4BF92F3577B34DA6A3CE929D0E0E4736",  # Uppercase not allowed
             "4bf92f35-77b3-4da6-a3ce-929d0e0e4",  # Contains hyphens
-            "not-a-valid-hex-trace-id-string!",    # Non-hex
+            "not-a-valid-hex-trace-id-string!",  # Non-hex
         ],
     )
     def test_invalid_trace_id_rejected(self, base_valid_event, bad_trace_id):
@@ -445,9 +461,7 @@ class TestVaultObservabilitySchemaInvariants:
             ("confidence", 1.01),
         ],
     )
-    def test_invalid_envelope_fields_rejected(
-        self, base_valid_event, field, bad_val
-    ):
+    def test_invalid_envelope_fields_rejected(self, base_valid_event, field, bad_val):
         """Negative test: run_id, event_id, contract_version, and confidence bounds."""
         ev = copy.deepcopy(base_valid_event)
         ev[field] = bad_val
@@ -516,8 +530,12 @@ class TestFiveTierRedactionAndLeakDetection:
         ]
 
         redacted = redact_telemetry_event(ev, viewer_roles=[])
-        assert redacted["layer2_visual_payload"]["semantic_hash_pills"][0]["business_key"] == "LP-101"
-        assert redacted["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"] == "CalPERS"
+        assert (
+            redacted["layer2_visual_payload"]["semantic_hash_pills"][0]["business_key"] == "LP-101"
+        )
+        assert (
+            redacted["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"] == "CalPERS"
+        )
 
     def test_confidential_tier_masks_individual_lps_preserves_aggregates(self, base_valid_event):
         """Tier 3 (CONFIDENTIAL) masks individual LP identities while preserving aggregate stats."""
@@ -544,11 +562,16 @@ class TestFiveTierRedactionAndLeakDetection:
         assert "[REDACTED:CONFIDENTIAL]" in pill["pill_label"]
         # Aggregates preserved
         assert redacted["layer2_visual_payload"]["summary_metrics"]["lp_count"] == 7
-        assert redacted["layer2_visual_payload"]["summary_metrics"]["total_commitments_usd"] == 500000000.0
+        assert (
+            redacted["layer2_visual_payload"]["summary_metrics"]["total_commitments_usd"]
+            == 500000000.0
+        )
 
         # Authorized viewer clears redaction
         cleared = redact_telemetry_event(ev, viewer_roles=["LP_CONFIDENTIAL_STEWARD"])
-        assert cleared["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"] == "CalPERS"
+        assert (
+            cleared["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"] == "CalPERS"
+        )
 
     def test_mnpi_tier_masks_valuation_figures_unless_cleared(self, base_valid_event):
         """Tier 4 (MNPI) masks pre-release EV/EBITDA figures unless MNPI_CLEARED_STEWARD."""
@@ -571,7 +594,10 @@ class TestFiveTierRedactionAndLeakDetection:
         assert "14.5x" not in redacted["layer1_story_banner"]["headline"]
         assert "$245,000,000.00" not in redacted["layer1_story_banner"]["headline"]
         assert "[REDACTED:MNPI]" in redacted["layer1_story_banner"]["headline"]
-        assert redacted["layer2_visual_payload"]["summary_metrics"]["entry_ev_multiple"] == "[REDACTED:MNPI]"
+        assert (
+            redacted["layer2_visual_payload"]["summary_metrics"]["entry_ev_multiple"]
+            == "[REDACTED:MNPI]"
+        )
         assert redacted["layer2_visual_payload"]["summary_metrics"]["table_count"] == 1
 
         # MNPI Cleared Steward: unmasked
@@ -599,15 +625,27 @@ class TestFiveTierRedactionAndLeakDetection:
         assert "14.5x" not in redacted["layer1_story_banner"]["headline"]
         assert "[REDACTED:RESTRICTED_PII]" in redacted["layer1_story_banner"]["headline"]
         assert "[REDACTED:MNPI]" in redacted["layer1_story_banner"]["headline"]
-        assert redacted["layer2_visual_payload"]["summary_metrics"]["wire_aba_routing_raw"] == "[REDACTED:RESTRICTED_PII]"
-        assert redacted["layer2_visual_payload"]["summary_metrics"]["entry_ev_multiple"] == "[REDACTED:MNPI]"
-        assert redacted["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"] == "[REDACTED:CONFIDENTIAL]"
+        assert (
+            redacted["layer2_visual_payload"]["summary_metrics"]["wire_aba_routing_raw"]
+            == "[REDACTED:RESTRICTED_PII]"
+        )
+        assert (
+            redacted["layer2_visual_payload"]["summary_metrics"]["entry_ev_multiple"]
+            == "[REDACTED:MNPI]"
+        )
+        assert (
+            redacted["layer2_visual_payload"]["semantic_hash_pills"][0]["entity_label"]
+            == "[REDACTED:CONFIDENTIAL]"
+        )
 
     @pytest.mark.parametrize(
         "leak_payload,expected_leak_type",
         [
             ({"headline": "Disclosed SSN: 123-45-6789 in story banner"}, "SSN"),
-            ({"headline": "Partially masked [REDACTED:MNPI] with SSN 123-45-6789 and 20261030"}, "SSN"),
+            (
+                {"headline": "Partially masked [REDACTED:MNPI] with SSN 123-45-6789 and 20261030"},
+                "SSN",
+            ),
             ({"diff": "+ tax_id = '12-3456789'"}, "EIN"),
             ({"routing": "ABA Wire: 021000021 transmitted after 1900-01-01"}, "ABA_ROUTING"),
         ],
@@ -637,9 +675,19 @@ class TestSemanticHashPillsAndProgressiveDisclosure:
         [
             ("Fund", "APEX_BO_IV", "94A60FCD1D388759", "Fund(APEX_BO_IV) · #94a60f"),
             ("LimitedPartner", ["LP-101"], "5D15EB104B820AE4", "LimitedPartner(LP-101) · #5d15eb"),
-            ("LPCommitment", ["APEX_BO_IV", "LP-101", "COMM-001"], "EB156109357A7C4E", "LPCommitment(APEX_BO_IV, LP-101, COMM-001) · #eb1561"),
+            (
+                "LPCommitment",
+                ["APEX_BO_IV", "LP-101", "COMM-001"],
+                "EB156109357A7C4E",
+                "LPCommitment(APEX_BO_IV, LP-101, COMM-001) · #eb1561",
+            ),
             ("Ghost", [], "0000000000000000", "Ghost() · #000000"),
-            ("PortCo", "529900T8BM49AURSDO55", "0C1850CA39B0454E", "PortCo(529900T8BM49AURSDO55) · #0c1850"),
+            (
+                "PortCo",
+                "529900T8BM49AURSDO55",
+                "0C1850CA39B0454E",
+                "PortCo(529900T8BM49AURSDO55) · #0c1850",
+            ),
         ],
     )
     def test_format_semantic_hash_pill_exact_contract(

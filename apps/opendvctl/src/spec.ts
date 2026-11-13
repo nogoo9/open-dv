@@ -28,7 +28,8 @@ export interface CliSubcommand {
 	availability: "both" | "standalone_only" | "client_only";
 	request_dto?: string | null;
 	response_dto?: string | null;
-	options: CliOption[];
+	options?: CliOption[];
+	subcommands?: CliSubcommand[];
 }
 
 export interface CliCommand {

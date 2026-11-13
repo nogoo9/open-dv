@@ -16,6 +16,98 @@ from typing import Any
 from opendv_contracts.spec import load_cli_spec
 
 
+def _format_subcommand(
+    parent_path: str,
+    sub: dict[str, Any],
+    heading_level: int = 5,
+) -> list[str]:
+    """Recursively format a subcommand and any nested subcommands."""
+    sub_lines: list[str] = []
+    sub_name = sub["name"]
+    full_path = f"{parent_path} {sub_name}"
+    sub_avail = sub.get("availability", "both")
+    sub_badge = (
+        "*(Both CLIs)*"
+        if sub_avail == "both"
+        else "*(Standalone `opendv` only)*"
+        if sub_avail == "standalone_only"
+        else "*(Platform client `opendvctl` only)*"
+    )
+
+    h_prefix = "#" * min(heading_level, 6)
+    sub_lines.extend(
+        [
+            f"{h_prefix} `{full_path}` {sub_badge}",
+            "",
+            f"{sub.get('description', '')}",
+            "",
+        ]
+    )
+
+    options = sub.get("options", [])
+    if options:
+        sub_lines.extend(
+            [
+                ("| Option | Short | Type | Required | Default | Inline Upload | Description |"),
+                "| :--- | :---: | :---: | :---: | :---: | :---: | :--- |",
+            ]
+        )
+        for opt in options:
+            short = f"`{opt['short']}`" if opt.get("short") else "—"
+            req = "Yes" if opt.get("required") else "No"
+            default = f"`{opt['default']}`" if opt.get("default") is not None else "—"
+            inline = "Yes" if opt.get("inline_upload") else "No"
+            sub_lines.append(
+                f"| `{opt['flag']}` | {short} | `{opt['type']}` | {req} | "
+                f"{default} | {inline} | {opt.get('help', '')} |"
+            )
+        sub_lines.append("")
+
+    if sub.get("request_dto"):
+        sub_lines.append(f"- **Request DTO:** `{sub['request_dto']}`")
+    if sub.get("response_dto"):
+        sub_lines.append(f"- **Response DTO:** `{sub['response_dto']}`")
+
+    nested = sub.get("subcommands", [])
+    if not nested:
+        example_lines: list[str] = [
+            "",
+            "**Example Invocations:**",
+            "```bash",
+        ]
+        if sub_avail != "client_only":
+            example_lines.extend(
+                [
+                    "# Standalone execution",
+                    f"opendv {full_path} --help",
+                ]
+            )
+        if sub_avail == "both":
+            example_lines.append("")
+        if sub_avail != "standalone_only":
+            example_lines.extend(
+                [
+                    "# Client execution",
+                    f"opendvctl {full_path} --api-url $OPENDV_API_URL --json",
+                ]
+            )
+        example_lines.extend(["```", ""])
+        sub_lines.extend(example_lines)
+
+    if nested:
+        sub_h_prefix = "#" * min(heading_level + 1, 6)
+        sub_lines.extend(
+            [
+                f"{sub_h_prefix} Subcommands of `{full_path}`",
+                "",
+            ]
+        )
+        for child in nested:
+            sub_lines.extend(_format_subcommand(full_path, child, heading_level + 1))
+
+    return sub_lines
+
+
 def generate_cli_reference_markdown(spec: dict[str, Any] | None = None) -> str:
     """Generate canonical Markdown CLI reference from CLI specification dictionary."""
     cli_spec = spec or load_cli_spec()
@@ -119,9 +211,16 @@ def generate_cli_reference_markdown(spec: dict[str, Any] | None = None) -> str:
             else "*(Platform client `opendvctl` only)*"
         )
 
+        cmd_header = (
+            f"### `opendv {cmd_name}` / `opendvctl {cmd_name}`{alias_str}"
+            if avail == "both"
+            else f"### `opendv {cmd_name}`{alias_str}"
+            if avail == "standalone_only"
+            else f"### `opendvctl {cmd_name}`{alias_str}"
+        )
         lines.extend(
             [
-                f"### `opendv {cmd_name}` / `opendvctl {cmd_name}`{alias_str}",
+                cmd_header,
                 "",
                 f"**Availability:** {avail_badge}  ",
                 f"**Description:** {cmd.get('description', '')}  ",
@@ -139,66 +238,7 @@ def generate_cli_reference_markdown(spec: dict[str, Any] | None = None) -> str:
                 ]
             )
             for sub in subcommands:
-                sub_name = sub["name"]
-                sub_avail = sub.get("availability", "both")
-                sub_badge = (
-                    "*(Both CLIs)*"
-                    if sub_avail == "both"
-                    else "*(Standalone `opendv` only)*"
-                    if sub_avail == "standalone_only"
-                    else "*(Platform client `opendvctl` only)*"
-                )
-
-                lines.extend(
-                    [
-                        f"##### `{cmd_name} {sub_name}` {sub_badge}",
-                        "",
-                        f"{sub.get('description', '')}",
-                        "",
-                    ]
-                )
-
-                options = sub.get("options", [])
-                if options:
-                    lines.extend(
-                        [
-                            (
-                                "| Option | Short | Type | Required | Default | "
-                                "Inline Upload | Description |"
-                            ),
-                            "| :--- | :---: | :---: | :---: | :---: | :---: | :--- |",
-                        ]
-                    )
-                    for opt in options:
-                        short = f"`{opt['short']}`" if opt.get("short") else "—"
-                        req = "Yes" if opt.get("required") else "No"
-                        default = f"`{opt['default']}`" if opt.get("default") is not None else "—"
-                        inline = "Yes" if opt.get("inline_upload") else "No"
-                        lines.append(
-                            f"| `{opt['flag']}` | {short} | `{opt['type']}` | {req} | "
-                            f"{default} | {inline} | {opt.get('help', '')} |"
-                        )
-                    lines.append("")
-
-                if sub.get("request_dto"):
-                    lines.append(f"- **Request DTO:** `{sub['request_dto']}`")
-                if sub.get("response_dto"):
-                    lines.append(f"- **Response DTO:** `{sub['response_dto']}`")
-
-                lines.extend(
-                    [
-                        "",
-                        "**Example Invocations:**",
-                        "```bash",
-                        "# Standalone execution",
-                        f"opendv {cmd_name} {sub_name} --help",
-                        "",
-                        "# Client execution",
-                        f"opendvctl {cmd_name} {sub_name} --api-url $OPENDV_API_URL --json",
-                        "```",
-                        "",
-                    ]
-                )
+                lines.extend(_format_subcommand(cmd_name, sub, heading_level=5))
         else:
             options = cmd.get("options", [])
             if options:
@@ -227,20 +267,29 @@ def generate_cli_reference_markdown(spec: dict[str, Any] | None = None) -> str:
             if cmd.get("response_dto"):
                 lines.append(f"- **Response DTO:** `{cmd['response_dto']}`")
 
-            lines.extend(
-                [
-                    "",
-                    "**Example Invocations:**",
-                    "```bash",
-                    "# Standalone execution",
-                    f"opendv {cmd_name} --help",
-                    "",
-                    "# Client execution",
-                    f"opendvctl {cmd_name} --api-url $OPENDV_API_URL --json",
-                    "```",
-                    "",
-                ]
-            )
+            example_lines = [
+                "",
+                "**Example Invocations:**",
+                "```bash",
+            ]
+            if avail != "client_only":
+                example_lines.extend(
+                    [
+                        "# Standalone execution",
+                        f"opendv {cmd_name} --help",
+                    ]
+                )
+            if avail == "both":
+                example_lines.append("")
+            if avail != "standalone_only":
+                example_lines.extend(
+                    [
+                        "# Client execution",
+                        f"opendvctl {cmd_name} --api-url $OPENDV_API_URL --json",
+                    ]
+                )
+            example_lines.extend(["```", ""])
+            lines.extend(example_lines)
 
     lines.extend(
         [
@@ -251,8 +300,28 @@ def generate_cli_reference_markdown(spec: dict[str, Any] | None = None) -> str:
             "Both CLIs adhere to normative exit code standards across all failure scenarios:",
             "",
             "- `0`: Operation succeeded (`overall_passed: true` or status `COMPLETED`).",
-            "- `1`: Domain or verification rejection (`overall_passed: false` or gate failure).",
-            "- `2`: Syntax, argument error, configuration error, or schema validation failure.",
+            (
+                "- `1`: Domain, verification, or runtime failure "
+                "(`overall_passed: false`, gate failure, or internal error)."
+            ),
+            "- `2`: Syntax, invalid CLI argument, configuration error, or missing precondition.",
+            "- `3`: Resource not found (session, proposal, job, source, or input file not found).",
+            (
+                "- `4`: Governance, contract, or semantic validation violation "
+                "(`ONT-EVO-001..003`, grounding, or taint policy)."
+            ),
+            (
+                "- `5`: Optimistic concurrency or stale base precondition conflict "
+                "(`If-Match` / `base_sha256` mismatch)."
+            ),
+            (
+                "- `6`: Resource state conflict "
+                "(session already exists, proposal already resolved, or active job conflict)."
+            ),
+            (
+                "- `7`: Authentication, RBAC role clearance, steward waiver, "
+                "or transport security forbidden."
+            ),
             "",
             "### Domain Error Mapping Specification",
             "",

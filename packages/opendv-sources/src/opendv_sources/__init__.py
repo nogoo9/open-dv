@@ -11,9 +11,14 @@ from opendv_sources.config.loader import load_structured_document
 from opendv_sources.conformance.document_suite import DocumentAdapterConformanceSuite
 from opendv_sources.conformance.tabular_suite import TabularAdapterConformanceSuite
 from opendv_sources.exceptions import (
+    ArchiveSecurityViolationError,
     AuthenticationError,
     DocumentExtractionError,
     FormatError,
+    InvalidDocumentError,
+    OCRExecutionError,
+    OCRUnavailableError,
+    OfficeConversionUnavailableError,
     PathContainmentError,
     SourceEmptyError,
     SourceError,
@@ -61,6 +66,7 @@ from opendv_sources.spi.tabular import TabularSourceAdapter
 __all__ = [
     "FORMAT_PARSER_ENTRY_POINT_GROUP",
     "SOURCE_ADAPTER_ENTRY_POINT_GROUP",
+    "ArchiveSecurityViolationError",
     "AuthenticationError",
     "BatchRead",
     "ColumnDescriptor",
@@ -77,9 +83,13 @@ __all__ = [
     "FormatParserRegistry",
     "FormatSpec",
     "InlineSourceAdapter",
+    "InvalidDocumentError",
     "JsonFormatParser",
     "LoadedGraphA",
     "LocalFilesystemSourceAdapter",
+    "OCRExecutionError",
+    "OCRUnavailableError",
+    "OfficeConversionUnavailableError",
     "PageMapEntry",
     "ParquetFormatParser",
     "PathContainmentError",

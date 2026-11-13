@@ -178,9 +178,12 @@ def test_t17_par_ont_advisory_policy_fail_loud(
     # Standalone CLI exit code 2
     code_cli, out_cli, _ = cli_transport.invoke_raw(
         [
-            "ontology", "suggest",
-            "--recommender-id", "nonexistent-recommender-xyz",
-            "--mode", "BOOTSTRAP",
+            "ontology",
+            "suggest",
+            "--recommender-id",
+            "nonexistent-recommender-xyz",
+            "--mode",
+            "BOOTSTRAP",
             "--json",
         ]
     )
@@ -191,9 +194,12 @@ def test_t17_par_ont_advisory_policy_fail_loud(
     # Client CLI exit code 2
     code_ctl, _, _ = client_cli_transport.invoke_raw(
         [
-            "ontology", "suggest",
-            "--recommender-id", "nonexistent-recommender-xyz",
-            "--mode", "BOOTSTRAP",
+            "ontology",
+            "suggest",
+            "--recommender-id",
+            "nonexistent-recommender-xyz",
+            "--mode",
+            "BOOTSTRAP",
             "--json",
         ]
     )
@@ -237,9 +243,7 @@ def test_t17_par_ont_hold_three_transports(
 
     # --- Phase A: validate-delta parity ---
     v_cli = cli_transport.validate_ontology_delta(delta=delta_dict, base=BASE_ONT_PATH)
-    v_ctl = client_cli_transport.validate_ontology_delta(
-        delta=delta_dict, base=BASE_ONT_PATH
-    )
+    v_ctl = client_cli_transport.validate_ontology_delta(delta=delta_dict, base=BASE_ONT_PATH)
     v_rest = rest_transport.validate_ontology_delta(delta=delta_dict, base=BASE_ONT_PATH)
 
     assert v_cli.get("valid") is True

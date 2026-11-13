@@ -392,17 +392,31 @@ describe("3-Level Pipeline Explorer Workbench (HANDOFF.md)", () => {
 			expect(store.getState().runState).toBe("running");
 		});
 
-		it("serves deep-linked /stages/05 route from the Bun dev server", async () => {
+		it("serves deep-linked SPA routes and trailing-slash paths from Bun dev server (MAJ-01)", async () => {
 			const devServer = createWorkbenchDevServer({
 				port: 0,
 				silent: true,
 			});
 			try {
-				const res = await fetch(
-					`http://127.0.0.1:${devServer.port}/stages/05?artifact=final_contract`,
-				);
-				expect(res.status).toBe(200);
-				expect(res.headers.get("content-type")).toContain("text/html");
+				const testRoutes = [
+					"/",
+					"/index.html",
+					"/builder",
+					"/builder/",
+					"/settings",
+					"/settings/",
+					"/ontology",
+					"/ontology/",
+					"/ontology/sessions/sess_123",
+					"/ontology/sessions/sess.with.dots",
+					"/stages/05",
+					"/stages/05?artifact=final_contract",
+				];
+				for (const route of testRoutes) {
+					const res = await fetch(`http://127.0.0.1:${devServer.port}${route}`);
+					expect(res.status).toBe(200);
+					expect(res.headers.get("content-type")).toContain("text/html");
+				}
 			} finally {
 				devServer.stop(true);
 			}

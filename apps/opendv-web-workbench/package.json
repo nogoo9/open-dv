@@ -5,6 +5,8 @@
 	"type": "module",
 	"dependencies": {
 		"@opendv/protocol-ts": "workspace:*",
+		"@xyflow/react": "^12.12.1",
+		"elkjs": "^0.12.1",
 		"react": "^19.0.0",
 		"react-dom": "^19.0.0",
 		"zustand": "^5.0.0"

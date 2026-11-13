@@ -14,12 +14,23 @@ from opendv_contracts.errors import DEFAULT_MAX_INLINE_BYTES
 
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 8420
+LOOPBACK_HOSTNAMES: frozenset[str] = frozenset({"localhost", "127.0.0.1", "::1"})
 DEFAULT_CORS_ORIGINS: list[str] = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "http://localhost:8420",
     "http://127.0.0.1:8420",
 ]
+
+
+def is_loopback_hostname(raw: str | None) -> bool:
+    """Strictly verify whether a hostname string resolves to canonical loopback."""
+    if not raw:
+        return False
+    cleaned = raw.strip().lower()
+    if cleaned.startswith("[") and cleaned.endswith("]"):
+        cleaned = cleaned[1:-1]
+    return cleaned in LOOPBACK_HOSTNAMES
 
 
 class ConfigurationError(ValueError):

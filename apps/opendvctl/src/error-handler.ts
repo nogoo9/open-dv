@@ -1,12 +1,18 @@
 /**
  * Error Handler and Exit Code Mapper.
  *
- * Driven by `error_map` in `cli-spec.json`:
- * - Exit code 0: Success (OK, overall_passed = true, status = COMPLETED).
- * - Exit code 1: Verification failure (VERIFICATION_FAILED, overall_passed = false).
- * - Exit code 2: Input validation, not found, contract mismatch, API unreachable, or internal errors.
+ * Driven by `error_map` in `cli-spec.json` (authoritative Wave-1 precedence) and `schemas/v1/error-codes.json`:
+ * - Exit code 0: Success (`OK`, `overall_passed = true`, `status = COMPLETED`).
+ * - Exit code 1: Verification rejection or Studio capability/runtime failure (`VERIFICATION_FAILED`, `EXECUTION_FAILURE`).
+ * - Exit code 2: Syntax, invalid CLI argument, configuration error, missing precondition, or Wave-1 `INTERNAL_ERROR`.
+ * - Exit code 3: Resource, session, proposal, job, or local file not found.
+ * - Exit code 4: Governance, contract, grounding, or validation violation (`422`).
+ * - Exit code 5: Optimistic concurrency / stale precondition conflict (`412`).
+ * - Exit code 6: Resource state conflict (`409`).
+ * - Exit code 7: Authentication, RBAC role clearance, waiver, or transport forbidden (`401`/`403`).
  */
 
+import rawErrorCodes from "../../../schemas/v1/error-codes.json" with { type: "json" };
 import { dumpsJcs } from "./jcs";
 import { type ErrorMapping, loadCliSpec } from "./spec";
 
@@ -31,16 +37,94 @@ export class CliDomainError extends Error {
 	}
 }
 
+export function mapHttpStatusToExitCode(httpStatus?: number): number {
+	if (httpStatus === undefined) {
+		return 2;
+	}
+	if (httpStatus === 401 || httpStatus === 403) {
+		return 7;
+	}
+	if (httpStatus === 409) {
+		return 6;
+	}
+	if (httpStatus === 412) {
+		return 5;
+	}
+	if (httpStatus === 422) {
+		return 4;
+	}
+	if (httpStatus === 404) {
+		return 3;
+	}
+	if (httpStatus === 400 || httpStatus === 413 || httpStatus === 415) {
+		return 2;
+	}
+	if (httpStatus === 501) {
+		return 1;
+	}
+	if (httpStatus >= 500) {
+		return 2;
+	}
+	return 2;
+}
+
+function canonicalFallbackCodeForStatus(httpStatus?: number): string {
+	if (httpStatus === 401) return "UNAUTHENTICATED";
+	if (httpStatus === 403) return "FORBIDDEN_ADMIN_REQUIRED";
+	if (httpStatus === 404) return "RESOURCE_NOT_FOUND";
+	if (httpStatus === 409) return "SESSION_ALREADY_EXISTS";
+	if (httpStatus === 412) return "ONT_EVO_CONCURRENT_MODIFICATION";
+	if (httpStatus === 413) return "PAYLOAD_TOO_LARGE";
+	if (httpStatus === 415) return "UNSUPPORTED_FORMAT";
+	if (httpStatus === 422) return "ONT_EVO_CONTRACT_VIOLATION";
+	if (httpStatus === 503) return "API_UNREACHABLE";
+	if (httpStatus !== undefined && httpStatus >= 500) return "INTERNAL_ERROR";
+	return "INVALID_REQUEST";
+}
+
 export class ErrorHandler {
 	private readonly errorMap = new Map<string, ErrorMapping>();
 	private readonly httpStatusMap = new Map<number, ErrorMapping>();
 
 	constructor(customMappings?: ErrorMapping[]) {
-		const mappings = customMappings ?? loadCliSpec().error_map;
-		for (const mapping of mappings) {
+		// 1. Load Studio catalog from schemas/v1/error-codes.json first (Issue #220)
+		const catalog =
+			(
+				rawErrorCodes as {
+					error_codes?: Array<{
+						code: string;
+						exit_code: number;
+						http_status: number;
+						problem_title: string;
+						problem_type_uri: string;
+					}>;
+				}
+			).error_codes ?? [];
+
+		for (const item of catalog) {
+			const mapping: ErrorMapping = {
+				error_code: item.code,
+				exit_code: item.exit_code,
+				http_status: item.http_status,
+				problem_title: item.problem_title,
+				problem_type_uri: item.problem_type_uri,
+			};
 			this.errorMap.set(mapping.error_code, mapping);
 			if (!this.httpStatusMap.has(mapping.http_status)) {
 				this.httpStatusMap.set(mapping.http_status, mapping);
+			}
+		}
+
+		// 2. Authoritative overlay: cli-spec.json error_map (or customMappings) unconditionally
+		// overwrites error-codes.json so frozen Wave-1 CLI mappings remain 100% authoritative,
+		// while error-codes.json supplies all Studio codes outside cli-spec.json.
+		const mappings = customMappings ?? loadCliSpec().error_map;
+		const specStatuses = new Set<number>();
+		for (const mapping of mappings) {
+			this.errorMap.set(mapping.error_code, mapping);
+			if (!specStatuses.has(mapping.http_status)) {
+				this.httpStatusMap.set(mapping.http_status, mapping);
+				specStatuses.add(mapping.http_status);
 			}
 		}
 	}
@@ -58,9 +142,45 @@ export class ErrorHandler {
 					problemTypeUri: mapped.problem_type_uri,
 				};
 			}
+
+			// Normalize any unrecognized error string (e.g. generic HTTP status placeholders)
+			// strictly onto registered canonical ErrorCode members (S5-MAJ-03).
+			const fallbackCode = canonicalFallbackCodeForStatus(error.httpStatus);
+			const fallbackMapped = this.errorMap.get(fallbackCode);
+			const fallbackStatus =
+				error.httpStatus ?? fallbackMapped?.http_status ?? 400;
+			return {
+				exitCode:
+					fallbackMapped?.exit_code ??
+					mapHttpStatusToExitCode(error.httpStatus),
+				errorCode: fallbackMapped?.error_code ?? fallbackCode,
+				detail: error.message,
+				httpStatus: fallbackStatus,
+				problemTitle: fallbackMapped?.problem_title ?? fallbackCode,
+				problemTypeUri:
+					fallbackMapped?.problem_type_uri ??
+					`urn:opendv:error:${fallbackCode.toLowerCase().replace(/_/g, "-")}`,
+			};
 		}
 
 		const errMsg = error instanceof Error ? error.message : String(error);
+		const errName = error instanceof Error ? error.name : "";
+
+		if (
+			errName === "CliSyntaxError" ||
+			errName === "CommandLineParseError"
+		) {
+			const m = this.errorMap.get("SYNTAX_INVALID_ARGUMENT");
+			return {
+				exitCode: m?.exit_code ?? 2,
+				errorCode: "SYNTAX_INVALID_ARGUMENT",
+				detail: errMsg,
+				httpStatus: m?.http_status ?? 400,
+				problemTitle: m?.problem_title ?? "Invalid CLI Argument",
+				problemTypeUri:
+					m?.problem_type_uri ?? "urn:opendv:error:syntax-invalid-argument",
+			};
+		}
 
 		// Specific error matching
 		if (errMsg.includes("Contract version mismatch")) {
@@ -121,9 +241,40 @@ export class ErrorHandler {
 		};
 	}
 
+	getExitCode(errorOrCode: unknown, httpStatus?: number): number {
+		if (typeof errorOrCode === "string") {
+			const mapped = this.errorMap.get(errorOrCode);
+			if (mapped) {
+				return mapped.exit_code;
+			}
+			return this.resolveError(
+				new CliDomainError(errorOrCode, errorOrCode, httpStatus),
+			).exitCode;
+		}
+		return this.resolveError(errorOrCode).exitCode;
+	}
+
+	getExitCodeForPayload(payload: unknown): number {
+		return this.resolvePayloadExitCode(payload);
+	}
+
 	resolvePayloadExitCode(payload: unknown): number {
 		if (typeof payload === "object" && payload !== null) {
 			const obj = payload as Record<string, unknown>;
+
+			if (obj.error_code === "VERIFICATION_FAILED") {
+				return this.errorMap.get("VERIFICATION_FAILED")?.exit_code ?? 1;
+			}
+			// Check explicit domain error_code BEFORE generic `valid === false` so
+			// `delta validate` governance/contract failures exit 4 instead of 1 (MAJ-05).
+			if (obj.error_code && obj.error_code !== "OK") {
+				const codeStr = String(obj.error_code);
+				const mapped = this.errorMap.get(codeStr);
+				if (mapped) {
+					return mapped.exit_code;
+				}
+				return 2;
+			}
 
 			if (obj.overall_passed === false) {
 				return 1;
@@ -133,13 +284,6 @@ export class ErrorHandler {
 			}
 			if (obj.verdict === "FAILED" || obj.status === "FAILED") {
 				return 1;
-			}
-			if (obj.error_code === "VERIFICATION_FAILED") {
-				return 1;
-			}
-			if (obj.error_code && obj.error_code !== "OK") {
-				const mapped = this.errorMap.get(String(obj.error_code));
-				return mapped?.exit_code ?? 2;
 			}
 		}
 		return 0;

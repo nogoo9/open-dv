@@ -7,6 +7,47 @@ from typing import Any
 from opendv_contracts.jcs import dumps_jcs
 from opendv_contracts.spec import load_cli_spec
 
+CLIENT_API_URL_OPTION: dict[str, Any] = {
+    "name": "api_url",
+    "flag": "--api-url",
+    "short": None,
+    "type": "string",
+    "required": False,
+    "default": None,
+    "choices": None,
+    "env_var": "OPENDV_API_URL",
+    "inline_upload": False,
+    "help": "Open-DV Platform REST/SSE API base endpoint (e.g. https://api.open-dv.internal)",
+}
+
+
+def _build_sub_node(sub: dict[str, Any], excluded_availability: str) -> dict[str, Any] | None:
+    sub_avail = sub.get("availability", "both")
+    if sub_avail == excluded_availability:
+        return None
+    sub_name = sub["name"]
+    sub_node: dict[str, Any] = {
+        "name": sub_name,
+        "description": sub.get("description", ""),
+        "help": sub.get("help", sub.get("description", "")),
+        "aliases": sorted(sub.get("aliases", [])),
+        "availability": sub_avail,
+    }
+    if "options" in sub:
+        sub_node["options"] = [dict(opt) for opt in sub.get("options", [])]
+    if sub.get("subcommands"):
+        child_dict: dict[str, Any] = {}
+        for child in sub["subcommands"]:
+            child_node = _build_sub_node(child, excluded_availability)
+            if child_node is not None:
+                child_dict[child["name"]] = child_node
+        sub_node["subcommands"] = child_dict
+    if "request_dto" in sub:
+        sub_node["request_dto"] = sub["request_dto"]
+    if "response_dto" in sub:
+        sub_node["response_dto"] = sub["response_dto"]
+    return sub_node
+
 
 def build_cli_tree(
     spec: dict[str, Any] | None = None,
@@ -26,8 +67,10 @@ def build_cli_tree(
     """
     cli_spec = spec or load_cli_spec()
 
-    # Filter global options
+    # Filter global options and include client --api-url in client mode
     global_options = [dict(opt) for opt in cli_spec.get("global_options", [])]
+    if mode == "client" and not any(opt.get("flag") == "--api-url" for opt in global_options):
+        global_options.append(dict(CLIENT_API_URL_OPTION))
 
     # Exclude entries that belong exclusively to the other mode
     excluded_availability = "client_only" if mode == "standalone" else "standalone_only"
@@ -51,23 +94,9 @@ def build_cli_tree(
         if subcommands:
             sub_dict: dict[str, Any] = {}
             for sub in subcommands:
-                sub_avail = sub.get("availability", "both")
-                if sub_avail == excluded_availability:
-                    continue
-                sub_name = sub["name"]
-                sub_node: dict[str, Any] = {
-                    "name": sub_name,
-                    "description": sub.get("description", ""),
-                    "help": sub.get("help", sub.get("description", "")),
-                    "aliases": sorted(sub.get("aliases", [])),
-                    "availability": sub_avail,
-                    "options": [dict(opt) for opt in sub.get("options", [])],
-                }
-                if "request_dto" in sub:
-                    sub_node["request_dto"] = sub["request_dto"]
-                if "response_dto" in sub:
-                    sub_node["response_dto"] = sub["response_dto"]
-                sub_dict[sub_name] = sub_node
+                sub_node = _build_sub_node(sub, excluded_availability)
+                if sub_node is not None:
+                    sub_dict[sub["name"]] = sub_node
             cmd_node["subcommands"] = sub_dict
         else:
             cmd_node["options"] = [dict(opt) for opt in cmd.get("options", [])]
@@ -99,4 +128,4 @@ def dump_cli_tree(
     return dumps_jcs(tree)
 
 
-__all__ = ["build_cli_tree", "dump_cli_tree"]
+__all__ = ["CLIENT_API_URL_OPTION", "build_cli_tree", "dump_cli_tree"]

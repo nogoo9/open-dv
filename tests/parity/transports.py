@@ -376,7 +376,9 @@ class StandaloneCliTransport:
             return str(delta_file)
         if hasattr(delta, "model_dump"):
             delta_file = self.workspace_dir / filename
-            delta_file.write_text(json.dumps(delta.model_dump(mode="json"), indent=2), encoding="utf-8")
+            delta_file.write_text(
+                json.dumps(delta.model_dump(mode="json"), indent=2), encoding="utf-8"
+            )
             return str(delta_file)
         raise ValueError(f"Invalid delta argument: {delta!r}")
 
@@ -402,6 +404,7 @@ class StandaloneCliTransport:
             source = fixtures.get("source", source)
             context_doc = fixtures.get("context_doc", context_doc)
         from opendv_service.ontology.registry import get_ontology_recommender_registry
+
         reg = get_ontology_recommender_registry()
         if not reg.has_recommender():
             reg.discover(force=True)
@@ -409,7 +412,8 @@ class StandaloneCliTransport:
         if base:
             base_path = (
                 self._resolve_contract_arg(base, filename="base_ontology.yaml")
-                if isinstance(base, dict) else str(base)
+                if isinstance(base, dict)
+                else str(base)
             )
             argv.extend(["--base", base_path])
         if mode:
@@ -445,13 +449,15 @@ class StandaloneCliTransport:
         delta_path = self._resolve_delta_arg(delta)
         base_path = (
             self._resolve_contract_arg(base, filename="base_ontology.yaml")
-            if isinstance(base, dict) else str(base)
+            if isinstance(base, dict)
+            else str(base)
         )
         argv = ["ontology", "validate-delta", "--delta", delta_path, "--base", base_path, "--json"]
         if contract:
             contract_path = (
                 self._resolve_contract_arg(contract, filename="deployed_contract.yaml")
-                if isinstance(contract, dict) else str(contract)
+                if isinstance(contract, dict)
+                else str(contract)
             )
             argv.extend(["--contract", contract_path])
         return self._invoke(argv)
@@ -470,11 +476,13 @@ class StandaloneCliTransport:
             base = fixtures.get("base_ontology") or fixtures.get("base") or base
         base_path = (
             self._resolve_contract_arg(base, filename="base_ontology.yaml")
-            if isinstance(base, dict) else str(base)
+            if isinstance(base, dict)
+            else str(base)
         )
         target_path = (
             self._resolve_contract_arg(target, filename="target_ontology.yaml")
-            if isinstance(target, dict) else str(target)
+            if isinstance(target, dict)
+            else str(target)
         )
         argv = ["ontology", "diff", "--base", base_path, "--target", target_path, "--json"]
         return self._invoke(argv)
@@ -511,7 +519,8 @@ class StandaloneCliTransport:
         if base:
             base_path = (
                 self._resolve_contract_arg(base, filename="base_ontology.yaml")
-                if isinstance(base, dict) else str(base)
+                if isinstance(base, dict)
+                else str(base)
             )
             argv.extend(["--base", base_path])
         if proposal_id:
@@ -519,7 +528,8 @@ class StandaloneCliTransport:
         if contract:
             contract_path = (
                 self._resolve_contract_arg(contract, filename="deployed_contract.yaml")
-                if isinstance(contract, dict) else str(contract)
+                if isinstance(contract, dict)
+                else str(contract)
             )
             argv.extend(["--contract", contract_path])
         if op_id:
@@ -824,7 +834,9 @@ class ClientCliTransport:
             return str(delta_file)
         if hasattr(delta, "model_dump"):
             delta_file = self.workspace_dir / filename
-            delta_file.write_text(json.dumps(delta.model_dump(mode="json"), indent=2), encoding="utf-8")
+            delta_file.write_text(
+                json.dumps(delta.model_dump(mode="json"), indent=2), encoding="utf-8"
+            )
             return str(delta_file)
         raise ValueError(f"Invalid delta argument: {delta!r}")
 
@@ -851,7 +863,11 @@ class ClientCliTransport:
             context_doc = fixtures.get("context_doc", context_doc)
         argv = ["ontology", "suggest", "--json"]
         if base:
-            base_path = self._resolve_contract_arg(base, filename="base_ontology.yaml") if isinstance(base, dict) else str(base)
+            base_path = (
+                self._resolve_contract_arg(base, filename="base_ontology.yaml")
+                if isinstance(base, dict)
+                else str(base)
+            )
             argv.extend(["--base", base_path])
         if mode:
             argv.extend(["--mode", mode])
@@ -886,13 +902,15 @@ class ClientCliTransport:
         delta_path = self._resolve_delta_arg(delta)
         base_path = (
             self._resolve_contract_arg(base, filename="base_ontology.yaml")
-            if isinstance(base, dict) else str(base)
+            if isinstance(base, dict)
+            else str(base)
         )
         argv = ["ontology", "validate-delta", "--delta", delta_path, "--base", base_path, "--json"]
         if contract:
             contract_path = (
                 self._resolve_contract_arg(contract, filename="deployed_contract.yaml")
-                if isinstance(contract, dict) else str(contract)
+                if isinstance(contract, dict)
+                else str(contract)
             )
             argv.extend(["--contract", contract_path])
         return self._invoke(argv)
@@ -911,11 +929,13 @@ class ClientCliTransport:
             base = fixtures.get("base_ontology") or fixtures.get("base") or base
         base_path = (
             self._resolve_contract_arg(base, filename="base_ontology.yaml")
-            if isinstance(base, dict) else str(base)
+            if isinstance(base, dict)
+            else str(base)
         )
         target_path = (
             self._resolve_contract_arg(target, filename="target_ontology.yaml")
-            if isinstance(target, dict) else str(target)
+            if isinstance(target, dict)
+            else str(target)
         )
         argv = ["ontology", "diff", "--base", base_path, "--target", target_path, "--json"]
         return self._invoke(argv)
@@ -952,7 +972,8 @@ class ClientCliTransport:
         if base:
             base_path = (
                 self._resolve_contract_arg(base, filename="base_ontology.yaml")
-                if isinstance(base, dict) else str(base)
+                if isinstance(base, dict)
+                else str(base)
             )
             argv.extend(["--base", base_path])
         if proposal_id:
@@ -960,7 +981,8 @@ class ClientCliTransport:
         if contract:
             contract_path = (
                 self._resolve_contract_arg(contract, filename="deployed_contract.yaml")
-                if isinstance(contract, dict) else str(contract)
+                if isinstance(contract, dict)
+                else str(contract)
             )
             argv.extend(["--contract", contract_path])
         if op_id:
@@ -1277,6 +1299,7 @@ class DirectRestTransport:
             source = fixtures.get("source", source)
             context_doc = fixtures.get("context_doc", context_doc)
         from opendv_service.ontology.registry import get_ontology_recommender_registry
+
         reg = get_ontology_recommender_registry()
         if not reg.has_recommender():
             reg.discover(force=True)

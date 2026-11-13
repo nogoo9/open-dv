@@ -58,23 +58,74 @@ def _resolve_candidate_file_path(
     return None
 
 
+def load_ontology_delta_dict(
+    raw: dict[str, Any],
+    *,
+    allow_bootstrap: bool = False,
+) -> OntologyDelta:
+    """Validate an OntologyDelta dictionary without implicit bootstrap auto-enablement."""
+    if not isinstance(raw, dict):
+        raise InputValidationError(
+            f"Expected dictionary root for OntologyDelta, got {type(raw).__name__}"
+        )
+    d = raw
+    if "delta" in d and ("proposal_id" in d or "recommender_id" in d):
+        d = d["delta"]
+    ctx = {"allow_bootstrap": True} if allow_bootstrap else None
+    try:
+        return OntologyDelta.model_validate(d, context=ctx)
+    except (ValueError, TypeError) as exc:
+        raise InputValidationError(f"Invalid OntologyDelta dictionary: {exc}") from exc
+
+
+def load_ontology_delta_from_bytes(
+    raw_bytes: bytes,
+    *,
+    allow_bootstrap: bool = False,
+) -> OntologyDelta:
+    """Parse and validate an OntologyDelta from raw UTF-8 YAML/JSON bytes."""
+    try:
+        text = raw_bytes.decode("utf-8")
+        parsed = yaml.safe_load(text)
+    except (UnicodeDecodeError, yaml.YAMLError, ValueError, TypeError) as exc:
+        raise InputValidationError(f"Failed to parse ontology delta YAML/JSON: {exc}") from exc
+
+    if not isinstance(parsed, dict):
+        raise InputValidationError(
+            f"Expected dictionary root for OntologyDelta, got {type(parsed).__name__}"
+        )
+    return load_ontology_delta_dict(parsed, allow_bootstrap=allow_bootstrap)
+
+
 def load_ontology_delta(
     delta_or_path_or_content: Any,
     *,
     workspace_root: Path | None = None,
+    allow_bootstrap: bool = False,
 ) -> OntologyDelta:
     """Load, parse, and validate an OntologyDelta from a model, dict, path, or inline text."""
     if isinstance(delta_or_path_or_content, OntologyDelta):
+        if (
+            not allow_bootstrap
+            and delta_or_path_or_content.base_ontology_version == "1.0.0"
+            and delta_or_path_or_content.target_ontology_version == "1.0.0"
+        ):
+            try:
+                return OntologyDelta.model_validate(
+                    delta_or_path_or_content.model_dump(mode="python"),
+                    context=None,
+                )
+            except (ValueError, TypeError) as exc:
+                raise InputValidationError(f"Invalid OntologyDelta payload: {exc}") from exc
         return delta_or_path_or_content
 
+    if isinstance(delta_or_path_or_content, bytes):
+        return load_ontology_delta_from_bytes(
+            delta_or_path_or_content, allow_bootstrap=allow_bootstrap
+        )
+
     if isinstance(delta_or_path_or_content, dict):
-        d = delta_or_path_or_content
-        if "delta" in d and ("proposal_id" in d or "recommender_id" in d):
-            d = d["delta"]
-        try:
-            return OntologyDelta.model_validate(d)
-        except (ValueError, TypeError) as exc:
-            raise InputValidationError(f"Invalid OntologyDelta dictionary: {exc}") from exc
+        return load_ontology_delta_dict(delta_or_path_or_content, allow_bootstrap=allow_bootstrap)
 
     if isinstance(delta_or_path_or_content, (str, Path)):
         raw_str = str(delta_or_path_or_content).strip()
@@ -99,8 +150,9 @@ def load_ontology_delta(
         if "delta" in parsed and ("proposal_id" in parsed or "recommender_id" in parsed):
             parsed = parsed["delta"]
 
+        ctx = {"allow_bootstrap": True} if allow_bootstrap else None
         try:
-            return OntologyDelta.model_validate(parsed)
+            return OntologyDelta.model_validate(parsed, context=ctx)
         except (ValueError, TypeError) as exc:
             raise InputValidationError(f"Invalid OntologyDelta payload: {exc}") from exc
 
@@ -173,4 +225,6 @@ __all__ = [
     "load_base_ontology",
     "load_deployed_contract",
     "load_ontology_delta",
+    "load_ontology_delta_dict",
+    "load_ontology_delta_from_bytes",
 ]

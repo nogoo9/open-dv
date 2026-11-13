@@ -1,0 +1,29 @@
+# ==============================================================================
+# Open-DV Runtime Configuration (REQ-CFG-01)
+# ==============================================================================
+# Load via OPENDV_CONFIG="opendv.config.yaml" or CLI flag --config opendv.config.yaml
+
+# Root directory for workspace file resolution and path containment (Required for Platform API server)
+workspace_root: .
+
+# Directory for persistent platform state (CAS blobs, JSONL event ledgers, runs)
+# Defaults to: <workspace_root>/.opendv/state
+state_dir: .opendv/state
+
+# Platform API Server networking configuration
+server_host: 127.0.0.1
+server_port: 8420
+
+# Allowed CORS origins for Platform API (Web Workbench & clients)
+cors_origins:
+  - "http://localhost:5173"
+  - "http://127.0.0.1:5173"
+  - "http://localhost:8420"
+  - "http://127.0.0.1:8420"
+
+# Platform API URL for remote clients (e.g., opendvctl)
+api_url: "http://127.0.0.1:8420"
+
+# Maximum allowed byte size for inline uploads or request payloads (10 MB default)
+max_inline_bytes: 10485760
+

@@ -41,10 +41,10 @@ def generate_cli_spec(
     ]
 
     spec: dict[str, Any] = {
-        "spec_version": spec_version,
-        "contract_version": contract_version,
-        "global_options": [opt.to_dict() for opt in GLOBAL_OPTIONS],
         "commands": [cmd.to_dict() for cmd in command_defs],
+        "contract_version": contract_version,
         "error_map": error_map,
+        "global_options": [opt.to_dict() for opt in GLOBAL_OPTIONS],
+        "spec_version": spec_version,
     }
     return spec

@@ -124,6 +124,750 @@ export interface paths {
 		patch?: never;
 		trace?: never;
 	};
+	"/api/v1/ontology/studio/auth/launch-nonce": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Mint Launch Nonce Endpoint
+		 * @description Mint single-use browser launch nonce (256-bit, 60s TTL) preserving caller RBAC role.
+		 */
+		post: operations["mint_launch_nonce_endpoint_api_v1_ontology_studio_auth_launch_nonce_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/auth/token": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Exchange Launch Nonce Endpoint
+		 * @description Exchange single-use browser launch nonce for HttpOnly session cookie.
+		 */
+		post: operations["exchange_launch_nonce_endpoint_api_v1_ontology_studio_auth_token_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/init": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Init Studio
+		 * @description Initialize local workbench loopback token (.local_token) for human:local_admin.
+		 */
+		post: operations["init_studio_api_v1_ontology_studio_init_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/jobs/{job_id}": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Job Status Endpoint
+		 * @description Get background job status, stage, pct_complete, and error/result.
+		 */
+		get: operations["get_job_status_endpoint_api_v1_ontology_studio_jobs__job_id__get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/jobs/{job_id}/cancel": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Cancel Job Endpoint
+		 * @description Cooperatively abort a running background job, releasing L2 lease.
+		 */
+		post: operations["cancel_job_endpoint_api_v1_ontology_studio_jobs__job_id__cancel_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/jobs/{job_id}/events": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Job Events Stream
+		 * @description Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and 15s keepalive.
+		 */
+		get: operations["get_job_events_stream_api_v1_ontology_studio_jobs__job_id__events_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List Sessions
+		 * @description List studio sessions with pagination and status filtering.
+		 */
+		get: operations["list_sessions_api_v1_ontology_studio_sessions_get"];
+		put?: never;
+		/**
+		 * Create Session
+		 * @description Create a new studio session (genesis 0.0.0 or seeded from workspace).
+		 */
+		post: operations["create_session_api_v1_ontology_studio_sessions_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/bundle/import": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Import Bundle Endpoint
+		 * @description Streaming import of .odvstudio.zip archive (editor allowed; admin required for ack).
+		 */
+		post: operations["import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Session
+		 * @description Retrieve studio session details and counts.
+		 */
+		get: operations["get_session_api_v1_ontology_studio_sessions__session_id__get"];
+		put?: never;
+		post?: never;
+		/**
+		 * Delete Session
+		 * @description Tombstone and remove session directory (admin required).
+		 */
+		delete: operations["delete_session_api_v1_ontology_studio_sessions__session_id__delete"];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/answers": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Clarification Answers
+		 * @description Read persisted clarification answers from session clarifications/answers.json.
+		 */
+		get: operations["get_clarification_answers_api_v1_ontology_studio_sessions__session_id__answers_get"];
+		put?: never;
+		/**
+		 * Submit Clarification Answers
+		 * @description Persist human clarification answers with mandatory OCC expected_answers_sha256 check.
+		 */
+		post: operations["submit_clarification_answers_api_v1_ontology_studio_sessions__session_id__answers_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/bundle": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Export Bundle Endpoint
+		 * @description Export full session into portable archive .odvstudio.zip enforcing taint gates.
+		 */
+		post: operations["export_bundle_endpoint_api_v1_ontology_studio_sessions__session_id__bundle_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/bundle/clone": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Clone Session Endpoint
+		 * @description Clone session into an isolated session with re-anchored local audit chain under L5 lock.
+		 */
+		post: operations["clone_session_endpoint_api_v1_ontology_studio_sessions__session_id__bundle_clone_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/clarifications": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Clarification Questions
+		 * @description Read generated ambiguity questions from session clarifications/questions.json.
+		 */
+		get: operations["get_clarification_questions_api_v1_ontology_studio_sessions__session_id__clarifications_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/clarify": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Trigger Clarification
+		 * @description Dispatch background clarification question generation (human editor/admin required).
+		 */
+		post: operations["trigger_clarification_api_v1_ontology_studio_sessions__session_id__clarify_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/construct": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Trigger Construction
+		 * @description Trigger background construction job (deterministic or agent-first).
+		 */
+		post: operations["trigger_construction_api_v1_ontology_studio_sessions__session_id__construct_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/delta": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Apply Delta Endpoint
+		 * @description Direct governed delta commit with strict OCC If-Match precondition.
+		 */
+		post: operations["apply_delta_endpoint_api_v1_ontology_studio_sessions__session_id__delta_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/export": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Export Ontology Endpoint
+		 * @description Multi-format export of active or historical ontology snapshot.
+		 */
+		get: operations["export_ontology_endpoint_api_v1_ontology_studio_sessions__session_id__export_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/feedback": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Submit Feedback
+		 * @description Persist steward/user feedback record to feedback.jsonl under L5 session lock.
+		 */
+		post: operations["submit_feedback_api_v1_ontology_studio_sessions__session_id__feedback_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Job Status Endpoint
+		 * @description Get background job status, stage, pct_complete, and error/result.
+		 */
+		get: operations["get_job_status_endpoint_api_v1_ontology_studio_sessions__session_id__jobs__job_id__get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}/cancel": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Cancel Job Endpoint
+		 * @description Cooperatively abort a running background job, releasing L2 lease.
+		 */
+		post: operations["cancel_job_endpoint_api_v1_ontology_studio_sessions__session_id__jobs__job_id__cancel_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/jobs/{job_id}/events": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Job Events Stream
+		 * @description Stream W3C Server-Sent Events with monotonic Last-Event-ID replay and 15s keepalive.
+		 */
+		get: operations["get_job_events_stream_api_v1_ontology_studio_sessions__session_id__jobs__job_id__events_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/manifest": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Manifest
+		 * @description Inspect CAS manifest listing all registered sources.
+		 */
+		get: operations["get_manifest_api_v1_ontology_studio_sessions__session_id__manifest_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/parse": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Parse Sources
+		 * @description Trigger background document layout extraction and OCR parsing job.
+		 */
+		post: operations["parse_sources_api_v1_ontology_studio_sessions__session_id__parse_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/promote": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Promote Session
+		 * @description Two-phase atomic promotion of head ontology into workspace under L4 + L5 locks.
+		 */
+		post: operations["promote_session_api_v1_ontology_studio_sessions__session_id__promote_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/proposals": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List Proposals
+		 * @description List all candidate proposals with current status.
+		 */
+		get: operations["list_proposals_api_v1_ontology_studio_sessions__session_id__proposals_get"];
+		put?: never;
+		/**
+		 * Create Proposal
+		 * @description Submit candidate proposal without committing (automated restricted to additive ops).
+		 */
+		post: operations["create_proposal_api_v1_ontology_studio_sessions__session_id__proposals_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Proposal Detail
+		 * @description Fetch proposal record and conflict status.
+		 */
+		get: operations["get_proposal_detail_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/accept": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Accept Proposal
+		 * @description Accept pending proposal enforcing 11-step precedence, RBAC, strong ETag OCC, and ONT-EVO.
+		 */
+		post: operations["accept_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__accept_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/rebase": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Rebase Proposal
+		 * @description Rebase proposal onto new session head via 24-op conflict matrix (P10::MAJ-04, MAJOR-06).
+		 */
+		post: operations["rebase_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__rebase_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/proposals/{proposal_id}/reject": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Reject Proposal
+		 * @description Mark proposal REJECTED while preserving in CAS for audit trace (human editor/admin).
+		 */
+		post: operations["reject_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__reject_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/questions": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Clarification Questions
+		 * @description Read generated ambiguity questions from session clarifications/questions.json.
+		 */
+		get: operations["get_clarification_questions_api_v1_ontology_studio_sessions__session_id__questions_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/sources": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * List Sources
+		 * @description List all ingested source documents registered in session manifest.
+		 */
+		get: operations["list_sources_api_v1_ontology_studio_sessions__session_id__sources_get"];
+		put?: never;
+		/**
+		 * Upload Source
+		 * @description Stream document to CAS blob store and register in inputs/manifest.json.
+		 */
+		post: operations["upload_source_api_v1_ontology_studio_sessions__session_id__sources_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/sources/{source_id}": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Source Detail
+		 * @description Retrieve metadata for an ingested source document.
+		 */
+		get: operations["get_source_detail_api_v1_ontology_studio_sessions__session_id__sources__source_id__get"];
+		put?: never;
+		post?: never;
+		/**
+		 * Delete Source Endpoint
+		 * @description Tombstone and purge unreferenced source document (human editor/admin required).
+		 */
+		delete: operations["delete_source_endpoint_api_v1_ontology_studio_sessions__session_id__sources__source_id__delete"];
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/sources/{source_id}/content": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Source Content
+		 * @description Preview or download raw source content bytes from CAS enforcing taint perimeter.
+		 */
+		get: operations["get_source_content_api_v1_ontology_studio_sessions__session_id__sources__source_id__content_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/status": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		/**
+		 * Get Session Status
+		 * @description Lightweight status check returning version state and active jobs.
+		 */
+		get: operations["get_session_status_api_v1_ontology_studio_sessions__session_id__status_get"];
+		put?: never;
+		post?: never;
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/validate": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Validate Delta Endpoint
+		 * @description Dry-run two-phase structural and governance validation on an OntologyDelta.
+		 */
+		post: operations["validate_delta_endpoint_api_v1_ontology_studio_sessions__session_id__validate_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
+	"/api/v1/ontology/studio/sessions/{session_id}/waiver": {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		get?: never;
+		put?: never;
+		/**
+		 * Submit Waiver
+		 * @description Authorize K_waiver-signed steward waiver and append signed audit record (CRITICAL-05).
+		 */
+		post: operations["submit_waiver_api_v1_ontology_studio_sessions__session_id__waiver_post"];
+		delete?: never;
+		options?: never;
+		head?: never;
+		patch?: never;
+		trace?: never;
+	};
 	"/api/v1/ontology/suggestions": {
 		parameters: {
 			query?: never;
@@ -627,7 +1371,7 @@ export interface components {
 			 */
 			accepted_op_ids?: string[];
 			/** @description Ontology delta to accept and apply */
-			delta: components["schemas"]["OntologyDelta"];
+			delta: components["schemas"]["OntologyDelta-Input"];
 			/**
 			 * Delta Sha256
 			 * @description Cryptographic SHA-256 of the delta
@@ -644,6 +1388,157 @@ export interface components {
 			 * @default
 			 */
 			steward_note: string;
+		};
+		/**
+		 * AddAttributeOp
+		 * @description Additive operation to attach an attribute to a concept.
+		 */
+		"AddAttributeOp-Input": {
+			/**
+			 * Attribute
+			 * @description Optional nested attribute specification
+			 */
+			attribute?: unknown | null;
+			/**
+			 * Attribute Name
+			 * @description Attribute identifier
+			 * @default
+			 */
+			attribute_name: string;
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Data Type
+			 * @description Logical data type classification
+			 * @default string
+			 */
+			data_type: string;
+			/**
+			 * Description
+			 * @description Conceptual definition of attribute
+			 */
+			description?: string | null;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Example Values
+			 * @description Sample values extracted from evidence
+			 */
+			example_values?: string[];
+			/**
+			 * Is Optional
+			 * @description Whether attribute is optional in Data Vault satellite
+			 * @default true
+			 */
+			is_optional: boolean;
+			/**
+			 * Metadata
+			 * @description Arbitrary attribute metadata
+			 */
+			metadata?: {
+				[key: string]: unknown;
+			} | null;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_attribute";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+		};
+		/**
+		 * AddAttributeOp
+		 * @description Additive operation to attach an attribute to a concept.
+		 */
+		"AddAttributeOp-Output": {
+			/**
+			 * Attribute Name
+			 * @description Attribute identifier
+			 * @default
+			 */
+			attribute_name: string;
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Data Type
+			 * @description Logical data type classification
+			 * @default string
+			 */
+			data_type: string;
+			/**
+			 * Description
+			 * @description Conceptual definition of attribute
+			 */
+			description?: string | null;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Example Values
+			 * @description Sample values extracted from evidence
+			 */
+			example_values?: string[];
+			/**
+			 * Is Optional
+			 * @description Whether attribute is optional in Data Vault satellite
+			 * @default true
+			 */
+			is_optional: boolean;
+			/**
+			 * Metadata
+			 * @description Arbitrary attribute metadata
+			 */
+			metadata?: {
+				[key: string]: unknown;
+			} | null;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_attribute";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
 		};
 		/**
 		 * AddConceptOp
@@ -696,6 +1591,11 @@ export interface components {
 			 */
 			evidence_refs?: components["schemas"]["EvidenceRef"][];
 			/**
+			 * External Mappings
+			 * @description Grounded external ontology mappings
+			 */
+			external_mappings?: unknown[] | null;
+			/**
 			 * Governance Constraints
 			 * @description Governance, PII, and MNPI constraints
 			 */
@@ -710,6 +1610,13 @@ export interface components {
 				[key: string]: unknown;
 			} | null;
 			/**
+			 * Metadata
+			 * @description Arbitrary conceptual metadata
+			 */
+			metadata?: {
+				[key: string]: unknown;
+			} | null;
+			/**
 			 * Op Id
 			 * @description Unique operation identifier
 			 */
@@ -720,16 +1627,166 @@ export interface components {
 			 */
 			op_type: "add_concept";
 			/**
+			 * Parent Concept Uri
+			 * @description Hierarchical parent concept URI within Graph A ontology
+			 */
+			parent_concept_uri?: string | null;
+			/**
 			 * Rationale
 			 * @description Business justification for the operation
 			 * @default
 			 */
 			rationale: string;
 			/**
+			 * Source Hints
+			 * @description Provenance hints identifying source data feeds
+			 */
+			source_hints?: string[] | null;
+			/**
+			 * Synonyms
+			 * @description Discovered lexical synonyms
+			 */
+			synonyms?: string[] | null;
+			/**
 			 * Target Hub
 			 * @description Target Data Vault 2.0 Hub table name
 			 */
 			target_hub?: string | null;
+		};
+		/**
+		 * AddExternalMappingOp
+		 * @description Patch operation attaching a reference ontology mapping (e.g. FIBO).
+		 */
+		"AddExternalMappingOp-Input": {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Mapping
+			 * @description Optional nested mapping specification
+			 */
+			mapping?: unknown | null;
+			/**
+			 * Mapping Confidence
+			 * @description Mapping confidence score
+			 */
+			mapping_confidence?: number | null;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_external_mapping";
+			/**
+			 * Pinned
+			 * @description Pinned flag preventing automated re-scoring
+			 */
+			pinned?: boolean | null;
+			/**
+			 * Predicate
+			 * @description SKOS mapping predicate classification
+			 */
+			predicate?: string | null;
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Scheme
+			 * @description Reference ontology standard scheme (e.g. 'FIBO')
+			 * @default
+			 */
+			scheme: string;
+			/**
+			 * Target Uri
+			 * @description Fully qualified reference ontology target URI
+			 * @default
+			 */
+			target_uri: string;
+		};
+		/**
+		 * AddExternalMappingOp
+		 * @description Patch operation attaching a reference ontology mapping (e.g. FIBO).
+		 */
+		"AddExternalMappingOp-Output": {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Mapping Confidence
+			 * @description Mapping confidence score
+			 */
+			mapping_confidence?: number | null;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_external_mapping";
+			/**
+			 * Pinned
+			 * @description Pinned flag preventing automated re-scoring
+			 */
+			pinned?: boolean | null;
+			/**
+			 * Predicate
+			 * @description SKOS mapping predicate classification
+			 */
+			predicate?: string | null;
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Scheme
+			 * @description Reference ontology standard scheme (e.g. 'FIBO')
+			 * @default
+			 */
+			scheme: string;
+			/**
+			 * Target Uri
+			 * @description Fully qualified reference ontology target URI
+			 * @default
+			 */
+			target_uri: string;
 		};
 		/**
 		 * AddGovernanceConstraintOp
@@ -810,6 +1867,7 @@ export interface components {
 			/**
 			 * Authority Name
 			 * @description Name of the Business Key Authority
+			 * @default
 			 */
 			authority_name: string;
 			/**
@@ -870,6 +1928,61 @@ export interface components {
 			} | null;
 		};
 		/**
+		 * AddReferenceEnumCodeOp
+		 * @description Patch operation appending an allowed code to a reference enumeration.
+		 */
+		AddReferenceEnumCodeOp: {
+			/**
+			 * Code
+			 * @description Code value to append
+			 */
+			code: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Description
+			 * @description Code value description
+			 */
+			description?: string | null;
+			/**
+			 * Enum Uri
+			 * @description Reference enumeration URN
+			 * @default
+			 */
+			enum_uri: string;
+			/**
+			 * Enumeration Name
+			 * @description Reference enumeration name
+			 * @default
+			 */
+			enumeration_name: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_reference_enum_code";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+		};
+		/**
 		 * AddReferenceEnumerationOp
 		 * @description Additive operation to introduce a Reference Enumeration / ref_* table.
 		 */
@@ -879,6 +1992,13 @@ export interface components {
 			 * @description Allowed code values
 			 */
 			allowed_codes?: string[];
+			/**
+			 * Code Descriptions
+			 * @description Per-code descriptive text
+			 */
+			code_descriptions?: {
+				[key: string]: string;
+			} | null;
 			/**
 			 * Confidence
 			 * @description Operation confidence score
@@ -902,6 +2022,13 @@ export interface components {
 			 * @description Grounding evidence references
 			 */
 			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Metadata
+			 * @description Arbitrary enumeration metadata
+			 */
+			metadata?: {
+				[key: string]: unknown;
+			} | null;
 			/**
 			 * Name
 			 * @description Enumeration name
@@ -942,6 +2069,11 @@ export interface components {
 		 */
 		AddRelationshipOp: {
 			/**
+			 * Cardinality
+			 * @description Cardinality classification: one_to_one, one_to_many, many_to_many
+			 */
+			cardinality?: string | null;
+			/**
 			 * Confidence
 			 * @description Operation confidence score
 			 * @default 1
@@ -969,6 +2101,13 @@ export interface components {
 			 * @default
 			 */
 			grain_semantics: string;
+			/**
+			 * Metadata
+			 * @description Arbitrary relationship metadata
+			 */
+			metadata?: {
+				[key: string]: unknown;
+			} | null;
 			/**
 			 * Op Id
 			 * @description Unique operation identifier
@@ -1039,6 +2178,7 @@ export interface components {
 			/**
 			 * Concept Uri
 			 * @description Target Canonical Business Concept URN
+			 * @default
 			 */
 			concept_uri: string;
 			/**
@@ -1052,6 +2192,11 @@ export interface components {
 			 * @description Grounding evidence references
 			 */
 			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Hint
+			 * @description Provenance or mapping hint
+			 */
+			hint?: string | null;
 			/**
 			 * Op Id
 			 * @description Unique operation identifier
@@ -1086,6 +2231,149 @@ export interface components {
 			 * @default
 			 */
 			table_name: string;
+		};
+		/**
+		 * AddSynonymOp
+		 * @description Patch operation attaching a discovered lexical synonym to a concept.
+		 */
+		AddSynonymOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "add_synonym";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Synonym
+			 * @description Discovered lexical synonym
+			 */
+			synonym: string;
+		};
+		/**
+		 * AnnotateConceptMetadataOp
+		 * @description Patch operation annotating arbitrary metadata key-values on a concept.
+		 */
+		"AnnotateConceptMetadataOp-Input": {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Metadata
+			 * @description Metadata dictionary
+			 */
+			metadata?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Metadata Key
+			 * @description Single metadata key
+			 */
+			metadata_key?: string | null;
+			/**
+			 * Metadata Value
+			 * @description Single metadata value
+			 */
+			metadata_value?: unknown | null;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "annotate_concept_metadata";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+		};
+		/**
+		 * AnnotateConceptMetadataOp
+		 * @description Patch operation annotating arbitrary metadata key-values on a concept.
+		 */
+		"AnnotateConceptMetadataOp-Output": {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Metadata
+			 * @description Metadata dictionary
+			 */
+			metadata?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "annotate_concept_metadata";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
 		};
 		/**
 		 * ArtifactDTO
@@ -1243,6 +2531,41 @@ export interface components {
 			 */
 			media_type: string;
 		};
+		/** Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post */
+		Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post: {
+			/** Acknowledge Unverified Import Attribution */
+			acknowledge_unverified_import_attribution?: boolean | null;
+			/** Acknowledgement Rationale */
+			acknowledgement_rationale?: string | null;
+			/** File */
+			file: string;
+			/** Force */
+			force?: boolean | null;
+			/** New Session Id */
+			new_session_id?: string | null;
+		};
+		/** Body_upload_source_api_v1_ontology_studio_sessions__session_id__sources_post */
+		Body_upload_source_api_v1_ontology_studio_sessions__session_id__sources_post: {
+			/** Description */
+			description?: string | null;
+			/**
+			 * Do Not Send To Agent
+			 * @default false
+			 */
+			do_not_send_to_agent: boolean;
+			/** File */
+			file: string;
+		};
+		/** BundleExportRequest */
+		BundleExportRequest: {
+			/**
+			 * Acknowledge Confidential Source Export
+			 * @default false
+			 */
+			acknowledge_confidential_source_export: boolean;
+			/** Export Rationale */
+			export_rationale?: string | null;
+		};
 		/**
 		 * CaptainHoldDecisionRequest
 		 * @description Human-in-the-loop Steward decision resolving a Tier U3/G3/G4 hold (docs/08 §5.2).
@@ -1315,6 +2638,127 @@ export interface components {
 			 */
 			status: "ACCEPTED" | "REJECTED";
 			updated_run_status: components["schemas"]["RunStatus"];
+		};
+		/**
+		 * ClarificationAnswerItem
+		 * @description Steward response to a single clarification question.
+		 */
+		ClarificationAnswerItem: {
+			/**
+			 * Answered At
+			 * @description ISO-8601 UTC timestamp of response
+			 */
+			answered_at?: string | null;
+			/**
+			 * Answered By
+			 * @description Identity or role of the responding user
+			 * @default human:steward
+			 */
+			answered_by: string;
+			/**
+			 * Question Id
+			 * @description Identifier of the answered question
+			 */
+			question_id: string;
+			/**
+			 * Selected Options
+			 * @description List of selected option_ids
+			 */
+			selected_options?: string[];
+			/**
+			 * User Text
+			 * @description Optional free-form steward guidance or custom definition
+			 */
+			user_text?: string | null;
+		};
+		/**
+		 * ClarificationAnswerResponse
+		 * @description Response returned upon successfully persisting clarification answers.
+		 */
+		ClarificationAnswerResponse: {
+			/**
+			 * Answers Sha256
+			 * @description Canonical JCS SHA-256 digest of stored answers
+			 */
+			answers_sha256: string;
+			/**
+			 * Saved Count
+			 * @description Count of successfully saved answer items
+			 */
+			saved_count: number;
+		};
+		/**
+		 * ClarificationOption
+		 * @description Multiple-choice option presented to human steward for resolving ambiguity.
+		 */
+		ClarificationOption: {
+			/**
+			 * Fibo Uri
+			 * @description Optional FIBO concept URI associated with option
+			 */
+			fibo_uri?: string | null;
+			/**
+			 * Label
+			 * @description Human-readable concept or resolution label
+			 */
+			label: string;
+			/**
+			 * Option Id
+			 * @description Unique option identifier within question
+			 */
+			option_id: string;
+			/**
+			 * Rationale
+			 * @description Semantic explanation of how this option models the concept
+			 */
+			rationale: string;
+		};
+		/**
+		 * ClarificationQuestion
+		 * @description Structured question generated to resolve domain or mapping ambiguity.
+		 */
+		ClarificationQuestion: {
+			/**
+			 * Allow Custom Text
+			 * @description Whether human steward may provide custom input
+			 * @default true
+			 */
+			allow_custom_text: boolean;
+			/**
+			 * Evidence Citations
+			 * @description Citations to evidence chunks prompting question
+			 */
+			evidence_citations?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Focus Concept
+			 * @description Candidate entity or concept requiring clarification
+			 */
+			focus_concept: string;
+			/**
+			 * Matched Key
+			 * @description Polysemic catalog key if matched
+			 */
+			matched_key?: string | null;
+			/**
+			 * Options
+			 * @description Candidate resolution choices
+			 */
+			options?: components["schemas"]["ClarificationOption"][];
+			/**
+			 * Question Id
+			 * @description Unique question identifier
+			 */
+			question_id: string;
+			/**
+			 * Question Text
+			 * @description Natural language question for steward
+			 */
+			question_text: string;
+		};
+		/** CloneSessionRequest */
+		CloneSessionRequest: {
+			/** New Session Id */
+			new_session_id?: string | null;
 		};
 		/**
 		 * CompileRequest
@@ -1461,6 +2905,22 @@ export interface components {
 			 */
 			target?: string | null;
 		};
+		/** ConstructRequest */
+		ConstructRequest: {
+			/**
+			 * Auto Commit
+			 * @default false
+			 */
+			auto_commit: boolean;
+			/** Base Sha256 */
+			base_sha256?: string | null;
+			/** Base Version */
+			base_version?: string | null;
+			/** Fibo Modules */
+			fibo_modules?: string[];
+			/** Mode */
+			mode?: string | null;
+		};
 		/**
 		 * CreateProjectRequest
 		 * @description Request payload to register a Data Vault 2.0 project (docs/08 §5.2).
@@ -1586,13 +3046,32 @@ export interface components {
 			 */
 			wave_id?: string | null;
 		};
+		/** CreateSessionRequest */
+		CreateSessionRequest: {
+			/** Description */
+			description?: string | null;
+			/**
+			 * Domain Namespace
+			 * @default default
+			 */
+			domain_namespace: string;
+			/**
+			 * Enterprise Owner
+			 * @default Enterprise
+			 */
+			enterprise_owner: string;
+			/** From Workspace */
+			from_workspace?: string | null;
+			/** Session Id */
+			session_id?: string | null;
+		};
 		/**
 		 * CustomOntologyDeltaOption
 		 * @description Steward option providing a custom authoring delta.
 		 */
 		CustomOntologyDeltaOption: {
 			/** @description Custom ontology delta to apply */
-			custom_delta: components["schemas"]["OntologyDelta"];
+			custom_delta: components["schemas"]["OntologyDelta-Input"];
 			/**
 			 * Delta Sha256
 			 * @description Optional SHA-256 of custom delta
@@ -1609,6 +3088,121 @@ export interface components {
 			 * @default
 			 */
 			steward_note: string;
+		};
+		/** DeltaCommitResponse */
+		DeltaCommitResponse: {
+			/** Applied Operations Count */
+			applied_operations_count: number;
+			/** Bump Type */
+			bump_type: string;
+			/** Delta Id */
+			delta_id: string;
+			/** Parent Sha256 */
+			parent_sha256: string;
+			/** Session Id */
+			session_id: string;
+			/** Target Sha256 */
+			target_sha256: string;
+			/** Target Version */
+			target_version: string;
+		};
+		/**
+		 * DeprecateConceptOp
+		 * @description Minor operation marking a Canonical Business Concept as deprecated.
+		 */
+		DeprecateConceptOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "deprecate_concept";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Reason
+			 * @description Deprecation rationale / reason
+			 */
+			reason?: string | null;
+			/**
+			 * Superseded By Concept Uri
+			 * @description Optional superseding concept URN
+			 */
+			superseded_by_concept_uri?: string | null;
+		};
+		/**
+		 * DeprecateRelationshipOp
+		 * @description Minor operation marking a relationship as deprecated.
+		 */
+		DeprecateRelationshipOp: {
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "deprecate_relationship";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Reason
+			 * @description Deprecation rationale / reason
+			 */
+			reason?: string | null;
+			/**
+			 * Relationship Name
+			 * @description Target relationship name
+			 * @default
+			 */
+			relationship_name: string;
+			/**
+			 * Relationship Uri
+			 * @description Target relationship URN
+			 * @default
+			 */
+			relationship_uri: string;
 		};
 		/**
 		 * DocCandidateOption
@@ -1954,6 +3548,35 @@ export interface components {
 			 */
 			wavesCount: number;
 		};
+		/** FeedbackSubmissionRequest */
+		FeedbackSubmissionRequest: {
+			/** Comment */
+			comment?: string | null;
+			/** Concept Uri */
+			concept_uri?: string | null;
+			/** Proposal Id */
+			proposal_id?: string | null;
+			/**
+			 * Rating
+			 * @description Feedback rating ('up', 'down', or numeric score)
+			 */
+			rating: string | number;
+		};
+		/** FeedbackSubmissionResponse */
+		FeedbackSubmissionResponse: {
+			/** Active Version */
+			active_version: string;
+			/** Feedback Id */
+			feedback_id: string;
+			/** Head Sha256 */
+			head_sha256: string;
+			/** Session Id */
+			session_id: string;
+			/** Status */
+			status: string;
+			/** Timestamp */
+			timestamp: string;
+		};
 		/**
 		 * GateScorecardSummary
 		 * @description 6-Gate verification scorecard summary.
@@ -2240,6 +3863,94 @@ export interface components {
 			 */
 			read_only_workspace: boolean;
 		};
+		/** InitStudioRequest */
+		InitStudioRequest: {
+			/** Domain Namespace */
+			domain_namespace?: string | null;
+			/** Enterprise Owner */
+			enterprise_owner?: string | null;
+			/**
+			 * Force
+			 * @default false
+			 */
+			force: boolean;
+		};
+		/** InitStudioResponse */
+		InitStudioResponse: {
+			/** Domain Namespace */
+			domain_namespace?: string | null;
+			/** Local Token */
+			local_token?: string | null;
+			/** Principal */
+			principal: string;
+			/** Status */
+			status: string;
+			/** Token Path */
+			token_path: string;
+		};
+		/** JobHandleDTO */
+		JobHandleDTO: {
+			/** Created At */
+			created_at: string;
+			/** Job Id */
+			job_id: string;
+			/** Job Type */
+			job_type: string;
+			/** Session Id */
+			session_id: string;
+			/** Status */
+			status: string;
+		};
+		/** JobStatusDTO */
+		JobStatusDTO: {
+			/** Created At */
+			created_at: string;
+			/** Error */
+			error?: {
+				[key: string]: unknown;
+			} | null;
+			/** Finished At */
+			finished_at?: string | null;
+			/** Job Id */
+			job_id: string;
+			/** Job Type */
+			job_type: string;
+			/** Pct Complete */
+			pct_complete: number;
+			/** Result */
+			result?: {
+				[key: string]: unknown;
+			} | null;
+			/** Session Id */
+			session_id: string;
+			/** Stage */
+			stage: string;
+			/** Status */
+			status: string;
+		};
+		/** LaunchNonceResponse */
+		LaunchNonceResponse: {
+			/**
+			 * Expires In
+			 * @default 60
+			 */
+			expires_in: number;
+			/** Launch Nonce */
+			launch_nonce: string;
+			/** Nonce */
+			nonce: string;
+		};
+		/** ManifestDTO */
+		ManifestDTO: {
+			/** Files */
+			files: {
+				[key: string]: unknown;
+			}[];
+			/** Session Id */
+			session_id: string;
+			/** Total Bytes */
+			total_bytes: number;
+		};
 		/**
 		 * OntologyConceptSpec
 		 * @description Specification of a Graph A business ontology concept.
@@ -2402,7 +4113,7 @@ export interface components {
 			 */
 			decided_by: string;
 			/** @description OntologyDelta object */
-			delta?: components["schemas"]["OntologyDelta"] | null;
+			delta?: components["schemas"]["OntologyDelta-Input"] | null;
 			/**
 			 * Delta Content
 			 * @description Inline delta JSON/YAML text (Decision D1)
@@ -2476,17 +4187,29 @@ export interface components {
 			/** @description Validation result if delta validation was performed */
 			validation?: components["schemas"]["OntologyValidationResult"] | null;
 		};
+		/** @description Ordered collection of additive and structural operations evolving Graph A to vN+1. */
+		OntologyDelta: components["schemas"]["OntologyDelta-Output"];
 		/**
 		 * OntologyDelta
-		 * @description Ordered collection of additive operations evolving Graph A to vN+1.
+		 * @description Ordered collection of additive and structural operations evolving Graph A to vN+1.
 		 */
-		OntologyDelta: {
+		"OntologyDelta-Input": {
+			/**
+			 * Author
+			 * @description Author or agent identity that created the delta
+			 */
+			author?: string | null;
 			/**
 			 * Base Ontology Version
-			 * @description Base ontology version
+			 * @description Base ontology version precondition
 			 * @default 1.0.0
 			 */
 			base_ontology_version: string;
+			/**
+			 * Created At
+			 * @description UTC creation timestamp
+			 */
+			created_at?: string | null;
 			/**
 			 * Delta Id
 			 * @description Unique delta identifier
@@ -2506,28 +4229,169 @@ export interface components {
 			};
 			/**
 			 * Operations
-			 * @description Ordered sequence of additive operations
+			 * @description Ordered sequence of ontology operations
 			 */
 			operations?: (
+				| components["schemas"]["RemoveConceptOp"]
+				| components["schemas"]["RemoveRelationshipOp"]
+				| components["schemas"]["RemoveAttributeOp"]
+				| components["schemas"]["UpdateConceptUrnOp"]
 				| components["schemas"]["AddConceptOp"]
 				| components["schemas"]["AddRelationshipOp"]
+				| components["schemas"]["AddAttributeOp-Input"]
+				| components["schemas"]["SetParentConceptOp"]
+				| components["schemas"]["SetConceptElmArchetypeOp"]
 				| components["schemas"]["AddReferenceEnumerationOp"]
 				| components["schemas"]["AddKeyAuthorityPatternOp"]
 				| components["schemas"]["AddGovernanceConstraintOp"]
+				| components["schemas"]["DeprecateConceptOp"]
+				| components["schemas"]["DeprecateRelationshipOp"]
+				| components["schemas"]["AddSynonymOp"]
+				| components["schemas"]["AddExternalMappingOp-Input"]
+				| components["schemas"]["ReviseDescriptionOp"]
+				| components["schemas"]["RescoreExternalMappingOp"]
+				| components["schemas"]["AddReferenceEnumCodeOp"]
+				| components["schemas"]["RepinExternalMappingOp"]
 				| components["schemas"]["RefineDefinitionOp"]
 				| components["schemas"]["AddSourceHintOp"]
+				| components["schemas"]["AnnotateConceptMetadataOp-Input"]
+				| components["schemas"]["RemoveExternalMappingOp"]
 			)[];
 			/**
 			 * Parent Sha256
-			 * @description Cryptographic SHA-256 of the base Graph A ontology
+			 * @description Parent Graph A CAS digest precondition
 			 */
 			parent_sha256?: string | null;
+			/**
+			 * Rationale
+			 * @description Overall business rationale for delta
+			 */
+			rationale?: string | null;
 			/**
 			 * Target Ontology Version
 			 * @description Target ontology version after delta application
 			 * @default 1.1.0
 			 */
-			target_ontology_version: string;
+			target_ontology_version: string | null;
+		};
+		/**
+		 * OntologyDelta
+		 * @description Ordered collection of additive and structural operations evolving Graph A to vN+1.
+		 */
+		"OntologyDelta-Output": {
+			/**
+			 * Author
+			 * @description Author or agent identity that created the delta
+			 */
+			author?: string | null;
+			/**
+			 * Base Ontology Version
+			 * @description Base ontology version precondition
+			 * @default 1.0.0
+			 */
+			base_ontology_version: string;
+			/**
+			 * Created At
+			 * @description UTC creation timestamp
+			 */
+			created_at?: string | null;
+			/**
+			 * Delta Id
+			 * @description Unique delta identifier
+			 */
+			delta_id: string;
+			/**
+			 * Domain Namespace
+			 * @description Domain namespace matching base Graph A
+			 */
+			domain_namespace?: string | null;
+			/**
+			 * Metadata
+			 * @description Arbitrary authoring provenance metadata
+			 */
+			metadata?: {
+				[key: string]: unknown;
+			};
+			/**
+			 * Operations
+			 * @description Ordered sequence of ontology operations
+			 */
+			operations?: (
+				| components["schemas"]["RemoveConceptOp"]
+				| components["schemas"]["RemoveRelationshipOp"]
+				| components["schemas"]["RemoveAttributeOp"]
+				| components["schemas"]["UpdateConceptUrnOp"]
+				| components["schemas"]["AddConceptOp"]
+				| components["schemas"]["AddRelationshipOp"]
+				| components["schemas"]["AddAttributeOp-Output"]
+				| components["schemas"]["SetParentConceptOp"]
+				| components["schemas"]["SetConceptElmArchetypeOp"]
+				| components["schemas"]["AddReferenceEnumerationOp"]
+				| components["schemas"]["AddKeyAuthorityPatternOp"]
+				| components["schemas"]["AddGovernanceConstraintOp"]
+				| components["schemas"]["DeprecateConceptOp"]
+				| components["schemas"]["DeprecateRelationshipOp"]
+				| components["schemas"]["AddSynonymOp"]
+				| components["schemas"]["AddExternalMappingOp-Output"]
+				| components["schemas"]["ReviseDescriptionOp"]
+				| components["schemas"]["RescoreExternalMappingOp"]
+				| components["schemas"]["AddReferenceEnumCodeOp"]
+				| components["schemas"]["RepinExternalMappingOp"]
+				| components["schemas"]["RefineDefinitionOp"]
+				| components["schemas"]["AddSourceHintOp"]
+				| components["schemas"]["AnnotateConceptMetadataOp-Output"]
+				| components["schemas"]["RemoveExternalMappingOp"]
+			)[];
+			/**
+			 * Parent Sha256
+			 * @description Parent Graph A CAS digest precondition
+			 */
+			parent_sha256?: string | null;
+			/**
+			 * Rationale
+			 * @description Overall business rationale for delta
+			 */
+			rationale?: string | null;
+			/**
+			 * Target Ontology Version
+			 * @description Target ontology version after delta application
+			 * @default 1.1.0
+			 */
+			target_ontology_version: string | null;
+		};
+		/** OntologyDeltaRequest */
+		OntologyDeltaRequest: {
+			/** Author */
+			author?: string | null;
+			/** Base Sha256 */
+			base_sha256?: string | null;
+			/** Base Version */
+			base_version?: string | null;
+			/** Delta Id */
+			delta_id?: string | null;
+			/** Domain Namespace */
+			domain_namespace?: string | null;
+			/** Evidence Grounding File */
+			evidence_grounding_file?: string | null;
+			/** Grounding Rationale */
+			grounding_rationale?: string | null;
+			/**
+			 * Low Confidence Waiver
+			 * @default false
+			 */
+			low_confidence_waiver: boolean;
+			/** Operations */
+			operations: {
+				[key: string]: unknown;
+			}[];
+			/** Parent Sha256 */
+			parent_sha256?: string | null;
+			/** Rationale */
+			rationale?: string | null;
+			/** Target Version */
+			target_version?: string | null;
+			/** Ungrounded Concept */
+			ungrounded_concept?: string[] | string | null;
 		};
 		/**
 		 * OntologyDiff
@@ -2657,7 +4521,7 @@ export interface components {
 			 */
 			created_at_utc: string;
 			/** @description Proposed ontology delta */
-			delta: components["schemas"]["OntologyDelta"];
+			delta: components["schemas"]["OntologyDelta-Output"];
 			/**
 			 * Diagnostics
 			 * @description Advisory diagnostic messages
@@ -2885,7 +4749,7 @@ export interface components {
 			 */
 			contract_path?: string | null;
 			/** @description OntologyDelta object */
-			delta?: components["schemas"]["OntologyDelta"] | null;
+			delta?: components["schemas"]["OntologyDelta-Input"] | null;
 			/**
 			 * Delta Content
 			 * @description Inline delta JSON/YAML text (Decision D1)
@@ -2940,6 +4804,16 @@ export interface components {
 			edges?: components["schemas"]["OntologySvgEdgeSpec"][];
 			/** Nodes */
 			nodes?: components["schemas"]["OntologySvgNodeSpec"][];
+		};
+		/** ParseRequest */
+		ParseRequest: {
+			/**
+			 * Ocr Mode
+			 * @default auto
+			 */
+			ocr_mode: string;
+			/** Source Ids */
+			source_ids?: string[] | null;
 		};
 		/**
 		 * PhaseSpecDTO
@@ -3612,6 +5486,106 @@ export interface components {
 			 */
 			wave_id?: string | null;
 		};
+		/** PromoteRequest */
+		PromoteRequest: {
+			/**
+			 * Acknowledge Historical Contract Warning
+			 * @default false
+			 */
+			acknowledge_historical_contract_warning: boolean;
+			/** Head Sha256 */
+			head_sha256?: string | null;
+			/** Historical Contract Rationale */
+			historical_contract_rationale?: string | null;
+			/**
+			 * Rationale
+			 * @default
+			 */
+			rationale: string;
+			/** Workspace */
+			workspace?: string | null;
+			/** Workspace Sha256 */
+			workspace_sha256?: string | null;
+		};
+		/** PromoteResponse */
+		PromoteResponse: {
+			/** Head Sha256 */
+			head_sha256: string;
+			/** Promoted At */
+			promoted_at: string;
+			/** Promoted Version */
+			promoted_version: string;
+			/** Session Id */
+			session_id: string;
+			/** Target Contract Path */
+			target_contract_path: string;
+			/** Workspace Sha256 */
+			workspace_sha256: string;
+		};
+		/** ProposalAcceptRequest */
+		ProposalAcceptRequest: {
+			/** Base Sha256 */
+			base_sha256?: string | null;
+			/** Evidence Grounding File */
+			evidence_grounding_file?: string | null;
+			/** Grounding Rationale */
+			grounding_rationale?: string | null;
+			/**
+			 * Low Confidence Waiver
+			 * @default false
+			 */
+			low_confidence_waiver: boolean;
+			/**
+			 * Self Acceptance Override
+			 * @default false
+			 */
+			self_acceptance_override: boolean;
+			/** Ungrounded Concept */
+			ungrounded_concept?: string[] | string | null;
+		};
+		/** ProposalCreateRequest */
+		ProposalCreateRequest: {
+			/** Base Sha256 */
+			base_sha256?: string | null;
+			/** Base Version */
+			base_version?: string | null;
+			/** Operations */
+			operations: {
+				[key: string]: unknown;
+			}[];
+			/** Proposal Id */
+			proposal_id?: string | null;
+			/** Rationale */
+			rationale?: string | null;
+		};
+		/** ProposalRebaseRequest */
+		ProposalRebaseRequest: {
+			/** Base Sha256 */
+			base_sha256?: string | null;
+		};
+		/** ProposalRecordDTO */
+		ProposalRecordDTO: {
+			/** Base Sha256 */
+			base_sha256: string;
+			/** Base Version */
+			base_version: string;
+			/** Created At */
+			created_at: string;
+			/** Operations */
+			operations: {
+				[key: string]: unknown;
+			}[];
+			/** Proposal Id */
+			proposal_id: string;
+			/** Proposer */
+			proposer: string;
+			/** Rationale */
+			rationale?: string | null;
+			/** Session Id */
+			session_id: string;
+			/** Status */
+			status: string;
+		};
 		/**
 		 * ProviderReadinessDTO
 		 * @description Readiness and credential status for a registered agent harness provider.
@@ -3767,6 +5741,210 @@ export interface components {
 			 */
 			steward_note: string;
 		};
+		/** RejectProposalRequest */
+		RejectProposalRequest: {
+			/** Reason */
+			reason?: string | null;
+		};
+		/**
+		 * RemoveAttributeOp
+		 * @description Major breaking operation removing an attribute from a concept.
+		 */
+		RemoveAttributeOp: {
+			/**
+			 * Attribute Name
+			 * @description Target attribute name to remove
+			 */
+			attribute_name: string;
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "remove_attribute";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Reason
+			 * @description Removal rationale / reason
+			 * @default
+			 */
+			reason: string;
+		};
+		/**
+		 * RemoveConceptOp
+		 * @description Major breaking operation removing a Canonical Business Concept / Hub.
+		 */
+		RemoveConceptOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "remove_concept";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Reason
+			 * @description Removal rationale / reason
+			 * @default
+			 */
+			reason: string;
+		};
+		/**
+		 * RemoveExternalMappingOp
+		 * @description Patch operation removing an external reference mapping from a concept.
+		 */
+		RemoveExternalMappingOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Mapping Type
+			 * @description Optional mapping type filter
+			 */
+			mapping_type?: string | null;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "remove_external_mapping";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Scheme
+			 * @description Reference ontology standard scheme
+			 * @default
+			 */
+			scheme: string;
+			/**
+			 * Target Uri
+			 * @description Target reference ontology URI
+			 * @default
+			 */
+			target_uri: string;
+		};
+		/**
+		 * RemoveRelationshipOp
+		 * @description Major breaking operation removing a Unit-of-Work relationship / Link.
+		 */
+		RemoveRelationshipOp: {
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "remove_relationship";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Reason
+			 * @description Removal rationale / reason
+			 * @default
+			 */
+			reason: string;
+			/**
+			 * Relationship Name
+			 * @description Target relationship name
+			 * @default
+			 */
+			relationship_name: string;
+			/**
+			 * Relationship Uri
+			 * @description Target relationship URN
+			 * @default
+			 */
+			relationship_uri: string;
+		};
 		/**
 		 * RenderedOutput
 		 * @description Pre-rendered presentation text produced by opendv-service
@@ -3788,6 +5966,192 @@ export interface components {
 			 * @description Diagnostic TOON notation trace
 			 */
 			toon?: string | null;
+		};
+		/**
+		 * RepinExternalMappingOp
+		 * @description Patch operation updating pinned state or target pack for external mapping.
+		 */
+		RepinExternalMappingOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * New Reference Pack Id
+			 * @description Target pack ID
+			 */
+			new_reference_pack_id?: string | null;
+			/**
+			 * New Reference Pack Sha256
+			 * @description Target pack SHA-256
+			 */
+			new_reference_pack_sha256?: string | null;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "repin_external_mapping";
+			/**
+			 * Pinned
+			 * @description Pinned status flag
+			 * @default true
+			 */
+			pinned: boolean;
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Scheme
+			 * @description Reference ontology standard scheme
+			 * @default
+			 */
+			scheme: string;
+			/**
+			 * Target Uri
+			 * @description Target reference ontology URI
+			 * @default
+			 */
+			target_uri: string;
+		};
+		/**
+		 * RescoreExternalMappingOp
+		 * @description Patch operation updating match confidence score for an external mapping.
+		 */
+		RescoreExternalMappingOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Matcher Id
+			 * @description Matcher identifier
+			 */
+			matcher_id?: string | null;
+			/**
+			 * Matcher Sha256
+			 * @description Matcher digest
+			 */
+			matcher_sha256?: string | null;
+			/**
+			 * Matcher Version
+			 * @description Matcher version
+			 */
+			matcher_version?: string | null;
+			/**
+			 * New Confidence
+			 * @description New confidence score
+			 */
+			new_confidence: number;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "rescore_external_mapping";
+			/**
+			 * Previous Confidence
+			 * @description Previous confidence score
+			 */
+			previous_confidence?: number | null;
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Scheme
+			 * @description Reference ontology standard scheme
+			 * @default
+			 */
+			scheme: string;
+			/**
+			 * Target Uri
+			 * @description Target reference ontology URI
+			 * @default
+			 */
+			target_uri: string;
+		};
+		/**
+		 * ReviseDescriptionOp
+		 * @description Patch operation revising textual description of a concept.
+		 */
+		ReviseDescriptionOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 * @default
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Description
+			 * @description Revised concept description
+			 * @default
+			 */
+			description: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "revise_description";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
 		};
 		/**
 		 * RuleEvaluationDTO
@@ -4177,6 +6541,147 @@ export interface components {
 			| "VERIFY_DYN_001_015"
 			| "CUSTOM_SQL";
 		/**
+		 * SetConceptElmArchetypeOp
+		 * @description Minor (or Major on overwrite) operation to set ELM archetype.
+		 */
+		SetConceptElmArchetypeOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Elm Archetype
+			 * @description Target ELM archetype classification
+			 */
+			elm_archetype: string;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "set_concept_elm_archetype";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+		};
+		/**
+		 * SetParentConceptOp
+		 * @description Minor (or Major on overwrite/unset) operation to set or unset parent concept hierarchy.
+		 */
+		SetParentConceptOp: {
+			/**
+			 * Concept Uri
+			 * @description Target Canonical Business Concept URN
+			 */
+			concept_uri: string;
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "set_parent_concept";
+			/**
+			 * Parent Concept Uri
+			 * @description Parent concept URN within Graph A hierarchy
+			 */
+			parent_concept_uri?: string | null;
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+		};
+		/** SourceDocumentDTO */
+		SourceDocumentDTO: {
+			/**
+			 * Byte Count
+			 * @default 0
+			 */
+			byte_count: number;
+			/** Do Not Send To Agent */
+			do_not_send_to_agent: boolean;
+			/** File Name */
+			file_name: string;
+			/**
+			 * Filename
+			 * @default
+			 */
+			filename: string;
+			/** Mime Type */
+			mime_type: string;
+			/** Size Bytes */
+			size_bytes: number;
+			/** Source Id */
+			source_id: string;
+			/** Source Sha256 */
+			source_sha256: string;
+			/**
+			 * Tombstoned
+			 * @default false
+			 */
+			tombstoned: boolean;
+		};
+		/** SourceUploadResponse */
+		SourceUploadResponse: {
+			/**
+			 * Byte Count
+			 * @default 0
+			 */
+			byte_count: number;
+			/** Do Not Send To Agent */
+			do_not_send_to_agent: boolean;
+			/** File Name */
+			file_name: string;
+			/**
+			 * Filename
+			 * @default
+			 */
+			filename: string;
+			/** Mime Type */
+			mime_type: string;
+			/** Size Bytes */
+			size_bytes: number;
+			/** Source Id */
+			source_id: string;
+			/** Source Sha256 */
+			source_sha256: string;
+		};
+		/**
 		 * StageDTO
 		 * @description Ordered pipeline stage definition (strictly STAGE_00..STAGE_07).
 		 */
@@ -4291,6 +6796,199 @@ export interface components {
 			 * @description Artifact IDs written by step
 			 */
 			writes?: string[];
+		};
+		/** StudioClarificationAnswerRequest */
+		StudioClarificationAnswerRequest: {
+			/** Answers */
+			answers?:
+				| (
+						| components["schemas"]["ClarificationAnswerItem"]
+						| {
+								[key: string]: unknown;
+						  }
+				  )[]
+				| {
+						[key: string]: unknown;
+				  };
+			/** Expected Answers Sha256 */
+			expected_answers_sha256?: string | null;
+		};
+		/** StudioClarifyRequest */
+		StudioClarifyRequest: {
+			/** Base Version */
+			base_version?: string | null;
+			/**
+			 * Focus Concept
+			 * @description Optional single focus concept (normalized into focus_concepts)
+			 */
+			focus_concept?: string | null;
+			/**
+			 * Focus Concepts
+			 * @description Optional list of concept URIs or names to focus clarification on
+			 */
+			focus_concepts?: string[] | null;
+			/**
+			 * Max Questions
+			 * @description Maximum number of questions to generate
+			 * @default 10
+			 */
+			max_questions: number;
+			/**
+			 * Mode
+			 * @description Generation mode ('auto', 'agent', 'deterministic')
+			 * @default auto
+			 * @enum {string}
+			 */
+			mode: "auto" | "agent" | "deterministic";
+		};
+		/** StudioSessionDTO */
+		StudioSessionDTO: {
+			/** Active Version */
+			active_version: string;
+			/** Created At */
+			created_at: string;
+			/** Domain Namespace */
+			domain_namespace: string;
+			/** Enterprise Owner */
+			enterprise_owner: string;
+			/** Head Sha256 */
+			head_sha256: string;
+			/** Session Id */
+			session_id: string;
+			/** Status */
+			status: string;
+			/** Updated At */
+			updated_at: string;
+		};
+		/** StudioSessionDetailDTO */
+		StudioSessionDetailDTO: {
+			/** Active Version */
+			active_version: string;
+			/** Created At */
+			created_at: string;
+			/** Domain Namespace */
+			domain_namespace: string;
+			/** Enterprise Owner */
+			enterprise_owner: string;
+			/** Grandfathered Concept Uris */
+			grandfathered_concept_uris?: string[];
+			/** Head Sha256 */
+			head_sha256: string;
+			/** Proposals Count */
+			proposals_count: number;
+			/** Session Id */
+			session_id: string;
+			/** Sources Count */
+			sources_count: number;
+			/** Status */
+			status: string;
+			/** Updated At */
+			updated_at: string;
+			/** Versions Count */
+			versions_count: number;
+		};
+		/** StudioSessionStatusDTO */
+		StudioSessionStatusDTO: {
+			/**
+			 * Active Jobs
+			 * @default 0
+			 */
+			active_jobs: number;
+			/** Active Version */
+			active_version: string;
+			/** Head Sha256 */
+			head_sha256: string;
+			/** Session Id */
+			session_id: string;
+			/** Status */
+			status: string;
+			/**
+			 * Taint Classification
+			 * @default UNTAINTED
+			 */
+			taint_classification: string;
+		};
+		/** StudioSessionSummaryDTO */
+		StudioSessionSummaryDTO: {
+			/** Active Version */
+			active_version: string;
+			/** Created At */
+			created_at: string;
+			/** Domain Namespace */
+			domain_namespace: string;
+			/** Enterprise Owner */
+			enterprise_owner: string;
+			/** Session Id */
+			session_id: string;
+			/** Status */
+			status: string;
+			/** Updated At */
+			updated_at: string;
+		};
+		/** TokenExchangeRequest */
+		TokenExchangeRequest: {
+			/** Launch Nonce */
+			launch_nonce?: string | null;
+			/** Nonce */
+			nonce?: string | null;
+		};
+		/** TokenExchangeResponse */
+		TokenExchangeResponse: {
+			/** Access Token */
+			access_token?: string | null;
+			/** Principal */
+			principal: string;
+			/** Status */
+			status: string;
+		};
+		/**
+		 * UpdateConceptUrnOp
+		 * @description Major breaking operation renaming a Canonical Business Concept URN identity.
+		 */
+		UpdateConceptUrnOp: {
+			/**
+			 * Confidence
+			 * @description Operation confidence score
+			 * @default 1
+			 */
+			confidence: number;
+			/**
+			 * Evidence Refs
+			 * @description Grounding evidence references
+			 */
+			evidence_refs?: components["schemas"]["EvidenceRef"][];
+			/**
+			 * New Concept Uri
+			 * @description New concept URN
+			 */
+			new_concept_uri: string;
+			/**
+			 * Old Concept Uri
+			 * @description Original concept URN
+			 */
+			old_concept_uri: string;
+			/**
+			 * Op Id
+			 * @description Unique operation identifier
+			 */
+			op_id: string;
+			/**
+			 * @description discriminator enum property added by openapi-typescript
+			 * @enum {string}
+			 */
+			op_type: "update_concept_urn";
+			/**
+			 * Rationale
+			 * @description Business justification for the operation
+			 * @default
+			 */
+			rationale: string;
+			/**
+			 * Reason
+			 * @description Identity update rationale / reason
+			 * @default
+			 */
+			reason: string;
 		};
 		/** ValidationError */
 		ValidationError: {
@@ -4468,6 +7166,44 @@ export interface components {
 			toon_text?: string | null;
 			/** @description Overall synthesized gate verdict */
 			verdict: components["schemas"]["GateVerdict"];
+		};
+		/** WaiverSubmissionRequest */
+		WaiverSubmissionRequest: {
+			/** Authorized By */
+			authorized_by?: string | null;
+			/** Authorized Role */
+			authorized_role?: string | null;
+			/** Base Sha256 */
+			base_sha256?: string | null;
+			/** Concept Uri */
+			concept_uri?: string | null;
+			/** Concept Uris */
+			concept_uris?: string[] | null;
+			/** Created At */
+			created_at?: string | null;
+			/** Expires At */
+			expires_at?: string | null;
+			/** Proposal Delta Sha256 */
+			proposal_delta_sha256?: string | null;
+			/** Proposal Id */
+			proposal_id?: string | null;
+			/**
+			 * Rationale
+			 * @default
+			 */
+			rationale: string;
+			/** Signature Or Token */
+			signature_or_token?: string | null;
+			/** Steward */
+			steward?: string | null;
+			/** Target Concept Uris */
+			target_concept_uris?: string[] | null;
+			/** Ungrounded Concepts */
+			ungrounded_concepts?: string[] | null;
+			/** Waiver Id */
+			waiver_id?: string | null;
+		} & {
+			[key: string]: unknown;
 		};
 		/**
 		 * WaveMetadataSpecDTO
@@ -4673,6 +7409,1428 @@ export interface operations {
 				};
 				content: {
 					"application/json": components["schemas"]["OntologyDiff"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	mint_launch_nonce_endpoint_api_v1_ontology_studio_auth_launch_nonce_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["LaunchNonceResponse"];
+				};
+			};
+		};
+	};
+	exchange_launch_nonce_endpoint_api_v1_ontology_studio_auth_token_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["TokenExchangeRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["TokenExchangeResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	init_studio_api_v1_ontology_studio_init_post: {
+		parameters: {
+			query?: {
+				force?: boolean;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: {
+			content: {
+				"application/json": components["schemas"]["InitStudioRequest"] | null;
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["InitStudioResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_job_status_endpoint_api_v1_ontology_studio_jobs__job_id__get: {
+		parameters: {
+			query?: {
+				session_id?: string | null;
+			};
+			header?: never;
+			path: {
+				job_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["JobStatusDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	cancel_job_endpoint_api_v1_ontology_studio_jobs__job_id__cancel_post: {
+		parameters: {
+			query?: {
+				session_id?: string | null;
+			};
+			header?: never;
+			path: {
+				job_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: {
+			content: {
+				"application/json": {
+					[key: string]: unknown;
+				} | null;
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["JobStatusDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_job_events_stream_api_v1_ontology_studio_jobs__job_id__events_get: {
+		parameters: {
+			query?: {
+				session_id?: string | null;
+			};
+			header?: {
+				"Last-Event-ID"?: string | null;
+			};
+			path: {
+				job_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": unknown;
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	list_sessions_api_v1_ontology_studio_sessions_get: {
+		parameters: {
+			query?: {
+				limit?: number;
+				offset?: number;
+				status?: string | null;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["StudioSessionSummaryDTO"][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	create_session_api_v1_ontology_studio_sessions_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["CreateSessionRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["StudioSessionDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post: {
+		parameters: {
+			query?: {
+				acknowledge_unverified_import_attribution?: boolean;
+				acknowledgement_rationale?: string | null;
+				new_session_id?: string | null;
+				force?: boolean;
+			};
+			header?: never;
+			path?: never;
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"multipart/form-data": components["schemas"]["Body_import_bundle_endpoint_api_v1_ontology_studio_sessions_bundle_import_post"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["StudioSessionDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_session_api_v1_ontology_studio_sessions__session_id__get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["StudioSessionDetailDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	delete_session_api_v1_ontology_studio_sessions__session_id__delete: {
+		parameters: {
+			query?: {
+				force?: boolean;
+			};
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_clarification_answers_api_v1_ontology_studio_sessions__session_id__answers_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": {
+						[key: string]: unknown;
+					}[];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	submit_clarification_answers_api_v1_ontology_studio_sessions__session_id__answers_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["StudioClarificationAnswerRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ClarificationAnswerResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	export_bundle_endpoint_api_v1_ontology_studio_sessions__session_id__bundle_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["BundleExportRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": unknown;
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	clone_session_endpoint_api_v1_ontology_studio_sessions__session_id__bundle_clone_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: {
+			content: {
+				"application/json": components["schemas"]["CloneSessionRequest"] | null;
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["StudioSessionDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_clarification_questions_api_v1_ontology_studio_sessions__session_id__clarifications_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ClarificationQuestion"][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	trigger_clarification_api_v1_ontology_studio_sessions__session_id__clarify_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["StudioClarifyRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			202: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["JobHandleDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	trigger_construction_api_v1_ontology_studio_sessions__session_id__construct_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				"If-Match"?: string | null;
+			};
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["ConstructRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			202: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["JobHandleDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	apply_delta_endpoint_api_v1_ontology_studio_sessions__session_id__delta_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				"If-Match"?: string | null;
+			};
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologyDeltaRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["DeltaCommitResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	export_ontology_endpoint_api_v1_ontology_studio_sessions__session_id__export_get: {
+		parameters: {
+			query?: {
+				export_format?: string;
+				version?: string | null;
+			};
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": unknown;
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	submit_feedback_api_v1_ontology_studio_sessions__session_id__feedback_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["FeedbackSubmissionRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["FeedbackSubmissionResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_job_status_endpoint_api_v1_ontology_studio_sessions__session_id__jobs__job_id__get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				job_id: string;
+				session_id: string | null;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["JobStatusDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	cancel_job_endpoint_api_v1_ontology_studio_sessions__session_id__jobs__job_id__cancel_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				job_id: string;
+				session_id: string | null;
+			};
+			cookie?: never;
+		};
+		requestBody?: {
+			content: {
+				"application/json": {
+					[key: string]: unknown;
+				} | null;
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["JobStatusDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_job_events_stream_api_v1_ontology_studio_sessions__session_id__jobs__job_id__events_get: {
+		parameters: {
+			query?: never;
+			header?: {
+				"Last-Event-ID"?: string | null;
+			};
+			path: {
+				job_id: string;
+				session_id: string | null;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": unknown;
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_manifest_api_v1_ontology_studio_sessions__session_id__manifest_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ManifestDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	parse_sources_api_v1_ontology_studio_sessions__session_id__parse_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["ParseRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			202: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["JobHandleDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	promote_session_api_v1_ontology_studio_sessions__session_id__promote_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				"If-Match"?: string | null;
+				"X-OpenDV-Workspace-If-Match"?: string | null;
+			};
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["PromoteRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["PromoteResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	list_proposals_api_v1_ontology_studio_sessions__session_id__proposals_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ProposalRecordDTO"][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	create_proposal_api_v1_ontology_studio_sessions__session_id__proposals_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["ProposalCreateRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ProposalRecordDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_proposal_detail_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+				proposal_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ProposalRecordDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	accept_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__accept_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				"If-Match"?: string | null;
+			};
+			path: {
+				session_id: string;
+				proposal_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["ProposalAcceptRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["DeltaCommitResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	rebase_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__rebase_post: {
+		parameters: {
+			query?: never;
+			header?: {
+				"If-Match"?: string | null;
+			};
+			path: {
+				session_id: string;
+				proposal_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["ProposalRebaseRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ProposalRecordDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	reject_proposal_api_v1_ontology_studio_sessions__session_id__proposals__proposal_id__reject_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+				proposal_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: {
+			content: {
+				"application/json":
+					| components["schemas"]["RejectProposalRequest"]
+					| null;
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ProposalRecordDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_clarification_questions_api_v1_ontology_studio_sessions__session_id__questions_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["ClarificationQuestion"][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	list_sources_api_v1_ontology_studio_sessions__session_id__sources_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["SourceDocumentDTO"][];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	upload_source_api_v1_ontology_studio_sessions__session_id__sources_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"multipart/form-data": components["schemas"]["Body_upload_source_api_v1_ontology_studio_sessions__session_id__sources_post"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			201: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["SourceUploadResponse"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_source_detail_api_v1_ontology_studio_sessions__session_id__sources__source_id__get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+				source_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["SourceDocumentDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	delete_source_endpoint_api_v1_ontology_studio_sessions__session_id__sources__source_id__delete: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+				source_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			204: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content?: never;
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_source_content_api_v1_ontology_studio_sessions__session_id__sources__source_id__content_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+				source_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": unknown;
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	get_session_status_api_v1_ontology_studio_sessions__session_id__status_get: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody?: never;
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["StudioSessionStatusDTO"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	validate_delta_endpoint_api_v1_ontology_studio_sessions__session_id__validate_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["OntologyDeltaRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["OntologyValidationResult"];
+				};
+			};
+			/** @description Validation Error */
+			422: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": components["schemas"]["HTTPValidationError"];
+				};
+			};
+		};
+	};
+	submit_waiver_api_v1_ontology_studio_sessions__session_id__waiver_post: {
+		parameters: {
+			query?: never;
+			header?: never;
+			path: {
+				session_id: string;
+			};
+			cookie?: never;
+		};
+		requestBody: {
+			content: {
+				"application/json": components["schemas"]["WaiverSubmissionRequest"];
+			};
+		};
+		responses: {
+			/** @description Successful Response */
+			200: {
+				headers: {
+					[name: string]: unknown;
+				};
+				content: {
+					"application/json": {
+						[key: string]: unknown;
+					};
 				};
 			};
 			/** @description Validation Error */

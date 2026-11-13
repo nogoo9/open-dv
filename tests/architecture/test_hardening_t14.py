@@ -101,9 +101,7 @@ def _extract_docstring_nodes(tree: ast.AST) -> set[ast.Constant]:
     """Identify and collect all docstring AST Constant nodes in a module."""
     docstrings: set[ast.Constant] = set()
     for node in ast.walk(tree):
-        if isinstance(
-            node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)
-        ) and (
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Module)) and (
             node.body
             and isinstance(node.body[0], ast.Expr)
             and isinstance(node.body[0].value, ast.Constant)
@@ -138,9 +136,8 @@ def test_no_hardcoded_paths_in_production(rel_dir: str) -> None:
                 for pref in BANNED_RELATIVE_PREFIXES:
                     # Allow schema registry normative example path keys in validate_all_examples
                     if (
-                        (val.startswith(pref) or f"/{pref}" in val)
-                        and "schema_registry.py" not in py_file.name
-                    ):
+                        val.startswith(pref) or f"/{pref}" in val
+                    ) and "schema_registry.py" not in py_file.name:
                         rel = py_file.relative_to(REPO_ROOT)
                         violations.append(f"{rel}:{node.lineno}: banned prefix '{val}'")
             elif isinstance(node, ast.Attribute) and node.attr in {"home", "expanduser"}:

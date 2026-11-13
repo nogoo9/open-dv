@@ -204,14 +204,25 @@ def test_axi_dv_dump_cli_tree_canonical_jcs(capsys: pytest.CaptureFixture[str]) 
 def test_invalid_cli_arguments_deterministic_json_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """Verify invalid arguments with --json produce deterministic error JSON and exit code 2."""
+    """Verify invalid arguments with --json produce deterministic JSON and exit 2 (MIN-01)."""
     rc = app_main(["verify", "--non-existent-flag", "--json"])
     assert rc == 2
     raw_out = capsys.readouterr().out.strip()
-    assert raw_out == '{"detail":"Invalid CLI arguments.","status":"ERROR"}'
+    expected_err = (
+        '{"detail":"Invalid CLI arguments.",'
+        '"error_code":"SYNTAX_INVALID_ARGUMENT","status":"ERROR"}'
+    )
+    assert raw_out == expected_err
 
     # Also test with -f json
     rc2 = app_main(["profile", "--unknown-option", "-f", "json"])
     assert rc2 == 2
     raw_out2 = capsys.readouterr().out.strip()
-    assert raw_out2 == '{"detail":"Invalid CLI arguments.","status":"ERROR"}'
+    assert raw_out2 == expected_err
+
+    # Verify -f <file> (not json) does NOT falsely trigger JSON stdout on parse error (MIN-01)
+    rc3 = app_main(["ontology", "studio", "upload", "-s", "s1", "-f", "doc.pdf", "--bogus-flag"])
+    assert rc3 == 2
+    captured3 = capsys.readouterr()
+    assert captured3.out.strip() == ""
+    assert "unrecognized arguments" in captured3.err

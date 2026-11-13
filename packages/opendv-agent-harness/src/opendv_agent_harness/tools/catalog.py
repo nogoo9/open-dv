@@ -1320,7 +1320,13 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             input_model=ProfileSourceFeedInput,
             output_model=ProfileSourceFeedOutput,
             handler=_handle_profile_source_feed,
-            allowed_personas=frozenset({AgentPersona.SCOUT_SOURCE, AgentPersona.VAULT_FIRST_MATE}),
+            allowed_personas=frozenset(
+                {
+                    AgentPersona.SCOUT_SOURCE,
+                    AgentPersona.VAULT_FIRST_MATE,
+                    AgentPersona.TERM_SCOUT,
+                }
+            ),
             read_only=True,
             requires_steward_approval=False,
         ),
@@ -1333,7 +1339,12 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             input_model=ExtractPdfSpansInput,
             output_model=ExtractPdfSpansOutput,
             handler=_handle_extract_pdf_spans,
-            allowed_personas=frozenset({AgentPersona.SCOUT_UNSTRUCTURED}),
+            allowed_personas=frozenset(
+                {
+                    AgentPersona.SCOUT_UNSTRUCTURED,
+                    AgentPersona.TERM_SCOUT,
+                }
+            ),
             read_only=True,
             requires_steward_approval=False,
         ),
@@ -1359,7 +1370,13 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
             input_model=RunAxiDvGatesInput,
             output_model=RunAxiDvGatesOutput,
             handler=_handle_run_axi_dv_gates,
-            allowed_personas=frozenset({AgentPersona.SHIP_VAULT, AgentPersona.VAULT_FIRST_MATE}),
+            allowed_personas=frozenset(
+                {
+                    AgentPersona.SHIP_VAULT,
+                    AgentPersona.VAULT_FIRST_MATE,
+                    AgentPersona.ONTOLOGY_ARCHITECT,
+                }
+            ),
             read_only=True,
             requires_steward_approval=False,
         ),
@@ -1404,6 +1421,9 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
                     AgentPersona.SCOUT_SOURCE,
                     AgentPersona.SCOUT_UNSTRUCTURED,
                     AgentPersona.SHIP_VAULT,
+                    AgentPersona.TERM_SCOUT,
+                    AgentPersona.DOMAIN_CLARIFIER,
+                    AgentPersona.ONTOLOGY_ARCHITECT,
                 }
             ),
             read_only=False,
@@ -1423,6 +1443,8 @@ def build_default_domain_tools() -> list[AgentToolDefinition[Any, Any]]:
                     AgentPersona.VAULT_FIRST_MATE,
                     AgentPersona.SCOUT_UNSTRUCTURED,
                     AgentPersona.SHIP_VAULT,
+                    AgentPersona.DOMAIN_CLARIFIER,
+                    AgentPersona.ONTOLOGY_ARCHITECT,
                 }
             ),
             read_only=False,

@@ -199,8 +199,8 @@ def test_protocol_ts_zero_legacy_exports() -> None:
             if pattern.search(content):
                 violations.append(f"{rel}: matched legacy pattern {pattern.pattern}")
 
-    assert not violations, (
-        "Legacy exports detected in @opendv/protocol-ts:\n" + "\n".join(violations)
+    assert not violations, "Legacy exports detected in @opendv/protocol-ts:\n" + "\n".join(
+        violations
     )
 
 
@@ -235,8 +235,8 @@ def test_explorer_import_isolation() -> None:
                             f"{line.strip()}"
                         )
 
-    assert not violations, (
-        "Explorer import isolation violations detected:\n" + "\n".join(violations)
+    assert not violations, "Explorer import isolation violations detected:\n" + "\n".join(
+        violations
     )
 
 

@@ -1,13 +1,13 @@
 /**
- * D2 Live SSE Event Follower & Stream Formatter.
+ * D2 Live SSE Event Follower & Stream Formatter (Pipeline Runs + Ontology Studio Jobs).
  *
- * Consumes real-time W3C Server-Sent Events from `events_sse_url` and renders
- * live stage transitions and token streams matching standalone `opendv` format:
- * `[Wave {w}][STAGE {s}] Starting {stage_id} ({persona}, model={model})...`
- * `[Wave {w}][STAGE {s}] {stage_id} ({persona}, model={model}) -> {status}: {summary} ({duration}ms)`
+ * Consumes real-time W3C Server-Sent Events from `events_sse_url` or
+ * `/api/v1/ontology/studio/sessions/{sid}/jobs/{job_id}/events` and renders
+ * live stage transitions, Studio job progress, and token streams.
  */
 
 import { SseStreamParser } from "@opendv/protocol-ts";
+import { CliDomainError } from "./error-handler";
 
 export function formatShortStage(stageId: string): string {
 	const parts = stageId.split("_");
@@ -20,11 +20,30 @@ export function formatShortStage(stageId: string): string {
 export interface SseFollowerOptions {
 	streamUrl: string;
 	headers?: Record<string, string> | undefined;
+	lastEventId?: string | undefined;
 	streamEnabled?: boolean | undefined;
 	tokensEnabled?: boolean | undefined;
+	timeoutMs?: number | undefined;
 	writer?: ((line: string) => void) | undefined;
 	tokenWriter?: ((token: string) => void) | undefined;
 	fetchImpl?: typeof fetch | undefined;
+}
+
+export type FollowOptions = SseFollowerOptions;
+
+function resolveStreamTimeoutMs(explicitTimeoutMs?: number): number {
+	if (
+		typeof explicitTimeoutMs === "number" &&
+		Number.isFinite(explicitTimeoutMs) &&
+		explicitTimeoutMs > 0
+	) {
+		return explicitTimeoutMs;
+	}
+	const envRaw =
+		typeof process !== "undefined"
+			? Number(process.env.OPENDV_JOB_WAIT_TIMEOUT_MS || 600_000)
+			: 600_000;
+	return Number.isFinite(envRaw) && envRaw > 0 ? envRaw : 600_000;
 }
 
 export interface TerminalRunSummary {
@@ -32,18 +51,78 @@ export interface TerminalRunSummary {
 	[key: string]: unknown;
 }
 
+export class StudioSsePrematureEofError extends Error {
+	readonly lastEventId?: string | undefined;
+
+	constructor(message: string, lastEventId?: string) {
+		super(message);
+		this.name = "StudioSsePrematureEofError";
+		this.lastEventId = lastEventId;
+	}
+}
+
 export async function followEventStream(
 	options: SseFollowerOptions,
 ): Promise<TerminalRunSummary> {
 	const fetchFn = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
-	const res = await fetchFn(options.streamUrl, {
-		headers: {
-			Accept: "text/event-stream",
-			...options.headers,
-		},
+	const reqHeaders: Record<string, string> = {
+		Accept: "text/event-stream",
+		...options.headers,
+	};
+	if (options.lastEventId) {
+		reqHeaders["Last-Event-ID"] = options.lastEventId;
+	}
+	const timeoutMs = resolveStreamTimeoutMs(options.timeoutMs);
+	const abortController = new AbortController();
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	let rejectOnTimeout: ((err: CliDomainError) => void) | undefined;
+	const timeoutError = new CliDomainError(
+		"API_UNREACHABLE",
+		`SSE stream timed out after ${timeoutMs}ms (${options.streamUrl})`,
+		503,
+	);
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		rejectOnTimeout = reject;
 	});
+	timeoutPromise.catch(() => {});
+
+	const resetTimer = (): void => {
+		if (idleTimer !== undefined) {
+			clearTimeout(idleTimer);
+		}
+		idleTimer = setTimeout(() => {
+			abortController.abort(timeoutError);
+			rejectOnTimeout?.(timeoutError);
+		}, timeoutMs);
+	};
+	const clearStreamTimer = (): void => {
+		if (idleTimer !== undefined) {
+			clearTimeout(idleTimer);
+			idleTimer = undefined;
+		}
+	};
+
+	resetTimer();
+	let res: Response;
+	try {
+		res = await Promise.race([
+			fetchFn(options.streamUrl, {
+				headers: reqHeaders,
+				signal: abortController.signal,
+			}),
+			timeoutPromise,
+		]);
+	} catch (err) {
+		clearStreamTimer();
+		if (abortController.signal.aborted) {
+			throw timeoutError;
+		}
+		throw err;
+	}
+	resetTimer();
 
 	if (!res.ok || !res.body) {
+		clearStreamTimer();
 		throw new Error(
 			`Failed to establish SSE connection (${options.streamUrl}): HTTP ${res.status}`,
 		);
@@ -69,13 +148,26 @@ export async function followEventStream(
 
 	try {
 		while (true) {
-			const { done, value } = await reader.read();
+			let readRes: Awaited<ReturnType<typeof reader.read>>;
+			try {
+				readRes = await Promise.race([reader.read(), timeoutPromise]);
+			} catch (err) {
+				if (abortController.signal.aborted) {
+					throw timeoutError;
+				}
+				throw err;
+			}
+			const { done, value } = readRes;
 			if (done) {
 				break;
 			}
+			resetTimer();
 
 			const chunk = decoder.decode(value, { stream: true });
 			const frames = sseParser.feed(chunk);
+			if (frames.length > 0) {
+				resetTimer();
+			}
 
 			for (const frame of frames) {
 				const evType = frame.event || "message";
@@ -138,8 +230,248 @@ export async function followEventStream(
 			}
 		}
 	} finally {
+		clearStreamTimer();
+		if (abortController.signal.aborted) {
+			reader.cancel().catch(() => {});
+		}
 		reader.releaseLock();
 	}
 
 	return terminalResult;
+}
+
+/**
+ * Follow Ontology Studio background job SSE events (`job_started`, `progress_update`,
+ * `job_completed`, `job_cancelled`, `job_failed`).
+ *
+ * Strictly requires an explicit terminal event before returning `COMPLETED`; premature
+ * stream EOF throws `StudioSsePrematureEofError` so callers never mask disconnects as success.
+ */
+export async function followStudioJobEvents(
+	options: SseFollowerOptions,
+): Promise<TerminalRunSummary> {
+	const fetchFn = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
+	const reqHeaders: Record<string, string> = {
+		Accept: "text/event-stream",
+		...options.headers,
+	};
+	if (options.lastEventId) {
+		reqHeaders["Last-Event-ID"] = options.lastEventId;
+	}
+
+	const timeoutMs = resolveStreamTimeoutMs(options.timeoutMs);
+	const abortController = new AbortController();
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	let rejectOnTimeout: ((err: CliDomainError) => void) | undefined;
+	const timeoutError = new CliDomainError(
+		"API_UNREACHABLE",
+		`Studio SSE stream timed out after ${timeoutMs}ms (${options.streamUrl})`,
+		503,
+	);
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		rejectOnTimeout = reject;
+	});
+	timeoutPromise.catch(() => {});
+
+	const resetTimer = (): void => {
+		if (idleTimer !== undefined) {
+			clearTimeout(idleTimer);
+		}
+		idleTimer = setTimeout(() => {
+			abortController.abort(timeoutError);
+			rejectOnTimeout?.(timeoutError);
+		}, timeoutMs);
+	};
+	const clearStreamTimer = (): void => {
+		if (idleTimer !== undefined) {
+			clearTimeout(idleTimer);
+			idleTimer = undefined;
+		}
+	};
+
+	resetTimer();
+	let res: Response;
+	try {
+		res = await Promise.race([
+			fetchFn(options.streamUrl, {
+				headers: reqHeaders,
+				signal: abortController.signal,
+			}),
+			timeoutPromise,
+		]);
+	} catch (err) {
+		clearStreamTimer();
+		if (abortController.signal.aborted) {
+			throw timeoutError;
+		}
+		throw err;
+	}
+	resetTimer();
+
+	if (!res.ok || !res.body) {
+		clearStreamTimer();
+		throw new CliDomainError(
+			res.status === 404 ? "JOB_NOT_FOUND" : "API_UNREACHABLE",
+			`Failed to establish Studio SSE connection (${options.streamUrl}): HTTP ${res.status}`,
+			res.status,
+		);
+	}
+
+	const reader = res.body.getReader();
+	const decoder = new TextDecoder();
+	const sseParser = new SseStreamParser();
+	const streamEnabled = options.streamEnabled ?? true;
+	const logLine = options.writer ?? ((line: string) => console.error(line));
+	let lastEventId: string | undefined = options.lastEventId;
+
+	const processFrames = (
+		frames: Array<{
+			id?: string | undefined;
+			event?: string | undefined;
+			data: string;
+		}>,
+	): TerminalRunSummary | null => {
+		for (const frame of frames) {
+			if (frame.id) {
+				lastEventId = frame.id;
+			}
+			const rawEvent = (frame.event || "message").trim();
+			let parsed: Record<string, unknown> = {};
+			if (frame.data && frame.data.trim() !== "") {
+				try {
+					const obj = JSON.parse(frame.data);
+					if (typeof obj === "object" && obj !== null && !Array.isArray(obj)) {
+						parsed = obj as Record<string, unknown>;
+					}
+				} catch {
+					// Ignore keepalive or non-JSON comment payloads
+				}
+			}
+
+			const evLower = String(parsed.event_type || rawEvent).toLowerCase();
+
+			if (evLower === "job_failed" || evLower === "error") {
+				const errObj =
+					typeof parsed.error === "object" && parsed.error !== null
+						? (parsed.error as Record<string, unknown>)
+						: parsed;
+				const errCode = String(
+					errObj.code ||
+						errObj.error_code ||
+						parsed.error_code ||
+						"INTERNAL_ERROR",
+				);
+				const errDetail = String(
+					errObj.detail ||
+						errObj.message ||
+						parsed.detail ||
+						parsed.message ||
+						"Studio background job failed.",
+				);
+				const errStatus =
+					typeof errObj.status === "number"
+						? errObj.status
+						: typeof parsed.http_status === "number"
+							? parsed.http_status
+							: undefined;
+				throw new CliDomainError(errCode, errDetail, errStatus);
+			}
+
+			if (evLower === "job_cancelled") {
+				const errObj =
+					typeof parsed.error === "object" && parsed.error !== null
+						? (parsed.error as Record<string, unknown>)
+						: parsed;
+				const errCode = String(
+					errObj.code || errObj.error_code || "JOB_ALREADY_TERMINAL",
+				);
+				const errDetail = String(
+					errObj.detail ||
+						errObj.message ||
+						parsed.reason ||
+						"Studio background job was cancelled.",
+				);
+				throw new CliDomainError(errCode, errDetail, 409);
+			}
+
+			if (evLower === "job_completed") {
+				if (streamEnabled) {
+					const stage = String(parsed.stage || "completed");
+					logLine(`[Studio Job] Completed (${stage})`);
+				}
+				return {
+					status: "COMPLETED",
+					...parsed,
+					...(lastEventId ? { last_event_id: lastEventId } : {}),
+				};
+			}
+
+			if (
+				streamEnabled &&
+				(evLower === "job_started" ||
+					evLower === "progress_update" ||
+					evLower === "chunk_parsed" ||
+					evLower === "clarification_generated" ||
+					evLower === "fibo_grounding" ||
+					evLower === "noop_construct" ||
+					evLower === "version_committed")
+			) {
+				const stage = parsed.stage ? ` [${parsed.stage}]` : "";
+				const pct =
+					typeof parsed.pct_complete === "number"
+						? ` ${parsed.pct_complete}%`
+						: "";
+				const detail = parsed.message || parsed.summary || "";
+				const suffix = detail ? `: ${detail}` : "";
+				logLine(`[Studio Job] ${evLower}${stage}${pct}${suffix}`);
+			}
+		}
+		return null;
+	};
+
+	try {
+		while (true) {
+			let readRes: Awaited<ReturnType<typeof reader.read>>;
+			try {
+				readRes = await Promise.race([reader.read(), timeoutPromise]);
+			} catch (err) {
+				if (abortController.signal.aborted) {
+					throw timeoutError;
+				}
+				throw err;
+			}
+			const { done, value } = readRes;
+			if (done) {
+				const trailing = decoder.decode();
+				const flushed = sseParser.feed(`${trailing}\n\n`);
+				const term = processFrames(flushed);
+				if (term) {
+					return term;
+				}
+				break;
+			}
+			resetTimer();
+
+			const chunk = decoder.decode(value, { stream: true });
+			const frames = sseParser.feed(chunk);
+			if (frames.length > 0) {
+				resetTimer();
+			}
+			const term = processFrames(frames);
+			if (term) {
+				return term;
+			}
+		}
+	} finally {
+		clearStreamTimer();
+		if (abortController.signal.aborted) {
+			reader.cancel().catch(() => {});
+		}
+		reader.releaseLock();
+	}
+
+	throw new StudioSsePrematureEofError(
+		`SSE stream closed before terminal Studio job event (${options.streamUrl})`,
+		lastEventId,
+	);
 }
