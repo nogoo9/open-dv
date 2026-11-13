@@ -18,6 +18,7 @@ import json
 import logging
 import re
 import xml.etree.ElementTree as ET
+import xml.parsers.expat as expat
 from collections.abc import Sequence
 from html.parser import HTMLParser
 from typing import Any
@@ -83,6 +84,7 @@ MAX_PARQUET_PREVIEW_COLUMNS_DEFAULT: int = 64
 MAX_PARQUET_PREVIEW_CELL_CHARS_DEFAULT: int = 4_096
 MAX_PARQUET_PREVIEW_BYTES_DEFAULT: int = 1 * 1024 * 1024
 MAX_PARQUET_PREVIEW_MEMORY_BYTES_CAP: int = 64 * 1024 * 1024
+MAX_PARQUET_PAGES_DEFAULT: int = 100_000
 _PARQUET_COL_RATIO_MIN_UNCOMPRESSED_BYTES: int = 1_048_576
 
 # Wide table & preview cell bounds (P04b::MAJ-02)
@@ -125,7 +127,7 @@ def decode_text_payload(
     if not data:
         raise InvalidDocumentError(f"Document '{filename}' is empty (0 bytes)")
     if max_bytes is not None and len(data) > max_bytes:
-        raise InvalidDocumentError(
+        raise DocumentPayloadTooLargeError(
             f"Document '{filename}' exceeds maximum allowed size ({len(data)} > {max_bytes} bytes)"
         )
 
@@ -207,14 +209,26 @@ def _build_page_map_entry(
 
 
 def _verify_source_sha256(data: bytes, filename: str, caller_sha256: str | None) -> str:
-    """Compute and verify SHA-256 against caller-provided digest."""
+    """Compute and verify SHA-256 against caller-provided digest (case-insensitive hex)."""
     actual_sha256 = hashlib.sha256(data).hexdigest()
-    if caller_sha256 and caller_sha256 != actual_sha256:
+    if caller_sha256 and str(caller_sha256).strip().lower() != actual_sha256:
         raise DocumentExtractionError(
             f"Supplied source_sha256 '{caller_sha256}' does not match computed "
             f"digest '{actual_sha256}' for '{filename}'"
         )
     return actual_sha256
+
+
+def _resolve_taint(taint_raw: Any, filename: str) -> TaintClassification:
+    """Validate and resolve caller-provided taint classification into TaintClassification."""
+    if not taint_raw:
+        return TaintClassification.INTERNAL
+    try:
+        return TaintClassification(taint_raw)
+    except ValueError as exc:
+        raise InvalidDocumentError(
+            f"Invalid taint classification '{taint_raw}' for '{filename}': {exc}"
+        ) from exc
 
 
 # =============================================================================
@@ -282,8 +296,7 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
         )
 
         doc_id = str(kwargs.get("document_id") or f"doc_{actual_sha256[:16]}")
-        taint_raw = kwargs.get("taint", TaintClassification.INTERNAL)
-        taint = TaintClassification(taint_raw) if taint_raw else TaintClassification.INTERNAL
+        taint = _resolve_taint(kwargs.get("taint", TaintClassification.INTERNAL), filename)
 
         # 1. Single O(lines) pass for fenced code blocks + heading hierarchy (P04b::MAJ-01)
         code_blocks: list[dict[str, Any]] = []
@@ -382,7 +395,7 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
                     }
                 )
 
-        # 2. Optional code block exclusion from normalized text
+        # 2. Optional code block exclusion (re-align heading spans to effective_text)
         if self.exclude_code_blocks and code_block_spans:
             # Reconstruct text excluding code blocks with replacement indicator
             text_segments: list[str] = []
@@ -393,6 +406,30 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
                 last_idx = end
             text_segments.append(raw_text[last_idx:])
             effective_text = normalize_text("".join(text_segments))
+            headings = []
+            heading_count = 0
+            eff_offset = 0
+            for eff_line in effective_text.split("\n"):
+                eff_start = eff_offset
+                eff_end = eff_start + len(eff_line)
+                eff_offset = eff_end + 1
+                eff_no_cr = eff_line[:-1] if eff_line.endswith("\r") else eff_line
+                eff_stripped_lead = eff_no_cr.lstrip(" ")
+                if len(eff_no_cr) - len(eff_stripped_lead) <= 3:
+                    eff_stripped = eff_stripped_lead.strip()
+                    if eff_stripped.startswith("#"):
+                        h_match = _MD_HEADING_RE.match(eff_stripped)
+                        if h_match is not None:
+                            heading_count += 1
+                            if len(headings) < max_meta:
+                                headings.append(
+                                    {
+                                        "level": len(h_match.group(1)),
+                                        "title": h_match.group(2).strip(),
+                                        "start_char": eff_start,
+                                        "end_char": eff_end,
+                                    }
+                                )
         else:
             effective_text = raw_text
 
@@ -538,8 +575,7 @@ class DelimitedTabularAdapter(BaseDocumentAdapter):
         )
 
         doc_id = str(kwargs.get("document_id") or f"doc_{actual_sha256[:16]}")
-        taint_raw = kwargs.get("taint", TaintClassification.INTERNAL)
-        taint = TaintClassification(taint_raw) if taint_raw else TaintClassification.INTERNAL
+        taint = _resolve_taint(kwargs.get("taint", TaintClassification.INTERNAL), filename)
 
         # Determine delimiter
         ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
@@ -600,7 +636,10 @@ class DelimitedTabularAdapter(BaseDocumentAdapter):
                     if need_sample:
                         sample_rows.append(guarded_row)
                     if need_table:
-                        table_rows.append(guarded_row[: len(table_headers)])
+                        clipped = guarded_row[: len(table_headers)]
+                        if len(clipped) < len(table_headers):
+                            clipped = clipped + [""] * (len(table_headers) - len(clipped))
+                        table_rows.append(clipped)
                 else:
                     for cell in row:
                         if len(cell) > self.max_cell_chars:
@@ -680,6 +719,308 @@ class DelimitedTabularAdapter(BaseDocumentAdapter):
 # =============================================================================
 # 3. PyArrowTabularAdapter (Parquet)
 # =============================================================================
+
+
+def _read_thrift_uvarint(buf: bytes, idx: int, limit: int, filename: str) -> tuple[int, int]:
+    """Read an unsigned LEB128 varint (bounded to <=10 bytes) from a Thrift Compact stream."""
+    val = 0
+    shift = 0
+    for _ in range(10):
+        if idx >= limit:
+            raise ArchiveSecurityViolationError(
+                f"Truncated Thrift PageHeader varint in Parquet document '{filename}'"
+            )
+        byte = buf[idx]
+        idx += 1
+        val |= (byte & 0x7F) << shift
+        if (byte & 0x80) == 0:
+            return val, idx
+        shift += 7
+    raise ArchiveSecurityViolationError(
+        f"Overflowing Thrift PageHeader varint in Parquet document '{filename}'"
+    )
+
+
+def _skip_thrift_compact_value(
+    buf: bytes,
+    idx: int,
+    limit: int,
+    wire_type: int,
+    filename: str,
+    *,
+    in_collection: bool = False,
+    depth: int = 0,
+) -> int:
+    """Advance past a single Thrift CompactProtocol value with bounded recursion and counts."""
+    if depth > 8:
+        raise ArchiveSecurityViolationError(
+            f"Parquet PageHeader exceeds maximum Thrift nesting depth in '{filename}'"
+        )
+    if wire_type in (1, 2):
+        if in_collection:
+            if idx + 1 > limit:
+                raise ArchiveSecurityViolationError(
+                    f"Truncated Thrift boolean list in Parquet '{filename}'"
+                )
+            return idx + 1
+        return idx
+    if wire_type == 3:
+        if idx + 1 > limit:
+            raise ArchiveSecurityViolationError(
+                f"Truncated Thrift byte field in Parquet '{filename}'"
+            )
+        return idx + 1
+    if wire_type in (4, 5, 6):
+        _, idx = _read_thrift_uvarint(buf, idx, limit, filename)
+        return idx
+    if wire_type == 7:
+        if idx + 8 > limit:
+            raise ArchiveSecurityViolationError(
+                f"Truncated Thrift double field in Parquet '{filename}'"
+            )
+        return idx + 8
+    if wire_type == 8:
+        length, idx = _read_thrift_uvarint(buf, idx, limit, filename)
+        if length < 0 or idx + length > limit:
+            raise ArchiveSecurityViolationError(
+                f"Out-of-bounds Thrift binary field in Parquet '{filename}'"
+            )
+        return idx + length
+    if wire_type in (9, 10):
+        if idx >= limit:
+            raise ArchiveSecurityViolationError(
+                f"Truncated Thrift collection header in Parquet '{filename}'"
+            )
+        hb = buf[idx]
+        idx += 1
+        cnt = (hb >> 4) & 0x0F
+        elem_type = hb & 0x0F
+        if cnt == 15:
+            cnt, idx = _read_thrift_uvarint(buf, idx, limit, filename)
+        if cnt > 65_536:
+            raise ArchiveSecurityViolationError(
+                f"Excessive Thrift PageHeader collection length ({cnt}) in '{filename}'"
+            )
+        for _ in range(cnt):
+            idx = _skip_thrift_compact_value(
+                buf, idx, limit, elem_type, filename, in_collection=True, depth=depth + 1
+            )
+        return idx
+    if wire_type == 11:
+        cnt, idx = _read_thrift_uvarint(buf, idx, limit, filename)
+        if cnt == 0:
+            return idx
+        if cnt > 65_536 or idx >= limit:
+            raise ArchiveSecurityViolationError(
+                f"Malformed Thrift PageHeader map ({cnt}) in '{filename}'"
+            )
+        kv = buf[idx]
+        idx += 1
+        kt = (kv >> 4) & 0x0F
+        vt = kv & 0x0F
+        for _ in range(cnt):
+            idx = _skip_thrift_compact_value(
+                buf, idx, limit, kt, filename, in_collection=True, depth=depth + 1
+            )
+            idx = _skip_thrift_compact_value(
+                buf, idx, limit, vt, filename, in_collection=True, depth=depth + 1
+            )
+        return idx
+    if wire_type == 12:
+        last_fid = 0
+        fields_seen = 0
+        while True:
+            if idx >= limit:
+                raise ArchiveSecurityViolationError(
+                    f"Unterminated Thrift PageHeader struct in '{filename}'"
+                )
+            fb = buf[idx]
+            idx += 1
+            if fb == 0:
+                return idx
+            fields_seen += 1
+            if fields_seen > 256:
+                raise ArchiveSecurityViolationError(
+                    f"Excessive Thrift PageHeader fields in '{filename}'"
+                )
+            delta = (fb >> 4) & 0x0F
+            wt = fb & 0x0F
+            if delta == 0:
+                zig_fid, idx = _read_thrift_uvarint(buf, idx, limit, filename)
+                last_fid = (zig_fid >> 1) ^ -(zig_fid & 1)
+            else:
+                last_fid += delta
+            idx = _skip_thrift_compact_value(buf, idx, limit, wt, filename, depth=depth + 1)
+    if wire_type == 13:
+        if idx + 16 > limit:
+            raise ArchiveSecurityViolationError(
+                f"Truncated Thrift UUID field in Parquet '{filename}'"
+            )
+        return idx + 16
+    raise ArchiveSecurityViolationError(
+        f"Unknown Thrift Compact wire type {wire_type} in Parquet PageHeader of '{filename}'"
+    )
+
+
+def _parse_parquet_page_header(
+    buf: bytes, start_idx: int, chunk_end: int, filename: str
+) -> tuple[int, int, int, int]:
+    """Decode `(page_type, uncompressed_page_size, compressed_page_size, hdr_end)`."""
+    hdr_limit = min(chunk_end, start_idx + 65_536)
+    idx = start_idx
+    last_fid = 0
+    page_type: int | None = None
+    uncomp_sz: int | None = None
+    comp_sz: int | None = None
+    fields_seen = 0
+
+    while True:
+        if idx >= hdr_limit:
+            raise ArchiveSecurityViolationError(
+                f"Malformed or oversized Parquet PageHeader at offset {start_idx} in '{filename}'"
+            )
+        fb = buf[idx]
+        idx += 1
+        if fb == 0:
+            break
+        fields_seen += 1
+        if fields_seen > 64:
+            raise ArchiveSecurityViolationError(
+                f"Excessive fields in Parquet PageHeader at offset {start_idx} in '{filename}'"
+            )
+        delta = (fb >> 4) & 0x0F
+        wt = fb & 0x0F
+        if delta == 0:
+            zig_fid, idx = _read_thrift_uvarint(buf, idx, hdr_limit, filename)
+            fid = (zig_fid >> 1) ^ -(zig_fid & 1)
+        else:
+            fid = last_fid + delta
+        last_fid = fid
+
+        if fid in (1, 2, 3) and wt == 5:
+            zig_val, idx = _read_thrift_uvarint(buf, idx, hdr_limit, filename)
+            val = (zig_val >> 1) ^ -(zig_val & 1)
+            if fid == 1:
+                page_type = val
+            elif fid == 2:
+                uncomp_sz = val
+            elif fid == 3:
+                comp_sz = val
+        else:
+            idx = _skip_thrift_compact_value(buf, idx, hdr_limit, wt, filename, depth=1)
+
+    if page_type is None or uncomp_sz is None or comp_sz is None:
+        raise ArchiveSecurityViolationError(
+            f"Incomplete Parquet PageHeader at offset {start_idx} in '{filename}'"
+        )
+    return page_type, uncomp_sz, comp_sz, idx
+
+
+def _verify_parquet_column_page_headers(
+    data: bytes,
+    col_meta: Any,
+    *,
+    rg_idx: int,
+    col_idx: int,
+    rg_rows: int,
+    col_uncomp: int,
+    col_comp: int,
+    max_uncompressed_bytes: int,
+    max_compression_ratio: float,
+    total_pages_seen: int,
+    filename: str,
+) -> tuple[int, int]:
+    """Walk all Thrift PageHeaders of a ColumnChunk before Arrow decompresses any page."""
+    ext_file_path = getattr(col_meta, "file_path", None)
+    if ext_file_path:
+        raise ArchiveSecurityViolationError(
+            f"Parquet document '{filename}' references forbidden external column file_path "
+            f"'{ext_file_path}' in row group {rg_idx} column {col_idx}"
+        )
+    if getattr(col_meta, "crypto_metadata", None) is not None:
+        raise ArchiveSecurityViolationError(
+            f"Encrypted Parquet column chunks are unsupported in '{filename}' "
+            f"(row group {rg_idx} column {col_idx})"
+        )
+    if rg_rows == 0 or col_comp == 0:
+        return 0, total_pages_seen
+
+    has_dict = bool(getattr(col_meta, "has_dictionary_page", False))
+    dict_off = getattr(col_meta, "dictionary_page_offset", None)
+    data_off = getattr(col_meta, "data_page_offset", None)
+    use_dict_off = (
+        dict_off is not None
+        and int(dict_off) >= 4
+        and (has_dict or data_off is None or int(dict_off) < int(data_off))
+    )
+    start_off = int(dict_off) if use_dict_off else int(data_off or 0)
+    end_off = start_off + col_comp
+    if start_off < 4 or end_off > len(data) - 4:
+        raise ArchiveSecurityViolationError(
+            f"Parquet document '{filename}' has out-of-bounds ColumnChunk offsets "
+            f"[{start_off}, {end_off}) in row group {rg_idx} column {col_idx}"
+        )
+
+    pos = start_off
+    sum_page_uncomp_only = 0
+    sum_page_with_hdr = 0
+    first_decode_uncomp = 0
+    seen_first_data_page = False
+
+    while pos < end_off:
+        total_pages_seen += 1
+        if total_pages_seen > MAX_PARQUET_PAGES_DEFAULT:
+            raise ArchiveSecurityViolationError(
+                f"Parquet document '{filename}' exceeds maximum page header count "
+                f"({MAX_PARQUET_PAGES_DEFAULT})"
+            )
+        page_type, uncomp_sz, comp_sz, hdr_end = _parse_parquet_page_header(
+            data, pos, end_off, filename
+        )
+        if uncomp_sz < 0 or comp_sz < 0 or hdr_end + comp_sz > end_off:
+            raise ArchiveSecurityViolationError(
+                f"Parquet document '{filename}' contains invalid PageHeader sizes "
+                f"(uncompressed={uncomp_sz}, compressed={comp_sz}) in row group {rg_idx} "
+                f"column {col_idx}"
+            )
+        if uncomp_sz > max_uncompressed_bytes:
+            raise ArchiveSecurityViolationError(
+                f"Parquet document '{filename}' PageHeader uncompressed_page_size ({uncomp_sz}) "
+                f"exceeds maximum allowed limit ({max_uncompressed_bytes} bytes)"
+            )
+        page_ratio = uncomp_sz / max(1, comp_sz)
+        if (
+            uncomp_sz > _PARQUET_COL_RATIO_MIN_UNCOMPRESSED_BYTES
+            and page_ratio > max_compression_ratio
+        ):
+            raise ArchiveSecurityViolationError(
+                f"Parquet document '{filename}' page in row group {rg_idx} column {col_idx} "
+                f"exhibits extreme compression ratio ({page_ratio:.1f}:1 > "
+                f"{max_compression_ratio:.1f}:1)"
+            )
+        if not seen_first_data_page:
+            if page_type == 2:
+                first_decode_uncomp += uncomp_sz
+            elif page_type in (0, 3):
+                first_decode_uncomp += uncomp_sz
+                seen_first_data_page = True
+
+        sum_page_uncomp_only += uncomp_sz
+        sum_page_with_hdr += (hdr_end - pos) + uncomp_sz
+        pos = hdr_end + comp_sz
+
+    if (
+        pos != end_off
+        or sum_page_uncomp_only > col_uncomp
+        or (col_uncomp > 0 and sum_page_with_hdr < col_uncomp // 2)
+    ):
+        raise ArchiveSecurityViolationError(
+            f"Parquet document '{filename}' has forged PageHeader vs footer uncompressed size "
+            f"(pages={sum_page_uncomp_only}, with_headers={sum_page_with_hdr}, "
+            f"footer={col_uncomp}) in row group {rg_idx} column {col_idx}"
+        )
+
+    return first_decode_uncomp, total_pages_seen
 
 
 class PyArrowTabularAdapter(BaseDocumentAdapter):
@@ -786,8 +1127,7 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
             ) from exc
 
         doc_id = str(kwargs.get("document_id") or f"doc_{actual_sha256[:16]}")
-        taint_raw = kwargs.get("taint", TaintClassification.INTERNAL)
-        taint = TaintClassification(taint_raw) if taint_raw else TaintClassification.INTERNAL
+        taint = _resolve_taint(kwargs.get("taint", TaintClassification.INTERNAL), filename)
 
         num_rows = parquet_meta.num_rows
         num_columns = parquet_meta.num_columns
@@ -804,9 +1144,20 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                 f"allowed column count ({self.max_columns})"
             )
 
+        schema_names = list(schema_arrow.names)
+        preview_columns_truncated = len(schema_names) > self.max_preview_columns
+        preview_col_names = schema_names[: self.max_preview_columns]
+        preview_col_set = set(preview_col_names)
+        max_preview_memory_bytes = min(
+            self.max_uncompressed_bytes, MAX_PARQUET_PREVIEW_MEMORY_BYTES_CAP
+        )
+
         total_declared_bytes = 0
         total_col_uncompressed_bytes = 0
         total_col_compressed_bytes = 0
+        total_pages_seen = 0
+        rg0_preview_first_decode: dict[str, int] = {}
+
         for rg_idx in range(num_row_groups):
             rg_meta = parquet_meta.row_group(rg_idx)
             raw_rg_bytes = getattr(rg_meta, "total_byte_size", 0)
@@ -822,7 +1173,7 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
             rg_col_uncompressed = 0
             rg_col_compressed = 0
             rg_num_cols = int(getattr(rg_meta, "num_columns", 0) or 0)
-            col_sizes: list[tuple[int, int]] = []
+            col_metas: list[tuple[Any, int, int]] = []
             for col_idx in range(rg_num_cols):
                 col_meta = rg_meta.column(col_idx)
                 raw_col_uncomp = getattr(col_meta, "total_uncompressed_size", 0)
@@ -834,7 +1185,7 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                         f"Parquet document '{filename}' declares negative column-chunk size in "
                         f"row group {rg_idx} column {col_idx}"
                     )
-                col_sizes.append((col_uncomp, col_comp))
+                col_metas.append((col_meta, col_uncomp, col_comp))
                 rg_col_uncompressed += col_uncomp
                 rg_col_compressed += col_comp
 
@@ -849,7 +1200,7 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                     f"sum={rg_col_uncompressed})"
                 )
 
-            for col_idx, (col_uncomp, col_comp) in enumerate(col_sizes):
+            for col_idx, (col_meta, col_uncomp, col_comp) in enumerate(col_metas):
                 if col_uncomp > self.max_uncompressed_bytes:
                     max_unc = self.max_uncompressed_bytes
                     raise DocumentPayloadTooLargeError(
@@ -866,6 +1217,28 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                         f"exhibits extreme compression ratio "
                         f"({col_ratio:.1f}:1 > {self.max_compression_ratio:.1f}:1)"
                     )
+                first_decode_uncomp, total_pages_seen = _verify_parquet_column_page_headers(
+                    data,
+                    col_meta,
+                    rg_idx=rg_idx,
+                    col_idx=col_idx,
+                    rg_rows=rg_rows,
+                    col_uncomp=col_uncomp,
+                    col_comp=col_comp,
+                    max_uncompressed_bytes=self.max_uncompressed_bytes,
+                    max_compression_ratio=self.max_compression_ratio,
+                    total_pages_seen=total_pages_seen,
+                    filename=filename,
+                )
+                if rg_idx == 0:
+                    col_path = str(getattr(col_meta, "path_in_schema", "") or "")
+                    root_col = (
+                        col_path if col_path in preview_col_set else col_path.split(".", 1)[0]
+                    )
+                    if root_col in preview_col_set:
+                        rg0_preview_first_decode[root_col] = (
+                            rg0_preview_first_decode.get(root_col, 0) + first_decode_uncomp
+                        )
 
             total_declared_bytes += rg_bytes
             total_col_uncompressed_bytes += rg_col_uncompressed
@@ -924,63 +1297,77 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                     v_str = str(v[:8192])
                 custom_metadata[k_str] = v_str
 
-        # Stream ONLY a bounded preview batch via projected iter_batches + memory pool guard
+        # Pre-verified single-column preview: check PageHeader decode budget BEFORE Arrow allocates,
+        # then decode 1 column at a time (`use_threads=False`) and drop each Arrow RecordBatch slice
+        # immediately so C++ `shared_ptr<arrow::Buffer>` page memory is never pinned across columns.
         preview_table_rows: list[list[str]] = []
-        schema_names = list(schema_arrow.names)
-        preview_columns_truncated = len(schema_names) > self.max_preview_columns
-        preview_col_names = schema_names[: self.max_preview_columns]
         target_preview = max(0, min(num_rows, self.preview_rows))
-        max_preview_memory_bytes = min(
-            self.max_uncompressed_bytes, MAX_PARQUET_PREVIEW_MEMORY_BYTES_CAP
-        )
         if target_preview > 0 and preview_col_names:
+            for col_name in preview_col_names:
+                est_first_decode = rg0_preview_first_decode.get(col_name, 0)
+                if est_first_decode > max_preview_memory_bytes:
+                    raise ArchiveSecurityViolationError(
+                        f"Parquet document '{filename}' preview column '{col_name}' first-page "
+                        f"uncompressed size ({est_first_decode}) exceeds preview memory cap "
+                        f"({max_preview_memory_bytes} bytes)"
+                    )
+
             base_pool = pa.default_memory_pool() if hasattr(pa, "default_memory_pool") else None
-            proxy_pool = (
-                pa.proxy_memory_pool(base_pool)
-                if base_pool is not None and hasattr(pa, "proxy_memory_pool")
-                else None
-            )
             baseline_alloc = base_pool.bytes_allocated() if base_pool is not None else 0
-            cumulative_batch_nbytes = 0
+            per_col_cells: list[list[str]] = []
+            rows_in_preview = 0
             try:
-                batch_iter = parquet_file.iter_batches(
-                    batch_size=max(1, target_preview),
-                    columns=preview_col_names,
-                )
-                first_batch = next(batch_iter, None)
-                if first_batch is not None:
-                    cumulative_batch_nbytes += int(getattr(first_batch, "nbytes", 0) or 0)
+                for col_idx_p, col_name in enumerate(preview_col_names):
+                    batch_iter = parquet_file.iter_batches(
+                        batch_size=max(1, target_preview),
+                        columns=[col_name],
+                        use_threads=False,
+                    )
+                    first_batch = next(batch_iter, None)
+                    del batch_iter
+                    if first_batch is None:
+                        break
+                    batch_nbytes = int(getattr(first_batch, "nbytes", 0) or 0)
                     current_pool_delta = (
                         max(0, base_pool.bytes_allocated() - baseline_alloc)
                         if base_pool is not None
                         else 0
                     )
-                    proxy_alloc = proxy_pool.bytes_allocated() if proxy_pool is not None else 0
-                    observed_mem = max(cumulative_batch_nbytes, current_pool_delta, proxy_alloc)
+                    observed_mem = max(batch_nbytes, current_pool_delta)
                     if observed_mem > max_preview_memory_bytes:
+                        del first_batch
                         raise ArchiveSecurityViolationError(
                             f"Parquet document '{filename}' preview exceeded memory cap "
                             f"({observed_mem} > {max_preview_memory_bytes} bytes)"
                         )
                     sliced_batch = first_batch[:target_preview]
-                    rows_in_batch = min(target_preview, len(sliced_batch))
-                    col_arrays = [sliced_batch.column(i) for i in range(len(preview_col_names))]
+                    col_len = min(target_preview, len(sliced_batch))
+                    rows_in_preview = col_len if col_idx_p == 0 else min(rows_in_preview, col_len)
+                    col_arr = sliced_batch.column(0)
+                    col_vals: list[str] = []
+                    for r_idx in range(rows_in_preview):
+                        py_val = col_arr[r_idx].as_py()
+                        raw_cell = "None" if py_val is None else str(py_val)
+                        if len(raw_cell) > self.max_preview_cell_chars:
+                            raw_cell = raw_cell[: self.max_preview_cell_chars] + "…[TRUNCATED]"
+                        col_vals.append(raw_cell)
+                    per_col_cells.append(col_vals)
+                    del col_arr, sliced_batch, first_batch
+
+                if per_col_cells and len(per_col_cells) == len(preview_col_names):
                     materialized_preview_bytes = 0
                     budget_exceeded = False
-                    for r_idx in range(rows_in_batch):
-                        row_vals: list[str] = []
-                        for col_arr in col_arrays:
-                            py_val = col_arr[r_idx].as_py()
-                            raw_cell = "None" if py_val is None else str(py_val)
-                            if len(raw_cell) > self.max_preview_cell_chars:
-                                raw_cell = raw_cell[: self.max_preview_cell_chars] + "…[TRUNCATED]"
+                    for r_idx in range(rows_in_preview):
+                        row_vals = []
+                        for col_vals in per_col_cells:
+                            cell_str = col_vals[r_idx]
                             materialized_preview_bytes += len(
-                                raw_cell.encode("utf-8", errors="replace")
+                                cell_str.encode("utf-8", errors="replace")
                             )
                             if materialized_preview_bytes > self.max_preview_bytes:
                                 budget_exceeded = True
                                 break
-                            row_vals.append(raw_cell)
+                            row_vals.append(cell_str)
                         if budget_exceeded:
                             break
                         preview_table_rows.append(row_vals)
@@ -1138,10 +1525,13 @@ def _strip_yaml_unquoted_comment_and_scan_flow(
     max_depth: int,
     filename: str,
 ) -> tuple[str, int, bool, bool]:
-    """Scan a YAML line for unquoted flow brackets while tracking quote state."""
+    """Scan a YAML line for unquoted flow brackets while tracking scalar-start quote state."""
     escaped = False
     comment_pos: int | None = None
-    for idx, ch in enumerate(line):
+    idx = 0
+    line_len = len(line)
+    while idx < line_len:
+        ch = line[idx]
         if in_double:
             if escaped:
                 escaped = False
@@ -1149,15 +1539,21 @@ def _strip_yaml_unquoted_comment_and_scan_flow(
                 escaped = True
             elif ch == '"':
                 in_double = False
+            idx += 1
             continue
         if in_single:
             if ch == "'":
-                # In YAML single-quoted strings, '' escapes a single quote (toggles twice -> True)
+                if idx + 1 < line_len and line[idx + 1] == "'":
+                    idx += 2
+                    continue
                 in_single = False
+            idx += 1
             continue
-        if ch == '"':
+
+        can_open_quote = idx == 0 or line[idx - 1].isspace() or line[idx - 1] in ":[{,?-"
+        if ch == '"' and can_open_quote:
             in_double = True
-        elif ch == "'":
+        elif ch == "'" and can_open_quote:
             in_single = True
         elif ch == "#" and (idx == 0 or line[idx - 1].isspace()):
             comment_pos = idx
@@ -1171,6 +1567,7 @@ def _strip_yaml_unquoted_comment_and_scan_flow(
                 )
         elif ch in "]}" and flow_depth > 0:
             flow_depth -= 1
+        idx += 1
 
     effective_line = line[:comment_pos] if comment_pos is not None else line
     return effective_line, flow_depth, in_single, in_double
@@ -1430,8 +1827,7 @@ class StructuredDataDocumentAdapter(BaseDocumentAdapter):
         )
 
         doc_id = str(kwargs.get("document_id") or f"doc_{actual_sha256[:16]}")
-        taint_raw = kwargs.get("taint", TaintClassification.INTERNAL)
-        taint = TaintClassification(taint_raw) if taint_raw else TaintClassification.INTERNAL
+        taint = _resolve_taint(kwargs.get("taint", TaintClassification.INTERNAL), filename)
 
         ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
         jsonlines_mimes = ("application/x-jsonlines", "application/jsonlines")
@@ -1583,22 +1979,45 @@ class StructuredDataDocumentAdapter(BaseDocumentAdapter):
 # =============================================================================
 
 
+def _reject_xml_dtd_and_entities(raw_text: str, filename: str) -> None:
+    """Screen XML payloads with Expat to forbid DTD/ENTITY expansion regardless of system expat."""
+    parser = expat.ParserCreate()
+    with contextlib.suppress(AttributeError, expat.ExpatError):
+        parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
+
+    def _on_doctype(
+        _doctype_name: str,
+        sysid: str | None,
+        pubid: str | None,
+        has_internal_subset: int | bool,
+    ) -> None:
+        if sysid or pubid or bool(has_internal_subset):
+            raise ArchiveSecurityViolationError(
+                f"XML document '{filename}' contains forbidden DTD declaration"
+            )
+
+    def _on_entity(*_args: Any) -> None:
+        raise ArchiveSecurityViolationError(
+            f"XML document '{filename}' contains forbidden ENTITY declaration"
+        )
+
+    parser.StartDoctypeDeclHandler = _on_doctype
+    parser.EntityDeclHandler = _on_entity
+    try:
+        parser.Parse(raw_text.encode("utf-8"), True)
+    except ArchiveSecurityViolationError:
+        raise
+    except expat.ExpatError:
+        # Malformed XML without DTD/ENTITY is handled by ET.fromstring / lenient fallback below
+        return
+
+
 class _HTMLReadabilityParser(HTMLParser):
     """Lenient HTML parser stripping scripts, styles, navigation, and extracting text/tables."""
 
-    IGNORED_TAGS = frozenset(
-        {
-            "script",
-            "style",
-            "nav",
-            "header",
-            "footer",
-            "noscript",
-            "svg",
-            "aside",
-            "iframe",
-        }
-    )
+    HARD_IGNORED_TAGS = frozenset({"script", "style", "noscript", "svg", "iframe"})
+    LAYOUT_IGNORED_TAGS = frozenset({"nav", "header", "footer", "aside"})
+    IGNORED_TAGS = HARD_IGNORED_TAGS | LAYOUT_IGNORED_TAGS
 
     BLOCK_TAGS = frozenset(
         {
@@ -1620,20 +2039,33 @@ class _HTMLReadabilityParser(HTMLParser):
         }
     )
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        suppress_layout_tags: bool = True,
+        max_table_columns: int = MAX_TABLE_COLUMNS_DEFAULT,
+        max_table_cells: int = MAX_TABLE_CELLS_DEFAULT,
+        max_cell_chars: int = MAX_CELL_CHARS_DEFAULT,
+    ) -> None:
         super().__init__()
+        self._ignored_tags = self.IGNORED_TAGS if suppress_layout_tags else self.HARD_IGNORED_TAGS
+        self.max_table_columns = max(1, int(max_table_columns))
+        self.max_table_cells = max(1, int(max_table_cells))
+        self.max_cell_chars = max(1, int(max_cell_chars))
         self.ignore_depth = 0
         self.text_parts: list[str] = []
         self.title: str = ""
         self.in_title = False
         self.tables: list[list[list[str]]] = []
+        self._total_table_cells = 0
+        self._table_stack: list[tuple[list[list[str]], list[str] | None, list[str] | None]] = []
         self._current_table: list[list[str]] | None = None
         self._current_row: list[str] | None = None
         self._current_cell: list[str] | None = None
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         low_tag = tag.lower()
-        if low_tag in self.IGNORED_TAGS:
+        if low_tag in self._ignored_tags:
             self.ignore_depth += 1
             return
         if self.ignore_depth > 0:
@@ -1642,9 +2074,16 @@ class _HTMLReadabilityParser(HTMLParser):
         if low_tag == "title":
             self.in_title = True
         elif low_tag == "table":
+            if self._current_table is not None:
+                self._table_stack.append(
+                    (self._current_table, self._current_row, self._current_cell)
+                )
             self._current_table = []
+            self._current_row = None
+            self._current_cell = None
         elif low_tag == "tr" and self._current_table is not None:
             self._current_row = []
+            self._current_cell = None
         elif low_tag in ("td", "th") and self._current_row is not None:
             self._current_cell = []
         elif low_tag in self.BLOCK_TAGS:
@@ -1652,7 +2091,7 @@ class _HTMLReadabilityParser(HTMLParser):
 
     def handle_endtag(self, tag: str) -> None:
         low_tag = tag.lower()
-        if low_tag in self.IGNORED_TAGS:
+        if low_tag in self._ignored_tags:
             if self.ignore_depth > 0:
                 self.ignore_depth -= 1
             return
@@ -1663,8 +2102,15 @@ class _HTMLReadabilityParser(HTMLParser):
             self.in_title = False
         elif low_tag in ("td", "th") and self._current_cell is not None:
             cell_text = "".join(self._current_cell).strip()
-            if self._current_row is not None:
+            if len(cell_text) > self.max_cell_chars:
+                cell_text = cell_text[: self.max_cell_chars] + "…[TRUNCATED]"
+            if (
+                self._current_row is not None
+                and len(self._current_row) < self.max_table_columns
+                and self._total_table_cells < self.max_table_cells
+            ):
                 self._current_row.append(cell_text)
+                self._total_table_cells += 1
             self._current_cell = None
         elif low_tag == "tr" and self._current_row is not None:
             if self._current_table is not None and self._current_row:
@@ -1673,7 +2119,10 @@ class _HTMLReadabilityParser(HTMLParser):
         elif low_tag == "table" and self._current_table is not None:
             if self._current_table:
                 self.tables.append(self._current_table)
-            self._current_table = None
+            if self._table_stack:
+                self._current_table, self._current_row, self._current_cell = self._table_stack.pop()
+            else:
+                self._current_table = None
         elif low_tag in self.BLOCK_TAGS:
             self.text_parts.append("\n")
 
@@ -1705,8 +2154,16 @@ class MarkupDocumentAdapter(BaseDocumentAdapter):
         ".xml",
     )
 
-    def __init__(self, *, max_bytes: int | None = MAX_TEXT_DOCUMENT_BYTES_DEFAULT) -> None:
+    def __init__(
+        self,
+        *,
+        max_bytes: int | None = MAX_TEXT_DOCUMENT_BYTES_DEFAULT,
+        max_table_columns: int = MAX_TABLE_COLUMNS_DEFAULT,
+        max_table_cells: int = MAX_TABLE_CELLS_DEFAULT,
+    ) -> None:
         self.max_bytes = max_bytes
+        self.max_table_columns = max(1, int(max_table_columns))
+        self.max_table_cells = max(1, int(max_table_cells))
 
     @property
     def adapter_name(self) -> str:
@@ -1731,47 +2188,66 @@ class MarkupDocumentAdapter(BaseDocumentAdapter):
         )
 
         doc_id = str(kwargs.get("document_id") or f"doc_{actual_sha256[:16]}")
-        taint_raw = kwargs.get("taint", TaintClassification.INTERNAL)
-        taint = TaintClassification(taint_raw) if taint_raw else TaintClassification.INTERNAL
+        taint = _resolve_taint(kwargs.get("taint", TaintClassification.INTERNAL), filename)
 
         ext = filename.lower().rsplit(".", 1)[-1] if "." in filename else ""
         is_xml = ext == "xml" or mime_type in ("application/xml", "text/xml")
 
         extracted_tables: list[TableStructure] = []
         title: str = ""
+        unclosed_layout_recovered = False
 
         if is_xml:
-            # Parse XML via standard ElementTree
+            _reject_xml_dtd_and_entities(raw_text, filename)
             try:
                 root = ET.fromstring(raw_text)
                 title = root.tag
-                xml_texts: list[str] = []
-                for elem in root.iter():
-                    if elem.text and elem.text.strip():
-                        xml_texts.append(elem.text.strip())
-                    if elem.tail and elem.tail.strip():
-                        xml_texts.append(elem.tail.strip())
+                xml_texts = [seg.strip() for seg in root.itertext() if seg and seg.strip()]
                 clean_text = "\n\n".join(xml_texts) if xml_texts else raw_text
                 resolved_mime = mime_type or "application/xml"
+            except (RecursionError, MemoryError) as exc:
+                raise InvalidDocumentError(
+                    f"XML document '{filename}' exceeded parser resource limits: {exc}"
+                ) from exc
             except ET.ParseError:
                 # Lenient fallback to HTML parser if XML is slightly malformed
-                parser = _HTMLReadabilityParser()
+                parser = _HTMLReadabilityParser(
+                    max_table_columns=self.max_table_columns,
+                    max_table_cells=self.max_table_cells,
+                )
                 parser.feed(raw_text)
                 clean_text = "".join(parser.text_parts)
                 title = parser.title.strip()
                 resolved_mime = mime_type or "application/xml"
         else:
-            parser = _HTMLReadabilityParser()
+            parser = _HTMLReadabilityParser(
+                max_table_columns=self.max_table_columns,
+                max_table_cells=self.max_table_cells,
+            )
             parser.feed(raw_text)
+            if parser.ignore_depth > 0:
+                fallback_parser = _HTMLReadabilityParser(
+                    suppress_layout_tags=False,
+                    max_table_columns=self.max_table_columns,
+                    max_table_cells=self.max_table_cells,
+                )
+                fallback_parser.feed(raw_text)
+                if fallback_parser.ignore_depth == 0:
+                    parser = fallback_parser
+                    unclosed_layout_recovered = True
+
             clean_text = "".join(parser.text_parts)
             title = parser.title.strip()
 
-            # Process HTML tables
+            # Process HTML tables with rectangular header-width padding
             for idx, raw_tbl in enumerate(parser.tables, start=1):
                 if not raw_tbl:
                     continue
-                headers = raw_tbl[0]
-                rows = raw_tbl[1:]
+                headers = raw_tbl[0][: self.max_table_columns]
+                if not headers:
+                    continue
+                width = len(headers)
+                rows = [r[:width] + [""] * max(0, width - len(r)) for r in raw_tbl[1:]]
                 table_struct = TableStructure(
                     table_id=f"tbl_html_{idx}",
                     page_number=1,
@@ -1799,6 +2275,8 @@ class MarkupDocumentAdapter(BaseDocumentAdapter):
                 "table_count": len(extracted_tables),
             }
         )
+        if unclosed_layout_recovered:
+            metadata["unclosed_ignored_tag_recovered"] = True
 
         return IngestionResult(
             document_id=doc_id,

@@ -31,6 +31,7 @@ from opendv_contracts.dtos.ingestion import (
 )
 from opendv_sources.exceptions import (
     DocumentExtractionError,
+    DocumentPayloadTooLargeError,
     InvalidDocumentError,
     OCRExecutionError,
     OCRUnavailableError,
@@ -452,9 +453,9 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
         if not data:
             raise InvalidDocumentError(f"PDF document '{filename}' is empty (0 bytes)")
 
-        # Resource guard: payload byte size limit (SUG-02)
+        # Resource guard: payload byte size limit (SUG-02, P04a::MIN-06)
         if self.max_bytes is not None and len(data) > self.max_bytes:
-            raise InvalidDocumentError(
+            raise DocumentPayloadTooLargeError(
                 f"PDF document '{filename}' exceeds maximum allowed size "
                 f"({len(data)} > {self.max_bytes} bytes)"
             )
@@ -468,7 +469,7 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
         # Integrity verification of caller-supplied source_sha256 (MIN-04, SUG-01)
         actual_sha256 = hashlib.sha256(data).hexdigest()
         caller_sha256 = kwargs.pop("source_sha256", None)
-        if caller_sha256 and caller_sha256 != actual_sha256:
+        if caller_sha256 and str(caller_sha256).strip().lower() != actual_sha256:
             raise DocumentExtractionError(
                 f"Supplied source_sha256 '{caller_sha256}' does not match computed "
                 f"digest '{actual_sha256}' for '{filename}'"
@@ -480,11 +481,16 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
 
         # Normalize taint parameter with safe default (MIN-05)
         raw_taint = kwargs.pop("taint", None)
-        taint = (
-            TaintClassification(raw_taint)
-            if raw_taint is not None
-            else TaintClassification.INTERNAL
-        )
+        try:
+            taint = (
+                TaintClassification(raw_taint)
+                if raw_taint is not None
+                else TaintClassification.INTERNAL
+            )
+        except ValueError as exc:
+            raise InvalidDocumentError(
+                f"Invalid taint classification '{raw_taint}' for '{filename}': {exc}"
+            ) from exc
 
         # Resolve and validate effective OCR mode (allowing caller override)
         ocr_mode_kwarg = kwargs.pop("ocr_mode", None)
@@ -1047,6 +1053,8 @@ class LiteParseDocumentAdapter(BaseDocumentAdapter):
         )
         if fallback_reason:
             metadata["fallback_reason"] = fallback_reason
+        else:
+            metadata.pop("fallback_reason", None)
 
         return IngestionResult(
             document_id=doc_id,

