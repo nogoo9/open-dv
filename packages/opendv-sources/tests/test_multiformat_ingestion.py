@@ -2374,7 +2374,7 @@ class TestRound4AdversarialHardening:
         pf = pq.ParquetFile(io.BytesIO(valid_pq))
         col0 = pf.metadata.row_group(0).column(0)
         page_off = col0.data_page_offset
-        _, _, orig_comp_sz, hdr_end = _parse_parquet_page_header(
+        _, _, orig_comp_sz, hdr_end, _ = _parse_parquet_page_header(
             valid_pq, page_off, len(valid_pq), "valid.parquet"
         )
         assert valid_pq[page_off : page_off + 3] == b"\x15\x00\x15"
@@ -2526,3 +2526,141 @@ class TestRound4AdversarialHardening:
         yaml_doc = b"title: Don't panic\nnotes: |\n  - item one\n  - item two\ncount: 2\n"
         yaml_res = StructuredDataDocumentAdapter().parse_bytes(yaml_doc, filename="apostrophe.yaml")
         assert "Don't panic" in yaml_res.normalized_text
+
+    def test_round10_gemini4_carbon_security_remediations(self) -> None:
+        """Regression R10-MAJ-01..03 & MIN-01..02: Linear regexes, UTF-16 XXE, chunk sniff."""
+        from opendv_sources.adapters.libreoffice_adapter import (
+            _HTML_ANY_UNSAFE_SCHEME_RE,
+            _HTML_CSS_EXT_URL_RE,
+            _HTML_ONLOAD_ACTUATE_RE,
+            _META_HTTP_EQUIV_REFRESH_RE,
+            _OLE_UNSAFE_MARKER_RE,
+        )
+
+        # 1) R10-MAJ-01: O(N) linear scan on 60,000 spaces after href= / url( / LINK ProgID
+        t0 = time.perf_counter()
+        assert _HTML_ANY_UNSAFE_SCHEME_RE.search("href=" + (" " * 60_000) + "x") is None
+        assert _HTML_CSS_EXT_URL_RE.search("url(" + (" " * 60_000) + "x") is None
+        assert _OLE_UNSAFE_MARKER_RE.search("LINK Excel.Sheet " + (" " * 60_000) + "x") is None
+        assert _META_HTTP_EQUIV_REFRESH_RE.search("http-equiv=" + (" " * 60_000) + "x") is None
+        assert _HTML_ONLOAD_ACTUATE_RE.search(" actuate=" + (" " * 60_000) + "x") is None
+        elapsed = time.perf_counter() - t0
+        assert elapsed < 0.25, f"Whitespace-padded regex scan took {elapsed:.3f}s (expected <0.25s)"
+
+        # 2) R10-MAJ-02: XML prolog encoding="UTF-16" cannot bypass Billion Laughs <!ENTITY> guard
+        markup = MarkupDocumentAdapter()
+        utf16_prolog_xxe = (
+            b'<?xml version="1.0" encoding="UTF-16"?>'
+            b'<!DOCTYPE lolz [<!ENTITY lol "BYPASSED"><!ENTITY lol2 "&lol;_&lol;">]>'
+            b"<lolz>&lol2;</lolz>"
+        )
+        with pytest.raises(ArchiveSecurityViolationError):
+            markup.parse_bytes(utf16_prolog_xxe, filename="prolog_mismatch.xml")
+
+        # 3) R10-MAJ-03 & MIN-01: 64 KiB boundary RTF, UTF-16LE altChunk, /image SVG, data:svg
+        rels_afchunk = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            b'<Relationship Id="rId2" '
+            b'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/aFChunk" '
+            b'Target="chunk1.dat"/>'
+            b"</Relationships>"
+        )
+        rels_img = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'
+            b'<Relationship Id="rId3" '
+            b'Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/image" '
+            b'Target="media/img1.bin"/>'
+            b"</Relationships>"
+        )
+        ct_png_bin = (
+            b'<?xml version="1.0" encoding="UTF-8"?>'
+            b'<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
+            b'<Default Extension="rels" '
+            b'ContentType="application/vnd.openxmlformats-package.relationships+xml"/>'
+            b'<Default Extension="bin" ContentType="image/png"/>'
+            b"</Types>"
+        )
+        rtf_64k_boundary = (b" " * 65_535) + (
+            b"{\\rtf1\\ansi {\\field{\\*\\fldinst "
+            b'{INCLUDEPICTURE "http://169.254.169.254/x" \\\\d}}}}'
+        )
+        utf16_dde_afchunk = (
+            b"\xff\xfe"
+            + (b" \x00" * 1025)
+            + (
+                '<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                "<w:body><w:p><w:r><w:instrText>"
+                'DDEAUTO cmd "/c calc.exe"'
+                "</w:instrText></w:r></w:p></w:body></w:document>"
+            ).encode("utf-16-le")
+        )
+        disguised_svg_img = (
+            b"\xff\xfe"
+            + (b" \x00" * 1025)
+            + '<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x "1">]><svg>&x;</svg>'.encode(
+                "utf-16-le"
+            )
+        )
+        data_svg_html = b'<html><body><img src="data:image/svg+xml;base64,PHN2Zz48L3N2Zz4="></body>'
+
+        r10_archives = [
+            (
+                "rtf_64k_boundary.docx",
+                [
+                    ("word/_rels/document.xml.rels", rels_afchunk),
+                    ("word/chunk1.dat", rtf_64k_boundary),
+                ],
+            ),
+            (
+                "utf16_dde_afchunk.docx",
+                [
+                    ("word/_rels/document.xml.rels", rels_afchunk),
+                    ("word/chunk1.dat", utf16_dde_afchunk),
+                ],
+            ),
+            (
+                "disguised_svg_img.docx",
+                [
+                    ("[Content_Types].xml", ct_png_bin),
+                    ("word/_rels/document.xml.rels", rels_img),
+                    ("word/media/img1.bin", disguised_svg_img),
+                ],
+            ),
+            ("data_svg_uri.docx", [("word/afchunk.html", data_svg_html)]),
+        ]
+        lo_adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            for fname, entries in r10_archives:
+                with pytest.raises(ArchiveSecurityViolationError):
+                    lo_adapter.parse_bytes(self._make_raw_zip(entries), filename=fname)
+            mock_popen.assert_not_called()
+
+        # 4) R10-MIN-02: Multi-row-group Parquet preview cap enforced BEFORE iter_batches
+        multi_rg_buf = io.BytesIO()
+        schema_rg = pa.schema([("blob", pa.string())])
+        with pq.ParquetWriter(multi_rg_buf, schema_rg, use_dictionary=False) as pq_writer:
+            pq_writer.write_table(pa.Table.from_pydict({"blob": ["A" * 1024 for _ in range(3)]}))
+            pq_writer.write_table(pa.Table.from_pydict({"blob": ["B" * 1024 for _ in range(8)]}))
+        with (
+            patch(
+                "opendv_sources.adapters.multiformat_adapter.MAX_PARQUET_PREVIEW_MEMORY_BYTES_CAP",
+                6_000,
+            ),
+            patch.object(
+                pq.ParquetFile,
+                "iter_batches",
+                side_effect=AssertionError("iter_batches MUST NOT run when multi-RG preview > cap"),
+            ),
+            pytest.raises(ArchiveSecurityViolationError, match="exceeds preview memory cap"),
+        ):
+            PyArrowTabularAdapter(preview_rows=10).parse_bytes(
+                multi_rg_buf.getvalue(), filename="multi_rg_cap.parquet"
+            )

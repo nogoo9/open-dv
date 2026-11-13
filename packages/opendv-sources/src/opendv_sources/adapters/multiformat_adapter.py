@@ -862,16 +862,37 @@ def _skip_thrift_compact_value(
     )
 
 
+def _peek_data_page_num_values(buf: bytes, idx: int, hdr_limit: int, filename: str) -> int:
+    """Peek field 1 (`i32 num_values`) of a Thrift Compact DataPageHeader / DataPageHeaderV2."""
+    if idx >= hdr_limit:
+        return 1
+    fb = buf[idx]
+    delta = (fb >> 4) & 0x0F
+    wt = fb & 0x0F
+    cur = idx + 1
+    if delta == 0:
+        zig_fid, cur = _read_thrift_uvarint(buf, cur, hdr_limit, filename)
+        fid = (zig_fid >> 1) ^ -(zig_fid & 1)
+    else:
+        fid = delta
+    if fid == 1 and wt == 5:
+        zig_nv, _ = _read_thrift_uvarint(buf, cur, hdr_limit, filename)
+        nv = (zig_nv >> 1) ^ -(zig_nv & 1)
+        return max(1, nv)
+    return 1
+
+
 def _parse_parquet_page_header(
     buf: bytes, start_idx: int, chunk_end: int, filename: str
-) -> tuple[int, int, int, int]:
-    """Decode `(page_type, uncompressed_page_size, compressed_page_size, hdr_end)`."""
+) -> tuple[int, int, int, int, int]:
+    """Decode `(page_type, uncompressed_page_size, compressed_page_size, hdr_end, num_values)`."""
     hdr_limit = min(chunk_end, start_idx + 65_536)
     idx = start_idx
     last_fid = 0
     page_type: int | None = None
     uncomp_sz: int | None = None
     comp_sz: int | None = None
+    num_values = 1
     fields_seen = 0
 
     while True:
@@ -907,13 +928,15 @@ def _parse_parquet_page_header(
             elif fid == 3:
                 comp_sz = val
         else:
+            if fid in (5, 8) and wt == 12:
+                num_values = _peek_data_page_num_values(buf, idx, hdr_limit, filename)
             idx = _skip_thrift_compact_value(buf, idx, hdr_limit, wt, filename, depth=1)
 
     if page_type is None or uncomp_sz is None or comp_sz is None:
         raise ArchiveSecurityViolationError(
             f"Incomplete Parquet PageHeader at offset {start_idx} in '{filename}'"
         )
-    return page_type, uncomp_sz, comp_sz, idx
+    return page_type, uncomp_sz, comp_sz, idx, num_values
 
 
 def _verify_parquet_column_page_headers(
@@ -928,6 +951,7 @@ def _verify_parquet_column_page_headers(
     max_uncompressed_bytes: int,
     max_compression_ratio: float,
     total_pages_seen: int,
+    preview_rows_needed: int,
     filename: str,
 ) -> tuple[int, int]:
     """Walk all Thrift PageHeaders of a ColumnChunk before Arrow decompresses any page."""
@@ -965,7 +989,7 @@ def _verify_parquet_column_page_headers(
     sum_page_uncomp_only = 0
     sum_page_with_hdr = 0
     first_decode_uncomp = 0
-    seen_first_data_page = False
+    preview_values_accum = 0
 
     while pos < end_off:
         total_pages_seen += 1
@@ -974,7 +998,7 @@ def _verify_parquet_column_page_headers(
                 f"Parquet document '{filename}' exceeds maximum page header count "
                 f"({MAX_PARQUET_PAGES_DEFAULT})"
             )
-        page_type, uncomp_sz, comp_sz, hdr_end = _parse_parquet_page_header(
+        page_type, uncomp_sz, comp_sz, hdr_end, num_vals = _parse_parquet_page_header(
             data, pos, end_off, filename
         )
         if uncomp_sz < 0 or comp_sz < 0 or hdr_end + comp_sz > end_off:
@@ -998,12 +1022,12 @@ def _verify_parquet_column_page_headers(
                 f"exhibits extreme compression ratio ({page_ratio:.1f}:1 > "
                 f"{max_compression_ratio:.1f}:1)"
             )
-        if not seen_first_data_page:
+        if preview_rows_needed > 0 and preview_values_accum < preview_rows_needed:
             if page_type == 2:
                 first_decode_uncomp += uncomp_sz
             elif page_type in (0, 3):
                 first_decode_uncomp += uncomp_sz
-                seen_first_data_page = True
+                preview_values_accum += max(1, num_vals)
 
         sum_page_uncomp_only += uncomp_sz
         sum_page_with_hdr += (hdr_end - pos) + uncomp_sz
@@ -1156,6 +1180,8 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
         total_col_uncompressed_bytes = 0
         total_col_compressed_bytes = 0
         total_pages_seen = 0
+        target_preview = max(0, min(num_rows, self.preview_rows))
+        preview_rows_covered = 0
         rg0_preview_first_decode: dict[str, int] = {}
 
         for rg_idx in range(num_row_groups):
@@ -1200,6 +1226,7 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                     f"sum={rg_col_uncompressed})"
                 )
 
+            rg_preview_needed = max(0, target_preview - preview_rows_covered) if rg_rows > 0 else 0
             for col_idx, (col_meta, col_uncomp, col_comp) in enumerate(col_metas):
                 if col_uncomp > self.max_uncompressed_bytes:
                     max_unc = self.max_uncompressed_bytes
@@ -1228,9 +1255,10 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                     max_uncompressed_bytes=self.max_uncompressed_bytes,
                     max_compression_ratio=self.max_compression_ratio,
                     total_pages_seen=total_pages_seen,
+                    preview_rows_needed=rg_preview_needed,
                     filename=filename,
                 )
-                if rg_idx == 0:
+                if rg_preview_needed > 0:
                     col_path = str(getattr(col_meta, "path_in_schema", "") or "")
                     root_col = (
                         col_path if col_path in preview_col_set else col_path.split(".", 1)[0]
@@ -1239,6 +1267,8 @@ class PyArrowTabularAdapter(BaseDocumentAdapter):
                         rg0_preview_first_decode[root_col] = (
                             rg0_preview_first_decode.get(root_col, 0) + first_decode_uncomp
                         )
+            if rg_rows > 0 and preview_rows_covered < target_preview:
+                preview_rows_covered += rg_rows
 
             total_declared_bytes += rg_bytes
             total_col_uncompressed_bytes += rg_col_uncompressed
@@ -1979,9 +2009,12 @@ class StructuredDataDocumentAdapter(BaseDocumentAdapter):
 # =============================================================================
 
 
+_XML_DECL_FALLBACK_RE = re.compile(r"<!\s*(?:DOCTYPE|ENTITY)(?![A-Za-z0-9_])", re.IGNORECASE)
+
+
 def _reject_xml_dtd_and_entities(raw_text: str, filename: str) -> None:
-    """Screen XML payloads with Expat to forbid DTD/ENTITY expansion regardless of system expat."""
-    parser = expat.ParserCreate()
+    """Screen XML payloads with UTF-8 Expat to forbid DTD/ENTITY regardless of prolog encoding."""
+    parser = expat.ParserCreate("UTF-8")
     with contextlib.suppress(AttributeError, expat.ExpatError):
         parser.SetParamEntityParsing(expat.XML_PARAM_ENTITY_PARSING_NEVER)
 
@@ -2008,6 +2041,10 @@ def _reject_xml_dtd_and_entities(raw_text: str, filename: str) -> None:
     except ArchiveSecurityViolationError:
         raise
     except expat.ExpatError:
+        if _XML_DECL_FALLBACK_RE.search(raw_text):
+            raise ArchiveSecurityViolationError(
+                f"XML document '{filename}' contains forbidden DTD/ENTITY declaration"
+            ) from None
         # Malformed XML without DTD/ENTITY is handled by ET.fromstring / lenient fallback below
         return
 

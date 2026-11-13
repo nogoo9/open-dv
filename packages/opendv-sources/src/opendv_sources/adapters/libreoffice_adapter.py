@@ -168,6 +168,16 @@ _UNSAFE_TARGET_PREFIXES: tuple[str, ...] = (
     "ldap:",
     "ldaps:",
     "netdoc:",
+    "data:image/svg",
+)
+
+_SAFE_RASTER_DATA_IMAGE_PREFIXES: tuple[str, ...] = (
+    "data:image/png;",
+    "data:image/jpeg;",
+    "data:image/jpg;",
+    "data:image/gif;",
+    "data:image/webp;",
+    "data:image/bmp;",
 )
 
 _EXTERNAL_URI_PREFIXES: tuple[str, ...] = (
@@ -207,7 +217,7 @@ _DOCTYPE_EXT_KW_RE = re.compile(
     re.IGNORECASE,
 )
 _META_HTTP_EQUIV_REFRESH_RE = re.compile(
-    rf"{_ASCII_LB}http-equiv\s*=\s*[\"']?\s*refresh{_ASCII_RB}",
+    rf"{_ASCII_LB}http-equiv\s*=\s*(?:[\"']\s*)?refresh{_ASCII_RB}",
     re.IGNORECASE,
 )
 _META_URL_RE = re.compile(r"url\s*=", re.IGNORECASE)
@@ -218,15 +228,17 @@ _HTML_HREF_SRC_ATTR_RE = re.compile(
     re.IGNORECASE,
 )
 _HTML_ONLOAD_ACTUATE_RE = re.compile(
-    rf"(?:^|[\s\"'/])(?:[A-Za-z0-9_\-.]+:)?actuate\s*=\s*[\"']?\s*onload{_ASCII_RB}",
+    rf"(?:^|[\s\"'/])(?:[A-Za-z0-9_\-.]+:)?actuate\s*=\s*(?:[\"']\s*)?onload{_ASCII_RB}",
     re.IGNORECASE,
 )
 _HTML_ANY_UNSAFE_SCHEME_RE = re.compile(
-    rf"{_ASCII_LB}(?:src|href)\s*=\s*[\"']?\s*(?:file:|smb:|jar:|gopher:|ldap:|ldaps:|netdoc:|//|\\\\)",
+    rf"{_ASCII_LB}(?:src|href)\s*=\s*(?:[\"']\s*)?"
+    r"(?:file:|smb:|jar:|gopher:|ldap:|ldaps:|netdoc:|data:image/svg|//|\\\\)",
     re.IGNORECASE,
 )
 _HTML_CSS_EXT_URL_RE = re.compile(
-    r"url\s*\(\s*[\"']?\s*(?:https?://|ftps?://|file:|smb:|jar:|gopher:|ldap:|ldaps:|netdoc:|//|\\\\)",
+    r"url\s*\(\s*(?:[\"']\s*)?"
+    r"(?:https?://|ftps?://|file:|smb:|jar:|gopher:|ldap:|ldaps:|netdoc:|data:image/svg|//|\\\\)",
     re.IGNORECASE,
 )
 
@@ -241,17 +253,17 @@ _OLE_UNSAFE_MARKER_RE = re.compile(
     r"|<!\s*(?:DOCTYPE|ENTITY)(?![A-Za-z0-9_])"
     r"|(?:file|ftp|ftps|smb|jar|gopher|ldap|ldaps|netdoc)://"
     rf"|{_ASCII_LB}file:///"
-    r"|\\\\[A-Za-z0-9_.\-]+\\[A-Za-z0-9_$.\-]+"
+    r"|\\\\[A-Za-z0-9_.\-]{1,255}\\[A-Za-z0-9_$.\-]{1,255}"
     rf"|\x13\s*(?:DDEAUTO|DDE|INCLUDEPICTURE|INCLUDETEXT|RD|IMPORT|LINK|AUTOTEXTLIST|DATABASE){_ASCII_RB}"
     rf"|{_ASCII_LB}DDE\s+(?:"
     r"[\"']"
     rf"|{_OLE_EXT_PATH_START}"
-    rf"|[A-Za-z0-9_\-]+\.(?:exe|com|bat|cmd|ps1|vbs|js|wsf|msc|dll|scr){_ASCII_RB}"
+    rf"|[A-Za-z0-9_\-]{{1,128}}\.(?:exe|com|bat|cmd|ps1|vbs|js|wsf|msc|dll|scr){_ASCII_RB}"
     r")"
     rf"|{_ASCII_LB}(?:RD|IMPORT|LINK)\s+(?:"
     rf"[\"']\s*{_OLE_EXT_PATH_START}"
     rf"|{_OLE_EXT_PATH_START}"
-    rf"|[A-Za-z0-9_]+\.[A-Za-z0-9_.]+\s+[\"']?\s*{_OLE_EXT_PATH_START}"
+    rf"|[A-Za-z0-9_]{{1,64}}\.[A-Za-z0-9_.]{{1,64}}\s+(?:[\"']\s*)?{_OLE_EXT_PATH_START}"
     r")"
     r")",
     re.IGNORECASE,
@@ -351,7 +363,7 @@ def _is_unsafe_local_archive_ref(ref_val: str, entry_name: str) -> bool:
     if not clean_ref:
         return False
     ref_lower = clean_ref.lower()
-    if ref_lower.startswith("data:image/"):
+    if ref_lower.startswith(_SAFE_RASTER_DATA_IMAGE_PREFIXES):
         return False
     if clean_ref.startswith(("/", "\\")):
         return True
@@ -760,8 +772,89 @@ def _inspect_xml_entry_security(
     return internal_rel_targets
 
 
-_UTF16LE_MARKUP_HEAD_RE = re.compile(rb"^(?:[\t\r\n ]\x00)*<\x00[A-Za-z?!/]\x00")
-_UTF16BE_MARKUP_HEAD_RE = re.compile(rb"^(?:\x00[\t\r\n ])*\x00<\x00[A-Za-z?!/]")
+_UTF32LE_WS_UNITS: frozenset[bytes] = frozenset(
+    {b" \x00\x00\x00", b"\t\x00\x00\x00", b"\r\x00\x00\x00", b"\n\x00\x00\x00", b"\xff\xfe\x00\x00"}
+)
+_UTF32BE_WS_UNITS: frozenset[bytes] = frozenset(
+    {b"\x00\x00\x00 ", b"\x00\x00\x00\t", b"\x00\x00\x00\r", b"\x00\x00\x00\n", b"\x00\x00\xfe\xff"}
+)
+_UTF16LE_WS_UNITS: frozenset[bytes] = frozenset(
+    {b" \x00", b"\t\x00", b"\r\x00", b"\n\x00", b"\xff\xfe"}
+)
+_UTF16BE_WS_UNITS: frozenset[bytes] = frozenset(
+    {b"\x00 ", b"\x00\t", b"\x00\r", b"\x00\n", b"\xfe\xff"}
+)
+
+
+def _strip_code_unit_ws(raw: bytes, ws_units: frozenset[bytes], unit_size: int) -> bytes:
+    """Strip leading encoded whitespace/BOM code units while preserving multi-byte alignment."""
+    idx = 0
+    limit = len(raw) - (len(raw) % unit_size)
+    while idx < limit and raw[idx : idx + unit_size] in ws_units:
+        idx += unit_size
+    return raw[idx:]
+
+
+def _trim_chunk_leading_ws(lead_bom: bytes, chunk: bytes) -> bytes:
+    """Return `chunk` stripped of leading whitespace according to `lead_bom` (or multi-encoding)."""
+    if lead_bom == b"\xff\xfe\x00\x00":
+        return _strip_code_unit_ws(chunk, _UTF32LE_WS_UNITS, 4)
+    if lead_bom == b"\x00\x00\xfe\xff":
+        return _strip_code_unit_ws(chunk, _UTF32BE_WS_UNITS, 4)
+    if lead_bom == b"\xff\xfe":
+        return _strip_code_unit_ws(chunk, _UTF16LE_WS_UNITS, 2)
+    if lead_bom == b"\xfe\xff":
+        return _strip_code_unit_ws(chunk, _UTF16BE_WS_UNITS, 2)
+    if lead_bom == b"\xef\xbb\xbf":
+        base = chunk[3:] if chunk.startswith(b"\xef\xbb\xbf") else chunk
+        return base.lstrip(b" \t\r\n")
+
+    # No BOM seen: if chunk is pure whitespace in ASCII, UTF-16LE/BE, or UTF-32LE/BE, skip it
+    ascii_rem = chunk.lstrip(b" \t\r\n")
+    if not ascii_rem:
+        return b""
+    for unit_sz, ws_set in (
+        (4, _UTF32LE_WS_UNITS),
+        (4, _UTF32BE_WS_UNITS),
+        (2, _UTF16LE_WS_UNITS),
+        (2, _UTF16BE_WS_UNITS),
+    ):
+        if len(chunk) >= unit_sz:
+            rem_u = _strip_code_unit_ws(chunk, ws_set, unit_sz)
+            if len(rem_u) < len(chunk):
+                return rem_u
+    return ascii_rem
+
+
+def _finalize_entry_sniff(
+    *,
+    filename: str,
+    entry_filename: str,
+    lead_bom: bytes,
+    sniff_accum: bytearray,
+    should_buffer: bool,
+    skipped_ws_chunks: bool,
+    pending_chunks: list[bytes],
+    entry_chunks: list[bytes],
+) -> tuple[str | None, bool]:
+    """Classify accumulated leading entry bytes and flush buffered chunks when needed."""
+    if not sniff_accum and not lead_bom:
+        pending_chunks.clear()
+        return None, should_buffer
+    sniffed_kind = _sniff_markup_or_container_kind(lead_bom + bytes(sniff_accum))
+    if sniffed_kind == "rtf":
+        raise ArchiveSecurityViolationError(
+            f"Office archive '{filename}' contains forbidden embedded RTF part '{entry_filename}'"
+        )
+    if not should_buffer and sniffed_kind in ("xml", "html", "ole", "zip"):
+        should_buffer = True
+        if lead_bom and (
+            skipped_ws_chunks or not pending_chunks or not pending_chunks[0].startswith(lead_bom)
+        ):
+            entry_chunks.append(lead_bom)
+        entry_chunks.extend(pending_chunks)
+    pending_chunks.clear()
+    return sniffed_kind, should_buffer
 
 
 def _sniff_markup_or_container_kind(head: bytes) -> str | None:
@@ -773,9 +866,7 @@ def _sniff_markup_or_container_kind(head: bytes) -> str | None:
     if head.startswith(_ZIP_LOCAL_MAGIC_PREFIXES):
         return "zip"
 
-    lead_trim = head
-    if lead_trim.startswith(b"\xef\xbb\xbf"):
-        lead_trim = lead_trim[3:]
+    lead_trim = head[3:] if head.startswith(b"\xef\xbb\xbf") else head
     lead_lstrip = lead_trim.lstrip(b" \t\r\n")
     if lead_lstrip[:5].lower() == b"{\\rtf":
         return "rtf"
@@ -784,31 +875,50 @@ def _sniff_markup_or_container_kind(head: bytes) -> str | None:
     if head.startswith(b"\xef\xbb\xbf"):
         decoded = lead_lstrip[:512].decode("latin-1")
     elif head.startswith(b"\xff\xfe\x00\x00"):
-        rem = head[4:]
+        rem = _strip_code_unit_ws(head[4:], _UTF32LE_WS_UNITS, 4)
         decoded = rem[: min(2048, len(rem) - (len(rem) % 4))].decode("utf-32-le", errors="ignore")
     elif head.startswith(b"\x00\x00\xfe\xff"):
-        rem = head[4:]
+        rem = _strip_code_unit_ws(head[4:], _UTF32BE_WS_UNITS, 4)
         decoded = rem[: min(2048, len(rem) - (len(rem) % 4))].decode("utf-32-be", errors="ignore")
     elif head.startswith(b"\xff\xfe"):
-        rem = head[2:]
+        rem = _strip_code_unit_ws(head[2:], _UTF16LE_WS_UNITS, 2)
         decoded = rem[: min(2048, len(rem) - (len(rem) % 2))].decode("utf-16-le", errors="ignore")
     elif head.startswith(b"\xfe\xff"):
-        rem = head[2:]
+        rem = _strip_code_unit_ws(head[2:], _UTF16BE_WS_UNITS, 2)
         decoded = rem[: min(2048, len(rem) - (len(rem) % 2))].decode("utf-16-be", errors="ignore")
-    elif _UTF16LE_MARKUP_HEAD_RE.match(head):
-        decoded = head[: min(2048, len(head) - (len(head) % 2))].decode(
-            "utf-16-le", errors="ignore"
-        )
-    elif _UTF16BE_MARKUP_HEAD_RE.match(head):
-        decoded = head[: min(2048, len(head) - (len(head) % 2))].decode(
-            "utf-16-be", errors="ignore"
-        )
     else:
-        sample = lead_lstrip[:64]
-        if sample and b"\x00" not in sample and all(b >= 32 or b in (9, 10, 13) for b in sample):
-            decoded = lead_lstrip[:512].decode("latin-1")
+        rem16le = _strip_code_unit_ws(head, _UTF16LE_WS_UNITS, 2)
+        rem16be = _strip_code_unit_ws(head, _UTF16BE_WS_UNITS, 2)
+        if (
+            len(rem16le) >= 4
+            and rem16le[1] == 0
+            and rem16le[3] == 0
+            and rem16le[0] in (ord("<"), ord("{"))
+        ):
+            decoded = rem16le[: min(2048, len(rem16le) - (len(rem16le) % 2))].decode(
+                "utf-16-le", errors="ignore"
+            )
+        elif (
+            len(rem16be) >= 4
+            and rem16be[0] == 0
+            and rem16be[2] == 0
+            and rem16be[1] in (ord("<"), ord("{"))
+        ):
+            decoded = rem16be[: min(2048, len(rem16be) - (len(rem16be) % 2))].decode(
+                "utf-16-be", errors="ignore"
+            )
+        else:
+            sample = lead_lstrip[:64]
+            if (
+                sample
+                and b"\x00" not in sample
+                and all(b >= 32 or b in (9, 10, 13) for b in sample)
+            ):
+                decoded = lead_lstrip[:512].decode("latin-1")
 
     stripped = decoded.lstrip(" \t\r\n\ufeff")
+    if stripped[:5].lower() == "{\\rtf":
+        return "rtf"
     if (
         len(stripped) >= 2
         and stripped[0] == "<"
@@ -1059,18 +1169,38 @@ def _inspect_office_zip_container(
             )
             is_ext_html = lower_name.endswith((".html", ".htm", ".mht", ".mhtml"))
 
+            known_text = bool(
+                is_ext_xml or is_ext_html or is_rels_part or ct_kind in ("xml", "html")
+            )
             entry_chunks: list[bytes] = []
             entry_bytes_len = 0
             sniffed_kind: str | None = None
-            should_buffer = False
+            should_buffer = known_text
 
             try:
                 with zf.open(info, mode="r") as member:
                     awaiting_sniff = True
+                    first_raw_chunk = True
                     lead_bom = b""
+                    skipped_ws_chunks = False
+                    sniff_accum = bytearray()
+                    pending_chunks: list[bytes] = []
+
                     while True:
                         chunk = member.read(65_536)
                         if not chunk:
+                            if awaiting_sniff:
+                                awaiting_sniff = False
+                                sniffed_kind, should_buffer = _finalize_entry_sniff(
+                                    filename=filename,
+                                    entry_filename=info.filename,
+                                    lead_bom=lead_bom,
+                                    sniff_accum=sniff_accum,
+                                    should_buffer=should_buffer,
+                                    skipped_ws_chunks=skipped_ws_chunks,
+                                    pending_chunks=pending_chunks,
+                                    entry_chunks=entry_chunks,
+                                )
                             break
                         actual_uncompressed += len(chunk)
                         entry_bytes_len += len(chunk)
@@ -1090,7 +1220,28 @@ def _inspect_office_zip_container(
                                 f"{max_compression_ratio:.1f}:1"
                             )
                         if awaiting_sniff:
-                            if not lead_bom:
+                            if first_raw_chunk:
+                                first_raw_chunk = False
+                                if chunk.startswith(_OLE_CFB_MAGIC) or chunk.startswith(
+                                    _ZIP_LOCAL_MAGIC_PREFIXES
+                                ):
+                                    sniff_accum.extend(chunk[:64])
+                                    if not known_text:
+                                        pending_chunks.append(chunk)
+                                    awaiting_sniff = False
+                                    sniffed_kind, should_buffer = _finalize_entry_sniff(
+                                        filename=filename,
+                                        entry_filename=info.filename,
+                                        lead_bom=lead_bom,
+                                        sniff_accum=sniff_accum,
+                                        should_buffer=should_buffer,
+                                        skipped_ws_chunks=skipped_ws_chunks,
+                                        pending_chunks=pending_chunks,
+                                        entry_chunks=entry_chunks,
+                                    )
+                                    if known_text:
+                                        entry_chunks.append(chunk)
+                                    continue
                                 for bom_sig in (
                                     b"\xef\xbb\xbf",
                                     b"\xff\xfe\x00\x00",
@@ -1101,41 +1252,53 @@ def _inspect_office_zip_container(
                                     if chunk.startswith(bom_sig):
                                         lead_bom = bom_sig
                                         break
-                            known_text = bool(
-                                is_ext_xml
-                                or is_ext_html
-                                or is_rels_part
-                                or ct_kind in ("xml", "html")
-                            )
-                            if not known_text and not chunk.lstrip(
-                                b" \t\r\n\x00\xef\xbb\xbf\xff\xfe"
-                            ):
-                                continue
-                            awaiting_sniff = False
-                            sniff_input = (
-                                lead_bom + chunk
-                                if (lead_bom and not chunk.startswith(lead_bom))
-                                else chunk
-                            )
-                            sniffed_kind = _sniff_markup_or_container_kind(sniff_input)
-                            if sniffed_kind == "rtf":
-                                raise ArchiveSecurityViolationError(
-                                    f"Office archive '{filename}' contains forbidden embedded RTF "
-                                    f"part '{info.filename}'"
+                            if not sniff_accum:
+                                non_ws = _trim_chunk_leading_ws(lead_bom, chunk)
+                                if not non_ws:
+                                    skipped_ws_chunks = True
+                                    if should_buffer:
+                                        if entry_bytes_len > max_xml_entry_bytes:
+                                            raise DocumentPayloadTooLargeError(
+                                                f"Markup entry '{info.filename}' in Office archive "
+                                                f"'{filename}' exceeds maximum allowed entry size "
+                                                f"({entry_bytes_len} > {max_xml_entry_bytes} bytes)"
+                                            )
+                                        entry_chunks.append(chunk)
+                                    continue
+                                sniff_accum.extend(non_ws[:2048])
+                            else:
+                                needed = max(0, 2048 - len(sniff_accum))
+                                if needed:
+                                    sniff_accum.extend(chunk[:needed])
+                            if not should_buffer:
+                                pending_chunks.append(chunk)
+                            if len(sniff_accum) >= 512:
+                                awaiting_sniff = False
+                                sniffed_kind, should_buffer = _finalize_entry_sniff(
+                                    filename=filename,
+                                    entry_filename=info.filename,
+                                    lead_bom=lead_bom,
+                                    sniff_accum=sniff_accum,
+                                    should_buffer=should_buffer,
+                                    skipped_ws_chunks=skipped_ws_chunks,
+                                    pending_chunks=pending_chunks,
+                                    entry_chunks=entry_chunks,
                                 )
-                            should_buffer = bool(
-                                known_text or sniffed_kind in ("xml", "html", "ole", "zip")
-                            )
-                            if should_buffer and lead_bom and not chunk.startswith(lead_bom):
-                                entry_chunks.append(lead_bom)
+                                if not should_buffer:
+                                    continue
+                                if not known_text:
+                                    is_markup_buf_init = sniffed_kind in ("xml", "html")
+                                    if is_markup_buf_init and entry_bytes_len > max_xml_entry_bytes:
+                                        raise DocumentPayloadTooLargeError(
+                                            f"Markup entry '{info.filename}' in Office archive "
+                                            f"'{filename}' exceeds maximum allowed entry size "
+                                            f"({entry_bytes_len} > {max_xml_entry_bytes} bytes)"
+                                        )
+                                    continue
+                            elif not should_buffer:
+                                continue
                         if should_buffer:
-                            is_markup_buf = bool(
-                                is_ext_xml
-                                or is_ext_html
-                                or is_rels_part
-                                or ct_kind in ("xml", "html")
-                                or sniffed_kind in ("xml", "html")
-                            )
+                            is_markup_buf = bool(known_text or sniffed_kind in ("xml", "html"))
                             if is_markup_buf and entry_bytes_len > max_xml_entry_bytes:
                                 raise DocumentPayloadTooLargeError(
                                     f"Markup entry '{info.filename}' in Office archive "
@@ -1211,7 +1374,7 @@ def _inspect_office_zip_container(
             if rel_type_low.endswith("/afchunk"):
                 if resolved_norm not in inspected_any_entries:
                     raw_af = _read_bounded_entry_bytes(target_info, max_xml_entry_bytes)
-                    af_kind = _sniff_markup_or_container_kind(raw_af[:4096])
+                    af_kind = _sniff_markup_or_container_kind(raw_af)
                     if af_kind == "rtf":
                         raise ArchiveSecurityViolationError(
                             f"Office archive '{filename}' contains forbidden RTF altChunk "
