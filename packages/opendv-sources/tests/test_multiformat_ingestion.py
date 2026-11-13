@@ -2704,10 +2704,31 @@ class TestRound4AdversarialHardening:
 
         # BIFF8 SUPBOOK encoded external URL (\x01\x05...http://) and UNC (\x01\x01@server\x03share)
         biff_url = _OLE_CFB_MAGIC + b"\x00" * 512 + b"\x01\x05\x18http://evil.internal/book.xls"
+        biff_long_url = (
+            _OLE_CFB_MAGIC
+            + b"\x00" * 512
+            + b"\x01\x05(https://evil.internal.corp/long/workbook/target.xls"
+        )
+        biff_davs_bracket_url = (
+            _OLE_CFB_MAGIC
+            + b"\x00" * 512
+            + b"\x01\x05*[davs://evil.internal.corp/share/book.xls]Sheet1"
+        )
         biff_unc = (
             _OLE_CFB_MAGIC + b"\x00" * 512 + b"\x01\x01@filesrv.corp\x03finance\x03secret.xls"
         )
-        for payload in (biff_url, biff_unc):
+        biff_bracket_unc = (
+            _OLE_CFB_MAGIC
+            + b"\x00" * 512
+            + b"\x01\x01@[filesrv.corp\x03finance\x03secret.xls]Sheet1"
+        )
+        for payload in (
+            biff_url,
+            biff_long_url,
+            biff_davs_bracket_url,
+            biff_unc,
+            biff_bracket_unc,
+        ):
             with pytest.raises(ArchiveSecurityViolationError):
                 _inspect_ole_cfb_security(payload, ".xls")
 

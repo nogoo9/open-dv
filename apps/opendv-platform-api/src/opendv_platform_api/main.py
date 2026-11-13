@@ -135,6 +135,14 @@ def create_app(
     if eff_storage is None and has_svc_storage:
         eff_storage = getattr(service, "storage_root", None)
 
+    explicit_ws_configured = bool(
+        eff_ws is not None
+        or settings is not None
+        or has_state_ws
+        or has_svc_ws
+        or os.environ.get("OPENDV_WORKSPACE_ROOT", "").strip()
+    )
+
     active_settings = settings or OpenDVSettings.load(
         workspace_root=eff_ws,
         state_dir=eff_storage,
@@ -150,6 +158,7 @@ def create_app(
             storage_root=active_settings.state_dir,
             settings=active_settings,
         )
+        active_service._explicit_workspace = explicit_ws_configured
     else:
         active_state = PlatformStateContainer(
             workspace_root=active_settings.workspace_root,
@@ -162,6 +171,7 @@ def create_app(
             storage_root=active_settings.state_dir,
             settings=active_settings,
         )
+        active_service._explicit_workspace = explicit_ws_configured
 
     @asynccontextmanager
     async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
@@ -475,6 +485,13 @@ def create_app(
         request: Request,
         exc: ValueError,
     ) -> JSONResponse:
+        if _is_studio_path(str(request.url.path)):
+            return build_studio_problem_response(
+                code="SYNTAX_INVALID_ARGUMENT",
+                detail=str(exc),
+                status_code=400,
+                instance=str(request.url.path),
+            )
         return build_problem_details_response(
             status_code=400,
             detail=str(exc),

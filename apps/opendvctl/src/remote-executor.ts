@@ -74,7 +74,9 @@ export function isDestructiveDeltaOperation(
 	}
 	if (opType === "set_parent_concept") {
 		const conceptUri = String(op.concept_uri ?? "").trim();
-		const existing = conceptUri ? baseConceptsByUri?.get(conceptUri) : undefined;
+		const existing = conceptUri
+			? baseConceptsByUri?.get(conceptUri)
+			: undefined;
 		if (op.parent_concept_uri == null) {
 			if (!baseConceptsByUri || existing?.parent_concept_uri != null) {
 				return true;
@@ -88,7 +90,9 @@ export function isDestructiveDeltaOperation(
 	}
 	if (opType === "set_concept_elm_archetype") {
 		const conceptUri = String(op.concept_uri ?? "").trim();
-		const existing = conceptUri ? baseConceptsByUri?.get(conceptUri) : undefined;
+		const existing = conceptUri
+			? baseConceptsByUri?.get(conceptUri)
+			: undefined;
 		if (
 			existing?.elm_archetype != null &&
 			existing.elm_archetype !== op.elm_archetype
@@ -222,7 +226,7 @@ export class RemoteExecutor {
 			config.explicitRole !== undefined
 				? config.explicitRole
 				: Boolean(
-						(config.role && config.role !== "INTERNAL_MODELER") ||
+						(config.role && config.role.trim() !== "") ||
 							(envRole && envRole.trim() !== "" && envRole !== "undefined"),
 					);
 		this.role = config.role || envRole || "INTERNAL_MODELER";
@@ -326,10 +330,13 @@ export class RemoteExecutor {
 			);
 		}
 
-		// Check caller role BEFORE rationale length (`P13::MAJ-01`, `MAJ-03`):
-		// if an explicit non-admin role was provided, fail immediately with exit 7.
-		const normalizedRole = (this.role || "INTERNAL_MODELER").toUpperCase();
-		if (this.explicitRole && !ADMIN_ROLE_NAMES.has(normalizedRole)) {
+		// Check caller role BEFORE rationale length (`P13::MAJ-01`, `MAJ-03`, `S5-R10-MAJ-01`):
+		// when `!this.explicitRole`, effective local Studio role is `"ADMIN"`, while explicit
+		// non-admin roles (`INTERNAL_MODELER`, `AUTOMATED`, `VIEWER`, `PUBLIC`, `EDITOR`) fail with exit 7.
+		const effectiveStudioRole = this.explicitRole
+			? (this.role || "INTERNAL_MODELER").toUpperCase()
+			: "ADMIN";
+		if (!ADMIN_ROLE_NAMES.has(effectiveStudioRole)) {
 			throw new CliDomainError(
 				"FORBIDDEN_ADMIN_REQUIRED",
 				`Administrative grounding waiver requires admin/steward role clearance (got '${this.role}').`,
@@ -386,7 +393,7 @@ export class RemoteExecutor {
 			waiverKey = (process.env.OPENDV_WAIVER_KEY || "").trim();
 		}
 
-		const baseHeaders = this.getHeaders();
+		const baseHeaders = this.getHeaders(undefined, { isStudioRequest: true });
 		const hasRemoteBearerAuth =
 			!this.isLoopback() &&
 			Boolean(baseHeaders.Authorization || baseHeaders.authorization);
@@ -425,7 +432,10 @@ export class RemoteExecutor {
 		};
 	}
 
-	getHeaders(extraHeaders?: Record<string, string>): Record<string, string> {
+	getHeaders(
+		extraHeaders?: Record<string, string>,
+		opts?: { isStudioRequest?: boolean },
+	): Record<string, string> {
 		const normalizedRole = this.role
 			? this.role.toUpperCase()
 			: "INTERNAL_MODELER";
@@ -448,10 +458,12 @@ export class RemoteExecutor {
 			);
 		}
 
+		const omitImplicitStudioRole =
+			opts?.isStudioRequest === true && !this.explicitRole;
 		const headers: Record<string, string> = {
 			"Content-Type": "application/json",
 			Accept: "application/json",
-			"X-OpenDV-Role": normalizedRole,
+			...(omitImplicitStudioRole ? {} : { "X-OpenDV-Role": normalizedRole }),
 			...extraHeaders,
 		};
 
@@ -534,9 +546,10 @@ export class RemoteExecutor {
 		payload: unknown,
 		extraHeaders?: Record<string, string>,
 	): Promise<unknown> {
+		const isStudioRequest = endpoint.startsWith("/api/v1/ontology/studio");
 		const res = await this.fetchImpl(`${this.baseUrl}${endpoint}`, {
 			method: "POST",
-			headers: this.getHeaders(extraHeaders),
+			headers: this.getHeaders(extraHeaders, { isStudioRequest }),
 			body: JSON.stringify(payload),
 		});
 
@@ -551,8 +564,9 @@ export class RemoteExecutor {
 		endpoint: string,
 		extraHeaders?: Record<string, string>,
 	): Promise<unknown> {
+		const isStudioRequest = endpoint.startsWith("/api/v1/ontology/studio");
 		const res = await this.fetchImpl(`${this.baseUrl}${endpoint}`, {
-			headers: this.getHeaders(extraHeaders),
+			headers: this.getHeaders(extraHeaders, { isStudioRequest }),
 		});
 
 		if (!res.ok) {
@@ -566,9 +580,10 @@ export class RemoteExecutor {
 		endpoint: string,
 		extraHeaders?: Record<string, string>,
 	): Promise<unknown> {
+		const isStudioRequest = endpoint.startsWith("/api/v1/ontology/studio");
 		const res = await this.fetchImpl(`${this.baseUrl}${endpoint}`, {
 			method: "DELETE",
-			headers: this.getHeaders(extraHeaders),
+			headers: this.getHeaders(extraHeaders, { isStudioRequest }),
 		});
 
 		if (!res.ok) {
@@ -590,9 +605,12 @@ export class RemoteExecutor {
 		formData: FormData,
 		extraHeaders?: Record<string, string>,
 	): Promise<unknown> {
-		const headers = { ...this.getHeaders(extraHeaders) };
-		delete headers["Content-Type"];
-		delete headers["content-type"];
+		const isStudioRequest = endpoint.startsWith("/api/v1/ontology/studio");
+		const {
+			"Content-Type": _ct1,
+			"content-type": _ct2,
+			...headers
+		} = this.getHeaders(extraHeaders, { isStudioRequest });
 
 		const res = await this.fetchImpl(`${this.baseUrl}${endpoint}`, {
 			method: "POST",
@@ -614,9 +632,7 @@ export class RemoteExecutor {
 				typeof jobObj.error === "object" && jobObj.error !== null
 					? (jobObj.error as Record<string, unknown>)
 					: jobObj;
-			const code = String(
-				errObj.code || errObj.error_code || "INTERNAL_ERROR",
-			);
+			const code = String(errObj.code || errObj.error_code || "INTERNAL_ERROR");
 			const detail = String(
 				errObj.detail || errObj.message || "Studio background job failed.",
 			);
@@ -630,7 +646,9 @@ export class RemoteExecutor {
 					? (jobObj.error as Record<string, unknown>)
 					: {};
 			const detail = String(
-				errObj.detail || errObj.message || "Studio background job was cancelled.",
+				errObj.detail ||
+					errObj.message ||
+					"Studio background job was cancelled.",
 			);
 			throw new CliDomainError("JOB_ALREADY_TERMINAL", detail, 409);
 		}
@@ -665,15 +683,14 @@ export class RemoteExecutor {
 		const jobStatusEndpoint = `/api/v1/ontology/studio/sessions/${encodedSid}/jobs/${encodedJobId}`;
 
 		if (wantsStream) {
-			const isJsonOut =
-				options.json === true || options.format === "json";
+			const isJsonOut = options.json === true || options.format === "json";
 			const streamLogger = isJsonOut ? this.errWriter : this.writer;
 			const streamUrl = `${this.baseUrl}${jobStatusEndpoint}/events`;
 
 			try {
 				const streamSummary = await followStudioJobEvents({
 					streamUrl,
-					headers: this.getHeaders(),
+					headers: this.getHeaders(undefined, { isStudioRequest: true }),
 					streamEnabled: true,
 					writer: streamLogger,
 					fetchImpl: this.fetchImpl,
@@ -686,7 +703,10 @@ export class RemoteExecutor {
 					this.throwIfFailedJobRecord(finalJob);
 					return finalJob;
 				} catch (err) {
-					if (err instanceof CliDomainError && err.errorCode !== "JOB_NOT_FOUND") {
+					if (
+						err instanceof CliDomainError &&
+						err.errorCode !== "JOB_NOT_FOUND"
+					) {
 						throw err;
 					}
 					return { ...initObj, ...streamSummary, status: "COMPLETED" };
@@ -856,9 +876,10 @@ export class RemoteExecutor {
 				let currentCmd: CliCommand | CliSubcommand | undefined = cmdDef;
 				for (const tok of subTokens) {
 					if (currentCmd?.subcommands) {
-						const found: CliSubcommand | undefined = currentCmd.subcommands.find(
-							(s) => s.name === tok || (s.aliases && s.aliases.includes(tok)),
-						);
+						const found: CliSubcommand | undefined =
+							currentCmd.subcommands.find(
+								(s) => s.name === tok || (s.aliases && s.aliases.includes(tok)),
+							);
 						if (found) {
 							if (found.options) {
 								specOptions.push(...found.options);
@@ -1586,7 +1607,9 @@ export class RemoteExecutor {
 				};
 				const combinedSourceIds: string[] = [];
 				if (options.source_id) {
-					combinedSourceIds.push(...normalizeStringArrayOption(options.source_id));
+					combinedSourceIds.push(
+						...normalizeStringArrayOption(options.source_id),
+					);
 				}
 				if (options.source_ids) {
 					combinedSourceIds.push(
@@ -1690,7 +1713,10 @@ export class RemoteExecutor {
 									...(val as Record<string, unknown>),
 								});
 							} else {
-								rawList.push({ question_id: qid, user_text: String(val ?? "") });
+								rawList.push({
+									question_id: qid,
+									user_text: String(val ?? ""),
+								});
 							}
 						}
 					}
@@ -1827,13 +1853,16 @@ export class RemoteExecutor {
 				const autoCommit = Boolean(options.auto_commit);
 				const extraHeaders: Record<string, string> = {};
 
+				const cleanConstructSha =
+					options.base_sha256 !== undefined && options.base_sha256 !== null
+						? String(options.base_sha256).trim().replace(/^"|"$/g, "")
+						: undefined;
+
 				if (autoCommit) {
 					if (
 						mode !== "deterministic" ||
 						!options.base_version ||
-						options.base_sha256 === undefined ||
-						options.base_sha256 === null ||
-						String(options.base_sha256).trim() === ""
+						!cleanConstructSha
 					) {
 						throw new CliDomainError(
 							"MISSING_AUTO_COMMIT_PRECONDITION",
@@ -1841,12 +1870,12 @@ export class RemoteExecutor {
 							400,
 						);
 					}
-					extraHeaders["If-Match"] = `"${String(options.base_sha256)}"`;
+					extraHeaders["If-Match"] = `"${cleanConstructSha}"`;
 				}
 
 				const body: Record<string, unknown> = {
 					base_version: options.base_version,
-					base_sha256: options.base_sha256,
+					base_sha256: cleanConstructSha,
 					mode,
 					auto_commit: autoCommit,
 				};
@@ -1928,7 +1957,10 @@ export class RemoteExecutor {
 							: deltaProvidedSha;
 					let resolvedParentSha = callerProvidedSha;
 
-					if (resolvedBaseVer === undefined || resolvedParentSha === undefined) {
+					if (
+						resolvedBaseVer === undefined ||
+						resolvedParentSha === undefined
+					) {
 						const sessionDetail = await this.fetchSessionDetail(String(sid));
 						if (resolvedBaseVer === undefined) {
 							resolvedBaseVer = String(
@@ -2008,9 +2040,81 @@ export class RemoteExecutor {
 					return valRes;
 				}
 
+				const hasBase = Boolean(
+					options.base ||
+						options.base_ontology_path ||
+						options.base_ontology_content,
+				);
+				if (!hasBase) {
+					throw new CliDomainError(
+						"SYNTAX_INVALID_ARGUMENT",
+						"Either --session or --base must be provided for delta validation.",
+						400,
+					);
+				}
+
+				const standaloneBaseVer =
+					typeof options.base_version === "string" &&
+					options.base_version.trim() !== ""
+						? options.base_version.trim().replace(/^v/i, "")
+						: typeof rawDeltaObj.base_ontology_version === "string" &&
+								rawDeltaObj.base_ontology_version.trim() !== ""
+							? rawDeltaObj.base_ontology_version.trim().replace(/^v/i, "")
+							: typeof rawDeltaObj.base_version === "string" &&
+									rawDeltaObj.base_version.trim() !== ""
+								? rawDeltaObj.base_version.trim().replace(/^v/i, "")
+								: undefined;
+				const standaloneTargetVer =
+					typeof options.target_version === "string" &&
+					options.target_version.trim() !== ""
+						? options.target_version.trim().replace(/^v/i, "")
+						: typeof rawDeltaObj.target_ontology_version === "string" &&
+								rawDeltaObj.target_ontology_version.trim() !== ""
+							? rawDeltaObj.target_ontology_version.trim().replace(/^v/i, "")
+							: typeof rawDeltaObj.target_version === "string" &&
+									rawDeltaObj.target_version.trim() !== ""
+								? rawDeltaObj.target_version.trim().replace(/^v/i, "")
+								: undefined;
+				const standaloneParentSha =
+					options.base_sha256 !== undefined &&
+					options.base_sha256 !== null &&
+					String(options.base_sha256).trim() !== ""
+						? String(options.base_sha256).trim().replace(/^"|"$/g, "")
+						: typeof rawDeltaObj.parent_sha256 === "string" &&
+								rawDeltaObj.parent_sha256.trim() !== ""
+							? rawDeltaObj.parent_sha256.trim().replace(/^"|"$/g, "")
+							: typeof rawDeltaObj.base_sha256 === "string" &&
+									rawDeltaObj.base_sha256.trim() !== ""
+								? rawDeltaObj.base_sha256.trim().replace(/^"|"$/g, "")
+								: undefined;
+
+				const {
+					base_version: _ignoredStandaloneBaseVer,
+					base_ontology_version: _ignoredStandaloneBaseOntVer,
+					target_version: _ignoredStandaloneTargetVer,
+					target_ontology_version: _ignoredStandaloneTargetOntVer,
+					base_sha256: _ignoredStandaloneBaseSha,
+					parent_sha256: _ignoredStandaloneParentSha,
+					...restStandaloneDeltaObj
+				} = rawDeltaObj;
+
 				const body: Record<string, unknown> = {
 					delta: {
-						...rawDeltaObj,
+						...restStandaloneDeltaObj,
+						delta_id:
+							typeof rawDeltaObj.delta_id === "string" &&
+							rawDeltaObj.delta_id.trim() !== ""
+								? rawDeltaObj.delta_id.trim()
+								: `delta-${randomUUID().replace(/-/g, "").slice(0, 12)}`,
+						...(standaloneBaseVer !== undefined
+							? { base_ontology_version: standaloneBaseVer }
+							: {}),
+						...(standaloneTargetVer !== undefined
+							? { target_ontology_version: standaloneTargetVer }
+							: {}),
+						...(standaloneParentSha !== undefined
+							? { parent_sha256: standaloneParentSha }
+							: {}),
 						operations: normalizedOps,
 					},
 				};
@@ -2218,7 +2322,9 @@ export class RemoteExecutor {
 					);
 				}
 				if (options.evidence_grounding_file) {
-					body.evidence_grounding_file = String(options.evidence_grounding_file);
+					body.evidence_grounding_file = String(
+						options.evidence_grounding_file,
+					);
 				}
 
 				const headers: Record<string, string> = {
@@ -2278,8 +2384,12 @@ export class RemoteExecutor {
 				}
 
 				const extraHeaders: Record<string, string> = {};
-				if (options.base_sha256) {
-					extraHeaders["If-Match"] = `"${options.base_sha256}"`;
+				const cleanAcceptSha =
+					options.base_sha256 !== undefined && options.base_sha256 !== null
+						? String(options.base_sha256).trim().replace(/^"|"$/g, "")
+						: undefined;
+				if (cleanAcceptSha !== undefined) {
+					extraHeaders["If-Match"] = `"${cleanAcceptSha}"`;
 				}
 
 				const waiverInfo = await this.resolveWaiverHeaders(options);
@@ -2288,7 +2398,7 @@ export class RemoteExecutor {
 				}
 
 				const body: Record<string, unknown> = {
-					base_sha256: options.base_sha256,
+					base_sha256: cleanAcceptSha,
 					allow_self_accepted_proposals: Boolean(
 						options.allow_self_accepted_proposals,
 					),
@@ -2344,12 +2454,21 @@ export class RemoteExecutor {
 						400,
 					);
 				}
-				let targetSha = (options.base_sha256 || options.head_sha256) as
-					| string
-					| undefined;
+				const rawRebaseSha =
+					options.base_sha256 !== undefined && options.base_sha256 !== null
+						? String(options.base_sha256)
+						: options.head_sha256 !== undefined && options.head_sha256 !== null
+							? String(options.head_sha256)
+							: undefined;
+				let targetSha =
+					rawRebaseSha !== undefined
+						? rawRebaseSha.trim().replace(/^"|"$/g, "")
+						: undefined;
 				if (!targetSha) {
 					const sessionDetail = await this.fetchSessionDetail(String(sid));
-					targetSha = String(sessionDetail.head_sha256 ?? "");
+					targetSha = String(sessionDetail.head_sha256 ?? "")
+						.trim()
+						.replace(/^"|"$/g, "");
 				}
 				const extraHeaders: Record<string, string> = {};
 				if (targetSha) {
@@ -2380,7 +2499,10 @@ export class RemoteExecutor {
 					options.version && typeof options.version === "string"
 						? `&version=${encodeURIComponent(options.version)}`
 						: "";
-				const headers = { ...this.getHeaders(), Accept: "*/*" };
+				const headers = {
+					...this.getHeaders(undefined, { isStudioRequest: true }),
+					Accept: "*/*",
+				};
 				const res = await this.fetchImpl(
 					`${this.baseUrl}/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/export?export_format=${encodeURIComponent(fmt)}${ver}`,
 					{ headers },
@@ -2398,8 +2520,7 @@ export class RemoteExecutor {
 					await fs.writeFile(options.out, rawText, "utf-8");
 				}
 
-				const wantsJson =
-					options.json === true || options.format === "json";
+				const wantsJson = options.json === true || options.format === "json";
 				if (wantsJson) {
 					return {
 						session_id: String(sid),
@@ -2436,8 +2557,12 @@ export class RemoteExecutor {
 						400,
 					);
 				}
-				const headSha = String(options.head_sha256 ?? "");
-				const wsSha = String(options.workspace_sha256 ?? "");
+				const headSha = String(options.head_sha256 ?? "")
+					.trim()
+					.replace(/^"|"$/g, "");
+				const wsSha = String(options.workspace_sha256 ?? "")
+					.trim()
+					.replace(/^"|"$/g, "");
 				const extraHeaders: Record<string, string> = {
 					"If-Match": `"${headSha}"`,
 					"X-OpenDV-Workspace-If-Match": `"${wsSha}"`,
@@ -2478,7 +2603,7 @@ export class RemoteExecutor {
 					`${this.baseUrl}/api/v1/ontology/studio/sessions/${encodeURIComponent(String(sid))}/bundle`,
 					{
 						method: "POST",
-						headers: this.getHeaders(),
+						headers: this.getHeaders(undefined, { isStudioRequest: true }),
 						body: JSON.stringify(body),
 					},
 				);
@@ -2550,10 +2675,7 @@ export class RemoteExecutor {
 					formData.append("force", "true");
 				}
 				if (options.acknowledge_unverified_import_attribution) {
-					queryParams.set(
-						"acknowledge_unverified_import_attribution",
-						"true",
-					);
+					queryParams.set("acknowledge_unverified_import_attribution", "true");
 				}
 				if (options.acknowledgement_rationale) {
 					queryParams.set(

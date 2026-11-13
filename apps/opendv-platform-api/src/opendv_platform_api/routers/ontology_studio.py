@@ -69,7 +69,10 @@ from opendv_service.construction.clarification_harness import EMPTY_ANSWERS_SHA2
 from opendv_service.export.rdf_exporter import export_ontology
 from opendv_service.ontology.applier import compute_next_semver
 from opendv_service.ontology.rebase import check_rebase_conflicts
-from opendv_service.ontology.validator import GovernanceValidator
+from opendv_service.ontology.validator import (
+    GovernanceValidator,
+    build_workspace_deployment_provider,
+)
 from opendv_service.studio.atomic_commit import (
     AtomicCommitService,
     ConcurrentModificationError,
@@ -437,7 +440,24 @@ def _resolve_allowed_workspace_roots(
         parsed = [Path(p.strip()).resolve() for p in env_roots.split(os.pathsep) if p.strip()]
         if parsed:
             return parsed
-    return [session_mgr.workspace_root.resolve()]
+    return [(session_mgr.workspace_root or session_mgr.studio_root.parent).resolve()]
+
+
+def _resolve_deployment_workspace_root(
+    request: Request,
+    session_mgr: StudioSessionManager,
+) -> Path | None:
+    """Resolve workspace root for deployed Data Vault contract discovery (ONT-EVO-001)."""
+    if os.environ.get("OPENDV_WORKSPACE_ROOTS", "").strip():
+        return _resolve_allowed_workspace_roots(session_mgr)[0]
+    service = get_opendv_service(request)
+    if os.environ.get("OPENDV_STUDIO_ROOT", "").strip() and not getattr(
+        service, "_explicit_workspace", False
+    ):
+        if session_mgr.studio_root.parent.name == ".opendv":
+            return session_mgr.studio_root.parent.parent.resolve()
+        return session_mgr.studio_root.parent.resolve()
+    return service.workspace_root.resolve()
 
 
 def get_session_manager(
@@ -446,8 +466,9 @@ def get_session_manager(
 ) -> StudioSessionManager:
     """Create StudioSessionManager configured with active workspace roots."""
     service = get_opendv_service(request)
-    mgr = StudioSessionManager(studio_root=studio_root)
+    mgr = StudioSessionManager(studio_root=studio_root, workspace_root=service.workspace_root)
     mgr.workspace_root = service.workspace_root
+    mgr.deployment_workspace_root = _resolve_deployment_workspace_root(request, mgr)
     return mgr
 
 
@@ -624,7 +645,21 @@ def _load_session_version_ontology(
     if ver == GENESIS_VERSION:
         ont_file = sdir / "versions" / normalize_version_tag(ver) / "ontology.json"
         if ont_file.is_file():
-            return GraphAOntology.model_validate_json(ont_file.read_text(encoding="utf-8"))
+            try:
+                return GraphAOntology.model_validate_json(ont_file.read_text(encoding="utf-8"))
+            except (
+                OSError,
+                UnicodeDecodeError,
+                json.JSONDecodeError,
+                yaml.YAMLError,
+                ValidationError,
+                TypeError,
+                ValueError,
+            ) as exc:
+                raise StudioAPIError(
+                    "CORRUPT_SESSION_RECORD",
+                    f"Corrupt ontology artifact for version 'v{ver}': {exc}",
+                ) from exc
         return create_genesis_ontology(
             domain_namespace=sanitize_domain_namespace(meta.domain_namespace),
             enterprise_owner=meta.enterprise_owner or "Enterprise Architecture",
@@ -633,10 +668,40 @@ def _load_session_version_ontology(
     vdir = sdir / "versions" / normalize_version_tag(ver)
     ont_json = vdir / "ontology.json"
     if ont_json.is_file():
-        return GraphAOntology.model_validate_json(ont_json.read_text(encoding="utf-8"))
+        try:
+            return GraphAOntology.model_validate_json(ont_json.read_text(encoding="utf-8"))
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            yaml.YAMLError,
+            ValidationError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt ontology artifact for version 'v{ver}': {exc}",
+            ) from exc
     ont_yaml = vdir / "ontology.yaml"
     if ont_yaml.is_file():
-        return GraphAOntology.model_validate(yaml.safe_load(ont_yaml.read_text(encoding="utf-8")))
+        try:
+            return GraphAOntology.model_validate(
+                yaml.safe_load(ont_yaml.read_text(encoding="utf-8"))
+            )
+        except (
+            OSError,
+            UnicodeDecodeError,
+            json.JSONDecodeError,
+            yaml.YAMLError,
+            ValidationError,
+            TypeError,
+            ValueError,
+        ) as exc:
+            raise StudioAPIError(
+                "CORRUPT_SESSION_RECORD",
+                f"Corrupt ontology artifact for version 'v{ver}': {exc}",
+            ) from exc
     raise StudioAPIError(
         "CORRUPT_SESSION_STATE",
         f"Ontology artifact missing for version 'v{ver}' in session '{meta.session_id}'.",
@@ -2481,8 +2546,13 @@ def validate_delta_endpoint(
 
         try:
             target_ont = apply_delta(base_ontology, delta, validate_structural=True)
+            dep_prov = build_workspace_deployment_provider(
+                getattr(session_mgr, "deployment_workspace_root", None)
+                or getattr(session_mgr, "workspace_root", None)
+            )
             gv = GovernanceValidator(
-                waiver_verifier=_LocalWaiverVerifier(session_mgr.security_manager)
+                deployment_provider=dep_prov,
+                waiver_verifier=_LocalWaiverVerifier(session_mgr.security_manager),
             )
             gv.validate_deployed_contracts(base_ontology, delta)
 
@@ -3747,6 +3817,19 @@ def rebase_proposal(
                 extensions={"conflicts": [c.to_dict() for c in rebase_res.conflicts]},
             )
 
+        try:
+            dep_prov = build_workspace_deployment_provider(
+                getattr(session_mgr, "deployment_workspace_root", None)
+                or getattr(session_mgr, "workspace_root", None)
+            )
+            if dep_prov is not None and rebase_res.rebased_delta is not None:
+                GovernanceValidator(
+                    deployment_provider=dep_prov,
+                    strict_verifier_required=False,
+                ).validate_deployed_contracts(head_ontology, rebase_res.rebased_delta)
+        except OpenDVError as exc:
+            raise _raise_from_opendv_error(exc) from exc
+
         rebased_ops = (
             [
                 op.model_dump(mode="json", exclude_none=True)
@@ -4121,25 +4204,41 @@ def export_ontology_endpoint(
             f"Ontology artifact missing for v{clean_ver}.",
         )
 
-    if ont_file.suffix == ".json":
-        raw_json = ont_file.read_text(encoding="utf-8")
-        ont_obj = GraphAOntology.model_validate_json(raw_json)
-    else:
-        ont_obj = GraphAOntology.model_validate(
-            yaml.safe_load(ont_file.read_text(encoding="utf-8"))
-        )
-
     try:
-        content, media_type = export_ontology(ont_obj, export_format=export_format)
+        if ont_file.suffix == ".json":
+            raw_json = ont_file.read_text(encoding="utf-8")
+            ont_obj = GraphAOntology.model_validate_json(raw_json)
+        else:
+            ont_obj = GraphAOntology.model_validate(
+                yaml.safe_load(ont_file.read_text(encoding="utf-8"))
+            )
+    except (
+        OSError,
+        UnicodeDecodeError,
+        json.JSONDecodeError,
+        yaml.YAMLError,
+        ValidationError,
+        TypeError,
+        ValueError,
+    ) as exc:
+        raise StudioAPIError(
+            "CORRUPT_SESSION_RECORD",
+            f"Corrupt ontology artifact for version 'v{clean_ver}': {exc}",
+        ) from exc
+
+    clean_format = export_format.strip()
+    try:
+        content, media_type = export_ontology(ont_obj, export_format=clean_format)
+    except OpenDVError as exc:
+        raise _raise_from_opendv_error(exc) from exc
     except ValueError as exc:
         raise StudioAPIError("UNSUPPORTED_FORMAT", str(exc)) from exc
 
+    safe_ext = re.sub(r"[^a-z0-9_-]", "", clean_format.lower()) or "txt"
     return Response(
         content=content,
         media_type=media_type,
-        headers={
-            "Content-Disposition": f'attachment; filename="ontology-v{clean_ver}.{export_format}"'
-        },
+        headers={"Content-Disposition": f'attachment; filename="ontology-v{clean_ver}.{safe_ext}"'},
     )
 
 
@@ -4241,7 +4340,7 @@ def promote_session(
         raw_ws = Path(payload.workspace)
         candidate_ws = raw_ws if raw_ws.is_absolute() else (ws_base / raw_ws)
     else:
-        candidate_ws = session_mgr.workspace_root
+        candidate_ws = session_mgr.workspace_root or ws_base
 
     try:
         validated_ws = validate_workspace_containment(

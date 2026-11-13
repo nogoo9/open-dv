@@ -4519,7 +4519,7 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			).toBe(0.91);
 			serveVerifiedS6Export = false;
 
-			// Part B: P14e::MAJ-01 — refine_definition -> MINOR (1.1.0), remove_external_mapping -> MAJOR (2.0.0)
+			// Part B: P14c4-MAJ-01 — refine_definition -> PATCH (1.0.1), remove_external_mapping -> PATCH (1.0.2)
 			const baseConcept: ConceptNode = {
 				id: "urn:ontology:entity:fund",
 				concept_uri: "urn:ontology:entity:fund",
@@ -4557,15 +4557,15 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			await semverStore
 				.getState()
 				.commitChanges("Refine definition", mockDeltaFetch);
-			expect(postedDelta?.target_version).toBe("1.1.0");
+			expect(postedDelta?.target_version).toBe("1.0.1");
 
-			// Now remove iso:Secondary mapping from 1.1.0 -> remove_external_mapping MUST bump MAJOR -> 2.0.0!
-			const v11Concept = semverStore.getState().committedNodes[0]!;
+			// Now remove iso:Secondary mapping from 1.0.1 -> RemoveExternalMappingOp is PATCH -> 1.0.2!
+			const v101Concept = semverStore.getState().committedNodes[0]!;
 			semverStore.setState({
 				nodes: [
 					{
-						...v11Concept,
-						external_mappings: v11Concept.external_mappings.slice(0, 1),
+						...v101Concept,
+						external_mappings: v101Concept.external_mappings.slice(0, 1),
 					},
 				],
 				hasUnsavedChanges: true,
@@ -4573,7 +4573,7 @@ describe("Task 5D.1: Web Workbench Studio Store (/ontology)", () => {
 			await semverStore
 				.getState()
 				.commitChanges("Remove secondary mapping", mockDeltaFetch);
-			expect(postedDelta?.target_version).toBe("2.0.0");
+			expect(postedDelta?.target_version).toBe("1.0.2");
 		});
 	});
 });

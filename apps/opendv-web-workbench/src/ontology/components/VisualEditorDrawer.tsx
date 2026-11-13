@@ -187,6 +187,21 @@ export function validateConceptEdit(
 			}
 		}
 
+		const committedAttrNames = new Set(
+			(committed.attributes || []).map((a) => a.attribute_name.toLowerCase()),
+		);
+		for (const da of draft.attributes || []) {
+			if (
+				!committedAttrNames.has(da.attribute_name.toLowerCase()) &&
+				da.is_optional === false &&
+				!allowDestructive
+			) {
+				errors.push(
+					`CANNOT_ADD_MANDATORY_ATTRIBUTE: Adding mandatory attribute '${da.attribute_name}' (is_optional=false) to a committed concept is a breaking MAJOR change under ONT-EVO-001 and requires admin authorization.`,
+				);
+			}
+		}
+
 		const missingCommittedMapping = committed.external_mappings?.some(
 			(cm) =>
 				!draft.external_mappings.some(
@@ -270,7 +285,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 	// Form input helpers
 	const [newAttrName, setNewAttrName] = useState("");
 	const [newAttrType, setNewAttrType] = useState<string>("string");
-	const [newAttrOptional, setNewAttrOptional] = useState(false);
+	const [newAttrOptional, setNewAttrOptional] = useState(true);
 	const [newAttrDesc, setNewAttrDesc] = useState("");
 
 	const [newSynonym, setNewSynonym] = useState("");
@@ -316,6 +331,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 			setAttributes([...(selectedConcept.attributes || [])]);
 			setSynonyms([...(selectedConcept.synonyms || [])]);
 			setExternalMappings([...(selectedConcept.external_mappings || [])]);
+			setNewAttrOptional(true);
 			setValidationErrors([]);
 			setSaveSuccess(false);
 		}
@@ -353,6 +369,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 		setAttributes([...attributes, newAttr]);
 		setNewAttrName("");
 		setNewAttrDesc("");
+		setNewAttrOptional(true);
 		setValidationErrors([]);
 	};
 
@@ -800,6 +817,7 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 									type="checkbox"
 									checked={newAttrOptional}
 									onChange={(e) => setNewAttrOptional(e.target.checked)}
+									data-testid="new-attr-optional-checkbox"
 								/>
 								<span>opt</span>
 							</label>

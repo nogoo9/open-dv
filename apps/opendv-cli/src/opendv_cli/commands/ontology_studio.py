@@ -53,7 +53,7 @@ from opendv_service.ontology.validator import (
     GovernanceValidator,
     OntologyGovernanceError,
     SemVerCalculusError,
-    build_deployment_provider_from_contract,
+    build_workspace_deployment_provider,
 )
 from opendv_service.studio.atomic_commit import (
     AtomicCommitService,
@@ -138,9 +138,15 @@ _ADMIN_ROLES: frozenset[str] = frozenset({"ADMIN", "DATA_STEWARD", "RESTRICTED_P
 _EDITOR_ROLES: frozenset[str] = frozenset({"EDITOR", "STEWARD"})
 _AUTOMATED_ROLES: frozenset[str] = frozenset({"AUTOMATED", "INTERNAL_MODELER"})
 _VIEWER_ROLES: frozenset[str] = frozenset({"VIEWER", "PUBLIC", "AUDITOR_FINANCE"})
-_SKIP_SCAN_DIRS: frozenset[str] = frozenset(
-    {".opendv", ".git", "node_modules", ".venv", "dist", "__pycache__"}
-)
+
+
+def _resolve_local_workspace_root(executor: LocalExecutor | None = None) -> Path:
+    """Resolve active local workspace directory from executor, env, or cwd."""
+    return Path(
+        (executor.workspace_root if executor else None)
+        or os.environ.get("OPENDV_WORKSPACE_ROOT")
+        or Path.cwd()
+    ).resolve()
 
 
 def _get_studio_root(executor: LocalExecutor | None = None) -> Path:
@@ -148,14 +154,17 @@ def _get_studio_root(executor: LocalExecutor | None = None) -> Path:
     env_root = os.environ.get("OPENDV_STUDIO_ROOT")
     if env_root:
         return Path(env_root).resolve()
-    base_ws = executor.workspace_root if executor else Path.cwd().resolve()
+    base_ws = _resolve_local_workspace_root(executor)
     return (base_ws / DEFAULT_STUDIO_DIR).resolve()
 
 
 def _get_session_manager(executor: LocalExecutor | None = None) -> StudioSessionManager:
     """Resolve StudioSessionManager for local execution."""
     root = _get_studio_root(executor)
-    return StudioSessionManager(studio_root=root)
+    return StudioSessionManager(
+        studio_root=root,
+        workspace_root=_resolve_local_workspace_root(executor),
+    )
 
 
 def _err(code: int, error_code: str, detail: str) -> tuple[int, dict[str, str]]:
@@ -507,129 +516,24 @@ def _normalize_delta_operation(op: dict[str, Any] | Any) -> OntologyOperation:
     return _OP_TYPE_ADAPTER.validate_python(op_copy)
 
 
-class _MergedDeploymentProvider:
-    """In-memory `DeploymentStateProvider` merging workspace contract states."""
-
-    def __init__(
-        self,
-        concepts: set[str],
-        tables: set[str],
-        entities: set[str],
-    ) -> None:
-        self._concepts = frozenset(concepts)
-        self._tables = frozenset(tables)
-        self._entities = frozenset(entities)
-
-    def get_deployed_concepts(self) -> frozenset[str]:
-        return self._concepts
-
-    def get_deployed_tables(self) -> frozenset[str]:
-        return self._tables
-
-    def get_deployed_entities(self) -> frozenset[str]:
-        return self._entities
-
-
 def _build_workspace_deployment_provider(
     executor: LocalExecutor | None,
 ) -> DeploymentStateProvider | None:
     """Recursively inspect active workspace for deployed Data Vault contracts (ONT-EVO-001)."""
-    ws_root = (executor.workspace_root if executor else Path.cwd()).resolve()
-    if not ws_root.is_dir():
-        return None
-
-    merged_concepts: set[str] = set()
-    merged_tables: set[str] = set()
-    merged_entities: set[str] = set()
-    found_any = False
-
-    candidates: list[Path] = []
-    for root_str, dirnames, filenames in os.walk(ws_root, topdown=True, followlinks=False):
-        root_p = Path(root_str)
-        dirnames[:] = sorted(
-            d
-            for d in dirnames
-            if d not in _SKIP_SCAN_DIRS and not _is_reparse_or_symlink(root_p / d)
-        )
-        for fname in sorted(filenames):
-            if not fname.lower().endswith((".yaml", ".yml", ".json")):
-                continue
-            fpath = root_p / fname
-            if _is_reparse_or_symlink(fpath) or not fpath.is_file():
-                continue
-            candidates.append(fpath)
-
-    for cand in candidates:
-        rel_parts = cand.relative_to(ws_root).parts
-        in_contracts_dir = any(part.lower() == "contracts" for part in rel_parts[:-1])
-        is_contract_file = in_contracts_dir or ("contract" in cand.name.lower())
-
-        try:
-            raw_text = cand.read_text(encoding="utf-8")
-            data = (
-                json.loads(raw_text) if cand.suffix.lower() == ".json" else yaml.safe_load(raw_text)
-            )
-        except (OSError, UnicodeDecodeError, json.JSONDecodeError, yaml.YAMLError) as exc:
-            if is_contract_file:
-                raise StudioLocalError(
-                    f"Failed to parse workspace contract '{cand.relative_to(ws_root)}': {exc}",
-                    error_code=ErrorCode.INVALID_WORKSPACE_ONTOLOGY,
-                    exit_code=4,
-                ) from exc
-            continue
-
-        if not isinstance(data, dict):
-            if is_contract_file:
-                rel_p = cand.relative_to(ws_root)
-                raise StudioLocalError(
-                    f"Workspace contract '{rel_p}' must be a YAML/JSON mapping.",
-                    error_code=ErrorCode.INVALID_WORKSPACE_ONTOLOGY,
-                    exit_code=4,
-                )
-            continue
-
-        is_dv_contract = any(
-            k in data
-            for k in (
-                "tables",
-                "hubs",
-                "links",
-                "satellites",
-                "reference_tables",
-                "deployed_tables",
-                "deployed_concepts",
-                "deployed_entities",
-            )
-        ) or ("contract_version" in data and "canonical_business_concepts" not in data)
-        if not is_dv_contract:
-            continue
-
-        try:
-            prov = build_deployment_provider_from_contract(data)
-        except (ValueError, TypeError, KeyError) as exc:
-            if is_contract_file:
-                rel_p = cand.relative_to(ws_root)
-                raise StudioLocalError(
-                    f"Invalid Data Vault contract structure in '{rel_p}': {exc}",
-                    error_code=ErrorCode.INVALID_WORKSPACE_ONTOLOGY,
-                    exit_code=4,
-                ) from exc
-            continue
-
-        if prov is None:
-            continue
-        merged_concepts.update(prov.get_deployed_concepts())
-        merged_tables.update(prov.get_deployed_tables())
-        merged_entities.update(prov.get_deployed_entities())
-        found_any = True
-
-    if not found_any:
-        return None
-    return _MergedDeploymentProvider(
-        concepts=merged_concepts,
-        tables=merged_tables,
-        entities=merged_entities,
-    )
+    ws_root = _resolve_local_workspace_root(executor)
+    try:
+        return build_workspace_deployment_provider(ws_root)
+    except OntologyGovernanceError as exc:
+        if getattr(exc, "error_code", None) in (
+            ErrorCode.INVALID_WORKSPACE_ONTOLOGY,
+            "INVALID_WORKSPACE_ONTOLOGY",
+        ):
+            raise StudioLocalError(
+                str(exc),
+                error_code=ErrorCode.INVALID_WORKSPACE_ONTOLOGY,
+                exit_code=4,
+            ) from exc
+        raise
 
 
 def _build_governance_validator(
@@ -1211,6 +1115,20 @@ def handle_upload(
             None,
         )
 
+        if (
+            role_tier == "automated"
+            and isinstance(prev_entry, dict)
+            and not prev_entry.get("deleted")
+            and str(prev_entry.get("status", "")).upper() != "DELETED"
+            and raw_description is not None
+            and raw_description != prev_entry.get("description")
+        ):
+            return _err(
+                7,
+                "AGENT_METADATA_OVERWRITE_FORBIDDEN",
+                "Automated actors cannot overwrite existing human-authored source metadata.",
+            )
+
         # Sticky taint: re-uploading without --confidential MUST NEVER downgrade prior taint!
         prev_taint = bool(
             prev_entry
@@ -1460,7 +1378,13 @@ def handle_answer(
     auth_res = _resolve_studio_principal(args)
     if isinstance(auth_res[0], int):
         return auth_res  # type: ignore[return-value]
-    _, role_tier = auth_res  # type: ignore[misc]
+    principal, role_tier = auth_res  # type: ignore[misc]
+    if role_tier == "automated":
+        return _err(
+            7,
+            "AGENT_OPERATION_FORBIDDEN",
+            "Automated actors are forbidden from submitting human clarification answers.",
+        )
     if role_tier == "viewer":
         return _err(
             7,
@@ -1520,6 +1444,12 @@ def handle_answer(
             )
 
     if qid_flag:
+        if opt_flag is None and text_flag is None:
+            return _err(
+                2,
+                "SYNTAX_INVALID_ARGUMENT",
+                "Clarification answer must include at least one --option or non-empty --text.",
+            )
         flag_item: dict[str, Any] = {"question_id": str(qid_flag)}
         if opt_flag is not None:
             flag_item["selected_options"] = (
@@ -1541,6 +1471,30 @@ def handle_answer(
     except (ValidationError, ValueError, TypeError) as exc:
         return _err(2, "SYNTAX_INVALID_ARGUMENT", f"Invalid clarification answer item: {exc}")
 
+    seen_qids: set[str] = set()
+    for item in incoming_items:
+        if not item.question_id:
+            return _err(
+                2,
+                "SYNTAX_INVALID_ARGUMENT",
+                "Clarification answer item is missing question_id.",
+            )
+        if item.question_id in seen_qids:
+            return _err(
+                2,
+                "SYNTAX_INVALID_ARGUMENT",
+                f"Duplicate question_id '{item.question_id}' in clarification answers.",
+            )
+        seen_qids.add(item.question_id)
+        if not item.selected_options and (
+            item.user_text is None or not str(item.user_text).strip()
+        ):
+            return _err(
+                2,
+                "SYNTAX_INVALID_ARGUMENT",
+                "Clarification answer must include at least one --option or non-empty --text.",
+            )
+
     expected_sha = (exp_sha_flag or file_exp_sha or "").strip().strip('"').lower() or None
 
     target_ans = sdir / "clarifications" / "answers.json"
@@ -1548,6 +1502,75 @@ def handle_answer(
 
     with reentrant_session_lock(lock_file, session_id=sid):
         target_ans.parent.mkdir(parents=True, exist_ok=True)
+        q_file = sdir / "clarifications" / "questions.json"
+        if q_file.is_file():
+            try:
+                raw_q = json.loads(q_file.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                return _err(
+                    1,
+                    "CORRUPT_SESSION_RECORD",
+                    f"Corrupt questions.json in session '{sid}': {exc}",
+                )
+            if isinstance(raw_q, dict) and isinstance(raw_q.get("questions"), list):
+                q_list = raw_q["questions"]
+            elif isinstance(raw_q, list):
+                q_list = raw_q
+            else:
+                return _err(
+                    1,
+                    "CORRUPT_SESSION_RECORD",
+                    f"Corrupt questions.json in session '{sid}': "
+                    "expected list or questions wrapper.",
+                )
+
+            if q_list:
+                q_map: dict[str, dict[str, Any]] = {}
+                for q_obj in q_list:
+                    if not isinstance(q_obj, dict) or not q_obj.get("question_id"):
+                        return _err(
+                            1,
+                            "CORRUPT_SESSION_RECORD",
+                            f"Corrupt question entry in questions.json for session '{sid}'.",
+                        )
+                    q_map[str(q_obj["question_id"])] = q_obj
+
+                for item in incoming_items:
+                    if item.question_id not in q_map:
+                        return _err(
+                            3,
+                            "RESOURCE_NOT_FOUND",
+                            f"Clarification question '{item.question_id}' "
+                            f"does not exist in session '{sid}'.",
+                        )
+                    q_def = q_map[item.question_id]
+                    if item.user_text and q_def.get("allow_custom_text") is False:
+                        return _err(
+                            2,
+                            "SYNTAX_INVALID_ARGUMENT",
+                            f"Question '{item.question_id}' does not permit "
+                            "custom free-text answers.",
+                        )
+                    valid_opts: set[str] = set()
+                    raw_q_opts = q_def.get("options")
+                    if isinstance(raw_q_opts, list):
+                        for opt_entry in raw_q_opts:
+                            if isinstance(opt_entry, str) and opt_entry.strip():
+                                valid_opts.add(opt_entry.strip())
+                            elif isinstance(opt_entry, dict):
+                                for opt_key in ("option_id", "id", "value", "label"):
+                                    opt_val = opt_entry.get(opt_key)
+                                    if isinstance(opt_val, str) and opt_val.strip():
+                                        valid_opts.add(opt_val.strip())
+                    if valid_opts:
+                        for sel in item.selected_options:
+                            if sel not in valid_opts:
+                                return _err(
+                                    2,
+                                    "SYNTAX_INVALID_ARGUMENT",
+                                    f"Invalid option '{sel}' for question '{item.question_id}'.",
+                                )
+
         cas = session_mgr.get_cas(sid)
         existing_map: dict[str, ClarificationAnswerItem] = {}
         if target_ans.is_file():
@@ -1597,6 +1620,13 @@ def handle_answer(
         jcs_bytes = dumps_jcs(answers_payload).encode("utf-8")
         answers_sha = cas.put(jcs_bytes)
         _atomic_write_json(target_ans, answers_payload)
+        append_signed_audit_record(
+            session_dir=sdir,
+            action="CLARIFICATION_ANSWERS_SAVED",
+            actor=principal,
+            details={"answered_count": len(answers_payload), "answers_sha256": answers_sha},
+            security_manager=session_mgr.security_manager,
+        )
 
     return 0, {
         "session_id": sid,
@@ -1962,7 +1992,13 @@ def handle_delta_apply(
     if isinstance(auth_res[0], int):
         return auth_res  # type: ignore[return-value]
     principal, role_tier = auth_res  # type: ignore[misc]
-    if role_tier in ("viewer", "automated"):
+    if role_tier == "automated":
+        return _err(
+            7,
+            "AGENT_OPERATION_FORBIDDEN",
+            "Automated agent role is forbidden from applying ontology deltas directly.",
+        )
+    if role_tier == "viewer":
         return _err(
             7,
             "FORBIDDEN_ADMIN_REQUIRED",
@@ -2498,7 +2534,13 @@ def handle_proposal_reject(
     if isinstance(auth_res[0], int):
         return auth_res  # type: ignore[return-value]
     principal, role_tier = auth_res  # type: ignore[misc]
-    if role_tier in ("viewer", "automated"):
+    if role_tier == "automated":
+        return _err(
+            7,
+            "AGENT_OPERATION_FORBIDDEN",
+            "Automated agent role is forbidden from rejecting proposals.",
+        )
+    if role_tier == "viewer":
         return _err(
             7,
             "FORBIDDEN_ADMIN_REQUIRED",
@@ -2606,7 +2648,13 @@ def handle_proposal_rebase(
     if isinstance(auth_res[0], int):
         return auth_res  # type: ignore[return-value]
     _, role_tier = auth_res  # type: ignore[misc]
-    if role_tier in ("viewer", "automated"):
+    if role_tier == "automated":
+        return _err(
+            7,
+            "AGENT_OPERATION_FORBIDDEN",
+            "Automated agent role is forbidden from rebasing proposals.",
+        )
+    if role_tier == "viewer":
         return _err(
             7,
             "FORBIDDEN_ADMIN_REQUIRED",
@@ -2774,6 +2822,14 @@ def handle_proposal_rebase(
                 author=_extract_proposal_proposer(prop_data),
             )
             apply_delta(head_ontology, rebased_delta, validate_structural=True)
+            dep_prov = _build_workspace_deployment_provider(executor)
+            if dep_prov is not None:
+                GovernanceValidator(
+                    deployment_provider=dep_prov,
+                    strict_verifier_required=False,
+                ).validate_deployed_contracts(head_ontology, rebased_delta)
+        except StudioLocalError as exc:
+            return _err_from_opendv_error(exc)
         except (ValidationError, ValueError, TypeError, SemVerCalculusError, OpenDVError) as exc:
             return _err(
                 4,

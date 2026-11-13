@@ -23,9 +23,27 @@ export interface SseFollowerOptions {
 	lastEventId?: string | undefined;
 	streamEnabled?: boolean | undefined;
 	tokensEnabled?: boolean | undefined;
+	timeoutMs?: number | undefined;
 	writer?: ((line: string) => void) | undefined;
 	tokenWriter?: ((token: string) => void) | undefined;
 	fetchImpl?: typeof fetch | undefined;
+}
+
+export type FollowOptions = SseFollowerOptions;
+
+function resolveStreamTimeoutMs(explicitTimeoutMs?: number): number {
+	if (
+		typeof explicitTimeoutMs === "number" &&
+		Number.isFinite(explicitTimeoutMs) &&
+		explicitTimeoutMs > 0
+	) {
+		return explicitTimeoutMs;
+	}
+	const envRaw =
+		typeof process !== "undefined"
+			? Number(process.env.OPENDV_JOB_WAIT_TIMEOUT_MS || 600_000)
+			: 600_000;
+	return Number.isFinite(envRaw) && envRaw > 0 ? envRaw : 600_000;
 }
 
 export interface TerminalRunSummary {
@@ -54,11 +72,57 @@ export async function followEventStream(
 	if (options.lastEventId) {
 		reqHeaders["Last-Event-ID"] = options.lastEventId;
 	}
-	const res = await fetchFn(options.streamUrl, {
-		headers: reqHeaders,
+	const timeoutMs = resolveStreamTimeoutMs(options.timeoutMs);
+	const abortController = new AbortController();
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	let rejectOnTimeout: ((err: CliDomainError) => void) | undefined;
+	const timeoutError = new CliDomainError(
+		"API_UNREACHABLE",
+		`SSE stream timed out after ${timeoutMs}ms (${options.streamUrl})`,
+		503,
+	);
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		rejectOnTimeout = reject;
 	});
+	timeoutPromise.catch(() => {});
+
+	const resetTimer = (): void => {
+		if (idleTimer !== undefined) {
+			clearTimeout(idleTimer);
+		}
+		idleTimer = setTimeout(() => {
+			abortController.abort(timeoutError);
+			rejectOnTimeout?.(timeoutError);
+		}, timeoutMs);
+	};
+	const clearStreamTimer = (): void => {
+		if (idleTimer !== undefined) {
+			clearTimeout(idleTimer);
+			idleTimer = undefined;
+		}
+	};
+
+	resetTimer();
+	let res: Response;
+	try {
+		res = await Promise.race([
+			fetchFn(options.streamUrl, {
+				headers: reqHeaders,
+				signal: abortController.signal,
+			}),
+			timeoutPromise,
+		]);
+	} catch (err) {
+		clearStreamTimer();
+		if (abortController.signal.aborted) {
+			throw timeoutError;
+		}
+		throw err;
+	}
+	resetTimer();
 
 	if (!res.ok || !res.body) {
+		clearStreamTimer();
 		throw new Error(
 			`Failed to establish SSE connection (${options.streamUrl}): HTTP ${res.status}`,
 		);
@@ -84,13 +148,26 @@ export async function followEventStream(
 
 	try {
 		while (true) {
-			const { done, value } = await reader.read();
+			let readRes: Awaited<ReturnType<typeof reader.read>>;
+			try {
+				readRes = await Promise.race([reader.read(), timeoutPromise]);
+			} catch (err) {
+				if (abortController.signal.aborted) {
+					throw timeoutError;
+				}
+				throw err;
+			}
+			const { done, value } = readRes;
 			if (done) {
 				break;
 			}
+			resetTimer();
 
 			const chunk = decoder.decode(value, { stream: true });
 			const frames = sseParser.feed(chunk);
+			if (frames.length > 0) {
+				resetTimer();
+			}
 
 			for (const frame of frames) {
 				const evType = frame.event || "message";
@@ -153,6 +230,10 @@ export async function followEventStream(
 			}
 		}
 	} finally {
+		clearStreamTimer();
+		if (abortController.signal.aborted) {
+			reader.cancel().catch(() => {});
+		}
 		reader.releaseLock();
 	}
 
@@ -178,11 +259,57 @@ export async function followStudioJobEvents(
 		reqHeaders["Last-Event-ID"] = options.lastEventId;
 	}
 
-	const res = await fetchFn(options.streamUrl, {
-		headers: reqHeaders,
+	const timeoutMs = resolveStreamTimeoutMs(options.timeoutMs);
+	const abortController = new AbortController();
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	let rejectOnTimeout: ((err: CliDomainError) => void) | undefined;
+	const timeoutError = new CliDomainError(
+		"API_UNREACHABLE",
+		`Studio SSE stream timed out after ${timeoutMs}ms (${options.streamUrl})`,
+		503,
+	);
+	const timeoutPromise = new Promise<never>((_, reject) => {
+		rejectOnTimeout = reject;
 	});
+	timeoutPromise.catch(() => {});
+
+	const resetTimer = (): void => {
+		if (idleTimer !== undefined) {
+			clearTimeout(idleTimer);
+		}
+		idleTimer = setTimeout(() => {
+			abortController.abort(timeoutError);
+			rejectOnTimeout?.(timeoutError);
+		}, timeoutMs);
+	};
+	const clearStreamTimer = (): void => {
+		if (idleTimer !== undefined) {
+			clearTimeout(idleTimer);
+			idleTimer = undefined;
+		}
+	};
+
+	resetTimer();
+	let res: Response;
+	try {
+		res = await Promise.race([
+			fetchFn(options.streamUrl, {
+				headers: reqHeaders,
+				signal: abortController.signal,
+			}),
+			timeoutPromise,
+		]);
+	} catch (err) {
+		clearStreamTimer();
+		if (abortController.signal.aborted) {
+			throw timeoutError;
+		}
+		throw err;
+	}
+	resetTimer();
 
 	if (!res.ok || !res.body) {
+		clearStreamTimer();
 		throw new CliDomainError(
 			res.status === 404 ? "JOB_NOT_FOUND" : "API_UNREACHABLE",
 			`Failed to establish Studio SSE connection (${options.streamUrl}): HTTP ${res.status}`,
@@ -304,7 +431,16 @@ export async function followStudioJobEvents(
 
 	try {
 		while (true) {
-			const { done, value } = await reader.read();
+			let readRes: Awaited<ReturnType<typeof reader.read>>;
+			try {
+				readRes = await Promise.race([reader.read(), timeoutPromise]);
+			} catch (err) {
+				if (abortController.signal.aborted) {
+					throw timeoutError;
+				}
+				throw err;
+			}
+			const { done, value } = readRes;
 			if (done) {
 				const trailing = decoder.decode();
 				const flushed = sseParser.feed(`${trailing}\n\n`);
@@ -314,15 +450,23 @@ export async function followStudioJobEvents(
 				}
 				break;
 			}
+			resetTimer();
 
 			const chunk = decoder.decode(value, { stream: true });
 			const frames = sseParser.feed(chunk);
+			if (frames.length > 0) {
+				resetTimer();
+			}
 			const term = processFrames(frames);
 			if (term) {
 				return term;
 			}
 		}
 	} finally {
+		clearStreamTimer();
+		if (abortController.signal.aborted) {
+			reader.cancel().catch(() => {});
+		}
 		reader.releaseLock();
 	}
 

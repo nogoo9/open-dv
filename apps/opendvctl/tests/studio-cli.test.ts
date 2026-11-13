@@ -20,7 +20,9 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 	const dummyWrappedAnswersPath = `temp_wrapped_answers_${Date.now()}.json`;
 	const dummyDeltaPath = `temp_delta_${Date.now()}.json`;
 	const dummyBundlePath = `temp_bundle_${Date.now()}.zip`;
-	const rawBinaryBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46, 0xff, 0xfe, 0x00, 0x89]);
+	const rawBinaryBytes = new Uint8Array([
+		0x25, 0x50, 0x44, 0x46, 0xff, 0xfe, 0x00, 0x89,
+	]);
 
 	let savedEnv: Record<string, string | undefined> = {};
 	let lastAnswerBody: Record<string, unknown> | null = null;
@@ -45,16 +47,31 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 		delete process.env.OPENDV_STUDIO_DIR;
 
 		writeFileSync(dummyKeyPath, "steward-secret-key-12345\n");
-		writeFileSync(dummySourcePath, "Sample regulatory financial standard text.\n");
+		writeFileSync(
+			dummySourcePath,
+			"Sample regulatory financial standard text.\n",
+		);
 		writeFileSync(dummyBinaryPath, rawBinaryBytes);
 		writeFileSync(
 			dummyAnswersPath,
-			JSON.stringify([{ question_id: "q1", selected_options: ["opt1"], user_text: "A loan facility" }]),
+			JSON.stringify([
+				{
+					question_id: "q1",
+					selected_options: ["opt1"],
+					user_text: "A loan facility",
+				},
+			]),
 		);
 		writeFileSync(
 			dummyWrappedAnswersPath,
 			JSON.stringify({
-				answers: [{ question_id: "q2", selected_options: ["optA"], user_text: "Advisor mapping" }],
+				answers: [
+					{
+						question_id: "q2",
+						selected_options: ["optA"],
+						user_text: "Advisor mapping",
+					},
+				],
 			}),
 		);
 		writeFileSync(
@@ -89,7 +106,10 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				// Sessions: create & list
-				if (url.pathname === "/api/v1/ontology/studio/sessions" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions" &&
+					req.method === "POST"
+				) {
 					const body = (await req.json()) as Record<string, unknown>;
 					return Response.json({
 						session_id: body.session_id || "s-test-01",
@@ -97,20 +117,25 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 						enterprise_owner: "test_owner",
 						status: "active",
 						active_version: "0.0.0",
-						head_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+						head_sha256:
+							"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 						created_at: "2026-11-10T00:00:00Z",
 						updated_at: "2026-11-10T00:00:00Z",
 					});
 				}
 
-				if (url.pathname === "/api/v1/ontology/studio/sessions" && req.method === "GET") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions" &&
+					req.method === "GET"
+				) {
 					return Response.json([
 						{
 							session_id: "s-test-01",
 							domain_namespace: "logistics",
 							status: "active",
 							active_version: "0.0.0",
-							head_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+							head_sha256:
+								"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 							created_at: "2026-11-10T00:00:00Z",
 							updated_at: "2026-11-10T00:00:00Z",
 						},
@@ -127,14 +152,16 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 						session_id: "s1",
 						status: "active",
 						active_version: "0.1.0",
-						head_sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+						head_sha256:
+							"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
 						active_jobs: 0,
 					});
 				}
 
 				if (
 					(url.pathname === "/api/v1/ontology/studio/sessions/non-existent" ||
-						url.pathname === "/api/v1/ontology/studio/sessions/non-existent/status") &&
+						url.pathname ===
+							"/api/v1/ontology/studio/sessions/non-existent/status") &&
 					req.method === "GET"
 				) {
 					return new Response(
@@ -145,12 +172,18 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 							error_code: "SESSION_NOT_FOUND",
 							detail: "Session 'non-existent' was not found.",
 						}),
-						{ status: 404, headers: { "Content-Type": "application/problem+json" } },
+						{
+							status: 404,
+							headers: { "Content-Type": "application/problem+json" },
+						},
 					);
 				}
 
 				// Sources upload (captures binary bytes intact)
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/sources" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/sources" &&
+					req.method === "POST"
+				) {
 					const fd = await req.formData();
 					const uploaded = fd.get("file");
 					if (uploaded instanceof Blob) {
@@ -169,7 +202,10 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				// Parse & Studio Job polling / SSE streaming
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/parse" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/parse" &&
+					req.method === "POST"
+				) {
 					const body = (await req.json()) as Record<string, unknown>;
 					if (body.ocr_mode === "force") {
 						return Response.json({
@@ -186,7 +222,11 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 					});
 				}
 
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/jobs/job-parse-01" && req.method === "GET") {
+				if (
+					url.pathname ===
+						"/api/v1/ontology/studio/sessions/s1/jobs/job-parse-01" &&
+					req.method === "GET"
+				) {
 					pollAttemptCount += 1;
 					if (pollAttemptCount < 2) {
 						return Response.json({
@@ -206,13 +246,14 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				if (
-					url.pathname === "/api/v1/ontology/studio/sessions/s1/jobs/job-parse-01/events" &&
+					url.pathname ===
+						"/api/v1/ontology/studio/sessions/s1/jobs/job-parse-01/events" &&
 					req.method === "GET"
 				) {
 					const ssePayload = [
-						"id: 1\nevent: job_started\ndata: {\"job_id\":\"job-parse-01\",\"stage\":\"parsing\"}\n\n",
-						"id: 2\nevent: progress_update\ndata: {\"job_id\":\"job-parse-01\",\"progress_pct\":65}\n\n",
-						"id: 3\nevent: job_completed\ndata: {\"job_id\":\"job-parse-01\",\"status\":\"COMPLETED\",\"result\":{\"parsed_sources_count\":1}}\n\n",
+						'id: 1\nevent: job_started\ndata: {"job_id":"job-parse-01","stage":"parsing"}\n\n',
+						'id: 2\nevent: progress_update\ndata: {"job_id":"job-parse-01","progress_pct":65}\n\n',
+						'id: 3\nevent: job_completed\ndata: {"job_id":"job-parse-01","status":"COMPLETED","result":{"parsed_sources_count":1}}\n\n',
 					].join("");
 					return new Response(ssePayload, {
 						headers: { "Content-Type": "text/event-stream" },
@@ -220,12 +261,13 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				if (
-					url.pathname === "/api/v1/ontology/studio/sessions/s1/jobs/job-fail-sse/events" &&
+					url.pathname ===
+						"/api/v1/ontology/studio/sessions/s1/jobs/job-fail-sse/events" &&
 					req.method === "GET"
 				) {
 					const sseFail = [
-						"id: 1\nevent: job_started\ndata: {\"job_id\":\"job-fail-sse\"}\n\n",
-						"id: 2\nevent: job_failed\ndata: {\"job_id\":\"job-fail-sse\",\"error_code\":\"CORRUPT_SOURCE_BLOB\",\"detail\":\"Corrupt PDF stream\"}\n\n",
+						'id: 1\nevent: job_started\ndata: {"job_id":"job-fail-sse"}\n\n',
+						'id: 2\nevent: job_failed\ndata: {"job_id":"job-fail-sse","error_code":"CORRUPT_SOURCE_BLOB","detail":"Corrupt PDF stream"}\n\n',
 					].join("");
 					return new Response(sseFail, {
 						headers: { "Content-Type": "text/event-stream" },
@@ -233,24 +275,36 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				// Clarify
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/clarify" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/clarify" &&
+					req.method === "POST"
+				) {
 					return Response.json({
 						job_id: "job-clarify-01",
 						session_id: "s1",
-						questions: [{ question_id: "q1", question_text: "What is a loan facility?" }],
+						questions: [
+							{ question_id: "q1", question_text: "What is a loan facility?" },
+						],
 					});
 				}
 
 				// Answers GET (OCC answers_sha256) & POST
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/answers" && req.method === "GET") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/answers" &&
+					req.method === "GET"
+				) {
 					return Response.json({
 						session_id: "s1",
 						answers: [],
-						answers_sha256: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+						answers_sha256:
+							"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
 					});
 				}
 
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/answers" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/answers" &&
+					req.method === "POST"
+				) {
 					const body = (await req.json()) as Record<string, unknown>;
 					lastAnswerBody = body;
 					if (!body.expected_answers_sha256 || !Array.isArray(body.answers)) {
@@ -260,18 +314,25 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 								error_code: "MISSING_AUTO_COMMIT_PRECONDITION",
 								detail: "expected_answers_sha256 and answers array required",
 							}),
-							{ status: 400, headers: { "Content-Type": "application/problem+json" } },
+							{
+								status: 400,
+								headers: { "Content-Type": "application/problem+json" },
+							},
 						);
 					}
 					return Response.json({
 						session_id: "s1",
 						recorded_answers_count: body.answers.length,
-						answers_sha256: "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
+						answers_sha256:
+							"abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789",
 					});
 				}
 
 				// Construct
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/construct" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/construct" &&
+					req.method === "POST"
+				) {
 					lastConstructHeaders = {};
 					for (const [k, v] of req.headers.entries()) {
 						lastConstructHeaders[k.toLowerCase()] = v;
@@ -307,19 +368,27 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				// Delta apply (canonical POST /sessions/s1/delta)
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/delta" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/delta" &&
+					req.method === "POST"
+				) {
 					const body = (await req.json()) as Record<string, unknown>;
 					return Response.json({
 						session_id: "s1",
 						new_version: "0.1.0",
 						new_sha256: "new-sha256-abc",
 						parent_sha256: body.parent_sha256 ?? null,
-						applied_operations_count: Array.isArray(body.operations) ? body.operations.length : 1,
+						applied_operations_count: Array.isArray(body.operations)
+							? body.operations.length
+							: 1,
 					});
 				}
 
 				// Proposals: list & show
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/proposals" && req.method === "GET") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/proposals" &&
+					req.method === "GET"
+				) {
 					return Response.json([
 						{
 							proposal_id: "p1",
@@ -331,7 +400,10 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 					]);
 				}
 
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/proposals/p1" && req.method === "GET") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/proposals/p1" &&
+					req.method === "GET"
+				) {
 					return Response.json({
 						proposal_id: "p1",
 						session_id: "s1",
@@ -342,7 +414,11 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				// Proposal accept
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/proposals/p1/accept" && req.method === "POST") {
+				if (
+					url.pathname ===
+						"/api/v1/ontology/studio/sessions/s1/proposals/p1/accept" &&
+					req.method === "POST"
+				) {
 					const ifMatch = req.headers.get("if-match");
 					if (ifMatch && ifMatch.includes("conflict-sha")) {
 						return new Response(
@@ -353,7 +429,10 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 								error_code: "ONT_EVO_CONCURRENT_MODIFICATION",
 								detail: "Head SHA has advanced.",
 							}),
-							{ status: 412, headers: { "Content-Type": "application/problem+json" } },
+							{
+								status: 412,
+								headers: { "Content-Type": "application/problem+json" },
+							},
 						);
 					}
 
@@ -373,7 +452,10 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 								error_code: "FORBIDDEN_ADMIN_REQUIRED",
 								detail: "Admin/steward waiver key required.",
 							}),
-							{ status: 403, headers: { "Content-Type": "application/problem+json" } },
+							{
+								status: 403,
+								headers: { "Content-Type": "application/problem+json" },
+							},
 						);
 					}
 
@@ -387,7 +469,11 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				// Proposal reject
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/proposals/p1/reject" && req.method === "POST") {
+				if (
+					url.pathname ===
+						"/api/v1/ontology/studio/sessions/s1/proposals/p1/reject" &&
+					req.method === "POST"
+				) {
 					return Response.json({
 						session_id: "s1",
 						proposal_id: "p1",
@@ -396,7 +482,11 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				// Proposal rebase
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/proposals/p1/rebase" && req.method === "POST") {
+				if (
+					url.pathname ===
+						"/api/v1/ontology/studio/sessions/s1/proposals/p1/rebase" &&
+					req.method === "POST"
+				) {
 					return Response.json({
 						session_id: "s1",
 						proposal_id: "p1",
@@ -406,15 +496,24 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				// Export (returns raw YAML/Turtle text, never JSON, matching platform API!)
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/export" && req.method === "GET") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/export" &&
+					req.method === "GET"
+				) {
 					lastExportFormatQuery = url.searchParams.get("export_format") || "";
-					return new Response("domain_namespace: logistics\nontology_version: 0.1.0\n", {
-						headers: { "Content-Type": "application/x-yaml" },
-					});
+					return new Response(
+						"domain_namespace: logistics\nontology_version: 0.1.0\n",
+						{
+							headers: { "Content-Type": "application/x-yaml" },
+						},
+					);
 				}
 
 				// Promote (captures If-Match and X-OpenDV-Workspace-If-Match)
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/promote" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/promote" &&
+					req.method === "POST"
+				) {
 					lastPromoteHeaders = {};
 					for (const [k, v] of req.headers.entries()) {
 						lastPromoteHeaders[k.toLowerCase()] = v;
@@ -428,14 +527,20 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				// Bundle export
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/bundle" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/bundle" &&
+					req.method === "POST"
+				) {
 					return new Response(new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0x00]), {
 						headers: { "Content-Type": "application/zip" },
 					});
 				}
 
 				// Bundle import
-				if (url.pathname === "/api/v1/ontology/studio/sessions/bundle/import" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/bundle/import" &&
+					req.method === "POST"
+				) {
 					return Response.json({
 						session_id: "s-imported-01",
 						domain_namespace: "logistics",
@@ -448,7 +553,10 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				}
 
 				// Bundle clone
-				if (url.pathname === "/api/v1/ontology/studio/sessions/s1/bundle/clone" && req.method === "POST") {
+				if (
+					url.pathname === "/api/v1/ontology/studio/sessions/s1/bundle/clone" &&
+					req.method === "POST"
+				) {
 					return Response.json({
 						session_id: "s-cloned-01",
 						domain_namespace: "logistics",
@@ -705,6 +813,8 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				"validate",
 				"--api-url",
 				serverUrl,
+				"--session",
+				"s1",
 				"--file",
 				dummyDeltaPath,
 				"--json",
@@ -1132,12 +1242,16 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 		try {
 			// 1. Loopback receives env token
 			process.env.OPENDV_STUDIO_TOKEN = "loopback-token-123";
-			const loopbackExec = new RemoteExecutor({ baseUrl: "http://127.0.0.1:8000" });
+			const loopbackExec = new RemoteExecutor({
+				baseUrl: "http://127.0.0.1:8000",
+			});
 			const loopbackHeaders = loopbackExec.getHeaders();
 			expect(loopbackHeaders.Authorization).toBe("Bearer loopback-token-123");
 
 			// 2. Extra headers override env token
-			const overridden = loopbackExec.getHeaders({ Authorization: "Bearer override-token-456" });
+			const overridden = loopbackExec.getHeaders({
+				Authorization: "Bearer override-token-456",
+			});
 			expect(overridden.Authorization).toBe("Bearer override-token-456");
 
 			// 3. Plaintext http to non-loopback refuses to attach bearer credentials without opt-in
@@ -1160,7 +1274,12 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			expect(remoteHeaders.Authorization).toBeUndefined();
 
 			// 4. Role validation throws on unsupported role
-			expect(() => new RemoteExecutor({ baseUrl: "http://127.0.0.1:8000", role: "SUPERUSER_ROOT" }).getHeaders()).toThrow();
+			expect(() =>
+				new RemoteExecutor({
+					baseUrl: "http://127.0.0.1:8000",
+					role: "SUPERUSER_ROOT",
+				}).getHeaders(),
+			).toThrow();
 
 			// 5. Steward waiver key is refused over plaintext remote http
 			process.env.OPENDV_WAIVER_KEY = "steward-secret-key-12345";
@@ -1174,21 +1293,29 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				});
 			} catch (err: unknown) {
 				waiverRefused = true;
-				expect((err as { errorCode?: string }).errorCode).toBe("INSECURE_TRANSPORT_REFUSED");
+				expect((err as { errorCode?: string }).errorCode).toBe(
+					"INSECURE_TRANSPORT_REFUSED",
+				);
 			}
 			// 6. Remote HTTPS refuses to attach OPENDV_STUDIO_TOKEN (does not leak local secret)
 			process.env.OPENDV_STUDIO_TOKEN = "loopback-token-123";
 			delete process.env.OPENDV_TOKEN;
-			const remoteHttpsExec = new RemoteExecutor({ baseUrl: "https://remote.opendv.internal:8000" });
+			const remoteHttpsExec = new RemoteExecutor({
+				baseUrl: "https://remote.opendv.internal:8000",
+			});
 			expect(remoteHttpsExec.getHeaders().Authorization).toBeUndefined();
 
 			// 7. Remote HTTPS attaches OPENDV_TOKEN
 			process.env.OPENDV_TOKEN = "remote-token-789";
-			expect(remoteHttpsExec.getHeaders().Authorization).toBe("Bearer remote-token-789");
+			expect(remoteHttpsExec.getHeaders().Authorization).toBe(
+				"Bearer remote-token-789",
+			);
 
 			// 8. When both are set, remote HTTPS uses OPENDV_TOKEN (not OPENDV_STUDIO_TOKEN)
 			process.env.OPENDV_STUDIO_TOKEN = "loopback-token-123";
-			expect(remoteHttpsExec.getHeaders().Authorization).toBe("Bearer remote-token-789");
+			expect(remoteHttpsExec.getHeaders().Authorization).toBe(
+				"Bearer remote-token-789",
+			);
 			expect(waiverRefused).toBe(true);
 		} finally {
 			delete process.env.OPENDV_STUDIO_TOKEN;
@@ -1222,7 +1349,9 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 		expect(lastAnswerBody?.expected_answers_sha256).toBe(
 			"4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
 		);
-		const sentAnswers1 = lastAnswerBody?.answers as Array<Record<string, unknown>>;
+		const sentAnswers1 = lastAnswerBody?.answers as Array<
+			Record<string, unknown>
+		>;
 		expect(sentAnswers1[0]).toEqual({
 			question_id: "q-card-1",
 			selected_options: ["opt-many"],
@@ -1246,7 +1375,9 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			(msg) => out2.push(msg),
 		);
 		expect(code2).toBe(0);
-		const sentAnswers2 = lastAnswerBody?.answers as Array<Record<string, unknown>>;
+		const sentAnswers2 = lastAnswerBody?.answers as Array<
+			Record<string, unknown>
+		>;
 		expect(sentAnswers2[0]?.question_id).toBe("q2");
 		expect(sentAnswers2[0]?.selected_options).toEqual(["optA"]);
 	});
@@ -1269,7 +1400,9 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			(msg) => errLines.push(msg),
 		);
 		expect(badCode).toBe(2);
-		expect(JSON.parse(errLines.join("\n")).error_code).toBe("MISSING_AUTO_COMMIT_PRECONDITION");
+		expect(JSON.parse(errLines.join("\n")).error_code).toBe(
+			"MISSING_AUTO_COMMIT_PRECONDITION",
+		);
 
 		const outLines: string[] = [];
 		const okCode = await runCli(
@@ -1329,7 +1462,17 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 		pollAttemptCount = 0;
 		const waitOut: string[] = [];
 		const waitCode = await runCli(
-			["ontology", "studio", "parse", "--api-url", serverUrl, "-s", "s1", "--wait", "--json"],
+			[
+				"ontology",
+				"studio",
+				"parse",
+				"--api-url",
+				serverUrl,
+				"-s",
+				"s1",
+				"--wait",
+				"--json",
+			],
 			(msg) => waitOut.push(msg),
 		);
 		expect(waitCode).toBe(0);
@@ -1338,7 +1481,17 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 
 		const streamOut: string[] = [];
 		const streamCode = await runCli(
-			["ontology", "studio", "parse", "--api-url", serverUrl, "-s", "s1", "--stream", "--json"],
+			[
+				"ontology",
+				"studio",
+				"parse",
+				"--api-url",
+				serverUrl,
+				"-s",
+				"s1",
+				"--stream",
+				"--json",
+			],
 			(msg) => streamOut.push(msg),
 		);
 		expect(streamCode).toBe(0);
@@ -1394,7 +1547,9 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			badDeltaPath,
 			JSON.stringify({
 				delta_id: "delta-invalid",
-				operations: [{ op: "AddConcept", concept_uri: "urn:ontology:entity:bad" }],
+				operations: [
+					{ op: "AddConcept", concept_uri: "urn:ontology:entity:bad" },
+				],
 			}),
 		);
 		try {
@@ -1416,7 +1571,9 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				(msg) => valOut.push(msg),
 			);
 			expect(valCode).toBe(4);
-			expect(JSON.parse(valOut.join("\n")).error_code).toBe("ONT_EVO_CONTRACT_VIOLATION");
+			expect(JSON.parse(valOut.join("\n")).error_code).toBe(
+				"ONT_EVO_CONTRACT_VIOLATION",
+			);
 		} finally {
 			if (existsSync(badDeltaPath)) unlinkSync(badDeltaPath);
 		}
@@ -1475,7 +1632,9 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			});
 		} catch (err: unknown) {
 			remotePathBlocked = true;
-			expect((err as { errorCode?: string }).errorCode).toBe("REMOTE_SERVER_PATH_FORBIDDEN");
+			expect((err as { errorCode?: string }).errorCode).toBe(
+				"REMOTE_SERVER_PATH_FORBIDDEN",
+			);
 		}
 		expect(remotePathBlocked).toBe(true);
 
@@ -1499,13 +1658,17 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			(msg) => upOut.push(msg),
 		);
 		expect(upCode).toBe(0);
-		expect(Array.from(lastUploadedBytes ?? [])).toEqual(Array.from(rawBinaryBytes));
+		expect(Array.from(lastUploadedBytes ?? [])).toEqual(
+			Array.from(rawBinaryBytes),
+		);
 		expect(JSON.parse(upOut.join("\n")).do_not_send_to_agent).toBe(true);
 	});
 
 	it("P13 MAJ-01..03 & S5-MAJ-03: preserves OCC preconditions on delta apply/validate & answer, rejects empty delta, and applies adaptive job poll backoff", async () => {
-		const staleSha = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
-		const headSha = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+		const staleSha =
+			"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+		const headSha =
+			"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 		let capturedDeltaBody: Record<string, unknown> | null = null;
 		let capturedDeltaIfMatch = "";
 		let capturedValBody: Record<string, unknown> | null = null;
@@ -1558,7 +1721,11 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 					req.method === "POST"
 				) {
 					capturedValBody = (await req.json()) as Record<string, unknown>;
-					return Response.json({ valid: true, diagnostics: [], violations: [] });
+					return Response.json({
+						valid: true,
+						diagnostics: [],
+						violations: [],
+					});
 				}
 				if (
 					url.pathname === "/api/v1/ontology/studio/sessions/s-occ/answers" &&
@@ -1589,7 +1756,10 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				) {
 					jobPollCount++;
 					if (jobPollCount >= 12) {
-						return Response.json({ job_id: "job-backoff", status: "COMPLETED" });
+						return Response.json({
+							job_id: "job-backoff",
+							status: "COMPLETED",
+						});
 					}
 					return Response.json({ job_id: "job-backoff", status: "RUNNING" });
 				}
@@ -1785,7 +1955,9 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 				staleSha,
 			);
 
-			existingAnswersList = [{ question_id: "q1", selected_option_id: "opt-a" }];
+			existingAnswersList = [
+				{ question_id: "q1", selected_option_id: "opt-a" },
+			];
 			const ansConflictErr: string[] = [];
 			const ansConflictCode = await runCli(
 				[
@@ -2444,6 +2616,411 @@ describe("opendvctl ontology studio subcommands (Issue #220)", () => {
 			]) {
 				if (existsSync(f)) unlinkSync(f);
 			}
+		}
+	});
+
+	it("S5-R10-MAJ-01: omits implicit X-OpenDV-Role on Studio requests while preserving Wave-1 default role and explicit --role RBAC", async () => {
+		const studioRoleHeaders: Array<string | null> = [];
+		const wave1RoleHeaders: Array<string | null> = [];
+		const validSha =
+			"a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+		const deltaPath = `temp_r10_role_delta_${Date.now()}.json`;
+		writeFileSync(
+			deltaPath,
+			JSON.stringify({
+				delta_id: "d-r10-role",
+				operations: [
+					{
+						op: "add_concept",
+						concept_uri: "urn:ontology:cbc:Customer",
+						label: "Customer",
+						target_hub: "hub_customer",
+					},
+				],
+			}),
+		);
+
+		const roleServer = Bun.serve({
+			port: 0,
+			async fetch(req) {
+				const url = new URL(req.url);
+				if (url.pathname === "/api/v1/health") {
+					return Response.json({ status: "ok", contract_version: "1.0.0" });
+				}
+				if (url.pathname.startsWith("/api/v1/ontology/studio")) {
+					const roleHdr = req.headers.get("x-opendv-role");
+					studioRoleHeaders.push(roleHdr);
+					// Emulate real FastAPI studio_auth.py: INTERNAL_MODELER -> role="automated" -> 403 AGENT_OPERATION_FORBIDDEN
+					if (roleHdr && roleHdr.toUpperCase() === "INTERNAL_MODELER") {
+						return new Response(
+							JSON.stringify({
+								status: 403,
+								error_code: "AGENT_OPERATION_FORBIDDEN",
+								detail: "Automated role cannot execute human Studio mutation.",
+							}),
+							{
+								status: 403,
+								headers: { "Content-Type": "application/problem+json" },
+							},
+						);
+					}
+					if (url.pathname.endsWith("/answers") && req.method === "GET") {
+						return Response.json({
+							session_id: "s-role",
+							answers: [],
+							answers_sha256: validSha,
+						});
+					}
+					if (url.pathname.endsWith("/answers") && req.method === "POST") {
+						return Response.json({
+							session_id: "s-role",
+							recorded_answers_count: 1,
+							answers_sha256: validSha,
+						});
+					}
+					if (url.pathname.endsWith("/delta") && req.method === "POST") {
+						return Response.json({
+							session_id: "s-role",
+							target_version: "1.0.0",
+							target_sha256: validSha,
+						});
+					}
+					if (url.pathname.endsWith("/export") && req.method === "GET") {
+						return new Response("version: '1.0.0'\n", { status: 200 });
+					}
+				}
+				if (url.pathname === "/api/v1/ontology/decisions") {
+					wave1RoleHeaders.push(req.headers.get("x-opendv-role"));
+					return Response.json({
+						decision_id: "dec-1",
+						proposal_id: "prop-1",
+						status: "REJECTED",
+					});
+				}
+				return new Response("Not Found", { status: 404 });
+			},
+		});
+
+		const roleUrl = `http://127.0.0.1:${roleServer.port}`;
+		const prevEnvRole = process.env.OPENDV_ROLE;
+		delete process.env.OPENDV_ROLE;
+
+		try {
+			// 1. Studio `answer` with omitted --role omits X-OpenDV-Role and succeeds (0)
+			const ansCode = await runCli(
+				[
+					"ontology",
+					"studio",
+					"answer",
+					"--api-url",
+					roleUrl,
+					"-s",
+					"s-role",
+					"-q",
+					"q1",
+					"-o",
+					"opt1",
+					"--json",
+				],
+				() => {},
+			);
+			expect(ansCode).toBe(0);
+			expect(studioRoleHeaders.every((h) => h === null)).toBe(true);
+
+			// 2. Studio `delta apply --low-confidence-waiver` with omitted --role treats local Studio caller as ADMIN
+			studioRoleHeaders.length = 0;
+			const waiverCode = await runCli(
+				[
+					"ontology",
+					"studio",
+					"delta",
+					"apply",
+					"--api-url",
+					roleUrl,
+					"-s",
+					"s-role",
+					"-f",
+					deltaPath,
+					"--base-version",
+					"0.0.0",
+					"--base-sha256",
+					validSha,
+					"--low-confidence-waiver",
+					"--waiver-rationale",
+					"Approved by local Studio steward session",
+					"--waiver-key-file",
+					dummyKeyPath,
+					"--json",
+				],
+				() => {},
+			);
+			expect(waiverCode).toBe(0);
+			expect(studioRoleHeaders).toEqual([null]);
+
+			// 3. Explicit `--role INTERNAL_MODELER` IS rejected on waiver (exit 7) and sent on Studio requests (exit 7)
+			const explicitErr: string[] = [];
+			const explicitWaiverCode = await runCli(
+				[
+					"--role",
+					"INTERNAL_MODELER",
+					"ontology",
+					"studio",
+					"delta",
+					"apply",
+					"--api-url",
+					roleUrl,
+					"-s",
+					"s-role",
+					"-f",
+					deltaPath,
+					"--base-version",
+					"0.0.0",
+					"--base-sha256",
+					validSha,
+					"--low-confidence-waiver",
+					"--waiver-rationale",
+					"Should fail client-side for explicit INTERNAL_MODELER",
+					"--waiver-key-file",
+					dummyKeyPath,
+					"--json",
+				],
+				() => {},
+				(m) => explicitErr.push(m),
+			);
+			expect(explicitWaiverCode).toBe(7);
+			expect(JSON.parse(explicitErr.join("\n")).error_code).toBe(
+				"FORBIDDEN_ADMIN_REQUIRED",
+			);
+
+			studioRoleHeaders.length = 0;
+			const explicitAnsErr: string[] = [];
+			const explicitAnsCode = await runCli(
+				[
+					"--role",
+					"INTERNAL_MODELER",
+					"ontology",
+					"studio",
+					"answer",
+					"--api-url",
+					roleUrl,
+					"-s",
+					"s-role",
+					"-q",
+					"q1",
+					"-o",
+					"opt1",
+					"--json",
+				],
+				() => {},
+				(m) => explicitAnsErr.push(m),
+			);
+			expect(explicitAnsCode).toBe(7);
+			expect(studioRoleHeaders).toContain("INTERNAL_MODELER");
+			expect(JSON.parse(explicitAnsErr.join("\n")).error_code).toBe(
+				"AGENT_OPERATION_FORBIDDEN",
+			);
+
+			// 4. Legacy non-Studio Wave-1 route (`/api/v1/ontology/decisions`) still sends X-OpenDV-Role: INTERNAL_MODELER
+			const wave1Exec = new RemoteExecutor({ baseUrl: roleUrl });
+			const wave1Res = await wave1Exec.execute("ontology", "reject", {
+				proposal_id: "prop-1",
+				decided_by: "steward",
+			});
+			expect(wave1Res.exitCode).toBe(0);
+			expect(wave1RoleHeaders).toEqual(["INTERNAL_MODELER"]);
+		} finally {
+			if (prevEnvRole !== undefined) {
+				process.env.OPENDV_ROLE = prevEnvRole;
+			} else {
+				delete process.env.OPENDV_ROLE;
+			}
+			roleServer.stop();
+			if (existsSync(deltaPath)) unlinkSync(deltaPath);
+		}
+	});
+
+	it("S5-R10-MIN-01 & S5-R10-MIN-03: enforces --session/--base on delta validate, normalizes --base delta aliases, and strips strong ETag quotes", async () => {
+		const aliasDeltaPath = `temp_r10_alias_delta_${Date.now()}.json`;
+		const baseOntPath = `temp_r10_base_ont_${Date.now()}.yaml`;
+		const sha64 =
+			"0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+		const wsSha64 =
+			"fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";
+
+		writeFileSync(
+			aliasDeltaPath,
+			JSON.stringify({
+				base_version: "v1.0.0",
+				target_version: "v1.1.0",
+				base_sha256: `"${sha64}"`,
+				operations: [
+					{
+						op: "add_concept",
+						concept_uri: "urn:ontology:cbc:Invoice",
+						label: "Invoice",
+						target_hub: "hub_invoice",
+					},
+				],
+			}),
+		);
+		writeFileSync(baseOntPath, "version: '1.0.0'\n");
+
+		let capturedStandaloneValidate: Record<string, unknown> | null = null;
+		const capturedRequests: Array<{
+			path: string;
+			ifMatch: string | null;
+			wsIfMatch: string | null;
+			body: Record<string, unknown>;
+		}> = [];
+
+		const minServer = Bun.serve({
+			port: 0,
+			async fetch(req) {
+				const url = new URL(req.url);
+				if (url.pathname === "/api/v1/health") {
+					return Response.json({ status: "ok", contract_version: "1.0.0" });
+				}
+				if (
+					url.pathname === "/api/v1/ontology/validate-delta" &&
+					req.method === "POST"
+				) {
+					capturedStandaloneValidate = (await req.json()) as Record<
+						string,
+						unknown
+					>;
+					return Response.json({
+						valid: true,
+						violations: [],
+						diagnostics: [],
+					});
+				}
+				if (req.method === "POST") {
+					const body = (await req.json()) as Record<string, unknown>;
+					capturedRequests.push({
+						path: url.pathname,
+						ifMatch: req.headers.get("if-match"),
+						wsIfMatch: req.headers.get("x-opendv-workspace-if-match"),
+						body,
+					});
+					if (url.pathname.endsWith("/construct")) {
+						return Response.json({
+							job_id: "j-1",
+							session_id: "s1",
+							status: "COMPLETED",
+						});
+					}
+					return Response.json({ session_id: "s1", status: "OK" });
+				}
+				return new Response("Not Found", { status: 404 });
+			},
+		});
+
+		const minUrl = `http://127.0.0.1:${minServer.port}`;
+		try {
+			// 1. Omitting both --session and --base exits 2 (SYNTAX_INVALID_ARGUMENT)
+			const errMissingBase: string[] = [];
+			const missingBaseCode = await runCli(
+				[
+					"ontology",
+					"studio",
+					"delta",
+					"validate",
+					"--api-url",
+					minUrl,
+					"--file",
+					aliasDeltaPath,
+					"--json",
+				],
+				() => {},
+				(m) => errMissingBase.push(m),
+			);
+			expect(missingBaseCode).toBe(2);
+			expect(JSON.parse(errMissingBase.join("\n")).error_code).toBe(
+				"SYNTAX_INVALID_ARGUMENT",
+			);
+
+			// 2. --base mode normalizes Studio aliases (`base_version` -> `base_ontology_version`, `target_version` -> `target_ontology_version`, `base_sha256` -> `parent_sha256`, default `delta_id`)
+			const okBaseCode = await runCli(
+				[
+					"ontology",
+					"studio",
+					"delta",
+					"validate",
+					"--api-url",
+					minUrl,
+					"--base",
+					baseOntPath,
+					"--file",
+					aliasDeltaPath,
+					"--json",
+				],
+				() => {},
+			);
+			expect(okBaseCode).toBe(0);
+			const sentDelta = (capturedStandaloneValidate?.delta ?? {}) as Record<
+				string,
+				unknown
+			>;
+			expect(typeof sentDelta.delta_id).toBe("string");
+			expect(String(sentDelta.delta_id).length).toBeGreaterThan(0);
+			expect(sentDelta.base_ontology_version).toBe("1.0.0");
+			expect(sentDelta.target_ontology_version).toBe("1.1.0");
+			expect(sentDelta.parent_sha256).toBe(sha64);
+			expect("base_version" in sentDelta).toBe(false);
+			expect("target_version" in sentDelta).toBe(false);
+			expect("base_sha256" in sentDelta).toBe(false);
+
+			// 3. ETag quote stripping across construct, proposal accept (including genesis ""), proposal rebase, and promote
+			const exec = new RemoteExecutor({ baseUrl: minUrl });
+			await exec.execute("ontology", "studio construct", {
+				session: "s1",
+				mode: "deterministic",
+				auto_commit: true,
+				base_version: "1.0.0",
+				base_sha256: `"${sha64}"`,
+			});
+			await exec.execute("ontology", "studio proposal accept", {
+				session: "s1",
+				proposal_id: "p1",
+				base_sha256: `"${sha64}"`,
+			});
+			await exec.execute("ontology", "studio proposal accept", {
+				session: "s1",
+				proposal_id: "p-genesis",
+				base_sha256: "",
+			});
+			await exec.execute("ontology", "studio proposal rebase", {
+				session: "s1",
+				proposal_id: "p1",
+				base_sha256: `"${sha64}"`,
+			});
+			await exec.execute("ontology", "studio promote", {
+				session: "s1",
+				head_sha256: `"${sha64}"`,
+				workspace_sha256: `"${wsSha64}"`,
+				rationale: "Promote verified ontology head",
+			});
+
+			expect(capturedRequests[0]?.ifMatch).toBe(`"${sha64}"`);
+			expect(capturedRequests[0]?.body.base_sha256).toBe(sha64);
+
+			expect(capturedRequests[1]?.ifMatch).toBe(`"${sha64}"`);
+			expect(capturedRequests[1]?.body.base_sha256).toBe(sha64);
+
+			expect(capturedRequests[2]?.ifMatch).toBe('""');
+			expect(capturedRequests[2]?.body.base_sha256).toBe("");
+
+			expect(capturedRequests[3]?.ifMatch).toBe(`"${sha64}"`);
+			expect(capturedRequests[3]?.body.base_sha256).toBe(sha64);
+
+			expect(capturedRequests[4]?.ifMatch).toBe(`"${sha64}"`);
+			expect(capturedRequests[4]?.wsIfMatch).toBe(`"${wsSha64}"`);
+			expect(capturedRequests[4]?.body.head_sha256).toBe(sha64);
+			expect(capturedRequests[4]?.body.workspace_sha256).toBe(wsSha64);
+		} finally {
+			minServer.stop();
+			if (existsSync(aliasDeltaPath)) unlinkSync(aliasDeltaPath);
+			if (existsSync(baseOntPath)) unlinkSync(baseOntPath);
 		}
 	});
 });

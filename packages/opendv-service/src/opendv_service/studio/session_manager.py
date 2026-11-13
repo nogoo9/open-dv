@@ -765,12 +765,21 @@ class StudioSessionManager:
         self,
         studio_root: Path | str | None = None,
         security_manager: WorkspaceSecurityManager | None = None,
+        workspace_root: Path | str | None = None,
     ) -> None:
         if studio_root is None:
             configured = os.environ.get("OPENDV_STUDIO_ROOT", DEFAULT_STUDIO_DIR)
             self.studio_root = Path(configured).resolve()
         else:
             self.studio_root = Path(studio_root).resolve()
+
+        if workspace_root is not None:
+            self.workspace_root: Path | None = Path(workspace_root).resolve()
+        elif self.studio_root.parent.name == ".opendv":
+            self.workspace_root = self.studio_root.parent.parent.resolve()
+        else:
+            self.workspace_root = None
+        self.deployment_workspace_root: Path | None = None
 
         self.studio_root.mkdir(parents=True, exist_ok=True)
         set_owner_only_permissions(self.studio_root)

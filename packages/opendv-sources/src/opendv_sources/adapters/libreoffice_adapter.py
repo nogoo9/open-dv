@@ -243,6 +243,8 @@ _HTML_CSS_EXT_URL_RE = re.compile(
 )
 
 _OLE_EXT_PATH_START = r"(?:(?:https?|ftps?|file|smb)://|\\\\|[A-Za-z]:[/\\]|/[A-Za-z0-9_.\-]+)"
+_XLS_BIFF_URL_PATTERN = r"\x01[\x01-\x05][\s\S]\[?(?:https?|ftps?|file|smb|davs?)://"
+_XLS_BIFF_UNC_PATTERN = r"\x01[\x01-\x05]@\[?[A-Za-z0-9_.-]"
 
 _OLE_UNSAFE_MARKER_RE = re.compile(
     r"(?:"
@@ -251,10 +253,11 @@ _OLE_UNSAFE_MARKER_RE = re.compile(
     rf"|{_ASCII_LB}(?:table-source|section-source|cell-range-source|dde-source|dde-connection"
     rf"|stdolelink|olelink|externallink|externalbook|subdoc|htmlpubsaveas|attachedtemplate){_ASCII_RB}"
     r"|<!\s*(?:DOCTYPE|ENTITY)(?![A-Za-z0-9_])"
-    r"|(?:file|ftp|ftps|smb|jar|gopher|ldap|ldaps|netdoc)://"
+    r"|(?:file|ftp|ftps|smb|dav|davs|jar|gopher|ldap|ldaps|netdoc)://"
     rf"|{_ASCII_LB}file:///"
     r"|\\\\[A-Za-z0-9_.\-]{1,255}\\[A-Za-z0-9_$.\-]{1,255}"
-    r"|\x01\x01@[A-Za-z0-9_.\-]{1,255}\x03[A-Za-z0-9_$.\-]{1,255}"
+    rf"|{_XLS_BIFF_URL_PATTERN}"
+    rf"|{_XLS_BIFF_UNC_PATTERN}"
     rf"|\x13\s*(?:DDEAUTO|DDE|INCLUDEPICTURE|INCLUDETEXT|RD|IMPORT|LINK|AUTOTEXTLIST|DATABASE){_ASCII_RB}"
     rf"|{_ASCII_LB}DDE\s+(?:"
     r"[\"']"

@@ -3363,3 +3363,518 @@ def test_r4_p12b_maj01_bundle_clone_rbac_and_signed_audit_lineage(
     )
     assert _read_cli_json(capsys)["error_code"] == "FORBIDDEN_ADMIN_REQUIRED"
     assert not (studio_root / "laundered-2").exists()
+
+
+def test_studio_r10_answer_rbac_questions_validation_and_signed_audit(
+    studio_env: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """S5-R10-MAJ-02: answer rejects automated/empty -q, checks questions.json, signs audit."""
+    from opendv_service.studio.session_manager import StudioSessionManager
+
+    _, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+    app_main(["ontology", "studio", "create", "-s", "r10-ans-sess", "--json"])
+    capsys.readouterr()
+
+    # 1. Automated actor is strictly rejected (exit 7, AGENT_OPERATION_FORBIDDEN)
+    assert (
+        app_main(
+            [
+                "--role",
+                "automated",
+                "ontology",
+                "studio",
+                "answer",
+                "-s",
+                "r10-ans-sess",
+                "-q",
+                "q1",
+                "-o",
+                "opt_a",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    assert _read_cli_json(capsys)["error_code"] == "AGENT_OPERATION_FORBIDDEN"
+
+    monkeypatch.setenv("OPENDV_ROLE", "agent:bot")
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "answer",
+                "-s",
+                "r10-ans-sess",
+                "-q",
+                "q1",
+                "-o",
+                "opt_a",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    assert _read_cli_json(capsys)["error_code"] == "AGENT_OPERATION_FORBIDDEN"
+    monkeypatch.delenv("OPENDV_ROLE", raising=False)
+
+    # 2. Empty single-question `-q` (or whitespace-only `-t`) rejected with exit 2
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "answer",
+                "-s",
+                "r10-ans-sess",
+                "-q",
+                "q1",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert _read_cli_json(capsys)["error_code"] == "SYNTAX_INVALID_ARGUMENT"
+
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "answer",
+                "-s",
+                "r10-ans-sess",
+                "-q",
+                "q1",
+                "-t",
+                "   ",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert _read_cli_json(capsys)["error_code"] == "SYNTAX_INVALID_ARGUMENT"
+
+    # 3. Seed clarifications/questions.json & verify question_id, allow_custom_text, options
+    sdir = studio_root / "r10-ans-sess"
+    q_file = sdir / "clarifications" / "questions.json"
+    q_file.parent.mkdir(parents=True, exist_ok=True)
+    q_file.write_text(
+        json.dumps(
+            [
+                {
+                    "question_id": "q_strict",
+                    "prompt": "Select settlement cycle",
+                    "allow_custom_text": False,
+                    "options": [
+                        {"option_id": "opt_t1", "label": "T+1"},
+                        {"option_id": "opt_t2", "label": "T+2"},
+                    ],
+                }
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    # Unknown question_id -> exit 3 RESOURCE_NOT_FOUND
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "answer",
+                "-s",
+                "r10-ans-sess",
+                "-q",
+                "q_nonexistent",
+                "-o",
+                "opt_t1",
+                "--json",
+            ]
+        )
+        == 3
+    )
+    assert _read_cli_json(capsys)["error_code"] == "RESOURCE_NOT_FOUND"
+
+    # Custom text when allow_custom_text is False -> exit 2 SYNTAX_INVALID_ARGUMENT
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "answer",
+                "-s",
+                "r10-ans-sess",
+                "-q",
+                "q_strict",
+                "-o",
+                "opt_t1",
+                "-t",
+                "Custom T+0 override",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert _read_cli_json(capsys)["error_code"] == "SYNTAX_INVALID_ARGUMENT"
+
+    # Invalid option -> exit 2 SYNTAX_INVALID_ARGUMENT
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "answer",
+                "-s",
+                "r10-ans-sess",
+                "-q",
+                "q_strict",
+                "-o",
+                "opt_invalid",
+                "--json",
+            ]
+        )
+        == 2
+    )
+    assert _read_cli_json(capsys)["error_code"] == "SYNTAX_INVALID_ARGUMENT"
+
+    # Valid option succeeds (exit 0) and appends signed CLARIFICATION_ANSWERS_SAVED audit entry
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "answer",
+                "-s",
+                "r10-ans-sess",
+                "-q",
+                "q_strict",
+                "-o",
+                "opt_t1",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    ans_out = _read_cli_json(capsys)
+    assert ans_out["status"] == "ACCEPTED"
+    assert ans_out["answers_recorded"] == 1
+
+    session_mgr = StudioSessionManager(studio_root=studio_root)
+    assert session_mgr.verify_audit_chain("r10-ans-sess") is True
+    audit_records = [
+        json.loads(line)
+        for line in (sdir / "audit.jsonl").read_text(encoding="utf-8").splitlines()
+        if line.strip()
+    ]
+    ans_audits = [r for r in audit_records if r.get("action") == "CLARIFICATION_ANSWERS_SAVED"]
+    assert len(ans_audits) == 1
+    assert ans_audits[0]["details"]["answered_count"] == 1
+    assert ans_audits[0]["details"]["answers_sha256"] == ans_out["answers_sha256"]
+
+
+def test_studio_r10_upload_metadata_overwrite_rebase_deployed_contract_and_agent_rbac(
+    studio_env: tuple[Path, Path],
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """S5-R10-MAJ-02 & MIN-03: upload metadata guard, rebase ONT-EVO-001, and agent RBAC."""
+    ws, studio_root = studio_env
+    app_main(["ontology", "studio", "init"])
+    app_main(["ontology", "studio", "create", "-s", "r10-gov-sess", "--json"])
+    capsys.readouterr()
+
+    # 1. Human uploads source with description; automated agent cannot overwrite description
+    src_file = ws / "domain_glossary.txt"
+    src_file.write_text("Account: core ledger entity.\n", encoding="utf-8")
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "upload",
+                "-s",
+                "r10-gov-sess",
+                "-f",
+                str(src_file),
+                "--description",
+                "Steward curated glossary",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    assert (
+        app_main(
+            [
+                "--role",
+                "automated",
+                "ontology",
+                "studio",
+                "upload",
+                "-s",
+                "r10-gov-sess",
+                "-f",
+                str(src_file),
+                "--description",
+                "Bot overwritten metadata",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    assert _read_cli_json(capsys)["error_code"] == "AGENT_METADATA_OVERWRITE_FORBIDDEN"
+
+    # Automated re-upload without --description succeeds and preserves human description
+    assert (
+        app_main(
+            [
+                "--role",
+                "automated",
+                "ontology",
+                "studio",
+                "upload",
+                "-s",
+                "r10-gov-sess",
+                "-f",
+                str(src_file),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    up_ok = _read_cli_json(capsys)
+    assert up_ok["description"] == "Steward curated glossary"
+
+    # 2. Seed v1.0.0 with two grounded Contract concepts (c1 + c_keep)
+    p_v1 = ws / "r10_v1.json"
+    p_v1.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "add_concept",
+                        "concept_uri": "urn:ontology:entity:c1",
+                        "concept_name": "Contract",
+                        "target_hub": "hub_contract",
+                        "definition": "Initial definition",
+                        "external_mappings": [
+                            {
+                                "scheme": "fibo",
+                                "target_uri": (
+                                    "https://spec.edmcouncil.org/fibo/ontology/"
+                                    "FND/Agreements/Contracts/Contract"
+                                ),
+                                "predicate": "skos:exactMatch",
+                                "confidence": 0.88,
+                            }
+                        ],
+                    },
+                    {
+                        "op_type": "add_concept",
+                        "concept_uri": "urn:ontology:entity:c_keep",
+                        "concept_name": "Contract",
+                        "target_hub": "hub_master_contract",
+                        "definition": "Retained master contract definition",
+                        "external_mappings": [
+                            {
+                                "scheme": "fibo",
+                                "target_uri": (
+                                    "https://spec.edmcouncil.org/fibo/ontology/"
+                                    "FND/Agreements/Contracts/Contract"
+                                ),
+                                "predicate": "skos:exactMatch",
+                                "confidence": 0.88,
+                            }
+                        ],
+                    },
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # S5-R10-MIN-03: automated role on delta apply -> exit 7 AGENT_OPERATION_FORBIDDEN
+    assert (
+        app_main(
+            [
+                "--role",
+                "automated",
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "r10-gov-sess",
+                "-f",
+                str(p_v1),
+                "--json",
+            ]
+        )
+        == 7
+    )
+    assert _read_cli_json(capsys)["error_code"] == "AGENT_OPERATION_FORBIDDEN"
+
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "r10-gov-sess",
+                "-f",
+                str(p_v1),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    sdir = studio_root / "r10-gov-sess"
+    meta_v1 = json.loads((sdir / "session.json").read_text(encoding="utf-8"))
+    v1_sha = meta_v1["head_sha256"]
+    v1_ver = meta_v1["head_version"]
+
+    # Seed proposal against v1.0.0 removing `urn:ontology:entity:c1`
+    prop_file = sdir / "proposals" / "prop-drop-deployed.json"
+    prop_file.parent.mkdir(parents=True, exist_ok=True)
+    prop_file.write_text(
+        json.dumps(
+            {
+                "proposal_id": "prop-drop-deployed",
+                "status": "PENDING",
+                "proposer": "agent:modeler",
+                "base_version": v1_ver,
+                "base_sha256": v1_sha,
+                "operations": [
+                    {
+                        "op_type": "remove_concept",
+                        "concept_uri": "urn:ontology:entity:c1",
+                        "reason": "Drop deployed hub concept",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    # S5-R10-MIN-03: automated role on reject & rebase -> exit 7 AGENT_OPERATION_FORBIDDEN
+    assert (
+        app_main(
+            [
+                "--role",
+                "automated",
+                "ontology",
+                "studio",
+                "proposal",
+                "reject",
+                "-s",
+                "r10-gov-sess",
+                "-p",
+                "prop-drop-deployed",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    assert _read_cli_json(capsys)["error_code"] == "AGENT_OPERATION_FORBIDDEN"
+
+    assert (
+        app_main(
+            [
+                "--role",
+                "automated",
+                "ontology",
+                "studio",
+                "proposal",
+                "rebase",
+                "-s",
+                "r10-gov-sess",
+                "-p",
+                "prop-drop-deployed",
+                "--json",
+            ]
+        )
+        == 7
+    )
+    assert _read_cli_json(capsys)["error_code"] == "AGENT_OPERATION_FORBIDDEN"
+
+    # Advance session head with an additive reference enumeration
+    p_v1_1 = ws / "r10_v1_1.json"
+    p_v1_1.write_text(
+        json.dumps(
+            {
+                "operations": [
+                    {
+                        "op_type": "add_reference_enumeration",
+                        "enum_uri": "urn:ontology:enum:currency",
+                        "name": "currency",
+                        "allowed_codes": ["USD", "EUR"],
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "delta",
+                "apply",
+                "-s",
+                "r10-gov-sess",
+                "-f",
+                str(p_v1_1),
+                "--base-sha256",
+                v1_sha,
+                "--json",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    # Bind c1 as a deployed Hub in workspace dv_contract.yaml -> rebase fails with exit 4!
+    (ws / "dv_contract.yaml").write_text(
+        yaml.safe_dump(
+            {
+                "hubs": [
+                    {
+                        "name": "hub_contract",
+                        "ontology_concept_uri": "urn:ontology:entity:c1",
+                    }
+                ]
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    assert (
+        app_main(
+            [
+                "ontology",
+                "studio",
+                "proposal",
+                "rebase",
+                "-s",
+                "r10-gov-sess",
+                "-p",
+                "prop-drop-deployed",
+                "--json",
+            ]
+        )
+        == 4
+    )
+    err_rebase_dep = _read_cli_json(capsys)
+    assert err_rebase_dep["error_code"] == "ONT_EVO_CONTRACT_VIOLATION"
+    # Proposal on disk remains un-rebased at v1_sha
+    assert json.loads(prop_file.read_text(encoding="utf-8"))["base_sha256"] == v1_sha

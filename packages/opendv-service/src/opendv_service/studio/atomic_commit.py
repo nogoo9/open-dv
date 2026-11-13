@@ -47,10 +47,13 @@ from opendv_contracts.dtos.ontology import (
     CONCEPT_MUTATING_OP_TYPES,
     PATH_A_GROUNDING_THRESHOLD,
     RELATIONSHIP_ENDPOINT_MUTATING_OP_TYPES,
+    AddAttributeOp,
     OntologyDelta,
     RemoveAttributeOp,
     RemoveConceptOp,
     RemoveRelationshipOp,
+    SetConceptElmArchetypeOp,
+    SetParentConceptOp,
     StewardWaiverRecord,
     is_destructive_delta,
 )
@@ -72,6 +75,7 @@ from opendv_service.ontology.validator import (
     SemVerCalculusError,
     StructuralValidator,
     UngroundedConceptError,
+    build_workspace_deployment_provider,
 )
 from opendv_service.studio.cas_storage import ContentAddressableStorage
 from opendv_service.studio.locks import (
@@ -1015,18 +1019,31 @@ class AtomicCommitService:
             local_waiver_verifier = _LocalWaiverVerifier(
                 self.security_manager, accepted_delta_shas=accepted_delta_shas
             )
+            ws_root = getattr(self.session_manager, "deployment_workspace_root", None) or getattr(
+                self.session_manager, "workspace_root", None
+            )
             gv = governance_validator or self.governance_validator
             if gv is None:
-                gv = GovernanceValidator(waiver_verifier=local_waiver_verifier)
-            elif gv.waiver_verifier is None or isinstance(gv.waiver_verifier, _LocalWaiverVerifier):
+                dep_prov = build_workspace_deployment_provider(ws_root)
                 gv = GovernanceValidator(
-                    deployment_provider=getattr(gv, "deployment_provider", None),
+                    deployment_provider=dep_prov,
+                    waiver_verifier=local_waiver_verifier,
+                )
+            elif gv.waiver_verifier is None or isinstance(gv.waiver_verifier, _LocalWaiverVerifier):
+                dep_prov = getattr(gv, "deployment_provider", None)
+                if dep_prov is None:
+                    dep_prov = build_workspace_deployment_provider(ws_root)
+                gv = GovernanceValidator(
+                    deployment_provider=dep_prov,
                     grounding_verifier=gv.grounding_verifier,
                     waiver_verifier=local_waiver_verifier,
                 )
             else:
+                dep_prov = getattr(gv, "deployment_provider", None)
+                if dep_prov is None:
+                    dep_prov = build_workspace_deployment_provider(ws_root)
                 gv = GovernanceValidator(
-                    deployment_provider=getattr(gv, "deployment_provider", None),
+                    deployment_provider=dep_prov,
                     grounding_verifier=gv.grounding_verifier,
                     waiver_verifier=_AcceptedDeltaWaiverVerifierProxy(
                         gv.waiver_verifier, accepted_delta_shas
@@ -1352,6 +1369,7 @@ class AtomicCommitService:
         existing_ws_ont: GraphAOntology | None,
         head_ont: GraphAOntology,
         *,
+        target_contract_path: Path | None = None,
         acknowledge_historical_contract_warning: bool = False,
         historical_contract_rationale: str | None = None,
     ) -> None:
@@ -1363,6 +1381,19 @@ class AtomicCommitService:
             )
 
         StructuralValidator().validate(head_ont)
+
+        dep_prov = (
+            getattr(self.governance_validator, "deployment_provider", None)
+            if self.governance_validator is not None
+            else None
+        )
+        if dep_prov is None and target_contract_path is not None:
+            dep_prov = build_workspace_deployment_provider(target_contract_path.parent)
+        if dep_prov is None:
+            dep_prov = build_workspace_deployment_provider(
+                getattr(self.session_manager, "deployment_workspace_root", None)
+                or getattr(self.session_manager, "workspace_root", None)
+            )
 
         ws_grandfathered: set[str] = set()
         if existing_ws_ont is not None:
@@ -1411,7 +1442,7 @@ class AtomicCommitService:
                 ):
                     ws_grandfathered.add(u)
 
-            # ONT-EVO-001: Check destructive removals against deployed contracts & SemVer major bump
+            # ONT-EVO-001: Check breaking mutations against deployed contracts & SemVer major bump
             diff_ops: list[Any] = []
             for removed_u in sorted(set(ws_concepts) - set(head_concepts)):
                 diff_ops.append(
@@ -1427,8 +1458,12 @@ class AtomicCommitService:
                     )
                 )
             for u in sorted(set(ws_concepts) & set(head_concepts)):
-                ws_attrs = {a.attribute_name for a in (ws_concepts[u].attributes or [])}
-                head_attrs = {a.attribute_name for a in (head_concepts[u].attributes or [])}
+                ws_c = ws_concepts[u]
+                head_c = head_concepts[u]
+                ws_attr_map = {a.attribute_name: a for a in (ws_c.attributes or [])}
+                head_attr_map = {a.attribute_name: a for a in (head_c.attributes or [])}
+                ws_attrs = set(ws_attr_map)
+                head_attrs = set(head_attr_map)
                 for removed_attr in sorted(ws_attrs - head_attrs):
                     diff_ops.append(
                         RemoveAttributeOp.model_construct(
@@ -1437,21 +1472,65 @@ class AtomicCommitService:
                             attribute_name=removed_attr,
                         )
                     )
+                for added_attr in sorted(head_attrs - ws_attrs):
+                    attr_obj = head_attr_map[added_attr]
+                    if getattr(attr_obj, "is_optional", True) is False:
+                        diff_ops.append(
+                            AddAttributeOp.model_construct(
+                                op_type="add_attribute",
+                                concept_uri=u,
+                                attribute_name=attr_obj.attribute_name,
+                                data_type=attr_obj.data_type,
+                                is_optional=False,
+                            )
+                        )
+                for common_attr in sorted(ws_attrs & head_attrs):
+                    if (
+                        getattr(ws_attr_map[common_attr], "is_optional", True) is not False
+                        and getattr(head_attr_map[common_attr], "is_optional", True) is False
+                    ):
+                        attr_obj = head_attr_map[common_attr]
+                        diff_ops.append(
+                            AddAttributeOp.model_construct(
+                                op_type="add_attribute",
+                                concept_uri=u,
+                                attribute_name=attr_obj.attribute_name,
+                                data_type=attr_obj.data_type,
+                                is_optional=False,
+                            )
+                        )
+                if (
+                    ws_c.parent_concept_uri is not None
+                    and ws_c.parent_concept_uri != head_c.parent_concept_uri
+                ):
+                    diff_ops.append(
+                        SetParentConceptOp.model_construct(
+                            op_type="set_parent_concept",
+                            concept_uri=u,
+                            parent_concept_uri=head_c.parent_concept_uri,
+                        )
+                    )
+                if ws_c.elm_archetype is not None and ws_c.elm_archetype != head_c.elm_archetype:
+                    diff_ops.append(
+                        SetConceptElmArchetypeOp.model_construct(
+                            op_type="set_concept_elm_archetype",
+                            concept_uri=u,
+                            elm_archetype=head_c.elm_archetype,
+                        )
+                    )
 
             if diff_ops:
-                if (
-                    self.governance_validator is not None
-                    and getattr(self.governance_validator, "deployment_provider", None) is not None
-                ):
+                if dep_prov is not None:
                     synth_delta = OntologyDelta.model_construct(
                         delta_id="promo-ont-evo-001-check",
                         base_ontology_version=existing_ws_ont.ontology_version,
                         target_ontology_version=head_ont.ontology_version,
                         operations=diff_ops,
                     )
-                    self.governance_validator.validate_deployed_contracts(
-                        existing_ws_ont, synth_delta
-                    )
+                    GovernanceValidator(
+                        deployment_provider=dep_prov,
+                        strict_verifier_required=False,
+                    ).validate_deployed_contracts(existing_ws_ont, synth_delta)
 
                 if head_semver > ws_semver:
                     ws_major = ws_semver[0]
@@ -1459,8 +1538,8 @@ class AtomicCommitService:
                     if head_major <= ws_major:
                         raise ContractViolationError(
                             f"ONT_EVO_CONTRACT_VIOLATION: Promoting '{head_ont.ontology_version}' "
-                            f"over '{existing_ws_ont.ontology_version}' removes existing contract "
-                            "elements without a MAJOR SemVer bump."
+                            f"over '{existing_ws_ont.ontology_version}' mutates existing contract "
+                            "elements destructively without a MAJOR SemVer bump."
                         )
 
         waived_in_session = self._collect_locally_waived_session_concepts(session_dir, session)
@@ -1743,6 +1822,7 @@ class AtomicCommitService:
                 session=session,
                 existing_ws_ont=existing_ws_ont,
                 head_ont=head_ont,
+                target_contract_path=target_contract_path,
                 acknowledge_historical_contract_warning=acknowledge_historical_contract_warning,
                 historical_contract_rationale=historical_contract_rationale,
             )

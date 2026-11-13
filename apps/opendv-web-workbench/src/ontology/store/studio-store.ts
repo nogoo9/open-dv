@@ -713,6 +713,50 @@ export function deriveGroundingStatus(
 	};
 }
 
+function isUnscoredNonUserAssertedFiboPathAMapping(
+	m: ExternalMapping | null | undefined,
+): boolean {
+	if (!m) return false;
+	if ((m.provenance || "").trim().toLowerCase() === "user_asserted") {
+		return false;
+	}
+	const isFibo = (m.scheme || "").trim().toLowerCase() === "fibo";
+	const hasUri =
+		typeof m.target_uri === "string" && m.target_uri.trim().length > 0;
+	const hasPathAPredicate =
+		typeof m.predicate === "string" &&
+		VALID_PATH_A_PREDICATES.has(m.predicate.trim());
+	return (
+		isFibo &&
+		hasUri &&
+		hasPathAPredicate &&
+		m.confidence === undefined &&
+		m.mapping_confidence === undefined
+	);
+}
+
+function hasPreservedCommittedUnscoredFiboPathAMapping(
+	mappings: ExternalMapping[] | undefined | null,
+	committedConcept?: ConceptNode | null,
+): boolean {
+	const list = mappings || [];
+	if (list.length === 0) return false;
+	if (!committedConcept || committedConcept.grounding_status !== "GROUNDED") {
+		return false;
+	}
+	const committedUnscoredUris = new Set(
+		(committedConcept.external_mappings || [])
+			.filter((cm) => isUnscoredNonUserAssertedFiboPathAMapping(cm))
+			.map((cm) => cm.target_uri.trim()),
+	);
+	if (committedUnscoredUris.size === 0) return false;
+	return list.some(
+		(m) =>
+			isUnscoredNonUserAssertedFiboPathAMapping(m) &&
+			committedUnscoredUris.has(m.target_uri.trim()),
+	);
+}
+
 export interface QualityScorecardOptions {
 	grandfatheredUris?: string[];
 	waiverApplied?: boolean;
@@ -794,13 +838,23 @@ export function computeQualityScorecard(
 			: `Grandfathered entities removed: ${missingGrandfathered.join(", ")}`;
 
 	// 2. ONT-EVO-002: Regulatory Grounding Threshold & Invariant
-	// Path A grounded iff >= 1 FIBO mapping with skos:exactMatch / skos:closeMatch and numeric confidence >= 0.65.
+	// Path A grounded iff >= 1 FIBO mapping with skos:exactMatch / skos:closeMatch and numeric confidence >= 0.65
+	// (or a server-ratified committed FIBO Path A mapping whose JCS export omits numeric confidence).
 	function isConceptGrounded(n: ConceptNode): boolean {
 		const mappings = n.external_mappings || [];
 		if (mappings.length === 0) return false;
-		return (
+		if (
 			deriveGroundingStatus(mappings, n.confidence).grounding_status ===
 			"GROUNDED"
+		) {
+			return true;
+		}
+		return (
+			n.grounding_status === "GROUNDED" &&
+			hasPreservedCommittedUnscoredFiboPathAMapping(
+				mappings,
+				committedMap.get(n.concept_uri),
+			)
 		);
 	}
 
@@ -1752,7 +1806,14 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 		}
 	};
 
-	const parseLoadedGraphPayload = (rawOnt: Record<string, unknown>) => {
+	const parseLoadedGraphPayload = (
+		rawOnt: Record<string, unknown>,
+		loadOptions?: {
+			isCommittedSnapshot?: boolean;
+			grandfatheredUris?: Set<string>;
+			waivedUris?: Set<string>;
+		},
+	) => {
 		const conceptsList = (rawOnt.concepts ||
 			rawOnt.canonical_business_concepts ||
 			rawOnt.canonical_concepts ||
@@ -1767,6 +1828,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			const rawConf =
 				typeof c.confidence === "number" ? c.confidence : undefined;
 			const derived = deriveGroundingStatus(mappings, rawConf);
+			const conceptUri = String(c.concept_uri || "");
 			let status: "GROUNDED" | "LOW_CONFIDENCE" | "UNGROUNDED" =
 				derived.grounding_status;
 			if (mappings.length > 0 && typeof c.grounding_status === "string") {
@@ -1780,8 +1842,20 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						| "UNGROUNDED";
 				}
 			}
+			// P14c4-MAJ-02: Server-committed JCS snapshots (versions/vX.Y.Z/ontology.json) omit numeric
+			// confidence on ExternalMapping to preserve pack-independent SHA-256 digests, after
+			// AtomicCommitService verified BM25 >= 0.65 for every non-grandfathered, non-waived concept.
+			if (
+				loadOptions?.isCommittedSnapshot &&
+				status !== "GROUNDED" &&
+				c.grounding_status !== "UNGROUNDED" &&
+				!loadOptions.grandfatheredUris?.has(conceptUri) &&
+				!loadOptions.waivedUris?.has(conceptUri) &&
+				mappings.some((m) => isUnscoredNonUserAssertedFiboPathAMapping(m))
+			) {
+				status = "GROUNDED";
+			}
 			const conf = rawConf !== undefined ? rawConf : derived.confidence;
-			const conceptUri = String(c.concept_uri || "");
 
 			return {
 				id: conceptUri,
@@ -2806,27 +2880,39 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					const refreshedActive = currentActive
 						? sessionList.find((s) => s.session_id === currentActive.session_id)
 						: undefined;
+					const summaryHasHeadSha =
+						typeof refreshedActive?.head_sha256 === "string" &&
+						refreshedActive.head_sha256.length > 0;
 					const activeHeadChanged = Boolean(
 						currentActive &&
 							refreshedActive &&
-							(refreshedActive.head_sha256 !== currentActive.head_sha256 ||
+							((summaryHasHeadSha &&
+								refreshedActive.head_sha256 !== currentActive.head_sha256) ||
 								refreshedActive.active_version !==
 									currentActive.active_version),
 					);
 					const isDirty = get().hasUnsavedChanges;
 
-					// P14d MAJ-01: When unsaved changes exist on the canvas, keep activeSession
-					// pinned to the baseline SHA/version that local working state forked from so
-					// If-Match properly catches concurrent modifications instead of bypassing OCC.
+					// P14d MAJ-01 & P14c2-MAJ-01: Merge summary onto currentActive so enriched fields
+					// (head_sha256, grandfathered_concept_uris, reference_enumerations, commits) are
+					// never wiped to undefined when StudioSessionSummaryDTO omits them, and keep
+					// head_sha256 / active_version pinned when the canvas has unsaved local edits.
 					const nextActiveSession = currentActive
 						? refreshedActive
-							? activeHeadChanged && isDirty
-								? {
-										...refreshedActive,
-										head_sha256: currentActive.head_sha256,
-										active_version: currentActive.active_version,
-									}
-								: refreshedActive
+							? {
+									...currentActive,
+									...refreshedActive,
+									head_sha256:
+										activeHeadChanged && isDirty
+											? currentActive.head_sha256
+											: summaryHasHeadSha
+												? refreshedActive.head_sha256
+												: currentActive.head_sha256,
+									active_version:
+										activeHeadChanged && isDirty
+											? currentActive.active_version
+											: refreshedActive.active_version,
+								}
 							: currentActive
 						: (sessionList[0] ?? null);
 
@@ -2838,13 +2924,23 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						...(hydratedRole ? { userRole: hydratedRole } : {}),
 					});
 
+					const hasActiveBackgroundJob =
+						get().isClarifying ||
+						get().isConstructing ||
+						get().parsingState.status === "parsing";
+
 					if (
 						nextActiveSession &&
 						(!currentActive ||
 							currentActive.session_id !== nextActiveSession.session_id)
 					) {
 						await get().selectSession(nextActiveSession.session_id, fetchImpl);
-					} else if (currentActive && activeHeadChanged && !isDirty) {
+					} else if (
+						currentActive &&
+						activeHeadChanged &&
+						!isDirty &&
+						!hasActiveBackgroundJob
+					) {
 						await get().selectSession(
 							currentActive.session_id,
 							fetchImpl,
@@ -4563,7 +4659,16 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						return;
 					}
 
-					const { loadedNodes, loadedEdges } = parseLoadedGraphPayload(ont);
+					const cleanVer = ver.replace(/^v/i, "");
+					const { loadedNodes, loadedEdges } = parseLoadedGraphPayload(ont, {
+						isCommittedSnapshot: cleanVer !== "0.0.0",
+						grandfatheredUris: new Set(
+							get().activeSession?.grandfathered_concept_uris || [],
+						),
+						waivedUris: new Set(
+							get().sessionWaivers[expectedId]?.waived_concept_uris || [],
+						),
+					});
 
 					if (
 						reqId !== activeGraphRequestId ||
@@ -4633,12 +4738,14 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						const nextState: StudioStoreState = {
 							...state,
 							activeSession: enrichedSession,
-							committedNodes: isHeadVersion
-								? loadedNodes
-								: state.committedNodes,
-							committedEdges: isHeadVersion
-								? loadedEdges
-								: state.committedEdges,
+							committedNodes:
+								isHeadVersion || cleanVer !== "0.0.0"
+									? loadedNodes
+									: state.committedNodes,
+							committedEdges:
+								isHeadVersion || cleanVer !== "0.0.0"
+									? loadedEdges
+									: state.committedEdges,
 							sessionWaivers: nextSessionWaivers,
 						};
 
@@ -4745,6 +4852,17 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							) {
 								nextGroundingStatus = updates.grounding_status;
 							}
+						} else if (
+							nextGroundingStatus !== "GROUNDED" &&
+							n.grounding_status === "GROUNDED" &&
+							hasPreservedCommittedUnscoredFiboPathAMapping(
+								effectiveMappings,
+								state.committedNodes.find(
+									(c) => c.concept_uri === n.concept_uri,
+								),
+							)
+						) {
+							nextGroundingStatus = "GROUNDED";
 						}
 
 						return {
@@ -5513,7 +5631,15 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							const fallback = resolveOfflineHistoricalFallback();
 							if (fallback) return fallback;
 						}
-						const parsed = parseLoadedGraphPayload(ont);
+						const parsed = parseLoadedGraphPayload(ont, {
+							isCommittedSnapshot: ver.replace(/^v/i, "") !== "0.0.0",
+							grandfatheredUris: new Set(
+								get().activeSession?.grandfathered_concept_uris || [],
+							),
+							waivedUris: new Set(
+								get().sessionWaivers[sid]?.waived_concept_uris || [],
+							),
+						});
 						return {
 							nodes: parsed.loadedNodes,
 							edges: parsed.loadedEdges,
@@ -5759,6 +5885,25 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					const currentAttrMap = new Map(
 						(current.attributes || []).map((a) => [a.attribute_name, a]),
 					);
+					const committedAttrNameSet = new Set(
+						(committed.attributes || []).map((a) => a.attribute_name),
+					);
+					const addedMandatoryAttrs = (current.attributes || []).filter(
+						(a) =>
+							!committedAttrNameSet.has(a.attribute_name) &&
+							a.is_optional === false,
+					);
+					if (addedMandatoryAttrs.length > 0 && !allowDestructive) {
+						get().addToast({
+							type: "urn:opendv:error:non-additive-change",
+							title: "Non-Additive Change Blocked",
+							status: 400,
+							detail:
+								"Adding mandatory (non-optional) attributes to committed concepts is a MAJOR breaking change under ONT-EVO-001 and requires admin authorization.",
+							code: "ONT_EVO_NON_ADDITIVE_CHANGE",
+						});
+						return false;
+					}
 					const removedAttrs = (committed.attributes || []).filter(
 						(a) => !currentAttrMap.has(a.attribute_name),
 					);
@@ -5985,9 +6130,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 								: typeof m.mapping_confidence === "number"
 									? m.mapping_confidence
 									: undefined;
-						if (isUserAsserted) {
-							// S6-MAJ-01: Client strips user_asserted confidence and delegates authoritative
-							// pack verification to server-side GroundingVerifier on POST /delta.
+						if (isUserAsserted || rawConf === undefined) {
+							// S6-MAJ-01 & P14c4-MAJ-02: Client strips user_asserted confidence and server JCS
+							// snapshots omit confidence; delegate authoritative pack verification to POST /delta.
 							return true;
 						}
 						return (
@@ -6020,20 +6165,43 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							? authoritativeScorecard.waived_concept_uris || []
 							: [],
 					);
+
+					// P14c4-MAJ-02: Delta-scope ONT-EVO-002 precheck to concepts touched by this delta,
+					// matching backend GovernanceValidator.validate_grounding so untouched historical
+					// waived concepts do not wedge subsequent additive commits.
+					const touchedConceptUris = new Set<string>();
+					for (const n of currentNodes) {
+						const comm = committedNodeMap.get(n.concept_uri);
+						if (!comm || isConceptMutatedFromBaseline(n, comm)) {
+							touchedConceptUris.add(n.concept_uri);
+						}
+					}
+					for (const edge of [...removedEdges, ...modifiedCommittedEdges]) {
+						for (const ep of normalizedEndpoints(edge)) {
+							if (ep) touchedConceptUris.add(ep);
+						}
+					}
+
 					const flaggedNodes = currentNodes.filter((n) => {
+						if (!touchedConceptUris.has(n.concept_uri)) return false;
 						const isGrounded =
 							deriveGroundingStatus(n.external_mappings, n.confidence)
-								.grounding_status === "GROUNDED";
+								.grounding_status === "GROUNDED" ||
+							(n.grounding_status === "GROUNDED" &&
+								hasPreservedCommittedUnscoredFiboPathAMapping(
+									n.external_mappings,
+									committedNodeMap.get(n.concept_uri),
+								));
 						if (isGrounded) return false;
 						if (effectiveGrandfatheredSet.has(n.concept_uri)) return false;
 						if (effectiveWaivedSet.has(n.concept_uri)) return false;
 						return true;
 					});
-					const allFlaggedHaveCandidateFibo =
+					const hasBlockingFlaggedNodes =
 						flaggedNodes.length > 0 &&
-						flaggedNodes.every((n) => hasCandidateFiboPathAMapping(n));
+						!flaggedNodes.every((n) => hasCandidateFiboPathAMapping(n));
 
-					if (!allFlaggedHaveCandidateFibo) {
+					if (hasBlockingFlaggedNodes) {
 						get().addToast({
 							type: "urn:opendv:error:grounding-invariant-failed",
 							title: "Regulatory Grounding Invariant Failed",
@@ -6201,7 +6369,6 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						}
 
 						if ((node.definition || "") !== (committed.definition || "")) {
-							hasMinorOp = true;
 							operations.push({
 								op_id: nextOpId(),
 								op_type: "refine_definition",
@@ -6243,7 +6410,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						);
 						for (const attr of node.attributes || []) {
 							if (!committedAttrs.has(attr.attribute_name)) {
-								hasMinorOp = true;
+								if (attr.is_optional === false) {
+									hasMajorOp = true;
+								} else {
+									hasMinorOp = true;
+								}
 								operations.push({
 									op_id: nextOpId(),
 									op_type: "add_attribute",
@@ -6266,7 +6437,6 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						for (const commMapping of committed.external_mappings || []) {
 							const currM = currentMappingMap.get(commMapping.target_uri);
 							if (!currM) {
-								hasMajorOp = true;
 								operations.push({
 									op_id: nextOpId(),
 									op_type: "remove_external_mapping",
@@ -6320,7 +6490,6 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						);
 						for (const mapping of node.external_mappings || []) {
 							if (!committedMappings.has(mapping.target_uri)) {
-								hasMinorOp = true;
 								const numericConf =
 									mapping.provenance === "user_asserted"
 										? undefined
@@ -6512,10 +6681,19 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							return { ...m };
 						});
 						const derived = deriveGroundingStatus(sanitizedMappings);
+						const preservedStatus =
+							derived.grounding_status !== "GROUNDED" &&
+							n.grounding_status === "GROUNDED" &&
+							hasPreservedCommittedUnscoredFiboPathAMapping(
+								sanitizedMappings,
+								committedNodeMap.get(n.concept_uri),
+							)
+								? "GROUNDED"
+								: derived.grounding_status;
 						return {
 							...n,
 							confidence: derived.confidence,
-							grounding_status: derived.grounding_status,
+							grounding_status: preservedStatus,
 							attributes: (n.attributes || []).map((a) => ({ ...a })),
 							synonyms: [...(n.synonyms || [])],
 							external_mappings: sanitizedMappings,
@@ -6541,7 +6719,15 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							data.ontology && typeof data.ontology === "object",
 						);
 						if (hasInlineOntology && data.ontology) {
-							const parsedOnt = parseLoadedGraphPayload(data.ontology);
+							const parsedOnt = parseLoadedGraphPayload(data.ontology, {
+								isCommittedSnapshot: nextVersion.replace(/^v/i, "") !== "0.0.0",
+								grandfatheredUris: new Set(
+									state.activeSession?.grandfathered_concept_uris || [],
+								),
+								waivedUris: new Set(
+									state.sessionWaivers[sid]?.waived_concept_uris || [],
+								),
+							});
 							ratifiedNodes = parsedOnt.loadedNodes;
 							ratifiedEdges = parsedOnt.loadedEdges;
 						} else if (!hasFurtherEdits) {

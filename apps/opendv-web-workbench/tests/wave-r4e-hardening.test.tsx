@@ -23,6 +23,10 @@ import { ClarificationPanel } from "../src/ontology/components/ClarificationPane
 import { ExportPromoteModal } from "../src/ontology/components/ExportPromoteModal";
 import { QualityFeedbackPanel } from "../src/ontology/components/QualityFeedbackPanel";
 import {
+	VisualEditorDrawer,
+	validateConceptEdit,
+} from "../src/ontology/components/VisualEditorDrawer";
+import {
 	EMPTY_ANSWERS_SHA256,
 	canonicalizeGraphADict,
 	createStudioStore,
@@ -1504,6 +1508,613 @@ describe("Wave R4-E: Pre-Opus Hardening Regression Suite", () => {
 			expect(committedNode?.grounding_status).toBe("UNGROUNDED");
 			expect(committedNode?.confidence).toBe(0);
 			expect(committedNode?.external_mappings[0]?.confidence).toBeUndefined();
+		});
+	});
+
+	// =========================================================================
+	// 8. Track 3 Final Pre-Merge Remediation Suite (P14c4-MAJ-01, P14c4-MAJ-02, P14c2-MAJ-01)
+	// =========================================================================
+	describe("8. Track 3 Final Pre-Merge Remediation Suite (P14c4-MAJ-01, P14c4-MAJ-02, P14c2-MAJ-01)", () => {
+		it("P14c4-MAJ-01: aligns SemVer target_version for refine_definition, add/remove_external_mapping, and optional vs mandatory add_attribute + blocks non-admin mandatory attribute addition", async () => {
+			const baseConcept = makeConcept({
+				concept_uri: "urn:opendv:concept:portfolio",
+				concept_name: "Portfolio",
+				definition: "Initial definition",
+				attributes: [],
+				external_mappings: [
+					{
+						scheme: "FIBO",
+						target_uri:
+							"https://spec.edmcouncil.org/fibo/ontology/SEC/Portfolio",
+						predicate: "skos:exactMatch",
+						confidence: 0.92,
+					},
+				],
+			});
+
+			// 1. VisualEditorDrawer defaults newAttrOptional checkbox to checked (true) and blocks mandatory attribute addition for editor
+			studioStore.setState({
+				activeSession: makeSession({ active_version: "1.0.0" }),
+				userRole: "editor",
+				nodes: [baseConcept],
+				committedNodes: [baseConcept],
+				selectedNodeId: baseConcept.id,
+			});
+			const drawerHtml = renderToStaticMarkup(
+				createElement(VisualEditorDrawer),
+			);
+			const optCheckboxTag = drawerHtml.match(
+				/<input[^>]*data-testid="new-attr-optional-checkbox"[^>]*>/,
+			)?.[0];
+			expect(optCheckboxTag).toBeDefined();
+			expect(optCheckboxTag).toContain('checked=""');
+
+			const mandatoryDraftErrors = validateConceptEdit(
+				{
+					concept_uri: baseConcept.concept_uri,
+					concept_name: baseConcept.concept_name,
+					elm_archetype: baseConcept.elm_archetype,
+					definition: baseConcept.definition,
+					target_hub: baseConcept.target_hub ?? null,
+					parent_concept_uri: null,
+					attributes: [
+						{
+							attribute_name: "mandatory_lei",
+							data_type: "string",
+							is_optional: false,
+						},
+					],
+					synonyms: baseConcept.synonyms,
+					external_mappings: baseConcept.external_mappings,
+				},
+				baseConcept,
+				[baseConcept],
+				{ allowDestructive: false },
+			);
+			expect(
+				mandatoryDraftErrors.some((e) =>
+					e.includes("CANNOT_ADD_MANDATORY_ATTRIBUTE"),
+				),
+			).toBe(true);
+
+			const adminMandatoryDraftErrors = validateConceptEdit(
+				{
+					concept_uri: baseConcept.concept_uri,
+					concept_name: baseConcept.concept_name,
+					elm_archetype: baseConcept.elm_archetype,
+					definition: baseConcept.definition,
+					target_hub: baseConcept.target_hub ?? null,
+					parent_concept_uri: null,
+					attributes: [
+						{
+							attribute_name: "mandatory_lei",
+							data_type: "string",
+							is_optional: false,
+						},
+					],
+					synonyms: baseConcept.synonyms,
+					external_mappings: baseConcept.external_mappings,
+				},
+				baseConcept,
+				[baseConcept],
+				{ allowDestructive: true },
+			);
+			expect(adminMandatoryDraftErrors).toEqual([]);
+
+			// 2. Non-admin commitChanges blocks mandatory attribute addition on committed concept with ONT_EVO_NON_ADDITIVE_CHANGE
+			const editorStore = createStudioStore({
+				initialSession: makeSession({
+					active_version: "1.0.0",
+					head_sha256: "1".repeat(64),
+				}),
+				userRole: "editor",
+			});
+			editorStore.setState({
+				committedNodes: [baseConcept],
+				nodes: [
+					{
+						...baseConcept,
+						attributes: [
+							{
+								attribute_name: "mandatory_lei",
+								data_type: "string",
+								is_optional: false,
+							},
+						],
+					},
+				],
+				hasUnsavedChanges: true,
+			});
+			let deltaCalledForEditor = false;
+			const editorOk = await editorStore
+				.getState()
+				.commitChanges("Attempt mandatory attr as editor", (async () => {
+					deltaCalledForEditor = true;
+					return new Response("{}", { status: 200 });
+				}) as unknown as typeof fetch);
+			expect(editorOk).toBe(false);
+			expect(deltaCalledForEditor).toBe(false);
+			expect(
+				editorStore
+					.getState()
+					.toasts.some((t) => t.code === "ONT_EVO_NON_ADDITIVE_CHANGE"),
+			).toBe(true);
+
+			// 3. Verify all 4 SemVer target_version rules sequentially (1.0.0 -> 1.0.1 -> 1.0.2 -> 1.0.3 -> 1.1.0 -> 2.0.0)
+			const adminStore = createStudioStore({
+				initialSession: makeSession({
+					active_version: "1.0.0",
+					head_sha256: "1".repeat(64),
+				}),
+				userRole: "admin",
+			});
+			adminStore.setState({
+				committedNodes: [baseConcept],
+				nodes: [baseConcept],
+				hasUnsavedChanges: false,
+			});
+
+			const seenTargets: Array<{ ops: string[]; target_version: string }> = [];
+			let shaStep = 1;
+			const mockSemverFetch: typeof fetch = (async (url, init) => {
+				const u = String(url);
+				const method = (init?.method || "GET").toUpperCase();
+				if (method === "POST" && u.endsWith("/delta")) {
+					const body = JSON.parse(init?.body as string) as {
+						target_version: string;
+						operations: Array<{ op_type: string }>;
+					};
+					seenTargets.push({
+						ops: body.operations.map((o) => o.op_type),
+						target_version: body.target_version,
+					});
+					shaStep += 1;
+					return new Response(
+						JSON.stringify({
+							target_version: body.target_version,
+							target_sha256: String(shaStep).repeat(64).slice(0, 64),
+						}),
+						{ status: 200 },
+					);
+				}
+				if (method === "GET" && u.includes("/export")) {
+					const currNodes = adminStore.getState().committedNodes;
+					return new Response(
+						JSON.stringify({
+							ontology_version:
+								seenTargets[seenTargets.length - 1]?.target_version || "1.0.0",
+							domain_namespace: "private_equity",
+							enterprise_owner: "Steward Team",
+							canonical_business_concepts: currNodes,
+							canonical_relationships: [],
+						}),
+						{ status: 200 },
+					);
+				}
+				return new Response("{}", { status: 404 });
+			}) as typeof fetch;
+
+			// Op A: refine_definition -> PATCH (1.0.1)
+			adminStore
+				.getState()
+				.updateConcept(baseConcept.id, { definition: "Refined v1.0.1" });
+			expect(
+				await adminStore
+					.getState()
+					.commitChanges("Refine def", mockSemverFetch),
+			).toBe(true);
+			expect(seenTargets[0]).toEqual({
+				ops: ["refine_definition"],
+				target_version: "1.0.1",
+			});
+
+			// Op B: add_external_mapping -> PATCH (1.0.2)
+			const cAfterDef = adminStore.getState().nodes[0]!;
+			adminStore.getState().updateConcept(baseConcept.id, {
+				external_mappings: [
+					...cAfterDef.external_mappings,
+					{
+						scheme: "ISO20022",
+						target_uri: "urn:iso20022:Portfolio",
+						predicate: "skos:closeMatch",
+						confidence: 0.82,
+					},
+				],
+			});
+			expect(
+				await adminStore
+					.getState()
+					.commitChanges("Add mapping", mockSemverFetch),
+			).toBe(true);
+			expect(seenTargets[1]).toEqual({
+				ops: ["add_external_mapping"],
+				target_version: "1.0.2",
+			});
+
+			// Op C: remove_external_mapping -> PATCH (1.0.3)
+			const cAfterAddMap = adminStore.getState().nodes[0]!;
+			adminStore.getState().updateConcept(baseConcept.id, {
+				external_mappings: cAfterAddMap.external_mappings.slice(0, 1),
+			});
+			expect(
+				await adminStore
+					.getState()
+					.commitChanges("Remove mapping", mockSemverFetch),
+			).toBe(true);
+			expect(seenTargets[2]).toEqual({
+				ops: ["remove_external_mapping"],
+				target_version: "1.0.3",
+			});
+
+			// Op D: add_attribute (is_optional: true) -> MINOR (1.1.0)
+			adminStore.getState().updateConcept(baseConcept.id, {
+				attributes: [
+					{
+						attribute_name: "opt_vintage_year",
+						data_type: "integer",
+						is_optional: true,
+					},
+				],
+			});
+			expect(
+				await adminStore
+					.getState()
+					.commitChanges("Add optional attr", mockSemverFetch),
+			).toBe(true);
+			expect(seenTargets[3]).toEqual({
+				ops: ["add_attribute"],
+				target_version: "1.1.0",
+			});
+
+			// Op E: add_attribute (is_optional: false) as admin -> MAJOR (2.0.0)
+			const cAfterOptAttr = adminStore.getState().nodes[0]!;
+			adminStore.getState().updateConcept(baseConcept.id, {
+				attributes: [
+					...cAfterOptAttr.attributes,
+					{
+						attribute_name: "mandatory_fund_code",
+						data_type: "string",
+						is_optional: false,
+					},
+				],
+			});
+			expect(
+				await adminStore
+					.getState()
+					.commitChanges("Add mandatory attr", mockSemverFetch),
+			).toBe(true);
+			expect(seenTargets[4]).toEqual({
+				ops: ["add_attribute"],
+				target_version: "2.0.0",
+			});
+		});
+
+		it("P14c4-MAJ-02: hydrates committed JCS FIBO concepts without numeric confidence as GROUNDED and delta-scopes ONT-EVO-002 precheck on Commit 2", async () => {
+			const store = createStudioStore({
+				initialSession: makeSession({
+					session_id: "sess-unscored-fibo",
+					active_version: "0.0.0",
+					head_sha256: GENESIS_SHA256,
+					status: "EMPTY",
+				}),
+			});
+
+			// Commit 1: Steward creates Portfolio with UI-authored user_asserted FIBO skos:exactMatch
+			store.getState().addConcept(
+				makeConcept({
+					concept_uri: "urn:opendv:concept:portfolio",
+					concept_name: "Portfolio",
+					external_mappings: [
+						{
+							scheme: "FIBO",
+							target_uri:
+								"https://spec.edmcouncil.org/fibo/ontology/SEC/Portfolio",
+							predicate: "skos:exactMatch",
+							provenance: "user_asserted",
+							confidence: 0.85,
+						},
+					],
+				}),
+			);
+
+			let serverVersion = "0.0.0";
+			let serverSha = GENESIS_SHA256;
+			let serverConcepts: Array<Record<string, unknown>> = [];
+			let serverRelationships: Array<Record<string, unknown>> = [];
+
+			const mockLiveBackendFetch: typeof fetch = (async (url, init) => {
+				const u = String(url);
+				const method = (init?.method || "GET").toUpperCase();
+				if (method === "POST" && u.endsWith("/delta")) {
+					const body = JSON.parse(init?.body as string) as {
+						target_version: string;
+						operations: Array<Record<string, unknown>>;
+					};
+					serverVersion = body.target_version;
+					serverSha =
+						body.target_version === "1.0.0"
+							? "a".repeat(64)
+							: body.target_version === "1.0.1"
+								? "b".repeat(64)
+								: "c".repeat(64);
+					for (const op of body.operations) {
+						if (op.op_type === "add_concept") {
+							// Match real AtomicCommitService: JCS ontology.json omits confidence on ExternalMapping
+							const rawMappings =
+								(op.external_mappings as Array<Record<string, unknown>>) || [];
+							serverConcepts.push({
+								concept_uri: op.concept_uri,
+								concept_name: op.concept_name,
+								elm_archetype: op.elm_archetype,
+								definition: op.definition,
+								target_hub: op.target_hub ?? null,
+								parent_concept_uri: op.parent_concept_uri ?? null,
+								attributes: [],
+								synonyms: op.synonyms || [],
+								external_mappings: rawMappings.map((m) => ({
+									predicate: m.predicate,
+									scheme: m.scheme,
+									target_uri: m.target_uri,
+								})),
+							});
+						} else if (op.op_type === "refine_definition") {
+							serverConcepts = serverConcepts.map((c) =>
+								c.concept_uri === op.concept_uri
+									? { ...c, definition: op.definition }
+									: c,
+							);
+						} else if (op.op_type === "add_relationship") {
+							serverRelationships.push({
+								relationship_uri: op.relationship_uri,
+								relationship_name: op.relationship_name,
+								target_link: op.target_link,
+								endpoints: op.endpoints,
+							});
+						}
+					}
+					return new Response(
+						JSON.stringify({
+							target_version: serverVersion,
+							target_sha256: serverSha,
+						}),
+						{ status: 200 },
+					);
+				}
+				if (method === "GET" && u.includes("/export")) {
+					return new Response(
+						JSON.stringify({
+							ontology_version: serverVersion,
+							domain_namespace: "private_equity",
+							enterprise_owner: "Steward Team",
+							canonical_business_concepts: serverConcepts,
+							canonical_relationships: serverRelationships,
+						}),
+						{ status: 200 },
+					);
+				}
+				return new Response("{}", { status: 404 });
+			}) as typeof fetch;
+
+			// Execute Commit 1 (0.0.0 -> 1.0.0)
+			const ok1 = await store
+				.getState()
+				.commitChanges("Genesis FIBO concept", mockLiveBackendFetch);
+			expect(ok1).toBe(true);
+
+			// Reloaded v1.0.0 concept has NO numeric confidence key on ExternalMapping, yet MUST be GROUNDED
+			const v1Portfolio = store.getState().nodes[0]!;
+			expect(v1Portfolio.grounding_status).toBe("GROUNDED");
+			expect(v1Portfolio.external_mappings[0]?.confidence).toBeUndefined();
+			expect(
+				v1Portfolio.external_mappings[0]?.mapping_confidence,
+			).toBeUndefined();
+			expect(store.getState().qualityScorecard.grounding_score).toBe(1);
+			const evoAfterCommit1 = store
+				.getState()
+				.qualityScorecard.checks.find((c) => c.rule_id === "ONT-EVO-002");
+			expect(evoAfterCommit1?.status).toBe("PASS");
+
+			// Simulate an untouched historical concept committed under a prior browser session's waiver
+			// (no FIBO mapping, and sessionWaivers in memory is empty after browser reload)
+			serverConcepts.push({
+				concept_uri: "urn:opendv:concept:historical_waived",
+				concept_name: "Historical Waived Concept",
+				elm_archetype: "CORE_BUSINESS_CONCEPT",
+				definition: "Previously waived in an earlier steward browser session.",
+				target_hub: "hub_historical",
+				attributes: [],
+				synonyms: [],
+				external_mappings: [],
+			});
+			await store.getState().loadGraph("1.0.0", mockLiveBackendFetch);
+			expect(store.getState().nodes).toHaveLength(2);
+			const reloadedPortfolio = store
+				.getState()
+				.nodes.find((n) => n.concept_uri === "urn:opendv:concept:portfolio")!;
+			const reloadedWaived = store
+				.getState()
+				.nodes.find(
+					(n) => n.concept_uri === "urn:opendv:concept:historical_waived",
+				)!;
+			expect(reloadedPortfolio.grounding_status).toBe("GROUNDED");
+			expect(reloadedWaived.grounding_status).toBe("UNGROUNDED");
+
+			// Editing definition on v1.0.0 Portfolio preserves GROUNDED status and commits cleanly as 1.0.1 (PATCH)
+			// without wedging on the untouched historical_waived concept!
+			store.getState().updateConcept(reloadedPortfolio.id, {
+				definition: "Refined institutional portfolio definition.",
+			});
+			expect(
+				store
+					.getState()
+					.nodes.find((n) => n.concept_uri === "urn:opendv:concept:portfolio")
+					?.grounding_status,
+			).toBe("GROUNDED");
+			const okDef = await store
+				.getState()
+				.commitChanges("Refine portfolio definition", mockLiveBackendFetch);
+			expect(okDef).toBe(true);
+			expect(store.getState().activeSession?.active_version).toBe("1.0.1");
+
+			// Commit 2 (1.0.1 -> 1.1.0): Add a second UI-authored FIBO concept + relationship
+			store.getState().addConcept(
+				makeConcept({
+					id: "urn:opendv:concept:deal",
+					concept_uri: "urn:opendv:concept:deal",
+					concept_name: "Deal",
+					target_hub: "hub_deal",
+					external_mappings: [
+						{
+							scheme: "FIBO",
+							target_uri:
+								"https://spec.edmcouncil.org/fibo/ontology/FBC/Transactions/Deal",
+							predicate: "skos:closeMatch",
+							provenance: "user_asserted",
+							confidence: 0.85,
+						},
+					],
+				}),
+			);
+			store.getState().addRelationship({
+				id: "urn:opendv:rel:portfolio_holds_deal",
+				relationship_uri: "urn:opendv:rel:portfolio_holds_deal",
+				relationship_name: "holds_deal",
+				target_link: "lnk_portfolio_deal",
+				source_concept_uri: "urn:opendv:concept:portfolio",
+				target_concept_uri: "urn:opendv:concept:deal",
+			});
+
+			const ok2 = await store
+				.getState()
+				.commitChanges("Add Deal and relationship", mockLiveBackendFetch);
+			expect(ok2).toBe(true);
+			expect(store.getState().activeSession?.active_version).toBe("1.1.0");
+			expect(
+				store
+					.getState()
+					.nodes.find((n) => n.concept_uri === "urn:opendv:concept:deal")
+					?.grounding_status,
+			).toBe("GROUNDED");
+
+			// Verify safety guard: adding a genuinely ungrounded concept (no FIBO mapping) STILL fails ONT_EVO_002_FAILED!
+			store.getState().addConcept(
+				makeConcept({
+					id: "urn:opendv:concept:ungrounded_draft",
+					concept_uri: "urn:opendv:concept:ungrounded_draft",
+					concept_name: "Ungrounded Draft",
+					grounding_status: "UNGROUNDED",
+					external_mappings: [],
+				}),
+			);
+			const blocked = await store
+				.getState()
+				.commitChanges("Attempt ungrounded commit", mockLiveBackendFetch);
+			expect(blocked).toBe(false);
+			expect(
+				store.getState().toasts.some((t) => t.code === "ONT_EVO_002_FAILED"),
+			).toBe(true);
+
+			// Verify removing all mappings on Portfolio still forces UNGROUNDED
+			store.getState().updateConcept("urn:opendv:concept:portfolio", {
+				external_mappings: [],
+			});
+			expect(
+				store
+					.getState()
+					.nodes.find((n) => n.concept_uri === "urn:opendv:concept:portfolio")
+					?.grounding_status,
+			).toBe("UNGROUNDED");
+		});
+
+		it("P14c2-MAJ-01: loadSessions preserves activeSession.head_sha256 & enriched metadata and never clobbers isConstructing when StudioSessionSummaryDTO omits head_sha256", async () => {
+			const richActive = makeSession({
+				session_id: "sess-live-construct",
+				active_version: "1.0.0",
+				head_sha256: "d".repeat(64),
+				status: "COMMITTED",
+				grandfathered_concept_uris: ["urn:legacy:entity_1"],
+				commits: [
+					{
+						version: "1.0.0",
+						sha256: "d".repeat(64),
+						parent_sha256: GENESIS_SHA256,
+						timestamp: "2026-11-13T00:00:00Z",
+						author: "Steward Team",
+						rationale: "Initial commit",
+						operations_count: 1,
+					},
+				],
+			});
+			const store = createStudioStore({ initialSession: richActive });
+			store.setState({
+				sessions: [richActive],
+				isConstructing: true,
+				hasUnsavedChanges: false,
+			});
+
+			let selectSessionTriggered = false;
+			const mockSummaryListFetch: typeof fetch = (async (url) => {
+				const u = String(url);
+				if (u.endsWith("/sessions")) {
+					// Match backend list_studio_sessions: StudioSessionSummaryDTO omits head_sha256, commits, grandfathered_concept_uris
+					return new Response(
+						JSON.stringify([
+							{
+								session_id: "sess-live-construct",
+								domain_namespace: "private_equity",
+								enterprise_owner: "Steward Team",
+								status: "COMMITTED",
+								active_version: "1.0.0",
+								created_at: "2026-11-13T00:00:00Z",
+								updated_at: "2026-11-13T01:00:00Z",
+							},
+						]),
+						{ status: 200 },
+					);
+				}
+				selectSessionTriggered = true;
+				return new Response("{}", { status: 200 });
+			}) as typeof fetch;
+
+			await store.getState().loadSessions(mockSummaryListFetch);
+
+			expect(selectSessionTriggered).toBe(false);
+			expect(store.getState().isConstructing).toBe(true);
+			expect(store.getState().activeSession?.head_sha256).toBe("d".repeat(64));
+			expect(
+				store.getState().activeSession?.grandfathered_concept_uris,
+			).toEqual(["urn:legacy:entity_1"]);
+			expect(store.getState().activeSession?.commits).toHaveLength(1);
+			expect(store.getState().activeSession?.updated_at).toBe(
+				"2026-11-13T01:00:00Z",
+			);
+
+			// Even if active_version advances on the server while isConstructing is true, loadSessions must NOT abort the active job via selectSession
+			const mockAdvancedWhileConstructingFetch: typeof fetch = (async (url) => {
+				const u = String(url);
+				if (u.endsWith("/sessions")) {
+					return new Response(
+						JSON.stringify([
+							{
+								session_id: "sess-live-construct",
+								domain_namespace: "private_equity",
+								enterprise_owner: "Steward Team",
+								status: "COMMITTED",
+								active_version: "1.1.0",
+								created_at: "2026-11-13T00:00:00Z",
+								updated_at: "2026-11-13T02:00:00Z",
+							},
+						]),
+						{ status: 200 },
+					);
+				}
+				selectSessionTriggered = true;
+				return new Response("{}", { status: 200 });
+			}) as typeof fetch;
+
+			await store.getState().loadSessions(mockAdvancedWhileConstructingFetch);
+			expect(selectSessionTriggered).toBe(false);
+			expect(store.getState().isConstructing).toBe(true);
 		});
 	});
 });
