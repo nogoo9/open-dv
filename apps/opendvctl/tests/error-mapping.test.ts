@@ -1,3 +1,4 @@
+import * as path from "node:path";
 import { describe, expect, it } from "bun:test";
 import {
 	CliDomainError,
@@ -7,6 +8,16 @@ import {
 } from "../src/error-handler";
 import { loadsJcs } from "../src/jcs";
 import { loadCliSpec } from "../src/spec";
+
+const REPO_ROOT = path.resolve(import.meta.dir, "../../..");
+const ERROR_CODES_CATALOG_PATH = path.join(
+	REPO_ROOT,
+	"schemas/v1/error-codes.json",
+);
+const ERROR_HANDLER_SRC_PATH = path.resolve(
+	import.meta.dir,
+	"../src/error-handler.ts",
+);
 
 describe("error-mapping", () => {
 	const spec = loadCliSpec();
@@ -119,9 +130,7 @@ describe("error-mapping", () => {
 	});
 
 	it("S5-MAJ-03: every error code referenced in error-handler.ts is registered in canonical ErrorCode catalog", async () => {
-		const rawCatalog = (await Bun.file(
-			"../../schemas/v1/error-codes.json",
-		).json()) as {
+		const rawCatalog = (await Bun.file(ERROR_CODES_CATALOG_PATH).json()) as {
 			error_codes: Array<{ code: string; exit_code: number }>;
 		};
 		const registered = new Set<string>([
@@ -129,7 +138,7 @@ describe("error-mapping", () => {
 			...spec.error_map.map((e) => e.error_code),
 		]);
 
-		const src = await Bun.file("src/error-handler.ts").text();
+		const src = await Bun.file(ERROR_HANDLER_SRC_PATH).text();
 		const nonErrorCodeLiterals = new Set([
 			"ERROR",
 			"FAILED",
@@ -168,9 +177,7 @@ describe("error-mapping", () => {
 	});
 
 	it("P13a::MAJ-01: cross-catalog parity — cli-spec.json unconditionally overwrites error-codes.json and INTERNAL_ERROR maps to exit 2", async () => {
-		const rawCatalog = (await Bun.file(
-			"../../schemas/v1/error-codes.json",
-		).json()) as {
+		const rawCatalog = (await Bun.file(ERROR_CODES_CATALOG_PATH).json()) as {
 			error_codes: Array<{
 				code: string;
 				exit_code: number;

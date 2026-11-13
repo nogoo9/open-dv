@@ -140,13 +140,25 @@ def test_p07b_maj01_posix_flock_inode_mismatch_and_unlink_retry(
 ) -> None:
     """Simulated POSIX flock retries cleanly on (st_dev, st_ino) mismatch or FileNotFoundError."""
     lock_path = tmp_path / ".lifecycle_s-posix.lock"
+    lk = StudioLock(lock_path, timeout=2.0)
+    target_path_str = os.fspath(lk.path)
 
     flock_ops: list[tuple[int, int]] = []
+    awaiting_post_flock_stat = False
+
+    def _fake_flock(fd: int, op: int) -> None:
+        nonlocal awaiting_post_flock_stat
+        flock_ops.append((fd, op))
+        if op & 2:  # LOCK_EX
+            awaiting_post_flock_stat = True
+        elif op & 8:  # LOCK_UN
+            awaiting_post_flock_stat = False
+
     fake_fcntl = types.SimpleNamespace(
         LOCK_EX=2,
         LOCK_NB=4,
         LOCK_UN=8,
-        flock=lambda fd, op: flock_ops.append((fd, op)),
+        flock=_fake_flock,
     )
     fake_sys = types.SimpleNamespace(platform="linux")
     monkeypatch.setattr(locks_mod, "sys", fake_sys)
@@ -156,8 +168,9 @@ def test_p07b_maj01_posix_flock_inode_mismatch_and_unlink_retry(
     stat_calls = 0
 
     def _patched_stat(p: Any, *args: Any, **kwargs: Any) -> Any:
-        nonlocal stat_calls
-        if Path(p).resolve() == lock_path.resolve():
+        nonlocal awaiting_post_flock_stat, stat_calls
+        if awaiting_post_flock_stat and not isinstance(p, int) and os.fspath(p) == target_path_str:
+            awaiting_post_flock_stat = False
             stat_calls += 1
             if stat_calls == 1:
                 raise FileNotFoundError("Simulated unlink between open and flock")
@@ -166,10 +179,9 @@ def test_p07b_maj01_posix_flock_inode_mismatch_and_unlink_retry(
                 return types.SimpleNamespace(st_dev=st.st_dev + 999, st_ino=st.st_ino + 999)
         return real_stat(p, *args, **kwargs)
 
-    # Patch os.stat called inside StudioLock._acquire_lowlevel_lock while leaving Path.exists intact
+    # Intercept only post-flock os.stat(self.path) without recursing via Path.resolve/exists
     monkeypatch.setattr(locks_mod.os, "stat", _patched_stat)
 
-    lk = StudioLock(lock_path, timeout=2.0)
     lk.acquire()
     try:
         assert lk.is_locked

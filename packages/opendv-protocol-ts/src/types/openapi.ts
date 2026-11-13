@@ -2755,35 +2755,6 @@ export interface components {
 			 */
 			question_text: string;
 		};
-		/**
-		 * ClarifyRequest
-		 * @description Request payload to trigger clarification question generation.
-		 */
-		ClarifyRequest: {
-			/**
-			 * Focus Concept
-			 * @description Optional single focus concept (normalized into focus_concepts)
-			 */
-			focus_concept?: string | null;
-			/**
-			 * Focus Concepts
-			 * @description Optional list of concept URIs or names to focus clarification on
-			 */
-			focus_concepts?: string[] | null;
-			/**
-			 * Max Questions
-			 * @description Maximum number of questions to generate
-			 * @default 10
-			 */
-			max_questions: number;
-			/**
-			 * Mode
-			 * @description Generation mode ('auto', 'agent', 'deterministic')
-			 * @default auto
-			 * @enum {string}
-			 */
-			mode: "auto" | "agent" | "deterministic";
-		};
 		/** CloneSessionRequest */
 		CloneSessionRequest: {
 			/** New Session Id */
@@ -2947,11 +2918,8 @@ export interface components {
 			base_version?: string | null;
 			/** Fibo Modules */
 			fibo_modules?: string[];
-			/**
-			 * Mode
-			 * @default auto
-			 */
-			mode: string;
+			/** Mode */
+			mode?: string | null;
 		};
 		/**
 		 * CreateProjectRequest
@@ -4401,6 +4369,8 @@ export interface components {
 			base_version?: string | null;
 			/** Delta Id */
 			delta_id?: string | null;
+			/** Domain Namespace */
+			domain_namespace?: string | null;
 			/** Evidence Grounding File */
 			evidence_grounding_file?: string | null;
 			/** Grounding Rationale */
@@ -6831,12 +6801,45 @@ export interface components {
 		StudioClarificationAnswerRequest: {
 			/** Answers */
 			answers?:
-				| components["schemas"]["ClarificationAnswerItem"][]
+				| (
+						| components["schemas"]["ClarificationAnswerItem"]
+						| {
+								[key: string]: unknown;
+						  }
+				  )[]
 				| {
 						[key: string]: unknown;
 				  };
 			/** Expected Answers Sha256 */
 			expected_answers_sha256?: string | null;
+		};
+		/** StudioClarifyRequest */
+		StudioClarifyRequest: {
+			/** Base Version */
+			base_version?: string | null;
+			/**
+			 * Focus Concept
+			 * @description Optional single focus concept (normalized into focus_concepts)
+			 */
+			focus_concept?: string | null;
+			/**
+			 * Focus Concepts
+			 * @description Optional list of concept URIs or names to focus clarification on
+			 */
+			focus_concepts?: string[] | null;
+			/**
+			 * Max Questions
+			 * @description Maximum number of questions to generate
+			 * @default 10
+			 */
+			max_questions: number;
+			/**
+			 * Mode
+			 * @description Generation mode ('auto', 'agent', 'deterministic')
+			 * @default auto
+			 * @enum {string}
+			 */
+			mode: "auto" | "agent" | "deterministic";
 		};
 		/** StudioSessionDTO */
 		StudioSessionDTO: {
@@ -7960,7 +7963,7 @@ export interface operations {
 		};
 		requestBody: {
 			content: {
-				"application/json": components["schemas"]["ClarifyRequest"];
+				"application/json": components["schemas"]["StudioClarifyRequest"];
 			};
 		};
 		responses: {

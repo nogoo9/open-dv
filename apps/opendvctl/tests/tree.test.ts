@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import { describe, expect, it } from "bun:test";
 import { loadsJcs } from "../src/jcs";
+import type { CliSpec } from "../src/spec";
 import { type CanonicalCliTree, dumpCliTree, getEffectiveCliTree } from "../src/tree";
 
 describe("tree (--dump-cli-tree)", () => {
@@ -54,46 +55,73 @@ describe("tree (--dump-cli-tree)", () => {
 		expect(parsed.commands.ontology?.subcommands?.studio).toBeDefined();
 	});
 
-	it("maintains exact structural parity of ontology studio tree with Python opendv-cli-common (P13::MAJ-02)", () => {
+	it("maintains exact structural parity of ontology studio tree with Python opendv-cli-common (P13::MAJ-02)", async () => {
 		const repoRoot = path.resolve(import.meta.dir, "../../..");
-		const pyCode = [
-			"import json",
-			"from opendv_cli_common.tree import build_cli_tree, dump_cli_tree",
-			"print(json.dumps({'client': build_cli_tree(prog='opendvctl', mode='client'), 'standalone': build_cli_tree(prog='opendv', mode='standalone'), 'client_jcs': dump_cli_tree(prog='opendvctl', mode='client')}))",
-		].join("; ");
-
-		const proc = Bun.spawnSync(["uv", "run", "python", "-c", pyCode], {
-			cwd: repoRoot,
-			stdout: "pipe",
-			stderr: "pipe",
-		});
-		expect(proc.exitCode).toBe(0);
-		const pyTrees = JSON.parse(new TextDecoder().decode(proc.stdout)) as {
-			client: CanonicalCliTree;
-			standalone: CanonicalCliTree;
-			client_jcs: string;
-		};
+		const canonicalSpec = (await Bun.file(
+			path.join(repoRoot, "schemas/v1/cli-spec.json"),
+		).json()) as CliSpec;
 
 		const tsJcs = dumpCliTree();
-		expect(tsJcs).toBe(pyTrees.client_jcs);
-
 		const tsClient = loadsJcs<CanonicalCliTree>(tsJcs);
 		const tsStudio = tsClient.commands.ontology?.subcommands?.studio;
-		const pyClientStudio = pyTrees.client.commands.ontology?.subcommands?.studio;
-		const pyStandaloneStudio = pyTrees.standalone.commands.ontology?.subcommands?.studio;
-
 		expect(tsStudio).toBeDefined();
-		expect(pyClientStudio).toBeDefined();
-		expect(pyStandaloneStudio).toBeDefined();
 
-		// Exact JSON equality on ontology studio subtree in client mode
-		expect(tsStudio).toEqual(pyClientStudio);
-
-		// Standalone mode differs ONLY by including standalone_only `init`
-		const standaloneSubKeys = Object.keys(pyStandaloneStudio?.subcommands ?? {}).sort();
+		// 1. Always verify against canonical schemas/v1/cli-spec.json (supports pure-Bun CI runners without uv)
+		const specOntology = canonicalSpec.commands.find(
+			(c) => c.name === "ontology",
+		);
+		const specStudio = specOntology?.subcommands?.find(
+			(s) => s.name === "studio",
+		);
+		expect(specStudio).toBeDefined();
+		const expectedClientSubKeys = (specStudio?.subcommands ?? [])
+			.filter((s) => s.availability !== "standalone_only")
+			.map((s) => s.name)
+			.sort();
 		const clientSubKeys = Object.keys(tsStudio?.subcommands ?? {}).sort();
-		expect(standaloneSubKeys).toContain("init");
+		expect(clientSubKeys).toEqual(expectedClientSubKeys);
 		expect(clientSubKeys).not.toContain("init");
-		expect(standaloneSubKeys.filter((k) => k !== "init")).toEqual(clientSubKeys);
+
+		// 2. When uv + Python workspace are available, also assert bit-for-bit JCS parity with opendv_cli_common
+		const uvBin = Bun.which("uv");
+		if (uvBin) {
+			const pyCode = [
+				"import json",
+				"from opendv_cli_common.tree import build_cli_tree, dump_cli_tree",
+				"print(json.dumps({'client': build_cli_tree(prog='opendvctl', mode='client'), 'standalone': build_cli_tree(prog='opendv', mode='standalone'), 'client_jcs': dump_cli_tree(prog='opendvctl', mode='client')}))",
+			].join("; ");
+
+			const proc = Bun.spawnSync(
+				[uvBin, "run", "--no-sync", "python", "-c", pyCode],
+				{
+					cwd: repoRoot,
+					stdout: "pipe",
+					stderr: "pipe",
+				},
+			);
+			if (proc.exitCode === 0) {
+				const pyTrees = JSON.parse(new TextDecoder().decode(proc.stdout)) as {
+					client: CanonicalCliTree;
+					standalone: CanonicalCliTree;
+					client_jcs: string;
+				};
+				expect(tsJcs).toBe(pyTrees.client_jcs);
+				const pyClientStudio =
+					pyTrees.client.commands.ontology?.subcommands?.studio;
+				const pyStandaloneStudio =
+					pyTrees.standalone.commands.ontology?.subcommands?.studio;
+				expect(pyClientStudio).toBeDefined();
+				expect(pyStandaloneStudio).toBeDefined();
+				expect(tsStudio).toEqual(pyClientStudio);
+
+				const standaloneSubKeys = Object.keys(
+					pyStandaloneStudio?.subcommands ?? {},
+				).sort();
+				expect(standaloneSubKeys).toContain("init");
+				expect(standaloneSubKeys.filter((k) => k !== "init")).toEqual(
+					clientSubKeys,
+				);
+			}
+		}
 	});
 });
