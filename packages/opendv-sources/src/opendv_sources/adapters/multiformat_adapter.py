@@ -212,7 +212,7 @@ def _verify_source_sha256(data: bytes, filename: str, caller_sha256: str | None)
 # =============================================================================
 
 MAX_MARKDOWN_METADATA_ITEMS_DEFAULT: int = 50_000
-_MD_FENCE_RE = re.compile(r"^(```+|~~~+)(.*)$")
+_MD_FENCE_RE = re.compile(r"^(`{3,}|~{3,})(.*)$")
 _MD_HEADING_RE = re.compile(r"^(#{1,6})\s+(.+)$")
 
 
@@ -284,6 +284,8 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
 
         lines = raw_text.split("\n")
         in_code_block = False
+        open_fence_char = ""
+        open_fence_len = 0
         code_lang = ""
         block_lines: list[str] = []
         block_start_char = 0
@@ -295,17 +297,34 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
             line_end = line_start + len(line)
             current_offset = line_end + 1  # includes newline
 
-            stripped = line.strip()
-            if stripped.startswith(("```", "~~~")):
-                fence_match = _MD_FENCE_RE.match(stripped)
+            line_no_cr = line[:-1] if line.endswith("\r") else line
+            stripped_leading = line_no_cr.lstrip(" ")
+            leading_spaces = len(line_no_cr) - len(stripped_leading)
+
+            if leading_spaces <= 3 and stripped_leading.startswith(("```", "~~~")):
+                fence_match = _MD_FENCE_RE.match(stripped_leading)
                 if fence_match is not None:
+                    fence_seq = fence_match.group(1)
+                    fence_rest = fence_match.group(2)
+                    fence_char = fence_seq[0]
                     if not in_code_block:
-                        in_code_block = True
-                        code_lang = fence_match.group(2).strip()
-                        block_start_char = line_start
-                        block_lines = []
-                    else:
+                        # CommonMark §4.5: backtick info string cannot contain backticks
+                        if fence_char != "`" or "`" not in fence_rest:
+                            in_code_block = True
+                            open_fence_char = fence_char
+                            open_fence_len = len(fence_seq)
+                            code_lang = fence_rest.strip()
+                            block_start_char = line_start
+                            block_lines = []
+                            continue
+                    elif (
+                        fence_char == open_fence_char
+                        and len(fence_seq) >= open_fence_len
+                        and fence_rest.strip() == ""
+                    ):
                         in_code_block = False
+                        open_fence_char = ""
+                        open_fence_len = 0
                         code_block_count += 1
                         code_block_spans.append((block_start_char, line_end))
                         if len(code_blocks) < max_meta:
@@ -317,14 +336,15 @@ class MarkdownDocumentAdapter(BaseDocumentAdapter):
                                     "end_char": line_end,
                                 }
                             )
-                    continue
+                        continue
 
             if in_code_block:
                 if len(code_blocks) < max_meta:
                     block_lines.append(line)
                 continue
 
-            if stripped.startswith("#"):
+            stripped = stripped_leading.strip()
+            if leading_spaces <= 3 and stripped.startswith("#"):
                 heading_match = _MD_HEADING_RE.match(stripped)
                 if heading_match is not None:
                     heading_count += 1

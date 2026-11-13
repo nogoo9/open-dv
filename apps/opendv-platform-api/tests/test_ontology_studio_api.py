@@ -2442,3 +2442,43 @@ def test_bundle_import_unverified_attribution_governance_gate(
     )
     assert imp_ok.status_code == 201
     assert imp_ok.json()["session_id"] == session_id
+
+
+def test_s3_r6_min02_import_bundle_sync_forwards_actor_role(tmp_path: Path) -> None:
+    """[S3-R6-MIN-02]: _import_bundle_sync forwards actor_role=principal.role to import_bundle."""
+    from opendv_platform_api.routers.ontology_studio import _import_bundle_sync
+    from opendv_platform_api.security.error_catalog import StudioAPIError
+    from opendv_platform_api.security.studio_auth import StudioPrincipal
+    from opendv_service.studio.bundle import export_bundle
+    from opendv_service.studio.session_manager import StudioSessionManager
+    from opendv_service.studio.workspace_security import WorkspaceSecurityManager
+
+    ws_src = tmp_path / "ws_src"
+    ws_dst = tmp_path / "ws_dst"
+    sec_src = WorkspaceSecurityManager(studio_root=ws_src)
+    sec_dst = WorkspaceSecurityManager(studio_root=ws_dst)
+    mgr_src = StudioSessionManager(studio_root=ws_src, security_manager=sec_src)
+    mgr_dst = StudioSessionManager(studio_root=ws_dst, security_manager=sec_dst)
+
+    mgr_src.create_session("sess-role-fwd")
+    bundle_zip = tmp_path / "role_fwd.odvstudio.zip"
+    export_bundle(mgr_src.get_session_dir("sess-role-fwd"), bundle_zip, security_manager=sec_src)
+
+    editor_principal = StudioPrincipal(
+        principal="human:editor",
+        role="editor",
+        is_admin=False,
+        auth_method="local",
+    )
+    with pytest.raises(StudioAPIError) as exc_info:
+        _import_bundle_sync(
+            tmp_in=bundle_zip,
+            session_mgr=mgr_dst,
+            principal=editor_principal,
+            new_session_id="imp-role-fwd",
+            acknowledge_unverified_import_attribution=True,
+            acknowledgement_rationale="Defense-in-depth non-admin role forwarding test.",
+            force=False,
+        )
+    assert exc_info.value.code == "FORBIDDEN_ADMIN_REQUIRED"
+    assert exc_info.value.status_code == 403

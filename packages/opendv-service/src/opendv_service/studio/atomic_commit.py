@@ -76,6 +76,7 @@ from opendv_service.ontology.validator import (
 from opendv_service.studio.cas_storage import ContentAddressableStorage
 from opendv_service.studio.locks import (
     DEFAULT_LOCK_TIMEOUT_SECONDS,
+    LockLevel,
     StudioLock,
     multi_studio_lock,
     reentrant_session_lock,
@@ -1300,7 +1301,12 @@ class AtomicCommitService:
                         raw_waiver_items.extend(
                             x for x in wloaded["waivers"] if isinstance(x, dict)
                         )
-            meta_delta_shas: list[str] = [v_delta.canonical_sha256()]
+            probe_no_target = v_delta.model_copy(update={"target_ontology_version": None})
+            probe_no_target.__pydantic_fields_set__.discard("target_ontology_version")
+            meta_delta_shas: list[str] = [
+                v_delta.canonical_sha256(),
+                probe_no_target.canonical_sha256(),
+            ]
             for fname in ("meta.json", "metadata.json", "evaluation.json"):
                 fpath = vdir / fname
                 if fpath.is_file():
@@ -1539,14 +1545,30 @@ class AtomicCommitService:
             resource_id=os.path.normcase(str(lock_dir)),
             timeout=timeout_sec,
         )
-        sess_lock = StudioLock.session(
-            session_dir,
+        lifecycle_lock = StudioLock(
+            session_dir.parent / f".lifecycle_{session_id}.lock",
+            level=LockLevel.L5,
             session_id=session_id,
             timeout=timeout_sec,
+            remove_on_release=False,
         )
 
-        with multi_studio_lock([ws_lock, sess_lock], timeout=timeout_sec):
-            # Re-verify containment and symlink absence inside [ws_lock, sess_lock] (TOCTOU guard)
+        with contextlib.ExitStack() as lock_stack:
+            lock_stack.enter_context(
+                multi_studio_lock([ws_lock, lifecycle_lock], timeout=timeout_sec)
+            )
+            if not session_dir.exists() or not (session_dir / "session.json").is_file():
+                raise FileNotFoundError(
+                    f"Session directory or session.json not found for '{session_id}'"
+                )
+            lock_stack.enter_context(
+                reentrant_session_lock(
+                    session_dir / ".session.lock",
+                    session_id=session_id,
+                    timeout=timeout_sec,
+                )
+            )
+            # Re-verify containment and symlink absence under locks (TOCTOU guard)
             if (
                 raw_target_ws.is_symlink()
                 or lock_dir.is_symlink()

@@ -53,6 +53,10 @@ from typing import Any
 import pytest
 
 import opendv_service.studio.locks as locks_mod
+from opendv_contracts.dtos.clarification import (
+    ClarificationAnswerItem,
+    ClarificationAnswerRequest,
+)
 from opendv_contracts.dtos.ingestion import (
     EvidenceChunk,
     IngestionResult,
@@ -72,6 +76,7 @@ from opendv_core.models.graph_a import (
     ReferenceEnumeration,
 )
 from opendv_core.ontology_hashing import compute_ontology_sha256, dumps_jcs_bytes
+from opendv_service.construction.clarification_harness import ClarificationHarness
 from opendv_service.ontology.validator import UngroundedConceptError
 from opendv_service.studio.atomic_commit import (
     AtomicCommitService,
@@ -1347,3 +1352,250 @@ def test_p08b_maj03_tombstoned_sha_with_active_source_id_and_reparse_l5_purge(
     assert "Updated plain prose" in evolving_chunks[0].text
     assert t_after == []
     assert any((c.metadata or {}).get("source_id") == "src-keep" for c in c_after)
+
+
+def test_s3_r6_maj02_and_min01_clone_preserves_version_waivers_and_probe_no_target(
+    tmp_path: Path,
+) -> None:
+    """[S3-R6-MAJ-02] & [S3-R6-MIN-01]: clone_session preserves versions/v*/waivers.json,
+    strips root waivers.json/*.lock/*.tmp, and _collect_locally_waived_session_concepts
+    accepts probe_no_target digests for both promote_to_workspace and export->import.
+    """
+    ws_a = tmp_path / "ws_a"
+    ws_b = tmp_path / "ws_b"
+    sec_a = WorkspaceSecurityManager(studio_root=ws_a)
+    sec_b = WorkspaceSecurityManager(studio_root=ws_b)
+    mgr_a = StudioSessionManager(studio_root=ws_a, security_manager=sec_a)
+    svc_a = AtomicCommitService(session_manager=mgr_a, security_manager=sec_a)
+
+    meta = mgr_a.create_session("sess-waiver-src")
+    # Sign waiver over delta with target_ontology_version=None AND parent_sha256=meta.head_sha256
+    # (matching probe_no_target), then strip submitted_delta_sha256 from meta.json to exercise
+    # [S3-R6-MIN-01] probe_no_target fallback directly!
+    delta_no_target = OntologyDelta(
+        delta_id="d-clone-waiver",
+        base_ontology_version="0.0.0",
+        target_ontology_version=None,
+        parent_sha256=meta.head_sha256,
+        operations=[
+            AddConceptOp(
+                op_id="op-custom-exp",
+                concept_name="CustomDeskExposure",
+                concept_uri="urn:ontology:entity:custom_desk_exposure",
+                target_hub="hub_custom_desk_exposure",
+            )
+        ],
+    )
+    probe_sha = delta_no_target.canonical_sha256()
+
+    wv_unsigned = StewardWaiverRecord(
+        proposal_id=uuid.uuid4(),
+        target_concept_uris=["urn:ontology:entity:custom_desk_exposure"],
+        proposal_delta_sha256=probe_sha,
+        base_sha256=meta.head_sha256,
+        authorized_by="human:chief_steward",
+        authorized_role="admin",
+        rationale="Approved custom desk exposure concept with steward grounding waiver.",
+        created_at=datetime.now(UTC) - timedelta(minutes=1),
+        signature_or_token="0" * 64,
+    )
+    wv_signed = wv_unsigned.model_copy(
+        update={
+            "signature_or_token": sec_a.sign_waiver(wv_unsigned.signing_payload().encode("utf-8"))
+        }
+    )
+
+    r1 = svc_a.commit_delta(
+        "sess-waiver-src",
+        delta_no_target,
+        if_match=f'"{meta.head_sha256}"',
+        waivers=[wv_signed],
+    )
+    assert r1.version == "v1.0.0"
+
+    sdir = mgr_a.get_session_dir("sess-waiver-src")
+    assert (sdir / "versions" / "v1.0.0" / "waivers.json").is_file()
+
+    # Remove submitted_delta_sha256 from meta.json so _collect_locally_waived_session_concepts
+    # MUST rely on probe_no_target.canonical_sha256() ([S3-R6-MIN-01])!
+    meta_path = sdir / "versions" / "v1.0.0" / "meta.json"
+    mdata = json.loads(meta_path.read_text(encoding="utf-8"))
+    mdata.pop("submitted_delta_sha256", None)
+    meta_path.write_text(json.dumps(mdata, indent=2), encoding="utf-8")
+
+    # Seed root waivers.json plus transient *.tmp / *.lock files that clone_session must exclude
+    (sdir / "waivers.json").write_text('[{"legacy": true}]', encoding="utf-8")
+    (sdir / "transient.tmp").write_text("scratch", encoding="utf-8")
+    (sdir / "versions" / "v1.0.0" / "stale.lock").write_text("lock", encoding="utf-8")
+
+    cloned_meta = mgr_a.clone_session(
+        "sess-waiver-src",
+        new_session_id="sess-waiver-cloned",
+        actor="human:steward",
+        actor_role="editor",
+    )
+    assert cloned_meta.head_version == "1.0.0"
+
+    cdir = mgr_a.get_session_dir("sess-waiver-cloned")
+    assert not (cdir / "waivers.json").exists()
+    assert not (cdir / "transient.tmp").exists()
+    assert not (cdir / "versions" / "v1.0.0" / "stale.lock").exists()
+    assert (cdir / "versions" / "v1.0.0" / "waivers.json").is_file()
+
+    # 1. promote_to_workspace on the cloned session succeeds!
+    target_ws_contract = tmp_path / "promoted_graph_a.yaml"
+    promo_res = svc_a.promote_to_workspace(
+        "sess-waiver-cloned",
+        target_workspace=target_ws_contract,
+        expected_workspace_sha256="",
+        rationale="Promoting cloned session with preserved version-scoped waivers.",
+        actor="human:chief_steward",
+        actor_role="admin",
+        allowed_workspace_roots=[tmp_path],
+    )
+    assert promo_res.promoted_version == "v1.0.0"
+    assert target_ws_contract.is_file()
+
+    # 2. export_bundle -> import_bundle on the cloned session succeeds!
+    bundle_zip = tmp_path / "cloned_waiver.odvstudio.zip"
+    export_bundle(cdir, bundle_zip, security_manager=sec_a)
+    imported_meta = import_bundle(
+        bundle_zip,
+        ws_b,
+        security_manager=sec_b,
+        new_session_id="sess-waiver-imported",
+        actor_role="admin",
+        acknowledge_unverified_import_attribution=True,
+        import_rationale="Importing cloned session bundle with preserved v1.0.0 waivers.",
+    )
+    assert imported_meta.head_version == "1.0.0"
+
+
+def test_s3_r6_maj01_promote_and_clarification_harness_lifecycle_lock_and_no_ghost_dir(
+    tmp_path: Path,
+) -> None:
+    """[S3-R6-MAJ-01]: promote_to_workspace and ClarificationHarness block behind
+    .lifecycle_<sid>.lock during swap/delete and never resurrect ghost directories after delete.
+    """
+    ws = tmp_path / "studio"
+    sec = WorkspaceSecurityManager(studio_root=ws)
+    mgr = StudioSessionManager(studio_root=ws, security_manager=sec)
+    svc = AtomicCommitService(session_manager=mgr, security_manager=sec)
+
+    meta = mgr.create_session("sess-life-promo")
+    svc.commit_delta(
+        "sess-life-promo",
+        OntologyDelta(
+            delta_id="d-grounded",
+            base_ontology_version="0.0.0",
+            target_ontology_version="1.0.0",
+            parent_sha256=meta.head_sha256,
+            operations=[
+                AddConceptOp(
+                    op_id="op-acct",
+                    concept_name="Account",
+                    concept_uri="urn:ontology:entity:account",
+                    target_hub="hub_account",
+                    external_mappings=[_fibo_mapping()],
+                )
+            ],
+        ),
+    )
+
+    sdir = mgr.get_session_dir("sess-life-promo")
+    harness = ClarificationHarness(session_dir=sdir)
+    target_ws_contract = tmp_path / "life_graph_a.yaml"
+
+    promo_done = threading.Event()
+    clar_done = threading.Event()
+    errors: list[BaseException] = []
+
+    def _promo_worker() -> None:
+        try:
+            svc.promote_to_workspace(
+                "sess-life-promo",
+                target_workspace=target_ws_contract,
+                expected_workspace_sha256="",
+                rationale="Serialize promote_to_workspace behind .lifecycle_<sid>.lock.",
+                actor="human:admin",
+                actor_role="admin",
+                allowed_workspace_roots=[tmp_path],
+            )
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+        finally:
+            promo_done.set()
+
+    def _clar_worker() -> None:
+        try:
+            harness.generate_questions(candidate_terms=["Account"])
+        except Exception as exc:  # noqa: BLE001
+            errors.append(exc)
+        finally:
+            clar_done.set()
+
+    lifecycle_lock_path = ws / ".lifecycle_sess-life-promo.lock"
+    with studio_lock(
+        lifecycle_lock_path,
+        level=L5_SESSION,
+        session_id="sess-life-promo",
+        remove_on_release=False,
+    ):
+        t_promo = threading.Thread(target=_promo_worker)
+        t_clar = threading.Thread(target=_clar_worker)
+        t_promo.start()
+        t_clar.start()
+        # Both MUST block while .lifecycle_sess-life-promo.lock is held!
+        assert not promo_done.wait(0.15)
+        assert not clar_done.wait(0.05)
+
+    t_promo.join(timeout=5.0)
+    t_clar.join(timeout=5.0)
+    assert promo_done.is_set()
+    assert clar_done.is_set()
+    assert errors == []
+    assert target_ws_contract.is_file()
+
+    # Verify ghost-directory prevention after delete_session!
+    mgr.create_session("sess-ghost-guard")
+    ghost_dir = mgr.get_session_dir("sess-ghost-guard")
+    ghost_harness = ClarificationHarness(session_dir=ghost_dir)
+    mgr.delete_session("sess-ghost-guard")
+    assert not ghost_dir.exists()
+
+    with pytest.raises(FileNotFoundError):
+        ghost_harness.generate_questions(candidate_terms=["Account"])
+    assert not ghost_dir.exists()
+
+    with pytest.raises(FileNotFoundError):
+        ghost_harness.get_answers()
+    assert not ghost_dir.exists()
+
+    with pytest.raises(FileNotFoundError):
+        ghost_harness.get_binding_constraints()
+    assert not ghost_dir.exists()
+
+    with pytest.raises(FileNotFoundError):
+        ghost_harness.save_answers(
+            ClarificationAnswerRequest(
+                answers=[
+                    ClarificationAnswerItem(
+                        question_id="q-missing",
+                        selected_options=["opt-1"],
+                    )
+                ]
+            )
+        )
+    assert not ghost_dir.exists()
+
+    with pytest.raises(FileNotFoundError):
+        svc.promote_to_workspace(
+            "sess-ghost-guard",
+            target_workspace=tmp_path / "ghost_out.yaml",
+            expected_workspace_sha256="",
+            rationale="Must fail without creating ghost session directory.",
+            actor="human:admin",
+            actor_role="admin",
+            allowed_workspace_roots=[tmp_path],
+        )
+    assert not ghost_dir.exists()

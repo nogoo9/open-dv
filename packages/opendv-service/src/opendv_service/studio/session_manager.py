@@ -1209,17 +1209,19 @@ class StudioSessionManager:
                         symlinks=False,
                         ignore=shutil.ignore_patterns(
                             ".session.lock*",
+                            "*.lock",
+                            "*.tmp",
                             "jobs",
                             "promotion.json",
                             "audit.jsonl",
                             "audit.imported.*",
-                            "waivers.json",
                             ".scratch*",
                             ".staging*",
                             ".bundle*",
                             ".quarantine*",
                         ),
                     )
+                    (staging_dir / "waivers.json").unlink(missing_ok=True)
             except FileNotFoundError as exc:
                 if isinstance(exc, SessionNotFoundError):
                     raise

@@ -1544,12 +1544,12 @@ def _persist_uploaded_source_sync(
     """Persist streamed source blob into CAS, manifest, taint index, and session metadata."""
     sdir = session_mgr.get_session_dir(session_id)
     raw_bytes = tmp_blob_path.read_bytes()
-    cas = session_mgr.get_cas(session_id)
-    source_sha256 = cas.put(raw_bytes)
-    source_id = f"src-{source_sha256[:16]}"
 
     lock_path = sdir / ".session.lock"
     with reentrant_session_lock(lock_path, session_id=session_id):
+        cas = session_mgr.get_cas(session_id)
+        source_sha256 = cas.put(raw_bytes)
+        source_id = f"src-{source_sha256[:16]}"
         mfile = sdir / "inputs" / "manifest.json"
         mfile.parent.mkdir(parents=True, exist_ok=True)
         if mfile.is_file():
@@ -1996,10 +1996,10 @@ def submit_clarification_answers(
     sdir = session_mgr.get_session_dir(session_id)
 
     answers_file = sdir / "clarifications" / "answers.json"
-    answers_file.parent.mkdir(parents=True, exist_ok=True)
     lock_path = sdir / ".session.lock"
 
     with reentrant_session_lock(lock_path, session_id=session_id):
+        answers_file.parent.mkdir(parents=True, exist_ok=True)
         current_answers: list[dict[str, Any]] = []
         if answers_file.is_file():
             try:
@@ -4378,6 +4378,7 @@ def _import_bundle_sync(
             acknowledge_unverified_import_attribution=acknowledge_unverified_import_attribution,
             acknowledgement_rationale=acknowledgement_rationale,
             imported_by=principal.principal,
+            actor_role=principal.role,
             force=force,
         )
     except ImportGroundingRationaleRequiredError as exc:

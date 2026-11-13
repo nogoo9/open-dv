@@ -37,6 +37,7 @@ from opendv_contracts.errors import ErrorCode
 from opendv_sources.adapters.libreoffice_adapter import (
     ArchiveSecurityViolationError,
     LibreOfficeDocumentAdapter,
+    _inspect_expat_dtd_and_entities,
     _inspect_ole_cfb_security,
     find_soffice_binary,
 )
@@ -231,6 +232,80 @@ class TestMarkdownDocumentAdapter:
         assert len(bounded_res.metadata["code_blocks"]) == 100
         assert len(bounded_res.metadata["headings"]) == 100
         assert "# inner comment" not in bounded_res.normalized_text
+
+    def test_commonmark_fenced_code_block_delimiter_and_length_rules(self) -> None:
+        """Regression R6-MAJ-03: Enforce CommonMark §4.5 fence char, length, and backticks."""
+        # 1) Tilde fence (~~~) must NOT be closed by inner backtick fence (```bash)
+        tilde_md = (
+            "# Outer Title\n\n"
+            "~~~markdown\n"
+            "```bash\n"
+            "# Fake Heading\n"
+            "SECRET_TOKEN_TILDE\n"
+            "```\n"
+            "~~~\n\n"
+            "## After Tilde\n"
+        )
+        adapter_excl = MarkdownDocumentAdapter(exclude_code_blocks=True)
+        res_tilde = adapter_excl.parse_bytes(tilde_md.encode("utf-8"), filename="tilde.md")
+        assert res_tilde.metadata["code_block_count"] == 1
+        assert res_tilde.metadata["heading_count"] == 2
+        assert [h["title"] for h in res_tilde.metadata["headings"]] == [
+            "Outer Title",
+            "After Tilde",
+        ]
+        assert "SECRET_TOKEN_TILDE" not in res_tilde.normalized_text
+        assert "Fake Heading" not in res_tilde.normalized_text
+        assert "After Tilde" in res_tilde.normalized_text
+
+        # 2) 4-backtick fence (````markdown) must NOT be closed by inner 3-backtick fence (```)
+        quad_md = (
+            "# Spec Header\n\n"
+            "````markdown\n"
+            "```python\n"
+            "# Inner Fake Heading\n"
+            "SECRET_TOKEN_QUAD = 42\n"
+            "```\n"
+            "````\n\n"
+            "### Final Section\n"
+        )
+        res_quad = adapter_excl.parse_bytes(quad_md.encode("utf-8"), filename="quad.md")
+        assert res_quad.metadata["code_block_count"] == 1
+        assert res_quad.metadata["heading_count"] == 2
+        assert [h["title"] for h in res_quad.metadata["headings"]] == [
+            "Spec Header",
+            "Final Section",
+        ]
+        assert "SECRET_TOKEN_QUAD" not in res_quad.normalized_text
+        assert "Inner Fake Heading" not in res_quad.normalized_text
+
+        # 3) Single-line ```inline code on single line``` at BOL is an inline code span, NOT a fence
+        inline_bol_md = (
+            "```inline code on single line```\n\n"
+            "## Real Section\n\n"
+            "Visible body paragraph after inline code span.\n"
+        )
+        res_inline = adapter_excl.parse_bytes(inline_bol_md.encode("utf-8"), filename="inline.md")
+        assert res_inline.metadata["code_block_count"] == 0
+        assert res_inline.metadata["heading_count"] == 1
+        assert res_inline.metadata["headings"][0]["title"] == "Real Section"
+        assert "Visible body paragraph after inline code span." in res_inline.normalized_text
+
+        # 4) CommonMark §4.5 indentation (<=3 spaces) & closing fence cannot carry info string
+        indent_md = (
+            "   ```python\n"
+            "    ```\n"
+            "``` trailing_not_closing\n"
+            "STILL_QUARANTINED\n"
+            "  ```   \n"
+            "    ```ignored_four_space_indent\n"
+            "# Post Fence Heading\n"
+        )
+        res_indent = adapter_excl.parse_bytes(indent_md.encode("utf-8"), filename="indent.md")
+        assert res_indent.metadata["code_block_count"] == 1
+        assert res_indent.metadata["heading_count"] == 1
+        assert res_indent.metadata["headings"][0]["title"] == "Post Fence Heading"
+        assert "STILL_QUARANTINED" not in res_indent.normalized_text
 
 
 # =============================================================================
@@ -1362,6 +1437,312 @@ class TestLibreOfficeDocumentAdapter:
                 expected_arg = f"--infilter={expected_filter}"
                 assert expected_arg in cmd
                 assert cmd.index(expected_arg) < cmd.index("--convert-to")
+
+    def test_utf16_dtd_and_non_xml_zip_entries_rejected(self) -> None:
+        """Regression R6-MAJ-01: Block UTF-16LE/BE DTD/ENTITY and .vml/.svg/.xhtml/.html SSRF."""
+        adapter = LibreOfficeDocumentAdapter(soffice_path="mock_soffice")
+
+        def _zip_from_raw_entries(entries: dict[str, bytes]) -> bytes:
+            buf = io.BytesIO()
+            with zipfile.ZipFile(buf, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
+                for name, raw in entries.items():
+                    zf.writestr(name, raw)
+            return buf.getvalue()
+
+        utf16_ext_dtd = (
+            '<?xml version="1.0" encoding="UTF-16"?>'
+            '<!DOCTYPE root SYSTEM "http://169.254.169.254/latest/meta-data/">'
+            "<root>leak</root>"
+        )
+        utf16_int_entity = (
+            '<?xml version="1.0" encoding="UTF-16"?>'
+            '<!DOCTYPE root [<!ENTITY xxe "secret">]>'
+            "<root>&xxe;</root>"
+        )
+
+        # Direct Expat helper checks across UTF-16LE/BE with & without BOM
+        for bad_xml in (
+            b"\xff\xfe" + utf16_ext_dtd.encode("utf-16-le"),
+            utf16_ext_dtd.encode("utf-16-le"),
+            b"\xfe\xff" + utf16_ext_dtd.encode("utf-16-be"),
+            utf16_ext_dtd.encode("utf-16-be"),
+            b"\xff\xfe" + utf16_int_entity.encode("utf-16-le"),
+        ):
+            with pytest.raises(ArchiveSecurityViolationError):
+                _inspect_expat_dtd_and_entities(bad_xml, "word/document.xml")
+
+        malicious_archives: list[tuple[str, dict[str, bytes]]] = [
+            (
+                "utf16le_dtd.docx",
+                {"word/document.xml": utf16_ext_dtd.encode("utf-16-le")},
+            ),
+            (
+                "utf16be_dtd.odt",
+                {"Pictures/diagram.svg": b"\xfe\xff" + utf16_ext_dtd.encode("utf-16-be")},
+            ),
+            (
+                "utf16le_entity.docx",
+                {"word/document.xml": b"\xff\xfe" + utf16_int_entity.encode("utf-16-le")},
+            ),
+            (
+                "vml_href.docx",
+                {
+                    "word/drawings/vmlDrawing1.vml": (
+                        b'<xml xmlns:v="urn:schemas-microsoft-com:vml" '
+                        b'xmlns:o="urn:schemas-microsoft-com:office:office">'
+                        b'<v:shape><v:imagedata o:href="http://169.254.169.254/beacon.png"/>'
+                        b"</v:shape></xml>"
+                    )
+                },
+            ),
+            (
+                "vml_src.docx",
+                {
+                    "word/drawings/vmlDrawing1.vml": (
+                        b'<xml xmlns:v="urn:schemas-microsoft-com:vml">'
+                        b'<v:shape><v:imagedata src="https://evil.example/beacon.png"/>'
+                        b"</v:shape></xml>"
+                    )
+                },
+            ),
+            (
+                "svg_xlink.docx",
+                {
+                    "word/media/image1.svg": (
+                        b'<svg xmlns="http://www.w3.org/2000/svg" '
+                        b'xmlns:xlink="http://www.w3.org/1999/xlink">'
+                        b'<image xlink:href="http://evil.example/track.svg"/></svg>'
+                    )
+                },
+            ),
+            (
+                "svg_css_url.odt",
+                {
+                    "Pictures/chart.svg": (
+                        b'<svg xmlns="http://www.w3.org/2000/svg">'
+                        b'<rect width="10" height="10" '
+                        b'style="fill:url(http://169.254.169.254/latest)"/></svg>'
+                    )
+                },
+            ),
+            (
+                "xhtml_img_src.odt",
+                {
+                    "embed/page.xhtml": (
+                        b'<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+                        b'<img src="https://evil.example/pixel.png"/></body></html>'
+                    )
+                },
+            ),
+            (
+                "xhtml_iframe_src.docx",
+                {
+                    "word/embed.xhtml": (
+                        b'<html xmlns="http://www.w3.org/1999/xhtml"><body>'
+                        b'<iframe src="http://evil.example/frame"/></body></html>'
+                    )
+                },
+            ),
+            (
+                "xhtml_script_link.docx",
+                {
+                    "word/embed.xhtml": (
+                        b'<html xmlns="http://www.w3.org/1999/xhtml"><head>'
+                        b'<link rel="stylesheet" href="http://evil.example/a.css"/>'
+                        b'<script src="https://evil.example/a.js"/></head><body/></html>'
+                    )
+                },
+            ),
+            (
+                "nested_fodt.odt",
+                {
+                    "sub/part.fodt": (
+                        b"<office:document "
+                        b'xmlns:office="urn:oasis:names:tc:opendocument:xmlns:office:1.0" '
+                        b'xmlns:text="urn:oasis:names:tc:opendocument:xmlns:text:1.0" '
+                        b'xmlns:xlink="http://www.w3.org/1999/xlink">'
+                        b'<text:section-source xlink:href="http://evil.example/part.odt"/>'
+                        b"</office:document>"
+                    )
+                },
+            ),
+            (
+                "html_ascii_ssrf.docx",
+                {
+                    "word/afchunk.html": (
+                        b'<html><body><img src="http://169.254.169.254/latest"/></body></html>'
+                    )
+                },
+            ),
+            (
+                "html_utf16le_odd_ssrf.docx",
+                {
+                    "word/afchunk.htm": (
+                        b"\x01"
+                        + '<!DOCTYPE html SYSTEM "http://evil.example/ext.dtd"><html></html>'.encode(
+                            "utf-16-le"
+                        )
+                    )
+                },
+            ),
+            (
+                "html_meta_refresh.docx",
+                {
+                    "word/afchunk.html": (
+                        b'<html><head><meta http-equiv="refresh" '
+                        b'content="0; url=http://evil.example/redir"></head></html>'
+                    )
+                },
+            ),
+        ]
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen") as mock_popen,
+        ):
+            for fname, entries in malicious_archives:
+                archive_bytes = _zip_from_raw_entries(entries)
+                with pytest.raises(ArchiveSecurityViolationError) as exc_info:
+                    adapter.parse_bytes(archive_bytes, filename=fname)
+                assert exc_info.value.error_code == ErrorCode.ARCHIVE_SECURITY_VIOLATION
+            mock_popen.assert_not_called()
+
+        # Benign internal SVG & VML with local relative targets pass container inspection
+        mock_pdf_adapter = MagicMock(spec=LiteParseDocumentAdapter)
+        mock_pdf_adapter.parse_bytes.return_value = IngestionResult(
+            document_id="doc_safe_svg",
+            filename="out.pdf",
+            mime_type="application/pdf",
+            total_pages=1,
+            total_characters=4,
+            chunks=[],
+            page_map=[],
+            tables=[],
+            taint=TaintClassification.INTERNAL,
+            source_sha256="intermediate",
+            normalized_text="Safe",
+            metadata={},
+        )
+        safe_adapter = LibreOfficeDocumentAdapter(
+            soffice_path="mock_soffice", pdf_adapter=mock_pdf_adapter
+        )
+        benign_zip = _zip_from_raw_entries(
+            {
+                "word/document.xml": (
+                    b'<?xml version="1.0" encoding="UTF-8"?>'
+                    b'<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">'
+                    b"<w:body><w:p/></w:body></w:document>"
+                ),
+                "word/media/diagram.svg": (
+                    b'<svg xmlns="http://www.w3.org/2000/svg" '
+                    b'xmlns:xlink="http://www.w3.org/1999/xlink">'
+                    b'<defs><linearGradient id="g1"/></defs>'
+                    b'<rect width="10" height="10" style="fill:url(#g1)"/>'
+                    b'<image xlink:href="local.png"/></svg>'
+                ),
+                "word/drawings/vmlDrawing1.vml": (
+                    b'<xml xmlns:v="urn:schemas-microsoft-com:vml">'
+                    b'<v:shape><v:imagedata src="media/image1.png"/></v:shape></xml>'
+                ),
+            }
+        )
+
+        def _mock_safe_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            (out_dir / f"{Path(cmd[-1]).stem}.pdf").write_bytes(b"%PDF-1.5 mock")
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate.return_value = (b"", b"")
+            return proc
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen", side_effect=_mock_safe_popen),
+        ):
+            res_safe = safe_adapter.parse_bytes(benign_zip, filename="safe_diagram.docx")
+            assert res_safe.normalized_text == "Safe"
+
+    def test_ole_cfb_allows_benign_datavault_prose_while_blocking_external_fields(self) -> None:
+        """Regression R6-MAJ-02: Allow Data Vault 2.0 prose while blocking OLE field attacks."""
+        benign_dv_prose_samples = [
+            'Create a link "L_CUSTOMER_ORDER" between H_CUSTOMER and H_ORDER.',
+            "Daily ETL jobs import orders.csv into the Bronze staging area.",
+            "Join hub H_CUSTOMER to link L_CUST.ACCT on business key.",
+            "COLUMN HEADER: LINK_NAME | HUB_SOURCE | LINK BUSINESS_KEY",
+            "Architecture Overview: DATA IMPORT PIPELINE",
+            "123 MAIN RD SUITE 400",
+        ]
+
+        mock_pdf_adapter = MagicMock(spec=LiteParseDocumentAdapter)
+        mock_pdf_adapter.parse_bytes.return_value = IngestionResult(
+            document_id="doc_dv",
+            filename="out.pdf",
+            mime_type="application/pdf",
+            total_pages=1,
+            total_characters=2,
+            chunks=[],
+            page_map=[],
+            tables=[],
+            taint=TaintClassification.INTERNAL,
+            source_sha256="intermediate",
+            normalized_text="OK",
+            metadata={},
+        )
+        adapter = LibreOfficeDocumentAdapter(
+            soffice_path="mock_soffice", pdf_adapter=mock_pdf_adapter
+        )
+
+        def _mock_ok_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            (out_dir / f"{Path(cmd[-1]).stem}.pdf").write_bytes(b"%PDF-1.5 mock")
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate.return_value = (b"", b"")
+            return proc
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen", side_effect=_mock_ok_popen),
+        ):
+            for ext in (".doc", ".xls", ".ppt"):
+                for prose in benign_dv_prose_samples:
+                    for raw_stream in (
+                        b"\x00" * 16 + prose.encode("latin-1"),
+                        b"\x00\x00" + prose.encode("utf-16-le") + b"\x00\x00",
+                        b"\x01" + prose.encode("utf-16-le") + b"\x00",
+                    ):
+                        cfb = self._minimal_ole_cfb_bytes(raw_stream)
+                        _inspect_ole_cfb_security(cfb, ext)
+                        parsed = adapter.parse_bytes(cfb, filename=f"dv_spec{ext}")
+                        assert parsed.normalized_text == "OK"
+
+        extra_attack_vectors = [
+            '\x13 LINK Excel.Sheet.8 "book.xls"',
+            'LINK Excel.Sheet.8 "C:\\secrets\\book.xls"',
+            'LINK "http://evil.example/book.xls"',
+            'RD "/etc/passwd"',
+            'IMPORT "\\\\169.254.169.254\\share\\orders.csv"',
+            'DDE("soffice"; "C:\\secrets\\a.ods")',
+            'RTD("my.rtd", "evil.example", "topic")',
+        ]
+        for ext in (".doc", ".xls", ".ppt"):
+            for attack in extra_attack_vectors:
+                for raw_stream in (
+                    b"\x00" * 16 + attack.encode("latin-1"),
+                    b"\x00\x00" + attack.encode("utf-16-le") + b"\x00\x00",
+                    b"\x01" + attack.encode("utf-16-le") + b"\x00",
+                ):
+                    with pytest.raises(ArchiveSecurityViolationError):
+                        _inspect_ole_cfb_security(self._minimal_ole_cfb_bytes(raw_stream), ext)
 
 
 # =============================================================================

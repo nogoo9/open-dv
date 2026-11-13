@@ -90,8 +90,7 @@ from opendv_service.studio.job_runners import (
     run_parse_session_sources,
 )
 from opendv_service.studio.locks import (
-    L5_SESSION,
-    studio_lock,
+    reentrant_session_lock,
 )
 from opendv_service.studio.session_manager import (
     CannotDeletePromotedSessionError,
@@ -1181,8 +1180,6 @@ def handle_upload(
         return _err(4, "CORRUPT_SOURCE_BLOB", f"Source file '{fpath.name}' is empty or corrupt.")
 
     sha256_hex = hashlib.sha256(content).hexdigest()
-    cas = session_mgr.get_cas(sid)
-    cas.put(content)
 
     requested_do_not_send = bool(
         getattr(args, "do_not_send_to_agent", False) or getattr(args, "confidential", False)
@@ -1190,7 +1187,9 @@ def handle_upload(
     raw_description = getattr(args, "description", None)
 
     lock_file = sdir / ".session.lock"
-    with studio_lock(lock_file, level=L5_SESSION, session_id=sid):
+    with reentrant_session_lock(lock_file, session_id=sid):
+        cas = session_mgr.get_cas(sid)
+        cas.put(content)
         manifest_file = sdir / "inputs" / "manifest.json"
         manifest: dict[str, Any] = {"session_id": sid, "files": [], "sources": []}
         if manifest_file.exists():
@@ -1545,11 +1544,11 @@ def handle_answer(
     expected_sha = (exp_sha_flag or file_exp_sha or "").strip().strip('"').lower() or None
 
     target_ans = sdir / "clarifications" / "answers.json"
-    target_ans.parent.mkdir(parents=True, exist_ok=True)
     lock_file = sdir / ".session.lock"
-    cas = session_mgr.get_cas(sid)
 
-    with studio_lock(lock_file, level=L5_SESSION, session_id=sid):
+    with reentrant_session_lock(lock_file, session_id=sid):
+        target_ans.parent.mkdir(parents=True, exist_ok=True)
+        cas = session_mgr.get_cas(sid)
         existing_map: dict[str, ClarificationAnswerItem] = {}
         if target_ans.is_file():
             try:
@@ -2282,7 +2281,7 @@ def handle_proposal_accept(
 
     # Inspect proposal under session lock for existence, status, self-acceptance, and OCC
     lock_file = sdir / ".session.lock"
-    with studio_lock(lock_file, level=L5_SESSION, session_id=sid):
+    with reentrant_session_lock(lock_file, session_id=sid):
         meta = session_mgr.get_session(sid)
         if not pfile.is_file():
             return _err(3, "PROPOSAL_NOT_FOUND", f"Proposal '{pid}' not found")
@@ -2530,7 +2529,7 @@ def handle_proposal_reject(
     pfile = prop_res
 
     lock_file = sdir / ".session.lock"
-    with studio_lock(lock_file, level=L5_SESSION, session_id=sid):
+    with reentrant_session_lock(lock_file, session_id=sid):
         if not pfile.is_file():
             return _err(3, "PROPOSAL_NOT_FOUND", f"Proposal '{pid}' not found")
 
@@ -2641,7 +2640,7 @@ def handle_proposal_rebase(
     pfile = prop_res
 
     lock_file = sdir / ".session.lock"
-    with studio_lock(lock_file, level=L5_SESSION, session_id=sid):
+    with reentrant_session_lock(lock_file, session_id=sid):
         meta = session_mgr.get_session(sid)
         if not pfile.is_file():
             return _err(3, "PROPOSAL_NOT_FOUND", f"Proposal '{pid}' not found")

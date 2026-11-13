@@ -32,7 +32,7 @@ from opendv_contracts.errors import ErrorCode, OpenDVError
 from opendv_contracts.jcs import dumps_jcs
 from opendv_service.construction.utils import atomic_write_text
 from opendv_service.studio.cas_storage import ContentAddressableStorage
-from opendv_service.studio.locks import LockLevel, studio_lock
+from opendv_service.studio.locks import reentrant_session_lock
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +136,7 @@ class ClarificationHarness:
             raise ValueError(f"max_questions must be at least 1, got {max_questions}")
 
         lock_file = self.session_dir / ".session.lock"
-        with studio_lock(lock_file, level=LockLevel.L5, session_id=self.session_dir.name):
+        with reentrant_session_lock(lock_file, session_id=self.session_dir.name):
             terms_to_evaluate: list[str | dict[str, Any]] = list(candidate_terms or [])
             evidence_citations_by_key: dict[str, list[EvidenceRef]] = {}
 
@@ -320,7 +320,7 @@ class ClarificationHarness:
             If no answers exist or answers.json is absent, returns ([], EMPTY_ANSWERS_SHA256).
         """
         lock_file = self.session_dir / ".session.lock"
-        with studio_lock(lock_file, level=LockLevel.L5, session_id=self.session_dir.name):
+        with reentrant_session_lock(lock_file, session_id=self.session_dir.name):
             if not self.answers_file.exists():
                 return [], EMPTY_ANSWERS_SHA256
             try:
@@ -370,7 +370,7 @@ class ClarificationHarness:
             )
 
         lock_file = self.session_dir / ".session.lock"
-        with studio_lock(lock_file, level=LockLevel.L5, session_id=self.session_dir.name):
+        with reentrant_session_lock(lock_file, session_id=self.session_dir.name):
             # Load existing answers to merge and compute current digest for OCC
             merged_answers: dict[str, ClarificationAnswerItem] = {}
             if self.answers_file.exists():
@@ -537,7 +537,7 @@ class ClarificationHarness:
             RuntimeError: If answers.json exists but is corrupt.
         """
         lock_file = self.session_dir / ".session.lock"
-        with studio_lock(lock_file, level=LockLevel.L5, session_id=self.session_dir.name):
+        with reentrant_session_lock(lock_file, session_id=self.session_dir.name):
             if not self.answers_file.exists() or not self.questions_file.exists():
                 return ClarificationConstraints()
 
