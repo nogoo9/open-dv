@@ -2506,3 +2506,110 @@ def test_s3_r6_min02_import_bundle_sync_forwards_actor_role(tmp_path: Path) -> N
         )
     assert exc_info.value.code == "FORBIDDEN_ADMIN_REQUIRED"
     assert exc_info.value.status_code == 403
+
+
+def test_iss05_rbac_role_hydration_and_headers(client: TestClient) -> None:
+    """[ISS-05]: /init, /auth/token, and API requests return role + X-OpenDV-Role headers."""
+    from opendv_platform_api.security.studio_auth import mint_launch_nonce
+
+    # 1. Loopback /init returns role='admin' explicitly alongside local_token
+    init_resp = client.post(
+        "/api/v1/ontology/studio/init",
+        json={"domain_namespace": "wealth_mgmt", "enterprise_owner": "Global Wealth"},
+    )
+    assert init_resp.status_code == 200
+    assert init_resp.headers.get("X-OpenDV-Role") == "admin"
+    assert init_resp.headers.get("X-OpenDV-Principal") == "human:local_admin"
+    init_body = init_resp.json()
+    assert init_body["role"] == "admin"
+    assert init_body["principal"] == "human:local_admin"
+    local_token = init_body["local_token"]
+    assert isinstance(local_token, str) and len(local_token) > 16
+
+    # 2. Authenticated requests emit X-OpenDV-Role and X-OpenDV-Principal headers
+    sess_resp = client.get(
+        "/api/v1/ontology/studio/sessions",
+        headers={"Authorization": f"Bearer {local_token}"},
+    )
+    assert sess_resp.status_code == 200
+    assert sess_resp.headers.get("X-OpenDV-Role") == "admin"
+    assert sess_resp.headers.get("X-OpenDV-Principal") == "human:local_admin"
+
+    # 3. Nonce exchange preserves caller role ('editor') in JSON body and subsequent cookie calls
+    editor_nonce = mint_launch_nonce(principal="human:alice_editor", role="editor", ttl=60.0)
+    exchange_resp = client.post(
+        "/api/v1/ontology/studio/auth/token",
+        json={"nonce": editor_nonce},
+        headers={"X-OpenDV-Workbench": "1"},
+    )
+    assert exchange_resp.status_code == 200
+    assert exchange_resp.headers.get("X-OpenDV-Role") == "editor"
+    assert exchange_resp.headers.get("X-OpenDV-Principal") == "human:alice_editor"
+    exchange_body = exchange_resp.json()
+    assert exchange_body["principal"] == "human:alice_editor"
+    assert exchange_body["role"] == "editor"
+
+    cookie_sess_resp = client.get("/api/v1/ontology/studio/sessions")
+    assert cookie_sess_resp.status_code == 200
+    assert cookie_sess_resp.headers.get("X-OpenDV-Role") == "editor"
+    assert cookie_sess_resp.headers.get("X-OpenDV-Principal") == "human:alice_editor"
+
+    # 4. Forbidden 403 responses still emit X-OpenDV-Role and X-OpenDV-Principal
+    forbidden_resp = client.delete(
+        "/api/v1/ontology/studio/sessions/rbac-forbidden-target",
+        headers={"X-OpenDV-Workbench": "1"},
+    )
+    assert forbidden_resp.status_code == 403
+    assert forbidden_resp.headers.get("X-OpenDV-Role") == "editor"
+    assert forbidden_resp.headers.get("X-OpenDV-Principal") == "human:alice_editor"
+
+
+def test_iss09_upload_markdown_normalizes_octet_stream_mime(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """[ISS-09]: .md/.markdown uploads normalize MIME and sanitize path prefixes."""
+    create_resp = client.post(
+        "/api/v1/ontology/studio/sessions",
+        json={
+            "session_id": "md-mime-test",
+            "domain_namespace": "wealth_mgmt",
+            "enterprise_owner": "Global Wealth",
+        },
+        headers=auth_headers,
+    )
+    assert create_resp.status_code == 201
+
+    md_bytes = b"# Wealth Management Policy\n\nClient Risk Profile requires annual review.\n"
+    upload_resp = client.post(
+        "/api/v1/ontology/studio/sessions/md-mime-test/sources",
+        files={"file": ("wealth_policy.md", io.BytesIO(md_bytes), "application/octet-stream")},
+        headers=auth_headers,
+    )
+    assert upload_resp.status_code == 201
+    uploaded = upload_resp.json()
+    assert uploaded["mime_type"] == "text/markdown"
+    source_id = uploaded["source_id"]
+
+    content_resp = client.get(
+        f"/api/v1/ontology/studio/sessions/md-mime-test/sources/{source_id}/content",
+        headers=auth_headers,
+    )
+    assert content_resp.status_code == 200
+    assert content_resp.headers.get("content-type", "").startswith("text/markdown")
+    assert content_resp.content == md_bytes
+
+    markdown_upload = client.post(
+        "/api/v1/ontology/studio/sessions/md-mime-test/sources",
+        files={
+            "file": (
+                "../../fakepath\\wealth_appendix.markdown",
+                io.BytesIO(md_bytes),
+                "application/octet-stream",
+            )
+        },
+        headers=auth_headers,
+    )
+    assert markdown_upload.status_code == 201
+    md_uploaded = markdown_upload.json()
+    assert md_uploaded["filename"] == "wealth_appendix.markdown"
+    assert md_uploaded["mime_type"] == "text/markdown"

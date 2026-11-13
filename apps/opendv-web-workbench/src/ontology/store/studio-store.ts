@@ -7,6 +7,15 @@
 
 import { useRef, useSyncExternalStore } from "react";
 import { createStore } from "zustand/vanilla";
+import {
+	GRID_LAYOUT_COLS,
+	GRID_LAYOUT_ORIGIN,
+	GRID_LAYOUT_X_STRIDE,
+	GRID_LAYOUT_Y_STRIDE,
+	GROUNDING_MIN_CONFIDENCE,
+	LOCAL_TOKEN_PATH_HINT,
+	MIN_RATIONALE_LENGTH,
+} from "../constants";
 import type {
 	CandidateProposalSummary,
 	ClarificationAnswer,
@@ -80,7 +89,7 @@ export function extractAndScrubLaunchNonce(
 		const hashRaw = newHash.slice(1);
 		const hashParams = new URLSearchParams(hashRaw);
 		const hToken = hashParams.get("token") || hashParams.get("nonce");
-		if (hToken && hToken.trim()) {
+		if (hToken?.trim()) {
 			extracted = hToken.trim();
 			hashParams.delete("token");
 			hashParams.delete("nonce");
@@ -92,7 +101,7 @@ export function extractAndScrubLaunchNonce(
 	if (newSearch.startsWith("?") && newSearch.length > 1) {
 		const searchParams = new URLSearchParams(newSearch.slice(1));
 		const sNonce = searchParams.get("nonce") || searchParams.get("token");
-		if (sNonce && sNonce.trim()) {
+		if (sNonce?.trim()) {
 			if (!extracted) extracted = sNonce.trim();
 			searchParams.delete("nonce");
 			searchParams.delete("token");
@@ -279,8 +288,7 @@ export function hasGraphChangesFromBaseline(
 				? 1
 				: 0,
 	);
-	for (let i = 0; i < sortedEdges.length; i++) {
-		const currEdge = sortedEdges[i]!;
+	for (const [i, currEdge] of sortedEdges.entries()) {
 		const commEdge = sortedCommittedEdges[i];
 		if (!commEdge || isRelationshipMutatedFromBaseline(currEdge, commEdge)) {
 			return true;
@@ -295,6 +303,8 @@ export interface StudioStoreState {
 	userRole: StudioUserRole;
 	authToken: string | null;
 	authRequired: boolean;
+	authInitConflict: boolean;
+	authHint: string | null;
 	isBootstrappingAuth: boolean;
 
 	// Sessions
@@ -569,6 +579,7 @@ const EXTENSION_TO_MIMES: Record<string, string[]> = {
 	".json": ["application/json"],
 	".csv": ["text/csv"],
 	".md": ["text/markdown", "text/plain"],
+	".markdown": ["text/markdown", "text/plain"],
 	".txt": ["text/plain"],
 };
 
@@ -621,6 +632,28 @@ export function escapeIri(iri?: string | null): string {
 	return trimmed.replace(/[<>"{}|^`\\\s\x00-\x20]/g, (c) =>
 		encodeURIComponent(c),
 	);
+}
+
+function resolveCleanHeadSnapshot(state: {
+	hasUnsavedChanges: boolean;
+	committedNodes: ConceptNode[];
+	committedEdges: RelationshipEdge[];
+	nodes: ConceptNode[];
+	edges: RelationshipEdge[];
+}): { nodes: ConceptNode[]; edges: RelationshipEdge[] } {
+	// Return authoritative committed baseline whenever changes exist or committed state is populated;
+	// fallback to clean in-memory state when a caller initializes nodes without committedNodes.
+	if (
+		state.hasUnsavedChanges ||
+		state.committedNodes.length > 0 ||
+		state.committedEdges.length > 0
+	) {
+		return {
+			nodes: state.committedNodes,
+			edges: state.committedEdges,
+		};
+	}
+	return { nodes: state.nodes, edges: state.edges };
 }
 
 export function createDefaultQualityScorecard(): QualityScorecard {
@@ -686,7 +719,7 @@ export function deriveGroundingStatus(
 
 	if (qualifyingFiboConfs.length > 0) {
 		const maxQualifying = Math.max(...qualifyingFiboConfs);
-		if (maxQualifying >= 0.65) {
+		if (maxQualifying >= GROUNDING_MIN_CONFIDENCE) {
 			return {
 				grounding_status: "GROUNDED",
 				confidence: maxQualifying,
@@ -1748,7 +1781,6 @@ export function generateLocalExport(
 			lines.push("</rdf:RDF>");
 			return lines.join("\n");
 		}
-		case "yaml":
 		default: {
 			const canonical = canonicalizeGraphADict(nodes, edges, {
 				...session,
@@ -1890,8 +1922,10 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						| Record<string, unknown>
 						| null
 						| undefined) ?? null,
-				x: 100 + (idx % 4) * 260,
-				y: 100 + Math.floor(idx / 4) * 180,
+				x: GRID_LAYOUT_ORIGIN + (idx % GRID_LAYOUT_COLS) * GRID_LAYOUT_X_STRIDE,
+				y:
+					GRID_LAYOUT_ORIGIN +
+					Math.floor(idx / GRID_LAYOUT_COLS) * GRID_LAYOUT_Y_STRIDE,
 			};
 		});
 
@@ -1901,13 +1935,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				? (r.endpoints as string[])
 				: undefined;
 			const src =
-				(r.source_concept_uri as string | undefined) ||
-				(endpoints && endpoints[0]) ||
-				"";
+				(r.source_concept_uri as string | undefined) || endpoints?.[0] || "";
 			const tgt =
-				(r.target_concept_uri as string | undefined) ||
-				(endpoints && endpoints[1]) ||
-				"";
+				(r.target_concept_uri as string | undefined) || endpoints?.[1] || "";
 			return {
 				id: relUri,
 				relationship_uri: relUri,
@@ -1989,8 +2019,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			}
 
 			const token = get().authToken;
-			if (token && !headers["Authorization"] && !headers["authorization"]) {
-				headers["Authorization"] = `Bearer ${token}`;
+			if (token && !headers.Authorization && !headers.authorization) {
+				headers.Authorization = `Bearer ${token}`;
 			}
 
 			const nextInit: RequestInit = {
@@ -2010,7 +2040,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			}
 			if (res && res.status === 401) {
 				set({ authRequired: true });
-			} else if (res && res.ok && get().authRequired) {
+			} else if (res?.ok && get().authRequired) {
 				set({ authRequired: false });
 			}
 			return res;
@@ -2645,6 +2675,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			userRole: options.userRole ?? "editor",
 			authToken: null,
 			authRequired: false,
+			authInitConflict: false,
+			authHint: null,
 			isBootstrappingAuth: false,
 
 			activeSession: options.initialSession ?? null,
@@ -2695,6 +2727,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				set({
 					authToken: trimmed || null,
 					authRequired: false,
+					authInitConflict: false,
+					authHint: null,
 					...(jwtRole ? { userRole: jwtRole } : {}),
 				});
 			},
@@ -2719,6 +2753,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						const err = (await res.json().catch(() => ({}))) as {
 							detail?: string;
 							code?: string;
+							error_code?: string;
 							title?: string;
 						};
 						get().addToast({
@@ -2726,7 +2761,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							title: err.title || "Launch Token Exchange Failed",
 							status: res.status,
 							detail: err.detail || `Server returned HTTP ${res.status}`,
-							code: err.code || "AUTH_INVALID_LAUNCH_NONCE",
+							code: err.code || err.error_code || "AUTH_INVALID_LAUNCH_NONCE",
 						});
 						set({
 							isBootstrappingAuth: false,
@@ -2748,6 +2783,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					set((state) => ({
 						authToken: nextToken || state.authToken,
 						authRequired: false,
+						authInitConflict: false,
+						authHint: null,
 						isBootstrappingAuth: false,
 						...(hydratedRole ? { userRole: hydratedRole } : {}),
 					}));
@@ -2766,7 +2803,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			},
 
 			bootstrapLoopbackAuth: async (fetchImpl = fetch) => {
-				set({ isBootstrappingAuth: true });
+				set({
+					isBootstrappingAuth: true,
+					authInitConflict: false,
+					authHint: null,
+				});
 				try {
 					const res = await studioFetch(
 						fetchImpl,
@@ -2781,14 +2822,33 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						const err = (await res.json().catch(() => ({}))) as {
 							detail?: string;
 							code?: string;
+							error_code?: string;
 							title?: string;
 						};
+						if (res.status === 409) {
+							const conflictHint = `Local token is already initialized. Paste the existing token from ${LOCAL_TOKEN_PATH_HINT} above or run \`uv run opendv serve --open\`.`;
+							get().addToast({
+								type: "urn:opendv:error:auth-init-conflict",
+								title: "Loopback Token Already Initialized",
+								status: 409,
+								detail: conflictHint,
+								code:
+									err.code || err.error_code || "STUDIO_ALREADY_INITIALIZED",
+							});
+							set({
+								isBootstrappingAuth: false,
+								authRequired: true,
+								authInitConflict: true,
+								authHint: conflictHint,
+							});
+							return false;
+						}
 						get().addToast({
 							type: "urn:opendv:error:auth-init-failed",
 							title: err.title || "Loopback Initialization Failed",
 							status: res.status,
 							detail: err.detail || `Server returned HTTP ${res.status}`,
-							code: err.code || "AUTH_BOOTSTRAP_FAILED",
+							code: err.code || err.error_code || "AUTH_BOOTSTRAP_FAILED",
 						});
 						set({ isBootstrappingAuth: false });
 						return false;
@@ -2813,6 +2873,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					set((state) => ({
 						authToken: issuedToken || state.authToken,
 						authRequired: false,
+						authInitConflict: false,
+						authHint: null,
 						isBootstrappingAuth: false,
 						...(hydratedRole ? { userRole: hydratedRole } : {}),
 					}));
@@ -3725,7 +3787,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						  };
 
 					let rawAnswersPayload: unknown = null;
-					if (answersRes && answersRes.ok) {
+					if (answersRes?.ok) {
 						rawAnswersPayload = await answersRes.json().catch(() => null);
 					}
 
@@ -4358,9 +4420,10 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 			acceptProposal: async (
 				proposalId,
 				rationale,
-				fetchImpl = fetch,
+				maybeFetchImpl,
 				acceptOptions,
 			) => {
+				const fetchImpl = maybeFetchImpl ?? fetch;
 				const activeSession = get().activeSession;
 				if (!activeSession) return false;
 				const role = get().userRole;
@@ -5222,7 +5285,13 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						return { nodes: [], edges: [] };
 					}
 					const state = get();
+					if (ver === "draft") {
+						return { nodes: state.nodes, edges: state.edges };
+					}
 					const headVersion = state.activeSession?.active_version;
+					if (!state.isHistoricalView && headVersion && ver === headVersion) {
+						return resolveCleanHeadSnapshot(state);
+					}
 					if (state.isHistoricalView) {
 						if (
 							state.viewedVersion &&
@@ -5272,7 +5341,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							is_breaking: false,
 						});
 					} else {
-						const baseNode = baseNodeMap.get(uri)!;
+						const baseNode = baseNodeMap.get(uri);
+						if (!baseNode) continue;
 						const baseAttrMap = new Map(
 							(baseNode.attributes || []).map((a) => [a.attribute_name, a]),
 						);
@@ -5289,6 +5359,22 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						const modifiedTypeAttrs = (node.attributes || []).filter((a) => {
 							const b = baseAttrMap.get(a.attribute_name);
 							return b && b.data_type !== a.data_type;
+						});
+						const tightenedOptionalityAttrs = (node.attributes || []).filter(
+							(a) => {
+								const b = baseAttrMap.get(a.attribute_name);
+								return b && Boolean(b.is_optional) && !a.is_optional;
+							},
+						);
+						const widenedOptionalityAttrs = (node.attributes || []).filter(
+							(a) => {
+								const b = baseAttrMap.get(a.attribute_name);
+								return b && !b.is_optional && Boolean(a.is_optional);
+							},
+						);
+						const modifiedDescAttrs = (node.attributes || []).filter((a) => {
+							const b = baseAttrMap.get(a.attribute_name);
+							return b && (b.description || "") !== (a.description || "");
 						});
 
 						if (removedAttrs.length > 0) {
@@ -5313,20 +5399,44 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							});
 						}
 
-						const baseMappingUris = new Set(
-							(baseNode.external_mappings || []).map((m) => m.target_uri),
+						if (tightenedOptionalityAttrs.length > 0) {
+							records.push({
+								item_type: "attribute",
+								change_type: "modified",
+								identifier: `${uri}#attribute-optionality`,
+								label: `${node.concept_name} attribute optionality`,
+								details: `Attribute made mandatory: ${tightenedOptionalityAttrs.map((a) => `${a.attribute_name} (optional -> mandatory)`).join(", ")} (breaking change under ONT-EVO-001)`,
+								is_breaking: true,
+							});
+						}
+
+						const baseMappingMap = new Map(
+							(baseNode.external_mappings || []).map((m) => [m.target_uri, m]),
 						);
-						const targetMappingUris = new Set(
-							(node.external_mappings || []).map((m) => m.target_uri),
+						const targetMappingMap = new Map(
+							(node.external_mappings || []).map((m) => [m.target_uri, m]),
 						);
-						const mappingAdded = [...targetMappingUris].filter(
-							(u) => !baseMappingUris.has(u),
+						const mappingAdded = [...targetMappingMap.keys()].filter(
+							(u) => !baseMappingMap.has(u),
 						);
-						const mappingRemoved = [...baseMappingUris].filter(
-							(u) => !targetMappingUris.has(u),
+						const mappingRemoved = [...baseMappingMap.keys()].filter(
+							(u) => !targetMappingMap.has(u),
+						);
+						const mappingModified = [...targetMappingMap.entries()].filter(
+							([u, m]) => {
+								const b = baseMappingMap.get(u);
+								if (!b) return false;
+								return (
+									(b.scheme || "") !== (m.scheme || "") ||
+									(b.predicate || "") !== (m.predicate || "") ||
+									(b.confidence ?? null) !== (m.confidence ?? null)
+								);
+							},
 						);
 						const mappingsChanged =
-							mappingAdded.length > 0 || mappingRemoved.length > 0;
+							mappingAdded.length > 0 ||
+							mappingRemoved.length > 0 ||
+							mappingModified.length > 0;
 
 						const nameChanged = node.concept_name !== baseNode.concept_name;
 						const archetypeChanged =
@@ -5343,12 +5453,16 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							(baseNode.parent_concept_uri ?? null);
 						const targetHubChanged =
 							(node.target_hub ?? null) !== (baseNode.target_hub ?? null);
+						const attrMetaChanged =
+							widenedOptionalityAttrs.length > 0 ||
+							modifiedDescAttrs.length > 0;
 
 						if (
 							nameChanged ||
 							archetypeChanged ||
 							synsChanged ||
 							addedAttrs.length > 0 ||
+							attrMetaChanged ||
 							mappingsChanged ||
 							defChanged ||
 							descChanged ||
@@ -5369,9 +5483,17 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							if (descChanged) detailsParts.push("description updated");
 							if (addedAttrs.length > 0)
 								detailsParts.push(`+${addedAttrs.length} attrs`);
+							if (widenedOptionalityAttrs.length > 0)
+								detailsParts.push(
+									`attrs made optional: ${widenedOptionalityAttrs.map((a) => a.attribute_name).join(", ")}`,
+								);
+							if (modifiedDescAttrs.length > 0)
+								detailsParts.push(
+									`attr descriptions updated: ${modifiedDescAttrs.map((a) => a.attribute_name).join(", ")}`,
+								);
 							if (mappingsChanged)
 								detailsParts.push(
-									`mappings changed (+${mappingAdded.length}, -${mappingRemoved.length})`,
+									`mappings changed (+${mappingAdded.length}, -${mappingRemoved.length}${mappingModified.length > 0 ? `, ~${mappingModified.length}` : ""})`,
 								);
 							if (parentChanged) detailsParts.push("parent updated");
 							if (targetHubChanged) detailsParts.push("target hub updated");
@@ -5557,7 +5679,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 
 				const fetchSnapshot = async (
 					ver: string,
-					role: "base" | "target",
+					_role: "base" | "target",
 				): Promise<{
 					nodes: ConceptNode[];
 					edges: RelationshipEdge[];
@@ -5565,14 +5687,11 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					if (ver === "0.0.0") {
 						return { nodes: [], edges: [] };
 					}
+					if (ver === "draft") {
+						return { nodes: get().nodes, edges: get().edges };
+					}
 					if (!get().isHistoricalView && ver === activeSession.active_version) {
-						if (role === "target") {
-							return { nodes: get().nodes, edges: get().edges };
-						}
-						return {
-							nodes: get().committedNodes,
-							edges: get().committedEdges,
-						};
+						return resolveCleanHeadSnapshot(get());
 					}
 					const isHeadInHistoricalMode =
 						get().isHistoricalView && ver === activeSession.active_version;
@@ -5677,7 +5796,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				}));
 			},
 
-			commitChanges: async (rationale, fetchImpl = fetch, commitOptions) => {
+			commitChanges: async (rationale, maybeFetchImpl, commitOptions) => {
+				const fetchImpl = maybeFetchImpl ?? fetch;
 				if (get().isCommitting) return false;
 				const activeSession = get().activeSession;
 				if (!activeSession) return false;
@@ -6138,7 +6258,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 						return (
 							typeof rawConf === "number" &&
 							Number.isFinite(rawConf) &&
-							rawConf >= 0.65
+							rawConf >= GROUNDING_MIN_CONFIDENCE
 						);
 					});
 				};
@@ -6206,8 +6326,7 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 							type: "urn:opendv:error:grounding-invariant-failed",
 							title: "Regulatory Grounding Invariant Failed",
 							status: 400,
-							detail:
-								"Cannot commit changes while ONT-EVO-002 is failing. Ground all concepts with FIBO skos:exactMatch/closeMatch >= 0.65 or obtain an authorized steward administrative waiver.",
+							detail: `Cannot commit changes while ONT-EVO-002 is failing. Ground all concepts with FIBO skos:exactMatch/closeMatch >= ${GROUNDING_MIN_CONFIDENCE} or obtain an authorized steward administrative waiver.`,
 							code: "ONT_EVO_002_FAILED",
 						});
 						return false;
@@ -6554,9 +6673,9 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					return false;
 				}
 
-				const major = Number.parseInt(semverMatch[1]!, 10);
-				const minor = Number.parseInt(semverMatch[2]!, 10);
-				const patch = Number.parseInt(semverMatch[3]!, 10);
+				const major = Number.parseInt(semverMatch[1] ?? "0", 10);
+				const minor = Number.parseInt(semverMatch[2] ?? "0", 10);
+				const patch = Number.parseInt(semverMatch[3] ?? "0", 10);
 
 				let targetVersion: string;
 				if (major === 0) {
@@ -6890,13 +7009,12 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					return false;
 				}
 
-				if (!rationale || rationale.trim().length < 10) {
+				if (!rationale || rationale.trim().length < MIN_RATIONALE_LENGTH) {
 					get().addToast({
 						type: "urn:opendv:error:waiver-rationale-short",
 						title: "Waiver Rationale Too Short",
 						status: 400,
-						detail:
-							"Steward administrative waiver rationale must be at least 10 characters.",
+						detail: `Steward administrative waiver rationale must be at least ${MIN_RATIONALE_LENGTH} characters.`,
 						code: "INVALID_GROUNDING_WAIVER",
 					});
 					return false;
@@ -7314,12 +7432,15 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 				const activeSession = get().activeSession;
 				if (!activeSession) return false;
 
-				if (!req.rationale || req.rationale.trim().length < 10) {
+				if (
+					!req.rationale ||
+					req.rationale.trim().length < MIN_RATIONALE_LENGTH
+				) {
 					get().addToast({
 						type: "urn:opendv:error:promotion-rationale-short",
 						title: "Promotion Rationale Too Short",
 						status: 400,
-						detail: "Promotion rationale must be at least 10 characters.",
+						detail: `Promotion rationale must be at least ${MIN_RATIONALE_LENGTH} characters.`,
 						code: "PROMOTION_RATIONALE_REQUIRED",
 					});
 					return false;
@@ -7606,6 +7727,8 @@ export function createStudioStore(options: StudioStoreOptions = {}) {
 					userRole: options.userRole ?? "editor",
 					authToken: null,
 					authRequired: false,
+					authInitConflict: false,
+					authHint: null,
 					isBootstrappingAuth: false,
 					activeSession: options.initialSession ?? null,
 					sessions: options.initialSession ? [options.initialSession] : [],

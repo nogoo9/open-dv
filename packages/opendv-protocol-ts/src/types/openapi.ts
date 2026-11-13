@@ -3883,6 +3883,8 @@ export interface components {
 			local_token?: string | null;
 			/** Principal */
 			principal: string;
+			/** Role */
+			role?: string | null;
 			/** Status */
 			status: string;
 			/** Token Path */
@@ -6938,6 +6940,8 @@ export interface components {
 			access_token?: string | null;
 			/** Principal */
 			principal: string;
+			/** Role */
+			role?: string | null;
 			/** Status */
 			status: string;
 		};

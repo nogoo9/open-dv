@@ -1051,8 +1051,22 @@ class StudioSessionManager:
         content = session_json_path.read_text(encoding="utf-8")
         return SessionMetadata.model_validate_json(content)
 
+    @staticmethod
+    def _session_sort_key(meta: SessionMetadata) -> tuple[float, str]:
+        raw_ts = (meta.updated_at or meta.created_at or "").strip()
+        if raw_ts:
+            try:
+                normalized = f"{raw_ts[:-1]}+00:00" if raw_ts.endswith("Z") else raw_ts
+                dt = datetime.fromisoformat(normalized)
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=UTC)
+                return (dt.timestamp(), meta.session_id)
+            except ValueError:
+                pass
+        return (float("-inf"), meta.session_id)
+
     def list_sessions(self) -> list[SessionMetadata]:
-        """List all studio sessions present under studio root."""
+        """List all studio sessions under studio root, ordered by recency first."""
         if not self.studio_root.exists():
             return []
 
@@ -1067,6 +1081,7 @@ class StudioSessionManager:
                 except (ValidationError, ValueError, OSError, TypeError):
                     continue
 
+        sessions.sort(key=self._session_sort_key, reverse=True)
         return sessions
 
     def delete_session(self, session_id: str, force: bool = False) -> None:

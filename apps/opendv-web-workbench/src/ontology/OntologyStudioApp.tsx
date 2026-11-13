@@ -10,7 +10,7 @@
  */
 
 import type React from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ClarificationPanel } from "./components/ClarificationPanel";
 import { DiffOverlay } from "./components/DiffOverlay";
 import { ExportPromoteModal } from "./components/ExportPromoteModal";
@@ -129,6 +129,8 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 	const activeMode = useStudioStore((s) => s.activeMode);
 	const userRole = useStudioStore((s) => s.userRole);
 	const authRequired = useStudioStore((s) => s.authRequired);
+	const authInitConflict = useStudioStore((s) => s.authInitConflict);
+	const authHint = useStudioStore((s) => s.authHint);
 	const isBootstrappingAuth = useStudioStore((s) => s.isBootstrappingAuth);
 	const layout = useStudioStore((s) => s.layout);
 	const toasts = useStudioStore((s) => s.toasts);
@@ -165,6 +167,13 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 
 	// Auth bootstrap token state
 	const [tokenInput, setTokenInput] = useState("");
+	const tokenInputRef = useRef<HTMLInputElement | null>(null);
+
+	useEffect(() => {
+		if (authRequired && authInitConflict) {
+			tokenInputRef.current?.focus();
+		}
+	}, [authRequired, authInitConflict]);
 
 	// Quick-create & commit toolbar state
 	const [quickCreateMode, setQuickCreateMode] = useState<
@@ -340,6 +349,15 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 
 	const handleOpenDiff = () => {
 		if (!activeSession) return;
+		if (hasUnsavedChanges) {
+			const baseVersion = activeSession.active_version || "0.0.0";
+			void loadAndComputeDiff(baseVersion, "draft");
+			setLeftDrawerTab("history");
+			if (!layout.leftDrawerOpen) {
+				toggleLeftDrawer();
+			}
+			return;
+		}
 		const commits = activeSession.commits || [];
 		const targetVersion = activeSession.active_version;
 		const activeCommitIdx = commits.findIndex(
@@ -589,9 +607,10 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 					>
 						<strong>Studio Authentication Required:</strong>
 						<input
+							ref={tokenInputRef}
 							type="password"
 							className="form-input auth-token-input"
-							placeholder="Enter Studio API Bearer Token (OPENDV_STUDIO_TOKEN)..."
+							placeholder="Enter Studio API Bearer Token (OPENDV_TOKEN or .local_token)..."
 							value={tokenInput}
 							onChange={(e) => setTokenInput(e.target.value)}
 							data-testid="auth-token-input"
@@ -616,6 +635,14 @@ export const OntologyStudioApp: React.FC<OntologyStudioAppProps> = ({
 								: "Initialize Local Loopback Session"}
 						</button>
 					</form>
+					{authHint && (
+						<output
+							className="auth-conflict-hint"
+							data-testid="auth-conflict-hint"
+						>
+							{authHint}
+						</output>
+					)}
 				</div>
 			)}
 

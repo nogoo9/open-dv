@@ -19,7 +19,7 @@ import secrets
 import urllib.parse
 import uuid
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Annotated, Any, Final
 
 import yaml
@@ -60,6 +60,7 @@ from opendv_platform_api.security.studio_auth import (
     StudioPrincipal,
     authenticate_studio_request,
     exchange_launch_nonce,
+    get_active_session_role,
     get_server_mode,
     initialize_local_token,
     is_loopback_client,
@@ -393,6 +394,7 @@ class InitStudioResponse(BaseModel):
     status: str
     token_path: str
     principal: str
+    role: str | None = None
     local_token: str | None = None
     domain_namespace: str | None = None
 
@@ -412,6 +414,7 @@ class TokenExchangeResponse(BaseModel):
     status: str
     access_token: str | None = None
     principal: str
+    role: str | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -478,7 +481,9 @@ def require_viewer(
 ) -> StudioPrincipal:
     """Authenticate read-only / validation caller (viewer, editor, admin, or automated)."""
     verify_csrf(request)
-    return authenticate_studio_request(request, studio_root, required_role="viewer")
+    principal = authenticate_studio_request(request, studio_root, required_role="viewer")
+    request.state.studio_principal = principal
+    return principal
 
 
 def require_editor(
@@ -487,7 +492,9 @@ def require_editor(
 ) -> StudioPrincipal:
     """Authenticate human editor or admin caller (rejecting viewer and automated/agent:*)."""
     verify_csrf(request)
-    return authenticate_studio_request(request, studio_root, required_role="editor")
+    principal = authenticate_studio_request(request, studio_root, required_role="editor")
+    request.state.studio_principal = principal
+    return principal
 
 
 def require_editor_or_automated(
@@ -497,6 +504,7 @@ def require_editor_or_automated(
     """Authenticate human editor/admin or allow-listed automated caller (rejecting viewer)."""
     verify_csrf(request)
     principal = authenticate_studio_request(request, studio_root, required_role="viewer")
+    request.state.studio_principal = principal
     if principal.role == "viewer" and not principal.is_automated:
         raise StudioAPIError(
             "SERVER_OPERATION_FORBIDDEN",
@@ -511,7 +519,9 @@ def require_admin(
 ) -> StudioPrincipal:
     """Authenticate human administrator caller (rejecting viewer, editor, and automated)."""
     verify_csrf(request)
-    return authenticate_studio_request(request, studio_root, required_role="admin")
+    principal = authenticate_studio_request(request, studio_root, required_role="admin")
+    request.state.studio_principal = principal
+    return principal
 
 
 # Backward-compatible alias for external imports if any
@@ -1284,10 +1294,18 @@ def init_studio(
         is_remote=False,
     )
 
+    request.state.studio_principal = StudioPrincipal(
+        principal="human:local_admin",
+        role="admin",
+        is_admin=True,
+        auth_method="local_token",
+    )
+
     return InitStudioResponse(
         status="initialized",
         token_path=str(token_path),
         principal="human:local_admin",
+        role="admin",
         local_token=new_token,
         domain_namespace=payload.domain_namespace if payload else None,
     )
@@ -1773,8 +1791,16 @@ async def upload_source(
         if size_bytes == 0:
             raise StudioAPIError("CORRUPT_SOURCE_BLOB", "Uploaded source file is empty.")
 
-        filename = file.filename or "upload.bin"
-        mime_type = file.content_type or "application/octet-stream"
+        raw_name = (file.filename or "").strip()
+        base_name = PureWindowsPath(raw_name).name
+        filename = base_name if base_name and base_name not in {".", ".."} else "upload.bin"
+        raw_content_type = (file.content_type or "").split(";", 1)[0].strip().lower()
+        if (
+            not raw_content_type or raw_content_type == "application/octet-stream"
+        ) and filename.lower().endswith((".md", ".markdown")):
+            mime_type = "text/markdown"
+        else:
+            mime_type = raw_content_type or "application/octet-stream"
         return await run_in_threadpool(
             _persist_uploaded_source_sync,
             session_mgr=session_mgr,
@@ -4704,6 +4730,14 @@ def exchange_launch_nonce_endpoint(
         raise StudioAPIError("SYNTAX_INVALID_ARGUMENT", "Missing required 'nonce' field.")
 
     session_token, principal_str = exchange_launch_nonce(str(raw_nonce))
+    session_role = get_active_session_role(session_token)
+    effective_role = session_role or "admin"
+    request.state.studio_principal = StudioPrincipal(
+        principal=principal_str,
+        role=effective_role,
+        is_admin=(effective_role == "admin"),
+        auth_method="cookie",
+    )
 
     response.set_cookie(
         key="opendv_session",
@@ -4715,6 +4749,7 @@ def exchange_launch_nonce_endpoint(
     return TokenExchangeResponse(
         status="authenticated",
         principal=principal_str,
+        role=session_role,
     )
 
 
