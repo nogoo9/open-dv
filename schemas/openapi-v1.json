@@ -4348,6 +4348,17 @@
             "title": "Principal",
             "type": "string"
           },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
+          },
           "status": {
             "title": "Status",
             "type": "string"
@@ -10024,6 +10035,17 @@
           "principal": {
             "title": "Principal",
             "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Role"
           },
           "status": {
             "title": "Status",

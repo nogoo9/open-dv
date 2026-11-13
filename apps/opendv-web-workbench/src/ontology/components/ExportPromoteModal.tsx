@@ -12,6 +12,11 @@
 
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import {
+	CLIPBOARD_FEEDBACK_RESET_MS,
+	GREENFIELD_ZERO_HASH_SHA256,
+	MIN_RATIONALE_LENGTH,
+} from "../constants";
 import { useStudioStore } from "../store/studio-store";
 
 export interface ExportPromoteModalProps {
@@ -224,7 +229,10 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 			if (copyTimeoutRef.current) {
 				clearTimeout(copyTimeoutRef.current);
 			}
-			copyTimeoutRef.current = setTimeout(() => setCopySuccess(false), 2000);
+			copyTimeoutRef.current = setTimeout(
+				() => setCopySuccess(false),
+				CLIPBOARD_FEEDBACK_RESET_MS,
+			);
 		} catch {
 			addToast({
 				type: "urn:opendv:notice:clipboard",
@@ -244,14 +252,19 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 
 	const handlePromoteSubmit = async (e: React.FormEvent) => {
 		e.preventDefault();
-		if (!promoteRationale || promoteRationale.trim().length < 10) {
-			setPromoteError("Promotion rationale must be at least 10 characters.");
+		if (
+			!promoteRationale ||
+			promoteRationale.trim().length < MIN_RATIONALE_LENGTH
+		) {
+			setPromoteError(
+				`Promotion rationale must be at least ${MIN_RATIONALE_LENGTH} characters.`,
+			);
 			return;
 		}
 
-		if (ackWarning && nonWsHistoricalRationaleLen < 10) {
+		if (ackWarning && nonWsHistoricalRationaleLen < MIN_RATIONALE_LENGTH) {
 			setPromoteError(
-				"Historical contract warning rationale must contain at least 10 non-whitespace characters.",
+				`Historical contract warning rationale must contain at least ${MIN_RATIONALE_LENGTH} non-whitespace characters.`,
 			);
 			return;
 		}
@@ -569,7 +582,7 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 									<button
 										type="button"
 										className="btn-secondary btn-xs"
-										onClick={() => setWorkspaceSha("0".repeat(64))}
+										onClick={() => setWorkspaceSha(GREENFIELD_ZERO_HASH_SHA256)}
 										data-testid="greenfield-workspace-sha-btn"
 									>
 										Greenfield (64 zeros)
@@ -595,7 +608,7 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 
 						<div className="form-group">
 							<label htmlFor="promote-rationale-input">
-								Promotion Rationale (minimum 10 characters):
+								Promotion Rationale (minimum {MIN_RATIONALE_LENGTH} characters):
 							</label>
 							<textarea
 								id="promote-rationale-input"
@@ -605,16 +618,17 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 								value={promoteRationale}
 								onChange={(e) => {
 									setPromoteRationale(e.target.value);
-									if (e.target.value.trim().length >= 10) {
+									if (e.target.value.trim().length >= MIN_RATIONALE_LENGTH) {
 										setPromoteError(null);
 									}
 								}}
 								data-testid="promote-rationale-input"
 							/>
 							<span
-								className={`char-count ${promoteRationale.trim().length < 10 ? "text-fail" : "text-pass"}`}
+								className={`char-count ${promoteRationale.trim().length < MIN_RATIONALE_LENGTH ? "text-fail" : "text-pass"}`}
 							>
-								{promoteRationale.trim().length} / 10 chars minimum
+								{promoteRationale.trim().length} / {MIN_RATIONALE_LENGTH} chars
+								minimum
 							</span>
 						</div>
 
@@ -633,8 +647,8 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 						{ackWarning && (
 							<div className="form-group">
 								<label htmlFor="historical-contract-rationale-input">
-									Historical Contract Warning Rationale (minimum 10
-									non-whitespace characters):
+									Historical Contract Warning Rationale (minimum{" "}
+									{MIN_RATIONALE_LENGTH} non-whitespace characters):
 								</label>
 								<textarea
 									id="historical-contract-rationale-input"
@@ -644,17 +658,20 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 									value={historicalContractRationale}
 									onChange={(e) => {
 										setHistoricalContractRationale(e.target.value);
-										if (e.target.value.replace(/\s+/g, "").length >= 10) {
+										if (
+											e.target.value.replace(/\s+/g, "").length >=
+											MIN_RATIONALE_LENGTH
+										) {
 											setPromoteError(null);
 										}
 									}}
 									data-testid="historical-contract-rationale-input"
 								/>
 								<span
-									className={`char-count ${nonWsHistoricalRationaleLen < 10 ? "text-fail" : "text-pass"}`}
+									className={`char-count ${nonWsHistoricalRationaleLen < MIN_RATIONALE_LENGTH ? "text-fail" : "text-pass"}`}
 								>
-									{nonWsHistoricalRationaleLen} / 10 non-whitespace chars
-									minimum
+									{nonWsHistoricalRationaleLen} / {MIN_RATIONALE_LENGTH}{" "}
+									non-whitespace chars minimum
 								</span>
 							</div>
 						)}
@@ -678,8 +695,9 @@ export const ExportPromoteModal: React.FC<ExportPromoteModalProps> = ({
 								className="btn-primary"
 								disabled={
 									isPromoting ||
-									promoteRationale.trim().length < 10 ||
-									(ackWarning && nonWsHistoricalRationaleLen < 10)
+									promoteRationale.trim().length < MIN_RATIONALE_LENGTH ||
+									(ackWarning &&
+										nonWsHistoricalRationaleLen < MIN_RATIONALE_LENGTH)
 								}
 								data-testid="confirm-promote-btn"
 							>

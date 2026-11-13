@@ -236,6 +236,7 @@ export interface CandidateProposalSummary {
 	target_version?: string | undefined;
 	rationale?: string | undefined;
 	operations_count?: number | undefined;
+	ops_count?: number | undefined;
 	operations?: Array<Record<string, unknown>> | undefined;
 	created_at?: string | undefined;
 }

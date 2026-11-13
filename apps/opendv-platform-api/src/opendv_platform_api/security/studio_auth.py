@@ -354,6 +354,16 @@ def exchange_launch_nonce(nonce: str) -> tuple[str, str]:
     return session_token, principal
 
 
+def get_active_session_role(session_token: str) -> str | None:
+    """Return the RBAC role bound to an active HttpOnly session token, if present."""
+    with _AUTH_LOCK:
+        entry = _ACTIVE_SESSIONS.get(session_token)
+        if not isinstance(entry, dict):
+            return None
+        role = entry.get("role")
+        return str(role) if isinstance(role, str) else None
+
+
 def _normalize_studio_role(raw_role: str, *, allow_legacy_aliases: bool = True) -> str | None:
     role = raw_role.lower().strip()
     if role == "admin" or (
@@ -513,6 +523,8 @@ def authenticate_studio_request(
     if principal_obj is None:
         raise StudioAPIError("UNAUTHENTICATED", "Authentication credentials required.")
 
+    request.state.studio_principal = principal_obj
+
     if required_role and not principal_obj.can_perform(required_role):
         if principal_obj.is_automated:
             code = (
@@ -546,6 +558,7 @@ __all__ = [
     "StudioPrincipal",
     "authenticate_studio_request",
     "exchange_launch_nonce",
+    "get_active_session_role",
     "get_jwt_verification_key",
     "get_local_token_path",
     "get_server_mode",

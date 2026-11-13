@@ -38,6 +38,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 }) => {
 	const activeSession = useStudioStore((s) => s.activeSession);
 	const diffState = useStudioStore((s) => s.diffState);
+	const hasUnsavedChanges = useStudioStore((s) => s.hasUnsavedChanges);
 	const setDiffMode = useStudioStore((s) => s.setDiffMode);
 	const loadAndComputeDiff = useStudioStore((s) => s.loadAndComputeDiff);
 
@@ -46,6 +47,11 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 		return null;
 	}
 
+	const formatVersionHeading = (ver: string): string =>
+		ver === "draft" ? "Working Draft" : `v${ver}`;
+	const formatVersionOption = (ver: string): string =>
+		ver === "draft" ? "Working Draft (Uncommitted)" : `v${ver}`;
+
 	const availableVersions = Array.from(
 		new Set(
 			[
@@ -53,6 +59,11 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 				...(activeSession?.commits || []).map((c) => c.version),
 				...(activeSession?.active_version
 					? [activeSession.active_version]
+					: []),
+				...(hasUnsavedChanges ||
+				base_version === "draft" ||
+				target_version === "draft"
+					? ["draft"]
 					: []),
 				base_version,
 				target_version,
@@ -71,7 +82,8 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 			<div className="diff-header">
 				<div className="diff-title-row">
 					<h3 className="diff-title">
-						Ontology Version Diff: v{base_version} → v{target_version}
+						Ontology Version Diff: {formatVersionHeading(base_version)} →{" "}
+						{formatVersionHeading(target_version)}
 					</h3>
 					{onClose && (
 						<button
@@ -101,7 +113,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 						>
 							{availableVersions.map((ver) => (
 								<option key={`base-${ver}`} value={ver}>
-									v{ver}
+									{formatVersionOption(ver)}
 								</option>
 							))}
 						</select>
@@ -117,7 +129,7 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 						>
 							{availableVersions.map((ver) => (
 								<option key={`target-${ver}`} value={ver}>
-									v{ver}
+									{formatVersionOption(ver)}
 								</option>
 							))}
 						</select>
@@ -208,8 +220,9 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 			<div className="diff-body" data-testid="diff-records-container">
 				{records.length === 0 ? (
 					<div className="empty-diff-msg" data-testid="empty-diff-msg">
-						Identical ontology versions: zero delta operations between v
-						{base_version} and v{target_version}.
+						Identical ontology versions: zero delta operations between{" "}
+						{formatVersionHeading(base_version)} and{" "}
+						{formatVersionHeading(target_version)}.
 					</div>
 				) : mode === "side-by-side" ? (
 					<div
@@ -217,7 +230,9 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 						data-testid="diff-side-by-side-view"
 					>
 						<div className="side-column side-baseline">
-							<h4 className="side-heading">Baseline (v{base_version})</h4>
+							<h4 className="side-heading">
+								Baseline ({formatVersionHeading(base_version)})
+							</h4>
 							<ul className="side-list">
 								{records
 									.filter(
@@ -244,7 +259,9 @@ export const DiffOverlay: React.FC<DiffOverlayProps> = ({
 						</div>
 
 						<div className="side-column side-target">
-							<h4 className="side-heading">Target (v{target_version})</h4>
+							<h4 className="side-heading">
+								Target ({formatVersionHeading(target_version)})
+							</h4>
 							<ul className="side-list">
 								{records
 									.filter(

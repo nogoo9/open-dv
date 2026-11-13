@@ -52,8 +52,8 @@ from opendv_service.studio.locks import LockTimeoutError
 from opendv_service.studio.session_manager import SessionNotFoundError
 
 STUDIO_API_PREFIX: Final[str] = "/api/v1/ontology/studio"
-STUDIO_MAX_SOURCE_UPLOAD_BYTES: Final[int] = 100 * 1024 * 1024  # 100 MiB
-STUDIO_MAX_BUNDLE_IMPORT_BYTES: Final[int] = 500 * 1024 * 1024  # 500 MiB
+STUDIO_MAX_SOURCE_UPLOAD_BYTES: Final[int] = ontology_studio.MAX_SOURCE_UPLOAD_BYTES
+STUDIO_MAX_BUNDLE_IMPORT_BYTES: Final[int] = ontology_studio.MAX_BUNDLE_IMPORT_BYTES
 
 _HTTP_STATUS_TITLES: dict[int, str] = {
     400: "Bad Request",
@@ -222,7 +222,7 @@ def create_app(
             "X-OpenDV-Workspace-If-Match",
             "X-OpenDV-Waiver-Key",
         ],
-        expose_headers=["ETag", "Content-Disposition"],
+        expose_headers=["ETag", "Content-Disposition", "X-OpenDV-Role", "X-OpenDV-Principal"],
     )
 
     @application.middleware("http")
@@ -292,7 +292,12 @@ def create_app(
 
         request._receive = limited_receive
         try:
-            return await call_next(request)
+            response = await call_next(request)
+            studio_principal = getattr(request.state, "studio_principal", None)
+            if studio_principal is not None:
+                response.headers["X-OpenDV-Role"] = str(studio_principal.role)
+                response.headers["X-OpenDV-Principal"] = str(studio_principal.principal)
+            return response
         except PayloadTooLargeError as exc:
             if is_studio:
                 return build_studio_problem_response(

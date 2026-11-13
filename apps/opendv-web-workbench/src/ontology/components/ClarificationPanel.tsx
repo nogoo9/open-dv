@@ -280,6 +280,12 @@ export const ClarificationPanel: React.FC<ClarificationPanelProps> = ({
 							const selfAcceptOverride = Boolean(
 								proposalSelfOverrides[prop.proposal_id],
 							);
+							const opsCount = Array.isArray(prop.operations)
+								? prop.operations.length
+								: (prop.operations_count ?? prop.ops_count ?? 0);
+							const hasZeroOps = opsCount === 0;
+							const acceptDisabled =
+								isNonPending || !canHumanRatify || hasZeroOps;
 							return (
 								<div
 									key={prop.proposal_id}
@@ -288,10 +294,26 @@ export const ClarificationPanel: React.FC<ClarificationPanelProps> = ({
 								>
 									<div className="proposal-card-header">
 										<strong>{prop.proposal_id}</strong>
-										<span className="badge">{prop.status}</span>
+										<div className="panel-badges">
+											<span
+												className="badge"
+												data-testid={`proposal-ops-badge-${prop.proposal_id}`}
+											>
+												{opsCount} ops
+											</span>
+											<span className="badge">{prop.status}</span>
+										</div>
 									</div>
 									{prop.rationale && (
 										<p className="proposal-rationale">{prop.rationale}</p>
+									)}
+									{hasZeroOps && !isNonPending && (
+										<p
+											className="proposal-empty-notice"
+											data-testid={`proposal-empty-notice-${prop.proposal_id}`}
+										>
+											0 operations — upload and parse source documents first
+										</p>
 									)}
 									{!isNonPending && canHumanRatify && (
 										<div className="proposal-ratification-controls">
@@ -340,7 +362,12 @@ export const ClarificationPanel: React.FC<ClarificationPanelProps> = ({
 														: undefined,
 												)
 											}
-											disabled={isNonPending || !canHumanRatify}
+											disabled={acceptDisabled}
+											title={
+												hasZeroOps
+													? "0 operations — upload and parse source documents first"
+													: undefined
+											}
 											data-testid={`accept-proposal-btn-${prop.proposal_id}`}
 										>
 											Accept

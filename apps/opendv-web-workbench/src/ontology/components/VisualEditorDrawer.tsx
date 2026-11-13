@@ -12,6 +12,11 @@
 
 import type React from "react";
 import { useEffect, useRef, useState } from "react";
+import {
+	GROUNDING_MIN_CONFIDENCE,
+	MAX_SYNONYMS_PER_CONCEPT,
+	SAVE_FEEDBACK_RESET_MS,
+} from "../constants";
 import { useStudioStore } from "../store/studio-store";
 import type {
 	ConceptAttribute,
@@ -400,8 +405,10 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 			return;
 		}
 
-		if (synonyms.length >= 50) {
-			setValidationErrors(["Cannot add more than 50 synonyms per concept."]);
+		if (synonyms.length >= MAX_SYNONYMS_PER_CONCEPT) {
+			setValidationErrors([
+				`Cannot add more than ${MAX_SYNONYMS_PER_CONCEPT} synonyms per concept.`,
+			]);
 			return;
 		}
 
@@ -575,7 +582,10 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 			if (saveTimeoutRef.current) {
 				clearTimeout(saveTimeoutRef.current);
 			}
-			saveTimeoutRef.current = setTimeout(() => setSaveSuccess(false), 2500);
+			saveTimeoutRef.current = setTimeout(
+				() => setSaveSuccess(false),
+				SAVE_FEEDBACK_RESET_MS,
+			);
 			if (onSave) {
 				onSave(updated);
 			}
@@ -589,7 +599,10 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 		if (saveTimeoutRef.current) {
 			clearTimeout(saveTimeoutRef.current);
 		}
-		saveTimeoutRef.current = setTimeout(() => setSaveSuccess(false), 2500);
+		saveTimeoutRef.current = setTimeout(
+			() => setSaveSuccess(false),
+			SAVE_FEEDBACK_RESET_MS,
+		);
 
 		if (onSave) {
 			onSave(updated);
@@ -640,8 +653,8 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 					role="alert"
 					data-testid="drawer-validation-errors"
 				>
-					{validationErrors.map((err, idx) => (
-						<p key={idx} className="error-item">
+					{validationErrors.map((err) => (
+						<p key={err} className="error-item">
 							⚠️ {err}
 						</p>
 					))}
@@ -882,6 +895,14 @@ export const VisualEditorDrawer: React.FC<VisualEditorDrawerProps> = ({
 					<h4 className="section-heading">
 						FIBO / External Mappings ({externalMappings.length})
 					</h4>
+					<p className="mapping-guidance-hint">
+						<strong>ONT-EVO-002 Grounding:</strong> Path A requires at least one
+						server-verified FIBO mapping using <code>skos:exactMatch</code> or{" "}
+						<code>skos:closeMatch</code> with confidence &gt;={" "}
+						{GROUNDING_MIN_CONFIDENCE}. Path B lets an Admin authorize custom or{" "}
+						<code>user_asserted</code> concepts via a Steward Waiver in the
+						Quality tab.
+					</p>
 					<div className="mappings-list">
 						{externalMappings.map((m, idx) => (
 							<div
