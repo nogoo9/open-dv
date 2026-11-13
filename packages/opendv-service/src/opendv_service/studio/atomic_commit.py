@@ -1955,16 +1955,24 @@ class AtomicCommitService:
                     for staging_dir in session_dir.glob(".staging-*"):
                         if staging_dir.is_dir():
                             meta_file = staging_dir / "meta.json"
-                            if meta_file.exists():
+                            ont_file = staging_dir / "ontology.json"
+                            if meta_file.exists() and ont_file.exists():
                                 try:
                                     mdata = json.loads(meta_file.read_text(encoding="utf-8"))
-                                    if mdata.get("target_sha256") == session.head_sha256:
+                                    staged_ont = GraphAOntology.model_validate_json(
+                                        ont_file.read_text(encoding="utf-8")
+                                    )
+                                    if (
+                                        mdata.get("target_sha256") == session.head_sha256
+                                        and compute_ontology_sha256(staged_ont)
+                                        == session.head_sha256
+                                    ):
                                         active_version_dir.parent.mkdir(parents=True, exist_ok=True)
                                         replace_with_retry(staging_dir, active_version_dir)
                                         fsync_directory_best_effort(active_version_dir.parent)
                                         repaired = True
                                         break
-                                except (OSError, json.JSONDecodeError):
+                                except (OSError, json.JSONDecodeError, ValidationError):
                                     continue
                     if not repaired:
                         logger.warning(
@@ -2005,8 +2013,11 @@ class AtomicCommitService:
                     if not keep:
                         shutil.rmtree(staging_dir, ignore_errors=True)
 
-            # 4. Orphan Version Directory Reconciliation (SemVer-sorted & PENDING_COMMIT-gated)
+            # 4. Orphan Version Directory Reconciliation (SemVer-sorted & K_audit-gated)
             active_pending_intents = self._collect_active_pending_commit_intents(
+                audit_file, session
+            )
+            verified_committed_records = self._collect_verified_committed_records(
                 audit_file, session
             )
             versions_root = session_dir / "versions"
@@ -2058,6 +2069,27 @@ class AtomicCommitService:
                                 intent_key = (norm_tag, target_sha, parent_sha)
 
                                 if (
+                                    parent_sha == session.head_sha256
+                                    and computed_sha == target_sha
+                                    and intent_key in verified_committed_records
+                                ):
+                                    now_iso = datetime.now(UTC).isoformat()
+                                    session.head_version = v_clean
+                                    session.head_sha256 = target_sha
+                                    if norm_tag not in session.committed_versions:
+                                        session.committed_versions.append(norm_tag)
+                                    session.updated_at = now_iso
+                                    committed_set.add(norm_tag)
+
+                                    self._mark_proposals_post_commit(
+                                        session_dir=session_dir,
+                                        accepted_proposal_id=mdata.get("proposal_id"),
+                                        target_sha256=target_sha,
+                                        now_iso=now_iso,
+                                    )
+                                    self._write_session_json(session_dir, session)
+                                    reconciled = True
+                                elif (
                                     parent_sha == session.head_sha256
                                     and computed_sha == target_sha
                                     and intent_key in active_pending_intents
@@ -2313,6 +2345,75 @@ class AtomicCommitService:
                             )
                             session.audit_chain_head_sha256 = abort_promo["audit_sha256"]
                             self._write_session_json(session_dir, session)
+
+                    elif last_action == "PROMOTION_COMMITTED":
+                        p_details = (
+                            last_rec.get("details")
+                            if isinstance(last_rec.get("details"), dict)
+                            else {}
+                        )
+                        raw_p_ver = str(
+                            p_details.get("target_version") or last_rec.get("target_version") or ""
+                        ).strip()
+                        norm_p_ver = normalize_version_tag(raw_p_ver) if raw_p_ver else ""
+                        ws_sha = (
+                            str(
+                                p_details.get("workspace_sha256")
+                                or p_details.get("target_head_sha256")
+                                or last_rec.get("head_sha256")
+                                or ""
+                            )
+                            .strip()
+                            .lower()
+                        )
+                        promo_changed = False
+                        if norm_p_ver and norm_p_ver not in session.promoted_versions:
+                            session.promoted_versions.append(norm_p_ver)
+                            promo_changed = True
+                        if len(ws_sha) == 64 and session.last_promoted_sha256 != ws_sha:
+                            session.last_promoted_sha256 = ws_sha
+                            promo_changed = True
+                        if promo_changed:
+                            session.updated_at = datetime.now(UTC).isoformat()
+                            self._write_session_json(session_dir, session)
+
+    def _collect_verified_committed_records(
+        self,
+        audit_file: Path,
+        session: SessionMetadata,
+    ) -> dict[tuple[str, str, str], dict[str, Any]]:
+        """Collect locally K_audit-verified COMMITTED records for post-crash roll-forward."""
+        if not audit_file.is_file():
+            return {}
+        records = self._read_valid_audit_records(audit_file)
+        anchor_sha = session.imported_audit_anchor_sha256
+        seen_anchor = anchor_sha is None
+        committed_map: dict[tuple[str, str, str], dict[str, Any]] = {}
+        last_pending_parent_by_ver_sha: dict[tuple[str, str], str] = {}
+
+        for rec in records:
+            if not seen_anchor and rec.get("audit_sha256") == anchor_sha:
+                seen_anchor = True
+            if not seen_anchor:
+                continue
+
+            action = str(rec.get("action") or "")
+            det = rec.get("details") if isinstance(rec.get("details"), dict) else {}
+            raw_tv = str(det.get("target_version") or rec.get("target_version") or "").strip()
+            norm_tv = (
+                normalize_version_tag(raw_tv) if raw_tv and raw_tv.lower() != "unknown" else ""
+            )
+            t_sha = str(det.get("target_sha256") or rec.get("head_sha256") or "").strip().lower()
+            p_sha = str(det.get("parent_sha256") or "").strip().lower()
+
+            if action == "PENDING_COMMIT" and norm_tv and len(t_sha) == 64 and len(p_sha) == 64:
+                last_pending_parent_by_ver_sha[(norm_tv, t_sha)] = p_sha
+            elif action == "COMMITTED" and norm_tv and len(t_sha) == 64:
+                resolved_p_sha = p_sha or last_pending_parent_by_ver_sha.get((norm_tv, t_sha), "")
+                if len(resolved_p_sha) == 64:
+                    committed_map[(norm_tv, t_sha, resolved_p_sha)] = rec
+
+        return committed_map
 
     def _collect_active_pending_commit_intents(
         self,

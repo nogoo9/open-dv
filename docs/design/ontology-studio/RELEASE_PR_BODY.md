@@ -59,9 +59,9 @@ The Ontology Construction Studio provides enterprise-grade, neuro-symbolic Data 
   * Reviewers (`reviewer_6_1`, `reviewer_6_2_gen2`): **APPROVE**
   * Challengers (`challenger_6_1`, `challenger_6_2`): **APPROVE**
   * Forensic Auditor (`auditor_6`): **CLEAN** (zero production mocks, zero contract violations, clean state containers).
-- **Dual-Model Pre-Merge Critique & Remediation Loops (Gemini 4 Carbon + Claude CLI Opus 5.5)**:
-  * **Gemini 4 Carbon (6 Dedicated Subsystem Reviewers — Rounds 2, 3 & 4/5)**: Verified **0 CRITICAL / 0 MAJOR findings** across core contracts/sources, ontology engine/BM25/agent harness, Studio CAS/locks/bundles/runners, Platform REST/SSE API & auth perimeter, Dual CLI (`opendv` + `opendvctl`), and React 19 Web Workbench (`/ontology`).
-  * **Claude CLI Opus 5.5 (Partitioned Full-Branch Diff Audits — Rounds 2 & 3)**: All real `CRITICAL` and `MAJOR` bugs and substantive design/spec discrepancies surfaced across every subsystem partition remediated and regression-tested across Python (`pytest`) and TypeScript (`bun test`, `tsc --noEmit`).
+- **Dual-Model Pre-Merge Critique, Remediation & Reviewer Validation Loops (Gemini 4 Carbon + Claude CLI Opus 5.5)**:
+  * **Gemini 4 Carbon (6 Dedicated Subsystem Reviewers — Rounds 2–6 + Post-Remediation Sign-Off)**: Verified **0 CRITICAL / 0 MAJOR findings** across core contracts/sources, ontology engine/BM25/agent harness, Studio CAS/locks/bundles/runners, Platform REST/SSE API & auth perimeter, Dual CLI (`opendv` + `opendvctl`), and React 19 Web Workbench (`/ontology`), including extra-deep adversarial verification of Round-4 remediations and quota-capped slices (`P10b`–`P14c4`).
+  * **Claude CLI Opus 5.5 (Partitioned Full-Branch Diff Audits — Rounds 2, 3 & 4)**: All real `CRITICAL` and `MAJOR` bugs and substantive design/spec discrepancies surfaced across Round 2, Round 3, and Round 4 (`25` `PASS` + `8` remediated partitions -> `0 CRITICAL / 0 MAJOR` remaining; final `9/42` Round-4 partitions hit Claude CLI's weekly usage limit resetting `Nov 16, 4pm Asia/Singapore`) remediated and regression-tested across Python (`pytest`) and TypeScript (`bun test`, `tsc --noEmit`).
 - **GitHub Issue Tracker Closeout**: All 43 task issues (#197–#239), 3 phase trackers (#194–#196), and Epic tracker (#193) audited and updated with dual-model review & engineering learnings summaries on `nogoo9/open-dv`.
 
 ---

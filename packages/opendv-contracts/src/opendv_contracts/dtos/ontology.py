@@ -127,6 +127,33 @@ def _lookup_concept_attr(base_ontology: Any, concept_uri: str, attr_name: str) -
     return None
 
 
+def _extract_attr_spec_name_and_optional(item: Any) -> tuple[str, bool]:
+    """Return `(attribute_name, is_optional)` for a string, dict, or ConceptAttribute-like item."""
+    if isinstance(item, str):
+        return item.strip(), True
+    if isinstance(item, dict):
+        name = str(item.get("attribute_name") or item.get("name") or "").strip()
+        return name, item.get("is_optional", True) is not False
+    name = str(getattr(item, "attribute_name", "") or "").strip()
+    return name, getattr(item, "is_optional", True) is not False
+
+
+def _lookup_existing_attr_map(base_ontology: Any, concept_uri: str) -> dict[str, bool] | None:
+    """Return `{attribute_name: is_optional}` if `concept_uri` exists in `base_ontology`."""
+    if base_ontology is None or not concept_uri:
+        return None
+    if _lookup_concept_attr(base_ontology, concept_uri, "concept_uri") is None:
+        return None
+    raw_attrs = _lookup_concept_attr(base_ontology, concept_uri, "attributes") or []
+    result: dict[str, bool] = {}
+    if isinstance(raw_attrs, (list, tuple)):
+        for item in raw_attrs:
+            a_name, is_opt = _extract_attr_spec_name_and_optional(item)
+            if a_name:
+                result[a_name] = is_opt
+    return result
+
+
 class EvidenceRef(BaseContractModel):
     """Grounding evidence reference for an ontology delta operation."""
 
@@ -301,6 +328,21 @@ class AddConceptOp(BaseOntologyDeltaOp):
     source_hints: list[str] | None = Field(
         default=None, description="Provenance hints identifying source data feeds"
     )
+
+    def effective_semver_class(self, base_ontology: Any = None) -> SemVerClass:
+        """Return MAJOR if merging a mandatory attribute onto an existing CBC."""
+        if base_ontology is not None and self.attributes:
+            existing_attrs = _lookup_existing_attr_map(base_ontology, self.concept_uri)
+            if existing_attrs is not None:
+                for item in self.attributes:
+                    a_name, is_opt = _extract_attr_spec_name_and_optional(item)
+                    if not a_name:
+                        continue
+                    if a_name not in existing_attrs and not is_opt:
+                        return "MAJOR"
+                    if a_name in existing_attrs and existing_attrs[a_name] != is_opt:
+                        return "MAJOR"
+        return self.semver_class
 
 
 class AddRelationshipOp(BaseOntologyDeltaOp):
@@ -905,6 +947,31 @@ class RefineDefinitionOp(BaseOntologyDeltaOp):
         if isinstance(data, dict):
             _assert_no_alias_conflict(data, "refined_description", "definition")
         return data
+
+    def effective_semver_class(self, base_ontology: Any = None) -> SemVerClass:
+        """Compute effective SemVer class: MAJOR for mandatory attr, MINOR for optional attr."""
+        if self.additional_attributes:
+            target_u = self.concept_uri or self.target_uri
+            existing_attrs = (
+                _lookup_existing_attr_map(base_ontology, target_u)
+                if (base_ontology is not None and target_u)
+                else None
+            )
+            has_added = False
+            for item in self.additional_attributes:
+                a_name, is_opt = _extract_attr_spec_name_and_optional(item)
+                if not a_name:
+                    continue
+                if existing_attrs is not None and a_name in existing_attrs:
+                    if existing_attrs[a_name] != is_opt:
+                        return "MAJOR"
+                    continue
+                has_added = True
+                if not is_opt and (base_ontology is None or existing_attrs is not None):
+                    return "MAJOR"
+            if has_added and (base_ontology is None or existing_attrs is not None):
+                return "MINOR"
+        return self.semver_class
 
 
 class AddSourceHintOp(BaseOntologyDeltaOp):

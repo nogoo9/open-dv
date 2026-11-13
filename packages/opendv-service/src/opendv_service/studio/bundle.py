@@ -453,6 +453,28 @@ def validate_archive_member(
             raise ArchiveSecurityViolationError(
                 f"Empty or relative '.' segment detected in archive member '{raw_name}'"
             )
+        if seg.endswith((".", " ")) or re.search(r"~\d", seg):
+            raise ArchiveSecurityViolationError(
+                f"Archive member '{raw_name}' contains forbidden Win32 trailing dot/space or "
+                f"8.3 short-name segment '{seg}'"
+            )
+        if (
+            seg
+            in (
+                ".session_secret",
+                ".session_fenced",
+                ".odv_workspace_secret",
+                ".session.lock",
+                ".local_token.lock",
+                ".staging",
+            )
+            or seg.endswith((".lock", ".tmp"))
+            or seg.startswith((".staging-", ".quarantine", ".trash-"))
+        ):
+            raise ArchiveSecurityViolationError(
+                f"Archive member '{raw_name}' contains forbidden internal Studio control entry "
+                f"'{seg}'"
+            )
 
         # 9. Windows reserved device names check
         base_seg = seg.split(".")[0].lower()
@@ -515,6 +537,7 @@ def export_bundle(
     security_manager: WorkspaceSecurityManager | None = None,
     actor: str = "admin",
     overwrite: bool = False,
+    allow_cli_output_path: bool = False,
 ) -> Path:
     """Export a studio session CAS directory into a portable .odvstudio.zip archive under L5 lock.
 
@@ -552,20 +575,24 @@ def export_bundle(
     else:
         sess_allowed_roots = [os.getcwd()]
         if security_manager is not None:
-            sec_r = security_manager.studio_root
-            sess_allowed_roots.extend([sec_r, sec_r.parent, sec_r.parent.parent])
-        else:
-            s_parent = (raw_sdir if raw_sdir.is_absolute() else (Path.cwd() / raw_sdir)).parent
-            sess_allowed_roots.extend([s_parent, s_parent.parent])
+            sess_allowed_roots.append(security_manager.studio_root)
         if env_studio:
-            sess_allowed_roots.extend([env_studio, Path(env_studio).parent])
+            sess_allowed_roots.append(env_studio)
         if env_ws:
-            sess_allowed_roots.extend([env_ws, Path(env_ws).parent])
+            sess_allowed_roots.append(env_ws)
 
-        out_allowed_roots = list(sess_allowed_roots)
+        out_allowed_roots = [os.getcwd()]
         if security_manager is not None:
-            out_allowed_roots.append(security_manager.studio_root / ".scratch")
-        if raw_out.is_absolute() and ".." not in raw_out.parts:
+            sec_r = security_manager.studio_root
+            out_allowed_roots.extend([sec_r, sec_r / ".scratch", sec_r.parent])
+            if sec_r.name == "sessions" or sec_r.parent.name.startswith("."):
+                out_allowed_roots.append(sec_r.parent.parent)
+        if env_studio:
+            est_p = Path(env_studio)
+            out_allowed_roots.extend([est_p, est_p / ".scratch", est_p.parent])
+        if env_ws:
+            out_allowed_roots.append(env_ws)
+        if allow_cli_output_path and raw_out.is_absolute() and ".." not in raw_out.parts:
             out_allowed_roots.append(Path(os.path.realpath(str(raw_out))).parent)
 
     _reject_symlinks_on_path_and_ancestors(raw_sdir, sess_allowed_roots, "Export session directory")
@@ -635,14 +662,35 @@ def export_bundle(
 
         files_to_pack: list[tuple[Path, str]] = []
         total_uncompressed_bytes = 0
+        sdir_resolved = sdir.resolve()
 
-        for root, dirs, files in os.walk(sdir):
-            dirs[:] = [
-                d
-                for d in dirs
-                if d != ".staging"
-                and not any(d.startswith(p) for p in (".staging-", ".quarantine", ".trash-"))
-            ]
+        for root, dirs, files in os.walk(sdir, followlinks=False):
+            kept_dirs: list[str] = []
+            for d in dirs:
+                if d == ".staging" or any(
+                    d.startswith(p) for p in (".staging-", ".quarantine", ".trash-")
+                ):
+                    continue
+                d_path = Path(root) / d
+                try:
+                    st_d = os.lstat(d_path)
+                except OSError as exc:
+                    raise ArchiveSecurityViolationError(
+                        f"Unable to stat directory '{d}' during session bundle export: {exc}"
+                    ) from exc
+                is_dir_reparse = bool(
+                    getattr(st_d, "st_file_attributes", 0) & _WIN_FILE_ATTRIBUTE_REPARSE_POINT
+                )
+                if stat.S_ISLNK(st_d.st_mode) or is_dir_reparse or d_path.is_symlink():
+                    raise ArchiveSecurityViolationError(
+                        f"Symlink or reparse directory '{d}' is forbidden in session bundle export."
+                    )
+                if not d_path.resolve().is_relative_to(sdir_resolved):
+                    raise ArchiveSecurityViolationError(
+                        f"Directory '{d}' escapes session root during bundle export."
+                    )
+                kept_dirs.append(d)
+            dirs[:] = kept_dirs
 
             for file_name in sorted(files):
                 if file_name.endswith((".lock", ".tmp")):
@@ -652,6 +700,7 @@ def export_bundle(
                     ".session.lock",
                     ".local_token.lock",
                     ".session_fenced",
+                    ".odv_workspace_secret",
                 ):
                     continue
 
@@ -661,11 +710,30 @@ def export_bundle(
                     continue
 
                 try:
-                    fsize = full_path.stat().st_size
-                except OSError:
-                    continue
+                    st_f = os.lstat(full_path)
+                except OSError as exc:
+                    raise ArchiveSecurityViolationError(
+                        f"Unable to stat entry '{rel_path}' during session bundle export: {exc}"
+                    ) from exc
+                is_file_reparse = bool(
+                    getattr(st_f, "st_file_attributes", 0) & _WIN_FILE_ATTRIBUTE_REPARSE_POINT
+                )
+                if (
+                    stat.S_ISLNK(st_f.st_mode)
+                    or is_file_reparse
+                    or full_path.is_symlink()
+                    or not stat.S_ISREG(st_f.st_mode)
+                ):
+                    raise ArchiveSecurityViolationError(
+                        f"Symlink, reparse point, or non-regular file '{rel_path}' is forbidden "
+                        "in session bundle export."
+                    )
+                if not full_path.resolve().is_relative_to(sdir_resolved):
+                    raise ArchiveSecurityViolationError(
+                        f"Session entry '{rel_path}' escapes session root during bundle export."
+                    )
 
-                total_uncompressed_bytes += fsize
+                total_uncompressed_bytes += st_f.st_size
                 files_to_pack.append((full_path, rel_path))
 
         bundle_manifest: dict[str, Any] = {
@@ -693,12 +761,46 @@ def export_bundle(
                 f"{total_uncompressed_bytes} > {MAX_BUNDLE_UNCOMPRESSED_BYTES} bytes"
             )
 
+        open_flags = os.O_RDONLY | getattr(os, "O_BINARY", 0) | getattr(os, "O_NOFOLLOW", 0)
         tmp_zip_path = out_path.parent / f".bundle.{secrets.token_hex(4)}.tmp"
         try:
             with zipfile.ZipFile(tmp_zip_path, mode="w", compression=zipfile.ZIP_DEFLATED) as zf:
                 zf.writestr("bundle.json", manifest_bytes)
                 for full_p, rel_p in files_to_pack:
-                    zf.write(full_p, arcname=rel_p)
+                    try:
+                        st_pre = os.lstat(full_p)
+                    except OSError as exc:
+                        raise ArchiveSecurityViolationError(
+                            f"Failed to verify '{rel_path}' prior to archiving: {exc}"
+                        ) from exc
+                    if (
+                        stat.S_ISLNK(st_pre.st_mode)
+                        or bool(
+                            getattr(st_pre, "st_file_attributes", 0)
+                            & _WIN_FILE_ATTRIBUTE_REPARSE_POINT
+                        )
+                        or full_p.is_symlink()
+                    ):
+                        raise ArchiveSecurityViolationError(
+                            f"Symlink or reparse point '{rel_path}' detected during bundle export."
+                        )
+                    try:
+                        fd_in = os.open(str(full_p), open_flags)
+                    except OSError as exc:
+                        raise ArchiveSecurityViolationError(
+                            f"Refused to open '{rel_path}' for bundle export: {exc}"
+                        ) from exc
+                    with os.fdopen(fd_in, "rb") as src_fp:
+                        st_fd = os.fstat(src_fp.fileno())
+                        if not stat.S_ISREG(st_fd.st_mode):
+                            raise ArchiveSecurityViolationError(
+                                f"Non-regular file '{rel_path}' is forbidden in bundle export."
+                            )
+                        zinfo = zipfile.ZipInfo(rel_p)
+                        zinfo.compress_type = zipfile.ZIP_DEFLATED
+                        zinfo.external_attr = 0o600 << 16
+                        with zf.open(zinfo, "w") as dst_fp:
+                            shutil.copyfileobj(src_fp, dst_fp, length=65536)
 
             with tmp_zip_path.open("r+b") as fp:
                 fp.flush()
@@ -1711,6 +1813,15 @@ def _resign_acknowledged_version_waivers(
     now_utc = datetime.now(UTC)
     for vdir in sorted(versions_dir.iterdir()):
         if not vdir.is_dir():
+            continue
+        delta_file = vdir / "delta.json"
+        if not delta_file.is_file():
+            continue
+        try:
+            v_delta = OntologyDelta.model_validate_json(delta_file.read_text(encoding="utf-8"))
+        except (OSError, ValidationError, ValueError):
+            continue
+        if not v_delta.operations:
             continue
 
         resigned_by_key: dict[tuple[str, tuple[str, ...]], StewardWaiverRecord] = {}

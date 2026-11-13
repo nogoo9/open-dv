@@ -454,3 +454,130 @@ class TestPseudonymizeChunkUnionRemediation:
             pseudo.pseudonymize_table(leak_tbl)
         assert exc_tbl_leak.value.error_code == ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN
         assert "ultrasecrettoken" not in str(exc_tbl_leak.value).lower()
+
+    def test_r4_opus_p09a_serialized_mapping_privacy_guard_and_reserved_key_terms(
+        self,
+    ) -> None:
+        """Regression R4 Opus P09a::MAJ-01 & MIN-03:
+        - `validate_task_spec_privacy` enforces `do_not_send_to_agent`, non-public taint
+          `pseudonymized=True`, and `sensitive_entities` stripping on serialized Mapping dicts
+          (`model_dump()` / `model_dump(mode="json")`), NOT just typed Pydantic instances.
+        - `pseudonymize_chunk` and `pseudonymize_table` do not false-positive when sensitive terms
+          overlap harness-owned keys (`redacted`, `entity`, `count`, `pseudonymized`).
+        """
+        pseudo = Pseudonymizer(b"r4-opus-p09a-hmac-key-0123456789")
+
+        # 1. Serialized chunk dict with do_not_send_to_agent=True is rejected
+        dns_chunk = _make_chunk(
+            "Public text with DNS flag",
+            taint=TaintClassification.PUBLIC,
+            metadata={"do_not_send_to_agent": True},
+        )
+        with pytest.raises(OpenDVError) as exc_dns_dict:
+            validate_task_spec_privacy(
+                "Analyze serialized chunk",
+                input_data={"chunks": [dns_chunk.model_dump(mode="json")]},
+            )
+        assert exc_dns_dict.value.error_code == ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN
+
+        # 2. Top-level dict carrying do_not_send_to_agent=True is rejected
+        with pytest.raises(OpenDVError) as exc_top_dns:
+            validate_task_spec_privacy(
+                "Analyze raw payload",
+                input_data={"source_id": "src-1", "do_not_send_to_agent": True},
+            )
+        assert exc_top_dns.value.error_code == ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN
+
+        # 3. Unpseudonymized confidential chunk/table/ingestion model_dump() dicts are rejected
+        conf_chunk = _make_chunk(
+            "Deal signed by Counterparty Alpha.",
+            metadata={"sensitive_entities": ["Counterparty Alpha"]},
+        )
+        with pytest.raises(OpenDVError) as exc_conf_cdict:
+            validate_task_spec_privacy(
+                "Analyze serialized confidential chunk",
+                input_data={"chunks": [conf_chunk.model_dump(mode="json")]},
+            )
+        assert (
+            exc_conf_cdict.value.error_code == ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN
+        )
+
+        conf_tbl = TableStructure(
+            table_id="tbl_conf",
+            headers=["client_name"],
+            rows=[["Counterparty Alpha"]],
+            taint=TaintClassification.CONFIDENTIAL,
+            metadata={"sensitive_entities": ["Counterparty Alpha"]},
+        )
+        with pytest.raises(OpenDVError) as exc_conf_tdict:
+            validate_task_spec_privacy(
+                "Analyze serialized confidential table",
+                input_data={"tables": [conf_tbl.model_dump(mode="json")]},
+            )
+        assert (
+            exc_conf_tdict.value.error_code == ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN
+        )
+
+        # 4. Properly pseudonymized serialized chunk & table model_dump() pass cleanly, EVEN when
+        #    sensitive_terms include 'redacted', 'entity', 'count', 'pseudonymized'!
+        reserved_terms = ["Counterparty Alpha", "redacted", "entity", "count", "pseudonymized"]
+        masked_c = pseudo.pseudonymize_chunk(conf_chunk, sensitive_terms=reserved_terms)
+        masked_t = pseudo.pseudonymize_table(conf_tbl, sensitive_terms=reserved_terms)
+        validate_task_spec_privacy(
+            "Analyze properly masked serialized artifacts",
+            input_data={
+                "chunks": [masked_c.model_dump(mode="json")],
+                "tables": [masked_t.model_dump(mode="json")],
+            },
+        )
+
+    def test_r4_opus_p09b_base_enum_table_slug_resolves_to_actual_base_enum_uri(self) -> None:
+        """Regression R4 Opus P09b::MAJ-01:
+        When a base enumeration has `enum_uri='urn:ontology:enum:currency_code'` and
+        `target_reference_table='ref_currency'`, an explicit `add_reference_enumeration` for
+        `ref_currency` + `add_reference_enum_code` against `urn:ontology:enum:currency` resolves
+        to the actual base `urn:ontology:enum:currency_code` (never a non-existent URI).
+        """
+        from opendv_agent_harness.personas import OntologyArchitect
+        from opendv_contracts.dtos.ontology import (
+            AddReferenceEnumCodeOp,
+            AddReferenceEnumerationOp,
+        )
+        from opendv_core.models.graph_a import GraphAOntology, ReferenceEnumeration
+
+        base_ont = GraphAOntology(
+            ontology_version="0.1.0",
+            domain_namespace="finance",
+            enterprise_owner="Enterprise",
+            canonical_business_concepts=[],
+            reference_enumerations=[
+                ReferenceEnumeration(
+                    enum_uri="urn:ontology:enum:currency_code",
+                    target_reference_table="ref_currency",
+                    allowed_codes=["USD", "GBP"],
+                )
+            ],
+        )
+        architect = OntologyArchitect()
+        proposal = architect.propose_delta(
+            base_ontology=base_ont,
+            evidence=[],
+            operations=[
+                AddReferenceEnumerationOp(
+                    op_id="op-enum-curr",
+                    name="ref_currency",
+                    target_reference_table="ref_currency",
+                    allowed_codes=["USD"],
+                ),
+                AddReferenceEnumCodeOp(
+                    op_id="op-code-eur",
+                    enum_uri="urn:ontology:enum:currency",
+                    code="EUR",
+                ),
+            ],
+        )
+        code_ops = [
+            op for op in proposal.delta.operations if op.op_type == "add_reference_enum_code"
+        ]
+        assert len(code_ops) == 1
+        assert code_ops[0].enum_uri == "urn:ontology:enum:currency_code"

@@ -29,6 +29,8 @@ import logging
 import os
 import re
 import secrets
+import stat
+import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -209,6 +211,61 @@ def _iter_manifest_entries_deduped(manifest: dict[str, Any]) -> list[dict[str, A
     return entries
 
 
+def _read_session_json_dict_fail_closed(file_path: Path, label: str) -> dict[str, Any] | None:
+    """Read a session JSON dictionary with Win32 atomic-replace retry; fail closed on corruption."""
+    try:
+        st = os.lstat(file_path)
+    except FileNotFoundError:
+        return None
+    except OSError as exc:
+        raise OpenDVError(
+            f"Unable to stat {label} '{file_path.name}'; refusing to fail open on privacy state: "
+            f"{exc}",
+            error_code=ErrorCode.CORRUPT_SESSION_RECORD,
+        ) from exc
+
+    is_reparse = bool(getattr(st, "st_file_attributes", 0) & 0x0400)
+    if stat.S_ISLNK(st.st_mode) or is_reparse or file_path.is_symlink():
+        raise OpenDVError(
+            f"Session {label} '{file_path.name}' must not be a symlink or reparse point.",
+            error_code=ErrorCode.INVALID_WORKSPACE_PATH,
+        )
+    if not stat.S_ISREG(st.st_mode):
+        return None
+
+    last_err: Exception | None = None
+    for attempt in range(6):
+        try:
+            raw_text = file_path.read_text(encoding="utf-8")
+            parsed = json.loads(raw_text)
+            if not isinstance(parsed, dict):
+                raise OpenDVError(
+                    f"Session {label} '{file_path.name}' must contain a JSON object; "
+                    "refusing to fail open on privacy/tombstone state.",
+                    error_code=ErrorCode.CORRUPT_SESSION_RECORD,
+                )
+            return parsed
+        except FileNotFoundError:
+            return None
+        except PermissionError as exc:
+            last_err = exc
+            if attempt < 5:
+                time.sleep(0.01 * (2**attempt))
+                continue
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+            last_err = exc
+            if isinstance(exc, OSError) and attempt < 5:
+                time.sleep(0.01 * (2**attempt))
+                continue
+            break
+
+    raise OpenDVError(
+        f"Failed to read or parse session {label} '{file_path.name}'; "
+        f"refusing to fail open on privacy/tombstone state: {last_err}",
+        error_code=ErrorCode.CORRUPT_SESSION_RECORD,
+    ) from last_err
+
+
 def _load_source_privacy_and_lifecycle_state(session_dir: Path) -> dict[str, Any]:
     """Read `inputs/manifest.json` and `taint_index.json` for sticky privacy and tombstones."""
     active_ids: set[str] = set()
@@ -233,123 +290,119 @@ def _load_source_privacy_and_lifecycle_state(session_dir: Path) -> dict[str, Any
             store[key] = merged
 
     manifest_file = session_dir / "inputs" / "manifest.json"
-    if manifest_file.is_file():
-        with contextlib.suppress(OSError, json.JSONDecodeError):
-            m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
-            if isinstance(m_data, dict):
-                for entry in _iter_manifest_entries_deduped(m_data):
-                    sid = str(entry.get("source_id") or entry.get("id") or "")
-                    entry_shas = [
-                        str(entry.get(k)).lower()
-                        for k in ("sha256", "blob_sha256", "content_sha256", "source_sha256")
-                        if isinstance(entry.get(k), str) and len(str(entry.get(k))) == 64
-                    ]
-                    if entry.get("tombstoned") or entry.get("deleted"):
-                        if sid:
-                            tombstoned_ids.add(sid)
-                        tombstoned_hashes.update(entry_shas)
-                    else:
-                        if sid:
-                            active_ids.add(sid)
-                            if entry_shas:
-                                active_sha_by_id[sid] = entry_shas[0]
-                        active_hashes.update(entry_shas)
+    m_data = _read_session_json_dict_fail_closed(manifest_file, "inputs manifest")
+    if m_data is not None:
+        for entry in _iter_manifest_entries_deduped(m_data):
+            sid = str(entry.get("source_id") or entry.get("id") or "")
+            entry_shas = [
+                str(entry.get(k)).lower()
+                for k in ("sha256", "blob_sha256", "content_sha256", "source_sha256")
+                if isinstance(entry.get(k), str) and len(str(entry.get(k))) == 64
+            ]
+            if entry.get("tombstoned") or entry.get("deleted"):
+                if sid:
+                    tombstoned_ids.add(sid)
+                tombstoned_hashes.update(entry_shas)
+            else:
+                if sid:
+                    active_ids.add(sid)
+                    if entry_shas:
+                        active_sha_by_id[sid] = entry_shas[0]
+                active_hashes.update(entry_shas)
 
-                    raw_t = entry.get("taint") or entry.get("taint_classification")
-                    norm_t = _normalize_taint_value(raw_t)
-                    dns = bool(entry.get("do_not_send_to_agent") is True)
-                    if str(raw_t or "").strip().upper() == "DO_NOT_SEND":
-                        dns = True
-                    if dns:
-                        norm_t = _max_taint(norm_t, TaintClassification.CONFIDENTIAL)
-                        if sid:
-                            do_not_send_ids.add(sid)
-                        do_not_send_shas.update(entry_shas)
-                    if sid:
-                        _merge_taint(taint_by_id, sid, norm_t)
-                    for h in entry_shas:
-                        _merge_taint(taint_by_sha, h, norm_t)
+            raw_t = entry.get("taint") or entry.get("taint_classification")
+            norm_t = _normalize_taint_value(raw_t)
+            dns = bool(entry.get("do_not_send_to_agent") is True)
+            if str(raw_t or "").strip().upper() == "DO_NOT_SEND":
+                dns = True
+            if dns:
+                norm_t = _max_taint(norm_t, TaintClassification.CONFIDENTIAL)
+                if sid:
+                    do_not_send_ids.add(sid)
+                do_not_send_shas.update(entry_shas)
+            if sid:
+                _merge_taint(taint_by_id, sid, norm_t)
+            for h in entry_shas:
+                _merge_taint(taint_by_sha, h, norm_t)
 
     # An active re-registration of the same source_id supersedes an older tombstone record
     tombstoned_ids -= active_ids
 
     taint_idx_file = session_dir / "taint_index.json"
-    if taint_idx_file.is_file():
-        with contextlib.suppress(OSError, json.JSONDecodeError):
-            t_data = json.loads(taint_idx_file.read_text(encoding="utf-8"))
-            if isinstance(t_data, dict):
-                for list_key in (
-                    "tainted_source_ids",
-                    "tainted_sources",
-                    "confidential_sources",
-                    "do_not_send_to_agent",
-                    "do_not_send_source_ids",
-                    "do_not_send_sources",
-                ):
-                    coll = t_data.get(list_key)
-                    if isinstance(coll, list):
-                        for item in coll:
-                            if isinstance(item, str) and item.strip():
-                                clean_s = item.strip()
-                                if len(clean_s) == 64 and all(
-                                    ch in "0123456789abcdefABCDEF" for ch in clean_s
-                                ):
-                                    do_not_send_shas.add(clean_s.lower())
-                                    _merge_taint(
-                                        taint_by_sha,
-                                        clean_s.lower(),
-                                        TaintClassification.CONFIDENTIAL,
-                                    )
-                                else:
-                                    do_not_send_ids.add(clean_s)
-                                    _merge_taint(
-                                        taint_by_id,
-                                        clean_s,
-                                        TaintClassification.CONFIDENTIAL,
-                                    )
-                            elif isinstance(item, dict):
-                                i_sid = str(item.get("source_id") or item.get("id") or "").strip()
-                                i_sha = (
-                                    str(item.get("sha256") or item.get("source_sha256") or "")
-                                    .strip()
-                                    .lower()
-                                )
-                                i_dns = item.get("do_not_send_to_agent", True) is not False
-                                i_taint = _normalize_taint_value(
-                                    item.get("taint") or item.get("taint_classification"),
-                                    default=TaintClassification.CONFIDENTIAL,
-                                )
-                                if i_dns:
-                                    i_taint = _max_taint(i_taint, TaintClassification.CONFIDENTIAL)
-                                    if i_sid:
-                                        do_not_send_ids.add(i_sid)
-                                    if len(i_sha) == 64:
-                                        do_not_send_shas.add(i_sha)
-                                if i_sid:
-                                    _merge_taint(taint_by_id, i_sid, i_taint)
-                                if len(i_sha) == 64:
-                                    _merge_taint(taint_by_sha, i_sha, i_taint)
-
-                sha_list = t_data.get("tainted_sha256s")
-                if isinstance(sha_list, list):
-                    for s_val in sha_list:
-                        if isinstance(s_val, str) and len(s_val.strip()) == 64:
-                            clean_h = s_val.strip().lower()
-                            do_not_send_shas.add(clean_h)
-                            _merge_taint(taint_by_sha, clean_h, TaintClassification.CONFIDENTIAL)
-
-                sources_map = t_data.get("sources")
-                if isinstance(sources_map, dict):
-                    for k, v in sources_map.items():
-                        if isinstance(v, dict):
-                            v_dns = bool(v.get("do_not_send_to_agent") is True)
-                            v_taint = _normalize_taint_value(
-                                v.get("taint") or v.get("taint_classification")
+    t_data = _read_session_json_dict_fail_closed(taint_idx_file, "taint index")
+    if t_data is not None:
+        for list_key in (
+            "tainted_source_ids",
+            "tainted_sources",
+            "confidential_sources",
+            "do_not_send_to_agent",
+            "do_not_send_source_ids",
+            "do_not_send_sources",
+        ):
+            coll = t_data.get(list_key)
+            if isinstance(coll, list):
+                for item in coll:
+                    if isinstance(item, str) and item.strip():
+                        clean_s = item.strip()
+                        if len(clean_s) == 64 and all(
+                            ch in "0123456789abcdefABCDEF" for ch in clean_s
+                        ):
+                            do_not_send_shas.add(clean_s.lower())
+                            _merge_taint(
+                                taint_by_sha,
+                                clean_s.lower(),
+                                TaintClassification.CONFIDENTIAL,
                             )
-                            if v_dns:
-                                v_taint = _max_taint(v_taint, TaintClassification.CONFIDENTIAL)
-                                do_not_send_ids.add(str(k))
-                            _merge_taint(taint_by_id, str(k), v_taint)
+                        else:
+                            do_not_send_ids.add(clean_s)
+                            _merge_taint(
+                                taint_by_id,
+                                clean_s,
+                                TaintClassification.CONFIDENTIAL,
+                            )
+                    elif isinstance(item, dict):
+                        i_sid = str(item.get("source_id") or item.get("id") or "").strip()
+                        i_sha = (
+                            str(item.get("sha256") or item.get("source_sha256") or "")
+                            .strip()
+                            .lower()
+                        )
+                        i_dns = item.get("do_not_send_to_agent", True) is not False
+                        i_taint = _normalize_taint_value(
+                            item.get("taint") or item.get("taint_classification"),
+                            default=TaintClassification.CONFIDENTIAL,
+                        )
+                        if i_dns:
+                            i_taint = _max_taint(i_taint, TaintClassification.CONFIDENTIAL)
+                            if i_sid:
+                                do_not_send_ids.add(i_sid)
+                            if len(i_sha) == 64:
+                                do_not_send_shas.add(i_sha)
+                        if i_sid:
+                            _merge_taint(taint_by_id, i_sid, i_taint)
+                        if len(i_sha) == 64:
+                            _merge_taint(taint_by_sha, i_sha, i_taint)
+
+        sha_list = t_data.get("tainted_sha256s")
+        if isinstance(sha_list, list):
+            for s_val in sha_list:
+                if isinstance(s_val, str) and len(s_val.strip()) == 64:
+                    clean_h = s_val.strip().lower()
+                    do_not_send_shas.add(clean_h)
+                    _merge_taint(taint_by_sha, clean_h, TaintClassification.CONFIDENTIAL)
+
+        sources_map = t_data.get("sources")
+        if isinstance(sources_map, dict):
+            for k, v in sources_map.items():
+                if isinstance(v, dict):
+                    v_dns = bool(v.get("do_not_send_to_agent") is True)
+                    v_taint = _normalize_taint_value(
+                        v.get("taint") or v.get("taint_classification")
+                    )
+                    if v_dns:
+                        v_taint = _max_taint(v_taint, TaintClassification.CONFIDENTIAL)
+                        do_not_send_ids.add(str(k))
+                    _merge_taint(taint_by_id, str(k), v_taint)
 
     return {
         "active_ids": active_ids,

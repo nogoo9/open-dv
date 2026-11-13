@@ -9,7 +9,7 @@ from collections.abc import Mapping, Sequence
 from collections.abc import Set as AbstractSet
 from typing import Any, Final
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from opendv_contracts.dtos.ingestion import EvidenceChunk, IngestionResult, TableStructure
 from opendv_contracts.errors import ErrorCode, OpenDVError
@@ -484,11 +484,9 @@ class Pseudonymizer:
             forbid_sensitive_entities_key=False,
         )
 
-        # 2. Pop sensitive_entities and re-verify full union AFTER popping sensitive_entities
+        # 2. Pop sensitive_entities and re-verify full union BEFORE adding harness-owned keys
         new_meta: dict[str, Any] = dict(masked_pre_pop)
         new_meta.pop("sensitive_entities", None)
-        new_meta["redacted_entity_count"] = len(effective_terms)
-        new_meta["pseudonymized"] = True
 
         _verify_no_residual_terms_in_value(new_text, term_patterns, "chunk.text")
         _verify_no_residual_terms_in_value(
@@ -497,6 +495,8 @@ class Pseudonymizer:
             "chunk.metadata",
             forbid_sensitive_entities_key=True,
         )
+        new_meta["redacted_entity_count"] = len(effective_terms)
+        new_meta["pseudonymized"] = True
         return chunk.model_copy(update={"text": new_text, "metadata": new_meta})
 
     def pseudonymize_table(
@@ -566,8 +566,6 @@ class Pseudonymizer:
 
         new_meta: dict[str, Any] = dict(masked_pre_pop)
         new_meta.pop("sensitive_entities", None)
-        new_meta["redacted_entity_count"] = len(effective_terms)
-        new_meta["pseudonymized"] = True
 
         _verify_no_residual_terms_in_value(new_table_id, term_patterns, "table.table_id")
         _verify_no_residual_terms_in_value(new_headers, term_patterns, "table.headers")
@@ -580,6 +578,8 @@ class Pseudonymizer:
             "table.metadata",
             forbid_sensitive_entities_key=True,
         )
+        new_meta["redacted_entity_count"] = len(effective_terms)
+        new_meta["pseudonymized"] = True
         return table.model_copy(
             update={
                 "table_id": new_table_id,
@@ -606,7 +606,7 @@ class Pseudonymizer:
             # Trailing negative lookahead (?![a-f0-9]) prevents partial token replacement
             # in longer hex strings (SUG-01)
             self._cached_de_regex = re.compile(
-                rf"(?:{'|'.join(re.escape(k) for k in sorted_keys)})(?![a-f0-9])",
+                rf"(?<![A-Za-z0-9])(?:{'|'.join(re.escape(k) for k in sorted_keys)})(?![a-f0-9])",
                 re.IGNORECASE,
             )
         lookup = self._cached_lookup
@@ -675,6 +675,12 @@ def _walk_privacy_input(val: Any, visited: set[int]) -> None:
                     "'sensitive_entities' metadata.",
                     error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
                 )
+        for field_name in type(val).model_fields:
+            if field_name not in ("text", "metadata"):
+                _walk_privacy_input(getattr(val, field_name, None), visited)
+        extra = getattr(val, "model_extra", None)
+        if isinstance(extra, Mapping):
+            _walk_privacy_input(extra, visited)
         return
 
     if isinstance(val, TableStructure) or (
@@ -771,6 +777,100 @@ def _walk_privacy_input(val: Any, visited: set[int]) -> None:
         return
 
     if isinstance(val, Mapping):
+        raw_meta_sub = val.get("metadata")
+        meta_map: Mapping[Any, Any] = raw_meta_sub if isinstance(raw_meta_sub, Mapping) else {}
+        if val.get("do_not_send_to_agent") is True or meta_map.get("do_not_send_to_agent") is True:
+            raise OpenDVError(
+                "Mapping payload is marked do_not_send_to_agent and cannot be dispatched "
+                "to an agent TaskSpec.",
+                error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+            )
+
+        has_explicit_taint = "taint" in val or "taint_classification" in val or "taint" in meta_map
+        raw_map_taint = (
+            val.get("taint")
+            if "taint" in val
+            else (
+                val.get("taint_classification")
+                if "taint_classification" in val
+                else meta_map.get("taint", "public")
+            )
+        )
+
+        if "chunk_id" in val and "text" in val:
+            try:
+                parsed_chunk = EvidenceChunk.model_validate(val)
+            except ValidationError:
+                parsed_chunk = None
+            if parsed_chunk is not None:
+                _walk_privacy_input(parsed_chunk, visited)
+            elif not _is_public_taint(raw_map_taint):
+                if meta_map.get("pseudonymized") is not True:
+                    raise OpenDVError(
+                        f"Tainted serialized EvidenceChunk '{val.get('chunk_id')}' cannot be "
+                        "dispatched to an agent TaskSpec without HMAC pseudonymization.",
+                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                    )
+                if _contains_sensitive_entities_key(meta_map) or _contains_sensitive_entities_key(
+                    val
+                ):
+                    raise OpenDVError(
+                        f"Tainted serialized EvidenceChunk '{val.get('chunk_id')}' retains "
+                        "unstripped 'sensitive_entities' metadata.",
+                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                    )
+        elif "table_id" in val and "headers" in val and "rows" in val:
+            try:
+                parsed_tbl = TableStructure.model_validate(val)
+            except ValidationError:
+                parsed_tbl = None
+            if parsed_tbl is not None:
+                _walk_privacy_input(parsed_tbl, visited)
+            elif not _is_public_taint(raw_map_taint):
+                if meta_map.get("pseudonymized") is not True:
+                    raise OpenDVError(
+                        f"Tainted serialized TableStructure '{val.get('table_id')}' cannot be "
+                        "dispatched to an agent TaskSpec without HMAC pseudonymization.",
+                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                    )
+                if _contains_sensitive_entities_key(meta_map) or _contains_sensitive_entities_key(
+                    val
+                ):
+                    raise OpenDVError(
+                        f"Tainted serialized TableStructure '{val.get('table_id')}' retains "
+                        "unstripped 'sensitive_entities' metadata.",
+                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                    )
+        elif "document_id" in val and (
+            "normalized_text" in val or "page_map" in val or "chunks" in val
+        ):
+            if not _is_public_taint(raw_map_taint):
+                raw_pages = val.get("page_map")
+                has_raw_doc_text = bool(val.get("normalized_text")) or (
+                    isinstance(raw_pages, Sequence)
+                    and not isinstance(raw_pages, (str, bytes, bytearray))
+                    and any(isinstance(p, Mapping) and bool(p.get("text")) for p in raw_pages)
+                )
+                if has_raw_doc_text and meta_map.get("pseudonymized") is not True:
+                    raise OpenDVError(
+                        f"Tainted serialized IngestionResult '{val.get('document_id')}' with raw "
+                        "normalized_text or page_map text cannot be dispatched to an agent "
+                        "TaskSpec without HMAC pseudonymization.",
+                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                    )
+                if _contains_sensitive_entities_key(meta_map):
+                    raise OpenDVError(
+                        f"Tainted serialized IngestionResult '{val.get('document_id')}' retains "
+                        "unstripped 'sensitive_entities' metadata.",
+                        error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                    )
+        elif has_explicit_taint and not _is_public_taint(raw_map_taint):
+            if _contains_sensitive_entities_key(val):
+                raise OpenDVError(
+                    "Tainted mapping payload retains unstripped 'sensitive_entities' metadata.",
+                    error_code=ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN,
+                )
+
         for k, v in val.items():
             _walk_privacy_input(k, visited)
             _walk_privacy_input(v, visited)

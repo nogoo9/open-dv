@@ -2664,3 +2664,102 @@ class TestRound4AdversarialHardening:
             PyArrowTabularAdapter(preview_rows=10).parse_bytes(
                 multi_rg_buf.getvalue(), filename="multi_rg_cap.parquet"
             )
+
+    def test_r4_opus_p04a2_calc_link_update_lm_never_and_biff8_supbook_blocking(self) -> None:
+        """Regression P04a2::MAJ-01 & MIN-04: Verify Calc Link=1 (LM_NEVER), Formula Recalc=1,
+        DisableActiveContent=true, BIFF8 SUPBOOK URL/UNC blocking, and monotonic taint preservation.
+        """
+        import xml.etree.ElementTree as ET
+
+        from opendv_contracts.dtos.ingestion import EvidenceChunk
+        from opendv_sources.adapters.libreoffice_adapter import (
+            _HARDENED_REGISTRYMODIFICATIONS_XCU,
+            _OLE_CFB_MAGIC,
+        )
+
+        root = ET.fromstring(_HARDENED_REGISTRYMODIFICATIONS_XCU)
+        oor_ns = "{http://openoffice.org/2001/registry}"
+        props_by_path: dict[tuple[str, str], str] = {}
+        for item in root.findall("item"):
+            item_path = item.attrib.get(f"{oor_ns}path", "")
+            for prop in item.findall("prop"):
+                prop_name = prop.attrib.get(f"{oor_ns}name", "")
+                val_el = prop.find("value")
+                props_by_path[(item_path, prop_name)] = (
+                    (val_el.text or "").strip() if val_el is not None else ""
+                )
+
+        # Writer SwFldUpdateFlags: 2 = NEVER; Calc ScLkUpdMode: 1 = LM_NEVER (2 = LM_ON_DEMAND!)
+        assert props_by_path[("/org.openoffice.Office.Writer/Content/Update", "UpdateMode")] == "1"
+        assert props_by_path[("/org.openoffice.Office.Writer/Content/Update", "Link")] == "2"
+        assert props_by_path[("/org.openoffice.Office.Calc/Content/Update", "Link")] == "1"
+        assert props_by_path[("/org.openoffice.Office.Calc/Formula/Load", "OOXMLRecalcMode")] == "1"
+        assert props_by_path[("/org.openoffice.Office.Calc/Formula/Load", "ODFRecalcMode")] == "1"
+        assert (
+            props_by_path[
+                ("/org.openoffice.Office.Common/Security/Scripting", "DisableActiveContent")
+            ]
+            == "true"
+        )
+
+        # BIFF8 SUPBOOK encoded external URL (\x01\x05...http://) and UNC (\x01\x01@server\x03share)
+        biff_url = _OLE_CFB_MAGIC + b"\x00" * 512 + b"\x01\x05\x18http://evil.internal/book.xls"
+        biff_unc = (
+            _OLE_CFB_MAGIC + b"\x00" * 512 + b"\x01\x01@filesrv.corp\x03finance\x03secret.xls"
+        )
+        for payload in (biff_url, biff_unc):
+            with pytest.raises(ArchiveSecurityViolationError):
+                _inspect_ole_cfb_security(payload, ".xls")
+
+        # Monotonic taint: escalated chunk/result taint from delegate is never downgraded
+        mock_pdf_adapter = MagicMock(spec=LiteParseDocumentAdapter)
+        mock_pdf_adapter.parse_bytes.return_value = IngestionResult(
+            document_id="doc_escalated",
+            filename="out.pdf",
+            mime_type="application/pdf",
+            total_pages=1,
+            total_characters=4,
+            chunks=[
+                EvidenceChunk(
+                    chunk_id="c1",
+                    document_id="doc_escalated",
+                    page_number=1,
+                    start_char=0,
+                    end_char=4,
+                    text="Body",
+                    taint=TaintClassification.CONFIDENTIAL,
+                    source_sha256="intermediate",
+                )
+            ],
+            page_map=[],
+            tables=[],
+            taint=TaintClassification.CONFIDENTIAL,
+            source_sha256="intermediate",
+            normalized_text="Body",
+            metadata={},
+        )
+        lo_adapter = LibreOfficeDocumentAdapter(
+            soffice_path="mock_soffice", pdf_adapter=mock_pdf_adapter
+        )
+        benign_cfb = _OLE_CFB_MAGIC + b"\x00" * 512 + b"Normal workbook prose"
+
+        def _mock_ok_popen(cmd: list[str], **kwargs: Any) -> MagicMock:
+            out_dir = Path(cmd[cmd.index("--outdir") + 1])
+            (out_dir / f"{Path(cmd[-1]).stem}.pdf").write_bytes(b"%PDF-1.5 mock")
+            proc = MagicMock()
+            proc.returncode = 0
+            proc.communicate.return_value = (b"", b"")
+            return proc
+
+        with (
+            patch(
+                "opendv_sources.adapters.libreoffice_adapter.find_soffice_binary",
+                return_value="mock_soffice",
+            ),
+            patch("subprocess.Popen", side_effect=_mock_ok_popen),
+        ):
+            res = lo_adapter.parse_bytes(
+                benign_cfb, filename="taint_check.xls", taint=TaintClassification.PUBLIC
+            )
+            assert res.taint == TaintClassification.CONFIDENTIAL
+            assert res.chunks[0].taint == TaintClassification.CONFIDENTIAL

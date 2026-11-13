@@ -565,8 +565,8 @@ class ClarificationHarness:
                     ans = ClarificationAnswerItem.model_validate(item)
                     answers_by_qid[ans.question_id] = ans
 
-                # Sort questions so exact catalog matches (focus_slug == matched_key)
-                # are prioritized over broad/compound matches (MAJ-01)
+                # Sort questions so exact catalog matches (focus_slug == matched_key slug)
+                # are prioritized over broad/compound matches (MAJ-01 / P06a::MIN-03)
                 sorted_qids = sorted(
                     answers_by_qid.keys(),
                     key=lambda qid: (
@@ -575,7 +575,7 @@ class ClarificationHarness:
                             questions.get(qid)
                             and questions[qid].matched_key
                             and concept_to_slug(questions[qid].focus_concept)
-                            == questions[qid].matched_key
+                            == concept_to_slug(questions[qid].matched_key)
                         )
                         else 1,
                         qid,
@@ -589,6 +589,7 @@ class ClarificationHarness:
                         continue
 
                     focus_slug = concept_to_slug(q.focus_concept)
+                    matched_slug = concept_to_slug(q.matched_key) if q.matched_key else ""
                     selected_option_ids[ans.question_id] = ans.selected_options
 
                     # Find selected option's fibo_uri (first selected option takes precedence)
@@ -599,10 +600,10 @@ class ClarificationHarness:
                             if focus_slug not in preferred_mappings:
                                 preferred_mappings[focus_slug] = opt.fibo_uri
                                 preferred_mappings[q.focus_concept] = opt.fibo_uri
-                            # Prioritize exact match or first-write (MAJ-01)
+                            # Prioritize exact match or first-write (MAJ-01 / P06a::MIN-03)
                             if q.matched_key and (
                                 q.matched_key not in preferred_mappings
-                                or focus_slug == q.matched_key
+                                or focus_slug == matched_slug
                             ):
                                 preferred_mappings[q.matched_key] = opt.fibo_uri
                             break  # First selected option with fibo_uri wins
@@ -613,7 +614,7 @@ class ClarificationHarness:
                             custom_guidance[focus_slug] = user_text
                             custom_guidance[q.focus_concept] = user_text
                         if q.matched_key and (
-                            q.matched_key not in custom_guidance or focus_slug == q.matched_key
+                            q.matched_key not in custom_guidance or focus_slug == matched_slug
                         ):
                             custom_guidance[q.matched_key] = user_text
 

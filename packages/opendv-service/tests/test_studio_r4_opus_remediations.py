@@ -2339,3 +2339,223 @@ def test_s2_r8_maj01_job_runners_prepare_evidence_for_agent_table_pseudonymizati
         _prepare_evidence_for_agent([], [bad_tbl], sec)
     assert exc_info.value.error_code == ErrorCode.CONFIDENTIAL_SOURCE_AGENT_ACCESS_FORBIDDEN
     assert "topsecretclient" not in str(exc_info.value).lower()
+
+
+def test_r4_opus_p07a2_crash_after_committed_audit_rolls_session_json_forward(
+    tmp_path: Path,
+) -> None:
+    """R4 Opus P07a2::MAJ-01 & MIN-02:
+    If the process crashes after appending `COMMITTED` to `audit.jsonl` but before updating
+    `session.json`, `reconcile_and_recover_session` rolls `session.json` forward without
+    quarantining the committed version or appending a duplicate `COMMITTED` record; and a
+    `PROMOTION_COMMITTED` tail record replays `promoted_versions` and `last_promoted_sha256`.
+    """
+    ws = tmp_path / "studio"
+    sec = WorkspaceSecurityManager(studio_root=ws)
+    mgr = StudioSessionManager(studio_root=ws, security_manager=sec)
+    svc = AtomicCommitService(session_manager=mgr, security_manager=sec)
+
+    meta0 = mgr.create_session("sess-crash-committed")
+    sdir = mgr.get_session_dir("sess-crash-committed")
+    stale_session_bytes = (sdir / "session.json").read_bytes()
+
+    res = svc.commit_delta(
+        "sess-crash-committed",
+        OntologyDelta(
+            delta_id="d-crash-1",
+            base_ontology_version="0.0.0",
+            target_ontology_version="1.0.0",
+            parent_sha256=meta0.head_sha256,
+            operations=[
+                AddConceptOp(
+                    op_id="op-acct",
+                    concept_name="Account",
+                    concept_uri="urn:ontology:entity:account",
+                    target_hub="hub_account",
+                    external_mappings=[_fibo_mapping()],
+                )
+            ],
+        ),
+    )
+    assert (sdir / "versions" / "v1.0.0" / "ontology.json").is_file()
+    pre_audit_lines = (sdir / "audit.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    pre_committed_count = sum(
+        1 for line in pre_audit_lines if json.loads(line).get("action") == "COMMITTED"
+    )
+    assert pre_committed_count == 1
+    pending_rec = next(
+        json.loads(line)
+        for line in pre_audit_lines
+        if json.loads(line).get("action") == "PENDING_COMMIT"
+    )
+
+    # Simulate crash in recovery Steps 4/5 right after COMMITTED is appended to audit.jsonl
+    # (when session.json still holds v0.0.0 + PENDING_COMMIT's audit_chain_head_sha256)!
+    stale_obj = json.loads(stale_session_bytes.decode("utf-8"))
+    stale_obj["audit_chain_head_sha256"] = pending_rec["audit_sha256"]
+    (sdir / "session.json").write_text(json.dumps(stale_obj, indent=2), encoding="utf-8")
+    assert mgr.get_session("sess-crash-committed").head_version == "0.0.0"
+
+    svc.reconcile_and_recover_session("sess-crash-committed")
+
+    recovered = mgr.get_session("sess-crash-committed")
+    assert recovered.head_version == "1.0.0"
+    assert recovered.head_sha256 == res.target_sha256
+    assert "v1.0.0" in recovered.committed_versions
+    assert (sdir / "versions" / "v1.0.0" / "ontology.json").is_file()
+    assert not (sdir / ".quarantine").exists()
+
+    post_audit_lines = (sdir / "audit.jsonl").read_text(encoding="utf-8").strip().splitlines()
+    post_committed_count = sum(
+        1 for line in post_audit_lines if json.loads(line).get("action") == "COMMITTED"
+    )
+    assert post_committed_count == 1
+
+    # Also test PROMOTION_COMMITTED tail replay when session.json was stale
+    append_signed_audit_record(
+        session_dir=sdir,
+        action="PROMOTION_COMMITTED",
+        actor="human:admin",
+        target_version="v1.0.0",
+        head_sha256=res.target_sha256,
+        details={
+            "target_version": "v1.0.0",
+            "workspace_sha256": res.target_sha256,
+        },
+        security_manager=sec,
+    )
+    # Revert promoted_versions in session.json while keeping audit_chain_head_sha256
+    cur_meta = json.loads((sdir / "session.json").read_text(encoding="utf-8"))
+    cur_meta["promoted_versions"] = []
+    cur_meta["last_promoted_sha256"] = None
+    (sdir / "session.json").write_text(json.dumps(cur_meta, indent=2), encoding="utf-8")
+
+    svc.reconcile_and_recover_session("sess-crash-committed")
+    recovered_promo = mgr.get_session("sess-crash-committed")
+    assert "v1.0.0" in recovered_promo.promoted_versions
+    assert recovered_promo.last_promoted_sha256 == res.target_sha256
+
+
+def test_r4_opus_p08a2_export_bundle_rejects_internal_symlinks_and_unset_env_escape(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R4 Opus P08a2::MAJ-01 & MAJ-02:
+    - `export_bundle` rejects symlinks/reparse points planted inside `session_dir` so external
+      files (such as `.odv_workspace_secret`) can never be exfiltrated.
+    - When `OPENDV_WORKSPACE_ROOTS` is unset, `export_bundle` with `security_manager` STILL
+      rejects absolute output paths outside the workspace perimeter (even with `overwrite=True`).
+    """
+    import stat as std_stat
+
+    from opendv_service.studio.bundle import ArchiveSecurityViolationError
+    from opendv_service.studio.workspace_security import InvalidWorkspacePathError
+
+    monkeypatch.delenv("OPENDV_WORKSPACE_ROOTS", raising=False)
+    monkeypatch.delenv("OPENDV_STUDIO_ROOT", raising=False)
+    monkeypatch.delenv("OPENDV_WORKSPACE_ROOT", raising=False)
+
+    ws_root = tmp_path / "workspace_a"
+    outside_dir = tmp_path / "outside_target"
+    outside_dir.mkdir(parents=True, exist_ok=True)
+    victim_file = outside_dir / "precious.txt"
+    victim_file.write_text("do-not-clobber", encoding="utf-8")
+
+    studio_root = ws_root / "studio"
+    sec = WorkspaceSecurityManager(studio_root=studio_root)
+    mgr = StudioSessionManager(studio_root=studio_root, security_manager=sec)
+    mgr.create_session("sess-exp-sec")
+    sdir = mgr.get_session_dir("sess-exp-sec")
+
+    # 1. MAJ-02: With OPENDV_WORKSPACE_ROOTS unset, out-of-root path is rejected!
+    monkeypatch.chdir(ws_root)
+    with pytest.raises(InvalidWorkspacePathError):
+        export_bundle(
+            sdir,
+            victim_file,
+            security_manager=sec,
+            overwrite=True,
+        )
+    assert victim_file.read_text(encoding="utf-8") == "do-not-clobber"
+
+    # 2. MAJ-01: Planted symlink / reparse entry inside sdir/inputs/ is rejected!
+    planted = sdir / "inputs" / "smuggled_secret.txt"
+    planted.parent.mkdir(parents=True, exist_ok=True)
+    secret_target = studio_root / ".odv_workspace_secret"
+    created_real_symlink = False
+    try:
+        os.symlink(secret_target, planted)
+        created_real_symlink = True
+    except OSError:
+        planted.write_text("placeholder", encoding="utf-8")
+
+    valid_out = ws_root / "clean.odvstudio.zip"
+    if created_real_symlink:
+        with pytest.raises(ArchiveSecurityViolationError):
+            export_bundle(sdir, valid_out, security_manager=sec)
+        planted.unlink()
+    else:
+        real_lstat = os.lstat
+
+        class _FakeSymlinkStat:
+            def __init__(self, st: os.stat_result) -> None:
+                self.st_mode = std_stat.S_IFLNK | 0o777
+                self.st_size = st.st_size
+                self.st_file_attributes = 0x0400
+
+        def _patched_lstat(p: Any, *args: Any, **kwargs: Any) -> Any:
+            st = real_lstat(p, *args, **kwargs)
+            if Path(p) == planted:
+                return _FakeSymlinkStat(st)
+            return st
+
+        monkeypatch.setattr(os, "lstat", _patched_lstat)
+        with pytest.raises(ArchiveSecurityViolationError):
+            export_bundle(sdir, valid_out, security_manager=sec)
+        monkeypatch.setattr(os, "lstat", real_lstat)
+        planted.unlink()
+
+    assert not valid_out.exists()
+    export_bundle(sdir, valid_out, security_manager=sec)
+    assert valid_out.is_file()
+
+
+def test_r4_opus_p08b_corrupt_manifest_or_taint_index_fails_closed(tmp_path: Path) -> None:
+    """R4 Opus P08b::MAJ-01: Corrupt `taint_index.json` or `inputs/manifest.json` raises typed
+    `CORRUPT_SESSION_RECORD` instead of failing open with empty privacy/tombstone sets.
+    """
+    from opendv_service.studio.job_runners import load_active_session_evidence
+
+    ws = tmp_path / "studio"
+    sec = WorkspaceSecurityManager(studio_root=ws)
+    mgr = StudioSessionManager(studio_root=ws, security_manager=sec)
+    mgr.create_session("sess-fail-closed")
+    sdir = mgr.get_session_dir("sess-fail-closed")
+
+    ev_dir = sdir / "evidence"
+    ev_dir.mkdir(parents=True, exist_ok=True)
+    chk = EvidenceChunk(
+        chunk_id="c-1",
+        document_id="doc-1",
+        start_char=0,
+        end_char=26,
+        text="Confidential board minutes",
+        taint=TaintClassification.PUBLIC,
+        metadata={"source_id": "src-1"},
+    )
+    (ev_dir / "chunks.jsonl").write_text(chk.model_dump_json() + "\n", encoding="utf-8")
+
+    # 1. Corrupt taint_index.json MUST raise CORRUPT_SESSION_RECORD (never return raw chunks!)
+    taint_idx = sdir / "taint_index.json"
+    taint_idx.write_text("{truncated-json", encoding="utf-8")
+    with pytest.raises(OpenDVError) as exc_taint:
+        load_active_session_evidence(sdir)
+    assert exc_taint.value.error_code == ErrorCode.CORRUPT_SESSION_RECORD
+    taint_idx.unlink()
+
+    # 2. Corrupt inputs/manifest.json MUST raise CORRUPT_SESSION_RECORD!
+    manifest_path = sdir / "inputs" / "manifest.json"
+    manifest_path.parent.mkdir(parents=True, exist_ok=True)
+    manifest_path.write_text("[1, 2, 3]", encoding="utf-8")
+    with pytest.raises(OpenDVError) as exc_man:
+        load_active_session_evidence(sdir)
+    assert exc_man.value.error_code == ErrorCode.CORRUPT_SESSION_RECORD

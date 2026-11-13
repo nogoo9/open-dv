@@ -796,6 +796,81 @@ class GovernanceValidator:
                             f"'{op.concept_uri}'."
                         )
 
+            elif isinstance(op, AddConceptOp):
+                if op.attributes and op.concept_uri in base_concepts:
+                    base_c = base_concepts[op.concept_uri]
+                    existing_names = {a.attribute_name for a in (base_c.attributes or [])}
+                    for raw_attr in op.attributes:
+                        is_opt = (
+                            raw_attr.get("is_optional", True) is not False
+                            if isinstance(raw_attr, dict)
+                            else getattr(raw_attr, "is_optional", True) is not False
+                        )
+                        a_name = (
+                            str(raw_attr.get("attribute_name") or raw_attr.get("name") or "")
+                            if isinstance(raw_attr, dict)
+                            else (
+                                raw_attr
+                                if isinstance(raw_attr, str)
+                                else str(getattr(raw_attr, "attribute_name", "") or "")
+                            )
+                        ).strip()
+                        if (
+                            a_name
+                            and a_name not in existing_names
+                            and not is_opt
+                            and _is_concept_deployed(
+                                base_c,
+                                op.concept_uri,
+                                deployed_concepts,
+                                deployed_entities,
+                                deployed_tables,
+                            )
+                        ):
+                            raise ContractViolationError(
+                                f"ONT_EVO_CONTRACT_VIOLATION: Cannot merge mandatory attribute "
+                                f"'{a_name}' (is_optional=False) onto deployed concept "
+                                f"'{op.concept_uri}' via AddConceptOp."
+                            )
+
+            elif isinstance(op, RefineDefinitionOp):
+                target_u = op.concept_uri or op.target_uri
+                if op.additional_attributes and target_u in base_concepts:
+                    base_c = base_concepts[target_u]
+                    existing_names = {a.attribute_name for a in (base_c.attributes or [])}
+                    for raw_attr in op.additional_attributes:
+                        is_opt = (
+                            raw_attr.get("is_optional", True) is not False
+                            if isinstance(raw_attr, dict)
+                            else getattr(raw_attr, "is_optional", True) is not False
+                        )
+                        a_name = (
+                            str(raw_attr.get("attribute_name") or raw_attr.get("name") or "")
+                            if isinstance(raw_attr, dict)
+                            else (
+                                raw_attr
+                                if isinstance(raw_attr, str)
+                                else str(getattr(raw_attr, "attribute_name", "") or "")
+                            )
+                        ).strip()
+                        if (
+                            a_name
+                            and a_name not in existing_names
+                            and not is_opt
+                            and _is_concept_deployed(
+                                base_c,
+                                target_u,
+                                deployed_concepts,
+                                deployed_entities,
+                                deployed_tables,
+                            )
+                        ):
+                            raise ContractViolationError(
+                                f"ONT_EVO_CONTRACT_VIOLATION: Cannot add mandatory attribute "
+                                f"'{a_name}' (is_optional=False) to deployed concept "
+                                f"'{target_u}' via RefineDefinitionOp."
+                            )
+
             elif isinstance(op, SetParentConceptOp):
                 if op.concept_uri in base_concepts:
                     base_c = base_concepts[op.concept_uri]

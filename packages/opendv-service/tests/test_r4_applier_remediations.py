@@ -469,3 +469,197 @@ class TestLegacyV1ProjectionFidelity:
             compute_ontology_sha256(pe_ont)
             == "1c100409cbbe12051f7211d2d6d6838670982b9164aaf18b52f566864da90b81"
         )
+
+    def test_r4_opus_p05a_mandatory_attribute_via_add_concept_or_refine_definition_enforces_major(
+        self, tmp_path: Path
+    ) -> None:
+        """R4 Opus P05a::MAJ-01: Adding is_optional=False via AddConceptOp merge or
+        RefineDefinitionOp.additional_attributes onto an existing/deployed concept enforces MAJOR
+        SemVer, is_destructive_delta=True, admin role gate, and deployed ContractViolationError.
+        """
+        from opendv_contracts.dtos.ontology import RefineDefinitionOp, is_destructive_delta
+        from opendv_contracts.errors import ErrorCode
+        from opendv_core.models.graph_a import ConceptAttribute, ExternalMapping
+        from opendv_service.ontology.applier import compute_next_semver
+        from opendv_service.ontology.validator import (
+            ContractViolationError,
+            GovernanceValidator,
+            OntologyGovernanceError,
+        )
+        from opendv_service.studio.atomic_commit import (
+            AtomicCommitService,
+            ForbiddenAdminRequiredError,
+        )
+        from opendv_service.studio.session_manager import StudioSessionManager
+        from opendv_service.studio.workspace_security import WorkspaceSecurityManager
+
+        party = CanonicalBusinessConcept(
+            concept_uri="urn:ontology:entity:party",
+            concept_name="Contract Party",
+            elm_archetype="WHO_LEGAL_ENTITY",
+            definition="Canonical concept for Party.",
+            target_hub="hub_party",
+            attributes=[ConceptAttribute(name="legal_name", is_optional=True)],
+            external_mappings=[
+                ExternalMapping(
+                    scheme="FIBO",
+                    target_uri="https://spec.edmcouncil.org/fibo/ontology/FND/Agreements/Contracts/ContractParty",
+                    predicate="skos:exactMatch",
+                    confidence=0.95,
+                )
+            ],
+        )
+        base = _base_ontology(party)
+        base_sha = compute_ontology_sha256(base)
+
+        # 1. AddConceptOp merging mandatory attribute onto existing concept -> MAJOR (2.0.0)
+        merge_mandatory_op = AddConceptOp.model_construct(
+            op_id="op-merge-mand",
+            op_type="add_concept",
+            concept_uri="urn:ontology:entity:party",
+            concept_name="Contract Party",
+            attributes=[{"attribute_name": "tax_id", "is_optional": False}],
+        )
+        delta_merge_auto = OntologyDelta.model_construct(
+            delta_id="d-merge-auto",
+            base_ontology_version="1.0.0",
+            target_ontology_version=None,
+            parent_sha256=base_sha,
+            operations=[merge_mandatory_op],
+            metadata={},
+        )
+        assert compute_next_semver("1.0.0", delta_merge_auto, base_ontology=base) == "2.0.0"
+        delta_merge = OntologyDelta.model_construct(
+            delta_id="d-merge-mand",
+            base_ontology_version="1.0.0",
+            target_ontology_version="2.0.0",
+            parent_sha256=base_sha,
+            operations=[merge_mandatory_op],
+            metadata={},
+        )
+        assert is_destructive_delta(delta_merge, base_ontology=base) is True
+
+        # 2. RefineDefinitionOp with mandatory additional_attributes -> MAJOR (2.0.0);
+        #    with optional additional_attributes (validated list[str]) -> MINOR (1.1.0);
+        #    pure definition -> PATCH (1.0.1)
+        refine_mandatory_op = RefineDefinitionOp.model_construct(
+            op_id="op-ref-mand",
+            op_type="refine_definition",
+            concept_uri="urn:ontology:entity:party",
+            target_uri="",
+            refined_description="Refined party definition.",
+            additional_attributes=[{"attribute_name": "tax_id", "is_optional": False}],
+        )
+        refine_optional_op = RefineDefinitionOp(
+            op_id="op-ref-opt",
+            concept_uri="urn:ontology:entity:party",
+            definition="Refined party definition.",
+            additional_attributes=["nickname"],
+        )
+        refine_pure_op = RefineDefinitionOp(
+            op_id="op-ref-pure",
+            concept_uri="urn:ontology:entity:party",
+            definition="Refined party definition.",
+        )
+        assert (
+            compute_next_semver(
+                "1.0.0",
+                OntologyDelta.model_construct(
+                    delta_id="d1",
+                    base_ontology_version="1.0.0",
+                    target_ontology_version=None,
+                    parent_sha256=base_sha,
+                    operations=[refine_mandatory_op],
+                    metadata={},
+                ),
+                base_ontology=base,
+            )
+            == "2.0.0"
+        )
+        assert (
+            compute_next_semver(
+                "1.0.0",
+                OntologyDelta(
+                    delta_id="d2",
+                    base_ontology_version="1.0.0",
+                    target_ontology_version=None,
+                    parent_sha256=base_sha,
+                    operations=[refine_optional_op],
+                ),
+                base_ontology=base,
+            )
+            == "1.1.0"
+        )
+        assert (
+            compute_next_semver(
+                "1.0.0",
+                OntologyDelta(
+                    delta_id="d3",
+                    base_ontology_version="1.0.0",
+                    target_ontology_version=None,
+                    parent_sha256=base_sha,
+                    operations=[refine_pure_op],
+                ),
+                base_ontology=base,
+            )
+            == "1.0.1"
+        )
+
+        delta_ref_mand = OntologyDelta.model_construct(
+            delta_id="d-ref-mand",
+            base_ontology_version="1.0.0",
+            target_ontology_version="2.0.0",
+            parent_sha256=base_sha,
+            operations=[refine_mandatory_op],
+            metadata={},
+        )
+        assert is_destructive_delta(delta_ref_mand, base_ontology=base) is True
+
+        # 3. Deployed contract guard blocks mandatory attr via AddConceptOp & RefineDefinitionOp
+        class _DeployedStub:
+            def get_deployed_concepts(self) -> set[str]:
+                return {"urn:ontology:entity:party"}
+
+            def get_deployed_tables(self) -> set[str]:
+                return {"hub_party"}
+
+            def get_deployed_entities(self) -> set[str]:
+                return {"urn:ontology:entity:party", "hub_party"}
+
+        gov = GovernanceValidator(deployment_provider=_DeployedStub())
+        apply(base, delta_merge)
+        apply(base, delta_ref_mand)
+        with pytest.raises(ContractViolationError):
+            gov.validate_deployed_contracts(base, delta_merge)
+        with pytest.raises(ContractViolationError):
+            gov.validate_deployed_contracts(base, delta_ref_mand)
+
+        # 4. Conflicting RefineDefinitionOp flipping is_optional on existing attribute raises error
+        conflict_delta = OntologyDelta.model_construct(
+            delta_id="d-ref-conflict",
+            base_ontology_version="1.0.0",
+            target_ontology_version="2.0.0",
+            parent_sha256=base_sha,
+            operations=[
+                RefineDefinitionOp.model_construct(
+                    op_id="op-ref-conflict",
+                    op_type="refine_definition",
+                    concept_uri="urn:ontology:entity:party",
+                    target_uri="",
+                    refined_description="Conflicting attribute flip.",
+                    additional_attributes=[{"attribute_name": "legal_name", "is_optional": False}],
+                )
+            ],
+            metadata={},
+        )
+        with pytest.raises(OntologyGovernanceError) as dup_exc:
+            apply(base, conflict_delta)
+        assert dup_exc.value.error_code == ErrorCode.DUPLICATE_ATTRIBUTE_NAME
+
+        # 5. Studio commit_delta blocks non-admin editor on mandatory RefineDefinitionOp!
+        sec = WorkspaceSecurityManager(studio_root=tmp_path / "studio")
+        mgr = StudioSessionManager(studio_root=tmp_path / "studio", security_manager=sec)
+        svc = AtomicCommitService(session_manager=mgr, security_manager=sec)
+        mgr.create_session("sess-p05a-mand", initial_ontology=base)
+        with pytest.raises(ForbiddenAdminRequiredError):
+            svc.commit_delta("sess-p05a-mand", delta_ref_mand, actor_role="editor")

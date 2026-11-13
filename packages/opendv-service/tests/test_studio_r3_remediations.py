@@ -602,7 +602,7 @@ def test_import_bundle_containment_non_double_nesting_and_force_safety(tmp_path:
             ],
         ),
     )
-    zip_path = tmp_path / "bundle-s1.odvstudio.zip"
+    zip_path = ws_a.parent / "bundle-s1.odvstudio.zip"
     export_bundle(mgr_a.get_session_dir("bundle-s1"), zip_path, security_manager=sec_a)
 
     ws_b = tmp_path / "ws_b" / "studio"
@@ -677,7 +677,7 @@ def test_import_bundle_provisional_uri_lineage_and_post_root_grounding_gates(
             ],
         ),
     )
-    seed_zip = tmp_path / "seed-export.odvstudio.zip"
+    seed_zip = ws_a.parent / "seed-export.odvstudio.zip"
     export_bundle(mgr_a.get_session_dir("seed-export"), seed_zip, security_manager=sec_a)
 
     ws_b = tmp_path / "ws_b" / "studio"
@@ -776,7 +776,7 @@ def test_import_bundle_provisional_uri_lineage_and_post_root_grounding_gates(
             m_obj = json.loads(mf.read_text(encoding="utf-8"))
             m_obj.pop("waivers", None)
             mf.write_text(json.dumps(m_obj, indent=2), encoding="utf-8")
-    ug_zip = tmp_path / "ug.odvstudio.zip"
+    ug_zip = ws_a.parent / "ug.odvstudio.zip"
     export_bundle(mgr_a.get_session_dir("ug-post-root"), ug_zip, security_manager=sec_a)
 
     with pytest.raises(ImportGroundingViolationError) as ug_exc:
@@ -1103,7 +1103,7 @@ def test_r4_foreign_waiver_resign_promotion_and_force_import_admin_guard(tmp_pat
         waivers=[waiver_a],
     )
 
-    out_zip = tmp_path / "foreign-waiver.odvstudio.zip"
+    out_zip = ws_a.parent / "foreign-waiver.odvstudio.zip"
     export_bundle(mgr_a.get_session_dir("foreign-waiver-sess"), out_zip, security_manager=sec_a)
 
     # Workspace B has an independent K_waiver

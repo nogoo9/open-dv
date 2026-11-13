@@ -702,7 +702,7 @@ def test_bundle_export_and_import_roundtrip(test_env: dict[str, Any]) -> None:
     zip_dest = test_env["root"] / "export.odvstudio.zip"
 
     # Export bundle
-    exported_path = export_bundle(sdir, zip_dest)
+    exported_path = export_bundle(sdir, zip_dest, security_manager=sec_mgr)
     assert exported_path.exists()
 
     # Verify exported zip structure

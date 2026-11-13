@@ -21,12 +21,14 @@ import hashlib
 import json
 import logging
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from pydantic import ValidationError
 
+from opendv_contracts.catalogs.polysemy import KNOWN_POLYSEMIC_DEFINITIONS
 from opendv_contracts.dtos.ingestion import EvidenceChunk, TableStructure
 from opendv_contracts.dtos.ontology import (
     PATH_A_GROUNDING_THRESHOLD,
@@ -70,6 +72,37 @@ def _to_slug(name: str) -> str:
     s = re.sub(r"([a-z0-9])([A-Z])", r"\1_\2", name)
     s = re.sub(r"[^a-zA-Z0-9_]+", "_", s).lower()
     return re.sub(r"_+", "_", s).strip("_")
+
+
+def _normalize_mapping_dict(raw_map: Mapping[str, Any] | None) -> dict[str, str]:
+    """Normalize preferred-mapping keys via strip + casefold while preserving non-empty URIs."""
+    if not isinstance(raw_map, Mapping):
+        return {}
+    out: dict[str, str] = {}
+    for k, v in raw_map.items():
+        if isinstance(k, str) and isinstance(v, str) and k.strip():
+            out[k.strip().casefold()] = v.strip()
+    return out
+
+
+def _is_curated_polysemic_override(hub_slug: str, target_uri: str) -> bool:
+    """Return True iff `(hub_slug, target_uri)` matches KNOWN_POLYSEMIC_DEFINITIONS."""
+    clean_slug = _to_slug(hub_slug)
+    clean_uri = (target_uri or "").strip()
+    if not clean_slug or not clean_uri:
+        return False
+    padded = f"_{clean_slug}_"
+    for poly_key, defs in KNOWN_POLYSEMIC_DEFINITIONS.items():
+        poly_slug = _to_slug(poly_key)
+        if not poly_slug:
+            continue
+        if clean_slug == poly_slug or f"_{poly_slug}_" in padded:
+            allowed_uris = {
+                str(d.get("fibo_uri") or "").strip() for d in defs if isinstance(d, dict)
+            }
+            if clean_uri in allowed_uris:
+                return True
+    return False
 
 
 def _is_numeric(val: str) -> bool:
@@ -199,6 +232,8 @@ class DeterministicConstructionPipeline:
             **opts.preferred_mappings,
             **preferred_map_input,
         }
+        pref_norm_all = _normalize_mapping_dict(preferred_mappings)
+        clarif_norm = _normalize_mapping_dict(preferred_map_input)
 
         staged_candidates: list[StagedCandidate] = []
         accepted_ops: list[OntologyOperation] = []
@@ -485,7 +520,10 @@ class DeterministicConstructionPipeline:
                     mutated_hub_slugs.add(thub)
         for k_slug in discovered_table_keys:
             c_label = k_slug.replace("_", " ").title()
-            if k_slug in preferred_mappings or c_label in preferred_mappings:
+            if (
+                k_slug.strip().casefold() in pref_norm_all
+                or c_label.strip().casefold() in pref_norm_all
+            ):
                 mutated_hub_slugs.add(k_slug)
 
         ungrounded_existing_hubs: dict[str, StagedCandidate] = {}
@@ -505,6 +543,7 @@ class DeterministicConstructionPipeline:
                     existing_hub_to_uri=existing_hub_to_uri,
                     mutated_hub_slugs=mutated_hub_slugs,
                     preferred_mappings=preferred_mappings,
+                    clarification_preferred_norm=clarif_norm,
                     min_confidence=opts.min_confidence,
                     accepted_hubs=accepted_hubs,
                     withheld_hubs=withheld_hubs,
@@ -538,6 +577,7 @@ class DeterministicConstructionPipeline:
                             existing_hub_to_uri=existing_hub_to_uri,
                             mutated_hub_slugs=mutated_hub_slugs,
                             preferred_mappings=preferred_mappings,
+                            clarification_preferred_norm=clarif_norm,
                             min_confidence=opts.min_confidence,
                             accepted_hubs=accepted_hubs,
                             withheld_hubs=withheld_hubs,
@@ -950,6 +990,7 @@ class DeterministicConstructionPipeline:
         withheld_hubs: dict[str, StagedCandidate],
         ungrounded_existing_hubs: dict[str, StagedCandidate],
         staged_candidates: list[StagedCandidate],
+        clarification_preferred_norm: Mapping[str, str] | None = None,
     ) -> None:
         """Evaluate a candidate Hub concept against grounding rules and guards."""
         _ = base_ontology
@@ -958,14 +999,24 @@ class DeterministicConstructionPipeline:
         concept_label = hub_slug.replace("_", " ").title()
         is_existing = (concept_uri in existing_concept_uris) or (hub_name in existing_target_hubs)
         base_c = existing_concepts_by_uri.get(concept_uri)
+        eval_name = (
+            base_c.concept_name
+            if (is_existing and base_c and base_c.concept_name)
+            else concept_label
+        )
+
+        pref_norm = _normalize_mapping_dict(preferred_mappings)
+        clarif_norm = clarification_preferred_norm or {}
+        slug_key = hub_slug.strip().casefold()
+        label_key = concept_label.strip().casefold()
 
         # MAJ-07: Existing seed concepts referenced solely as FK endpoints without proposed
         # mutations remain untouched and eligible as AddRelationshipOp endpoints.
         if (
             is_existing
             and hub_slug not in mutated_hub_slugs
-            and hub_slug not in preferred_mappings
-            and concept_label not in preferred_mappings
+            and slug_key not in pref_norm
+            and label_key not in pref_norm
         ):
             accepted_hubs[hub_slug] = {
                 "uri": concept_uri,
@@ -990,59 +1041,128 @@ class DeterministicConstructionPipeline:
             staged_candidates.append(cand)
             return
 
-        # Guard 2: Human clarification answer override (MAJ-06)
+        # Guard 2: Human clarification / preferred-mapping evaluation (P06a::MAJ-01)
         target_uri: str | None = None
         score: float = 0.0
         override_synonyms: list[str] = []
+        if (
+            is_existing
+            and base_c
+            and base_c.concept_name
+            and base_c.concept_name.strip().casefold() != label_key
+        ):
+            override_synonyms.append(concept_label)
 
-        pref_norm = {k.strip().casefold(): v for k, v in preferred_mappings.items()}
         candidate_target_uri = (
             preferred_mappings.get(hub_slug)
             or preferred_mappings.get(concept_label)
-            or pref_norm.get(hub_slug.casefold())
-            or pref_norm.get(concept_label.strip().casefold())
+            or pref_norm.get(slug_key)
+            or pref_norm.get(label_key)
         )
+        from_clarification = bool(
+            candidate_target_uri
+            and (
+                clarif_norm.get(slug_key) == candidate_target_uri
+                or clarif_norm.get(label_key) == candidate_target_uri
+            )
+        )
+
+        def _stage_rejected_hub(
+            held_reason: str, match_uri: str | None, match_score: float
+        ) -> None:
+            cand = StagedCandidate(
+                candidate_id=f"staged-{hub_slug}",
+                concept_name=concept_label,
+                suggested_hub=hub_name,
+                top_match_uri=match_uri,
+                top_match_score=match_score,
+                reason_held_back=held_reason,
+            )
+            if is_existing:
+                ungrounded_existing_hubs[hub_slug] = cand
+                accepted_hubs[hub_slug] = {
+                    "uri": concept_uri,
+                    "name": eval_name,
+                    "hub_slug": base_c.target_hub if (base_c and base_c.target_hub) else hub_name,
+                    "score": 0.0,
+                    "target_uri": None,
+                    "synonyms": [],
+                    "existing_untouched": True,
+                }
+            else:
+                withheld_hubs[hub_slug] = cand
+            staged_candidates.append(cand)
+
         if candidate_target_uri is not None:
             ref_concept = (
                 self._matcher.lookup_concept(candidate_target_uri) if candidate_target_uri else None
             )
-            if ref_concept is not None and candidate_target_uri:
-                target_uri = candidate_target_uri
-                score = 1.0
-                if (
-                    ref_concept.concept_name
-                    and ref_concept.concept_name.strip().casefold()
-                    != concept_label.strip().casefold()
-                ):
-                    override_synonyms.append(ref_concept.concept_name.strip())
-            else:
-                cand = StagedCandidate(
-                    candidate_id=f"staged-{hub_slug}",
-                    concept_name=concept_label,
-                    suggested_hub=hub_name,
-                    top_match_uri=candidate_target_uri,
-                    top_match_score=0.0,
-                    reason_held_back="PREFERRED_MAPPING_UNVERIFIED",
-                )
-                if is_existing:
-                    ungrounded_existing_hubs[hub_slug] = cand
-                    accepted_hubs[hub_slug] = {
-                        "uri": concept_uri,
-                        "name": base_c.concept_name
-                        if (base_c and base_c.concept_name)
-                        else concept_label,
-                        "hub_slug": base_c.target_hub
-                        if (base_c and base_c.target_hub)
-                        else hub_name,
-                        "score": 0.0,
-                        "target_uri": None,
-                        "synonyms": [],
-                        "existing_untouched": True,
-                    }
-                else:
-                    withheld_hubs[hub_slug] = cand
-                staged_candidates.append(cand)
+            if ref_concept is None or not candidate_target_uri:
+                _stage_rejected_hub("PREFERRED_MAPPING_UNVERIFIED", candidate_target_uri, 0.0)
                 return
+
+            target_uri = candidate_target_uri
+            base_eval_syns = [*(base_c.synonyms or [] if base_c else []), *override_synonyms]
+
+            if self._grounding_verifier is not None:
+                # Verify independently against concept's own name & existing synonyms ONLY
+                indep_res = self._grounding_verifier.verify_grounding(
+                    concept_uri=concept_uri,
+                    candidates=[{"target_uri": target_uri, "predicate": "skos:closeMatch"}],
+                    threshold=min_confidence,
+                    concept_name=eval_name,
+                    synonyms=base_eval_syns,
+                )
+                if indep_res.is_grounded:
+                    score = indep_res.score
+                    if (
+                        ref_concept.concept_name
+                        and ref_concept.concept_name.strip().casefold() != label_key
+                        and ref_concept.concept_name.strip() not in override_synonyms
+                    ):
+                        override_synonyms.append(ref_concept.concept_name.strip())
+                elif (
+                    from_clarification
+                    and not is_existing
+                    and _is_curated_polysemic_override(hub_slug, target_uri)
+                ):
+                    # Curated polysemic option authorized by KNOWN_POLYSEMIC_DEFINITIONS
+                    if (
+                        ref_concept.concept_name
+                        and ref_concept.concept_name.strip().casefold() != label_key
+                        and ref_concept.concept_name.strip() not in override_synonyms
+                    ):
+                        override_synonyms.append(ref_concept.concept_name.strip())
+                    curated_res = self._grounding_verifier.verify_grounding(
+                        concept_uri=concept_uri,
+                        candidates=[{"target_uri": target_uri, "predicate": "skos:exactMatch"}],
+                        threshold=min_confidence,
+                        concept_name=eval_name,
+                        synonyms=[*(base_c.synonyms or [] if base_c else []), *override_synonyms],
+                    )
+                    if not curated_res.is_grounded:
+                        _stage_rejected_hub(
+                            "PREFERRED_MAPPING_REQUIRES_WAIVER", target_uri, curated_res.score
+                        )
+                        return
+                    score = curated_res.score
+                else:
+                    _stage_rejected_hub(
+                        "PREFERRED_MAPPING_REQUIRES_WAIVER", target_uri, indep_res.score
+                    )
+                    return
+            else:
+                scored = self._matcher.score(eval_name, target_uri)
+                indep_score = scored.normalized_score if scored is not None else 0.0
+                if indep_score >= min_confidence:
+                    score = indep_score
+                elif from_clarification and not is_existing:
+                    score = 1.0
+                else:
+                    _stage_rejected_hub(
+                        "PREFERRED_MAPPING_REQUIRES_WAIVER", target_uri, indep_score
+                    )
+                    return
         else:
             # Query in-memory BM25 index
             matches = self._matcher.match(concept_label, top_k=1)
@@ -1051,79 +1171,40 @@ class DeterministicConstructionPipeline:
                 score = top_m.normalized_score
                 target_uri = top_m.concept_uri
 
-        if (
-            is_existing
-            and base_c
-            and base_c.concept_name
-            and base_c.concept_name.strip().casefold() != concept_label.strip().casefold()
-            and concept_label not in override_synonyms
-        ):
-            override_synonyms.append(concept_label)
-
-        # Verifier binding: if a GroundingVerifier is attached, verify mapping (MAJ-01 / MAJ-06)
-        if self._grounding_verifier is not None and target_uri:
-            cand_mapping = {
-                "target_uri": target_uri,
-                "confidence": score,
-                "mapping_confidence": score,
-                "predicate": "skos:exactMatch" if score >= 0.8500 else "skos:closeMatch",
-            }
-            eval_name = (
-                base_c.concept_name
-                if (is_existing and base_c and base_c.concept_name)
-                else concept_label
-            )
-            eval_syns = [*(base_c.synonyms or [] if base_c else []), *override_synonyms]
-            v_res = self._grounding_verifier.verify_grounding(
-                concept_uri=concept_uri,
-                candidates=[cand_mapping],
-                threshold=min_confidence,
-                concept_name=eval_name,
-                synonyms=eval_syns,
-            )
-            if not v_res.is_grounded:
-                if (
-                    is_existing
-                    and candidate_target_uri is None
-                    and self._has_verified_base_fibo_grounding(base_c, concept_uri, min_confidence)
-                ):
-                    accepted_hubs[hub_slug] = {
-                        "uri": concept_uri,
-                        "name": eval_name,
-                        "hub_slug": base_c.target_hub
-                        if (base_c and base_c.target_hub)
-                        else hub_name,
-                        "score": 1.0,
-                        "target_uri": None,
-                        "synonyms": [],
-                    }
-                    return
-                cand = StagedCandidate(
-                    candidate_id=f"staged-{hub_slug}",
-                    concept_name=concept_label,
-                    suggested_hub=hub_name,
-                    top_match_uri=target_uri,
-                    top_match_score=v_res.score,
-                    reason_held_back="VERIFIER_REJECTED",
+            # Verifier binding: if a GroundingVerifier is attached, verify mapping (MAJ-01 / MAJ-06)
+            if self._grounding_verifier is not None and target_uri:
+                cand_mapping = {
+                    "target_uri": target_uri,
+                    "confidence": score,
+                    "mapping_confidence": score,
+                    "predicate": "skos:exactMatch" if score >= 0.8500 else "skos:closeMatch",
+                }
+                eval_syns = [*(base_c.synonyms or [] if base_c else []), *override_synonyms]
+                v_res = self._grounding_verifier.verify_grounding(
+                    concept_uri=concept_uri,
+                    candidates=[cand_mapping],
+                    threshold=min_confidence,
+                    concept_name=eval_name,
+                    synonyms=eval_syns,
                 )
-                if is_existing:
-                    ungrounded_existing_hubs[hub_slug] = cand
-                    accepted_hubs[hub_slug] = {
-                        "uri": concept_uri,
-                        "name": eval_name,
-                        "hub_slug": base_c.target_hub
-                        if (base_c and base_c.target_hub)
-                        else hub_name,
-                        "score": 0.0,
-                        "target_uri": None,
-                        "synonyms": [],
-                        "existing_untouched": True,
-                    }
-                else:
-                    withheld_hubs[hub_slug] = cand
-                staged_candidates.append(cand)
-                return
-            score = v_res.score
+                if not v_res.is_grounded:
+                    if is_existing and self._has_verified_base_fibo_grounding(
+                        base_c, concept_uri, min_confidence
+                    ):
+                        accepted_hubs[hub_slug] = {
+                            "uri": concept_uri,
+                            "name": eval_name,
+                            "hub_slug": base_c.target_hub
+                            if (base_c and base_c.target_hub)
+                            else hub_name,
+                            "score": 1.0,
+                            "target_uri": None,
+                            "synonyms": [],
+                        }
+                        return
+                    _stage_rejected_hub("VERIFIER_REJECTED", target_uri, v_res.score)
+                    return
+                score = v_res.score
 
         # Guard 3: Grandfathered Seed Concept Guard (MAJ-07 / P06a MAJ-02)
         # If concept already existed in base ontology (by URI or target_hub), mutations require

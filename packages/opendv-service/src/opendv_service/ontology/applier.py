@@ -74,7 +74,7 @@ from opendv_service.ontology.validator import (
     validate_ontology_delta,
 )
 
-_SEMVER_REGEX = re.compile(r"^(\d+)\.(\d+)\.(\d+)")
+_SEMVER_REGEX = re.compile(r"^(\d+)\.(\d+)\.(\d+)(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$")
 
 
 def parse_semver(ver_str: str) -> tuple[int, int, int]:
@@ -149,9 +149,22 @@ def compute_next_semver(
             max_rank = max(max_rank, 3)
             continue
 
-        if isinstance(op, (SetParentConceptOp, SetConceptElmArchetypeOp)):
+        if isinstance(
+            op,
+            (
+                SetParentConceptOp,
+                SetConceptElmArchetypeOp,
+                AddConceptOp,
+                RefineDefinitionOp,
+            ),
+        ):
             eff = op.effective_semver_class(base_ontology=base_ontology)
-            max_rank = max(max_rank, 3) if eff == "MAJOR" else max(max_rank, 2)
+            if eff == "MAJOR":
+                max_rank = max(max_rank, 3)
+            elif eff == "MINOR":
+                max_rank = max(max_rank, 2)
+            else:
+                max_rank = max(max_rank, 1)
             continue
 
         if isinstance(op, AddAttributeOp):
@@ -164,7 +177,6 @@ def compute_next_semver(
         if isinstance(
             op,
             (
-                AddConceptOp,
                 AddRelationshipOp,
                 AddReferenceEnumerationOp,
                 AddKeyAuthorityPatternOp,
@@ -1015,11 +1027,22 @@ def apply(
                     if extra_attrs:
                         if c.attributes is None:
                             c.attributes = []
-                        existing_names = {a.attribute_name for a in c.attributes}
+                        existing_attr_map = {a.attribute_name: a for a in c.attributes}
                         for new_a in extra_attrs:
-                            if new_a.attribute_name not in existing_names:
+                            if new_a.attribute_name in existing_attr_map:
+                                ex_a = existing_attr_map[new_a.attribute_name]
+                                if (
+                                    ex_a.data_type != new_a.data_type
+                                    or ex_a.is_optional != new_a.is_optional
+                                ):
+                                    raise OntologyGovernanceError(
+                                        f"DUPLICATE_ATTRIBUTE_NAME: Cannot overwrite existing "
+                                        f"attribute '{new_a.attribute_name}' on '{target_u}'.",
+                                        error_code=ErrorCode.DUPLICATE_ATTRIBUTE_NAME,
+                                    )
+                            else:
                                 c.attributes.append(new_a)
-                                existing_names.add(new_a.attribute_name)
+                                existing_attr_map[new_a.attribute_name] = new_a
 
         elif isinstance(op, AddSourceHintOp):
             if legacy_v1:
@@ -1130,8 +1153,14 @@ class _HmacWaiverVerifier:
             return False
         if base_sha256 and waiver.base_sha256 and waiver.base_sha256.lower() != base_sha256.lower():
             return False
-        if waiver.expires_at is not None and waiver.expires_at <= datetime.now(UTC):
-            return False
+        if waiver.expires_at is not None:
+            exp_utc = (
+                waiver.expires_at
+                if waiver.expires_at.tzinfo is not None
+                else waiver.expires_at.replace(tzinfo=UTC)
+            )
+            if exp_utc <= datetime.now(UTC):
+                return False
         payload_bytes = waiver.signing_payload().encode("utf-8")
         expected = hmac.new(self._key, payload_bytes, hashlib.sha256).hexdigest().lower()
         raw_sig = (waiver.signature_or_token or "").strip().lower()

@@ -528,6 +528,15 @@ class OntologyArchitect(ConstructionAgent):
         existing_enums: set[str] = set()
         base_enum_names: set[str] = set()
         base_enum_slugs: set[str] = set()
+        base_enum_slug_to_uris: dict[str, list[str]] = {}
+
+        def _record_base_enum_slug(slug_val: str, enum_uri_val: str) -> None:
+            if not slug_val or not enum_uri_val:
+                return
+            base_enum_slugs.add(slug_val)
+            bucket = base_enum_slug_to_uris.setdefault(slug_val, [])
+            if enum_uri_val not in bucket:
+                bucket.append(enum_uri_val)
 
         if isinstance(base_ontology, GraphAOntology):
             for c in getattr(base_ontology, "canonical_business_concepts", None) or []:
@@ -540,16 +549,26 @@ class OntologyArchitect(ConstructionAgent):
             for e in getattr(base_ontology, "reference_enumerations", None) or []:
                 if e.enum_uri:
                     existing_enums.add(e.enum_uri)
-                    base_enum_slugs.add(e.enum_uri.rsplit(":", 1)[-1])
+                    _record_base_enum_slug(e.enum_uri.rsplit(":", 1)[-1], e.enum_uri)
                 if e.target_reference_table:
                     tbl_l = e.target_reference_table.strip().lower()
                     base_enum_names.add(tbl_l)
-                    base_enum_slugs.add(_to_clean_slug(tbl_l).removeprefix("ref_"))
+                    if e.enum_uri:
+                        _record_base_enum_slug(
+                            _to_clean_slug(tbl_l).removeprefix("ref_"), e.enum_uri
+                        )
+                    else:
+                        base_enum_slugs.add(_to_clean_slug(tbl_l).removeprefix("ref_"))
                 ename = getattr(e, "name", None) or getattr(e, "enumeration_name", None)
                 if ename:
                     en_l = ename.strip().lower()
                     base_enum_names.add(en_l)
-                    base_enum_slugs.add(_to_clean_slug(en_l).removeprefix("ref_"))
+                    if e.enum_uri:
+                        _record_base_enum_slug(
+                            _to_clean_slug(en_l).removeprefix("ref_"), e.enum_uri
+                        )
+                    else:
+                        base_enum_slugs.add(_to_clean_slug(en_l).removeprefix("ref_"))
 
         operations: list[BaseOntologyDeltaOp] = []
         seen_op_keys: set[tuple[Any, ...]] = set()
@@ -685,11 +704,18 @@ class OntologyArchitect(ConstructionAgent):
                         or slug in base_enum_slugs
                     )
                     if is_base_enum:
-                        base_euri = (
-                            canon_euri
-                            if canon_euri in existing_enums
-                            else (raw_euri if raw_euri in existing_enums else canon_euri)
-                        )
+                        if raw_euri in existing_enums:
+                            base_euri = raw_euri
+                        elif canon_euri in existing_enums:
+                            base_euri = canon_euri
+                        else:
+                            matched_base_uris = base_enum_slug_to_uris.get(slug, [])
+                            if len(matched_base_uris) != 1:
+                                raise DanglingParentReferenceError(
+                                    f"Ambiguous or unresolved base enumeration slug '{slug}' "
+                                    f"for explicit enumeration operation '{raw_euri or ename}'."
+                                )
+                            base_euri = matched_base_uris[0]
                         for alias_u in {raw_euri, canon_euri, legacy_prov_euri, opendv_prov_euri}:
                             if alias_u:
                                 enum_uri_to_canon[alias_u] = base_euri
@@ -901,12 +927,16 @@ class OntologyArchitect(ConstructionAgent):
             if euri:
                 if euri in all_enum_uris:
                     return euri
-                if euri in enum_uri_to_canon:
-                    return enum_uri_to_canon[euri]
+                mapped = enum_uri_to_canon.get(euri)
+                if mapped and mapped in all_enum_uris:
+                    return mapped
                 slug = euri.rsplit(":", 1)[-1]
                 canon = _canonical_enum_uri(slug)
                 if canon in all_enum_uris:
                     return canon
+                matched_base = base_enum_slug_to_uris.get(slug, [])
+                if len(matched_base) == 1 and matched_base[0] in all_enum_uris:
+                    return matched_base[0]
                 return None
             if ename:
                 clean_ename = ename.strip().lower()

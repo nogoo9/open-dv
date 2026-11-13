@@ -1062,28 +1062,37 @@ def test_deterministic_pipeline_dedups_canonical_relationships_and_leaves_seed_f
     assert is_concept_mutated(base, proposal.delta, "urn:ontology:entity:initial_seed") is False
 
 
-def test_deterministic_pipeline_preferred_mapping_attaches_fibo_synonym_for_verifier() -> None:
-    """MAJ-06: Steward clarification preferred_mappings attaches FIBO concept_name to synonyms
-    so FiboPackGroundingVerifier BM25 cross-check passes even when raw column label differs.
+def test_deterministic_pipeline_preferred_mapping_attaches_fibo_synonym_for_verifier(
+    tmp_path: Path,
+) -> None:
+    """MAJ-06 & R4 P06a::MAJ-01:
+    - Curated polysemic steward clarification answer attaches FIBO concept_name to synonyms so
+      FiboPackGroundingVerifier BM25 cross-check passes;
+    - Uncurated ConstructOptions.preferred_mappings ('widget' or 'initial_seed')
+      NEVER self-attests synonyms or force-grounds unverified concepts, staging with
+      PREFERRED_MAPPING_REQUIRES_WAIVER instead.
     """
+    from opendv_contracts.dtos.ontology import AddExternalMappingOp, AddSynonymOp
+    from opendv_service.construction.clarification_harness import ClarificationHarness
     from opendv_service.ontology import GovernanceValidator, apply
+    from opendv_service.ontology.validator import is_concept_mutated
 
+    fibo_le = "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity"
     matcher = _make_mock_matcher()
     verifier = FiboPackGroundingVerifier(matcher=matcher)
     pipeline = DeterministicConstructionPipeline(matcher=matcher, verifier=verifier)
 
     base = _make_sample_base_ontology()
-    table = TableStructure(
-        table_id="tbl_accounts",
-        headers=["acct_holder_id"],
-        rows=[["AH-1"]],
+    party_table = TableStructure(
+        table_id="tbl_parties",
+        headers=["party_id"],
+        rows=[["P-1"]],
     )
-    opts = ConstructOptions(
-        preferred_mappings={
-            "acct holder": "https://spec.edmcouncil.org/fibo/ontology/BE/LegalEntities/LegalPersons/LegalEntity"
-        }
+    proposal = pipeline.construct_proposal(
+        base_ontology=base,
+        tables=[party_table],
+        clarification_answers={"preferred_mappings": {"party": fibo_le}},
     )
-    proposal = pipeline.construct_proposal(base_ontology=base, tables=[table], options=opts)
     c_ops = [op for op in proposal.delta.operations if isinstance(op, AddConceptOp)]
     assert len(c_ops) == 1
     assert "Legal Entity" in (c_ops[0].synonyms or [])
@@ -1095,6 +1104,86 @@ def test_deterministic_pipeline_preferred_mapping_attaches_fibo_synonym_for_veri
         target,
         grandfathered_concept_uris={"urn:ontology:entity:initial_seed"},
     )
+
+    # Adversarial 1: Uncurated ConstructOptions.preferred_mappings={"widget": fibo_le} must NOT
+    # self-inject "Legal Entity" synonym to bypass verifier — must stage with waiver required!
+    widget_tbl = TableStructure(table_id="tbl_widgets", headers=["widget_id"], rows=[["W-1"]])
+    adv_prop = pipeline.construct_proposal(
+        base_ontology=base,
+        tables=[widget_tbl],
+        options=ConstructOptions(
+            preferred_mappings={"widget": fibo_le},
+            session_id="sess-adv-widget",
+            session_dir=tmp_path,
+        ),
+    )
+    assert [op for op in adv_prop.delta.operations if isinstance(op, AddConceptOp)] == []
+    import json
+
+    staged_file = tmp_path / "evidence" / "staged_candidates.json"
+    staged = json.loads(staged_file.read_text(encoding="utf-8"))["staged_candidates"]
+    assert any(s.get("reason_held_back") == "PREFERRED_MAPPING_REQUIRES_WAIVER" for s in staged)
+
+    # Adversarial 2: Grandfathered existing concept with preferred_mappings must NOT emit
+    # unverified AddExternalMappingOp or AddSynonymOp!
+    seed_tbl = TableStructure(
+        table_id="tbl_seed", headers=["initial_seed_id", "extra_col"], rows=[["1", "x"]]
+    )
+    seed_prop = pipeline.construct_proposal(
+        base_ontology=base,
+        tables=[seed_tbl],
+        options=ConstructOptions(
+            preferred_mappings={"Initial Seed": fibo_le},
+            session_id="sess-adv-seed",
+            session_dir=tmp_path,
+        ),
+    )
+    assert [op for op in seed_prop.delta.operations if isinstance(op, AddExternalMappingOp)] == []
+    assert [op for op in seed_prop.delta.operations if isinstance(op, AddSynonymOp)] == []
+    assert is_concept_mutated(base, seed_prop.delta, "urn:ontology:entity:initial_seed") is False
+
+    # P06a::MIN-02/MIN-03: Multi-word focus_concept vs slug matched_key prioritizes exact match
+    harness = ClarificationHarness(session_dir=tmp_path / "clar_sess")
+    qs = harness.generate_questions(
+        evidence_chunks=[],
+        tables=[TableStructure(table_id="t_acc", headers=["account_id"], rows=[["A1"]])],
+    )
+    assert len(qs) >= 1
+    broad_q = qs[0].model_copy(
+        update={
+            "question_id": "q_1_broad",
+            "focus_concept": "Sub Customer Account",
+            "matched_key": "customer_account",
+        }
+    )
+    exact_q = qs[0].model_copy(
+        update={
+            "question_id": "q_2_exact",
+            "focus_concept": "Customer Account",
+            "matched_key": "customer_account",
+        }
+    )
+    harness.questions_file.write_text(
+        json.dumps([broad_q.model_dump(mode="json"), exact_q.model_dump(mode="json")]),
+        encoding="utf-8",
+    )
+    harness.answers_file.write_text(
+        json.dumps(
+            [
+                {
+                    "question_id": "q_1_broad",
+                    "selected_options": [broad_q.options[-1].option_id],
+                },
+                {
+                    "question_id": "q_2_exact",
+                    "selected_options": [exact_q.options[0].option_id],
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    constraints = harness.get_binding_constraints()
+    assert constraints.preferred_mappings["customer_account"] == exact_q.options[0].fibo_uri
 
 
 def test_deterministic_pipeline_zero_op_version_and_auto_commit_rejected() -> None:

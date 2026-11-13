@@ -791,7 +791,7 @@ def test_bundle_cross_workspace_reanchor_replay_tamper_taint_and_force_swap(
         json.dumps([wv_a.model_dump(mode="json")]), encoding="utf-8"
     )
 
-    bundle_zip = tmp_path / "portable-01.odvstudio.zip"
+    bundle_zip = ws_a.parent / "portable-01.odvstudio.zip"
 
     # Confidential export gates: editor forbidden (403/7), unack (422/4), short rationale (400/1)
     with pytest.raises(AdminRoleRequiredError) as ed_exc:

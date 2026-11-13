@@ -3099,6 +3099,7 @@ def handle_bundle_export(
             admin=(role_tier == "admin"),
             actor=principal,
             overwrite=True,
+            allow_cli_output_path=(executor is None or getattr(executor, "is_local", True)),
         )
     except AdminRoleRequiredError as exc:
         return _err(7, "FORBIDDEN_ADMIN_REQUIRED", str(exc))

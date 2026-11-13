@@ -254,6 +254,7 @@ _OLE_UNSAFE_MARKER_RE = re.compile(
     r"|(?:file|ftp|ftps|smb|jar|gopher|ldap|ldaps|netdoc)://"
     rf"|{_ASCII_LB}file:///"
     r"|\\\\[A-Za-z0-9_.\-]{1,255}\\[A-Za-z0-9_$.\-]{1,255}"
+    r"|\x01\x01@[A-Za-z0-9_.\-]{1,255}\x03[A-Za-z0-9_$.\-]{1,255}"
     rf"|\x13\s*(?:DDEAUTO|DDE|INCLUDEPICTURE|INCLUDETEXT|RD|IMPORT|LINK|AUTOTEXTLIST|DATABASE){_ASCII_RB}"
     rf"|{_ASCII_LB}DDE\s+(?:"
     r"[\"']"
@@ -270,14 +271,15 @@ _OLE_UNSAFE_MARKER_RE = re.compile(
 )
 _OLE_HTTP_URI_RE = re.compile(r"(?:https?|ftps?)://", re.IGNORECASE)
 _OLE_LINK_AUTOLOAD_INDICATOR_RE = re.compile(
-    rf"(?:\x01https?://|Ole10Native|\x01Ole{_ASCII_RB}|LinkSource|LinkInfo|AutoLoad|TargetMode\s*=\s*[\"']?External)",
+    rf"(?:\x01[\x00-\x1f]{{0,8}}(?:https?|ftps?)://|Ole10Native|\x01Ole{_ASCII_RB}|LinkSource|LinkInfo|AutoLoad|TargetMode\s*=\s*[\"']?External)",
     re.IGNORECASE,
 )
 
 # LibreOffice officecfg/registry/schema/org/openoffice/Office/{Writer,Calc}.xcs:
 # - Writer/Content/Update/UpdateMode: 1 = manual field update only (never automatic)
-# - Writer/Content/Update/Link: 0 = Always, 1 = OnRequest, 2 = Never
-# - Calc/Content/Update/Link:   0 = Always, 1 = OnRequest, 2 = Never
+# - Writer/Content/Update/Link: 0 = Always, 1 = OnRequest, 2 = Never (SwFldUpdateFlags)
+# - Calc/Content/Update/Link:   0 = Always, 1 = Never (LM_NEVER), 2 = On request (LM_ON_DEMAND)
+# - Calc/Formula/Load/{OOXMLRecalcMode,ODFRecalcMode}: 1 = Never recalculate on load
 _HARDENED_REGISTRYMODIFICATIONS_XCU: str = """<?xml version="1.0" encoding="UTF-8"?>
 <oor:items xmlns:oor="http://openoffice.org/2001/registry"
            xmlns:xs="http://www.w3.org/2001/XMLSchema"
@@ -287,6 +289,9 @@ _HARDENED_REGISTRYMODIFICATIONS_XCU: str = """<?xml version="1.0" encoding="UTF-
       <value>3</value>
     </prop>
     <prop oor:name="DisableMacrosExecution" oor:op="fuse">
+      <value>true</value>
+    </prop>
+    <prop oor:name="DisableActiveContent" oor:op="fuse">
       <value>true</value>
     </prop>
     <prop oor:name="BlockUntrustedRefererLinks" oor:op="fuse">
@@ -303,7 +308,15 @@ _HARDENED_REGISTRYMODIFICATIONS_XCU: str = """<?xml version="1.0" encoding="UTF-
   </item>
   <item oor:path="/org.openoffice.Office.Calc/Content/Update">
     <prop oor:name="Link" oor:op="fuse">
-      <value>2</value>
+      <value>1</value>
+    </prop>
+  </item>
+  <item oor:path="/org.openoffice.Office.Calc/Formula/Load">
+    <prop oor:name="OOXMLRecalcMode" oor:op="fuse">
+      <value>1</value>
+    </prop>
+    <prop oor:name="ODFRecalcMode" oor:op="fuse">
+      <value>1</value>
     </prop>
   </item>
 </oor:items>
@@ -1846,18 +1859,33 @@ class LibreOfficeDocumentAdapter(BaseDocumentAdapter):
             )
 
             # Re-ground chunks, tables, and result to original office provenance (P04::MAJ-01)
+            taint_rank = {
+                TaintClassification.PUBLIC: 0,
+                TaintClassification.INTERNAL: 1,
+                TaintClassification.CONFIDENTIAL: 2,
+                TaintClassification.RESTRICTED: 3,
+            }
+
+            def _stronger_taint(
+                a: TaintClassification, b: TaintClassification
+            ) -> TaintClassification:
+                return a if taint_rank.get(a, 0) >= taint_rank.get(b, 0) else b
+
+            eff_doc_taint = _stronger_taint(taint, pdf_result.taint)
             regrounded_chunks = [
                 chunk.model_copy(
                     update={
                         "document_id": doc_id,
                         "source_sha256": actual_sha256,
-                        "taint": taint,
+                        "taint": _stronger_taint(eff_doc_taint, chunk.taint),
                     }
                 )
                 for chunk in pdf_result.chunks
             ]
             regrounded_tables = [
-                tbl.model_copy(update={"taint": taint}) if tbl.taint != taint else tbl
+                tbl.model_copy(update={"taint": _stronger_taint(eff_doc_taint, tbl.taint)})
+                if _stronger_taint(eff_doc_taint, tbl.taint) != tbl.taint
+                else tbl
                 for tbl in pdf_result.tables
             ]
 
@@ -1881,7 +1909,7 @@ class LibreOfficeDocumentAdapter(BaseDocumentAdapter):
                 chunks=regrounded_chunks,
                 page_map=pdf_result.page_map,
                 tables=regrounded_tables,
-                taint=taint,
+                taint=eff_doc_taint,
                 source_sha256=actual_sha256,
                 normalized_text=pdf_result.normalized_text,
                 metadata=metadata,
